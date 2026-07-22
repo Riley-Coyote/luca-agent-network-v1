@@ -139,13 +139,14 @@ export function MachineOnboardingFlow({
               transitionKey="machine-identity"
             >
               <img
-                alt="Buzz"
+                alt="Luca"
                 className="w-full max-w-[600px]"
                 src="/landing/buzz-wordmark.png"
               />
               <p className="mt-2 max-w-[560px] text-center text-2xl font-normal leading-none text-foreground">
-                Your people, your agents, your projects —<br />
-                all in one place.
+                A private home for the agents
+                <br />
+                you work with.
               </p>
               {error ? (
                 <p className="mt-4 text-sm text-destructive">{error}</p>
@@ -157,7 +158,7 @@ export function MachineOnboardingFlow({
                   onClick={() => void loadFreshIdentity()}
                   type="button"
                 >
-                  {isPending ? "Saving identity…" : "Create a new identity key"}
+                  {isPending ? "Securing identity…" : "Create owner identity"}
                 </Button>
                 <Button
                   className="h-9 rounded-full bg-foreground/10 px-5 hover:bg-foreground/15"
@@ -166,7 +167,7 @@ export function MachineOnboardingFlow({
                   type="button"
                   variant="ghost"
                 >
-                  Use an existing key
+                  Connect an existing identity
                 </Button>
               </div>
               <IdentityKeyHelpDialog />
@@ -182,12 +183,12 @@ export function MachineOnboardingFlow({
                 <h1 className="text-title font-normal text-foreground">
                   {identityLost
                     ? "Re-import your key"
-                    : "Enter your private key"}
+                    : "Connect your owner identity"}
                 </h1>
                 <p className="mt-5 max-w-[440px] text-sm leading-6 text-foreground/80">
                   {identityLost
                     ? "Your identity is no longer in the system keyring. Re-import your nsec to restore it."
-                    : "If you already have a Buzz account, enter your private key below to get started."}
+                    : "If you already have a compatible cryptographic identity, enter its private key to connect it to Luca. It stays masked while you enter it."}
                 </p>
               </div>
               <div className="buzz-onboarding-key-import-position w-full">

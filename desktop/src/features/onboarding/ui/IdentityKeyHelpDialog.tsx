@@ -60,7 +60,7 @@ export function IdentityKeyHelpDialog() {
             type="button"
             variant="link"
           >
-            What’s an identity key?
+            What’s an owner identity?
           </Button>
         </DialogTrigger>
       </OnboardingFooter>
@@ -81,18 +81,19 @@ export function IdentityKeyHelpDialog() {
           >
             <div>
               <p>
-                Buzz uses an identity key instead of a traditional account. It’s
-                created on your device and represents you whenever you use Buzz.
+                Luca uses a cryptographic owner identity instead of a
+                traditional account. It’s created on your device and signs
+                actions as you.
               </p>
               <p>
-                Your identity belongs to you, not Buzz. There’s no password to
-                reset, and Buzz can’t recover your key if you lose it. Keep a
-                backup somewhere safe and never share it. Anyone with your key
-                can act as you.
+                Your identity belongs to you. Its private signing key stays in
+                your system keychain; Luca never displays or copies it in setup.
+                Protected recovery and export are not available yet, so do not
+                rely on this setup as a recovery mechanism.
               </p>
               <p>
-                If you’re new to Buzz, create a new identity key. If you already
-                have a Nostr identity, use your existing key.
+                If you’re new to Luca, create an owner identity. If you already
+                have a compatible Nostr identity, you can connect it instead.
               </p>
             </div>
           </DialogDescription>

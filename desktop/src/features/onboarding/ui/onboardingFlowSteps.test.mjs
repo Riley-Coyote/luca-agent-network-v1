@@ -1,12 +1,8 @@
 /**
- * Tests for the onboarding step-count logic and the BackupStep gating helper
- * (BackupStep now runs in the machine onboarding flow). These are pure-logic
- * tests — no React rendering needed.
+ * Tests for the onboarding step-count logic and the owner-recovery disclosure.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-
-import { backupNextDisabled } from "./BackupStep.tsx";
 
 // Mirrors the activeSteps array in OnboardingFlow.tsx. The relay-scoped flow
 // owns only the community profile: profile → avatar. key-import is normalised
@@ -50,32 +46,6 @@ test("currentStep_avatar_is_2", () => {
 
 test("currentStep_falls_back_to_1_for_pages_outside_the_step_list", () => {
   assert.equal(computeCurrentStep("membership-denied"), 1);
-});
-
-// ---------------------------------------------------------------------------
-// BackupStep gating: backupNextDisabled() pure helper
-// ---------------------------------------------------------------------------
-
-test("backup_next_disabled_while_loading", () => {
-  // During a slow keychain read, Next must be blocked — user cannot race past
-  // the key display before it is shown.
-  assert.equal(backupNextDisabled({ isLoading: true, loadError: null }), true);
-});
-
-test("backup_next_disabled_on_load_error", () => {
-  // Error state: only the explicit "Skip for now" ghost advances; Next blocked.
-  assert.equal(
-    backupNextDisabled({ isLoading: false, loadError: "IPC error" }),
-    true,
-  );
-});
-
-test("backup_next_enabled_after_clean_load", () => {
-  // Key shown (or backend cleanly returned none) — user may proceed.
-  assert.equal(
-    backupNextDisabled({ isLoading: false, loadError: null }),
-    false,
-  );
 });
 
 // ---------------------------------------------------------------------------

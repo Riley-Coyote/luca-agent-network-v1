@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Check, Eye, EyeOff, KeyRound } from "lucide-react";
+import { Check, KeyRound } from "lucide-react";
 
 import { cn } from "@/shared/lib/cn";
 import { nsecToNpub } from "@/shared/lib/nostrUtils";
@@ -41,21 +41,12 @@ export function NostrKeyImportForm({
   const [isImporting, setIsImporting] = React.useState(false);
   const [importError, setImportError] = React.useState<string | null>(null);
   const [isDragging, setIsDragging] = React.useState(false);
-  const [isRevealed, setIsRevealed] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const previewNpub = React.useMemo(() => nsecToNpub(nsecInput), [nsecInput]);
   const trimmedInput = nsecInput.trim();
   const hasInput = trimmedInput.length > 0;
 
-  // Masked-by-default must re-assert whenever the field empties: a sticky
-  // reveal from a previous key must never apply to newly pasted content the
-  // user hasn't chosen to expose.
-  React.useEffect(() => {
-    if (!hasInput) {
-      setIsRevealed(false);
-    }
-  }, [hasInput]);
   const isValid = previewNpub !== null;
   const isInteractionDisabled = disabled || isImporting;
   const showInvalidHint = hasInput && !isValid && trimmedInput.length >= 5;
@@ -120,6 +111,7 @@ export function NostrKeyImportForm({
 
     try {
       await onImport(trimmedInput);
+      setNsecInput("");
     } catch (error) {
       setImportError(
         error instanceof Error ? error.message : "Couldn't import this key.",
@@ -157,9 +149,6 @@ export function NostrKeyImportForm({
               <Input
                 autoComplete="off"
                 autoCorrect="off"
-                // Symmetric px reserves the absolutely positioned toggle's
-                // footprint on BOTH sides, so the centered key text never
-                // runs under the eye control and stays optically centered.
                 className="h-[3.6875rem] rounded-none border-0 bg-transparent px-10 text-center font-mono !text-4xl text-[color:var(--buzz-onboarding-backup-ink)] shadow-none placeholder:text-foreground/30 focus-visible:ring-0"
                 data-testid="nostr-import-nsec-input"
                 id="nostr-private-key"
@@ -170,33 +159,9 @@ export function NostrKeyImportForm({
                 placeholder="Enter your key here"
                 ref={inputRef}
                 spellCheck={false}
-                type={isRevealed ? "text" : "password"}
+                type="password"
                 value={nsecInput}
               />
-              {/* Absolutely positioned so appearing/disappearing never resizes
-                  the input or shifts its centered text; fades with hasInput. */}
-              <Button
-                aria-hidden={!hasInput}
-                aria-label={
-                  isRevealed ? "Hide private key" : "Reveal private key"
-                }
-                className={cn(
-                  "absolute right-8 top-1/2 h-10 w-10 -translate-y-1/2 text-muted-foreground transition-opacity duration-300 hover:bg-foreground/10 hover:text-foreground motion-reduce:transition-none",
-                  hasInput ? "opacity-100" : "pointer-events-none opacity-0",
-                )}
-                data-testid="nostr-import-reveal-toggle"
-                onClick={() => setIsRevealed((current) => !current)}
-                size="icon"
-                tabIndex={hasInput ? 0 : -1}
-                type="button"
-                variant="ghost"
-              >
-                {isRevealed ? (
-                  <EyeOff aria-hidden="true" className="h-6 w-6" />
-                ) : (
-                  <Eye aria-hidden="true" className="h-6 w-6" />
-                )}
-              </Button>
             </div>
           </Card>
         ) : (

@@ -286,12 +286,11 @@ export function DefaultConfigStep({
     >
       <div className="w-full max-w-[500px] text-center">
         <h1 className="text-title font-normal text-foreground">
-          Configure your default model settings
+          Choose your default runtime and model
         </h1>
         <p className="mx-auto mt-3 max-w-[440px] text-sm leading-5 text-foreground/80">
-          This will be set as your default model configuration across Buzz. You
-          can always change this in your Settings or give specific agents a
-          different configuration.
+          Luca uses this for new residents by default. Your owner identity stays
+          the same when you replace the runtime, provider, or model later.
         </p>
       </div>
 
