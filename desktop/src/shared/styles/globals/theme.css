@@ -207,7 +207,8 @@
  * Item hover/active states use `bg-sidebar-accent` / `bg-sidebar-active`
  * (distinct tokens) and are intentionally left untouched.
  */
-:root[data-buzz-sidebar] {
+:root[data-buzz-sidebar],
+:root[data-buzz-sidebar].dark {
   --buzz-gradient-top: var(--buzz-gradient-light-top);
   --buzz-gradient-bottom: var(--buzz-gradient-light-bottom);
   --buzz-muted-foreground: rgb(0 0 0 / 40%);
@@ -776,4 +777,90 @@
 
 :root[data-buzz-translucent] .buzz-huddle-app-surface::after {
   background: transparent;
+}
+
+/*
+ * Luca quiet shell
+ *
+ * The app retains Buzz's proven layout attributes while its first-party shell
+ * becomes an opaque, dark working surface. Depth comes from close neutral
+ * tonal steps and hairline borders; the single blue is reserved for focus and
+ * selection. The legacy gradient rules above remain for migration safety, but
+ * Luca's mounted shell does not consume those layers.
+ */
+:root[data-buzz-sidebar],
+:root[data-buzz-sidebar].dark {
+  --luca-shell-canvas: hsl(222 18% 8%);
+  --luca-shell-sidebar: hsl(222 18% 7%);
+  --luca-shell-surface: hsl(222 16% 10%);
+  --luca-shell-elevated: hsl(222 14% 13%);
+  --luca-shell-border: hsl(220 10% 20%);
+  --luca-shell-focus: hsl(213 94% 68%);
+  --buzz-muted-foreground: rgb(232 236 242 / 58%);
+  --buzz-search-surface: rgb(255 255 255 / 5%);
+  --buzz-chrome-foreground: rgb(232 236 242 / 64%);
+  --buzz-hover-surface: rgb(255 255 255 / 6%);
+  --buzz-sidebar-scrollbar-thumb: rgb(255 255 255 / 12%);
+  --buzz-active-fill: 213 94% 68%;
+  --buzz-active-surface: hsl(213 94% 68% / 16%);
+  --buzz-active-foreground: hsl(215 20% 96%);
+  --buzz-channel-fg: hsl(215 16% 84%);
+  --buzz-dm-fg: hsl(215 16% 84%);
+  --buzz-nav-fg: hsl(215 18% 88%);
+  color-scheme: dark;
+}
+
+:root[data-buzz-sidebar] .luca-theme-shell-layer {
+  background-color: var(--luca-shell-canvas);
+  background-image: none;
+}
+
+:root[data-buzz-sidebar] .buzz-huddle-app-surface,
+:root[data-buzz-sidebar] .group\/sidebar-wrapper,
+:root[data-buzz-sidebar] [data-testid="app-sidebar"],
+:root[data-buzz-sidebar] [data-buzz-glass-inset],
+:root[data-buzz-sidebar] [data-buzz-glass-footer-wrap],
+:root[data-buzz-sidebar] [data-testid="community-rail"].bg-sidebar {
+  background-color: var(--luca-shell-sidebar);
+  background-image: none;
+}
+
+:root[data-buzz-sidebar].dark [data-buzz-content-surface] {
+  --background: 222 16% 10%;
+  background-color: var(--luca-shell-surface);
+  border: 1px solid var(--luca-shell-border);
+  box-shadow: none;
+}
+
+:root[data-buzz-sidebar] [data-testid="app-sidebar"] [data-active="true"],
+:root[data-buzz-sidebar] [data-testid="settings-sidebar"] [data-active="true"] {
+  background-color: var(--buzz-active-surface);
+  box-shadow: inset 0 0 0 1px rgb(147 197 253 / 16%);
+}
+
+:root[data-buzz-sidebar].dark
+  [data-sidebar="sidebar"][data-mobile="true"].bg-sidebar {
+  background-color: var(--luca-shell-sidebar);
+  background-image: none;
+}
+
+:root[data-buzz-sidebar] :focus-visible {
+  outline: 2px solid var(--luca-shell-focus);
+  outline-offset: 2px;
+}
+
+:root[data-buzz-sidebar] :is(button, a, [role="button"], [role="tab"]) {
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+/* Luca stays opaque even when a legacy native-vibrancy preference is present. */
+:root[data-buzz-translucent],
+:root[data-buzz-translucent] body,
+:root[data-buzz-translucent] .buzz-huddle-shell,
+:root[data-buzz-translucent] .buzz-huddle-app-surface {
+  background-color: var(--luca-shell-canvas);
+  background-image: none;
 }

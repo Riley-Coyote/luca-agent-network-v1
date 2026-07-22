@@ -11,7 +11,11 @@ import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invokeTauri } from "@/shared/api/tauri";
 import { isMacPlatform } from "@/shared/lib/platform";
-import { createThemeVars, hexToHsl } from "./adaptive-theme";
+import {
+  createLucaThemeVars,
+  createThemeVars,
+  hexToHsl,
+} from "./adaptive-theme";
 import {
   SYNTAX_THEMES,
   type SyntaxThemeName,
@@ -34,7 +38,7 @@ const BUZZ_VIBRANCY_MATERIAL = "sidebar";
 
 export const ACCENT_COLORS = [
   { name: "Neutral", value: NEUTRAL_ACCENT },
-  { name: "Blue", value: "#3b82f6" },
+  { name: "Blue", value: "#60a5fa" },
   { name: "Cyan", value: "#06b6d4" },
   { name: "Green", value: "#22c55e" },
   { name: "Orange", value: "#f97316" },
@@ -45,7 +49,7 @@ export const ACCENT_COLORS = [
   { name: "Indigo", value: "#6366f1" },
 ] as const;
 
-const DEFAULT_ACCENT = "#3b82f6";
+const DEFAULT_ACCENT = "#60a5fa";
 
 type ThemeContextValue = {
   themeName: string;
@@ -212,25 +216,22 @@ function applyAccentColor(value: string) {
 }
 
 /**
- * The Buzz themes ship with a fixed neutral accent (the GitHub black/white
- * foreground) rather than a user-selectable accent color. When a Buzz theme is
- * active we force `NEUTRAL_ACCENT` regardless of the stored preference, and the
- * appearance panel hides the accent picker. The user's chosen accent is left
- * untouched in storage so it returns when they switch back to another theme.
+ * The legacy Buzz keys now power Luca's first-party shell. It defaults to a
+ * restrained link blue so selection and keyboard focus have one semantic cue.
  */
 export function isBuzzTheme(themeName: string): boolean {
   return themeName === "buzz" || themeName === "buzz-dark";
 }
 
 /**
- * Resolve the accent to actually apply for a theme: Buzz themes are pinned to
- * the neutral accent; every other theme uses the stored/selected accent.
+ * Resolve the accent to actually apply for a theme. Luca's shell uses its
+ * fixed default accent; optional syntax themes retain a user's selection.
  */
 function resolveEffectiveAccent(
   themeName: string,
   accentColor: string,
 ): string {
-  return isBuzzTheme(themeName) ? NEUTRAL_ACCENT : accentColor;
+  return isBuzzTheme(themeName) ? DEFAULT_ACCENT : accentColor;
 }
 
 /**
@@ -434,11 +435,13 @@ async function applyTheme(
   if (requestToken !== themeApplyRequest) return null;
 
   const info = extractThemeInfo(name, themeData);
-  const { isDark, vars } = createThemeVars(info.bg, info.fg, info.comment, {
-    added: info.added,
-    deleted: info.deleted,
-    modified: info.modified,
-  });
+  const { isDark, vars } = isBuzzTheme(name)
+    ? createLucaThemeVars()
+    : createThemeVars(info.bg, info.fg, info.comment, {
+        added: info.added,
+        deleted: info.deleted,
+        modified: info.modified,
+      });
 
   const root = document.documentElement;
   for (const [key, value] of Object.entries(vars)) {

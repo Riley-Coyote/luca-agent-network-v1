@@ -8,31 +8,20 @@
 import type { ThemeRegistrationRaw } from "shiki";
 
 /**
- * Buzz theme name. Buzz is a first-party light theme that reuses GitHub
- * Light for every base color (backgrounds, text, borders, code) — the
- * message area and containers are indistinguishable from GitHub Light. Its
- * one distinguishing feature is a branded gradient painted across the
- * sidebar/nav canvas, replacing GitHub Light's flat grey. The gradient is
- * applied by {@link ThemeProvider} toggling a `data-buzz-sidebar` attribute
- * on the document root; the CSS lives in `shared/styles/globals/theme.css`.
+ * Legacy internal key for Luca's first-party shell theme. It intentionally
+ * resolves to GitHub Dark for code highlighting while the app shell receives
+ * its stable Luca tokens from ThemeProvider.
  */
 export const BUZZ_THEME_NAME = "buzz";
 
 /**
- * Buzz Dark theme name. The dark-mode counterpart to {@link BUZZ_THEME_NAME}:
- * reuses the GitHub Dark palette for every base color, with the same branded
- * sidebar gradient (dark-tuned colors, see `shared/styles/globals/theme.css`).
- * {@link ThemeProvider} toggles the shared `data-buzz-sidebar` attribute for
- * this theme too; the `.dark` root class selects the dark gradient values.
- *
- * Buzz and Buzz Dark are paired in {@link THEME_PAIRS}, so the picker shows a
- * combined "Buzz" tile under System mode (follow-OS) plus a single "Buzz" tile
- * under Light and a "Buzz Dark" tile under Dark.
+ * Legacy internal companion key retained for existing preferences. Both
+ * first-party keys resolve to the same dark Luca shell.
  */
 export const BUZZ_DARK_THEME_NAME = "buzz-dark";
 
-/** The Shiki bundle Buzz borrows its base palette from. */
-export const BUZZ_BASE_THEME: SyntaxThemeName = "github-light";
+/** The Luca shell uses GitHub Dark for its syntax-highlighting baseline. */
+export const BUZZ_BASE_THEME: SyntaxThemeName = "github-dark";
 
 /** The Shiki bundle Buzz Dark borrows its base palette from. */
 export const BUZZ_DARK_BASE_THEME: SyntaxThemeName = "github-dark";
@@ -54,9 +43,8 @@ export function resolveShikiThemeName(name: string): SyntaxThemeName {
   return name as SyntaxThemeName;
 }
 
-// Available themes. "buzz" is a Buzz-branded theme that reuses the
-// github-light palette plus a sidebar gradient; the rest are the Shiki
-// bundled syntax themes, alphabetically sorted.
+// Available themes. The first two names are legacy storage keys for Luca's
+// first-party dark shell; the rest are bundled syntax themes.
 export const SYNTAX_THEMES = [
   "buzz",
   "buzz-dark",
@@ -127,7 +115,6 @@ export type SyntaxThemeName = (typeof SYNTAX_THEMES)[number];
 // Known light themes — used by the theme picker to show sun/moon icons
 // for themes that haven't been loaded yet.
 export const LIGHT_THEMES: ReadonlySet<SyntaxThemeName> = new Set([
-  "buzz",
   "catppuccin-latte",
   "everforest-light",
   "github-light",
@@ -153,9 +140,8 @@ const themeImports: Record<
   SyntaxThemeName,
   () => Promise<{ default: ThemeRegistrationRaw }>
 > = {
-  // Buzz reuses the github-light palette; its gradient is applied separately.
-  buzz: () => import("shiki/themes/github-light.mjs"),
-  // Buzz Dark reuses the github-dark palette; dark gradient applied separately.
+  // Both legacy first-party keys use the dark code palette beneath Luca's shell.
+  buzz: () => import("shiki/themes/github-dark.mjs"),
   "buzz-dark": () => import("shiki/themes/github-dark.mjs"),
   andromeeda: () => import("shiki/themes/andromeeda.mjs"),
   "aurora-x": () => import("shiki/themes/aurora-x.mjs"),

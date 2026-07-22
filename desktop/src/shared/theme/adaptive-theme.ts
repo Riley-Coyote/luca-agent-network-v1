@@ -183,6 +183,69 @@ export interface ThemeResult {
 }
 
 /**
+ * The first-party Luca shell is intentionally not derived from a syntax
+ * palette. It establishes a stable, dark working canvas while syntax themes
+ * continue to govern code blocks and optional appearance choices.
+ */
+export function createLucaThemeVars(): ThemeResult {
+  return {
+    isDark: true,
+    vars: {
+      "--background": "222 18% 8%",
+      "--foreground": "215 20% 92%",
+      "--card": "222 16% 10%",
+      "--card-foreground": "215 20% 92%",
+      "--popover": "222 15% 12%",
+      "--popover-foreground": "215 20% 92%",
+      "--primary": "213 94% 68%",
+      "--primary-foreground": "222 18% 8%",
+      "--secondary": "222 12% 14%",
+      "--secondary-foreground": "215 20% 90%",
+      "--muted": "222 12% 14%",
+      "--muted-foreground": "215 12% 62%",
+      "--accent": "222 12% 16%",
+      "--accent-foreground": "215 20% 92%",
+      "--destructive": "0 67% 60%",
+      "--destructive-foreground": "0 0% 100%",
+      "--chart-1": "213 94% 68%",
+      "--chart-2": "160 48% 58%",
+      "--chart-3": "37 66% 62%",
+      "--chart-4": "284 46% 70%",
+      "--chart-5": "0 67% 68%",
+      "--border": "220 10% 20%",
+      "--input": "220 10% 20%",
+      "--ring": "213 94% 68%",
+      "--sidebar": "222 18% 7%",
+      "--sidebar-background": "222 18% 7%",
+      "--sidebar-foreground": "215 16% 84%",
+      "--sidebar-primary": "213 94% 68%",
+      "--sidebar-primary-foreground": "222 18% 8%",
+      "--sidebar-active": "213 94% 68%",
+      "--sidebar-active-foreground": "222 18% 8%",
+      "--sidebar-accent": "222 12% 13%",
+      "--sidebar-accent-foreground": "215 20% 92%",
+      "--sidebar-border": "220 10% 18%",
+      "--sidebar-ring": "213 94% 68%",
+      "--huddle-drawer-surface": "222 15% 10%",
+      "--huddle-control-surface": "222 12% 16%",
+      "--huddle-control-hover-surface": "222 11% 20%",
+      "--huddle-control-chevron-surface": "222 14% 12%",
+      "--huddle-control-chevron-hover-surface": "222 12% 16%",
+      "--huddle-control-foreground": "215 20% 92%",
+      "--huddle-popover-surface": "222 14% 12%",
+      "--huddle-popover-border": "220 10% 22%",
+      "--huddle-tooltip-surface": "222 12% 16%",
+      "--huddle-tooltip-foreground": "215 20% 92%",
+      "--status-added": "#67c587",
+      "--status-deleted": "#ef7b7b",
+      "--status-modified": "#d6a95c",
+      "--ui-warning": "#d6a95c",
+      "--ui-warning-bg": "rgb(214 169 92 / 12%)",
+    },
+  };
+}
+
+/**
  * Derive a full set of shadcn CSS variables from syntax theme colors.
  *
  * Takes bg, fg, comment hex colors (+ optional git decoration colors) and
