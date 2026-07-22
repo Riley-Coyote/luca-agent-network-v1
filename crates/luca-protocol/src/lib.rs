@@ -1,0 +1,38 @@
+//! Shared, bounded Luca V1 wire contracts.
+//!
+//! This crate deliberately contains no key custody, signing capability,
+//! routing, continuity, room, or persistence behavior. It gives the M1
+//! authority components one strict representation for canonical JSON,
+//! identifiers, managed final publication, owner recovery, and diagnostics.
+
+#![forbid(unsafe_code)]
+
+mod canonical;
+mod diagnostic;
+mod frame;
+mod ids;
+mod message_publish;
+mod owner_identity;
+
+pub use canonical::{
+    canonical_sha256, canonicalize, parse_and_canonicalize_strict, parse_strict_json,
+    CanonicalError,
+};
+pub use diagnostic::{SafeDiagnosticV1, SAFE_DIAGNOSTIC_PROTOCOL};
+pub use frame::{
+    decode_length_prefixed_frame, encode_length_prefixed_frame, FrameError, OperationV1,
+    SigningFrameV1, BROKER_FRAME_MAX_BYTES, SIGNING_FRAME_PROTOCOL,
+};
+pub use ids::{
+    BundleId, CanonicalTimestamp, Hex64, OpaqueId, ProtocolValueError, SafeU53, Sha256Ref,
+    JSON_SAFE_INTEGER_MAX,
+};
+pub use message_publish::{
+    derive_message_publish_idempotency_key, ManagedMessagePublishRequestV1,
+    ManagedMessagePublishResultV1, MessagePublishError, MAX_FINAL_DRAFT_BYTES, MAX_RESOLVED_P_TAGS,
+    MESSAGE_PUBLISH_PROTOCOL,
+};
+pub use owner_identity::{
+    OwnerIdentityBundleV1, OwnerIdentityError, SecretNsec, OWNER_IDENTITY_CANONICALIZATION,
+    OWNER_IDENTITY_FORMAT, OWNER_IDENTITY_VERSION,
+};

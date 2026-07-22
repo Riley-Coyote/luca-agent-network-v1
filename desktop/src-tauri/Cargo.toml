@@ -121,6 +121,10 @@ rubato = "3.0"
 audioadapter-buffers = "3.0"
 tempfile = "3"
 strip-ansi-escapes = "0.2"
+age = { version = "=0.12.1", default-features = false }
+luca-protocol = { path = "../../crates/luca-protocol" }
+luca-diagnostics = { path = "../../crates/luca-diagnostics" }
+luca-signing-client = { path = "../../crates/luca-signing-client" }
 
 [dev-dependencies]
 # `test-util` enables tokio's paused-clock (`start_paused`) so the relay

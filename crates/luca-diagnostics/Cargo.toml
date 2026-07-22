@@ -1,0 +1,18 @@
+[package]
+name = "luca-diagnostics"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Secret-safe diagnostics and artifact scanning for Luca V1"
+
+[dependencies]
+hex = { workspace = true }
+luca-protocol = { workspace = true }
+regex = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+zeroize = { workspace = true }

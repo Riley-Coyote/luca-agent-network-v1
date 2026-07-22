@@ -1,0 +1,8 @@
+{
+  "schema": "luca.conformance.strict-json-invalid.v1",
+  "cases": [
+    {"name": "duplicate-top-level", "input_json": "{\"a\":1,\"a\":2}", "error_contains": "duplicate"},
+    {"name": "duplicate-nested", "input_json": "{\"a\":{\"b\":1,\"b\":2}}", "error_contains": "duplicate"},
+    {"name": "trailing-data", "input_json": "{\"a\":1} false", "error_contains": "trailing"}
+  ]
+}

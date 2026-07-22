@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://luca.local/schemas/message_publish/v1.schema.json",
+  "title": "Luca managed final publication V1",
+  "$defs": {
+    "hex64": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "opaque_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$"},
+    "safe_u53": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "turn_id", "idempotency_key", "owner_pubkey", "resident_pubkey", "conversation_id", "resolved_p_tags", "final_draft", "dispatch_receipt_id", "cancellation_epoch"],
+      "properties": {
+        "protocol": {"const": "luca.message.publish.v1"},
+        "turn_id": {"$ref": "#/$defs/opaque_id"},
+        "idempotency_key": {"$ref": "#/$defs/hex64"},
+        "owner_pubkey": {"$ref": "#/$defs/hex64"},
+        "resident_pubkey": {"$ref": "#/$defs/hex64"},
+        "conversation_id": {"$ref": "#/$defs/opaque_id"},
+        "thread_id": {"$ref": "#/$defs/opaque_id"},
+        "root_event_id": {"$ref": "#/$defs/hex64"},
+        "reply_event_id": {"$ref": "#/$defs/hex64"},
+        "resolved_p_tags": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/hex64"},
+          "$comment": "Runtime conformance additionally requires lexicographic order."
+        },
+        "final_draft": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536,
+          "$comment": "Runtime conformance applies this as a UTF-8 byte bound."
+        },
+        "dispatch_receipt_id": {"$ref": "#/$defs/opaque_id"},
+        "cancellation_epoch": {"$ref": "#/$defs/safe_u53"}
+      }
+    },
+    "accepted_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "event_id", "event_sha256", "publication_receipt_id"],
+      "properties": {
+        "state": {"enum": ["published", "replayed"]},
+        "event_id": {"$ref": "#/$defs/hex64"},
+        "event_sha256": {"$ref": "#/$defs/hex64"},
+        "publication_receipt_id": {"$ref": "#/$defs/opaque_id"}
+      }
+    },
+    "rejected_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "code"],
+      "properties": {
+        "state": {"enum": ["cancelled", "denied", "invalid", "unavailable"]},
+        "code": {"$ref": "#/$defs/opaque_id"}
+      }
+    }
+  },
+  "oneOf": [
+    {"$ref": "#/$defs/request"},
+    {"$ref": "#/$defs/accepted_result"},
+    {"$ref": "#/$defs/rejected_result"}
+  ]
+}

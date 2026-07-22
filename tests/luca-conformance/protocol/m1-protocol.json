@@ -1,0 +1,83 @@
+{
+  "schema": "luca.conformance.m1-protocol.v1",
+  "message_publish": {
+    "request": {
+      "protocol": "luca.message.publish.v1",
+      "turn_id": "turn-001",
+      "idempotency_key": "379846e99d9f39aded08a94870938d7ab2c354584533228333cf3944216043fd",
+      "owner_pubkey": "0000000000000000000000000000000000000000000000000000000000000000",
+      "resident_pubkey": "1111111111111111111111111111111111111111111111111111111111111111",
+      "conversation_id": "conversation-001",
+      "thread_id": "thread-001",
+      "root_event_id": "4444444444444444444444444444444444444444444444444444444444444444",
+      "reply_event_id": "5555555555555555555555555555555555555555555555555555555555555555",
+      "resolved_p_tags": [
+        "2222222222222222222222222222222222222222222222222222222222222222",
+        "3333333333333333333333333333333333333333333333333333333333333333"
+      ],
+      "final_draft": "Hello, Luca.",
+      "dispatch_receipt_id": "dispatch-001",
+      "cancellation_epoch": 7
+    },
+    "accepted_result": {
+      "state": "published",
+      "event_id": "6666666666666666666666666666666666666666666666666666666666666666",
+      "event_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+      "publication_receipt_id": "publication-001"
+    }
+  },
+  "frame": {
+    "now_unix_ms": 1784732400000,
+    "value": {
+      "protocol": "luca.signing.frame.v1",
+      "session_epoch": 3,
+      "sequence": 1,
+      "request_id": "request-001",
+      "operation": "message.publish.v1",
+      "payload": {
+        "protocol": "luca.message.publish.v1",
+        "turn_id": "turn-001",
+        "idempotency_key": "379846e99d9f39aded08a94870938d7ab2c354584533228333cf3944216043fd",
+        "owner_pubkey": "0000000000000000000000000000000000000000000000000000000000000000",
+        "resident_pubkey": "1111111111111111111111111111111111111111111111111111111111111111",
+        "conversation_id": "conversation-001",
+        "thread_id": "thread-001",
+        "root_event_id": "4444444444444444444444444444444444444444444444444444444444444444",
+        "reply_event_id": "5555555555555555555555555555555555555555555555555555555555555555",
+        "resolved_p_tags": ["2222222222222222222222222222222222222222222222222222222222222222", "3333333333333333333333333333333333333333333333333333333333333333"],
+        "final_draft": "Hello, Luca.",
+        "dispatch_receipt_id": "dispatch-001",
+        "cancellation_epoch": 7
+      },
+      "deadline_unix_ms": 1784732430000
+    }
+  },
+  "safe_diagnostic": {
+    "protocol": "luca.safe-diagnostic.v1",
+    "timestamp": "2026-07-22T15:00:00Z",
+    "component": "signing-broker",
+    "operation": "message.publish.v1",
+    "status_code": "unavailable",
+    "request_id": "request-001",
+    "turn_id": "turn-001",
+    "resident_ref": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+    "conversation_ref": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+    "duration_ms": 25,
+    "retryable": true
+  },
+  "owner_identity_public_vector": {
+    "derivation_domain": "luca.v1.synthetic.owner-identity.vector",
+    "bundle_id": "123e4567-e89b-42d3-a456-426614174000",
+    "exported_at": "2026-07-22T15:00:00Z",
+    "owner_pubkey": "4e43fbea7b8ceb182d2d23c03b134ec13052ef1b1e717e8f1e945bd60d46a16f",
+    "manifest_sha256": "cede8f9197e6083ca02f32983b2b21bd336063fd37cd9dfc639c1d68dd8614be"
+  },
+  "signature_public_vector": {
+    "derivation_domain": "luca.v1.synthetic.signature.vector",
+    "created_at": 1784732400,
+    "content": "Luca V1 public signature conformance vector",
+    "pubkey": "ce86f379b5d4667bf2793ab761cd6d01ff71eb355850c0268f99efa0e47e742f",
+    "event_id": "d911251390e76dcb504426db7479f26bc59846a3b6555a8605da898c4a17e32e",
+    "signature": "6647d4736f19e5b8aa1c915e6e1b3423f91b8337ab9fb7021a44e03cc9a4569cf6ac95fc5d15d2fd32869d6635a86acb235d806f6a7da7c917acb5805347f306"
+  }
+}

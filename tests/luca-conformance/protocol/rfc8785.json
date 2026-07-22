@@ -1,0 +1,36 @@
+{
+  "schema": "luca.conformance.rfc8785.v1",
+  "source": "RFC 8785 sections 3.2 and Appendix B",
+  "cases": [
+    {
+      "name": "official-primitives-and-ordering",
+      "input_json": "{\"numbers\":[333333333.33333329,1E30,4.50,2e-3,0.000000000000000000000000001],\"string\":\"\\u20ac$\\u000F\\nA'B\\\"\\\\\\\\\\\"/\",\"literals\":[null,true,false]}",
+      "canonical": "{\"literals\":[null,true,false],\"numbers\":[333333333.3333333,1e+30,4.5,0.002,1e-27],\"string\":\"€$\\u000f\\nA'B\\\"\\\\\\\\\\\"/\"}",
+      "sha256": "2d5e01a318d0f0879ab568c4be289c8b1f64ef8921a53c6277d5e069978baacb"
+    },
+    {
+      "name": "utf16-property-order",
+      "input_json": "{\"€\":\"Euro Sign\",\"\\r\":\"Carriage Return\",\"דּ\":\"Hebrew Letter Dalet With Dagesh\",\"1\":\"One\",\"😀\":\"Emoji: Grinning Face\",\"\":\"Control\",\"ö\":\"Latin Small Letter O With Diaeresis\"}",
+      "canonical": "{\"\\r\":\"Carriage Return\",\"1\":\"One\",\"\":\"Control\",\"ö\":\"Latin Small Letter O With Diaeresis\",\"€\":\"Euro Sign\",\"😀\":\"Emoji: Grinning Face\",\"דּ\":\"Hebrew Letter Dalet With Dagesh\"}",
+      "sha256": "5e321556d22018a9656991a9e94f77ec175fa193e52a2429d312f8419ec8b08c"
+    },
+    {
+      "name": "recursive-object-order-in-arrays",
+      "input_json": "{\"z\":[{\"y\":2,\"x\":1},3],\"a\":{\"c\":2,\"b\":1}}",
+      "canonical": "{\"a\":{\"b\":1,\"c\":2},\"z\":[{\"x\":1,\"y\":2},3]}",
+      "sha256": "c417c91cacc7ecc707fce6266d00a87cefcea67d6e7a23933769222ba4d1d616"
+    },
+    {
+      "name": "ecmascript-number-boundaries",
+      "input_json": "[-0,0.000001,0.0000001,1e21,1e20]",
+      "canonical": "[0,0.000001,1e-7,1e+21,100000000000000000000]",
+      "sha256": "79e001496e86e0a4555ff4c7d2f8bf65a3410197b8ee38a01422e7747f3d0df5"
+    },
+    {
+      "name": "unicode-normalization-is-preserved",
+      "input_json": "{\"é\":\"NFC\",\"é\":\"NFD\"}",
+      "canonical": "{\"é\":\"NFD\",\"é\":\"NFC\"}",
+      "sha256": "897b10cef0f117a16e395bf3b5d553fc6fdddbffb887ed8dc71bfb07b653959d"
+    }
+  ]
+}
