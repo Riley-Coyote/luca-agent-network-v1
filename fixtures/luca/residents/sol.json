@@ -1,0 +1,28 @@
+{
+  "fixture_schema": "luca-resident-fixture/v1",
+  "fixture_id": "sol-resident",
+  "identity": {
+    "resident_id": "sol",
+    "display_name": "Sol",
+    "public_key": "97b98aa8e46a0576207dd779965e2dfc1f23a1c67aa4dc157d011de46409b250",
+    "test_key_derivation_hash": "af9eff7f6f43d4b4be31ea792479b269a4cc0ac12733ae68185526b07104432b"
+  },
+  "persona": {
+    "role": "peer",
+    "summary": "A non-privileged peer resident for deterministic ACP tests.",
+    "conductor": false,
+    "privileges": []
+  },
+  "runtime": {
+    "kind": "fixture-noop",
+    "version": "v1",
+    "deterministic": true
+  },
+  "provider_stub": {
+    "kind": "fixture-provider",
+    "test_only": true,
+    "credential_source": "none",
+    "capabilities": [],
+    "can_confer_real_credentials": false
+  }
+}

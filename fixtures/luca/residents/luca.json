@@ -1,0 +1,28 @@
+{
+  "fixture_schema": "luca-resident-fixture/v1",
+  "fixture_id": "luca-resident",
+  "identity": {
+    "resident_id": "luca",
+    "display_name": "Luca",
+    "public_key": "fb0126a4c89669f3ab713631d0aa1553b0a461d744b5ef1ec244c1ad2b0acaaf",
+    "test_key_derivation_hash": "5845acf185453ba5b06e97e3389eedfa730b58359e3091f80eb83dc270da9483"
+  },
+  "persona": {
+    "role": "resident",
+    "summary": "A direct, owner-configured resident fixture for deterministic ACP tests.",
+    "conductor": false,
+    "privileges": []
+  },
+  "runtime": {
+    "kind": "fixture-noop",
+    "version": "v1",
+    "deterministic": true
+  },
+  "provider_stub": {
+    "kind": "fixture-provider",
+    "test_only": true,
+    "credential_source": "none",
+    "capabilities": [],
+    "can_confer_real_credentials": false
+  }
+}

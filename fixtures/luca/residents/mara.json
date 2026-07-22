@@ -1,0 +1,28 @@
+{
+  "fixture_schema": "luca-resident-fixture/v1",
+  "fixture_id": "mara-resident",
+  "identity": {
+    "resident_id": "mara",
+    "display_name": "Mara",
+    "public_key": "d929130420c8a80344166e9b623f02f2b9a61b0d00bb2a46cbbbbd7509127847",
+    "test_key_derivation_hash": "8fe6678bef4413fc7c1254cd3a2e378fa546a55228dc1d27dc7d2ccfbb9c0c75"
+  },
+  "persona": {
+    "role": "peer",
+    "summary": "A non-privileged peer resident for deterministic ACP tests.",
+    "conductor": false,
+    "privileges": []
+  },
+  "runtime": {
+    "kind": "fixture-noop",
+    "version": "v1",
+    "deterministic": true
+  },
+  "provider_stub": {
+    "kind": "fixture-provider",
+    "test_only": true,
+    "credential_source": "none",
+    "capabilities": [],
+    "can_confer_real_credentials": false
+  }
+}
