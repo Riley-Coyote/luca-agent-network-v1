@@ -52,3 +52,27 @@ fn classification_is_stable_and_ordered_by_source_position() {
         ]
     );
 }
+
+#[test]
+fn exact_legacy_and_provider_assignment_corpus_matches_the_scanner_contract() {
+    let corpus: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../fixtures/luca/secrets/credential-assignment-corpus.json"
+    ))
+    .expect("credential assignment corpus must be valid JSON");
+    let cases = corpus["cases"]
+        .as_array()
+        .expect("corpus cases must be an array");
+
+    for case in cases {
+        let input = case["input"].as_str().expect("case input must be text");
+        let expected = case["classification"]
+            .as_str()
+            .expect("case classification must be text");
+        let observed = classify_sensitive_content(input);
+        match expected {
+            "secret" => assert_eq!(observed, vec![SensitiveClass::Secret], "{input}"),
+            "none" => assert!(observed.is_empty(), "{input}"),
+            unexpected => panic!("unsupported corpus classification: {unexpected}"),
+        }
+    }
+}

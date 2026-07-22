@@ -45,7 +45,7 @@ static NSEC_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
 });
 static ASSIGNMENT_SECRET_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|password|private[_-]?key|secret|token)\s*[:=]\s*[^\s,;\]\}]+",
+        r#"(?i)(?:["']?(?:OPENAI_API_KEY|ANTHROPIC_API_KEY|BUZZ_PRIVATE_KEY|NOSTR_PRIVATE_KEY|[A-Z][A-Z0-9_-]*(?:API[_-]?KEY|ACCESS[_-]?TOKEN|AUTH[_-]?TOKEN|PRIVATE[_-]?KEY|PASSWORD|SECRET|TOKEN)|API[_-]?KEY|ACCESS[_-]?TOKEN|AUTH[_-]?TOKEN|PRIVATE[_-]?KEY|PASSWORD|SECRET|TOKEN)["']?\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;\]\}]+))"#,
     )
     .expect("constant secret assignment pattern must compile")
 });
