@@ -4,8 +4,7 @@
   "identity": {
     "resident_id": "mara",
     "display_name": "Mara",
-    "public_key": "d929130420c8a80344166e9b623f02f2b9a61b0d00bb2a46cbbbbd7509127847",
-    "test_key_derivation_hash": "8fe6678bef4413fc7c1254cd3a2e378fa546a55228dc1d27dc7d2ccfbb9c0c75"
+    "public_key": "d929130420c8a80344166e9b623f02f2b9a61b0d00bb2a46cbbbbd7509127847"
   },
   "persona": {
     "role": "peer",

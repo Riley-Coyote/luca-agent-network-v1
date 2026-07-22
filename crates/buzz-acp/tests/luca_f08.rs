@@ -25,7 +25,6 @@ struct Identity {
     resident_id: String,
     display_name: String,
     public_key: String,
-    test_key_derivation_hash: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,23 +55,41 @@ fn fixture(path: &str) -> ResidentFixture {
     serde_json::from_str(path).expect("F08 resident fixture must be valid JSON")
 }
 
-fn derivation_hash(resident_id: &str) -> String {
-    hex::encode(Sha256::digest(format!("{TEST_KEY_DOMAIN}:{resident_id}")))
-}
-
 fn derived_public_key(resident_id: &str) -> String {
     let material = Sha256::digest(format!("{TEST_KEY_DOMAIN}:{resident_id}"));
     let secret = SecretKey::from_slice(&material).expect("fixed F08 derivation must be valid");
     Keys::new(secret).public_key().to_hex()
 }
 
+fn assert_serialized_fixture_is_public_only(raw: &str) {
+    let value: serde_json::Value =
+        serde_json::from_str(raw).expect("F08 resident fixture must be valid JSON");
+    let serialized = serde_json::to_string(&value).expect("fixture JSON must serialize");
+    let lowercase = serialized.to_ascii_lowercase();
+
+    for forbidden in ["seed", "secret", "nsec", "derivation", "private_key"] {
+        assert!(
+            !lowercase.contains(forbidden),
+            "serialized fixture must not contain a {forbidden} field or value"
+        );
+    }
+    assert!(
+        !serialized.contains(TEST_KEY_DOMAIN),
+        "serialized fixture must not persist the in-memory test domain"
+    );
+}
+
 #[test]
 fn luca_f08_resident_fixtures_are_public_only_deterministic_and_isolated() {
-    let fixtures = [
-        fixture(include_str!("../../../fixtures/luca/residents/luca.json")),
-        fixture(include_str!("../../../fixtures/luca/residents/mara.json")),
-        fixture(include_str!("../../../fixtures/luca/residents/sol.json")),
+    let serialized_fixtures = [
+        include_str!("../../../fixtures/luca/residents/luca.json"),
+        include_str!("../../../fixtures/luca/residents/mara.json"),
+        include_str!("../../../fixtures/luca/residents/sol.json"),
     ];
+    serialized_fixtures
+        .iter()
+        .for_each(|raw| assert_serialized_fixture_is_public_only(raw));
+    let fixtures = serialized_fixtures.map(fixture);
 
     assert_eq!(fixtures.len(), 3, "F08 defines exactly three residents");
 
@@ -105,10 +122,6 @@ fn luca_f08_resident_fixtures_are_public_only_deterministic_and_isolated() {
         assert!(fixture.provider_stub.capabilities.is_empty());
         assert!(!fixture.provider_stub.can_confer_real_credentials);
 
-        assert_eq!(
-            fixture.identity.test_key_derivation_hash,
-            derivation_hash(resident_id)
-        );
         assert_eq!(fixture.identity.public_key, derived_public_key(resident_id));
         assert!(
             public_keys.insert(&fixture.identity.public_key),
@@ -136,6 +149,5 @@ fn luca_f08_derivation_is_repeatable_without_serializing_secret_material() {
             derived_public_key(resident_id),
             derived_public_key(resident_id)
         );
-        assert_eq!(derivation_hash(resident_id), derivation_hash(resident_id));
     }
 }

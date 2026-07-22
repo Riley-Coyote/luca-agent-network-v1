@@ -4,8 +4,7 @@
   "identity": {
     "resident_id": "luca",
     "display_name": "Luca",
-    "public_key": "fb0126a4c89669f3ab713631d0aa1553b0a461d744b5ef1ec244c1ad2b0acaaf",
-    "test_key_derivation_hash": "5845acf185453ba5b06e97e3389eedfa730b58359e3091f80eb83dc270da9483"
+    "public_key": "fb0126a4c89669f3ab713631d0aa1553b0a461d744b5ef1ec244c1ad2b0acaaf"
   },
   "persona": {
     "role": "resident",

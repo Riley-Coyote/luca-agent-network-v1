@@ -4,8 +4,7 @@
   "identity": {
     "resident_id": "sol",
     "display_name": "Sol",
-    "public_key": "97b98aa8e46a0576207dd779965e2dfc1f23a1c67aa4dc157d011de46409b250",
-    "test_key_derivation_hash": "af9eff7f6f43d4b4be31ea792479b269a4cc0ac12733ae68185526b07104432b"
+    "public_key": "97b98aa8e46a0576207dd779965e2dfc1f23a1c67aa4dc157d011de46409b250"
   },
   "persona": {
     "role": "peer",
