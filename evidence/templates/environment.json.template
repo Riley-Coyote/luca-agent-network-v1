@@ -1,0 +1,11 @@
+{
+  "schema": "luca.evidence.environment.v1",
+  "task": "${TASK_ID}",
+  "candidate_commit": "${CANDIDATE_COMMIT}",
+  "timestamp": "${UTC_TIMESTAMP}",
+  "tool_versions": {
+    "git": "${GIT_VERSION}",
+    "python3": "${PYTHON_VERSION}",
+    "just": "${JUST_VERSION}"
+  }
+}

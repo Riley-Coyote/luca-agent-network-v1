@@ -1,0 +1,10 @@
+{
+  "schema": "luca.evidence.result.v1",
+  "task": "${TASK_ID}",
+  "candidate_commit": "${CANDIDATE_COMMIT}",
+  "status": "PASS",
+  "executor": {"id": "${EXECUTOR_ID}", "independence_group": "${EXECUTOR_GROUP}"},
+  "outputs": [{"name": "${OUTPUT_NAME}", "path": "${OUTPUT_PATH}", "sha256": "${SHA256}"}],
+  "test_logs": [{"name": "${TEST_NAME}", "command": "${EXACT_CAPSULE_COMMAND}", "status": "PASS", "path": "${LOG_PATH}", "sha256": "${SHA256}"}],
+  "artifact_scan": {"path": "${ARTIFACT_SCAN_PATH}", "sha256": "${SHA256}"}
+}

@@ -1,0 +1,10 @@
+{
+  "schema": "luca.evidence.review.v1",
+  "subject_type": "task",
+  "subject_id": "${TASK_ID}",
+  "candidate_commit": "${CANDIDATE_COMMIT}",
+  "status": "PASS",
+  "reviewer": {"id": "${REVIEWER_ID}", "independence_group": "${REVIEWER_GROUP}"},
+  "independent_of": ["${EXECUTOR_ID}"],
+  "findings": []
+}

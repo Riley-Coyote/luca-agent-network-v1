@@ -1,0 +1,10 @@
+{
+  "schema": "luca.evidence.output.v1",
+  "task": "${TASK_ID}",
+  "name": "${OUTPUT_NAME}",
+  "candidate_commit": "${CANDIDATE_COMMIT}",
+  "declared_implementation_paths": ["${OWNED_PATH}"],
+  "implementation_refs": [
+    {"path": "${IMPLEMENTATION_PATH}", "sha256": "${SHA256}"}
+  ]
+}

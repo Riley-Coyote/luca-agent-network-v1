@@ -286,6 +286,7 @@ test-unit:
     else
         ./scripts/run-tests.sh unit
     fi
+    if [[ -f crates/luca-protocol/Cargo.toml ]]; then cargo test -p luca-protocol; fi
 
 # Run integration tests only (starts services if needed)
 test-integration:
@@ -616,6 +617,14 @@ clean:
 # Check the Rust workspace compiles without producing binaries
 check-compile:
     cargo check --workspace --all-targets
+
+# Luca V1 task-ownership and scheduler-mutex audit. These recipes only inspect
+# the vendored execution contracts and git paths; they do not run milestone CI.
+luca-contracts task="F02" base="HEAD~1":
+    python3 scripts/evidence/validate_contracts.py --task {{task}} --base {{base}}
+
+luca-ownership-audit:
+    python3 scripts/evidence/validate_contracts.py --audit
 
 # ─── Release ─────────────────────────────────────────────────────────────────
 

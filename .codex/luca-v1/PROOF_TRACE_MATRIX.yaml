@@ -1,0 +1,1052 @@
+schema_version: 2
+proofs:
+- proof: P1
+  acceptance_assertions:
+  - Three persistent residents can be messaged directly; streaming, cancel, reconnect, replay and restart preserve one chronology;
+    retained threads, attachments/media and search work in the installed app.
+  tasks:
+  - id: F09
+    objective: Lock upstream direct chat and room behavior with Luca fixtures
+    tests:
+    - cargo test -p buzz-acp luca_f09
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M1/F09/environment.json
+    - evidence/M1/F09/commands.log
+    - evidence/M1/F09/results.json
+    - evidence/M1/F09/artifact-secret-scan.json
+    - evidence/M1/F09/review.json
+  - id: F10
+    objective: Add continuity-absent conversation fault harness
+    tests: &id005
+    - cargo test -p buzz-acp luca_f10
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence: &id006
+    - evidence/M1/F10/environment.json
+    - evidence/M1/F10/commands.log
+    - evidence/M1/F10/results.json
+    - evidence/M1/F10/artifact-secret-scan.json
+    - evidence/M1/F10/review.json
+  - id: F11
+    objective: Verify native shell, windows, focus and clean-profile startup
+    tests:
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/f11.spec.ts --project=smoke
+    evidence:
+    - evidence/M1/F11/environment.json
+    - evidence/M1/F11/commands.log
+    - evidence/M1/F11/results.json
+    - evidence/M1/F11/artifact-secret-scan.json
+    - evidence/M1/F11/review.json
+  - id: F15
+    objective: Implement durable resident registry and direct setup UI
+    tests:
+    - cargo test -p buzz-acp luca_f15
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M1/F15/environment.json
+    - evidence/M1/F15/commands.log
+    - evidence/M1/F15/results.json
+    - evidence/M1/F15/artifact-secret-scan.json
+    - evidence/M1/F15/review.json
+  - id: F16
+    objective: Prove one live ACP provider and protected owner identity recovery
+    tests: &id001
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/f16.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence: &id002
+    - evidence/M1/F16/environment.json
+    - evidence/M1/F16/commands.log
+    - evidence/M1/F16/results.json
+    - evidence/M1/F16/artifact-secret-scan.json
+    - evidence/M1/F16/review.json
+  - id: F17
+    objective: Prove retained threads attachments media and search in installed app
+    tests:
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/f17.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M1/F17/environment.json
+    - evidence/M1/F17/commands.log
+    - evidence/M1/F17/results.json
+    - evidence/M1/F17/artifact-secret-scan.json
+    - evidence/M1/F17/review.json
+  - id: F19
+    objective: Implement protected owner-identity backup and import recovery
+    tests: &id003
+    - cargo test -p buzz-desktop owner_identity_recovery -- --nocapture
+    - python3 scripts/evidence/scan_artifacts.py evidence/M1/F19
+    - 'just ci  # milestone integration candidate only'
+    evidence: &id004
+    - evidence/M1/F19/environment.json
+    - evidence/M1/F19/commands.log
+    - evidence/M1/F19/results.json
+    - evidence/M1/F19/artifact-secret-scan.json
+    - evidence/M1/F19/review.json
+  gate_evaluation: all mapped required tasks complete; gate checks exact acceptance text in DEMO_AND_ACCEPTANCE.md
+- proof: P2
+  acceptance_assertions:
+  - Fresh runtime loads verified six-segment Capsule; fast heads refresh next turn.
+  tasks:
+  - id: C01
+    objective: Implement Capsule schemas, budgets and declarative renderer
+    tests:
+    - cargo test -p luca-capsule c01
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M2/C01/environment.json
+    - evidence/M2/C01/commands.log
+    - evidence/M2/C01/results.json
+    - evidence/M2/C01/artifact-secret-scan.json
+    - evidence/M2/C01/review.json
+  - id: C03
+    objective: Implement six-slug NIP-AE reader and validation
+    tests:
+    - cargo test -p luca-capsule c03
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M2/C03/environment.json
+    - evidence/M2/C03/commands.log
+    - evidence/M2/C03/results.json
+    - evidence/M2/C03/artifact-secret-scan.json
+    - evidence/M2/C03/review.json
+  - id: C05
+    objective: Load slow Capsule segments at ACP session creation
+    tests:
+    - cargo test -p buzz-acp luca_c05
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M2/C05/environment.json
+    - evidence/M2/C05/commands.log
+    - evidence/M2/C05/results.json
+    - evidence/M2/C05/artifact-secret-scan.json
+    - evidence/M2/C05/review.json
+  - id: C06
+    objective: Load fast Capsule segments on every eligible turn
+    tests:
+    - cargo test -p buzz-acp luca_c06
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M2/C06/environment.json
+    - evidence/M2/C06/commands.log
+    - evidence/M2/C06/results.json
+    - evidence/M2/C06/artifact-secret-scan.json
+    - evidence/M2/C06/review.json
+  - id: C07
+    objective: Commit Capsule heads through managed conditional coordinator
+    tests:
+    - cargo test -p luca-capsule c07
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M2/C07/environment.json
+    - evidence/M2/C07/commands.log
+    - evidence/M2/C07/results.json
+    - evidence/M2/C07/artifact-secret-scan.json
+    - evidence/M2/C07/review.json
+  - id: C11
+    objective: Prove fresh-session identity and immediate fast-head freshness
+    tests: &id007
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/c11.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence: &id008
+    - evidence/M2/C11/environment.json
+    - evidence/M2/C11/commands.log
+    - evidence/M2/C11/results.json
+    - evidence/M2/C11/artifact-secret-scan.json
+    - evidence/M2/C11/review.json
+  - id: C13
+    objective: Implement managed Capsule conditional-commit coordinator
+    tests:
+    - cargo test -p buzz-relay luca_capsule_commit -- --nocapture
+    - cargo test -p buzz-relay attestation_registry -- --nocapture
+    - cargo test -p buzz-db luca_capsule -- --nocapture
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M2/C13/environment.json
+    - evidence/M2/C13/commands.log
+    - evidence/M2/C13/results.json
+    - evidence/M2/C13/artifact-secret-scan.json
+    - evidence/M2/C13/review.json
+  - id: C14
+    objective: Prove coordinator authentication backup restore outage and fanout recovery
+    tests:
+    - cargo test -p buzz-relay --test luca_capsule_ops -- --nocapture
+    - just test-integration
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M2/C14/environment.json
+    - evidence/M2/C14/commands.log
+    - evidence/M2/C14/results.json
+    - evidence/M2/C14/artifact-secret-scan.json
+    - evidence/M2/C14/review.json
+  - id: C15
+    objective: Implement encrypted local Capsule archive and signed-event outbox lifecycle
+    tests:
+    - cargo test -p luca-capsule c15
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M2/C15/environment.json
+    - evidence/M2/C15/commands.log
+    - evidence/M2/C15/results.json
+    - evidence/M2/C15/artifact-secret-scan.json
+    - evidence/M2/C15/review.json
+  - id: C16
+    objective: Apply the single-writer coordinator database migration
+    tests:
+    - cargo test -p buzz-db luca_capsule_migration -- --nocapture
+    - just test-integration
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M2/C16/environment.json
+    - evidence/M2/C16/commands.log
+    - evidence/M2/C16/results.json
+    - evidence/M2/C16/artifact-secret-scan.json
+    - evidence/M2/C16/review.json
+  gate_evaluation: all mapped required tasks complete; gate checks exact acceptance text in DEMO_AND_ACCEPTANCE.md
+- proof: P3
+  acceptance_assertions:
+  - Capsule/memory text cannot expand authority; tampered content/import rejects.
+  tasks:
+  - id: F14
+    objective: Implement structured signing broker and eliminate raw ACP/model keys
+    tests: &id019
+    - cargo test -p buzz-desktop luca_signing -- --nocapture
+    - cargo test -p buzz-acp luca_final_publisher -- --nocapture
+    - cargo test -p luca-signing-client message_publish_vectors -- --nocapture
+    - 'just ci  # milestone integration candidate only'
+    evidence: &id020
+    - evidence/M1/F14/environment.json
+    - evidence/M1/F14/commands.log
+    - evidence/M1/F14/results.json
+    - evidence/M1/F14/artifact-secret-scan.json
+    - evidence/M1/F14/review.json
+  - id: F18
+    objective: Install cross-artifact secret-safe diagnostics and sentinel scanner
+    tests: &id017
+    - cargo test -p buzz-acp luca_f18
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence: &id018
+    - evidence/M1/F18/environment.json
+    - evidence/M1/F18/commands.log
+    - evidence/M1/F18/results.json
+    - evidence/M1/F18/artifact-secret-scan.json
+    - evidence/M1/F18/review.json
+  - id: C02
+    objective: Add structured application key-service commands
+    tests:
+    - python3 scripts/validate_planning_kit.py
+    - just check-compile
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M2/C02/environment.json
+    - evidence/M2/C02/commands.log
+    - evidence/M2/C02/results.json
+    - evidence/M2/C02/artifact-secret-scan.json
+    - evidence/M2/C02/review.json
+  - id: C10
+    objective: Run Capsule injection, tamper and authority adversarial suite
+    tests: &id021
+    - cargo test -p buzz-acp luca_c10
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence: &id022
+    - evidence/M2/C10/environment.json
+    - evidence/M2/C10/commands.log
+    - evidence/M2/C10/results.json
+    - evidence/M2/C10/artifact-secret-scan.json
+    - evidence/M2/C10/review.json
+  - id: C12
+    objective: Independent G2 cryptography and authority review
+    tests: &id023
+    - python3 scripts/validate_planning_kit.py
+    - 'just ci  # milestone integration candidate only'
+    evidence: &id024
+    - evidence/M2/C12/environment.json
+    - evidence/M2/C12/commands.log
+    - evidence/M2/C12/results.json
+    - evidence/M2/C12/artifact-secret-scan.json
+    - evidence/M2/C12/review.json
+  gate_evaluation: all mapped required tasks complete; gate checks exact acceptance text in DEMO_AND_ACCEPTANCE.md
+- proof: P4
+  acceptance_assertions:
+  - Qualified turn produces one managed-coordinator committed or no-change checkpoint; response never depends on it; health
+    follows the latest qualifying input.
+  tasks:
+  - id: P01
+    objective: Implement durable checkpoint receipt state machine
+    tests:
+    - pytest -q services/luca-continuity/tests/test_p01.py
+    - cargo test -p buzz-acp luca_checkpoint
+    evidence:
+    - evidence/M5/P01/environment.json
+    - evidence/M5/P01/commands.log
+    - evidence/M5/P01/results.json
+    - evidence/M5/P01/artifact-secret-scan.json
+    - evidence/M5/P01/review.json
+  - id: P02
+    objective: Implement deterministic checkpoint qualification
+    tests:
+    - pytest -q services/luca-continuity/tests/test_p02.py
+    - cargo test -p buzz-acp luca_checkpoint
+    evidence:
+    - evidence/M5/P02/environment.json
+    - evidence/M5/P02/commands.log
+    - evidence/M5/P02/results.json
+    - evidence/M5/P02/artifact-secret-scan.json
+    - evidence/M5/P02/review.json
+  - id: P03
+    objective: Build verified canonical-event checkpoint envelope
+    tests:
+    - cargo test -p buzz-acp luca_p03
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M5/P03/environment.json
+    - evidence/M5/P03/commands.log
+    - evidence/M5/P03/results.json
+    - evidence/M5/P03/artifact-secret-scan.json
+    - evidence/M5/P03/review.json
+  - id: P04
+    objective: Extract bounded digest and thread proposal behavior
+    tests:
+    - pytest -q services/luca-continuity/tests/test_p04.py
+    - cargo test -p buzz-acp luca_checkpoint
+    evidence:
+    - evidence/M5/P04/environment.json
+    - evidence/M5/P04/commands.log
+    - evidence/M5/P04/results.json
+    - evidence/M5/P04/artifact-secret-scan.json
+    - evidence/M5/P04/review.json
+  - id: P05
+    objective: Build salience and abstention golden corpus
+    tests:
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/p05.spec.ts --project=smoke
+    evidence:
+    - evidence/M5/P05/environment.json
+    - evidence/M5/P05/commands.log
+    - evidence/M5/P05/results.json
+    - evidence/M5/P05/artifact-secret-scan.json
+    - evidence/M5/P05/review.json
+  - id: P06
+    objective: Validate proposals at application signing boundary
+    tests:
+    - cargo test -p buzz-desktop checkpoint_validator -- --nocapture
+    - cargo test -p buzz-acp checkpoint_hash_vectors -- --nocapture
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M5/P06/environment.json
+    - evidence/M5/P06/commands.log
+    - evidence/M5/P06/results.json
+    - evidence/M5/P06/artifact-secret-scan.json
+    - evidence/M5/P06/review.json
+  - id: P07
+    objective: Commit digest and threads through managed coordinator
+    tests:
+    - pytest -q services/luca-continuity/tests/test_p07.py
+    - cargo test -p buzz-acp luca_checkpoint
+    evidence:
+    - evidence/M5/P07/environment.json
+    - evidence/M5/P07/commands.log
+    - evidence/M5/P07/results.json
+    - evidence/M5/P07/artifact-secret-scan.json
+    - evidence/M5/P07/review.json
+  - id: P08
+    objective: Implement checkpoint crash recovery and duplicate suppression
+    tests: &id027
+    - cargo test -p buzz-acp luca_p08
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence: &id028
+    - evidence/M5/P08/environment.json
+    - evidence/M5/P08/commands.log
+    - evidence/M5/P08/results.json
+    - evidence/M5/P08/artifact-secret-scan.json
+    - evidence/M5/P08/review.json
+  - id: P09
+    objective: Add continuity current state and liveness UI
+    tests: &id029
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/p09.spec.ts --project=smoke
+    evidence: &id030
+    - evidence/M5/P09/environment.json
+    - evidence/M5/P09/commands.log
+    - evidence/M5/P09/results.json
+    - evidence/M5/P09/artifact-secret-scan.json
+    - evidence/M5/P09/review.json
+  - id: P10
+    objective: Prove response independence and next-turn fast freshness
+    tests: &id015
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/p10.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence: &id016
+    - evidence/M5/P10/environment.json
+    - evidence/M5/P10/commands.log
+    - evidence/M5/P10/results.json
+    - evidence/M5/P10/artifact-secret-scan.json
+    - evidence/M5/P10/review.json
+  - id: P12
+    objective: Dispatch checkpoint provider calls through the desktop final-request guard
+    tests:
+    - cargo test -p buzz-desktop checkpoint_dispatch -- --nocapture
+    - cargo test -p buzz-acp luca_checkpoint -- --nocapture
+    evidence:
+    - evidence/M5/P12/environment.json
+    - evidence/M5/P12/commands.log
+    - evidence/M5/P12/results.json
+    - evidence/M5/P12/artifact-secret-scan.json
+    - evidence/M5/P12/review.json
+  - id: P13
+    objective: Apply the single-writer checkpoint-control migration
+    tests:
+    - cargo test -p buzz-desktop luca_checkpoint_migration -- --nocapture
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M5/P13/environment.json
+    - evidence/M5/P13/commands.log
+    - evidence/M5/P13/results.json
+    - evidence/M5/P13/artifact-secret-scan.json
+    - evidence/M5/P13/review.json
+  gate_evaluation: all mapped required tasks complete; gate checks exact acceptance text in DEMO_AND_ACCEPTANCE.md
+- proof: P5
+  acceptance_assertions:
+  - Clean same-owner environment restores exact resident identity and exact signed current events without brain/cache, using
+    an honest journaled saga and active-writer transfer.
+  tasks:
+  - id: F16
+    objective: Prove one live ACP provider and protected owner identity recovery
+    tests: *id001
+    evidence: *id002
+  - id: F19
+    objective: Implement protected owner-identity backup and import recovery
+    tests: *id003
+    evidence: *id004
+  - id: L01
+    objective: Pin and review age dependency and protected-file UX
+    tests:
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/l01.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M6/L01/environment.json
+    - evidence/M6/L01/commands.log
+    - evidence/M6/L01/results.json
+    - evidence/M6/L01/artifact-secret-scan.json
+    - evidence/M6/L01/review.json
+  - id: L02
+    objective: Implement canonical resident bundle schema and limits
+    tests:
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/l02.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M6/L02/environment.json
+    - evidence/M6/L02/commands.log
+    - evidence/M6/L02/results.json
+    - evidence/M6/L02/artifact-secret-scan.json
+    - evidence/M6/L02/review.json
+  - id: L03
+    objective: Implement protected resident backup and readback verification
+    tests:
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/l03.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M6/L03/environment.json
+    - evidence/M6/L03/commands.log
+    - evidence/M6/L03/results.json
+    - evidence/M6/L03/artifact-secret-scan.json
+    - evidence/M6/L03/review.json
+  - id: L04
+    objective: Implement zero-write import preview and full verification
+    tests:
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/l04.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M6/L04/environment.json
+    - evidence/M6/L04/commands.log
+    - evidence/M6/L04/results.json
+    - evidence/M6/L04/artifact-secret-scan.json
+    - evidence/M6/L04/review.json
+  - id: L05
+    objective: Implement journaled inactive-stage resident restore saga
+    tests:
+    - python3 scripts/validate_planning_kit.py
+    - just check-compile
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M6/L05/environment.json
+    - evidence/M6/L05/commands.log
+    - evidence/M6/L05/results.json
+    - evidence/M6/L05/artifact-secret-scan.json
+    - evidence/M6/L05/review.json
+  - id: L06
+    objective: Restore exact signed events and transfer active writer epoch
+    tests:
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/l06.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M6/L06/environment.json
+    - evidence/M6/L06/commands.log
+    - evidence/M6/L06/results.json
+    - evidence/M6/L06/artifact-secret-scan.json
+    - evidence/M6/L06/review.json
+  - id: L07
+    objective: Build distinct template-duplicate and resident-backup UI
+    tests:
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/l07.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M6/L07/environment.json
+    - evidence/M6/L07/commands.log
+    - evidence/M6/L07/results.json
+    - evidence/M6/L07/artifact-secret-scan.json
+    - evidence/M6/L07/review.json
+  - id: L08
+    objective: Run tamper secret and partial-import adversarial suite
+    tests:
+    - cargo test -p buzz-acp luca_l08
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M6/L08/environment.json
+    - evidence/M6/L08/commands.log
+    - evidence/M6/L08/results.json
+    - evidence/M6/L08/artifact-secret-scan.json
+    - evidence/M6/L08/review.json
+  - id: L09
+    objective: Execute clean-environment backup and restore proof
+    tests:
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/l09.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M6/L09/environment.json
+    - evidence/M6/L09/commands.log
+    - evidence/M6/L09/results.json
+    - evidence/M6/L09/artifact-secret-scan.json
+    - evidence/M6/L09/review.json
+  - id: L11
+    objective: Apply the single-writer resident-restore journal migration
+    tests:
+    - cargo test -p buzz-desktop luca_restore_migration -- --nocapture
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M6/L11/environment.json
+    - evidence/M6/L11/commands.log
+    - evidence/M6/L11/results.json
+    - evidence/M6/L11/artifact-secret-scan.json
+    - evidence/M6/L11/review.json
+  gate_evaluation: all mapped required tasks complete; gate checks exact acceptance text in DEMO_AND_ACCEPTANCE.md
+- proof: P6
+  acceptance_assertions:
+  - Seeded brain fact changes answer only when allowed; turn preparation writes nothing.
+  tasks:
+  - id: B02
+    objective: Implement exclusive framed sidecar pipes and replay limits
+    tests:
+    - pytest -q services/luca-continuity/tests/test_b02.py
+    - just desktop-tauri-test
+    evidence:
+    - evidence/M3/B02/environment.json
+    - evidence/M3/B02/commands.log
+    - evidence/M3/B02/results.json
+    - evidence/M3/B02/artifact-secret-scan.json
+    - evidence/M3/B02/review.json
+  - id: B06
+    objective: Implement pure access decision and exhaustive truth table
+    tests:
+    - cargo test -p buzz-acp luca_b06
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M3/B06/environment.json
+    - evidence/M3/B06/commands.log
+    - evidence/M3/B06/results.json
+    - evidence/M3/B06/artifact-secret-scan.json
+    - evidence/M3/B06/review.json
+  - id: B10
+    objective: Implement prefiltered zero-write retrieval adapter
+    tests:
+    - pytest -q services/luca-continuity/tests/test_b10.py
+    - just desktop-tauri-test
+    evidence:
+    - evidence/M3/B10/environment.json
+    - evidence/M3/B10/commands.log
+    - evidence/M3/B10/results.json
+    - evidence/M3/B10/artifact-secret-scan.json
+    - evidence/M3/B10/review.json
+  - id: B11
+    objective: Prove byte and logical immutability of every turn path
+    tests:
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/b11.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M3/B11/environment.json
+    - evidence/M3/B11/commands.log
+    - evidence/M3/B11/results.json
+    - evidence/M3/B11/artifact-secret-scan.json
+    - evidence/M3/B11/review.json
+  - id: B13
+    objective: Implement ephemeral prepare receipts and post-dispatch audit receipts
+    tests:
+    - pytest -q services/luca-continuity/tests/test_b13.py
+    - just desktop-tauri-test
+    evidence:
+    - evidence/M3/B13/environment.json
+    - evidence/M3/B13/commands.log
+    - evidence/M3/B13/results.json
+    - evidence/M3/B13/artifact-secret-scan.json
+    - evidence/M3/B13/review.json
+  - id: B14
+    objective: Bind dispatch snapshot and guard the final complete provider request
+    tests:
+    - cargo test -p buzz-acp luca_b14
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M3/B14/environment.json
+    - evidence/M3/B14/commands.log
+    - evidence/M3/B14/results.json
+    - evidence/M3/B14/artifact-secret-scan.json
+    - evidence/M3/B14/review.json
+  - id: B15
+    objective: Integrate fail-soft per-turn context into ACP host
+    tests: &id009
+    - cargo test -p buzz-acp luca_b15
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence: &id010
+    - evidence/M3/B15/environment.json
+    - evidence/M3/B15/commands.log
+    - evidence/M3/B15/results.json
+    - evidence/M3/B15/artifact-secret-scan.json
+    - evidence/M3/B15/review.json
+  - id: B17
+    objective: Run full continuity fault and egress matrix
+    tests: &id011
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/b17.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence: &id012
+    - evidence/M3/B17/environment.json
+    - evidence/M3/B17/commands.log
+    - evidence/M3/B17/results.json
+    - evidence/M3/B17/artifact-secret-scan.json
+    - evidence/M3/B17/review.json
+  - id: B20
+    objective: Package and prove the Continuity Service without ambient Python
+    tests:
+    - pytest -q services/luca-continuity/tests/test_b20.py
+    - just desktop-tauri-test
+    evidence:
+    - evidence/M3/B20/environment.json
+    - evidence/M3/B20/commands.log
+    - evidence/M3/B20/results.json
+    - evidence/M3/B20/artifact-secret-scan.json
+    - evidence/M3/B20/review.json
+  - id: B21
+    objective: Implement legacy count-only classification and policy overlay
+    tests:
+    - pytest -q services/luca-continuity/tests/test_b21.py
+    - just desktop-tauri-test
+    evidence:
+    - evidence/M3/B21/environment.json
+    - evidence/M3/B21/commands.log
+    - evidence/M3/B21/results.json
+    - evidence/M3/B21/artifact-secret-scan.json
+    - evidence/M3/B21/review.json
+  - id: B22
+    objective: Implement exact prefer-then-global and global relevance semantics
+    tests:
+    - pytest -q services/luca-continuity/tests/test_b22.py
+    - just desktop-tauri-test
+    evidence:
+    - evidence/M3/B22/environment.json
+    - evidence/M3/B22/commands.log
+    - evidence/M3/B22/results.json
+    - evidence/M3/B22/artifact-secret-scan.json
+    - evidence/M3/B22/review.json
+  - id: B23
+    objective: Build the versioned immutable brain-and-policy read snapshot
+    tests:
+    - pytest -q services/luca-continuity/tests/test_b23_snapshot.py
+    - cargo test -p buzz-desktop brain_snapshot -- --nocapture
+    evidence:
+    - evidence/M3/B23/environment.json
+    - evidence/M3/B23/commands.log
+    - evidence/M3/B23/results.json
+    - evidence/M3/B23/artifact-secret-scan.json
+    - evidence/M3/B23/review.json
+  - id: B24
+    objective: Apply the single-writer memory-policy overlay migration
+    tests:
+    - cargo test -p buzz-desktop luca_memory_policy_migration -- --nocapture
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M3/B24/environment.json
+    - evidence/M3/B24/commands.log
+    - evidence/M3/B24/results.json
+    - evidence/M3/B24/artifact-secret-scan.json
+    - evidence/M3/B24/review.json
+  gate_evaluation: all mapped required tasks complete; gate checks exact acceptance text in DEMO_AND_ACCEPTANCE.md
+- proof: P7
+  acceptance_assertions:
+  - Three residents communicate directly within inherited root limits and per-responder access.
+  tasks:
+  - id: R01
+    objective: Define root causal envelope and immutable inheritance
+    tests:
+    - cargo test -p buzz-acp luca_rooms::r01
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/r01.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M4/R01/environment.json
+    - evidence/M4/R01/commands.log
+    - evidence/M4/R01/results.json
+    - evidence/M4/R01/artifact-secret-scan.json
+    - evidence/M4/R01/review.json
+  - id: R02
+    objective: Implement SQLite root ledger with atomic budget reservations
+    tests:
+    - cargo test -p buzz-acp luca_rooms::r02
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/r02.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M4/R02/environment.json
+    - evidence/M4/R02/commands.log
+    - evidence/M4/R02/results.json
+    - evidence/M4/R02/artifact-secret-scan.json
+    - evidence/M4/R02/review.json
+  - id: R03
+    objective: Enforce explicit mentions depth deadline turn token and spend caps
+    tests:
+    - cargo test -p buzz-acp luca_rooms::r03
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/r03.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M4/R03/environment.json
+    - evidence/M4/R03/commands.log
+    - evidence/M4/R03/results.json
+    - evidence/M4/R03/artifact-secret-scan.json
+    - evidence/M4/R03/review.json
+  - id: R04
+    objective: Implement root cancellation without late finals
+    tests:
+    - cargo test -p buzz-acp luca_r04
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M4/R04/environment.json
+    - evidence/M4/R04/commands.log
+    - evidence/M4/R04/results.json
+    - evidence/M4/R04/artifact-secret-scan.json
+    - evidence/M4/R04/review.json
+  - id: R05
+    objective: Adapt and prove Buzz existing signed resident-to-resident mention dispatch
+    tests:
+    - cargo test -p buzz-acp luca_rooms::r05
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/r05.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M4/R05/environment.json
+    - evidence/M4/R05/commands.log
+    - evidence/M4/R05/results.json
+    - evidence/M4/R05/artifact-secret-scan.json
+    - evidence/M4/R05/review.json
+  - id: R06
+    objective: Reauthorize brain access for every responding resident
+    tests:
+    - cargo test -p buzz-acp luca_r06
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M4/R06/environment.json
+    - evidence/M4/R06/commands.log
+    - evidence/M4/R06/results.json
+    - evidence/M4/R06/artifact-secret-scan.json
+    - evidence/M4/R06/review.json
+  - id: R07
+    objective: Adapt activity states for causal room work
+    tests:
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/r07.spec.ts --project=smoke
+    evidence:
+    - evidence/M4/R07/environment.json
+    - evidence/M4/R07/commands.log
+    - evidence/M4/R07/results.json
+    - evidence/M4/R07/artifact-secret-scan.json
+    - evidence/M4/R07/review.json
+  - id: R08
+    objective: Run recursive replay cancellation and privilege adversarial suite
+    tests: &id013
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/r08.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence: &id014
+    - evidence/M4/R08/environment.json
+    - evidence/M4/R08/commands.log
+    - evidence/M4/R08/results.json
+    - evidence/M4/R08/artifact-secret-scan.json
+    - evidence/M4/R08/review.json
+  - id: R10
+    objective: Apply the single-writer causal-ledger migration
+    tests:
+    - cargo test -p buzz-desktop luca_causal_migration -- --nocapture
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M4/R10/environment.json
+    - evidence/M4/R10/commands.log
+    - evidence/M4/R10/results.json
+    - evidence/M4/R10/artifact-secret-scan.json
+    - evidence/M4/R10/review.json
+  gate_evaluation: all mapped required tasks complete; gate checks exact acceptance text in DEMO_AND_ACCEPTANCE.md
+- proof: S1
+  acceptance_assertions:
+  - 'Normal response and cancellation succeed through every enumerated Continuity Service, Mnemos and Capsule failure: absent/slow
+    service, locked or missing brain, relay partition, poisoned clock, missing pointer/target, decrypt/signature/schema/oversize
+    failure and corrupted cache.'
+  - Each failure produces the exact typed degraded/stale state and no protected artifact leak.
+  tasks:
+  - id: F10
+    objective: Add continuity-absent conversation fault harness
+    tests: *id005
+    evidence: *id006
+  - id: C11
+    objective: Prove fresh-session identity and immediate fast-head freshness
+    tests: *id007
+    evidence: *id008
+  - id: B15
+    objective: Integrate fail-soft per-turn context into ACP host
+    tests: *id009
+    evidence: *id010
+  - id: B17
+    objective: Run full continuity fault and egress matrix
+    tests: *id011
+    evidence: *id012
+  - id: R08
+    objective: Run recursive replay cancellation and privilege adversarial suite
+    tests: *id013
+    evidence: *id014
+  - id: P10
+    objective: Prove response independence and next-turn fast freshness
+    tests: *id015
+    evidence: *id016
+  gate_evaluation: all mapped required tasks complete; gate checks exact acceptance text in DEMO_AND_ACCEPTANCE.md
+- proof: S2
+  acceptance_assertions:
+  - Secrets and protected bodies are absent from default artifacts.
+  tasks:
+  - id: F18
+    objective: Install cross-artifact secret-safe diagnostics and sentinel scanner
+    tests: *id017
+    evidence: *id018
+  - id: F14
+    objective: Implement structured signing broker and eliminate raw ACP/model keys
+    tests: *id019
+    evidence: *id020
+  - id: C10
+    objective: Run Capsule injection, tamper and authority adversarial suite
+    tests: *id021
+    evidence: *id022
+  - id: B19
+    objective: Separate UI receipt telemetry log crash and debug-export policies
+    tests:
+    - cargo test -p buzz-acp luca_b19
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M3/B19/environment.json
+    - evidence/M3/B19/commands.log
+    - evidence/M3/B19/results.json
+    - evidence/M3/B19/artifact-secret-scan.json
+    - evidence/M3/B19/review.json
+  - id: D06
+    objective: Run integrated security privacy and artifact sweep
+    tests: &id025
+    - cargo test -p buzz-acp luca_d06
+    - just desktop-tauri-test
+    - 'just ci  # milestone integration candidate only'
+    evidence: &id026
+    - evidence/M8/D06/environment.json
+    - evidence/M8/D06/commands.log
+    - evidence/M8/D06/results.json
+    - evidence/M8/D06/artifact-secret-scan.json
+    - evidence/M8/D06/review.json
+  gate_evaluation: all mapped required tasks complete; gate checks exact acceptance text in DEMO_AND_ACCEPTANCE.md
+- proof: S3
+  acceptance_assertions:
+  - Privacy, relay, encryption, egress and ownership copy is exact.
+  tasks:
+  - id: C12
+    objective: Independent G2 cryptography and authority review
+    tests: *id023
+    evidence: *id024
+  - id: B18
+    objective: Independent G3 privacy and architecture review
+    tests:
+    - python3 scripts/validate_planning_kit.py
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M3/B18/environment.json
+    - evidence/M3/B18/commands.log
+    - evidence/M3/B18/results.json
+    - evidence/M3/B18/artifact-secret-scan.json
+    - evidence/M3/B18/review.json
+  - id: L10
+    objective: Independent G6 key-custody and claim review
+    tests:
+    - python3 scripts/validate_planning_kit.py
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M6/L10/environment.json
+    - evidence/M6/L10/commands.log
+    - evidence/M6/L10/results.json
+    - evidence/M6/L10/artifact-secret-scan.json
+    - evidence/M6/L10/review.json
+  - id: D06
+    objective: Run integrated security privacy and artifact sweep
+    tests: *id025
+    evidence: *id026
+  - id: D09
+    objective: Close proof-to-evidence and public-claim matrix
+    tests: &id031
+    - just ci
+    - just desktop-e2e-smoke
+    evidence: &id032
+    - evidence/M8/D09/environment.json
+    - evidence/M8/D09/commands.log
+    - evidence/M8/D09/results.json
+    - evidence/M8/D09/artifact-secret-scan.json
+    - evidence/M8/D09/review.json
+  gate_evaluation: all mapped required tasks complete; gate checks exact acceptance text in DEMO_AND_ACCEPTANCE.md
+- proof: S4
+  acceptance_assertions:
+  - Ingestion and checkpoint pipelines expose liveness and degraded-zero-commit.
+  tasks:
+  - id: B09
+    objective: Build staged folder ingestion with counters and cancellation
+    tests:
+    - pytest -q services/luca-continuity/tests/test_b09.py
+    - just desktop-tauri-test
+    evidence:
+    - evidence/M3/B09/environment.json
+    - evidence/M3/B09/commands.log
+    - evidence/M3/B09/results.json
+    - evidence/M3/B09/artifact-secret-scan.json
+    - evidence/M3/B09/review.json
+  - id: B16
+    objective: Build minimal Brain Setup UI
+    tests:
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/b16.spec.ts --project=smoke
+    evidence:
+    - evidence/M3/B16/environment.json
+    - evidence/M3/B16/commands.log
+    - evidence/M3/B16/results.json
+    - evidence/M3/B16/artifact-secret-scan.json
+    - evidence/M3/B16/review.json
+  - id: B17
+    objective: Run full continuity fault and egress matrix
+    tests: *id011
+    evidence: *id012
+  - id: P08
+    objective: Implement checkpoint crash recovery and duplicate suppression
+    tests: *id027
+    evidence: *id028
+  - id: P09
+    objective: Add continuity current state and liveness UI
+    tests: *id029
+    evidence: *id030
+  - id: P10
+    objective: Prove response independence and next-turn fast freshness
+    tests: *id015
+    evidence: *id016
+  gate_evaluation: all mapped required tasks complete; gate checks exact acceptance text in DEMO_AND_ACCEPTANCE.md
+- proof: S5
+  acceptance_assertions:
+  - Main demo and backup/restore proof run without substitution.
+  tasks:
+  - id: D03
+    objective: Run clean install onboarding and recovery matrix
+    tests:
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/d03.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M8/D03/environment.json
+    - evidence/M8/D03/commands.log
+    - evidence/M8/D03/results.json
+    - evidence/M8/D03/artifact-secret-scan.json
+    - evidence/M8/D03/review.json
+  - id: D07
+    objective: Record uninterrupted main demo
+    tests:
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/d07.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M8/D07/environment.json
+    - evidence/M8/D07/commands.log
+    - evidence/M8/D07/results.json
+    - evidence/M8/D07/artifact-secret-scan.json
+    - evidence/M8/D07/review.json
+  - id: D08
+    objective: Record final resident backup and restore proof
+    tests:
+    - just desktop-test
+    - pnpm --dir desktop exec playwright test tests/e2e/luca/d08.spec.ts --project=smoke
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M8/D08/environment.json
+    - evidence/M8/D08/commands.log
+    - evidence/M8/D08/results.json
+    - evidence/M8/D08/artifact-secret-scan.json
+    - evidence/M8/D08/review.json
+  gate_evaluation: all mapped required tasks complete; gate checks exact acceptance text in DEMO_AND_ACCEPTANCE.md
+- proof: S6
+  acceptance_assertions:
+  - Every public claim maps to passed evidence.
+  tasks:
+  - id: D06
+    objective: Run integrated security privacy and artifact sweep
+    tests: *id025
+    evidence: *id026
+  - id: D09
+    objective: Close proof-to-evidence and public-claim matrix
+    tests: *id031
+    evidence: *id032
+  - id: D10
+    objective: Independent final G8 review and bounded repair loop
+    tests:
+    - python3 scripts/validate_planning_kit.py
+    - 'just ci  # milestone integration candidate only'
+    evidence:
+    - evidence/M8/D10/environment.json
+    - evidence/M8/D10/commands.log
+    - evidence/M8/D10/results.json
+    - evidence/M8/D10/artifact-secret-scan.json
+    - evidence/M8/D10/review.json
+  gate_evaluation: all mapped required tasks complete; gate checks exact acceptance text in DEMO_AND_ACCEPTANCE.md

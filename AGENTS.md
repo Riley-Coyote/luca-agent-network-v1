@@ -568,3 +568,34 @@ just mobile-dev
 - [ARCHITECTURE.md](ARCHITECTURE.md) — system design and component relationships
 - [RELEASING.md](RELEASING.md) — release process: `release-desktop`, `release-relay`, `release-mobile`, auto-tag, internal builds
 - [README.md](README.md) — project overview and quick start
+
+---
+
+## Luca Agent Network V1 — Local Delivery Contract
+
+The upstream Buzz guidance above remains in force. Luca V1 work is governed by
+the vendored, versioned implementation kit in `.codex/luca-v1/`; it is a
+working copy of the authorized V5 planning kit, not a replacement for upstream
+contributor rules.
+
+- Start a task only after its graph dependencies have validated. Use its compact
+  capsule as the source of owned paths, forbidden paths, tests, outputs and
+  review requirements.
+- Preserve Buzz's conversation plane. Do not add a conductor, pass resident
+  secrets to ACP/model descendants, make conversation depend on continuity, or
+  allow context to alter authority, tools, provider, model or budgets.
+- Keep every implementation task to its owned paths and one bounded commit.
+  Task evidence is uncommitted until the integrator intentionally snapshots it.
+  Do not modify source evidence repositories, live memory data, lockfiles or
+  migrations unless the capsule explicitly assigns that work to the integrator.
+- Store raw, redacted command output and receipts under `evidence/M*/<task>/`.
+  Evidence must not contain secrets, protected bodies, or absolute local paths.
+  Use `evidence/templates/` and run `just luca-contracts <task> <base>` before
+  handing work to review.
+- `just ci` is an integration/gate command. Run focused capsule checks first;
+  the integrator records the milestone CI result before the relevant gate.
+
+Vendored-kit corrections are narrowly documented in
+`.codex/luca-v1/CORRECTIONS.md`. Do not edit those contracts ad hoc: record a
+correction with its authoritative source, rationale and scope before relying on
+it.

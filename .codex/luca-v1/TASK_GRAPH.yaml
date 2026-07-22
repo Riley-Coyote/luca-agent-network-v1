@@ -1,0 +1,2010 @@
+schema_version: 5
+project: luca-agent-network-v1
+status: g0_approved_cost_optimized_implementation_ready
+baseline_commit: 7e34bee62cacaa9d8a96c14d5892a471b59a1983
+max_active_lanes: 4
+max_spawn_depth: 1
+lead_mode: high
+global_rules:
+- conversation_plane_never_depends_on_continuity
+- current_luca_mnemos_polyphonic_repos_are_read_only
+- live_mnemos_data_is_never_a_test_fixture
+- one_integrator_owns_manifests_lockfiles_migrations_shared_schemas
+- every_write_has_idempotency_expected_state_and_receipt
+- every_gate_requires_executable_evidence_and_independent_review
+- maximum_two_repair_cycles_before_lead_escalation
+- agent_and_model_descendants_never_receive_resident_keys_or_broker_capability
+- luca_capsule_writes_use_managed_conditional_commit_coordinator
+- context_prepare_writes_nothing_until_separate_post_dispatch_audit
+- all_tasks_resolve_exact_capsules_from_task_capsule_catalog
+milestones:
+- id: M1
+  name: personal_agent_home
+  gate: G1
+  proofs:
+  - P1
+- id: M2
+  name: continuity_capsule
+  gate: G2
+  proofs:
+  - P2
+  - P3
+- id: M3
+  name: universal_brain
+  gate: G3
+  proofs:
+  - P6
+  - S1
+- id: M4
+  name: guarded_rooms
+  gate: G4
+  proofs:
+  - P7
+- id: M5
+  name: post_turn_continuity
+  gate: G5
+  proofs:
+  - P4
+- id: M6
+  name: resident_backup_restore
+  gate: G6
+  proofs:
+  - P5
+- id: M8
+  name: delivery
+  gate: G8
+  proofs:
+  - P1
+  - P2
+  - P3
+  - P4
+  - P5
+  - P6
+  - P7
+  - S1
+  - S2
+  - S3
+  - S4
+  - S5
+  - S6
+tasks:
+- id: G0
+  milestone: M0
+  title: Approve source truth, feasibility and implementation contracts
+  depends_on: []
+  lane: gate
+  risk: critical
+  outputs:
+  - G0_signed_verdict
+  - M0_evidence_index
+  - known_limits
+  type: gate
+  status: passed
+  capsule: G0
+  pass_conditions:
+  - immutable candidate/source snapshot is recorded
+  - required proof states are true with evidence hashes
+  - independent review is complete and every P0/P1 is closed
+  - accepted lower-severity findings are listed in known limits
+  - gate verdict is explicitly PASS; review completion alone is insufficient
+  executor_role: gate_lead
+  reasoning_effort: ultra
+  model: gpt-5.6-sol
+- id: F01
+  milestone: M1
+  title: Create exact-baseline fork and upstream relationship
+  depends_on:
+  - G0
+  lane: integrator
+  risk: high
+  outputs:
+  - fork_commit
+  - upstream_remote
+  - baseline_tag
+  - clean_evidence
+  capsule: F01
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: F02
+  milestone: M1
+  title: Install project instructions, evidence layout and CI contract
+  depends_on:
+  - F01
+  lane: integrator
+  risk: medium
+  outputs:
+  - AGENTS_addendum
+  - evidence_templates
+  - ci_matrix
+  - ownership_resolution
+  - scheduler_mutex_check
+  capsule: F02
+  executor_role: architecture_integrator
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: F13
+  milestone: M1
+  title: Create shared Luca protocol schemas and canonical golden vectors
+  depends_on:
+  - F02
+  lane: integrator
+  risk: critical
+  outputs:
+  - luca_protocol_crate
+  - json_schemas
+  - rfc8785_vectors
+  - safe_diagnostic_schema
+  capsule: F13
+  executor_role: architecture_integrator
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: F18
+  milestone: M1
+  title: Install cross-artifact secret-safe diagnostics and sentinel scanner
+  depends_on:
+  - F13
+  lane: security
+  risk: critical
+  outputs:
+  - redaction_library
+  - sentinel_fixture_set
+  - artifact_scanner
+  - gate_scan_contract
+  capsule: F18
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: F03
+  milestone: M1
+  title: Add central Luca feature flags for deferred Buzz surfaces
+  depends_on:
+  - F02
+  lane: shell
+  risk: medium
+  outputs:
+  - feature_registry
+  - flag_tests
+  capsule: F03
+  executor_role: bounded_worker
+  reasoning_effort: medium
+  model: gpt-5.6-terra
+- id: F04
+  milestone: M1
+  title: Replace public product identity while preserving notices
+  depends_on:
+  - F02
+  lane: shell
+  risk: medium
+  outputs:
+  - app_name
+  - bundle_ids
+  - icons_copy
+  - notice_audit
+  capsule: F04
+  executor_role: bounded_worker
+  reasoning_effort: medium
+  model: gpt-5.6-terra
+- id: F05
+  milestone: M1
+  title: Establish Luca theme tokens and dark personal shell
+  depends_on:
+  - F03
+  - F04
+  lane: shell
+  risk: low
+  outputs:
+  - theme_tokens
+  - responsive_shell
+  - visual_evidence
+  capsule: F05
+  executor_role: bounded_worker
+  reasoning_effort: medium
+  model: gpt-5.6-terra
+- id: F06
+  milestone: M1
+  title: Replace organization-first onboarding with one-owner setup
+  depends_on:
+  - F03
+  lane: shell
+  risk: medium
+  outputs:
+  - owner_onboarding
+  - recovery_disclosure
+  - onboarding_e2e
+  capsule: F06
+  executor_role: bounded_worker
+  reasoning_effort: medium
+  model: gpt-5.6-terra
+- id: F07
+  milestone: M1
+  title: Implement personal navigation and hide deferred surfaces
+  depends_on:
+  - F03
+  - F05
+  lane: shell
+  risk: low
+  outputs:
+  - chats_agents_activity_brain_settings
+  - route_tests
+  capsule: F07
+  executor_role: bounded_worker
+  reasoning_effort: medium
+  model: gpt-5.6-terra
+- id: F08
+  milestone: M1
+  title: Create three deterministic resident fixtures
+  depends_on:
+  - F02
+  lane: runtime
+  risk: medium
+  outputs:
+  - resident_fixtures
+  - isolated_test_keys
+  - provider_stubs
+  capsule: F08
+  executor_role: bounded_worker
+  reasoning_effort: medium
+  model: gpt-5.6-terra
+- id: F14
+  milestone: M1
+  title: Implement structured signing broker and eliminate raw ACP/model keys
+  depends_on:
+  - F08
+  - F13
+  - F18
+  lane: security
+  risk: critical
+  outputs:
+  - desktop_signing_broker
+  - acp_broker_client
+  - typed_operation_policy
+  - installation_attestation
+  - managed_message_outbox
+  - message_publish_schema_vectors
+  - descendant_environment_proof
+  capsule: F14
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: F19
+  milestone: M1
+  title: Implement protected owner-identity backup and import recovery
+  depends_on:
+  - F06
+  - F14
+  lane: security
+  risk: critical
+  outputs:
+  - protected_owner_backup
+  - zero_write_import_preview
+  - keychain_readback
+  - same_pubkey_recovery_tests
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  capsule: F19
+  model: gpt-5.6-sol
+- id: F15
+  milestone: M1
+  title: Implement durable resident registry and direct setup UI
+  depends_on:
+  - F07
+  - F14
+  lane: runtime
+  risk: high
+  outputs:
+  - resident_registry
+  - persona_runtime_bindings
+  - three_resident_setup_e2e
+  capsule: F15
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: F09
+  milestone: M1
+  title: Lock upstream direct chat and room behavior with Luca fixtures
+  depends_on:
+  - F07
+  - F08
+  - F14
+  lane: runtime
+  risk: high
+  outputs:
+  - stream_cancel_reconnect_replay_restart_tests
+  - signed_trace
+  capsule: F09
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: F10
+  milestone: M1
+  title: Add continuity-absent conversation fault harness
+  depends_on:
+  - F09
+  lane: reliability
+  risk: high
+  outputs:
+  - service_absent_fixture
+  - conversation_survival_trace
+  capsule: F10
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: F11
+  milestone: M1
+  title: Verify native shell, windows, focus and clean-profile startup
+  depends_on:
+  - F04
+  - F05
+  - F06
+  - F07
+  - F09
+  lane: quality
+  risk: medium
+  outputs:
+  - installed_app_smoke
+  - screenshots
+  - console_log
+  capsule: F11
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: F16
+  milestone: M1
+  title: Prove one live ACP provider and protected owner identity recovery
+  depends_on:
+  - F09
+  - F15
+  - F19
+  lane: quality
+  risk: critical
+  outputs:
+  - live_provider_trace
+  - owner_recovery_trace
+  - same_resident_signature_proof
+  capsule: F16
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: F17
+  milestone: M1
+  title: Prove retained threads attachments media and search in installed app
+  depends_on:
+  - F11
+  lane: quality
+  risk: high
+  outputs:
+  - retained_surface_smoke
+  - installed_app_recording
+  - search_attachment_thread_trace
+  capsule: F17
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: F12
+  milestone: M1
+  title: Independent G1 architecture and product review
+  depends_on:
+  - F10
+  - F11
+  - F16
+  - F17
+  lane: review
+  risk: high
+  outputs:
+  - G1_verdict
+  - repair_list
+  capsule: F12
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: G1
+  milestone: M1
+  title: Pass personal-agent-home gate
+  depends_on:
+  - F12
+  lane: gate
+  risk: critical
+  outputs:
+  - G1_signed_verdict
+  - evidence_hashes
+  - closed_findings
+  - accepted_known_limits
+  type: gate
+  capsule: G1
+  pass_conditions:
+  - immutable candidate/source snapshot is recorded
+  - required proof states are true with evidence hashes
+  - independent review is complete and every P0/P1 is closed
+  - accepted lower-severity findings are listed in known limits
+  - gate verdict is explicitly PASS; review completion alone is insufficient
+  executor_role: gate_lead
+  reasoning_effort: ultra
+  model: gpt-5.6-sol
+- id: C01
+  milestone: M2
+  title: Implement Capsule schemas, budgets and declarative renderer
+  depends_on:
+  - G1
+  lane: capsule
+  risk: high
+  outputs:
+  - segment_schema
+  - provenance_schema
+  - renderer_tests
+  capsule: C01
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: C02
+  milestone: M2
+  title: Add structured application key-service commands
+  depends_on:
+  - C01
+  - F13
+  - F14
+  lane: integrator
+  risk: critical
+  outputs:
+  - key_service_api
+  - authority_tests
+  - redaction_tests
+  capsule: C02
+  executor_role: architecture_integrator
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: C03
+  milestone: M2
+  title: Implement six-slug NIP-AE reader and validation
+  depends_on:
+  - C01
+  lane: capsule
+  risk: high
+  outputs:
+  - head_reader
+  - invalid_state_codes
+  - vector_tests
+  capsule: C03
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: C04
+  milestone: M2
+  title: Implement verified head cache and encrypted local version archive
+  depends_on:
+  - C03
+  lane: capsule
+  risk: high
+  outputs:
+  - cache
+  - archive
+  - offline_stale_state
+  - rollback_tests
+  capsule: C04
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: C15
+  milestone: M2
+  title: Implement encrypted local Capsule archive and signed-event outbox lifecycle
+  depends_on:
+  - C02
+  - C04
+  lane: capsule
+  risk: critical
+  outputs:
+  - xchacha_envelope
+  - keychain_key_lifecycle
+  - rotation_journal
+  - aad_nonce_backup_tests
+  capsule: C15
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: C05
+  milestone: M2
+  title: Load slow Capsule segments at ACP session creation
+  depends_on:
+  - C03
+  - F09
+  lane: runtime
+  risk: high
+  outputs:
+  - slow_loader
+  - render_order_tests
+  capsule: C05
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: C06
+  milestone: M2
+  title: Load fast Capsule segments on every eligible turn
+  depends_on:
+  - C03
+  - F09
+  lane: runtime
+  risk: high
+  outputs:
+  - fast_loader
+  - used_head_receipt
+  - freshness_test
+  capsule: C06
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: C16
+  milestone: M2
+  title: Apply the single-writer coordinator database migration
+  depends_on:
+  - C01
+  lane: integrator
+  risk: critical
+  outputs:
+  - coordinator_migration
+  - schema_version_guard
+  - forward_rollback_tests
+  executor_role: single_writer_migration_integrator
+  reasoning_effort: high
+  capsule: C16
+  model: gpt-5.6-terra
+- id: C13
+  milestone: M2
+  title: Implement managed Capsule conditional-commit coordinator
+  depends_on:
+  - C01
+  - C02
+  - C03
+  - C16
+  - F13
+  lane: relay
+  risk: critical
+  outputs:
+  - coordinator_schema
+  - conditional_commit_api
+  - writer_epoch
+  - idempotent_receipts
+  - canonical_commit_receipt_enforcement
+  - canonical_transfer_receipt_enforcement
+  - attestation_registration
+  - concurrency_tests
+  capsule: C13
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: C07
+  milestone: M2
+  title: Commit Capsule heads through managed conditional coordinator
+  depends_on:
+  - C02
+  - C03
+  - C04
+  - C13
+  - C15
+  lane: capsule
+  risk: critical
+  outputs:
+  - typed_write_command
+  - managed_commit_receipt
+  - current_pointer
+  - idempotency_conflict_tests
+  capsule: C07
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: C08
+  milestone: M2
+  title: Build owner slow-segment editor and session recycle behavior
+  depends_on:
+  - C05
+  - C07
+  lane: shell
+  risk: high
+  outputs:
+  - editor
+  - provenance_copy
+  - selective_recycle_test
+  capsule: C08
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: C09
+  milestone: M2
+  title: Add Capsule status and liveness counters
+  depends_on:
+  - C04
+  - C06
+  - C07
+  lane: reliability
+  risk: medium
+  outputs:
+  - health_state
+  - counters
+  - degraded_zero_commit_test
+  capsule: C09
+  executor_role: bounded_worker
+  reasoning_effort: medium
+  model: gpt-5.6-terra
+- id: C10
+  milestone: M2
+  title: Run Capsule injection, tamper and authority adversarial suite
+  depends_on:
+  - C02
+  - C06
+  - C07
+  - C08
+  lane: security
+  risk: critical
+  outputs:
+  - adversarial_report
+  - artifact_secret_scan
+  capsule: C10
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: C11
+  milestone: M2
+  title: Prove fresh-session identity and immediate fast-head freshness
+  depends_on:
+  - C06
+  - C08
+  - C09
+  lane: quality
+  risk: high
+  outputs:
+  - restart_recording
+  - runtime_ids
+  - head_trace
+  capsule: C11
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: C14
+  milestone: M2
+  title: Prove coordinator authentication backup restore outage and fanout recovery
+  depends_on:
+  - C13
+  lane: relay
+  risk: critical
+  outputs:
+  - deployment_manifest
+  - auth_tests
+  - attestation_channel_proof
+  - receipt_retention_fetch_vectors
+  - backup_restore_drill
+  - outage_fanout_recovery_trace
+  capsule: C14
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: C12
+  milestone: M2
+  title: Independent G2 cryptography and authority review
+  depends_on:
+  - C10
+  - C11
+  - C14
+  lane: review
+  risk: critical
+  outputs:
+  - G2_verdict
+  - repair_list
+  capsule: C12
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: G2
+  milestone: M2
+  title: Pass Continuity Capsule gate
+  depends_on:
+  - C12
+  lane: gate
+  risk: critical
+  outputs:
+  - G2_signed_verdict
+  - evidence_hashes
+  - closed_findings
+  - accepted_known_limits
+  type: gate
+  capsule: G2
+  pass_conditions:
+  - immutable candidate/source snapshot is recorded
+  - required proof states are true with evidence hashes
+  - independent review is complete and every P0/P1 is closed
+  - accepted lower-severity findings are listed in known limits
+  - gate verdict is explicitly PASS; review completion alone is insufficient
+  executor_role: gate_lead
+  reasoning_effort: ultra
+  model: gpt-5.6-sol
+- id: B01
+  milestone: M3
+  title: Create versioned Continuity Service package and protocol types
+  depends_on:
+  - G1
+  lane: brain
+  risk: high
+  outputs:
+  - service_package
+  - protocol_types
+  - compatibility_tests
+  capsule: B01
+  executor_role: architecture_integrator
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: B02
+  milestone: M3
+  title: Implement exclusive framed sidecar pipes and replay limits
+  depends_on:
+  - B01
+  lane: brain
+  risk: critical
+  outputs:
+  - framed_pipe_protocol
+  - epoch_sequence_limits
+  - spoof_replay_tests
+  capsule: B02
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: B03
+  milestone: M3
+  title: Adapt Luca daemon supervision and vector health
+  depends_on:
+  - B01
+  - B02
+  lane: reliability
+  risk: high
+  outputs:
+  - supervisor
+  - restart_policy
+  - component_health
+  capsule: B03
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: B20
+  milestone: M3
+  title: Package and prove the Continuity Service without ambient Python
+  depends_on:
+  - B02
+  - B03
+  - F04
+  lane: brain
+  risk: high
+  outputs:
+  - pinned_pyinstaller_onedir
+  - license_inventory
+  - tauri_sidecar_bundle
+  - clean_machine_launch
+  capsule: B20
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: B04
+  milestone: M3
+  title: Implement authenticated Mnemos profile resolver
+  depends_on:
+  - B02
+  lane: brain
+  risk: high
+  outputs:
+  - profile_inventory
+  - logical_resolution_tests
+  capsule: B04
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: B24
+  milestone: M3
+  title: Apply the single-writer memory-policy overlay migration
+  depends_on:
+  - B01
+  lane: integrator
+  risk: critical
+  outputs:
+  - policy_overlay_migration
+  - policy_revision_schema
+  - forward_rollback_tests
+  executor_role: single_writer_migration_integrator
+  reasoning_effort: high
+  capsule: B24
+  model: gpt-5.6-terra
+- id: B05
+  milestone: M3
+  title: Implement V1 visibility, egress and app-owned policy overlay rules
+  depends_on:
+  - B01
+  - B24
+  - F13
+  lane: integrator
+  risk: critical
+  outputs:
+  - policy_implementation
+  - default_rules
+  - migration_preview
+  capsule: B05
+  executor_role: architecture_integrator
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: B06
+  milestone: M3
+  title: Implement pure access decision and exhaustive truth table
+  depends_on:
+  - B05
+  lane: security
+  risk: critical
+  outputs:
+  - access_function
+  - exhaustive_tests
+  capsule: B06
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: B21
+  milestone: M3
+  title: Implement legacy count-only classification and policy overlay
+  depends_on:
+  - B04
+  - B05
+  - B06
+  - B24
+  lane: brain
+  risk: critical
+  outputs:
+  - policy_overlay_store
+  - classification_preview
+  - unknown_denial
+  - transaction_tests
+  capsule: B21
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: B23
+  milestone: M3
+  title: Build the versioned immutable brain-and-policy read snapshot
+  depends_on:
+  - B04
+  - B21
+  - F13
+  lane: brain
+  risk: critical
+  outputs:
+  - snapshot_refresh_saga
+  - atomic_manifest_pointer
+  - policy_revision_binding
+  - receipt_snapshot_manifest_binding
+  - source_snapshot_token
+  - snapshot_staleness_tests
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  capsule: B23
+  model: gpt-5.6-sol
+- id: B07
+  milestone: M3
+  title: Implement safe provenance projection and path redaction
+  depends_on:
+  - B05
+  lane: brain
+  risk: high
+  outputs:
+  - safe_labels
+  - opaque_source_ids
+  - redaction_tests
+  capsule: B07
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: B08
+  milestone: M3
+  title: Build idempotent folder discovery and source manifest
+  depends_on:
+  - B04
+  - B05
+  - B07
+  lane: ingestion
+  risk: high
+  outputs:
+  - folder_manifest
+  - symlink_tests
+  - format_allowlist
+  capsule: B08
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: B09
+  milestone: M3
+  title: Build staged folder ingestion with counters and cancellation
+  depends_on:
+  - B08
+  lane: ingestion
+  risk: high
+  outputs:
+  - ingestion_run
+  - provenance_records
+  - partial_failure_tests
+  capsule: B09
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: B10
+  milestone: M3
+  title: Implement prefiltered zero-write retrieval adapter
+  depends_on:
+  - B04
+  - B06
+  - B07
+  - B21
+  - B23
+  lane: brain
+  risk: critical
+  outputs:
+  - authorized_candidate_query
+  - no_reconsolidation_path
+  - archive_exclusion
+  - retrieval_tests
+  capsule: B10
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: B22
+  milestone: M3
+  title: Implement exact prefer-then-global and global relevance semantics
+  depends_on:
+  - B10
+  - B21
+  lane: brain
+  risk: high
+  outputs:
+  - relevance_modes
+  - person_project_bindings
+  - widening_receipt_tests
+  capsule: B22
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: B11
+  milestone: M3
+  title: Prove byte and logical immutability of every turn path
+  depends_on:
+  - B10
+  lane: quality
+  risk: critical
+  outputs:
+  - before_after_hashes
+  - mutation_log
+  - wrong_project_regression
+  capsule: B11
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: B12
+  milestone: M3
+  title: Implement deterministic context renderer and budgets
+  depends_on:
+  - B07
+  - B10
+  lane: brain
+  risk: high
+  outputs:
+  - renderer
+  - truncation_tests
+  - injection_labels
+  capsule: B12
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: B13
+  milestone: M3
+  title: Implement ephemeral prepare receipts and post-dispatch audit receipts
+  depends_on:
+  - B07
+  - B10
+  - B12
+  - F13
+  lane: brain
+  risk: high
+  outputs:
+  - ephemeral_prepare_receipt
+  - post_dispatch_audit_store
+  - source_resolver
+  - no_dispatch_no_write_test
+  capsule: B13
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: B14
+  milestone: M3
+  title: Bind dispatch snapshot and guard the final complete provider request
+  depends_on:
+  - B06
+  - B12
+  lane: security
+  risk: critical
+  outputs:
+  - dispatch_snapshot
+  - final_semantic_request_guard
+  - revocation_substitution_races
+  - remote_payload_capture
+  capsule: B14
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: B15
+  milestone: M3
+  title: Integrate fail-soft per-turn context into ACP host
+  depends_on:
+  - B02
+  - B03
+  - B12
+  - B13
+  - B14
+  - B20
+  - B22
+  - C06
+  - G2
+  lane: runtime
+  risk: critical
+  outputs:
+  - turn_hook
+  - timeout_states
+  - conversation_fallback
+  capsule: B15
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: B16
+  milestone: M3
+  title: Build minimal Brain Setup UI
+  depends_on:
+  - B04
+  - B09
+  - B13
+  lane: shell
+  risk: medium
+  outputs:
+  - profile_or_folder_flow
+  - disclosure_copy
+  - progress_states
+  capsule: B16
+  executor_role: bounded_worker
+  reasoning_effort: medium
+  model: gpt-5.6-terra
+- id: B19
+  milestone: M3
+  title: Separate UI receipt telemetry log crash and debug-export policies
+  depends_on:
+  - B13
+  - B15
+  lane: security
+  risk: critical
+  outputs:
+  - artifact_schemas
+  - label_path_exception_redaction
+  - debug_export_scan
+  capsule: B19
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: B17
+  milestone: M3
+  title: Run full continuity fault and egress matrix
+  depends_on:
+  - B11
+  - B14
+  - B15
+  - B16
+  - B19
+  - B20
+  - B21
+  - B22
+  - B23
+  lane: quality
+  risk: critical
+  outputs:
+  - complete_capsule_brain_fault_matrix
+  - typed_statuses
+  - normal_response_cancel_traces
+  - paired_answer
+  - access_trace
+  capsule: B17
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: B18
+  milestone: M3
+  title: Independent G3 privacy and architecture review
+  depends_on:
+  - B17
+  lane: review
+  risk: critical
+  outputs:
+  - G3_verdict
+  - repair_list
+  capsule: B18
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: G3
+  milestone: M3
+  title: Pass universal-brain gate
+  depends_on:
+  - B18
+  lane: gate
+  risk: critical
+  outputs:
+  - G3_signed_verdict
+  - evidence_hashes
+  - closed_findings
+  - accepted_known_limits
+  type: gate
+  capsule: G3
+  pass_conditions:
+  - immutable candidate/source snapshot is recorded
+  - required proof states are true with evidence hashes
+  - independent review is complete and every P0/P1 is closed
+  - accepted lower-severity findings are listed in known limits
+  - gate verdict is explicitly PASS; review completion alone is insufficient
+  executor_role: gate_lead
+  reasoning_effort: ultra
+  model: gpt-5.6-sol
+- id: R01
+  milestone: M4
+  title: Define root causal envelope and immutable inheritance
+  depends_on:
+  - G1
+  lane: rooms
+  risk: high
+  outputs:
+  - causal_schema
+  - inheritance_tests
+  capsule: R01
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: R10
+  milestone: M4
+  title: Apply the single-writer causal-ledger migration
+  depends_on:
+  - R01
+  lane: integrator
+  risk: critical
+  outputs:
+  - causal_ledger_migration
+  - reservation_schema
+  - forward_rollback_tests
+  executor_role: single_writer_migration_integrator
+  reasoning_effort: high
+  capsule: R10
+  model: gpt-5.6-terra
+- id: R02
+  milestone: M4
+  title: Implement SQLite root ledger with atomic budget reservations
+  depends_on:
+  - R01
+  - R10
+  lane: rooms
+  risk: critical
+  outputs:
+  - root_ledger
+  - atomic_reservations
+  - dispatch_receipts
+  - concurrency_replay_tests
+  capsule: R02
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: R03
+  milestone: M4
+  title: Enforce explicit mentions depth deadline turn token and spend caps
+  depends_on:
+  - R02
+  lane: rooms
+  risk: critical
+  outputs:
+  - dispatch_guard
+  - boundary_tests
+  capsule: R03
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: R04
+  milestone: M4
+  title: Implement root cancellation without late finals
+  depends_on:
+  - R02
+  - R03
+  lane: runtime
+  risk: critical
+  outputs:
+  - cancellation_tree
+  - late_effect_tests
+  capsule: R04
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: R05
+  milestone: M4
+  title: Adapt and prove Buzz existing signed resident-to-resident mention dispatch
+  depends_on:
+  - R03
+  - R04
+  - F09
+  lane: rooms
+  risk: high
+  outputs:
+  - signed_mention_dispatch
+  - operational_prerequisite_tests
+  - no_conductor_trace
+  capsule: R05
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: R06
+  milestone: M4
+  title: Reauthorize brain access for every responding resident
+  depends_on:
+  - R05
+  - B15
+  lane: security
+  risk: critical
+  outputs:
+  - responder_binding
+  - cross_agent_isolation_capture
+  capsule: R06
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: R07
+  milestone: M4
+  title: Adapt activity states for causal room work
+  depends_on:
+  - R05
+  lane: shell
+  risk: medium
+  outputs:
+  - activity_states
+  - root_attribution
+  capsule: R07
+  executor_role: bounded_worker
+  reasoning_effort: medium
+  model: gpt-5.6-terra
+- id: R08
+  milestone: M4
+  title: Run recursive replay cancellation and privilege adversarial suite
+  depends_on:
+  - G3
+  - R04
+  - R06
+  - R07
+  lane: quality
+  risk: critical
+  outputs:
+  - recursive_trace
+  - spend_trace
+  - access_trace
+  capsule: R08
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: R09
+  milestone: M4
+  title: Independent G4 multi-agent safety review
+  depends_on:
+  - R08
+  lane: review
+  risk: critical
+  outputs:
+  - G4_verdict
+  - repair_list
+  capsule: R09
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: G4
+  milestone: M4
+  title: Pass guarded-rooms gate
+  depends_on:
+  - R09
+  lane: gate
+  risk: critical
+  outputs:
+  - G4_signed_verdict
+  - evidence_hashes
+  - closed_findings
+  - accepted_known_limits
+  type: gate
+  capsule: G4
+  pass_conditions:
+  - immutable candidate/source snapshot is recorded
+  - required proof states are true with evidence hashes
+  - independent review is complete and every P0/P1 is closed
+  - accepted lower-severity findings are listed in known limits
+  - gate verdict is explicitly PASS; review completion alone is insufficient
+  executor_role: gate_lead
+  reasoning_effort: ultra
+  model: gpt-5.6-sol
+- id: P13
+  milestone: M5
+  title: Apply the single-writer checkpoint-control migration
+  depends_on:
+  - G2
+  lane: integrator
+  risk: critical
+  outputs:
+  - checkpoint_control_migration
+  - lease_epoch_schema
+  - forward_rollback_tests
+  executor_role: single_writer_migration_integrator
+  reasoning_effort: high
+  capsule: P13
+  model: gpt-5.6-terra
+- id: P01
+  milestone: M5
+  title: Implement durable checkpoint receipt state machine
+  depends_on:
+  - G2
+  - P13
+  lane: checkpoint
+  risk: critical
+  outputs:
+  - receipt_store
+  - lease_epoch_recovery
+  - transition_tests
+  capsule: P01
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: P02
+  milestone: M5
+  title: Implement deterministic checkpoint qualification
+  depends_on:
+  - P01
+  lane: checkpoint
+  risk: high
+  outputs:
+  - idempotency_first_qualifier
+  - replayed_terminal_result
+  - not_qualified_reasons
+  - fixtures
+  capsule: P02
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: P03
+  milestone: M5
+  title: Build verified canonical-event checkpoint envelope
+  depends_on:
+  - P02
+  lane: runtime
+  risk: high
+  outputs:
+  - envelope_builder
+  - clipping_tests
+  - no_plaintext_receipt
+  capsule: P03
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: P04
+  milestone: M5
+  title: Extract bounded digest and thread proposal behavior
+  depends_on:
+  - P03
+  - B01
+  - B02
+  lane: checkpoint
+  risk: high
+  outputs:
+  - proposal_operation
+  - trusted_provider_binding
+  - schema_validation
+  - budgets
+  capsule: P04
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: P12
+  milestone: M5
+  title: Dispatch checkpoint provider calls through the desktop final-request guard
+  depends_on:
+  - P04
+  - B14
+  - G3
+  lane: checkpoint
+  risk: critical
+  outputs:
+  - desktop_checkpoint_dispatcher
+  - guarded_provider_request
+  - validated_response_handoff
+  - checkpoint_build_hash_vectors
+  - checkpoint_egress_capture
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  capsule: P12
+  model: gpt-5.6-sol
+- id: P05
+  milestone: M5
+  title: Build salience and abstention golden corpus
+  depends_on:
+  - P04
+  lane: quality
+  risk: medium
+  outputs:
+  - golden_corpus
+  - no_change_cases
+  - regression_runner
+  capsule: P05
+  executor_role: bounded_worker
+  reasoning_effort: medium
+  model: gpt-5.6-terra
+- id: P06
+  milestone: M5
+  title: Validate proposals at application signing boundary
+  depends_on:
+  - B14
+  - C02
+  - G3
+  - P04
+  - P12
+  lane: security
+  risk: critical
+  outputs:
+  - proposal_validator
+  - slow_tier_rejection
+  - exact_payload_egress
+  - checkpoint_validate_hash_vectors
+  capsule: P06
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: P07
+  milestone: M5
+  title: Commit digest and threads through managed coordinator
+  depends_on:
+  - P01
+  - P06
+  - C07
+  - C13
+  lane: checkpoint
+  risk: critical
+  outputs:
+  - versioned_candidates
+  - managed_current_pointer_commit
+  - lease_cancel_race_tests
+  capsule: P07
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: P08
+  milestone: M5
+  title: Implement checkpoint crash recovery and duplicate suppression
+  depends_on:
+  - P07
+  lane: reliability
+  risk: critical
+  outputs:
+  - recovery_scanner
+  - replayed_terminal_state
+  - crash_point_tests
+  - revision_receipts
+  capsule: P08
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: P09
+  milestone: M5
+  title: Add continuity current state and liveness UI
+  depends_on:
+  - P01
+  - P07
+  - P08
+  lane: shell
+  risk: medium
+  outputs:
+  - updating_current_degraded_states
+  - counters
+  capsule: P09
+  executor_role: bounded_worker
+  reasoning_effort: medium
+  model: gpt-5.6-terra
+- id: P10
+  milestone: M5
+  title: Prove response independence and next-turn fast freshness
+  depends_on:
+  - B14
+  - B15
+  - C06
+  - G3
+  - P05
+  - P08
+  - P09
+  lane: quality
+  risk: critical
+  outputs:
+  - fault_trace
+  - immediate_next_turn_trace
+  - zero_commit_degraded
+  capsule: P10
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: P11
+  milestone: M5
+  title: Independent G5 exactly-once and continuity review
+  depends_on:
+  - P10
+  lane: review
+  risk: critical
+  outputs:
+  - G5_verdict
+  - repair_list
+  capsule: P11
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: G5
+  milestone: M5
+  title: Pass post-turn-continuity gate
+  depends_on:
+  - P11
+  lane: gate
+  risk: critical
+  outputs:
+  - G5_signed_verdict
+  - evidence_hashes
+  - closed_findings
+  - accepted_known_limits
+  type: gate
+  capsule: G5
+  pass_conditions:
+  - immutable candidate/source snapshot is recorded
+  - required proof states are true with evidence hashes
+  - independent review is complete and every P0/P1 is closed
+  - accepted lower-severity findings are listed in known limits
+  - gate verdict is explicitly PASS; review completion alone is insufficient
+  executor_role: gate_lead
+  reasoning_effort: ultra
+  model: gpt-5.6-sol
+- id: L01
+  milestone: M6
+  title: Pin and review age dependency and protected-file UX
+  depends_on:
+  - G2
+  lane: relocation
+  risk: critical
+  outputs:
+  - dependency_ADR
+  - license_record
+  - passphrase_policy
+  capsule: L01
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: L02
+  milestone: M6
+  title: Implement canonical resident bundle schema and limits
+  depends_on:
+  - L01
+  lane: relocation
+  risk: high
+  outputs:
+  - bundle_schema
+  - canonicalizer
+  - duplicate_field_tests
+  capsule: L02
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: L11
+  milestone: M6
+  title: Apply the single-writer resident-restore journal migration
+  depends_on:
+  - L02
+  lane: integrator
+  risk: critical
+  outputs:
+  - restore_journal_migration
+  - inactive_stage_schema
+  - forward_rollback_tests
+  executor_role: single_writer_migration_integrator
+  reasoning_effort: high
+  capsule: L11
+  model: gpt-5.6-terra
+- id: L03
+  milestone: M6
+  title: Implement protected resident backup and readback verification
+  depends_on:
+  - L02
+  - C02
+  - C03
+  lane: relocation
+  risk: critical
+  outputs:
+  - stream_export
+  - readback_verify
+  - secret_scan
+  capsule: L03
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: L04
+  milestone: M6
+  title: Implement zero-write import preview and full verification
+  depends_on:
+  - L02
+  - C03
+  lane: relocation
+  risk: critical
+  outputs:
+  - preview
+  - owner_binding
+  - event_verification
+  - tamper_tests
+  capsule: L04
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: L05
+  milestone: M6
+  title: Implement journaled inactive-stage resident restore saga
+  depends_on:
+  - C02
+  - C04
+  - F15
+  - L03
+  - L04
+  - L11
+  lane: integrator
+  risk: critical
+  outputs:
+  - restore_journal
+  - inactive_staging
+  - keychain_readback
+  - compensating_recovery
+  capsule: L05
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-sol
+- id: L06
+  milestone: M6
+  title: Restore exact signed events and transfer active writer epoch
+  depends_on:
+  - L05
+  - C07
+  lane: relocation
+  risk: high
+  outputs:
+  - exact_event_restore
+  - writer_epoch_transfer
+  - relay_tests
+  capsule: L06
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: L07
+  milestone: M6
+  title: Build distinct template-duplicate and resident-backup UI
+  depends_on:
+  - L03
+  - L04
+  - L05
+  lane: shell
+  risk: high
+  outputs:
+  - copy
+  - reauth
+  - preview_confirm
+  - recovery_states
+  capsule: L07
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: L08
+  milestone: M6
+  title: Run tamper secret and partial-import adversarial suite
+  depends_on:
+  - L05
+  - L06
+  - L07
+  lane: security
+  risk: critical
+  outputs:
+  - adversarial_report
+  - destination_state_diffs
+  capsule: L08
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: L09
+  milestone: M6
+  title: Execute clean-environment backup and restore proof
+  depends_on:
+  - L08
+  - G3
+  - G5
+  lane: quality
+  risk: critical
+  outputs:
+  - two_environment_recording
+  - identity_head_comparison
+  capsule: L09
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: L10
+  milestone: M6
+  title: Independent G6 key-custody and claim review
+  depends_on:
+  - L09
+  lane: review
+  risk: critical
+  outputs:
+  - G6_verdict
+  - repair_list
+  capsule: L10
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: G6
+  milestone: M6
+  title: Pass resident-backup-and-restore gate
+  depends_on:
+  - L10
+  lane: gate
+  risk: critical
+  outputs:
+  - G6_signed_verdict
+  - evidence_hashes
+  - closed_findings
+  - accepted_known_limits
+  type: gate
+  capsule: G6
+  pass_conditions:
+  - immutable candidate/source snapshot is recorded
+  - required proof states are true with evidence hashes
+  - independent review is complete and every P0/P1 is closed
+  - accepted lower-severity findings are listed in known limits
+  - gate verdict is explicitly PASS; review completion alone is insufficient
+  executor_role: gate_lead
+  reasoning_effort: ultra
+  model: gpt-5.6-sol
+- id: D01
+  milestone: M8
+  title: Complete public rebrand and upstream notice audit
+  depends_on:
+  - G3
+  - G4
+  - G5
+  - G6
+  lane: release
+  risk: high
+  outputs:
+  - brand_scan
+  - license_bundle
+  capsule: D01
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: D02
+  milestone: M8
+  title: Build signed distributable desktop candidate
+  depends_on:
+  - B20
+  - D01
+  lane: integrator
+  risk: high
+  outputs:
+  - signed_bundle_manifest
+  - codesign_verification
+  - installed_launch_smoke
+  - build_pipeline
+  capsule: D02
+  executor_role: architecture_integrator
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: D03
+  milestone: M8
+  title: Run clean install onboarding and recovery matrix
+  depends_on:
+  - D02
+  lane: quality
+  risk: high
+  outputs:
+  - clean_install_recording
+  - recovery_report
+  capsule: D03
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: D04
+  milestone: M8
+  title: Measure launch idle recall replay checkpoint and room budgets
+  depends_on:
+  - D02
+  lane: performance
+  risk: medium
+  outputs:
+  - performance_report
+  - regressions
+  capsule: D04
+  executor_role: bounded_worker
+  reasoning_effort: medium
+  model: gpt-5.6-terra
+- id: D05
+  milestone: M8
+  title: Audit native windows keyboard focus accessibility and overflow
+  depends_on:
+  - D02
+  lane: quality
+  risk: medium
+  outputs:
+  - accessibility_report
+  - visual_matrix
+  capsule: D05
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: D06
+  milestone: M8
+  title: Run integrated security privacy and artifact sweep
+  depends_on:
+  - D02
+  - L10
+  - R09
+  - P11
+  - B18
+  lane: security
+  risk: critical
+  outputs:
+  - security_verdict
+  - storage_encryption_inventory
+  - artifact_scan
+  - egress_capture
+  capsule: D06
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: D07
+  milestone: M8
+  title: Record uninterrupted main demo
+  depends_on:
+  - D03
+  - D04
+  - D05
+  - D06
+  lane: quality
+  risk: high
+  outputs:
+  - main_demo
+  - environment_manifest
+  capsule: D07
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: D08
+  milestone: M8
+  title: Record final resident backup and restore proof
+  depends_on:
+  - D03
+  - D06
+  - L10
+  lane: quality
+  risk: critical
+  outputs:
+  - backup_restore_demo
+  - tamper_demo
+  capsule: D08
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: D09
+  milestone: M8
+  title: Close proof-to-evidence and public-claim matrix
+  depends_on:
+  - D07
+  - D08
+  lane: release
+  risk: critical
+  outputs:
+  - evidence_index
+  - claim_audit
+  - known_limits
+  capsule: D09
+  executor_role: bounded_critical_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: D10
+  milestone: M8
+  title: Independent final G8 review and bounded repair loop
+  depends_on:
+  - D09
+  lane: review
+  risk: critical
+  outputs:
+  - G8_verdict
+  - residual_risks
+  capsule: D10
+  executor_role: independent_reviewer
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: G8
+  milestone: M8
+  title: Pass integrated design-partner gate
+  depends_on:
+  - D10
+  lane: gate
+  risk: critical
+  outputs:
+  - G8_signed_verdict
+  - evidence_hashes
+  - closed_findings
+  - accepted_known_limits
+  type: gate
+  capsule: G8
+  pass_conditions:
+  - immutable candidate/source snapshot is recorded
+  - required proof states are true with evidence hashes
+  - independent review is complete and every P0/P1 is closed
+  - accepted lower-severity findings are listed in known limits
+  - gate verdict is explicitly PASS; review completion alone is insufficient
+  executor_role: gate_lead
+  reasoning_effort: ultra
+  model: gpt-5.6-sol
+- id: D11
+  milestone: M8
+  title: Produce design-partner candidate
+  depends_on:
+  - G8
+  lane: integrator
+  risk: high
+  outputs:
+  - candidate_build
+  - recovery_docs
+  - release_notes
+  capsule: D11
+  post_gate: true
+  executor_role: bounded_worker
+  reasoning_effort: high
+  model: gpt-5.6-terra
+- id: D12
+  milestone: M8
+  title: Complete non-author seven-day use before public V1
+  depends_on:
+  - D11
+  lane: external
+  risk: critical
+  outputs:
+  - usage_evidence
+  - issue_closure
+  - public_release_decision
+  capsule: D12
+  post_gate: true
+  executor_role: human_approver
+  reasoning_effort: none
+  model: human
+ownership_policy:
+  mode: single_writer
+  single_writer_paths:
+    crates/buzz-db/migrations/luca_capsule/**: C16
+    desktop/src-tauri/migrations/luca_memory_policy/**: B24
+    desktop/src-tauri/migrations/luca_causal/**: R10
+    desktop/src-tauri/migrations/luca_checkpoint/**: P13
+    desktop/src-tauri/migrations/luca_restore/**: L11
+  rule: Every other task forbids **/migrations/**; the named migration integrator is the sole writer.
+execution_policy:
+  persistent_lead:
+    model: gpt-5.6-sol
+    reasoning_effort: high
+  ultra_scope: explicit gate tasks only; compact evidence in, verdict out
+  routing_counts:
+    gpt-5.6-terra: 79
+    gpt-5.6-sol_high: 25
+    gpt-5.6-sol_ultra: 8
+    human: 1
+  future_execution_sessions:
+    lane_sessions: 20
+    ultra_gate_sessions: 7
+    total: 27
+  escalation:
+  - Terra receives one focused repair cycle before Sol escalation.
+  - Sol-high escalates to Ultra only for a contract contradiction or a gate verdict.
+  - No worker receives the full planning kit; dispatch the exact compact capsule and required contract slices.
