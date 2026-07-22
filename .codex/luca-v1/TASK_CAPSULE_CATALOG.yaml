@@ -175,6 +175,8 @@ task_capsules:
     - .codex/**
     - evidence/templates/**
     - scripts/evidence/validate_contracts.py
+    - scripts/validate_planning_kit.py
+    - scripts/tests/test_validate_planning_kit.py
     - Justfile
     - evidence/M1/F02/**
     forbid:

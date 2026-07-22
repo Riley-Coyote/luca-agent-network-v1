@@ -71,3 +71,24 @@ artifact; the authoritative kit remains unchanged.
   identity, idempotency, diagnostic and synthetic-vector rules in the companion.
 - Rationale: exact event JSON remains exclusively in the desktop outbox.
 - Scope: contract reconciliation only; no new capability or scope is added.
+
+## 2026-07-22 — Self-contained planning validator and serialized bootstrap seams
+
+- Copied files: the remaining normative V5 contract documents,
+  `scripts/validate_planning_kit.py`, and its unit tests.
+- Authoritative omission: task receipts required
+  `python3 scripts/validate_planning_kit.py`, but the fork did not contain that
+  path and the vendored contract directory omitted documents required by the
+  validator.
+- Local correction: install the canonical validator and tests, point its
+  structural root at `.codex/luca-v1`, and vendor the required normative
+  documents without changing their content. F02 owns these execution-control
+  files.
+- Ownership reconciliation: explicitly allow only the four known sequential
+  bootstrap seam pairs (`F13/F18`, `F13/F14`, `F14/R05`, `F09/R05`) that the
+  local M1 manifest correction introduced. Their dependency order and existing
+  task mutexes remain mandatory; this is not permission for concurrent writes.
+- Rationale: planning and gate evidence must be reproducible from the fork,
+  never from an undeclared external working directory.
+- Scope: evidence and scheduler integrity only; no product or authority scope
+  is added.

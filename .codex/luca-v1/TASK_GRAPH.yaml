@@ -1983,6 +1983,11 @@ tasks:
   model: human
 ownership_policy:
   mode: single_writer
+  overlap_allowlist:
+  - [F13, F18]
+  - [F13, F14]
+  - [F14, R05]
+  - [F09, R05]
   single_writer_paths:
     crates/buzz-db/migrations/luca_capsule/**: C16
     desktop/src-tauri/migrations/luca_memory_policy/**: B24
