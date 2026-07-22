@@ -5,6 +5,24 @@ import { seedActiveIdentity } from "../../helpers/onboarding";
 
 test.use({ viewport: { width: 900, height: 700 } });
 
+const READY_CODEX_RUNTIME = {
+  id: "codex",
+  label: "Codex",
+  avatar_url: "",
+  availability: "available",
+  command: "codex",
+  binary_path: "/synthetic/bin/codex",
+  default_args: [],
+  mcp_command: null,
+  install_hint: "Install Codex",
+  install_instructions_url: "https://example.invalid/codex",
+  can_auto_install: false,
+  underlying_cli_path: null,
+  node_required: false,
+  auth_status: { status: "logged_in" },
+  login_hint: "Sign in to Codex",
+};
+
 test("F06: single-owner setup protects key material and makes recovery limits explicit", async ({
   page,
 }) => {
@@ -13,10 +31,14 @@ test("F06: single-owner setup protects key material and makes recovery limits ex
     if (message.type() === "error") consoleErrors.push(message.text());
   });
 
-  await installMockBridge(page, undefined, {
-    skipCommunitySeed: true,
-    skipOnboardingSeed: true,
-  });
+  await installMockBridge(
+    page,
+    { acpRuntimesCatalog: [READY_CODEX_RUNTIME] },
+    {
+      skipCommunitySeed: true,
+      skipOnboardingSeed: true,
+    },
+  );
   await page.goto("/");
 
   await expect(
@@ -69,7 +91,7 @@ test("F06: single-owner setup protects key material and makes recovery limits ex
   ).toBeVisible();
 });
 
-test("F06: first owner connects a personal home without starter-team initialization", async ({
+test("F06: first-owner connection uses personal-home copy", async ({
   page,
 }) => {
   const blankOwner = { ...TEST_IDENTITIES.alice, username: "" };
@@ -84,11 +106,12 @@ test("F06: first owner connects a personal home without starter-team initializat
       window.localStorage.setItem(
         "buzz-community-onboarding-transaction.v1",
         JSON.stringify({
-          id: "f06-first-owner",
+          id: "f06-first-owner-connect",
           source: "first-community",
           stage: "connecting",
           relayUrl: "wss://default.example.com",
           communityName: "Default",
+          communityId: "not-yet-applied",
           createdAt: timestamp,
           updatedAt: timestamp,
         }),
@@ -109,6 +132,43 @@ test("F06: first owner connects a personal home without starter-team initializat
   await expect(
     page.getByText(/Joining |community|starter team|Buzz/),
   ).toHaveCount(0);
+});
+
+test("F06: first owner finishes without starter-team initialization", async ({
+  page,
+}) => {
+  const blankOwner = { ...TEST_IDENTITIES.alice, username: "" };
+  await seedActiveIdentity(page, blankOwner);
+  await page.addInitScript(
+    ({ pubkey }) => {
+      window.localStorage.setItem(
+        `buzz-machine-onboarding-complete.v2:${pubkey}`,
+        "true",
+      );
+      const timestamp = new Date().toISOString();
+      window.localStorage.setItem(
+        "buzz-community-onboarding-transaction.v1",
+        JSON.stringify({
+          id: "f06-first-owner",
+          source: "first-community",
+          stage: "profile",
+          relayUrl: "wss://default.example.com",
+          communityName: "Default",
+          communityId: "e2e-default-community",
+          addedCommunity: true,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        }),
+      );
+    },
+    { pubkey: blankOwner.pubkey },
+  );
+  await installMockBridge(page, undefined, {
+    relayWsUrl: "wss://default.example.com",
+    skipOnboardingSeed: true,
+  });
+  await page.goto("/");
+
   await expect(
     page.getByRole("heading", { name: "Set up your owner profile" }),
   ).toBeVisible();
@@ -120,6 +180,11 @@ test("F06: first owner connects a personal home without starter-team initializat
     page.getByText(/Joining |Meet your starter team|workspace|Buzz/),
   ).toHaveCount(0);
 
+  const commandCountBeforeFinish = await page.evaluate(
+    () =>
+      (window as Window & { __BUZZ_E2E_COMMANDS__?: string[] })
+        .__BUZZ_E2E_COMMANDS__?.length ?? 0,
+  );
   await page.getByLabel("Owner display name").fill("Riley");
   await page.getByTestId("community-profile-next").click();
   await expect(page.getByTestId("community-onboarding-flow")).toHaveCount(0);
@@ -136,14 +201,21 @@ test("F06: first owner connects a personal home without starter-team initializat
     )
     .toBe("true");
 
-  const forbiddenInitializationCalls = await page.evaluate(() => {
+  const forbiddenInitializationCalls = await page.evaluate((commandCount) => {
     const commands =
-      (window as Window & { __BUZZ_E2E_COMMANDS__?: string[] })
-        .__BUZZ_E2E_COMMANDS__ ?? [];
+      (
+        window as Window & {
+          __BUZZ_E2E_COMMAND_LOG__?: Array<{
+            command: string;
+            payload: unknown;
+          }>;
+        }
+      ).__BUZZ_E2E_COMMAND_LOG__?.slice(commandCount) ?? [];
     return commands.filter(
-      (command) => command === "list_personas" || command === "create_channel",
+      ({ command }) =>
+        command === "ensure_starter_channels" || command === "create_channel",
     );
-  });
+  }, commandCountBeforeFinish);
   expect(forbiddenInitializationCalls).toEqual([]);
 });
 
