@@ -280,6 +280,25 @@ fn luca_f18_output_failures_are_path_safe_and_do_not_leave_a_report() {
         assert_safe_failure(&linked, &output_root);
         std::fs::remove_file(linked_destination).expect("destination link must be removed");
         std::fs::remove_dir_all(output_root).expect("output root must be removed");
+
+        let actual_parent = temporary_path("actual-output-parent");
+        std::fs::create_dir_all(&actual_parent).expect("actual parent must be created");
+        let linked_parent = temporary_path("linked-output-parent");
+        symlink(&actual_parent, &linked_parent).expect("parent link must be created");
+        let parent_linked = Command::new("python3")
+            .current_dir(&repository)
+            .args(["scripts/evidence/scan_artifacts.py", "--root"])
+            .arg(&root)
+            .arg("--output")
+            .arg(linked_parent.join("report.json"))
+            .args(["--expect", "clean"])
+            .output()
+            .expect("scanner must be runnable");
+        assert!(!parent_linked.status.success());
+        assert!(!actual_parent.join("report.json").exists());
+        assert_safe_failure(&parent_linked, &linked_parent);
+        std::fs::remove_file(linked_parent).expect("parent link must be removed");
+        std::fs::remove_dir_all(actual_parent).expect("actual parent must be removed");
     }
 }
 

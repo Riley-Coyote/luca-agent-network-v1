@@ -18,7 +18,6 @@ import sys
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 
 SCHEMA = "luca.artifact-scanner.v1"
@@ -75,61 +74,14 @@ class Finding:
         }
 
 
-def _lstat(path: Path, code: str) -> os.stat_result:
-    try:
-        return path.lstat()
-    except OSError as exc:
-        raise ScannerError(code) from exc
-
-
-def _reject_link_or_unsupported(path: Path, allow_directory: bool) -> os.stat_result:
-    status = _lstat(path, ERROR_ENTRY)
-    if stat.S_ISLNK(status.st_mode):
-        raise ScannerError(ERROR_ENTRY)
-    if stat.S_ISREG(status.st_mode) or (allow_directory and stat.S_ISDIR(status.st_mode)):
-        return status
-    raise ScannerError(ERROR_ENTRY)
-
-
-def _resolved_confined(path: Path, root: Path) -> None:
-    try:
-        resolved = path.resolve(strict=True)
-        resolved.relative_to(root)
-    except (OSError, RuntimeError, ValueError) as exc:
-        raise ScannerError(ERROR_ENTRY) from exc
-
-
-def files_for_root(root: Path) -> Iterable[Path]:
-    _reject_link_or_unsupported(root, allow_directory=True)
-    try:
-        resolved_root = root.resolve(strict=True)
-    except (OSError, RuntimeError) as exc:
-        raise ScannerError(ERROR_INPUT) from exc
-    root_status = _lstat(root, ERROR_INPUT)
-    if stat.S_ISREG(root_status.st_mode):
-        yield root
-        return
-
-    try:
-        candidates = sorted(root.rglob("*"))
-    except OSError as exc:
-        raise ScannerError(ERROR_INPUT) from exc
-    for path in candidates:
-        status = _reject_link_or_unsupported(path, allow_directory=True)
-        _resolved_confined(path, resolved_root)
-        if stat.S_ISREG(status.st_mode):
-            yield path
-
-
-def read_regular_file(path: Path) -> bytes:
+def _no_follow_flags() -> int:
     no_follow = getattr(os, "O_NOFOLLOW", None)
     if no_follow is None:
         raise ScannerError(ERROR_ENTRY)
-    flags = os.O_RDONLY | no_follow | getattr(os, "O_CLOEXEC", 0)
-    try:
-        descriptor = os.open(path, flags)
-    except OSError as exc:
-        raise ScannerError(ERROR_ENTRY) from exc
+    return no_follow | getattr(os, "O_CLOEXEC", 0)
+
+
+def _read_regular_descriptor(descriptor: int) -> bytes:
     try:
         status = os.fstat(descriptor)
         if not stat.S_ISREG(status.st_mode) or status.st_size > MAX_ARTIFACT_BYTES:
@@ -145,6 +97,72 @@ def read_regular_file(path: Path) -> bytes:
     if len(data) > MAX_ARTIFACT_BYTES:
         raise ScannerError(ERROR_ENTRY)
     return data
+
+
+def _open_child(parent_fd: int, name: str, directory: bool = False) -> int:
+    flags = os.O_RDONLY | _no_follow_flags()
+    if directory:
+        flags |= getattr(os, "O_DIRECTORY", 0)
+    try:
+        descriptor = os.open(name, flags, dir_fd=parent_fd)
+    except OSError as exc:
+        raise ScannerError(ERROR_ENTRY) from exc
+    try:
+        status = os.fstat(descriptor)
+        if directory and not stat.S_ISDIR(status.st_mode):
+            raise ScannerError(ERROR_ENTRY)
+        if not directory and not stat.S_ISREG(status.st_mode):
+            raise ScannerError(ERROR_ENTRY)
+        return descriptor
+    except ScannerError:
+        os.close(descriptor)
+        raise
+
+
+def _read_directory_artifacts(directory_fd: int) -> list[bytes]:
+    artifacts: list[bytes] = []
+    try:
+        names = sorted(os.listdir(directory_fd))
+    except OSError as exc:
+        raise ScannerError(ERROR_ENTRY) from exc
+    for name in names:
+        try:
+            status = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        except OSError as exc:
+            raise ScannerError(ERROR_ENTRY) from exc
+        if stat.S_ISLNK(status.st_mode):
+            raise ScannerError(ERROR_ENTRY)
+        if stat.S_ISREG(status.st_mode):
+            artifacts.append(_read_regular_descriptor(_open_child(directory_fd, name)))
+        elif stat.S_ISDIR(status.st_mode):
+            child_fd = _open_child(directory_fd, name, directory=True)
+            try:
+                artifacts.extend(_read_directory_artifacts(child_fd))
+            finally:
+                os.close(child_fd)
+        else:
+            raise ScannerError(ERROR_ENTRY)
+    return artifacts
+
+
+def read_root_artifacts(root: Path) -> list[bytes]:
+    try:
+        root_fd = os.open(root, os.O_RDONLY | _no_follow_flags())
+    except OSError as exc:
+        raise ScannerError(ERROR_INPUT) from exc
+    try:
+        status = os.fstat(root_fd)
+        if stat.S_ISREG(status.st_mode):
+            artifacts = [_read_regular_descriptor(root_fd)]
+            root_fd = -1
+            return artifacts
+        if not stat.S_ISDIR(status.st_mode):
+            raise ScannerError(ERROR_ENTRY)
+        artifacts = _read_directory_artifacts(root_fd)
+        return artifacts
+    finally:
+        if root_fd >= 0:
+            os.close(root_fd)
 
 
 def find_in_text(text: str, artifact_ref: str) -> list[Finding]:
@@ -172,8 +190,7 @@ def scan(roots: list[Path]) -> tuple[list[Finding], int, int]:
     scanned_count = 0
     scanned_bytes = 0
     for root in roots:
-        for path in files_for_root(root):
-            data = read_regular_file(path)
+        for data in read_root_artifacts(root):
             scanned_count += 1
             scanned_bytes += len(data)
             findings.extend(
@@ -190,31 +207,59 @@ def scan(roots: list[Path]) -> tuple[list[Finding], int, int]:
 
 def write_report(destination: Path, report: dict[str, object]) -> None:
     try:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        parent = destination.parent.resolve(strict=True)
-        if not parent.is_dir():
-            raise ScannerError(ERROR_OUTPUT)
-        if destination.exists() or destination.is_symlink():
-            status = destination.lstat()
-            if stat.S_ISLNK(status.st_mode) or not stat.S_ISREG(status.st_mode):
-                raise ScannerError(ERROR_OUTPUT)
-        payload = json.dumps(report, indent=2, sort_keys=True).encode("utf-8") + b"\n"
-        temporary = parent / f".{destination.name}.{uuid.uuid4().hex}.tmp"
-        descriptor = os.open(
-            temporary,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0),
-            0o600,
+        requested_parent = destination.parent
+        parent_before = requested_parent.lstat()
+        parent = requested_parent.resolve(strict=True)
+        # macOS exposes /tmp and /var as OS-owned compatibility aliases for
+        # /private/*; they are not user-configurable output destinations. Every
+        # other requested-parent symlink is rejected before writing.
+        system_alias = requested_parent in (Path("/tmp"), Path("/var")) and parent in (
+            Path("/private/tmp"),
+            Path("/private/var"),
         )
+        if not system_alias and (
+            stat.S_ISLNK(parent_before.st_mode) or not stat.S_ISDIR(parent_before.st_mode)
+        ):
+            raise ScannerError(ERROR_OUTPUT)
+        if system_alias:
+            parent_before = parent.lstat()
+        parent_fd = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | _no_follow_flags())
         try:
-            with os.fdopen(descriptor, "wb", closefd=True) as handle:
-                handle.write(payload)
-                handle.flush()
-                os.fsync(handle.fileno())
-                descriptor = -1
+            status = os.fstat(parent_fd)
+            if (
+                not stat.S_ISDIR(status.st_mode)
+                or status.st_dev != parent_before.st_dev
+                or status.st_ino != parent_before.st_ino
+            ):
+                raise ScannerError(ERROR_OUTPUT)
+            try:
+                destination_status = os.stat(destination.name, dir_fd=parent_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                destination_status = None
+            if destination_status is not None:
+                status = destination_status
+                if stat.S_ISLNK(status.st_mode) or not stat.S_ISREG(status.st_mode):
+                    raise ScannerError(ERROR_OUTPUT)
+            payload = json.dumps(report, indent=2, sort_keys=True).encode("utf-8") + b"\n"
+            temporary_name = f".{destination.name}.{uuid.uuid4().hex}.tmp"
+            descriptor = os.open(
+                temporary_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | _no_follow_flags(),
+                0o600,
+                dir_fd=parent_fd,
+            )
+            try:
+                with os.fdopen(descriptor, "wb", closefd=True) as handle:
+                    handle.write(payload)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                    descriptor = -1
+            finally:
+                if descriptor >= 0:
+                    os.close(descriptor)
+            os.replace(temporary_name, destination.name, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
         finally:
-            if descriptor >= 0:
-                os.close(descriptor)
-        os.replace(temporary, destination)
+            os.close(parent_fd)
     except ScannerError:
         raise
     except (OSError, TypeError, ValueError) as exc:
