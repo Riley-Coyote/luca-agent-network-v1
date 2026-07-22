@@ -19,6 +19,7 @@ export default defineConfig({
     {
       name: "smoke",
       testMatch: [
+        "**/luca/*.spec.ts",
         "**/smoke.spec.ts",
         "**/onboarding-docked-cta-screenshots.spec.ts",
         "**/identity-key-help.spec.ts",
