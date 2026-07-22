@@ -36,14 +36,16 @@ export const ONBOARDING_INK_ICON_CLASS =
 
 /**
  * Shared onboarding chrome shown on every page after the landing screen: a
- * static Buzz mark pinned to the top-left, and a centered pagination track that
- * sits above the page title. The active page reads as a longer bar; inactive
- * pages are dots.
+ * product mark pinned to the top-left, and a centered pagination track above
+ * the page title. The active page reads as a longer bar; inactive pages are
+ * dots.
  */
 export function OnboardingChrome({
+  brand = "buzz",
   current,
   total = TOTAL_ONBOARDING_PAGES,
 }: {
+  brand?: "buzz" | "luca";
   current: number;
   total?: number;
 }) {
@@ -52,8 +54,18 @@ export function OnboardingChrome({
       aria-hidden
       className="pointer-events-none fixed inset-x-0 top-12 z-10 flex items-center px-6 text-foreground"
     >
-      <span className="block w-11" data-testid="onboarding-logo">
-        <BuzzMark className="h-auto w-full" />
+      <span
+        className="block w-11"
+        data-brand={brand}
+        data-testid="onboarding-logo"
+      >
+        {brand === "luca" ? (
+          <span className="font-mono text-xs font-medium uppercase tracking-[0.22em]">
+            Luca
+          </span>
+        ) : (
+          <BuzzMark className="h-auto w-full" />
+        )}
       </span>
       <div
         className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2"

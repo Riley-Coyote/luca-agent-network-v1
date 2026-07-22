@@ -122,6 +122,7 @@ export function MachineOnboardingFlow({
       {page === "identity" ? <LandingBees /> : null}
       {page !== "identity" ? (
         <OnboardingChrome
+          brand="luca"
           current={page === "config" ? 4 : page === "setup" ? 3 : 2}
         />
       ) : null}
@@ -138,13 +139,14 @@ export function MachineOnboardingFlow({
               effect="mask-reveal-up"
               transitionKey="machine-identity"
             >
-              <img
-                alt="Luca"
-                className="w-full max-w-[600px]"
-                src="/landing/buzz-wordmark.png"
-              />
+              <div
+                className="font-mono text-sm font-medium uppercase tracking-[0.42em] text-foreground/75"
+                data-testid="luca-owner-mark"
+              >
+                Luca
+              </div>
               <p className="mt-2 max-w-[560px] text-center text-2xl font-normal leading-none text-foreground">
-                A private home for the agents
+                A personal home for the agents
                 <br />
                 you work with.
               </p>

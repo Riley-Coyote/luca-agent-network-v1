@@ -5,6 +5,8 @@ import {
   clearCommunityOnboardingTransaction,
   loadCommunityOnboardingTransaction,
   markCommunityOnboardingComplete,
+  markPersonalOwnerOnboardingComplete,
+  readPersonalOwnerOnboardingComplete,
   startCommunityOnboarding,
   updateCommunityOnboardingTransaction,
   updateCurrentCommunityOnboardingTransaction,
@@ -146,4 +148,39 @@ test("completion is scoped by relay and pubkey and preserves legacy gate", () =>
     "true",
   );
   assert.equal(storage.getItem("buzz-onboarding-complete.v1:pubkey"), "true");
+});
+
+test("personal owner completion suppresses only its own relay-scoped starter initialization", () => {
+  const storage = createMemoryStorage();
+  assert.equal(
+    readPersonalOwnerOnboardingComplete(
+      "owner-a",
+      "wss://relay.example",
+      storage,
+    ),
+    false,
+  );
+
+  markPersonalOwnerOnboardingComplete(
+    "owner-a",
+    "wss://relay.example",
+    storage,
+  );
+
+  assert.equal(
+    readPersonalOwnerOnboardingComplete(
+      "owner-a",
+      "wss://relay.example",
+      storage,
+    ),
+    true,
+  );
+  assert.equal(
+    readPersonalOwnerOnboardingComplete(
+      "owner-a",
+      "wss://other.example",
+      storage,
+    ),
+    false,
+  );
 });

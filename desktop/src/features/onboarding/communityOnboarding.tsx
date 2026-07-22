@@ -227,6 +227,29 @@ export function markCommunityOnboardingComplete(
   storage.setItem(`buzz-onboarding-complete.v1:${pubkey}`, "true");
 }
 
+function personalOwnerCompletionStorageKey(pubkey: string, relayUrl: string) {
+  return `luca-personal-owner-onboarding.v1:${encodeURIComponent(relayUrl)}:${pubkey}`;
+}
+
+export function markPersonalOwnerOnboardingComplete(
+  pubkey: string,
+  relayUrl: string,
+  storage: Storage = localStorage,
+): void {
+  storage.setItem(personalOwnerCompletionStorageKey(pubkey, relayUrl), "true");
+}
+
+export function readPersonalOwnerOnboardingComplete(
+  pubkey: string,
+  relayUrl: string,
+  storage: Storage = localStorage,
+): boolean {
+  return (
+    storage.getItem(personalOwnerCompletionStorageKey(pubkey, relayUrl)) ===
+    "true"
+  );
+}
+
 import * as React from "react";
 
 type CommunityOnboardingContextValue = {

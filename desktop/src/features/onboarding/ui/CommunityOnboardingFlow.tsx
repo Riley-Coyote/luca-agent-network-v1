@@ -1,9 +1,10 @@
 import * as React from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Users } from "lucide-react";
+import { House, Plus, Users } from "lucide-react";
 
 import {
   markCommunityOnboardingComplete,
+  markPersonalOwnerOnboardingComplete,
   useCommunityOnboarding,
 } from "@/features/onboarding/communityOnboarding";
 import { initializeStarterChannels } from "@/features/onboarding/hooks";
@@ -170,13 +171,15 @@ export function CommunityOnboardingFlow({
   const avatarEditorContentRef = React.useRef<HTMLDivElement | null>(null);
   const [avatarEditorDialogHeight, setAvatarEditorDialogHeight] =
     React.useState<number | null>(null);
+  const isFirstOwnerPath = transaction?.source === "first-community";
 
   // Also fetch on "entering": the curtain is a fresh mount of this component,
   // so the team-intro fetch from the pre-curtain instance isn't in this state.
   const isTeamIntroVisible =
-    transaction?.stage === "team-intro" ||
-    transaction?.stage === "finalizing" ||
-    transaction?.stage === "entering";
+    !isFirstOwnerPath &&
+    (transaction?.stage === "team-intro" ||
+      transaction?.stage === "finalizing" ||
+      transaction?.stage === "entering");
   React.useEffect(() => {
     if (!isTeamIntroVisible) return;
     void listPersonas()
@@ -237,8 +240,20 @@ export function CommunityOnboardingFlow({
     if (!relayUrl) return;
     const identity = await getIdentity();
     markCommunityOnboardingComplete(identity.pubkey, relayUrl);
+    if (isFirstOwnerPath) {
+      markPersonalOwnerOnboardingComplete(identity.pubkey, relayUrl);
+    }
     clear();
-  }, [clear, relayUrl]);
+  }, [clear, isFirstOwnerPath, relayUrl]);
+  const isLegacyFirstOwnerCompletionStage =
+    isFirstOwnerPath &&
+    (transaction?.stage === "team-intro" ||
+      transaction?.stage === "finalizing" ||
+      transaction?.stage === "entering");
+  React.useEffect(() => {
+    if (!isLegacyFirstOwnerCompletionStage) return;
+    void finish();
+  }, [finish, isLegacyFirstOwnerCompletionStage]);
   const finalize = React.useCallback(async () => {
     if (isPending || !relayUrl) return;
     setIsPending(true);
@@ -282,9 +297,10 @@ export function CommunityOnboardingFlow({
 
   const isProfileStage = transaction?.stage === "profile";
   const isTeamStage =
-    transaction?.stage === "team-intro" ||
-    transaction?.stage === "finalizing" ||
-    transaction?.stage === "entering";
+    !isFirstOwnerPath &&
+    (transaction?.stage === "team-intro" ||
+      transaction?.stage === "finalizing" ||
+      transaction?.stage === "entering");
 
   React.useLayoutEffect(() => {
     if (isProfileStage && !isAvatarEditorOpen) {
@@ -360,7 +376,11 @@ export function CommunityOnboardingFlow({
         displayName: displayName.trim(),
         avatarUrl: avatarUrl.trim() || undefined,
       });
-      update({ stage: "team-intro", error: undefined });
+      if (isFirstOwnerPath) {
+        await finish();
+      } else {
+        update({ stage: "team-intro", error: undefined });
+      }
     } catch (error) {
       if (isRelayMembershipDeniedError(error)) {
         try {
@@ -398,7 +418,10 @@ export function CommunityOnboardingFlow({
     >
       <StartupWindowDragRegion />
       {isProfileStage || isTeamStage ? (
-        <OnboardingChrome current={isTeamStage ? 7 : 6} />
+        <OnboardingChrome
+          brand={isFirstOwnerPath ? "luca" : "buzz"}
+          current={isTeamStage ? 7 : 6}
+        />
       ) : null}
       <OnboardingFooterProvider>
         <div
@@ -413,17 +436,28 @@ export function CommunityOnboardingFlow({
           data-testid="community-onboarding-body"
         >
           {transaction.stage === "claiming" ||
-          transaction.stage === "connecting" ? (
+          transaction.stage === "connecting" ||
+          isLegacyFirstOwnerCompletionStage ? (
             <>
-              <Users className="mx-auto h-10 w-10" />
+              {isFirstOwnerPath ? (
+                <House className="mx-auto h-10 w-10" />
+              ) : (
+                <Users className="mx-auto h-10 w-10" />
+              )}
               <h1 className="mt-5 text-title font-normal">
-                Joining {transaction.communityName}
+                {isFirstOwnerPath
+                  ? "Connecting your personal home"
+                  : `Joining ${transaction.communityName}`}
               </h1>
               <p className="mt-3 text-sm text-foreground/80">
                 {transaction.error ??
-                  (transaction.stage === "claiming"
-                    ? "Accepting your invite…"
-                    : "Connecting securely…")}
+                  (isLegacyFirstOwnerCompletionStage
+                    ? "Finishing your owner setup…"
+                    : isFirstOwnerPath
+                      ? "Connecting Luca securely…"
+                      : transaction.stage === "claiming"
+                        ? "Accepting your invite…"
+                        : "Connecting securely…")}
               </p>
               <div className="mt-6 flex justify-center gap-3">
                 {transaction.error ? (
@@ -451,10 +485,15 @@ export function CommunityOnboardingFlow({
                 data-testid="community-profile-main"
               >
                 <div className="shrink-0">
-                  <h1 className="text-title font-normal">Build your profile</h1>
+                  <h1 className="text-title font-normal">
+                    {isFirstOwnerPath
+                      ? "Set up your owner profile"
+                      : "Build your profile"}
+                  </h1>
                   <p className="mx-auto mt-3 max-w-[380px] text-sm leading-6 text-foreground/80">
-                    Add a name and avatar. They’ll show up on your messages,
-                    reactions, and agent handoffs.
+                    {isFirstOwnerPath
+                      ? "Choose the name and avatar Luca will use for your owner identity."
+                      : "Add a name and avatar. They’ll show up on your messages, reactions, and agent handoffs."}
                   </p>
                 </div>
                 <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center pt-8">
@@ -469,10 +508,14 @@ export function CommunityOnboardingFlow({
                     htmlFor="community-display-name"
                   >
                     <span className="mb-2 block pl-4 text-sm text-foreground">
-                      Your username
+                      {isFirstOwnerPath ? "Your name" : "Your username"}
                     </span>
                     <Input
-                      aria-label="Community username"
+                      aria-label={
+                        isFirstOwnerPath
+                          ? "Owner display name"
+                          : "Community username"
+                      }
                       autoCapitalize="none"
                       autoComplete="username"
                       autoCorrect="off"
@@ -481,7 +524,11 @@ export function CommunityOnboardingFlow({
                       disabled={isPending || isUploadingAvatar}
                       id="community-display-name"
                       onChange={(event) => setDisplayName(event.target.value)}
-                      placeholder="Enter your username here"
+                      placeholder={
+                        isFirstOwnerPath
+                          ? "Enter your name"
+                          : "Enter your username here"
+                      }
                       ref={nameInputRef}
                       spellCheck={false}
                       type="text"
@@ -511,7 +558,7 @@ export function CommunityOnboardingFlow({
                   onClick={() => void saveProfile()}
                   type="button"
                 >
-                  Next
+                  {isFirstOwnerPath ? "Enter Luca" : "Next"}
                 </Button>
                 <Button
                   className="h-9 w-20 rounded-full bg-foreground/10 px-6 hover:bg-foreground/15"

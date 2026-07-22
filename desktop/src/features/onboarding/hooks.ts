@@ -16,6 +16,7 @@ import {
   rememberPendingWelcomeChannel,
 } from "@/features/onboarding/welcome";
 import { forceFreshOnboarding } from "@/features/onboarding/devFreshOnboarding";
+import { readPersonalOwnerOnboardingComplete } from "@/features/onboarding/communityOnboarding";
 import { ensureWelcomeCanvas } from "@/features/onboarding/welcomeCanvas";
 import { ensureWelcomeTeam } from "@/features/onboarding/welcomeGuide";
 import { useProfileQuery } from "@/features/profile/hooks";
@@ -581,6 +582,10 @@ export function useAppOnboardingState(isSharedIdentity: boolean) {
       !currentPubkey ||
       !starterChannelsCommunityScope ||
       !readOnboardingCompletion(currentPubkey) ||
+      readPersonalOwnerOnboardingComplete(
+        currentPubkey,
+        starterChannelsCommunityScope,
+      ) ||
       hasEnsuredWelcomeChannel(currentPubkey, starterChannelsCommunityScope)
     ) {
       return;
