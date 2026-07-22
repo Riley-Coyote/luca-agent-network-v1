@@ -72,6 +72,20 @@ struct InvalidCase {
     error_contains: String,
 }
 
+#[derive(Deserialize)]
+struct FrameEncodingVectorFile {
+    canonical_json: String,
+    noncanonical_cases: Vec<InvalidCase>,
+}
+
+fn length_prefix(json: &str) -> Vec<u8> {
+    let length = u32::try_from(json.len()).expect("bounded fixture length");
+    let mut encoded = Vec::with_capacity(4 + json.len());
+    encoded.extend_from_slice(&length.to_be_bytes());
+    encoded.extend_from_slice(json.as_bytes());
+    encoded
+}
+
 #[test]
 fn strict_json_rejects_all_negative_vectors() {
     let vectors: InvalidVectorFile =
@@ -92,6 +106,33 @@ fn strict_json_rejects_all_negative_vectors() {
 fn strict_json_enforces_caller_byte_bound() {
     let error = parse_strict_json(br#"{"bounded":true}"#, 4).expect_err("oversize must fail");
     assert!(error.to_string().contains("exceeds 4 bytes"));
+}
+
+#[test]
+fn frame_wire_encoding_requires_exact_rfc8785_bytes() {
+    let vectors: FrameEncodingVectorFile =
+        serde_json::from_value(load_json("noncanonical-frames.json"))
+            .expect("frame encoding vector shape");
+    let now = 1_700_000_000_000_u64;
+
+    let canonical = length_prefix(&vectors.canonical_json);
+    let frame: SigningFrameV1<Value> =
+        decode_length_prefixed_frame(&canonical, now).expect("canonical frame accepted");
+    assert_eq!(
+        encode_length_prefixed_frame(&frame, now).expect("canonical frame re-encodes"),
+        canonical
+    );
+
+    for case in vectors.noncanonical_cases {
+        let error = decode_length_prefixed_frame::<Value>(&length_prefix(&case.input_json), now)
+            .expect_err(&case.name)
+            .to_string();
+        assert!(
+            error.to_lowercase().contains(&case.error_contains),
+            "{}: {error}",
+            case.name
+        );
+    }
 }
 
 #[test]

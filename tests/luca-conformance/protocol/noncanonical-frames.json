@@ -1,0 +1,31 @@
+{
+  "source": "Luca M1 signing-frame RFC8785 wire conformance",
+  "canonical_json": "{\"deadline_unix_ms\":1700000030000,\"operation\":\"message.publish.v1\",\"payload\":{},\"protocol\":\"luca.signing.frame.v1\",\"request_id\":\"req-canonical\",\"sequence\":1,\"session_epoch\":1}",
+  "noncanonical_cases": [
+    {
+      "name": "insignificant whitespace",
+      "input_json": "{ \"deadline_unix_ms\":1700000030000,\"operation\":\"message.publish.v1\",\"payload\":{},\"protocol\":\"luca.signing.frame.v1\",\"request_id\":\"req-canonical\",\"sequence\":1,\"session_epoch\":1}",
+      "error_contains": "not rfc8785 canonical"
+    },
+    {
+      "name": "noncanonical property order",
+      "input_json": "{\"protocol\":\"luca.signing.frame.v1\",\"deadline_unix_ms\":1700000030000,\"operation\":\"message.publish.v1\",\"payload\":{},\"request_id\":\"req-canonical\",\"sequence\":1,\"session_epoch\":1}",
+      "error_contains": "not rfc8785 canonical"
+    },
+    {
+      "name": "noncanonical decimal integer spelling",
+      "input_json": "{\"deadline_unix_ms\":1700000030000,\"operation\":\"message.publish.v1\",\"payload\":{},\"protocol\":\"luca.signing.frame.v1\",\"request_id\":\"req-canonical\",\"sequence\":1.0,\"session_epoch\":1}",
+      "error_contains": "not rfc8785 canonical"
+    },
+    {
+      "name": "noncanonical exponent spelling",
+      "input_json": "{\"deadline_unix_ms\":1700000030000,\"operation\":\"message.publish.v1\",\"payload\":{},\"protocol\":\"luca.signing.frame.v1\",\"request_id\":\"req-canonical\",\"sequence\":1e0,\"session_epoch\":1}",
+      "error_contains": "not rfc8785 canonical"
+    },
+    {
+      "name": "duplicate frame member",
+      "input_json": "{\"deadline_unix_ms\":1700000030000,\"operation\":\"message.publish.v1\",\"payload\":{},\"protocol\":\"luca.signing.frame.v1\",\"request_id\":\"req-canonical\",\"sequence\":1,\"sequence\":1,\"session_epoch\":1}",
+      "error_contains": "duplicate"
+    }
+  ]
+}

@@ -59,6 +59,9 @@ pub enum FrameError {
     /// The canonical JSON frame exceeded the frozen bound.
     #[error("canonical frame exceeds 131072 UTF-8 bytes")]
     FrameTooLarge,
+    /// The wire payload was valid JSON but was not its RFC 8785 representation.
+    #[error("frame payload is not RFC8785 canonical JSON")]
+    NonCanonical,
     /// The length prefix and payload did not agree.
     #[error("invalid length-prefixed frame")]
     LengthPrefix,
@@ -113,7 +116,11 @@ pub fn decode_length_prefixed_frame<T: DeserializeOwned>(
     if declared > BROKER_FRAME_MAX_BYTES || bytes.len() != declared.saturating_add(4) {
         return Err(FrameError::LengthPrefix);
     }
-    let value = parse_strict_json(&bytes[4..], BROKER_FRAME_MAX_BYTES)?;
+    let payload = &bytes[4..];
+    let value = parse_strict_json(payload, BROKER_FRAME_MAX_BYTES)?;
+    if canonicalize(&value)?.as_slice() != payload {
+        return Err(FrameError::NonCanonical);
+    }
     let frame: SigningFrameV1<T> = serde_json::from_value(value)?;
     frame.validate_at(now_unix_ms)?;
     Ok(frame)
