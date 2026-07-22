@@ -1,6 +1,5 @@
 // biome-ignore format: keep compact to stay within file size limit
 import * as React from "react";
-import { FeatureGate } from "@/shared/features";
 import { SidebarDndContext } from "@/features/sidebar/ui/SidebarDnd";
 
 import type { Community } from "@/features/communities/types";
@@ -208,9 +207,9 @@ export function AppSidebar({
   onRemoveCommunity,
   onCreateAgent,
   onSelectAgents,
-  onSelectProjects,
+  onSelectProjects: _onSelectProjects,
   onSelectPulse,
-  onSelectWorkflows,
+  onSelectWorkflows: _onSelectWorkflows,
   onSelectHome,
   onSelectChannel,
   onOpenSearchResult,
@@ -450,14 +449,6 @@ export function AppSidebar({
     [createSection, assignChannel, createSectionState.pendingChannelId],
   );
 
-  const forumChannels = React.useMemo(
-    () =>
-      sortChannelsForSidebar(
-        channels.filter((channel) => channel.channelType === "forum"),
-        sortModeFor("forums"),
-      ),
-    [channels, sortModeFor],
-  );
   const directMessages = React.useMemo(
     () => channels.filter((channel) => channel.channelType === "dm"),
     [channels],
@@ -595,9 +586,8 @@ export function AppSidebar({
                 homeBadgeCount={homeBadgeCount}
                 onSelectAgents={onSelectAgents}
                 onSelectHome={onSelectHome}
-                onSelectProjects={onSelectProjects}
                 onSelectPulse={onSelectPulse}
-                onSelectWorkflows={onSelectWorkflows}
+                onSelectSettings={onSelectSettings}
                 selectedView={selectedView}
               />
 
@@ -755,36 +745,6 @@ export function AppSidebar({
                       onLeaveChannel={requestLeaveChannel}
                     />
                   </SidebarDndContext>
-                  <FeatureGate feature="forum">
-                    <ChannelGroupSection
-                      createLabel="New forum"
-                      hasUnread={unreadChannelIds.size > 0}
-                      isCollapsed={collapsedGroups.forums}
-                      isActiveChannel={selectedView === "channel"}
-                      activeWorkingByChannelId={activeWorkingByChannelId}
-                      items={forumChannels}
-                      sortMode={sortModeFor("forums")}
-                      onSortModeChange={(mode) =>
-                        setSortModeFor("forums", mode)
-                      }
-                      actionsTestId="section-actions-forums"
-                      listTestId="forum-list"
-                      onCreateClick={() => openCreateDialog("forum")}
-                      onMarkAllRead={onMarkAllChannelsRead}
-                      onMarkChannelRead={onMarkChannelRead}
-                      onMarkChannelUnread={onMarkChannelUnread}
-                      onSelectChannel={onSelectChannel}
-                      onToggleCollapsed={() => toggleCollapsedGroup("forums")}
-                      selectedChannelId={selectedChannelId}
-                      title="Forums"
-                      unreadChannelCounts={unreadChannelCounts}
-                      unreadChannelIds={unreadChannelIds}
-                      mutedChannelIds={mutedChannelIds}
-                      onMuteChannel={onMuteChannel}
-                      onUnmuteChannel={onUnmuteChannel}
-                      onDeleteChannel={requestDeleteChannel}
-                    />
-                  </FeatureGate>
                   <SidebarSection
                     action={
                       <div className="absolute right-1 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5">

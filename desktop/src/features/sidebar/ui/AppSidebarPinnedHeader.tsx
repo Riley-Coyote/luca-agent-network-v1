@@ -1,7 +1,6 @@
-import { Activity, Bot, FolderGit2, Inbox, Zap } from "lucide-react";
+import { Activity, Bot, Brain, MessageCircle, Settings } from "lucide-react";
 
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
-import { FeatureGate } from "@/shared/features";
 import type { Channel, SearchHit } from "@/shared/api/types";
 import {
   SidebarHeader,
@@ -39,9 +38,8 @@ type AppSidebarPrimaryMenuProps = {
   homeBadgeCount: number;
   onSelectAgents: () => void;
   onSelectHome: () => void;
-  onSelectProjects: () => void;
   onSelectPulse: () => void;
-  onSelectWorkflows: () => void;
+  onSelectSettings: () => void;
   selectedView: SidebarSelectedView;
 };
 
@@ -84,9 +82,8 @@ export function AppSidebarPrimaryMenu({
   homeBadgeCount,
   onSelectAgents,
   onSelectHome,
-  onSelectProjects,
   onSelectPulse,
-  onSelectWorkflows,
+  onSelectSettings,
   selectedView,
 }: AppSidebarPrimaryMenuProps) {
   return (
@@ -98,13 +95,14 @@ export function AppSidebarPrimaryMenu({
       <SidebarMenu className="pb-2">
         <SidebarMenuItem>
           <SidebarMenuButton
+            data-testid="open-chat-view"
             isActive={selectedView === "home"}
             onClick={onSelectHome}
-            tooltip="Inbox"
+            tooltip="Chat"
             type="button"
           >
-            <Inbox className="h-4 w-4" />
-            <SidebarMenuLabel>Inbox</SidebarMenuLabel>
+            <MessageCircle className="h-4 w-4" />
+            <SidebarMenuLabel>Chat</SidebarMenuLabel>
           </SidebarMenuButton>
           {homeBadgeCount > 0 ? (
             <SidebarMenuBadge
@@ -115,34 +113,6 @@ export function AppSidebarPrimaryMenu({
             </SidebarMenuBadge>
           ) : null}
         </SidebarMenuItem>
-        <FeatureGate feature="pulse">
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              data-testid="open-pulse-view"
-              isActive={selectedView === "pulse"}
-              onClick={onSelectPulse}
-              tooltip="Pulse"
-              type="button"
-            >
-              <Activity className="h-4 w-4" />
-              <SidebarMenuLabel>Pulse</SidebarMenuLabel>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </FeatureGate>
-        <FeatureGate feature="projects">
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              data-testid="open-projects-view"
-              isActive={selectedView === "projects"}
-              onClick={onSelectProjects}
-              tooltip="Projects"
-              type="button"
-            >
-              <FolderGit2 className="h-4 w-4" />
-              <SidebarMenuLabel>Projects</SidebarMenuLabel>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </FeatureGate>
         <SidebarMenuItem>
           <SidebarMenuButton
             data-testid="open-agents-view"
@@ -155,20 +125,44 @@ export function AppSidebarPrimaryMenu({
             <SidebarMenuLabel>Agents</SidebarMenuLabel>
           </SidebarMenuButton>
         </SidebarMenuItem>
-        <FeatureGate feature="workflows">
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              data-testid="open-workflows-view"
-              isActive={selectedView === "workflows"}
-              onClick={onSelectWorkflows}
-              tooltip="Workflows"
-              type="button"
-            >
-              <Zap className="h-4 w-4" />
-              <SidebarMenuLabel>Workflows</SidebarMenuLabel>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </FeatureGate>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            aria-label="Activity"
+            data-testid="open-activity-view"
+            isActive={selectedView === "pulse"}
+            onClick={onSelectPulse}
+            tooltip="Activity"
+            type="button"
+          >
+            <Activity className="h-4 w-4" />
+            <SidebarMenuLabel>Activity</SidebarMenuLabel>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            aria-label="Brain Setup — available in a later Luca milestone"
+            data-luca-availability="future"
+            data-testid="open-brain-setup"
+            disabled
+            title="Brain Setup will be available in a later Luca milestone."
+            tooltip="Brain Setup — coming later"
+            type="button"
+          >
+            <Brain className="h-4 w-4" />
+            <SidebarMenuLabel>Brain Setup</SidebarMenuLabel>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            data-testid="open-settings-view"
+            onClick={onSelectSettings}
+            tooltip="Settings"
+            type="button"
+          >
+            <Settings className="h-4 w-4" />
+            <SidebarMenuLabel>Settings</SidebarMenuLabel>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
       </SidebarMenu>
     </SidebarHeader>
   );

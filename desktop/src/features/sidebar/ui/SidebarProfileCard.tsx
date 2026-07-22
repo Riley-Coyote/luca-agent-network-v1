@@ -11,7 +11,6 @@ import {
 import { ProfilePopover } from "@/features/profile/ui/ProfilePopover";
 import { StatusEmoji } from "@/features/user-status/ui/StatusEmoji";
 import type { Community } from "@/features/communities/types";
-import { CommunitySwitcher } from "@/features/communities/ui/CommunitySwitcher";
 import type { PresenceStatus, Profile, UserStatus } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 
@@ -38,22 +37,16 @@ type SidebarProfileCardProps = {
 };
 
 export function SidebarProfileCard({
-  activeCommunity,
   isPresencePending,
-  onOpenAddCommunity,
   onOpenSettings,
   onSendFeedback,
-  onRemoveCommunity,
   onSetPresenceStatus,
   onSetUserStatus,
   onClearUserStatus,
-  onSwitchCommunity,
-  onUpdateCommunity,
   profile,
   resolvedDisplayName,
   selfPresenceStatus,
   selfUserStatus,
-  communities,
 }: SidebarProfileCardProps) {
   const selfProfileCache = useSelfProfileCache();
   const [profilePopoverOpen, setProfilePopoverOpen] = React.useState(false);
@@ -76,7 +69,10 @@ export function SidebarProfileCard({
     [toggleProfilePopover],
   );
   const hasStatus = Boolean(selfUserStatus?.text || selfUserStatus?.emoji);
-  const communityLabel = activeCommunity?.name ?? "No community";
+  // Luca V1 is a personal home, not an organization switcher. Retain the
+  // active relay context internally, but do not surface multi-community
+  // controls while organizations and invited humans are deferred.
+  const communityLabel = "Personal workspace";
   const readonlyCommunityLabel = (
     <span
       className="flex min-w-0 cursor-pointer items-center gap-1 text-xs leading-snug text-sidebar-foreground/70"
@@ -156,17 +152,6 @@ export function SidebarProfileCard({
             triggerContainerRef={profileCardRef}
             userStatusEmoji={selfUserStatus?.emoji}
             userStatusText={selfUserStatus?.text}
-            communitySwitcherSlot={
-              <CommunitySwitcher
-                activeCommunity={activeCommunity}
-                onAddCommunity={onOpenAddCommunity}
-                onRemoveCommunity={onRemoveCommunity}
-                onSwitchCommunity={onSwitchCommunity}
-                onUpdateCommunity={onUpdateCommunity}
-                variant="profile-menu"
-                communities={communities}
-              />
-            }
           >
             <button
               onClick={(event) => {
