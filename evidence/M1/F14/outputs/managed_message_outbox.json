@@ -1,0 +1,17 @@
+{
+  "schema": "luca.evidence.output.v1",
+  "task": "F14",
+  "name": "managed_message_outbox",
+  "candidate_commit": "795a9920b4214f4aa98b8722cd2b6eac5142f915",
+  "declared_implementation_paths": [
+    "desktop/src-tauri/src/luca/managed_message_outbox.rs"
+  ],
+  "implementation_refs": [
+    {
+      "path": "desktop/src-tauri/src/luca/managed_message_outbox.rs",
+      "sha256": "6d8a9b1f13b52295cb1e60b3892eaac7884e720861a6cbe2d79327bc3856ef0d"
+    }
+  ],
+  "scope": "deterministic lifecycle, idempotency, and session-binding scaffold",
+  "deferred": "encrypted at-rest envelope and key lifecycle remain assigned to C15"
+}

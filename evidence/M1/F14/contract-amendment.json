@@ -1,0 +1,31 @@
+{
+  "schema": "luca.evidence.contract_amendment.v1",
+  "task": "F14",
+  "candidate_commit": "02b6b3ecbbb5102a68675b2e6c5234d16d12018c",
+  "decision": "option_1",
+  "status": "PASS",
+  "amendment": {
+    "path": ".codex/luca-v1/F14_OPTION1_AMENDMENT.md",
+    "sha256": "77f5a473a2c3f29769c19e81ba7ae09b7e2468e2769075f35b4b7555496700c8"
+  },
+  "validation": {
+    "path": "M1/F14/contract-amendment-validation.log",
+    "sha256": "5de8713940f3eafa6c38e4d9d8ebb06d3aefe5149647ff28c02b5a41f75ddef3",
+    "planning_tasks": 113,
+    "planning_gates": 8,
+    "validator_unit_tests": 10
+  },
+  "claim_boundary": {
+    "g1_proves": [
+      "managed ACP host receives no resident private key",
+      "managed ACP receives only a typed session-bound broker stream",
+      "model and tool descendants receive no key or broker capability",
+      "legacy Buzz identity behavior remains unchanged",
+      "desktop-local installation and session binding"
+    ],
+    "deferred": [
+      "remote relay rejection of a copied or superseded installation",
+      "relay-enforced old-installation revocation"
+    ]
+  }
+}

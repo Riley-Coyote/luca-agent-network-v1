@@ -1,0 +1,50 @@
+{
+  "schema": "luca.evidence.output.v1",
+  "task": "F14",
+  "name": "broker_transport_isolation",
+  "candidate_commit": "795a9920b4214f4aa98b8722cd2b6eac5142f915",
+  "declared_implementation_paths": [
+    "desktop/src-tauri/src/managed_agents/runtime.rs",
+    "desktop/src-tauri/src/managed_agents/env_vars.rs",
+    "desktop/src-tauri/src/luca/signing_transport.rs",
+    "crates/buzz-acp/src/acp.rs",
+    "crates/luca-signing-client/**",
+    "tests/luca-conformance/message_publish/descendant_environment.rs"
+  ],
+  "implementation_refs": [
+    {
+      "path": "desktop/src-tauri/src/managed_agents/runtime.rs",
+      "sha256": "830529808a1ce94384923fd8596a8d74598c828063db9af46e9814ff9fceb4ff"
+    },
+    {
+      "path": "desktop/src-tauri/src/managed_agents/env_vars.rs",
+      "sha256": "cefe90b00c5c7035e0cc8f9f2533b62c937eadec31b4996438880fc5f7862984"
+    },
+    {
+      "path": "desktop/src-tauri/src/luca/signing_transport.rs",
+      "sha256": "d0d545d6e50cb8a46ddd872fb8871a73df54828b0466a46263812570102c56e2"
+    },
+    {
+      "path": "crates/buzz-acp/src/acp.rs",
+      "sha256": "8a753971a70629db074e51632ad160a104c846b267be5c4a6f9178bba72d7b1c"
+    },
+    {
+      "path": "crates/luca-signing-client/Cargo.toml",
+      "sha256": "279ec1452b51c8e4e8a1f2169cb6288ca490c654cb7418feeaf380b5e4bba001"
+    },
+    {
+      "path": "crates/luca-signing-client/src/lib.rs",
+      "sha256": "87841e0569d246c2d9217ebb0712c32af4da5bf1bc80e8662ed170cc5bb9131c"
+    },
+    {
+      "path": "crates/luca-signing-client/tests/message_publish_vectors.rs",
+      "sha256": "0f0232f914e94fbca01df5175e52eb43d4cde992a94effc89d2ac7ede041d0d4"
+    },
+    {
+      "path": "tests/luca-conformance/message_publish/descendant_environment.rs",
+      "sha256": "2a17ea5d31958d6b6d9735e244690b33adc44492eecc8ee6f826eee01d45c376"
+    }
+  ],
+  "transport": "exclusive unnamed Unix socketpair carried as managed ACP stdin",
+  "descendant_boundary": "close-on-exec owned duplicate plus replacement child stdin"
+}

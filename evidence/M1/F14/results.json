@@ -1,0 +1,129 @@
+{
+  "schema": "luca.evidence.result.v1",
+  "task": "F14",
+  "candidate_commit": "795a9920b4214f4aa98b8722cd2b6eac5142f915",
+  "status": "INTEGRATION_PENDING",
+  "executor": {
+    "id": "worker-f14-managed-broker",
+    "independence_group": "implementation:F14"
+  },
+  "outputs": [
+    {
+      "name": "desktop_signing_broker",
+      "path": "M1/F14/outputs/desktop_signing_broker.json",
+      "sha256": "9da36f933f32405e27e65ad0aace72578ff57a81d410b3bf927f16c780980586"
+    },
+    {
+      "name": "acp_broker_client",
+      "path": "M1/F14/outputs/acp_broker_client.json",
+      "sha256": "571f990f7310d3ed21cb5e2d7c08ae08ca1a86e13a682118de46e38e53955fa2"
+    },
+    {
+      "name": "typed_operation_policy",
+      "path": "M1/F14/outputs/typed_operation_policy.json",
+      "sha256": "e238a34c02e60f32df0188d92e82d02ae511a42d54f320afa7271be555f36328"
+    },
+    {
+      "name": "local_broker_session_binding",
+      "path": "M1/F14/outputs/local_broker_session_binding.json",
+      "sha256": "3d56f96f4ddacc7093033fde4cc4c41a60a650d8ac56c2c4658ea9ae7373b769"
+    },
+    {
+      "name": "managed_message_outbox",
+      "path": "M1/F14/outputs/managed_message_outbox.json",
+      "sha256": "352ac041c9c70a26fea803800fbe55f37f6178d15efbe8f7d23c6ac3bcf43873"
+    },
+    {
+      "name": "message_publish_schema_vectors",
+      "path": "M1/F14/outputs/message_publish_schema_vectors.json",
+      "sha256": "7b9dd03988c19e3ae433711be8c70638742b9a1448889a349fc5e21a8e09cf89"
+    },
+    {
+      "name": "descendant_environment_proof",
+      "path": "M1/F14/outputs/descendant_environment_proof.json",
+      "sha256": "346768ac9501b505fd36d2c920355a5b2f6191c80060c0d7f43e710024bb5334"
+    },
+    {
+      "name": "managed_identity_mode",
+      "path": "M1/F14/outputs/managed_identity_mode.json",
+      "sha256": "2621a343f077ad596327623957340114d8c2a8dde99f4dc540c1a69f8b44da4e"
+    },
+    {
+      "name": "broker_transport_isolation",
+      "path": "M1/F14/outputs/broker_transport_isolation.json",
+      "sha256": "015e74a314d0faeef68129ad3e0038491cc6bda8ee0c302a6c6a1a94bf1b1c6d"
+    }
+  ],
+  "test_logs": [
+    {
+      "name": "desktop-signing",
+      "command": "cargo test -p buzz-desktop luca_signing -- --nocapture",
+      "status": "PASS",
+      "path": "M1/F14/desktop-signing-test.log",
+      "sha256": "a63038ef91c0585d59da31da2da740e052ce94b479fb56fa332813636e33661f"
+    },
+    {
+      "name": "managed-identity",
+      "command": "cargo test -p buzz-acp luca_managed_identity -- --nocapture",
+      "status": "PASS",
+      "path": "M1/F14/managed-identity-test.log",
+      "sha256": "5767af8d4fa91f409c09a04b2deba2a0ba436c1ce1e784c9e2c5c98c1243f948"
+    },
+    {
+      "name": "descendant-isolation",
+      "command": "cargo test -p buzz-acp luca_descendant_isolation -- --nocapture",
+      "status": "PASS",
+      "path": "M1/F14/descendant-isolation-test.log",
+      "sha256": "94029c3a3c8f0f0842d3544f0b5786cc0e22d6a937723cdff9dc5499067fef83"
+    },
+    {
+      "name": "signing-vectors",
+      "command": "cargo test -p luca-signing-client signing_vectors -- --nocapture",
+      "status": "PASS",
+      "path": "M1/F14/signing-client-test.log",
+      "sha256": "0665ad3a0be0ed4f9e3021e6578447a6ed35a797b3cb0ac4774722012d430a70"
+    },
+    {
+      "name": "just-ci",
+      "command": "just ci  # milestone integration candidate only",
+      "status": "INTEGRATION_PENDING",
+      "path": "M1/F14/just-ci.log",
+      "sha256": "e46b98c46003aa76058f874cd84fccd643dc0315197e9bd6192f755fedb8a5df"
+    }
+  ],
+  "supplemental_test_logs": [
+    {
+      "name": "buzz-acp-full-regression",
+      "command": "CARGO_INCREMENTAL=0 ./bin/cargo test -p buzz-acp",
+      "status": "PASS",
+      "path": "M1/F14/buzz-acp-regression.log",
+      "sha256": "62ea828d53861f199e2c0892514a821f27803c19fd268e2e455a7b8716bdd137"
+    },
+    {
+      "name": "workspace-all-target-check",
+      "command": "CARGO_INCREMENTAL=0 ./bin/just check-compile",
+      "status": "PASS",
+      "path": "M1/F14/check-compile.log",
+      "sha256": "08fb7a7e77675489b32476b66c76a2dbf5b997dd55f3bed4ebdb5560aead2b3d"
+    },
+    {
+      "name": "strict-no-deps-clippy",
+      "command": "strict no-dependencies Clippy with warnings denied",
+      "status": "PASS",
+      "path": "M1/F14/clippy.log",
+      "sha256": "250bdaed53215878f93b888eb89c492ade37846db736615b0a6016a651eb0408"
+    },
+    {
+      "name": "ownership-contract",
+      "command": "python3 scripts/evidence/validate_contracts.py --task F14 --base 5b1e8811cfda9732dd336642cbbfa4f57d1228e3 --candidate 795a9920b4214f4aa98b8722cd2b6eac5142f915 && python3 scripts/evidence/validate_contracts.py --audit",
+      "status": "PASS",
+      "path": "M1/F14/ownership-validator.log",
+      "sha256": "e0f20879237821450d750cea636e110d82236ad69d7025ef2ab1fc46ac8bb512"
+    }
+  ],
+  "artifact_scan": {
+    "path": "M1/F14/artifact-secret-scan.json",
+    "sha256": "a4eeca7b944d2bf78faa1a49eccc773bd6845c5f22350168ec1b0df0de5055f5"
+  },
+  "integration_pending_reason": "The capsule reserves just ci for the M1 integration candidate; every F14 task-local implementation, focused test, affected-crate regression, ownership check, artifact scan and independent review requirement passes."
+}

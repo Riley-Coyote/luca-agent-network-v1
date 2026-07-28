@@ -1,0 +1,3 @@
+PASS
+Command: cargo test -p buzz-desktop luca_signing -- --nocapture
+Observed: 14 focused desktop signing tests passed; 0 failed.

@@ -1,0 +1,49 @@
+{
+  "schema": "luca.evidence.output.v1",
+  "task": "F14",
+  "name": "managed_identity_mode",
+  "candidate_commit": "795a9920b4214f4aa98b8722cd2b6eac5142f915",
+  "declared_implementation_paths": [
+    "crates/buzz-acp/src/config.rs",
+    "crates/buzz-acp/src/relay.rs",
+    "crates/buzz-acp/src/pool.rs",
+    "crates/buzz-acp/src/setup_mode.rs",
+    "crates/buzz-acp/src/queue.rs",
+    "crates/buzz-acp/src/luca_managed_prompt.md",
+    "desktop/src-tauri/src/managed_agents/env_vars.rs"
+  ],
+  "implementation_refs": [
+    {
+      "path": "crates/buzz-acp/src/config.rs",
+      "sha256": "ad306745f810f49e1938dc3157ebfc6995c17a6d76f39bf3d3c061fa5c6cac07"
+    },
+    {
+      "path": "crates/buzz-acp/src/relay.rs",
+      "sha256": "5cddac6f36513901f9e40dee3280895eedac04cc5cd9b9cf5af0c496ee693c42"
+    },
+    {
+      "path": "crates/buzz-acp/src/pool.rs",
+      "sha256": "9b7f3c9dd7931653a76288d038c54b82a0c086e28d4f8fd63cf106458f84e7db"
+    },
+    {
+      "path": "crates/buzz-acp/src/setup_mode.rs",
+      "sha256": "47d4c734bc98a7a6b4bb2358e4c38f8324d5f2af9706d0c90695fe9473985978"
+    },
+    {
+      "path": "crates/buzz-acp/src/queue.rs",
+      "sha256": "81d051ce8f06d101d7a92b005687d727f9cfe083aa4a5e43171efebc67864eac"
+    },
+    {
+      "path": "crates/buzz-acp/src/luca_managed_prompt.md",
+      "sha256": "3f8600c3dc44be8bee2caa1786ce5abba784f173ebf6e5e972c242ef1ab09905"
+    },
+    {
+      "path": "desktop/src-tauri/src/managed_agents/env_vars.rs",
+      "sha256": "cefe90b00c5c7035e0cc8f9f2533b62c937eadec31b4996438880fc5f7862984"
+    }
+  ],
+  "modes": [
+    "Legacy(Keys)",
+    "Managed(public identity + typed desktop broker)"
+  ]
+}

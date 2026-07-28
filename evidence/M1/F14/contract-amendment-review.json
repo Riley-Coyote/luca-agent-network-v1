@@ -1,0 +1,39 @@
+{
+  "schema": "luca.evidence.review.v1",
+  "subject_type": "contract_amendment",
+  "subject_id": "F14-option-1",
+  "candidate_commit": "02b6b3ecbbb5102a68675b2e6c5234d16d12018c",
+  "status": "PASS",
+  "reviewer": {
+    "id": "f14-option1-independent-security-review",
+    "independence_group": "review:M1:F14:contract"
+  },
+  "independent_of": [
+    "lead-contract-author",
+    "implementation:F14"
+  ],
+  "prior_review": {
+    "status": "FAIL",
+    "open_findings": [
+      "F14-CONTRACT-R1",
+      "F14-CONTRACT-R2"
+    ]
+  },
+  "findings": [
+    {
+      "id": "F14-CONTRACT-R1",
+      "severity": "P1",
+      "status": "CLOSED",
+      "title": "ACP typed broker stream contradicted an overbroad no-capability statement",
+      "closure": "The threat model now distinguishes the managed ACP host's typed allowlisted stream from the complete absence of keys and broker capability in provider, model, MCP, shell and tool descendants."
+    },
+    {
+      "id": "F14-CONTRACT-R2",
+      "severity": "P1",
+      "status": "CLOSED",
+      "title": "Frozen stdin transport lacked complete implementation and proof bindings",
+      "closure": "broker_transport_isolation now binds runtime, environment reservation, transport, ACP spawn, signing client and executable descendant proof paths; implementation and done conditions require stdin-only carriage, close-on-exec duplication, replacement child stdin, bootstrap scrubbing and negative argv, environment and open-descriptor probes."
+    }
+  ],
+  "new_p0_p1_findings": []
+}

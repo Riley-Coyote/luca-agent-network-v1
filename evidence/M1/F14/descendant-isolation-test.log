@@ -1,0 +1,6 @@
+PASS
+Command: cargo test -p buzz-acp luca_descendant_isolation -- --nocapture
+Observed: 3 focused descendant-isolation tests passed; 0 failed.
+Repair verification: the platform-sensitive pipe-classification probe was
+replaced by executable descriptor isolation proof and the focused suite passed
+five consecutive repetitions.

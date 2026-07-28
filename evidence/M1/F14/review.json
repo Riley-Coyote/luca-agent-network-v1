@@ -1,0 +1,85 @@
+{
+  "schema": "luca.evidence.review.v1",
+  "subject_type": "task",
+  "subject_id": "F14",
+  "candidate_commit": "795a9920b4214f4aa98b8722cd2b6eac5142f915",
+  "status": "PASS",
+  "reviewer": {
+    "id": "f14-independent-security-review-cycle-2",
+    "independence_group": "review:M1:F14:security:cycle2"
+  },
+  "independent_of": [
+    "worker-f14-managed-broker"
+  ],
+  "reviewed_diff": {
+    "implementation_base": "7f96d9b3d4a800d321b080efe34afc90ccef02ba",
+    "feature_commit": "cad1dfe5fa9e59f87a8a15461d9fb7635af8b61f",
+    "planning_ownership_correction": "b56a0a3db32ebd616a45897af26426b0cd7dd821",
+    "lock_integration": "5b1e8811cfda9732dd336642cbbfa4f57d1228e3",
+    "integrated_candidate": "795a9920b4214f4aa98b8722cd2b6eac5142f915",
+    "changed_path_count": 20,
+    "ownership_status": "PASS"
+  },
+  "verification": [
+    {
+      "probe": "managed identity focused suite",
+      "status": "PASS",
+      "observed": "4 tests passed"
+    },
+    {
+      "probe": "managed descendant isolation focused suite",
+      "status": "PASS",
+      "observed": "3 tests passed and the repaired probe passed five repeats"
+    },
+    {
+      "probe": "signing client full regression",
+      "status": "PASS",
+      "observed": "9 total tests passed"
+    },
+    {
+      "probe": "desktop signing focused suite",
+      "status": "PASS",
+      "observed": "14 tests passed"
+    },
+    {
+      "probe": "buzz-acp full regression",
+      "status": "PASS",
+      "observed": "577 unit, 2 F08 and 7 F18 tests passed"
+    },
+    {
+      "probe": "workspace all-target compile and strict no-dependencies Clippy",
+      "status": "PASS",
+      "observed": "all affected targets compiled and warnings-denied Clippy passed"
+    },
+    {
+      "probe": "F14 ownership validation",
+      "status": "PASS",
+      "observed": "20 changed implementation paths were within the amended F14 capsule"
+    }
+  ],
+  "findings": [
+    {
+      "id": "F14-R1",
+      "severity": "P1",
+      "status": "CLOSED",
+      "title": "Executable proof did not initially establish descendant descriptor isolation",
+      "closure": "The repaired proof uses the production managed spawn path, inspects outer and nested argv, environment and descriptors, verifies replacement stdin, rejects signing and bootstrap variables including case variants, preserves lifecycle metadata, and behaviorally proves the owned broker duplicate closes across exec."
+    }
+  ],
+  "new_p0_p1_findings": [],
+  "open_findings": [],
+  "claim_boundary": {
+    "proven": [
+      "managed ACP host receives no resident private key",
+      "managed provider, model, MCP, shell and tool descendants receive no resident key or usable broker stream",
+      "typed session-bound desktop authority gates managed relay authentication and publication requests",
+      "legacy Buzz identity behavior remains regression-tested",
+      "desktop-local installation and session binding"
+    ],
+    "deferred": [
+      "remote relay revocation of a copied or superseded installation",
+      "F09 final chunk aggregation and concrete successful publication adapter",
+      "C15 encrypted at-rest outbox envelope and key lifecycle"
+    ]
+  }
+}

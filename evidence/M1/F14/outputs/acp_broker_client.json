@@ -1,0 +1,23 @@
+{
+  "schema": "luca.evidence.output.v1",
+  "task": "F14",
+  "name": "acp_broker_client",
+  "candidate_commit": "795a9920b4214f4aa98b8722cd2b6eac5142f915",
+  "declared_implementation_paths": [
+    "crates/luca-signing-client/**"
+  ],
+  "implementation_refs": [
+    {
+      "path": "crates/luca-signing-client/Cargo.toml",
+      "sha256": "279ec1452b51c8e4e8a1f2169cb6288ca490c654cb7418feeaf380b5e4bba001"
+    },
+    {
+      "path": "crates/luca-signing-client/src/lib.rs",
+      "sha256": "87841e0569d246c2d9217ebb0712c32af4da5bf1bc80e8662ed170cc5bb9131c"
+    },
+    {
+      "path": "crates/luca-signing-client/tests/message_publish_vectors.rs",
+      "sha256": "0f0232f914e94fbca01df5175e52eb43d4cde992a94effc89d2ac7ede041d0d4"
+    }
+  ]
+}

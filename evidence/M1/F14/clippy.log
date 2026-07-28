@@ -1,0 +1,3 @@
+PASS
+Observed: strict no-dependencies Clippy checks completed successfully with
+warnings denied for the affected root and desktop targets.

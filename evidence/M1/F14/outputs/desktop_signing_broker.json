@@ -1,0 +1,15 @@
+{
+  "schema": "luca.evidence.output.v1",
+  "task": "F14",
+  "name": "desktop_signing_broker",
+  "candidate_commit": "795a9920b4214f4aa98b8722cd2b6eac5142f915",
+  "declared_implementation_paths": [
+    "desktop/src-tauri/src/luca/signing_broker.rs"
+  ],
+  "implementation_refs": [
+    {
+      "path": "desktop/src-tauri/src/luca/signing_broker.rs",
+      "sha256": "16416c92299452fc6de56f7e9b12d86fee378aa1d88c4354a015ea18c78f6f91"
+    }
+  ]
+}

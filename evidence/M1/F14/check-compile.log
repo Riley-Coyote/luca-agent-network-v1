@@ -1,0 +1,3 @@
+PASS
+Command: CARGO_INCREMENTAL=0 ./bin/just check-compile
+Observed: workspace all-target compile completed successfully.

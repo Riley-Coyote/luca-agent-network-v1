@@ -1,0 +1,16 @@
+{
+  "schema": "luca.evidence.environment.v1",
+  "task": "F14",
+  "candidate_commit": "795a9920b4214f4aa98b8722cd2b6eac5142f915",
+  "timestamp": "2026-07-28T04:38:19Z",
+  "source_coordinate": "block/buzz@7e34bee62cacaa9d8a96c14d5892a471b59a1983",
+  "platform": "Darwin arm64",
+  "local_paths_redacted": true,
+  "tool_versions": {
+    "git": "git version 2.51.0",
+    "python3": "Python 3.14.3",
+    "just": "just 1.46.0",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)"
+  }
+}

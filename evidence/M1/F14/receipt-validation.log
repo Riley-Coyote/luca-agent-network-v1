@@ -1,0 +1,4 @@
+PASS task receipt hash/binding audit
+Verified every results output, test-log, supplemental-log and artifact-scan
+digest; exact output names and test-command sequence match the F14 capsule;
+every implementation reference matches the integrated candidate worktree.

@@ -1,0 +1,16 @@
+{
+  "schema": "luca.evidence.output.v1",
+  "task": "F14",
+  "name": "local_broker_session_binding",
+  "candidate_commit": "795a9920b4214f4aa98b8722cd2b6eac5142f915",
+  "declared_implementation_paths": [
+    "desktop/src-tauri/src/luca/local_broker_session.rs"
+  ],
+  "implementation_refs": [
+    {
+      "path": "desktop/src-tauri/src/luca/local_broker_session.rs",
+      "sha256": "26e0968ac1c2af45ec0347184666ced47abd12c2d3c338efd54cc48771e37956"
+    }
+  ],
+  "claim_boundary": "desktop-local installation and session binding"
+}

@@ -1,0 +1,15 @@
+{
+  "schema": "luca.evidence.output.v1",
+  "task": "F14",
+  "name": "message_publish_schema_vectors",
+  "candidate_commit": "795a9920b4214f4aa98b8722cd2b6eac5142f915",
+  "declared_implementation_paths": [
+    "tests/luca-conformance/message_publish/vectors.rs"
+  ],
+  "implementation_refs": [
+    {
+      "path": "tests/luca-conformance/message_publish/vectors.rs",
+      "sha256": "d17bca0ba65187fd8b6491ec61820fb06e8215ab3e54c7aa01bbb7a0c4e97b85"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+PASS
+Command: CARGO_INCREMENTAL=0 ./bin/cargo test -p buzz-acp
+Observed: 577 unit tests passed; 2 F08 integration tests passed; 7 F18
+integration tests passed; 0 failed.

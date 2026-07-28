@@ -1,0 +1,5 @@
+PASS
+Command: cargo test -p luca-signing-client signing_vectors -- --nocapture
+Observed: 8 focused signing-vector tests passed; 0 failed.
+Supplemental full-crate regression: 8 unit tests and 1 integration test passed;
+0 failed; doc tests passed.

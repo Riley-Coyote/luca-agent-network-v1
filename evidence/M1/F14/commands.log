@@ -1,0 +1,31 @@
+F14 integrated evidence receipt
+candidate=795a9920b4214f4aa98b8722cd2b6eac5142f915
+implementation_base=7f96d9b3d4a800d321b080efe34afc90ccef02ba
+feature_commit=cad1dfe5fa9e59f87a8a15461d9fb7635af8b61f
+planning_ownership_correction=b56a0a3db32ebd616a45897af26426b0cd7dd821
+lock_integration=5b1e8811cfda9732dd336642cbbfa4f57d1228e3
+ownership_range=5b1e8811cfda9732dd336642cbbfa4f57d1228e3..795a9920b4214f4aa98b8722cd2b6eac5142f915
+
+PASS  cargo test -p buzz-desktop luca_signing -- --nocapture
+      14 focused desktop signing tests passed.
+PASS  cargo test -p buzz-acp luca_managed_identity -- --nocapture
+      4 focused managed-identity tests passed.
+PASS  cargo test -p buzz-acp luca_descendant_isolation -- --nocapture
+      3 focused descendant-isolation tests passed. The platform-sensitive
+      pipe probe was repaired and the focused suite then passed five repeats.
+PASS  cargo test -p luca-signing-client signing_vectors -- --nocapture
+      8 focused signing-vector tests passed; the full crate passed 9 total.
+DEFERRED  just ci  # milestone integration candidate only
+
+Supplemental integration verification:
+PASS  CARGO_INCREMENTAL=0 ./bin/cargo test -p buzz-acp
+      577 unit tests, 2 F08 integration tests and 7 F18 integration tests passed.
+PASS  CARGO_INCREMENTAL=0 ./bin/cargo test -p luca-signing-client
+      8 unit tests and 1 integration test passed.
+PASS  CARGO_INCREMENTAL=0 ./bin/just check-compile
+      Workspace all-target compilation passed.
+PASS  strict no-dependencies Clippy checks with warnings denied
+PASS  python3 scripts/evidence/validate_contracts.py --task F14
+      20 changed implementation paths passed ownership validation.
+PASS  independent security/architecture review cycle 2
+      No open P0 or P1 findings.

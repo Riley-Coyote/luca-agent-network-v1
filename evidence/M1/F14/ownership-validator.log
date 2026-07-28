@@ -1,0 +1,7 @@
+PASS
+Command: python3 scripts/evidence/validate_contracts.py --task F14 --base 5b1e8811cfda9732dd336642cbbfa4f57d1228e3 --candidate 795a9920b4214f4aa98b8722cd2b6eac5142f915
+Observed: 20 changed implementation paths; Luca ownership contract valid.
+
+PASS
+Command: python3 scripts/evidence/validate_contracts.py --audit
+Observed: 113 capsules audited; ownership and mutex contract valid.

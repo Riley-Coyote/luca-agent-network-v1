@@ -1,0 +1,3 @@
+PASS
+Command: cargo test -p buzz-acp luca_managed_identity -- --nocapture
+Observed: 4 focused managed-identity tests passed; 0 failed.

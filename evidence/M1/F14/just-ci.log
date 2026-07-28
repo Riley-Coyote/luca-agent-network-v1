@@ -1,0 +1,7 @@
+INTEGRATION_PENDING
+Command: just ci  # milestone integration candidate only
+The F14 capsule reserves this command for the M1 integration candidate. Task
+focused tests, full affected-crate regressions, workspace all-target compile,
+strict no-dependencies Clippy, ownership validation and independent review
+have passed. The milestone integrator must replace this receipt with the
+actual full CI output before G1 evidence validation.

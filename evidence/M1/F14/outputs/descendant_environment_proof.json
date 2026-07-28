@@ -1,0 +1,21 @@
+{
+  "schema": "luca.evidence.output.v1",
+  "task": "F14",
+  "name": "descendant_environment_proof",
+  "candidate_commit": "795a9920b4214f4aa98b8722cd2b6eac5142f915",
+  "declared_implementation_paths": [
+    "tests/luca-conformance/message_publish/descendant_environment.rs"
+  ],
+  "implementation_refs": [
+    {
+      "path": "tests/luca-conformance/message_publish/descendant_environment.rs",
+      "sha256": "2a17ea5d31958d6b6d9735e244690b33adc44492eecc8ee6f826eee01d45c376"
+    }
+  ],
+  "proofs": [
+    "managed model and nested child receive replacement stdin",
+    "managed model and nested child receive no signing or broker bootstrap variables",
+    "managed signing channel duplicate closes across exec",
+    "legacy identity environment remains available only on the legacy path"
+  ]
+}
