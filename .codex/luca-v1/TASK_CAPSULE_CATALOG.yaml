@@ -1243,6 +1243,10 @@ task_capsules:
   - target:desktop/src-tauri/src/luca/managed_message_outbox.rs
   - target:desktop/src-tauri/src/luca/signing_broker.rs
   - target:desktop/src-tauri/src/managed_agents/runtime.rs
+  - target:desktop/src-tauri/src/luca/managed_dispatch_store.rs
+  - target:desktop/src-tauri/src/commands/messages.rs
+  - target:desktop/src/features/messages/hooks.ts
+  - F09_DISPATCH_AUTHORITY_AMENDMENT.md
   - target:crates/buzz-acp/tests/luca_f09.rs
   - target:desktop/tests/e2e/luca/f09.spec.ts
   owns:
@@ -1257,6 +1261,9 @@ task_capsules:
     - desktop/src-tauri/src/luca/signing_broker.rs
     - desktop/src-tauri/src/luca/managed_message_outbox.rs
     - desktop/src-tauri/src/luca/managed_message_publisher.rs
+    - desktop/src-tauri/src/luca/managed_dispatch_store.rs
+    - desktop/src-tauri/src/commands/messages.rs
+    - desktop/src/features/messages/hooks.ts
     - desktop/tests/e2e/luca/f09.spec.ts
     - evidence/M1/F09/**
     forbid:

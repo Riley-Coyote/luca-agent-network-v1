@@ -1993,6 +1993,7 @@ ownership_policy:
   - [F09, R05]
   - [F14, B15]
   - [F09, B15]
+  - [F09, F10]
   single_writer_paths:
     crates/buzz-db/migrations/luca_capsule/**: C16
     desktop/src-tauri/migrations/luca_memory_policy/**: B24
