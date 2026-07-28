@@ -1,35 +1,29 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://luca.local/schemas/signing_broker/frame-v1.schema.json",
-  "title": "Luca inherited signing-broker frame V1",
+  "$id": "https://luca.local/schemas/signing_broker/result-frame-v1.schema.json",
+  "title": "Luca inherited signing-broker result frame V1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["protocol", "session_epoch", "sequence", "request_id", "operation", "payload", "deadline_unix_ms"],
+  "required": ["protocol", "session_epoch", "sequence", "request_id", "operation", "result"],
   "properties": {
     "protocol": {"const": "luca.signing.frame.v1"},
     "session_epoch": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
     "sequence": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
     "request_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$"},
     "operation": {"enum": ["message.publish.v1", "relay_auth.sign.v1"]},
-    "payload": {},
-    "deadline_unix_ms": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 9007199254740991,
-      "$comment": "Runtime conformance requires an unexpired value no more than now plus 30000 ms."
-    }
+    "result": {}
   },
   "oneOf": [
     {
       "properties": {
         "operation": {"const": "message.publish.v1"},
-        "payload": {"$ref": "../message_publish/v1.schema.json#/$defs/request"}
+        "result": {"$ref": "../message_publish/v1.schema.json#/$defs/result"}
       }
     },
     {
       "properties": {
         "operation": {"const": "relay_auth.sign.v1"},
-        "payload": {"$ref": "../relay_auth/v1.schema.json#/$defs/request"}
+        "result": {"$ref": "../relay_auth/v1.schema.json#/$defs/result"}
       }
     }
   ],

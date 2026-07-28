@@ -56,11 +56,16 @@
         "state": {"enum": ["cancelled", "denied", "invalid", "unavailable"]},
         "code": {"$ref": "#/$defs/opaque_id"}
       }
+    },
+    "result": {
+      "oneOf": [
+        {"$ref": "#/$defs/accepted_result"},
+        {"$ref": "#/$defs/rejected_result"}
+      ]
     }
   },
   "oneOf": [
     {"$ref": "#/$defs/request"},
-    {"$ref": "#/$defs/accepted_result"},
-    {"$ref": "#/$defs/rejected_result"}
+    {"$ref": "#/$defs/result"}
   ]
 }

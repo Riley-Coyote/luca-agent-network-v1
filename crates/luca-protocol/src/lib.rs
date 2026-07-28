@@ -13,6 +13,7 @@ mod frame;
 mod ids;
 mod message_publish;
 mod owner_identity;
+mod relay_auth;
 
 pub use canonical::{
     canonical_sha256, canonicalize, parse_and_canonicalize_strict, parse_strict_json,
@@ -20,8 +21,9 @@ pub use canonical::{
 };
 pub use diagnostic::{SafeDiagnosticV1, SAFE_DIAGNOSTIC_PROTOCOL};
 pub use frame::{
-    decode_length_prefixed_frame, encode_length_prefixed_frame, FrameError, OperationV1,
-    SigningFrameV1, BROKER_FRAME_MAX_BYTES, SIGNING_FRAME_PROTOCOL,
+    decode_length_prefixed_frame, decode_length_prefixed_result_frame,
+    encode_length_prefixed_frame, encode_length_prefixed_result_frame, FrameError, OperationV1,
+    SigningFrameV1, SigningResultFrameV1, BROKER_FRAME_MAX_BYTES, SIGNING_FRAME_PROTOCOL,
 };
 pub use ids::{
     BundleId, CanonicalTimestamp, Hex64, OpaqueId, ProtocolValueError, SafeU53, Sha256Ref,
@@ -35,4 +37,9 @@ pub use message_publish::{
 pub use owner_identity::{
     OwnerIdentityBundleV1, OwnerIdentityError, SecretNsec, OWNER_IDENTITY_CANONICALIZATION,
     OWNER_IDENTITY_FORMAT, OWNER_IDENTITY_VERSION,
+};
+pub use relay_auth::{
+    RelayAuthError, RelayAuthPurposeV1, RelayAuthSignRequestV1, RelayAuthSignResultV1,
+    RelayHttpMethodV1, MAX_RELAY_AUTH_CHALLENGE_BYTES, MAX_RELAY_AUTH_EVENT_BYTES,
+    MAX_RELAY_AUTH_URL_BYTES, RELAY_AUTH_SIGN_PROTOCOL,
 };

@@ -1,0 +1,113 @@
+{
+  "schema": "luca.conformance.relay-auth.v1",
+  "nip42_request": {
+    "protocol": "luca.relay-auth.sign.v1",
+    "resident_pubkey": "28195ed27769fc7834568d8f71d13019dcbcd43bcbba660024876a336832b496",
+    "purpose": {
+      "kind": "nip42",
+      "relay_url": "wss://relay.luca.invalid/",
+      "challenge": "luca-v1-public-auth-vector"
+    }
+  },
+  "nip98_request": {
+    "protocol": "luca.relay-auth.sign.v1",
+    "resident_pubkey": "28195ed27769fc7834568d8f71d13019dcbcd43bcbba660024876a336832b496",
+    "purpose": {
+      "kind": "nip98",
+      "method": "POST",
+      "url": "https://relay.luca.invalid/query",
+      "payload_sha256": "893f77fd8fc1980ea2eb0030ed53ce4357075c58b56915876caa862b51264313"
+    }
+  },
+  "request_frame": {
+    "now_unix_ms": 1784732400000,
+    "value": {
+      "protocol": "luca.signing.frame.v1",
+      "session_epoch": 19,
+      "sequence": 1,
+      "request_id": "relay-auth-request-001",
+      "operation": "relay_auth.sign.v1",
+      "payload": {
+        "protocol": "luca.relay-auth.sign.v1",
+        "resident_pubkey": "28195ed27769fc7834568d8f71d13019dcbcd43bcbba660024876a336832b496",
+        "purpose": {
+          "kind": "nip42",
+          "relay_url": "wss://relay.luca.invalid/",
+          "challenge": "luca-v1-public-auth-vector"
+        }
+      },
+      "deadline_unix_ms": 1784732430000
+    }
+  },
+  "signed_result_frame": {
+    "protocol": "luca.signing.frame.v1",
+    "session_epoch": 19,
+    "sequence": 1,
+    "request_id": "relay-auth-request-001",
+    "operation": "relay_auth.sign.v1",
+    "result": {
+      "state": "signed",
+      "event_id": "fa85c139271bff1480bc4803088df559b26053b86fbd094180679c3b6b993af3",
+      "signed_event_json": "{\"content\":\"\",\"created_at\":1784732400,\"id\":\"fa85c139271bff1480bc4803088df559b26053b86fbd094180679c3b6b993af3\",\"kind\":22242,\"pubkey\":\"28195ed27769fc7834568d8f71d13019dcbcd43bcbba660024876a336832b496\",\"sig\":\"826af14397ad651f8e72f423eeb53e2f5acca9aaea668eaed3d33ff23799304f1898a11248285e3cae9c8bfb1d6efd17def16bc6ea3ae0dbc9ba63a79904ae29\",\"tags\":[[\"challenge\",\"luca-v1-public-auth-vector\"],[\"relay\",\"wss://relay.luca.invalid/\"]]}"
+    }
+  },
+  "public_event_vector": {
+    "derivation_domain": "luca.v1.synthetic.relay-auth.vector",
+    "created_at": 1784732400,
+    "pubkey": "28195ed27769fc7834568d8f71d13019dcbcd43bcbba660024876a336832b496",
+    "event_id": "fa85c139271bff1480bc4803088df559b26053b86fbd094180679c3b6b993af3",
+    "signature": "826af14397ad651f8e72f423eeb53e2f5acca9aaea668eaed3d33ff23799304f1898a11248285e3cae9c8bfb1d6efd17def16bc6ea3ae0dbc9ba63a79904ae29",
+    "signed_event_json": "{\"content\":\"\",\"created_at\":1784732400,\"id\":\"fa85c139271bff1480bc4803088df559b26053b86fbd094180679c3b6b993af3\",\"kind\":22242,\"pubkey\":\"28195ed27769fc7834568d8f71d13019dcbcd43bcbba660024876a336832b496\",\"sig\":\"826af14397ad651f8e72f423eeb53e2f5acca9aaea668eaed3d33ff23799304f1898a11248285e3cae9c8bfb1d6efd17def16bc6ea3ae0dbc9ba63a79904ae29\",\"tags\":[[\"challenge\",\"luca-v1-public-auth-vector\"],[\"relay\",\"wss://relay.luca.invalid/\"]]}"
+  },
+  "invalid_requests": [
+    {
+      "name": "wrong-protocol",
+      "value": {
+        "protocol": "luca.relay-auth.sign.v2",
+        "resident_pubkey": "28195ed27769fc7834568d8f71d13019dcbcd43bcbba660024876a336832b496",
+        "purpose": {
+          "kind": "nip42",
+          "relay_url": "wss://relay.luca.invalid/",
+          "challenge": "challenge"
+        }
+      }
+    },
+    {
+      "name": "relay-path-not-root",
+      "value": {
+        "protocol": "luca.relay-auth.sign.v1",
+        "resident_pubkey": "28195ed27769fc7834568d8f71d13019dcbcd43bcbba660024876a336832b496",
+        "purpose": {
+          "kind": "nip42",
+          "relay_url": "wss://relay.luca.invalid/not-root",
+          "challenge": "challenge"
+        }
+      }
+    },
+    {
+      "name": "query-hash-omitted",
+      "value": {
+        "protocol": "luca.relay-auth.sign.v1",
+        "resident_pubkey": "28195ed27769fc7834568d8f71d13019dcbcd43bcbba660024876a336832b496",
+        "purpose": {
+          "kind": "nip98",
+          "method": "POST",
+          "url": "https://relay.luca.invalid/query"
+        }
+      }
+    },
+    {
+      "name": "query-path-not-exact",
+      "value": {
+        "protocol": "luca.relay-auth.sign.v1",
+        "resident_pubkey": "28195ed27769fc7834568d8f71d13019dcbcd43bcbba660024876a336832b496",
+        "purpose": {
+          "kind": "nip98",
+          "method": "POST",
+          "url": "https://relay.luca.invalid/admin/query",
+          "payload_sha256": "893f77fd8fc1980ea2eb0030ed53ce4357075c58b56915876caa862b51264313"
+        }
+      }
+    }
+  ]
+}

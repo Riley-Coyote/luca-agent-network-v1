@@ -209,7 +209,9 @@ fn checked_schemas_are_strict_and_preserve_the_m1_boundary() {
     let schema_names = [
         "common/v1.schema.json",
         "message_publish/v1.schema.json",
+        "relay_auth/v1.schema.json",
         "signing_broker/frame-v1.schema.json",
+        "signing_broker/result-frame-v1.schema.json",
         "backup_restore/owner-identity-v1.schema.json",
         "diagnostics/safe-diagnostic-v1.schema.json",
     ];

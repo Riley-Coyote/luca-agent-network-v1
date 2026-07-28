@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://luca.local/schemas/relay_auth/v1.schema.json",
+  "title": "Luca typed relay-auth signing V1",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "resident_pubkey", "purpose"],
+      "properties": {
+        "protocol": {"const": "luca.relay-auth.sign.v1"},
+        "resident_pubkey": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "purpose": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "relay_url", "challenge"],
+              "properties": {
+                "kind": {"const": "nip42"},
+                "relay_url": {"type": "string", "minLength": 1, "maxLength": 2048, "pattern": "^wss?://[^/?#]+/?$"},
+                "challenge": {"type": "string", "minLength": 1, "maxLength": 1024}
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "method", "url", "payload_sha256"],
+              "properties": {
+                "kind": {"const": "nip98"},
+                "method": {"const": "POST"},
+                "url": {"type": "string", "minLength": 1, "maxLength": 2048, "pattern": "^https?://[^/?#]+/query$"},
+                "payload_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+              }
+            }
+          ]
+        }
+      }
+    },
+    "result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "event_id", "signed_event_json"],
+          "properties": {
+            "state": {"const": "signed"},
+            "event_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "signed_event_json": {"type": "string", "minLength": 1, "maxLength": 16384}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "code"],
+          "properties": {
+            "state": {"enum": ["denied", "invalid", "unavailable"]},
+            "code": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$"}
+          }
+        }
+      ]
+    }
+  }
+}
