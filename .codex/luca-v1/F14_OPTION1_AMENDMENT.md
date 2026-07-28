@@ -13,6 +13,9 @@ stop. This amendment changes execution detail, not product scope:
   transferred to the ACP host, model, MCP, shell or tool descendants;
 - managed relay NIP-42 and NIP-98 authentication uses the allowlisted
   `relay_auth.sign.v1` broker operation;
+- the NIP-42 operation preserves Buzz's owner-delegated closed-relay path
+  through one optional typed NIP-OA attestation that must equal the app-owned
+  stored credential; the two-tag open/direct-member path remains unchanged;
 - the exclusive desktop/ACP socketpair is carried as the managed harness's
   standard input, so no broker descriptor number, socket path or bearer token
   appears in argv or the environment; model/runtime children receive their own

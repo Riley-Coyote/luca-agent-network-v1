@@ -29,10 +29,15 @@ does not expand V1 scope.
 - The F13 repair adds `relay_auth.sign.v1` as the second M1 frame operation.
   Its request is semantic and allowlisted: auth kind (`nip42` or `nip98`),
   resident public key, configured relay origin, challenge or HTTP
-  method/canonical URL, optional request-body SHA-256, request nonce and
+  method/canonical URL, required request-body SHA-256, request nonce and
   expiry. It accepts no arbitrary tags, kind, content or unsigned event bytes.
   The result contains one exact signed public auth event plus its event ID; it
   contains no key, general signer, credential or reusable authorization token.
+- Managed NIP-42 may carry exactly one optional typed NIP-OA owner attestation.
+  The protocol verifies its fixed four-element shape, conditions grammar and
+  owner Schnorr proof against the resident public key. The desktop must also
+  require byte-for-byte equality with the app-owned stored attestation before
+  signing. No other caller-supplied tag is accepted.
 - `relay_auth.sign.v1` is available only on the desktop-bound managed ACP
   channel. Sequence, session, PID, origin and deadline validation are identical
   to `message.publish.v1`. NIP-42 challenges and NIP-98 URLs are revalidated by

@@ -130,3 +130,13 @@ artifact; the authoritative kit remains unchanged.
   output so stdin-only transport, close-on-exec duplication, replacement child
   stdin, bootstrap scrubbing and negative nested-descendant FD/argv/environment
   inspection are executable acceptance evidence rather than narrative.
+- F13 review repair: require cryptographic and request-bound NIP-42/NIP-98
+  results, sealed operation/payload coupling, NIP-98 POST body hash, nonce and
+  60-second expiry, and one optional resident-verified NIP-OA owner attestation
+  for Buzz's existing closed-relay delegation path. No arbitrary signing or tag
+  surface is introduced.
+- Validator repair: make the task contract audit consume the authoritative
+  task-pair overlap allowlist, verify every owner pair, and require each
+  cross-mutex exception to be transitively dependency ordered. Remove the
+  hard-coded path bypass; the repository audit and five focused overlap tests
+  now pass.

@@ -136,9 +136,14 @@ The broker exposes no arbitrary `sign(bytes)`:
   verifying resident, room membership, event kind/tags, root/dispatch receipt,
   cancellation epoch, active installation epoch, body limit and owner policy;
 - `relay_auth.sign.v1`: NIP-98/relay-auth challenge bound to allowed method,
-  origin, expiry, configured relay and resident public identity; it accepts a
+  origin, configured relay and resident public identity. NIP-98 requires POST,
+  the canonical `/query` URL, SHA-256 of the exact request body, a per-attempt
+  nonce and an expiry no more than 60 seconds ahead; it accepts a
   semantic challenge/request description rather than arbitrary event bytes and
-  returns only the exact signed public auth event;
+  returns only the exact signed public auth event. NIP-42 may include the exact
+  app-owned NIP-OA owner attestation after its structure, conditions and owner
+  signature are verified against the resident; no arbitrary extra tag is
+  accepted;
 - `capsule.decrypt.v1`: verified NIP-AE event bound to owner/resident/address;
 - `capsule.encrypt_sign.v1`: validated semantic segment/pointer operation bound
   to expected head, writer epoch, byte budget, source references and operation

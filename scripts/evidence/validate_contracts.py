@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import itertools
 import subprocess
 import sys
 from pathlib import Path
@@ -28,7 +29,6 @@ F04_TEST = "desktop/tests/e2e/luca/f04.spec.ts"
 F03_PLAYWRIGHT_CONFIG = "desktop/playwright.config.ts"
 F10_ACP_TEST = "cargo test -p buzz-acp luca_f10"
 F13_BOOTSTRAP = {"Cargo.toml", "Cargo.lock", "desktop/src-tauri/Cargo.toml", "desktop/src-tauri/Cargo.lock", "crates/buzz-acp/Cargo.toml", "crates/luca-diagnostics/Cargo.toml", "crates/luca-signing-client/Cargo.toml"}
-SERIALIZED_SEAMS = {"desktop/src-tauri/src/luca/mod.rs", "crates/buzz-acp/src/luca_final_publisher.rs", "crates/buzz-acp/src/lib.rs"}
 M1_AUTHORITY_MUTEX = "m1_authority_integration"
 
 
@@ -73,18 +73,74 @@ def ownership_errors(capsule: dict[str, Any], paths: list[str]) -> list[str]:
     return errors
 
 
-def mutex_audit(capsules: list[dict[str, Any]]) -> list[str]:
+def depends_transitively(
+    task_id: str, dependency_id: str, graph_tasks: dict[str, dict[str, Any]]
+) -> bool:
+    pending = list(graph_tasks.get(task_id, {}).get("depends_on", []))
+    seen: set[str] = set()
+    while pending:
+        current = pending.pop()
+        if current == dependency_id:
+            return True
+        if current in seen:
+            continue
+        seen.add(current)
+        pending.extend(graph_tasks.get(current, {}).get("depends_on", []))
+    return False
+
+
+def exact_ownership_errors(
+    capsules: list[dict[str, Any]], graph_document: dict[str, Any]
+) -> list[str]:
     errors: list[str] = []
+    ownership_policy = graph_document.get("ownership_policy", {})
+    overlap_allowlist = {
+        frozenset(pair)
+        for pair in ownership_policy.get("overlap_allowlist", [])
+        if isinstance(pair, list) and len(pair) == 2
+    }
+    graph_tasks = {
+        task["id"]: task
+        for task in graph_document.get("tasks", [])
+        if isinstance(task, dict) and isinstance(task.get("id"), str)
+    }
     exact_owners: dict[str, list[dict[str, Any]]] = {}
     for capsule in capsules:
         for path in capsule.get("owns", {}).get("include", []):
             if "*" not in path and not path.startswith("evidence/"):
                 exact_owners.setdefault(path, []).append(capsule)
     for path, owners in sorted(exact_owners.items()):
-        mutexes = {owner.get("ownership_mutex") for owner in owners}
-        if path not in SERIALIZED_SEAMS and len(owners) > 1 and (None in mutexes or len(mutexes) != 1):
-            task_ids = ", ".join(owner["id"] for owner in owners)
-            errors.append(f"exact ownership collision without shared mutex: {path} ({task_ids})")
+        if len(owners) <= 1:
+            continue
+        for left, right in itertools.combinations(owners, 2):
+            left_mutex = left.get("ownership_mutex")
+            right_mutex = right.get("ownership_mutex")
+            task_pair = frozenset((left["id"], right["id"]))
+            same_mutex = left_mutex is not None and left_mutex == right_mutex
+            if same_mutex:
+                continue
+            if task_pair in overlap_allowlist:
+                ordered = depends_transitively(left["id"], right["id"], graph_tasks) or depends_transitively(
+                    right["id"], left["id"], graph_tasks
+                )
+                if not ordered:
+                    errors.append(
+                        "explicit ownership overlap is not dependency ordered: "
+                        f"{path} ({left['id']}, {right['id']})"
+                    )
+                continue
+            if task_pair not in overlap_allowlist:
+                errors.append(
+                    "exact ownership collision without shared mutex or explicit "
+                    f"overlap approval: {path} ({left['id']}, {right['id']})"
+                )
+    return errors
+
+
+def mutex_audit(
+    capsules: list[dict[str, Any]], graph_document: dict[str, Any]
+) -> list[str]:
+    errors = exact_ownership_errors(capsules, graph_document)
     f04 = capsule_by_id(capsules, "F04")
     f04_owned = f04.get("owns", {}).get("include", [])
     if F04_TEST not in f04_owned:
@@ -130,7 +186,7 @@ def main() -> int:
     errors = [] if capsule_ids == graph_ids else ["task graph and capsule IDs differ"]
 
     if args.audit:
-        errors.extend(mutex_audit(capsules))
+        errors.extend(mutex_audit(capsules, graph_document))
         print(f"AUDIT: {len(capsules)} capsules; F04/F10 execution seams checked")
 
     if args.task:
