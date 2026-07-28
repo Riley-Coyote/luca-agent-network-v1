@@ -22,6 +22,45 @@ pub(crate) use sweep::sweep_untracked_bundle_harnesses;
 
 type RespondToEnv = (Vec<(&'static str, String)>, Vec<&'static str>);
 
+fn next_managed_session_epoch() -> Result<luca_protocol::SafeU53, String> {
+    let random = uuid::Uuid::new_v4().as_u128() as u64;
+    let epoch = (random & luca_protocol::JSON_SAFE_INTEGER_MAX).max(1);
+    luca_protocol::SafeU53::new(epoch).map_err(|error| error.to_string())
+}
+
+fn managed_owner_attestation(
+    auth_tag_json: Option<&str>,
+) -> Result<Option<(luca_protocol::NipOaOwnerAttestationV1, String)>, String> {
+    let Some(auth_tag_json) = auth_tag_json else {
+        return Ok(None);
+    };
+    let value: serde_json::Value = serde_json::from_str(auth_tag_json)
+        .map_err(|error| format!("invalid managed owner attestation JSON: {error}"))?;
+    let values = value
+        .as_array()
+        .ok_or_else(|| "managed owner attestation must be a JSON tag array".to_string())?;
+    if values.len() != 4 || values.first().and_then(serde_json::Value::as_str) != Some("auth") {
+        return Err("managed owner attestation must be an exact four-field auth tag".into());
+    }
+    let typed: luca_protocol::NipOaOwnerAttestationV1 = serde_json::from_value(serde_json::json!({
+        "owner_pubkey": values.get(1).and_then(serde_json::Value::as_str),
+        "conditions": values.get(2).and_then(serde_json::Value::as_str),
+        "signature": values.get(3).and_then(serde_json::Value::as_str),
+    }))
+    .map_err(|error| format!("invalid managed owner attestation: {error}"))?;
+    let typed_json = serde_json::to_string(&typed)
+        .map_err(|error| format!("failed to serialize managed owner attestation: {error}"))?;
+    Ok(Some((typed, typed_json)))
+}
+
+fn managed_runtime_configuration_sha256(
+    spawn_config_hash: u64,
+) -> Result<luca_protocol::Hex64, String> {
+    use sha2::{Digest, Sha256};
+    luca_protocol::Hex64::parse(hex::encode(Sha256::digest(spawn_config_hash.to_be_bytes())))
+        .map_err(|error| error.to_string())
+}
+
 /// Binary name fragments for all known agent/harness processes that Buzz
 /// may spawn. Used by `process_belongs_to_us()` and the orphan sweep to
 /// identify processes we should clean up. Both hyphenated and underscored
@@ -1575,18 +1614,66 @@ pub fn spawn_agent_child(
         nvm_bin,
     );
 
+    let owner_pubkey = luca_protocol::Hex64::parse(
+        owner_hex
+            .ok_or_else(|| "Luca managed resident requires an owner identity".to_string())?
+            .to_ascii_lowercase(),
+    )
+    .map_err(|error| format!("invalid managed owner pubkey: {error}"))?;
+    let resident_pubkey = luca_protocol::Hex64::parse(record.pubkey.to_ascii_lowercase())
+        .map_err(|error| format!("invalid managed resident pubkey: {error}"))?;
+    let session_epoch = next_managed_session_epoch()?;
+    let owner_attestation = managed_owner_attestation(record.auth_tag.as_deref())?;
+    let (desktop_broker_endpoint, managed_acp_stdin) =
+        crate::luca::signing_transport::create_exclusive_acp_socketpair()
+            .map_err(|error| error.to_string())?;
+    let spawn_config_hash = super::spawn_hash::spawn_config_hash(
+        record,
+        &personas,
+        &teams,
+        &effective_relay_url,
+        &global,
+    );
+    let runtime_configuration_sha256 = managed_runtime_configuration_sha256(spawn_config_hash)?;
+    let resident_keys = nostr::Keys::parse(&record.private_key_nsec)
+        .map_err(|error| format!("failed to load desktop-held resident key: {error}"))?;
+    if resident_keys.public_key().to_hex() != resident_pubkey.as_str() {
+        return Err("desktop-held resident key does not match managed public identity".into());
+    }
+    let installation_session_id = luca_protocol::OpaqueId::parse(current_instance_id(app))
+        .map_err(|error| format!("invalid installation session identifier: {error}"))?;
+    let relay_query_url = format!(
+        "{}/query",
+        crate::relay::relay_http_base_url(&effective_relay_url).trim_end_matches('/')
+    );
+
     let mut command = std::process::Command::new(&resolved_acp_command);
     if let Some(home) = super::default_agent_workdir() {
         command.current_dir(home);
     }
-    command.stdin(std::process::Stdio::null());
+    #[cfg(unix)]
+    command.stdin(managed_acp_stdin.into_stdio());
+    #[cfg(not(unix))]
+    return Err("Luca managed ACP broker is supported only on the approved Unix target".into());
     command.stdout(std::process::Stdio::from(stdout));
     command.stderr(std::process::Stdio::from(stderr));
     if let Some(ref path) = augmented_path {
         command.env("PATH", path);
     }
     command.env("RUST_LOG", child_rust_log_filter());
-    command.env("BUZZ_PRIVATE_KEY", &record.private_key_nsec);
+    command.env_remove("BUZZ_PRIVATE_KEY");
+    command.env_remove("NOSTR_PRIVATE_KEY");
+    command.env_remove("BUZZ_AUTH_TAG");
+    command.env("LUCA_MANAGED_RESIDENT_PUBKEY", resident_pubkey.as_str());
+    command.env(
+        "LUCA_MANAGED_SESSION_EPOCH",
+        session_epoch.get().to_string(),
+    );
+    if let Some((_, attestation_json)) = &owner_attestation {
+        command.env("LUCA_MANAGED_OWNER_ATTESTATION", attestation_json);
+    } else {
+        command.env_remove("LUCA_MANAGED_OWNER_ATTESTATION");
+    }
     command.env("BUZZ_RELAY_URL", &effective_relay_url);
     command.env("BUZZ_ACP_AGENT_COMMAND", &resolved_agent_command);
     command.env("BUZZ_ACP_AGENT_ARGS", agent_args.join(","));
@@ -1781,11 +1868,7 @@ pub fn spawn_agent_child(
     command.env_remove("BUZZ_ACP_API_TOKEN");
     command.env_remove("BUZZ_API_TOKEN");
 
-    if let Some(ref auth_tag) = record.auth_tag {
-        command.env("BUZZ_AUTH_TAG", auth_tag);
-    } else {
-        command.env_remove("BUZZ_AUTH_TAG");
-    }
+    command.env_remove("BUZZ_AUTH_TAG");
 
     // Inbound author gate: who is this agent allowed to respond to?
     // Validation is strict here — a malformed allowlist on disk fails before
@@ -1798,41 +1881,18 @@ pub fn spawn_agent_child(
     for key in &gate_remove {
         command.env_remove(key);
     }
+    command.env("BUZZ_ACP_AGENT_OWNER", owner_pubkey.as_str());
 
-    command.env("BUZZ_ACP_RELAY_OBSERVER", "true");
+    command.env("BUZZ_ACP_RELAY_OBSERVER", "false");
 
-    // ── Git credential helper for Buzz relay ──────────────────────────
-    //
-    // Agents need to clone/push repos hosted on the Buzz relay's git
-    // server, which authenticates via NIP-98. The `git-credential-nostr`
-    // binary signs auth events using the agent's nostr key.
-    //
-    // We configure git via GIT_CONFIG_COUNT env vars (ephemeral, no
-    // filesystem writes) scoped to the relay's git URL so we don't
-    // interfere with other remotes (e.g. GitHub).
-    //
-    // NOSTR_PRIVATE_KEY mirrors BUZZ_PRIVATE_KEY — keep in sync.
-    if let Some(cred_helper) = resolve_command("git-credential-nostr") {
-        let relay_http_url = crate::relay::relay_http_base_url(&effective_relay_url);
-
-        command.env("NOSTR_PRIVATE_KEY", &record.private_key_nsec);
-        command.env("GIT_TERMINAL_PROMPT", "0");
-        command.env("GIT_CONFIG_COUNT", "2");
-        command.env(
-            "GIT_CONFIG_KEY_0",
-            format!("credential.{relay_http_url}/git.helper"),
-        );
-        command.env("GIT_CONFIG_VALUE_0", cred_helper.display().to_string());
-        command.env(
-            "GIT_CONFIG_KEY_1",
-            format!("credential.{relay_http_url}/git.useHttpPath"),
-        );
-        command.env("GIT_CONFIG_VALUE_1", "true");
-    } else {
-        eprintln!(
-            "buzz-desktop: git-credential-nostr not found — agent {} will not have automatic Buzz git auth",
-            record.name,
-        );
+    // Git signing and relay mutation remain unavailable in managed V1 until a
+    // dedicated typed broker operation exists.
+    command.env_remove("NOSTR_PRIVATE_KEY");
+    command.env_remove("GIT_CONFIG_COUNT");
+    command.env_remove("GIT_TERMINAL_PROMPT");
+    for index in 0..8 {
+        command.env_remove(format!("GIT_CONFIG_KEY_{index}"));
+        command.env_remove(format!("GIT_CONFIG_VALUE_{index}"));
     }
 
     // ── User env vars: live persona env under agent overrides ──────────
@@ -1898,25 +1958,50 @@ pub fn spawn_agent_child(
         command.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let child = command.spawn().map_err(|error| {
+    let mut child = command.spawn().map_err(|error| {
         format!(
             "failed to spawn `{}` for agent {}: {error}",
             resolved_acp_command.display(),
             record.name
         )
     })?;
-
-    // Stamp the effective spawn config so the summary builder can flag
-    // needs_restart when disk state drifts from what this process runs.
-    // `effective_relay_url` is already resolved, and resolution is idempotent,
-    // so it serves as the workspace-relay input here.
-    let spawn_config_hash = super::spawn_hash::spawn_config_hash(
-        record,
-        &personas,
-        &teams,
-        &effective_relay_url,
-        &global,
-    );
+    let child_pid = child.id();
+    let binding = crate::luca::local_broker_session::LocalBrokerSessionBinding {
+        owner_pubkey,
+        resident_pubkey,
+        acp_pid: child_pid,
+        session_epoch,
+        runtime_configuration_sha256: runtime_configuration_sha256.clone(),
+        installation_session_id,
+        relay_url: effective_relay_url.clone(),
+        relay_query_url,
+        owner_attestation: owner_attestation.map(|(typed, _)| typed),
+    };
+    let mut broker =
+        match crate::luca::signing_broker::ResidentSigningBroker::new(resident_keys, binding) {
+            Ok(broker) => broker,
+            Err(error) => {
+                let _ = child.kill();
+                return Err(format!("failed to bind managed signing broker: {error}"));
+            }
+        };
+    let mut broker_stream = desktop_broker_endpoint.into_stream();
+    let broker_thread_name = format!("luca-signing-{}", &record.pubkey[..8]);
+    if let Err(error) = std::thread::Builder::new()
+        .name(broker_thread_name)
+        .spawn(move || {
+            let caller = crate::luca::local_broker_session::LocalBrokerCaller {
+                acp_pid: child_pid,
+                runtime_configuration_sha256: &runtime_configuration_sha256,
+            };
+            if let Err(error) = broker.serve_relay_auth_session(&mut broker_stream, caller) {
+                eprintln!("luca-signing: managed broker session closed: {error}");
+            }
+        })
+    {
+        let _ = child.kill();
+        return Err(format!("failed to start managed signing broker: {error}"));
+    }
 
     // Stamp the adapter availability for runtimes with a version gate (codex
     // only). The summary builder compares this against the current cached value

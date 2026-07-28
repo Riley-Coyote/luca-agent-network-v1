@@ -98,7 +98,7 @@ fn resolve_agent_owner(config: &Config) -> Option<String> {
     // Try BUZZ_AUTH_TAG first (NIP-OA attestation).
     if let Ok(auth_tag) = std::env::var("BUZZ_AUTH_TAG") {
         if !auth_tag.is_empty() {
-            let agent_pk = config.keys.public_key();
+            let agent_pk = config.identity.public_key();
             match buzz_sdk::nip_oa::verify_auth_tag(&auth_tag, &agent_pk) {
                 Ok(owner_pk) => {
                     let owner_hex = owner_pk.to_hex().to_ascii_lowercase();
@@ -1250,13 +1250,23 @@ async fn tokio_main() -> Result<()> {
         // This matches the run_models pattern and prevents zombie leaks on
         // init timeout (the cancelled future would drop the AcpClient via
         // Drop which is best-effort only).
-        let spawn_result = AcpClient::spawn(
-            &config.agent_command,
-            &config.agent_args,
-            &config.persona_env_vars,
-            config.has_generated_codex_config,
-        )
-        .await;
+        let spawn_result = if config.identity.is_managed() {
+            AcpClient::spawn_managed(
+                &config.agent_command,
+                &config.agent_args,
+                &config.persona_env_vars,
+                config.has_generated_codex_config,
+            )
+            .await
+        } else {
+            AcpClient::spawn(
+                &config.agent_command,
+                &config.agent_args,
+                &config.persona_env_vars,
+                config.has_generated_codex_config,
+            )
+            .await
+        };
         match spawn_result {
             Ok(mut acp) => {
                 acp.set_observer(observer.clone(), i);
@@ -1340,18 +1350,38 @@ async fn tokio_main() -> Result<()> {
         .unwrap_or_default()
         .as_secs();
 
-    let pubkey_hex = config.keys.public_key().to_hex();
+    let pubkey_hex = config.identity.public_key().to_hex();
 
     // Parse BUZZ_AUTH_TAG into a nostr::Tag for NIP-OA relay membership delegation.
-    let relay_auth_tag: Option<nostr::Tag> = std::env::var("BUZZ_AUTH_TAG")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .and_then(|s| buzz_sdk::nip_oa::parse_auth_tag(&s).ok());
+    let relay_auth_tag: Option<nostr::Tag> = if config.identity.is_managed() {
+        None
+    } else {
+        std::env::var("BUZZ_AUTH_TAG")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .and_then(|s| buzz_sdk::nip_oa::parse_auth_tag(&s).ok())
+    };
 
-    let mut relay =
-        HarnessRelay::connect(&config.relay_url, &config.keys, &pubkey_hex, relay_auth_tag)
+    let mut relay = match &config.identity {
+        config::IdentityConfig::Legacy(keys) => {
+            HarnessRelay::connect(&config.relay_url, keys, &pubkey_hex, relay_auth_tag).await
+        }
+        config::IdentityConfig::Managed {
+            resident_pubkey,
+            broker,
+            owner_attestation,
+            ..
+        } => {
+            HarnessRelay::connect_managed(
+                &config.relay_url,
+                resident_pubkey.clone(),
+                Arc::clone(broker),
+                owner_attestation.clone(),
+            )
             .await
-            .map_err(|e| anyhow::anyhow!("relay connect error: {e}"))?;
+        }
+    }
+    .map_err(|e| anyhow::anyhow!("relay connect error: {e}"))?;
 
     // Tell the relay background task the watermark so it can use
     // `since = watermark - 5s` on the first REQ instead of `since=now`.
@@ -1370,7 +1400,7 @@ async fn tokio_main() -> Result<()> {
     tracing::info!("subscribed to membership notifications");
 
     let presence_publisher = relay.event_publisher();
-    let presence_keys = config.keys.clone();
+    let presence_keys = config.identity.legacy_keys().cloned();
 
     // Priority: BUZZ_AUTH_TAG (NIP-OA attestation) → --agent-owner flag.
     let startup_owner: Option<String> = resolve_agent_owner(&config);
@@ -1409,14 +1439,16 @@ async fn tokio_main() -> Result<()> {
         {
             match PublicKey::from_hex(&owner_pubkey_hex) {
                 Ok(owner_pubkey) => {
-                    relay_observer_publisher = Some((
-                        observer,
-                        relay.event_publisher(),
-                        config.keys.clone(),
-                        pubkey_hex.clone(),
-                        owner_pubkey_hex,
-                        owner_pubkey,
-                    ));
+                    if let Some(keys) = config.identity.legacy_keys() {
+                        relay_observer_publisher = Some((
+                            observer,
+                            relay.event_publisher(),
+                            keys.clone(),
+                            pubkey_hex.clone(),
+                            owner_pubkey_hex,
+                            owner_pubkey,
+                        ));
+                    }
                     relay
                         .subscribe_observer_controls()
                         .await
@@ -1512,7 +1544,12 @@ async fn tokio_main() -> Result<()> {
     // connected. Publishing after channel subscriptions gives desktop callers
     // a durable readiness boundary before they send a startup mention.
     if config.presence_enabled {
-        match publish_presence(&presence_publisher, &presence_keys, "online").await {
+        let Some(presence_keys) = presence_keys.as_ref() else {
+            return Err(anyhow::anyhow!(
+                "managed identity cannot enable untyped presence publication"
+            ));
+        };
+        match publish_presence(&presence_publisher, presence_keys, "online").await {
             Ok(_) => tracing::info!("presence set to online"),
             Err(e) => tracing::warn!("failed to set initial presence: {e}"),
         }
@@ -1537,7 +1574,11 @@ async fn tokio_main() -> Result<()> {
         } else if let Some(content) = base_prompt_content {
             Some(Box::leak(content.into_boxed_str()))
         } else {
-            Some(include_str!("base_prompt.md"))
+            Some(if config.identity.is_managed() {
+                include_str!("luca_managed_prompt.md")
+            } else {
+                include_str!("base_prompt.md")
+            })
         },
         heartbeat_prompt: config.heartbeat_prompt.clone(),
         cwd: std::env::current_dir()
@@ -1549,7 +1590,7 @@ async fn tokio_main() -> Result<()> {
         context_message_limit: config.context_message_limit,
         max_turns_per_session: config.max_turns_per_session,
         permission_mode: config.permission_mode,
-        agent_keys: config.keys.clone(),
+        agent_keys: config.identity.legacy_keys().cloned(),
         agent_owner_pubkey: startup_owner
             .as_deref()
             .and_then(|hex| nostr::PublicKey::from_hex(hex).ok()),
@@ -1717,10 +1758,12 @@ async fn tokio_main() -> Result<()> {
                 let args = config.agent_args.clone();
                 let env = config.persona_env_vars.clone();
                 let has_codex = config.has_generated_codex_config;
+                let managed = config.identity.is_managed();
                 let observer = observer.clone();
                 let guard = RespawnGuard::new(idx, respawn_tx.clone());
                 respawn_tasks.spawn(async move {
-                    let result = spawn_and_init(&cmd, &args, &env, has_codex, idx, observer).await;
+                    let result =
+                        spawn_and_init(&cmd, &args, &env, has_codex, managed, idx, observer).await;
                     guard.send(result);
                 });
             }
@@ -1810,7 +1853,11 @@ async fn tokio_main() -> Result<()> {
                     match control_event {
                         Some(event) => {
                             if let Some(ref owner_hex) = owner_cache.pubkey {
-                                handle_relay_observer_control_event(&config.keys, event, &mut pool, observer.as_ref(), owner_hex);
+                                if let Some(keys) = config.identity.legacy_keys() {
+                                    handle_relay_observer_control_event(keys, event, &mut pool, observer.as_ref(), owner_hex);
+                                } else {
+                                    tracing::warn!("observer control is unavailable for managed identity");
+                                }
                             } else {
                                 tracing::warn!("observer control frame received but no owner resolved — dropping");
                             }
@@ -2217,12 +2264,13 @@ async fn tokio_main() -> Result<()> {
                         h.abort();
                     }
                     let pp = presence_publisher.clone();
-                    let pk = presence_keys.clone();
-                    presence_task = Some(tokio::spawn(async move {
-                        if let Err(e) = publish_presence(&pp, &pk, "online").await {
-                            tracing::warn!("presence heartbeat failed: {e}");
-                        }
-                    }));
+                    if let Some(pk) = presence_keys.clone() {
+                        presence_task = Some(tokio::spawn(async move {
+                            if let Err(e) = publish_presence(&pp, &pk, "online").await {
+                                tracing::warn!("presence heartbeat failed: {e}");
+                            }
+                        }));
+                    }
                     None
                 }
                 _ = async {
@@ -2518,10 +2566,13 @@ async fn tokio_main() -> Result<()> {
     }
 
     // Best-effort: set presence to offline before exiting.
-    if config.presence_enabled {
+    if config.presence_enabled && presence_keys.is_some() {
+        let presence_keys = presence_keys.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("legacy presence was enabled without legacy identity")
+        })?;
         match tokio::time::timeout(
             Duration::from_secs(2),
-            publish_presence(&presence_publisher, &presence_keys, "offline"),
+            publish_presence(&presence_publisher, presence_keys, "offline"),
         )
         .await
         {
@@ -3284,12 +3335,13 @@ fn recover_panicked_agent(
     let args = config.agent_args.clone();
     let env = config.persona_env_vars.clone();
     let has_codex = config.has_generated_codex_config;
+    let managed = config.identity.is_managed();
     let guard = RespawnGuard::new(i, respawn_tx.clone());
     respawn_tasks.spawn(async move {
         if !delay.is_zero() {
             tokio::time::sleep(delay).await;
         }
-        let result = spawn_and_init(&cmd, &args, &env, has_codex, i, observer).await;
+        let result = spawn_and_init(&cmd, &args, &env, has_codex, managed, i, observer).await;
         guard.send(result);
     });
 }
@@ -3462,6 +3514,7 @@ fn spawn_respawn_task(
     let args = config.agent_args.clone();
     let env = config.persona_env_vars.clone();
     let has_codex = config.has_generated_codex_config;
+    let managed = config.identity.is_managed();
     let guard = RespawnGuard::new(index, respawn_tx.clone());
     respawn_tasks.spawn(async move {
         // Shutdown old agent (reap child, prevent zombie).
@@ -3473,7 +3526,7 @@ fn spawn_respawn_task(
             tokio::time::sleep(delay).await;
         }
 
-        let result = spawn_and_init(&cmd, &args, &env, has_codex, index, observer).await;
+        let result = spawn_and_init(&cmd, &args, &env, has_codex, managed, index, observer).await;
         guard.send(result);
     });
 
@@ -3501,12 +3554,16 @@ async fn spawn_and_init(
     args: &[String],
     extra_env: &[(String, String)],
     has_generated_codex_config: bool,
+    managed_identity: bool,
     agent_index: usize,
     observer: Option<observer::ObserverHandle>,
 ) -> Result<(AcpClient, u32, String)> {
-    let mut acp = AcpClient::spawn(command, args, extra_env, has_generated_codex_config)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to spawn agent: {e}"))?;
+    let mut acp = if managed_identity {
+        AcpClient::spawn_managed(command, args, extra_env, has_generated_codex_config).await
+    } else {
+        AcpClient::spawn(command, args, extra_env, has_generated_codex_config).await
+    }
+    .map_err(|e| anyhow::anyhow!("failed to spawn agent: {e}"))?;
     acp.set_observer(observer, agent_index);
 
     match acp.initialize().await {
@@ -3790,9 +3847,12 @@ async fn run_models(args: ModelsArgs) -> Result<()> {
 }
 
 fn build_mcp_servers(config: &Config) -> Vec<McpServer> {
-    if config.mcp_command.is_empty() {
+    if config.mcp_command.is_empty() || config.identity.is_managed() {
         return vec![];
     }
+    let Some(keys) = config.identity.legacy_keys() else {
+        return vec![];
+    };
     vec![McpServer {
         name: std::path::Path::new(&config.mcp_command)
             .file_stem()
@@ -3812,8 +3872,7 @@ fn build_mcp_servers(config: &Config) -> Vec<McpServer> {
                     // bech32 encoding of a valid secret key is infallible.
                     // Panic here is correct: injecting a bogus secret would cause
                     // delayed, hard-to-diagnose agent failures downstream.
-                    value: config
-                        .keys
+                    value: keys
                         .secret_key()
                         .to_bech32()
                         .expect("secret key bech32 encoding should never fail"),
@@ -4028,7 +4087,10 @@ mod author_gate_tests {
         relay::RestClient {
             http: reqwest::Client::new(),
             base_url: "http://localhost:0".into(),
-            keys: nostr::Keys::generate(),
+            identity: relay::RelayIdentity::Legacy {
+                keys: Box::new(nostr::Keys::generate()),
+                auth_tag: None,
+            },
             auth_tag_json: None,
         }
     }
@@ -4360,7 +4422,7 @@ mod build_mcp_servers_tests {
 
     fn test_config() -> Config {
         Config {
-            keys: nostr::Keys::generate(),
+            identity: config::IdentityConfig::Legacy(nostr::Keys::generate()),
             relay_url: "ws://localhost:3000".into(),
             agent_command: "goose".into(),
             agent_args: vec!["acp".into()],
@@ -4522,7 +4584,7 @@ mod error_outcome_emission_tests {
 
     fn test_config() -> Config {
         Config {
-            keys: nostr::Keys::generate(),
+            identity: config::IdentityConfig::Legacy(nostr::Keys::generate()),
             relay_url: "ws://localhost:3000".into(),
             // `true` exits cleanly, so the async respawn fails fast and
             // harmlessly off the JoinSet — irrelevant to the synchronous

@@ -8,7 +8,10 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use clap::ValueEnum;
-use nostr::Keys;
+use luca_protocol::{Hex64, NipOaOwnerAttestationV1, SafeU53};
+use luca_signing_client::ManagedSigningClient;
+use nostr::{Keys, PublicKey};
+use std::sync::Arc;
 use thiserror::Error;
 use url::Url;
 use uuid::Uuid;
@@ -45,6 +48,130 @@ pub enum ConfigError {
 
     #[error("config file error: {0}")]
     ConfigFile(String),
+
+    #[error("managed signing broker error: {0}")]
+    ManagedBroker(#[from] luca_signing_client::SigningClientError),
+}
+
+/// The mutually exclusive identity boundary used by the ACP harness.
+///
+/// Ordinary Buzz launches retain the legacy key-backed path. Luca-managed
+/// residents carry only their public identity plus a typed, session-bound
+/// broker client; no resident secret enters this process.
+#[derive(Clone)]
+pub enum IdentityConfig {
+    Legacy(Keys),
+    Managed {
+        resident_pubkey: Hex64,
+        public_key: PublicKey,
+        session_epoch: SafeU53,
+        broker: Arc<ManagedSigningClient>,
+        owner_attestation: Option<NipOaOwnerAttestationV1>,
+    },
+}
+
+impl std::fmt::Debug for IdentityConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Legacy(keys) => formatter
+                .debug_tuple("Legacy")
+                .field(&keys.public_key().to_hex())
+                .finish(),
+            Self::Managed {
+                resident_pubkey,
+                session_epoch,
+                ..
+            } => formatter
+                .debug_struct("Managed")
+                .field("resident_pubkey", resident_pubkey)
+                .field("session_epoch", session_epoch)
+                .finish_non_exhaustive(),
+        }
+    }
+}
+
+impl IdentityConfig {
+    pub fn public_key(&self) -> PublicKey {
+        match self {
+            Self::Legacy(keys) => keys.public_key(),
+            Self::Managed { public_key, .. } => *public_key,
+        }
+    }
+
+    pub fn is_managed(&self) -> bool {
+        matches!(self, Self::Managed { .. })
+    }
+
+    pub fn mode_name(&self) -> &'static str {
+        match self {
+            Self::Legacy(_) => "legacy",
+            Self::Managed { .. } => "managed",
+        }
+    }
+
+    pub fn legacy_keys(&self) -> Option<&Keys> {
+        match self {
+            Self::Legacy(keys) => Some(keys),
+            Self::Managed { .. } => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum IdentityBootstrap {
+    Legacy,
+    Managed {
+        resident_pubkey: Hex64,
+        session_epoch: SafeU53,
+    },
+}
+
+fn select_identity_bootstrap(
+    private_key: Option<&str>,
+    managed_resident_pubkey: Option<&str>,
+    managed_session_epoch: Option<u64>,
+    has_managed_owner_attestation: bool,
+) -> Result<IdentityBootstrap, ConfigError> {
+    let private_key = private_key.filter(|value| !value.is_empty());
+    match (
+        private_key,
+        managed_resident_pubkey,
+        managed_session_epoch,
+    ) {
+        (Some(_), Some(_), _) | (Some(_), None, Some(_)) => Err(ConfigError::ConfigFile(
+            "legacy private-key identity and Luca managed identity are mutually exclusive".into(),
+        )),
+        (Some(_), None, None) => {
+            if has_managed_owner_attestation {
+                return Err(ConfigError::ConfigFile(
+                    "managed owner attestation cannot be used with legacy identity".into(),
+                ));
+            }
+            Ok(IdentityBootstrap::Legacy)
+        }
+        (None, Some(pubkey), Some(session_epoch)) => {
+            let resident_pubkey = Hex64::parse(pubkey.trim().to_ascii_lowercase())
+                .map_err(|error| ConfigError::ConfigFile(error.to_string()))?;
+            let session_epoch = SafeU53::new(session_epoch)
+                .map_err(|error| ConfigError::ConfigFile(error.to_string()))?;
+            if session_epoch.get() == 0 {
+                return Err(ConfigError::ConfigFile(
+                    "managed session epoch must start at 1".into(),
+                ));
+            }
+            Ok(IdentityBootstrap::Managed {
+                resident_pubkey,
+                session_epoch,
+            })
+        }
+        (None, Some(_), None) | (None, None, Some(_)) => Err(ConfigError::ConfigFile(
+            "managed identity requires both resident pubkey and session epoch".into(),
+        )),
+        (None, None, None) => Err(ConfigError::ConfigFile(
+            "identity is required: set BUZZ_PRIVATE_KEY for legacy Buzz or provide the Luca managed broker bootstrap"
+                .into(),
+        )),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, clap::ValueEnum)]
@@ -241,7 +368,22 @@ pub struct CliArgs {
     pub relay_url: String,
 
     #[arg(long, env = "BUZZ_PRIVATE_KEY")]
-    pub private_key: String,
+    pub private_key: Option<String>,
+
+    /// Public identity for a Luca-managed resident. Presence selects managed
+    /// mode and requires the exclusive broker stream on this process's stdin.
+    #[arg(long, env = "LUCA_MANAGED_RESIDENT_PUBKEY")]
+    pub managed_resident_pubkey: Option<String>,
+
+    /// Desktop-issued broker session epoch. This is public binding metadata,
+    /// not a credential; the actual capability is the inherited stdin stream.
+    #[arg(long, env = "LUCA_MANAGED_SESSION_EPOCH")]
+    pub managed_session_epoch: Option<u64>,
+
+    /// Public NIP-OA owner attestation bound to this managed resident. Desktop
+    /// provides the typed JSON and descendants never inherit it.
+    #[arg(long, env = "LUCA_MANAGED_OWNER_ATTESTATION")]
+    pub managed_owner_attestation: Option<String>,
 
     /// Agent owner pubkey (64-char hex). Used for --respond-to=owner-only gate.
     #[arg(long, env = "BUZZ_ACP_AGENT_OWNER")]
@@ -480,7 +622,7 @@ pub struct ChannelFilter {
 
 #[derive(Debug)]
 pub struct Config {
-    pub keys: Keys,
+    pub identity: IdentityConfig,
     pub relay_url: String,
     pub agent_command: String,
     pub agent_args: Vec<String>,
@@ -732,13 +874,54 @@ impl Config {
     /// tests can construct `CliArgs` via `CliArgs::try_parse_from` and exercise the full
     /// validation path without going through process args.
     pub fn from_args(mut args: CliArgs) -> Result<Self, ConfigError> {
-        let keys = Keys::parse(&args.private_key)?;
-        // Best-effort zeroize: overwrite the raw private key string to reduce
-        // exposure via core dumps or heap inspection (#41). Without the `zeroize`
-        // crate we can only clear the String — the allocator may retain copies.
-        args.private_key
-            .replace_range(.., &"0".repeat(args.private_key.len()));
-        args.private_key.clear();
+        let managed_owner_attestation = args
+            .managed_owner_attestation
+            .take()
+            .map(|json| {
+                serde_json::from_str::<NipOaOwnerAttestationV1>(&json).map_err(|error| {
+                    ConfigError::ConfigFile(format!(
+                        "invalid Luca managed owner attestation: {error}"
+                    ))
+                })
+            })
+            .transpose()?;
+        let bootstrap = select_identity_bootstrap(
+            args.private_key.as_deref(),
+            args.managed_resident_pubkey.as_deref(),
+            args.managed_session_epoch,
+            managed_owner_attestation.is_some(),
+        )?;
+        let identity = match bootstrap {
+            IdentityBootstrap::Legacy => {
+                let private_key = args.private_key.as_mut().ok_or_else(|| {
+                    ConfigError::ConfigFile(
+                        "validated legacy identity lost its private-key input".into(),
+                    )
+                })?;
+                let keys = Keys::parse(private_key.as_str())?;
+                private_key.replace_range(.., &"0".repeat(private_key.len()));
+                private_key.clear();
+                IdentityConfig::Legacy(keys)
+            }
+            IdentityBootstrap::Managed {
+                resident_pubkey,
+                session_epoch,
+            } => {
+                let public_key = PublicKey::from_hex(resident_pubkey.as_str())
+                    .map_err(|error| ConfigError::ConfigFile(error.to_string()))?;
+                let broker = ManagedSigningClient::from_inherited_stdin(
+                    session_epoch,
+                    resident_pubkey.clone(),
+                )?;
+                IdentityConfig::Managed {
+                    resident_pubkey,
+                    public_key,
+                    session_epoch,
+                    broker: Arc::new(broker),
+                    owner_attestation: managed_owner_attestation,
+                }
+            }
+        };
 
         let system_prompt = if let Some(text) = args.system_prompt {
             Some(text)
@@ -952,8 +1135,9 @@ impl Config {
 
         validate_multiple_event_handling(args.multiple_event_handling, args.dedup)?;
 
+        let managed_identity = identity.is_managed();
         let config = Config {
-            keys,
+            identity,
             relay_url: args.relay_url,
             agent_command,
             agent_args,
@@ -982,9 +1166,9 @@ impl Config {
             config_path: args.config,
             context_message_limit: args.context_message_limit,
             max_turns_per_session: args.max_turns_per_session,
-            presence_enabled: !args.no_presence,
-            typing_enabled: !args.no_typing,
-            memory_enabled: args.memory && !args.no_memory,
+            presence_enabled: !args.no_presence && !managed_identity,
+            typing_enabled: !args.no_typing && !managed_identity,
+            memory_enabled: args.memory && !args.no_memory && !managed_identity,
             model,
             permission_mode: args.permission_mode,
             respond_to: args.respond_to,
@@ -992,7 +1176,7 @@ impl Config {
             allowed_respond_to,
             persona_env_vars,
             has_generated_codex_config,
-            relay_observer: args.relay_observer,
+            relay_observer: args.relay_observer && !managed_identity,
             agent_owner: args.agent_owner.map(|s| s.trim().to_ascii_lowercase()),
             no_base_prompt: args.no_base_prompt,
             base_prompt_content,
@@ -1017,9 +1201,10 @@ impl Config {
             format!(" allowed_respond_to=[{}]", modes.join(","))
         };
         format!(
-            "relay={} pubkey={} agent_cmd={} {} mcp_cmd={} idle_timeout={}s max_turn={}s agents={} heartbeat={}s subscribe={:?} dedup={:?} meh={:?} ignore_self={} context_limit={} max_turns_per_session={} presence={} typing={} memory={} model={} permission_mode={} {}{}",
+            "relay={} identity={} pubkey={} agent_cmd={} {} mcp_cmd={} idle_timeout={}s max_turn={}s agents={} heartbeat={}s subscribe={:?} dedup={:?} meh={:?} ignore_self={} context_limit={} max_turns_per_session={} presence={} typing={} memory={} model={} permission_mode={} {}{}",
             self.relay_url,
-            self.keys.public_key().to_hex(),
+            self.identity.mode_name(),
+            self.identity.public_key().to_hex(),
             self.agent_command,
             self.agent_args.join(" "),
             self.mcp_command,
@@ -1323,10 +1508,46 @@ mod tests {
     use crate::filter::{ChannelScope, SubscriptionRule};
     use clap::{Parser, ValueEnum};
 
+    #[test]
+    fn luca_managed_identity_mode_selection_is_exclusive_and_complete() {
+        let resident = "11".repeat(32);
+        assert_eq!(
+            select_identity_bootstrap(Some(TEST_PRIVATE_KEY), None, None, false).unwrap(),
+            IdentityBootstrap::Legacy
+        );
+        assert!(matches!(
+            select_identity_bootstrap(None, Some(&resident), Some(1), true).unwrap(),
+            IdentityBootstrap::Managed { .. }
+        ));
+
+        for result in [
+            select_identity_bootstrap(Some(TEST_PRIVATE_KEY), Some(&resident), Some(1), false),
+            select_identity_bootstrap(None, Some(&resident), None, false),
+            select_identity_bootstrap(None, None, Some(1), false),
+            select_identity_bootstrap(None, None, None, false),
+            select_identity_bootstrap(Some(TEST_PRIVATE_KEY), None, None, true),
+        ] {
+            assert!(result.is_err(), "ambiguous identity input must fail closed");
+        }
+    }
+
+    #[test]
+    fn luca_managed_identity_rejects_invalid_public_coordinates() {
+        assert!(select_identity_bootstrap(None, Some("not-a-pubkey"), Some(1), false).is_err());
+        assert!(select_identity_bootstrap(None, Some(&"22".repeat(32)), Some(0), false).is_err());
+        assert!(select_identity_bootstrap(
+            None,
+            Some(&"22".repeat(32)),
+            Some(luca_protocol::JSON_SAFE_INTEGER_MAX + 1),
+            false,
+        )
+        .is_err());
+    }
+
     /// Build a minimal Config for testing without CLI parsing.
     fn test_config(mode: SubscribeMode) -> Config {
         Config {
-            keys: nostr::Keys::generate(),
+            identity: IdentityConfig::Legacy(nostr::Keys::generate()),
             relay_url: "ws://localhost:3000".into(),
             agent_command: "goose".into(),
             agent_args: vec!["acp".into()],

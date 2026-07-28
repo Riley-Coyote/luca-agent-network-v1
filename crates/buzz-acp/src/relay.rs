@@ -118,8 +118,14 @@ use buzz_core::kind::{
     KIND_TYPING_INDICATOR,
 };
 use futures_util::{SinkExt, StreamExt};
-use nostr::{Event, EventBuilder, Keys, Kind, RelayUrl, Tag};
+use luca_protocol::{
+    Hex64, NipOaOwnerAttestationV1, OpaqueId, RelayAuthPurposeV1, RelayAuthSignRequestV1,
+    RelayAuthSignResultV1, RelayHttpMethodV1, SafeU53, RELAY_AUTH_SIGN_PROTOCOL,
+};
+use luca_signing_client::ManagedSigningClient;
+use nostr::{Event, EventBuilder, JsonUtil, Keys, Kind, RelayUrl, Tag};
 use serde_json::{json, Value};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
@@ -127,6 +133,201 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::config::ChannelFilter;
+
+/// Relay authentication authority available to the harness.
+///
+/// Managed mode contains public identity and a typed broker only. It cannot
+/// sign arbitrary events and deliberately leaves unsupported Buzz side effects
+/// unavailable while the legacy key-backed path remains unchanged.
+#[derive(Clone)]
+pub enum RelayIdentity {
+    Legacy {
+        keys: Box<Keys>,
+        auth_tag: Option<nostr::Tag>,
+    },
+    Managed {
+        resident_pubkey: Hex64,
+        broker: Arc<ManagedSigningClient>,
+        owner_attestation: Option<NipOaOwnerAttestationV1>,
+    },
+}
+
+impl std::fmt::Debug for RelayIdentity {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Legacy { keys, auth_tag } => formatter
+                .debug_struct("Legacy")
+                .field("public_key", &keys.public_key().to_hex())
+                .field("has_owner_attestation", &auth_tag.is_some())
+                .finish(),
+            Self::Managed {
+                resident_pubkey,
+                owner_attestation,
+                ..
+            } => formatter
+                .debug_struct("Managed")
+                .field("resident_pubkey", resident_pubkey)
+                .field("has_owner_attestation", &owner_attestation.is_some())
+                .finish(),
+        }
+    }
+}
+
+impl RelayIdentity {
+    pub fn public_key_hex(&self) -> String {
+        match self {
+            Self::Legacy { keys, .. } => keys.public_key().to_hex(),
+            Self::Managed {
+                resident_pubkey, ..
+            } => resident_pubkey.as_str().to_owned(),
+        }
+    }
+
+    fn legacy_keys(&self) -> Option<&Keys> {
+        match self {
+            Self::Legacy { keys, .. } => Some(keys),
+            Self::Managed { .. } => None,
+        }
+    }
+
+    fn owner_attestation_header_json(&self) -> Option<String> {
+        match self {
+            Self::Legacy { auth_tag, .. } => auth_tag
+                .as_ref()
+                .and_then(|tag| serde_json::to_string(tag.as_slice()).ok()),
+            Self::Managed {
+                owner_attestation, ..
+            } => managed_owner_attestation_header_json(owner_attestation.as_ref()),
+        }
+    }
+
+    async fn sign_nip42(&self, relay_url: &str, challenge: &str) -> Result<Event, RelayError> {
+        match self {
+            Self::Legacy { keys, auth_tag } => {
+                let relay_nostr_url = RelayUrl::parse(relay_url)
+                    .map_err(|error| RelayError::Http(format!("invalid relay URL: {error}")))?;
+                if let Some(tag) = auth_tag {
+                    let tags = vec![
+                        Tag::parse(["relay", relay_url])
+                            .map_err(|error| RelayError::Http(error.to_string()))?,
+                        Tag::parse(["challenge", challenge])
+                            .map_err(|error| RelayError::Http(error.to_string()))?,
+                        tag.clone(),
+                    ];
+                    EventBuilder::new(Kind::Authentication, "")
+                        .tags(tags)
+                        .sign_with_keys(keys)
+                        .map_err(RelayError::from)
+                } else {
+                    EventBuilder::auth(challenge, relay_nostr_url)
+                        .sign_with_keys(keys)
+                        .map_err(RelayError::from)
+                }
+            }
+            Self::Managed {
+                resident_pubkey,
+                broker,
+                owner_attestation,
+            } => {
+                let request = RelayAuthSignRequestV1 {
+                    protocol: RELAY_AUTH_SIGN_PROTOCOL.to_owned(),
+                    resident_pubkey: resident_pubkey.clone(),
+                    purpose: RelayAuthPurposeV1::Nip42 {
+                        relay_url: relay_url.to_owned(),
+                        challenge: challenge.to_owned(),
+                        owner_attestation: owner_attestation.clone(),
+                    },
+                };
+                let now_ms = unix_now_millis();
+                let result = broker
+                    .relay_auth(request.clone(), now_ms)
+                    .await
+                    .map_err(|error| RelayError::ManagedBroker(error.to_string()))?;
+                result
+                    .validate_against(&request, now_ms / 1000)
+                    .map_err(|error| RelayError::AuthFailed(error.to_string()))?;
+                signed_event_from_result(result)
+            }
+        }
+    }
+
+    async fn sign_nip98(&self, url: &str, body: &[u8]) -> Result<String, RelayError> {
+        use base64::Engine;
+        use sha2::{Digest, Sha256};
+
+        let event = match self {
+            Self::Legacy { keys, .. } => {
+                let hash = hex::encode(Sha256::digest(body));
+                let tags = vec![
+                    Tag::parse(["u", url]).map_err(|error| RelayError::Http(error.to_string()))?,
+                    Tag::parse(["method", "POST"])
+                        .map_err(|error| RelayError::Http(error.to_string()))?,
+                    Tag::parse(["nonce", &Uuid::new_v4().to_string()])
+                        .map_err(|error| RelayError::Http(error.to_string()))?,
+                    Tag::parse(["payload", &hash])
+                        .map_err(|error| RelayError::Http(error.to_string()))?,
+                ];
+                EventBuilder::new(Kind::HttpAuth, "")
+                    .tags(tags)
+                    .sign_with_keys(keys)
+                    .map_err(RelayError::from)?
+            }
+            Self::Managed {
+                resident_pubkey,
+                broker,
+                ..
+            } => {
+                let now_secs = unix_now_secs();
+                let request = RelayAuthSignRequestV1 {
+                    protocol: RELAY_AUTH_SIGN_PROTOCOL.to_owned(),
+                    resident_pubkey: resident_pubkey.clone(),
+                    purpose: RelayAuthPurposeV1::Nip98 {
+                        method: RelayHttpMethodV1::Post,
+                        url: url.to_owned(),
+                        payload_sha256: Some(
+                            Hex64::parse(hex::encode(Sha256::digest(body)))
+                                .map_err(|error| RelayError::Http(error.to_string()))?,
+                        ),
+                        nonce: OpaqueId::parse(format!("request-{}", Uuid::new_v4()))
+                            .map_err(|error| RelayError::Http(error.to_string()))?,
+                        expires_at_unix_secs: SafeU53::new(now_secs.saturating_add(60))
+                            .map_err(|error| RelayError::Http(error.to_string()))?,
+                    },
+                };
+                let result = broker
+                    .relay_auth(request.clone(), now_secs.saturating_mul(1000))
+                    .await
+                    .map_err(|error| RelayError::ManagedBroker(error.to_string()))?;
+                result
+                    .validate_against(&request, now_secs)
+                    .map_err(|error| RelayError::AuthFailed(error.to_string()))?;
+                signed_event_from_result(result)?
+            }
+        };
+        let event_json = serde_json::to_string(&event)?;
+        Ok(base64::engine::general_purpose::STANDARD.encode(event_json))
+    }
+}
+
+fn managed_owner_attestation_header_json(
+    attestation: Option<&NipOaOwnerAttestationV1>,
+) -> Option<String> {
+    attestation.and_then(|value| serde_json::to_string(&value.tag_value()).ok())
+}
+
+fn signed_event_from_result(result: RelayAuthSignResultV1) -> Result<Event, RelayError> {
+    match result {
+        RelayAuthSignResultV1::Signed {
+            signed_event_json, ..
+        } => Event::from_json(signed_event_json)
+            .map_err(|error| RelayError::AuthFailed(error.to_string())),
+        RelayAuthSignResultV1::Denied { code }
+        | RelayAuthSignResultV1::Invalid { code }
+        | RelayAuthSignResultV1::Unavailable { code } => {
+            Err(RelayError::AuthFailed(code.as_str().to_owned()))
+        }
+    }
+}
 
 /// Metadata about a channel, populated at discovery time.
 #[derive(Debug, Clone)]
@@ -221,7 +422,7 @@ fn merge_discovered_channels(
 pub struct RestClient {
     pub http: reqwest::Client,
     pub base_url: String,
-    pub keys: Keys,
+    pub identity: RelayIdentity,
     /// Optional NIP-OA auth tag JSON for `x-auth-tag` header (relay membership delegation).
     pub auth_tag_json: Option<String>,
 }
@@ -246,69 +447,34 @@ fn unix_now_secs() -> u64 {
         .as_secs()
 }
 
+fn unix_now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
+}
+
 impl RestClient {
+    /// Legacy keys for side effects that do not yet have a typed managed
+    /// operation. Managed callers receive `None` and must fail closed.
+    pub(crate) fn legacy_keys(&self) -> Option<&Keys> {
+        self.identity.legacy_keys()
+    }
     /// Sign a NIP-98 HTTP Auth event (kind:27235) for the given method/URL/body.
     ///
     /// Returns the `Authorization: Nostr <base64>` header value (without the
     /// `Nostr ` prefix — caller must prepend it or use `nip98_header`).
-    fn sign_nip98(
+    /// POST with NIP-98 auth and retry. Re-signs on each attempt.
+    async fn bridge_post(
         &self,
-        method: &str,
-        url: &str,
-        body: Option<&[u8]>,
-    ) -> Result<String, RelayError> {
-        use base64::Engine;
-        use sha2::{Digest, Sha256};
-
-        let u_tag = Tag::parse(["u", url])
-            .map_err(|e| RelayError::Http(format!("NIP-98 tag error: {e}")))?;
-        let method_tag = Tag::parse(["method", method])
-            .map_err(|e| RelayError::Http(format!("NIP-98 tag error: {e}")))?;
-        // Nonce prevents replay rejection for rapid-fire requests with identical bodies.
-        let nonce_tag = Tag::parse(["nonce", &uuid::Uuid::new_v4().to_string()])
-            .map_err(|e| RelayError::Http(format!("NIP-98 tag error: {e}")))?;
-        let mut tags = vec![u_tag, method_tag, nonce_tag];
-
-        if let Some(b) = body {
-            let hash = hex::encode(Sha256::digest(b));
-            let payload_tag = Tag::parse(["payload", &hash])
-                .map_err(|e| RelayError::Http(format!("NIP-98 tag error: {e}")))?;
-            tags.push(payload_tag);
-        }
-
-        let event = EventBuilder::new(Kind::HttpAuth, "")
-            .tags(tags)
-            .sign_with_keys(&self.keys)
-            .map_err(|e| RelayError::Http(format!("NIP-98 sign error: {e}")))?;
-        let event_json = serde_json::to_string(&event)
-            .map_err(|e| RelayError::Http(format!("NIP-98 serialize error: {e}")))?;
-        Ok(base64::engine::general_purpose::STANDARD.encode(event_json))
-    }
-
-    /// Build the full `Authorization` header value: `Nostr <base64>`.
-    fn nip98_header(
-        &self,
-        method: &str,
-        url: &str,
-        body: Option<&[u8]>,
-    ) -> Result<String, RelayError> {
-        Ok(format!("Nostr {}", self.sign_nip98(method, url, body)?))
-    }
-
-    /// Retry helper: executes `build_request` up to 4 times (1 attempt + 3 retries)
-    /// on transient failures (429, 502, 503, 504, timeout, connect errors).
-    ///
-    /// NIP-98 auth events are re-signed on each attempt (they have a ±60s window).
-    async fn request_with_retry<F, Fut>(
-        &self,
-        method: &str,
         path: &str,
-        build_request: F,
-    ) -> Result<reqwest::Response, RelayError>
-    where
-        F: Fn() -> Fut,
-        Fut: std::future::Future<Output = Result<reqwest::Response, reqwest::Error>>,
-    {
+        body_bytes: &[u8],
+    ) -> Result<reqwest::Response, RelayError> {
+        let method = "POST";
+        let url = format!("{}{}", self.base_url, path);
+        let body_owned = body_bytes.to_vec();
         let mut last_err = None;
 
         for (attempt, delay) in std::iter::once(None)
@@ -324,7 +490,19 @@ impl RestClient {
                 tokio::time::sleep(jittered).await;
             }
 
-            match build_request().await {
+            let auth = format!(
+                "Nostr {}",
+                self.identity.sign_nip98(&url, &body_owned).await?
+            );
+            let mut request = self
+                .http
+                .post(&url)
+                .header("Authorization", auth)
+                .header("Content-Type", "application/json");
+            if let Some(tag) = &self.auth_tag_json {
+                request = request.header("x-auth-tag", tag);
+            }
+            match request.body(body_owned.clone()).send().await {
                 Ok(resp) if resp.status().is_success() => return Ok(resp),
                 Ok(resp) if is_retriable_status(resp.status()) => {
                     let status = resp.status();
@@ -350,34 +528,6 @@ impl RestClient {
 
         Err(last_err
             .unwrap_or_else(|| RelayError::Http(format!("{method} {path} failed after retries"))))
-    }
-
-    /// POST with NIP-98 auth and retry. Re-signs on each attempt.
-    async fn bridge_post(
-        &self,
-        path: &str,
-        body_bytes: &[u8],
-    ) -> Result<reqwest::Response, RelayError> {
-        let url = format!("{}{}", self.base_url, path);
-        let body_owned = body_bytes.to_vec();
-        let auth_tag_header = self.auth_tag_json.clone();
-        self.request_with_retry("POST", path, || {
-            // NIP-98 is re-signed each attempt (fresh created_at).
-            // sign_nip98 is infallible in practice (key is always valid).
-            let auth = self
-                .nip98_header("POST", &url, Some(&body_owned))
-                .unwrap_or_default();
-            let mut req = self
-                .http
-                .post(&url)
-                .header("Authorization", auth)
-                .header("Content-Type", "application/json");
-            if let Some(ref tag) = auth_tag_header {
-                req = req.header("x-auth-tag", tag);
-            }
-            req.body(body_owned.clone()).send()
-        })
-        .await
     }
 
     /// Query events via the HTTP bridge: `POST /query` with NIP-98 auth.
@@ -446,6 +596,12 @@ pub enum RelayError {
 
     #[error("Unexpected message: {0}")]
     UnexpectedMessage(String),
+
+    #[error("Managed signing broker error: {0}")]
+    ManagedBroker(String),
+
+    #[error("Operation is unavailable for Luca-managed identity: {0}")]
+    ManagedOperationUnavailable(&'static str),
 }
 
 impl From<nostr::event::builder::Error> for RelayError {
@@ -530,10 +686,8 @@ pub struct HarnessRelay {
     http: reqwest::Client,
     /// WebSocket URL of the relay.
     relay_url: String,
-    /// Keys used for NIP-42 signing and NIP-98 HTTP auth.
-    keys: Keys,
-    /// Optional NIP-OA auth tag for relay membership delegation.
-    auth_tag: Option<nostr::Tag>,
+    /// Legacy keys or managed typed broker used only for relay authentication.
+    identity: RelayIdentity,
     /// Handle to the background task (for clean shutdown).
     /// Wrapped in `Option` so `shutdown()` can take ownership without conflicting
     /// with `Drop` (which only has `&mut self`).
@@ -587,23 +741,58 @@ impl HarnessRelay {
         agent_pubkey_hex: &str,
         auth_tag: Option<nostr::Tag>,
     ) -> Result<Self, RelayError> {
+        Self::connect_identity(
+            relay_url,
+            RelayIdentity::Legacy {
+                keys: Box::new(keys.clone()),
+                auth_tag,
+            },
+            agent_pubkey_hex,
+        )
+        .await
+    }
+
+    /// Connect a Luca-managed resident through its typed desktop broker.
+    pub async fn connect_managed(
+        relay_url: &str,
+        resident_pubkey: Hex64,
+        broker: Arc<ManagedSigningClient>,
+        owner_attestation: Option<NipOaOwnerAttestationV1>,
+    ) -> Result<Self, RelayError> {
+        let agent_pubkey_hex = resident_pubkey.as_str().to_owned();
+        Self::connect_identity(
+            relay_url,
+            RelayIdentity::Managed {
+                resident_pubkey,
+                broker,
+                owner_attestation,
+            },
+            &agent_pubkey_hex,
+        )
+        .await
+    }
+
+    async fn connect_identity(
+        relay_url: &str,
+        identity: RelayIdentity,
+        agent_pubkey_hex: &str,
+    ) -> Result<Self, RelayError> {
         // Perform the initial connection and auth handshake, retrying
         // transient failures (dropped handshake, timeout) with bounded
         // jittered backoff. A terminal error (bad URL, bad auth tag,
         // rejected/invalid signing key) fails immediately — see
         // `is_terminal_connect_error`.
         let (ws, handshake_buffer) =
-            retry_initial_connect(|| do_connect(relay_url, keys, auth_tag.as_ref())).await?;
+            retry_initial_connect(|| do_connect_identity(relay_url, &identity)).await?;
 
         let (event_tx, event_rx) = mpsc::channel::<Option<BuzzEvent>>(event_channel_capacity());
         let (observer_control_tx, observer_control_rx) =
             mpsc::channel::<Event>(event_channel_capacity());
         let (cmd_tx, cmd_rx) = mpsc::channel::<RelayCommand>(CMD_CHANNEL_CAPACITY);
 
-        let bg_keys = keys.clone();
+        let bg_identity = identity.clone();
         let bg_relay_url = relay_url.to_string();
         let bg_agent_pubkey_hex = agent_pubkey_hex.to_string();
-        let bg_auth_tag = auth_tag.clone();
 
         let bg_handle = tokio::spawn(async move {
             run_background_task(
@@ -612,10 +801,9 @@ impl HarnessRelay {
                 event_tx,
                 observer_control_tx,
                 cmd_rx,
-                bg_keys,
+                bg_identity,
                 bg_relay_url,
                 bg_agent_pubkey_hex,
-                bg_auth_tag,
             )
             .await;
         });
@@ -630,8 +818,7 @@ impl HarnessRelay {
                 .build()
                 .map_err(|e| RelayError::Http(format!("failed to build HTTP client: {e}")))?,
             relay_url: relay_url.to_string(),
-            keys: keys.clone(),
-            auth_tag,
+            identity,
             bg_handle: Some(bg_handle),
         })
     }
@@ -645,7 +832,7 @@ impl HarnessRelay {
         use nostr::{Alphabet, SingleLetterTag};
 
         let rest = self.rest_client();
-        let pk_hex = self.keys.public_key().to_hex();
+        let pk_hex = self.identity.public_key_hex();
 
         // Step 1: Find all channels where agent is a member (kind:39002 with #p tag).
         let p_tag = SingleLetterTag::lowercase(Alphabet::P);
@@ -708,11 +895,8 @@ impl HarnessRelay {
         RestClient {
             http: self.http.clone(),
             base_url: relay_ws_to_http(&self.relay_url),
-            keys: self.keys.clone(),
-            auth_tag_json: self
-                .auth_tag
-                .as_ref()
-                .and_then(|t| serde_json::to_string(t.as_slice()).ok()),
+            identity: self.identity.clone(),
+            auth_tag_json: self.identity.owner_attestation_header_json(),
         }
     }
 
@@ -851,9 +1035,13 @@ impl HarnessRelay {
                     .map_err(|e| RelayError::AuthFailed(e.to_string()))?,
             );
         }
+        let keys = self
+            .identity
+            .legacy_keys()
+            .ok_or(RelayError::ManagedOperationUnavailable("typing"))?;
         let event = EventBuilder::new(Kind::Custom(KIND_TYPING_INDICATOR as u16), "")
             .tags(tags)
-            .sign_with_keys(&self.keys)?;
+            .sign_with_keys(keys)?;
         Ok(event)
     }
 
@@ -1525,10 +1713,9 @@ async fn run_background_task(
     event_tx: mpsc::Sender<Option<BuzzEvent>>,
     observer_control_tx: mpsc::Sender<Event>,
     mut cmd_rx: mpsc::Receiver<RelayCommand>,
-    keys: Keys,
+    identity: RelayIdentity,
     relay_url: String,
     agent_pubkey_hex: String,
-    auth_tag: Option<nostr::Tag>,
 ) {
     let mut state = BgState::new();
 
@@ -1538,10 +1725,9 @@ async fn run_background_task(
         &event_tx,
         &observer_control_tx,
         &mut state,
-        &keys,
+        &identity,
         &relay_url,
         &agent_pubkey_hex,
-        auth_tag.as_ref(),
     )
     .await;
     if !handshake_ok {
@@ -1553,12 +1739,11 @@ async fn run_background_task(
             &mut ws,
             &mut cmd_rx,
             &mut state,
-            &keys,
+            &identity,
             &relay_url,
             &agent_pubkey_hex,
             &event_tx,
             &observer_control_tx,
-            auth_tag.as_ref(),
         )
         .await
         {
@@ -1577,13 +1762,12 @@ async fn run_background_task(
                         &mut ws,
                         &mut cmd_rx,
                         &mut state,
-                        &keys,
+                        &identity,
                         &relay_url,
                         &agent_pubkey_hex,
                         &event_tx,
                         &observer_control_tx,
                         true,
-                        auth_tag.as_ref(),
                     )
                     .await,
                     ReconnectOutcome::Shutdown
@@ -1636,12 +1820,11 @@ async fn run_background_task(
                         &mut ws,
                         &mut cmd_rx,
                         &mut state,
-                        &keys,
+                        &identity,
                         &relay_url,
                         &agent_pubkey_hex,
                         &event_tx,
                         &observer_control_tx,
-                        auth_tag.as_ref(),
                     )
                     .await
                     {
@@ -1666,13 +1849,12 @@ async fn run_background_task(
                                     &mut ws,
                                     &mut cmd_rx,
                                     &mut state,
-                                    &keys,
+                                    &identity,
                                     &relay_url,
                                     &agent_pubkey_hex,
                                     &event_tx,
                                     &observer_control_tx,
                                     true,
-                                    auth_tag.as_ref(),
                                 )
                                 .await,
                                 ReconnectOutcome::Shutdown
@@ -1785,10 +1967,9 @@ async fn run_background_task(
                                        &event_tx,
                                        &observer_control_tx,
                                        &mut state,
-                                       &keys,
+                                       &identity,
                                        &relay_url,
                                        &agent_pubkey_hex,
-                                       auth_tag.as_ref(),
                                    )
                                    .await
                                }
@@ -1812,12 +1993,11 @@ async fn run_background_task(
                                &mut ws,
                                &mut cmd_rx,
                                &mut state,
-                               &keys,
+                                   &identity,
                                &relay_url,
                                &agent_pubkey_hex,
                                &event_tx,
                            &observer_control_tx,
-            auth_tag.as_ref(),
                            )
                            .await;
                            match outcome {
@@ -1836,9 +2016,8 @@ async fn run_background_task(
                            ReconnectOutcome::Failed => {
                                if matches!(
                                    wait_for_reconnect(
-                                       &mut ws, &mut cmd_rx, &mut state, &keys, &relay_url,
+                                       &mut ws, &mut cmd_rx, &mut state, &identity, &relay_url,
         &agent_pubkey_hex, &event_tx, &observer_control_tx, true,
-                        auth_tag.as_ref(),
                                    ).await,
                                    ReconnectOutcome::Shutdown
                                ) { return; }
@@ -1856,9 +2035,8 @@ async fn run_background_task(
                            Some(RelayCommand::Reconnect) => {
                                if matches!(
                                    wait_for_reconnect(
-                                       &mut ws, &mut cmd_rx, &mut state, &keys, &relay_url,
+                                       &mut ws, &mut cmd_rx, &mut state, &identity, &relay_url,
         &agent_pubkey_hex, &event_tx, &observer_control_tx, true,
-                        auth_tag.as_ref(),
                                    ).await,
                                    ReconnectOutcome::Shutdown
                                ) { return; }
@@ -1890,10 +2068,9 @@ async fn run_background_task(
                                    warn!("command send failed — triggering reconnect");
                                    let _ = event_tx.try_send(None);
                                    match try_autonomous_reconnect(
-                                       &mut ws, &mut cmd_rx, &mut state, &keys, &relay_url,
+                                       &mut ws, &mut cmd_rx, &mut state, &identity, &relay_url,
         &agent_pubkey_hex, &event_tx,
                                    &observer_control_tx,
-            auth_tag.as_ref(),
                                    ).await {
                                        ReconnectOutcome::Shutdown => return,
                                        ReconnectOutcome::Ok => {
@@ -1905,9 +2082,8 @@ async fn run_background_task(
                                        ReconnectOutcome::Failed => {
                                            if matches!(
                                                wait_for_reconnect(
-                                                   &mut ws, &mut cmd_rx, &mut state, &keys, &relay_url,
+                                                   &mut ws, &mut cmd_rx, &mut state, &identity, &relay_url,
         &agent_pubkey_hex, &event_tx, &observer_control_tx, true,
-                        auth_tag.as_ref(),
                                                ).await,
                                                ReconnectOutcome::Shutdown
                                            ) { return; }
@@ -1929,10 +2105,9 @@ async fn run_background_task(
                            // Use try_send to avoid blocking on backpressure during recovery.
                            let _ = event_tx.try_send(None);
                            match try_autonomous_reconnect(
-                               &mut ws, &mut cmd_rx, &mut state, &keys, &relay_url,
+                               &mut ws, &mut cmd_rx, &mut state, &identity, &relay_url,
         &agent_pubkey_hex, &event_tx,
                            &observer_control_tx,
-            auth_tag.as_ref(),
                            ).await {
                                ReconnectOutcome::Shutdown => return,
                                ReconnectOutcome::Ok => {
@@ -1944,9 +2119,8 @@ async fn run_background_task(
                                ReconnectOutcome::Failed => {
                                    if matches!(
                                        wait_for_reconnect(
-                                           &mut ws, &mut cmd_rx, &mut state, &keys, &relay_url,
+                                           &mut ws, &mut cmd_rx, &mut state, &identity, &relay_url,
         &agent_pubkey_hex, &event_tx, &observer_control_tx, true,
-                        auth_tag.as_ref(),
                                        ).await,
                                        ReconnectOutcome::Shutdown
                                    ) { return; }
@@ -1962,10 +2136,9 @@ async fn run_background_task(
                                // Use try_send to avoid blocking on backpressure during recovery.
                                let _ = event_tx.try_send(None);
                                match try_autonomous_reconnect(
-                                   &mut ws, &mut cmd_rx, &mut state, &keys, &relay_url,
+                                   &mut ws, &mut cmd_rx, &mut state, &identity, &relay_url,
         &agent_pubkey_hex, &event_tx,
                                &observer_control_tx,
-            auth_tag.as_ref(),
                                ).await {
                                    ReconnectOutcome::Shutdown => return,
                                    ReconnectOutcome::Ok => {
@@ -1977,9 +2150,8 @@ async fn run_background_task(
                                    ReconnectOutcome::Failed => {
                                        if matches!(
                                            wait_for_reconnect(
-                                               &mut ws, &mut cmd_rx, &mut state, &keys, &relay_url,
+                                               &mut ws, &mut cmd_rx, &mut state, &identity, &relay_url,
         &agent_pubkey_hex, &event_tx, &observer_control_tx, true,
-                        auth_tag.as_ref(),
                                            ).await,
                                            ReconnectOutcome::Shutdown
                                        ) { return; }
@@ -2034,10 +2206,9 @@ async fn handle_ws_message(
     event_tx: &mpsc::Sender<Option<BuzzEvent>>,
     observer_control_tx: &mpsc::Sender<Event>,
     state: &mut BgState,
-    keys: &Keys,
+    identity: &RelayIdentity,
     relay_url: &str,
     agent_pubkey_hex: &str,
-    auth_tag: Option<&nostr::Tag>,
 ) -> bool {
     match msg {
         Message::Text(text) => {
@@ -2333,7 +2504,7 @@ async fn handle_ws_message(
                     // AUTH send failure must trigger reconnect.
                     debug!("received mid-session AUTH challenge — re-authenticating");
                     if let Err(e) =
-                        send_auth_response(ws, &challenge, relay_url, keys, auth_tag).await
+                        send_auth_response_identity(ws, &challenge, relay_url, identity).await
                     {
                         warn!("failed to respond to mid-session AUTH challenge: {e} — triggering reconnect");
                         return false;
@@ -2384,10 +2555,9 @@ async fn process_handshake_buffer(
     event_tx: &mpsc::Sender<Option<BuzzEvent>>,
     observer_control_tx: &mpsc::Sender<Event>,
     state: &mut BgState,
-    keys: &Keys,
+    identity: &RelayIdentity,
     relay_url: &str,
     agent_pubkey_hex: &str,
-    auth_tag: Option<&nostr::Tag>,
 ) -> bool {
     if buffer.is_empty() {
         return true;
@@ -2427,10 +2597,9 @@ async fn process_handshake_buffer(
                 event_tx,
                 observer_control_tx,
                 state,
-                keys,
+                identity,
                 relay_url,
                 agent_pubkey_hex,
-                auth_tag,
             )
             .await;
             if !should_continue {
@@ -2882,12 +3051,11 @@ async fn try_autonomous_reconnect(
     ws: &mut WsStream,
     cmd_rx: &mut mpsc::Receiver<RelayCommand>,
     state: &mut BgState,
-    keys: &Keys,
+    identity: &RelayIdentity,
     relay_url: &str,
     agent_pubkey_hex: &str,
     event_tx: &mpsc::Sender<Option<BuzzEvent>>,
     observer_control_tx: &mpsc::Sender<Event>,
-    auth_tag: Option<&nostr::Tag>,
 ) -> ReconnectOutcome {
     state.requeue_observer_in_flight();
     // 5 attempts, up to 16s base backoff. Shares delay values with the
@@ -2909,7 +3077,7 @@ async fn try_autonomous_reconnect(
             attempt + 1,
             backoffs.len()
         );
-        match do_connect(relay_url, keys, auth_tag).await {
+        match do_connect_identity(relay_url, identity).await {
             Ok((new_ws, handshake_buffer)) => {
                 *ws = new_ws;
                 info!("autonomous reconnect succeeded (attempt {})", attempt + 1);
@@ -2919,10 +3087,9 @@ async fn try_autonomous_reconnect(
                     event_tx,
                     observer_control_tx,
                     state,
-                    keys,
+                    identity,
                     relay_url,
                     agent_pubkey_hex,
-                    auth_tag,
                 )
                 .await;
                 if !handshake_ok {
@@ -3011,13 +3178,12 @@ async fn wait_for_reconnect(
     ws: &mut WsStream,
     cmd_rx: &mut mpsc::Receiver<RelayCommand>,
     state: &mut BgState,
-    keys: &Keys,
+    identity: &RelayIdentity,
     relay_url: &str,
     agent_pubkey_hex: &str,
     event_tx: &mpsc::Sender<Option<BuzzEvent>>,
     observer_control_tx: &mpsc::Sender<Event>,
     skip_drain: bool,
-    auth_tag: Option<&nostr::Tag>,
 ) -> ReconnectOutcome {
     state.requeue_observer_in_flight();
     if !skip_drain {
@@ -3047,7 +3213,7 @@ async fn wait_for_reconnect(
     let mut attempt = state.backoff_step;
     loop {
         info!("attempting relay reconnect to {relay_url}…");
-        match do_connect(relay_url, keys, auth_tag).await {
+        match do_connect_identity(relay_url, identity).await {
             Ok((new_ws, handshake_buffer)) => {
                 *ws = new_ws;
                 info!("relay reconnected to {relay_url}");
@@ -3057,10 +3223,9 @@ async fn wait_for_reconnect(
                     event_tx,
                     observer_control_tx,
                     state,
-                    keys,
+                    identity,
                     relay_url,
                     agent_pubkey_hex,
-                    auth_tag,
                 )
                 .await;
                 if !handshake_ok {
@@ -3418,32 +3583,13 @@ fn extract_h_tag_uuid(event: &nostr::Event) -> Option<Uuid> {
 ///
 /// If `auth_tag` is provided (NIP-OA owner attestation), it is included in the
 /// AUTH event so the relay can use it for membership delegation fallback.
-async fn send_auth_response(
+async fn send_auth_response_identity(
     ws: &mut WsStream,
     challenge: &str,
     relay_url: &str,
-    keys: &Keys,
-    auth_tag: Option<&nostr::Tag>,
+    identity: &RelayIdentity,
 ) -> Result<(), RelayError> {
-    let relay_nostr_url = RelayUrl::parse(relay_url)
-        .map_err(|e| RelayError::Http(format!("invalid relay URL: {e}")))?;
-
-    let auth_event = if let Some(tag) = auth_tag {
-        // Cannot use EventBuilder::auth() shortcut — it doesn't accept extra tags.
-        let tags = vec![
-            nostr::Tag::parse(["relay", relay_url])
-                .map_err(|e| RelayError::Http(format!("tag parse error: {e}")))?,
-            nostr::Tag::parse(["challenge", challenge])
-                .map_err(|e| RelayError::Http(format!("tag parse error: {e}")))?,
-            tag.clone(),
-        ];
-        EventBuilder::new(nostr::Kind::Authentication, "")
-            .tags(tags)
-            .sign_with_keys(keys)?
-    } else {
-        EventBuilder::auth(challenge, relay_nostr_url).sign_with_keys(keys)?
-    };
-
+    let auth_event = identity.sign_nip42(relay_url, challenge).await?;
     let auth_msg = serde_json::to_string(&json!(["AUTH", auth_event]))?;
     ws_send_timeout(ws, Message::Text(auth_msg.into()), WS_SEND_TIMEOUT_SECS).await?;
     debug!("sent AUTH response for challenge");
@@ -3647,6 +3793,8 @@ fn is_terminal_connect_error(err: &RelayError) -> bool {
         RelayError::Http(_) | RelayError::Json(_) | RelayError::UnexpectedMessage(_) => true,
         RelayError::WebSocket(e) => is_terminal_ws_error(e.as_ref()),
         RelayError::AuthFailed(message) => is_terminal_auth_failure(message),
+        RelayError::ManagedOperationUnavailable(_) => true,
+        RelayError::ManagedBroker(_) => false,
         RelayError::NoAuthChallenge | RelayError::ConnectionClosed | RelayError::Timeout => false,
     }
 }
@@ -3810,10 +3958,22 @@ where
 /// Perform a single WebSocket connect + NIP-42 auth handshake.
 ///
 /// Returns `(ws, buffer)` on success.
+#[cfg(test)]
 async fn do_connect(
     relay_url: &str,
     keys: &Keys,
     auth_tag: Option<&nostr::Tag>,
+) -> Result<(WsStream, VecDeque<RelayMessage>), RelayError> {
+    let identity = RelayIdentity::Legacy {
+        keys: Box::new(keys.clone()),
+        auth_tag: auth_tag.cloned(),
+    };
+    do_connect_identity(relay_url, &identity).await
+}
+
+async fn do_connect_identity(
+    relay_url: &str,
+    identity: &RelayIdentity,
 ) -> Result<(WsStream, VecDeque<RelayMessage>), RelayError> {
     let parsed = relay_url
         .parse::<url::Url>()
@@ -3830,7 +3990,7 @@ async fn do_connect(
 
     let challenge = wait_for_auth_challenge(&mut ws, &mut buffer, AUTH_TIMEOUT).await?;
 
-    send_auth_response(&mut ws, &challenge, relay_url, keys, auth_tag).await?;
+    send_auth_response_identity(&mut ws, &challenge, relay_url, identity).await?;
 
     let event_id = {
         // We need the event_id that was just sent. Re-derive it by signing again
@@ -3982,6 +4142,23 @@ async fn wait_for_any_ok(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn luca_managed_identity_preserves_exact_delegated_rest_auth_tag() {
+        let typed: NipOaOwnerAttestationV1 = serde_json::from_value(serde_json::json!({
+            "owner_pubkey": "7e181a4c3d18268f342149a1b6767ec1c368e64d88fc8be46890568f0c89ba84",
+            "conditions": "",
+            "signature": "975abffa77335a57e0cde8e4439ab9f22d355629b0d1aba4750445ea841b507fe052e21c936d25831160f2cd49b24877aae48e2a92e12d4566fb31991cb9824a"
+        }))
+        .expect("valid synthetic owner attestation");
+        assert_eq!(
+            managed_owner_attestation_header_json(Some(&typed)).as_deref(),
+            Some(
+                "[\"auth\",\"7e181a4c3d18268f342149a1b6767ec1c368e64d88fc8be46890568f0c89ba84\",\"\",\"975abffa77335a57e0cde8e4439ab9f22d355629b0d1aba4750445ea841b507fe052e21c936d25831160f2cd49b24877aae48e2a92e12d4566fb31991cb9824a\"]"
+            )
+        );
+        assert_eq!(managed_owner_attestation_header_json(None), None);
+    }
 
     #[test]
     fn relay_ws_to_http_plain() {

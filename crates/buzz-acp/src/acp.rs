@@ -16,6 +16,37 @@ use tokio_util::codec::{FramedRead, LinesCodec, LinesCodecError};
 use crate::observer::{ObserverContext, ObserverHandle};
 use crate::usage::{TurnUsage, UsageTracker};
 
+const LUCA_DESCENDANT_FORBIDDEN_ENV: &[&str] = &[
+    "BUZZ_PRIVATE_KEY",
+    "NOSTR_PRIVATE_KEY",
+    "BUZZ_AUTH_TAG",
+    "BUZZ_ACP_PRIVATE_KEY",
+    "BUZZ_API_TOKEN",
+    "BUZZ_ACP_API_TOKEN",
+    "BUZZ_ACP_SETUP_PAYLOAD",
+    "LUCA_MANAGED_RESIDENT_PUBKEY",
+    "LUCA_MANAGED_SESSION_EPOCH",
+    "LUCA_MANAGED_OWNER_ATTESTATION",
+];
+
+fn is_luca_descendant_forbidden_env(key: &str) -> bool {
+    LUCA_DESCENDANT_FORBIDDEN_ENV
+        .iter()
+        .any(|forbidden| key.eq_ignore_ascii_case(forbidden))
+}
+
+fn scrub_luca_descendant_environment(
+    command: &mut tokio::process::Command,
+    managed_identity: bool,
+) {
+    if !managed_identity {
+        return;
+    }
+    for key in LUCA_DESCENDANT_FORBIDDEN_ENV {
+        command.env_remove(key);
+    }
+}
+
 /// Maximum allowed size of a single NDJSON line from the agent's stdout.
 /// Lines exceeding this limit are rejected to prevent OOM from rogue agents.
 const MAX_LINE_SIZE: usize = 10_000_000; // 10 MB
@@ -411,6 +442,45 @@ impl AcpClient {
         extra_env: &[(String, String)],
         has_generated_codex_config: bool,
     ) -> Result<Self, AcpError> {
+        Self::spawn_with_descendant_isolation(
+            command,
+            args,
+            extra_env,
+            has_generated_codex_config,
+            false,
+        )
+        .await
+    }
+
+    /// Spawn a model/runtime child for a Luca-managed resident.
+    ///
+    /// Unlike [`Self::spawn`], this explicitly strips every signing credential
+    /// and broker bootstrap coordinate from the child and all of its
+    /// descendants. Keeping the entry points separate preserves ordinary Buzz
+    /// legacy behavior.
+    pub async fn spawn_managed(
+        command: &str,
+        args: &[String],
+        extra_env: &[(String, String)],
+        has_generated_codex_config: bool,
+    ) -> Result<Self, AcpError> {
+        Self::spawn_with_descendant_isolation(
+            command,
+            args,
+            extra_env,
+            has_generated_codex_config,
+            true,
+        )
+        .await
+    }
+
+    async fn spawn_with_descendant_isolation(
+        command: &str,
+        args: &[String],
+        extra_env: &[(String, String)],
+        has_generated_codex_config: bool,
+        managed_identity: bool,
+    ) -> Result<Self, AcpError> {
         use std::process::Stdio;
 
         let mut cmd = tokio::process::Command::new(command);
@@ -422,6 +492,10 @@ impl AcpClient {
             // Ensure the child is killed when the AcpClient is dropped (best-effort).
             // Callers MUST still call shutdown().await for guaranteed cleanup.
             .kill_on_drop(true);
+        // The managed broker lives only on the harness's inherited stdin.
+        // Model/runtime children always receive a replacement pipe above and
+        // inherit neither credentials nor managed bootstrap coordinates.
+        scrub_luca_descendant_environment(&mut cmd, managed_identity);
 
         // Per-persona env vars (e.g., GOOSE_PROVIDER, BUZZ_AGENT_PROVIDER).
         // For most keys, operator precedence wins: skip injection if already set
@@ -448,6 +522,9 @@ impl AcpClient {
         let codex_merge_active = codex_config_value.is_some();
 
         for (key, value) in extra_env {
+            if managed_identity && is_luca_descendant_forbidden_env(key) {
+                continue;
+            }
             if key == "CODEX_CONFIG" && codex_merge_active {
                 // Handled by build_codex_config_env; skip here to avoid double-setting.
                 continue;
@@ -1990,6 +2067,11 @@ fn kill_process_group(_pid: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/luca-conformance/message_publish/descendant_environment.rs"
+    ));
 
     #[test]
     fn stop_reason_parses_all_known_values() {

@@ -7,6 +7,7 @@ mod deep_link;
 mod event_sync;
 mod events;
 mod huddle;
+mod luca;
 mod managed_agents;
 mod media_proxy;
 #[cfg(feature = "mesh-llm")]

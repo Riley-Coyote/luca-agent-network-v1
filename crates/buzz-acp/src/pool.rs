@@ -460,7 +460,7 @@ pub struct PromptContext {
     pub permission_mode: PermissionMode,
     /// Agent identity — used to derive the NIP-AE conversation key at
     /// session creation for core injection.
-    pub agent_keys: nostr::Keys,
+    pub agent_keys: Option<nostr::Keys>,
     /// Owner pubkey (hex), if resolved at startup. When unset, NIP-AE core
     /// injection is skipped entirely (no owner = no `(agent, owner)` pair).
     pub agent_owner_pubkey: Option<nostr::PublicKey>,
@@ -1317,19 +1317,18 @@ pub async fn run_prompt_task(
     //
     // Operator opt-out: `--no-memory` / `BUZZ_ACP_NO_MEMORY` skips the fetch.
     if ctx.memory_enabled {
-        if let (PromptSource::Channel(cid), Some(owner_pk)) =
-            (&source, ctx.agent_owner_pubkey.as_ref())
-        {
+        if let (PromptSource::Channel(cid), Some(owner_pk), Some(agent_keys)) = (
+            &source,
+            ctx.agent_owner_pubkey.as_ref(),
+            ctx.agent_keys.as_ref(),
+        ) {
             let is_new_channel_session = !agent.state.sessions.contains_key(cid);
             if is_new_channel_session && !agent.state.core_sections.contains_key(cid) {
                 // Bounded — we'd rather start the session with no core hint
                 // than block session creation on a stalled relay.
                 const CORE_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
-                let fetch = crate::engram_fetch::build_core_section(
-                    &ctx.rest_client,
-                    &ctx.agent_keys,
-                    owner_pk,
-                );
+                let fetch =
+                    crate::engram_fetch::build_core_section(&ctx.rest_client, agent_keys, owner_pk);
                 let section = match tokio::time::timeout(CORE_FETCH_TIMEOUT, fetch).await {
                     Ok(s) => s,
                     Err(_) => {
@@ -1723,6 +1722,7 @@ pub async fn run_prompt_task(
                 channel_info: channel_info.as_ref(),
                 conversation_context: conversation_context.as_ref(),
                 profile_lookup: profile_lookup.as_ref(),
+                managed_publication: ctx.agent_keys.is_none(),
                 has_system_prompt_support: agent.has_system_prompt_support(),
                 base_prompt: ctx.base_prompt,
                 system_prompt: ctx.system_prompt.as_deref(),
@@ -3286,8 +3286,12 @@ async fn publish_agent_turn_metric(
     use buzz_core::agent_turn_metric::{AgentTurnMetricPayload, TokenCounts};
     use nostr::{EventBuilder, Kind, Tag};
 
-    let (usage, owner_pk) = match (usage, ctx.agent_owner_pubkey.as_ref()) {
-        (Some(u), Some(pk)) => (u, pk),
+    let (usage, owner_pk, agent_keys) = match (
+        usage,
+        ctx.agent_owner_pubkey.as_ref(),
+        ctx.agent_keys.as_ref(),
+    ) {
+        (Some(u), Some(pk), Some(keys)) => (u, pk, keys),
         _ => return,
     };
 
@@ -3330,9 +3334,7 @@ async fn publish_agent_turn_metric(
         stop_reason,
     };
     let ciphertext = match buzz_core::agent_turn_metric::encrypt_agent_turn_metric(
-        &ctx.agent_keys,
-        owner_pk,
-        &payload,
+        agent_keys, owner_pk, &payload,
     ) {
         Ok(c) => c,
         Err(e) => {
@@ -3345,7 +3347,7 @@ async fn publish_agent_turn_metric(
             return;
         }
     };
-    let agent_hex = ctx.agent_keys.public_key().to_hex();
+    let agent_hex = agent_keys.public_key().to_hex();
     let owner_hex = owner_pk.to_hex();
     let event = match EventBuilder::new(
         Kind::Custom(buzz_core::kind::KIND_AGENT_TURN_METRIC as u16),
@@ -3355,7 +3357,7 @@ async fn publish_agent_turn_metric(
         Tag::parse(["p", &owner_hex]).expect("p tag"),
         Tag::parse(["agent", &agent_hex]).expect("agent tag"),
     ])
-    .sign_with_keys(&ctx.agent_keys)
+    .sign_with_keys(agent_keys)
     {
         Ok(e) => e,
         Err(e) => {
@@ -3416,6 +3418,14 @@ fn pct_encode(s: &str) -> String {
 /// the keys already stored in `RestClient`, and submits via `POST /events`.
 /// Returns immediately on timeout or any error — reactions are cosmetic.
 pub(crate) async fn reaction_add(rest: &crate::relay::RestClient, event_id: &str, emoji: &str) {
+    let Some(keys) = rest.legacy_keys() else {
+        tracing::debug!(
+            event_id,
+            emoji,
+            "reaction add unavailable for managed identity"
+        );
+        return;
+    };
     let target_id = match nostr::EventId::from_hex(event_id) {
         Ok(id) => id,
         Err(e) => {
@@ -3430,7 +3440,7 @@ pub(crate) async fn reaction_add(rest: &crate::relay::RestClient, event_id: &str
             return;
         }
     };
-    let event = match builder.sign_with_keys(&rest.keys) {
+    let event = match builder.sign_with_keys(keys) {
         Ok(e) => e,
         Err(e) => {
             tracing::warn!(event_id, emoji, "reaction add: sign failed: {e}");
@@ -3454,6 +3464,10 @@ pub(crate) async fn post_failure_notice(
     thread_tags: &ThreadTags,
     content: &str,
 ) {
+    let Some(keys) = rest.legacy_keys() else {
+        tracing::warn!(channel = %channel_id, "failure notice unavailable for managed identity");
+        return;
+    };
     let thread_ref = thread_tags.root_event_id.as_deref().and_then(|root| {
         let root_id = nostr::EventId::from_hex(root).ok()?;
         let parent_id = thread_tags
@@ -3474,7 +3488,7 @@ pub(crate) async fn post_failure_notice(
                 return;
             }
         };
-    let event = match builder.sign_with_keys(&rest.keys) {
+    let event = match builder.sign_with_keys(keys) {
         Ok(e) => e,
         Err(e) => {
             tracing::warn!(channel = %channel_id, "failure notice: sign failed: {e}");
@@ -3497,7 +3511,15 @@ pub(crate) async fn reaction_remove(rest: &crate::relay::RestClient, event_id: &
     use nostr::{Alphabet, SingleLetterTag};
 
     // Step 1: query our kind:7 reactions targeting this event.
-    let my_pubkey = rest.keys.public_key();
+    let Some(keys) = rest.legacy_keys() else {
+        tracing::debug!(
+            event_id,
+            emoji,
+            "reaction remove unavailable for managed identity"
+        );
+        return;
+    };
+    let my_pubkey = keys.public_key();
     let e_tag = SingleLetterTag::lowercase(Alphabet::E);
     let filter = nostr::Filter::new()
         .kind(nostr::Kind::Reaction)
@@ -3555,7 +3577,7 @@ pub(crate) async fn reaction_remove(rest: &crate::relay::RestClient, event_id: &
             return;
         }
     };
-    let event = match builder.sign_with_keys(&rest.keys) {
+    let event = match builder.sign_with_keys(keys) {
         Ok(e) => e,
         Err(e) => {
             tracing::warn!(event_id, emoji, "reaction remove: sign failed: {e}");
@@ -5243,14 +5265,17 @@ mod tests {
             rest_client: RestClient {
                 http: reqwest::Client::new(),
                 base_url: "http://127.0.0.1:0".to_string(),
-                keys: agent_keys.clone(),
+                identity: crate::relay::RelayIdentity::Legacy {
+                    keys: Box::new(agent_keys.clone()),
+                    auth_tag: None,
+                },
                 auth_tag_json: None,
             },
             channel_info: std::collections::HashMap::new(),
             context_message_limit: 0,
             max_turns_per_session: 0,
             permission_mode: PermissionMode::Default,
-            agent_keys: agent_keys.clone(),
+            agent_keys: Some(agent_keys.clone()),
             agent_owner_pubkey: owner_pubkey,
             memory_enabled: false,
             harness_name: "goose".to_string(),

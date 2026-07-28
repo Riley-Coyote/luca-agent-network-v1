@@ -1146,14 +1146,24 @@ pub(crate) fn format_event_block(
 /// Tells the agent to default to `--reply-to <event_id>` for ordinary replies
 /// while still allowing an explicit human request to post at the channel root or
 /// top level.
-fn append_reply_instruction(s: &mut String, event_id: &str) {
-    s.push_str(&format!(
-        "\nIMPORTANT: For ordinary replies in this turn, use `--reply-to {event_id}` \
-         on `buzz messages send` so the conversation stays threaded. \
-         If the human explicitly asks for a channel-root, top-level, \
-         or broadcast post, send that message without `--reply-to`. \
-         If the requested destination is ambiguous, ask before sending."
-    ));
+fn append_reply_instruction(s: &mut String, event_id: &str, managed_publication: bool) {
+    if managed_publication {
+        s.push_str(&format!(
+            "\nIMPORTANT: Return your ordinary response normally. The Luca host will \
+             preserve reply anchor {event_id} and publish exactly one final signed \
+             message. Do not invoke a publication tool. If the human explicitly \
+             requests a channel-root, top-level, or broadcast post, describe that \
+             intent in the response; the host remains responsible for publication."
+        ));
+    } else {
+        s.push_str(&format!(
+            "\nIMPORTANT: For ordinary replies in this turn, use `--reply-to {event_id}` \
+             on `buzz messages send` so the conversation stays threaded. \
+             If the human explicitly asks for a channel-root, top-level, \
+             or broadcast post, send that message without `--reply-to`. \
+             If the requested destination is ambiguous, ask before sending."
+        ));
+    }
 }
 
 /// Append a new-thread reply instruction for a human-facing top-level mention.
@@ -1161,14 +1171,23 @@ fn append_reply_instruction(s: &mut String, event_id: &str) {
 /// The triggering mention has no thread tags, so the agent's reply becomes the
 /// thread root. Anchoring to the triggering event (rather than leaving the
 /// choice open) prevents replying into a stale/unrelated prior thread.
-fn append_new_thread_reply_instruction(s: &mut String, event_id: &str) {
-    s.push_str(&format!(
-        "\nIMPORTANT: This is a new top-level message. For ordinary replies in \
-         this turn, use `--reply-to {event_id}` on `buzz messages send` — the \
-         triggering message is the thread root. Do NOT reply into any other \
-         (older) thread. If the human explicitly asks for a channel-root, \
-         top-level, or broadcast post, send that message without `--reply-to`."
-    ));
+fn append_new_thread_reply_instruction(s: &mut String, event_id: &str, managed_publication: bool) {
+    if managed_publication {
+        s.push_str(&format!(
+            "\nIMPORTANT: This is a new top-level message. Return your ordinary \
+             response normally. The Luca host will preserve reply anchor {event_id} \
+             as the thread root and publish exactly one final signed message. Do not \
+             invoke a publication tool or target an older thread."
+        ));
+    } else {
+        s.push_str(&format!(
+            "\nIMPORTANT: This is a new top-level message. For ordinary replies in \
+             this turn, use `--reply-to {event_id}` on `buzz messages send` — the \
+             triggering message is the thread root. Do NOT reply into any other \
+             (older) thread. If the human explicitly asks for a channel-root, \
+             top-level, or broadcast post, send that message without `--reply-to`."
+        ));
+    }
 }
 
 /// Decide whether a turn is human-facing for reply-anchor purposes.
@@ -1237,6 +1256,7 @@ fn format_context_hints(
     is_dm: bool,
     has_conversation_context: bool,
     reply_anchor: Option<&str>,
+    managed_publication: bool,
 ) -> String {
     let channel_display = match channel_info {
         Some(ci) => format!("{} (#{channel_id})", ci.name),
@@ -1273,7 +1293,7 @@ fn format_context_hints(
                 }
             }
             if let Some(event_id) = reply_anchor {
-                append_reply_instruction(&mut s, event_id);
+                append_reply_instruction(&mut s, event_id, managed_publication);
             }
         }
         s
@@ -1296,7 +1316,7 @@ fn format_context_hints(
         }
         s.push_str(&format!("\n{ctx_hint}"));
         if let Some(event_id) = reply_anchor {
-            append_reply_instruction(&mut s, event_id);
+            append_reply_instruction(&mut s, event_id, managed_publication);
         }
         s
     } else {
@@ -1307,7 +1327,7 @@ fn format_context_hints(
              Hint: Use `buzz messages get --channel <UUID>` for recent messages if needed."
         );
         if let Some(event_id) = reply_anchor {
-            append_new_thread_reply_instruction(&mut s, event_id);
+            append_new_thread_reply_instruction(&mut s, event_id, managed_publication);
         }
         s
     }
@@ -1355,6 +1375,9 @@ pub struct FormatPromptArgs<'a> {
     pub channel_info: Option<&'a PromptChannelInfo>,
     pub conversation_context: Option<&'a ConversationContext>,
     pub profile_lookup: Option<&'a PromptProfileLookup>,
+    /// Managed Luca residents return one ordinary ACP response. The host owns
+    /// reply anchoring and the single final signed publication.
+    pub managed_publication: bool,
     /// When true, base_prompt and system_prompt are delivered via the system
     /// role (session/new) and omitted from the user message. When false
     /// (legacy agents), they are injected as `[Base]` and `[System]` sections.
@@ -1485,6 +1508,7 @@ pub fn format_prompt(batch: &FlushBatch, args: &FormatPromptArgs<'_>) -> Vec<Str
         is_dm,
         args.conversation_context.is_some(),
         reply_anchor.as_deref(),
+        args.managed_publication,
     ));
 
     // 3. Conversation context (thread or DM).
@@ -3901,6 +3925,40 @@ mod tests {
             !prompt.contains("Do not broadcast to the channel"),
             "reply instruction should not forbid explicit human-requested root posts"
         );
+    }
+
+    #[test]
+    fn luca_managed_identity_luca_final_publisher_uses_host_owned_instruction() {
+        let ch = Uuid::new_v4();
+        let root_id = "b".repeat(64);
+        let event = make_event_with_tags(
+            "@resident help",
+            vec![vec!["e".into(), root_id.clone(), "".into(), "reply".into()]],
+        );
+        let batch = FlushBatch {
+            channel_id: ch,
+            events: vec![BatchEvent {
+                event,
+                prompt_tag: "@mention".into(),
+                received_at: Instant::now(),
+            }],
+            cancelled_events: vec![],
+            cancel_reason: None,
+        };
+
+        let prompt = format_prompt(
+            &batch,
+            &FormatPromptArgs {
+                managed_publication: true,
+                ..FormatPromptArgs::default()
+            },
+        )
+        .join("\n\n");
+
+        assert!(prompt.contains(&format!("preserve reply anchor {root_id}")));
+        assert!(prompt.contains("publish exactly one final signed message"));
+        assert!(prompt.contains("Do not invoke a publication tool"));
+        assert!(!prompt.contains("`buzz messages send`"));
     }
 
     #[test]

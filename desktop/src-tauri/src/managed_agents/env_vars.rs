@@ -63,6 +63,11 @@ pub(crate) const RESERVED_ENV_KEYS: &[&str] = &[
     "BUZZ_API_TOKEN",
     "BUZZ_ACP_PRIVATE_KEY",
     "BUZZ_ACP_API_TOKEN",
+    // Luca managed bootstrap is desktop-authored public/session metadata.
+    // The actual broker capability is the exclusive inherited stdin stream.
+    "LUCA_MANAGED_RESIDENT_PUBKEY",
+    "LUCA_MANAGED_SESSION_EPOCH",
+    "LUCA_MANAGED_OWNER_ATTESTATION",
     // Relay URL: overriding would let a malicious config redirect the
     // agent to an attacker-controlled relay.
     "BUZZ_RELAY_URL",

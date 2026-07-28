@@ -313,7 +313,12 @@ pub(crate) async fn run_setup_listener(config: Config, payload: SetupPayload) ->
         "buzz-acp entering setup mode"
     );
 
-    let pubkey_hex = config.keys.public_key().to_hex();
+    let keys = config.identity.legacy_keys().cloned().ok_or_else(|| {
+        anyhow::anyhow!(
+            "managed setup nudge publication is unavailable; complete setup in the Luca desktop"
+        )
+    })?;
+    let pubkey_hex = keys.public_key().to_hex();
 
     // Parse BUZZ_AUTH_TAG for relay membership / NIP-OA.
     let relay_auth_tag: Option<nostr::Tag> = std::env::var("BUZZ_AUTH_TAG")
@@ -326,10 +331,9 @@ pub(crate) async fn run_setup_listener(config: Config, payload: SetupPayload) ->
         .unwrap_or_default()
         .as_secs();
 
-    let mut relay =
-        HarnessRelay::connect(&config.relay_url, &config.keys, &pubkey_hex, relay_auth_tag)
-            .await
-            .map_err(|e| anyhow::anyhow!("setup-mode relay connect error: {e}"))?;
+    let mut relay = HarnessRelay::connect(&config.relay_url, &keys, &pubkey_hex, relay_auth_tag)
+        .await
+        .map_err(|e| anyhow::anyhow!("setup-mode relay connect error: {e}"))?;
 
     if let Err(e) = relay.set_startup_watermark(startup_watermark).await {
         tracing::warn!("setup-mode: failed to set startup watermark: {e}");
@@ -458,7 +462,7 @@ pub(crate) async fn run_setup_listener(config: Config, payload: SetupPayload) ->
         // Build and publish the setup nudge.
         if let Err(e) = publish_setup_nudge(
             &publisher,
-            &config.keys,
+            &keys,
             buzz_event.channel_id,
             &buzz_event.event,
             &payload,
