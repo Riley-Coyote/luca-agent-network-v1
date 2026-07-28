@@ -473,6 +473,9 @@ pub struct PromptContext {
     /// Harness identity string for NIP-AM `harness` field. Derived from the
     /// configured `agent_command` at startup (e.g. `"goose"`, `"buzz-agent"`).
     pub harness_name: String,
+    /// Managed-only typed final-publication client. Ordinary legacy Buzz keeps
+    /// this unset and retains its existing key-backed behavior.
+    pub managed_final_publisher: Option<crate::luca_final_publisher::ManagedFinalPublisherContext>,
 }
 
 impl AgentPool {
@@ -1182,6 +1185,7 @@ fn send_prompt_result(
     batch: Option<FlushBatch>,
 ) {
     agent.acp.clear_steer_rx();
+    agent.acp.discard_final_message_capture();
     let _ = result_tx.send(PromptResult {
         agent,
         source,
@@ -1189,6 +1193,64 @@ fn send_prompt_result(
         outcome,
         batch,
     });
+}
+
+async fn handoff_managed_final_after_end_turn(
+    agent: &mut OwnedAgent,
+    ctx: &PromptContext,
+    batch: Option<&FlushBatch>,
+    turn_id: &str,
+) {
+    let Some(context) = ctx.managed_final_publisher.as_ref() else {
+        return;
+    };
+    let Some(batch) = batch else {
+        agent.acp.discard_final_message_capture();
+        return;
+    };
+    let Some(trigger) = batch.events.last().map(|event| &event.event) else {
+        agent.acp.discard_final_message_capture();
+        return;
+    };
+    let Some(draft) = agent.acp.take_final_message_draft(true) else {
+        return;
+    };
+    let draft = match draft {
+        Ok(draft) => draft,
+        Err(error) => {
+            tracing::warn!(target: "luca::final", "managed final draft was not publishable: {error}");
+            return;
+        }
+    };
+    let final_turn = match crate::luca_final_publisher::ManagedFinalTurn::from_triggering_event(
+        context,
+        turn_id,
+        batch.channel_id,
+        trigger,
+    ) {
+        Ok(turn) => turn,
+        Err(error) => {
+            tracing::warn!(target: "luca::final", "managed final routing was invalid: {error}");
+            return;
+        }
+    };
+    let now_unix_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX);
+    match final_turn
+        .handoff(Arc::clone(&context.broker), draft, now_unix_ms)
+        .await
+    {
+        Ok(result) => {
+            tracing::info!(target: "luca::final", "managed final publication completed: {result:?}")
+        }
+        Err(error) => {
+            tracing::warn!(target: "luca::final", "managed final publication denied or unavailable: {error}")
+        }
+    }
 }
 
 /// Core async function spawned for each prompt.
@@ -1768,6 +1830,10 @@ pub async fn run_prompt_task(
         None => prompt_sections.iter().map(String::as_str).collect(),
     };
 
+    if ctx.managed_final_publisher.is_some() {
+        agent.acp.begin_final_message_capture();
+    }
+
     // When control_rx is Some (channel tasks), wrap the prompt in select! so
     // the main loop can cancel, interrupt, or rotate it. Heartbeats
     // (control_rx=None) take the simple await path — they are not controllable.
@@ -1938,6 +2004,11 @@ pub async fn run_prompt_task(
     match prompt_result {
         Ok(stop_reason) => {
             log_stop_reason(&source, &stop_reason);
+
+            if matches!(stop_reason, StopReason::EndTurn) {
+                handoff_managed_final_after_end_turn(&mut agent, &ctx, batch.as_ref(), &turn_id)
+                    .await;
+            }
 
             let should_rotate = matches!(
                 stop_reason,
@@ -5279,6 +5350,7 @@ mod tests {
             agent_owner_pubkey: owner_pubkey,
             memory_enabled: false,
             harness_name: "goose".to_string(),
+            managed_final_publisher: None,
         }
     }
 

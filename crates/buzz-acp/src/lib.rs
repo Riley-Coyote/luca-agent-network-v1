@@ -4,6 +4,7 @@ mod acp;
 mod config;
 mod engram_fetch;
 mod filter;
+pub mod luca_final_publisher;
 mod observer;
 mod pool;
 mod queue;
@@ -1559,6 +1560,27 @@ async fn tokio_main() -> Result<()> {
     let mut queue =
         EventQueue::new(dedup_mode).with_in_flight_deadline(config.max_turn_duration_secs);
 
+    let managed_final_publisher = match &config.identity {
+        config::IdentityConfig::Managed {
+            resident_pubkey,
+            broker,
+            owner_attestation,
+            session_epoch,
+            ..
+        } => owner_attestation.as_ref().map(|attestation| {
+            luca_final_publisher::ManagedFinalPublisherContext {
+                broker: Arc::clone(broker),
+                owner_pubkey: attestation.owner_pubkey.clone(),
+                resident_pubkey: resident_pubkey.clone(),
+                session_epoch: *session_epoch,
+            }
+        }),
+        config::IdentityConfig::Legacy(_) => None,
+    };
+    if config.identity.is_managed() && managed_final_publisher.is_none() {
+        tracing::warn!(target: "luca::final", "managed final publication disabled: no verified owner attestation");
+    }
+
     let base_prompt_content = config.base_prompt_content.take();
     let ctx = Arc::new(PromptContext {
         mcp_servers: build_mcp_servers(&config),
@@ -1596,6 +1618,7 @@ async fn tokio_main() -> Result<()> {
             .and_then(|hex| nostr::PublicKey::from_hex(hex).ok()),
         memory_enabled: config.memory_enabled,
         harness_name: crate::config::normalize_agent_command_identity(&config.agent_command),
+        managed_final_publisher,
     });
 
     if !config.memory_enabled {

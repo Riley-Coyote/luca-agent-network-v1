@@ -13,6 +13,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio_util::codec::{FramedRead, LinesCodec, LinesCodecError};
 
+use crate::luca_final_publisher::{FinalChunkAccumulator, FinalPublicationError};
 use crate::observer::{ObserverContext, ObserverHandle};
 use crate::usage::{TurnUsage, UsageTracker};
 
@@ -231,6 +232,9 @@ pub struct AcpClient {
     /// deltas. Both goose and buzz-agent emit this notification; goose gates
     /// on client capability advertisement, buzz-agent emits unconditionally.
     goose_usage: UsageTracker,
+    /// Managed final-message chunks for the one currently active prompt.
+    /// This is populated only from public ACP `agent_message_chunk` updates.
+    final_message_capture: Option<FinalChunkAccumulator>,
 }
 
 /// Recursively merge `overlay` into `base`, with `overlay` winning on scalar/shape
@@ -569,6 +573,7 @@ impl AcpClient {
             active_run_id: None,
             steer_rx: None,
             goose_usage: UsageTracker::default(),
+            final_message_capture: None,
         })
     }
 
@@ -887,6 +892,26 @@ impl AcpClient {
     /// Idempotent — safe to call when `steer_rx` is already `None`.
     pub fn clear_steer_rx(&mut self) {
         self.steer_rx = None;
+    }
+
+    /// Start collecting public final-answer chunks for one managed turn.
+    pub fn begin_final_message_capture(&mut self) {
+        self.final_message_capture = Some(FinalChunkAccumulator::default());
+    }
+
+    /// Consume the final draft only after an ACP EndTurn response.
+    pub fn take_final_message_draft(
+        &mut self,
+        completed_normally: bool,
+    ) -> Option<Result<String, FinalPublicationError>> {
+        self.final_message_capture
+            .take()
+            .map(|capture| capture.finish(!completed_normally))
+    }
+
+    /// Drop partial managed output on every non-EndTurn exit path.
+    pub fn discard_final_message_capture(&mut self) {
+        self.final_message_capture = None;
     }
 
     /// Returns `true` if no steer receiver is currently installed.
@@ -1608,6 +1633,14 @@ impl AcpClient {
             "agent_message_chunk" => {
                 if let Some(text) = update["content"]["text"].as_str() {
                     tracing::info!(target: "acp::stream", "{text}");
+                    if let Some(capture) = self.final_message_capture.as_mut() {
+                        if capture.push_agent_message_chunk(text).is_err() {
+                            // Bounded accumulation fails closed: an oversized
+                            // output cannot become a later partial publication.
+                            self.final_message_capture = None;
+                            tracing::warn!(target: "luca::final", "discarded oversized managed final draft");
+                        }
+                    }
                 }
                 false
             }
@@ -3126,6 +3159,36 @@ mod tests {
         AcpClient::spawn("cat", &[], &[], false)
             .await
             .expect("spawn cat as inert client")
+    }
+
+    #[tokio::test]
+    async fn luca_f09_acp_capture_records_only_public_agent_chunks_and_clears_on_non_end_turn() {
+        let mut client = spawn_inert_client().await;
+        client.begin_final_message_capture();
+        let agent_chunk = serde_json::json!({
+            "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"text": "final"}}}
+        });
+        let thought_chunk = serde_json::json!({
+            "params": {"update": {"sessionUpdate": "agent_thought_chunk", "content": {"text": "private"}}}
+        });
+        let _ = client.handle_session_update(&agent_chunk);
+        let _ = client.handle_session_update(&thought_chunk);
+        assert_eq!(
+            client
+                .take_final_message_draft(true)
+                .expect("managed capture")
+                .expect("final draft"),
+            "final"
+        );
+
+        client.begin_final_message_capture();
+        let _ = client.handle_session_update(&agent_chunk);
+        assert_eq!(
+            client
+                .take_final_message_draft(false)
+                .expect("managed capture"),
+            Err(FinalPublicationError::Cancelled)
+        );
     }
 
     /// Build a `session/update` JSON-RPC notification carrying a
