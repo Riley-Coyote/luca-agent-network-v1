@@ -24,9 +24,12 @@ stop. This amendment changes execution detail, not product scope:
 - key-dependent Buzz side effects that are not yet represented by a typed
   operation are disabled with an explicit status in managed mode, while the
   legacy path remains unchanged;
-- `F09`, which already depends on F14, owns successful ACP chunk aggregation
-  and the one-final-message handoff. F14 proves the broker/authentication and
-  descendant-isolation foundation; it does not test a future F09 seam;
+- `F09`, which already depends on F14, owns successful ACP chunk aggregation,
+  the one-final-message handoff, and the concrete desktop publication adapter
+  that consumes F14's fail-closed authority seam. F14 proves the typed broker,
+  exact event construction, authentication and descendant-isolation
+  foundation; its default `Unavailable` publication authority is not a G1
+  runtime implementation;
 - F14 proves desktop-local installation/session binding. Relay-enforced
   admission and revocation of a copied or superseded installation remains a
   managed-coordinator milestone and is not claimed at G1.
@@ -48,6 +51,22 @@ F14 additionally owns the exact existing ACP seams that retain or consume
 
 The task must preserve source-compatible legacy behavior and make managed mode
 fail closed when the broker is missing, stale, out of sequence or unavailable.
+
+After F14 passes, F09 is explicitly authorized to modify only the following
+desktop seams in addition to its ACP-owned files:
+
+- `desktop/src-tauri/src/managed_agents/runtime.rs`
+- `desktop/src-tauri/src/luca/mod.rs`
+- `desktop/src-tauri/src/luca/signing_broker.rs`
+- `desktop/src-tauri/src/luca/managed_message_outbox.rs`
+- `desktop/src-tauri/src/luca/managed_message_publisher.rs`
+
+That authority is limited to installing the real relay publication adapter and
+binding `message.publish.v1` to desktop-owned active dispatch receipts and
+cancellation state. It does not permit new broker operations, generic signing,
+key export, unrelated runtime changes, or changes to the F14 transport and
+authentication boundary. F09 must prove that the production runtime no longer
+uses the default unavailable authority before it can pass.
 
 ## G1 claim boundary
 

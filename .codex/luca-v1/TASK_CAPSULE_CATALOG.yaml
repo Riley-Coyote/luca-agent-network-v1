@@ -1237,6 +1237,10 @@ task_capsules:
   - buzz@7e34bee6:crates/buzz-acp/src/pool.rs
   - buzz@7e34bee6:crates/buzz-acp/src/queue.rs
   - target:crates/buzz-acp/src/luca_final_publisher.rs
+  - target:desktop/src-tauri/src/luca/managed_message_publisher.rs
+  - target:desktop/src-tauri/src/luca/managed_message_outbox.rs
+  - target:desktop/src-tauri/src/luca/signing_broker.rs
+  - target:desktop/src-tauri/src/managed_agents/runtime.rs
   - target:crates/buzz-acp/tests/luca_f09.rs
   - target:desktop/tests/e2e/luca/f09.spec.ts
   owns:
@@ -1244,6 +1248,11 @@ task_capsules:
     - crates/buzz-acp/tests/luca_f09.rs
     - crates/buzz-acp/src/luca_final_publisher.rs
     - crates/buzz-acp/src/lib.rs
+    - desktop/src-tauri/src/managed_agents/runtime.rs
+    - desktop/src-tauri/src/luca/mod.rs
+    - desktop/src-tauri/src/luca/signing_broker.rs
+    - desktop/src-tauri/src/luca/managed_message_outbox.rs
+    - desktop/src-tauri/src/luca/managed_message_publisher.rs
     - desktop/tests/e2e/luca/f09.spec.ts
     - evidence/M1/F09/**
     forbid:
@@ -1264,11 +1273,14 @@ task_capsules:
     path: evidence/M1/F09/outputs/signed_trace.json
     implementation_paths:
     - crates/buzz-acp/src/luca_final_publisher.rs
+    - desktop/src-tauri/src/luca/managed_message_publisher.rs
   ownership_mutex: m1_authority_integration
   implementation_contract:
   - 'Deliver exactly these outputs: stream_cancel_reconnect_replay_restart_tests, signed_trace.'
   - F09 is the sole M1 owner of ACP chunk aggregation and the one-final-message adapter. It consumes the F14 typed
-    signing client after F14 passes; F14 does not implement or test this future seam.
+    signing client after F14 passes. It is also the narrowly authorized owner of the concrete desktop relay publication
+    adapter and active dispatch/cancellation binding. Production runtime use of F14's default unavailable authority is
+    forbidden at F09 completion.
   - 'Prove the task-specific objective exactly: Lock upstream direct chat and room behavior with Luca fixtures; stubs or narrative
     are not substitutes for the named evidence.'
   - Preserve every global invariant in TASK_GRAPH.yaml and stop on a contract contradiction.
