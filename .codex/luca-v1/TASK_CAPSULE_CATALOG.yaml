@@ -1287,9 +1287,9 @@ task_capsules:
     signing client after F14 passes. It is also the narrowly authorized owner of the concrete desktop relay publication
     adapter and active dispatch/cancellation binding. Production runtime use of F14's default unavailable authority is
     forbidden at F09 completion.
-  - The production ACP stream reader and prompt lifecycle must consume the F09 accumulator: collect only bounded public
+  - 'The production ACP stream reader and prompt lifecycle must consume the F09 accumulator: collect only bounded public
     agent_message_chunk text, clear on cancellation/failure/non-EndTurn, and issue exactly one typed publication request
-    after EndTurn. Merely compiling a standalone publisher module is not completion.
+    after EndTurn. Merely compiling a standalone publisher module is not completion.'
   - 'Prove the task-specific objective exactly: Lock upstream direct chat and room behavior with Luca fixtures; stubs or narrative
     are not substitutes for the named evidence.'
   - Preserve every global invariant in TASK_GRAPH.yaml and stop on a contract contradiction.
