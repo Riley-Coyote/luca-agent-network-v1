@@ -4,6 +4,10 @@ use crate::{canonicalize, parse_strict_json, CanonicalError, OpaqueId, SafeU53};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+pub(crate) mod sealed {
+    pub trait Sealed {}
+}
+
 /// Frozen maximum canonical JSON frame size.
 pub const BROKER_FRAME_MAX_BYTES: usize = 131_072;
 /// Frozen signing frame protocol discriminator.
@@ -19,6 +23,15 @@ pub enum OperationV1 {
     /// Sign one policy-bound relay NIP-42 or NIP-98 authentication event.
     #[serde(rename = "relay_auth.sign.v1")]
     RelayAuthSign,
+}
+
+/// Sealed mapping between one typed broker payload/result and its operation.
+///
+/// Implementations live in this crate so callers cannot declare an arbitrary
+/// payload to be an allowlisted operation.
+pub trait BrokerOperationV1: sealed::Sealed {
+    /// The only operation compatible with this payload or result type.
+    const OPERATION: OperationV1;
 }
 
 /// One typed request frame on an inherited broker channel.
@@ -86,9 +99,12 @@ pub enum FrameError {
     /// The length prefix and payload did not agree.
     #[error("invalid length-prefixed frame")]
     LengthPrefix,
+    /// The typed payload/result did not match the operation discriminator.
+    #[error("frame operation does not match typed payload or result")]
+    OperationMismatch,
 }
 
-impl<T> SigningFrameV1<T> {
+impl<T: BrokerOperationV1> SigningFrameV1<T> {
     /// Validate stateless frame invariants at a caller-supplied clock instant.
     pub fn validate_at(&self, now_unix_ms: u64) -> Result<(), FrameError> {
         if self.protocol != SIGNING_FRAME_PROTOCOL {
@@ -96,6 +112,9 @@ impl<T> SigningFrameV1<T> {
         }
         if self.sequence.get() == 0 {
             return Err(FrameError::SequenceZero);
+        }
+        if self.operation != T::OPERATION {
+            return Err(FrameError::OperationMismatch);
         }
         let deadline = self.deadline_unix_ms.get();
         let latest = now_unix_ms.saturating_add(MAX_DEADLINE_DELTA_MS);
@@ -106,7 +125,7 @@ impl<T> SigningFrameV1<T> {
     }
 }
 
-impl<T> SigningResultFrameV1<T> {
+impl<T: BrokerOperationV1> SigningResultFrameV1<T> {
     /// Validate stateless response-frame invariants.
     pub fn validate(&self) -> Result<(), FrameError> {
         if self.protocol != SIGNING_FRAME_PROTOCOL {
@@ -115,12 +134,15 @@ impl<T> SigningResultFrameV1<T> {
         if self.sequence.get() == 0 {
             return Err(FrameError::SequenceZero);
         }
+        if self.operation != T::OPERATION {
+            return Err(FrameError::OperationMismatch);
+        }
         Ok(())
     }
 }
 
 /// Encode one validated frame as u32-be length plus RFC 8785 JSON.
-pub fn encode_length_prefixed_frame<T: Serialize>(
+pub fn encode_length_prefixed_frame<T: Serialize + BrokerOperationV1>(
     frame: &SigningFrameV1<T>,
     now_unix_ms: u64,
 ) -> Result<Vec<u8>, FrameError> {
@@ -137,7 +159,7 @@ pub fn encode_length_prefixed_frame<T: Serialize>(
 }
 
 /// Decode one exact length-prefixed strict JSON frame and validate its deadline.
-pub fn decode_length_prefixed_frame<T: DeserializeOwned>(
+pub fn decode_length_prefixed_frame<T: DeserializeOwned + BrokerOperationV1>(
     bytes: &[u8],
     now_unix_ms: u64,
 ) -> Result<SigningFrameV1<T>, FrameError> {
@@ -161,7 +183,7 @@ pub fn decode_length_prefixed_frame<T: DeserializeOwned>(
 }
 
 /// Encode one validated response frame as u32-be length plus RFC 8785 JSON.
-pub fn encode_length_prefixed_result_frame<T: Serialize>(
+pub fn encode_length_prefixed_result_frame<T: Serialize + BrokerOperationV1>(
     frame: &SigningResultFrameV1<T>,
 ) -> Result<Vec<u8>, FrameError> {
     frame.validate()?;
@@ -177,7 +199,7 @@ pub fn encode_length_prefixed_result_frame<T: Serialize>(
 }
 
 /// Decode one exact length-prefixed canonical response frame.
-pub fn decode_length_prefixed_result_frame<T: DeserializeOwned>(
+pub fn decode_length_prefixed_result_frame<T: DeserializeOwned + BrokerOperationV1>(
     bytes: &[u8],
 ) -> Result<SigningResultFrameV1<T>, FrameError> {
     let prefix: [u8; 4] = bytes

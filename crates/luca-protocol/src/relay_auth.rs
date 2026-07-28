@@ -1,8 +1,11 @@
 //! Typed, semantic relay-auth signing contract.
 
+use crate::frame::{sealed, BrokerOperationV1, OperationV1};
 use crate::{
-    parse_and_canonicalize_strict, Hex64, OpaqueId, ProtocolValueError, BROKER_FRAME_MAX_BYTES,
+    parse_and_canonicalize_strict, Hex64, OpaqueId, ProtocolValueError, SafeU53,
+    BROKER_FRAME_MAX_BYTES, JSON_SAFE_INTEGER_MAX,
 };
+use nostr::{JsonUtil, Kind};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
@@ -14,6 +17,8 @@ pub const MAX_RELAY_AUTH_URL_BYTES: usize = 2_048;
 pub const MAX_RELAY_AUTH_CHALLENGE_BYTES: usize = 1_024;
 /// Maximum exact signed public auth-event JSON size.
 pub const MAX_RELAY_AUTH_EVENT_BYTES: usize = 16_384;
+/// Maximum accepted clock skew and NIP-98 request lifetime.
+pub const MAX_RELAY_AUTH_FRESHNESS_SECS: u64 = 60;
 
 /// Validation failure for a typed relay-auth request or result.
 #[derive(Debug, thiserror::Error)]
@@ -36,9 +41,15 @@ pub enum RelayAuthError {
     /// A NIP-98 POST did not bind its exact request body hash.
     #[error("NIP-98 POST requires payload_sha256")]
     PayloadHash,
+    /// A NIP-98 nonce was absent or its expiry was stale/unbounded.
+    #[error("NIP-98 nonce/expiry is invalid or outside the 60-second window")]
+    Expiry,
     /// The returned signed event was absent, oversized, noncanonical, or mismatched.
     #[error("signed relay-auth event is invalid")]
     SignedEvent,
+    /// A valid public auth event did not match the originating typed request.
+    #[error("signed relay-auth event does not match the typed request")]
+    EventMismatch,
 }
 
 /// G1 HTTP methods available to the ACP relay-auth client.
@@ -69,6 +80,10 @@ pub enum RelayAuthPurposeV1 {
         url: String,
         /// SHA-256 of the exact request body.
         payload_sha256: Option<Hex64>,
+        /// Per-attempt replay nonce, committed into the signed event.
+        nonce: OpaqueId,
+        /// Absolute Unix expiry, no more than 60 seconds from validation.
+        expires_at_unix_secs: SafeU53,
     },
 }
 
@@ -81,6 +96,12 @@ pub struct RelayAuthSignRequestV1 {
     pub resident_pubkey: Hex64,
     /// Exact semantic auth purpose.
     pub purpose: RelayAuthPurposeV1,
+}
+
+impl sealed::Sealed for RelayAuthSignRequestV1 {}
+
+impl BrokerOperationV1 for RelayAuthSignRequestV1 {
+    const OPERATION: OperationV1 = OperationV1::RelayAuthSign;
 }
 
 #[derive(Deserialize)]
@@ -114,6 +135,7 @@ impl RelayAuthSignRequestV1 {
                 method,
                 url,
                 payload_sha256,
+                ..
             } => {
                 if *method != RelayHttpMethodV1::Post {
                     return Err(RelayAuthError::Method);
@@ -123,6 +145,25 @@ impl RelayAuthSignRequestV1 {
                     return Err(RelayAuthError::PayloadHash);
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Validate the request's bounded wall-clock semantics.
+    pub fn validate_at(&self, now_unix_secs: u64) -> Result<(), RelayAuthError> {
+        self.validate()?;
+        let RelayAuthPurposeV1::Nip98 {
+            expires_at_unix_secs,
+            ..
+        } = &self.purpose
+        else {
+            return Ok(());
+        };
+        let expiry = expires_at_unix_secs.get();
+        if expiry < now_unix_secs
+            || expiry > now_unix_secs.saturating_add(MAX_RELAY_AUTH_FRESHNESS_SECS)
+        {
+            return Err(RelayAuthError::Expiry);
         }
         Ok(())
     }
@@ -160,6 +201,12 @@ pub enum RelayAuthSignResultV1 {
     Unavailable { code: OpaqueId },
 }
 
+impl sealed::Sealed for RelayAuthSignResultV1 {}
+
+impl BrokerOperationV1 for RelayAuthSignResultV1 {
+    const OPERATION: OperationV1 = OperationV1::RelayAuthSign;
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
 enum RawRelayAuthSignResultV1 {
@@ -179,14 +226,109 @@ enum RawRelayAuthSignResultV1 {
 }
 
 impl RelayAuthSignResultV1 {
-    /// Validate result/event consistency without interpreting event policy.
+    /// Validate that a signed result is an exact canonical, cryptographically
+    /// valid NIP-42 or NIP-98 public auth event.
     pub fn validate(&self) -> Result<(), RelayAuthError> {
+        if !matches!(self, Self::Signed { .. }) {
+            return Ok(());
+        }
+        let (event, value) = self.parse_signed_event()?;
+        let tags = value["tags"]
+            .as_array()
+            .ok_or(RelayAuthError::SignedEvent)?;
+        let valid_tag_shape = match event.kind {
+            Kind::Authentication => {
+                tags.len() == 2 && tag_is(&tags[0], "challenge") && tag_is(&tags[1], "relay")
+            }
+            Kind::HttpAuth => {
+                tags.len() == 4
+                    && tag_is(&tags[0], "u")
+                    && tag_is(&tags[1], "method")
+                    && tag_is(&tags[2], "nonce")
+                    && tag_is(&tags[3], "payload")
+            }
+            _ => false,
+        };
+        if !valid_tag_shape
+            || value["content"].as_str() != Some("")
+            || value["created_at"]
+                .as_u64()
+                .is_none_or(|timestamp| timestamp > JSON_SAFE_INTEGER_MAX)
+        {
+            return Err(RelayAuthError::SignedEvent);
+        }
+        Ok(())
+    }
+
+    /// Bind one cryptographically valid signed result to the exact request and
+    /// caller-supplied validation instant.
+    pub fn validate_against(
+        &self,
+        request: &RelayAuthSignRequestV1,
+        now_unix_secs: u64,
+    ) -> Result<(), RelayAuthError> {
+        request.validate_at(now_unix_secs)?;
+        let Self::Signed { .. } = self else {
+            return Ok(());
+        };
+        self.validate()?;
+        let (event, value) = self.parse_signed_event()?;
+        if event.pubkey.to_hex() != request.resident_pubkey.as_str() {
+            return Err(RelayAuthError::EventMismatch);
+        }
+        let created_at = value["created_at"]
+            .as_u64()
+            .ok_or(RelayAuthError::EventMismatch)?;
+        if created_at.abs_diff(now_unix_secs) > MAX_RELAY_AUTH_FRESHNESS_SECS {
+            return Err(RelayAuthError::EventMismatch);
+        }
+        let expected_tags = match &request.purpose {
+            RelayAuthPurposeV1::Nip42 {
+                relay_url,
+                challenge,
+            } => {
+                if event.kind != Kind::Authentication {
+                    return Err(RelayAuthError::EventMismatch);
+                }
+                serde_json::json!([["challenge", challenge], ["relay", relay_url]])
+            }
+            RelayAuthPurposeV1::Nip98 {
+                method,
+                url,
+                payload_sha256,
+                nonce,
+                expires_at_unix_secs,
+            } => {
+                if event.kind != Kind::HttpAuth
+                    || created_at > expires_at_unix_secs.get()
+                    || *method != RelayHttpMethodV1::Post
+                {
+                    return Err(RelayAuthError::EventMismatch);
+                }
+                let payload = payload_sha256
+                    .as_ref()
+                    .ok_or(RelayAuthError::EventMismatch)?;
+                serde_json::json!([
+                    ["u", url],
+                    ["method", "POST"],
+                    ["nonce", nonce.as_str()],
+                    ["payload", payload.as_str()]
+                ])
+            }
+        };
+        if value["tags"] != expected_tags {
+            return Err(RelayAuthError::EventMismatch);
+        }
+        Ok(())
+    }
+
+    fn parse_signed_event(&self) -> Result<(nostr::Event, Value), RelayAuthError> {
         let Self::Signed {
             event_id,
             signed_event_json,
         } = self
         else {
-            return Ok(());
+            return Err(RelayAuthError::SignedEvent);
         };
         if signed_event_json.is_empty() || signed_event_json.len() > MAX_RELAY_AUTH_EVENT_BYTES {
             return Err(RelayAuthError::SignedEvent);
@@ -199,12 +341,18 @@ impl RelayAuthSignResultV1 {
         if canonical != signed_event_json.as_bytes() {
             return Err(RelayAuthError::SignedEvent);
         }
-        let event: Value =
+        let value: Value =
             serde_json::from_slice(&canonical).map_err(|_| RelayAuthError::SignedEvent)?;
-        if event.get("id").and_then(Value::as_str) != Some(event_id.as_str()) {
+        if value.get("id").and_then(Value::as_str) != Some(event_id.as_str()) {
             return Err(RelayAuthError::SignedEvent);
         }
-        Ok(())
+        let event =
+            nostr::Event::from_json(signed_event_json).map_err(|_| RelayAuthError::SignedEvent)?;
+        if event.id.to_hex() != event_id.as_str() || !event.verify_id() || !event.verify_signature()
+        {
+            return Err(RelayAuthError::SignedEvent);
+        }
+        Ok((event, value))
     }
 }
 
@@ -231,6 +379,13 @@ impl<'de> Deserialize<'de> for RelayAuthSignResultV1 {
 enum UrlKind {
     Relay,
     QueryBridge,
+}
+
+fn tag_is(value: &Value, expected_name: &str) -> bool {
+    let Some(parts) = value.as_array() else {
+        return false;
+    };
+    parts.len() == 2 && parts[0].as_str() == Some(expected_name) && parts[1].as_str().is_some()
 }
 
 fn validate_url(value: &str, kind: UrlKind) -> Result<(), RelayAuthError> {

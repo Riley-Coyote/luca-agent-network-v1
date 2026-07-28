@@ -25,12 +25,19 @@
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["kind", "method", "url", "payload_sha256"],
+              "required": ["kind", "method", "url", "payload_sha256", "nonce", "expires_at_unix_secs"],
               "properties": {
                 "kind": {"const": "nip98"},
                 "method": {"const": "POST"},
                 "url": {"type": "string", "minLength": 1, "maxLength": 2048, "pattern": "^https?://[^/?#]+/query$"},
-                "payload_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+                "payload_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "nonce": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$"},
+                "expires_at_unix_secs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991,
+                  "$comment": "Runtime conformance requires an unexpired value no more than now plus 60 seconds."
+                }
               }
             }
           ]

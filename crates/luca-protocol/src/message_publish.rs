@@ -1,5 +1,6 @@
 //! Typed managed-final-publication request and body-free result.
 
+use crate::frame::{sealed, BrokerOperationV1, OperationV1};
 use crate::{Hex64, OpaqueId, ProtocolValueError, SafeU53};
 use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
@@ -63,6 +64,12 @@ pub struct ManagedMessagePublishRequestV1 {
     pub dispatch_receipt_id: OpaqueId,
     /// App-owned cancellation epoch.
     pub cancellation_epoch: SafeU53,
+}
+
+impl sealed::Sealed for ManagedMessagePublishRequestV1 {}
+
+impl BrokerOperationV1 for ManagedMessagePublishRequestV1 {
+    const OPERATION: OperationV1 = OperationV1::MessagePublish;
 }
 
 #[derive(Deserialize)]
@@ -183,4 +190,10 @@ pub enum ManagedMessagePublishResultV1 {
     Invalid { code: OpaqueId },
     /// Managed publication was unavailable.
     Unavailable { code: OpaqueId },
+}
+
+impl sealed::Sealed for ManagedMessagePublishResultV1 {}
+
+impl BrokerOperationV1 for ManagedMessagePublishResultV1 {
+    const OPERATION: OperationV1 = OperationV1::MessagePublish;
 }

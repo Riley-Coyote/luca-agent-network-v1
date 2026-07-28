@@ -10,6 +10,7 @@ description = "Shared bounded wire contracts for Luca V1"
 [dependencies]
 chrono = { workspace = true }
 hex = { workspace = true }
+nostr = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -19,6 +20,3 @@ thiserror = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
 zeroize = { workspace = true }
-
-[dev-dependencies]
-nostr = { workspace = true }

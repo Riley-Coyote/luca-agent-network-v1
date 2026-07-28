@@ -1,6 +1,6 @@
 {
   "source": "Luca M1 signing-frame RFC8785 wire conformance",
-  "canonical_json": "{\"deadline_unix_ms\":1700000030000,\"operation\":\"message.publish.v1\",\"payload\":{},\"protocol\":\"luca.signing.frame.v1\",\"request_id\":\"req-canonical\",\"sequence\":1,\"session_epoch\":1}",
+  "canonical_json": "{\"deadline_unix_ms\":1700000030000,\"operation\":\"relay_auth.sign.v1\",\"payload\":{\"protocol\":\"luca.relay-auth.sign.v1\",\"purpose\":{\"challenge\":\"canonical-frame\",\"kind\":\"nip42\",\"relay_url\":\"wss://relay.luca.invalid/\"},\"resident_pubkey\":\"28195ed27769fc7834568d8f71d13019dcbcd43bcbba660024876a336832b496\"},\"protocol\":\"luca.signing.frame.v1\",\"request_id\":\"req-canonical\",\"sequence\":1,\"session_epoch\":1}",
   "noncanonical_cases": [
     {
       "name": "insignificant whitespace",

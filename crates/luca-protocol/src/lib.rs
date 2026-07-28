@@ -22,8 +22,9 @@ pub use canonical::{
 pub use diagnostic::{SafeDiagnosticV1, SAFE_DIAGNOSTIC_PROTOCOL};
 pub use frame::{
     decode_length_prefixed_frame, decode_length_prefixed_result_frame,
-    encode_length_prefixed_frame, encode_length_prefixed_result_frame, FrameError, OperationV1,
-    SigningFrameV1, SigningResultFrameV1, BROKER_FRAME_MAX_BYTES, SIGNING_FRAME_PROTOCOL,
+    encode_length_prefixed_frame, encode_length_prefixed_result_frame, BrokerOperationV1,
+    FrameError, OperationV1, SigningFrameV1, SigningResultFrameV1, BROKER_FRAME_MAX_BYTES,
+    SIGNING_FRAME_PROTOCOL,
 };
 pub use ids::{
     BundleId, CanonicalTimestamp, Hex64, OpaqueId, ProtocolValueError, SafeU53, Sha256Ref,

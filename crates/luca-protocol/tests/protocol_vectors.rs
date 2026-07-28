@@ -2,7 +2,7 @@ use luca_protocol::{
     canonicalize, decode_length_prefixed_frame, encode_length_prefixed_frame,
     parse_and_canonicalize_strict, parse_strict_json, BundleId, CanonicalTimestamp, Hex64,
     ManagedMessagePublishRequestV1, ManagedMessagePublishResultV1, OwnerIdentityBundleV1,
-    SafeDiagnosticV1, SecretNsec, SigningFrameV1, BROKER_FRAME_MAX_BYTES,
+    RelayAuthSignRequestV1, SafeDiagnosticV1, SecretNsec, SigningFrameV1, BROKER_FRAME_MAX_BYTES,
     OWNER_IDENTITY_CANONICALIZATION, OWNER_IDENTITY_FORMAT, OWNER_IDENTITY_VERSION,
 };
 use nostr::{EventBuilder, JsonUtil, Keys, Kind, SecretKey, Timestamp, ToBech32};
@@ -116,7 +116,7 @@ fn frame_wire_encoding_requires_exact_rfc8785_bytes() {
     let now = 1_700_000_000_000_u64;
 
     let canonical = length_prefix(&vectors.canonical_json);
-    let frame: SigningFrameV1<Value> =
+    let frame: SigningFrameV1<RelayAuthSignRequestV1> =
         decode_length_prefixed_frame(&canonical, now).expect("canonical frame accepted");
     assert_eq!(
         encode_length_prefixed_frame(&frame, now).expect("canonical frame re-encodes"),
@@ -124,9 +124,12 @@ fn frame_wire_encoding_requires_exact_rfc8785_bytes() {
     );
 
     for case in vectors.noncanonical_cases {
-        let error = decode_length_prefixed_frame::<Value>(&length_prefix(&case.input_json), now)
-            .expect_err(&case.name)
-            .to_string();
+        let error = decode_length_prefixed_frame::<RelayAuthSignRequestV1>(
+            &length_prefix(&case.input_json),
+            now,
+        )
+        .expect_err(&case.name)
+        .to_string();
         assert!(
             error.to_lowercase().contains(&case.error_contains),
             "{}: {error}",
