@@ -5033,14 +5033,17 @@ dependencies = [
 name = "luca-protocol"
 version = "0.1.0"
 dependencies = [
+ "buzz-sdk",
  "chrono",
  "hex",
+ "nostr",
  "schemars 1.2.1",
  "serde",
  "serde_json",
  "serde_json_canonicalizer",
  "sha2 0.11.0",
  "thiserror 2.0.18",
+ "url",
  "uuid",
  "zeroize",
 ]
