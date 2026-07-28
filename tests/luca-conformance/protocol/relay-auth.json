@@ -21,6 +21,20 @@
       "expires_at_unix_secs": 1784732460
     }
   },
+  "nip42_attested_request": {
+    "protocol": "luca.relay-auth.sign.v1",
+    "resident_pubkey": "28195ed27769fc7834568d8f71d13019dcbcd43bcbba660024876a336832b496",
+    "purpose": {
+      "kind": "nip42",
+      "relay_url": "wss://relay.luca.invalid/",
+      "challenge": "luca-v1-attested-auth-vector",
+      "owner_attestation": {
+        "owner_pubkey": "7e181a4c3d18268f342149a1b6767ec1c368e64d88fc8be46890568f0c89ba84",
+        "conditions": "",
+        "signature": "975abffa77335a57e0cde8e4439ab9f22d355629b0d1aba4750445ea841b507fe052e21c936d25831160f2cd49b24877aae48e2a92e12d4566fb31991cb9824a"
+      }
+    }
+  },
   "request_frame": {
     "now_unix_ms": 1784732400000,
     "value": {
@@ -58,6 +72,11 @@
     "event_id": "a3c307567395bbd3f9fcd3d4ab8a16f05b66febbc261ca28b420a4a89a485016",
     "signed_event_json": "{\"content\":\"\",\"created_at\":1784732400,\"id\":\"a3c307567395bbd3f9fcd3d4ab8a16f05b66febbc261ca28b420a4a89a485016\",\"kind\":27235,\"pubkey\":\"28195ed27769fc7834568d8f71d13019dcbcd43bcbba660024876a336832b496\",\"sig\":\"b44aee7c56e9e3423aee96255ba92fc3ef2cbca1dacc41768bf48113ee7f70d5c5b3143069e4f90ab98c1eb60f5ffc634ee7d9c91acc8d98205ffec04b9b7a16\",\"tags\":[[\"u\",\"https://relay.luca.invalid/query\"],[\"method\",\"POST\"],[\"nonce\",\"relay-auth-nonce-001\"],[\"payload\",\"893f77fd8fc1980ea2eb0030ed53ce4357075c58b56915876caa862b51264313\"]]}"
   },
+  "signed_nip42_attested_result": {
+    "state": "signed",
+    "event_id": "0aba89a924f15c5788321d11090ae965ce51d850e43c4cf1fcefa672a505911e",
+    "signed_event_json": "{\"content\":\"\",\"created_at\":1784732400,\"id\":\"0aba89a924f15c5788321d11090ae965ce51d850e43c4cf1fcefa672a505911e\",\"kind\":22242,\"pubkey\":\"28195ed27769fc7834568d8f71d13019dcbcd43bcbba660024876a336832b496\",\"sig\":\"eddf1f670fae4a8f098fc1549572a7d2aad5e0ca6a8bb50214337d1e51f901f71c01738379f1508ae4d2f0130fd55665eb837a0379128a2040e968796e5c1b5d\",\"tags\":[[\"relay\",\"wss://relay.luca.invalid/\"],[\"challenge\",\"luca-v1-attested-auth-vector\"],[\"auth\",\"7e181a4c3d18268f342149a1b6767ec1c368e64d88fc8be46890568f0c89ba84\",\"\",\"975abffa77335a57e0cde8e4439ab9f22d355629b0d1aba4750445ea841b507fe052e21c936d25831160f2cd49b24877aae48e2a92e12d4566fb31991cb9824a\"]]}"
+  },
   "public_event_vector": {
     "derivation_domain": "luca.v1.synthetic.relay-auth.vector",
     "created_at": 1784732400,
@@ -73,6 +92,17 @@
     "event_id": "a3c307567395bbd3f9fcd3d4ab8a16f05b66febbc261ca28b420a4a89a485016",
     "signature": "b44aee7c56e9e3423aee96255ba92fc3ef2cbca1dacc41768bf48113ee7f70d5c5b3143069e4f90ab98c1eb60f5ffc634ee7d9c91acc8d98205ffec04b9b7a16",
     "signed_event_json": "{\"content\":\"\",\"created_at\":1784732400,\"id\":\"a3c307567395bbd3f9fcd3d4ab8a16f05b66febbc261ca28b420a4a89a485016\",\"kind\":27235,\"pubkey\":\"28195ed27769fc7834568d8f71d13019dcbcd43bcbba660024876a336832b496\",\"sig\":\"b44aee7c56e9e3423aee96255ba92fc3ef2cbca1dacc41768bf48113ee7f70d5c5b3143069e4f90ab98c1eb60f5ffc634ee7d9c91acc8d98205ffec04b9b7a16\",\"tags\":[[\"u\",\"https://relay.luca.invalid/query\"],[\"method\",\"POST\"],[\"nonce\",\"relay-auth-nonce-001\"],[\"payload\",\"893f77fd8fc1980ea2eb0030ed53ce4357075c58b56915876caa862b51264313\"]]}"
+  },
+  "public_nip42_attested_event_vector": {
+    "derivation_domain": "luca.v1.synthetic.relay-auth.vector",
+    "owner_derivation_domain": "luca.v1.synthetic.relay-auth.owner-attestation.vector",
+    "created_at": 1784732400,
+    "pubkey": "28195ed27769fc7834568d8f71d13019dcbcd43bcbba660024876a336832b496",
+    "owner_pubkey": "7e181a4c3d18268f342149a1b6767ec1c368e64d88fc8be46890568f0c89ba84",
+    "owner_attestation_signature": "975abffa77335a57e0cde8e4439ab9f22d355629b0d1aba4750445ea841b507fe052e21c936d25831160f2cd49b24877aae48e2a92e12d4566fb31991cb9824a",
+    "event_id": "0aba89a924f15c5788321d11090ae965ce51d850e43c4cf1fcefa672a505911e",
+    "signature": "eddf1f670fae4a8f098fc1549572a7d2aad5e0ca6a8bb50214337d1e51f901f71c01738379f1508ae4d2f0130fd55665eb837a0379128a2040e968796e5c1b5d",
+    "signed_event_json": "{\"content\":\"\",\"created_at\":1784732400,\"id\":\"0aba89a924f15c5788321d11090ae965ce51d850e43c4cf1fcefa672a505911e\",\"kind\":22242,\"pubkey\":\"28195ed27769fc7834568d8f71d13019dcbcd43bcbba660024876a336832b496\",\"sig\":\"eddf1f670fae4a8f098fc1549572a7d2aad5e0ca6a8bb50214337d1e51f901f71c01738379f1508ae4d2f0130fd55665eb837a0379128a2040e968796e5c1b5d\",\"tags\":[[\"relay\",\"wss://relay.luca.invalid/\"],[\"challenge\",\"luca-v1-attested-auth-vector\"],[\"auth\",\"7e181a4c3d18268f342149a1b6767ec1c368e64d88fc8be46890568f0c89ba84\",\"\",\"975abffa77335a57e0cde8e4439ab9f22d355629b0d1aba4750445ea841b507fe052e21c936d25831160f2cd49b24877aae48e2a92e12d4566fb31991cb9824a\"]]}"
   },
   "invalid_requests": [
     {

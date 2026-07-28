@@ -40,7 +40,8 @@ pub use owner_identity::{
     OWNER_IDENTITY_FORMAT, OWNER_IDENTITY_VERSION,
 };
 pub use relay_auth::{
-    RelayAuthError, RelayAuthPurposeV1, RelayAuthSignRequestV1, RelayAuthSignResultV1,
-    RelayHttpMethodV1, MAX_RELAY_AUTH_CHALLENGE_BYTES, MAX_RELAY_AUTH_EVENT_BYTES,
+    NipOaOwnerAttestationV1, RelayAuthError, RelayAuthPurposeV1, RelayAuthSignRequestV1,
+    RelayAuthSignResultV1, RelayHttpMethodV1, MAX_NIP_OA_CONDITIONS_BYTES,
+    MAX_RELAY_AUTH_CHALLENGE_BYTES, MAX_RELAY_AUTH_EVENT_BYTES, MAX_RELAY_AUTH_FRESHNESS_SECS,
     MAX_RELAY_AUTH_URL_BYTES, RELAY_AUTH_SIGN_PROTOCOL,
 };

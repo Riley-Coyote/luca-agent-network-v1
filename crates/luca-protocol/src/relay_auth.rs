@@ -19,6 +19,8 @@ pub const MAX_RELAY_AUTH_CHALLENGE_BYTES: usize = 1_024;
 pub const MAX_RELAY_AUTH_EVENT_BYTES: usize = 16_384;
 /// Maximum accepted clock skew and NIP-98 request lifetime.
 pub const MAX_RELAY_AUTH_FRESHNESS_SECS: u64 = 60;
+/// Maximum UTF-8 size of a typed NIP-OA conditions string.
+pub const MAX_NIP_OA_CONDITIONS_BYTES: usize = 1_024;
 
 /// Validation failure for a typed relay-auth request or result.
 #[derive(Debug, thiserror::Error)]
@@ -50,6 +52,9 @@ pub enum RelayAuthError {
     /// A valid public auth event did not match the originating typed request.
     #[error("signed relay-auth event does not match the typed request")]
     EventMismatch,
+    /// The optional owner attestation was malformed or not valid for the resident.
+    #[error("NIP-OA owner attestation is invalid for the managed resident")]
+    OwnerAttestation,
 }
 
 /// G1 HTTP methods available to the ACP relay-auth client.
@@ -58,6 +63,85 @@ pub enum RelayAuthError {
 pub enum RelayHttpMethodV1 {
     /// POST is required by Buzz's `/query` bridge.
     Post,
+}
+
+/// Typed NIP-OA owner attestation accepted only on managed NIP-42 requests.
+///
+/// The `auth` tag label is implicit, so callers cannot add arbitrary tags.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct NipOaOwnerAttestationV1 {
+    /// Owner public key that signed the resident authorization.
+    pub owner_pubkey: Hex64,
+    /// Exact NIP-OA conditions string; no normalization is performed.
+    pub conditions: String,
+    /// Lowercase 64-byte BIP-340 signature.
+    pub signature: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawNipOaOwnerAttestationV1 {
+    owner_pubkey: Hex64,
+    conditions: String,
+    signature: String,
+}
+
+impl NipOaOwnerAttestationV1 {
+    /// Return the exact four-element NIP-OA tag representation.
+    pub fn tag_value(&self) -> Value {
+        serde_json::json!([
+            "auth",
+            self.owner_pubkey.as_str(),
+            self.conditions,
+            self.signature
+        ])
+    }
+
+    fn tag_json(&self) -> Result<String, RelayAuthError> {
+        serde_json::to_string(&self.tag_value()).map_err(|_| RelayAuthError::OwnerAttestation)
+    }
+
+    fn validate_shape(&self) -> Result<(), RelayAuthError> {
+        if self.conditions.len() > MAX_NIP_OA_CONDITIONS_BYTES
+            || self.signature.len() != 128
+            || !self
+                .signature
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(RelayAuthError::OwnerAttestation);
+        }
+        buzz_sdk::nip_oa::parse_auth_tag(&self.tag_json()?)
+            .map_err(|_| RelayAuthError::OwnerAttestation)?;
+        Ok(())
+    }
+
+    fn validate_for_resident(&self, resident_pubkey: &Hex64) -> Result<(), RelayAuthError> {
+        self.validate_shape()?;
+        let resident = nostr::PublicKey::from_hex(resident_pubkey.as_str())
+            .map_err(|_| RelayAuthError::OwnerAttestation)?;
+        let owner = buzz_sdk::nip_oa::verify_auth_tag(&self.tag_json()?, &resident)
+            .map_err(|_| RelayAuthError::OwnerAttestation)?;
+        if owner.to_hex() != self.owner_pubkey.as_str() {
+            return Err(RelayAuthError::OwnerAttestation);
+        }
+        Ok(())
+    }
+}
+
+impl<'de> Deserialize<'de> for NipOaOwnerAttestationV1 {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = RawNipOaOwnerAttestationV1::deserialize(deserializer)?;
+        let attestation = Self {
+            owner_pubkey: raw.owner_pubkey,
+            conditions: raw.conditions,
+            signature: raw.signature,
+        };
+        attestation
+            .validate_shape()
+            .map_err(serde::de::Error::custom)?;
+        Ok(attestation)
+    }
 }
 
 /// Semantic relay-auth operation. Callers cannot provide arbitrary event bytes,
@@ -71,6 +155,9 @@ pub enum RelayAuthPurposeV1 {
         relay_url: String,
         /// Relay-provided bounded challenge.
         challenge: String,
+        /// Optional app-owned, resident-bound NIP-OA owner attestation.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        owner_attestation: Option<NipOaOwnerAttestationV1>,
     },
     /// Sign one NIP-98 request for the exact Buzz query bridge.
     Nip98 {
@@ -122,6 +209,7 @@ impl RelayAuthSignRequestV1 {
             RelayAuthPurposeV1::Nip42 {
                 relay_url,
                 challenge,
+                owner_attestation,
             } => {
                 validate_url(relay_url, UrlKind::Relay)?;
                 if challenge.is_empty()
@@ -129,6 +217,9 @@ impl RelayAuthSignRequestV1 {
                     || challenge.chars().any(char::is_control)
                 {
                     return Err(RelayAuthError::Challenge);
+                }
+                if let Some(attestation) = owner_attestation {
+                    attestation.validate_for_resident(&self.resident_pubkey)?;
                 }
             }
             RelayAuthPurposeV1::Nip98 {
@@ -238,7 +329,11 @@ impl RelayAuthSignResultV1 {
             .ok_or(RelayAuthError::SignedEvent)?;
         let valid_tag_shape = match event.kind {
             Kind::Authentication => {
-                tags.len() == 2 && tag_is(&tags[0], "challenge") && tag_is(&tags[1], "relay")
+                (tags.len() == 2 && tag_is(&tags[0], "challenge") && tag_is(&tags[1], "relay"))
+                    || (tags.len() == 3
+                        && tag_is(&tags[0], "relay")
+                        && tag_is(&tags[1], "challenge")
+                        && auth_tag_is_valid_for(&tags[2], &event.pubkey))
             }
             Kind::HttpAuth => {
                 tags.len() == 4
@@ -286,11 +381,20 @@ impl RelayAuthSignResultV1 {
             RelayAuthPurposeV1::Nip42 {
                 relay_url,
                 challenge,
+                owner_attestation,
             } => {
                 if event.kind != Kind::Authentication {
                     return Err(RelayAuthError::EventMismatch);
                 }
-                serde_json::json!([["challenge", challenge], ["relay", relay_url]])
+                if let Some(attestation) = owner_attestation {
+                    serde_json::json!([
+                        ["relay", relay_url],
+                        ["challenge", challenge],
+                        attestation.tag_value()
+                    ])
+                } else {
+                    serde_json::json!([["challenge", challenge], ["relay", relay_url]])
+                }
             }
             RelayAuthPurposeV1::Nip98 {
                 method,
@@ -403,6 +507,24 @@ fn tag_is(value: &Value, expected_name: &str) -> bool {
         return false;
     };
     parts.len() == 2 && parts[0].as_str() == Some(expected_name) && parts[1].as_str().is_some()
+}
+
+fn auth_tag_is_valid_for(value: &Value, resident: &nostr::PublicKey) -> bool {
+    let Some(parts) = value.as_array() else {
+        return false;
+    };
+    if !(parts.len() == 4
+        && parts[0].as_str() == Some("auth")
+        && parts[1].as_str().is_some()
+        && parts[2].as_str().is_some()
+        && parts[3].as_str().is_some())
+    {
+        return false;
+    }
+    let Ok(tag_json) = serde_json::to_string(value) else {
+        return false;
+    };
+    buzz_sdk::nip_oa::verify_auth_tag(&tag_json, resident).is_ok()
 }
 
 fn validate_url(value: &str, kind: UrlKind) -> Result<(), RelayAuthError> {

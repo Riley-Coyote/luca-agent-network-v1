@@ -8,6 +8,7 @@ repository.workspace = true
 description = "Shared bounded wire contracts for Luca V1"
 
 [dependencies]
+buzz-sdk = { workspace = true }
 chrono = { workspace = true }
 hex = { workspace = true }
 nostr = { workspace = true }

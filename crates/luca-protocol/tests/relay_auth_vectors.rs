@@ -40,8 +40,14 @@ fn relay_auth_requests_and_frames_match_checked_vectors() {
         serde_json::from_value(root["nip42_request"].clone()).expect("valid NIP-42 request");
     let nip98: RelayAuthSignRequestV1 =
         serde_json::from_value(root["nip98_request"].clone()).expect("valid NIP-98 request");
+    let nip42_attested: RelayAuthSignRequestV1 =
+        serde_json::from_value(root["nip42_attested_request"].clone())
+            .expect("valid owner-attested NIP-42 request");
     nip42.validate().expect("NIP-42 semantics");
     nip98.validate().expect("NIP-98 semantics");
+    nip42_attested
+        .validate()
+        .expect("owner-attested NIP-42 semantics");
     nip98
         .validate_at(
             root["public_nip98_event_vector"]["created_at"]
@@ -92,6 +98,18 @@ fn relay_auth_requests_and_frames_match_checked_vectors() {
                 .unwrap(),
         )
         .expect("NIP-98 response binding");
+
+    let attested_result: RelayAuthSignResultV1 =
+        serde_json::from_value(root["signed_nip42_attested_result"].clone())
+            .expect("valid owner-attested NIP-42 result");
+    attested_result
+        .validate_against(
+            &nip42_attested,
+            root["public_nip42_attested_event_vector"]["created_at"]
+                .as_u64()
+                .unwrap(),
+        )
+        .expect("owner-attested NIP-42 response binding");
 }
 
 #[test]
@@ -158,6 +176,13 @@ fn relay_auth_public_event_vectors_are_canonical_and_verify() {
     let root = load_vector();
     assert_public_event_vector(&root["public_event_vector"]);
     assert_public_event_vector(&root["public_nip98_event_vector"]);
+    assert_public_event_vector(&root["public_nip42_attested_event_vector"]);
+    let attested = &root["public_nip42_attested_event_vector"];
+    let owner_keys = derived_keys(attested["owner_derivation_domain"].as_str().unwrap());
+    assert_eq!(
+        owner_keys.public_key().to_hex(),
+        attested["owner_pubkey"].as_str().unwrap()
+    );
 }
 
 #[test]
@@ -204,6 +229,20 @@ fn relay_auth_result_rejects_unsigned_mismatched_and_stale_events() {
         .validate_against(
             &wrong_resident,
             root["public_event_vector"]["created_at"].as_u64().unwrap(),
+        )
+        .is_err());
+    let mut invalid_attestation = root["nip42_attested_request"].clone();
+    invalid_attestation["purpose"]["owner_attestation"]["signature"] =
+        Value::String("0".repeat(128));
+    assert!(serde_json::from_value::<RelayAuthSignRequestV1>(invalid_attestation).is_err());
+    let attested_result: RelayAuthSignResultV1 =
+        serde_json::from_value(root["signed_nip42_attested_result"].clone()).unwrap();
+    assert!(attested_result
+        .validate_against(
+            &request,
+            root["public_nip42_attested_event_vector"]["created_at"]
+                .as_u64()
+                .unwrap(),
         )
         .is_err());
 
@@ -266,5 +305,32 @@ fn emit_public_only_relay_auth_vector() {
         nip98_event.id.to_hex(),
         nip98_event.sig,
         String::from_utf8(nip98_canonical).expect("UTF-8")
+    );
+
+    let attested = &root["public_nip42_attested_event_vector"];
+    let owner_keys = derived_keys(attested["owner_derivation_domain"].as_str().unwrap());
+    let auth_tag_json =
+        buzz_sdk::nip_oa::compute_auth_tag(&owner_keys, &keys.public_key(), "").unwrap();
+    let auth_tag = buzz_sdk::nip_oa::parse_auth_tag(&auth_tag_json).unwrap();
+    let attested_request = &root["nip42_attested_request"]["purpose"];
+    let tags = vec![
+        Tag::parse(["relay", attested_request["relay_url"].as_str().unwrap()]).unwrap(),
+        Tag::parse(["challenge", attested_request["challenge"].as_str().unwrap()]).unwrap(),
+        auth_tag,
+    ];
+    let attested_event = EventBuilder::new(Kind::Authentication, "")
+        .tags(tags)
+        .custom_created_at(Timestamp::from(attested["created_at"].as_u64().unwrap()))
+        .sign_with_keys(&keys)
+        .expect("sign public-only owner-attested NIP-42 event");
+    let attested_canonical = canonicalize(&attested_event).expect("canonical attested event");
+    let auth_tag: Value = serde_json::from_str(&auth_tag_json).unwrap();
+    eprintln!(
+        "owner_pubkey={}\nowner_attestation_signature={}\nattested_event_id={}\nattested_event_signature={}\nattested_signed_event_json={}",
+        owner_keys.public_key().to_hex(),
+        auth_tag[3].as_str().unwrap(),
+        attested_event.id.to_hex(),
+        attested_event.sig,
+        String::from_utf8(attested_canonical).expect("UTF-8")
     );
 }

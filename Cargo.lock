@@ -4410,6 +4410,7 @@ dependencies = [
 name = "luca-protocol"
 version = "0.1.0"
 dependencies = [
+ "buzz-sdk",
  "chrono",
  "hex",
  "nostr",
