@@ -68,6 +68,19 @@ key export, unrelated runtime changes, or changes to the F14 transport and
 authentication boundary. F09 must prove that the production runtime no longer
 uses the default unavailable authority before it can pass.
 
+The ACP-side production handoff necessarily crosses the existing stream reader
+and prompt lifecycle. F09 therefore also owns these exact, sequentially
+released F14/Buzz seams:
+
+- `crates/buzz-acp/src/acp.rs`
+- `crates/buzz-acp/src/pool.rs`
+
+Changes there are limited to collecting bounded public
+`agent_message_chunk` updates, clearing them on every non-success exit, and
+invoking exactly one typed final handoff after `EndTurn`. F09 may not change
+model/tool authority, relay authentication, general prompt scheduling, or
+legacy publication behavior.
+
 ## G1 claim boundary
 
 G1 may claim:
