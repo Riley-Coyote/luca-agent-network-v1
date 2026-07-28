@@ -343,6 +343,23 @@ impl RelayAuthSignResultV1 {
         }
         let value: Value =
             serde_json::from_slice(&canonical).map_err(|_| RelayAuthError::SignedEvent)?;
+        let object = value.as_object().ok_or(RelayAuthError::SignedEvent)?;
+        const EVENT_FIELDS: [&str; 7] = [
+            "content",
+            "created_at",
+            "id",
+            "kind",
+            "pubkey",
+            "sig",
+            "tags",
+        ];
+        if object.len() != EVENT_FIELDS.len()
+            || EVENT_FIELDS
+                .iter()
+                .any(|field| !object.contains_key(*field))
+        {
+            return Err(RelayAuthError::SignedEvent);
+        }
         if value.get("id").and_then(Value::as_str) != Some(event_id.as_str()) {
             return Err(RelayAuthError::SignedEvent);
         }

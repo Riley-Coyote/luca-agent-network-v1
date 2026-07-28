@@ -170,6 +170,20 @@ fn relay_auth_result_rejects_unsigned_mismatched_and_stale_events() {
         "signed_event_json": format!("{{\"id\":\"{event_id}\"}}")
     });
     assert!(serde_json::from_value::<RelayAuthSignResultV1>(fake).is_err());
+    let mut event_with_extra: Value = serde_json::from_str(
+        root["public_event_vector"]["signed_event_json"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    event_with_extra["unsigned_extra"] = Value::Bool(true);
+    let event_with_extra = canonicalize(&event_with_extra).unwrap();
+    let event_with_extra = serde_json::json!({
+        "state": "signed",
+        "event_id": event_id,
+        "signed_event_json": String::from_utf8(event_with_extra).unwrap()
+    });
+    assert!(serde_json::from_value::<RelayAuthSignResultV1>(event_with_extra).is_err());
 
     let request: RelayAuthSignRequestV1 =
         serde_json::from_value(root["nip42_request"].clone()).unwrap();
