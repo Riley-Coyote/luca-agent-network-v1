@@ -74,6 +74,9 @@ Stop the build and repair the contract if any implementation would:
 - Managed installation transfer prevents stale Luca sessions from managed
   commits/replies; it does not revoke copied Nostr keys or defeat a compromised
   owner key.
+- At G1, installation/session binding is desktop-local. Remote relay rejection
+  of a copied or superseded installation is not claimed until the managed
+  coordinator milestone supplies and proves admission/revocation.
 - Approved remote providers receive the authorized rendered Capsule/brain
   portion. Ordinary rooms are relay-readable.
 - One untouched Buzz video-review smoke has a named upstream timeline-contract

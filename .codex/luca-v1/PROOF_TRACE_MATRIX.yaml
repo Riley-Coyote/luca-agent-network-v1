@@ -223,8 +223,9 @@ proofs:
     objective: Implement structured signing broker and eliminate raw ACP/model keys
     tests: &id019
     - cargo test -p buzz-desktop luca_signing -- --nocapture
-    - cargo test -p buzz-acp luca_final_publisher -- --nocapture
-    - cargo test -p luca-signing-client message_publish_vectors -- --nocapture
+    - cargo test -p buzz-acp luca_managed_identity -- --nocapture
+    - cargo test -p buzz-acp luca_descendant_isolation -- --nocapture
+    - cargo test -p luca-signing-client signing_vectors -- --nocapture
     - 'just ci  # milestone integration candidate only'
     evidence: &id020
     - evidence/M1/F14/environment.json

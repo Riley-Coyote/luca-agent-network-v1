@@ -68,12 +68,20 @@ Controls:
 - OS keychain with fail-closed resident spawn when keys are unavailable;
 - desktop broker accepts allowlisted typed operations and validates resident,
   session, event kind/tags/room/segment/owner/writer epoch;
-- ACP, provider/model runtime and descendants receive no raw key,
-  `NOSTR_PRIVATE_KEY`, `BUZZ_PRIVATE_KEY` or broker capability;
-- broker transport uses one-time inherited capability material, authenticated
-  sequence/expiry/session binding, and is not inherited by the model child;
+- the managed ACP host receives no raw key, `NOSTR_PRIVATE_KEY`,
+  `BUZZ_PRIVATE_KEY` or general signer; it receives only its typed,
+  session-bound allowlisted broker stream;
+- provider/model runtimes and shell/MCP/tool descendants receive neither a raw
+  key nor any broker stream/capability;
+- broker transport uses the exclusive inherited stdin socket,
+  authenticated sequence/expiry/session binding, and is replaced rather than
+  inherited when the ACP host spawns a model child;
 - V1 disables or broker-adapts upstream in-agent CLI/forge paths that require
   raw keys; product proofs never rely on them;
+- the ACP harness itself selects either unchanged legacy key mode or Luca
+  managed public-identity mode; a managed harness receives no resident private
+  key and requests only canonical typed relay-auth/final-publication
+  operations;
 - centralized redaction for nsec/provider/token patterns;
 - zeroizing buffers for backup/restore and pairing;
 - no secret fields in normal snapshots;
@@ -108,6 +116,10 @@ Controls:
 - local encrypted prior-version archive;
 - truthful latest-head semantics;
 - rollback republishes as a new head.
+
+The coordinator admission/revocation controls are post-G1. F14/G1 proves
+desktop-local installation/session binding and must not describe remote
+old-installation rejection as already available.
 
 ### Checkpoint duplication or partial commit
 

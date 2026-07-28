@@ -29,5 +29,21 @@ same registry under `luca_module_registry`.
 ## OC-03 — ACP final-publisher dependency conflicts with ownership
 
 Resolution: F09 retains publisher ownership and owns its ACP registry entry
-under the serialized M1 registry mutex. F14's existing test remains a consumer
-of that later seam and is gated by the graph dependency closure.
+under the serialized M1 registry mutex. F09 depends on F14. The impossible
+F14 test of a future F09 seam is removed; F14 proves managed identity, relay
+authentication, broker policy and descendant isolation, then F09 proves chunk
+aggregation and one canonical final.
+
+## OC-04 — Raw-key removal excludes ACP key consumers
+
+Resolution: the owner-approved Option 1 amendment assigns F14 the exact
+`config.rs`, `relay.rs`, `pool.rs` and `setup_mode.rs` seams. F13 is reopened
+as the sole shared-protocol owner to add canonical `relay_auth.sign.v1`
+contracts before F14 begins. Legacy Buzz remains key-backed; Luca managed mode
+is public-identity plus typed desktop broker.
+
+## OC-05 — F14 overclaims remote installation revocation
+
+Resolution: F14/G1 proves only desktop-local installation/session binding.
+Relay-enforced admission, transfer and old-installation revocation remain
+assigned to the later managed coordinator and restore milestones.

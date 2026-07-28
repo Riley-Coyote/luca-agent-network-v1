@@ -110,7 +110,7 @@ desktop application is not a V1 goal.
    bounded final draft, derives its reply/root and exact mentions from the
    accepted dispatch/room, and submits a typed managed-publication request. The
    desktop authority reauthorizes kind, tags, room, resident, active
-   installation-attestation session and dispatch snapshot, freezes one exact
+   desktop installation/session binding and dispatch snapshot, freezes one exact
    event in its durable outbox, signs and publishes over the authenticated relay
    connection. The model and ACP host no longer publish through a raw-key CLI;
    UI chunks before commitment are explicitly provisional and unsigned.
@@ -184,6 +184,9 @@ to an empty-success result.
   or provider may be replaced.
 - Local file paths are owner-UI metadata. Models, telemetry and exported
   receipts receive opaque source IDs and sanitized labels.
+- The G1 managed-agent path has desktop-local installation/session binding.
+  Remote relay admission and old-installation revocation are added and proved
+  by the later managed coordinator; G1 does not infer that server-side claim.
 
 ## Explicitly deferred
 

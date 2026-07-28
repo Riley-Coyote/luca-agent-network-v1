@@ -299,10 +299,17 @@ task_capsules:
     path: evidence/M1/F13/outputs/safe_diagnostic_schema.json
     implementation_paths:
     - schemas/luca/diagnostics/**
+  - name: relay_auth_schema_vectors
+    path: evidence/M1/F13/outputs/relay_auth_schema_vectors.json
+    implementation_paths:
+    - schemas/luca/relay_auth/**
+    - crates/luca-protocol/src/relay_auth.rs
+    - crates/luca-protocol/tests/relay_auth_vectors.rs
   ownership_mutex: integrator
   manifest_integration: architecture_integrator_only; preseed age = "=0.12.1" default-features = false and serde_json_canonicalizer = "=0.3.2"
   implementation_contract:
-  - 'Deliver exactly these outputs: luca_protocol_crate, json_schemas, rfc8785_vectors, safe_diagnostic_schema.'
+  - 'Deliver exactly these outputs: luca_protocol_crate, json_schemas, rfc8785_vectors, safe_diagnostic_schema,
+    relay_auth_schema_vectors.'
   - 'Prove the task-specific objective exactly: Create shared Luca protocol schemas and canonical golden vectors; stubs or
     narrative are not substitutes for the named evidence.'
   - Preserve every global invariant in TASK_GRAPH.yaml and stop on a contract contradiction.
@@ -310,6 +317,7 @@ task_capsules:
   - Persist raw command output under the task evidence directory and return only a compact summary.
   tests:
   - python3 scripts/validate_planning_kit.py
+  - cargo test -p luca-protocol relay_auth
   - just check-compile
   - 'just ci  # milestone integration candidate only'
   evidence:
@@ -909,25 +917,38 @@ task_capsules:
   - buzz@7e34bee6:desktop/src-tauri/src/secret_store.rs
   - target:desktop/src-tauri/src/managed_agents/runtime.rs
   - target:crates/buzz-acp/src/acp.rs
+  - target:crates/buzz-acp/src/config.rs
+  - target:crates/buzz-acp/src/relay.rs
+  - target:crates/buzz-acp/src/pool.rs
+  - target:crates/buzz-acp/src/setup_mode.rs
+  - target:crates/buzz-acp/src/queue.rs
+  - target:crates/buzz-acp/src/luca_managed_prompt.md
+  - target:desktop/src-tauri/src/managed_agents/env_vars.rs
   - target:crates/luca-signing-client/**
   - target:desktop/src-tauri/src/luca/signing_broker.rs
   - target:desktop/src-tauri/src/luca/signing_transport.rs
-  - target:desktop/src-tauri/src/luca/installation_attestation.rs
+  - target:desktop/src-tauri/src/luca/local_broker_session.rs
   - target:desktop/src-tauri/src/luca/managed_message_outbox.rs
   - target:tests/luca-conformance/message_publish/**
   owns:
     include:
     - desktop/src-tauri/src/managed_agents/runtime.rs
     - crates/buzz-acp/src/acp.rs
+    - crates/buzz-acp/src/config.rs
+    - crates/buzz-acp/src/relay.rs
+    - crates/buzz-acp/src/pool.rs
+    - crates/buzz-acp/src/setup_mode.rs
+    - crates/buzz-acp/src/queue.rs
+    - crates/buzz-acp/src/luca_managed_prompt.md
     - crates/luca-signing-client/src/**
     - crates/luca-signing-client/tests/**
     - desktop/src-tauri/src/lib.rs
     - desktop/src-tauri/src/luca/mod.rs
-    - crates/buzz-acp/src/luca_final_publisher.rs
+    - desktop/src-tauri/src/managed_agents/env_vars.rs
     - crates/buzz-acp/src/lib.rs
     - desktop/src-tauri/src/luca/signing_broker.rs
     - desktop/src-tauri/src/luca/signing_transport.rs
-    - desktop/src-tauri/src/luca/installation_attestation.rs
+    - desktop/src-tauri/src/luca/local_broker_session.rs
     - desktop/src-tauri/src/luca/managed_message_outbox.rs
     - tests/luca-conformance/message_publish/**
     - evidence/M1/F14/**
@@ -953,10 +974,10 @@ task_capsules:
     path: evidence/M1/F14/outputs/typed_operation_policy.json
     implementation_paths:
     - desktop/src-tauri/src/luca/signing_broker.rs
-  - name: installation_attestation
-    path: evidence/M1/F14/outputs/installation_attestation.json
+  - name: local_broker_session_binding
+    path: evidence/M1/F14/outputs/local_broker_session_binding.json
     implementation_paths:
-    - desktop/src-tauri/src/luca/installation_attestation.rs
+    - desktop/src-tauri/src/luca/local_broker_session.rs
   - name: managed_message_outbox
     path: evidence/M1/F14/outputs/managed_message_outbox.json
     implementation_paths:
@@ -969,20 +990,46 @@ task_capsules:
     path: evidence/M1/F14/outputs/descendant_environment_proof.json
     implementation_paths:
     - tests/luca-conformance/message_publish/descendant_environment.rs
+  - name: managed_identity_mode
+    path: evidence/M1/F14/outputs/managed_identity_mode.json
+    implementation_paths:
+    - crates/buzz-acp/src/config.rs
+    - crates/buzz-acp/src/relay.rs
+    - crates/buzz-acp/src/pool.rs
+    - crates/buzz-acp/src/setup_mode.rs
+    - crates/buzz-acp/src/queue.rs
+    - crates/buzz-acp/src/luca_managed_prompt.md
+    - desktop/src-tauri/src/managed_agents/env_vars.rs
+  - name: broker_transport_isolation
+    path: evidence/M1/F14/outputs/broker_transport_isolation.json
+    implementation_paths:
+    - desktop/src-tauri/src/managed_agents/runtime.rs
+    - desktop/src-tauri/src/managed_agents/env_vars.rs
+    - desktop/src-tauri/src/luca/signing_transport.rs
+    - crates/buzz-acp/src/acp.rs
+    - crates/luca-signing-client/**
+    - tests/luca-conformance/message_publish/descendant_environment.rs
   ownership_mutex: m1_authority_integration
   implementation_contract:
-  - 'Deliver exactly these outputs: desktop_signing_broker, acp_broker_client, typed_operation_policy, installation_attestation,
-    managed_message_outbox, message_publish_schema_vectors, descendant_environment_proof.'
+  - 'Deliver exactly these outputs: desktop_signing_broker, acp_broker_client, typed_operation_policy, local_broker_session_binding,
+    managed_message_outbox, message_publish_schema_vectors, descendant_environment_proof, managed_identity_mode,
+    broker_transport_isolation.'
   - A shell-capable model child and nested descendants cannot observe the resident nsec, legacy key variables, keychain item,
-    or usable broker descriptor; installation attestation gates managed publication, final chunks use the durable outbox,
-    and exact message.publish schemas/vectors preserve retained signed chat.
+    or usable broker descriptor; the managed ACP host itself receives no resident private key; desktop-local installation/session
+    binding gates managed publication; managed NIP-42/NIP-98 authentication uses relay_auth.sign.v1; exact message.publish schemas/vectors
+    preserve retained signed chat; ordinary Buzz legacy identity behavior remains unchanged. F09 owns final chunk aggregation.
+  - The desktop carries the exclusive managed broker socket only as ACP stdin; no descriptor number, socket path or bearer token
+    appears in ACP argv or environment. The harness immediately duplicates it into a close-on-exec owned stream. Every model,
+    MCP, shell and tool child receives replacement stdin and a scrubbed bootstrap environment. Executable nested-descendant
+    probes must inspect argv, environment and open descriptors and find neither a resident key nor a usable broker stream.
   - Preserve every global invariant in TASK_GRAPH.yaml and stop on a contract contradiction.
   - Use generated/synthetic fixtures only; no live profile or source-repository mutation.
   - Persist raw command output under the task evidence directory and return only a compact summary.
   tests:
   - cargo test -p buzz-desktop luca_signing -- --nocapture
-  - cargo test -p buzz-acp luca_final_publisher -- --nocapture
-  - cargo test -p luca-signing-client message_publish_vectors -- --nocapture
+  - cargo test -p buzz-acp luca_managed_identity -- --nocapture
+  - cargo test -p buzz-acp luca_descendant_isolation -- --nocapture
+  - cargo test -p luca-signing-client signing_vectors -- --nocapture
   - 'just ci  # milestone integration candidate only'
   evidence:
   - evidence/M1/F14/environment.json
@@ -998,8 +1045,12 @@ task_capsules:
   - Every output bound for F14 exists at its declared owned path and is linked from results.json.
   - The focused F14 test commands pass; any milestone-only command is run by the integrator before M1 gate evaluation.
   - A shell-capable model child and nested descendants cannot observe the resident nsec, legacy key variables, keychain item,
-    or usable broker descriptor; installation attestation gates managed publication, final chunks use the durable outbox,
-    and exact message.publish schemas/vectors preserve retained signed chat.
+    or usable broker descriptor; the managed ACP host itself receives no resident private key; desktop-local installation/session
+    binding gates managed publication; managed NIP-42/NIP-98 authentication uses relay_auth.sign.v1; exact message.publish schemas/vectors
+    preserve retained signed chat; ordinary Buzz legacy identity behavior remains unchanged. F09 owns final chunk aggregation.
+  - Executable ACP and nested-descendant probes prove no broker descriptor number, path or token appears in argv/environment;
+    the socketpair is received only through ACP stdin and duplicated into a close-on-exec owned stream; every model/tool child
+    receives replacement stdin and bootstrap-environment scrubbing; descendant open-FD inspection finds no usable broker stream.
   - Owned-file diff contains no forbidden path and no unapproved shared-file edit.
   - Artifact scan contains no raw key, credential, protected body or absolute local source path.
   - All P0/P1 findings are closed by evidence; accepted lower findings appear in known limits.
@@ -1216,6 +1267,8 @@ task_capsules:
   ownership_mutex: m1_authority_integration
   implementation_contract:
   - 'Deliver exactly these outputs: stream_cancel_reconnect_replay_restart_tests, signed_trace.'
+  - F09 is the sole M1 owner of ACP chunk aggregation and the one-final-message adapter. It consumes the F14 typed
+    signing client after F14 passes; F14 does not implement or test this future seam.
   - 'Prove the task-specific objective exactly: Lock upstream direct chat and room behavior with Luca fixtures; stubs or narrative
     are not substitutes for the named evidence.'
   - Preserve every global invariant in TASK_GRAPH.yaml and stop on a contract contradiction.

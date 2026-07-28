@@ -92,3 +92,41 @@ artifact; the authoritative kit remains unchanged.
   never from an undeclared external working directory.
 - Scope: evidence and scheduler integrity only; no product or authority scope
   is added.
+
+## 2026-07-27 — F14 managed-identity execution boundary
+
+- Approved amendment: `F14_OPTION1_AMENDMENT.md`.
+- Copied files corrected: `TASK_GRAPH.yaml`, `TASK_CAPSULE_CATALOG.yaml`,
+  `PROOF_TRACE_MATRIX.yaml`, `SIGNING_BROKER_SPEC.md`,
+  `ARCHITECTURE_IMPLEMENTATION_SPEC.md`, `SECURITY_THREAT_MODEL.md`,
+  `TARGET_CODE_MAP.md`, `M1_PROTOCOL_CONSTANTS.md`,
+  `OPEN_CONTRACT_DEFECTS.md`, `BUILD_START_PROMPT_HIGH.md` and
+  `00_START_HERE.md`.
+- Authoritative contradiction: F14 had to remove the raw resident key before
+  `Config::from_cli`, but did not own `config.rs`, `relay.rs`, `pool.rs` or
+  `setup_mode.rs`, `queue.rs` or the desktop reserved-environment seam; its
+  focused test also named the F09-owned final publisher even though F09 depends
+  on F14.
+- Local correction: reopen F13 for the sole-writer
+  `relay_auth.sign.v1` schema/vector repair; expand F14 to the exact ACP
+  key-consuming seams; freeze `Legacy(Keys)` versus
+  `Managed(public identity + typed desktop broker)`; return final-publisher
+  ownership and proof entirely to F09. Serialize F14's `pool.rs` repair before
+  B15's later G2-dependent continuity integration through the explicit
+  `[F14, B15]` overlap entry.
+- Claim correction: F14/G1 proves desktop-local installation/session binding
+  and key isolation. Remote relay admission/revocation of an old installation
+  remains a later managed-coordinator proof. The F14 output is renamed from
+  `installation_attestation` to `local_broker_session_binding` so the receipt
+  cannot be mistaken for the deferred server-side claim.
+- Rationale: this is the owner-approved Option 1 response to a documented
+  authority/security stop. It preserves the original no-key-in-ACP invariant
+  and avoids inventing unplanned relay/database authority during M1.
+- Scope: execution ownership, dependency proof and claim timing only. No
+  conductor, new product feature or wider signing authority is added.
+- Independent review repair: distinguish the managed ACP host's one typed
+  broker stream from the complete absence of broker capability in provider,
+  model and tool descendants. Add `broker_transport_isolation` as a bound F14
+  output so stdin-only transport, close-on-exec duplication, replacement child
+  stdin, bootstrap scrubbing and negative nested-descendant FD/argv/environment
+  inspection are executable acceptance evidence rather than narrative.

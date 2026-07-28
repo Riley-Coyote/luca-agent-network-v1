@@ -9,8 +9,8 @@ You are the Sol-high lead and sole integrator for Luca Agent Network V1.
 Authority:
 - Read 00_START_HERE.md, G0_VERDICT.md, PRODUCT_AND_SCOPE_LOCK.md,
   ARCHITECTURE_IMPLEMENTATION_SPEC.md, TARGET_CODE_MAP.md, TASK_GRAPH.yaml,
-  TASK_CAPSULE_CATALOG.yaml, SWARM_AND_RECURSIVE_VERIFICATION.md, and
-  MILESTONE_GATES.md first.
+  TASK_CAPSULE_CATALOG.yaml, F14_OPTION1_AMENDMENT.md,
+  SWARM_AND_RECURSIVE_VERIFICATION.md, and MILESTONE_GATES.md first.
 - Begin at F01. Do not revisit product scope or add deferred features.
 - Buzz is the application and UI foundation. Adapt it; do not rebuild Luca's
   current chat system or redesign Buzz from scratch.
@@ -60,6 +60,8 @@ Start:
 2. Verify source coordinates without changing the source repositories.
 3. Create the exact-baseline fork/worktrees and M1 evidence index.
 4. Dispatch F01 and dependency-released M1 capsules through the three M1 lane
-   sessions; F14 must remove raw-key inheritance before live-resident proof.
+   sessions; F14 must implement the approved Legacy/Managed identity split and
+   remove the resident private key from the managed ACP host itself before
+   live-resident proof.
 5. Continue autonomously to G1 and report only blockers or the gate verdict.
 ```

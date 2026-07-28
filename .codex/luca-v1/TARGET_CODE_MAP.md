@@ -23,7 +23,7 @@ hashes, signatures, size limits and failure codes.
 |---|---|
 | `desktop/src-tauri/src/luca/signing_broker.rs` | keychain-owned typed sign/encrypt/decrypt operations and policy validation |
 | `desktop/src-tauri/src/luca/signing_transport.rs` | authenticated per-agent broker channel, sequence/expiry/session/PID binding |
-| `desktop/src-tauri/src/luca/installation_attestation.rs` | keychain-held installation key, relay challenge/channel binding and transfer activation |
+| `desktop/src-tauri/src/luca/local_broker_session.rs` | desktop-local resident/owner/ACP PID/session/relay binding for the G1 broker channel; not remote installation admission |
 | `desktop/src-tauri/src/luca/managed_message_outbox.rs` | frozen final-event idempotency, relay-ACK reconciliation and body-free receipts |
 | `desktop/src-tauri/src/luca/resident_registry.rs` | resident/persona/runtime/provider bindings and active state |
 | `desktop/src-tauri/src/luca/continuity_child.rs` | exclusive framed sidecar pipes, supervision and deadlines |
@@ -47,10 +47,19 @@ paths that require raw keys are broker-adapted or disabled for V1.
 | `crates/luca-signing-client/` | typed broker client for Buzz ACP host; never exports a general signer to the model child |
 | `crates/luca-capsule/` | Capsule validation/read cache, managed coordinator client, encrypted outbox/archive |
 | `crates/buzz-acp/src/luca_final_publisher.rs` | aggregate ACP message chunks into one policy-checked final signed/published room event |
+| `crates/buzz-acp/src/config.rs` | select unchanged legacy key mode or Luca managed public-identity/broker mode |
+| `crates/buzz-acp/src/relay.rs` | route managed NIP-42/NIP-98 authentication through the typed broker while preserving legacy key signing |
+| `crates/buzz-acp/src/pool.rs` | use public identity in managed mode and explicitly disable/defer untyped key-dependent side effects |
+| `crates/buzz-acp/src/setup_mode.rs` | preserve setup-listener behavior through the same identity abstraction without a raw managed key |
+| `crates/buzz-acp/src/queue.rs` and managed prompt | remove key-backed CLI publication instructions only in Luca managed mode |
 | `crates/buzz-acp/` narrow seams | slow session bootstrap, fast per-turn context, provider dispatch snapshot and guarded room hooks |
 
 Edits to upstream crates remain narrow and covered by the untouched baseline
 regression suite. Luca code owns new policy and persistence.
+
+`crates/buzz-acp/src/luca_final_publisher.rs` remains F09-owned. F14 supplies
+the broker/authentication foundation; F09, which depends on F14, supplies the
+one-final-message adapter and its conversation proofs.
 
 ## Local Continuity Service
 

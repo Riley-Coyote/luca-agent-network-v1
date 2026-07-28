@@ -135,6 +135,7 @@ tasks:
   - json_schemas
   - rfc8785_vectors
   - safe_diagnostic_schema
+  - relay_auth_schema_vectors
   capsule: F13
   executor_role: architecture_integrator
   reasoning_effort: high
@@ -259,10 +260,12 @@ tasks:
   - desktop_signing_broker
   - acp_broker_client
   - typed_operation_policy
-  - installation_attestation
+  - local_broker_session_binding
   - managed_message_outbox
   - message_publish_schema_vectors
   - descendant_environment_proof
+  - managed_identity_mode
+  - broker_transport_isolation
   capsule: F14
   executor_role: bounded_critical_worker
   reasoning_effort: high
@@ -1988,6 +1991,7 @@ ownership_policy:
   - [F13, F14]
   - [F14, R05]
   - [F09, R05]
+  - [F14, B15]
   single_writer_paths:
     crates/buzz-db/migrations/luca_capsule/**: C16
     desktop/src-tauri/migrations/luca_memory_policy/**: B24

@@ -26,3 +26,14 @@ does not expand V1 scope.
 - Synthetic crypto vectors derive an in-memory test key from a fixed domain
   string. They never store or log a raw seed/nsec; checked-in artifacts contain
   only public event/id/signature values.
+- The F13 repair adds `relay_auth.sign.v1` as the second M1 frame operation.
+  Its request is semantic and allowlisted: auth kind (`nip42` or `nip98`),
+  resident public key, configured relay origin, challenge or HTTP
+  method/canonical URL, optional request-body SHA-256, request nonce and
+  expiry. It accepts no arbitrary tags, kind, content or unsigned event bytes.
+  The result contains one exact signed public auth event plus its event ID; it
+  contains no key, general signer, credential or reusable authorization token.
+- `relay_auth.sign.v1` is available only on the desktop-bound managed ACP
+  channel. Sequence, session, PID, origin and deadline validation are identical
+  to `message.publish.v1`. NIP-42 challenges and NIP-98 URLs are revalidated by
+  desktop authority against the configured relay before signing.

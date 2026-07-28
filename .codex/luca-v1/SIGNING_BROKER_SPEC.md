@@ -6,7 +6,7 @@
 OS keychain
    |
 desktop authority + typed signing broker
-   |  exclusive socketpair FD; session/sequence-bound
+   |  exclusive socketpair carried as ACP stdin; session/sequence-bound
    v
 Buzz ACP host (untrusted content processor, typed client only)
    |  broker FD is close-on-exec and not exposed as a tool
@@ -15,16 +15,29 @@ model/runtime + shell/MCP/tool descendants (no key, no broker channel)
 ```
 
 The design-partner proof is macOS arm64. The desktop creates an exclusive Unix
-socketpair for each ACP host. Only the ACP endpoint is made inheritable for that
-one spawn; the host immediately marks it close-on-exec. Every model/tool child
-spawn closes all non-stdio descriptors, clears legacy `BUZZ_PRIVATE_KEY` and
-`NOSTR_PRIVATE_KEY`, and receives no socket path, bearer token or broker tool.
-The desktop binds the other endpoint to the exact resident, owner, ACP PID,
-session epoch and runtime configuration.
+socketpair for each ACP host. The ACP endpoint is installed as that harness
+process's standard input; no descriptor number, socket path or bearer token is
+placed in argv or the environment. The host duplicates that socket into a
+close-on-exec owned stream before asynchronous work begins. Every model/tool
+child receives an explicit replacement stdin, closes all other non-stdio
+descriptors, clears legacy `BUZZ_PRIVATE_KEY`, `NOSTR_PRIVATE_KEY` and managed
+bootstrap coordinates, and receives no broker tool. The desktop binds the
+other endpoint to the exact resident, owner, ACP PID, session epoch and runtime
+configuration.
 
 Windows/Linux parity must use an equivalently exclusive inherited handle/pipe
 with OS ACL and handle-inheritance proof before those platforms are claimed. A
 same-user listening socket plus discoverable token is not an accepted fallback.
+
+The harness has two explicit identity modes:
+
+- `Legacy(Keys)` preserves ordinary Buzz launches and their existing behavior;
+- `Managed(public identity + typed desktop broker)` is mandatory for
+  Luca-managed residents and contains no resident secret key.
+
+Mode selection fails closed. Managed mode cannot fall back to a key environment
+variable, argv value, generated key or legacy signer when its broker is absent
+or invalid.
 
 ## Replacement for key-backed Buzz CLI replies
 
@@ -40,13 +53,14 @@ requires the raw key. V1 replaces that path explicitly:
 3. The host submits one typed `message.publish.v1` request containing the final
    draft, resolved `p` tags and dispatch/root receipt. The desktop authority
    reauthorizes, freezes and durably stages the exact event, then signs and
-   publishes it over its credential-proved managed-relay connection. ACP
+   publishes it over its desktop-authorized relay connection. ACP
    receives the event ID and body-free publication receipt, never the
    installation credential.
-4. The managed relay rejects the revoked installation session. Epoch/tag data
-   is diagnostic metadata, not authentication. This applies to normal
-   replies and agent-to-agent mentions, so a restored resident cannot produce
-   duplicate managed replies from its old installation.
+4. At G1, the desktop rejects stale local session/installation epochs before
+   signing or publication. Relay-enforced admission and revocation of an old or
+   copied installation is added by the later managed coordinator. Epoch/tag
+   data is diagnostic metadata, not authentication, and G1 does not claim
+   remote revocation from those fields.
 
 The base prompt no longer tells agents to publish through the key-backed CLI.
 Identity-mutating Buzz CLI/forge commands are disabled. Read-only tools may
@@ -116,13 +130,15 @@ session receives a new socketpair/epoch.
 
 The broker exposes no arbitrary `sign(bytes)`:
 
-- `message.publish.v1`: canonical Buzz message/reaction/observer event, signed
-  and published by desktop authority over its authenticated managed-relay
-  session after
+- `message.publish.v1`: one canonical successfully terminated Buzz final
+  message, signed and published by desktop authority over its authenticated
+  relay session after
   verifying resident, room membership, event kind/tags, root/dispatch receipt,
   cancellation epoch, active installation epoch, body limit and owner policy;
 - `relay_auth.sign.v1`: NIP-98/relay-auth challenge bound to allowed method,
-  origin, expiry and configured relay;
+  origin, expiry, configured relay and resident public identity; it accepts a
+  semantic challenge/request description rather than arbitrary event bytes and
+  returns only the exact signed public auth event;
 - `capsule.decrypt.v1`: verified NIP-AE event bound to owner/resident/address;
 - `capsule.encrypt_sign.v1`: validated semantic segment/pointer operation bound
   to expected head, writer epoch, byte budget, source references and operation
@@ -159,12 +175,14 @@ authorized dispatch and receives a body-free result.
 - all default logs/screenshots/observer frames/debug exports pass the shared
   sentinel scanner;
 - retained V1 chat/reaction/profile/Capsule operations work without raw key
-  inheritance; disabled CLI/forge actions fail with explicit product status.
-- real ACP `agent_message_chunk` aggregation publishes exactly one signed final,
-  and an A-to-B exact mention triggers B through the existing queue without any
-  model-visible key or generic signing channel;
-- after restore installation transfer, the old app's reply is rejected and the
-  destination produces one accepted final.
+  inheritance where their typed operations exist; untyped key-dependent
+  side effects and CLI/forge actions fail with explicit product status in
+  managed mode while legacy Buzz remains unchanged.
+- F09 proves real ACP `agent_message_chunk` aggregation publishes exactly one
+  signed final, and that an A-to-B exact mention triggers B through the existing
+  queue without any model-visible key or generic signing channel.
+- the later coordinator/restore milestones prove an old installation is
+  remotely rejected after transfer and a copied resident key cannot substitute
+  for active installation admission; F14/G1 does not claim either result.
 - crash before submit, after relay accept/before local receipt and during
-  reconciliation yields one exact event ID; forged current epoch/tag with a
-  copied resident key still rejects without the active installation credential.
+  reconciliation yields one exact event ID.
