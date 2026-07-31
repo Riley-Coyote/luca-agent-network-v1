@@ -32,6 +32,7 @@ export const LUCA_FEATURE_FLAGS = {
   whiteboard: { defaultEnabled: false, status: "deferred" },
   invitedHumans: { defaultEnabled: false, status: "deferred" },
   organizations: { defaultEnabled: false, status: "deferred" },
+  externalCommunityConnections: { defaultEnabled: false, status: "deferred" },
 } as const satisfies Record<string, LucaFeatureDefinition>;
 
 export type LucaFeature = keyof typeof LUCA_FEATURE_FLAGS;

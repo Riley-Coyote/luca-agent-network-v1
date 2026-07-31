@@ -12,6 +12,11 @@ import {
 } from "react";
 
 import { router } from "@/app/router";
+import { isLucaFeatureEnabled } from "@/app/lucaFeatureFlags";
+import {
+  createPersonalHomeTenancy,
+  isPersonalHomeTenancy,
+} from "@/app/personalHomeTenancy";
 import { ThemeGrainientBackground } from "@/app/ThemeGrainientBackground";
 import { useReloadShortcut } from "@/app/useReloadShortcut";
 import { KnownAgentPubkeysProvider } from "@/features/agents/useKnownAgentPubkeys";
@@ -42,18 +47,19 @@ import { WelcomeSetup } from "@/features/communities/ui/WelcomeSetup";
 import { CommunityApplyErrorScreen } from "@/features/communities/ui/CommunityApplyErrorScreen";
 import { CommunityChangeOverlay } from "@/features/communities/ui/CommunityChangeOverlay";
 import { createBuzzQueryClient } from "@/shared/api/queryClient";
-import { isSharedIdentity as isSharedIdentityCmd } from "@/shared/api/tauri";
+import {
+  getDefaultRelayUrl,
+  isSharedIdentity as isSharedIdentityCmd,
+} from "@/shared/api/tauri";
 import {
   type AddCommunityDeepLinkPayload,
   listenForDeepLinks,
 } from "@/shared/deep-link";
 import { cn } from "@/shared/lib/cn";
-import { BuzzMark } from "@/shared/ui/buzz-logo/BuzzMark";
-import { FlappingBee } from "@/shared/ui/buzz-logo/FlappingBee";
-import { FuzzyLogo } from "@/shared/ui/buzz-logo/FuzzyLogo";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
+import { Button } from "@/shared/ui/button";
 
-const LOADING_TEXT = "Setting up your community...";
+const LOADING_TEXT = "Opening Luca...";
 
 // Minimum time the cold-boot splash stays on screen. A real boot resolves the
 // community in well under 100ms, and the native window setup plus first paint
@@ -114,38 +120,22 @@ function useBootSplashHold(): BootSplashPhase {
   return phase;
 }
 
-// Animated Buzz mark for the loading gates. The static BuzzMark renders in
-// normal flow and sizes the box — it's plain SVG (no JS/SMIL), so it paints on
-// the very first frame even before scripting starts, avoiding a blank flash on
-// hard reload. The animated FuzzyLogo is layered on top and takes over once it
-// begins playing.
-function BeeLoader({
-  ariaLabel,
-  className,
-  tintClassName = "text-foreground",
-}: {
-  ariaLabel: string;
-  className?: string;
-  tintClassName?: string;
-}) {
+function LucaLoader({ className }: { className?: string }) {
   return (
-    <div className={cn("relative", tintClassName, className)}>
-      <BuzzMark className="block h-auto w-full" />
-      <FuzzyLogo
-        ariaLabel={ariaLabel}
-        className="absolute inset-0 h-full! w-full! [&>svg]:h-full [&>svg]:w-full [&>svg]:max-w-full"
-        fuzz
-        loop
-        loopRestSeconds={0}
-      />
+    <div
+      aria-label="Opening Luca"
+      className={cn(
+        "text-lg font-medium tracking-[0.18em] text-foreground",
+        className,
+      )}
+      role="img"
+    >
+      LUCA
     </div>
   );
 }
 
-// Cold boot gate: the theme-adaptive grainient background with a single
-// centered Buzz bee flying over it — the same static mark as before, now with
-// its wings flapping (ported from the Buzz website's wing-flap). Replaces the
-// old "Setting up your community" text, which stays as an sr-only caption.
+// The tenancy is internal; first-run never introduces Buzz infrastructure.
 function AppLoadingGate() {
   return (
     <div
@@ -156,7 +146,7 @@ function AppLoadingGate() {
       <StartupWindowDragRegion />
       <ThemeGrainientBackground />
       <span className="sr-only">{LOADING_TEXT}</span>
-      <FlappingBee className="relative z-10 h-auto w-28" />
+      <LucaLoader className="relative z-10" />
     </div>
   );
 }
@@ -179,13 +169,7 @@ function CommunitySwitchGate() {
     >
       <StartupWindowDragRegion />
       <span className="sr-only">Switching community…</span>
-      {showSpinner ? (
-        <BeeLoader
-          ariaLabel="Switching community…"
-          className="h-auto w-20"
-          tintClassName="text-muted-foreground"
-        />
-      ) : null}
+      {showSpinner ? <LucaLoader className="text-muted-foreground" /> : null}
     </div>
   );
 }
@@ -256,6 +240,99 @@ function AppReady({
       <RouterProvider router={router} />
     </KnownAgentPubkeysProvider>
   );
+}
+
+function PersonalHomeProvisioningError({
+  error,
+  onRetry,
+}: {
+  error: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      className="flex min-h-dvh items-center justify-center bg-background px-4 py-8 text-foreground"
+      data-testid="personal-home-provisioning-error"
+    >
+      <StartupWindowDragRegion />
+      <div className="flex w-full max-w-[500px] flex-col items-center text-center">
+        <h1 className="text-3xl font-semibold tracking-tight">
+          Luca couldn’t open your personal home
+        </h1>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">{error}</p>
+        <Button
+          className="mt-8 h-10 w-full max-w-[300px]"
+          data-testid="personal-home-provisioning-retry"
+          onClick={onRetry}
+          type="button"
+        >
+          Retry
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function PersonalHomeGate({
+  activeCommunity,
+  addCommunity,
+  ownerPubkey,
+  children,
+}: {
+  activeCommunity: ReturnType<typeof useCommunities>["activeCommunity"];
+  addCommunity: ReturnType<typeof useCommunities>["addCommunity"];
+  ownerPubkey: string | null;
+  children: ReactNode;
+}) {
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (activeCommunity) {
+      setError(null);
+      return;
+    }
+    if (error) {
+      return;
+    }
+    if (!ownerPubkey) {
+      setError("Your Luca identity is not ready yet.");
+      return;
+    }
+
+    let cancelled = false;
+    void getDefaultRelayUrl()
+      .then((relayUrl) => {
+        if (!cancelled) {
+          addCommunity(createPersonalHomeTenancy(relayUrl, ownerPubkey));
+        }
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) {
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "Luca could not prepare your personal home. Please try again.",
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCommunity, addCommunity, error, ownerPubkey]);
+
+  if (activeCommunity) return <>{children}</>;
+  if (error) {
+    return (
+      <PersonalHomeProvisioningError
+        error={error}
+        onRetry={() => {
+          setError(null);
+        }}
+      />
+    );
+  }
+  return <AppLoadingGate />;
 }
 
 function CommunityApp({
@@ -422,8 +499,12 @@ function CommunityApp({
         />
       );
     } else if ("error" in community && community.error) {
-      // Surface apply failures so the user can retry or change community.
-      appContent = (
+      appContent = isPersonalHomeTenancy(activeCommunity) ? (
+        <PersonalHomeProvisioningError
+          error={community.error}
+          onRetry={reconnectCommunity}
+        />
+      ) : (
         <>
           <CommunityApplyErrorScreen
             error={community.error}
@@ -495,7 +576,7 @@ function CommunityApp({
 }
 
 function MachineBootstrap({ sharedIdentity }: { sharedIdentity: boolean }) {
-  const { activeCommunity } = useCommunities();
+  const { activeCommunity, addCommunity } = useCommunities();
   const communityOnboarding = useCommunityOnboarding();
   const machine = useMachineOnboardingState({
     activeCommunityPubkey: activeCommunity
@@ -537,6 +618,9 @@ function MachineBootstrap({ sharedIdentity }: { sharedIdentity: boolean }) {
   // fresh install is acknowledged on screen while the identity steps are
   // still pending, and survives a relaunch in between.
   useEffect(() => {
+    if (!isLucaFeatureEnabled("externalCommunityConnections")) {
+      return;
+    }
     const unlisten = listenForDeepLinks({
       startCommunityOnboarding: communityOnboarding.start,
       openAddCommunity,
@@ -553,11 +637,17 @@ function MachineBootstrap({ sharedIdentity }: { sharedIdentity: boolean }) {
   if (machine.stage === "blocking") return <AppLoadingGate />;
   if (machine.stage === "ready") {
     return (
-      <CommunityApp
-        currentPubkey={machine.currentPubkey}
-        onBackToMachineConfig={reopenMachineConfig}
-        sharedIdentity={sharedIdentity}
-      />
+      <PersonalHomeGate
+        activeCommunity={activeCommunity}
+        addCommunity={addCommunity}
+        ownerPubkey={machine.currentPubkey}
+      >
+        <CommunityApp
+          currentPubkey={machine.currentPubkey}
+          onBackToMachineConfig={reopenMachineConfig}
+          sharedIdentity={sharedIdentity}
+        />
+      </PersonalHomeGate>
     );
   }
 
