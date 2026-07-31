@@ -1191,6 +1191,7 @@ task_capsules:
   - F15_KEY_SAFE_RESIDENT_CREATION_AMENDMENT.md
   - target:desktop/src-tauri/src/lib.rs
   - target:desktop/src-tauri/src/commands/agents.rs
+  - target:desktop/src/shared/api/tauri.ts
   - target:desktop/src/testing/e2eBridge.ts
   owns:
     include:
@@ -1198,6 +1199,7 @@ task_capsules:
     - desktop/src-tauri/src/luca/mod.rs
     - desktop/src-tauri/src/lib.rs
     - desktop/src-tauri/src/commands/agents.rs
+    - desktop/src/shared/api/tauri.ts
     - desktop/src/testing/e2eBridge.ts
     - desktop/src/features/agents/**
     - desktop/src/features/luca/residents/**
@@ -1236,6 +1238,8 @@ task_capsules:
   - Luca resident creation must be retry-safe across persona persistence and native creation failure; the renderer test bridge
     must model the public-only command without creating or retaining a synthetic nsec. The compatibility command may use an
     RAII zeroizing guard for its generated temporary nsec without changing its legacy response or storage behavior.
+  - Every retained renderer-side managed-agent creation caller must reach the Luca-safe native command; the secret-returning
+    native command remains compatible but has no Luca renderer caller or secret reveal surface.
   - 'Prove the task-specific objective exactly: Implement durable resident registry and direct setup UI; stubs or narrative
     are not substitutes for the named evidence.'
   - Preserve every global invariant in TASK_GRAPH.yaml and stop on a contract contradiction.

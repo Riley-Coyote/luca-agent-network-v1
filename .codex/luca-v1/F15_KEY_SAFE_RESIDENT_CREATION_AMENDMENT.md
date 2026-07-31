@@ -28,7 +28,11 @@ F15 may add one Luca-specific resident-creation command and client adapter that:
 4. leave the upstream legacy `create_managed_agent` behavior unchanged for
    compatibility, while Luca-owned setup calls only the safe command;
 5. prove through IPC serialization and UI tests that no resident nsec reaches
-   the renderer or model/runtime descendant.
+   the renderer or model/runtime descendant;
+6. route the retained renderer-side managed-agent creation adapter through the
+   Luca-safe native command, then rehydrate only the existing public managed
+   summary needed by compatibility callers. No renderer call site may invoke
+   the secret-returning native command.
 
 The safe path must also be retry-safe at the resident/persona boundary. A
 failed attempt may not leave an invisible orphan persona or mint a second
@@ -53,6 +57,8 @@ required to register and test that wrapper:
 - `desktop/src-tauri/src/lib.rs`;
 - `desktop/src-tauri/src/commands/agents.rs`, only for the generated temporary
   nsec zeroizing guard described above;
+- `desktop/src/shared/api/tauri.ts`, only for routing the existing renderer
+  creation adapter through the Luca-safe native command and public list;
 - `desktop/src/testing/e2eBridge.ts`.
 
 All remain serialized under the existing `m1_authority_integration` mutex and

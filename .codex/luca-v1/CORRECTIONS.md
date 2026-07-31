@@ -217,6 +217,17 @@ artifact; the authoritative kit remains unchanged.
   compatibility command's generated temporary nsec in an RAII zeroizing guard.
   Legacy response and storage behavior remain unchanged; key-store redesign is
   still outside F15.
+- The second candidate fixed AgentsView but left AppShell-global, profile,
+  channel-agent and legacy-welcome callers on the renderer adapter for the
+  secret-returning native command. F15 therefore narrowly owns the creation
+  function in `desktop/src/shared/api/tauri.ts` so every retained renderer
+  caller uses the Luca-safe command and rehydrates public managed data. The
+  native legacy command remains available for compatibility, but no Luca
+  renderer surface calls or reveals it.
+- Renderer-side destructive persona compensation is prohibited: it races a
+  concurrent successful resident retry. A failed create must preserve the
+  visible persona as the retry surface unless native code completes the entire
+  compensation atomically.
 
 ## 2026-07-31 — F11 native provisioning-failure proof
 
