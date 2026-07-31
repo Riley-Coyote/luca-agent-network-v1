@@ -166,3 +166,23 @@ artifact; the authoritative kit remains unchanged.
 - Scope: exact duplicate acknowledgment plus its tests. It does not authorize
   new event ingestion, disclose stored content, weaken tenant binding, or widen
   resident/model authority.
+
+## 2026-07-31 — Native clean-profile onboarding reopens F03 and F06
+
+- Approved correction: `G1_ONBOARDING_CORRECTION.md`.
+- Observed contradiction: a fresh native `just dev` launch created the owner
+  identity and then blocked on Buzz community/workspace setup. The prior F06
+  PASS exercised only the synthetic browser bridge, so it did not prove the G1
+  native clean-profile claim.
+- Local correction: reopen F03 for the app-level personal-home gate and F06 for
+  automatic one-owner onboarding. The internal relay community is provisioned
+  or selected without user action. The public happy path is owner identity,
+  resident setup, then Luca home; failures use a Luca-owned retry state and
+  never fall back to Buzz onboarding.
+- Evidence correction: the existing F03/F06 receipts remain historical but are
+  superseded for G1. Their replacement receipts must contain
+  `personal_home_gate` and `clean_profile_transition`; F11 must independently
+  prove the real Tauri clean-profile and relaunch path with screenshots,
+  accessibility state and runtime logs.
+- Scope: product-facing onboarding and public-brand correctness only. Buzz
+  messaging, signed chronology and chat layout remain the foundation.

@@ -442,6 +442,7 @@ task_capsules:
   - PRODUCT_AND_SCOPE_LOCK.md
   - DEMO_AND_ACCEPTANCE.md
   - TARGET_CODE_MAP.md
+  - G1_ONBOARDING_CORRECTION.md
   proofs: *id002
   source_refs:
   - buzz@7e34bee6:desktop/src/features/onboarding/ui/OnboardingFlow.tsx
@@ -476,9 +477,15 @@ task_capsules:
     path: evidence/M1/F03/outputs/flag_tests.json
     implementation_paths:
     - desktop/src/app/lucaFeatureFlags.ts
+  - name: personal_home_gate
+    path: evidence/M1/F03/outputs/personal_home_gate.json
+    implementation_paths:
+    - desktop/src/app/**
   ownership_mutex: desktop_product
   implementation_contract:
-  - 'Deliver exactly these outputs: feature_registry, flag_tests.'
+  - 'Deliver exactly these outputs: feature_registry, flag_tests, personal_home_gate.'
+  - The app-level first-run gate must automatically select or provision the internal personal-home tenancy and must never
+    route the V1 happy path to Buzz community, workspace, organization, invite, hosted-account or relay-URL setup.
   - 'Prove the task-specific objective exactly: Add central Luca feature flags for deferred Buzz surfaces; stubs or narrative
     are not substitutes for the named evidence.'
   - Preserve every global invariant in TASK_GRAPH.yaml and stop on a contract contradiction.
@@ -682,7 +689,7 @@ task_capsules:
   - contract_or_owner_collision
   - live_data_required
 - id: F06
-  objective: Replace organization-first onboarding with one-owner setup
+  objective: Replace organization/community-first onboarding with automatic one-owner setup
   contracts: *id003
   proofs: *id002
   source_refs:
@@ -691,6 +698,7 @@ task_capsules:
   - buzz@7e34bee6:desktop/src/features/agents/ui/AgentsScreen.tsx
   - target:desktop/src/features/onboarding/**
   - target:desktop/tests/e2e/luca/f06.spec.ts
+  - G1_ONBOARDING_CORRECTION.md
   owns:
     include:
     - desktop/src/features/onboarding/**
@@ -718,10 +726,18 @@ task_capsules:
     path: evidence/M1/F06/outputs/onboarding_e2e.json
     implementation_paths:
     - desktop/src/features/onboarding/**
+  - name: clean_profile_transition
+    path: evidence/M1/F06/outputs/clean_profile_transition.json
+    implementation_paths:
+    - desktop/src/features/onboarding/**
   ownership_mutex: desktop_product
   implementation_contract:
-  - 'Deliver exactly these outputs: owner_onboarding, recovery_disclosure, onboarding_e2e.'
-  - 'Prove the task-specific objective exactly: Replace organization-first onboarding with one-owner setup; stubs or narrative
+  - 'Deliver exactly these outputs: owner_onboarding, recovery_disclosure, onboarding_e2e, clean_profile_transition.'
+  - The public owner flow is identity create/recover, resident setup, then personal home. Community remains an internal
+    tenancy detail; no Buzz/workspace/organization/community/invite/relay-URL step may block or appear in the happy path.
+  - A provisioning failure must render a Luca-owned retry/error state and must not fall back to Buzz community onboarding.
+  - 'Prove the task-specific objective exactly: Replace organization/community-first onboarding with automatic one-owner
+    setup; stubs or narrative
     are not substitutes for the named evidence.'
   - Preserve every global invariant in TASK_GRAPH.yaml and stop on a contract contradiction.
   - Use generated/synthetic fixtures only; no live profile or source-repository mutation.
@@ -742,8 +758,8 @@ task_capsules:
   done_when:
   - Every output bound for F06 exists at its declared owned path and is linked from results.json.
   - The focused F06 test commands pass; any milestone-only command is run by the integrator before M1 gate evaluation.
-  - Observed evidence demonstrates 'Replace organization-first onboarding with one-owner setup' with no replacement by an
-    unrelated fixture or unverified narrative.
+  - Observed evidence demonstrates 'Replace organization/community-first onboarding with automatic one-owner setup' with
+    no replacement by an unrelated fixture or unverified narrative, and the superseding clean-profile output is present.
   - Owned-file diff contains no forbidden path and no unapproved shared-file edit.
   - Artifact scan contains no raw key, credential, protected body or absolute local source path.
   - All P0/P1 findings are closed by evidence; accepted lower findings appear in known limits.
@@ -1454,6 +1470,7 @@ task_capsules:
   - DEMO_AND_ACCEPTANCE.md
   - MILESTONE_GATES.md
   - PERFORMANCE_AND_FIXTURES.md
+  - G1_ONBOARDING_CORRECTION.md
   proofs: *id002
   source_refs:
   - buzz@7e34bee6:desktop/playwright.config.ts
@@ -1478,6 +1495,10 @@ task_capsules:
     path: evidence/M1/F11/outputs/installed_app_smoke.json
     implementation_paths:
     - desktop/tests/e2e/luca/f11.spec.ts
+  - name: native_clean_profile
+    path: evidence/M1/F11/outputs/native_clean_profile.json
+    implementation_paths:
+    - desktop/tests/e2e/luca/f11.spec.ts
   - name: screenshots
     path: evidence/M1/F11/outputs/screenshots.json
     implementation_paths:
@@ -1488,7 +1509,13 @@ task_capsules:
     - desktop/tests/e2e/luca/f11.spec.ts
   ownership_mutex: desktop_product
   implementation_contract:
-  - 'Deliver exactly these outputs: installed_app_smoke, screenshots, console_log.'
+  - 'Deliver exactly these outputs: installed_app_smoke, native_clean_profile, screenshots, console_log.'
+  - Launch the real Tauri app against an isolated empty app-data directory and dedicated empty development-keyring service;
+    browser-only or synthetic-bridge evidence is insufficient for the clean-profile claim.
+  - Prove identity create/recover, automatic internal personal-home tenancy provisioning or selection, arrival at resident
+    setup or Luca home, and relaunch into the same personal home without shell or database intervention.
+  - Prove that no public Buzz branding or workspace, organization, community, invite, hosted-account or relay-URL setup appears,
+    and that forced provisioning failure renders a Luca-owned retry/error state rather than Buzz community onboarding.
   - 'Prove the task-specific objective exactly: Verify native shell, windows, focus and clean-profile startup; stubs or narrative
     are not substitutes for the named evidence.'
   - Preserve every global invariant in TASK_GRAPH.yaml and stop on a contract contradiction.
@@ -1512,6 +1539,8 @@ task_capsules:
   - The focused F11 test commands pass; any milestone-only command is run by the integrator before M1 gate evaluation.
   - Observed evidence demonstrates 'Verify native shell, windows, focus and clean-profile startup' with no replacement by
     an unrelated fixture or unverified narrative.
+  - native_clean_profile records the real Tauri clean-profile and relaunch proof; synthetic or browser-only execution cannot
+    satisfy this output.
   - Owned-file diff contains no forbidden path and no unapproved shared-file edit.
   - Artifact scan contains no raw key, credential, protected body or absolute local source path.
   - All P0/P1 findings are closed by evidence; accepted lower findings appear in known limits.

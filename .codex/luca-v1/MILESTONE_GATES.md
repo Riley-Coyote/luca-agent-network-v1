@@ -25,6 +25,8 @@ and the feature is removed; this does not block the simplified product.
 - continuity-absent conversation harness;
 - clean-profile native shell and public-brand audit;
 - no conductor path or organization-first blocker;
+- a real native clean profile automatically provisions/selects its internal
+  personal-home tenancy and never exposes Buzz community/workspace setup;
 - upstream messaging regression suite;
 - resident registry/setup, real ACP provider and owner-recovery proof;
 - installed-app threads, attachments/media and search smoke;

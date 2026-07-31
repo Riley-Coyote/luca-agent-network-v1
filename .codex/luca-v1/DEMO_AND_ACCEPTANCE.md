@@ -6,7 +6,9 @@ The main recording uses a clean seeded profile and no hidden shell/database
 intervention.
 
 1. **Home.** Luca opens to a calm personal agent home with three distinct
-   residents. No conductor or organization setup is present.
+   residents. No conductor, Buzz branding, community, workspace, organization,
+   invite, hosted-account or relay-URL setup is present. The internal personal-
+   home tenancy is provisioned or selected without owner action.
 2. **Direct continuity.** The owner opens one resident, asks about a live
    unfinished concern, and receives a response grounded in its Capsule. The UI
    shows the exact Capsule heads used without exposing bodies.
