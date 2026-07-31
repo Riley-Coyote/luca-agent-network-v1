@@ -1075,10 +1075,19 @@ task_capsules:
   - RESIDENT_BACKUP_RESTORE_SPEC.md::owner-identity-recovery
   - target:desktop/src-tauri/src/luca/owner_identity_recovery.rs
   - target:tests/luca-conformance/owner_identity_recovery/**
+  - F19_OWNER_RECOVERY_AMENDMENT.md
   owns:
     include:
     - desktop/src-tauri/src/luca/owner_identity_recovery.rs
     - desktop/src-tauri/src/luca/mod.rs
+    - desktop/src-tauri/src/commands/identity.rs
+    - desktop/src-tauri/src/lib.rs
+    - desktop/src-tauri/src/app_state.rs
+    - desktop/src-tauri/src/secret_store.rs
+    - desktop/src/shared/api/tauriIdentity.ts
+    - desktop/src/features/onboarding/ui/BackupStep.tsx
+    - desktop/src/features/onboarding/ui/KeyringLockedScreen.tsx
+    - desktop/src/features/settings/ui/ProfileSettingsCard.tsx
     - tests/luca-conformance/owner_identity_recovery/**
     - evidence/M1/F19/**
     forbid:
