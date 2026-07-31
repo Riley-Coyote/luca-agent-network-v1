@@ -18,6 +18,8 @@ type E2eWindow = Window & {
   __BUZZ_E2E__?: unknown;
 };
 
+const VISION_DEMO_PARAM = "vision";
+const VISION_DEMO_VALUE = "demo";
 const E2E_DEFAULT_PUBKEY = "deadbeef".repeat(8);
 const E2E_COMMUNITY_ID = "e2e-default-community";
 const ONBOARDING_COMPLETION_STORAGE_KEY_PREFIX = "buzz-onboarding-complete.v1:";
@@ -93,6 +95,21 @@ function renderApp() {
   );
 }
 
+async function renderVisionDemoIfRequested(): Promise<boolean> {
+  const url = new URL(window.location.href);
+  if (url.searchParams.get(VISION_DEMO_PARAM) !== VISION_DEMO_VALUE) {
+    return false;
+  }
+
+  const { VisionDemoApp } = await import("@/vision-demo/VisionDemoApp");
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode>
+      <VisionDemoApp />
+    </React.StrictMode>,
+  );
+  return true;
+}
+
 async function installE2eBridgeIfConfigured() {
   // The mock bridge is compiled only into dev and explicit E2E builds. A
   // pre-bootstrap global alone must never activate mock IPC in production.
@@ -108,6 +125,9 @@ async function installE2eBridgeIfConfigured() {
 }
 
 async function bootstrap() {
+  if (await renderVisionDemoIfRequested()) {
+    return;
+  }
   resetDevWebviewStateFromUrl();
   configureDevE2eBridgeFromUrl();
   await installE2eBridgeIfConfigured();
