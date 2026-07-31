@@ -2,12 +2,14 @@ import * as React from "react";
 import { type QueryStatus, useQueryClient } from "@tanstack/react-query";
 
 import { useIdentityQuery } from "@/shared/api/hooks";
+import {
+  LUCA_OWNER_ONBOARDING_COMPLETION_STORAGE_KEY,
+  notifyLucaOwnerOnboardingCompleted,
+} from "./ownerOnboarding";
 
 const MACHINE_ONBOARDING_COMPLETION_STORAGE_KEY =
   "buzz-machine-onboarding-complete.v2";
 const LEGACY_ONBOARDING_COMPLETION_STORAGE_KEY = "buzz-onboarding-complete.v1";
-export const LUCA_OWNER_ONBOARDING_COMPLETION_STORAGE_KEY =
-  "luca-owner-onboarding-complete.v1";
 
 type MachineOnboardingStage =
   | "blocking"
@@ -49,6 +51,7 @@ export function markMachineOnboardingComplete(pubkey: string) {
     LUCA_OWNER_ONBOARDING_COMPLETION_STORAGE_KEY,
     "true",
   );
+  notifyLucaOwnerOnboardingCompleted();
 }
 
 function clearMachineOnboardingCompletion(pubkey: string | null) {
@@ -83,7 +86,10 @@ export function migrateMachineOnboardingCompletion(
   isSharedIdentity: boolean,
 ) {
   if (forceMachineOnboarding()) return false;
-  if (readMachineOnboardingCompletion(pubkey)) return true;
+  if (readMachineOnboardingCompletion(pubkey)) {
+    markMachineOnboardingComplete(pubkey);
+    return true;
+  }
 
   const completedLegacyOnboarding =
     window.localStorage.getItem(

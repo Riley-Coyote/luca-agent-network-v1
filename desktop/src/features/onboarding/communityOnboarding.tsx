@@ -3,10 +3,9 @@ import {
   normalizeRelayUrl,
 } from "@/features/communities/communityStorage";
 import { setLocalStorageItemWithRecovery } from "@/shared/lib/localStorageQuota";
+import { LUCA_OWNER_ONBOARDING_COMPLETED_EVENT } from "./ownerOnboarding";
 
 const STORAGE_KEY = "buzz-community-onboarding-transaction.v1";
-const LUCA_OWNER_ONBOARDING_COMPLETION_STORAGE_KEY =
-  "luca-owner-onboarding-complete.v1";
 
 export type CommunityOnboardingSource =
   | "first-community"
@@ -124,7 +123,12 @@ export function loadCommunityOnboardingTransaction(
     const raw = storage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
-    return isTransaction(parsed) ? parsed : null;
+    if (!isTransaction(parsed)) return null;
+    if (parsed.source === "first-community") {
+      clearCommunityOnboardingTransaction(storage);
+      return null;
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -145,19 +149,6 @@ export function clearCommunityOnboardingTransaction(
   storage: Storage = localStorage,
 ): void {
   storage.removeItem(STORAGE_KEY);
-}
-
-function loadLucaSafeCommunityOnboardingTransaction() {
-  const transaction = loadCommunityOnboardingTransaction();
-  if (
-    transaction?.source === "first-community" &&
-    localStorage.getItem(LUCA_OWNER_ONBOARDING_COMPLETION_STORAGE_KEY) ===
-      "true"
-  ) {
-    clearCommunityOnboardingTransaction();
-    return null;
-  }
-  return transaction;
 }
 
 export function startCommunityOnboarding(
@@ -286,7 +277,7 @@ export function CommunityOnboardingProvider({
   children: React.ReactNode;
 }) {
   const [transaction, setTransaction] = React.useState(
-    loadLucaSafeCommunityOnboardingTransaction,
+    loadCommunityOnboardingTransaction,
   );
   const start = React.useCallback(
     (input: StartCommunityOnboardingInput) => {
@@ -312,6 +303,29 @@ export function CommunityOnboardingProvider({
   const clear = React.useCallback(() => {
     clearCommunityOnboardingTransaction();
     setTransaction(null);
+  }, []);
+  React.useEffect(() => {
+    const discardLegacyFirstCommunity = () => {
+      setTransaction((current) => {
+        if (current?.source !== "first-community") return current;
+        clearCommunityOnboardingTransaction();
+        return null;
+      });
+      const persisted = loadCommunityOnboardingTransaction();
+      if (persisted?.source === "first-community") {
+        clearCommunityOnboardingTransaction();
+      }
+    };
+    window.addEventListener(
+      LUCA_OWNER_ONBOARDING_COMPLETED_EVENT,
+      discardLegacyFirstCommunity,
+    );
+    return () => {
+      window.removeEventListener(
+        LUCA_OWNER_ONBOARDING_COMPLETED_EVENT,
+        discardLegacyFirstCommunity,
+      );
+    };
   }, []);
   const value = React.useMemo(
     () => ({ transaction, start, update, clear }),

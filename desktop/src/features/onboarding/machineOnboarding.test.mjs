@@ -171,6 +171,8 @@ test("migrate_already_completed_pubkey_returns_true_immediately", () => {
     // Value was already there; the function should not have touched it
     // (but a redundant write is also acceptable — just verify it's still true).
     assert.equal(storage.getItem(V2_KEY), "true");
+    assert.equal(storage.getItem(LEGACY_KEY), "true");
+    assert.equal(storage.getItem("luca-owner-onboarding-complete.v1"), "true");
   });
 });
 

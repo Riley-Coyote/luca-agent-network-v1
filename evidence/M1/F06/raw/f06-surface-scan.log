@@ -1,2 +1,35 @@
-F06 reachable-brand scan
-F06 evidence absolute-path scan
+F06 reachable onboarding surface and evidence scan
+
+Repository-relative source scope:
+- desktop/src/features/onboarding/communityOnboarding.tsx
+- desktop/src/features/onboarding/machineOnboarding.ts
+- desktop/src/features/onboarding/ownerOnboarding.ts
+- desktop/src/features/onboarding/ui/LandingBees.tsx
+- desktop/src/features/onboarding/ui/MachineOnboardingFlow.tsx
+- desktop/src/features/onboarding/ui/BackupStep.tsx
+- desktop/src/features/onboarding/ui/SetupStep.tsx
+- desktop/src/features/onboarding/ui/DefaultConfigStep.tsx
+- desktop/src/features/onboarding/ui/RecoveryScreen.tsx
+- desktop/src/features/onboarding/ui/KeyringLockedScreen.tsx
+- desktop/src/features/onboarding/ui/RelaunchRequiredScreen.tsx
+- desktop/src/features/onboarding/ui/ResetFailedScreen.tsx
+
+Repository-relative evidence scope:
+- evidence/M1/F06/raw/f06-build-e2e.log
+- evidence/M1/F06/raw/f06-playwright.log
+- evidence/M1/F06/raw/f06-contracts.log
+- evidence/M1/F06/raw/f06-surface-scan.log
+
+Checks performed:
+- Reachable inherited mark imports/usages: BuzzMark, FlappingBee, buzz-wordmark.png
+  Matches: 0
+- Visible legacy product token in JSX copy: Buzz
+  Matches: 0
+- First-run infrastructure prompts: workspace, organization, invite, relay URL, starter team
+  Matches: 0
+- Literal credential patterns in product source: nsec1, private_key_nsec, 64-hex assignments
+  Matches: 0
+- Absolute macOS home and temporary-directory path prefixes in F06 evidence
+  Matches: 0
+
+Result: PASS

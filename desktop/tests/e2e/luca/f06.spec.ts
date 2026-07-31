@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { hexToBytes } from "@noble/hashes/utils.js";
+import { nsecEncode } from "nostr-tools/nip19";
 
 import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
 import { seedActiveIdentity } from "../../helpers/onboarding";
@@ -135,7 +137,7 @@ test("F06: single-owner setup protects key material and makes recovery limits ex
   expect(consoleErrors).toEqual([]);
 });
 
-test("F06: first-owner connection uses personal-home copy", async ({
+test("F06: upgraded owner with only the machine marker discards first-community state", async ({
   page,
 }) => {
   const blankOwner = { ...TEST_IDENTITIES.alice, username: "" };
@@ -144,11 +146,6 @@ test("F06: first-owner connection uses personal-home copy", async ({
     ({ pubkey }) => {
       window.localStorage.setItem(
         `buzz-machine-onboarding-complete.v2:${pubkey}`,
-        "true",
-      );
-      window.localStorage.setItem("luca-owner-onboarding-complete.v1", "true");
-      window.localStorage.setItem(
-        `buzz-onboarding-complete.v1:${pubkey}`,
         "true",
       );
       const timestamp = new Date().toISOString();
@@ -178,45 +175,37 @@ test("F06: first-owner connection uses personal-home copy", async ({
   await expect(page.getByTestId("community-onboarding-flow")).toHaveCount(0);
 });
 
-test("F06: completed Luca owner discards a legacy first-community profile transaction", async ({
+test("F06: machine completion clears first-community state created in the same session", async ({
   page,
 }) => {
-  const blankOwner = { ...TEST_IDENTITIES.alice, username: "" };
-  await seedActiveIdentity(page, blankOwner);
-  await page.addInitScript(
-    ({ pubkey }) => {
-      window.localStorage.setItem(
-        `buzz-machine-onboarding-complete.v2:${pubkey}`,
-        "true",
-      );
-      window.localStorage.setItem("luca-owner-onboarding-complete.v1", "true");
-      window.localStorage.setItem(
-        `buzz-onboarding-complete.v1:${pubkey}`,
-        "true",
-      );
-      const timestamp = new Date().toISOString();
-      window.localStorage.setItem(
-        "buzz-community-onboarding-transaction.v1",
-        JSON.stringify({
-          id: "f06-first-owner",
-          source: "first-community",
-          stage: "profile",
-          relayUrl: "wss://default.example.com",
-          communityName: "Default",
-          communityId: "e2e-default-community",
-          addedCommunity: true,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        }),
-      );
-    },
-    { pubkey: blankOwner.pubkey },
+  await installMockBridge(
+    page,
+    { acpRuntimesCatalog: [READY_CODEX_RUNTIME] },
+    { skipCommunitySeed: true, skipOnboardingSeed: true },
   );
-  await installMockBridge(page, undefined, {
-    relayWsUrl: "wss://default.example.com",
-    skipOnboardingSeed: true,
-  });
   await page.goto("/");
+
+  await page.evaluate(() => {
+    const timestamp = new Date().toISOString();
+    window.localStorage.setItem(
+      "buzz-community-onboarding-transaction.v1",
+      JSON.stringify({
+        id: "f06-same-session-first-community",
+        source: "first-community",
+        stage: "profile",
+        relayUrl: "wss://default.example.com",
+        communityName: "Default",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }),
+    );
+  });
+
+  await page.getByRole("button", { name: "Create owner identity" }).click();
+  await page.getByTestId("onboarding-next").click();
+  await page.getByTestId("onboarding-setup-next").click();
+  await expect(page.getByTestId("onboarding-finish")).toBeEnabled();
+  await page.getByTestId("onboarding-finish").click();
 
   await expect(page.getByTestId("app-sidebar")).toBeVisible();
   await expect(page.getByTestId("community-onboarding-flow")).toHaveCount(0);
@@ -243,4 +232,48 @@ test("F06: existing identity input stays masked", async ({ page }) => {
   const input = page.getByTestId("nostr-import-nsec-input");
   await expect(input).toHaveAttribute("type", "password");
   await expect(page.getByTestId("nostr-import-reveal-toggle")).toHaveCount(0);
+});
+
+test("F06: lost owner recovery remains Luca-owned", async ({ page }) => {
+  await installMockBridge(
+    page,
+    { identityLost: true },
+    { skipOnboardingSeed: true },
+  );
+  await page.goto("/");
+
+  await expect(
+    page.getByRole("heading", { name: "Re-import your key" }),
+  ).toBeVisible();
+  await expect(page.getByText(/Buzz/)).toHaveCount(0);
+  await expect(
+    page.locator('[data-testid="machine-onboarding-gate"] svg'),
+  ).toHaveCount(0);
+
+  const importedNsec = nsecEncode(hexToBytes(TEST_IDENTITIES.alice.privateKey));
+  await page.getByTestId("nostr-import-nsec-input").fill(importedNsec);
+  await page.getByTestId("nostr-import-submit").click();
+  await expect(page.getByTestId("relaunch-required")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Relaunch Luca" }),
+  ).toBeVisible();
+  await expect(page.getByText(/Buzz/)).toHaveCount(0);
+});
+
+test("F06: locked owner recovery remains Luca-owned", async ({ page }) => {
+  await installMockBridge(
+    page,
+    { identityLocked: true },
+    { skipOnboardingSeed: true },
+  );
+  await page.goto("/");
+
+  await expect(page.getByTestId("keyring-locked")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Relaunch Luca" }),
+  ).toBeVisible();
+  await expect(page.getByText(/Buzz/)).toHaveCount(0);
+  await expect(page.getByTestId("keyring-locked").locator("svg")).toHaveCount(
+    0,
+  );
 });

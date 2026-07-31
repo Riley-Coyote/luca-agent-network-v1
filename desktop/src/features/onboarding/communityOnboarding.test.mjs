@@ -138,6 +138,25 @@ test("malformed persisted state is ignored and can be cleared", () => {
   assert.equal(storage.length, 0);
 });
 
+test("legacy first-community state is discarded whenever it is loaded", () => {
+  const key = "buzz-community-onboarding-transaction.v1";
+  const timestamp = "2026-07-31T00:00:00.000Z";
+  const storage = createMemoryStorage({
+    [key]: JSON.stringify({
+      id: "legacy-first-community",
+      source: "first-community",
+      stage: "profile",
+      relayUrl: "wss://relay.example",
+      communityName: "Legacy",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }),
+  });
+
+  assert.equal(loadCommunityOnboardingTransaction(storage), null);
+  assert.equal(storage.getItem(key), null);
+});
+
 test("completion is scoped by relay and pubkey and preserves legacy gate", () => {
   const storage = createMemoryStorage();
   markCommunityOnboardingComplete("pubkey", "wss://relay.example", storage);
