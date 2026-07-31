@@ -19,10 +19,11 @@ use super::local_broker_session::{
     LocalBrokerCaller, LocalBrokerSession, LocalBrokerSessionBinding, LocalBrokerSessionError,
     MessagePublishAuthorization, RelayAuthAuthorization,
 };
+#[cfg(test)]
+use super::managed_message_outbox::UnavailableManagedMessagePublicationAuthority;
 use super::managed_message_outbox::{
     FrozenManagedMessageEvent, ManagedMessageOutbox, ManagedMessageOutboxError,
     ManagedMessagePublicationAuthority, ManagedOutboxState, ManagedPublicationAuthorityError,
-    UnavailableManagedMessagePublicationAuthority,
 };
 use super::signing_transport::{read_next_frame, write_frame, SigningTransportError};
 
@@ -124,6 +125,7 @@ pub(crate) struct ResidentSigningBroker {
 
 impl ResidentSigningBroker {
     /// Bind desktop-held resident keys to one already-spawned ACP session.
+    #[cfg(test)]
     pub(crate) fn new(
         resident_keys: Keys,
         binding: LocalBrokerSessionBinding,
@@ -140,6 +142,7 @@ impl ResidentSigningBroker {
     /// F09/runtime may supply this adapter at construction time; the signing
     /// broker remains the sole owner of event construction, signing and outbox
     /// result derivation.
+    #[cfg(test)]
     pub(crate) fn new_with_publication_authority(
         resident_keys: Keys,
         binding: LocalBrokerSessionBinding,
@@ -162,28 +165,33 @@ impl ResidentSigningBroker {
         resident_keys: Keys,
         binding: LocalBrokerSessionBinding,
         outbox_path: PathBuf,
-        mut publication_authority: Box<dyn ManagedMessagePublicationAuthority>,
+        publication_authority: Box<dyn ManagedMessagePublicationAuthority>,
     ) -> Result<Self, SigningBrokerError> {
         if resident_keys.public_key().to_hex() != binding.resident_pubkey.as_str() {
             return Err(SigningBrokerError::ResidentKeyMismatch);
         }
         let passphrase = derive_outbox_passphrase(&resident_keys)?;
-        let mut message_outbox = ManagedMessageOutbox::load_encrypted(
+        let message_outbox = ManagedMessageOutbox::load_encrypted(
             binding.installation_session_id.clone(),
             outbox_path,
             passphrase,
         )?;
-        publication_authority
-            .reconcile_on_start(&mut message_outbox, &binding.installation_session_id)
-            .map_err(|_| {
-                SigningBrokerError::MessagePublication(ManagedMessageOutboxError::Persistence)
-            })?;
         Ok(Self {
             resident_keys,
             session: LocalBrokerSession::new(binding)?,
             message_outbox,
             publication_authority,
         })
+    }
+
+    /// Reconcile a bounded startup slice on the dedicated broker thread.
+    pub(crate) fn reconcile_publication_outbox(&mut self) -> Result<(), SigningBrokerError> {
+        let installation_session_id = self.session.binding().installation_session_id.clone();
+        self.publication_authority
+            .reconcile_on_start(&mut self.message_outbox, &installation_session_id)
+            .map_err(|_| {
+                SigningBrokerError::MessagePublication(ManagedMessageOutboxError::Persistence)
+            })
     }
 
     /// Process either frozen operation while sharing one sequence/session gate.
@@ -324,6 +332,9 @@ impl ResidentSigningBroker {
             let now_unix_ms = system_now_unix_ms()?;
             let result = self.handle_frame(&frame, caller, now_unix_ms)?;
             write_frame(stream, &result)?;
+            if let Err(error) = self.reconcile_publication_outbox() {
+                eprintln!("luca-signing: managed publication reconciliation deferred: {error}");
+            }
         }
         self.session.invalidate();
         Ok(())
@@ -411,26 +422,34 @@ impl ResidentSigningBroker {
         request: &ManagedMessagePublishRequestV1,
         now_unix_secs: u64,
     ) -> ManagedMessagePublishResultV1 {
-        if let Err(error) = self
-            .publication_authority
-            .authorize_request(request, now_unix_secs)
-        {
-            return error.into_protocol_result();
-        }
-        let prepared = self
-            .build_managed_message_event(request, now_unix_secs)
-            .and_then(|event| {
-                let frozen = FrozenManagedMessageEvent::parse(event, request)?;
-                self.message_outbox.prepare(
-                    request,
-                    frozen,
-                    &self.session.binding().installation_session_id,
-                    request.cancellation_epoch.get(),
-                    false,
-                )
-            });
-        let prepared = match prepared {
-            Ok(prepared) => prepared,
+        let prepared = match self.message_outbox.preflight_existing(request) {
+            Ok(Some(existing)) => existing,
+            Ok(None) => {
+                if let Err(error) = self
+                    .publication_authority
+                    .authorize_request(request, now_unix_secs)
+                {
+                    return error.into_protocol_result();
+                }
+                let prepared = self
+                    .build_managed_message_event(request, now_unix_secs)
+                    .and_then(|event| {
+                        let frozen = FrozenManagedMessageEvent::parse(event, request)?;
+                        self.message_outbox.prepare(
+                            request,
+                            frozen,
+                            &self.session.binding().installation_session_id,
+                            request.cancellation_epoch.get(),
+                            false,
+                        )
+                    });
+                match prepared {
+                    Ok(prepared) => prepared,
+                    Err(_) => {
+                        return ManagedPublicationAuthorityError::Invalid.into_protocol_result()
+                    }
+                }
+            }
             Err(_) => return ManagedPublicationAuthorityError::Invalid.into_protocol_result(),
         };
         match prepared.state {
@@ -988,5 +1007,84 @@ mod tests {
                 vec!["p".to_owned(), hex('f').as_str().to_owned()],
             ]
         );
+    }
+
+    struct DenyingCountingAuthority {
+        authorize_calls: Arc<Mutex<usize>>,
+    }
+
+    impl ManagedMessagePublicationAuthority for DenyingCountingAuthority {
+        fn authorize_request(
+            &mut self,
+            _request: &ManagedMessagePublishRequestV1,
+            _now_unix_secs: u64,
+        ) -> Result<(), ManagedPublicationAuthorityError> {
+            *self.authorize_calls.lock().expect("counter") += 1;
+            Err(ManagedPublicationAuthorityError::Denied)
+        }
+
+        fn publish_prepared(
+            &mut self,
+            _request: &ManagedMessagePublishRequestV1,
+            _outbox: &mut ManagedMessageOutbox,
+            _installation_session_id: &OpaqueId,
+        ) -> Result<(), ManagedPublicationAuthorityError> {
+            Err(ManagedPublicationAuthorityError::Denied)
+        }
+    }
+
+    #[test]
+    fn luca_signing_broker_desktop_restart_replays_exact_accepted_request_before_fresh_authority() {
+        let keys = Keys::parse(&"0b".repeat(32)).expect("valid fixture key");
+        let runtime = hex('c');
+        let binding = LocalBrokerSessionBinding {
+            owner_pubkey: hex('a'),
+            resident_pubkey: Hex64::parse(keys.public_key().to_hex())
+                .expect("valid resident pubkey"),
+            acp_pid: 8123,
+            session_epoch: SafeU53::new(4).expect("valid epoch"),
+            runtime_configuration_sha256: runtime,
+            installation_session_id: OpaqueId::parse("installation-restart")
+                .expect("valid installation ID"),
+            relay_url: "wss://relay.example.test".to_owned(),
+            relay_query_url: "https://relay.example.test/query".to_owned(),
+            owner_attestation: None,
+        };
+        let outbox_path = tempfile::tempdir()
+            .expect("temp")
+            .keep()
+            .join("managed-outbox.age");
+        let captured_event = Arc::new(Mutex::new(None));
+        let mut first = ResidentSigningBroker::new_persistent_with_publication_authority(
+            keys.clone(),
+            binding.clone(),
+            outbox_path.clone(),
+            Box::new(AcceptingPublicationAuthority {
+                captured_event: Arc::clone(&captured_event),
+            }),
+        )
+        .expect("first broker");
+        let request = publish_request(&first);
+        assert!(matches!(
+            first.prepare_and_publish_message(&request, 1_700_000_000),
+            ManagedMessagePublishResultV1::Published { .. }
+        ));
+        drop(first);
+
+        let authorize_calls = Arc::new(Mutex::new(0));
+        let mut restarted = ResidentSigningBroker::new_persistent_with_publication_authority(
+            keys,
+            binding,
+            outbox_path,
+            Box::new(DenyingCountingAuthority {
+                authorize_calls: Arc::clone(&authorize_calls),
+            }),
+        )
+        .expect("restarted broker");
+        assert!(matches!(
+            restarted.prepare_and_publish_message(&request, 1_700_000_001),
+            ManagedMessagePublishResultV1::Replayed { .. }
+        ));
+        assert_eq!(*authorize_calls.lock().expect("counter"), 0);
     }
 }

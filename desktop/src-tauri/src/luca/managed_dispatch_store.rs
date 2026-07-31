@@ -58,6 +58,8 @@ pub(crate) struct ActiveDispatch {
     #[serde(default)]
     pub submitted_event_id: Option<String>,
     pub published_event_id: Option<String>,
+    #[serde(default)]
+    pub outbox_finalized: bool,
 }
 
 /// Durable decision for one exact encrypted-outbox restart entry.
@@ -112,19 +114,18 @@ impl ManagedDispatchStore {
             if persisted.schema != STORE_SCHEMA || persisted.dispatches.len() > MAX_DISPATCHES {
                 return Err("managed dispatch store schema or row count is invalid".into());
             }
-            persisted
-                .dispatches
-                .into_iter()
-                .map(|dispatch| {
-                    (
-                        (
-                            dispatch.trigger_event_id.clone(),
-                            dispatch.resident_pubkey.clone(),
-                        ),
-                        dispatch,
-                    )
-                })
-                .collect()
+            let mut dispatches = HashMap::with_capacity(persisted.dispatches.len());
+            for dispatch in persisted.dispatches {
+                validate_dispatch(&dispatch)?;
+                let key = (
+                    dispatch.trigger_event_id.clone(),
+                    dispatch.resident_pubkey.clone(),
+                );
+                if dispatches.insert(key, dispatch).is_some() {
+                    return Err("managed dispatch store contains duplicate rows".into());
+                }
+            }
+            dispatches
         } else {
             HashMap::new()
         };
@@ -197,6 +198,7 @@ impl ManagedDispatchStore {
                 state: ManagedDispatchState::Pending,
                 submitted_event_id: None,
                 published_event_id: None,
+                outbox_finalized: false,
             };
             if let Some(existing) = self.dispatches.get(&key) {
                 if existing.trigger_event_id != candidate.trigger_event_id
@@ -208,6 +210,7 @@ impl ManagedDispatchStore {
                     || existing.reply_event_id != candidate.reply_event_id
                     || existing.resolved_p_tags != candidate.resolved_p_tags
                     || existing.submitted_event_id != candidate.submitted_event_id
+                    || existing.outbox_finalized != candidate.outbox_finalized
                 {
                     return Err("managed dispatch id collision".into());
                 }
@@ -221,6 +224,10 @@ impl ManagedDispatchStore {
             staged.push(key);
         }
         self.prune(now_unix_secs);
+        if self.dispatches.len() > MAX_DISPATCHES {
+            self.dispatches = previous;
+            return Err("managed dispatch store has no terminal capacity".into());
+        }
         if let Err(error) = self.persist() {
             self.dispatches = previous;
             return Err(error);
@@ -382,11 +389,9 @@ impl ManagedDispatchStore {
             };
             (dispatch.clone(), newly_bound)
         };
-        if newly_bound {
-            if self.persist().is_err() {
-                self.dispatches = previous;
-                return Err(DispatchAuthorizationError::Persistence);
-            }
+        if newly_bound && self.persist().is_err() {
+            self.dispatches = previous;
+            return Err(DispatchAuthorizationError::Persistence);
         }
         Ok(authorized)
     }
@@ -477,9 +482,7 @@ impl ManagedDispatchStore {
                 request.resident_pubkey.as_str().to_owned(),
             ))
             .ok_or(DispatchAuthorizationError::Unknown)?;
-        if now_unix_secs > dispatch.expires_at {
-            return Err(DispatchAuthorizationError::Expired);
-        }
+        let _ = now_unix_secs;
         if request.owner_pubkey.as_str() != dispatch.owner_pubkey {
             return Err(DispatchAuthorizationError::WrongOwner);
         }
@@ -525,14 +528,17 @@ impl ManagedDispatchStore {
     ///
     /// The original broker epoch remains authoritative for these frozen bytes;
     /// this never transfers a dispatch to the replacement session.
-    pub(crate) fn begin_reconciled_submission(
+    pub(crate) fn bind_reconciled_submission(
         &mut self,
         request: &ManagedMessagePublishRequestV1,
         event_id: &str,
         now_unix_secs: u64,
     ) -> Result<ManagedDispatchReconciliation, DispatchAuthorizationError> {
         let decision = self.authorize_reconciliation(request, event_id, now_unix_secs)?;
-        if decision != ManagedDispatchReconciliation::Ready {
+        if !matches!(
+            decision,
+            ManagedDispatchReconciliation::Ready | ManagedDispatchReconciliation::Cancelled
+        ) {
             return Ok(decision);
         }
         let key = (
@@ -588,11 +594,56 @@ impl ManagedDispatchStore {
         }
         dispatch.state = ManagedDispatchState::Published;
         dispatch.published_event_id = Some(event_id.to_owned());
+        dispatch.outbox_finalized = false;
         if let Err(error) = self.persist() {
             self.dispatches = previous;
             return Err(error);
         }
         Ok(())
+    }
+
+    /// Confirm the encrypted outbox durably retained relay acceptance.
+    pub(crate) fn finalize_published_outbox(
+        &mut self,
+        trigger_event_id: &str,
+        resident_pubkey: &str,
+        event_id: &str,
+    ) -> Result<(), String> {
+        let previous = self.dispatches.clone();
+        let dispatch = self
+            .dispatches
+            .get_mut(&(trigger_event_id.to_owned(), resident_pubkey.to_owned()))
+            .ok_or_else(|| "managed dispatch not found".to_string())?;
+        if dispatch.state != ManagedDispatchState::Published
+            || dispatch.submitted_event_id.as_deref() != Some(event_id)
+            || dispatch.published_event_id.as_deref() != Some(event_id)
+        {
+            return Err("managed dispatch publication is not coherent".into());
+        }
+        if dispatch.outbox_finalized {
+            return Ok(());
+        }
+        dispatch.outbox_finalized = true;
+        if let Err(error) = self.persist() {
+            self.dispatches = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Finish cross-store acceptance after restart, or confirm the row was
+    /// already safely compacted after a prior durable finalization.
+    pub(crate) fn recover_published_outbox_finalization(
+        &mut self,
+        trigger_event_id: &str,
+        resident_pubkey: &str,
+        event_id: &str,
+    ) -> Result<(), String> {
+        let key = (trigger_event_id.to_owned(), resident_pubkey.to_owned());
+        if !self.dispatches.contains_key(&key) {
+            return Ok(());
+        }
+        self.finalize_published_outbox(trigger_event_id, resident_pubkey, event_id)
     }
 
     fn prune(&mut self, now_unix_secs: u64) {
@@ -602,6 +653,12 @@ impl ManagedDispatchStore {
         let mut rows: Vec<_> = self
             .dispatches
             .iter()
+            .filter(|(_, row)| {
+                matches!(
+                    row.state,
+                    ManagedDispatchState::Cancelled | ManagedDispatchState::Rejected
+                ) || (row.state == ManagedDispatchState::Published && row.outbox_finalized)
+            })
             .map(|(key, row)| (key.clone(), row.created_at, row.expires_at <= now_unix_secs))
             .collect();
         rows.sort_by_key(|(_, created_at, expired)| (!*expired, *created_at));
@@ -614,6 +671,9 @@ impl ManagedDispatchStore {
     }
 
     fn persist(&self) -> Result<(), String> {
+        if self.dispatches.len() > MAX_DISPATCHES {
+            return Err("managed dispatch store exceeds row limit".into());
+        }
         let parent = self
             .path
             .parent()
@@ -632,6 +692,74 @@ impl ManagedDispatchStore {
         .map_err(|error| format!("serialize managed dispatch store: {error}"))?;
         atomic_write_restricted(&self.path, &bytes)
     }
+}
+
+fn validate_dispatch(dispatch: &ActiveDispatch) -> Result<(), String> {
+    EventId::from_hex(&dispatch.trigger_event_id)
+        .map_err(|_| "managed dispatch trigger ID is invalid".to_string())?;
+    Hex64::parse(dispatch.owner_pubkey.clone())
+        .map_err(|_| "managed dispatch owner pubkey is invalid".to_string())?;
+    Hex64::parse(dispatch.resident_pubkey.clone())
+        .map_err(|_| "managed dispatch resident pubkey is invalid".to_string())?;
+    if dispatch.owner_pubkey == dispatch.resident_pubkey
+        || uuid::Uuid::parse_str(&dispatch.conversation_id).is_err()
+        || dispatch.created_at > dispatch.expires_at
+        || dispatch.expires_at.saturating_sub(dispatch.created_at) != DISPATCH_TTL_SECONDS
+        || dispatch.resolved_p_tags != vec![dispatch.owner_pubkey.clone()]
+    {
+        return Err("managed dispatch identity, timestamp, or recipient tuple is invalid".into());
+    }
+    let (Some(thread), Some(root), Some(reply)) = (
+        dispatch.thread_id.as_deref(),
+        dispatch.root_event_id.as_deref(),
+        dispatch.reply_event_id.as_deref(),
+    ) else {
+        return Err("managed dispatch routing tuple is incomplete".into());
+    };
+    EventId::from_hex(root).map_err(|_| "managed dispatch root ID is invalid".to_string())?;
+    EventId::from_hex(reply).map_err(|_| "managed dispatch reply ID is invalid".to_string())?;
+    if thread != format!("thread:{root}") {
+        return Err("managed dispatch thread tuple is invalid".into());
+    }
+    if let Some(submitted) = &dispatch.submitted_event_id {
+        EventId::from_hex(submitted)
+            .map_err(|_| "managed dispatch submitted ID is invalid".to_string())?;
+    }
+    if let Some(published) = &dispatch.published_event_id {
+        EventId::from_hex(published)
+            .map_err(|_| "managed dispatch published ID is invalid".to_string())?;
+    }
+    if dispatch.session_epoch == Some(0) {
+        return Err("managed dispatch session epoch is invalid".into());
+    }
+    let coherent = match dispatch.state {
+        ManagedDispatchState::Pending => {
+            dispatch.session_epoch.is_none()
+                && dispatch.submitted_event_id.is_none()
+                && dispatch.published_event_id.is_none()
+                && !dispatch.outbox_finalized
+        }
+        ManagedDispatchState::Active => {
+            dispatch.session_epoch.is_some()
+                && dispatch.published_event_id.is_none()
+                && !dispatch.outbox_finalized
+        }
+        ManagedDispatchState::Cancelled => {
+            dispatch.published_event_id.is_none() && !dispatch.outbox_finalized
+        }
+        ManagedDispatchState::Rejected => {
+            dispatch.published_event_id.is_none() && !dispatch.outbox_finalized
+        }
+        ManagedDispatchState::Published => {
+            dispatch.session_epoch.is_some()
+                && dispatch.submitted_event_id.is_some()
+                && dispatch.submitted_event_id == dispatch.published_event_id
+        }
+    };
+    if !coherent {
+        return Err("managed dispatch lifecycle tuple is invalid".into());
+    }
+    Ok(())
 }
 
 struct EventRouting {
@@ -743,6 +871,7 @@ mod tests {
         derive_message_publish_idempotency_key, OpaqueId, SafeU53, MESSAGE_PUBLISH_PROTOCOL,
     };
     use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
+    use sha2::{Digest, Sha256};
 
     const CHANNEL_ONE: &str = "11111111-1111-4111-8111-111111111111";
     const CHANNEL_TWO: &str = "22222222-2222-4222-8222-222222222222";
@@ -1289,5 +1418,117 @@ mod tests {
             .expect("dispatch");
         assert_eq!(row.state, ManagedDispatchState::Published);
         assert_eq!(row.published_event_id.as_deref(), Some(event_id.as_str()));
+    }
+
+    #[test]
+    fn strict_load_rejects_duplicate_and_impossible_rows() {
+        let owner = Keys::parse(&"81".repeat(32)).expect("owner");
+        let resident = Keys::parse(&"82".repeat(32)).expect("resident");
+        let trigger = event(&owner, &resident, CHANNEL_ONE, "load");
+        let temp = tempfile::tempdir().expect("temp");
+        let valid_path = temp.path().join("valid.json");
+        let mut store = ManagedDispatchStore::load(valid_path.clone()).expect("store");
+        store
+            .stage_owner_event(&trigger, &[resident.public_key().to_hex()], 100)
+            .expect("stage");
+        let valid: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&valid_path).expect("read")).expect("json");
+
+        let mut duplicate = valid.clone();
+        let row = duplicate["dispatches"][0].clone();
+        duplicate["dispatches"]
+            .as_array_mut()
+            .expect("rows")
+            .push(row);
+        let duplicate_path = temp.path().join("duplicate.json");
+        std::fs::write(
+            &duplicate_path,
+            serde_json::to_vec(&duplicate).expect("serialize"),
+        )
+        .expect("write");
+        assert!(ManagedDispatchStore::load(duplicate_path).is_err());
+
+        let mut corruptions = Vec::new();
+        let mut invalid_id = valid.clone();
+        invalid_id["dispatches"][0]["trigger_event_id"] = serde_json::json!("bad");
+        corruptions.push(invalid_id);
+        let mut invalid_conversation = valid.clone();
+        invalid_conversation["dispatches"][0]["conversation_id"] = serde_json::json!("bad");
+        corruptions.push(invalid_conversation);
+        let mut invalid_thread = valid.clone();
+        invalid_thread["dispatches"][0]["thread_id"] = serde_json::json!("thread:bad");
+        corruptions.push(invalid_thread);
+        let mut invalid_timestamps = valid.clone();
+        invalid_timestamps["dispatches"][0]["expires_at"] = serde_json::json!(101);
+        corruptions.push(invalid_timestamps);
+        let mut active_without_epoch = valid.clone();
+        active_without_epoch["dispatches"][0]["state"] = serde_json::json!("active");
+        active_without_epoch["dispatches"][0]["session_epoch"] = serde_json::Value::Null;
+        corruptions.push(active_without_epoch);
+        let mut incoherent_published = valid;
+        incoherent_published["dispatches"][0]["state"] = serde_json::json!("published");
+        incoherent_published["dispatches"][0]["session_epoch"] = serde_json::json!(9);
+        corruptions.push(incoherent_published);
+
+        for (index, corruption) in corruptions.into_iter().enumerate() {
+            let path = temp.path().join(format!("corrupt-{index}.json"));
+            std::fs::write(&path, serde_json::to_vec(&corruption).expect("serialize"))
+                .expect("write");
+            assert!(
+                ManagedDispatchStore::load(path).is_err(),
+                "corruption {index} must fail closed"
+            );
+        }
+    }
+
+    #[test]
+    fn capacity_pressure_never_prunes_unresolved_dispatches() {
+        let owner = Keys::parse(&"83".repeat(32)).expect("owner");
+        let resident = Keys::parse(&"84".repeat(32)).expect("resident");
+        let seed = event(&owner, &resident, CHANNEL_ONE, "seed");
+        let temp = tempfile::tempdir().expect("temp");
+        let mut store =
+            ManagedDispatchStore::load(temp.path().join("dispatches.json")).expect("store");
+        store
+            .stage_owner_event(&seed, &[resident.public_key().to_hex()], 100)
+            .expect("stage seed");
+        let template = store.dispatches.values().next().expect("template").clone();
+        store.dispatches.clear();
+        for index in 0..MAX_DISPATCHES {
+            let event_id = hex::encode(Sha256::digest(index.to_be_bytes()));
+            let mut row = template.clone();
+            row.trigger_event_id = event_id.clone();
+            row.root_event_id = Some(event_id.clone());
+            row.reply_event_id = Some(event_id.clone());
+            row.thread_id = Some(format!("thread:{event_id}"));
+            row.created_at = index as u64 + 1;
+            row.expires_at = row.created_at + DISPATCH_TTL_SECONDS;
+            store
+                .dispatches
+                .insert((event_id, row.resident_pubkey.clone()), row);
+        }
+        let next = event(&owner, &resident, CHANNEL_ONE, "next");
+        assert!(store
+            .stage_owner_event(&next, &[resident.public_key().to_hex()], 100)
+            .is_err());
+        assert_eq!(store.dispatches.len(), MAX_DISPATCHES);
+        assert!(!store
+            .dispatches
+            .contains_key(&(next.id.to_hex(), resident.public_key().to_hex())));
+
+        let terminal_key = store.dispatches.keys().next().expect("row").clone();
+        store
+            .dispatches
+            .get_mut(&terminal_key)
+            .expect("terminal")
+            .state = ManagedDispatchState::Cancelled;
+        store
+            .stage_owner_event(&next, &[resident.public_key().to_hex()], 100)
+            .expect("terminal compaction");
+        assert_eq!(store.dispatches.len(), MAX_DISPATCHES);
+        assert!(!store.dispatches.contains_key(&terminal_key));
+        assert!(store
+            .dispatches
+            .contains_key(&(next.id.to_hex(), resident.public_key().to_hex())));
     }
 }

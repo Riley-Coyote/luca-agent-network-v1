@@ -1968,7 +1968,7 @@ pub fn spawn_agent_child(
     let child_pid = child.id();
     let binding = crate::luca::local_broker_session::LocalBrokerSessionBinding {
         owner_pubkey,
-        resident_pubkey,
+        resident_pubkey: resident_pubkey.clone(),
         acp_pid: child_pid,
         session_epoch,
         runtime_configuration_sha256: runtime_configuration_sha256.clone(),
@@ -1977,8 +1977,44 @@ pub fn spawn_agent_child(
         relay_query_url,
         owner_attestation: owner_attestation.map(|(typed, _)| typed),
     };
+    let publisher_setup = (|| -> Result<_, String> {
+        let dispatch_store = crate::luca::managed_dispatch_store::global_dispatch_store(app)?;
+        dispatch_store
+            .lock()
+            .map_err(|_| "managed dispatch store lock is unavailable".to_string())?
+            .activate_session(resident_pubkey.as_str(), session_epoch.get())?;
+        let outbox_path = {
+            use tauri::Manager;
+            app.path()
+                .app_data_dir()
+                .map_err(|error| format!("resolve managed outbox directory: {error}"))?
+                .join("luca")
+                .join("managed-outbox")
+                .join(format!("{}.age", resident_pubkey.as_str()))
+        };
+        let publisher = crate::luca::managed_message_publisher::ManagedMessagePublisher::new(
+            resident_keys.clone(),
+            &effective_relay_url,
+            record.auth_tag.clone(),
+            dispatch_store,
+        )
+        .map_err(|error| format!("failed to bind managed message publisher: {error}"))?;
+        Ok((outbox_path, publisher))
+    })();
+    let (outbox_path, publisher) = match publisher_setup {
+        Ok(setup) => setup,
+        Err(error) => {
+            let _ = child.kill();
+            return Err(error);
+        }
+    };
     let mut broker =
-        match crate::luca::signing_broker::ResidentSigningBroker::new(resident_keys, binding) {
+        match crate::luca::signing_broker::ResidentSigningBroker::new_persistent_with_publication_authority(
+            resident_keys,
+            binding,
+            outbox_path,
+            Box::new(publisher),
+        ) {
             Ok(broker) => broker,
             Err(error) => {
                 let _ = child.kill();
@@ -1990,6 +2026,9 @@ pub fn spawn_agent_child(
     if let Err(error) = std::thread::Builder::new()
         .name(broker_thread_name)
         .spawn(move || {
+            if let Err(error) = broker.reconcile_publication_outbox() {
+                eprintln!("luca-signing: managed publication reconciliation deferred: {error}");
+            }
             let caller = crate::luca::local_broker_session::LocalBrokerCaller {
                 acp_pid: child_pid,
                 runtime_configuration_sha256: &runtime_configuration_sha256,

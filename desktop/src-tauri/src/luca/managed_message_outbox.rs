@@ -119,6 +119,7 @@ impl FrozenManagedMessageEvent {
     }
 
     /// Exact canonical signed event retained inside desktop authority.
+    #[cfg(test)]
     pub(crate) fn signed_event_json(&self) -> &str {
         &self.signed_event_json
     }
@@ -212,18 +213,22 @@ pub(crate) struct ManagedOutboxReceipt {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct ManagedOutboxEntry {
+    created_order: u64,
     request_sha256: Hex64,
     request: ManagedMessagePublishRequestV1,
     event: FrozenManagedMessageEvent,
     state: ManagedOutboxState,
     publication_receipt_id: Option<OpaqueId>,
     initial_result_delivered: bool,
+    authority_finalized: bool,
 }
 
 #[derive(Serialize, Deserialize)]
 struct PersistedManagedOutbox {
     schema: String,
     installation_session_id: OpaqueId,
+    next_order: u64,
+    reconcile_cursor: u64,
     entries: HashMap<String, ManagedOutboxEntry>,
 }
 
@@ -232,6 +237,8 @@ struct PersistedManagedOutbox {
 pub(crate) struct ManagedMessageOutbox {
     installation_session_id: OpaqueId,
     entries: HashMap<String, ManagedOutboxEntry>,
+    next_order: u64,
+    reconcile_cursor: u64,
     persistence_path: Option<PathBuf>,
     passphrase: Option<SecretString>,
 }
@@ -244,6 +251,7 @@ pub(crate) struct ManagedOutboxReconcileEntry {
     pub signed_event_json: String,
     pub state: ManagedOutboxState,
     pub request: ManagedMessagePublishRequestV1,
+    pub created_order: u64,
 }
 
 /// Typed failure returned by a desktop-owned publication authority.
@@ -313,8 +321,10 @@ pub(crate) trait ManagedMessagePublicationAuthority: Send {
 
 /// F14 default: validate and stage exactly, then report unavailable without
 /// closing the signing session or pretending network publication occurred.
+#[cfg(test)]
 pub(crate) struct UnavailableManagedMessagePublicationAuthority;
 
+#[cfg(test)]
 impl ManagedMessagePublicationAuthority for UnavailableManagedMessagePublicationAuthority {
     fn authorize_request(
         &mut self,
@@ -336,10 +346,13 @@ impl ManagedMessagePublicationAuthority for UnavailableManagedMessagePublication
 
 impl ManagedMessageOutbox {
     /// Create an empty outbox bound to the active desktop installation session.
+    #[cfg(test)]
     pub(crate) fn new(installation_session_id: OpaqueId) -> Self {
         Self {
             installation_session_id,
             entries: HashMap::new(),
+            next_order: 1,
+            reconcile_cursor: 0,
             persistence_path: None,
             passphrase: None,
         }
@@ -355,6 +368,8 @@ impl ManagedMessageOutbox {
             return Ok(Self {
                 installation_session_id,
                 entries: HashMap::new(),
+                next_order: 1,
+                reconcile_cursor: 0,
                 persistence_path: Some(path),
                 passphrase: Some(passphrase),
             });
@@ -381,8 +396,16 @@ impl ManagedMessageOutbox {
         }
         let persisted: PersistedManagedOutbox = serde_json::from_slice(&plaintext)
             .map_err(|_| ManagedMessageOutboxError::Persistence)?;
+        if canonicalize(&persisted)
+            .map(|canonical| canonical != plaintext)
+            .unwrap_or(true)
+        {
+            return Err(ManagedMessageOutboxError::Persistence);
+        }
         if persisted.schema != OUTBOX_SCHEMA
             || persisted.installation_session_id != installation_session_id
+            || persisted.next_order == 0
+            || persisted.reconcile_cursor >= persisted.next_order
             || persisted.entries.len() > MAX_OUTBOX_ENTRIES
         {
             return Err(ManagedMessageOutboxError::Persistence);
@@ -416,6 +439,9 @@ impl ManagedMessageOutbox {
                 || !event_matches_request
                 || !receipt_state_valid
                 || (entry.initial_result_delivered && entry.state != ManagedOutboxState::Accepted)
+                || (entry.authority_finalized && entry.state != ManagedOutboxState::Accepted)
+                || entry.created_order == 0
+                || entry.created_order >= persisted.next_order
             {
                 return Err(ManagedMessageOutboxError::Persistence);
             }
@@ -423,6 +449,8 @@ impl ManagedMessageOutbox {
         Ok(Self {
             installation_session_id,
             entries: persisted.entries,
+            next_order: persisted.next_order,
+            reconcile_cursor: persisted.reconcile_cursor,
             persistence_path: Some(path),
             passphrase: Some(passphrase),
         })
@@ -430,13 +458,14 @@ impl ManagedMessageOutbox {
 
     /// Submitted exact events that need relay query/resubmission on restart.
     pub(crate) fn reconciliation_entries(&self) -> Vec<ManagedOutboxReconcileEntry> {
-        self.entries
+        let mut entries: Vec<_> = self
+            .entries
             .iter()
             .filter(|(_, entry)| {
                 matches!(
                     entry.state,
                     ManagedOutboxState::Prepared | ManagedOutboxState::Submitted
-                )
+                ) || (entry.state == ManagedOutboxState::Accepted && !entry.authority_finalized)
             })
             .filter_map(|(key, entry)| {
                 Some(ManagedOutboxReconcileEntry {
@@ -445,9 +474,68 @@ impl ManagedMessageOutbox {
                     signed_event_json: entry.event.signed_event_json.clone(),
                     state: entry.state,
                     request: entry.request.clone(),
+                    created_order: entry.created_order,
                 })
             })
-            .collect()
+            .collect();
+        entries.sort_by_key(|entry| {
+            (
+                entry.created_order <= self.reconcile_cursor,
+                entry.created_order,
+            )
+        });
+        entries
+    }
+
+    /// Persist fair rotation after each attempted startup reconciliation row.
+    pub(crate) fn advance_reconcile_cursor(
+        &mut self,
+        created_order: u64,
+    ) -> Result<(), ManagedMessageOutboxError> {
+        if created_order == 0 || created_order >= self.next_order {
+            return Err(ManagedMessageOutboxError::InvalidTransition);
+        }
+        let previous = self.reconcile_cursor;
+        self.reconcile_cursor = created_order;
+        if let Err(error) = self.persist() {
+            self.reconcile_cursor = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Inspect an exact durable request before consulting fresh dispatch authority.
+    ///
+    /// This is the only path that lets a desktop-restart duplicate recover an
+    /// accepted receipt. Any semantic or event-binding drift under the same key
+    /// fails closed as an idempotency collision.
+    pub(crate) fn preflight_existing(
+        &self,
+        request: &ManagedMessagePublishRequestV1,
+    ) -> Result<Option<ManagedOutboxReceipt>, ManagedMessageOutboxError> {
+        request
+            .validate()
+            .map_err(|_| ManagedMessageOutboxError::InvalidRequest)?;
+        let Some(entry) = self.entries.get(request.idempotency_key.as_str()) else {
+            return Ok(None);
+        };
+        let request_sha256 = canonical_sha256(request)
+            .map_err(|_| ManagedMessageOutboxError::Canonicalization)
+            .and_then(|digest| {
+                Hex64::parse(digest).map_err(|_| ManagedMessageOutboxError::Canonicalization)
+            })?;
+        let event_matches =
+            FrozenManagedMessageEvent::parse(entry.event.signed_event_json.clone(), request)
+                .map(|event| {
+                    event.event_id == entry.event.event_id
+                        && event.event_sha256 == entry.event.event_sha256
+                        && event.content_sha256 == entry.event.content_sha256
+                })
+                .unwrap_or(false);
+        if entry.request_sha256 != request_sha256 || entry.request != *request || !event_matches {
+            return Err(ManagedMessageOutboxError::IdempotencyCollision);
+        }
+        Ok(Some(receipt_for(&request.idempotency_key, entry)))
     }
 
     /// Freeze exactly one signed final event before any network I/O.
@@ -491,22 +579,32 @@ impl ManagedMessageOutbox {
             return Ok(receipt_for(&request.idempotency_key, existing));
         }
 
+        let previous = self.entries.clone();
+        let previous_next_order = self.next_order;
+        let next_order = self
+            .next_order
+            .checked_add(1)
+            .ok_or(ManagedMessageOutboxError::Persistence)?;
+        self.compact_terminal_for_capacity();
         if self.entries.len() >= MAX_OUTBOX_ENTRIES {
             return Err(ManagedMessageOutboxError::Persistence);
         }
         let entry = ManagedOutboxEntry {
+            created_order: self.next_order,
             request_sha256,
             request: request.clone(),
             event,
             state: ManagedOutboxState::Prepared,
             publication_receipt_id: None,
             initial_result_delivered: false,
+            authority_finalized: false,
         };
         let receipt = receipt_for(&request.idempotency_key, &entry);
-        let previous = self.entries.clone();
+        self.next_order = next_order;
         self.entries.insert(key, entry);
         if let Err(error) = self.persist() {
             self.entries = previous;
+            self.next_order = previous_next_order;
             return Err(error);
         }
         Ok(receipt)
@@ -641,8 +739,8 @@ impl ManagedMessageOutbox {
         Ok(receipt)
     }
 
-    /// Record an explicit relay rejection so restart reconciliation cannot resend it.
-    pub(crate) fn mark_rejected(
+    /// Terminalize a startup-reconciled entry after durable dispatch rejection.
+    pub(crate) fn reject_during_reconciliation(
         &mut self,
         idempotency_key: &Hex64,
     ) -> Result<ManagedOutboxReceipt, ManagedMessageOutboxError> {
@@ -651,7 +749,10 @@ impl ManagedMessageOutbox {
             .entries
             .get_mut(idempotency_key.as_str())
             .ok_or(ManagedMessageOutboxError::NotFound)?;
-        if entry.state != ManagedOutboxState::Submitted {
+        if !matches!(
+            entry.state,
+            ManagedOutboxState::Prepared | ManagedOutboxState::Submitted
+        ) {
             return Err(ManagedMessageOutboxError::InvalidTransition);
         }
         entry.state = ManagedOutboxState::Rejected;
@@ -701,6 +802,30 @@ impl ManagedMessageOutbox {
         Ok(result)
     }
 
+    /// Confirm the durable dispatch store now references this accepted outbox row.
+    pub(crate) fn mark_authority_finalized(
+        &mut self,
+        idempotency_key: &Hex64,
+    ) -> Result<(), ManagedMessageOutboxError> {
+        let previous = self.entries.clone();
+        let entry = self
+            .entries
+            .get_mut(idempotency_key.as_str())
+            .ok_or(ManagedMessageOutboxError::NotFound)?;
+        if entry.state != ManagedOutboxState::Accepted {
+            return Err(ManagedMessageOutboxError::InvalidTransition);
+        }
+        if entry.authority_finalized {
+            return Ok(());
+        }
+        entry.authority_finalized = true;
+        if let Err(error) = self.persist() {
+            self.entries = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
     fn persist(&self) -> Result<(), ManagedMessageOutboxError> {
         let (Some(path), Some(passphrase)) = (&self.persistence_path, &self.passphrase) else {
             return Ok(());
@@ -711,6 +836,8 @@ impl ManagedMessageOutbox {
         let plaintext = canonicalize(&PersistedManagedOutbox {
             schema: OUTBOX_SCHEMA.to_owned(),
             installation_session_id: self.installation_session_id.clone(),
+            next_order: self.next_order,
+            reconcile_cursor: self.reconcile_cursor,
             entries: self.entries.clone(),
         })
         .map_err(|_| ManagedMessageOutboxError::Persistence)?;
@@ -731,6 +858,32 @@ impl ManagedMessageOutbox {
                 .map_err(|_| ManagedMessageOutboxError::Persistence)?;
         }
         atomic_write_ciphertext(path, &ciphertext)
+    }
+
+    fn compact_terminal_for_capacity(&mut self) {
+        if self.entries.len() < MAX_OUTBOX_ENTRIES {
+            return;
+        }
+        let mut terminal: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| {
+                matches!(
+                    entry.state,
+                    ManagedOutboxState::Cancelled | ManagedOutboxState::Rejected
+                ) || (entry.state == ManagedOutboxState::Accepted && entry.authority_finalized)
+            })
+            .map(|(key, entry)| (entry.created_order, key.clone()))
+            .collect();
+        terminal.sort();
+        let remove_count = self
+            .entries
+            .len()
+            .saturating_add(1)
+            .saturating_sub(MAX_OUTBOX_ENTRIES);
+        for (_, key) in terminal.into_iter().take(remove_count) {
+            self.entries.remove(&key);
+        }
     }
 }
 
@@ -1066,5 +1219,136 @@ mod tests {
             ManagedMessageOutbox::load_encrypted(session, path, passphrase),
             Err(ManagedMessageOutboxError::Persistence)
         ));
+    }
+
+    #[test]
+    fn luca_signing_outbox_capacity_evicts_only_oldest_finalized_terminal() {
+        let keys = Keys::parse(&"08".repeat(32)).expect("valid fixture key");
+        let request = request(&keys);
+        let event = frozen_event(&keys, &request);
+        let session = OpaqueId::parse("installation-capacity").expect("valid installation ID");
+        let mut outbox = ManagedMessageOutbox::new(session.clone());
+        outbox
+            .prepare(&request, event.clone(), &session, 3, false)
+            .expect("seed");
+        let template = outbox
+            .entries
+            .remove(request.idempotency_key.as_str())
+            .expect("template");
+        let mut unresolved_keys = Vec::new();
+        for index in 0..MAX_OUTBOX_ENTRIES {
+            let key = hex::encode(Sha256::digest(index.to_be_bytes()));
+            let mut entry = template.clone();
+            entry.created_order = index as u64 + 1;
+            if index == 0 {
+                entry.state = ManagedOutboxState::Accepted;
+                entry.publication_receipt_id =
+                    Some(OpaqueId::parse("accepted-receipt").expect("receipt"));
+                entry.authority_finalized = true;
+            } else {
+                unresolved_keys.push(key.clone());
+            }
+            outbox.entries.insert(key, entry);
+        }
+        outbox.next_order = MAX_OUTBOX_ENTRIES as u64 + 1;
+        outbox
+            .prepare(&request, event, &session, 3, false)
+            .expect("terminal compaction");
+        assert_eq!(outbox.entries.len(), MAX_OUTBOX_ENTRIES);
+        let oldest = hex::encode(Sha256::digest(0_usize.to_be_bytes()));
+        assert!(!outbox.entries.contains_key(&oldest));
+        assert!(unresolved_keys
+            .iter()
+            .all(|key| outbox.entries.contains_key(key)));
+
+        for entry in outbox.entries.values_mut() {
+            entry.state = ManagedOutboxState::Prepared;
+            entry.publication_receipt_id = None;
+            entry.authority_finalized = false;
+        }
+        let mut different = request.clone();
+        different.dispatch_receipt_id = OpaqueId::parse("different-dispatch").expect("dispatch");
+        different.idempotency_key = derive_message_publish_idempotency_key(
+            &different.dispatch_receipt_id,
+            &different.resident_pubkey,
+        )
+        .expect("idempotency");
+        let different_event = frozen_event(&keys, &different);
+        assert!(matches!(
+            outbox.prepare(&different, different_event, &session, 3, false),
+            Err(ManagedMessageOutboxError::Persistence)
+        ));
+        assert_eq!(outbox.entries.len(), MAX_OUTBOX_ENTRIES);
+    }
+
+    #[test]
+    fn luca_signing_outbox_rejects_noncanonical_encrypted_envelope() {
+        let keys = Keys::parse(&"09".repeat(32)).expect("valid fixture key");
+        let request = request(&keys);
+        let event = frozen_event(&keys, &request);
+        let session = OpaqueId::parse("installation-canonical").expect("valid installation ID");
+        let passphrase = SecretString::from("canonical-passphrase".to_owned());
+        let temp = tempfile::tempdir().expect("temp");
+        let path = temp.path().join("managed-outbox.age");
+        let mut outbox = ManagedMessageOutbox::new(session.clone());
+        outbox
+            .prepare(&request, event, &session, 3, false)
+            .expect("prepare");
+        let noncanonical = serde_json::to_vec_pretty(&PersistedManagedOutbox {
+            schema: OUTBOX_SCHEMA.to_owned(),
+            installation_session_id: session.clone(),
+            next_order: outbox.next_order,
+            reconcile_cursor: outbox.reconcile_cursor,
+            entries: outbox.entries.clone(),
+        })
+        .expect("pretty JSON");
+        let encryptor = age::Encryptor::with_user_passphrase(passphrase.clone());
+        let mut ciphertext = Vec::new();
+        {
+            let mut writer = encryptor.wrap_output(&mut ciphertext).expect("encrypt");
+            writer.write_all(&noncanonical).expect("write");
+            writer.finish().expect("finish");
+        }
+        std::fs::write(&path, ciphertext).expect("write ciphertext");
+        assert!(matches!(
+            ManagedMessageOutbox::load_encrypted(session, path, passphrase),
+            Err(ManagedMessageOutboxError::Persistence)
+        ));
+    }
+
+    #[test]
+    fn luca_signing_outbox_reconciliation_cursor_rotates_after_failed_early_row() {
+        let keys = Keys::parse(&"0a".repeat(32)).expect("valid fixture key");
+        let session = OpaqueId::parse("installation-cursor").expect("valid installation ID");
+        let mut outbox = ManagedMessageOutbox::new(session.clone());
+        for index in 0..4 {
+            let mut request = request(&keys);
+            request.dispatch_receipt_id =
+                OpaqueId::parse(format!("dispatch-{index}")).expect("dispatch");
+            request.idempotency_key = derive_message_publish_idempotency_key(
+                &request.dispatch_receipt_id,
+                &request.resident_pubkey,
+            )
+            .expect("idempotency");
+            let event = frozen_event(&keys, &request);
+            outbox
+                .prepare(&request, event, &session, 3, false)
+                .expect("prepare");
+        }
+        let initial: Vec<_> = outbox
+            .reconciliation_entries()
+            .iter()
+            .map(|entry| entry.created_order)
+            .collect();
+        assert_eq!(initial, vec![1, 2, 3, 4]);
+        // The publisher advances this cursor even when an early relay attempt
+        // fails, so the next bounded pass starts after that unavailable row.
+        outbox.advance_reconcile_cursor(2).expect("advance");
+        let rotated: Vec<_> = outbox
+            .reconciliation_entries()
+            .iter()
+            .map(|entry| entry.created_order)
+            .collect();
+        assert_eq!(rotated, vec![3, 4, 1, 2]);
     }
 }
