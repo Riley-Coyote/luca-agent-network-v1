@@ -588,13 +588,13 @@ pub async fn send_channel_message(
             // Existing ACP control requires an exact p-mention. A bare
             // `!cancel` therefore cancels zero residents instead of becoming
             // a conversation-wide wildcard.
-            let cancel_thread_id = resolved_root
-                .as_ref()
-                .map(|root| format!("thread:{root}"));
             store.cancel_matching(
                 &event.pubkey.to_hex(),
                 &channel_id,
-                cancel_thread_id.as_deref(),
+                // ACP V1 cancellation is channel-scoped. Revoke every
+                // pending/active row for the exact owner+channel+mentioned
+                // resident set until ACP gains thread-scoped cancellation.
+                None,
                 &managed_residents,
             )?;
             Vec::new()

@@ -1,19 +1,25 @@
-//! Deterministic desktop outbox lifecycle for future F09 managed publication.
-//!
-//! This module freezes and validates state transitions. It intentionally makes
-//! no at-rest encryption claim: the C15/M2 sealed archive layer owns encrypted
-//! persistence, while F09 owns aggregation and relay publication.
+//! Deterministic, encrypted desktop outbox for managed final publication.
 
-#![allow(dead_code)] // F09 and C15 consume this reviewed foundation after F14.
+use std::{
+    collections::HashMap,
+    io::{Read, Write},
+    path::{Path, PathBuf},
+};
 
-use std::collections::HashMap;
-
+use age::secrecy::SecretString;
+use atomic_write_file::AtomicWriteFile;
 use luca_protocol::{
     canonical_sha256, canonicalize, Hex64, ManagedMessagePublishRequestV1,
     ManagedMessagePublishResultV1, OpaqueId,
 };
 use nostr::{JsonUtil, Kind};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+
+const OUTBOX_SCHEMA: &str = "luca.managed-message-outbox.v1";
+const MAX_OUTBOX_ENTRIES: usize = 256;
+const MAX_CIPHERTEXT_BYTES: usize = 8 * 1024 * 1024;
+const MAX_PLAINTEXT_BYTES: usize = 4 * 1024 * 1024;
 
 /// Validation or lifecycle failure for one managed final-message record.
 #[derive(Debug)]
@@ -34,6 +40,8 @@ pub(crate) enum ManagedMessageOutboxError {
     NotFound,
     /// Canonical hashing failed.
     Canonicalization,
+    /// Encrypted durable state could not be loaded or committed.
+    Persistence,
 }
 
 impl std::fmt::Display for ManagedMessageOutboxError {
@@ -47,6 +55,7 @@ impl std::fmt::Display for ManagedMessageOutboxError {
             Self::InvalidTransition => "managed publication outbox transition is invalid",
             Self::NotFound => "managed publication outbox entry was not found",
             Self::Canonicalization => "managed publication canonical hashing failed",
+            Self::Persistence => "managed publication encrypted persistence failed",
         })
     }
 }
@@ -54,7 +63,7 @@ impl std::fmt::Display for ManagedMessageOutboxError {
 impl std::error::Error for ManagedMessageOutboxError {}
 
 /// Frozen, exact signed event retained only inside desktop authority.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct FrozenManagedMessageEvent {
     event_id: Hex64,
     event_sha256: Hex64,
@@ -113,6 +122,22 @@ impl FrozenManagedMessageEvent {
     pub(crate) fn signed_event_json(&self) -> &str {
         &self.signed_event_json
     }
+
+    fn validate_self(&self) -> bool {
+        let Ok(event) = nostr::Event::from_json(&self.signed_event_json) else {
+            return false;
+        };
+        let Ok(canonical) = canonicalize(&event) else {
+            return false;
+        };
+        event.verify_id()
+            && event.verify_signature()
+            && event.kind == Kind::Custom(9)
+            && event.id.to_hex() == self.event_id.as_str()
+            && canonical.as_slice() == self.signed_event_json.as_bytes()
+            && hex::encode(Sha256::digest(&canonical)) == self.event_sha256.as_str()
+            && hex::encode(Sha256::digest(event.content.as_bytes())) == self.content_sha256.as_str()
+    }
 }
 
 fn event_tags_match_request(
@@ -157,7 +182,8 @@ fn event_tags_match_request(
 }
 
 /// Body-free state observable by the ACP-side typed client.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum ManagedOutboxState {
     /// Exact request and event are frozen.
     Prepared,
@@ -167,6 +193,8 @@ pub(crate) enum ManagedOutboxState {
     Accepted,
     /// Cancellation won before submission.
     Cancelled,
+    /// Relay explicitly rejected the exact event.
+    Rejected,
 }
 
 /// Body-free receipt for prepare/reconcile status.
@@ -182,20 +210,40 @@ pub(crate) struct ManagedOutboxReceipt {
     pub state: ManagedOutboxState,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct ManagedOutboxEntry {
     request_sha256: Hex64,
+    request: ManagedMessagePublishRequestV1,
     event: FrozenManagedMessageEvent,
     state: ManagedOutboxState,
     publication_receipt_id: Option<OpaqueId>,
     initial_result_delivered: bool,
 }
 
-/// Desktop-local state machine. A later sealed-storage adapter persists these
-/// transitions; this type never writes plaintext state to disk.
+#[derive(Serialize, Deserialize)]
+struct PersistedManagedOutbox {
+    schema: String,
+    installation_session_id: OpaqueId,
+    entries: HashMap<String, ManagedOutboxEntry>,
+}
+
+/// Desktop-local state machine. Production instances persist only age-encrypted
+/// bytes and atomically replace the ciphertext after every transition.
 pub(crate) struct ManagedMessageOutbox {
     installation_session_id: OpaqueId,
     entries: HashMap<String, ManagedOutboxEntry>,
+    persistence_path: Option<PathBuf>,
+    passphrase: Option<SecretString>,
+}
+
+/// Body-free exact event retained for startup reconciliation.
+#[derive(Clone)]
+pub(crate) struct ManagedOutboxReconcileEntry {
+    pub idempotency_key: Hex64,
+    pub event_id: Hex64,
+    pub signed_event_json: String,
+    pub state: ManagedOutboxState,
+    pub request: ManagedMessagePublishRequestV1,
 }
 
 /// Typed failure returned by a desktop-owned publication authority.
@@ -238,12 +286,29 @@ impl ManagedPublicationAuthorityError {
 /// success this method must leave the entry accepted; the broker derives the
 /// body-free protocol result from the outbox rather than trusting the adapter.
 pub(crate) trait ManagedMessagePublicationAuthority: Send {
+    /// Reauthorize the exact typed request against desktop-owned dispatch state
+    /// before the resident event is constructed or signed.
+    fn authorize_request(
+        &mut self,
+        request: &ManagedMessagePublishRequestV1,
+        now_unix_secs: u64,
+    ) -> Result<(), ManagedPublicationAuthorityError>;
+
     fn publish_prepared(
         &mut self,
         request: &ManagedMessagePublishRequestV1,
         outbox: &mut ManagedMessageOutbox,
         installation_session_id: &OpaqueId,
     ) -> Result<(), ManagedPublicationAuthorityError>;
+
+    /// Reconcile exact submitted bytes after desktop/broker restart.
+    fn reconcile_on_start(
+        &mut self,
+        _outbox: &mut ManagedMessageOutbox,
+        _installation_session_id: &OpaqueId,
+    ) -> Result<(), ManagedPublicationAuthorityError> {
+        Ok(())
+    }
 }
 
 /// F14 default: validate and stage exactly, then report unavailable without
@@ -251,6 +316,14 @@ pub(crate) trait ManagedMessagePublicationAuthority: Send {
 pub(crate) struct UnavailableManagedMessagePublicationAuthority;
 
 impl ManagedMessagePublicationAuthority for UnavailableManagedMessagePublicationAuthority {
+    fn authorize_request(
+        &mut self,
+        _request: &ManagedMessagePublishRequestV1,
+        _now_unix_secs: u64,
+    ) -> Result<(), ManagedPublicationAuthorityError> {
+        Err(ManagedPublicationAuthorityError::Unavailable)
+    }
+
     fn publish_prepared(
         &mut self,
         _request: &ManagedMessagePublishRequestV1,
@@ -267,7 +340,114 @@ impl ManagedMessageOutbox {
         Self {
             installation_session_id,
             entries: HashMap::new(),
+            persistence_path: None,
+            passphrase: None,
         }
+    }
+
+    /// Load or create an atomically persisted age-passphrase-encrypted outbox.
+    pub(crate) fn load_encrypted(
+        installation_session_id: OpaqueId,
+        path: PathBuf,
+        passphrase: SecretString,
+    ) -> Result<Self, ManagedMessageOutboxError> {
+        if !path.exists() {
+            return Ok(Self {
+                installation_session_id,
+                entries: HashMap::new(),
+                persistence_path: Some(path),
+                passphrase: Some(passphrase),
+            });
+        }
+        let ciphertext =
+            std::fs::read(&path).map_err(|_| ManagedMessageOutboxError::Persistence)?;
+        if ciphertext.len() > MAX_CIPHERTEXT_BYTES {
+            return Err(ManagedMessageOutboxError::Persistence);
+        }
+        let decryptor = age::Decryptor::new_buffered(ciphertext.as_slice())
+            .map_err(|_| ManagedMessageOutboxError::Persistence)?;
+        let identity = age::scrypt::Identity::new(passphrase.clone());
+        let mut reader = decryptor
+            .decrypt(std::iter::once(&identity as &dyn age::Identity))
+            .map_err(|_| ManagedMessageOutboxError::Persistence)?;
+        let mut plaintext = Vec::new();
+        reader
+            .by_ref()
+            .take((MAX_PLAINTEXT_BYTES + 1) as u64)
+            .read_to_end(&mut plaintext)
+            .map_err(|_| ManagedMessageOutboxError::Persistence)?;
+        if plaintext.len() > MAX_PLAINTEXT_BYTES {
+            return Err(ManagedMessageOutboxError::Persistence);
+        }
+        let persisted: PersistedManagedOutbox = serde_json::from_slice(&plaintext)
+            .map_err(|_| ManagedMessageOutboxError::Persistence)?;
+        if persisted.schema != OUTBOX_SCHEMA
+            || persisted.installation_session_id != installation_session_id
+            || persisted.entries.len() > MAX_OUTBOX_ENTRIES
+        {
+            return Err(ManagedMessageOutboxError::Persistence);
+        }
+        for (key, entry) in &persisted.entries {
+            let receipt_state_valid = match entry.state {
+                ManagedOutboxState::Accepted => entry.publication_receipt_id.is_some(),
+                ManagedOutboxState::Prepared
+                | ManagedOutboxState::Submitted
+                | ManagedOutboxState::Cancelled
+                | ManagedOutboxState::Rejected => entry.publication_receipt_id.is_none(),
+            };
+            let request_sha256 = canonical_sha256(&entry.request)
+                .ok()
+                .and_then(|value| Hex64::parse(value).ok());
+            let event_matches_request = FrozenManagedMessageEvent::parse(
+                entry.event.signed_event_json.clone(),
+                &entry.request,
+            )
+            .map(|event| {
+                event.event_id == entry.event.event_id
+                    && event.event_sha256 == entry.event.event_sha256
+            })
+            .unwrap_or(false);
+            if key.len() != 64
+                || Hex64::parse(key.clone()).is_err()
+                || !entry.event.validate_self()
+                || entry.request.validate().is_err()
+                || entry.request.idempotency_key.as_str() != key
+                || request_sha256.as_ref() != Some(&entry.request_sha256)
+                || !event_matches_request
+                || !receipt_state_valid
+                || (entry.initial_result_delivered && entry.state != ManagedOutboxState::Accepted)
+            {
+                return Err(ManagedMessageOutboxError::Persistence);
+            }
+        }
+        Ok(Self {
+            installation_session_id,
+            entries: persisted.entries,
+            persistence_path: Some(path),
+            passphrase: Some(passphrase),
+        })
+    }
+
+    /// Submitted exact events that need relay query/resubmission on restart.
+    pub(crate) fn reconciliation_entries(&self) -> Vec<ManagedOutboxReconcileEntry> {
+        self.entries
+            .iter()
+            .filter(|(_, entry)| {
+                matches!(
+                    entry.state,
+                    ManagedOutboxState::Prepared | ManagedOutboxState::Submitted
+                )
+            })
+            .filter_map(|(key, entry)| {
+                Some(ManagedOutboxReconcileEntry {
+                    idempotency_key: Hex64::parse(key.clone()).ok()?,
+                    event_id: entry.event.event_id.clone(),
+                    signed_event_json: entry.event.signed_event_json.clone(),
+                    state: entry.state,
+                    request: entry.request.clone(),
+                })
+            })
+            .collect()
     }
 
     /// Freeze exactly one signed final event before any network I/O.
@@ -311,15 +491,24 @@ impl ManagedMessageOutbox {
             return Ok(receipt_for(&request.idempotency_key, existing));
         }
 
+        if self.entries.len() >= MAX_OUTBOX_ENTRIES {
+            return Err(ManagedMessageOutboxError::Persistence);
+        }
         let entry = ManagedOutboxEntry {
             request_sha256,
+            request: request.clone(),
             event,
             state: ManagedOutboxState::Prepared,
             publication_receipt_id: None,
             initial_result_delivered: false,
         };
         let receipt = receipt_for(&request.idempotency_key, &entry);
+        let previous = self.entries.clone();
         self.entries.insert(key, entry);
+        if let Err(error) = self.persist() {
+            self.entries = previous;
+            return Err(error);
+        }
         Ok(receipt)
     }
 
@@ -354,6 +543,7 @@ impl ManagedMessageOutbox {
         if turn_is_cancelled {
             return self.cancel_before_submission(idempotency_key);
         }
+        let previous = self.entries.clone();
         let entry = self
             .entries
             .get_mut(idempotency_key.as_str())
@@ -365,7 +555,12 @@ impl ManagedMessageOutbox {
             return Err(ManagedMessageOutboxError::InvalidTransition);
         }
         entry.state = ManagedOutboxState::Submitted;
-        Ok(receipt_for(idempotency_key, entry))
+        let receipt = receipt_for(idempotency_key, entry);
+        if let Err(error) = self.persist() {
+            self.entries = previous;
+            return Err(error);
+        }
+        Ok(receipt)
     }
 
     /// Record honest relay acceptance of the exact submitted event.
@@ -374,6 +569,7 @@ impl ManagedMessageOutbox {
         idempotency_key: &Hex64,
         publication_receipt_id: OpaqueId,
     ) -> Result<ManagedOutboxReceipt, ManagedMessageOutboxError> {
+        let previous = self.entries.clone();
         let entry = self
             .entries
             .get_mut(idempotency_key.as_str())
@@ -389,7 +585,12 @@ impl ManagedMessageOutbox {
         }
         entry.state = ManagedOutboxState::Accepted;
         entry.publication_receipt_id = Some(publication_receipt_id);
-        Ok(receipt_for(idempotency_key, entry))
+        let receipt = receipt_for(idempotency_key, entry);
+        if let Err(error) = self.persist() {
+            self.entries = previous;
+            return Err(error);
+        }
+        Ok(receipt)
     }
 
     /// Cancel only while the exact event is prepared and unsent.
@@ -397,6 +598,7 @@ impl ManagedMessageOutbox {
         &mut self,
         idempotency_key: &Hex64,
     ) -> Result<ManagedOutboxReceipt, ManagedMessageOutboxError> {
+        let previous = self.entries.clone();
         let entry = self
             .entries
             .get_mut(idempotency_key.as_str())
@@ -405,7 +607,60 @@ impl ManagedMessageOutbox {
             return Err(ManagedMessageOutboxError::InvalidTransition);
         }
         entry.state = ManagedOutboxState::Cancelled;
-        Ok(receipt_for(idempotency_key, entry))
+        let receipt = receipt_for(idempotency_key, entry);
+        if let Err(error) = self.persist() {
+            self.entries = previous;
+            return Err(error);
+        }
+        Ok(receipt)
+    }
+
+    /// Terminalize a startup-reconciled entry after proving relay absence and
+    /// observing that durable cancellation won.
+    pub(crate) fn cancel_during_reconciliation(
+        &mut self,
+        idempotency_key: &Hex64,
+    ) -> Result<ManagedOutboxReceipt, ManagedMessageOutboxError> {
+        let previous = self.entries.clone();
+        let entry = self
+            .entries
+            .get_mut(idempotency_key.as_str())
+            .ok_or(ManagedMessageOutboxError::NotFound)?;
+        if !matches!(
+            entry.state,
+            ManagedOutboxState::Prepared | ManagedOutboxState::Submitted
+        ) {
+            return Err(ManagedMessageOutboxError::InvalidTransition);
+        }
+        entry.state = ManagedOutboxState::Cancelled;
+        let receipt = receipt_for(idempotency_key, entry);
+        if let Err(error) = self.persist() {
+            self.entries = previous;
+            return Err(error);
+        }
+        Ok(receipt)
+    }
+
+    /// Record an explicit relay rejection so restart reconciliation cannot resend it.
+    pub(crate) fn mark_rejected(
+        &mut self,
+        idempotency_key: &Hex64,
+    ) -> Result<ManagedOutboxReceipt, ManagedMessageOutboxError> {
+        let previous = self.entries.clone();
+        let entry = self
+            .entries
+            .get_mut(idempotency_key.as_str())
+            .ok_or(ManagedMessageOutboxError::NotFound)?;
+        if entry.state != ManagedOutboxState::Submitted {
+            return Err(ManagedMessageOutboxError::InvalidTransition);
+        }
+        entry.state = ManagedOutboxState::Rejected;
+        let receipt = receipt_for(idempotency_key, entry);
+        if let Err(error) = self.persist() {
+            self.entries = previous;
+            return Err(error);
+        }
+        Ok(receipt)
     }
 
     /// Return `published` once and `replayed` thereafter for an accepted entry.
@@ -413,6 +668,7 @@ impl ManagedMessageOutbox {
         &mut self,
         idempotency_key: &Hex64,
     ) -> Result<ManagedMessagePublishResultV1, ManagedMessageOutboxError> {
+        let previous = self.entries.clone();
         let entry = self
             .entries
             .get_mut(idempotency_key.as_str())
@@ -438,8 +694,66 @@ impl ManagedMessageOutbox {
                 publication_receipt_id,
             }
         };
+        if let Err(error) = self.persist() {
+            self.entries = previous;
+            return Err(error);
+        }
         Ok(result)
     }
+
+    fn persist(&self) -> Result<(), ManagedMessageOutboxError> {
+        let (Some(path), Some(passphrase)) = (&self.persistence_path, &self.passphrase) else {
+            return Ok(());
+        };
+        if self.entries.len() > MAX_OUTBOX_ENTRIES {
+            return Err(ManagedMessageOutboxError::Persistence);
+        }
+        let plaintext = canonicalize(&PersistedManagedOutbox {
+            schema: OUTBOX_SCHEMA.to_owned(),
+            installation_session_id: self.installation_session_id.clone(),
+            entries: self.entries.clone(),
+        })
+        .map_err(|_| ManagedMessageOutboxError::Persistence)?;
+        if plaintext.len() > MAX_PLAINTEXT_BYTES {
+            return Err(ManagedMessageOutboxError::Persistence);
+        }
+        let encryptor = age::Encryptor::with_user_passphrase(passphrase.clone());
+        let mut ciphertext = Vec::new();
+        {
+            let mut writer = encryptor
+                .wrap_output(&mut ciphertext)
+                .map_err(|_| ManagedMessageOutboxError::Persistence)?;
+            writer
+                .write_all(&plaintext)
+                .map_err(|_| ManagedMessageOutboxError::Persistence)?;
+            writer
+                .finish()
+                .map_err(|_| ManagedMessageOutboxError::Persistence)?;
+        }
+        atomic_write_ciphertext(path, &ciphertext)
+    }
+}
+
+fn atomic_write_ciphertext(
+    path: &Path,
+    ciphertext: &[u8],
+) -> Result<(), ManagedMessageOutboxError> {
+    let parent = path
+        .parent()
+        .ok_or(ManagedMessageOutboxError::Persistence)?;
+    std::fs::create_dir_all(parent).map_err(|_| ManagedMessageOutboxError::Persistence)?;
+    let mut file =
+        AtomicWriteFile::open(path).map_err(|_| ManagedMessageOutboxError::Persistence)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(|_| ManagedMessageOutboxError::Persistence)?;
+    }
+    file.write_all(ciphertext)
+        .map_err(|_| ManagedMessageOutboxError::Persistence)?;
+    file.commit()
+        .map_err(|_| ManagedMessageOutboxError::Persistence)
 }
 
 fn receipt_for(idempotency_key: &Hex64, entry: &ManagedOutboxEntry) -> ManagedOutboxReceipt {
@@ -593,6 +907,164 @@ mod tests {
         assert!(matches!(
             FrozenManagedMessageEvent::parse(canonical, &request),
             Err(ManagedMessageOutboxError::InvalidEvent)
+        ));
+    }
+
+    #[test]
+    fn luca_signing_outbox_encrypts_and_reloads_exact_prepared_event() {
+        let keys = Keys::parse(&"04".repeat(32)).expect("valid fixture key");
+        let mut request = request(&keys);
+        request.final_draft = "PLAINTEXT-FINAL-MUST-NOT-APPEAR".to_owned();
+        let event = frozen_event(&keys, &request);
+        let exact_event = event.signed_event_json().to_owned();
+        let exact_event_id = event.event_id.clone();
+        let session = OpaqueId::parse("installation-encrypted").expect("valid installation ID");
+        let passphrase = SecretString::from("RESIDENT-SECRET-SENTINEL".to_owned());
+        let temp = tempfile::tempdir().expect("temp");
+        let path = temp.path().join("managed-outbox.age");
+        let mut outbox =
+            ManagedMessageOutbox::load_encrypted(session.clone(), path.clone(), passphrase.clone())
+                .expect("new encrypted outbox");
+
+        outbox
+            .prepare(&request, event, &session, 3, false)
+            .expect("durable prepare");
+        let ciphertext = std::fs::read(&path).expect("ciphertext");
+        assert!(!ciphertext
+            .windows(request.final_draft.len())
+            .any(|window| window == request.final_draft.as_bytes()));
+        assert!(!ciphertext
+            .windows("RESIDENT-SECRET-SENTINEL".len())
+            .any(|window| window == b"RESIDENT-SECRET-SENTINEL"));
+
+        let reloaded =
+            ManagedMessageOutbox::load_encrypted(session, path, passphrase).expect("reload");
+        let entries = reloaded.reconciliation_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].event_id, exact_event_id);
+        assert_eq!(entries[0].signed_event_json, exact_event);
+        assert_eq!(entries[0].request, request);
+        assert_eq!(entries[0].state, ManagedOutboxState::Prepared);
+    }
+
+    #[test]
+    fn luca_signing_outbox_persists_every_transition_and_replay_bit() {
+        let keys = Keys::parse(&"05".repeat(32)).expect("valid fixture key");
+        let request = request(&keys);
+        let event = frozen_event(&keys, &request);
+        let session = OpaqueId::parse("installation-transitions").expect("valid installation ID");
+        let passphrase = SecretString::from("transition-passphrase".to_owned());
+        let temp = tempfile::tempdir().expect("temp");
+        let path = temp.path().join("managed-outbox.age");
+        let mut outbox =
+            ManagedMessageOutbox::load_encrypted(session.clone(), path.clone(), passphrase.clone())
+                .expect("new encrypted outbox");
+        outbox
+            .prepare(&request, event, &session, 3, false)
+            .expect("prepare");
+
+        let mut outbox =
+            ManagedMessageOutbox::load_encrypted(session.clone(), path.clone(), passphrase.clone())
+                .expect("reload prepared");
+        assert_eq!(
+            outbox
+                .mark_submitted(&request.idempotency_key, &session, false)
+                .expect("submitted")
+                .state,
+            ManagedOutboxState::Submitted
+        );
+        let mut outbox =
+            ManagedMessageOutbox::load_encrypted(session.clone(), path.clone(), passphrase.clone())
+                .expect("reload submitted");
+        assert_eq!(
+            outbox.reconciliation_entries()[0].state,
+            ManagedOutboxState::Submitted
+        );
+        outbox
+            .mark_accepted(
+                &request.idempotency_key,
+                OpaqueId::parse("relay-receipt").expect("receipt"),
+            )
+            .expect("accepted");
+
+        let mut outbox =
+            ManagedMessageOutbox::load_encrypted(session.clone(), path.clone(), passphrase.clone())
+                .expect("reload accepted");
+        assert!(matches!(
+            outbox
+                .accepted_result(&request.idempotency_key)
+                .expect("published"),
+            ManagedMessagePublishResultV1::Published { .. }
+        ));
+        let mut outbox = ManagedMessageOutbox::load_encrypted(session, path, passphrase)
+            .expect("reload replay bit");
+        assert!(matches!(
+            outbox
+                .accepted_result(&request.idempotency_key)
+                .expect("replayed"),
+            ManagedMessagePublishResultV1::Replayed { .. }
+        ));
+    }
+
+    #[test]
+    fn luca_signing_outbox_persistence_failure_rolls_back_for_retry() {
+        let keys = Keys::parse(&"06".repeat(32)).expect("valid fixture key");
+        let request = request(&keys);
+        let event = frozen_event(&keys, &request);
+        let session = OpaqueId::parse("installation-failure").expect("valid installation ID");
+        let passphrase = SecretString::from("failure-passphrase".to_owned());
+        let temp = tempfile::tempdir().expect("temp");
+        let directory_target = temp.path().join("directory-target");
+        std::fs::create_dir(&directory_target).expect("directory target");
+        let mut outbox = ManagedMessageOutbox::load_encrypted(
+            session.clone(),
+            temp.path().join("initial-valid-target.age"),
+            passphrase.clone(),
+        )
+        .expect("outbox");
+        outbox.persistence_path = Some(directory_target);
+        assert!(matches!(
+            outbox.prepare(&request, event.clone(), &session, 3, false),
+            Err(ManagedMessageOutboxError::Persistence)
+        ));
+        assert!(outbox.entries.is_empty());
+
+        let valid_path = temp.path().join("managed-outbox.age");
+        outbox.persistence_path = Some(valid_path.clone());
+        outbox
+            .prepare(&request, event, &session, 3, false)
+            .expect("retry prepare");
+        assert!(ManagedMessageOutbox::load_encrypted(session, valid_path, passphrase).is_ok());
+    }
+
+    #[test]
+    fn luca_signing_outbox_rejects_corrupt_accepted_invariant_on_load() {
+        let keys = Keys::parse(&"07".repeat(32)).expect("valid fixture key");
+        let request = request(&keys);
+        let event = frozen_event(&keys, &request);
+        let session = OpaqueId::parse("installation-corrupt").expect("valid installation ID");
+        let passphrase = SecretString::from("corrupt-passphrase".to_owned());
+        let temp = tempfile::tempdir().expect("temp");
+        let path = temp.path().join("managed-outbox.age");
+        let mut outbox =
+            ManagedMessageOutbox::load_encrypted(session.clone(), path.clone(), passphrase.clone())
+                .expect("outbox");
+        outbox
+            .prepare(&request, event, &session, 3, false)
+            .expect("prepare");
+        let entry = outbox
+            .entries
+            .get_mut(request.idempotency_key.as_str())
+            .expect("entry");
+        entry.state = ManagedOutboxState::Accepted;
+        entry.publication_receipt_id = None;
+        outbox
+            .persist()
+            .expect("persist deliberately corrupt fixture");
+
+        assert!(matches!(
+            ManagedMessageOutbox::load_encrypted(session, path, passphrase),
+            Err(ManagedMessageOutboxError::Persistence)
         ));
     }
 }

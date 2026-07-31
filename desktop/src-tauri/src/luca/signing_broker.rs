@@ -1,6 +1,7 @@
 //! Desktop authority for the allowlisted managed signing-broker operations.
 
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use luca_protocol::{
@@ -11,6 +12,8 @@ use luca_protocol::{
 };
 use nostr::{EventBuilder, Keys, Kind, RelayUrl, Tag, Timestamp};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
+use zeroize::Zeroize;
 
 use super::local_broker_session::{
     LocalBrokerCaller, LocalBrokerSession, LocalBrokerSessionBinding, LocalBrokerSessionError,
@@ -146,6 +149,35 @@ impl ResidentSigningBroker {
             return Err(SigningBrokerError::ResidentKeyMismatch);
         }
         let message_outbox = ManagedMessageOutbox::new(binding.installation_session_id.clone());
+        Ok(Self {
+            resident_keys,
+            session: LocalBrokerSession::new(binding)?,
+            message_outbox,
+            publication_authority,
+        })
+    }
+
+    /// Bind the production publisher and encrypted exact-event outbox.
+    pub(crate) fn new_persistent_with_publication_authority(
+        resident_keys: Keys,
+        binding: LocalBrokerSessionBinding,
+        outbox_path: PathBuf,
+        mut publication_authority: Box<dyn ManagedMessagePublicationAuthority>,
+    ) -> Result<Self, SigningBrokerError> {
+        if resident_keys.public_key().to_hex() != binding.resident_pubkey.as_str() {
+            return Err(SigningBrokerError::ResidentKeyMismatch);
+        }
+        let passphrase = derive_outbox_passphrase(&resident_keys)?;
+        let mut message_outbox = ManagedMessageOutbox::load_encrypted(
+            binding.installation_session_id.clone(),
+            outbox_path,
+            passphrase,
+        )?;
+        publication_authority
+            .reconcile_on_start(&mut message_outbox, &binding.installation_session_id)
+            .map_err(|_| {
+                SigningBrokerError::MessagePublication(ManagedMessageOutboxError::Persistence)
+            })?;
         Ok(Self {
             resident_keys,
             session: LocalBrokerSession::new(binding)?,
@@ -379,6 +411,12 @@ impl ResidentSigningBroker {
         request: &ManagedMessagePublishRequestV1,
         now_unix_secs: u64,
     ) -> ManagedMessagePublishResultV1 {
+        if let Err(error) = self
+            .publication_authority
+            .authorize_request(request, now_unix_secs)
+        {
+            return error.into_protocol_result();
+        }
         let prepared = self
             .build_managed_message_event(request, now_unix_secs)
             .and_then(|event| {
@@ -406,6 +444,9 @@ impl ResidentSigningBroker {
             }
             ManagedOutboxState::Cancelled => {
                 return ManagedPublicationAuthorityError::Cancelled.into_protocol_result();
+            }
+            ManagedOutboxState::Rejected => {
+                return ManagedPublicationAuthorityError::Denied.into_protocol_result();
             }
             ManagedOutboxState::Prepared | ManagedOutboxState::Submitted => {}
         }
@@ -468,6 +509,19 @@ impl ResidentSigningBroker {
         )
         .map_err(|_| ManagedMessageOutboxError::Canonicalization)
     }
+}
+
+fn derive_outbox_passphrase(
+    resident_keys: &Keys,
+) -> Result<age::secrecy::SecretString, SigningBrokerError> {
+    let mut secret_hex = resident_keys.secret_key().to_secret_hex();
+    let mut hasher = Sha256::new();
+    hasher.update(b"luca-managed-message-outbox-passphrase-v1\0");
+    hasher.update(secret_hex.as_bytes());
+    secret_hex.zeroize();
+    Ok(age::secrecy::SecretString::from(hex::encode(
+        hasher.finalize(),
+    )))
 }
 
 #[derive(Deserialize)]
@@ -821,6 +875,14 @@ mod tests {
     }
 
     impl ManagedMessagePublicationAuthority for AcceptingPublicationAuthority {
+        fn authorize_request(
+            &mut self,
+            _request: &ManagedMessagePublishRequestV1,
+            _now_unix_secs: u64,
+        ) -> Result<(), ManagedPublicationAuthorityError> {
+            Ok(())
+        }
+
         fn publish_prepared(
             &mut self,
             request: &ManagedMessagePublishRequestV1,

@@ -55,7 +55,18 @@ pub(crate) struct ActiveDispatch {
     pub expires_at: u64,
     pub session_epoch: Option<u64>,
     pub state: ManagedDispatchState,
+    #[serde(default)]
+    pub submitted_event_id: Option<String>,
     pub published_event_id: Option<String>,
+}
+
+/// Durable decision for one exact encrypted-outbox restart entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ManagedDispatchReconciliation {
+    Ready,
+    Published,
+    Cancelled,
+    Rejected,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -145,7 +156,8 @@ impl ManagedDispatchStore {
         managed_residents: &[String],
         now_unix_secs: u64,
     ) -> Result<Vec<(String, String)>, String> {
-        if !event.verify_id()
+        if event.kind != nostr::Kind::Custom(9)
+            || !event.verify_id()
             || !event.verify_signature()
             || event.created_at.as_secs() > now_unix_secs + 60
         {
@@ -158,7 +170,7 @@ impl ManagedDispatchStore {
             .collect();
         let event_recipients: HashSet<&str> =
             routing.trigger_p_tags.iter().map(String::as_str).collect();
-        let mut staged = Vec::new();
+        let mut candidates = Vec::new();
         for resident in requested {
             if resident == event.pubkey.to_hex() || !event_recipients.contains(resident.as_str()) {
                 return Err("managed resident is not an exact event recipient".into());
@@ -183,6 +195,7 @@ impl ManagedDispatchStore {
                 expires_at: now_unix_secs.saturating_add(DISPATCH_TTL_SECONDS),
                 session_epoch: None,
                 state: ManagedDispatchState::Pending,
+                submitted_event_id: None,
                 published_event_id: None,
             };
             if let Some(existing) = self.dispatches.get(&key) {
@@ -194,16 +207,24 @@ impl ManagedDispatchStore {
                     || existing.root_event_id != candidate.root_event_id
                     || existing.reply_event_id != candidate.reply_event_id
                     || existing.resolved_p_tags != candidate.resolved_p_tags
+                    || existing.submitted_event_id != candidate.submitted_event_id
                 {
                     return Err("managed dispatch id collision".into());
                 }
-            } else {
-                self.dispatches.insert(key.clone(), candidate);
             }
+            candidates.push((key, candidate));
+        }
+        let previous = self.dispatches.clone();
+        let mut staged = Vec::with_capacity(candidates.len());
+        for (key, candidate) in candidates {
+            self.dispatches.entry(key.clone()).or_insert(candidate);
             staged.push(key);
         }
         self.prune(now_unix_secs);
-        self.persist()?;
+        if let Err(error) = self.persist() {
+            self.dispatches = previous;
+            return Err(error);
+        }
         Ok(staged)
     }
 
@@ -218,6 +239,7 @@ impl ManagedDispatchStore {
         if residents.is_empty() {
             return Ok(0);
         }
+        let previous = self.dispatches.clone();
         let residents: HashSet<String> = residents
             .iter()
             .map(|resident| resident.to_ascii_lowercase())
@@ -241,13 +263,17 @@ impl ManagedDispatchStore {
             }
         }
         if cancelled > 0 {
-            self.persist()?;
+            if let Err(error) = self.persist() {
+                self.dispatches = previous;
+                return Err(error);
+            }
         }
         Ok(cancelled)
     }
 
     /// Terminally reject rows only after an explicit relay rejection.
     pub(crate) fn mark_rejected(&mut self, staged: &[(String, String)]) -> Result<(), String> {
+        let previous = self.dispatches.clone();
         for key in staged {
             if let Some(dispatch) = self.dispatches.get_mut(key) {
                 if matches!(
@@ -258,7 +284,11 @@ impl ManagedDispatchStore {
                 }
             }
         }
-        self.persist()
+        if let Err(error) = self.persist() {
+            self.dispatches = previous;
+            return Err(error);
+        }
+        Ok(())
     }
 
     /// Validate and bind one typed publication request to the active broker session.
@@ -287,6 +317,7 @@ impl ManagedDispatchStore {
             .get(request.resident_pubkey.as_str())
             .copied()
             .ok_or(DispatchAuthorizationError::WrongSession)?;
+        let previous = self.dispatches.clone();
         let (authorized, newly_bound) = {
             let dispatch = self
                 .dispatches
@@ -352,8 +383,10 @@ impl ManagedDispatchStore {
             (dispatch.clone(), newly_bound)
         };
         if newly_bound {
-            self.persist()
-                .map_err(|_| DispatchAuthorizationError::Persistence)?;
+            if self.persist().is_err() {
+                self.dispatches = previous;
+                return Err(DispatchAuthorizationError::Persistence);
+            }
         }
         Ok(authorized)
     }
@@ -385,6 +418,147 @@ impl ManagedDispatchStore {
         }
     }
 
+    /// Durably bind one exact frozen resident event before any relay I/O.
+    pub(crate) fn begin_submission(
+        &mut self,
+        trigger_event_id: &str,
+        resident_pubkey: &str,
+        session_epoch: u64,
+        event_id: &str,
+    ) -> Result<(), DispatchAuthorizationError> {
+        EventId::from_hex(event_id).map_err(|_| DispatchAuthorizationError::Persistence)?;
+        let key = (trigger_event_id.to_owned(), resident_pubkey.to_owned());
+        let previous = self.dispatches.clone();
+        let dispatch = self
+            .dispatches
+            .get_mut(&key)
+            .ok_or(DispatchAuthorizationError::Unknown)?;
+        match dispatch.state {
+            ManagedDispatchState::Cancelled => return Err(DispatchAuthorizationError::Cancelled),
+            ManagedDispatchState::Active
+                if dispatch.session_epoch == Some(session_epoch)
+                    && self.active_sessions.get(resident_pubkey) == Some(&session_epoch) => {}
+            ManagedDispatchState::Active => return Err(DispatchAuthorizationError::WrongSession),
+            ManagedDispatchState::Pending => return Err(DispatchAuthorizationError::WrongSession),
+            ManagedDispatchState::Rejected | ManagedDispatchState::Published => {
+                return Err(DispatchAuthorizationError::Terminal)
+            }
+        }
+        if let Some(existing) = &dispatch.submitted_event_id {
+            return if existing == event_id {
+                Ok(())
+            } else {
+                Err(DispatchAuthorizationError::Terminal)
+            };
+        }
+        dispatch.submitted_event_id = Some(event_id.to_owned());
+        if self.persist().is_err() {
+            self.dispatches = previous;
+            return Err(DispatchAuthorizationError::Persistence);
+        }
+        Ok(())
+    }
+
+    /// Reauthorize one already-frozen encrypted outbox event after restart.
+    ///
+    /// This deliberately does not transfer the row to the replacement broker
+    /// epoch. It validates the exact request against the epoch that originally
+    /// froze the event, plus current durable cancellation/terminal state.
+    pub(crate) fn authorize_reconciliation(
+        &self,
+        request: &ManagedMessagePublishRequestV1,
+        event_id: &str,
+        now_unix_secs: u64,
+    ) -> Result<ManagedDispatchReconciliation, DispatchAuthorizationError> {
+        let dispatch = self
+            .dispatches
+            .get(&(
+                request.dispatch_receipt_id.as_str().to_owned(),
+                request.resident_pubkey.as_str().to_owned(),
+            ))
+            .ok_or(DispatchAuthorizationError::Unknown)?;
+        if now_unix_secs > dispatch.expires_at {
+            return Err(DispatchAuthorizationError::Expired);
+        }
+        if request.owner_pubkey.as_str() != dispatch.owner_pubkey {
+            return Err(DispatchAuthorizationError::WrongOwner);
+        }
+        if request.conversation_id.as_str() != dispatch.conversation_id {
+            return Err(DispatchAuthorizationError::WrongConversation);
+        }
+        if request.thread_id.as_ref().map(|value| value.as_str()) != dispatch.thread_id.as_deref()
+            || request.root_event_id.as_ref().map(|value| value.as_str())
+                != dispatch.root_event_id.as_deref()
+            || request.reply_event_id.as_ref().map(|value| value.as_str())
+                != dispatch.reply_event_id.as_deref()
+            || request
+                .resolved_p_tags
+                .iter()
+                .map(|value| value.as_str())
+                .ne(dispatch.resolved_p_tags.iter().map(String::as_str))
+        {
+            return Err(DispatchAuthorizationError::WrongThread);
+        }
+        if dispatch.session_epoch != Some(request.cancellation_epoch.get()) {
+            return Err(DispatchAuthorizationError::WrongSession);
+        }
+        if let Some(submitted) = &dispatch.submitted_event_id {
+            if submitted != event_id {
+                return Err(DispatchAuthorizationError::Terminal);
+            }
+        }
+        match dispatch.state {
+            ManagedDispatchState::Active => Ok(ManagedDispatchReconciliation::Ready),
+            ManagedDispatchState::Published
+                if dispatch.published_event_id.as_deref() == Some(event_id) =>
+            {
+                Ok(ManagedDispatchReconciliation::Published)
+            }
+            ManagedDispatchState::Cancelled => Ok(ManagedDispatchReconciliation::Cancelled),
+            ManagedDispatchState::Rejected => Ok(ManagedDispatchReconciliation::Rejected),
+            ManagedDispatchState::Pending => Err(DispatchAuthorizationError::WrongSession),
+            ManagedDispatchState::Published => Err(DispatchAuthorizationError::Terminal),
+        }
+    }
+
+    /// Durably bind a previously prepared exact event during startup recovery.
+    ///
+    /// The original broker epoch remains authoritative for these frozen bytes;
+    /// this never transfers a dispatch to the replacement session.
+    pub(crate) fn begin_reconciled_submission(
+        &mut self,
+        request: &ManagedMessagePublishRequestV1,
+        event_id: &str,
+        now_unix_secs: u64,
+    ) -> Result<ManagedDispatchReconciliation, DispatchAuthorizationError> {
+        let decision = self.authorize_reconciliation(request, event_id, now_unix_secs)?;
+        if decision != ManagedDispatchReconciliation::Ready {
+            return Ok(decision);
+        }
+        let key = (
+            request.dispatch_receipt_id.as_str().to_owned(),
+            request.resident_pubkey.as_str().to_owned(),
+        );
+        let previous = self.dispatches.clone();
+        let dispatch = self
+            .dispatches
+            .get_mut(&key)
+            .ok_or(DispatchAuthorizationError::Unknown)?;
+        if let Some(existing) = &dispatch.submitted_event_id {
+            return if existing == event_id {
+                Ok(ManagedDispatchReconciliation::Ready)
+            } else {
+                Err(DispatchAuthorizationError::Terminal)
+            };
+        }
+        dispatch.submitted_event_id = Some(event_id.to_owned());
+        if self.persist().is_err() {
+            self.dispatches = previous;
+            return Err(DispatchAuthorizationError::Persistence);
+        }
+        Ok(ManagedDispatchReconciliation::Ready)
+    }
+
     /// Record relay acceptance as the publication linearization point.
     pub(crate) fn mark_published(
         &mut self,
@@ -393,6 +567,7 @@ impl ManagedDispatchStore {
         event_id: &str,
     ) -> Result<(), String> {
         EventId::from_hex(event_id).map_err(|_| "published event ID is invalid".to_string())?;
+        let previous = self.dispatches.clone();
         let dispatch = self
             .dispatches
             .get_mut(&(trigger_event_id.to_owned(), resident_pubkey.to_owned()))
@@ -404,12 +579,20 @@ impl ManagedDispatchStore {
                 Err("managed dispatch publication collision".into())
             };
         }
-        if dispatch.state != ManagedDispatchState::Active {
+        if !matches!(
+            dispatch.state,
+            ManagedDispatchState::Active | ManagedDispatchState::Cancelled
+        ) || dispatch.submitted_event_id.as_deref() != Some(event_id)
+        {
             return Err("managed dispatch is not active".into());
         }
         dispatch.state = ManagedDispatchState::Published;
         dispatch.published_event_id = Some(event_id.to_owned());
-        self.persist()
+        if let Err(error) = self.persist() {
+            self.dispatches = previous;
+            return Err(error);
+        }
+        Ok(())
     }
 
     fn prune(&mut self, now_unix_secs: u64) {
@@ -813,7 +996,7 @@ mod tests {
     }
 
     #[test]
-    fn threaded_cancel_uses_the_canonical_thread_identifier() {
+    fn channel_scoped_cancel_revokes_target_resident_across_threads() {
         let owner = Keys::parse(&"51".repeat(32)).expect("owner");
         let resident = Keys::parse(&"52".repeat(32)).expect("resident");
         let first_root = "cc".repeat(32);
@@ -847,11 +1030,11 @@ mod tests {
                 .cancel_matching(
                     &owner.public_key().to_hex(),
                     CHANNEL_ONE,
-                    Some(&format!("thread:{first_root}")),
+                    None,
                     &[resident.public_key().to_hex()],
                 )
                 .expect("thread cancel"),
-            1
+            2
         );
         store
             .activate_session(&resident.public_key().to_hex(), 9)
@@ -860,8 +1043,251 @@ mod tests {
             store.authorize_publication(&request(&owner, &resident, &first, CHANNEL_ONE, 9), 101),
             Err(DispatchAuthorizationError::Cancelled)
         );
+        assert_eq!(
+            store.authorize_publication(&request(&owner, &resident, &second, CHANNEL_ONE, 9), 101),
+            Err(DispatchAuthorizationError::Cancelled)
+        );
+    }
+
+    #[test]
+    fn failed_claim_persistence_rolls_back_and_retry_durably_binds() {
+        let owner = Keys::parse(&"61".repeat(32)).expect("owner");
+        let resident = Keys::parse(&"62".repeat(32)).expect("resident");
+        let trigger = event(&owner, &resident, CHANNEL_ONE, "persist");
+        let temp = tempfile::tempdir().expect("temp");
+        let valid_path = temp.path().join("dispatches.json");
+        let mut store = ManagedDispatchStore::load(valid_path.clone()).expect("store");
+        store
+            .stage_owner_event(&trigger, &[resident.public_key().to_hex()], 100)
+            .expect("stage");
+        store
+            .activate_session(&resident.public_key().to_hex(), 11)
+            .expect("session");
+        let request = request(&owner, &resident, &trigger, CHANNEL_ONE, 11);
+
+        let unwritable = temp.path().join("directory-target");
+        std::fs::create_dir(&unwritable).expect("directory target");
+        store.path = unwritable;
+        assert_eq!(
+            store.authorize_publication(&request, 101),
+            Err(DispatchAuthorizationError::Persistence)
+        );
+        let row = store
+            .dispatches
+            .get(&(trigger.id.to_hex(), resident.public_key().to_hex()))
+            .expect("dispatch");
+        assert_eq!(row.state, ManagedDispatchState::Pending);
+        assert_eq!(row.session_epoch, None);
+
+        store.path = valid_path.clone();
+        assert!(store.authorize_publication(&request, 101).is_ok());
+        let reloaded = ManagedDispatchStore::load(valid_path).expect("reload");
+        let row = reloaded
+            .dispatches
+            .get(&(trigger.id.to_hex(), resident.public_key().to_hex()))
+            .expect("dispatch");
+        assert_eq!(row.state, ManagedDispatchState::Active);
+        assert_eq!(row.session_epoch, Some(11));
+    }
+
+    #[test]
+    fn failed_stage_persistence_rolls_back_and_retry_durably_stages() {
+        let owner = Keys::parse(&"71".repeat(32)).expect("owner");
+        let resident = Keys::parse(&"72".repeat(32)).expect("resident");
+        let trigger = event(&owner, &resident, CHANNEL_ONE, "stage");
+        let temp = tempfile::tempdir().expect("temp");
+        let valid_path = temp.path().join("dispatches.json");
+        let directory_target = temp.path().join("directory-target");
+        std::fs::create_dir(&directory_target).expect("directory target");
+        let mut store = ManagedDispatchStore::load(valid_path.clone()).expect("store");
+
+        store.path = directory_target;
         assert!(store
-            .authorize_publication(&request(&owner, &resident, &second, CHANNEL_ONE, 9), 101)
-            .is_ok());
+            .stage_owner_event(&trigger, &[resident.public_key().to_hex()], 100)
+            .is_err());
+        assert!(store.dispatches.is_empty());
+
+        store.path = valid_path.clone();
+        store
+            .stage_owner_event(&trigger, &[resident.public_key().to_hex()], 100)
+            .expect("retry stage");
+        let reloaded = ManagedDispatchStore::load(valid_path).expect("reload");
+        assert!(reloaded
+            .dispatches
+            .contains_key(&(trigger.id.to_hex(), resident.public_key().to_hex())));
+    }
+
+    #[test]
+    fn multi_resident_stage_validation_never_leaves_partial_authority() {
+        let owner = Keys::parse(&"77".repeat(32)).expect("owner");
+        let first = Keys::parse(&"78".repeat(32)).expect("first");
+        let second = Keys::parse(&"79".repeat(32)).expect("second");
+        let trigger = EventBuilder::new(Kind::Custom(9), "multi")
+            .tags([
+                Tag::parse(["h", CHANNEL_ONE]).expect("h tag"),
+                Tag::public_key(owner.public_key()),
+                Tag::public_key(first.public_key()),
+                Tag::public_key(second.public_key()),
+            ])
+            .custom_created_at(Timestamp::from(100))
+            .sign_with_keys(&owner)
+            .expect("sign");
+        let temp = tempfile::tempdir().expect("temp");
+        let mut store =
+            ManagedDispatchStore::load(temp.path().join("dispatches.json")).expect("store");
+
+        assert!(store
+            .stage_owner_event(
+                &trigger,
+                &[first.public_key().to_hex(), "ff".repeat(32)],
+                100,
+            )
+            .is_err());
+        assert!(store.dispatches.is_empty());
+
+        store
+            .stage_owner_event(&trigger, &[second.public_key().to_hex()], 100)
+            .expect("stage second");
+        let second_key = (trigger.id.to_hex(), second.public_key().to_hex());
+        store
+            .dispatches
+            .get_mut(&second_key)
+            .expect("second row")
+            .conversation_id = CHANNEL_TWO.to_owned();
+        assert!(store
+            .stage_owner_event(
+                &trigger,
+                &[first.public_key().to_hex(), second.public_key().to_hex()],
+                100,
+            )
+            .is_err());
+        assert!(!store
+            .dispatches
+            .contains_key(&(trigger.id.to_hex(), first.public_key().to_hex())));
+    }
+
+    #[test]
+    fn failed_terminal_transitions_roll_back_before_retry() {
+        let owner = Keys::parse(&"73".repeat(32)).expect("owner");
+        let resident = Keys::parse(&"74".repeat(32)).expect("resident");
+        let trigger = event(&owner, &resident, CHANNEL_ONE, "publish");
+        let temp = tempfile::tempdir().expect("temp");
+        let valid_path = temp.path().join("dispatches.json");
+        let directory_target = temp.path().join("directory-target");
+        std::fs::create_dir(&directory_target).expect("directory target");
+        let mut store = ManagedDispatchStore::load(valid_path.clone()).expect("store");
+        let staged = store
+            .stage_owner_event(&trigger, &[resident.public_key().to_hex()], 100)
+            .expect("stage");
+        store
+            .activate_session(&resident.public_key().to_hex(), 13)
+            .expect("session");
+        let request = request(&owner, &resident, &trigger, CHANNEL_ONE, 13);
+        store
+            .authorize_publication(&request, 101)
+            .expect("authorize");
+
+        let published_event_id = "ab".repeat(32);
+        store
+            .begin_submission(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                13,
+                &published_event_id,
+            )
+            .expect("begin submission");
+        store.path = directory_target.clone();
+        assert!(store
+            .mark_published(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                &published_event_id,
+            )
+            .is_err());
+        let row = store
+            .dispatches
+            .get(&(trigger.id.to_hex(), resident.public_key().to_hex()))
+            .expect("dispatch");
+        assert_eq!(row.state, ManagedDispatchState::Active);
+        assert_eq!(row.published_event_id, None);
+
+        assert!(store.mark_rejected(&staged).is_err());
+        let row = store
+            .dispatches
+            .get(&(trigger.id.to_hex(), resident.public_key().to_hex()))
+            .expect("dispatch");
+        assert_eq!(row.state, ManagedDispatchState::Active);
+
+        store.path = valid_path.clone();
+        store
+            .mark_published(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                &published_event_id,
+            )
+            .expect("retry publish");
+        let reloaded = ManagedDispatchStore::load(valid_path).expect("reload");
+        let row = reloaded
+            .dispatches
+            .get(&(trigger.id.to_hex(), resident.public_key().to_hex()))
+            .expect("dispatch");
+        assert_eq!(row.state, ManagedDispatchState::Published);
+        assert_eq!(
+            row.published_event_id.as_deref(),
+            Some(published_event_id.as_str())
+        );
+    }
+
+    #[test]
+    fn relay_acceptance_can_honestly_win_the_last_cancellation_race() {
+        let owner = Keys::parse(&"75".repeat(32)).expect("owner");
+        let resident = Keys::parse(&"76".repeat(32)).expect("resident");
+        let trigger = event(&owner, &resident, CHANNEL_ONE, "race");
+        let temp = tempfile::tempdir().expect("temp");
+        let mut store =
+            ManagedDispatchStore::load(temp.path().join("dispatches.json")).expect("store");
+        store
+            .stage_owner_event(&trigger, &[resident.public_key().to_hex()], 100)
+            .expect("stage");
+        store
+            .activate_session(&resident.public_key().to_hex(), 17)
+            .expect("session");
+        let request = request(&owner, &resident, &trigger, CHANNEL_ONE, 17);
+        store
+            .authorize_publication(&request, 101)
+            .expect("authorize");
+        let event_id = "cd".repeat(32);
+        store
+            .begin_submission(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                17,
+                &event_id,
+            )
+            .expect("begin submission");
+        assert_eq!(
+            store
+                .cancel_matching(
+                    &owner.public_key().to_hex(),
+                    CHANNEL_ONE,
+                    None,
+                    &[resident.public_key().to_hex()],
+                )
+                .expect("cancel race"),
+            1
+        );
+        store
+            .mark_published(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                &event_id,
+            )
+            .expect("relay acceptance wins");
+        let row = store
+            .dispatches
+            .get(&(trigger.id.to_hex(), resident.public_key().to_hex()))
+            .expect("dispatch");
+        assert_eq!(row.state, ManagedDispatchState::Published);
+        assert_eq!(row.published_event_id.as_deref(), Some(event_id.as_str()));
     }
 }
