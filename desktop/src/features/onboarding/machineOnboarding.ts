@@ -28,6 +28,23 @@ export function readMachineOnboardingCompletion(pubkey: string | null) {
   );
 }
 
+/**
+ * Machine onboarding is Luca's complete owner-and-resident-runtime flow. Mark
+ * the legacy relay-scoped profile gate complete too: otherwise it reopens
+ * after the personal-home tenancy is ready and inserts a Buzz-era profile
+ * screen into the first-run path.
+ */
+export function markMachineOnboardingComplete(pubkey: string) {
+  window.localStorage.setItem(
+    completionKey(MACHINE_ONBOARDING_COMPLETION_STORAGE_KEY, pubkey),
+    "true",
+  );
+  window.localStorage.setItem(
+    completionKey(LEGACY_ONBOARDING_COMPLETION_STORAGE_KEY, pubkey),
+    "true",
+  );
+}
+
 function clearMachineOnboardingCompletion(pubkey: string | null) {
   if (typeof window === "undefined" || !pubkey) return;
   window.localStorage.removeItem(
@@ -172,10 +189,7 @@ export function useMachineOnboardingState({
     (completedIdentityPubkey?: string) => {
       const pubkey = completedIdentityPubkey ?? currentPubkey;
       if (!pubkey) return;
-      window.localStorage.setItem(
-        completionKey(MACHINE_ONBOARDING_COMPLETION_STORAGE_KEY, pubkey),
-        "true",
-      );
+      markMachineOnboardingComplete(pubkey);
       setCompletedPubkey(pubkey);
     },
     [currentPubkey],

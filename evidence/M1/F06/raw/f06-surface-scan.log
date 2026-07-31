@@ -1,0 +1,18 @@
+F06 public-copy scan
+desktop/src/features/onboarding/ui/BackupStep.tsx:67:        <p className="mx-auto mt-6 flex max-w-[440px] items-start justify-center gap-1.5 text-center text-xs leading-5 text-[var(--buzz-onboarding-backup-ink)]">
+desktop/src/features/onboarding/ui/RuntimeIcon.tsx:17:function isBuzzRuntime(runtime: AcpRuntimeCatalogEntry): boolean {
+desktop/src/features/onboarding/ui/RuntimeIcon.tsx:18:  return runtime.id.trim().toLowerCase() === "buzz-agent";
+desktop/src/features/onboarding/ui/RuntimeIcon.tsx:24:  return isBuzzRuntime(runtime) ? "Local runtime" : runtime.label;
+desktop/src/features/onboarding/ui/RuntimeIcon.tsx:44:  if (isBuzzRuntime(runtime)) {
+desktop/src/features/onboarding/ui/DefaultConfigStep.tsx:42:  return runtime.id === "buzz-agent" ? "Local runtime" : runtime.label;
+desktop/src/features/onboarding/ui/MachineOnboardingFlow.tsx:114:      className={`buzz-onboarding-neutral-theme buzz-startup-shell flex max-h-dvh items-start justify-center overflow-x-hidden overflow-y-auto px-4 text-foreground ${
+desktop/src/features/onboarding/ui/MachineOnboardingFlow.tsx:116:          ? "buzz-onboarding-welcome py-8"
+desktop/src/features/onboarding/ui/MachineOnboardingFlow.tsx:132:            page === "identity" ? "my-auto" : "buzz-onboarding-step-frame"
+desktop/src/features/onboarding/ui/MachineOnboardingFlow.tsx:196:              <div className="buzz-onboarding-key-import-position w-full">
+desktop/src/features/onboarding/ui/SetupStep.tsx:81:      className="pointer-events-none absolute right-8 top-8 flex h-8 w-8 items-center justify-center rounded-full border border-[var(--buzz-welcome-chartreuse)] bg-[var(--buzz-welcome-chartreuse)]"
+desktop/src/features/onboarding/ui/SetupStep.tsx:152:          className="buzz-onboarding-runtime-setup h-5 rounded-full bg-[var(--buzz-welcome-chartreuse)]/30 px-2.5 font-mono !text-badge font-normal uppercase text-foreground hover:bg-[var(--buzz-welcome-chartreuse)]/40"
+desktop/src/features/onboarding/ui/SetupStep.tsx:243:        className="buzz-onboarding-runtime-setup h-5 rounded-full bg-[var(--buzz-welcome-chartreuse)]/30 px-2.5 font-mono !text-badge font-normal uppercase text-foreground hover:bg-[var(--buzz-welcome-chartreuse)]/40"
+desktop/src/features/onboarding/ui/SetupStep.tsx:259:        className="buzz-onboarding-runtime-setup h-5 rounded-full bg-[var(--buzz-welcome-chartreuse)]/30 px-2.5 font-mono !text-badge font-normal uppercase text-foreground hover:bg-[var(--buzz-welcome-chartreuse)]/40"
+desktop/src/features/onboarding/ui/SetupStep.tsx:273:      className="buzz-onboarding-runtime-setup h-5 rounded-full bg-[var(--buzz-welcome-chartreuse)]/30 px-2.5 font-mono !text-badge font-normal uppercase text-foreground hover:bg-[var(--buzz-welcome-chartreuse)]/40"
+desktop/src/features/onboarding/ui/ProfileStep.tsx:245:                  className="buzz-onboarding-name-placeholder-caret h-[0.9em] w-0.5 rounded-full bg-primary"
+F06 literal-secret scan

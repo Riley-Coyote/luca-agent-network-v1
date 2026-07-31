@@ -89,6 +89,51 @@ test("F06: single-owner setup protects key material and makes recovery limits ex
       "Your owner identity stays the same when you replace the runtime",
     ),
   ).toBeVisible();
+  await expect(page.getByTestId("onboarding-finish")).toBeEnabled();
+
+  const commandCountBeforeFinish = await page.evaluate(
+    () =>
+      (window as Window & { __BUZZ_E2E_COMMANDS__?: string[] })
+        .__BUZZ_E2E_COMMANDS__?.length ?? 0,
+  );
+  await page.getByTestId("onboarding-finish").click();
+
+  await expect(page.getByTestId("app-sidebar")).toBeVisible();
+  await expect(page.getByTestId("onboarding-page-1")).toHaveCount(0);
+  await expect(page.getByTestId("machine-onboarding-gate")).toHaveCount(0);
+  await expect(page.getByTestId("community-onboarding-flow")).toHaveCount(0);
+  await expect(page.getByTestId("pending-invite-gate")).toHaveCount(0);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const raw = window.localStorage.getItem("buzz-communities");
+        return raw ? JSON.parse(raw) : [];
+      }),
+    )
+    .toEqual([
+      expect.objectContaining({
+        id: "luca-personal-home",
+        name: "Luca",
+      }),
+    ]);
+
+  const starterInitializationCalls = await page.evaluate((commandCount) => {
+    const commands =
+      (
+        window as Window & {
+          __BUZZ_E2E_COMMAND_LOG__?: Array<{
+            command: string;
+            payload: unknown;
+          }>;
+        }
+      ).__BUZZ_E2E_COMMAND_LOG__?.slice(commandCount) ?? [];
+    return commands.filter(
+      ({ command }) =>
+        command === "ensure_starter_channels" || command === "create_channel",
+    );
+  }, commandCountBeforeFinish);
+  expect(starterInitializationCalls).toEqual([]);
+  expect(consoleErrors).toEqual([]);
 });
 
 test("F06: first-owner connection uses personal-home copy", async ({

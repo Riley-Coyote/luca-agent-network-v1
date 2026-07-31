@@ -33,6 +33,7 @@ import {
 } from "@/shared/api/tauri";
 
 const STARTER_CHANNEL_SETUP_TOAST_ID = "starter-channel-setup-error";
+const LUCA_PERSONAL_HOME_TENANCY_ID = "luca-personal-home";
 
 export type ChannelInitResult =
   | { ok: true; focusChannelId?: string }
@@ -475,6 +476,11 @@ export function useAppOnboardingState(isSharedIdentity: boolean) {
   const identity = identityQuery.data;
   const currentPubkey = identity?.pubkey ?? null;
   const starterChannelsCommunityScope = activeCommunity?.relayUrl ?? null;
+  // F03 provisions Luca's personal home internally. The legacy starter-team
+  // initializer would create a Buzz-era Welcome channel after that home
+  // appears, bypassing the resident setup flow owned by Luca.
+  const isLucaPersonalHome =
+    activeCommunity?.id === LUCA_PERSONAL_HOME_TENANCY_ID;
   const starterChannelsInitPromisesRef = React.useRef(
     new Map<string, Promise<ChannelInitResult>>(),
   );
@@ -579,6 +585,7 @@ export function useAppOnboardingState(isSharedIdentity: boolean) {
   React.useEffect(() => {
     if (
       onboardingGate.stage !== "ready" ||
+      isLucaPersonalHome ||
       !currentPubkey ||
       !starterChannelsCommunityScope ||
       !readOnboardingCompletion(currentPubkey) ||
@@ -595,6 +602,7 @@ export function useAppOnboardingState(isSharedIdentity: boolean) {
   }, [
     currentPubkey,
     onboardingGate.stage,
+    isLucaPersonalHome,
     requestStarterChannels,
     starterChannelsCommunityScope,
   ]);
