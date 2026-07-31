@@ -117,6 +117,26 @@ fn resolve_agent_owner(config: &Config) -> Option<String> {
     config.agent_owner.clone()
 }
 
+fn managed_final_owner(configured_owner: Option<&str>) -> Result<luca_protocol::Hex64> {
+    let owner = configured_owner.ok_or_else(|| {
+        anyhow::anyhow!("managed final publication requires configured owner identity")
+    })?;
+    luca_protocol::Hex64::parse(owner.to_ascii_lowercase())
+        .map_err(|error| anyhow::anyhow!("invalid managed final owner identity: {error}"))
+}
+
+#[cfg(test)]
+mod luca_f09_managed_context_tests {
+    use super::*;
+
+    #[test]
+    fn configured_owner_enables_managed_final_context_without_owner_attestation() {
+        let owner = "ab".repeat(32);
+        let parsed = managed_final_owner(Some(&owner)).expect("configured managed owner");
+        assert_eq!(parsed.as_str(), owner);
+    }
+}
+
 /// Cache for the agent's owner pubkey.
 ///
 /// Owner is now provided via `--agent-owner` config flag (no REST lookup).
@@ -1564,22 +1584,19 @@ async fn tokio_main() -> Result<()> {
         config::IdentityConfig::Managed {
             resident_pubkey,
             broker,
-            owner_attestation,
             session_epoch,
             ..
-        } => owner_attestation.as_ref().map(|attestation| {
-            luca_final_publisher::ManagedFinalPublisherContext {
+        } => {
+            let owner_pubkey = managed_final_owner(startup_owner.as_deref())?;
+            Some(luca_final_publisher::ManagedFinalPublisherContext {
                 broker: Arc::clone(broker),
-                owner_pubkey: attestation.owner_pubkey.clone(),
+                owner_pubkey,
                 resident_pubkey: resident_pubkey.clone(),
                 session_epoch: *session_epoch,
-            }
-        }),
+            })
+        }
         config::IdentityConfig::Legacy(_) => None,
     };
-    if config.identity.is_managed() && managed_final_publisher.is_none() {
-        tracing::warn!(target: "luca::final", "managed final publication disabled: no verified owner attestation");
-    }
 
     let base_prompt_content = config.base_prompt_content.take();
     let ctx = Arc::new(PromptContext {

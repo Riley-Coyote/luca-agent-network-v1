@@ -115,6 +115,16 @@ impl FinalChunkAccumulator {
 }
 
 impl ManagedFinalTurn {
+    /// Frozen F09 admission rule for choosing a triggering event. F10 may
+    /// extend this to same-owner descendants; V1 intentionally admits only
+    /// the configured owner's valid signed kind:9 events.
+    pub fn is_eligible_trigger(owner_pubkey: &Hex64, event: &Event) -> bool {
+        event.verify_id()
+            && event.verify_signature()
+            && event.kind == nostr::Kind::Custom(9)
+            && event.pubkey.to_hex() == owner_pubkey.as_str()
+    }
+
     /// Derive immutable routing from the exact last signed event accepted in
     /// the flush batch. Model output is never used for recipient or thread
     /// routing. The event ID is the relay-verifiable dispatch receipt.
@@ -124,30 +134,10 @@ impl ManagedFinalTurn {
         conversation_id: Uuid,
         event: &Event,
     ) -> Result<Self, FinalPublicationError> {
-        if !event.verify_id()
-            || !event.verify_signature()
-            || event.kind != nostr::Kind::Custom(9)
-            || event.pubkey.to_hex() != context.owner_pubkey.as_str()
-        {
+        if !Self::is_eligible_trigger(&context.owner_pubkey, event) {
             return Err(FinalPublicationError::Invalid(
                 "trigger must be the configured owner's valid signed kind:9 event".into(),
             ));
-        }
-        for marker in ["root", "reply"] {
-            let mut tagged_ids = event.tags.iter().filter_map(|tag| {
-                let parts = tag.as_slice();
-                (parts.first().map(String::as_str) == Some("e")
-                    && parts.get(3).map(String::as_str) == Some(marker))
-                .then(|| parts.get(1).cloned())
-                .flatten()
-            });
-            if let Some(first) = tagged_ids.next() {
-                if tagged_ids.any(|candidate| candidate != first) {
-                    return Err(FinalPublicationError::Invalid(format!(
-                        "trigger has ambiguous {marker} thread tags"
-                    )));
-                }
-            }
         }
         let turn_id = OpaqueId::parse(turn_id)
             .map_err(|error| FinalPublicationError::Invalid(error.to_string()))?;
@@ -158,30 +148,17 @@ impl ManagedFinalTurn {
         let dispatch_receipt_id = OpaqueId::parse(event_id.as_str())
             .map_err(|error| FinalPublicationError::Invalid(error.to_string()))?;
         let cancellation_epoch = context.session_epoch;
-        let thread = crate::queue::parse_thread_tags(event);
-        let root_event_id = thread
-            .root_event_id
-            .as_deref()
-            .map(Hex64::parse)
-            .transpose()
-            .map_err(|error| FinalPublicationError::Invalid(error.to_string()))?
-            .or_else(|| Some(event_id.clone()));
-        let reply_event_id = thread
-            .parent_event_id
-            .as_deref()
-            .map(Hex64::parse)
-            .transpose()
-            .map_err(|error| FinalPublicationError::Invalid(error.to_string()))?
-            .or_else(|| Some(event_id.clone()));
+        let (root_event_id, reply_event_id) =
+            strict_trigger_routing(&conversation_id, event, &event_id)?;
         let thread_id = root_event_id
             .as_ref()
             .map(|root| OpaqueId::parse(format!("thread:{}", root.as_str())))
             .transpose()
             .map_err(|error| FinalPublicationError::Invalid(error.to_string()))?;
-        let mut resolved_p_tags = vec![Hex64::parse(event.pubkey.to_hex())
-            .map_err(|error| FinalPublicationError::Invalid(error.to_string()))?];
-        resolved_p_tags.sort();
-        resolved_p_tags.dedup();
+        // F09 owner-only routing deliberately ignores every trigger p-tag.
+        // Only the verified owner-author is retained, so an ACP/model child
+        // cannot expand recipients or invoke a same-owner descendant before F10.
+        let resolved_p_tags = owner_only_p_tags(event)?;
         Ok(Self {
             turn_id,
             dispatch_receipt_id,
@@ -247,9 +224,77 @@ impl ManagedFinalTurn {
     }
 }
 
+fn strict_trigger_routing(
+    conversation_id: &OpaqueId,
+    event: &Event,
+    trigger_id: &Hex64,
+) -> Result<(Option<Hex64>, Option<Hex64>), FinalPublicationError> {
+    let mut h_value: Option<&str> = None;
+    let mut root: Option<Hex64> = None;
+    let mut reply: Option<Hex64> = None;
+
+    for tag in event.tags.iter() {
+        let parts = tag.as_slice();
+        match parts.first().map(String::as_str) {
+            Some("h") => {
+                if parts.len() != 2 || h_value.is_some() {
+                    return Err(FinalPublicationError::Invalid(
+                        "trigger must contain exactly one well-formed h tag".into(),
+                    ));
+                }
+                h_value = parts.get(1).map(String::as_str);
+            }
+            Some("e") => {
+                if parts.len() != 4 {
+                    return Err(FinalPublicationError::Invalid(
+                        "trigger contains a malformed or unmarked e tag".into(),
+                    ));
+                }
+                let id = Hex64::parse(parts[1].clone())
+                    .map_err(|error| FinalPublicationError::Invalid(error.to_string()))?;
+                match parts[3].as_str() {
+                    "root" if root.is_none() => root = Some(id),
+                    "reply" if reply.is_none() => reply = Some(id),
+                    "root" | "reply" => {
+                        return Err(FinalPublicationError::Invalid(
+                            "trigger contains duplicate thread markers".into(),
+                        ));
+                    }
+                    _ => {
+                        return Err(FinalPublicationError::Invalid(
+                            "trigger contains a malformed or unmarked e tag".into(),
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if h_value != Some(conversation_id.as_str()) {
+        return Err(FinalPublicationError::Invalid(
+            "trigger h tag does not match the conversation".into(),
+        ));
+    }
+    match (root, reply) {
+        (None, None) => Ok((Some(trigger_id.clone()), Some(trigger_id.clone()))),
+        (None, Some(reply)) => Ok((Some(reply.clone()), Some(reply))),
+        (Some(root), Some(reply)) => Ok((Some(root), Some(reply))),
+        (Some(_), None) => Err(FinalPublicationError::Invalid(
+            "trigger root tag requires exactly one reply tag".into(),
+        )),
+    }
+}
+
+fn owner_only_p_tags(event: &Event) -> Result<Vec<Hex64>, FinalPublicationError> {
+    Ok(vec![Hex64::parse(event.pubkey.to_hex()).map_err(
+        |error| FinalPublicationError::Invalid(error.to_string()),
+    )?])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nostr::{EventBuilder, Keys, Kind, Tag};
 
     fn hex(value: char) -> Hex64 {
         Hex64::parse(value.to_string().repeat(64)).expect("fixture hex")
@@ -272,6 +317,15 @@ mod tests {
             reply_event_id: reply,
             resolved_p_tags: p_tags,
         }
+    }
+
+    fn signed_trigger(keys: &Keys, conversation: &str, extra_tags: Vec<Tag>) -> Event {
+        let mut tags = vec![Tag::parse(["h", conversation]).expect("h tag")];
+        tags.extend(extra_tags);
+        EventBuilder::new(Kind::Custom(9), "trigger")
+            .tags(tags)
+            .sign_with_keys(keys)
+            .expect("signed trigger")
     }
 
     #[test]
@@ -323,5 +377,49 @@ mod tests {
         assert_eq!(request.root_event_id, Some(hex('c')));
         assert_eq!(request.reply_event_id, Some(hex('d')));
         assert_eq!(request.resolved_p_tags, vec![hex('a'), hex('e'), hex('f')]);
+    }
+
+    #[test]
+    fn luca_f09_strict_routing_rejects_duplicate_or_unmarked_thread_tags() {
+        let keys = Keys::generate();
+        let conversation = id("conversation-1");
+        let duplicate = signed_trigger(
+            &keys,
+            conversation.as_str(),
+            vec![
+                Tag::parse(["e", &"11".repeat(32), "", "reply"]).expect("reply"),
+                Tag::parse(["e", &"22".repeat(32), "", "reply"]).expect("reply"),
+            ],
+        );
+        let trigger_id = Hex64::parse(duplicate.id.to_hex()).expect("trigger id");
+        assert!(strict_trigger_routing(&conversation, &duplicate, &trigger_id).is_err());
+
+        let unmarked = signed_trigger(
+            &keys,
+            conversation.as_str(),
+            vec![Tag::parse(["e", &"33".repeat(32), ""]).expect("unmarked")],
+        );
+        let trigger_id = Hex64::parse(unmarked.id.to_hex()).expect("trigger id");
+        assert!(strict_trigger_routing(&conversation, &unmarked, &trigger_id).is_err());
+    }
+
+    #[test]
+    fn luca_f09_owner_only_policy_ignores_trigger_p_tags() {
+        let owner = Keys::generate();
+        let resident = Keys::generate();
+        let resident_pubkey = resident.public_key().to_hex();
+        let trigger = signed_trigger(
+            &owner,
+            "conversation-1",
+            vec![Tag::parse(["p", resident_pubkey.as_str()]).expect("p tag")],
+        );
+        let owner_hex = Hex64::parse(owner.public_key().to_hex()).expect("owner");
+        let resident_hex = Hex64::parse(resident.public_key().to_hex()).expect("resident");
+        assert!(ManagedFinalTurn::is_eligible_trigger(&owner_hex, &trigger));
+        assert_ne!(owner_hex, resident_hex);
+        assert_eq!(
+            owner_only_p_tags(&trigger).expect("owner-only routing"),
+            vec![owner_hex]
+        );
     }
 }

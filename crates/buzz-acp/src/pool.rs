@@ -255,6 +255,10 @@ fn apply_completed_before_control_signal(
     }
 }
 
+fn completed_control_allows_end_turn_handoff(control_signal: &ControlSignal) -> bool {
+    !matches!(control_signal, ControlSignal::Cancel)
+}
+
 /// Control signal for an in-flight channel turn.
 ///
 /// Not `Copy`: `SwitchModel` carries an owned `String`. Callers must clone when
@@ -1208,7 +1212,7 @@ async fn handoff_managed_final_after_end_turn(
         agent.acp.discard_final_message_capture();
         return;
     };
-    let Some(trigger) = batch.events.last().map(|event| &event.event) else {
+    let Some(trigger) = last_eligible_managed_trigger(batch, &context.owner_pubkey) else {
         agent.acp.discard_final_message_capture();
         return;
     };
@@ -1251,6 +1255,19 @@ async fn handoff_managed_final_after_end_turn(
             tracing::warn!(target: "luca::final", "managed final publication denied or unavailable: {error}")
         }
     }
+}
+
+fn last_eligible_managed_trigger<'a>(
+    batch: &'a FlushBatch,
+    owner_pubkey: &luca_protocol::Hex64,
+) -> Option<&'a nostr::Event> {
+    batch.events.iter().rev().find_map(|batch_event| {
+        crate::luca_final_publisher::ManagedFinalTurn::is_eligible_trigger(
+            owner_pubkey,
+            &batch_event.event,
+        )
+        .then_some(&batch_event.event)
+    })
 }
 
 /// Core async function spawned for each prompt.
@@ -1957,6 +1974,31 @@ pub async fn run_prompt_task(
                         // and last_prompt_id was cleared by the success path.
                         //
                         // MUST send a PromptResult or the main loop deadlocks.
+                        if !completed_control_allows_end_turn_handoff(&control_signal) {
+                            tracing::debug!(
+                                target: "pool::prompt",
+                                "explicit cancel won the completion race — suppressing final publication"
+                            );
+                            let usage = agent.acp.take_turn_usage();
+                            publish_agent_turn_metric(
+                                &ctx,
+                                usage,
+                                observer_channel_id,
+                                &session_id,
+                                &turn_id,
+                                Some(buzz_core::agent_turn_metric::StopReason::Cancelled),
+                            )
+                            .await;
+                            send_prompt_result(
+                                &result_tx,
+                                &turn_id,
+                                agent,
+                                source,
+                                PromptOutcome::Cancelled,
+                                None,
+                            );
+                            return;
+                        }
                         if matches!(
                             control_signal,
                             ControlSignal::Rotate | ControlSignal::SwitchModel(_)
@@ -1976,6 +2018,13 @@ pub async fn run_prompt_task(
                             &source,
                             &control_signal,
                         );
+                        handoff_managed_final_after_end_turn(
+                            &mut agent,
+                            &ctx,
+                            batch.as_ref(),
+                            &turn_id,
+                        )
+                        .await;
                         let usage = agent.acp.take_turn_usage();
                         publish_agent_turn_metric(
                             &ctx,
@@ -4346,6 +4395,21 @@ mod tests {
     }
 
     #[test]
+    fn luca_f09_completed_control_race_suppresses_only_explicit_cancel() {
+        assert!(!completed_control_allows_end_turn_handoff(
+            &ControlSignal::Cancel
+        ));
+        for signal in [
+            ControlSignal::Interrupt,
+            ControlSignal::Steer,
+            ControlSignal::Rotate,
+            ControlSignal::SwitchModel("gpt-5".into()),
+        ] {
+            assert!(completed_control_allows_end_turn_handoff(&signal));
+        }
+    }
+
+    #[test]
     fn test_invalidate_channel_clears_session_and_turn_count() {
         let (mut s, ch_a, ch_b) = make_state();
         s.invalidate(&PromptSource::Channel(ch_a));
@@ -4502,6 +4566,42 @@ mod tests {
             cancelled_events: vec![],
             cancel_reason: None,
         }
+    }
+
+    #[test]
+    fn luca_f09_selects_last_eligible_owner_trigger_before_trailing_ineligible_event() {
+        let owner = Keys::generate();
+        let other = Keys::generate();
+        let eligible = EventBuilder::new(Kind::Custom(9), "eligible")
+            .sign_with_keys(&owner)
+            .expect("eligible event");
+        let expected_id = eligible.id;
+        let trailing = EventBuilder::new(Kind::Custom(9), "ineligible")
+            .sign_with_keys(&other)
+            .expect("trailing event");
+        let batch = FlushBatch {
+            channel_id: Uuid::new_v4(),
+            events: vec![
+                crate::queue::BatchEvent {
+                    event: eligible,
+                    prompt_tag: "owner".into(),
+                    received_at: std::time::Instant::now(),
+                },
+                crate::queue::BatchEvent {
+                    event: trailing,
+                    prompt_tag: "other".into(),
+                    received_at: std::time::Instant::now(),
+                },
+            ],
+            cancelled_events: vec![],
+            cancel_reason: None,
+        };
+        let owner_pubkey =
+            luca_protocol::Hex64::parse(owner.public_key().to_hex()).expect("owner pubkey");
+        assert_eq!(
+            last_eligible_managed_trigger(&batch, &owner_pubkey).map(|event| event.id),
+            Some(expected_id)
+        );
     }
 
     #[test]
