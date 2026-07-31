@@ -155,13 +155,17 @@ test("legacy active community migrates to the recorded Luca home without deletio
       communities: [
         expect.objectContaining({
           id: "legacy-active",
-          name: "Legacy workspace",
+          name: PERSONAL_HOME_TENANCY_NAME,
         }),
       ],
     });
   await expect(
     page.getByTestId("personal-home-provisioning-error"),
   ).toHaveCount(0);
+
+  // The F03 mock bridge has no get_default_relay_url fault seam. F11 owns the
+  // isolated native failure injection that can assert this alert's focus at
+  // runtime; the Luca alert remains explicitly role=alert and focused on mount.
 });
 
 test("Luca defaults preserve the Buzz chat surface", async ({ page }) => {

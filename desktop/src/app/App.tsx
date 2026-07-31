@@ -252,10 +252,17 @@ function PersonalHomeProvisioningError({
   error: string;
   onRetry: () => void;
 }) {
+  const alertRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    alertRef.current?.focus();
+  }, []);
+
   return (
     <div
       className="flex min-h-dvh items-center justify-center bg-background px-4 py-8 text-foreground"
       data-testid="personal-home-provisioning-error"
+      ref={alertRef}
       role="alert"
       tabIndex={-1}
     >
@@ -325,12 +332,7 @@ function PersonalHomeGate({
       .then((relayUrl) => {
         if (!cancelled) {
           const tenancy = createPersonalHomeTenancy(relayUrl, ownerPubkey);
-          const existing = communities.find(
-            (community) => community.relayUrl === tenancy.relayUrl,
-          );
-          const id = addCommunity(
-            existing ? { ...tenancy, name: existing.name } : tenancy,
-          );
+          const id = addCommunity(tenancy);
           persistPersonalHomeTenancyId(id);
           switchCommunity(id);
         }
@@ -351,7 +353,6 @@ function PersonalHomeGate({
   }, [
     activeCommunity?.id,
     addCommunity,
-    communities,
     error,
     ownerPubkey,
     personalHomeId,
