@@ -1,0 +1,73 @@
+{
+  "schema": "luca.evidence.result.v1",
+  "task": "F15",
+  "candidate_commit": "bbd7fb93724fabf067c60b0ad748074fa56de96d",
+  "candidate_branch": "luca/g1-authority",
+  "status": "INTEGRATION_PENDING",
+  "executor": {
+    "id": "worker-f15-desktop-authority",
+    "independence_group": "implementation:F15"
+  },
+  "outputs": [
+    {
+      "name": "resident_registry",
+      "path": "M1/F15/outputs/resident_registry.json",
+      "sha256": "d4ebb5dc110e96e52429b2a158a5c4d97abd7352d1741281f5eb7a157cb4a810"
+    },
+    {
+      "name": "persona_runtime_bindings",
+      "path": "M1/F15/outputs/persona_runtime_bindings.json",
+      "sha256": "df97b25818c3aea0e1df32539a8e29d524e4fa7cd4ca12ea2a339b38a1f9af87"
+    },
+    {
+      "name": "three_resident_setup_e2e",
+      "path": "M1/F15/outputs/three_resident_setup_e2e.json",
+      "sha256": "755427bddd3e92e994d84b98780c5a2ee4ef2e9b7a827930cd94a1b32b7e49e2"
+    }
+  ],
+  "test_logs": [
+    {
+      "name": "luca-f15",
+      "command": "cargo test -p buzz-acp luca_f15",
+      "status": "PASS",
+      "path": "M1/F15/raw/native-focused.log",
+      "sha256": "7a54202174ef4e23be742bcdc45af9ead36d74479cba861e74ff53969ad68514"
+    },
+    {
+      "name": "desktop-tauri-test",
+      "command": "just desktop-tauri-test",
+      "status": "FOCUSED_PASS",
+      "path": "M1/F15/raw/native-focused.log",
+      "sha256": "7a54202174ef4e23be742bcdc45af9ead36d74479cba861e74ff53969ad68514",
+      "note": "The three resident-registry native tests passed; the full desktop suite remains an integration action."
+    },
+    {
+      "name": "just-ci",
+      "command": "just ci  # milestone integration candidate only",
+      "status": "INTEGRATION_PENDING",
+      "path": "M1/F15/raw/build.log",
+      "sha256": "35a61d69ba10fb3e1f430e3202354de9440435338c48081eab3f098cb58e70ba"
+    }
+  ],
+  "supplemental_test_logs": [
+    {
+      "name": "renderer-focused",
+      "command": "pnpm build:e2e && pnpm exec playwright test tests/e2e/luca/f15.spec.ts",
+      "status": "PASS",
+      "path": "M1/F15/raw/renderer-focused.log",
+      "sha256": "5e8ac09e325211b803524ff24295f58f04edf7ce5fc87deac8f717ed2e695783"
+    },
+    {
+      "name": "ownership-contract",
+      "command": "python3 scripts/evidence/validate_contracts.py --task F15 --base c24e5bb8 --candidate bbd7fb93724fabf067c60b0ad748074fa56de96d && python3 scripts/evidence/validate_contracts.py --audit",
+      "status": "PASS",
+      "path": "M1/F15/raw/contract.log",
+      "sha256": "23e9edd43567e0df0363d7e8bf241c876ce48d624b105e3a1df6aa0379067dc4"
+    }
+  ],
+  "artifact_scan": {
+    "path": "M1/F15/artifact-secret-scan.json",
+    "sha256": "cca8ced492de00cd4522ff62dde0bd0855659737b88f6c8a18ba4fdef6e3d923"
+  },
+  "integration_pending_reason": "The F15 repair passes focused native, renderer, build, ownership and artifact checks. Full desktop and milestone CI plus independent review remain intentionally pending; no review.json or final PASS receipt is asserted."
+}

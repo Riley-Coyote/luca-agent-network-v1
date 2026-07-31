@@ -1,0 +1,23 @@
+F15 provisional task receipt
+candidate=bbd7fb93724fabf067c60b0ad748074fa56de96d
+candidate_branch=luca/g1-authority
+verification_base=c24e5bb8
+
+PASS  cargo test -p buzz-acp luca_f15 -- --nocapture
+      5 focused cross-layer authority tests passed.
+PASS  cargo test --manifest-path desktop/src-tauri/Cargo.toml resident_registry -- --nocapture
+      3 focused native registry tests passed.
+PASS  pnpm exec biome check <F15-owned renderer and test files>
+      10 focused files passed with no fixes.
+PASS  pnpm typecheck
+      Renderer TypeScript compilation passed.
+PASS  pnpm build:e2e
+      E2E renderer build passed; only pre-existing chunking advisories were emitted.
+PASS  pnpm exec playwright test tests/e2e/luca/f15.spec.ts
+      6 focused renderer authority and retry tests passed.
+PASS  python3 scripts/evidence/validate_contracts.py --task F15 --base c24e5bb8 --candidate bbd7fb93724fabf067c60b0ad748074fa56de96d
+      12 changed paths passed F15 ownership validation.
+PASS  python3 scripts/evidence/validate_contracts.py --audit
+      113 task capsules passed the contract audit.
+DEFERRED  just ci
+      Reserved for the M1 integration candidate.

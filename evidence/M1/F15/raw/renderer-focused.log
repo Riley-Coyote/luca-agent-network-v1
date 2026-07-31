@@ -1,0 +1,11 @@
+status=PASS
+static_authority_tests=1
+persona_less_compatibility_tests=1
+three_resident_setup_tests=1
+public_binding_tests=1
+retry_boundary_tests=2
+failures=0
+
+Both native persistence classifications preserve exactly one visible persona
+retry surface and close the original create dialog. Renderer command capture
+contained zero calls to the deprecated secret-returning creation command.

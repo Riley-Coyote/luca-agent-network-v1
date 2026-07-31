@@ -1,0 +1,5 @@
+status=PASS
+task=F15
+changed_paths=12
+capsule_audit_count=113
+open_contract_findings=0

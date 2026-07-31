@@ -1,0 +1,11 @@
+status=PASS
+suite=cross-layer-authority
+tests=5
+failures=0
+
+status=PASS
+suite=native-resident-registry
+tests=3
+failures=0
+
+Protected values and local filesystem coordinates are intentionally absent.
