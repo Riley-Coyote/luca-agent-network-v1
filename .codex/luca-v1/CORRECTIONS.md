@@ -186,3 +186,20 @@ artifact; the authoritative kit remains unchanged.
   accessibility state and runtime logs.
 - Scope: product-facing onboarding and public-brand correctness only. Buzz
   messaging, signed chronology and chat layout remain the foundation.
+
+## 2026-07-31 — F15 key-safe resident creation ownership
+
+- Approved amendment: `F15_KEY_SAFE_RESIDENT_CREATION_AMENDMENT.md`.
+- Observed contradiction: F15 must create real cryptographic residents, but
+  Buzz's only existing renderer-callable creation response includes
+  `private_key_nsec`; F14 and the security contract prohibit Luca resident keys
+  from entering renderer/model surfaces. F15 did not own the command and typed
+  IPC seams needed to implement a safe response.
+- Local correction: place the Luca-only safe wrapper in F15's already-owned
+  resident registry and narrowly add only Tauri registration plus E2E bridge
+  parity to its ownership. The wrapper reuses validation and keychain
+  persistence, zeroizes its temporary secret response, and returns public
+  resident data and non-secret errors only. Legacy Buzz behavior remains
+  unchanged.
+- Scope: no new signing capability, key store, migration, permission, generic
+  secret API or renderer key access.

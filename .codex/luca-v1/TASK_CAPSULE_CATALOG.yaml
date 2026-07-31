@@ -1185,10 +1185,15 @@ task_capsules:
   - target:desktop/src/features/luca/residents/**
   - target:desktop/tests/e2e/luca/f15.spec.ts
   - target:crates/buzz-acp/tests/luca_f15.rs
+  - F15_KEY_SAFE_RESIDENT_CREATION_AMENDMENT.md
+  - target:desktop/src-tauri/src/lib.rs
+  - target:desktop/src/testing/e2eBridge.ts
   owns:
     include:
     - desktop/src-tauri/src/luca/resident_registry.rs
     - desktop/src-tauri/src/luca/mod.rs
+    - desktop/src-tauri/src/lib.rs
+    - desktop/src/testing/e2eBridge.ts
     - desktop/src/features/agents/**
     - desktop/src/features/luca/residents/**
     - desktop/tests/e2e/luca/f15.spec.ts
@@ -1219,6 +1224,10 @@ task_capsules:
   ownership_mutex: m1_authority_integration
   implementation_contract:
   - 'Deliver exactly these outputs: resident_registry, persona_runtime_bindings, three_resident_setup_e2e.'
+  - Luca resident setup must call a Luca-specific key-safe command implemented at the resident-registry boundary. It reuses
+    the existing validated/keychain-backed managed-agent creation path, zeroizes the temporary returned secret, and returns
+    no private_key_nsec or other resident signing capability through Tauri IPC. The legacy Buzz command remains compatible,
+    and Luca UI never calls or renders its secret-returning response.
   - 'Prove the task-specific objective exactly: Implement durable resident registry and direct setup UI; stubs or narrative
     are not substitutes for the named evidence.'
   - Preserve every global invariant in TASK_GRAPH.yaml and stop on a contract contradiction.
