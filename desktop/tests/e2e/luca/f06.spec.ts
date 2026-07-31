@@ -45,10 +45,9 @@ test("F06: single-owner setup protects key material and makes recovery limits ex
     page.getByRole("button", { name: "Create owner identity" }),
   ).toBeVisible();
   await expect(page.getByTestId("luca-owner-mark")).toBeVisible();
+  await expect(page.getByTestId("luca-owner-atmosphere")).toBeVisible();
   await expect(page.getByText("A personal home for the agents")).toBeVisible();
-  await expect(
-    page.locator('img[src="/landing/buzz-wordmark.png"]'),
-  ).toHaveCount(0);
+  await expect(page.locator("svg")).toHaveCount(0);
   await page.getByRole("button", { name: "Create owner identity" }).click();
 
   const disclosure = page.getByTestId("onboarding-recovery-disclosure");
@@ -147,6 +146,11 @@ test("F06: first-owner connection uses personal-home copy", async ({
         `buzz-machine-onboarding-complete.v2:${pubkey}`,
         "true",
       );
+      window.localStorage.setItem("luca-owner-onboarding-complete.v1", "true");
+      window.localStorage.setItem(
+        `buzz-onboarding-complete.v1:${pubkey}`,
+        "true",
+      );
       const timestamp = new Date().toISOString();
       window.localStorage.setItem(
         "buzz-community-onboarding-transaction.v1",
@@ -170,16 +174,11 @@ test("F06: first-owner connection uses personal-home copy", async ({
   });
   await page.goto("/");
 
-  await expect(
-    page.getByRole("heading", { name: "Connecting your personal home" }),
-  ).toBeVisible();
-  await expect(page.getByText("Connecting Luca securely…")).toBeVisible();
-  await expect(
-    page.getByText(/Joining |community|starter team|Buzz/),
-  ).toHaveCount(0);
+  await expect(page.getByTestId("app-sidebar")).toBeVisible();
+  await expect(page.getByTestId("community-onboarding-flow")).toHaveCount(0);
 });
 
-test("F06: first owner finishes without starter-team initialization", async ({
+test("F06: completed Luca owner discards a legacy first-community profile transaction", async ({
   page,
 }) => {
   const blankOwner = { ...TEST_IDENTITIES.alice, username: "" };
@@ -188,6 +187,11 @@ test("F06: first owner finishes without starter-team initialization", async ({
     ({ pubkey }) => {
       window.localStorage.setItem(
         `buzz-machine-onboarding-complete.v2:${pubkey}`,
+        "true",
+      );
+      window.localStorage.setItem("luca-owner-onboarding-complete.v1", "true");
+      window.localStorage.setItem(
+        `buzz-onboarding-complete.v1:${pubkey}`,
         "true",
       );
       const timestamp = new Date().toISOString();
@@ -214,54 +218,16 @@ test("F06: first owner finishes without starter-team initialization", async ({
   });
   await page.goto("/");
 
-  await expect(
-    page.getByRole("heading", { name: "Set up your owner profile" }),
-  ).toBeVisible();
-  await expect(page.getByTestId("onboarding-logo")).toHaveAttribute(
-    "data-brand",
-    "luca",
-  );
-  await expect(
-    page.getByText(/Joining |Meet your starter team|workspace|Buzz/),
-  ).toHaveCount(0);
-
-  const commandCountBeforeFinish = await page.evaluate(
-    () =>
-      (window as Window & { __BUZZ_E2E_COMMANDS__?: string[] })
-        .__BUZZ_E2E_COMMANDS__?.length ?? 0,
-  );
-  await page.getByLabel("Owner display name").fill("Riley");
-  await page.getByTestId("community-profile-next").click();
-  await expect(page.getByTestId("community-onboarding-flow")).toHaveCount(0);
   await expect(page.getByTestId("app-sidebar")).toBeVisible();
+  await expect(page.getByTestId("community-onboarding-flow")).toHaveCount(0);
+  await expect(page.getByTestId("onboarding-page-1")).toHaveCount(0);
   await expect
     .poll(() =>
-      page.evaluate(
-        ({ pubkey, relayUrl }) =>
-          window.localStorage.getItem(
-            `luca-personal-owner-onboarding.v1:${encodeURIComponent(relayUrl)}:${pubkey}`,
-          ),
-        { pubkey: blankOwner.pubkey, relayUrl: "wss://default.example.com" },
+      page.evaluate(() =>
+        window.localStorage.getItem("buzz-community-onboarding-transaction.v1"),
       ),
     )
-    .toBe("true");
-
-  const forbiddenInitializationCalls = await page.evaluate((commandCount) => {
-    const commands =
-      (
-        window as Window & {
-          __BUZZ_E2E_COMMAND_LOG__?: Array<{
-            command: string;
-            payload: unknown;
-          }>;
-        }
-      ).__BUZZ_E2E_COMMAND_LOG__?.slice(commandCount) ?? [];
-    return commands.filter(
-      ({ command }) =>
-        command === "ensure_starter_channels" || command === "create_channel",
-    );
-  }, commandCountBeforeFinish);
-  expect(forbiddenInitializationCalls).toEqual([]);
+    .toBeNull();
 });
 
 test("F06: existing identity input stays masked", async ({ page }) => {

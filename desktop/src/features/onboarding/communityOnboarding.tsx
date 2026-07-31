@@ -5,6 +5,8 @@ import {
 import { setLocalStorageItemWithRecovery } from "@/shared/lib/localStorageQuota";
 
 const STORAGE_KEY = "buzz-community-onboarding-transaction.v1";
+const LUCA_OWNER_ONBOARDING_COMPLETION_STORAGE_KEY =
+  "luca-owner-onboarding-complete.v1";
 
 export type CommunityOnboardingSource =
   | "first-community"
@@ -145,6 +147,19 @@ export function clearCommunityOnboardingTransaction(
   storage.removeItem(STORAGE_KEY);
 }
 
+function loadLucaSafeCommunityOnboardingTransaction() {
+  const transaction = loadCommunityOnboardingTransaction();
+  if (
+    transaction?.source === "first-community" &&
+    localStorage.getItem(LUCA_OWNER_ONBOARDING_COMPLETION_STORAGE_KEY) ===
+      "true"
+  ) {
+    clearCommunityOnboardingTransaction();
+    return null;
+  }
+  return transaction;
+}
+
 export function startCommunityOnboarding(
   input: StartCommunityOnboardingInput,
   storage: Storage = localStorage,
@@ -271,7 +286,7 @@ export function CommunityOnboardingProvider({
   children: React.ReactNode;
 }) {
   const [transaction, setTransaction] = React.useState(
-    loadCommunityOnboardingTransaction,
+    loadLucaSafeCommunityOnboardingTransaction,
   );
   const start = React.useCallback(
     (input: StartCommunityOnboardingInput) => {

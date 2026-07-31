@@ -6,6 +6,8 @@ import { useIdentityQuery } from "@/shared/api/hooks";
 const MACHINE_ONBOARDING_COMPLETION_STORAGE_KEY =
   "buzz-machine-onboarding-complete.v2";
 const LEGACY_ONBOARDING_COMPLETION_STORAGE_KEY = "buzz-onboarding-complete.v1";
+export const LUCA_OWNER_ONBOARDING_COMPLETION_STORAGE_KEY =
+  "luca-owner-onboarding-complete.v1";
 
 type MachineOnboardingStage =
   | "blocking"
@@ -41,6 +43,10 @@ export function markMachineOnboardingComplete(pubkey: string) {
   );
   window.localStorage.setItem(
     completionKey(LEGACY_ONBOARDING_COMPLETION_STORAGE_KEY, pubkey),
+    "true",
+  );
+  window.localStorage.setItem(
+    LUCA_OWNER_ONBOARDING_COMPLETION_STORAGE_KEY,
     "true",
   );
 }
