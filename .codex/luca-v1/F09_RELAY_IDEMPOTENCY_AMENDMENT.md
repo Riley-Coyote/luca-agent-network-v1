@@ -31,8 +31,9 @@ idempotency oracle. No endpoint or database schema is added. A closed
 The query is part of the exact URL in the fresh NIP-98 `u` tag, while the
 payload tag binds the exact submitted body; an intermediary cannot switch an
 authorized probe into an ingesting request. Unknown or repeated query
-parameters fail closed. Without probe mode, an exact stored match receives the same early duplicate
-acknowledgment and an absent event continues through the ordinary ingest path.
+parameters fail closed. Without probe mode, `POST /events` follows the existing
+Buzz ingest path unchanged. This avoids adding a database read or duplicate
+cryptographic verification to every ordinary chat send.
 
 After host-derived tenant binding, fresh NIP-98 verification, HTTP admission,
 NIP-98 replay protection, strict event parsing, event ID/signature validation,
