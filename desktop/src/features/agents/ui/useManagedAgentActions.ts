@@ -1,9 +1,9 @@
 import * as React from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import {
   type AttachManagedAgentToChannelResult,
   useAvailableAcpRuntimes,
-  useCreateManagedAgentMutation,
   useManagedAgentLogQuery,
   useManagedAgentsQuery,
   useRelayAgentsQuery,
@@ -14,14 +14,10 @@ import {
 } from "@/features/agents/hooks";
 import { useGlobalAgentConfig } from "@/features/agents/useGlobalAgentConfig";
 import { createLucaResident } from "@/features/luca/residents/api";
+import { lucaResidentsQueryKey } from "@/features/luca/residents/hooks";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import { usePresenceQuery } from "@/features/presence/hooks";
-import type {
-  AgentPersona,
-  Channel,
-  CreateManagedAgentResponse,
-  ManagedAgent,
-} from "@/shared/api/types";
+import type { AgentPersona, Channel, ManagedAgent } from "@/shared/api/types";
 import { removeChannelMember } from "@/shared/api/tauri";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import {
@@ -37,6 +33,7 @@ import {
 } from "../lib/instanceInputForDefinition";
 
 export function useManagedAgentActions() {
+  const queryClient = useQueryClient();
   const { globalConfig } = useGlobalAgentConfig();
   const relayAgentsQuery = useRelayAgentsQuery();
   const managedAgentsQuery = useManagedAgentsQuery();
@@ -45,14 +42,11 @@ export function useManagedAgentActions() {
   const startMutation = useStartManagedAgentMutation();
   const stopMutation = useStopManagedAgentMutation();
   const deleteMutation = useDeleteManagedAgentMutation();
-  const createAgentMutation = useCreateManagedAgentMutation();
   const availableRuntimesQuery = useAvailableAcpRuntimes();
   const startOnLaunchMutation = useSetManagedAgentStartOnAppLaunchMutation();
   const [isCreateOpen, setIsCreateOpen] = React.useState(false);
   const [agentToAddToChannel, setAgentToAddToChannel] =
     React.useState<ManagedAgent | null>(null);
-  const [createdAgent, setCreatedAgent] =
-    React.useState<CreateManagedAgentResponse | null>(null);
   const [startingPersonaIds, setStartingPersonaIds] = React.useState<
     ReadonlySet<string>
   >(() => new Set());
@@ -186,46 +180,7 @@ export function useManagedAgentActions() {
   }
 
   async function handleStartPersona(persona: AgentPersona) {
-    if (startingPersonaIdsRef.current.has(persona.id)) {
-      return;
-    }
-    setPersonaStartPending(persona.id, true);
-    clearFeedback();
-    try {
-      const runtimes = await availableRuntimesForStart(availableRuntimesQuery);
-      const { runtime, warnings } = resolveStartRuntimeForDefinition(
-        persona,
-        runtimes,
-        globalConfig.preferred_runtime,
-      );
-      const input = await buildInstanceInputForDefinition(persona, runtime);
-
-      const created = await createAgentMutation.mutateAsync(input);
-      setCreatedAgent(created);
-      const notices = [...warnings];
-
-      if (created.spawnError) {
-        setActionErrorMessage(created.spawnError);
-      } else {
-        notices.push(`Started ${created.agent.name}.`);
-      }
-
-      if (created.profileSyncError) {
-        notices.push(created.profileSyncError);
-      }
-      if (notices.length > 0) {
-        setActionNoticeMessage(notices.join(" "));
-      }
-
-      void managedAgentsQuery.refetch();
-      void relayAgentsQuery.refetch();
-    } catch (error) {
-      setActionErrorMessage(
-        error instanceof Error ? error.message : "Failed to start agent.",
-      );
-    } finally {
-      setPersonaStartPending(persona.id, false);
-    }
+    await handleAddResident(persona);
   }
 
   async function handleAddResident(persona: AgentPersona) {
@@ -250,7 +205,16 @@ export function useManagedAgentActions() {
           `${created.resident.displayName} was added, but did not start: ${created.spawnError}`,
         );
       } else {
-        notices.push(`Added ${created.resident.displayName} as a resident.`);
+        notices.push(
+          created.reused
+            ? `${created.resident.displayName} is already a resident.`
+            : `Added ${created.resident.displayName} as a resident.`,
+        );
+      }
+      if (created.recoveryNotice) {
+        notices.push(
+          `Recovered the existing resident after an interrupted setup. ${created.recoveryNotice}`,
+        );
       }
       if (created.profileSyncError) {
         notices.push(created.profileSyncError);
@@ -261,6 +225,7 @@ export function useManagedAgentActions() {
 
       void managedAgentsQuery.refetch();
       void relayAgentsQuery.refetch();
+      void queryClient.invalidateQueries({ queryKey: lucaResidentsQueryKey });
     } catch (error) {
       setActionErrorMessage(
         error instanceof Error ? error.message : "Failed to add resident.",
@@ -423,7 +388,6 @@ export function useManagedAgentActions() {
 
   const isPending =
     startingPersonaIds.size > 0 ||
-    createAgentMutation.isPending ||
     startMutation.isPending ||
     stopMutation.isPending ||
     startOnLaunchMutation.isPending ||
@@ -447,8 +411,6 @@ export function useManagedAgentActions() {
     setIsCreateOpen,
     agentToAddToChannel,
     setAgentToAddToChannel,
-    createdAgent,
-    setCreatedAgent,
     logAgentPubkey,
     setLogAgentPubkey,
     actionNoticeMessage,

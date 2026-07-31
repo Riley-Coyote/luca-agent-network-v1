@@ -64,10 +64,52 @@ fn luca_f15_renderer_adapter_has_no_private_key_response_field() {
     assert!(native.contains("create_luca_resident"));
     assert!(native.contains("created.private_key_nsec.zeroize();"));
     assert!(native.contains("CreateLucaResidentResponse"));
+    assert!(native.contains("existing_resident_for_persona"));
+    assert!(native.contains("ResidentPersistence::NotPersisted"));
     assert!(!client.contains("privateKeyNsec"));
     assert!(!client.contains("create_managed_agent"));
     assert!(client.contains("create_luca_resident"));
+    assert!(client.contains("list_luca_residents"));
     assert!(!setup.to_ascii_lowercase().contains("conductor"));
+}
+
+#[test]
+fn luca_f15_legacy_nsec_is_raii_guarded_and_mock_safe_path_never_builds_one() {
+    let native = include_str!("../../../desktop/src-tauri/src/commands/agents.rs");
+    assert!(native.contains("Zeroizing::new("));
+    assert!(native.contains("private_key_nsec.as_str().to_owned()"));
+
+    let bridge = include_str!("../../../desktop/src/testing/e2eBridge.ts");
+    let safe_start = bridge
+        .find("async function handleCreateLucaResident")
+        .expect("safe mock handler must exist");
+    let safe_end = bridge[safe_start..]
+        .find("function publicResidentCreateResponse")
+        .map(|offset| safe_start + offset)
+        .expect("safe mock handler boundary must exist");
+    let safe_handler = &bridge[safe_start..safe_end];
+    assert!(!safe_handler.contains("await handleCreateManagedAgent("));
+    assert!(!safe_handler.contains("private_key_nsec"));
+    assert!(!safe_handler.contains("nsec"));
+}
+
+#[test]
+fn luca_f15_agents_view_exposes_only_safe_resident_creation() {
+    let view = include_str!("../../../desktop/src/features/agents/ui/AgentsView.tsx");
+    let managed = include_str!("../../../desktop/src/features/agents/ui/useManagedAgentActions.ts");
+    let personas = include_str!("../../../desktop/src/features/agents/ui/usePersonaActions.ts");
+    let registry = include_str!("../../../desktop/src-tauri/src/luca/resident_registry.rs");
+
+    assert!(!view.contains("SecretRevealDialog"));
+    assert!(!view.contains("create_managed_agent"));
+    assert!(view.contains("onSubmitDefinition={personas.handleSubmitResident}"));
+    assert!(view.contains("personas.handleUpdatePersona(input)"));
+    assert!(managed.contains("await handleAddResident(persona)"));
+    assert!(managed.contains("createLucaResident(input)"));
+    assert!(personas.contains("isConfirmedNotPersistedResidentError"));
+    assert!(personas.contains("deletePersonaMutation.mutateAsync(createdPersona.id)"));
+    assert!(registry.contains("Known P2 assumption"));
+    assert!(registry.contains("owner-only `0o600` JSON fallback"));
 }
 
 #[test]

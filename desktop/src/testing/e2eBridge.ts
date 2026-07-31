@@ -760,7 +760,7 @@ type RawTeam = {
 };
 
 type MockManagedAgent = RawManagedAgent & {
-  private_key_nsec: string;
+  private_key_nsec?: string;
   log_lines: string[];
 };
 
@@ -7535,7 +7535,7 @@ async function handleCreateManagedAgent(
 
   return {
     agent: cloneManagedAgent(managedAgent),
-    private_key_nsec: managedAgent.private_key_nsec,
+    private_key_nsec: managedAgent.private_key_nsec ?? "",
     profile_sync_error: null,
     spawn_error: null,
   };
@@ -7545,23 +7545,167 @@ async function handleCreateLucaResident(
   args: Parameters<typeof handleCreateManagedAgent>[0],
   config: E2eConfig | undefined,
 ) {
-  const created = await handleCreateManagedAgent(args, config);
-  const agent = created.agent;
+  const delayMs = config?.mock?.createManagedAgentDelayMs ?? 0;
+  if (delayMs > 0) {
+    await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+  }
 
-  // Mirror the native Luca command: the synthetic legacy key stays inside the
-  // mock's desktop boundary and is never present in the IPC result.
+  const personaId = args.input.personaId?.trim();
+  if (!personaId) {
+    throw {
+      message: "a Luca resident must be linked to a persona",
+      persistence: "notPersisted",
+    };
+  }
+  ensureMockPersonaIsActive(personaId);
+
+  const existingResidents = mockManagedAgents.filter(
+    (candidate) => candidate.persona_id === personaId,
+  );
+  if (existingResidents.length > 1) {
+    throw {
+      message: `persona ${personaId} is linked to multiple residents; repair is required`,
+      persistence: "unknown",
+    };
+  }
+  if (existingResidents[0]) {
+    return publicResidentCreateResponse(existingResidents[0], true);
+  }
+
+  const linkedPersona =
+    mockPersonas.find((persona) => persona.id === personaId) ?? null;
+  const mintRespondTo =
+    args.input.respondTo ??
+    (linkedPersona?.respond_to as RawManagedAgent["respond_to"] | null) ??
+    "owner-only";
+  const mintRespondToAllowlist =
+    args.input.respondTo !== undefined
+      ? (args.input.respondToAllowlist ?? [])
+      : (linkedPersona?.respond_to_allowlist ?? []);
+  const mintParallelism =
+    args.input.parallelism ?? linkedPersona?.parallelism ?? 1;
+  const avatarUrl =
+    args.input.avatarUrl?.trim() || linkedPersona?.avatar_url || null;
+  const now = new Date().toISOString();
+  const pubkey = crypto
+    .randomUUID()
+    .replace(/-/g, "")
+    .padEnd(64, "0")
+    .slice(0, 64);
+  const agentCommand = args.input.agentCommand ?? "buzz-agent";
+  const agentArgs =
+    args.input.agentArgs && args.input.agentArgs.length > 0
+      ? [...args.input.agentArgs]
+      : agentCommand === "goose"
+        ? ["acp"]
+        : [];
+
+  // This is the renderer-visible test double for the native resident store.
+  // It intentionally has no signing-secret field at any point in its lifetime.
+  const resident: MockManagedAgent = {
+    pubkey,
+    name: args.input.name.trim(),
+    persona_id: personaId,
+    relay_url: args.input.relayUrl ?? DEFAULT_RELAY_WS_URL,
+    acp_command: args.input.acpCommand ?? "buzz-acp",
+    agent_command: agentCommand,
+    agent_args: agentArgs,
+    mcp_command: args.input.mcpCommand ?? "",
+    turn_timeout_seconds: args.input.turnTimeoutSeconds ?? 320,
+    idle_timeout_seconds: args.input.idleTimeoutSeconds ?? null,
+    max_turn_duration_seconds: args.input.maxTurnDurationSeconds ?? null,
+    parallelism: mintParallelism,
+    system_prompt: args.input.systemPrompt?.trim() || null,
+    avatar_url: avatarUrl,
+    model: args.input.model?.trim() || linkedPersona?.model || null,
+    provider: args.input.provider?.trim() || linkedPersona?.provider || null,
+    env_vars: { ...(args.input.envVars ?? {}) },
+    status: args.input.spawnAfterCreate ? "running" : "stopped",
+    pid: args.input.spawnAfterCreate ? 42000 + mockManagedAgents.length : null,
+    created_at: now,
+    updated_at: now,
+    last_started_at: args.input.spawnAfterCreate ? now : null,
+    last_stopped_at: null,
+    last_exit_code: null,
+    last_error: null,
+    last_error_code: null,
+    log_path: `/tmp/mock-agent-${pubkey}.log`,
+    start_on_app_launch: args.input.startOnAppLaunch ?? true,
+    auto_restart_on_config_change: true,
+    backend: args.input.backend ?? { type: "local" as const },
+    backend_agent_id: null,
+    respond_to: mintRespondTo,
+    respond_to_allowlist: [...mintRespondToAllowlist],
+    log_lines: [
+      `buzz-acp starting: relay=${args.input.relayUrl ?? DEFAULT_RELAY_WS_URL} agent_pubkey=${pubkey} parallelism=${mintParallelism}`,
+      args.input.systemPrompt?.trim()
+        ? `system prompt override configured (${args.input.systemPrompt.trim().length} chars)`
+        : "system prompt override not set",
+      args.input.spawnAfterCreate
+        ? "connected to relay at ws://localhost:3000"
+        : "profile created; harness not started",
+    ],
+  };
+
+  mockManagedAgents.unshift(resident);
+  applyMockDisplayName(pubkey, resident.name);
+  mockAgentPubkeys.add(pubkey);
+  mockProfiles.set(pubkey, {
+    pubkey,
+    display_name: resident.name,
+    avatar_url: avatarUrl,
+    about: args.input.systemPrompt?.trim() || null,
+    nip05_handle: null,
+    owner_pubkey: MOCK_IDENTITY_PUBKEY,
+    is_agent: true,
+    has_profile_event: true,
+  });
+  syncMockRelayAgentsFromManagedAgents();
+
+  return publicResidentCreateResponse(resident, false);
+}
+
+function publicResidentCreateResponse(
+  resident: MockManagedAgent,
+  reused: boolean,
+) {
   return {
     resident: {
-      residentPubkey: agent.pubkey,
-      displayName: agent.name,
-      personaId: agent.persona_id,
-      runtimeCommand: agent.agent_command,
-      providerId: agent.provider ?? null,
-      modelId: agent.model,
-      status: agent.status,
+      residentPubkey: resident.pubkey,
+      displayName: resident.name,
+      personaId: resident.persona_id,
+      runtimeCommand: resident.agent_command,
+      providerId: resident.provider ?? null,
+      modelId: resident.model,
+      status: resident.status,
     },
-    profileSyncError: created.profile_sync_error,
-    spawnError: created.spawn_error,
+    profileSyncError: null,
+    spawnError: null,
+    reused,
+    recoveryNotice: null,
+  };
+}
+
+function handleListLucaResidents() {
+  return {
+    schema: "luca.resident-registry.v1",
+    residents: mockManagedAgents
+      .map((resident) => ({
+        residentPubkey: resident.pubkey,
+        displayName: resident.name,
+        personaId: resident.persona_id,
+        runtime: {
+          runtimeId: null,
+          runtimeCommand: resident.agent_command,
+          providerId: resident.provider ?? null,
+          modelId: resident.model,
+        },
+        status: resident.status,
+        active: true,
+        createdAt: resident.created_at,
+        updatedAt: resident.updated_at,
+      }))
+      .sort((left, right) => left.displayName.localeCompare(right.displayName)),
   };
 }
 
@@ -9995,6 +10139,8 @@ export function maybeInstallE2eTauriMocks() {
           payload as Parameters<typeof handleCreateLucaResident>[0],
           activeConfig,
         );
+      case "list_luca_residents":
+        return handleListLucaResidents();
       case "start_managed_agent":
         return handleStartManagedAgent(
           payload as Parameters<typeof handleStartManagedAgent>[0],

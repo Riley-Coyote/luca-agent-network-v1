@@ -1,5 +1,6 @@
 use nostr::{Keys, ToBech32};
 use tauri::{AppHandle, State};
+use zeroize::Zeroizing;
 
 use crate::{
     app_state::AppState,
@@ -552,10 +553,11 @@ pub async fn create_managed_agent(
         if records.iter().any(|record| record.pubkey == pubkey) {
             return Err(format!("agent {pubkey} already exists"));
         }
-        let private_key_nsec = keys
-            .secret_key()
-            .to_bech32()
-            .map_err(|error| format!("failed to encode private key: {error}"))?;
+        let private_key_nsec = Zeroizing::new(
+            keys.secret_key()
+                .to_bech32()
+                .map_err(|error| format!("failed to encode private key: {error}"))?,
+        );
 
         // Store the relay override exactly as supplied (trimmed). An explicit
         // value pins the agent; empty stays empty and resolves to the active
@@ -752,7 +754,9 @@ pub async fn create_managed_agent(
             name: name.clone(),
             persona_id: requested_persona_id.clone(),
             team_id,
-            private_key_nsec: private_key_nsec.clone(),
+            // Compatibility persistence deliberately receives a copy; the
+            // generated temporary remains RAII-zeroized on every return path.
+            private_key_nsec: private_key_nsec.as_str().to_owned(),
             auth_tag: auth_tag.clone(),
             relay_url: resolved_relay_url.clone(),
             avatar_url: resolved_avatar_url.clone(),
@@ -953,7 +957,9 @@ pub async fn create_managed_agent(
 
     Ok(CreateManagedAgentResponse {
         agent: final_agent,
-        private_key_nsec,
+        // Preserve the legacy IPC response shape. Luca-owned UI never invokes
+        // this command; its safe wrapper erases this deliberate response copy.
+        private_key_nsec: private_key_nsec.as_str().to_owned(),
         profile_sync_error,
         spawn_error,
     })

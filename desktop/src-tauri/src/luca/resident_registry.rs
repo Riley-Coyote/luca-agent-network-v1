@@ -3,8 +3,15 @@
 //! Managed agents remain the operational source of truth. This module projects
 //! those records into the smaller resident registry contract and deliberately
 //! omits keys, auth tags, prompts, environment variables and provider config.
+//!
+//! Known P2 assumption: Buzz's compatibility storage may retain a resident nsec
+//! in its owner-only `0o600` JSON fallback when the OS keyring is unreachable.
+//! F15 neither widens that access nor redesigns the existing storage contract.
 
-use std::collections::HashSet;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::OnceLock,
+};
 
 use luca_protocol::Hex64;
 use serde::Serialize;
@@ -15,7 +22,8 @@ use crate::{
     app_state::AppState,
     commands::create_managed_agent,
     managed_agents::{
-        load_managed_agents, CreateManagedAgentRequest, ManagedAgentRecord, ManagedAgentSummary,
+        build_managed_agent_summary, load_managed_agents, load_personas,
+        CreateManagedAgentRequest, ManagedAgentRecord, ManagedAgentSummary,
     },
 };
 
@@ -32,6 +40,7 @@ pub(crate) struct ResidentRegistryEntry {
     pub display_name: String,
     pub persona_id: Option<String>,
     pub runtime: ResidentRuntimeBinding,
+    pub status: String,
     pub active: bool,
     pub created_at: String,
     pub updated_at: String,
@@ -62,6 +71,24 @@ pub(crate) struct CreateLucaResidentResponse {
     pub resident: CreatedResidentSummary,
     pub profile_sync_error: Option<String>,
     pub spawn_error: Option<String>,
+    pub reused: bool,
+    pub recovery_notice: Option<String>,
+}
+
+/// Structured failure lets the renderer compensate only when native storage
+/// positively confirmed that no resident was persisted.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CreateLucaResidentError {
+    pub message: String,
+    pub persistence: ResidentPersistence,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum ResidentPersistence {
+    NotPersisted,
+    Unknown,
 }
 
 /// Only public setup facts cross into the renderer.
@@ -84,18 +111,45 @@ pub(crate) struct CreatedResidentSummary {
 /// have been copied into the snapshot.
 pub(crate) fn load_resident_registry(
     app: &AppHandle,
+    state: &AppState,
 ) -> Result<ResidentRegistrySnapshot, String> {
-    registry_from_records(&load_managed_agents(app)?)
+    let _store_guard = state
+        .managed_agents_store_lock
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let records = load_managed_agents(app)?;
+    let runtimes = state
+        .managed_agent_processes
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let personas = load_personas(app).unwrap_or_default();
+    let statuses = records
+        .iter()
+        .map(|record| {
+            build_managed_agent_summary(app, record, &runtimes, &personas)
+                .map(|summary| (record.pubkey.clone(), summary.status))
+        })
+        .collect::<Result<HashMap<_, _>, _>>()?;
+    registry_from_records(&records, &statuses)
 }
 
 /// Return the key-safe resident registry to renderer consumers.
 #[tauri::command]
-pub(crate) fn list_luca_residents(app: AppHandle) -> Result<ResidentRegistrySnapshot, String> {
-    load_resident_registry(&app)
+pub(crate) async fn list_luca_residents(
+    app: AppHandle,
+) -> Result<ResidentRegistrySnapshot, String> {
+    use tauri::Manager;
+    tokio::task::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        load_resident_registry(&app, &state)
+    })
+    .await
+    .map_err(|error| format!("resident registry worker failed: {error}"))?
 }
 
 fn registry_from_records(
     records: &[ManagedAgentRecord],
+    statuses: &HashMap<String, String>,
 ) -> Result<ResidentRegistrySnapshot, String> {
     if records.len() > MAX_RESIDENTS {
         return Err("resident registry exceeds its row limit".to_string());
@@ -128,6 +182,13 @@ fn registry_from_records(
                 provider_id: optional_binding(record.provider.as_deref(), "provider id")?,
                 model_id: optional_binding(record.model.as_deref(), "model id")?,
             },
+            status: required_text(
+                statuses
+                    .get(&record.pubkey)
+                    .ok_or_else(|| "resident registry is missing runtime status".to_string())?,
+                64,
+                "resident status",
+            )?,
             active: record.is_active,
             created_at: record.created_at.clone(),
             updated_at: record.updated_at.clone(),
@@ -145,6 +206,102 @@ fn registry_from_records(
         schema: REGISTRY_SCHEMA,
         residents,
     })
+}
+
+fn resident_creation_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
+fn existing_resident_for_persona(
+    app: &AppHandle,
+    state: &AppState,
+    persona_id: &str,
+) -> Result<Option<CreatedResidentSummary>, String> {
+    let _store_guard = state
+        .managed_agents_store_lock
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let records = load_managed_agents(app)?;
+    let Some(record) = unique_record_for_persona(&records, persona_id)? else {
+        return Ok(None);
+    };
+
+    let runtimes = state
+        .managed_agent_processes
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let personas = load_personas(app).unwrap_or_default();
+    let summary = build_managed_agent_summary(app, record, &runtimes, &personas)?;
+    created_summary(&summary).map(Some)
+}
+
+fn unique_record_for_persona<'a>(
+    records: &'a [ManagedAgentRecord],
+    persona_id: &str,
+) -> Result<Option<&'a ManagedAgentRecord>, String> {
+    let mut matches = records
+        .iter()
+        .filter(|record| record.persona_id.as_deref() == Some(persona_id));
+    let first = matches.next();
+    if matches.next().is_some() {
+        return Err(format!(
+            "persona {persona_id} is linked to multiple residents; repair is required"
+        ));
+    }
+    Ok(first)
+}
+
+fn recovered_response(
+    resident: CreatedResidentSummary,
+    recovery_notice: Option<String>,
+) -> CreateLucaResidentResponse {
+    CreateLucaResidentResponse {
+        resident,
+        profile_sync_error: None,
+        spawn_error: None,
+        reused: true,
+        recovery_notice,
+    }
+}
+
+fn bounded_recovery_notice(message: &str) -> String {
+    message
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(512)
+        .collect()
+}
+
+fn creation_error(
+    message: impl Into<String>,
+    persistence: ResidentPersistence,
+) -> CreateLucaResidentError {
+    CreateLucaResidentError {
+        message: message.into(),
+        persistence,
+    }
+}
+
+fn recover_or_classify_creation_error(
+    app: &AppHandle,
+    state: &AppState,
+    persona_id: &str,
+    error: String,
+) -> Result<CreateLucaResidentResponse, CreateLucaResidentError> {
+    match existing_resident_for_persona(app, state, persona_id) {
+        Ok(Some(existing)) => Ok(recovered_response(
+            existing,
+            Some(bounded_recovery_notice(&error)),
+        )),
+        Ok(None) => Err(creation_error(error, ResidentPersistence::NotPersisted)),
+        Err(recovery_error) => Err(creation_error(
+            format!(
+                "resident setup failed and persistence could not be verified: {recovery_error}"
+            ),
+            ResidentPersistence::Unknown,
+        )),
+    }
 }
 
 fn required_text(value: &str, max_bytes: usize, label: &str) -> Result<String, String> {
@@ -189,18 +346,54 @@ pub(crate) async fn create_luca_resident(
     input: CreateManagedAgentRequest,
     app: AppHandle,
     state: State<'_, AppState>,
-) -> Result<CreateLucaResidentResponse, String> {
-    let mut created = create_managed_agent(input, app, state).await?;
+) -> Result<CreateLucaResidentResponse, CreateLucaResidentError> {
+    let persona_id = input
+        .persona_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            creation_error(
+                "a Luca resident must be linked to a persona",
+                ResidentPersistence::NotPersisted,
+            )
+        })?;
+
+    // Serialize Luca-owned creation across its full async lifecycle. The
+    // existing store mutex cannot be held across the legacy command's awaits.
+    let _creation_guard = resident_creation_lock().lock().await;
+    match existing_resident_for_persona(&app, &state, &persona_id) {
+        Ok(Some(existing)) => return Ok(recovered_response(existing, None)),
+        Ok(None) => {}
+        Err(error) => {
+            return Err(creation_error(error, ResidentPersistence::Unknown));
+        }
+    }
+
+    let mut created = match create_managed_agent(input, app.clone(), state.clone()).await {
+        Ok(created) => created,
+        Err(error) => {
+            return recover_or_classify_creation_error(&app, &state, &persona_id, error);
+        }
+    };
 
     // The legacy response owns a temporary copy for Buzz's compatibility UI.
     // Luca never returns it; erase it before any fallible response mapping.
     created.private_key_nsec.zeroize();
-    let resident = created_summary(&created.agent)?;
+    let resident = match created_summary(&created.agent) {
+        Ok(resident) => resident,
+        Err(error) => {
+            return recover_or_classify_creation_error(&app, &state, &persona_id, error);
+        }
+    };
 
     Ok(CreateLucaResidentResponse {
         resident,
         profile_sync_error: created.profile_sync_error,
         spawn_error: created.spawn_error,
+        reused: false,
+        recovery_notice: None,
     })
 }
 
@@ -249,7 +442,12 @@ mod tests {
             record(&"b".repeat(64), "Mara", "persona:mara"),
             record(&"c".repeat(64), "Sol", "persona:sol"),
         ];
-        let registry = registry_from_records(&records).expect("registry must project");
+        let statuses = records
+            .iter()
+            .map(|record| (record.pubkey.clone(), "running".to_string()))
+            .collect();
+        let registry =
+            registry_from_records(&records, &statuses).expect("registry must project");
         assert_eq!(registry.schema, REGISTRY_SCHEMA);
         assert_eq!(registry.residents.len(), 3);
         assert!(registry.residents.iter().all(|resident| resident.active));
@@ -279,13 +477,33 @@ mod tests {
             record(&key, "First", "persona:first"),
             record(&key, "Second", "persona:second"),
         ];
-        assert!(registry_from_records(&duplicate)
+        let statuses = HashMap::from([(key.clone(), "stopped".to_string())]);
+        assert!(registry_from_records(&duplicate, &statuses)
             .expect_err("duplicate must fail")
             .contains("duplicate"));
 
         let invalid = vec![record(&"A".repeat(64), "Invalid", "persona:invalid")];
-        assert!(registry_from_records(&invalid)
+        let invalid_statuses =
+            HashMap::from([("A".repeat(64), "stopped".to_string())]);
+        assert!(registry_from_records(&invalid, &invalid_statuses)
             .expect_err("uppercase key must fail")
             .contains("invalid public key"));
+    }
+
+    #[test]
+    fn resident_creation_reuses_one_persona_link_and_rejects_ambiguous_links() {
+        let records = vec![record(&"e".repeat(64), "Luca", "persona:luca")];
+        let existing = unique_record_for_persona(&records, "persona:luca")
+            .expect("one link is unambiguous")
+            .expect("resident must exist");
+        assert_eq!(existing.pubkey, "e".repeat(64));
+
+        let duplicates = vec![
+            record(&"f".repeat(64), "Luca A", "persona:luca"),
+            record(&"1".repeat(64), "Luca B", "persona:luca"),
+        ];
+        assert!(unique_record_for_persona(&duplicates, "persona:luca")
+            .expect_err("two links must fail closed")
+            .contains("multiple residents"));
     }
 }

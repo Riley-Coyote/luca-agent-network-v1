@@ -20,7 +20,11 @@ import {
 import { getPersonaLibraryState } from "@/features/agents/lib/catalog";
 import { clearLegacyPersonaCatalogVisibility } from "@/features/agents/lib/legacyPersonaCatalogVisibility";
 import { useCreatedAgentChannelAttachment } from "@/features/agents/useCreatedAgentChannelAttachment";
-import { createLucaResident } from "@/features/luca/residents/api";
+import {
+  createLucaResident,
+  isConfirmedNotPersistedResidentError,
+} from "@/features/luca/residents/api";
+import { lucaResidentsQueryKey } from "@/features/luca/residents/hooks";
 import type {
   SnapshotFormat,
   SnapshotMemoryLevel,
@@ -236,6 +240,7 @@ export function usePersonaActions() {
 
     clearFeedback("library");
     setIsPersonaSubmitPending(true);
+    let createdPersona: AgentPersona | null = null;
     try {
       const runtime = availableRuntimes.find(
         (candidate) => candidate.id === input.runtime,
@@ -256,6 +261,7 @@ export function usePersonaActions() {
         ...input,
         avatarUrl,
       });
+      createdPersona = persona;
       const startIntent =
         resolveCreateIntent(intent) === "definition_start"
           ? (backendIntent ?? null)
@@ -274,17 +280,74 @@ export function usePersonaActions() {
         );
       } else {
         setPersonaNoticeMessage(
-          `Created ${created.resident.displayName} as a resident.`,
+          created.reused
+            ? `${created.resident.displayName} already has its resident identity.`
+            : `Created ${created.resident.displayName} as a resident.`,
+        );
+      }
+      if (created.recoveryNotice) {
+        setPersonaNoticeMessage(
+          `Recovered ${created.resident.displayName}'s existing resident identity after an interrupted setup.`,
         );
       }
       if (created.profileSyncError) {
         setPersonaErrorMessage(created.profileSyncError);
       }
+      void queryClient.invalidateQueries({ queryKey: lucaResidentsQueryKey });
+      setPersonaDialogState(null);
+      return true;
+    } catch (error) {
+      let compensationError: unknown = null;
+      if (createdPersona && isConfirmedNotPersistedResidentError(error)) {
+        try {
+          await deletePersonaMutation.mutateAsync(createdPersona.id);
+          createdPersona = null;
+        } catch (deleteError) {
+          compensationError = deleteError;
+        }
+      }
+      setPersonaErrorMessage(
+        compensationError
+          ? `Resident setup failed before persistence, and the new agent definition could not be removed: ${compensationError instanceof Error ? compensationError.message : "unknown cleanup error"}`
+          : error instanceof Error
+            ? error.message
+            : "Failed to create resident.",
+      );
+      if (createdPersona) {
+        // The definition is durable but resident persistence is unknown (or
+        // cleanup itself failed). Close the create form so a blind resubmit
+        // cannot mint a second persona; the saved card is the retry surface.
+        setPersonaNoticeMessage(
+          `${createdPersona.displayName} was saved. Retry resident setup from its Add resident action.`,
+        );
+        setPersonaDialogState(null);
+        return true;
+      }
+      return false;
+    } finally {
+      setIsPersonaSubmitPending(false);
+    }
+  }
+
+  async function handleUpdatePersona(
+    input: CreatePersonaInput | UpdatePersonaInput,
+  ): Promise<boolean> {
+    if (!("id" in input)) {
+      setPersonaErrorMessage("This action can only update an existing agent.");
+      return false;
+    }
+    if (isPersonaSubmitPending) return false;
+
+    clearFeedback("library");
+    setIsPersonaSubmitPending(true);
+    try {
+      await updatePersonaMutation.mutateAsync(input);
+      setPersonaNoticeMessage(`Updated ${input.displayName}.`);
       setPersonaDialogState(null);
       return true;
     } catch (error) {
       setPersonaErrorMessage(
-        error instanceof Error ? error.message : "Failed to create resident.",
+        error instanceof Error ? error.message : "Failed to update agent.",
       );
       return false;
     } finally {
@@ -493,6 +556,7 @@ export function usePersonaActions() {
     ...createdAgentAttachment,
     handleSubmit,
     handleSubmitResident,
+    handleUpdatePersona,
     handleDelete,
     handleSetActive,
     prepareCreate,

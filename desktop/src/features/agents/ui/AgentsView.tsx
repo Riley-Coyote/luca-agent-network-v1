@@ -17,7 +17,6 @@ import { TeamSnapshotExportDialog } from "./TeamSnapshotExportDialog";
 import { TeamSnapshotImportDialog } from "./TeamSnapshotImportDialog";
 import { TeamShareDialog } from "./TeamShareDialog";
 import { RelayDirectorySection } from "./RelayDirectorySection";
-import { SecretRevealDialog } from "./SecretRevealDialog";
 import { TeamDeleteDialog } from "./TeamDeleteDialog";
 import { TeamDialog } from "./TeamDialog";
 import { TeamsSection } from "./TeamsSection";
@@ -33,6 +32,7 @@ import { Button } from "@/shared/ui/button";
 import { PageHeader } from "@/shared/ui/PageHeader";
 import { getInheritedAgentDefaults } from "./bakedEnvHelpers";
 import { ResidentSetup } from "@/features/luca/residents/ResidentSetup";
+import { useLucaResidentsQuery } from "@/features/luca/residents/hooks";
 
 export function AgentsView() {
   const { openPersonaProfilePanel, openProfilePanel } = useProfilePanel();
@@ -41,23 +41,21 @@ export function AgentsView() {
   const inheritedDefaults = getInheritedAgentDefaults(globalConfig, bakedEnv);
   const agents = useManagedAgentActions();
   const personas = usePersonaActions();
+  const residentsQuery = useLucaResidentsQuery();
   const teamImportInputRef = React.useRef<HTMLInputElement | null>(null);
   const aiDefaultsTriggerRef = React.useRef<HTMLButtonElement>(null);
   const [isAiDefaultsOpen, setIsAiDefaultsOpen] = React.useState(false);
   // Exclusivity: create never sets `personaDialogState` (edit/dup/import do),
   // so the create-mode and definition-edit AgentDialog mounts never coexist.
-  const [createDialogMode, setCreateDialogMode] = React.useState<
-    "agent" | "resident" | null
-  >(null);
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = React.useState(false);
 
   function openUnifiedCreate() {
     personas.prepareCreate();
-    setCreateDialogMode("agent");
+    setIsCreateDialogOpen(true);
   }
 
   function openResidentCreate() {
-    personas.prepareCreate();
-    setCreateDialogMode("resident");
+    openUnifiedCreate();
   }
   const teamActions = useTeamActions(
     {
@@ -149,10 +147,8 @@ export function AgentsView() {
           />
           <div className="flex flex-col gap-8">
             <ResidentSetup
-              agents={agents.managedAgents}
               isLoading={
-                agents.managedAgentsQuery.isLoading ||
-                personas.personasQuery.isLoading
+                residentsQuery.isLoading || personas.personasQuery.isLoading
               }
               isPending={isActionPending}
               onAddResident={(persona) => {
@@ -160,6 +156,7 @@ export function AgentsView() {
               }}
               onCreateResident={openResidentCreate}
               personas={personas.libraryPersonas}
+              residents={residentsQuery.data?.residents ?? []}
               startingPersonaIds={agents.startingPersonaIds}
             />
             <UnifiedAgentsSection
@@ -269,7 +266,7 @@ export function AgentsView() {
         returnFocusRef={aiDefaultsTriggerRef}
       />
 
-      {createDialogMode ? (
+      {isCreateDialogOpen ? (
         <AgentDialog
           definitionError={
             personas.createPersonaMutation.error instanceof Error
@@ -279,13 +276,9 @@ export function AgentsView() {
           isDefinitionPending={personas.isPending}
           mode="definition"
           onOpenChange={(open) => {
-            if (!open) setCreateDialogMode(null);
+            if (!open) setIsCreateDialogOpen(false);
           }}
-          onSubmitDefinition={
-            createDialogMode === "resident"
-              ? personas.handleSubmitResident
-              : personas.handleSubmit
-          }
+          onSubmitDefinition={personas.handleSubmitResident}
           runtimes={personas.acpRuntimesQuery.data ?? []}
           runtimesLoading={personas.acpRuntimesQuery.isLoading}
         />
@@ -300,24 +293,6 @@ export function AgentsView() {
             }
           }}
           open={agents.agentToAddToChannel !== null}
-        />
-      ) : null}
-      {agents.createdAgent ? (
-        <SecretRevealDialog
-          created={agents.createdAgent}
-          onOpenChange={(open) => {
-            if (!open) {
-              agents.setCreatedAgent(null);
-            }
-          }}
-        />
-      ) : null}
-      {personas.createdAgent ? (
-        <SecretRevealDialog
-          created={personas.createdAgent}
-          onOpenChange={(open) => {
-            if (!open) personas.dismissCreatedAgent();
-          }}
         />
       ) : null}
       {personas.personaDialogState ? (
@@ -340,7 +315,11 @@ export function AgentsView() {
               personas.setPersonaDialogState(null);
             }
           }}
-          onSubmit={personas.handleSubmit}
+          onSubmit={(input) =>
+            "id" in input
+              ? personas.handleUpdatePersona(input)
+              : personas.handleSubmitResident(input)
+          }
           open={personas.personaDialogState !== null}
           submitLabel={personas.personaDialogState.submitLabel}
           title={personas.personaDialogState.title}

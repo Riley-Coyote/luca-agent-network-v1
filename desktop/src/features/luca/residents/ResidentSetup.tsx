@@ -1,14 +1,15 @@
 import * as React from "react";
 import { Check, Cpu, Plus, ShieldCheck } from "lucide-react";
 
-import type { AgentPersona, ManagedAgent } from "@/shared/api/types";
+import type { AgentPersona } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
+import type { ResidentRegistryEntry } from "./api";
 
 type ResidentSetupProps = {
-  agents: ManagedAgent[];
   isLoading: boolean;
   isPending: boolean;
   personas: AgentPersona[];
+  residents: ResidentRegistryEntry[];
   startingPersonaIds: ReadonlySet<string>;
   onAddResident: (persona: AgentPersona) => void;
   onCreateResident: () => void;
@@ -18,11 +19,22 @@ function fingerprint(pubkey: string) {
   return `${pubkey.slice(0, 8)}…${pubkey.slice(-6)}`;
 }
 
-function bindingLabel(persona: AgentPersona, agent?: ManagedAgent) {
-  const runtime = persona.runtime ?? agent?.agentCommand ?? "App default";
-  const model = agent?.model ?? persona.model;
-  const provider = agent?.provider ?? persona.provider;
+function bindingLabel(persona: AgentPersona, resident?: ResidentRegistryEntry) {
+  const runtime =
+    resident?.runtime.runtimeId ??
+    persona.runtime ??
+    resident?.runtime.runtimeCommand ??
+    "App default";
+  const model = resident?.runtime.modelId ?? persona.model;
+  const provider = resident?.runtime.providerId ?? persona.provider;
   return [runtime, provider, model].filter(Boolean).join(" · ");
+}
+
+function isResidentReady(resident: ResidentRegistryEntry) {
+  return (
+    resident.active &&
+    (resident.status === "running" || resident.status === "deployed")
+  );
 }
 
 /**
@@ -30,30 +42,30 @@ function bindingLabel(persona: AgentPersona, agent?: ManagedAgent) {
  * flow owns navigation; this component owns only direct resident setup.
  */
 export function ResidentSetup({
-  agents,
   isLoading,
   isPending,
   personas,
+  residents,
   startingPersonaIds,
   onAddResident,
   onCreateResident,
 }: ResidentSetupProps) {
-  const agentsByPersona = React.useMemo(() => {
-    const map = new Map<string, ManagedAgent>();
-    for (const agent of agents) {
-      if (agent.personaId && !map.has(agent.personaId)) {
-        map.set(agent.personaId, agent);
+  const residentsByPersona = React.useMemo(() => {
+    const map = new Map<string, ResidentRegistryEntry>();
+    for (const resident of residents) {
+      if (resident.personaId && !map.has(resident.personaId)) {
+        map.set(resident.personaId, resident);
       }
     }
     return map;
-  }, [agents]);
+  }, [residents]);
   const linkedPubkeys = new Set(
-    [...agentsByPersona.values()].map((agent) => agent.pubkey),
+    [...residentsByPersona.values()].map((resident) => resident.residentPubkey),
   );
-  const unlinkedAgents = agents.filter(
-    (agent) => !linkedPubkeys.has(agent.pubkey),
+  const unlinkedResidents = residents.filter(
+    (resident) => !linkedPubkeys.has(resident.residentPubkey),
   );
-  const readyCount = agents.length;
+  const readyCount = residents.filter(isResidentReady).length;
 
   return (
     <section
@@ -89,7 +101,7 @@ export function ResidentSetup({
             aria-hidden="true"
             className={`size-1.5 rounded-full ${readyCount > 0 ? "bg-emerald-500" : "bg-muted-foreground/50"}`}
           />
-          {readyCount} {readyCount === 1 ? "resident" : "residents"} ready
+          {readyCount} of {residents.length} ready
         </div>
       </div>
 
@@ -101,7 +113,7 @@ export function ResidentSetup({
           />
         ) : null}
 
-        {!isLoading && personas.length === 0 && agents.length === 0 ? (
+        {!isLoading && personas.length === 0 && residents.length === 0 ? (
           <div className="flex flex-col items-start gap-4 rounded-xl border border-dashed border-border/80 bg-background/30 px-5 py-5">
             <div>
               <p className="text-sm font-medium text-foreground">
@@ -121,8 +133,9 @@ export function ResidentSetup({
 
         {!isLoading
           ? personas.map((persona) => {
-              const resident = agentsByPersona.get(persona.id);
+              const resident = residentsByPersona.get(persona.id);
               const isStarting = startingPersonaIds.has(persona.id);
+              const ready = resident ? isResidentReady(resident) : false;
               return (
                 <div
                   className="flex min-w-0 flex-col gap-4 rounded-xl border border-border/60 bg-background/35 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
@@ -139,9 +152,19 @@ export function ResidentSetup({
                           {persona.displayName}
                         </p>
                         {resident ? (
-                          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-600 dark:text-emerald-400">
-                            <Check aria-hidden="true" className="size-3" />
-                            Resident ready
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${
+                              ready
+                                ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                : "border-border/70 bg-muted/35 text-muted-foreground"
+                            }`}
+                          >
+                            {ready ? (
+                              <Check aria-hidden="true" className="size-3" />
+                            ) : null}
+                            {ready
+                              ? "Resident ready"
+                              : `Resident ${resident.status}`}
                           </span>
                         ) : null}
                       </div>
@@ -152,7 +175,7 @@ export function ResidentSetup({
                         </span>
                         {resident ? (
                           <span data-testid={`resident-identity-${persona.id}`}>
-                            {fingerprint(resident.pubkey)}
+                            {fingerprint(resident.residentPubkey)}
                           </span>
                         ) : (
                           <span>Identity created on add</span>
@@ -178,28 +201,29 @@ export function ResidentSetup({
           : null}
 
         {!isLoading
-          ? unlinkedAgents.map((resident) => (
+          ? unlinkedResidents.map((resident) => (
               <div
                 className="flex min-w-0 items-center gap-3.5 rounded-xl border border-border/60 bg-background/35 px-4 py-4"
-                data-testid={`resident-unlinked-${resident.pubkey}`}
-                key={resident.pubkey}
+                data-testid={`resident-unlinked-${resident.residentPubkey}`}
+                key={resident.residentPubkey}
               >
                 <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-muted/35 text-sm font-medium text-foreground">
-                  {resident.name.slice(0, 1).toUpperCase()}
+                  {resident.displayName.slice(0, 1).toUpperCase()}
                 </div>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-foreground">
-                    {resident.name}
+                    {resident.displayName}
                   </p>
                   <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                    {resident.agentCommand} · {fingerprint(resident.pubkey)}
+                    {resident.runtime.runtimeCommand} ·{" "}
+                    {fingerprint(resident.residentPubkey)}
                   </p>
                 </div>
               </div>
             ))
           : null}
 
-        {!isLoading && (personas.length > 0 || agents.length > 0) ? (
+        {!isLoading && (personas.length > 0 || residents.length > 0) ? (
           <div className="flex justify-start pt-1">
             <Button onClick={onCreateResident} size="sm" variant="ghost">
               <Plus aria-hidden="true" />

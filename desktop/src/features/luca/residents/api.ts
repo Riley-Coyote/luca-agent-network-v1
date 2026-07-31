@@ -1,5 +1,28 @@
 import type { CreateManagedAgentInput } from "@/shared/api/types";
-import { invokeTauri } from "@/shared/api/tauri";
+import { invokeTauri, TauriInvokeError } from "@/shared/api/tauri";
+
+export type ResidentRuntimeBinding = {
+  runtimeId: string | null;
+  runtimeCommand: string;
+  providerId: string | null;
+  modelId: string | null;
+};
+
+export type ResidentRegistryEntry = {
+  residentPubkey: string;
+  displayName: string;
+  personaId: string | null;
+  runtime: ResidentRuntimeBinding;
+  status: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ResidentRegistrySnapshot = {
+  schema: "luca.resident-registry.v1";
+  residents: ResidentRegistryEntry[];
+};
 
 export type CreatedResidentSummary = {
   residentPubkey: string;
@@ -15,7 +38,25 @@ export type CreateLucaResidentResponse = {
   resident: CreatedResidentSummary;
   profileSyncError: string | null;
   spawnError: string | null;
+  reused: boolean;
+  recoveryNotice: string | null;
 };
+
+type CreateLucaResidentErrorPayload = {
+  message: string;
+  persistence: "notPersisted" | "unknown";
+};
+
+export function isConfirmedNotPersistedResidentError(error: unknown): boolean {
+  if (!(error instanceof TauriInvokeError)) return false;
+  const payload =
+    error.payload as Partial<CreateLucaResidentErrorPayload> | null;
+  return payload?.persistence === "notPersisted";
+}
+
+export async function listLucaResidents(): Promise<ResidentRegistrySnapshot> {
+  return invokeTauri<ResidentRegistrySnapshot>("list_luca_residents");
+}
 
 /**
  * Luca's resident setup uses the desktop-owned key-safe command exclusively.
