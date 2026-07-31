@@ -15,7 +15,7 @@ use crate::{
         ThreadRepliesResponse,
     },
     nostr_convert,
-    relay::{query_relay, submit_event, submit_event_with_keys},
+    relay::{query_relay, submit_event, submit_event_with_keys, submit_signed_event},
 };
 
 // ── Reads (pure-nostr) ──────────────────────────────────────────────────────
@@ -545,7 +545,91 @@ pub async fn send_channel_message(
         }
     };
 
-    let result = submit_event(builder, &state).await?;
+    // Luca routes every ordinary composer send through this desktop boundary.
+    // Sign first, then stage exact managed-resident dispatch authority before
+    // relay I/O. This preserves Buzz's event shape and `/events` semantics
+    // while ensuring relay history alone can never mint publication authority.
+    let event = {
+        let owner_keys = state.signing_keys()?;
+        builder
+            .sign_with_keys(&owner_keys)
+            .map_err(|error| format!("failed to sign event: {error}"))?
+    };
+    let mentioned: std::collections::HashSet<String> = mentions
+        .iter()
+        .map(|value| value.to_ascii_lowercase())
+        .collect();
+    let (managed_residents, dispatch_store) = if mentioned.is_empty() {
+        (Vec::new(), None)
+    } else {
+        let app = state
+            .app_handle
+            .lock()
+            .map_err(|error| error.to_string())?
+            .clone()
+            .ok_or_else(|| "application handle is unavailable".to_string())?;
+        let residents: Vec<String> = load_managed_agents(&app)?
+            .into_iter()
+            .map(|record| record.pubkey.to_ascii_lowercase())
+            .filter(|pubkey| mentioned.contains(pubkey))
+            .collect();
+        let store = if residents.is_empty() {
+            None
+        } else {
+            Some(crate::luca::managed_dispatch_store::global_dispatch_store(
+                &app,
+            )?)
+        };
+        (residents, store)
+    };
+    let staged = if let Some(dispatch_store) = &dispatch_store {
+        let mut store = dispatch_store.lock().map_err(|error| error.to_string())?;
+        if content.trim() == "!cancel" {
+            // Existing ACP control requires an exact p-mention. A bare
+            // `!cancel` therefore cancels zero residents instead of becoming
+            // a conversation-wide wildcard.
+            let cancel_thread_id = resolved_root
+                .as_ref()
+                .map(|root| format!("thread:{root}"));
+            store.cancel_matching(
+                &event.pubkey.to_hex(),
+                &channel_id,
+                cancel_thread_id.as_deref(),
+                &managed_residents,
+            )?;
+            Vec::new()
+        } else if kind_num == buzz_core_pkg::kind::KIND_STREAM_MESSAGE {
+            store.stage_owner_event(
+                &event,
+                &managed_residents,
+                chrono::Utc::now().timestamp().max(0) as u64,
+            )?
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
+    let result = match submit_signed_event(&event, &state).await {
+        Ok(result) => result,
+        Err(error) => {
+            // An explicit OK=false relay receipt is terminal. Transport loss is
+            // intentionally left pending because relay acceptance may already
+            // have won; expiry/reconciliation handles that ambiguous case.
+            if error.starts_with("relay rejected event:")
+                && !staged.is_empty()
+                && dispatch_store.is_some()
+            {
+                let dispatch_store = dispatch_store.as_ref().ok_or_else(|| {
+                    "managed dispatch store disappeared after staging".to_string()
+                })?;
+                let mut store = dispatch_store.lock().map_err(|lock| lock.to_string())?;
+                store.mark_rejected(&staged)?;
+            }
+            return Err(error);
+        }
+    };
 
     let depth = match (&parent_event_id, &resolved_root) {
         (None, _) => 0,

@@ -465,72 +465,59 @@ export function useSendMessageMutation(
         mentionPubkeys,
       );
 
-      // Messages carrying media OR custom-emoji tags MUST go through REST so
-      // the relay's tag validation runs. The WebSocket path emits no extra
-      // tags, so emoji-only messages would otherwise lose their emoji tag.
-      if (parentEventId || imetaTags.length > 0 || emojiTags.length > 0) {
-        const cachedMessages =
-          queryClient.getQueryData<RelayEvent[]>(
-            channelMessagesKey(effectiveChannel.id),
-          ) ?? [];
-        const result = await sendChannelMessage(
-          effectiveChannel.id,
-          content,
-          parentEventId ?? null,
-          imetaTags,
-          recipientPubkeys,
-          undefined,
-          emojiTags,
-          mentionTags,
-        );
-
-        // Build tags matching relay-emitted shape: h, author p, mention ps, reply es, imeta, emoji.
-        // For replies, buildReplyTags already includes ["p", author] and ["h", channel].
-        // For non-replies (media-only), we add them ourselves.
-        const replyTags = parentEventId
-          ? buildReplyTags(
-              effectiveChannel.id,
-              identity.pubkey,
-              parentEventId,
-              resolveReplyRootId(parentEventId, cachedMessages),
-              recipientPubkeys,
-            )
-          : [];
-        const baseTags = parentEventId
-          ? replyTags // buildReplyTags includes h + author p + mention ps
-          : [
-              ["h", effectiveChannel.id],
-              ["p", identity.pubkey],
-            ]; // non-reply: add ourselves
-
-        return {
-          id: result.eventId,
-          pubkey: identity.pubkey,
-          created_at: result.createdAt,
-          kind: KIND_STREAM_MESSAGE,
-          tags: [
-            ...baseTags,
-            // For non-replies, add mention p-tags here (replies get them via buildReplyTags)
-            ...(!parentEventId
-              ? normalizeMentionPubkeys(recipientPubkeys, identity.pubkey).map(
-                  (pk) => ["p", pk],
-                )
-              : []),
-            ...imetaTags,
-            ...emojiTags,
-            ...mentionTags,
-          ],
-          content: content.trim(),
-          sig: "",
-        };
-      }
-
-      return relayClient.sendMessage(
+      // Luca keeps Buzz's composer and exact event/tag behavior, but routes
+      // every send through the trusted desktop command so managed-resident
+      // dispatch authority is staged before relay I/O. The returned optimistic
+      // projection remains identical to the former media/reply command path.
+      const cachedMessages =
+        queryClient.getQueryData<RelayEvent[]>(
+          channelMessagesKey(effectiveChannel.id),
+        ) ?? [];
+      const result = await sendChannelMessage(
         effectiveChannel.id,
         content,
+        parentEventId ?? null,
+        imetaTags,
         recipientPubkeys,
+        undefined,
+        emojiTags,
         mentionTags,
       );
+      const replyTags = parentEventId
+        ? buildReplyTags(
+            effectiveChannel.id,
+            identity.pubkey,
+            parentEventId,
+            resolveReplyRootId(parentEventId, cachedMessages),
+            recipientPubkeys,
+          )
+        : [];
+      const baseTags = parentEventId
+        ? replyTags
+        : [
+            ["h", effectiveChannel.id],
+            ["p", identity.pubkey],
+          ];
+
+      return {
+        id: result.eventId,
+        pubkey: identity.pubkey,
+        created_at: result.createdAt,
+        kind: KIND_STREAM_MESSAGE,
+        tags: [
+          ...baseTags,
+          ...(!parentEventId
+            ? normalizeMentionPubkeys(recipientPubkeys, identity.pubkey).map(
+                (pk) => ["p", pk],
+              )
+            : []),
+          ...imetaTags,
+          ...emojiTags,
+          ...mentionTags,
+        ],
+        content: content.trim(),
+        sig: "",
+      };
     },
     onMutate: async ({
       channelId: capturedChannelId,
