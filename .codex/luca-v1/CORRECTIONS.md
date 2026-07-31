@@ -155,9 +155,10 @@ artifact; the authoritative kit remains unchanged.
   membership and freshness checks. New or nonexact events retain every existing
   relay policy. Add the relay bridge, a purpose-specific strict tenant-scoped
   DB lookup with no migration, and the focused relay E2E seam to F09 ownership.
-  A closed payload-bound probe mode on the same route may acknowledge exact
-  presence or constant absence but cannot ingest, allowing cancellation to
-  remain authoritative until relay acceptance.
+  A closed `?mode=probe` mode on the same route may acknowledge exact presence
+  or constant absence but cannot ingest. The fresh NIP-98 URL tag binds the
+  mode and its payload tag binds the exact body, allowing cancellation to remain
+  authoritative until relay acceptance without a header-downgrade ambiguity.
 - Rationale: this is the smallest way to preserve one immutable signed final,
   honest response-loss recovery, and at-most-once chronology without a new
   endpoint, migration, query bypass, or re-signing.

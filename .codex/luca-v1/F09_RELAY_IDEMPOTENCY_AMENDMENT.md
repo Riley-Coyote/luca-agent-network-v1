@@ -21,14 +21,17 @@ from "never accepted" using `/query` alone.
 ## Decision
 
 Buzz's existing `POST /events` bridge is the authoritative exact-event
-idempotency oracle. No endpoint or database schema is added. A closed,
-payload-bound request header selects `probe` mode:
+idempotency oracle. No endpoint or database schema is added. A closed
+`?mode=probe` query selects probe mode:
 
 - exact stored match: return the existing successful duplicate acknowledgment;
 - absent event: return a constant not-present result and perform no ingest;
 - corrupt, ambiguous, colliding, or nonexact storage: fail closed.
 
-Without probe mode, an exact stored match receives the same early duplicate
+The query is part of the exact URL in the fresh NIP-98 `u` tag, while the
+payload tag binds the exact submitted body; an intermediary cannot switch an
+authorized probe into an ingesting request. Unknown or repeated query
+parameters fail closed. Without probe mode, an exact stored match receives the same early duplicate
 acknowledgment and an absent event continues through the ordinary ingest path.
 
 After host-derived tenant binding, fresh NIP-98 verification, HTTP admission,

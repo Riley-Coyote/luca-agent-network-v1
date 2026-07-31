@@ -1323,11 +1323,11 @@ task_capsules:
     tenant-scoped, already-stored, byte-exact kind-9 event before current membership and freshness gates. New, absent,
     nonexact or differently authored events retain every existing policy. Desktop reconciliation exact-resubmits and never
     treats access-filtered /query omission as proof of absence.
-  - Relay acceptance is the cancellation/publication linearization boundary. A closed exact-event probe mode on POST /events
-    must distinguish prior exact acceptance from absence without ingesting absent work; a cancelled ambiguous submission
-    publishes only if the probe proves it was already accepted. Periodic idle reconciliation must drain bounded encrypted
-    outbox work, terminal cross-store halves must finalize before compaction, and expired unbound Pending rows must not
-    exhaust dispatch capacity.
+  - Relay acceptance is the cancellation/publication linearization boundary. A closed exact-event POST /events?mode=probe,
+    cryptographically bound through the fresh NIP-98 URL tag and exact payload tag, must distinguish prior exact acceptance
+    from absence without ingesting absent work; a cancelled ambiguous submission publishes only if the probe proves it was
+    already accepted. Periodic idle reconciliation must drain bounded encrypted outbox work, terminal cross-store halves
+    must finalize before compaction, and expired unbound Pending rows must not exhaust dispatch capacity.
   - 'Prove the task-specific objective exactly: Lock upstream direct chat and room behavior with Luca fixtures; stubs or narrative
     are not substitutes for the named evidence.'
   - Preserve every global invariant in TASK_GRAPH.yaml and stop on a contract contradiction.
