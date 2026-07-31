@@ -25,7 +25,7 @@ use super::managed_message_outbox::{
     FrozenManagedMessageEvent, ManagedMessageOutbox, ManagedMessageOutboxError,
     ManagedMessagePublicationAuthority, ManagedOutboxState, ManagedPublicationAuthorityError,
 };
-use super::signing_transport::{read_next_frame, write_frame, SigningTransportError};
+use super::signing_transport::{write_frame, SigningFrameReader, SigningTransportError};
 
 /// Fatal broker error. Fatal errors close the exclusive channel.
 #[derive(Debug)]
@@ -184,8 +184,8 @@ impl ResidentSigningBroker {
         })
     }
 
-    /// Reconcile a bounded startup slice on the dedicated broker thread.
-    pub(crate) fn reconcile_publication_outbox(&mut self) -> Result<(), SigningBrokerError> {
+    /// Reconcile one hard-bounded slice on the sole broker/outbox owner thread.
+    pub(crate) fn reconcile_publication_outbox_slice(&mut self) -> Result<(), SigningBrokerError> {
         let installation_session_id = self.session.binding().installation_session_id.clone();
         self.publication_authority
             .reconcile_on_start(&mut self.message_outbox, &installation_session_id)
@@ -328,16 +328,38 @@ impl ResidentSigningBroker {
         stream: &mut S,
         caller: LocalBrokerCaller<'_>,
     ) -> Result<(), SigningBrokerError> {
-        while let Some(frame) = read_next_frame(stream)? {
+        let result = self.serve_relay_auth_session_inner(stream, caller);
+        self.session.invalidate();
+        result
+    }
+
+    fn serve_relay_auth_session_inner<S: Read + Write>(
+        &mut self,
+        stream: &mut S,
+        caller: LocalBrokerCaller<'_>,
+    ) -> Result<(), SigningBrokerError> {
+        let mut frame_reader = SigningFrameReader::new();
+        loop {
+            let frame = match frame_reader.read_next_frame(stream) {
+                Ok(Some(frame)) => frame,
+                Ok(None) => return Ok(()),
+                Err(SigningTransportError::IdleTimeout) => {
+                    if let Err(error) = self.reconcile_publication_outbox_slice() {
+                        eprintln!(
+                            "luca-signing: managed publication reconciliation deferred: {error}"
+                        );
+                    }
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            };
             let now_unix_ms = system_now_unix_ms()?;
             let result = self.handle_frame(&frame, caller, now_unix_ms)?;
             write_frame(stream, &result)?;
-            if let Err(error) = self.reconcile_publication_outbox() {
+            if let Err(error) = self.reconcile_publication_outbox_slice() {
                 eprintln!("luca-signing: managed publication reconciliation deferred: {error}");
             }
         }
-        self.session.invalidate();
-        Ok(())
     }
 
     fn sign_relay_auth(
@@ -709,6 +731,55 @@ mod tests {
         let event = nostr::Event::from_json(signed_event_json).expect("valid public event");
         assert!(event.verify_signature());
         assert_eq!(event.kind, Kind::Authentication);
+    }
+
+    #[test]
+    fn luca_signing_broker_invalidates_session_on_transport_error_exit() {
+        let (mut broker, runtime) = fixture();
+        let caller = LocalBrokerCaller {
+            acp_pid: 8123,
+            runtime_configuration_sha256: &runtime,
+        };
+        let mut partial = std::io::Cursor::new(vec![0_u8]);
+        assert!(matches!(
+            broker.serve_relay_auth_session(&mut partial, caller),
+            Err(SigningBrokerError::Transport(SigningTransportError::Io(_)))
+        ));
+
+        let request = RelayAuthSignRequestV1 {
+            protocol: RELAY_AUTH_SIGN_PROTOCOL.to_owned(),
+            resident_pubkey: broker.session.binding().resident_pubkey.clone(),
+            purpose: RelayAuthPurposeV1::Nip42 {
+                relay_url: "wss://relay.example.test".to_owned(),
+                challenge: "relay-challenge".to_owned(),
+                owner_attestation: None,
+            },
+        };
+        let frame = SigningFrameV1 {
+            protocol: SIGNING_FRAME_PROTOCOL.to_owned(),
+            session_epoch: SafeU53::new(4).expect("epoch"),
+            sequence: SafeU53::new(1).expect("sequence"),
+            request_id: OpaqueId::parse("after-error").expect("request"),
+            operation: OperationV1::RelayAuthSign,
+            payload: request,
+            deadline_unix_ms: SafeU53::new(1_700_000_000_020).expect("deadline"),
+        };
+        let encoded = encode_length_prefixed_frame(&frame, 1_700_000_000_000).expect("valid frame");
+        assert!(matches!(
+            broker.handle_relay_auth_frame(
+                &encoded,
+                LocalBrokerCaller {
+                    acp_pid: 8123,
+                    runtime_configuration_sha256: &runtime,
+                },
+                1_700_000_000_000,
+            ),
+            Err(SigningBrokerError::Session(
+                LocalBrokerSessionError::Closed(
+                    super::super::local_broker_session::SessionCloseReason::Invalidated
+                )
+            ))
+        ));
     }
 
     #[test]

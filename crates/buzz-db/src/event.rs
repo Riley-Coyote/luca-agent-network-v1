@@ -941,6 +941,47 @@ pub async fn get_event_by_id_including_deleted(
     }
 }
 
+/// Strict tenant-scoped lookup for the HTTP exact-event idempotency oracle.
+///
+/// This includes tombstones, fetches at most two rows, and distinguishes true
+/// absence from corrupt or ambiguous storage. It must not be replaced with a
+/// convenience lookup that collapses reconstruction failure into `None`.
+pub async fn get_event_by_id_strict_including_deleted(
+    pool: &PgPool,
+    community_id: CommunityId,
+    id_bytes: &[u8],
+) -> Result<Option<StoredEvent>> {
+    if id_bytes.len() != 32 {
+        return Err(DbError::InvalidData(
+            "strict event lookup requires a 32-byte ID".to_owned(),
+        ));
+    }
+    let mut rows = sqlx::query(
+        "SELECT id, pubkey, created_at, kind, tags, content, sig, received_at, channel_id \
+         FROM events WHERE community_id = $1 AND id = $2 ORDER BY created_at DESC LIMIT 2",
+    )
+    .bind(community_id.as_uuid())
+    .bind(id_bytes)
+    .fetch_all(pool)
+    .await?;
+    if rows.len() > 1 {
+        return Err(DbError::InvalidData(
+            "strict event lookup found ambiguous rows".to_owned(),
+        ));
+    }
+    match rows.pop() {
+        None => Ok(None),
+        Some(row) => row_to_stored_event(row)?.map_or_else(
+            || {
+                Err(DbError::InvalidData(
+                    "strict event lookup could not reconstruct stored event".to_owned(),
+                ))
+            },
+            |event| Ok(Some(event)),
+        ),
+    }
+}
+
 /// Batch-fetch non-deleted events by their raw 32-byte IDs.
 ///
 /// Returns events in arbitrary order — callers reorder as needed.
@@ -1477,6 +1518,60 @@ mod tests {
         .await
         .expect("insert test channel");
         id
+    }
+
+    #[tokio::test]
+    async fn luca_f09_idempotency_lookup_includes_tombstone_and_scopes_tenant() {
+        let pool = setup_pool().await;
+        let community_a = CommunityId::from_uuid(make_test_community(&pool).await);
+        let community_b = CommunityId::from_uuid(make_test_community(&pool).await);
+        let channel = make_test_channel(&pool, *community_a.as_uuid(), None).await;
+        let keys = Keys::generate();
+        let event = EventBuilder::new(Kind::Custom(9), "strict exact retry")
+            .tags([Tag::parse(["h", channel.to_string().as_str()]).expect("channel tag")])
+            .sign_with_keys(&keys)
+            .expect("sign event");
+        insert_event(&pool, community_a, &event, Some(channel))
+            .await
+            .expect("insert");
+        soft_delete_event(&pool, community_a, event.id.as_bytes())
+            .await
+            .expect("soft delete");
+
+        let stored =
+            get_event_by_id_strict_including_deleted(&pool, community_a, event.id.as_bytes())
+                .await
+                .expect("strict lookup")
+                .expect("tombstoned event");
+        assert_eq!(stored.event, event);
+        assert_eq!(stored.channel_id, Some(channel));
+        assert!(
+            get_event_by_id_strict_including_deleted(&pool, community_b, event.id.as_bytes())
+                .await
+                .expect("other tenant lookup")
+                .is_none()
+        );
+        assert!(
+            get_event_by_id_strict_including_deleted(&pool, community_a, &[0_u8; 31])
+                .await
+                .is_err()
+        );
+
+        sqlx::query(
+            "UPDATE events SET tags = '{}'::jsonb \
+             WHERE community_id = $1 AND id = $2",
+        )
+        .bind(community_a.as_uuid())
+        .bind(event.id.as_bytes().as_slice())
+        .execute(&pool)
+        .await
+        .expect("corrupt stored tags");
+        assert!(
+            get_event_by_id_strict_including_deleted(&pool, community_a, event.id.as_bytes())
+                .await
+                .is_err(),
+            "corrupt storage must fail closed instead of appearing absent"
+        );
     }
 
     #[tokio::test]

@@ -1,4 +1,8 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+    thread::JoinHandle,
+};
 
 use tauri::AppHandle;
 
@@ -21,6 +25,49 @@ mod sweep;
 pub(crate) use sweep::sweep_untracked_bundle_harnesses;
 
 type RespondToEnv = (Vec<(&'static str, String)>, Vec<&'static str>);
+
+#[derive(Debug)]
+struct ManagedSigningBrokerOwner {
+    shutdown: crate::luca::signing_transport::DesktopBrokerShutdown,
+    handle: JoinHandle<()>,
+}
+
+fn managed_signing_brokers() -> &'static Mutex<HashMap<String, ManagedSigningBrokerOwner>> {
+    static BROKERS: OnceLock<Mutex<HashMap<String, ManagedSigningBrokerOwner>>> = OnceLock::new();
+    BROKERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn register_managed_signing_broker(
+    resident_pubkey: &str,
+    owner: ManagedSigningBrokerOwner,
+) -> Result<(), ManagedSigningBrokerOwner> {
+    let Ok(mut brokers) = managed_signing_brokers().lock() else {
+        return Err(owner);
+    };
+    if brokers.contains_key(resident_pubkey) {
+        return Err(owner);
+    }
+    brokers.insert(resident_pubkey.to_owned(), owner);
+    Ok(())
+}
+
+fn join_managed_signing_broker(resident_pubkey: &str) -> Result<(), String> {
+    let owner = managed_signing_brokers()
+        .lock()
+        .map_err(|_| "managed signing broker registry is unavailable".to_owned())?
+        .remove(resident_pubkey);
+    if let Some(owner) = owner {
+        let shutdown_result = owner.shutdown.shutdown();
+        let join_result = owner
+            .handle
+            .join()
+            .map_err(|_| "managed signing broker thread panicked".to_owned());
+        join_result?;
+        shutdown_result
+            .map_err(|error| format!("failed to stop managed signing broker: {error}"))?;
+    }
+    Ok(())
+}
 
 fn next_managed_session_epoch() -> Result<luca_protocol::SafeU53, String> {
     let random = uuid::Uuid::new_v4().as_u128() as u64;
@@ -1234,6 +1281,9 @@ pub fn sync_managed_agent_processes(
 
     let mut exited_pubkeys: Vec<String> = exited.clone();
     for pubkey in exited {
+        if let Err(error) = join_managed_signing_broker(&pubkey) {
+            eprintln!("luca-signing: failed to confirm broker shutdown for {pubkey}: {error}");
+        }
         runtimes.remove(&pubkey);
     }
 
@@ -1532,6 +1582,10 @@ pub fn spawn_agent_child(
     record: &ManagedAgentRecord,
     owner_hex: Option<&str>,
 ) -> Result<crate::managed_agents::ManagedAgentProcess, String> {
+    // A replacement must never overlap the sole owner of this resident's
+    // encrypted outbox. The handle is removed under the registry lock, then
+    // joined without holding that lock.
+    join_managed_signing_broker(&record.pubkey)?;
     if let Some(error) = spawn_key_refusal(record) {
         return Err(error);
     }
@@ -2021,25 +2075,56 @@ pub fn spawn_agent_child(
                 return Err(format!("failed to bind managed signing broker: {error}"));
             }
         };
-    let mut broker_stream = desktop_broker_endpoint.into_stream();
+    let (mut broker_stream, broker_shutdown) = desktop_broker_endpoint
+        .split_for_serve()
+        .map_err(|error| format!("failed to split managed signing broker endpoint: {error}"))?;
+    for result in [
+        broker_stream.set_read_timeout(Some(std::time::Duration::from_secs(5))),
+        broker_stream.set_write_timeout(Some(std::time::Duration::from_secs(5))),
+    ] {
+        if let Err(error) = result {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!(
+                "failed to bound managed signing broker socket I/O: {error}"
+            ));
+        }
+    }
     let broker_thread_name = format!("luca-signing-{}", &record.pubkey[..8]);
-    if let Err(error) = std::thread::Builder::new()
-        .name(broker_thread_name)
-        .spawn(move || {
-            if let Err(error) = broker.reconcile_publication_outbox() {
-                eprintln!("luca-signing: managed publication reconciliation deferred: {error}");
+    let broker_thread =
+        match std::thread::Builder::new()
+            .name(broker_thread_name)
+            .spawn(move || {
+                if let Err(error) = broker.reconcile_publication_outbox_slice() {
+                    eprintln!("luca-signing: managed publication reconciliation deferred: {error}");
+                }
+                let caller = crate::luca::local_broker_session::LocalBrokerCaller {
+                    acp_pid: child_pid,
+                    runtime_configuration_sha256: &runtime_configuration_sha256,
+                };
+                if let Err(error) = broker.serve_relay_auth_session(&mut broker_stream, caller) {
+                    eprintln!("luca-signing: managed broker session closed: {error}");
+                }
+            }) {
+            Ok(handle) => handle,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("failed to start managed signing broker: {error}"));
             }
-            let caller = crate::luca::local_broker_session::LocalBrokerCaller {
-                acp_pid: child_pid,
-                runtime_configuration_sha256: &runtime_configuration_sha256,
-            };
-            if let Err(error) = broker.serve_relay_auth_session(&mut broker_stream, caller) {
-                eprintln!("luca-signing: managed broker session closed: {error}");
-            }
-        })
-    {
+        };
+    if let Err(owner) = register_managed_signing_broker(
+        &record.pubkey,
+        ManagedSigningBrokerOwner {
+            shutdown: broker_shutdown,
+            handle: broker_thread,
+        },
+    ) {
         let _ = child.kill();
-        return Err(format!("failed to start managed signing broker: {error}"));
+        let _ = child.wait();
+        let _ = owner.shutdown.shutdown();
+        let _ = owner.handle.join();
+        return Err("managed signing broker owner already exists".into());
     }
 
     // Stamp the adapter availability for runtimes with a version gate (codex
@@ -2104,6 +2189,7 @@ pub fn start_managed_agent_process(
         }
 
         runtimes.remove(&record.pubkey);
+        join_managed_signing_broker(&record.pubkey)?;
     }
 
     if let Some(pid) = record.runtime_pid {
@@ -2181,6 +2267,7 @@ pub fn stop_managed_agent_process(
         .child
         .wait()
         .map_err(|error| format!("failed to wait for agent shutdown: {error}"))?;
+    join_managed_signing_broker(&record.pubkey)?;
     let now = now_iso();
     record.runtime_pid = None;
     record.updated_at = now.clone();

@@ -43,6 +43,14 @@ fn relay_http_url() -> String {
         .to_string()
 }
 
+fn relay_host() -> String {
+    let parsed = url::Url::parse(&relay_http_url()).expect("relay HTTP URL");
+    match parsed.port() {
+        Some(port) => format!("{}:{port}", parsed.host_str().expect("relay host")),
+        None => parsed.host_str().expect("relay host").to_owned(),
+    }
+}
+
 fn test_owner_keys() -> Keys {
     std::env::var("BUZZ_TEST_OWNER_PRIVATE_KEY")
         .ok()
@@ -61,6 +69,21 @@ fn nip98_post_header(keys: &Keys, url: &str, body: &str) -> String {
             Tag::parse(["u", url]).unwrap(),
             Tag::parse(["method", "POST"]).unwrap(),
             Tag::parse(["payload", &sha256_hex(body.as_bytes())]).unwrap(),
+            Tag::parse(["nonce", &uuid::Uuid::new_v4().to_string()]).unwrap(),
+        ])
+        .sign_with_keys(keys)
+        .expect("sign NIP-98 event");
+    format!(
+        "Nostr {}",
+        BASE64.encode(serde_json::to_string(&event).expect("serialize NIP-98 event"))
+    )
+}
+
+fn nip98_post_header_without_payload(keys: &Keys, url: &str) -> String {
+    let event = EventBuilder::new(Kind::Custom(27_235), "")
+        .tags(vec![
+            Tag::parse(["u", url]).unwrap(),
+            Tag::parse(["method", "POST"]).unwrap(),
             Tag::parse(["nonce", &uuid::Uuid::new_v4().to_string()]).unwrap(),
         ])
         .sign_with_keys(keys)
@@ -121,6 +144,32 @@ async fn seed_relay_member(host: &str, keys: &Keys, role: &str) {
 
 async fn seed_relay_owner(keys: &Keys) {
     seed_relay_member("localhost:3000", keys, "owner").await;
+}
+
+async fn seed_exact_event_row(host: &str, event: &nostr::Event, channel_id: Uuid, deleted: bool) {
+    let pool = e2e_db_pool().await;
+    let community_id = ensure_test_community(host).await;
+    let created_at = chrono::DateTime::from_timestamp(event.created_at.as_secs() as i64, 0)
+        .expect("event timestamp");
+    sqlx::query(
+        "INSERT INTO events \
+         (community_id, id, pubkey, created_at, kind, tags, content, sig, received_at, channel_id, deleted_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, CASE WHEN $10 THEN now() ELSE NULL END) \
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(community_id)
+    .bind(event.id.as_bytes().as_slice())
+    .bind(event.pubkey.to_bytes().as_slice())
+    .bind(created_at)
+    .bind(i32::from(event.kind.as_u16()))
+    .bind(serde_json::to_value(&event.tags).expect("tags"))
+    .bind(&event.content)
+    .bind(event.sig.serialize().as_slice())
+    .bind(channel_id)
+    .bind(deleted)
+    .execute(&pool)
+    .await
+    .expect("seed exact event");
 }
 
 fn http_origin_for_host(host: &str) -> String {
@@ -199,6 +248,117 @@ async fn create_test_channel(keys: &Keys) -> String {
     );
 
     channel_uuid.to_string()
+}
+
+#[tokio::test]
+#[ignore]
+async fn luca_f09_exact_duplicate_probe_is_author_bound_non_ingesting_and_revocation_safe() {
+    let host = relay_host();
+    let author = test_owner_keys();
+    seed_relay_member(&host, &author, "owner").await;
+    let channel_id = Uuid::parse_str(&create_test_channel(&author).await).expect("channel UUID");
+    let stale_at = nostr::Timestamp::now().as_secs().saturating_sub(3_600);
+    let stored = EventBuilder::new(Kind::Custom(9), "stale exact resident final")
+        .tags([Tag::parse(["h", channel_id.to_string().as_str()]).expect("channel tag")])
+        .custom_created_at(nostr::Timestamp::from(stale_at))
+        .sign_with_keys(&author)
+        .expect("sign stored event");
+    seed_exact_event_row(&host, &stored, channel_id, true).await;
+
+    // Revoke both current relay and channel membership. Probe authority rests
+    // only on fresh payload-bound author proof plus exact tenant-scoped bytes.
+    let pool = e2e_db_pool().await;
+    let community_id = ensure_test_community(&host).await;
+    sqlx::query(
+        "UPDATE channel_members SET removed_at = now() \
+         WHERE community_id = $1 AND channel_id = $2 AND pubkey = $3",
+    )
+    .bind(community_id)
+    .bind(channel_id)
+    .bind(author.public_key().to_bytes().to_vec())
+    .execute(&pool)
+    .await
+    .expect("revoke channel membership");
+    sqlx::query("DELETE FROM relay_members WHERE community_id = $1 AND pubkey = $2")
+        .bind(community_id)
+        .bind(author.public_key().to_hex())
+        .execute(&pool)
+        .await
+        .expect("revoke relay membership");
+
+    let stored_body = serde_json::to_string(&stored).expect("stored body");
+    let present = invite_post(&author, "/events?mode=probe", &stored_body).await;
+    assert_eq!(present.status(), reqwest::StatusCode::OK);
+    let present: serde_json::Value = present.json().await.expect("present response");
+    assert_eq!(present["event_id"], stored.id.to_hex());
+    assert_eq!(present["accepted"], true);
+    assert_eq!(present["message"], "duplicate:");
+    let still_deleted: bool = sqlx::query_scalar(
+        "SELECT deleted_at IS NOT NULL FROM events \
+         WHERE community_id = $1 AND id = $2 LIMIT 1",
+    )
+    .bind(community_id)
+    .bind(stored.id.as_bytes().as_slice())
+    .fetch_one(&pool)
+    .await
+    .expect("read tombstone");
+    assert!(still_deleted, "probe must not resurrect exact history");
+
+    let absent = EventBuilder::new(Kind::Custom(9), "never accepted resident final")
+        .tags([Tag::parse(["h", channel_id.to_string().as_str()]).expect("channel tag")])
+        .custom_created_at(nostr::Timestamp::from(stale_at.saturating_sub(1)))
+        .sign_with_keys(&author)
+        .expect("sign absent event");
+    let absent_body = serde_json::to_string(&absent).expect("absent body");
+    let absent_response = invite_post(&author, "/events?mode=probe", &absent_body).await;
+    assert_eq!(absent_response.status(), reqwest::StatusCode::OK);
+    let absent_response: serde_json::Value = absent_response.json().await.expect("absent response");
+    assert_eq!(absent_response["event_id"], absent.id.to_hex());
+    assert_eq!(absent_response["accepted"], false);
+    assert_eq!(absent_response["message"], "absent:");
+    let absent_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM events WHERE community_id = $1 AND id = $2")
+            .bind(community_id)
+            .bind(absent.id.as_bytes().as_slice())
+            .fetch_one(&pool)
+            .await
+            .expect("count absent event");
+    assert_eq!(absent_count, 0, "probe absence must perform zero ingest");
+
+    let attacker = Keys::generate();
+    let wrong_signer = invite_post(&attacker, "/events?mode=probe", &stored_body).await;
+    assert_eq!(wrong_signer.status(), reqwest::StatusCode::FORBIDDEN);
+
+    let client = reqwest::Client::new();
+    let probe_url = format!("{}/events?mode=probe", relay_http_url());
+    let missing_payload = client
+        .post(&probe_url)
+        .header(
+            "Authorization",
+            nip98_post_header_without_payload(&author, &probe_url),
+        )
+        .header("Content-Type", "application/json")
+        .body(stored_body)
+        .send()
+        .await
+        .expect("missing-payload probe");
+    assert_eq!(missing_payload.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+    // Ordinary POST /events retains its existing ingest path. A newly seeded
+    // current member can still send a fresh kind-9 event normally.
+    let fresh_author = Keys::generate();
+    seed_relay_member(&host, &fresh_author, "owner").await;
+    let fresh_channel =
+        Uuid::parse_str(&create_test_channel(&fresh_author).await).expect("fresh channel");
+    let fresh = EventBuilder::new(Kind::Custom(9), "ordinary fresh message")
+        .tags([Tag::parse(["h", fresh_channel.to_string().as_str()]).expect("channel tag")])
+        .sign_with_keys(&fresh_author)
+        .expect("sign fresh event");
+    let fresh_body = serde_json::to_string(&fresh).expect("fresh body");
+    let fresh_response = invite_post(&fresh_author, "/events", &fresh_body).await;
+    assert_eq!(fresh_response.status(), reqwest::StatusCode::OK);
+    let fresh_response: serde_json::Value = fresh_response.json().await.expect("fresh response");
+    assert_eq!(fresh_response["accepted"], true);
 }
 
 #[tokio::test]

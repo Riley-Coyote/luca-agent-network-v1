@@ -439,7 +439,13 @@ impl ManagedMessageOutbox {
                 || !event_matches_request
                 || !receipt_state_valid
                 || (entry.initial_result_delivered && entry.state != ManagedOutboxState::Accepted)
-                || (entry.authority_finalized && entry.state != ManagedOutboxState::Accepted)
+                || (entry.authority_finalized
+                    && !matches!(
+                        entry.state,
+                        ManagedOutboxState::Accepted
+                            | ManagedOutboxState::Cancelled
+                            | ManagedOutboxState::Rejected
+                    ))
                 || entry.created_order == 0
                 || entry.created_order >= persisted.next_order
             {
@@ -465,7 +471,12 @@ impl ManagedMessageOutbox {
                 matches!(
                     entry.state,
                     ManagedOutboxState::Prepared | ManagedOutboxState::Submitted
-                ) || (entry.state == ManagedOutboxState::Accepted && !entry.authority_finalized)
+                ) || (matches!(
+                    entry.state,
+                    ManagedOutboxState::Accepted
+                        | ManagedOutboxState::Cancelled
+                        | ManagedOutboxState::Rejected
+                ) && !entry.authority_finalized)
             })
             .filter_map(|(key, entry)| {
                 Some(ManagedOutboxReconcileEntry {
@@ -812,7 +823,12 @@ impl ManagedMessageOutbox {
             .entries
             .get_mut(idempotency_key.as_str())
             .ok_or(ManagedMessageOutboxError::NotFound)?;
-        if entry.state != ManagedOutboxState::Accepted {
+        if !matches!(
+            entry.state,
+            ManagedOutboxState::Accepted
+                | ManagedOutboxState::Cancelled
+                | ManagedOutboxState::Rejected
+        ) {
             return Err(ManagedMessageOutboxError::InvalidTransition);
         }
         if entry.authority_finalized {
@@ -870,8 +886,10 @@ impl ManagedMessageOutbox {
             .filter(|(_, entry)| {
                 matches!(
                     entry.state,
-                    ManagedOutboxState::Cancelled | ManagedOutboxState::Rejected
-                ) || (entry.state == ManagedOutboxState::Accepted && entry.authority_finalized)
+                    ManagedOutboxState::Accepted
+                        | ManagedOutboxState::Cancelled
+                        | ManagedOutboxState::Rejected
+                ) && entry.authority_finalized
             })
             .map(|(key, entry)| (entry.created_order, key.clone()))
             .collect();
@@ -1279,6 +1297,59 @@ mod tests {
             Err(ManagedMessageOutboxError::Persistence)
         ));
         assert_eq!(outbox.entries.len(), MAX_OUTBOX_ENTRIES);
+    }
+
+    #[test]
+    fn luca_signing_outbox_capacity_retains_unfinalized_cancelled_and_rejected_rows() {
+        let keys = Keys::parse(&"0b".repeat(32)).expect("valid fixture key");
+        let request = request(&keys);
+        let event = frozen_event(&keys, &request);
+        let session =
+            OpaqueId::parse("installation-terminal-capacity").expect("valid installation ID");
+        let mut outbox = ManagedMessageOutbox::new(session.clone());
+        outbox
+            .prepare(&request, event.clone(), &session, 3, false)
+            .expect("seed");
+        let template = outbox
+            .entries
+            .remove(request.idempotency_key.as_str())
+            .expect("template");
+
+        for index in 0..MAX_OUTBOX_ENTRIES {
+            let key = hex::encode(Sha256::digest(index.to_be_bytes()));
+            let mut entry = template.clone();
+            entry.created_order = index as u64 + 1;
+            entry.state = if index == 0 {
+                ManagedOutboxState::Cancelled
+            } else if index == 1 {
+                ManagedOutboxState::Rejected
+            } else {
+                ManagedOutboxState::Prepared
+            };
+            entry.authority_finalized = false;
+            outbox.entries.insert(key, entry);
+        }
+        outbox.next_order = MAX_OUTBOX_ENTRIES as u64 + 1;
+
+        assert!(matches!(
+            outbox.prepare(&request, event.clone(), &session, 3, false),
+            Err(ManagedMessageOutboxError::Persistence)
+        ));
+        let cancelled_key = hex::encode(Sha256::digest(0_usize.to_be_bytes()));
+        let rejected_key = hex::encode(Sha256::digest(1_usize.to_be_bytes()));
+        assert!(outbox.entries.contains_key(&cancelled_key));
+        assert!(outbox.entries.contains_key(&rejected_key));
+
+        outbox
+            .entries
+            .get_mut(&cancelled_key)
+            .expect("cancelled")
+            .authority_finalized = true;
+        outbox
+            .prepare(&request, event, &session, 3, false)
+            .expect("finalized terminal can compact");
+        assert!(!outbox.entries.contains_key(&cancelled_key));
+        assert!(outbox.entries.contains_key(&rejected_key));
     }
 
     #[test]

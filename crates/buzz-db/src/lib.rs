@@ -1154,6 +1154,18 @@ impl Db {
         event::get_event_by_id_including_deleted(&self.pool, community_id, id_bytes).await
     }
 
+    /// Strict tenant-scoped event lookup for exact HTTP duplicate recovery.
+    ///
+    /// Includes soft-deleted rows and fails closed on corrupt or ambiguous
+    /// storage instead of treating either condition as absence.
+    pub async fn get_event_by_id_strict_including_deleted(
+        &self,
+        community_id: CommunityId,
+        id_bytes: &[u8],
+    ) -> Result<Option<StoredEvent>> {
+        event::get_event_by_id_strict_including_deleted(&self.pool, community_id, id_bytes).await
+    }
+
     /// Soft-deletes an event. Returns `Ok(true)` if deleted, `Ok(false)` if already deleted.
     pub async fn soft_delete_event(
         &self,

@@ -5,12 +5,13 @@
 //! per-request NIP-98 authorization event is freshly signed.
 
 use std::{
+    io::Read,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
 use luca_protocol::{ManagedMessagePublishRequestV1, OpaqueId};
-use nostr::{Event, EventId, JsonUtil, Keys, Kind};
+use nostr::{Event, JsonUtil, Keys, Kind};
 use reqwest::Method;
 
 use super::{
@@ -25,21 +26,45 @@ use super::{
 
 const RELAY_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const RECONCILE_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
-const RECONCILE_STARTUP_BUDGET: Duration = Duration::from_secs(5);
+const MAX_RELAY_RESPONSE_BYTES: u64 = 64 * 1024;
+
+#[derive(Debug)]
+enum ManagedRelaySubmitOutcome {
+    Response(crate::relay::SubmitEventResponse),
+    TerminalRejected,
+    Retryable,
+}
+
+#[derive(Debug)]
+enum ManagedRelayProbeOutcome {
+    Present(crate::relay::SubmitEventResponse),
+    Absent,
+    TerminalRejected,
+    Retryable,
+}
+
+enum SerializedSubmission {
+    Accepted,
+    Published,
+    Cancelled,
+    Rejected,
+    Retryable,
+    Invalid,
+}
 
 trait ManagedRelayTransport: Send {
     fn submit_exact(
         &mut self,
         signed_event_json: &str,
         timeout: Duration,
-    ) -> Result<crate::relay::SubmitEventResponse, String>;
+    ) -> ManagedRelaySubmitOutcome;
 
-    fn query_exact_event(
+    fn probe_exact(
         &mut self,
-        event_id: &str,
-        expected_signed_event_json: &str,
+        signed_event_json: &str,
+        expected_event_id: &str,
         timeout: Duration,
-    ) -> Result<bool, String>;
+    ) -> ManagedRelayProbeOutcome;
 }
 
 struct HttpManagedRelayTransport {
@@ -91,6 +116,22 @@ impl HttpManagedRelayTransport {
             .send()
             .map_err(|error| format!("managed relay request failed: {error}"))
     }
+
+    fn parse_bounded_json<T: serde::de::DeserializeOwned>(
+        mut response: reqwest::blocking::Response,
+    ) -> Result<T, String> {
+        let mut bytes = Vec::new();
+        response
+            .by_ref()
+            .take(MAX_RELAY_RESPONSE_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| "managed relay response could not be read".to_owned())?;
+        if bytes.len() as u64 > MAX_RELAY_RESPONSE_BYTES {
+            return Err("managed relay response exceeded the size limit".to_owned());
+        }
+        serde_json::from_slice(&bytes)
+            .map_err(|_| "managed relay response was invalid JSON".to_owned())
+    }
 }
 
 impl ManagedRelayTransport for HttpManagedRelayTransport {
@@ -98,58 +139,63 @@ impl ManagedRelayTransport for HttpManagedRelayTransport {
         &mut self,
         signed_event_json: &str,
         timeout: Duration,
-    ) -> Result<crate::relay::SubmitEventResponse, String> {
+    ) -> ManagedRelaySubmitOutcome {
         let response =
-            self.post_exact("/events", signed_event_json.as_bytes().to_vec(), timeout)?;
+            match self.post_exact("/events", signed_event_json.as_bytes().to_vec(), timeout) {
+                Ok(response) => response,
+                Err(_) => return ManagedRelaySubmitOutcome::Retryable,
+            };
         if !response.status().is_success() {
-            return Err(format!(
-                "managed relay submission returned HTTP {}",
-                response.status()
-            ));
+            // Only an invalid-event 400 is terminal. Authentication, routing,
+            // conflict, throttling, timeout and server failures can recover or
+            // may conceal prior acceptance, so they retain Submitted.
+            return if response.status() == reqwest::StatusCode::BAD_REQUEST {
+                ManagedRelaySubmitOutcome::TerminalRejected
+            } else {
+                ManagedRelaySubmitOutcome::Retryable
+            };
         }
-        response
-            .json()
-            .map_err(|error| format!("parse managed relay submission: {error}"))
+        match Self::parse_bounded_json(response) {
+            Ok(response) => ManagedRelaySubmitOutcome::Response(response),
+            Err(_) => ManagedRelaySubmitOutcome::Retryable,
+        }
     }
 
-    fn query_exact_event(
+    fn probe_exact(
         &mut self,
-        event_id: &str,
-        expected_signed_event_json: &str,
+        signed_event_json: &str,
+        expected_event_id: &str,
         timeout: Duration,
-    ) -> Result<bool, String> {
-        EventId::from_hex(event_id).map_err(|_| "managed event ID is invalid".to_owned())?;
-        let body = serde_json::to_vec(&[serde_json::json!({
-            "ids": [event_id],
-            "kinds": [9],
-            "limit": 1
-        })])
-        .map_err(|error| format!("serialize managed relay query: {error}"))?;
-        let response = self.post_exact("/query", body, timeout)?;
+    ) -> ManagedRelayProbeOutcome {
+        let response = match self.post_exact(
+            "/events?mode=probe",
+            signed_event_json.as_bytes().to_vec(),
+            timeout,
+        ) {
+            Ok(response) => response,
+            Err(_) => return ManagedRelayProbeOutcome::Retryable,
+        };
         if !response.status().is_success() {
-            return Err(format!(
-                "managed relay query returned HTTP {}",
-                response.status()
-            ));
+            return if response.status() == reqwest::StatusCode::BAD_REQUEST {
+                ManagedRelayProbeOutcome::TerminalRejected
+            } else {
+                ManagedRelayProbeOutcome::Retryable
+            };
         }
-        let events: Vec<Event> = response
-            .json()
-            .map_err(|error| format!("parse managed relay query: {error}"))?;
-        for event in events {
-            if event.id.to_hex() == event_id {
-                if event.kind != Kind::Custom(9)
-                    || !event.verify_id()
-                    || !event.verify_signature()
-                    || luca_protocol::canonicalize(&event)
-                        .map(|bytes| bytes.as_slice() != expected_signed_event_json.as_bytes())
-                        .unwrap_or(true)
-                {
-                    return Err("managed relay returned an invalid exact event".into());
-                }
-                return Ok(true);
-            }
+        let response: crate::relay::SubmitEventResponse = match Self::parse_bounded_json(response) {
+            Ok(response) => response,
+            Err(_) => return ManagedRelayProbeOutcome::Retryable,
+        };
+        if response.event_id != expected_event_id {
+            return ManagedRelayProbeOutcome::Retryable;
         }
-        Ok(false)
+        if response.accepted && response.message == "duplicate:" {
+            ManagedRelayProbeOutcome::Present(response)
+        } else if !response.accepted && response.message == "absent:" {
+            ManagedRelayProbeOutcome::Absent
+        } else {
+            ManagedRelayProbeOutcome::Retryable
+        }
     }
 }
 
@@ -288,14 +334,60 @@ impl ManagedMessagePublisher {
         outbox
             .reject_during_reconciliation(&entry.idempotency_key)
             .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+        self.finalize_terminal(
+            entry,
+            outbox,
+            super::managed_dispatch_store::ManagedDispatchState::Rejected,
+        )?;
         Ok(())
     }
 
-    fn submit_entry(
+    fn cancel(
+        &mut self,
+        entry: &ManagedOutboxReconcileEntry,
+        outbox: &mut ManagedMessageOutbox,
+    ) -> Result<(), ManagedPublicationAuthorityError> {
+        outbox
+            .cancel_during_reconciliation(&entry.idempotency_key)
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+        self.finalize_terminal(
+            entry,
+            outbox,
+            super::managed_dispatch_store::ManagedDispatchState::Cancelled,
+        )
+    }
+
+    fn finalize_terminal(
+        &mut self,
+        entry: &ManagedOutboxReconcileEntry,
+        outbox: &mut ManagedMessageOutbox,
+        state: super::managed_dispatch_store::ManagedDispatchState,
+    ) -> Result<(), ManagedPublicationAuthorityError> {
+        {
+            let mut store = self
+                .dispatch_store
+                .lock()
+                .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+            store
+                .recover_terminal_outbox_finalization(
+                    entry.request.dispatch_receipt_id.as_str(),
+                    entry.request.resident_pubkey.as_str(),
+                    entry.event_id.as_str(),
+                    state,
+                )
+                .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+        }
+        outbox
+            .mark_authority_finalized(&entry.idempotency_key)
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)
+    }
+
+    fn submit_entry_serialized(
         &mut self,
         entry: &ManagedOutboxReconcileEntry,
         outbox: &mut ManagedMessageOutbox,
         installation_session_id: &OpaqueId,
+        now_unix_secs: u64,
         timeout: Duration,
     ) -> Result<(), ManagedPublicationAuthorityError> {
         if entry.state == ManagedOutboxState::Prepared {
@@ -303,18 +395,78 @@ impl ManagedMessagePublisher {
                 .mark_submitted(&entry.idempotency_key, installation_session_id, false)
                 .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
         }
-        let response = self
-            .transport
-            .submit_exact(&entry.signed_event_json, timeout)
-            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
-        if response.event_id != entry.event_id.as_str() {
-            return Err(ManagedPublicationAuthorityError::Invalid);
+        let submission = {
+            // This lock is deliberately held across the ordinary ingesting
+            // request. A cancellation either persists before this recheck and
+            // suppresses the request, or waits until relay acceptance/rejection
+            // has been durably recorded in dispatch authority.
+            let mut store = self
+                .dispatch_store
+                .lock()
+                .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+            match store
+                .authorize_reconciliation(&entry.request, entry.event_id.as_str(), now_unix_secs)
+                .map_err(Self::map_dispatch_error)?
+            {
+                ManagedDispatchReconciliation::Published => SerializedSubmission::Published,
+                ManagedDispatchReconciliation::Cancelled => SerializedSubmission::Cancelled,
+                ManagedDispatchReconciliation::Rejected => SerializedSubmission::Rejected,
+                ManagedDispatchReconciliation::Ready => {
+                    match self
+                        .transport
+                        .submit_exact(&entry.signed_event_json, timeout)
+                    {
+                        ManagedRelaySubmitOutcome::Response(response) => {
+                            if response.event_id != entry.event_id.as_str() {
+                                SerializedSubmission::Invalid
+                            } else if response.accepted {
+                                store
+                                    .mark_published(
+                                        entry.request.dispatch_receipt_id.as_str(),
+                                        entry.request.resident_pubkey.as_str(),
+                                        entry.event_id.as_str(),
+                                    )
+                                    .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+                                SerializedSubmission::Accepted
+                            } else {
+                                store
+                                    .mark_rejected(&[(
+                                        entry.request.dispatch_receipt_id.as_str().to_owned(),
+                                        entry.request.resident_pubkey.as_str().to_owned(),
+                                    )])
+                                    .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+                                SerializedSubmission::Rejected
+                            }
+                        }
+                        ManagedRelaySubmitOutcome::TerminalRejected => {
+                            store
+                                .mark_rejected(&[(
+                                    entry.request.dispatch_receipt_id.as_str().to_owned(),
+                                    entry.request.resident_pubkey.as_str().to_owned(),
+                                )])
+                                .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+                            SerializedSubmission::Rejected
+                        }
+                        ManagedRelaySubmitOutcome::Retryable => SerializedSubmission::Retryable,
+                    }
+                }
+            }
+        };
+        match submission {
+            SerializedSubmission::Accepted | SerializedSubmission::Published => {
+                self.mark_accepted(entry, outbox)
+            }
+            SerializedSubmission::Cancelled => {
+                self.cancel(entry, outbox)?;
+                Err(ManagedPublicationAuthorityError::Cancelled)
+            }
+            SerializedSubmission::Rejected => {
+                self.reject(entry, outbox)?;
+                Err(ManagedPublicationAuthorityError::Denied)
+            }
+            SerializedSubmission::Retryable => Err(ManagedPublicationAuthorityError::Unavailable),
+            SerializedSubmission::Invalid => Err(ManagedPublicationAuthorityError::Invalid),
         }
-        if !response.accepted {
-            self.reject(entry, outbox)?;
-            return Err(ManagedPublicationAuthorityError::Denied);
-        }
-        self.mark_accepted(entry, outbox)
     }
 
     fn reconcile_entry(
@@ -343,13 +495,29 @@ impl ManagedMessagePublisher {
                 .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
             return Ok(());
         }
+        if matches!(
+            entry.state,
+            ManagedOutboxState::Cancelled | ManagedOutboxState::Rejected
+        ) {
+            let state = if entry.state == ManagedOutboxState::Cancelled {
+                super::managed_dispatch_store::ManagedDispatchState::Cancelled
+            } else {
+                super::managed_dispatch_store::ManagedDispatchState::Rejected
+            };
+            return self.finalize_terminal(&entry, outbox, state);
+        }
         let decision = {
             let mut store = self
                 .dispatch_store
                 .lock()
                 .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
             store
-                .bind_reconciled_submission(&entry.request, entry.event_id.as_str(), now_unix_secs)
+                .bind_reconciled_submission(
+                    &entry.request,
+                    entry.event_id.as_str(),
+                    now_unix_secs,
+                    entry.state == ManagedOutboxState::Submitted,
+                )
                 .map_err(Self::map_dispatch_error)?
         };
         match decision {
@@ -365,46 +533,67 @@ impl ManagedMessagePublisher {
                 outbox
                     .reject_during_reconciliation(&entry.idempotency_key)
                     .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
-                return Ok(());
+                return self.finalize_terminal(
+                    &entry,
+                    outbox,
+                    super::managed_dispatch_store::ManagedDispatchState::Rejected,
+                );
             }
             ManagedDispatchReconciliation::Ready | ManagedDispatchReconciliation::Cancelled => {}
         }
 
         if entry.state == ManagedOutboxState::Prepared {
             if decision == ManagedDispatchReconciliation::Cancelled {
-                outbox
-                    .cancel_during_reconciliation(&entry.idempotency_key)
-                    .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
-                return Ok(());
+                return self.cancel(&entry, outbox);
             }
             outbox
                 .mark_submitted(&entry.idempotency_key, installation_session_id, false)
                 .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
         }
 
-        let exists = self
-            .transport
-            .query_exact_event(
-                entry.event_id.as_str(),
-                &entry.signed_event_json,
-                RECONCILE_REQUEST_TIMEOUT,
-            )
-            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
-        if exists {
-            return self.mark_accepted(&entry, outbox);
-        }
-        if decision == ManagedDispatchReconciliation::Cancelled {
-            outbox
-                .cancel_during_reconciliation(&entry.idempotency_key)
-                .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
-            return Ok(());
-        }
-        self.submit_entry(
-            &entry,
-            outbox,
-            installation_session_id,
+        match self.transport.probe_exact(
+            &entry.signed_event_json,
+            entry.event_id.as_str(),
             RECONCILE_REQUEST_TIMEOUT,
-        )
+        ) {
+            ManagedRelayProbeOutcome::Present(response) => {
+                debug_assert_eq!(response.event_id, entry.event_id.as_str());
+                self.mark_accepted(&entry, outbox)
+            }
+            ManagedRelayProbeOutcome::Absent => {
+                if decision == ManagedDispatchReconciliation::Cancelled {
+                    return self.cancel(&entry, outbox);
+                }
+                self.submit_entry_serialized(
+                    &entry,
+                    outbox,
+                    installation_session_id,
+                    now_unix_secs,
+                    RECONCILE_REQUEST_TIMEOUT,
+                )
+            }
+            ManagedRelayProbeOutcome::TerminalRejected => {
+                let current = self
+                    .dispatch_store
+                    .lock()
+                    .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+                    .authorize_reconciliation(
+                        &entry.request,
+                        entry.event_id.as_str(),
+                        now_unix_secs,
+                    )
+                    .map_err(Self::map_dispatch_error)?;
+                if current == ManagedDispatchReconciliation::Cancelled {
+                    self.cancel(&entry, outbox)
+                } else {
+                    self.reject(&entry, outbox)?;
+                    Err(ManagedPublicationAuthorityError::Denied)
+                }
+            }
+            ManagedRelayProbeOutcome::Retryable => {
+                Err(ManagedPublicationAuthorityError::Unavailable)
+            }
+        }
     }
 }
 
@@ -466,10 +655,15 @@ impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
                 )
                 .map_err(Self::map_dispatch_error)?;
         }
-        self.submit_entry(
+        let now_unix_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+            .as_secs();
+        self.submit_entry_serialized(
             &entry,
             outbox,
             installation_session_id,
+            now_unix_secs,
             RELAY_REQUEST_TIMEOUT,
         )
     }
@@ -483,12 +677,11 @@ impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
             .as_secs();
-        let started = std::time::Instant::now();
         let mut deferred = None;
-        for entry in outbox.reconciliation_entries() {
-            if started.elapsed() >= RECONCILE_STARTUP_BUDGET {
-                break;
-            }
+        // One row per invocation hard-bounds each idle reconciliation slice.
+        // With the two-second relay timeout this cannot begin a second row
+        // just before a soft wall-clock budget expires.
+        for entry in outbox.reconciliation_entries().into_iter().take(1) {
             let created_order = entry.created_order;
             if let Err(error) =
                 self.reconcile_entry(entry, outbox, installation_session_id, now_unix_secs)
@@ -511,7 +704,11 @@ mod tests {
     use super::*;
     use std::{
         collections::VecDeque,
+        io::{Read, Write},
+        net::TcpListener,
+        path::PathBuf,
         sync::{Arc, Mutex},
+        thread::JoinHandle,
     };
 
     use luca_protocol::{
@@ -525,9 +722,9 @@ mod tests {
     #[derive(Default)]
     struct FakeRelayState {
         submissions: Vec<String>,
-        queries: Vec<(String, String, Duration)>,
-        submit_results: VecDeque<Result<crate::relay::SubmitEventResponse, String>>,
-        query_results: VecDeque<Result<bool, String>>,
+        probes: Vec<String>,
+        submit_results: VecDeque<ManagedRelaySubmitOutcome>,
+        probe_results: VecDeque<ManagedRelayProbeOutcome>,
     }
 
     struct FakeRelayTransport {
@@ -539,31 +736,27 @@ mod tests {
             &mut self,
             signed_event_json: &str,
             _timeout: Duration,
-        ) -> Result<crate::relay::SubmitEventResponse, String> {
+        ) -> ManagedRelaySubmitOutcome {
             let mut state = self.state.lock().expect("state");
             state.submissions.push(signed_event_json.to_owned());
             state
                 .submit_results
                 .pop_front()
-                .unwrap_or_else(|| Err("no submit fixture".into()))
+                .unwrap_or(ManagedRelaySubmitOutcome::Retryable)
         }
 
-        fn query_exact_event(
+        fn probe_exact(
             &mut self,
-            event_id: &str,
-            expected_signed_event_json: &str,
-            timeout: Duration,
-        ) -> Result<bool, String> {
+            signed_event_json: &str,
+            _expected_event_id: &str,
+            _timeout: Duration,
+        ) -> ManagedRelayProbeOutcome {
             let mut state = self.state.lock().expect("state");
-            state.queries.push((
-                event_id.to_owned(),
-                expected_signed_event_json.to_owned(),
-                timeout,
-            ));
+            state.probes.push(signed_event_json.to_owned());
             state
-                .query_results
+                .probe_results
                 .pop_front()
-                .unwrap_or_else(|| Err("no query fixture".into()))
+                .unwrap_or(ManagedRelayProbeOutcome::Retryable)
         }
     }
 
@@ -575,6 +768,7 @@ mod tests {
         session: OpaqueId,
         exact_event_json: String,
         event_id: String,
+        dispatch_path: PathBuf,
     }
 
     fn fixture() -> Fixture {
@@ -627,8 +821,8 @@ mod tests {
         )
         .expect("frozen");
         let temp = tempfile::tempdir().expect("temp");
-        let path = temp.keep().join("dispatches.json");
-        let mut store = ManagedDispatchStore::load(path).expect("store");
+        let dispatch_path = temp.keep().join("dispatches.json");
+        let mut store = ManagedDispatchStore::load(dispatch_path.clone()).expect("store");
         store
             .stage_owner_event(&trigger, &[resident.public_key().to_hex()], 100)
             .expect("stage");
@@ -649,6 +843,7 @@ mod tests {
             session,
             exact_event_json,
             event_id,
+            dispatch_path,
         }
     }
 
@@ -660,15 +855,77 @@ mod tests {
         )
     }
 
+    fn one_shot_http_response(
+        status: u16,
+        body: Vec<u8>,
+        expected_path: Option<&'static str>,
+    ) -> (String, JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test relay");
+        let address = listener.local_addr().expect("test relay address");
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept request");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .expect("read timeout");
+            let mut request = Vec::new();
+            let mut chunk = [0_u8; 1024];
+            let (header_end, content_length) = loop {
+                let read = stream.read(&mut chunk).expect("read request");
+                assert_ne!(read, 0, "request closed before headers");
+                request.extend_from_slice(&chunk[..read]);
+                if let Some(index) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                    let header_end = index + 4;
+                    let headers = String::from_utf8_lossy(&request[..header_end]);
+                    if let Some(expected_path) = expected_path {
+                        assert_eq!(
+                            headers
+                                .lines()
+                                .next()
+                                .and_then(|line| line.split_whitespace().nth(1)),
+                            Some(expected_path)
+                        );
+                    }
+                    let content_length = headers
+                        .lines()
+                        .find_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            name.eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse::<usize>().expect("content length"))
+                        })
+                        .unwrap_or(0);
+                    break (header_end, content_length);
+                }
+            };
+            while request.len() < header_end + content_length {
+                let read = stream.read(&mut chunk).expect("read request body");
+                assert_ne!(read, 0, "request closed before body");
+                request.extend_from_slice(&chunk[..read]);
+            }
+            let reason = if status == 200 { "OK" } else { "Test" };
+            let response = format!(
+                "HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("write headers");
+            stream.write_all(&body).expect("write body");
+            stream.flush().expect("flush response");
+        });
+        (format!("http://{address}"), handle)
+    }
+
     #[test]
     fn managed_publisher_submits_retained_exact_bytes_and_finalizes_both_stores() {
         let mut fixture = fixture();
         let state = Arc::new(Mutex::new(FakeRelayState {
-            submit_results: VecDeque::from([Ok(crate::relay::SubmitEventResponse {
-                event_id: fixture.event_id.clone(),
-                accepted: true,
-                message: "accepted".into(),
-            })]),
+            submit_results: VecDeque::from([ManagedRelaySubmitOutcome::Response(
+                crate::relay::SubmitEventResponse {
+                    event_id: fixture.event_id.clone(),
+                    accepted: true,
+                    message: "accepted".into(),
+                },
+            )]),
             ..Default::default()
         }));
         let mut publisher = publisher(&fixture, Arc::clone(&state));
@@ -696,7 +953,7 @@ mod tests {
     fn managed_publisher_response_loss_reconciles_by_exact_id_and_bytes() {
         let mut fixture = fixture();
         let first_state = Arc::new(Mutex::new(FakeRelayState {
-            submit_results: VecDeque::from([Err("response lost".into())]),
+            submit_results: VecDeque::from([ManagedRelaySubmitOutcome::Retryable]),
             ..Default::default()
         }));
         let mut first = publisher(&fixture, Arc::clone(&first_state));
@@ -709,12 +966,14 @@ mod tests {
         );
 
         let restart_state = Arc::new(Mutex::new(FakeRelayState {
-            query_results: VecDeque::from([Ok(false)]),
-            submit_results: VecDeque::from([Ok(crate::relay::SubmitEventResponse {
-                event_id: fixture.event_id.clone(),
-                accepted: true,
-                message: "accepted".into(),
-            })]),
+            probe_results: VecDeque::from([ManagedRelayProbeOutcome::Absent]),
+            submit_results: VecDeque::from([ManagedRelaySubmitOutcome::Response(
+                crate::relay::SubmitEventResponse {
+                    event_id: fixture.event_id.clone(),
+                    accepted: true,
+                    message: "accepted".into(),
+                },
+            )]),
             ..Default::default()
         }));
         let mut restarted = publisher(&fixture, Arc::clone(&restart_state));
@@ -722,11 +981,230 @@ mod tests {
             .reconcile_on_start(&mut fixture.outbox, &fixture.session)
             .expect("reconcile");
         let state = restart_state.lock().expect("state");
-        assert_eq!(state.queries.len(), 1);
-        assert_eq!(state.queries[0].0, fixture.event_id);
-        assert_eq!(state.queries[0].1, fixture.exact_event_json);
-        assert_eq!(state.queries[0].2, RECONCILE_REQUEST_TIMEOUT);
+        assert_eq!(state.probes, vec![fixture.exact_event_json.clone()]);
         assert_eq!(state.submissions, vec![fixture.exact_event_json]);
+    }
+
+    #[test]
+    fn managed_http_submit_classifies_only_bad_request_as_terminal() {
+        for status in [401, 403, 404, 408, 409, 413, 422, 429, 500, 503] {
+            let (relay_url, server) =
+                one_shot_http_response(status, b"SECRET-SERVER-BODY".to_vec(), Some("/events"));
+            let resident = Keys::parse(&"93".repeat(32)).expect("resident");
+            let mut transport =
+                HttpManagedRelayTransport::new(resident, &relay_url, None).expect("transport");
+            assert!(matches!(
+                transport.submit_exact("{}", Duration::from_secs(2)),
+                ManagedRelaySubmitOutcome::Retryable
+            ));
+            server.join().expect("server");
+        }
+
+        let (relay_url, server) =
+            one_shot_http_response(400, b"SECRET-INVALID-EVENT-BODY".to_vec(), Some("/events"));
+        let resident = Keys::parse(&"94".repeat(32)).expect("resident");
+        let mut transport =
+            HttpManagedRelayTransport::new(resident, &relay_url, None).expect("transport");
+        assert!(matches!(
+            transport.submit_exact("{}", Duration::from_secs(2)),
+            ManagedRelaySubmitOutcome::TerminalRejected
+        ));
+        server.join().expect("server");
+    }
+
+    #[test]
+    fn managed_http_submit_bounds_success_response_before_json_parse() {
+        let (relay_url, server) = one_shot_http_response(
+            200,
+            vec![b'x'; usize::try_from(MAX_RELAY_RESPONSE_BYTES + 1).expect("size")],
+            Some("/events"),
+        );
+        let resident = Keys::parse(&"95".repeat(32)).expect("resident");
+        let mut transport =
+            HttpManagedRelayTransport::new(resident, &relay_url, None).expect("transport");
+        assert!(matches!(
+            transport.submit_exact("{}", Duration::from_secs(2)),
+            ManagedRelaySubmitOutcome::Retryable
+        ));
+        server.join().expect("server");
+    }
+
+    #[test]
+    fn managed_http_probe_uses_payload_bound_mode_and_typed_absence() {
+        let event_id = "ab".repeat(32);
+        let response = serde_json::to_vec(&crate::relay::SubmitEventResponse {
+            event_id: event_id.clone(),
+            accepted: false,
+            message: "absent:".into(),
+        })
+        .expect("response");
+        let (relay_url, server) = one_shot_http_response(200, response, Some("/events?mode=probe"));
+        let resident = Keys::parse(&"96".repeat(32)).expect("resident");
+        let mut transport =
+            HttpManagedRelayTransport::new(resident, &relay_url, None).expect("transport");
+        assert!(matches!(
+            transport.probe_exact("{}", &event_id, Duration::from_secs(2)),
+            ManagedRelayProbeOutcome::Absent
+        ));
+        server.join().expect("server");
+    }
+
+    #[test]
+    fn terminal_bad_request_rejects_and_finalizes_both_stores() {
+        let mut fixture = fixture();
+        let state = Arc::new(Mutex::new(FakeRelayState {
+            submit_results: VecDeque::from([ManagedRelaySubmitOutcome::TerminalRejected]),
+            ..Default::default()
+        }));
+        let mut publisher = publisher(&fixture, state);
+        publisher
+            .authorize_request(&fixture.request, 101)
+            .expect("authorize");
+        assert_eq!(
+            publisher.publish_prepared(&fixture.request, &mut fixture.outbox, &fixture.session),
+            Err(ManagedPublicationAuthorityError::Denied)
+        );
+        assert!(fixture.outbox.reconciliation_entries().is_empty());
+        assert_eq!(
+            fixture
+                .store
+                .lock()
+                .expect("store")
+                .authorize_reconciliation(&fixture.request, &fixture.event_id, 101)
+                .expect("terminal state"),
+            ManagedDispatchReconciliation::Rejected
+        );
+    }
+
+    #[test]
+    fn prepared_cancelled_restart_never_queries_or_submits() {
+        let mut fixture = fixture();
+        assert_eq!(
+            fixture
+                .store
+                .lock()
+                .expect("store")
+                .cancel_matching(
+                    fixture.request.owner_pubkey.as_str(),
+                    fixture.request.conversation_id.as_str(),
+                    fixture.request.thread_id.as_ref().map(OpaqueId::as_str),
+                    &[fixture.request.resident_pubkey.as_str().to_owned()],
+                )
+                .expect("cancel"),
+            1
+        );
+        let state = Arc::new(Mutex::new(FakeRelayState::default()));
+        let mut restarted = publisher(&fixture, Arc::clone(&state));
+        restarted
+            .reconcile_on_start(&mut fixture.outbox, &fixture.session)
+            .expect("reconcile cancellation");
+        let state = state.lock().expect("state");
+        assert!(state.probes.is_empty());
+        assert!(state.submissions.is_empty());
+        assert!(fixture.outbox.reconciliation_entries().is_empty());
+    }
+
+    #[test]
+    fn cancelled_ambiguous_submission_probes_presence_and_records_publication() {
+        let mut fixture = fixture();
+        let first_state = Arc::new(Mutex::new(FakeRelayState {
+            submit_results: VecDeque::from([ManagedRelaySubmitOutcome::Retryable]),
+            ..Default::default()
+        }));
+        let mut first = publisher(&fixture, first_state);
+        first
+            .authorize_request(&fixture.request, 101)
+            .expect("authorize");
+        assert_eq!(
+            first.publish_prepared(&fixture.request, &mut fixture.outbox, &fixture.session),
+            Err(ManagedPublicationAuthorityError::Unavailable)
+        );
+        assert_eq!(
+            fixture
+                .store
+                .lock()
+                .expect("store")
+                .cancel_matching(
+                    fixture.request.owner_pubkey.as_str(),
+                    fixture.request.conversation_id.as_str(),
+                    fixture.request.thread_id.as_ref().map(OpaqueId::as_str),
+                    &[fixture.request.resident_pubkey.as_str().to_owned()],
+                )
+                .expect("cancel after submit"),
+            1
+        );
+
+        let restart_state = Arc::new(Mutex::new(FakeRelayState {
+            probe_results: VecDeque::from([ManagedRelayProbeOutcome::Present(
+                crate::relay::SubmitEventResponse {
+                    event_id: fixture.event_id.clone(),
+                    accepted: true,
+                    message: "duplicate:".into(),
+                },
+            )]),
+            ..Default::default()
+        }));
+        let mut restarted = publisher(&fixture, Arc::clone(&restart_state));
+        restarted
+            .reconcile_on_start(&mut fixture.outbox, &fixture.session)
+            .expect("reconcile exact submission");
+        let state = restart_state.lock().expect("state");
+        assert_eq!(state.probes, vec![fixture.exact_event_json.clone()]);
+        assert!(state.submissions.is_empty());
+    }
+
+    #[test]
+    fn cancelled_ambiguous_submission_probes_absence_and_never_resubmits() {
+        let mut fixture = fixture();
+        let first_state = Arc::new(Mutex::new(FakeRelayState {
+            submit_results: VecDeque::from([ManagedRelaySubmitOutcome::Retryable]),
+            ..Default::default()
+        }));
+        let mut first = publisher(&fixture, first_state);
+        first
+            .authorize_request(&fixture.request, 101)
+            .expect("authorize");
+        assert_eq!(
+            first.publish_prepared(&fixture.request, &mut fixture.outbox, &fixture.session),
+            Err(ManagedPublicationAuthorityError::Unavailable)
+        );
+
+        let mut persisted: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(&fixture.dispatch_path).expect("read dispatch store"),
+        )
+        .expect("dispatch JSON");
+        persisted["dispatches"][0]["state"] = serde_json::json!("cancelled");
+        persisted["dispatches"][0]["outbox_finalized"] = serde_json::json!(false);
+        std::fs::write(
+            &fixture.dispatch_path,
+            serde_json::to_vec(&persisted).expect("serialize"),
+        )
+        .expect("write legacy race state");
+        fixture.store = Arc::new(Mutex::new(
+            ManagedDispatchStore::load(fixture.dispatch_path.clone()).expect("reload"),
+        ));
+
+        let restart_state = Arc::new(Mutex::new(FakeRelayState {
+            probe_results: VecDeque::from([ManagedRelayProbeOutcome::Absent]),
+            ..Default::default()
+        }));
+        let mut restarted = publisher(&fixture, Arc::clone(&restart_state));
+        restarted
+            .reconcile_on_start(&mut fixture.outbox, &fixture.session)
+            .expect("reconcile cancelled absence");
+        let state = restart_state.lock().expect("state");
+        assert_eq!(state.probes, vec![fixture.exact_event_json.clone()]);
+        assert!(state.submissions.is_empty());
+        assert!(fixture.outbox.reconciliation_entries().is_empty());
+        assert_eq!(
+            fixture
+                .store
+                .lock()
+                .expect("store")
+                .authorize_reconciliation(&fixture.request, &fixture.event_id, 101)
+                .expect("terminal state"),
+            ManagedDispatchReconciliation::Cancelled
+        );
     }
 
     #[test]
@@ -761,6 +1239,34 @@ mod tests {
         publisher
             .reconcile_on_start(&mut fixture.outbox, &fixture.session)
             .expect("finish retained acceptance");
+        assert!(fixture.outbox.reconciliation_entries().is_empty());
+    }
+
+    #[test]
+    fn cancelled_outbox_can_finish_after_safely_compacted_dispatch() {
+        let mut fixture = fixture();
+        fixture
+            .outbox
+            .cancel_during_reconciliation(&fixture.request.idempotency_key)
+            .expect("cancelled");
+        let empty_store = Arc::new(Mutex::new(
+            ManagedDispatchStore::load(
+                tempfile::tempdir()
+                    .expect("temp")
+                    .keep()
+                    .join("dispatches.json"),
+            )
+            .expect("empty store"),
+        ));
+        let state = Arc::new(Mutex::new(FakeRelayState::default()));
+        let mut publisher = ManagedMessagePublisher::with_transport(
+            fixture.resident.public_key().to_hex(),
+            empty_store,
+            Box::new(FakeRelayTransport { state }),
+        );
+        publisher
+            .reconcile_on_start(&mut fixture.outbox, &fixture.session)
+            .expect("finish retained cancellation");
         assert!(fixture.outbox.reconciliation_entries().is_empty());
     }
 }

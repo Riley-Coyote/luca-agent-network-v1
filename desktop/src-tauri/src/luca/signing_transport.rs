@@ -1,6 +1,9 @@
 //! Exclusive desktop-to-ACP transport for the typed managed signing broker.
 
-use std::io::{Read, Write};
+use std::{
+    io::{ErrorKind, Read, Write},
+    time::{Duration, Instant},
+};
 
 use luca_protocol::BROKER_FRAME_MAX_BYTES;
 
@@ -12,6 +15,10 @@ pub(crate) enum SigningTransportError {
     UnsupportedPlatform,
     /// Socketpair or stream I/O failed.
     Io(std::io::Error),
+    /// No new bytes arrived before the bounded broker reconciliation tick.
+    IdleTimeout,
+    /// A peer began a frame but did not complete it within the absolute limit.
+    PartialFrameTimeout,
     /// The peer declared a frame larger than the frozen protocol limit.
     FrameTooLarge,
     /// The supplied output was not one complete length-prefixed frame.
@@ -25,6 +32,10 @@ impl std::fmt::Display for SigningTransportError {
             Self::UnsupportedPlatform => formatter
                 .write_str("managed signing transport is not implemented for this platform"),
             Self::Io(error) => write!(formatter, "managed signing transport I/O failed: {error}"),
+            Self::IdleTimeout => formatter.write_str("managed signing transport is idle"),
+            Self::PartialFrameTimeout => {
+                formatter.write_str("managed signing peer did not complete its frame in time")
+            }
             Self::FrameTooLarge => {
                 formatter.write_str("managed signing frame exceeds the frozen maximum")
             }
@@ -41,7 +52,10 @@ impl std::error::Error for SigningTransportError {
             Self::Io(error) => Some(error),
             #[cfg(not(unix))]
             Self::UnsupportedPlatform => None,
-            Self::FrameTooLarge | Self::InvalidFrameLength => None,
+            Self::IdleTimeout
+            | Self::PartialFrameTimeout
+            | Self::FrameTooLarge
+            | Self::InvalidFrameLength => None,
         }
     }
 }
@@ -65,10 +79,46 @@ impl std::fmt::Debug for DesktopBrokerEndpoint {
 }
 
 impl DesktopBrokerEndpoint {
-    /// Consume the endpoint into the blocking stream used by the broker loop.
+    /// Split into the sole serving stream and a shutdown-only wake handle.
+    ///
+    /// The shutdown half deliberately implements neither `Read` nor `Write`;
+    /// runtime replacement can wake and join an idle broker without creating a
+    /// second authority-capable transport owner.
     #[cfg(unix)]
-    pub(crate) fn into_stream(self) -> std::os::unix::net::UnixStream {
-        self.stream
+    pub(crate) fn split_for_serve(
+        self,
+    ) -> Result<(std::os::unix::net::UnixStream, DesktopBrokerShutdown), SigningTransportError>
+    {
+        let shutdown_stream = self.stream.try_clone()?;
+        Ok((
+            self.stream,
+            DesktopBrokerShutdown {
+                stream: shutdown_stream,
+            },
+        ))
+    }
+}
+
+/// Non-I/O runtime handle that wakes the serving broker during replacement.
+pub(crate) struct DesktopBrokerShutdown {
+    #[cfg(unix)]
+    stream: std::os::unix::net::UnixStream,
+}
+
+impl std::fmt::Debug for DesktopBrokerShutdown {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("DesktopBrokerShutdown(<shutdown-only stream>)")
+    }
+}
+
+impl DesktopBrokerShutdown {
+    #[cfg(unix)]
+    pub(crate) fn shutdown(&self) -> Result<(), SigningTransportError> {
+        match self.stream.shutdown(std::net::Shutdown::Both) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == ErrorKind::NotConnected => Ok(()),
+            Err(error) => Err(SigningTransportError::Io(error)),
+        }
     }
 }
 
@@ -130,28 +180,140 @@ fn create_socketpair_streams() -> Result<
 ///
 /// EOF before any prefix byte is a clean peer shutdown. Truncated prefixes or
 /// bodies are errors and must close the session.
+#[cfg(test)]
 pub(crate) fn read_next_frame<R: Read>(
     reader: &mut R,
 ) -> Result<Option<Vec<u8>>, SigningTransportError> {
-    let mut prefix = [0_u8; 4];
-    let first = match reader.read(&mut prefix[..1]) {
-        Ok(0) => return Ok(None),
-        Ok(1) => 1,
-        Ok(_) => unreachable!("one-byte read cannot return more than one byte"),
-        Err(error) => return Err(SigningTransportError::Io(error)),
-    };
-    debug_assert_eq!(first, 1);
-    reader.read_exact(&mut prefix[1..])?;
+    SigningFrameReader::new().read_next_frame(reader)
+}
 
-    let declared = u32::from_be_bytes(prefix) as usize;
-    if declared > BROKER_FRAME_MAX_BYTES {
-        return Err(SigningTransportError::FrameTooLarge);
+/// Persistent framed-read state for the broker's timed reconciliation loop.
+///
+/// A socket read timeout does not discard a partial frame. The absolute
+/// partial-frame deadline prevents a peer from holding the sole authority
+/// thread forever with a slow prefix or body.
+pub(crate) struct SigningFrameReader {
+    prefix: [u8; 4],
+    prefix_read: usize,
+    body: Vec<u8>,
+    body_read: usize,
+    partial_started: Option<Instant>,
+    partial_frame_deadline: Duration,
+}
+
+impl SigningFrameReader {
+    const PARTIAL_FRAME_DEADLINE: Duration = Duration::from_secs(30);
+
+    pub(crate) fn new() -> Self {
+        Self::with_partial_frame_deadline(Self::PARTIAL_FRAME_DEADLINE)
     }
-    let mut frame = Vec::with_capacity(4 + declared);
-    frame.extend_from_slice(&prefix);
-    frame.resize(4 + declared, 0);
-    reader.read_exact(&mut frame[4..])?;
-    Ok(Some(frame))
+
+    fn with_partial_frame_deadline(partial_frame_deadline: Duration) -> Self {
+        Self {
+            prefix: [0; 4],
+            prefix_read: 0,
+            body: Vec::new(),
+            body_read: 0,
+            partial_started: None,
+            partial_frame_deadline,
+        }
+    }
+
+    pub(crate) fn read_next_frame<R: Read>(
+        &mut self,
+        reader: &mut R,
+    ) -> Result<Option<Vec<u8>>, SigningTransportError> {
+        loop {
+            if self.prefix_read < self.prefix.len() {
+                match reader.read(&mut self.prefix[self.prefix_read..]) {
+                    Ok(0) if self.prefix_read == 0 => return Ok(None),
+                    Ok(0) => return Err(Self::unexpected_eof()),
+                    Ok(read) => {
+                        self.note_progress()?;
+                        self.prefix_read += read;
+                        if self.prefix_read < self.prefix.len() {
+                            continue;
+                        }
+                        let declared = u32::from_be_bytes(self.prefix) as usize;
+                        if declared > BROKER_FRAME_MAX_BYTES {
+                            return Err(SigningTransportError::FrameTooLarge);
+                        }
+                        self.body.resize(declared, 0);
+                        if declared == 0 {
+                            return Ok(Some(self.take_frame()));
+                        }
+                    }
+                    Err(error) if error.kind() == ErrorKind::Interrupted => continue,
+                    Err(error)
+                        if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) =>
+                    {
+                        return self.timeout_result();
+                    }
+                    Err(error) => return Err(SigningTransportError::Io(error)),
+                }
+            }
+
+            match reader.read(&mut self.body[self.body_read..]) {
+                Ok(0) => return Err(Self::unexpected_eof()),
+                Ok(read) => {
+                    self.note_progress()?;
+                    self.body_read += read;
+                    if self.body_read == self.body.len() {
+                        return Ok(Some(self.take_frame()));
+                    }
+                }
+                Err(error) if error.kind() == ErrorKind::Interrupted => {}
+                Err(error)
+                    if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) =>
+                {
+                    return self.timeout_result();
+                }
+                Err(error) => return Err(SigningTransportError::Io(error)),
+            }
+        }
+    }
+
+    fn note_progress(&mut self) -> Result<(), SigningTransportError> {
+        if self.partial_started.is_none() {
+            self.partial_started = Some(Instant::now());
+        }
+        if self
+            .partial_started
+            .is_some_and(|started| started.elapsed() >= self.partial_frame_deadline)
+        {
+            return Err(SigningTransportError::PartialFrameTimeout);
+        }
+        Ok(())
+    }
+
+    fn timeout_result(&self) -> Result<Option<Vec<u8>>, SigningTransportError> {
+        if self
+            .partial_started
+            .is_some_and(|started| started.elapsed() >= self.partial_frame_deadline)
+        {
+            Err(SigningTransportError::PartialFrameTimeout)
+        } else {
+            Err(SigningTransportError::IdleTimeout)
+        }
+    }
+
+    fn take_frame(&mut self) -> Vec<u8> {
+        let mut frame = Vec::with_capacity(4 + self.body.len());
+        frame.extend_from_slice(&self.prefix);
+        frame.append(&mut self.body);
+        self.prefix = [0; 4];
+        self.prefix_read = 0;
+        self.body_read = 0;
+        self.partial_started = None;
+        frame
+    }
+
+    fn unexpected_eof() -> SigningTransportError {
+        SigningTransportError::Io(std::io::Error::new(
+            ErrorKind::UnexpectedEof,
+            "managed signing peer closed a partial frame",
+        ))
+    }
 }
 
 /// Write one already-encoded frame and flush it before reading the next request.
@@ -179,7 +341,36 @@ pub(crate) fn write_frame<W: Write>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Read, Write};
+    use std::{
+        collections::VecDeque,
+        io::{Read, Write},
+    };
+
+    enum ReadStep {
+        Bytes(Vec<u8>),
+        Timeout,
+    }
+
+    struct ScriptedReader {
+        steps: VecDeque<ReadStep>,
+    }
+
+    impl Read for ScriptedReader {
+        fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+            match self.steps.pop_front().expect("scripted read step") {
+                ReadStep::Timeout => Err(std::io::Error::from(ErrorKind::TimedOut)),
+                ReadStep::Bytes(mut bytes) => {
+                    let read = output.len().min(bytes.len());
+                    output[..read].copy_from_slice(&bytes[..read]);
+                    if read < bytes.len() {
+                        bytes.drain(..read);
+                        self.steps.push_front(ReadStep::Bytes(bytes));
+                    }
+                    Ok(read)
+                }
+            }
+        }
+    }
 
     #[cfg(unix)]
     #[test]
@@ -210,5 +401,90 @@ mod tests {
             read_next_frame(&mut declared.as_slice()),
             Err(SigningTransportError::FrameTooLarge)
         ));
+    }
+
+    #[test]
+    fn luca_signing_transport_retains_partial_frame_across_idle_ticks() {
+        let payload = b"hello";
+        let prefix = (payload.len() as u32).to_be_bytes();
+        let mut reader = ScriptedReader {
+            steps: VecDeque::from([
+                ReadStep::Bytes(prefix[..2].to_vec()),
+                ReadStep::Timeout,
+                ReadStep::Bytes(prefix[2..].to_vec()),
+                ReadStep::Bytes(payload.to_vec()),
+            ]),
+        };
+        let mut framed = SigningFrameReader::new();
+        assert!(matches!(
+            framed.read_next_frame(&mut reader),
+            Err(SigningTransportError::IdleTimeout)
+        ));
+        let frame = framed
+            .read_next_frame(&mut reader)
+            .expect("continued frame")
+            .expect("frame");
+        assert_eq!(&frame[..4], &prefix);
+        assert_eq!(&frame[4..], payload);
+    }
+
+    #[test]
+    fn luca_signing_transport_closes_slow_partial_frame_at_absolute_deadline() {
+        let prefix = 5_u32.to_be_bytes();
+        let mut reader = ScriptedReader {
+            steps: VecDeque::from([ReadStep::Bytes(prefix[..1].to_vec()), ReadStep::Timeout]),
+        };
+        let mut framed = SigningFrameReader::with_partial_frame_deadline(Duration::ZERO);
+        assert!(matches!(
+            framed.read_next_frame(&mut reader),
+            Err(SigningTransportError::PartialFrameTimeout)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn luca_signing_transport_reports_socket_idle_without_closing_session() {
+        let (mut desktop, _child) =
+            create_socketpair_streams().expect("socketpair should be available");
+        desktop
+            .set_read_timeout(Some(Duration::from_millis(10)))
+            .expect("read timeout");
+        let mut framed = SigningFrameReader::new();
+        assert!(matches!(
+            framed.read_next_frame(&mut desktop),
+            Err(SigningTransportError::IdleTimeout)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn luca_signing_shutdown_wakes_an_idle_serving_read() {
+        let (endpoint, child) =
+            create_exclusive_acp_socketpair().expect("socketpair should be available");
+        let (mut serving, shutdown) = endpoint.split_for_serve().expect("split endpoint");
+        let waiting = std::thread::spawn(move || {
+            let mut framed = SigningFrameReader::new();
+            framed.read_next_frame(&mut serving)
+        });
+        std::thread::sleep(Duration::from_millis(10));
+        shutdown.shutdown().expect("shutdown serving half");
+        let result = waiting.join().expect("join serving read");
+        assert!(
+            matches!(result, Ok(None) | Err(SigningTransportError::Io(_))),
+            "shutdown must wake the blocking read"
+        );
+        drop(child);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn luca_signing_shutdown_is_idempotent_after_peer_close() {
+        let (endpoint, child) =
+            create_exclusive_acp_socketpair().expect("socketpair should be available");
+        let (serving, shutdown) = endpoint.split_for_serve().expect("split endpoint");
+        drop(serving);
+        drop(child);
+        shutdown.shutdown().expect("already-closed shutdown");
+        shutdown.shutdown().expect("repeated shutdown");
     }
 }

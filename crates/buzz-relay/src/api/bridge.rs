@@ -14,12 +14,32 @@ use base64::Engine;
 use serde_json::Value;
 
 use buzz_auth::{LimitType, Nip98ReplayGuard, DEFAULT_REPLAY_TTL_SECS};
-use buzz_core::TenantContext;
+use buzz_core::{kind::KIND_STREAM_MESSAGE, TenantContext};
+use nostr::JsonUtil;
 
 use crate::handlers::ingest::{IngestAuth, IngestError};
 use crate::state::AppState;
 
 use super::{api_error, internal_error, not_found};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EventSubmitMode {
+    Ingest,
+    Probe,
+}
+
+fn parse_event_submit_mode(
+    raw_query: Option<&str>,
+) -> Result<EventSubmitMode, (StatusCode, Json<Value>)> {
+    match raw_query {
+        None | Some("") => Ok(EventSubmitMode::Ingest),
+        Some("mode=probe") => Ok(EventSubmitMode::Probe),
+        Some(_) => Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid event submission mode",
+        )),
+    }
+}
 
 async fn enforce_http_admission(
     state: &AppState,
@@ -612,6 +632,7 @@ fn truncate_reason(s: &str, max_bytes: usize) -> &str {
 /// Submit a signed Nostr event via HTTP bridge (NIP-98 auth).
 pub async fn submit_event(
     State(state): State<Arc<AppState>>,
+    RawQuery(raw_query): RawQuery,
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
@@ -631,14 +652,21 @@ pub async fn submit_event(
                 "relay: no community is configured for this host",
             )
         })?;
+    let mode = parse_event_submit_mode(raw_query.as_deref())?;
 
-    let url = nip98_expected_url(&state.config.relay_url, &tenant, "/events");
-    let (pubkey, event_id_bytes) = verify_bridge_auth(
+    let path = if mode == EventSubmitMode::Probe {
+        "/events?mode=probe"
+    } else {
+        "/events"
+    };
+    let url = nip98_expected_url(&state.config.relay_url, &tenant, path);
+    let (pubkey, event_id_bytes) = verify_bridge_auth_with_options(
         &headers,
         "POST",
         &url,
         Some(&body),
         state.config.require_auth_token,
+        mode == EventSubmitMode::Probe,
     )?;
     let pubkey_hex = pubkey.to_hex();
 
@@ -646,8 +674,16 @@ pub async fn submit_event(
     // runs inside the helper.  The thin wrapper here owns the single terminal
     // attribution line so it fires for every outcome, including admission/
     // replay/membership failures that previously returned before any log fired.
-    let outcome =
-        submit_event_authed(&state, &tenant, &headers, &body, pubkey, event_id_bytes).await;
+    let outcome = submit_event_authed(
+        &state,
+        &tenant,
+        &headers,
+        &body,
+        pubkey,
+        event_id_bytes,
+        mode,
+    )
+    .await;
 
     match &outcome {
         SubmitOutcome::Ok { accepted, .. } => {
@@ -754,6 +790,7 @@ async fn submit_event_authed(
     body: &[u8],
     pubkey: nostr::PublicKey,
     event_id_bytes: [u8; 32],
+    mode: EventSubmitMode,
 ) -> SubmitOutcome {
     // Admission and replay checks fire before body parse — a 429 or replay
     // reject on a malformed body must still be attributed.
@@ -794,6 +831,122 @@ async fn submit_event_authed(
             };
         }
     };
+
+    if mode == EventSubmitMode::Probe
+        && buzz_core::kind::event_kind_u32(&event) == KIND_STREAM_MESSAGE
+    {
+        if event.pubkey != pubkey {
+            let e = api_error(
+                StatusCode::FORBIDDEN,
+                "exact event probe requires the event author",
+            );
+            return SubmitOutcome::Err {
+                status: e.0,
+                response: e,
+            };
+        } else {
+            let event_for_verify = event.clone();
+            let verified = tokio::task::spawn_blocking(move || {
+                buzz_core::verification::verify_event(&event_for_verify)
+            })
+            .await;
+            match verified {
+                Ok(Ok(())) => {
+                    match state
+                        .db
+                        .get_event_by_id_strict_including_deleted(
+                            tenant.community(),
+                            event.id.as_bytes(),
+                        )
+                        .await
+                    {
+                        Ok(Some(stored))
+                            if stored.event == event
+                                && stored.event.as_json() == event.as_json()
+                                && crate::handlers::ingest::extract_channel_id(&event)
+                                    .is_some_and(|channel| stored.channel_id == Some(channel)) =>
+                        {
+                            use crate::conformance::{
+                                channel_label, claimed_community_from_event, emit, msg_id_label,
+                                state_for_request, TraceAction,
+                            };
+                            let channel = stored
+                                .channel_id
+                                .expect("exact kind-9 match requires a stored channel");
+                            let action = TraceAction::WriteDuplicate {
+                                msg_id: msg_id_label(event.id.as_bytes()),
+                                channel: channel_label(channel),
+                                claimed_community: claimed_community_from_event(&event),
+                            };
+                            emit(&state.tracer, action, state_for_request(tenant, &pubkey));
+                            return SubmitOutcome::Ok {
+                                accepted: true,
+                                response: Json(serde_json::json!({
+                                    "event_id": event.id.to_hex(),
+                                    "accepted": true,
+                                    "message": "duplicate:",
+                                })),
+                            };
+                        }
+                        Ok(Some(_)) => {
+                            return SubmitOutcome::Rejected {
+                                kind: KIND_STREAM_MESSAGE,
+                                reason: "invalid: exact event collision".to_owned(),
+                                response: api_error(
+                                    StatusCode::BAD_REQUEST,
+                                    "invalid: exact event collision",
+                                ),
+                            };
+                        }
+                        Ok(None) if mode == EventSubmitMode::Probe => {
+                            return SubmitOutcome::Ok {
+                                accepted: false,
+                                response: Json(serde_json::json!({
+                                    "event_id": event.id.to_hex(),
+                                    "accepted": false,
+                                    "message": "absent:",
+                                })),
+                            };
+                        }
+                        Ok(None) => {}
+                        Err(_) => {
+                            let e = internal_error("strict exact event lookup failed");
+                            return SubmitOutcome::Err {
+                                status: e.0,
+                                response: e,
+                            };
+                        }
+                    }
+                }
+                Ok(Err(_)) => {
+                    return SubmitOutcome::Rejected {
+                        kind: KIND_STREAM_MESSAGE,
+                        reason: "invalid: exact event verification failed".to_owned(),
+                        response: api_error(
+                            StatusCode::BAD_REQUEST,
+                            "invalid: exact event verification failed",
+                        ),
+                    };
+                }
+                Err(_) => {
+                    let e = internal_error("exact event verification failed");
+                    return SubmitOutcome::Err {
+                        status: e.0,
+                        response: e,
+                    };
+                }
+            }
+        }
+    } else if mode == EventSubmitMode::Probe {
+        return SubmitOutcome::Rejected {
+            kind: buzz_core::kind::event_kind_u32(&event),
+            reason: "invalid: exact event probe requires kind 9".to_owned(),
+            response: api_error(
+                StatusCode::BAD_REQUEST,
+                "invalid: exact event probe requires kind 9",
+            ),
+        };
+    }
 
     // Enforce relay membership (with NIP-OA fallback via x-auth-tag header).
     let auth_tag = headers.get("x-auth-tag").and_then(|v| v.to_str().ok());
@@ -2207,6 +2360,29 @@ mod tests {
             .expect("sign auth event")
             .id
             .to_bytes()
+    }
+
+    #[test]
+    fn luca_f09_exact_duplicate_probe_mode_is_closed_and_unambiguous() {
+        assert_eq!(
+            parse_event_submit_mode(Some("mode=probe")).expect("probe"),
+            EventSubmitMode::Probe
+        );
+        assert_eq!(
+            parse_event_submit_mode(None).expect("ordinary ingest"),
+            EventSubmitMode::Ingest
+        );
+        for invalid in [
+            "mode=probe&mode=probe",
+            "mode=probe&extra=1",
+            "extra=1",
+            "mode=ingest",
+        ] {
+            assert!(
+                parse_event_submit_mode(Some(invalid)).is_err(),
+                "{invalid} must fail closed"
+            );
+        }
     }
 
     #[test]

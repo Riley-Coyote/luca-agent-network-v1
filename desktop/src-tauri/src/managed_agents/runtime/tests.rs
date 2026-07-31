@@ -1,5 +1,51 @@
 use crate::managed_agents::known_acp_runtime;
 
+#[test]
+fn managed_signing_registry_refuses_overlapping_outbox_owner() {
+    let resident = format!("test-resident-{}", uuid::Uuid::new_v4());
+    let (first_endpoint, first_child) =
+        crate::luca::signing_transport::create_exclusive_acp_socketpair().expect("first pair");
+    let (mut first_stream, first_shutdown) = first_endpoint.split_for_serve().expect("first split");
+    let first = std::thread::spawn(move || {
+        let mut byte = [0_u8; 1];
+        let _ = std::io::Read::read(&mut first_stream, &mut byte);
+    });
+    super::register_managed_signing_broker(
+        &resident,
+        super::ManagedSigningBrokerOwner {
+            shutdown: first_shutdown,
+            handle: first,
+        },
+    )
+    .expect("register first broker");
+
+    let (second_endpoint, second_child) =
+        crate::luca::signing_transport::create_exclusive_acp_socketpair().expect("second pair");
+    let (mut second_stream, second_shutdown) =
+        second_endpoint.split_for_serve().expect("second split");
+    let overlapping = std::thread::spawn(move || {
+        let mut byte = [0_u8; 1];
+        let _ = std::io::Read::read(&mut second_stream, &mut byte);
+    });
+    let overlapping = super::register_managed_signing_broker(
+        &resident,
+        super::ManagedSigningBrokerOwner {
+            shutdown: second_shutdown,
+            handle: overlapping,
+        },
+    )
+    .expect_err("overlapping broker must be refused");
+    overlapping
+        .shutdown
+        .shutdown()
+        .expect("shutdown refused broker");
+    overlapping.handle.join().expect("join refused broker");
+
+    super::join_managed_signing_broker(&resident).expect("join sole broker");
+    drop(first_child);
+    drop(second_child);
+}
+
 // ── buffer_contains_identifier tests ────────────────────────────────────
 
 #[test]

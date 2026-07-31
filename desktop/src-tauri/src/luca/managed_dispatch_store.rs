@@ -265,7 +265,9 @@ impl ManagedDispatchStore {
                     ManagedDispatchState::Pending | ManagedDispatchState::Active
                 )
             {
+                let had_outbox_authority = dispatch.session_epoch.is_some();
                 dispatch.state = ManagedDispatchState::Cancelled;
+                dispatch.outbox_finalized = !had_outbox_authority;
                 cancelled += 1;
             }
         }
@@ -287,7 +289,9 @@ impl ManagedDispatchStore {
                     dispatch.state,
                     ManagedDispatchState::Pending | ManagedDispatchState::Active
                 ) {
+                    let had_outbox_authority = dispatch.session_epoch.is_some();
                     dispatch.state = ManagedDispatchState::Rejected;
+                    dispatch.outbox_finalized = !had_outbox_authority;
                 }
             }
         }
@@ -502,8 +506,18 @@ impl ManagedDispatchStore {
         {
             return Err(DispatchAuthorizationError::WrongThread);
         }
-        if dispatch.session_epoch != Some(request.cancellation_epoch.get()) {
-            return Err(DispatchAuthorizationError::WrongSession);
+        match dispatch.session_epoch {
+            Some(epoch) if epoch != request.cancellation_epoch.get() => {
+                return Err(DispatchAuthorizationError::WrongSession)
+            }
+            None if matches!(
+                dispatch.state,
+                ManagedDispatchState::Active | ManagedDispatchState::Published
+            ) =>
+            {
+                return Err(DispatchAuthorizationError::WrongSession)
+            }
+            Some(_) | None => {}
         }
         if let Some(submitted) = &dispatch.submitted_event_id {
             if submitted != event_id {
@@ -533,12 +547,12 @@ impl ManagedDispatchStore {
         request: &ManagedMessagePublishRequestV1,
         event_id: &str,
         now_unix_secs: u64,
+        was_submitted: bool,
     ) -> Result<ManagedDispatchReconciliation, DispatchAuthorizationError> {
         let decision = self.authorize_reconciliation(request, event_id, now_unix_secs)?;
-        if !matches!(
-            decision,
-            ManagedDispatchReconciliation::Ready | ManagedDispatchReconciliation::Cancelled
-        ) {
+        if decision != ManagedDispatchReconciliation::Ready
+            && !(decision == ManagedDispatchReconciliation::Cancelled && was_submitted)
+        {
             return Ok(decision);
         }
         let key = (
@@ -552,7 +566,7 @@ impl ManagedDispatchStore {
             .ok_or(DispatchAuthorizationError::Unknown)?;
         if let Some(existing) = &dispatch.submitted_event_id {
             return if existing == event_id {
-                Ok(ManagedDispatchReconciliation::Ready)
+                Ok(decision)
             } else {
                 Err(DispatchAuthorizationError::Terminal)
             };
@@ -562,7 +576,7 @@ impl ManagedDispatchStore {
             self.dispatches = previous;
             return Err(DispatchAuthorizationError::Persistence);
         }
-        Ok(ManagedDispatchReconciliation::Ready)
+        Ok(decision)
     }
 
     /// Record relay acceptance as the publication linearization point.
@@ -646,6 +660,60 @@ impl ManagedDispatchStore {
         self.finalize_published_outbox(trigger_event_id, resident_pubkey, event_id)
     }
 
+    /// Confirm a cancelled/rejected encrypted outbox row is durably terminal.
+    pub(crate) fn finalize_terminal_outbox(
+        &mut self,
+        trigger_event_id: &str,
+        resident_pubkey: &str,
+        event_id: &str,
+        expected_state: ManagedDispatchState,
+    ) -> Result<(), String> {
+        if !matches!(
+            expected_state,
+            ManagedDispatchState::Cancelled | ManagedDispatchState::Rejected
+        ) {
+            return Err("managed dispatch terminal finalization state is invalid".into());
+        }
+        let previous = self.dispatches.clone();
+        let dispatch = self
+            .dispatches
+            .get_mut(&(trigger_event_id.to_owned(), resident_pubkey.to_owned()))
+            .ok_or_else(|| "managed dispatch not found".to_string())?;
+        if dispatch.state != expected_state
+            || dispatch
+                .submitted_event_id
+                .as_deref()
+                .is_some_and(|submitted| submitted != event_id)
+        {
+            return Err("managed dispatch terminal tuple is not coherent".into());
+        }
+        if dispatch.outbox_finalized {
+            return Ok(());
+        }
+        dispatch.outbox_finalized = true;
+        if let Err(error) = self.persist() {
+            self.dispatches = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Finish terminal cross-store state after restart, or confirm the dispatch
+    /// was already safely compacted following an earlier durable handshake.
+    pub(crate) fn recover_terminal_outbox_finalization(
+        &mut self,
+        trigger_event_id: &str,
+        resident_pubkey: &str,
+        event_id: &str,
+        expected_state: ManagedDispatchState,
+    ) -> Result<(), String> {
+        let key = (trigger_event_id.to_owned(), resident_pubkey.to_owned());
+        if !self.dispatches.contains_key(&key) {
+            return Ok(());
+        }
+        self.finalize_terminal_outbox(trigger_event_id, resident_pubkey, event_id, expected_state)
+    }
+
     fn prune(&mut self, now_unix_secs: u64) {
         if self.dispatches.len() <= MAX_DISPATCHES {
             return;
@@ -654,10 +722,16 @@ impl ManagedDispatchStore {
             .dispatches
             .iter()
             .filter(|(_, row)| {
-                matches!(
+                (matches!(
                     row.state,
-                    ManagedDispatchState::Cancelled | ManagedDispatchState::Rejected
-                ) || (row.state == ManagedDispatchState::Published && row.outbox_finalized)
+                    ManagedDispatchState::Cancelled
+                        | ManagedDispatchState::Rejected
+                        | ManagedDispatchState::Published
+                ) && row.outbox_finalized)
+                    || (row.state == ManagedDispatchState::Pending
+                        && row.session_epoch.is_none()
+                        && row.submitted_event_id.is_none()
+                        && row.expires_at <= now_unix_secs)
             })
             .map(|(key, row)| (key.clone(), row.created_at, row.expires_at <= now_unix_secs))
             .collect();
@@ -744,12 +818,8 @@ fn validate_dispatch(dispatch: &ActiveDispatch) -> Result<(), String> {
                 && dispatch.published_event_id.is_none()
                 && !dispatch.outbox_finalized
         }
-        ManagedDispatchState::Cancelled => {
-            dispatch.published_event_id.is_none() && !dispatch.outbox_finalized
-        }
-        ManagedDispatchState::Rejected => {
-            dispatch.published_event_id.is_none() && !dispatch.outbox_finalized
-        }
+        ManagedDispatchState::Cancelled => dispatch.published_event_id.is_none(),
+        ManagedDispatchState::Rejected => dispatch.published_event_id.is_none(),
         ManagedDispatchState::Published => {
             dispatch.session_epoch.is_some()
                 && dispatch.submitted_event_id.is_some()
@@ -1405,6 +1475,14 @@ mod tests {
                 .expect("cancel race"),
             1
         );
+        assert_eq!(
+            store
+                .dispatches
+                .get(&(trigger.id.to_hex(), resident.public_key().to_hex()))
+                .expect("dispatch")
+                .state,
+            ManagedDispatchState::Cancelled
+        );
         store
             .mark_published(
                 &trigger.id.to_hex(),
@@ -1522,6 +1600,15 @@ mod tests {
             .get_mut(&terminal_key)
             .expect("terminal")
             .state = ManagedDispatchState::Cancelled;
+        assert!(store
+            .stage_owner_event(&next, &[resident.public_key().to_hex()], 100)
+            .is_err());
+        assert!(store.dispatches.contains_key(&terminal_key));
+        store
+            .dispatches
+            .get_mut(&terminal_key)
+            .expect("terminal")
+            .outbox_finalized = true;
         store
             .stage_owner_event(&next, &[resident.public_key().to_hex()], 100)
             .expect("terminal compaction");
@@ -1530,5 +1617,139 @@ mod tests {
         assert!(store
             .dispatches
             .contains_key(&(next.id.to_hex(), resident.public_key().to_hex())));
+    }
+
+    #[test]
+    fn capacity_prunes_only_expired_unclaimed_pending_rows() {
+        let owner = Keys::parse(&"87".repeat(32)).expect("owner");
+        let resident = Keys::parse(&"88".repeat(32)).expect("resident");
+        let seed = event(&owner, &resident, CHANNEL_ONE, "seed");
+        let temp = tempfile::tempdir().expect("temp");
+        let mut store =
+            ManagedDispatchStore::load(temp.path().join("dispatches.json")).expect("store");
+        store
+            .stage_owner_event(&seed, &[resident.public_key().to_hex()], 100)
+            .expect("stage seed");
+        let template = store.dispatches.values().next().expect("template").clone();
+        store.dispatches.clear();
+        for index in 0..MAX_DISPATCHES {
+            let event_id = hex::encode(Sha256::digest(index.to_be_bytes()));
+            let mut row = template.clone();
+            row.trigger_event_id = event_id.clone();
+            row.root_event_id = Some(event_id.clone());
+            row.reply_event_id = Some(event_id.clone());
+            row.thread_id = Some(format!("thread:{event_id}"));
+            row.created_at = index as u64 + 1;
+            row.expires_at = 10_000;
+            store
+                .dispatches
+                .insert((event_id, row.resident_pubkey.clone()), row);
+        }
+
+        let expired_key = store.dispatches.keys().next().expect("row").clone();
+        store
+            .dispatches
+            .get_mut(&expired_key)
+            .expect("expired pending")
+            .expires_at = 199;
+
+        let active_key = store.dispatches.keys().nth(1).expect("active row").clone();
+        {
+            let row = store.dispatches.get_mut(&active_key).expect("active row");
+            row.state = ManagedDispatchState::Active;
+            row.session_epoch = Some(23);
+            row.expires_at = 199;
+        }
+        let submitted_key = store
+            .dispatches
+            .keys()
+            .nth(2)
+            .expect("submitted row")
+            .clone();
+        {
+            let row = store
+                .dispatches
+                .get_mut(&submitted_key)
+                .expect("submitted row");
+            row.state = ManagedDispatchState::Active;
+            row.session_epoch = Some(23);
+            row.submitted_event_id = Some("ab".repeat(32));
+            row.expires_at = 199;
+        }
+
+        let next = event(&owner, &resident, CHANNEL_ONE, "next");
+        store
+            .stage_owner_event(&next, &[resident.public_key().to_hex()], 200)
+            .expect("expired unclaimed pending compaction");
+        assert!(!store.dispatches.contains_key(&expired_key));
+        assert!(store.dispatches.contains_key(&active_key));
+        assert!(store.dispatches.contains_key(&submitted_key));
+        assert!(store
+            .dispatches
+            .contains_key(&(next.id.to_hex(), resident.public_key().to_hex())));
+    }
+
+    #[test]
+    fn terminal_outbox_finalization_rolls_back_on_persistence_failure() {
+        let owner = Keys::parse(&"85".repeat(32)).expect("owner");
+        let resident = Keys::parse(&"86".repeat(32)).expect("resident");
+        let trigger = event(&owner, &resident, CHANNEL_ONE, "terminal");
+        let temp = tempfile::tempdir().expect("temp");
+        let valid_path = temp.path().join("dispatches.json");
+        let mut store = ManagedDispatchStore::load(valid_path.clone()).expect("store");
+        store
+            .stage_owner_event(&trigger, &[resident.public_key().to_hex()], 100)
+            .expect("stage");
+        store
+            .activate_session(&resident.public_key().to_hex(), 19)
+            .expect("session");
+        store
+            .authorize_publication(&request(&owner, &resident, &trigger, CHANNEL_ONE, 19), 101)
+            .expect("authorize");
+        store
+            .cancel_matching(
+                &owner.public_key().to_hex(),
+                CHANNEL_ONE,
+                None,
+                &[resident.public_key().to_hex()],
+            )
+            .expect("cancel");
+        let event_id = "ef".repeat(32);
+        let directory_target = temp.path().join("directory-target");
+        std::fs::create_dir(&directory_target).expect("directory");
+        store.path = directory_target;
+        assert!(store
+            .finalize_terminal_outbox(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                &event_id,
+                ManagedDispatchState::Cancelled,
+            )
+            .is_err());
+        assert!(
+            !store
+                .dispatches
+                .get(&(trigger.id.to_hex(), resident.public_key().to_hex()))
+                .expect("row")
+                .outbox_finalized
+        );
+
+        store.path = valid_path.clone();
+        store
+            .finalize_terminal_outbox(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                &event_id,
+                ManagedDispatchState::Cancelled,
+            )
+            .expect("retry finalization");
+        let reloaded = ManagedDispatchStore::load(valid_path).expect("reload");
+        assert!(
+            reloaded
+                .dispatches
+                .get(&(trigger.id.to_hex(), resident.public_key().to_hex()))
+                .expect("row")
+                .outbox_finalized
+        );
     }
 }
