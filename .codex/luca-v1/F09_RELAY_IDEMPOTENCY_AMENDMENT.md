@@ -35,11 +35,20 @@ membership, or freshness checks only when all of these hold:
 4. every reconstructed Nostr event field is structurally equal;
 5. canonical stored bytes equal the submitted canonical event bytes.
 
+The fresh NIP-98 authorization must contain a payload tag bound to the exact
+submitted HTTP body. The strict database lookup distinguishes absence from
+corrupt or ambiguous storage and fails closed on the latter. "Exact" means
+equality of every canonical signed Nostr event field, including the signature;
+raw JSON whitespace and object-key order are not Nostr event identity.
+
 The response is the existing successful duplicate shape with the same event ID.
 It reveals no content or event not already supplied and signed by that author.
 An absent, noncanonical, differently authored, or nonexact event receives no
 early acknowledgment and continues through all existing membership, freshness,
 channel, and ingest policy. An ID collision with nonexact bytes fails closed.
+The acknowledgment performs no insert, resurrection, fan-out, thread-counter
+update, search write, owner materialization, or other ingest side effect; it
+emits only the existing duplicate conformance trace.
 
 Desktop reconciliation exact-resubmits the retained bytes. It does not use an
 access-filtered query as proof of absence and never re-signs a new final.
@@ -86,7 +95,11 @@ endpoint, event kind, query bypass, or unrelated relay behavior is authorized.
 - absent stale event remains rejected;
 - absent event from a removed member remains rejected;
 - same ID with any nonexact field or canonical byte difference fails closed;
+- corrupt or ambiguous stored rows fail closed rather than becoming "absent";
 - another authenticated key cannot probe or acknowledge the event;
+- NIP-98 without an exact payload binding cannot use the oracle;
+- soft-deleted exact history acknowledges without resurrection or fan-out;
+- the same event in another tenant is not acknowledged;
 - fresh ordinary `/events` behavior remains membership/freshness gated;
 - desktop reconciliation uses exact `/events` replay and never `/query` as an
   absence oracle;
