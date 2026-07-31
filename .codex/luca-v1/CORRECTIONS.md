@@ -217,3 +217,17 @@ artifact; the authoritative kit remains unchanged.
   compatibility command's generated temporary nsec in an RAII zeroizing guard.
   Legacy response and storage behavior remain unchanged; key-store redesign is
   still outside F15.
+
+## 2026-07-31 — F11 native provisioning-failure proof
+
+- Approved amendment: `F11_NATIVE_FAILURE_INJECTION_AMENDMENT.md`.
+- Observed contradiction: F11 requires real-Tauri evidence for Luca's
+  personal-home provisioning failure state, but `get_default_relay_url` was
+  infallible and no native failpoint existed. Browser injection cannot satisfy
+  the gate.
+- Local correction: F19 already owns `desktop/src-tauri/src/commands/identity.rs`
+  under the authority mutex, so it adds the exact debug-build-only failpoint
+  and unit test. F11 depends on F19 and consumes the seam without gaining
+  product-source ownership.
+- Scope: no release behavior change, general fault framework, relay mutation,
+  live profile, authorization change or persistent test toggle.

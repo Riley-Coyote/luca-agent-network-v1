@@ -344,6 +344,7 @@ tasks:
   - F06
   - F07
   - F09
+  - F19
   lane: quality
   risk: medium
   outputs:

@@ -1092,6 +1092,7 @@ task_capsules:
   - target:desktop/src-tauri/src/luca/owner_identity_recovery.rs
   - target:tests/luca-conformance/owner_identity_recovery/**
   - F19_OWNER_RECOVERY_AMENDMENT.md
+  - F11_NATIVE_FAILURE_INJECTION_AMENDMENT.md
   owns:
     include:
     - desktop/src-tauri/src/luca/owner_identity_recovery.rs
@@ -1138,6 +1139,8 @@ task_capsules:
   - 'Deliver exactly these outputs: protected_owner_backup, zero_write_import_preview, keychain_readback, same_pubkey_recovery_tests.'
   - An age-protected owner backup previews with zero writes, imports only after confirmation, reads the key back from Keychain,
     reproduces the exact owner pubkey, and leaves no plaintext owner secret on disk or in artifacts.
+  - Add only the debug-build native relay-resolution failpoint authorized by F11_NATIVE_FAILURE_INJECTION_AMENDMENT.md so F11
+    can prove the real personal-home provisioning failure state; release relay behavior remains unchanged.
   - Preserve every global invariant in TASK_GRAPH.yaml and stop on a contract contradiction.
   - Use generated/synthetic fixtures only; no live profile or source-repository mutation.
   - Persist raw command output under the task evidence directory and return only a compact summary.
@@ -1491,6 +1494,7 @@ task_capsules:
   - buzz@7e34bee6:desktop/tests/e2e
   - buzz@7e34bee6:Justfile::desktop-ci
   - target:desktop/tests/e2e/luca/f11.spec.ts
+  - F11_NATIVE_FAILURE_INJECTION_AMENDMENT.md
   owns:
     include:
     - desktop/tests/e2e/luca/f11.spec.ts
@@ -1530,6 +1534,8 @@ task_capsules:
     setup or Luca home, and relaunch into the same personal home without shell or database intervention.
   - Prove that no public Buzz branding or workspace, organization, community, invite, hosted-account or relay-URL setup appears,
     and that forced provisioning failure renders a Luca-owned retry/error state rather than Buzz community onboarding.
+  - Native failure proof may consume only the exact debug-build-only failpoint implemented by F19 under
+    F11_NATIVE_FAILURE_INJECTION_AMENDMENT.md; F11 gains no product-source ownership.
   - 'Prove the task-specific objective exactly: Verify native shell, windows, focus and clean-profile startup; stubs or narrative
     are not substitutes for the named evidence.'
   - Preserve every global invariant in TASK_GRAPH.yaml and stop on a contract contradiction.
