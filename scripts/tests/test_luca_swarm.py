@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import tempfile
 import unittest
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "luca_swarm.py"
@@ -40,7 +42,7 @@ class ResultClassificationTests(unittest.TestCase):
 
     def test_output_order_debt_does_not_force_reimplementation(self) -> None:
         state = swarm.classify_result(
-            result(outputs=("two", "one")),
+            result(status="INTEGRATION_PENDING", outputs=("two", "one")),
             ["one", "two"],
             lambda _: "ancestor",
         )
@@ -68,6 +70,22 @@ class ResultClassificationTests(unittest.TestCase):
             "invalid_candidate",
         )
 
+    def test_failed_receipt_never_unlocks_build_mode(self) -> None:
+        state = swarm.classify_result(
+            result(status="FAIL"), ["one"], lambda _: "ancestor"
+        )
+        self.assertEqual(state, "failed_receipt")
+        self.assertNotIn(state, swarm.SATISFIED_BUILD)
+
+    def test_failed_reordered_receipt_never_unlocks_build_mode(self) -> None:
+        state = swarm.classify_result(
+            result(status="FAIL", outputs=("two", "one")),
+            ["one", "two"],
+            lambda _: "ancestor",
+        )
+        self.assertEqual(state, "failed_receipt")
+        self.assertNotIn(state, swarm.SATISFIED_BUILD)
+
 
 class CapsuleRenderingTests(unittest.TestCase):
     def test_capsule_is_bounded_and_contains_execution_controls(self) -> None:
@@ -77,6 +95,66 @@ class CapsuleRenderingTests(unittest.TestCase):
         self.assertIn("OWNED PATHS", rendered)
         self.assertIn("STOP CONDITIONS", rendered)
         self.assertNotIn("# Swarm Operating Model", rendered)
+
+
+class WorktreeClaimTests(unittest.TestCase):
+    def test_claim_rejects_unrelated_repository(self) -> None:
+        candidate = "a" * 40
+        with tempfile.TemporaryDirectory() as raw:
+            worktree = Path(raw)
+            (worktree / ".git").write_text("gitdir: elsewhere\n")
+
+            def fake_git(*args: str, cwd: Path = swarm.REPO_ROOT, check: bool = True) -> str:
+                if args[:2] == ("rev-parse", "--git-common-dir"):
+                    return "/unrelated/.git" if cwd == worktree else "/expected/.git"
+                if args[:2] == ("rev-parse", "--verify"):
+                    return candidate
+                if args[0] == "status":
+                    return ""
+                raise AssertionError(args)
+
+            with patch.object(swarm, "git", side_effect=fake_git):
+                errors = swarm.claim_worktree_errors(worktree, candidate)
+        self.assertIn("worktree does not belong to this repository", errors)
+
+    def test_claim_requires_exact_clean_candidate(self) -> None:
+        candidate = "a" * 40
+        with tempfile.TemporaryDirectory() as raw:
+            worktree = Path(raw)
+            (worktree / ".git").write_text("gitdir: linked\n")
+
+            def fake_git(*args: str, cwd: Path = swarm.REPO_ROOT, check: bool = True) -> str:
+                if args[:2] == ("rev-parse", "--git-common-dir"):
+                    return "/expected/.git"
+                if args[:2] == ("rev-parse", "--verify"):
+                    return "b" * 40
+                if args[0] == "status":
+                    return " M owned-file"
+                raise AssertionError(args)
+
+            with patch.object(swarm, "git", side_effect=fake_git):
+                errors = swarm.claim_worktree_errors(worktree, candidate)
+        self.assertTrue(any("does not equal candidate" in item for item in errors))
+        self.assertIn("worktree is not clean", errors)
+
+
+class GateStateTests(unittest.TestCase):
+    def test_gate_state_uses_canonical_evidence_validation(self) -> None:
+        class RejectingValidator:
+            @staticmethod
+            def validate_gate_evidence(*_args: object) -> list[str]:
+                return ["hash mismatch"]
+
+        verdict = {"status": "PASS", "candidate_commit": "a" * 40}
+        with (
+            patch.object(swarm, "load_json", return_value=verdict),
+            patch.object(swarm, "resolve_commit", return_value="a" * 40),
+            patch.object(swarm, "is_ancestor", return_value=True),
+            patch.object(swarm, "evidence_validator", return_value=RejectingValidator()),
+        ):
+            self.assertEqual(
+                swarm.gate_state("G0", "b" * 40), "invalid_gate_receipt"
+            )
 
 
 if __name__ == "__main__":

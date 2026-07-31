@@ -12,6 +12,8 @@ import argparse
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import fcntl
+from functools import lru_cache
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -117,16 +119,39 @@ def classify_result(
         return "invalid_candidate"
     if relation == "diverged":
         return "branch_candidate"
+    status = result.get("status")
+    if status not in {"PASS", "INTEGRATION_PENDING"}:
+        return "failed_receipt"
     if actual_outputs != outputs:
-        return "integrated_invalid_receipt"
-    if result.get("status") == "PASS":
+        return (
+            "integrated_invalid_receipt"
+            if status == "INTEGRATION_PENDING"
+            else "invalid_receipt"
+        )
+    if status == "PASS":
         return "integrated_pass"
     return "integrated_pending_receipt"
 
 
-def gate_state(task_id: str) -> str:
+def gate_state(task_id: str, frontier_candidate: str) -> str:
     verdict = load_json(REPO_ROOT / "evidence" / "gates" / task_id / "gate-verdict.json")
-    return "gate_pass" if verdict and verdict.get("status") == "PASS" else "gate_missing"
+    if not verdict or verdict.get("status") != "PASS":
+        return "gate_missing"
+    verdict_candidate = verdict.get("candidate_commit")
+    if not isinstance(verdict_candidate, str):
+        return "invalid_gate_receipt"
+    resolved = resolve_commit(verdict_candidate)
+    if not resolved:
+        return "invalid_gate_receipt"
+    if not (
+        is_ancestor(resolved, frontier_candidate)
+        or is_patch_equivalent(resolved, frontier_candidate)
+    ):
+        return "diverged_gate_receipt"
+    errors = evidence_validator().validate_gate_evidence(
+        task_id, resolved, REPO_ROOT / "evidence", KIT_ROOT
+    )
+    return "gate_pass" if not errors else "invalid_gate_receipt"
 
 
 def all_states(candidate: str) -> dict[str, str]:
@@ -148,7 +173,7 @@ def all_states(candidate: str) -> dict[str, str]:
     states: dict[str, str] = {}
     for task_id, task in tasks.items():
         if task.get("type") == "gate":
-            states[task_id] = gate_state(task_id)
+            states[task_id] = gate_state(task_id, resolved_candidate)
             continue
         capsule = capsules.get(task_id, {})
         states[task_id] = classify_result(
@@ -192,6 +217,31 @@ def read_claims() -> dict[str, Any]:
         return claims
 
 
+def resolved_git_dir(cwd: Path) -> Path:
+    raw = git("rev-parse", "--git-common-dir", cwd=cwd)
+    path = Path(raw)
+    return path.resolve() if path.is_absolute() else (cwd / path).resolve()
+
+
+def claim_worktree_errors(worktree: Path, candidate: str) -> list[str]:
+    errors: list[str] = []
+    if not worktree.is_dir() or not (worktree / ".git").exists():
+        return [f"not a Git worktree: {worktree}"]
+    try:
+        if resolved_git_dir(worktree) != common_git_dir().resolve():
+            errors.append("worktree does not belong to this repository")
+        worktree_head = git("rev-parse", "--verify", "HEAD^{commit}", cwd=worktree)
+        if worktree_head != candidate:
+            errors.append(
+                f"worktree HEAD {worktree_head} does not equal candidate {candidate}"
+            )
+        if git("status", "--porcelain", "--untracked-files=all", cwd=worktree):
+            errors.append("worktree is not clean")
+    except RuntimeError as exc:
+        errors.append(str(exc))
+    return errors
+
+
 def satisfied_states(mode: str) -> set[str]:
     return SATISFIED_BUILD if mode == "build" else SATISFIED_STRICT
 
@@ -199,6 +249,11 @@ def satisfied_states(mode: str) -> set[str]:
 def frontier_data(milestone: str, candidate: str, mode: str) -> dict[str, Any]:
     tasks, capsules = task_maps()
     states = all_states(candidate)
+    if mode == "strict":
+        for task_id, task in tasks.items():
+            if task.get("type") != "gate" and states.get(task_id) == "integrated_pass":
+                if close_check(task_id, candidate):
+                    states[task_id] = "invalid_receipt"
     claims = read_claims().get("claims", {})
     satisfied = satisfied_states(mode)
     ready: list[str] = []
@@ -282,10 +337,12 @@ def claim_task(task_id: str, owner: str, worktree: str, candidate: str, mode: st
         reasons = frontier["blocked"].get(task_id, [f"state:{frontier['states'].get(task_id)}"])
         raise ValueError(f"task {task_id} is not ready: {', '.join(reasons)}")
     worktree_path = Path(worktree).resolve()
-    if not worktree_path.is_dir() or not (worktree_path / ".git").exists():
-        raise ValueError(f"not a Git worktree: {worktree_path}")
+    resolved_candidate = frontier["candidate_commit"]
 
     with locked_claims() as (path, document):
+        worktree_errors = claim_worktree_errors(worktree_path, resolved_candidate)
+        if worktree_errors:
+            raise ValueError("; ".join(worktree_errors))
         claims = document["claims"]
         mutex = capsules[task_id]["ownership_mutex"]
         for claimed_id, existing in claims.items():
@@ -295,7 +352,7 @@ def claim_task(task_id: str, owner: str, worktree: str, candidate: str, mode: st
             "owner": owner,
             "mutex": mutex,
             "worktree": str(worktree_path),
-            "candidate_commit": frontier["candidate_commit"],
+            "candidate_commit": resolved_candidate,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         claims[task_id] = claim
@@ -314,6 +371,17 @@ def release_task(task_id: str, owner: str | None, force: bool) -> None:
         write_claims(path, document)
 
 
+@lru_cache(maxsize=1)
+def evidence_validator() -> Any:
+    path = REPO_ROOT / "scripts" / "validate_planning_kit.py"
+    spec = importlib.util.spec_from_file_location("luca_evidence_validator", path)
+    if not spec or not spec.loader:
+        raise RuntimeError(f"cannot load evidence validator: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def close_check(task_id: str, candidate: str) -> list[str]:
     tasks, capsules = task_maps()
     if task_id not in tasks or task_id not in capsules:
@@ -323,34 +391,25 @@ def close_check(task_id: str, candidate: str) -> list[str]:
     resolved = resolve_commit(candidate)
     if not resolved:
         return [f"cannot resolve candidate commit: {candidate}"]
-    result = load_json(result_path(task))
     errors: list[str] = []
-    if not result:
-        return [f"missing or invalid result: {result_path(task)}"]
-    if result.get("status") != "PASS":
-        errors.append("result status is not PASS")
-    if result.get("candidate_commit") != resolved:
-        errors.append("result is not bound to the exact candidate commit")
-    if [item.get("name") for item in result.get("outputs", [])] != expected_outputs(capsule):
-        errors.append("result outputs do not exactly match the capsule")
-    commands = [item.get("command") for item in result.get("test_logs", [])]
-    if commands != capsule.get("tests", []):
-        errors.append("test command sequence does not exactly match the capsule")
-    scan_ref = result.get("artifact_scan", {}).get("path")
-    scan = load_json(REPO_ROOT / "evidence" / scan_ref) if isinstance(scan_ref, str) else None
-    if not scan or scan.get("status") != "PASS" or scan.get("findings"):
-        errors.append("artifact scan is missing, failed, or contains findings")
-    review = load_json(result_path(task).with_name("review.json"))
-    if not review or review.get("status") != "PASS":
-        errors.append("independent PASS review is missing")
-    else:
-        executor = result.get("executor", {})
-        reviewer = review.get("reviewer", {})
-        if reviewer.get("id") == executor.get("id") or reviewer.get("independence_group") == executor.get("independence_group"):
-            errors.append("reviewer is not independent of the executor")
-        for finding in review.get("findings", []):
-            if finding.get("severity") in {"P0", "P1"} and finding.get("status") != "CLOSED":
-                errors.append(f"open {finding.get('severity')} finding: {finding.get('id')}")
+    validator = evidence_validator()
+    result = validator.validate_result_document(
+        result_path(task),
+        task_id,
+        resolved,
+        REPO_ROOT / "evidence",
+        capsule,
+        REPO_ROOT,
+        errors,
+    )
+    validator.validate_review_document(
+        result_path(task).with_name("review.json"),
+        "task",
+        task_id,
+        resolved,
+        result.get("executor") if isinstance(result, dict) else None,
+        errors,
+    )
     return errors
 
 
