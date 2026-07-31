@@ -189,3 +189,32 @@ observed behavior.
 
 These controls reduce duplicated reading and reasoning without reducing test,
 security or product quality.
+
+## Mechanical control plane
+
+Use `scripts/luca_swarm.py` as the thin local scheduler. It derives state from
+`TASK_GRAPH.yaml`, `TASK_CAPSULE_CATALOG.yaml`, Git ancestry and task receipts;
+it does not create a second tracked task database. Mutable claims live under the
+repository's common Git directory so every worktree sees the same locks and no
+claim artifact enters a commit.
+
+```text
+python3 scripts/luca_swarm.py frontier --milestone M1 --mode build --json
+python3 scripts/luca_swarm.py capsule F09
+python3 scripts/luca_swarm.py claim F09 --owner authority-g1 --worktree <path>
+python3 scripts/luca_swarm.py close-check F09 --candidate <commit>
+python3 scripts/luca_swarm.py release F09 --owner authority-g1
+python3 scripts/luca_swarm.py gate-readiness G1 --candidate <commit>
+```
+
+`strict` frontier mode accepts only integrated PASS receipts. `build` mode may
+schedule from an ancestor or patch-equivalent integrated candidate whose
+receipt still needs final candidate rebinding or ordering repair, but reports
+that evidence debt explicitly. A changed output set in a capsule automatically
+marks an older PASS receipt `stale_contract`; this is how the corrected F03 and
+F06 work is reopened without a manual status override.
+
+Claims are atomic and mutex-aware. The controller refuses a task whose
+dependencies are not satisfied or whose mutex is already owned. `close-check`
+requires the exact candidate commit, exact output and test-command lists, a
+passing artifact scan and an independent review with every P0/P1 closed.
