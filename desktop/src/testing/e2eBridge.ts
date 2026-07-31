@@ -7541,6 +7541,30 @@ async function handleCreateManagedAgent(
   };
 }
 
+async function handleCreateLucaResident(
+  args: Parameters<typeof handleCreateManagedAgent>[0],
+  config: E2eConfig | undefined,
+) {
+  const created = await handleCreateManagedAgent(args, config);
+  const agent = created.agent;
+
+  // Mirror the native Luca command: the synthetic legacy key stays inside the
+  // mock's desktop boundary and is never present in the IPC result.
+  return {
+    resident: {
+      residentPubkey: agent.pubkey,
+      displayName: agent.name,
+      personaId: agent.persona_id,
+      runtimeCommand: agent.agent_command,
+      providerId: agent.provider ?? null,
+      modelId: agent.model,
+      status: agent.status,
+    },
+    profileSyncError: created.profile_sync_error,
+    spawnError: created.spawn_error,
+  };
+}
+
 function getMockManagedAgent(pubkey: string): MockManagedAgent {
   const agent = mockManagedAgents.find(
     (candidate) => candidate.pubkey === pubkey,
@@ -9964,6 +9988,11 @@ export function maybeInstallE2eTauriMocks() {
       case "create_managed_agent":
         return handleCreateManagedAgent(
           payload as Parameters<typeof handleCreateManagedAgent>[0],
+          activeConfig,
+        );
+      case "create_luca_resident":
+        return handleCreateLucaResident(
+          payload as Parameters<typeof handleCreateLucaResident>[0],
           activeConfig,
         );
       case "start_managed_agent":

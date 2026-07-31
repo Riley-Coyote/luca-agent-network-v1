@@ -768,6 +768,8 @@ pub fn run() {
             list_relay_agents,
             list_managed_agents,
             create_managed_agent,
+            luca::resident_registry::list_luca_residents,
+            luca::resident_registry::create_luca_resident,
             start_managed_agent,
             stop_managed_agent,
             set_agent_managed_profiles,

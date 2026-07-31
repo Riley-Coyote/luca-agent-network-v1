@@ -20,6 +20,7 @@ import {
 import { getPersonaLibraryState } from "@/features/agents/lib/catalog";
 import { clearLegacyPersonaCatalogVisibility } from "@/features/agents/lib/legacyPersonaCatalogVisibility";
 import { useCreatedAgentChannelAttachment } from "@/features/agents/useCreatedAgentChannelAttachment";
+import { createLucaResident } from "@/features/luca/residents/api";
 import type {
   SnapshotFormat,
   SnapshotMemoryLevel,
@@ -213,6 +214,77 @@ export function usePersonaActions() {
     } catch (error) {
       setPersonaErrorMessage(
         error instanceof Error ? error.message : "Failed to save agent.",
+      );
+      return false;
+    } finally {
+      setIsPersonaSubmitPending(false);
+    }
+  }
+
+  async function handleSubmitResident(
+    input: CreatePersonaInput | UpdatePersonaInput,
+    intent?: AgentCreateIntent,
+    backendIntent?: BackendIntent | null,
+  ): Promise<boolean> {
+    if (isPersonaSubmitPending) {
+      return false;
+    }
+    if ("id" in input) {
+      setPersonaErrorMessage("Resident setup can only create a new agent.");
+      return false;
+    }
+
+    clearFeedback("library");
+    setIsPersonaSubmitPending(true);
+    try {
+      const runtime = availableRuntimes.find(
+        (candidate) => candidate.id === input.runtime,
+      );
+      if (!runtime) {
+        setPersonaErrorMessage(
+          "Choose an available runtime for this resident.",
+        );
+        return false;
+      }
+
+      const avatarUrl = await resolveManagedAgentAvatarUrl(
+        input.avatarUrl,
+        undefined,
+        runtime.avatarUrl,
+      );
+      const persona = await createPersonaMutation.mutateAsync({
+        ...input,
+        avatarUrl,
+      });
+      const startIntent =
+        resolveCreateIntent(intent) === "definition_start"
+          ? (backendIntent ?? null)
+          : null;
+      const agentInput = await buildInstanceInputForDefinition(
+        persona,
+        runtime,
+        undefined,
+        startIntent ?? undefined,
+      );
+      const created = await createLucaResident(agentInput);
+
+      if (created.spawnError) {
+        setPersonaErrorMessage(
+          `${persona.displayName} was created, but did not start: ${created.spawnError}`,
+        );
+      } else {
+        setPersonaNoticeMessage(
+          `Created ${created.resident.displayName} as a resident.`,
+        );
+      }
+      if (created.profileSyncError) {
+        setPersonaErrorMessage(created.profileSyncError);
+      }
+      setPersonaDialogState(null);
+      return true;
+    } catch (error) {
+      setPersonaErrorMessage(
+        error instanceof Error ? error.message : "Failed to create resident.",
       );
       return false;
     } finally {
@@ -420,6 +492,7 @@ export function usePersonaActions() {
     personaFeedbackSurface,
     ...createdAgentAttachment,
     handleSubmit,
+    handleSubmitResident,
     handleDelete,
     handleSetActive,
     prepareCreate,

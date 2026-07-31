@@ -32,6 +32,7 @@ import { useGlobalAgentConfig } from "@/features/agents/useGlobalAgentConfig";
 import { Button } from "@/shared/ui/button";
 import { PageHeader } from "@/shared/ui/PageHeader";
 import { getInheritedAgentDefaults } from "./bakedEnvHelpers";
+import { ResidentSetup } from "@/features/luca/residents/ResidentSetup";
 
 export function AgentsView() {
   const { openPersonaProfilePanel, openProfilePanel } = useProfilePanel();
@@ -45,11 +46,18 @@ export function AgentsView() {
   const [isAiDefaultsOpen, setIsAiDefaultsOpen] = React.useState(false);
   // Exclusivity: create never sets `personaDialogState` (edit/dup/import do),
   // so the create-mode and definition-edit AgentDialog mounts never coexist.
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = React.useState(false);
+  const [createDialogMode, setCreateDialogMode] = React.useState<
+    "agent" | "resident" | null
+  >(null);
 
   function openUnifiedCreate() {
     personas.prepareCreate();
-    setIsCreateDialogOpen(true);
+    setCreateDialogMode("agent");
+  }
+
+  function openResidentCreate() {
+    personas.prepareCreate();
+    setCreateDialogMode("resident");
   }
   const teamActions = useTeamActions(
     {
@@ -140,6 +148,20 @@ export function AgentsView() {
             title="Agents"
           />
           <div className="flex flex-col gap-8">
+            <ResidentSetup
+              agents={agents.managedAgents}
+              isLoading={
+                agents.managedAgentsQuery.isLoading ||
+                personas.personasQuery.isLoading
+              }
+              isPending={isActionPending}
+              onAddResident={(persona) => {
+                void agents.handleAddResident(persona);
+              }}
+              onCreateResident={openResidentCreate}
+              personas={personas.libraryPersonas}
+              startingPersonaIds={agents.startingPersonaIds}
+            />
             <UnifiedAgentsSection
               defaultModel={inheritedDefaults.model.value}
               actionErrorMessage={agents.actionErrorMessage}
@@ -247,7 +269,7 @@ export function AgentsView() {
         returnFocusRef={aiDefaultsTriggerRef}
       />
 
-      {isCreateDialogOpen ? (
+      {createDialogMode ? (
         <AgentDialog
           definitionError={
             personas.createPersonaMutation.error instanceof Error
@@ -257,9 +279,13 @@ export function AgentsView() {
           isDefinitionPending={personas.isPending}
           mode="definition"
           onOpenChange={(open) => {
-            if (!open) setIsCreateDialogOpen(false);
+            if (!open) setCreateDialogMode(null);
           }}
-          onSubmitDefinition={personas.handleSubmit}
+          onSubmitDefinition={
+            createDialogMode === "resident"
+              ? personas.handleSubmitResident
+              : personas.handleSubmit
+          }
           runtimes={personas.acpRuntimesQuery.data ?? []}
           runtimesLoading={personas.acpRuntimesQuery.isLoading}
         />

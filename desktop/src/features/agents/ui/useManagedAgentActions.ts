@@ -13,6 +13,7 @@ import {
   useDeleteManagedAgentMutation,
 } from "@/features/agents/hooks";
 import { useGlobalAgentConfig } from "@/features/agents/useGlobalAgentConfig";
+import { createLucaResident } from "@/features/luca/residents/api";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import { usePresenceQuery } from "@/features/presence/hooks";
 import type {
@@ -227,6 +228,48 @@ export function useManagedAgentActions() {
     }
   }
 
+  async function handleAddResident(persona: AgentPersona) {
+    if (startingPersonaIdsRef.current.has(persona.id)) {
+      return;
+    }
+    setPersonaStartPending(persona.id, true);
+    clearFeedback();
+    try {
+      const runtimes = await availableRuntimesForStart(availableRuntimesQuery);
+      const { runtime, warnings } = resolveStartRuntimeForDefinition(
+        persona,
+        runtimes,
+        globalConfig.preferred_runtime,
+      );
+      const input = await buildInstanceInputForDefinition(persona, runtime);
+      const created = await createLucaResident(input);
+      const notices = [...warnings];
+
+      if (created.spawnError) {
+        setActionErrorMessage(
+          `${created.resident.displayName} was added, but did not start: ${created.spawnError}`,
+        );
+      } else {
+        notices.push(`Added ${created.resident.displayName} as a resident.`);
+      }
+      if (created.profileSyncError) {
+        notices.push(created.profileSyncError);
+      }
+      if (notices.length > 0) {
+        setActionNoticeMessage(notices.join(" "));
+      }
+
+      void managedAgentsQuery.refetch();
+      void relayAgentsQuery.refetch();
+    } catch (error) {
+      setActionErrorMessage(
+        error instanceof Error ? error.message : "Failed to add resident.",
+      );
+    } finally {
+      setPersonaStartPending(persona.id, false);
+    }
+  }
+
   async function getChannelsForAction() {
     if (channelsQuery.data) {
       return channelsQuery.data;
@@ -379,6 +422,7 @@ export function useManagedAgentActions() {
   }
 
   const isPending =
+    startingPersonaIds.size > 0 ||
     createAgentMutation.isPending ||
     startMutation.isPending ||
     stopMutation.isPending ||
@@ -415,6 +459,7 @@ export function useManagedAgentActions() {
     startingPersonaIds,
     handleStart,
     handleStartPersona,
+    handleAddResident,
     handleStop,
     handleDelete,
     handleToggleStartOnAppLaunch,
