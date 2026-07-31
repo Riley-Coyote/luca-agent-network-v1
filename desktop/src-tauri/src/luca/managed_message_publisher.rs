@@ -469,6 +469,65 @@ impl ManagedMessagePublisher {
         }
     }
 
+    fn settle_probe_terminal_rejection_with<F>(
+        &mut self,
+        entry: &ManagedOutboxReconcileEntry,
+        outbox: &mut ManagedMessageOutbox,
+        now_unix_secs: u64,
+        after_dispatch_decision: F,
+    ) -> Result<ManagedDispatchReconciliation, ManagedPublicationAuthorityError>
+    where
+        F: FnOnce(),
+    {
+        let mut store = self
+            .dispatch_store
+            .lock()
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+        let decision = store
+            .resolve_reconciled_rejection(&entry.request, entry.event_id.as_str(), now_unix_secs)
+            .map_err(Self::map_dispatch_error)?;
+        after_dispatch_decision();
+        let terminal_state = match decision {
+            ManagedDispatchReconciliation::Cancelled => {
+                outbox
+                    .cancel_during_reconciliation(&entry.idempotency_key)
+                    .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+                super::managed_dispatch_store::ManagedDispatchState::Cancelled
+            }
+            ManagedDispatchReconciliation::Rejected => {
+                outbox
+                    .reject_during_reconciliation(&entry.idempotency_key)
+                    .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+                super::managed_dispatch_store::ManagedDispatchState::Rejected
+            }
+            ManagedDispatchReconciliation::Published => return Ok(decision),
+            ManagedDispatchReconciliation::Ready => {
+                return Err(ManagedPublicationAuthorityError::Unavailable)
+            }
+        };
+        store
+            .recover_terminal_outbox_finalization(
+                entry.request.dispatch_receipt_id.as_str(),
+                entry.request.resident_pubkey.as_str(),
+                entry.event_id.as_str(),
+                terminal_state,
+            )
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+        outbox
+            .mark_authority_finalized(&entry.idempotency_key)
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+        Ok(decision)
+    }
+
+    fn settle_probe_terminal_rejection(
+        &mut self,
+        entry: &ManagedOutboxReconcileEntry,
+        outbox: &mut ManagedMessageOutbox,
+        now_unix_secs: u64,
+    ) -> Result<ManagedDispatchReconciliation, ManagedPublicationAuthorityError> {
+        self.settle_probe_terminal_rejection_with(entry, outbox, now_unix_secs, || {})
+    }
+
     fn reconcile_entry(
         &mut self,
         entry: ManagedOutboxReconcileEntry,
@@ -573,21 +632,15 @@ impl ManagedMessagePublisher {
                 )
             }
             ManagedRelayProbeOutcome::TerminalRejected => {
-                let current = self
-                    .dispatch_store
-                    .lock()
-                    .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
-                    .authorize_reconciliation(
-                        &entry.request,
-                        entry.event_id.as_str(),
-                        now_unix_secs,
-                    )
-                    .map_err(Self::map_dispatch_error)?;
-                if current == ManagedDispatchReconciliation::Cancelled {
-                    self.cancel(&entry, outbox)
-                } else {
-                    self.reject(&entry, outbox)?;
-                    Err(ManagedPublicationAuthorityError::Denied)
+                match self.settle_probe_terminal_rejection(&entry, outbox, now_unix_secs)? {
+                    ManagedDispatchReconciliation::Cancelled => Ok(()),
+                    ManagedDispatchReconciliation::Rejected => {
+                        Err(ManagedPublicationAuthorityError::Denied)
+                    }
+                    ManagedDispatchReconciliation::Published => self.mark_accepted(&entry, outbox),
+                    ManagedDispatchReconciliation::Ready => {
+                        Err(ManagedPublicationAuthorityError::Unavailable)
+                    }
                 }
             }
             ManagedRelayProbeOutcome::Retryable => {
@@ -1074,6 +1127,124 @@ mod tests {
                 .expect("terminal state"),
             ManagedDispatchReconciliation::Rejected
         );
+    }
+
+    #[test]
+    fn terminal_probe_rejection_serializes_late_cancellation_through_outbox_finalization() {
+        let mut fixture = fixture();
+        let first_state = Arc::new(Mutex::new(FakeRelayState {
+            submit_results: VecDeque::from([ManagedRelaySubmitOutcome::Retryable]),
+            ..Default::default()
+        }));
+        let mut first = publisher(&fixture, first_state);
+        first
+            .authorize_request(&fixture.request, 101)
+            .expect("authorize");
+        assert_eq!(
+            first.publish_prepared(&fixture.request, &mut fixture.outbox, &fixture.session),
+            Err(ManagedPublicationAuthorityError::Unavailable)
+        );
+        let entry = fixture
+            .outbox
+            .reconciliation_entries()
+            .into_iter()
+            .next()
+            .expect("submitted entry");
+
+        let (decision_tx, decision_rx) = std::sync::mpsc::channel();
+        let (attempt_tx, attempt_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let cancel_store = Arc::clone(&fixture.store);
+        let owner = fixture.request.owner_pubkey.as_str().to_owned();
+        let conversation = fixture.request.conversation_id.as_str().to_owned();
+        let thread = fixture
+            .request
+            .thread_id
+            .as_ref()
+            .map(|value| value.as_str().to_owned());
+        let resident = fixture.request.resident_pubkey.as_str().to_owned();
+        let cancellation = std::thread::spawn(move || {
+            decision_rx.recv().expect("dispatch decision");
+            attempt_tx.send(()).expect("cancellation attempt");
+            let cancelled = cancel_store
+                .lock()
+                .expect("cancel store")
+                .cancel_matching(&owner, &conversation, thread.as_deref(), &[resident])
+                .expect("late cancel");
+            done_tx.send(cancelled).expect("cancel result");
+        });
+
+        let state = Arc::new(Mutex::new(FakeRelayState::default()));
+        let mut restarted = publisher(&fixture, state);
+        let decision = restarted
+            .settle_probe_terminal_rejection_with(&entry, &mut fixture.outbox, 101, || {
+                decision_tx.send(()).expect("release cancellation");
+                attempt_rx.recv().expect("cancellation is waiting");
+                assert!(matches!(
+                    done_rx.try_recv(),
+                    Err(std::sync::mpsc::TryRecvError::Empty)
+                ));
+            })
+            .expect("settle terminal rejection");
+        assert_eq!(decision, ManagedDispatchReconciliation::Rejected);
+        assert_eq!(done_rx.recv().expect("late cancellation result"), 0);
+        cancellation.join().expect("join cancellation");
+        assert!(fixture.outbox.reconciliation_entries().is_empty());
+        assert_eq!(
+            fixture
+                .store
+                .lock()
+                .expect("store")
+                .authorize_reconciliation(&fixture.request, &fixture.event_id, 101)
+                .expect("terminal state"),
+            ManagedDispatchReconciliation::Rejected
+        );
+    }
+
+    #[test]
+    fn terminal_probe_rejection_preserves_cancellation_that_linearized_first() {
+        let mut fixture = fixture();
+        let first_state = Arc::new(Mutex::new(FakeRelayState {
+            submit_results: VecDeque::from([ManagedRelaySubmitOutcome::Retryable]),
+            ..Default::default()
+        }));
+        let mut first = publisher(&fixture, first_state);
+        first
+            .authorize_request(&fixture.request, 101)
+            .expect("authorize");
+        assert_eq!(
+            first.publish_prepared(&fixture.request, &mut fixture.outbox, &fixture.session),
+            Err(ManagedPublicationAuthorityError::Unavailable)
+        );
+        assert_eq!(
+            fixture
+                .store
+                .lock()
+                .expect("store")
+                .cancel_matching(
+                    fixture.request.owner_pubkey.as_str(),
+                    fixture.request.conversation_id.as_str(),
+                    fixture.request.thread_id.as_ref().map(OpaqueId::as_str),
+                    &[fixture.request.resident_pubkey.as_str().to_owned()],
+                )
+                .expect("cancel"),
+            1
+        );
+        let entry = fixture
+            .outbox
+            .reconciliation_entries()
+            .into_iter()
+            .next()
+            .expect("submitted entry");
+        let state = Arc::new(Mutex::new(FakeRelayState::default()));
+        let mut restarted = publisher(&fixture, state);
+        assert_eq!(
+            restarted
+                .settle_probe_terminal_rejection(&entry, &mut fixture.outbox, 101)
+                .expect("settle cancellation"),
+            ManagedDispatchReconciliation::Cancelled
+        );
+        assert!(fixture.outbox.reconciliation_entries().is_empty());
     }
 
     #[test]

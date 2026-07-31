@@ -579,6 +579,40 @@ impl ManagedDispatchStore {
         Ok(decision)
     }
 
+    /// Atomically resolve a relay probe's terminal rejection against the
+    /// current cancellation state.
+    ///
+    /// The caller must keep the outer dispatch-store mutex held while applying
+    /// the returned state to the encrypted outbox. That makes cancellation and
+    /// rejection one serialized terminal decision across both stores.
+    pub(crate) fn resolve_reconciled_rejection(
+        &mut self,
+        request: &ManagedMessagePublishRequestV1,
+        event_id: &str,
+        now_unix_secs: u64,
+    ) -> Result<ManagedDispatchReconciliation, DispatchAuthorizationError> {
+        let decision = self.authorize_reconciliation(request, event_id, now_unix_secs)?;
+        if decision != ManagedDispatchReconciliation::Ready {
+            return Ok(decision);
+        }
+        let key = (
+            request.dispatch_receipt_id.as_str().to_owned(),
+            request.resident_pubkey.as_str().to_owned(),
+        );
+        let previous = self.dispatches.clone();
+        let dispatch = self
+            .dispatches
+            .get_mut(&key)
+            .ok_or(DispatchAuthorizationError::Unknown)?;
+        dispatch.state = ManagedDispatchState::Rejected;
+        dispatch.outbox_finalized = false;
+        if self.persist().is_err() {
+            self.dispatches = previous;
+            return Err(DispatchAuthorizationError::Persistence);
+        }
+        Ok(ManagedDispatchReconciliation::Rejected)
+    }
+
     /// Record relay acceptance as the publication linearization point.
     pub(crate) fn mark_published(
         &mut self,

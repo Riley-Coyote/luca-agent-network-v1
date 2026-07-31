@@ -331,6 +331,20 @@ async fn luca_f09_exact_duplicate_probe_is_author_bound_non_ingesting_and_revoca
 
     let client = reqwest::Client::new();
     let probe_url = format!("{}/events?mode=probe", relay_http_url());
+    let dev_pubkey_probe = client
+        .post(&probe_url)
+        .header("X-Pubkey", author.public_key().to_hex())
+        .header("Content-Type", "application/json")
+        .body(stored_body.clone())
+        .send()
+        .await
+        .expect("X-Pubkey probe");
+    assert_eq!(
+        dev_pubkey_probe.status(),
+        reqwest::StatusCode::UNAUTHORIZED,
+        "probe mode must require NIP-98 even when dev auth fallback is enabled"
+    );
+
     let missing_payload = client
         .post(&probe_url)
         .header(

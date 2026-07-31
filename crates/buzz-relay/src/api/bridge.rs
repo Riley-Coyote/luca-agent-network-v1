@@ -41,6 +41,25 @@ fn parse_event_submit_mode(
     }
 }
 
+fn enforce_probe_nip98(
+    mode: EventSubmitMode,
+    headers: &HeaderMap,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    if mode == EventSubmitMode::Probe
+        && headers
+            .get("authorization")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Nostr "))
+            .is_none()
+    {
+        return Err(api_error(
+            StatusCode::UNAUTHORIZED,
+            "exact event probe requires NIP-98 authorization",
+        ));
+    }
+    Ok(())
+}
+
 async fn enforce_http_admission(
     state: &AppState,
     tenant: &TenantContext,
@@ -653,6 +672,7 @@ pub async fn submit_event(
             )
         })?;
     let mode = parse_event_submit_mode(raw_query.as_deref())?;
+    enforce_probe_nip98(mode, &headers)?;
 
     let path = if mode == EventSubmitMode::Probe {
         "/events?mode=probe"
@@ -2383,6 +2403,24 @@ mod tests {
                 "{invalid} must fail closed"
             );
         }
+    }
+
+    #[test]
+    fn luca_f09_exact_duplicate_probe_refuses_dev_pubkey_fallback() {
+        let keys = nostr::Keys::generate();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-pubkey",
+            axum::http::HeaderValue::from_str(&keys.public_key().to_hex()).expect("pubkey header"),
+        );
+        assert!(
+            enforce_probe_nip98(EventSubmitMode::Probe, &headers).is_err(),
+            "probe mode must categorically require NIP-98"
+        );
+        assert!(
+            enforce_probe_nip98(EventSubmitMode::Ingest, &headers).is_ok(),
+            "ordinary dev ingest keeps its existing X-Pubkey fallback"
+        );
     }
 
     #[test]
