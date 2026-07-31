@@ -1251,7 +1251,9 @@ task_capsules:
   - target:desktop/src-tauri/src/luca/managed_message_publisher.rs
   - target:desktop/src-tauri/src/luca/managed_message_outbox.rs
   - target:desktop/src-tauri/src/luca/signing_broker.rs
+  - target:desktop/src-tauri/src/luca/signing_transport.rs
   - target:desktop/src-tauri/src/managed_agents/runtime.rs
+  - target:desktop/src-tauri/src/managed_agents/types.rs
   - target:desktop/src-tauri/src/luca/managed_dispatch_store.rs
   - target:desktop/src-tauri/src/commands/messages.rs
   - target:desktop/src/features/messages/hooks.ts
@@ -1273,9 +1275,11 @@ task_capsules:
     - desktop/src-tauri/src/managed_agents/runtime.rs
     - desktop/src-tauri/src/luca/mod.rs
     - desktop/src-tauri/src/luca/signing_broker.rs
+    - desktop/src-tauri/src/luca/signing_transport.rs
     - desktop/src-tauri/src/luca/managed_message_outbox.rs
     - desktop/src-tauri/src/luca/managed_message_publisher.rs
     - desktop/src-tauri/src/luca/managed_dispatch_store.rs
+    - desktop/src-tauri/src/managed_agents/types.rs
     - desktop/src-tauri/src/commands/messages.rs
     - desktop/src/features/messages/hooks.ts
     - desktop/tests/e2e/luca/f09.spec.ts
@@ -1319,9 +1323,11 @@ task_capsules:
     tenant-scoped, already-stored, byte-exact kind-9 event before current membership and freshness gates. New, absent,
     nonexact or differently authored events retain every existing policy. Desktop reconciliation exact-resubmits and never
     treats access-filtered /query omission as proof of absence.
-  - Submission is the cancellation linearization boundary. Periodic idle reconciliation must drain bounded encrypted outbox
-    work, terminal cross-store halves must finalize before compaction, and expired unbound Pending rows must not exhaust
-    dispatch capacity.
+  - Relay acceptance is the cancellation/publication linearization boundary. A closed exact-event probe mode on POST /events
+    must distinguish prior exact acceptance from absence without ingesting absent work; a cancelled ambiguous submission
+    publishes only if the probe proves it was already accepted. Periodic idle reconciliation must drain bounded encrypted
+    outbox work, terminal cross-store halves must finalize before compaction, and expired unbound Pending rows must not
+    exhaust dispatch capacity.
   - 'Prove the task-specific objective exactly: Lock upstream direct chat and room behavior with Luca fixtures; stubs or narrative
     are not substitutes for the named evidence.'
   - Preserve every global invariant in TASK_GRAPH.yaml and stop on a contract contradiction.
