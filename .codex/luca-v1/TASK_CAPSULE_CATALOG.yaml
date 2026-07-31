@@ -1321,10 +1321,11 @@ task_capsules:
   - 'The production ACP stream reader and prompt lifecycle must consume the F09 accumulator: collect only bounded public
     agent_message_chunk text, clear on cancellation/failure/non-EndTurn, and issue exactly one typed publication request
     after EndTurn. Merely compiling a standalone publisher module is not completion.'
-  - Existing POST /events is the authoritative restart oracle. It may acknowledge only the authenticated resident author's
-    tenant-scoped, already-stored, byte-exact kind-9 event before current membership and freshness gates. New, absent,
-    nonexact or differently authored events retain every existing policy. Desktop reconciliation exact-resubmits and never
-    treats access-filtered /query omission as proof of absence.
+  - Existing POST /events?mode=probe is the authoritative restart oracle. It may acknowledge only the authenticated resident
+    author's tenant-scoped, already-stored, byte-exact kind-9 event before current membership and freshness gates, or return
+    a constant non-ingesting absence result. New, nonexact or differently authored events retain every existing policy;
+    ordinary POST /events keeps the existing Buzz ingest path unchanged. Desktop reconciliation probes before any exact
+    resubmission and never treats access-filtered /query omission as proof of absence.
   - Relay acceptance is the cancellation/publication linearization boundary. A closed exact-event POST /events?mode=probe,
     cryptographically bound through the fresh NIP-98 URL tag and exact payload tag, must distinguish prior exact acceptance
     from absence without ingesting absent work; a cancelled ambiguous submission publishes only if the probe proves it was

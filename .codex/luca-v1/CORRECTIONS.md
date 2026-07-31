@@ -150,15 +150,16 @@ artifact; the authoritative kit remains unchanged.
   treated access-filtered `/query` as proof that an event was absent. Current
   membership can hide an accepted event, while an absent retained event becomes
   too old for normal ingest after fifteen minutes.
-- Local correction: make existing `POST /events` acknowledge an authenticated
-  author's tenant-scoped, already-stored, byte-exact kind-9 event before current
-  membership and freshness checks. New or nonexact events retain every existing
-  relay policy. Add the relay bridge, a purpose-specific strict tenant-scoped
-  DB lookup with no migration, and the focused relay E2E seam to F09 ownership.
-  A closed `?mode=probe` mode on the same route may acknowledge exact presence
-  or constant absence but cannot ingest. The fresh NIP-98 URL tag binds the
-  mode and its payload tag binds the exact body, allowing cancellation to remain
-  authoritative until relay acceptance without a header-downgrade ambiguity.
+- Local correction: add a closed `POST /events?mode=probe` mode that may
+  acknowledge an authenticated author's tenant-scoped, already-stored,
+  byte-exact kind-9 event before current membership and freshness checks, or
+  return constant absence without ingesting. Ordinary `POST /events` retains
+  the existing Buzz ingest path unchanged; new or nonexact events retain every
+  existing relay policy. Add the relay bridge, a purpose-specific strict
+  tenant-scoped DB lookup with no migration, and the focused relay E2E seam to
+  F09 ownership. The fresh NIP-98 URL tag binds the mode and its payload tag
+  binds the exact body, allowing cancellation to remain authoritative until
+  relay acceptance without a header-downgrade ambiguity.
 - Rationale: this is the smallest way to preserve one immutable signed final,
   honest response-loss recovery, and at-most-once chronology without a new
   endpoint, migration, query bypass, or re-signing.
