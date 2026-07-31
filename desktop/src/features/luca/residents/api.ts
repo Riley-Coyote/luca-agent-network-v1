@@ -1,5 +1,5 @@
 import type { CreateManagedAgentInput } from "@/shared/api/types";
-import { invokeTauri, TauriInvokeError } from "@/shared/api/tauri";
+import { invokeTauri } from "@/shared/api/tauri";
 
 export type ResidentRuntimeBinding = {
   runtimeId: string | null;
@@ -41,18 +41,6 @@ export type CreateLucaResidentResponse = {
   reused: boolean;
   recoveryNotice: string | null;
 };
-
-type CreateLucaResidentErrorPayload = {
-  message: string;
-  persistence: "notPersisted" | "unknown";
-};
-
-export function isConfirmedNotPersistedResidentError(error: unknown): boolean {
-  if (!(error instanceof TauriInvokeError)) return false;
-  const payload =
-    error.payload as Partial<CreateLucaResidentErrorPayload> | null;
-  return payload?.persistence === "notPersisted";
-}
 
 export async function listLucaResidents(): Promise<ResidentRegistrySnapshot> {
   return invokeTauri<ResidentRegistrySnapshot>("list_luca_residents");

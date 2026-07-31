@@ -27,6 +27,7 @@ import type {
   ThreadCursor,
   ThreadRepliesResponse,
   CreateManagedAgentInput,
+  CreateManagedAgentResponse,
   AgentModelsResponse,
   UpdateManagedAgentInput,
   AcpAvailabilityStatus,
@@ -157,11 +158,12 @@ export type RawManagedAgent = {
   respond_to_allowlist?: string[];
 };
 
-type RawCreateManagedAgentResponse = {
-  agent: RawManagedAgent;
-  private_key_nsec: string;
-  profile_sync_error: string | null;
-  spawn_error: string | null;
+type RawCreateLucaResidentResponse = {
+  resident: {
+    residentPubkey: string;
+  };
+  profileSyncError: string | null;
+  spawnError: string | null;
 };
 
 type RawManagedAgentLog = {
@@ -839,9 +841,11 @@ export async function listManagedAgents(): Promise<ManagedAgent[]> {
     fromRawManagedAgent,
   );
 }
-export async function createManagedAgent(input: CreateManagedAgentInput) {
-  const response = await invokeTauri<RawCreateManagedAgentResponse>(
-    "create_managed_agent",
+export async function createManagedAgent(
+  input: CreateManagedAgentInput,
+): Promise<CreateManagedAgentResponse> {
+  const response = await invokeTauri<RawCreateLucaResidentResponse>(
+    "create_luca_resident",
     {
       input: {
         name: input.name,
@@ -871,11 +875,22 @@ export async function createManagedAgent(input: CreateManagedAgentInput) {
       },
     },
   );
+  const agent = (await listManagedAgents()).find(
+    (candidate) => candidate.pubkey === response.resident.residentPubkey,
+  );
+  if (!agent) {
+    throw new Error(
+      "Resident identity was created, but its public record could not be loaded. Refresh Agents before retrying.",
+    );
+  }
+
   return {
-    agent: fromRawManagedAgent(response.agent),
-    privateKeyNsec: response.private_key_nsec,
-    profileSyncError: response.profile_sync_error,
-    spawnError: response.spawn_error,
+    agent,
+    // Retained only for the legacy TypeScript response shape. Luca's safe
+    // command never returns a resident secret to the renderer.
+    privateKeyNsec: "",
+    profileSyncError: response.profileSyncError,
+    spawnError: response.spawnError,
   };
 }
 

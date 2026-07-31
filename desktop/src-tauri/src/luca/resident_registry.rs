@@ -352,29 +352,30 @@ pub(crate) async fn create_luca_resident(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| {
-            creation_error(
-                "a Luca resident must be linked to a persona",
-                ResidentPersistence::NotPersisted,
-            )
-        })?;
+        .map(str::to_string);
 
     // Serialize Luca-owned creation across its full async lifecycle. The
     // existing store mutex cannot be held across the legacy command's awaits.
     let _creation_guard = resident_creation_lock().lock().await;
-    match existing_resident_for_persona(&app, &state, &persona_id) {
-        Ok(Some(existing)) => return Ok(recovered_response(existing, None)),
-        Ok(None) => {}
-        Err(error) => {
-            return Err(creation_error(error, ResidentPersistence::Unknown));
+    if let Some(persona_id) = persona_id.as_deref() {
+        match existing_resident_for_persona(&app, &state, persona_id) {
+            Ok(Some(existing)) => return Ok(recovered_response(existing, None)),
+            Ok(None) => {}
+            Err(error) => {
+                return Err(creation_error(error, ResidentPersistence::Unknown));
+            }
         }
     }
 
     let mut created = match create_managed_agent(input, app.clone(), state.clone()).await {
         Ok(created) => created,
         Err(error) => {
-            return recover_or_classify_creation_error(&app, &state, &persona_id, error);
+            return match persona_id.as_deref() {
+                Some(persona_id) => {
+                    recover_or_classify_creation_error(&app, &state, persona_id, error)
+                }
+                None => Err(creation_error(error, ResidentPersistence::Unknown)),
+            };
         }
     };
 
@@ -384,7 +385,12 @@ pub(crate) async fn create_luca_resident(
     let resident = match created_summary(&created.agent) {
         Ok(resident) => resident,
         Err(error) => {
-            return recover_or_classify_creation_error(&app, &state, &persona_id, error);
+            return match persona_id.as_deref() {
+                Some(persona_id) => {
+                    recover_or_classify_creation_error(&app, &state, persona_id, error)
+                }
+                None => Err(creation_error(error, ResidentPersistence::Unknown)),
+            };
         }
     };
 

@@ -937,6 +937,11 @@ declare global {
       command: string,
       payload?: Record<string, unknown>,
     ) => Promise<unknown>;
+    /** One-shot public resident-create failures for retry-boundary tests. */
+    __BUZZ_E2E_LUCA_RESIDENT_CREATE_ERRORS__?: Array<{
+      message: string;
+      persistence: "notPersisted" | "unknown";
+    }>;
     __BUZZ_E2E_PUSH_MOCK_FEED_ITEM__?: (item: RawFeedItem) => RawFeedItem;
     /** Replace an existing feed item by id (or push if not found) and fire the updated event. */
     __BUZZ_E2E_REPLACE_MOCK_FEED_ITEM__?: (
@@ -7550,18 +7555,22 @@ async function handleCreateLucaResident(
     await new Promise((resolve) => window.setTimeout(resolve, delayMs));
   }
 
-  const personaId = args.input.personaId?.trim();
-  if (!personaId) {
-    throw {
-      message: "a Luca resident must be linked to a persona",
-      persistence: "notPersisted",
-    };
+  const injectedFailure =
+    window.__BUZZ_E2E_LUCA_RESIDENT_CREATE_ERRORS__?.shift();
+  if (injectedFailure) {
+    throw injectedFailure;
   }
-  ensureMockPersonaIsActive(personaId);
 
-  const existingResidents = mockManagedAgents.filter(
-    (candidate) => candidate.persona_id === personaId,
-  );
+  const personaId = args.input.personaId?.trim();
+  if (personaId) {
+    ensureMockPersonaIsActive(personaId);
+  }
+
+  const existingResidents = personaId
+    ? mockManagedAgents.filter(
+        (candidate) => candidate.persona_id === personaId,
+      )
+    : [];
   if (existingResidents.length > 1) {
     throw {
       message: `persona ${personaId} is linked to multiple residents; repair is required`,
@@ -7605,7 +7614,7 @@ async function handleCreateLucaResident(
   const resident: MockManagedAgent = {
     pubkey,
     name: args.input.name.trim(),
-    persona_id: personaId,
+    persona_id: personaId ?? null,
     relay_url: args.input.relayUrl ?? DEFAULT_RELAY_WS_URL,
     acp_command: args.input.acpCommand ?? "buzz-acp",
     agent_command: agentCommand,

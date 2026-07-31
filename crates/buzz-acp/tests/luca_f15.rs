@@ -59,6 +59,7 @@ fn luca_f15_three_resident_setup_contract_is_public_and_peer_based() {
 fn luca_f15_renderer_adapter_has_no_private_key_response_field() {
     let native = include_str!("../../../desktop/src-tauri/src/luca/resident_registry.rs");
     let client = include_str!("../../../desktop/src/features/luca/residents/api.ts");
+    let compatibility = include_str!("../../../desktop/src/shared/api/tauri.ts");
     let setup = include_str!("../../../desktop/src/features/luca/residents/ResidentSetup.tsx");
 
     assert!(native.contains("create_luca_resident"));
@@ -70,6 +71,17 @@ fn luca_f15_renderer_adapter_has_no_private_key_response_field() {
     assert!(!client.contains("create_managed_agent"));
     assert!(client.contains("create_luca_resident"));
     assert!(client.contains("list_luca_residents"));
+    let adapter_start = compatibility
+        .find("export async function createManagedAgent")
+        .expect("compatibility adapter must exist");
+    let adapter_end = compatibility[adapter_start..]
+        .find("export async function deleteManagedAgent")
+        .map(|offset| adapter_start + offset)
+        .expect("compatibility adapter boundary must exist");
+    let adapter = &compatibility[adapter_start..adapter_end];
+    assert!(adapter.contains("create_luca_resident"));
+    assert!(adapter.contains("listManagedAgents()"));
+    assert!(!adapter.contains("create_managed_agent"));
     assert!(!setup.to_ascii_lowercase().contains("conductor"));
 }
 
@@ -98,6 +110,10 @@ fn luca_f15_agents_view_exposes_only_safe_resident_creation() {
     let view = include_str!("../../../desktop/src/features/agents/ui/AgentsView.tsx");
     let managed = include_str!("../../../desktop/src/features/agents/ui/useManagedAgentActions.ts");
     let personas = include_str!("../../../desktop/src/features/agents/ui/usePersonaActions.ts");
+    let requested =
+        include_str!("../../../desktop/src/features/agents/ui/RequestedAgentCreateDialogs.tsx");
+    let management =
+        include_str!("../../../desktop/src/features/agents/ui/AgentManagementDialogs.tsx");
     let registry = include_str!("../../../desktop/src-tauri/src/luca/resident_registry.rs");
 
     assert!(!view.contains("SecretRevealDialog"));
@@ -106,8 +122,11 @@ fn luca_f15_agents_view_exposes_only_safe_resident_creation() {
     assert!(view.contains("personas.handleUpdatePersona(input)"));
     assert!(managed.contains("await handleAddResident(persona)"));
     assert!(managed.contains("createLucaResident(input)"));
-    assert!(personas.contains("isConfirmedNotPersistedResidentError"));
-    assert!(personas.contains("deletePersonaMutation.mutateAsync(createdPersona.id)"));
+    assert!(!personas.contains("isConfirmedNotPersistedResidentError"));
+    assert!(!personas.contains("deletePersonaMutation.mutateAsync(createdPersona.id)"));
+    assert!(personas.contains("Retry resident setup from its Add resident action"));
+    assert!(!requested.contains("SecretRevealDialog"));
+    assert!(!management.contains("SecretRevealDialog"));
     assert!(registry.contains("Known P2 assumption"));
     assert!(registry.contains("owner-only `0o600` JSON fallback"));
 }

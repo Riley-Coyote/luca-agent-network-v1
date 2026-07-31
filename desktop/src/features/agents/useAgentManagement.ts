@@ -184,6 +184,7 @@ export function useAgentManagement() {
       return false;
     }
     setError(null);
+    let createdPersonaName: string | null = null;
     try {
       assertAgentCanActFromOrigin(request.request.channelId);
       const runtimes = await availableRuntimesForStart(runtimesQuery);
@@ -203,6 +204,7 @@ export function useAgentManagement() {
         ...input,
         avatarUrl,
       });
+      createdPersonaName = persona.displayName;
 
       if (intent === "definition_start") {
         const created = await createAgentMutation.mutateAsync(
@@ -221,6 +223,7 @@ export function useAgentManagement() {
           id: request.request.channelId,
           name: targetChannel?.name ?? "this channel",
         });
+        createdAgentAttachment.dismissCreatedAgent();
       }
 
       await Promise.all([
@@ -231,8 +234,16 @@ export function useAgentManagement() {
       return true;
     } catch (cause) {
       setError(
-        cause instanceof Error ? cause.message : "Could not save this agent.",
+        createdPersonaName
+          ? `${createdPersonaName} was saved. Retry resident setup from its Add resident action.`
+          : cause instanceof Error
+            ? cause.message
+            : "Could not save this agent.",
       );
+      if (createdPersonaName) {
+        dismiss();
+        return true;
+      }
       return false;
     }
   }

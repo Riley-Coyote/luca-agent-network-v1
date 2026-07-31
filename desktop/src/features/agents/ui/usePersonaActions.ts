@@ -20,10 +20,7 @@ import {
 import { getPersonaLibraryState } from "@/features/agents/lib/catalog";
 import { clearLegacyPersonaCatalogVisibility } from "@/features/agents/lib/legacyPersonaCatalogVisibility";
 import { useCreatedAgentChannelAttachment } from "@/features/agents/useCreatedAgentChannelAttachment";
-import {
-  createLucaResident,
-  isConfirmedNotPersistedResidentError,
-} from "@/features/luca/residents/api";
+import { createLucaResident } from "@/features/luca/residents/api";
 import { lucaResidentsQueryKey } from "@/features/luca/residents/hooks";
 import type {
   SnapshotFormat,
@@ -191,6 +188,7 @@ export function usePersonaActions() {
             created,
             targetChannel,
           );
+          createdAgentAttachment.dismissCreatedAgent();
           if (created.spawnError) {
             setPersonaErrorMessage(
               `${persona.displayName} was created, but it did not start: ${created.spawnError}`,
@@ -297,26 +295,13 @@ export function usePersonaActions() {
       setPersonaDialogState(null);
       return true;
     } catch (error) {
-      let compensationError: unknown = null;
-      if (createdPersona && isConfirmedNotPersistedResidentError(error)) {
-        try {
-          await deletePersonaMutation.mutateAsync(createdPersona.id);
-          createdPersona = null;
-        } catch (deleteError) {
-          compensationError = deleteError;
-        }
-      }
       setPersonaErrorMessage(
-        compensationError
-          ? `Resident setup failed before persistence, and the new agent definition could not be removed: ${compensationError instanceof Error ? compensationError.message : "unknown cleanup error"}`
-          : error instanceof Error
-            ? error.message
-            : "Failed to create resident.",
+        error instanceof Error ? error.message : "Failed to create resident.",
       );
       if (createdPersona) {
-        // The definition is durable but resident persistence is unknown (or
-        // cleanup itself failed). Close the create form so a blind resubmit
-        // cannot mint a second persona; the saved card is the retry surface.
+        // Any native create failure preserves the durable definition. Its
+        // visible card is the only retry surface, so closing the form prevents
+        // a blind resubmit from minting a duplicate persona.
         setPersonaNoticeMessage(
           `${createdPersona.displayName} was saved. Retry resident setup from its Add resident action.`,
         );

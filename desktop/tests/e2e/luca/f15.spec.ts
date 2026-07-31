@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { readFileSync } from "node:fs";
 
 import { installMockBridge } from "../../helpers/bridge";
 
@@ -42,6 +43,68 @@ async function openAgents(page: import("@playwright/test").Page) {
   await trigger.click();
   await expect(page.getByTestId("luca-resident-setup")).toBeVisible();
 }
+
+function source(path: string) {
+  return readFileSync(path, "utf8");
+}
+
+async function commandLog(page: import("@playwright/test").Page) {
+  return page.evaluate(
+    () =>
+      window.__BUZZ_E2E_COMMAND_LOG__ ??
+      ([] as Array<{ command: string; payload: unknown }>),
+  );
+}
+
+test("F15: every renderer creation route is key-safe and reveal-free", () => {
+  const adapter = source("src/shared/api/tauri.ts");
+  const createAdapter = adapter.slice(
+    adapter.indexOf("export async function createManagedAgent"),
+    adapter.indexOf("export async function deleteManagedAgent"),
+  );
+  expect(createAdapter).toContain('"create_luca_resident"');
+  expect(createAdapter).toContain("listManagedAgents()");
+  expect(createAdapter).not.toContain('"create_managed_agent"');
+
+  for (const dialogPath of [
+    "src/features/agents/ui/RequestedAgentCreateDialogs.tsx",
+    "src/features/agents/ui/AgentManagementDialogs.tsx",
+  ]) {
+    expect(source(dialogPath)).not.toContain("SecretRevealDialog");
+  }
+});
+
+test("F15: safe compatibility creation preserves persona-less channel agents", async ({
+  page,
+}) => {
+  await installMockBridge(page);
+  await page.goto("/");
+  const created = await page.evaluate(async () => {
+    if (!window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__) {
+      throw new Error("resident test command bridge is unavailable");
+    }
+    return window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__("create_luca_resident", {
+      input: {
+        name: "Channel Helper",
+        acpCommand: "buzz-acp",
+        agentCommand: "buzz-agent",
+        agentArgs: [],
+        mcpCommand: "",
+        spawnAfterCreate: false,
+      },
+    });
+  });
+  expect(created).toMatchObject({
+    resident: { displayName: "Channel Helper", personaId: null },
+    reused: false,
+  });
+  expect(JSON.stringify(created).toLowerCase()).not.toMatch(/private|nsec/);
+  expect(
+    (await commandLog(page)).filter(
+      ({ command }) => command === "create_managed_agent",
+    ),
+  ).toHaveLength(0);
+});
 
 test("F15: three residents are created through the key-safe Luca boundary", async ({
   page,
@@ -187,3 +250,72 @@ test("F15: setup exposes persisted public identity and replaceable bindings", as
     page.getByRole("button", { name: "Add Luca as resident" }),
   ).toHaveCount(0);
 });
+
+for (const persistence of ["notPersisted", "unknown"] as const) {
+  test(`F15: ${persistence} create failure preserves one visible persona retry surface`, async ({
+    page,
+  }) => {
+    const displayName =
+      persistence === "notPersisted" ? "Retry Finch" : "Recovery Finch";
+    await installMockBridge(page, {
+      acpRuntimesCatalog: [READY_RUNTIME],
+      globalAgentConfig: {
+        env_vars: {},
+        provider: "fixture-provider",
+        model: "fixture-model",
+      },
+    });
+    await openAgents(page);
+    await page.evaluate((failurePersistence) => {
+      window.__BUZZ_E2E_LUCA_RESIDENT_CREATE_ERRORS__ = [
+        {
+          message: `Synthetic ${failurePersistence} resident failure`,
+          persistence: failurePersistence,
+        },
+      ];
+    }, persistence);
+
+    await page.getByRole("button", { name: "Create resident" }).click();
+    const dialog = page.getByTestId("persona-dialog");
+    await dialog.getByLabel("Agent name").fill(displayName);
+    await dialog
+      .getByLabel("Agent instruction")
+      .fill("Keep this durable definition visible for a safe retry.");
+    await expect(dialog.getByTestId("persona-dialog-submit")).toBeEnabled();
+    await dialog.getByTestId("persona-dialog-submit").click();
+
+    await expect(dialog).toHaveCount(0);
+    await expect(
+      page.getByTestId("agents-library-personas").getByText(displayName),
+    ).toHaveCount(1);
+    await expect(
+      page.getByRole("button", { name: `Add ${displayName} as resident` }),
+    ).toBeVisible();
+
+    const personas = await page.evaluate(async () => {
+      if (!window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__) {
+        throw new Error("resident test command bridge is unavailable");
+      }
+      return window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__("list_personas");
+    });
+    expect(
+      (personas as Array<{ display_name: string }>).filter(
+        (persona) => persona.display_name === displayName,
+      ),
+    ).toHaveLength(1);
+
+    const commands = await commandLog(page);
+    expect(
+      commands.filter(({ command }) => command === "create_persona"),
+    ).toHaveLength(1);
+    expect(
+      commands.filter(({ command }) => command === "create_luca_resident"),
+    ).toHaveLength(1);
+    expect(
+      commands.filter(({ command }) => command === "delete_persona"),
+    ).toHaveLength(0);
+    expect(
+      commands.filter(({ command }) => command === "create_managed_agent"),
+    ).toHaveLength(0);
+  });
+}

@@ -8,6 +8,7 @@ import {
   relayAgentsQueryKey,
   teamsQueryKey,
 } from "@/features/agents/hooks";
+import { lucaResidentsQueryKey } from "@/features/luca/residents/hooks";
 
 // Trailing-coalesce window: a backfill burst (up to 500 inbound events fed
 // one-by-one through reconcile) fires one `agents-data-changed` per event.
@@ -34,6 +35,7 @@ export function useAgentsDataRefresh(): void {
         void queryClient.invalidateQueries({ queryKey: teamsQueryKey });
         void queryClient.invalidateQueries({ queryKey: managedAgentsQueryKey });
         void queryClient.invalidateQueries({ queryKey: relayAgentsQueryKey });
+        void queryClient.invalidateQueries({ queryKey: lucaResidentsQueryKey });
       }, COALESCE_MS);
     });
 

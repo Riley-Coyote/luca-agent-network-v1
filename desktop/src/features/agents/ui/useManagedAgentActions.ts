@@ -161,6 +161,7 @@ export function useManagedAgentActions() {
         agent,
         startManagedAgent: startMutation.mutateAsync,
       });
+      await queryClient.invalidateQueries({ queryKey: lucaResidentsQueryKey });
     } catch (error) {
       setActionErrorMessage(
         error instanceof Error ? error.message : "Failed to start agent.",
@@ -259,6 +260,7 @@ export function useManagedAgentActions() {
       if (result.noticeMessage) {
         setActionNoticeMessage(result.noticeMessage);
       }
+      await queryClient.invalidateQueries({ queryKey: lucaResidentsQueryKey });
     } catch (error) {
       setActionErrorMessage(
         error instanceof Error ? error.message : "Failed to stop agent.",
@@ -300,6 +302,7 @@ export function useManagedAgentActions() {
       if (logAgentPubkey === pubkey) {
         setLogAgentPubkey(null);
       }
+      await queryClient.invalidateQueries({ queryKey: lucaResidentsQueryKey });
     } catch (error) {
       setActionErrorMessage(
         error instanceof Error ? error.message : "Failed to delete agent.",
@@ -372,7 +375,7 @@ export function useManagedAgentActions() {
   }
 
   async function handleBulkStopRunning() {
-    await runBulkAction(
+    const ran = await runBulkAction(
       managedAgents.filter((a) => isManagedAgentActive(a)),
       "Stop",
       "stop",
@@ -384,6 +387,9 @@ export function useManagedAgentActions() {
           stopManagedAgent: stopMutation.mutateAsync,
         }),
     );
+    if (ran) {
+      await queryClient.invalidateQueries({ queryKey: lucaResidentsQueryKey });
+    }
   }
 
   const isPending =
