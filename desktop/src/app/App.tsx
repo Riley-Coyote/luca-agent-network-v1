@@ -16,6 +16,9 @@ import { isLucaFeatureEnabled } from "@/app/lucaFeatureFlags";
 import {
   createPersonalHomeTenancy,
   isPersonalHomeTenancy,
+  persistPersonalHomeTenancyId,
+  readPersonalHomeTenancyId,
+  resolvePersonalHomeTenancyId,
 } from "@/app/personalHomeTenancy";
 import { ThemeGrainientBackground } from "@/app/ThemeGrainientBackground";
 import { useReloadShortcut } from "@/app/useReloadShortcut";
@@ -253,6 +256,8 @@ function PersonalHomeProvisioningError({
     <div
       className="flex min-h-dvh items-center justify-center bg-background px-4 py-8 text-foreground"
       data-testid="personal-home-provisioning-error"
+      role="alert"
+      tabIndex={-1}
     >
       <StartupWindowDragRegion />
       <div className="flex w-full max-w-[500px] flex-col items-center text-center">
@@ -275,19 +280,35 @@ function PersonalHomeProvisioningError({
 
 function PersonalHomeGate({
   activeCommunity,
+  communities,
   addCommunity,
+  switchCommunity,
   ownerPubkey,
   children,
 }: {
   activeCommunity: ReturnType<typeof useCommunities>["activeCommunity"];
+  communities: ReturnType<typeof useCommunities>["communities"];
   addCommunity: ReturnType<typeof useCommunities>["addCommunity"];
+  switchCommunity: ReturnType<typeof useCommunities>["switchCommunity"];
   ownerPubkey: string | null;
   children: ReactNode;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const recordedHomeId = readPersonalHomeTenancyId();
+  const personalHomeId = resolvePersonalHomeTenancyId(
+    communities,
+    recordedHomeId,
+  );
 
   useEffect(() => {
-    if (activeCommunity) {
+    if (personalHomeId) {
+      if (recordedHomeId !== personalHomeId) {
+        persistPersonalHomeTenancyId(personalHomeId);
+      }
+      if (activeCommunity?.id !== personalHomeId) {
+        switchCommunity(personalHomeId);
+        return;
+      }
       setError(null);
       return;
     }
@@ -303,7 +324,15 @@ function PersonalHomeGate({
     void getDefaultRelayUrl()
       .then((relayUrl) => {
         if (!cancelled) {
-          addCommunity(createPersonalHomeTenancy(relayUrl, ownerPubkey));
+          const tenancy = createPersonalHomeTenancy(relayUrl, ownerPubkey);
+          const existing = communities.find(
+            (community) => community.relayUrl === tenancy.relayUrl,
+          );
+          const id = addCommunity(
+            existing ? { ...tenancy, name: existing.name } : tenancy,
+          );
+          persistPersonalHomeTenancyId(id);
+          switchCommunity(id);
         }
       })
       .catch((cause: unknown) => {
@@ -319,9 +348,20 @@ function PersonalHomeGate({
     return () => {
       cancelled = true;
     };
-  }, [activeCommunity, addCommunity, error, ownerPubkey]);
+  }, [
+    activeCommunity?.id,
+    addCommunity,
+    communities,
+    error,
+    ownerPubkey,
+    personalHomeId,
+    recordedHomeId,
+    switchCommunity,
+  ]);
 
-  if (activeCommunity) return <>{children}</>;
+  if (personalHomeId && activeCommunity?.id === personalHomeId) {
+    return <>{children}</>;
+  }
   if (error) {
     return (
       <PersonalHomeProvisioningError
@@ -576,7 +616,8 @@ function CommunityApp({
 }
 
 function MachineBootstrap({ sharedIdentity }: { sharedIdentity: boolean }) {
-  const { activeCommunity, addCommunity } = useCommunities();
+  const { activeCommunity, addCommunity, communities, switchCommunity } =
+    useCommunities();
   const communityOnboarding = useCommunityOnboarding();
   const machine = useMachineOnboardingState({
     activeCommunityPubkey: activeCommunity
@@ -639,7 +680,9 @@ function MachineBootstrap({ sharedIdentity }: { sharedIdentity: boolean }) {
     return (
       <PersonalHomeGate
         activeCommunity={activeCommunity}
+        communities={communities}
         addCommunity={addCommunity}
+        switchCommunity={switchCommunity}
         ownerPubkey={machine.currentPubkey}
       >
         <CommunityApp

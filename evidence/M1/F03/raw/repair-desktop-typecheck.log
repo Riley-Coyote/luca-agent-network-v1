@@ -1,0 +1,2 @@
+cd desktop && pnpm typecheck
+$ tsc --noEmit

@@ -1,0 +1,70 @@
+[2m[WebServer] [22m::ffff:127.0.0.1 - - [31/Jul/2026 16:15:58] "GET / HTTP/1.1" 200 -
+
+Running 5 tests using 1 worker
+
+(node:21308) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:21308) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [smoke] › tests/e2e/luca/f03.spec.ts:14:1 › Luca defaults retain the conversation plane and defer out-of-scope Buzz surfaces (11ms)
+  ✓  2 [smoke] › tests/e2e/luca/f03.spec.ts:47:1 › personal home tenancy is Luca-owned and deterministic (1ms)
+  ✘  3 [smoke] › tests/e2e/luca/f03.spec.ts:63:1 › clean Luca start provisions the internal personal home without community setup (0ms)
+(node:21309) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:21309) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  4 [smoke] › tests/e2e/luca/f03.spec.ts:121:1 › legacy active community migrates to the recorded Luca home without deletion (0ms)
+(node:21310) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:21310) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  5 [smoke] › tests/e2e/luca/f03.spec.ts:167:1 › Luca defaults preserve the Buzz chat surface (0ms)
+
+
+  1) [smoke] › tests/e2e/luca/f03.spec.ts:63:1 › clean Luca start provisions the internal personal home without community setup 
+
+    Error: browserType.launch: Executable doesn't exist at /Users/rileycoyote/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/luca-f03-clean-Luca-start--88f9a-ome-without-community-setup-smoke/error-context.md
+
+  2) [smoke] › tests/e2e/luca/f03.spec.ts:121:1 › legacy active community migrates to the recorded Luca home without deletion 
+
+    Error: browserType.launch: Executable doesn't exist at /Users/rileycoyote/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/luca-f03-legacy-active-com-671a8--Luca-home-without-deletion-smoke/error-context.md
+
+  3) [smoke] › tests/e2e/luca/f03.spec.ts:167:1 › Luca defaults preserve the Buzz chat surface ─────
+
+    Error: browserType.launch: Executable doesn't exist at /Users/rileycoyote/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell
+    ╔════════════════════════════════════════════════════════════╗
+    ║ Looks like Playwright was just installed or updated.       ║
+    ║ Please run the following command to download new browsers: ║
+    ║                                                            ║
+    ║     pnpm exec playwright install                           ║
+    ║                                                            ║
+    ║ <3 Playwright Team                                         ║
+    ╚════════════════════════════════════════════════════════════╝
+
+    Error Context: test-results/luca-f03-Luca-defaults-preserve-the-Buzz-chat-surface-smoke/error-context.md
+
+  3 failed
+    [smoke] › tests/e2e/luca/f03.spec.ts:63:1 › clean Luca start provisions the internal personal home without community setup 
+    [smoke] › tests/e2e/luca/f03.spec.ts:121:1 › legacy active community migrates to the recorded Luca home without deletion 
+    [smoke] › tests/e2e/luca/f03.spec.ts:167:1 › Luca defaults preserve the Buzz chat surface ──────
+  2 passed (1.1s)

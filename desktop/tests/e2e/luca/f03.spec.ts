@@ -86,6 +86,82 @@ test("clean Luca start provisions the internal personal home without community s
         name: PERSONAL_HOME_TENANCY_NAME,
       }),
     ]);
+
+  await page.evaluate(() => {
+    window.localStorage.setItem(
+      "buzz-communities",
+      JSON.stringify([
+        {
+          id: "legacy-community",
+          name: "Legacy",
+          relayUrl: "wss://legacy.example",
+          addedAt: "2026-07-31T00:00:00.000Z",
+        },
+        ...JSON.parse(window.localStorage.getItem("buzz-communities") ?? "[]"),
+      ]),
+    );
+    window.localStorage.setItem("buzz-active-community-id", "legacy-community");
+  });
+  await page.reload();
+
+  await expect(page.getByTestId("app-sidebar")).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() => ({
+        active: window.localStorage.getItem("buzz-active-community-id"),
+        home: window.localStorage.getItem("luca-personal-home-tenancy.v1"),
+      })),
+    )
+    .toEqual({
+      active: PERSONAL_HOME_TENANCY_ID,
+      home: PERSONAL_HOME_TENANCY_ID,
+    });
+});
+
+test("legacy active community migrates to the recorded Luca home without deletion", async ({
+  page,
+}) => {
+  await installMockBridge(page, undefined, { skipCommunitySeed: true });
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      "buzz-communities",
+      JSON.stringify([
+        {
+          id: "legacy-active",
+          name: "Legacy workspace",
+          relayUrl: "ws://localhost:3000",
+          addedAt: "2026-07-31T00:00:00.000Z",
+        },
+      ]),
+    );
+    window.localStorage.setItem("buzz-active-community-id", "legacy-active");
+  });
+  await page.goto("/");
+
+  await expect(page.getByTestId("app-sidebar")).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() => ({
+        active: window.localStorage.getItem("buzz-active-community-id"),
+        home: window.localStorage.getItem("luca-personal-home-tenancy.v1"),
+        communities: JSON.parse(
+          window.localStorage.getItem("buzz-communities") ?? "[]",
+        ),
+      })),
+    )
+    .toEqual({
+      active: "legacy-active",
+      home: "legacy-active",
+      communities: [
+        expect.objectContaining({
+          id: "legacy-active",
+          name: "Legacy workspace",
+        }),
+      ],
+    });
+  await expect(
+    page.getByTestId("personal-home-provisioning-error"),
+  ).toHaveCount(0);
 });
 
 test("Luca defaults preserve the Buzz chat surface", async ({ page }) => {
