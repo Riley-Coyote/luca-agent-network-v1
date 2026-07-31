@@ -1,0 +1,94 @@
+# F09 Exact Relay Idempotency Amendment — 2026-07-30
+
+Status: approved security and compatibility correction
+
+## Problem
+
+F09 freezes one exact resident-signed kind-9 event before relay I/O and must
+reuse those bytes after response loss. The original amendment assumed that an
+access-filtered `POST /query` by event ID was an authoritative acceptance
+oracle. It is not:
+
+- current relay or channel membership can hide a previously accepted event;
+- an exact event that was never accepted becomes too old for Buzz's 15-minute
+  freshness gate;
+- re-signing a fresh timestamp would violate the frozen at-most-once identity
+  contract.
+
+Desktop code therefore cannot distinguish "accepted but no longer readable"
+from "never accepted" using `/query` alone.
+
+## Decision
+
+Buzz's existing `POST /events` bridge is the authoritative exact-event
+idempotency oracle. No endpoint or database schema is added.
+
+After host-derived tenant binding, fresh NIP-98 verification, HTTP admission,
+NIP-98 replay protection, strict event parsing, event ID/signature validation,
+and proof that the NIP-98 signer is the event author, the relay may acknowledge
+an already-stored exact kind-9 event before current relay membership, channel
+membership, or freshness checks only when all of these hold:
+
+1. the lookup is scoped to the host-bound community;
+2. the stored event ID equals the submitted event ID;
+3. the stored author equals the authenticated NIP-98 signer;
+4. every reconstructed Nostr event field is structurally equal;
+5. canonical stored bytes equal the submitted canonical event bytes.
+
+The response is the existing successful duplicate shape with the same event ID.
+It reveals no content or event not already supplied and signed by that author.
+An absent, noncanonical, differently authored, or nonexact event receives no
+early acknowledgment and continues through all existing membership, freshness,
+channel, and ingest policy. An ID collision with nonexact bytes fails closed.
+
+Desktop reconciliation exact-resubmits the retained bytes. It does not use an
+access-filtered query as proof of absence and never re-signs a new final.
+
+## Cancellation and durable recovery
+
+- `begin_submission` is the publication linearization boundary. A cancellation
+  may win only before an exact event is durably marked submitted.
+- A submitted event is reconciled to relay acceptance or an explicit terminal
+  rejection; later cancellation cannot claim to have suppressed network I/O.
+- Prepared cancelled work publishes nothing.
+- Cancelled, rejected, and published dispatch/outbox halves use durable
+  cross-store finalization before either half becomes retention-eligible.
+- Expired unbound pending dispatches are retention-eligible; active or submitted
+  authority is not.
+- A bounded periodic broker tick reconciles encrypted outbox work even when ACP
+  produces no additional frames.
+
+The oracle uses a purpose-specific, tenant-scoped strict database read that
+fetches at most two rows including tombstones and fails closed on duplicate IDs
+or corrupt event reconstruction. It does not reuse a convenience lookup that
+collapses corrupt rows into absence. This requires no schema change.
+
+## Narrow ownership
+
+F09 additionally owns:
+
+- `crates/buzz-relay/src/api/bridge.rs`
+- `crates/buzz-db/src/event.rs`
+- `crates/buzz-db/src/lib.rs`
+- `crates/buzz-test-client/tests/e2e_relay.rs`
+
+`crates/buzz-relay/src/handlers/ingest.rs` may be edited only if a small shared
+exact-event validation helper is demonstrably required. Prefer keeping the
+branch in `api/bridge.rs`. Database ownership is limited to the strict
+idempotency read and its tests. No migration, generic authorization change, new
+endpoint, event kind, query bypass, or unrelated relay behavior is authorized.
+
+## Required proofs
+
+- exact stored kind-9 retry succeeds after the freshness window;
+- exact stored kind-9 retry succeeds after current relay/channel membership is
+  removed;
+- absent stale event remains rejected;
+- absent event from a removed member remains rejected;
+- same ID with any nonexact field or canonical byte difference fails closed;
+- another authenticated key cannot probe or acknowledge the event;
+- fresh ordinary `/events` behavior remains membership/freshness gated;
+- desktop reconciliation uses exact `/events` replay and never `/query` as an
+  absence oracle;
+- periodic idle reconciliation, cancellation linearization, terminal
+  cross-store crash recovery, and bounded retention have executable tests.

@@ -140,3 +140,24 @@ artifact; the authoritative kit remains unchanged.
   cross-mutex exception to be transitively dependency ordered. Remove the
   hard-coded path bypass; the repository audit and five focused overlap tests
   now pass.
+
+## 2026-07-30 — F09 exact relay idempotency
+
+- Approved amendment: `F09_RELAY_IDEMPOTENCY_AMENDMENT.md`.
+- Copied files corrected: `TASK_CAPSULE_CATALOG.yaml` and
+  `PROOF_TRACE_MATRIX.yaml`.
+- Authoritative contradiction: F09 required exact-byte restart recovery but
+  treated access-filtered `/query` as proof that an event was absent. Current
+  membership can hide an accepted event, while an absent retained event becomes
+  too old for normal ingest after fifteen minutes.
+- Local correction: make existing `POST /events` acknowledge an authenticated
+  author's tenant-scoped, already-stored, byte-exact kind-9 event before current
+  membership and freshness checks. New or nonexact events retain every existing
+  relay policy. Add the relay bridge, a purpose-specific strict tenant-scoped
+  DB lookup with no migration, and the focused relay E2E seam to F09 ownership.
+- Rationale: this is the smallest way to preserve one immutable signed final,
+  honest response-loss recovery, and at-most-once chronology without a new
+  endpoint, migration, query bypass, or re-signing.
+- Scope: exact duplicate acknowledgment plus its tests. It does not authorize
+  new event ingestion, disclose stored content, weaken tenant binding, or widen
+  resident/model authority.

@@ -1256,6 +1256,11 @@ task_capsules:
   - target:desktop/src-tauri/src/commands/messages.rs
   - target:desktop/src/features/messages/hooks.ts
   - F09_DISPATCH_AUTHORITY_AMENDMENT.md
+  - F09_RELAY_IDEMPOTENCY_AMENDMENT.md
+  - target:crates/buzz-relay/src/api/bridge.rs
+  - target:crates/buzz-db/src/event.rs
+  - target:crates/buzz-db/src/lib.rs
+  - target:crates/buzz-test-client/tests/e2e_relay.rs
   - target:crates/buzz-acp/tests/luca_f09.rs
   - target:desktop/tests/e2e/luca/f09.spec.ts
   owns:
@@ -1274,6 +1279,10 @@ task_capsules:
     - desktop/src-tauri/src/commands/messages.rs
     - desktop/src/features/messages/hooks.ts
     - desktop/tests/e2e/luca/f09.spec.ts
+    - crates/buzz-relay/src/api/bridge.rs
+    - crates/buzz-db/src/event.rs
+    - crates/buzz-db/src/lib.rs
+    - crates/buzz-test-client/tests/e2e_relay.rs
     - evidence/M1/F09/**
     forbid:
     - /Users/rileycoyote/clawd-luca/luca-terminal-v2/**
@@ -1306,6 +1315,13 @@ task_capsules:
   - 'The production ACP stream reader and prompt lifecycle must consume the F09 accumulator: collect only bounded public
     agent_message_chunk text, clear on cancellation/failure/non-EndTurn, and issue exactly one typed publication request
     after EndTurn. Merely compiling a standalone publisher module is not completion.'
+  - Existing POST /events is the authoritative restart oracle. It may acknowledge only the authenticated resident author's
+    tenant-scoped, already-stored, byte-exact kind-9 event before current membership and freshness gates. New, absent,
+    nonexact or differently authored events retain every existing policy. Desktop reconciliation exact-resubmits and never
+    treats access-filtered /query omission as proof of absence.
+  - Submission is the cancellation linearization boundary. Periodic idle reconciliation must drain bounded encrypted outbox
+    work, terminal cross-store halves must finalize before compaction, and expired unbound Pending rows must not exhaust
+    dispatch capacity.
   - 'Prove the task-specific objective exactly: Lock upstream direct chat and room behavior with Luca fixtures; stubs or narrative
     are not substitutes for the named evidence.'
   - Preserve every global invariant in TASK_GRAPH.yaml and stop on a contract contradiction.
@@ -1313,6 +1329,9 @@ task_capsules:
   - Persist raw command output under the task evidence directory and return only a compact summary.
   tests:
   - cargo test -p buzz-acp luca_f09
+  - cargo test -p buzz-db luca_f09_idempotency -- --nocapture
+  - cargo test -p buzz-relay luca_f09_exact_duplicate -- --nocapture
+  - cargo test -p buzz-test-client --test e2e_relay luca_f09_exact_duplicate -- --ignored --nocapture
   - just desktop-tauri-test
   - 'just ci  # milestone integration candidate only'
   evidence:

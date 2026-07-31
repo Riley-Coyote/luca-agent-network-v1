@@ -9,6 +9,9 @@ proofs:
     objective: Lock upstream direct chat and room behavior with Luca fixtures
     tests:
     - cargo test -p buzz-acp luca_f09
+    - cargo test -p buzz-db luca_f09_idempotency -- --nocapture
+    - cargo test -p buzz-relay luca_f09_exact_duplicate -- --nocapture
+    - cargo test -p buzz-test-client --test e2e_relay luca_f09_exact_duplicate -- --ignored --nocapture
     - just desktop-tauri-test
     - 'just ci  # milestone integration candidate only'
     evidence:
