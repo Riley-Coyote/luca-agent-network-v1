@@ -1254,6 +1254,7 @@ task_capsules:
   - target:desktop/src-tauri/src/luca/signing_transport.rs
   - target:desktop/src-tauri/src/managed_agents/runtime.rs
   - target:desktop/src-tauri/src/managed_agents/types.rs
+  - target:desktop/src-tauri/src/managed_agents/runtime/tests.rs
   - target:desktop/src-tauri/src/luca/managed_dispatch_store.rs
   - target:desktop/src-tauri/src/commands/messages.rs
   - target:desktop/src/features/messages/hooks.ts
@@ -1273,6 +1274,7 @@ task_capsules:
     - crates/buzz-acp/src/acp.rs
     - crates/buzz-acp/src/pool.rs
     - desktop/src-tauri/src/managed_agents/runtime.rs
+    - desktop/src-tauri/src/managed_agents/runtime/tests.rs
     - desktop/src-tauri/src/luca/mod.rs
     - desktop/src-tauri/src/luca/signing_broker.rs
     - desktop/src-tauri/src/luca/signing_transport.rs

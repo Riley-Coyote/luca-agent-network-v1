@@ -97,13 +97,14 @@ F09 additionally owns:
 - `crates/buzz-test-client/tests/e2e_relay.rs`
 - `desktop/src-tauri/src/luca/signing_transport.rs`
 - `desktop/src-tauri/src/managed_agents/types.rs`
+- `desktop/src-tauri/src/managed_agents/runtime/tests.rs`
 
 `crates/buzz-relay/src/handlers/ingest.rs` may be edited only if a small shared
 exact-event validation helper is demonstrably required. Prefer keeping the
 branch in `api/bridge.rs`. Database ownership is limited to the strict
 idempotency read and its tests. No migration, generic authorization change, new
 endpoint, event kind, query bypass, or unrelated relay behavior is authorized.
-Desktop transport/type ownership is limited to a timed single-owner broker
+Desktop transport/type/test ownership is limited to a timed single-owner broker
 event loop plus a private shutdown/join handle that prevents two brokers from
 mutating one resident outbox.
 
