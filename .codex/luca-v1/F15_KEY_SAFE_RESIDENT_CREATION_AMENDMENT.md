@@ -30,6 +30,17 @@ F15 may add one Luca-specific resident-creation command and client adapter that:
 5. prove through IPC serialization and UI tests that no resident nsec reaches
    the renderer or model/runtime descendant.
 
+The safe path must also be retry-safe at the resident/persona boundary. A
+failed attempt may not leave an invisible orphan persona or mint a second
+resident identity when the same setup is retried. Luca's synthetic bridge must
+model the public-only boundary directly; it may not create, retain, or strip a
+renderer-side fake nsec as a shortcut.
+
+The compatibility command's generated temporary nsec must use an RAII
+zeroizing guard until it is deliberately copied into the existing legacy
+response and persistence record. This is memory-hygiene hardening only: it may
+not change legacy IPC response shape or storage compatibility.
+
 This does not authorize a generic signing command, renderer key access, a new
 key store, a migration, or changes to resident/model permissions.
 
@@ -40,6 +51,8 @@ command and caller belong. It additionally owns only the two integration seams
 required to register and test that wrapper:
 
 - `desktop/src-tauri/src/lib.rs`;
+- `desktop/src-tauri/src/commands/agents.rs`, only for the generated temporary
+  nsec zeroizing guard described above;
 - `desktop/src/testing/e2eBridge.ts`.
 
 All remain serialized under the existing `m1_authority_integration` mutex and

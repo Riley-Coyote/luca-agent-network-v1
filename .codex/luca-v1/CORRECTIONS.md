@@ -203,3 +203,17 @@ artifact; the authoritative kit remains unchanged.
   unchanged.
 - Scope: no new signing capability, key store, migration, permission, generic
   secret API or renderer key access.
+
+### Independent-review repair
+
+- The first F15 candidate was rejected because Luca's visible generic create
+  action and synthetic bridge could still receive an nsec, and resident setup
+  was not retry-safe after persona persistence.
+- F15 must route every Luca-visible creation action through the public-only
+  command, remove the secret reveal path from the Luca surface, model the safe
+  bridge without constructing a fake secret, and make native/persona retry
+  behavior idempotent or compensating.
+- Narrowly add `desktop/src-tauri/src/commands/agents.rs` only to wrap the
+  compatibility command's generated temporary nsec in an RAII zeroizing guard.
+  Legacy response and storage behavior remain unchanged; key-store redesign is
+  still outside F15.
