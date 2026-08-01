@@ -4,6 +4,7 @@
 
 - Source visual truth:
   - `/var/folders/rv/v8ffrtfd18qgq08w73m_4qbh0000gn/T/TemporaryItems/NSIRD_screencaptureui_va43TV/Screenshot 2026-07-31 at 8.24.34 PM.png`
+  - `/var/folders/rv/v8ffrtfd18qgq08w73m_4qbh0000gn/T/TemporaryItems/NSIRD_screencaptureui_1DvSv5/Screenshot 2026-07-31 at 8.54.13 PM.png`
   - `/Users/rileycoyote/Downloads/ChatGPT Image Jul 18, 2026, 01_07_46 AM.png`
   - `/Users/rileycoyote/Downloads/ChatGPT Image Jul 31, 2026, 07_12_19 PM.png`
 - Implementation route: `http://127.0.0.1:4322/?vision=demo`
@@ -14,9 +15,11 @@
   - `docs/vision-demo/captures/mnemos-opening-390x844.png`
   - `docs/vision-demo/captures/mnemos-memory-390x844.png`
   - `docs/vision-demo/captures/mnemos-inspector-390x844.png`
+  - `docs/vision-demo/captures/mnemos-wordmark-1440x900.png`
 - Combined comparison evidence:
   - `docs/vision-demo/captures/qa-buzz-vs-mnemos.png`
   - `docs/vision-demo/captures/qa-mockup-vs-inspector.png`
+  - `docs/vision-demo/captures/qa-wordmark-reference-vs-implementation.png`
 - States: Network opening, recalled memory, memory-provenance inspector, and responsive sheet.
 
 ## Viewport and normalization
@@ -32,7 +35,7 @@ The final side-by-side comparisons show the same governing composition as the re
 
 ## Focused-region comparison evidence
 
-The inspector comparison is large enough to judge header density, card separation, information rows, typography, borders, identity marks, and the active-memory surface. Separate memory and mobile captures verify the focus treatment and sheet behavior. No additional crop was needed because these regions occupy more than one third of the normalized comparison height.
+The inspector comparison is large enough to judge header density, card separation, information rows, typography, borders, identity marks, and the active-memory surface. Separate memory and mobile captures verify the focus treatment and sheet behavior. The wordmark comparison isolates the reference's NYX dot-matrix label and the rendered MNEMOS label at matching display scale so the dot structure, weight, tracking, and sidebar alignment are directly reviewable.
 
 ## Required fidelity surfaces
 
@@ -61,6 +64,12 @@ The inspector comparison is large enough to judge header density, card separatio
 - [P2] Keyboard focus on the black memory surface inherited a blue application outline that conflicted with the monochrome display language.
 - Fix: replaced it with a high-contrast inset neutral focus boundary that remains visible without introducing a second accent.
 - Post-fix evidence: `docs/vision-demo/captures/mnemos-inspector-1440x900.png`.
+
+### Iteration 3 — passed
+
+- [P2] The MNEMOS wordmark still used the general UI sans and therefore missed the sparse dot-matrix identity treatment in the selected NYX reference.
+- Fix: moved only the product wordmark to the existing self-hosted Doto display face, with rounded terminals, restrained weight, and tighter tracking; all other shell typography and geometry remain unchanged.
+- Post-fix evidence: `docs/vision-demo/captures/qa-wordmark-reference-vs-implementation.png` and `docs/vision-demo/captures/mnemos-wordmark-1440x900.png`.
 
 ## Findings
 
