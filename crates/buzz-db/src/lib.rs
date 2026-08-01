@@ -1457,7 +1457,12 @@ impl Db {
         community_id: CommunityId,
         ids: &[&[u8]],
     ) -> Result<Vec<StoredEvent>> {
-        event::get_events_by_ids(self.pg_pool()?, community_id, ids).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => sqlite::get_events_by_ids(pool, community_id, ids).await,
+            DbBackend::Postgres => {
+                event::get_events_by_ids(self.pg_pool()?, community_id, ids).await
+            }
+        }
     }
 
     /// Exclusively claim a batch of due matcher jobs from one community.
