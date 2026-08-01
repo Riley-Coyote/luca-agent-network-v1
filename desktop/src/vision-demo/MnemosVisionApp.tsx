@@ -76,14 +76,12 @@ function Sidebar() {
     >
       <div className="mn-sidebar-brand">
         <div className="mn-brand-lockup">
-          <span className="mn-brand-mark">
-            <MnemosGlyph name="mnemos" />
-          </span>
           <div className="mn-sidebar-copy">
             <strong>MNEMOS</strong>
           </div>
         </div>
         <IconButton
+          className="mn-sidebar-toggle"
           label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
           onClick={() => setSidebarCollapsed(!isSidebarCollapsed)}
         >

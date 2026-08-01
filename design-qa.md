@@ -6,6 +6,7 @@
   - `/var/folders/rv/v8ffrtfd18qgq08w73m_4qbh0000gn/T/TemporaryItems/NSIRD_screencaptureui_va43TV/Screenshot 2026-07-31 at 8.24.34 PM.png`
   - `/var/folders/rv/v8ffrtfd18qgq08w73m_4qbh0000gn/T/TemporaryItems/NSIRD_screencaptureui_1DvSv5/Screenshot 2026-07-31 at 8.54.13 PM.png`
   - `/var/folders/rv/v8ffrtfd18qgq08w73m_4qbh0000gn/T/TemporaryItems/NSIRD_screencaptureui_v8SRnc/Screenshot 2026-07-31 at 9.06.16 PM.png`
+  - `/var/folders/rv/v8ffrtfd18qgq08w73m_4qbh0000gn/T/TemporaryItems/NSIRD_screencaptureui_ARFXuX/Screenshot 2026-07-31 at 9.35.09 PM.png`
   - `/Users/rileycoyote/Downloads/ChatGPT Image Jul 18, 2026, 01_07_46 AM.png`
   - `/Users/rileycoyote/Downloads/ChatGPT Image Jul 31, 2026, 07_12_19 PM.png`
 - Implementation route: `http://127.0.0.1:4322/?vision=demo`
@@ -18,11 +19,13 @@
   - `docs/vision-demo/captures/mnemos-inspector-390x844.png`
   - `docs/vision-demo/captures/mnemos-wordmark-1440x900.png`
   - `docs/vision-demo/captures/mnemos-wordmark-lockup-1440x900.png`
+  - `docs/vision-demo/captures/mnemos-wordmark-centered-1440x900.png`
 - Combined comparison evidence:
   - `docs/vision-demo/captures/qa-buzz-vs-mnemos.png`
   - `docs/vision-demo/captures/qa-mockup-vs-inspector.png`
   - `docs/vision-demo/captures/qa-wordmark-reference-vs-implementation.png`
   - `docs/vision-demo/captures/qa-wordmark-lockup-reference-vs-implementation.png`
+  - `docs/vision-demo/captures/qa-wordmark-centered-reference-vs-implementation.png`
 - States: Network opening, recalled memory, memory-provenance inspector, and responsive sheet.
 
 ## Viewport and normalization
@@ -74,11 +77,17 @@ The inspector comparison is large enough to judge header density, card separatio
 - Fix: moved only the product wordmark to the existing self-hosted Doto display face, with rounded terminals, restrained weight, and tighter tracking; all other shell typography and geometry remain unchanged.
 - Post-fix evidence: `docs/vision-demo/captures/qa-wordmark-reference-vs-implementation.png` and `docs/vision-demo/captures/mnemos-wordmark-1440x900.png`. The typeface matched, but the isolated text did not yet form a production-quality lockup or participate in the sidebar grid.
 
-### Iteration 4 — passed
+### Iteration 4 — blocked
 
 - [P2] The font-only wordmark sat on an undersized 38px row, began at the sidebar edge rather than the shared label column, lacked a structural boundary, and floated independently from the adjacent collapse control and 68px conversation header.
 - Fix: created a 68px masthead aligned to the conversation header; placed the existing Mnemos product glyph in the navigation icon column; aligned the Doto wordmark to the sidebar label column; added a quiet divider; optically retuned size, weight, and tracking; and made the collapsed product mark act as the expansion control.
-- Post-fix evidence: `docs/vision-demo/captures/qa-wordmark-lockup-reference-vs-implementation.png` and `docs/vision-demo/captures/mnemos-wordmark-lockup-1440x900.png`. Browser measurements confirm the masthead and conversation header share the same vertical center, the wordmark begins at 52px on the label grid, and the shell has zero horizontal overflow.
+- Post-fix evidence: `docs/vision-demo/captures/qa-wordmark-lockup-reference-vs-implementation.png` and `docs/vision-demo/captures/mnemos-wordmark-lockup-1440x900.png`. The masthead became structurally coherent, but the combined expanded mark and word still read as a left-aligned navigation label rather than a centered title-bar identity.
+
+### Iteration 5 — passed
+
+- [P2] The expanded logo did not honor the reference's title-bar centering or reserve the macOS stoplight region.
+- Fix: converted the masthead to a three-zone title-bar grid with a 60px stoplight safe area, a centered wordmark region, and a balanced 34px sidebar-control region. Removed the redundant expanded M glyph while retaining the Mnemos mark as the collapsed expansion control.
+- Post-fix evidence: `docs/vision-demo/captures/qa-wordmark-centered-reference-vs-implementation.png` and `docs/vision-demo/captures/mnemos-wordmark-centered-1440x900.png`. Browser measurements place the 92.4px wordmark at x98.3, safely beyond the x72 stoplight boundary, vertically aligned to the masthead at y43.5, and separated from the collapse control at x217 with zero horizontal overflow.
 
 ## Findings
 
