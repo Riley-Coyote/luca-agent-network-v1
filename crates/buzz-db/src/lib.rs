@@ -1293,7 +1293,10 @@ impl Db {
 
     /// Count events matching the given query (NIP-45 COUNT support).
     pub async fn count_events(&self, q: &EventQuery) -> Result<i64> {
-        event::count_events(self.pg_pool()?, q).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => sqlite::count_events(pool, q).await,
+            DbBackend::Postgres => event::count_events(self.pg_pool()?, q).await,
+        }
     }
 
     /// Return whether a creator-signed huddle-start event links a parent
@@ -1305,14 +1308,28 @@ impl Db {
         ephemeral_channel_id: Uuid,
         creator_pubkey: &[u8],
     ) -> Result<bool> {
-        event::huddle_started_link_exists(
-            self.pg_pool()?,
-            community_id,
-            parent_channel_id,
-            ephemeral_channel_id,
-            creator_pubkey,
-        )
-        .await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::huddle_started_link_exists(
+                    pool,
+                    community_id,
+                    parent_channel_id,
+                    ephemeral_channel_id,
+                    creator_pubkey,
+                )
+                .await
+            }
+            DbBackend::Postgres => {
+                event::huddle_started_link_exists(
+                    self.pg_pool()?,
+                    community_id,
+                    parent_channel_id,
+                    ephemeral_channel_id,
+                    creator_pubkey,
+                )
+                .await
+            }
+        }
     }
 
     /// Fetch the latest replaceable event for a (kind, pubkey) pair.
@@ -1326,8 +1343,20 @@ impl Db {
         kind: i32,
         pubkey_bytes: &[u8],
     ) -> Result<Option<StoredEvent>> {
-        event::get_latest_global_replaceable(self.pg_pool()?, community_id, kind, pubkey_bytes)
-            .await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::get_latest_global_replaceable(pool, community_id, kind, pubkey_bytes).await
+            }
+            DbBackend::Postgres => {
+                event::get_latest_global_replaceable(
+                    self.pg_pool()?,
+                    community_id,
+                    kind,
+                    pubkey_bytes,
+                )
+                .await
+            }
+        }
     }
 
     /// Fetches a single non-deleted event by its raw ID bytes.
@@ -1398,7 +1427,14 @@ impl Db {
         pubkey: &[u8],
         d_tag: &str,
     ) -> Result<bool> {
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::soft_delete_by_coordinate(pool, community_id, kind, pubkey, d_tag).await
+            }
+            DbBackend::Postgres => {
         event::soft_delete_by_coordinate(self.pg_pool()?, community_id, kind, pubkey, d_tag).await
+            }
+        }
     }
 
     /// Atomically soft-delete an event and decrement thread reply counters.
@@ -1439,7 +1475,14 @@ impl Db {
         community_id: CommunityId,
         channel_id: Uuid,
     ) -> Result<Option<DateTime<Utc>>> {
-        event::get_last_message_at(self.pg_pool()?, community_id, channel_id).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::get_last_message_at(pool, community_id, channel_id).await
+            }
+            DbBackend::Postgres => {
+                event::get_last_message_at(self.pg_pool()?, community_id, channel_id).await
+            }
+        }
     }
 
     /// Bulk-fetch the most recent `created_at` for a set of channel IDs.
@@ -1448,7 +1491,14 @@ impl Db {
         community_id: CommunityId,
         channel_ids: &[Uuid],
     ) -> Result<std::collections::HashMap<Uuid, DateTime<Utc>>> {
-        event::get_last_message_at_bulk(self.pg_pool()?, community_id, channel_ids).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::get_last_message_at_bulk(pool, community_id, channel_ids).await
+            }
+            DbBackend::Postgres => {
+                event::get_last_message_at_bulk(self.pg_pool()?, community_id, channel_ids).await
+            }
+        }
     }
 
     /// Batch-fetch non-deleted events by their raw IDs.
