@@ -3355,16 +3355,32 @@ impl Db {
         definition_json: &str,
         definition_hash: &[u8],
     ) -> Result<Uuid> {
-        workflow::create_workflow(
-            self.pg_pool()?,
-            community_id,
-            channel_id,
-            owner_pubkey,
-            name,
-            definition_json,
-            definition_hash,
-        )
-        .await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::create_workflow(
+                    pool,
+                    community_id,
+                    channel_id,
+                    owner_pubkey,
+                    name,
+                    definition_json,
+                    definition_hash,
+                )
+                .await
+            }
+            DbBackend::Postgres => {
+                workflow::create_workflow(
+                    self.pg_pool()?,
+                    community_id,
+                    channel_id,
+                    owner_pubkey,
+                    name,
+                    definition_json,
+                    definition_hash,
+                )
+                .await
+            }
+        }
     }
 
     /// Insert or update a workflow using its NIP-33 `d`-tag UUID.
@@ -3379,17 +3395,34 @@ impl Db {
         definition_json: &str,
         definition_hash: &[u8],
     ) -> Result<()> {
-        workflow::upsert_workflow(
-            self.pg_pool()?,
-            community_id,
-            id,
-            channel_id,
-            owner_pubkey,
-            name,
-            definition_json,
-            definition_hash,
-        )
-        .await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::upsert_workflow(
+                    pool,
+                    community_id,
+                    id,
+                    channel_id,
+                    owner_pubkey,
+                    name,
+                    definition_json,
+                    definition_hash,
+                )
+                .await
+            }
+            DbBackend::Postgres => {
+                workflow::upsert_workflow(
+                    self.pg_pool()?,
+                    community_id,
+                    id,
+                    channel_id,
+                    owner_pubkey,
+                    name,
+                    definition_json,
+                    definition_hash,
+                )
+                .await
+            }
+        }
     }
 
     /// Fetch a single workflow by ID, scoped to its community.
@@ -3398,7 +3431,10 @@ impl Db {
         community_id: CommunityId,
         id: Uuid,
     ) -> Result<workflow::WorkflowRecord> {
-        workflow::get_workflow(self.pg_pool()?, community_id, id).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => sqlite::get_workflow(pool, community_id, id).await,
+            DbBackend::Postgres => workflow::get_workflow(self.pg_pool()?, community_id, id).await,
+        }
     }
 
     /// List workflows for a channel.
@@ -3409,8 +3445,21 @@ impl Db {
         limit: Option<i64>,
         offset: Option<i64>,
     ) -> Result<Vec<workflow::WorkflowRecord>> {
-        workflow::list_channel_workflows(self.pg_pool()?, community_id, channel_id, limit, offset)
-            .await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::list_channel_workflows(pool, community_id, channel_id, limit, offset).await
+            }
+            DbBackend::Postgres => {
+                workflow::list_channel_workflows(
+                    self.pg_pool()?,
+                    community_id,
+                    channel_id,
+                    limit,
+                    offset,
+                )
+                .await
+            }
+        }
     }
 
     /// List active, enabled workflows for a channel.
@@ -3419,12 +3468,23 @@ impl Db {
         community_id: CommunityId,
         channel_id: Uuid,
     ) -> Result<Vec<workflow::WorkflowRecord>> {
-        workflow::list_enabled_channel_workflows(self.pg_pool()?, community_id, channel_id).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::list_enabled_channel_workflows(pool, community_id, channel_id).await
+            }
+            DbBackend::Postgres => {
+                workflow::list_enabled_channel_workflows(self.pg_pool()?, community_id, channel_id)
+                    .await
+            }
+        }
     }
 
     /// List all active, enabled schedule-triggered workflows.
     pub async fn list_all_enabled_workflows(&self) -> Result<Vec<workflow::WorkflowRecord>> {
-        workflow::list_all_enabled_workflows(self.pg_pool()?).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => sqlite::list_all_enabled_workflows(pool).await,
+            DbBackend::Postgres => workflow::list_all_enabled_workflows(self.pg_pool()?).await,
+        }
     }
 
     /// Claim a scheduled workflow fire for an authoritative schedule instant.
@@ -3441,13 +3501,26 @@ impl Db {
         workflow_id: Uuid,
         scheduled_for: chrono::DateTime<chrono::Utc>,
     ) -> Result<Option<workflow::ScheduledWorkflowFireClaim>> {
-        workflow::claim_scheduled_workflow_fire(
-            self.pg_pool()?,
-            community_id,
-            workflow_id,
-            scheduled_for,
-        )
-        .await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::claim_scheduled_workflow_fire(
+                    pool,
+                    community_id,
+                    workflow_id,
+                    scheduled_for,
+                )
+                .await
+            }
+            DbBackend::Postgres => {
+                workflow::claim_scheduled_workflow_fire(
+                    self.pg_pool()?,
+                    community_id,
+                    workflow_id,
+                    scheduled_for,
+                )
+                .await
+            }
+        }
     }
 
     /// Fetch the latest claimed schedule instant for interval trigger anchoring.
@@ -3456,7 +3529,15 @@ impl Db {
         community_id: CommunityId,
         workflow_id: Uuid,
     ) -> Result<Option<chrono::DateTime<chrono::Utc>>> {
-        workflow::latest_scheduled_workflow_fire(self.pg_pool()?, community_id, workflow_id).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::latest_scheduled_workflow_fire(pool, community_id, workflow_id).await
+            }
+            DbBackend::Postgres => {
+                workflow::latest_scheduled_workflow_fire(self.pg_pool()?, community_id, workflow_id)
+                    .await
+            }
+        }
     }
 
     /// Attach the workflow run id created from a won scheduled-fire claim.
@@ -3467,14 +3548,28 @@ impl Db {
         scheduled_for: chrono::DateTime<chrono::Utc>,
         workflow_run_id: Uuid,
     ) -> Result<bool> {
-        workflow::attach_scheduled_workflow_run(
-            self.pg_pool()?,
-            community_id,
-            workflow_id,
-            scheduled_for,
-            workflow_run_id,
-        )
-        .await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::attach_scheduled_workflow_run(
+                    pool,
+                    community_id,
+                    workflow_id,
+                    scheduled_for,
+                    workflow_run_id,
+                )
+                .await
+            }
+            DbBackend::Postgres => {
+                workflow::attach_scheduled_workflow_run(
+                    self.pg_pool()?,
+                    community_id,
+                    workflow_id,
+                    scheduled_for,
+                    workflow_run_id,
+                )
+                .await
+            }
+        }
     }
 
     /// Delete old scheduled workflow fire claims before a retention cutoff.
@@ -3482,7 +3577,14 @@ impl Db {
         &self,
         older_than: chrono::DateTime<chrono::Utc>,
     ) -> Result<u64> {
-        workflow::prune_scheduled_workflow_fires_before(self.pg_pool()?, older_than).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::prune_scheduled_workflow_fires_before(pool, older_than).await
+            }
+            DbBackend::Postgres => {
+                workflow::prune_scheduled_workflow_fires_before(self.pg_pool()?, older_than).await
+            }
+        }
     }
 
     /// Update a workflow's name, definition, and hash.
@@ -3494,15 +3596,30 @@ impl Db {
         definition_json: &str,
         definition_hash: &[u8],
     ) -> Result<()> {
-        workflow::update_workflow(
-            self.pg_pool()?,
-            community_id,
-            id,
-            name,
-            definition_json,
-            definition_hash,
-        )
-        .await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::update_workflow(
+                    pool,
+                    community_id,
+                    id,
+                    name,
+                    definition_json,
+                    definition_hash,
+                )
+                .await
+            }
+            DbBackend::Postgres => {
+                workflow::update_workflow(
+                    self.pg_pool()?,
+                    community_id,
+                    id,
+                    name,
+                    definition_json,
+                    definition_hash,
+                )
+                .await
+            }
+        }
     }
 
     /// Update a workflow's status.
@@ -3512,7 +3629,14 @@ impl Db {
         id: Uuid,
         status: workflow::WorkflowStatus,
     ) -> Result<()> {
-        workflow::update_workflow_status(self.pg_pool()?, community_id, id, status).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::update_workflow_status(pool, community_id, id, status).await
+            }
+            DbBackend::Postgres => {
+                workflow::update_workflow_status(self.pg_pool()?, community_id, id, status).await
+            }
+        }
     }
 
     /// Enable or disable a workflow.
@@ -3522,12 +3646,24 @@ impl Db {
         id: Uuid,
         enabled: bool,
     ) -> Result<()> {
-        workflow::set_workflow_enabled(self.pg_pool()?, community_id, id, enabled).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::set_workflow_enabled(pool, community_id, id, enabled).await
+            }
+            DbBackend::Postgres => {
+                workflow::set_workflow_enabled(self.pg_pool()?, community_id, id, enabled).await
+            }
+        }
     }
 
     /// Delete a workflow and all its runs/approvals.
     pub async fn delete_workflow(&self, community_id: CommunityId, id: Uuid) -> Result<()> {
-        workflow::delete_workflow(self.pg_pool()?, community_id, id).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => sqlite::delete_workflow(pool, community_id, id).await,
+            DbBackend::Postgres => {
+                workflow::delete_workflow(self.pg_pool()?, community_id, id).await
+            }
+        }
     }
 
     /// Delete a workflow only when it belongs to the provided owner.
@@ -3538,7 +3674,15 @@ impl Db {
         id: Uuid,
         owner_pubkey: &[u8],
     ) -> Result<Option<Uuid>> {
-        workflow::delete_workflow_for_owner(self.pg_pool()?, community_id, id, owner_pubkey).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::delete_workflow_for_owner(pool, community_id, id, owner_pubkey).await
+            }
+            DbBackend::Postgres => {
+                workflow::delete_workflow_for_owner(self.pg_pool()?, community_id, id, owner_pubkey)
+                    .await
+            }
+        }
     }
 
     /// Find a workflow by owner pubkey and name within a community. Used for
@@ -3549,7 +3693,16 @@ impl Db {
         owner_pubkey: &[u8],
         name: &str,
     ) -> Result<Option<workflow::WorkflowRecord>> {
-        workflow::find_by_owner_and_name(self.pg_pool()?, community_id, owner_pubkey, name).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::find_workflow_by_owner_and_name(pool, community_id, owner_pubkey, name)
+                    .await
+            }
+            DbBackend::Postgres => {
+                workflow::find_by_owner_and_name(self.pg_pool()?, community_id, owner_pubkey, name)
+                    .await
+            }
+        }
     }
 
     /// Create a new workflow run.
@@ -3560,14 +3713,28 @@ impl Db {
         trigger_event_id: Option<&[u8]>,
         trigger_context: Option<&serde_json::Value>,
     ) -> Result<Uuid> {
-        workflow::create_workflow_run(
-            self.pg_pool()?,
-            community_id,
-            workflow_id,
-            trigger_event_id,
-            trigger_context,
-        )
-        .await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::create_workflow_run(
+                    pool,
+                    community_id,
+                    workflow_id,
+                    trigger_event_id,
+                    trigger_context,
+                )
+                .await
+            }
+            DbBackend::Postgres => {
+                workflow::create_workflow_run(
+                    self.pg_pool()?,
+                    community_id,
+                    workflow_id,
+                    trigger_event_id,
+                    trigger_context,
+                )
+                .await
+            }
+        }
     }
 
     /// Fetch a single workflow run, scoped to its community.
@@ -3576,7 +3743,12 @@ impl Db {
         community_id: CommunityId,
         id: Uuid,
     ) -> Result<workflow::WorkflowRunRecord> {
-        workflow::get_workflow_run(self.pg_pool()?, community_id, id).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => sqlite::get_workflow_run(pool, community_id, id).await,
+            DbBackend::Postgres => {
+                workflow::get_workflow_run(self.pg_pool()?, community_id, id).await
+            }
+        }
     }
 
     /// List runs for a workflow.
@@ -3586,7 +3758,15 @@ impl Db {
         workflow_id: Uuid,
         limit: i64,
     ) -> Result<Vec<workflow::WorkflowRunRecord>> {
-        workflow::list_workflow_runs(self.pg_pool()?, community_id, workflow_id, limit).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::list_workflow_runs(pool, community_id, workflow_id, limit).await
+            }
+            DbBackend::Postgres => {
+                workflow::list_workflow_runs(self.pg_pool()?, community_id, workflow_id, limit)
+                    .await
+            }
+        }
     }
 
     /// Update a workflow run's status.
@@ -3599,21 +3779,40 @@ impl Db {
         trace: &serde_json::Value,
         error: Option<&str>,
     ) -> Result<()> {
-        workflow::update_workflow_run(
-            self.pg_pool()?,
-            community_id,
-            id,
-            status,
-            current_step,
-            trace,
-            error,
-        )
-        .await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::update_workflow_run(
+                    pool,
+                    community_id,
+                    id,
+                    status,
+                    current_step,
+                    trace,
+                    error,
+                )
+                .await
+            }
+            DbBackend::Postgres => {
+                workflow::update_workflow_run(
+                    self.pg_pool()?,
+                    community_id,
+                    id,
+                    status,
+                    current_step,
+                    trace,
+                    error,
+                )
+                .await
+            }
+        }
     }
 
     /// Create an approval request.
     pub async fn create_approval(&self, params: workflow::CreateApprovalParams<'_>) -> Result<()> {
-        workflow::create_approval(self.pg_pool()?, params).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => sqlite::create_approval(pool, params).await,
+            DbBackend::Postgres => workflow::create_approval(self.pg_pool()?, params).await,
+        }
     }
 
     /// Fetch an approval by raw token.
@@ -3622,7 +3821,12 @@ impl Db {
         community_id: CommunityId,
         token: &str,
     ) -> Result<workflow::ApprovalRecord> {
-        workflow::get_approval(self.pg_pool()?, community_id, token).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => sqlite::get_approval(pool, community_id, token).await,
+            DbBackend::Postgres => {
+                workflow::get_approval(self.pg_pool()?, community_id, token).await
+            }
+        }
     }
 
     /// Fetch an approval by its already-hashed token (no re-hashing).
@@ -3631,7 +3835,15 @@ impl Db {
         community_id: CommunityId,
         token_hash: &[u8],
     ) -> Result<workflow::ApprovalRecord> {
-        workflow::get_approval_by_stored_hash(self.pg_pool()?, community_id, token_hash).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::get_approval_by_hash(pool, community_id, token_hash).await
+            }
+            DbBackend::Postgres => {
+                workflow::get_approval_by_stored_hash(self.pg_pool()?, community_id, token_hash)
+                    .await
+            }
+        }
     }
 
     /// Fetch all approvals for a workflow run.
@@ -3641,7 +3853,15 @@ impl Db {
         workflow_id: uuid::Uuid,
         run_id: uuid::Uuid,
     ) -> Result<Vec<workflow::ApprovalRecord>> {
-        workflow::get_run_approvals(self.pg_pool()?, community_id, workflow_id, run_id).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::get_run_approvals(pool, community_id, workflow_id, run_id).await
+            }
+            DbBackend::Postgres => {
+                workflow::get_run_approvals(self.pg_pool()?, community_id, workflow_id, run_id)
+                    .await
+            }
+        }
     }
 
     /// Update an approval's status.
@@ -3653,15 +3873,23 @@ impl Db {
         approver_pubkey: Option<&[u8]>,
         note: Option<&str>,
     ) -> Result<bool> {
-        workflow::update_approval(
-            self.pg_pool()?,
-            community_id,
-            token,
-            status,
-            approver_pubkey,
-            note,
-        )
-        .await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::update_approval(pool, community_id, token, status, approver_pubkey, note)
+                    .await
+            }
+            DbBackend::Postgres => {
+                workflow::update_approval(
+                    self.pg_pool()?,
+                    community_id,
+                    token,
+                    status,
+                    approver_pubkey,
+                    note,
+                )
+                .await
+            }
+        }
     }
 
     /// Update an approval by its already-hashed token (no re-hashing).
@@ -3673,15 +3901,30 @@ impl Db {
         approver_pubkey: Option<&[u8]>,
         note: Option<&str>,
     ) -> Result<bool> {
-        workflow::update_approval_by_stored_hash(
-            self.pg_pool()?,
-            community_id,
-            token_hash,
-            status,
-            approver_pubkey,
-            note,
-        )
-        .await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::update_approval_by_hash(
+                    pool,
+                    community_id,
+                    token_hash,
+                    status,
+                    approver_pubkey,
+                    note,
+                )
+                .await
+            }
+            DbBackend::Postgres => {
+                workflow::update_approval_by_stored_hash(
+                    self.pg_pool()?,
+                    community_id,
+                    token_hash,
+                    status,
+                    approver_pubkey,
+                    note,
+                )
+                .await
+            }
+        }
     }
 
     /// Ensures monthly partitions exist for the next N months.
