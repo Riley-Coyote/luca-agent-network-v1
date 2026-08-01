@@ -482,6 +482,29 @@ mod tests {
         assert!(!storage.head(&key).await.unwrap());
     }
 
+    #[tokio::test]
+    async fn filesystem_listing_rejects_zero_page_size_and_unknown_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = MediaStorage::filesystem(dir.path());
+        let key = format!("{}.bin", "b".repeat(64));
+        storage
+            .put(&key, b"x", "application/octet-stream")
+            .await
+            .unwrap();
+        assert!(storage
+            .list_page(None, 0)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("nonzero"));
+        assert!(storage
+            .list_page(Some("missing".to_owned()), 1)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("unknown list continuation token"));
+    }
+
     #[test]
     fn sidecar_keys_are_community_scoped() {
         let a = tenant(1);
