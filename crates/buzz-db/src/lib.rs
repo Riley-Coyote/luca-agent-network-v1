@@ -1349,7 +1349,14 @@ impl Db {
         community_id: CommunityId,
         event_id: &[u8],
     ) -> Result<bool> {
-        event::soft_delete_event(self.pg_pool()?, community_id, event_id).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::soft_delete_event(pool, community_id, event_id).await
+            }
+            DbBackend::Postgres => {
+                event::soft_delete_event(self.pg_pool()?, community_id, event_id).await
+            }
+        }
     }
 
     /// Soft-delete the live row for an addressable coordinate `(kind, pubkey, d_tag)`.
@@ -1374,7 +1381,14 @@ impl Db {
     ) -> Result<bool> {
         match &self.backend {
             DbBackend::SQLite(pool) => {
-                sqlite::soft_delete_event(pool, community_id, event_id).await
+                sqlite::soft_delete_event_and_update_thread(
+                    pool,
+                    community_id,
+                    event_id,
+                    parent_event_id,
+                    root_event_id,
+                )
+                .await
             }
             DbBackend::Postgres => {
                 event::soft_delete_event_and_update_thread(
@@ -1580,11 +1594,14 @@ impl Db {
         thread_meta: Option<event::ThreadMetadataParams<'_>>,
     ) -> Result<(StoredEvent, bool)> {
         if let DbBackend::SQLite(pool) = &self.backend {
-            // SQLite Phase 1 persists the canonical event; thread relationships
-            // remain durable in the event's NIP-10 tags until Phase 2 ports the
-            // denormalized thread metadata tables.
-            let _ = thread_meta;
-            return sqlite::insert_event(pool, community_id, event, channel_id).await;
+            return sqlite::insert_event_with_thread_metadata(
+                pool,
+                community_id,
+                event,
+                channel_id,
+                thread_meta,
+            )
+            .await;
         }
         let result = event::insert_event_with_thread_metadata(
             self.pg_pool()?,
@@ -2552,6 +2569,22 @@ impl Db {
         depth: i32,
         broadcast: bool,
     ) -> Result<()> {
+        if let DbBackend::SQLite(pool) = &self.backend {
+            return sqlite::insert_thread_metadata(
+                pool,
+                community_id,
+                event_id,
+                event_created_at,
+                channel_id,
+                parent_event_id,
+                parent_event_created_at,
+                root_event_id,
+                root_event_created_at,
+                depth,
+                broadcast,
+            )
+            .await;
+        }
         thread::insert_thread_metadata(
             self.pg_pool()?,
             community_id,
@@ -2591,6 +2624,17 @@ impl Db {
         limit: u32,
         cursor: Option<&[u8]>,
     ) -> Result<Vec<thread::ThreadReply>> {
+        if let DbBackend::SQLite(pool) = &self.backend {
+            return sqlite::get_thread_replies(
+                pool,
+                community_id,
+                root_event_id,
+                depth_limit,
+                limit,
+                cursor,
+            )
+            .await;
+        }
         if cursor.is_some() && self.has_read_pool() && self.fence.verified_through().is_some() {
             let replies = thread::get_thread_replies(
                 self.read(),
@@ -2628,7 +2672,14 @@ impl Db {
         community_id: CommunityId,
         event_id: &[u8],
     ) -> Result<Option<thread::ThreadSummary>> {
-        thread::get_thread_summary(self.pg_pool()?, community_id, event_id).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::get_thread_summary(pool, community_id, event_id).await
+            }
+            DbBackend::Postgres => {
+                thread::get_thread_summary(self.pg_pool()?, community_id, event_id).await
+            }
+        }
     }
 
     /// One channel window: top-level rows + summaries + server `has_more`.
@@ -2650,6 +2701,17 @@ impl Db {
         cursor: Option<(DateTime<Utc>, Vec<u8>)>,
         kind_filter: Option<&[u32]>,
     ) -> Result<thread::ChannelWindow> {
+        if let DbBackend::SQLite(pool) = &self.backend {
+            return sqlite::get_channel_window(
+                pool,
+                community_id,
+                channel_id,
+                limit,
+                cursor,
+                kind_filter,
+            )
+            .await;
+        }
         let pool = match &cursor {
             Some((ts, _)) if self.has_read_pool() && self.fence.covers(*ts) => self.read(),
             _ => &self.pool,
@@ -2663,12 +2725,14 @@ impl Db {
         community_id: CommunityId,
         event_id: &[u8],
     ) -> Result<Option<thread::ThreadMetadataRecord>> {
-        if matches!(&self.backend, DbBackend::SQLite(_)) {
-            // SQLite Phase 1 derives ancestry from durable NIP-10 event tags;
-            // denormalized counters and metadata arrive with the Phase 2 port.
-            return Ok(None);
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::get_thread_metadata_by_event(pool, community_id, event_id).await
+            }
+            DbBackend::Postgres => {
+                thread::get_thread_metadata_by_event(self.pg_pool()?, community_id, event_id).await
+            }
         }
-        thread::get_thread_metadata_by_event(self.pg_pool()?, community_id, event_id).await
     }
 
     /// Decrement reply counts.
@@ -2678,13 +2742,21 @@ impl Db {
         parent_event_id: &[u8],
         root_event_id: Option<&[u8]>,
     ) -> Result<()> {
-        thread::decrement_reply_count(
-            self.pg_pool()?,
-            community_id,
-            parent_event_id,
-            root_event_id,
-        )
-        .await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::decrement_reply_count(pool, community_id, parent_event_id, root_event_id)
+                    .await
+            }
+            DbBackend::Postgres => {
+                thread::decrement_reply_count(
+                    self.pg_pool()?,
+                    community_id,
+                    parent_event_id,
+                    root_event_id,
+                )
+                .await
+            }
+        }
     }
 
     /// Add (or re-activate) a reaction.
