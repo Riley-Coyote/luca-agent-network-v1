@@ -1,4 +1,5 @@
 import {
+  CONTINUITY_EVENTS,
   DEMO_AGENTS,
   DEMO_MEMORIES,
   STORY_BEATS,
@@ -34,6 +35,8 @@ export function createVisionDataAdapter(runtime: DemoRuntime) {
     ] satisfies VisionRoom[],
     activeRoomId: "launch-room",
     agents: DEMO_AGENTS,
+    memories: DEMO_MEMORIES,
+    continuity: CONTINUITY_EVENTS,
     messages: runtime.visibleMessages,
     recalledMemory,
     memoryById: (id: string): DemoMemory | undefined =>

@@ -1,8 +1,8 @@
-# Mnemos — Planned Demo Shot List
+# Mnemos — Capture-Ready Demo Shot List
 
-Status: **capture plan, not current implementation inventory**. The Phase 1
-visual-approval build implements frames 1 and 2 only. Frames 3–8 remain the
-accepted expansion sequence after the shell is approved.
+Status: **implemented and capture-ready**. All eight frames are available from
+the deterministic story navigator; the final desktop and responsive surface
+captures are stored beside this document in `captures/`.
 
 Use a 1440×900 viewport for the primary presentation. Keep the quiet
 compact `DEMO · 01/08` disclosure visible in every desktop capture. The story
@@ -95,3 +95,17 @@ The interface, navigation, responsive behavior, and deterministic story are
 real. Model cognition, memory retrieval, cryptographic verification, reflection,
 consolidation, and transport are simulated in this branch while their production
 counterparts continue through the G1 build.
+
+## Current capture inventory
+
+- `captures/mnemos-opening-complete-1440x900.png`
+- `captures/mnemos-memory-complete-1440x900.png`
+- `captures/mnemos-agents-1440x900.png`
+- `captures/mnemos-brain-1440x900.png`
+- `captures/mnemos-continuity-1440x900.png`
+- `captures/mnemos-network-return-1440x900.png`
+- `captures/mnemos-agents-390x844.png`
+- `captures/mnemos-brain-390x844.png`
+- `captures/mnemos-continuity-390x844.png`
+- `captures/qa-reference-vs-complete-shell.png`
+- `captures/qa-complete-surface-set.png`

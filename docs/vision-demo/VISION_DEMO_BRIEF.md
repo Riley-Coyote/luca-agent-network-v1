@@ -2,9 +2,10 @@
 
 Status: canonical brief for the isolated `agent/vision-demo` branch
 
-Implementation status: **Phase 1 visual-approval gate**. Network opening and
-recall are production-intent; the remaining surfaces are specified below but
-must not be described as implemented yet.
+Implementation status: **complete isolated product vision**. Network, Agents,
+Brain, Continuity, the eight-beat story, responsive layouts, and reduced-motion
+behavior are implemented behind the deterministic vision adapter. This remains
+a simulated product vision rather than production G1 evidence.
 
 ## Purpose
 

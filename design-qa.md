@@ -20,13 +20,26 @@
   - `docs/vision-demo/captures/mnemos-wordmark-1440x900.png`
   - `docs/vision-demo/captures/mnemos-wordmark-lockup-1440x900.png`
   - `docs/vision-demo/captures/mnemos-wordmark-centered-1440x900.png`
+  - `docs/vision-demo/captures/mnemos-opening-complete-1440x900.png`
+  - `docs/vision-demo/captures/mnemos-memory-complete-1440x900.png`
+  - `docs/vision-demo/captures/mnemos-agents-1440x900.png`
+  - `docs/vision-demo/captures/mnemos-brain-1440x900.png`
+  - `docs/vision-demo/captures/mnemos-continuity-1440x900.png`
+  - `docs/vision-demo/captures/mnemos-network-return-1440x900.png`
+  - `docs/vision-demo/captures/mnemos-agents-390x844.png`
+  - `docs/vision-demo/captures/mnemos-brain-390x844.png`
+  - `docs/vision-demo/captures/mnemos-continuity-390x844.png`
 - Combined comparison evidence:
   - `docs/vision-demo/captures/qa-buzz-vs-mnemos.png`
   - `docs/vision-demo/captures/qa-mockup-vs-inspector.png`
   - `docs/vision-demo/captures/qa-wordmark-reference-vs-implementation.png`
   - `docs/vision-demo/captures/qa-wordmark-lockup-reference-vs-implementation.png`
   - `docs/vision-demo/captures/qa-wordmark-centered-reference-vs-implementation.png`
-- States: Network opening, recalled memory, memory-provenance inspector, and responsive sheet.
+  - `docs/vision-demo/captures/qa-reference-vs-complete-shell.png`
+  - `docs/vision-demo/captures/qa-complete-surface-set.png`
+- States: Network opening, recalled memory, synthesis, later return, Agents
+  dossier, Brain provenance, Continuity evidence, inspectors, and responsive
+  product surfaces.
 
 ## Viewport and normalization
 
@@ -89,9 +102,33 @@ The inspector comparison is large enough to judge header density, card separatio
 - Fix: converted the masthead to a three-zone title-bar grid with a 60px stoplight safe area, a centered wordmark region, and a balanced 34px sidebar-control region. Removed the redundant expanded M glyph while retaining the Mnemos mark as the collapsed expansion control.
 - Post-fix evidence: `docs/vision-demo/captures/qa-wordmark-centered-reference-vs-implementation.png` and `docs/vision-demo/captures/mnemos-wordmark-centered-1440x900.png`. Browser measurements place the 92.4px wordmark at x98.3, safely beyond the x72 stoplight boundary, vertically aligned to the masthead at y43.5, and separated from the collapse control at x217 with zero horizontal overflow.
 
+### Iteration 6 — passed
+
+- [P1] Agents, Brain, and Continuity were deliberate approval-gate
+  placeholders, so the prototype could not yet communicate the complete product
+  vision.
+- Fix: implemented all three as production-intent list-detail surfaces inside
+  the accepted Buzz-derived shell. Agents now exposes stable identity,
+  relationship history, cognition state, access scope, and continuity receipts.
+  Brain exposes source, confidence, scope, recall state, authorization, and
+  provenance. Continuity exposes the signed session → reflection → proposal →
+  return chain with Riley's review authority explicit.
+- Post-fix evidence: `docs/vision-demo/captures/qa-complete-surface-set.png`.
+
+### Iteration 7 — passed
+
+- [P2] The completed surfaces initially used an overly tall introduction band,
+  which reduced useful evidence density at the browser's scaled 1440×900
+  capture size.
+- Fix: tightened the surface header from 174px to 150px while preserving the
+  approved type hierarchy, breathing room, and full mobile reflow.
+- Post-fix evidence: the final Agents, Brain, and Continuity desktop captures.
+
 ## Findings
 
-No actionable P0, P1, or P2 visual mismatches remain for the Phase 1 shell-approval scope.
+No actionable P0, P1, or P2 visual mismatches remain for the completed vision
+scope. The top-left wordmark is explicitly excluded from this pass after Riley
+deferred that isolated treatment to a later design session.
 
 ## Primary interactions and runtime checks
 
@@ -99,14 +136,18 @@ No actionable P0, P1, or P2 visual mismatches remain for the Phase 1 shell-appro
 - Opened recalled memory and the provenance inspector.
 - Verified inspector close and responsive sheet behavior.
 - Verified composer focus inversion and local-note sending.
-- Verified deterministic identity patterns remain stable and unique.
+- Verified deterministic identity patterns remain stable and unique across all
+  four surfaces.
+- Verified resident selection, memory selection, receipt inspection,
+  continuity-event inspection, pinning, and all eight story states.
 - Verified no document overflow at 1440×900, 1280×800, 1024×768, or 390×844.
 - Checked the live browser console: no errors.
-- Typecheck, focused E2E (5 tests), E2E build, and production build pass.
+- Typecheck, focused E2E (9 tests), E2E build, and production build pass.
 
 ## Follow-up polish
 
 - [P3] Native Tauri window chrome should be recaptured when the design is promoted from the browser vision branch.
-- [P3] Agents, Brain, and Continuity remain deliberate approval-gate placeholders and are outside this Phase 1 visual pass.
+- [P3] The deferred top-left wordmark treatment can be revised independently
+  without disturbing the accepted shell or surface system.
 
 final result: passed

@@ -1,5 +1,8 @@
 import {
+  ArrowUpRight,
+  Check,
   ChevronDown,
+  Clock3,
   Command,
   Hash,
   Info,
@@ -14,6 +17,7 @@ import {
   RotateCcw,
   Search,
   Send,
+  ShieldCheck,
   Smile,
   UserPlus,
   X,
@@ -25,7 +29,14 @@ import {
   VisionModeProvider,
   useVisionMode,
 } from "@/vision-demo/VisionModeContext";
-import type { AgentId, DemoMessage, DemoView } from "@/vision-demo/demoRuntime";
+import type {
+  AgentId,
+  ContinuityEvent,
+  DemoAgent,
+  DemoMemory,
+  DemoMessage,
+  DemoView,
+} from "@/vision-demo/demoRuntime";
 import "@/vision-demo/mnemos-vision.css";
 
 const destinations: Array<{
@@ -110,7 +121,6 @@ function Sidebar() {
       <nav className="mn-primary-nav">
         {destinations.map(({ id, label, glyph }) => {
           const active = runtime.view === id;
-          const frozen = id !== "network";
           return (
             <button
               aria-current={active ? "page" : undefined}
@@ -119,14 +129,11 @@ function Sidebar() {
               data-testid={`vision-nav-${id}`}
               key={id}
               onClick={() => runtime.setView(id)}
-              title={frozen ? `${label} follows shell approval` : label}
+              title={label}
               type="button"
             >
               <MnemosGlyph name={glyph} />
               <span className="mn-sidebar-copy">{label}</span>
-              {frozen ? (
-                <span className="mn-nav-phase mn-sidebar-copy">NEXT</span>
-              ) : null}
             </button>
           );
         })}
@@ -266,8 +273,8 @@ function DemoControl() {
             ))}
           </ol>
           <p>
-            Vision demonstration. Messages and system events are deterministic;
-            composer notes stay on this device.
+            Interactive vision · simulated activity. Messages and system events
+            are deterministic; composer notes stay on this device.
           </p>
         </div>
       ) : null}
@@ -277,14 +284,39 @@ function DemoControl() {
 
 function TopChrome() {
   const { data, setInspector } = useVisionMode();
+  const activeDestination =
+    destinations.find(({ id }) => id === data.runtime.view) ?? destinations[0];
+  const headings: Record<DemoView, { title: string; detail: string }> = {
+    network: {
+      title: "launch-room",
+      detail: "Where the product learns to explain itself",
+    },
+    agents: {
+      title: "Resident agents",
+      detail: "Stable identities, relationships, and access boundaries",
+    },
+    brain: {
+      title: "Universal brain",
+      detail: "Personal memory with provenance and explicit authority",
+    },
+    continuity: {
+      title: "Continuity ledger",
+      detail: "Signed evidence across sessions, reflection, and return",
+    },
+  };
+  const heading = headings[data.runtime.view];
   return (
     <header className="mn-top-chrome">
       <div className="mn-window-drag" data-tauri-drag-region />
       <div className="mn-room-heading">
-        <Hash aria-hidden="true" />
+        {data.runtime.view === "network" ? (
+          <Hash aria-hidden="true" />
+        ) : (
+          <MnemosGlyph name={activeDestination.glyph} />
+        )}
         <div>
-          <strong>launch-room</strong>
-          <span>Where the product learns to explain itself</span>
+          <strong>{heading.title}</strong>
+          <span>{heading.detail}</span>
         </div>
       </div>
       <button
@@ -321,6 +353,451 @@ function TopChrome() {
       </div>
       <DemoControl />
     </header>
+  );
+}
+
+function SurfaceHeader({
+  eyebrow,
+  title,
+  description,
+  meta,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  meta: string;
+}) {
+  return (
+    <header className="mn-surface-header">
+      <div>
+        <span className="mn-engraving">{eyebrow}</span>
+        <h1>{title}</h1>
+        <p>{description}</p>
+      </div>
+      <span className="mn-surface-meta">{meta}</span>
+    </header>
+  );
+}
+
+function AgentRosterRow({ agent }: { agent: DemoAgent }) {
+  const { data, setInspector } = useVisionMode();
+  const { runtime } = data;
+  const selected = runtime.selectedAgentId === agent.id;
+  const isWorking =
+    runtime.step >= 4 && runtime.step <= 5 && agent.id === "luca";
+
+  return (
+    <button
+      aria-current={selected ? "true" : undefined}
+      className="mn-directory-row"
+      data-selected={selected}
+      data-testid={`vision-agent-row-${agent.id}`}
+      onClick={() => runtime.setSelectedAgentId(agent.id)}
+      onDoubleClick={() => setInspector({ kind: "agent", id: agent.id })}
+      type="button"
+    >
+      <AgentIdentitySpecimen
+        accessibleName={agent.name}
+        publicKey={agent.publicKey}
+        size={38}
+        state={isWorking ? "working" : "present"}
+      />
+      <span className="mn-directory-copy">
+        <strong>{agent.name}</strong>
+        <small>{agent.role}</small>
+      </span>
+      <span className="mn-directory-state">
+        <i data-live={isWorking} />
+        {isWorking ? "Working" : "Continuous"}
+      </span>
+    </button>
+  );
+}
+
+function AgentsSurface() {
+  const { data, setInspector } = useVisionMode();
+  const { runtime } = data;
+  const selected = data.agentById(runtime.selectedAgentId);
+  const working = runtime.step >= 4 && runtime.step <= 5;
+
+  return (
+    <section className="mn-product-surface" data-testid="vision-agents-surface">
+      <SurfaceHeader
+        description="The same collaborators return with an inspectable identity, relationship history, and permission boundary."
+        eyebrow="PERSONAL NETWORK / RESIDENT DIRECTORY"
+        meta={`${data.agents.length} residents · identity chain healthy`}
+        title="Agents are residents, not disposable sessions."
+      />
+      <div className="mn-list-detail">
+        <aside className="mn-directory-list" aria-label="Resident agent roster">
+          <header>
+            <span>RESIDENT</span>
+            <span>CONTINUITY</span>
+          </header>
+          {data.agents.map((agent) => (
+            <AgentRosterRow agent={agent} key={agent.id} />
+          ))}
+          <footer>
+            <ShieldCheck aria-hidden="true" />
+            Three signing identities verified locally
+          </footer>
+        </aside>
+        <article
+          className="mn-agent-dossier"
+          data-testid="vision-agent-dossier"
+        >
+          <header className="mn-dossier-heading">
+            <AgentIdentitySpecimen
+              accessibleName={selected.name}
+              publicKey={selected.publicKey}
+              size={68}
+              state={working && selected.id === "luca" ? "working" : "present"}
+            />
+            <div>
+              <span className="mn-engraving">RESIDENT DOSSIER / VERIFIED</span>
+              <h2>{selected.name}</h2>
+              <p>{selected.role}</p>
+            </div>
+            <button
+              aria-label={`Open ${selected.name} identity inspector`}
+              onClick={() => setInspector({ kind: "agent", id: selected.id })}
+              type="button"
+            >
+              Full identity <ArrowUpRight aria-hidden="true" />
+            </button>
+          </header>
+
+          {working && selected.id === "luca" ? (
+            <section className="mn-cognition-well" data-material="display">
+              <header>
+                <span className="mn-display-live">
+                  <i /> LIVE COGNITION
+                </span>
+                <span>SESSION {selected.sessions + 1}</span>
+              </header>
+              <strong>
+                Holding the launch thread while the network synthesizes.
+              </strong>
+              <p>
+                Consulting scoped product memory · preserving unresolved
+                questions · no durable write
+              </p>
+            </section>
+          ) : null}
+
+          <blockquote>{selected.voice}</blockquote>
+          <dl className="mn-dossier-ledger">
+            <div>
+              <dt>Relationship age</dt>
+              <dd>{selected.relationship}</dd>
+            </div>
+            <div>
+              <dt>Shared sessions</dt>
+              <dd>{selected.sessions}</dd>
+            </div>
+            <div>
+              <dt>Private reflections</dt>
+              <dd>{selected.reflections.toLocaleString()}</dd>
+            </div>
+            <div>
+              <dt>Last consolidation</dt>
+              <dd>{selected.lastConsolidation}</dd>
+            </div>
+            <div className="mn-dossier-ledger-wide">
+              <dt>Universal brain access</dt>
+              <dd>{selected.scope}</dd>
+            </div>
+          </dl>
+          <section className="mn-identity-receipt">
+            <div>
+              <MnemosGlyph name="receipt" />
+              <span>
+                <strong>Continuity receipt</strong>
+                <small>
+                  Same signing identity across {selected.sessions} sessions
+                </small>
+              </span>
+            </div>
+            <code>{selected.fingerprint}</code>
+            <button
+              onClick={() => setInspector({ kind: "receipt", id: selected.id })}
+              type="button"
+            >
+              Inspect receipt
+            </button>
+          </section>
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function MemoryRow({ memory }: { memory: DemoMemory }) {
+  const { data } = useVisionMode();
+  const { runtime } = data;
+  const selected = runtime.selectedMemoryId === memory.id;
+  const recalled = memory.recalledAt <= runtime.step;
+  return (
+    <button
+      aria-current={selected ? "true" : undefined}
+      className="mn-memory-row"
+      data-selected={selected}
+      data-testid={`vision-memory-row-${memory.id}`}
+      onClick={() => runtime.setSelectedMemoryId(memory.id)}
+      type="button"
+    >
+      <span className="mn-memory-row-mark">
+        <MnemosGlyph name="memory" />
+      </span>
+      <span className="mn-directory-copy">
+        <strong>{memory.title}</strong>
+        <small>
+          {memory.source} · {memory.recorded}
+        </small>
+      </span>
+      <span className="mn-memory-row-state" data-active={recalled}>
+        {recalled ? "Recalled" : "Stored"}
+      </span>
+    </button>
+  );
+}
+
+function BrainSurface() {
+  const { data, setInspector } = useVisionMode();
+  const { runtime } = data;
+  const selected =
+    data.memoryById(runtime.selectedMemoryId) ?? data.memories[0];
+  const inUse =
+    selected.recalledAt <= runtime.step && runtime.step > 0 && runtime.step < 7;
+
+  return (
+    <section className="mn-product-surface" data-testid="vision-brain-surface">
+      <SurfaceHeader
+        description="A shared personal memory system where every useful fragment retains its origin, scope, and authority."
+        eyebrow="UNIVERSAL BRAIN / PROVENANCE FIRST"
+        meta={`${data.memories.length} selected memories · reviewable`}
+        title="Shared memory without a black box."
+      />
+      <div className="mn-list-detail mn-brain-layout">
+        <aside className="mn-directory-list" aria-label="Memory directory">
+          <header>
+            <span>MEMORY</span>
+            <span>STATE</span>
+          </header>
+          {data.memories.map((memory) => (
+            <MemoryRow key={memory.id} memory={memory} />
+          ))}
+        </aside>
+        <article
+          className="mn-memory-detail"
+          data-testid="vision-memory-detail"
+        >
+          <header>
+            <div>
+              <span className="mn-engraving">
+                {selected.source.toUpperCase()} / DURABLE MEMORY
+              </span>
+              <h2>{selected.title}</h2>
+            </div>
+            <button
+              aria-label="Open selected memory provenance"
+              onClick={() => setInspector({ kind: "memory", id: selected.id })}
+              type="button"
+            >
+              Open provenance <ArrowUpRight aria-hidden="true" />
+            </button>
+          </header>
+          {inUse ? (
+            <section className="mn-memory-use-well" data-material="display">
+              <header>
+                <span className="mn-display-live">
+                  <i /> IN ACTIVE RECALL
+                </span>
+                <span>CONFIDENCE / {selected.confidence}</span>
+              </header>
+              <p>{selected.body}</p>
+              <footer>
+                <span>
+                  <MnemosGlyph name="receipt" /> RECEIPT 7F21 · A90C
+                </span>
+                <span>Scoped retrieval · simulated</span>
+              </footer>
+            </section>
+          ) : (
+            <p className="mn-memory-body">{selected.body}</p>
+          )}
+          <dl className="mn-provenance-ledger">
+            <div>
+              <dt>Source</dt>
+              <dd>{selected.sourceDetail}</dd>
+            </div>
+            <div>
+              <dt>Recorded</dt>
+              <dd>{selected.recorded}</dd>
+            </div>
+            <div>
+              <dt>Scope</dt>
+              <dd>{selected.scope}</dd>
+            </div>
+            <div>
+              <dt>Confidence</dt>
+              <dd>{selected.confidence}</dd>
+            </div>
+          </dl>
+          <section className="mn-memory-authority">
+            <header>
+              <span className="mn-engraving">AUTHORIZED TO RECALL</span>
+              <span>{selected.allowedAgents.length} residents</span>
+            </header>
+            <div>
+              {selected.allowedAgents.map((id) => {
+                const agent = data.agentById(id);
+                return (
+                  <button
+                    key={id}
+                    onClick={() => setInspector({ kind: "agent", id })}
+                    type="button"
+                  >
+                    <AgentIdentitySpecimen
+                      accessibleName={agent.name}
+                      publicKey={agent.publicKey}
+                      size={32}
+                    />
+                    <span>
+                      <strong>{agent.name}</strong>
+                      <small>{agent.role}</small>
+                    </span>
+                    <b>READ</b>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+          <footer className="mn-tag-line">
+            {selected.tags.map((tag) => (
+              <span key={tag}>{tag}</span>
+            ))}
+          </footer>
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function ContinuityLedgerEvent({ event }: { event: ContinuityEvent }) {
+  const { data, setInspector } = useVisionMode();
+  const agent = data.agentById(event.agentId);
+  return (
+    <button
+      className="mn-continuity-event"
+      data-event-type={event.type}
+      data-testid={`vision-continuity-event-${event.id}`}
+      onClick={() => setInspector({ kind: "continuity", id: event.id })}
+      type="button"
+    >
+      <span className="mn-continuity-spine">
+        <i />
+      </span>
+      <AgentIdentitySpecimen
+        accessibleName={agent.name}
+        publicKey={agent.publicKey}
+        size={38}
+        state={event.type === "return" ? "present" : "idle"}
+      />
+      <span className="mn-continuity-copy">
+        <span>
+          <b>{event.type}</b>
+          <time>{event.time}</time>
+        </span>
+        <strong>{event.title}</strong>
+        <small>{event.body}</small>
+      </span>
+      <code>{event.receipt}</code>
+      <ArrowUpRight aria-hidden="true" />
+    </button>
+  );
+}
+
+function ContinuitySurface() {
+  const { data } = useVisionMode();
+  const { runtime } = data;
+  const visible = data.continuity.filter(
+    (event) => event.visibleAt <= runtime.step,
+  );
+  const next = data.continuity.find((event) => event.visibleAt > runtime.step);
+
+  return (
+    <section
+      className="mn-product-surface"
+      data-testid="vision-continuity-surface"
+    >
+      <SurfaceHeader
+        description="Sessions end. Identity, unresolved questions, and reviewed learning remain connected as signed evidence."
+        eyebrow="CONTINUITY / EVIDENCE LEDGER"
+        meta={`Session ${runtime.step === 7 ? "427" : "426"} · ${visible.length} signed events`}
+        title="The relationship survives the session boundary."
+      />
+      <div className="mn-continuity-layout">
+        <div className="mn-evidence-ledger">
+          <header>
+            <span>EVENT CHAIN</span>
+            <span>IDENTITY / RECEIPT</span>
+          </header>
+          {visible.map((event) => (
+            <ContinuityLedgerEvent event={event} key={event.id} />
+          ))}
+          {next ? (
+            <div className="mn-continuity-pending">
+              <Clock3 aria-hidden="true" />
+              <span>
+                <strong>Next evidence boundary</strong>
+                <small>
+                  {next.type === "return"
+                    ? "A later session verifies the same identity and unresolved thread."
+                    : "Reflection begins only after the room closes."}
+                </small>
+              </span>
+            </div>
+          ) : null}
+        </div>
+        <aside className="mn-review-authority">
+          <header>
+            <MnemosGlyph name="continuity" />
+            <span>
+              <b>RILEY'S AUTHORITY</b>
+              <strong>Review boundary</strong>
+            </span>
+          </header>
+          <p>
+            Private reflection may shape a proposal. It does not become durable
+            personal memory without review.
+          </p>
+          <dl>
+            <div>
+              <dt>Private reflections</dt>
+              <dd>{runtime.step >= 6 ? "3 complete" : "Not started"}</dd>
+            </div>
+            <div>
+              <dt>Proposals</dt>
+              <dd>{runtime.step >= 6 ? "2 waiting" : "None"}</dd>
+            </div>
+            <div>
+              <dt>Automatic writes</dt>
+              <dd>Disabled</dd>
+            </div>
+          </dl>
+          <div className="mn-review-verdict">
+            <Check aria-hidden="true" />
+            <span>
+              <strong>Human review retained</strong>
+              <small>
+                No private reflection silently enters the universal brain.
+              </small>
+            </span>
+          </div>
+        </aside>
+      </div>
+    </section>
   );
 }
 
@@ -609,6 +1086,24 @@ function Inspector() {
     inspector.kind === "memory" ? data.memoryById(inspector.id) : null;
   const agent =
     inspector.kind === "agent" ? data.agentById(inspector.id as AgentId) : null;
+  const continuity =
+    inspector.kind === "continuity"
+      ? data.continuity.find((event) => event.id === inspector.id)
+      : null;
+  const receiptAgent =
+    inspector.kind === "receipt"
+      ? data.agentById(inspector.id as AgentId)
+      : null;
+  const continuityAgent = continuity
+    ? data.agentById(continuity.agentId)
+    : null;
+  const inspectorTitle = memory
+    ? "Memory provenance"
+    : agent
+      ? "Resident identity"
+      : receiptAgent
+        ? "Continuity receipt"
+        : "Signed continuity event";
 
   return (
     <aside
@@ -619,7 +1114,7 @@ function Inspector() {
       <header>
         <div>
           <span>INSPECTOR</span>
-          <strong>{memory ? "Memory provenance" : "Resident identity"}</strong>
+          <strong>{inspectorTitle}</strong>
         </div>
         <div>
           <IconButton
@@ -738,29 +1233,92 @@ function Inspector() {
           </dl>
         </div>
       ) : null}
+      {receiptAgent ? (
+        <div className="mn-inspector-body">
+          <div className="mn-inspector-display" data-material="display">
+            <MnemosGlyph name="receipt" />
+            <span>IDENTITY / VERIFIED</span>
+            <strong>{receiptAgent.fingerprint}</strong>
+          </div>
+          <section>
+            <span className="mn-engraving">SIGNED CONTINUITY RECEIPT</span>
+            <h2>
+              {receiptAgent.name} remained {receiptAgent.name}.
+            </h2>
+            <p>
+              The same public signing identity anchors authorship, relationship
+              history, and session continuity.
+            </p>
+          </section>
+          <dl className="mn-inspector-ledger">
+            <div>
+              <dt>Public identity</dt>
+              <dd>{receiptAgent.fingerprint}</dd>
+            </div>
+            <div>
+              <dt>Shared sessions</dt>
+              <dd>{receiptAgent.sessions}</dd>
+            </div>
+            <div>
+              <dt>Relationship</dt>
+              <dd>{receiptAgent.relationship}</dd>
+            </div>
+            <div>
+              <dt>Status</dt>
+              <dd>Chain verified</dd>
+            </div>
+          </dl>
+          <section>
+            <code>{receiptAgent.publicKey}</code>
+          </section>
+        </div>
+      ) : null}
+      {continuity && continuityAgent ? (
+        <div className="mn-inspector-body">
+          <div className="mn-agent-specimen-large">
+            <AgentIdentitySpecimen
+              accessibleName={continuityAgent.name}
+              publicKey={continuityAgent.publicKey}
+              size={64}
+            />
+            <div>
+              <span>{continuity.type.toUpperCase()} / SIGNED EVENT</span>
+              <strong>{continuityAgent.name}</strong>
+              <small>{continuity.time}</small>
+            </div>
+          </div>
+          <section>
+            <h2>{continuity.title}</h2>
+            <p>{continuity.body}</p>
+          </section>
+          <dl className="mn-inspector-ledger">
+            <div>
+              <dt>Event kind</dt>
+              <dd>{continuity.type}</dd>
+            </div>
+            <div>
+              <dt>Receipt</dt>
+              <dd>{continuity.receipt}</dd>
+            </div>
+            <div>
+              <dt>Authority</dt>
+              <dd>
+                {continuity.type === "consolidation"
+                  ? "Awaiting Riley"
+                  : "Agent-private or signed"}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      ) : null}
     </aside>
   );
 }
 
-function PendingSurface({ view }: { view: DemoView }) {
-  const item =
-    destinations.find((destination) => destination.id === view) ??
-    destinations[0];
-  const { data } = useVisionMode();
-  return (
-    <section className="mn-pending-surface">
-      <MnemosGlyph name={item.glyph} />
-      <span className="mn-engraving">FOUNDATION APPROVAL GATE</span>
-      <h1>{item.label}</h1>
-      <p>
-        This surface will be composed from the approved shell, type, identity,
-        and material primitives after the Network frame is visually accepted.
-      </p>
-      <button onClick={() => data.runtime.setView("network")} type="button">
-        Return to Network
-      </button>
-    </section>
-  );
+function ProductSurface({ view }: { view: Exclude<DemoView, "network"> }) {
+  if (view === "agents") return <AgentsSurface />;
+  if (view === "brain") return <BrainSurface />;
+  return <ContinuitySurface />;
 }
 
 function MobileNavigation() {
@@ -771,6 +1329,7 @@ function MobileNavigation() {
         <button
           aria-current={data.runtime.view === item.id ? "page" : undefined}
           data-active={data.runtime.view === item.id}
+          data-testid={`vision-mobile-nav-${item.id}`}
           key={item.id}
           onClick={() => data.runtime.setView(item.id)}
           type="button"
@@ -796,7 +1355,7 @@ function MnemosVisionShell() {
               {data.runtime.view === "network" ? (
                 <Thread />
               ) : (
-                <PendingSurface view={data.runtime.view} />
+                <ProductSurface view={data.runtime.view} />
               )}
               {data.runtime.view === "network" ? <Composer /> : null}
             </div>

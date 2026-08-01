@@ -128,3 +128,101 @@ test("Mnemos vision foundation remains usable at 390px", async ({ page }) => {
   }));
   expect(dimensions.scrollWidth).toBe(dimensions.clientWidth);
 });
+
+test("Agents, Brain, and Continuity remain explorable at every story beat", async ({
+  page,
+}) => {
+  await page.goto("/?vision=demo");
+
+  await page.getByTestId("vision-nav-agents").click();
+  await expect(page.getByTestId("vision-agents-surface")).toBeVisible();
+  await page.getByTestId("vision-agent-row-mara").click();
+  await expect(page.getByTestId("vision-agent-dossier")).toContainText("Mara");
+  await expect(page.getByTestId("vision-agent-dossier")).toContainText(
+    "11 months",
+  );
+
+  await page.getByTestId("vision-nav-brain").click();
+  await expect(page.getByTestId("vision-brain-surface")).toBeVisible();
+  await page.getByTestId("vision-memory-row-memory-truth").click();
+  await expect(page.getByTestId("vision-memory-detail")).toContainText(
+    "Never blur the line",
+  );
+  await expect(page.getByTestId("vision-memory-detail")).toContainText(
+    "Vision-demo brief",
+  );
+
+  await page.getByTestId("vision-nav-continuity").click();
+  await expect(page.getByTestId("vision-continuity-surface")).toBeVisible();
+  await expect(page.getByText("Human review retained")).toBeVisible();
+});
+
+test("Later beats expose active recall, private reflection, and return evidence", async ({
+  page,
+}) => {
+  await page.goto("/?vision=demo");
+
+  await page.getByTestId("vision-demo-disclosure-desktop").click();
+  await page.getByTestId("vision-story-step-5").click();
+  await page.getByTestId("vision-nav-agents").click();
+  await expect(page.getByText("LIVE COGNITION")).toBeVisible();
+
+  await page.getByTestId("vision-nav-brain").click();
+  await expect(page.getByText("IN ACTIVE RECALL")).toBeVisible();
+
+  await page.getByTestId("vision-demo-disclosure-desktop").click();
+  await page.getByTestId("vision-story-step-6").click();
+  await page.getByTestId("vision-nav-continuity").click();
+  await expect(page.getByTestId("vision-continuity-event-c-02")).toContainText(
+    "Private reflection",
+  );
+  await expect(page.getByTestId("vision-continuity-event-c-04")).toContainText(
+    "awaiting Riley",
+  );
+
+  await page.getByTestId("vision-demo-disclosure-desktop").click();
+  await page.getByTestId("vision-story-step-7").click();
+  await page.getByTestId("vision-nav-continuity").click();
+  await expect(page.getByTestId("vision-continuity-event-c-05")).toContainText(
+    "Identity returned intact",
+  );
+});
+
+test("Inspector supports receipt and continuity evidence", async ({ page }) => {
+  await page.goto("/?vision=demo");
+  await page.getByTestId("vision-nav-agents").click();
+  await page.getByRole("button", { name: "Inspect receipt" }).click();
+  await expect(
+    page
+      .locator(".mn-inspector > header")
+      .getByText("Continuity receipt", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Chain verified", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Pin inspector" }).click();
+  await expect(page.locator(".mn-inspector")).toHaveAttribute(
+    "data-pinned",
+    "true",
+  );
+  await page.getByRole("button", { name: "Close inspector" }).click();
+
+  await page.getByTestId("vision-nav-continuity").click();
+  await page.getByTestId("vision-continuity-event-c-01").click();
+  await expect(
+    page.getByText("Signed continuity event", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".mn-inspector").getByText("evt · 8c7f…1a92", { exact: true }),
+  ).toBeVisible();
+});
+
+test("Reduced motion preserves all product state", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/?vision=demo");
+  await page.getByTestId("vision-nav-agents").click();
+  await expect(page.getByTestId("vision-agent-dossier")).toBeVisible();
+  const animationName = await page
+    .locator(".mn-identity")
+    .first()
+    .evaluate((element) => getComputedStyle(element).animationName);
+  expect(animationName).toBe("none");
+});
