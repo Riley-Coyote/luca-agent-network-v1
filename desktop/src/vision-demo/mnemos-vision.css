@@ -166,6 +166,10 @@
   width: 34px;
 }
 
+.mn-vision svg[data-lucide] {
+  shape-rendering: geometricPrecision;
+}
+
 .mn-sidebar-toggle {
   grid-column: 3;
   justify-self: end;
@@ -311,10 +315,15 @@
 }
 
 .mn-nav-item > svg {
+  color: var(--mn-ink-2);
   flex: 0 0 auto;
-  height: 17px;
-  stroke-width: 1.6;
-  width: 17px;
+  height: 18px;
+  stroke-width: 1.75;
+  width: 18px;
+}
+
+.mn-nav-item[data-active="true"] > svg {
+  color: currentColor;
 }
 
 .mn-nav-item > span:not(.mn-nav-phase) {
@@ -362,13 +371,22 @@
 }
 
 .mn-sidebar-section > header button {
+  align-items: center;
   background: transparent;
   border: 0;
   border-radius: 6px;
   color: var(--mn-ink-3);
+  display: inline-flex;
   height: 22px;
+  justify-content: center;
   padding: 0;
   width: 22px;
+}
+
+.mn-sidebar-section > header button svg {
+  height: 13px;
+  stroke-width: 1.8;
+  width: 13px;
 }
 
 .mn-sidebar-section > header button:hover {
@@ -541,8 +559,9 @@
 }
 
 .mn-sidebar-footer button svg {
-  height: 16px;
-  width: 16px;
+  height: 17px;
+  stroke-width: 1.75;
+  width: 17px;
 }
 
 /* Elevated workspace cards */
@@ -609,7 +628,7 @@
 
 .mn-room-heading > svg {
   height: 18px;
-  stroke-width: 1.7;
+  stroke-width: 1.75;
   width: 18px;
 }
 
@@ -867,9 +886,9 @@
 }
 
 .mn-thread-intro-mark svg {
-  height: 24px;
-  stroke-width: 1.5;
-  width: 24px;
+  height: 23px;
+  stroke-width: 1.65;
+  width: 23px;
 }
 
 .mn-engraving {
@@ -1006,8 +1025,9 @@
 }
 
 .mn-memory-well > header > svg {
-  height: 17px;
-  width: 17px;
+  height: 18px;
+  stroke-width: 1.65;
+  width: 18px;
 }
 
 .mn-display-live {
@@ -1146,6 +1166,7 @@
 
 .mn-system-event > svg {
   height: 17px;
+  stroke-width: 1.75;
   width: 17px;
 }
 
@@ -1409,6 +1430,7 @@
   color: var(--mn-display-dim);
   grid-row: 1 / span 2;
   height: 27px;
+  stroke-width: 1.5;
   width: 27px;
 }
 
@@ -1906,6 +1928,7 @@
 
 .mn-identity-receipt svg {
   height: 20px;
+  stroke-width: 1.65;
   width: 20px;
 }
 
@@ -1957,6 +1980,7 @@
 
 .mn-memory-row-mark svg {
   height: 15px;
+  stroke-width: 1.75;
   width: 15px;
 }
 
@@ -2282,6 +2306,7 @@
 
 .mn-review-authority > header > svg {
   height: 25px;
+  stroke-width: 1.55;
   width: 25px;
 }
 
@@ -2938,8 +2963,9 @@
   }
 
   .mn-mobile-nav svg {
-    height: 17px;
-    width: 17px;
+    height: 18px;
+    stroke-width: 1.75;
+    width: 18px;
   }
 }
 

@@ -7,6 +7,7 @@
   - `/var/folders/rv/v8ffrtfd18qgq08w73m_4qbh0000gn/T/TemporaryItems/NSIRD_screencaptureui_1DvSv5/Screenshot 2026-07-31 at 8.54.13 PM.png`
   - `/var/folders/rv/v8ffrtfd18qgq08w73m_4qbh0000gn/T/TemporaryItems/NSIRD_screencaptureui_v8SRnc/Screenshot 2026-07-31 at 9.06.16 PM.png`
   - `/var/folders/rv/v8ffrtfd18qgq08w73m_4qbh0000gn/T/TemporaryItems/NSIRD_screencaptureui_ARFXuX/Screenshot 2026-07-31 at 9.35.09 PM.png`
+  - `/var/folders/rv/v8ffrtfd18qgq08w73m_4qbh0000gn/T/TemporaryItems/NSIRD_screencaptureui_oIYp6U/Screenshot 2026-08-01 at 4.57.13 PM.png`
   - `/Users/rileycoyote/Downloads/ChatGPT Image Jul 18, 2026, 01_07_46 AM.png`
   - `/Users/rileycoyote/Downloads/ChatGPT Image Jul 31, 2026, 07_12_19 PM.png`
 - Implementation route: `http://127.0.0.1:4322/?vision=demo`
@@ -29,6 +30,8 @@
   - `docs/vision-demo/captures/mnemos-agents-390x844.png`
   - `docs/vision-demo/captures/mnemos-brain-390x844.png`
   - `docs/vision-demo/captures/mnemos-continuity-390x844.png`
+  - `docs/vision-demo/captures/mnemos-icons-1440x900.png`
+  - `docs/vision-demo/captures/mnemos-icons-390x844.png`
 - Combined comparison evidence:
   - `docs/vision-demo/captures/qa-buzz-vs-mnemos.png`
   - `docs/vision-demo/captures/qa-mockup-vs-inspector.png`
@@ -37,6 +40,7 @@
   - `docs/vision-demo/captures/qa-wordmark-centered-reference-vs-implementation.png`
   - `docs/vision-demo/captures/qa-reference-vs-complete-shell.png`
   - `docs/vision-demo/captures/qa-complete-surface-set.png`
+  - `docs/vision-demo/captures/qa-custom-glyphs-vs-lucide.png`
 - States: Network opening, recalled memory, synthesis, later return, Agents
   dossier, Brain provenance, Continuity evidence, inspectors, and responsive
   product surfaces.
@@ -54,14 +58,14 @@ The final side-by-side comparisons show the same governing composition as the re
 
 ## Focused-region comparison evidence
 
-The inspector comparison is large enough to judge header density, card separation, information rows, typography, borders, identity marks, and the active-memory surface. Separate memory and mobile captures verify the focus treatment and sheet behavior. The wordmark comparison isolates the reference's NYX dot-matrix label and the rendered MNEMOS label at matching display scale so the dot structure, weight, tracking, and sidebar alignment are directly reviewable.
+The inspector comparison is large enough to judge header density, card separation, information rows, typography, borders, identity marks, and the active-memory surface. Separate memory and mobile captures verify the focus treatment and sheet behavior. The wordmark comparison isolates the reference's NYX dot-matrix label and the rendered MNEMOS label at matching display scale so the dot structure, weight, tracking, and sidebar alignment are directly reviewable. The focused icon comparison places the former custom glyph rail beside the final Lucide rail, making silhouette quality, optical size, stroke consistency, and active-state contrast directly reviewable.
 
 ## Required fidelity surfaces
 
 - Fonts and typography: Instrument Sans is used for navigation and conversation; Fragment Mono is restricted to receipts, timestamps, shortcuts, and provenance; Doto is reserved for the product wordmark and active display surfaces. Product text is no longer rendered as ornamental microtype.
 - Spacing and layout rhythm: the 270px rail, 10px base gutter, 22px application-card radius, 68px header, 900px message measure, and 344px inspector reproduce the source hierarchy without the earlier full-bleed slab effect.
 - Colors and tokens: the surface is neutral and light; selection and active memory are black; the red operational lamp is the only chromatic state accent. There are no decorative gradients or glow effects.
-- Image and asset fidelity: the supplied references contain portrait avatars, but Mnemos intentionally substitutes the approved deterministic cryptographic identity specimens. Utility controls use the existing icon library. No missing raster asset is represented by a placeholder.
+- Image and asset fidelity: the supplied references contain portrait avatars, but Mnemos intentionally substitutes the approved deterministic cryptographic identity specimens. Navigation and semantic utility controls now use a typed Lucide vocabulary; handcrafted SVGs remain only for the approved deterministic identity specimens. No missing raster asset is represented by a placeholder.
 - Copy and content: the seeded launch-room narrative remains unchanged in meaning. Demo disclosure, memory scope, authorization, receipt, and provenance remain explicit.
 
 ## Comparison history
@@ -124,11 +128,27 @@ The inspector comparison is large enough to judge header density, card separatio
   approved type hierarchy, breathing room, and full mobile reflow.
 - Post-fix evidence: the final Agents, Brain, and Continuity desktop captures.
 
+### Iteration 8 — passed
+
+- [P2] The navigation and semantic icons were custom square-terminal drawings
+  whose dense internal geometry rendered unevenly at 17px, making the mature
+  shell feel less commercially finished.
+- Fix: replaced the entire custom glyph component with a typed Lucide icon
+  vocabulary: Messages Square, Users Round, Brain, History, Book Open Text,
+  Badge Check, and Activity. Replaced the raw add-room symbol and collapsed
+  sidebar mark with Lucide controls, then normalized navigation to 18px / 1.75px
+  strokes and optically tuned larger semantic placements. The cryptographic
+  agent identity specimens remain unchanged.
+- Post-fix evidence:
+  `docs/vision-demo/captures/qa-custom-glyphs-vs-lucide.png`,
+  `docs/vision-demo/captures/mnemos-icons-1440x900.png`, and
+  `docs/vision-demo/captures/mnemos-icons-390x844.png`.
+
 ## Findings
 
 No actionable P0, P1, or P2 visual mismatches remain for the completed vision
-scope. The top-left wordmark is explicitly excluded from this pass after Riley
-deferred that isolated treatment to a later design session.
+scope. The icon system now matches the commercial finish of the shell while
+leaving the approved identity specimens and deferred wordmark treatment intact.
 
 ## Primary interactions and runtime checks
 
@@ -140,6 +160,8 @@ deferred that isolated treatment to a later design session.
   four surfaces.
 - Verified resident selection, memory selection, receipt inspection,
   continuity-event inspection, pinning, and all eight story states.
+- Verified every desktop and mobile destination renders the intended Lucide
+  icon contract at a consistent optical size and stroke weight.
 - Verified no document overflow at 1440×900, 1280×800, 1024×768, or 390×844.
 - Checked the live browser console: no errors.
 - Typecheck, focused E2E (9 tests), E2E build, and production build pass.

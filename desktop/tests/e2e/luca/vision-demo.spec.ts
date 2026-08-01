@@ -18,6 +18,21 @@ test("Mnemos vision foundation preserves the deterministic Network story", async
     page.getByTestId("vision-demo-disclosure-desktop"),
   ).toContainText("01/08");
 
+  for (const [destination, lucideName] of [
+    ["network", "messages-square"],
+    ["agents", "users-round"],
+    ["brain", "brain"],
+    ["continuity", "history"],
+  ] as const) {
+    await expect(
+      page
+        .getByTestId(`vision-nav-${destination}`)
+        .locator(
+          `svg[data-icon-library="lucide"][data-mnemos-icon="${destination}"][data-lucide-icon="${lucideName}"]`,
+        ),
+    ).toHaveCount(1);
+  }
+
   const lucaPatterns = await page
     .locator('[data-agent-name="Luca"]')
     .evaluateAll((nodes) =>

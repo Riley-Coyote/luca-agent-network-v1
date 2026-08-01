@@ -8,6 +8,7 @@ import {
   Info,
   MoreHorizontal,
   PanelLeftClose,
+  PanelLeftOpen,
   Paperclip,
   Pause,
   Pin,
@@ -24,7 +25,7 @@ import {
 } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, useEffect, useRef } from "react";
 import { AgentIdentitySpecimen } from "@/vision-demo/AgentIdentitySpecimen";
-import { MnemosGlyph, type MnemosGlyphName } from "@/vision-demo/MnemosGlyph";
+import { MnemosIcon, type MnemosIconName } from "@/vision-demo/MnemosIcon";
 import {
   VisionModeProvider,
   useVisionMode,
@@ -42,12 +43,12 @@ import "@/vision-demo/mnemos-vision.css";
 const destinations: Array<{
   id: DemoView;
   label: string;
-  glyph: MnemosGlyphName;
+  icon: MnemosIconName;
 }> = [
-  { id: "network", label: "Network", glyph: "network" },
-  { id: "agents", label: "Agents", glyph: "agents" },
-  { id: "brain", label: "Brain", glyph: "brain" },
-  { id: "continuity", label: "Continuity", glyph: "continuity" },
+  { id: "network", label: "Network", icon: "network" },
+  { id: "agents", label: "Agents", icon: "agents" },
+  { id: "brain", label: "Brain", icon: "brain" },
+  { id: "continuity", label: "Continuity", icon: "continuity" },
 ];
 
 function IconButton({
@@ -96,11 +97,7 @@ function Sidebar() {
           label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
           onClick={() => setSidebarCollapsed(!isSidebarCollapsed)}
         >
-          {isSidebarCollapsed ? (
-            <MnemosGlyph name="mnemos" />
-          ) : (
-            <PanelLeftClose />
-          )}
+          {isSidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
         </IconButton>
       </div>
 
@@ -119,7 +116,7 @@ function Sidebar() {
       </button>
 
       <nav className="mn-primary-nav">
-        {destinations.map(({ id, label, glyph }) => {
+        {destinations.map(({ id, label, icon }) => {
           const active = runtime.view === id;
           return (
             <button
@@ -132,7 +129,7 @@ function Sidebar() {
               title={label}
               type="button"
             >
-              <MnemosGlyph name={glyph} />
+              <MnemosIcon name={icon} />
               <span className="mn-sidebar-copy">{label}</span>
             </button>
           );
@@ -143,7 +140,7 @@ function Sidebar() {
         <header>
           <span>RECENT CONVERSATIONS</span>
           <button aria-label="Add room" type="button">
-            +
+            <Plus aria-hidden="true" />
           </button>
         </header>
         <div className="mn-room-list">
@@ -203,7 +200,7 @@ function Sidebar() {
           className="mn-sidebar-copy"
           type="button"
         >
-          <MnemosGlyph name="activity" />
+          <MnemosIcon name="activity" />
         </button>
       </footer>
     </aside>
@@ -312,7 +309,7 @@ function TopChrome() {
         {data.runtime.view === "network" ? (
           <Hash aria-hidden="true" />
         ) : (
-          <MnemosGlyph name={activeDestination.glyph} />
+          <MnemosIcon name={activeDestination.icon} />
         )}
         <div>
           <strong>{heading.title}</strong>
@@ -510,7 +507,7 @@ function AgentsSurface() {
           </dl>
           <section className="mn-identity-receipt">
             <div>
-              <MnemosGlyph name="receipt" />
+              <MnemosIcon name="receipt" />
               <span>
                 <strong>Continuity receipt</strong>
                 <small>
@@ -547,7 +544,7 @@ function MemoryRow({ memory }: { memory: DemoMemory }) {
       type="button"
     >
       <span className="mn-memory-row-mark">
-        <MnemosGlyph name="memory" />
+        <MnemosIcon name="memory" />
       </span>
       <span className="mn-directory-copy">
         <strong>{memory.title}</strong>
@@ -618,7 +615,7 @@ function BrainSurface() {
               <p>{selected.body}</p>
               <footer>
                 <span>
-                  <MnemosGlyph name="receipt" /> RECEIPT 7F21 · A90C
+                  <MnemosIcon name="receipt" /> RECEIPT 7F21 · A90C
                 </span>
                 <span>Scoped retrieval · simulated</span>
               </footer>
@@ -762,7 +759,7 @@ function ContinuitySurface() {
         </div>
         <aside className="mn-review-authority">
           <header>
-            <MnemosGlyph name="continuity" />
+            <MnemosIcon name="continuity" />
             <span>
               <b>RILEY'S AUTHORITY</b>
               <strong>Review boundary</strong>
@@ -864,7 +861,7 @@ function MemoryRecall({ message }: { message: DemoMessage }) {
           </span>
           <span>{message.time}</span>
         </div>
-        <MnemosGlyph name="memory" />
+        <MnemosIcon name="memory" />
       </header>
       <button
         className="mn-memory-content"
@@ -907,7 +904,7 @@ function MemoryRecall({ message }: { message: DemoMessage }) {
       </button>
       <footer>
         <span>
-          <MnemosGlyph name="receipt" /> Signed receipt · 7F21…A90C
+          <MnemosIcon name="receipt" /> Signed receipt · 7F21…A90C
         </span>
         <span>Open provenance</span>
       </footer>
@@ -954,9 +951,7 @@ function SystemEvent({ message }: { message: DemoMessage }) {
       data-testid={`vision-message-${message.id}`}
     >
       <span className="mn-system-rule" />
-      <MnemosGlyph
-        name={message.kind === "arrival" ? "agents" : "continuity"}
-      />
+      <MnemosIcon name={message.kind === "arrival" ? "agents" : "continuity"} />
       <div>
         <strong>{message.body}</strong>
         {message.meta ? <span>{message.meta}</span> : null}
@@ -982,7 +977,7 @@ function Thread() {
     <div className="mn-thread-scroll" data-testid="vision-network-thread">
       <section className="mn-thread-intro">
         <div className="mn-thread-intro-mark">
-          <MnemosGlyph name="network" />
+          <MnemosIcon name="network" />
         </div>
         <span className="mn-engraving">PRIVATE ROOM · CREATED JUL 22</span>
         <h1>#launch-room</h1>
@@ -1134,7 +1129,7 @@ function Inspector() {
       {memory ? (
         <div className="mn-inspector-body">
           <div className="mn-inspector-display" data-material="display">
-            <MnemosGlyph name="memory" />
+            <MnemosIcon name="memory" />
             <span>RECALL / VERIFIED</span>
             <strong>7F21 A90C</strong>
           </div>
@@ -1236,7 +1231,7 @@ function Inspector() {
       {receiptAgent ? (
         <div className="mn-inspector-body">
           <div className="mn-inspector-display" data-material="display">
-            <MnemosGlyph name="receipt" />
+            <MnemosIcon name="receipt" />
             <span>IDENTITY / VERIFIED</span>
             <strong>{receiptAgent.fingerprint}</strong>
           </div>
@@ -1334,7 +1329,7 @@ function MobileNavigation() {
           onClick={() => data.runtime.setView(item.id)}
           type="button"
         >
-          <MnemosGlyph name={item.glyph} />
+          <MnemosIcon name={item.icon} />
           <span>{item.label}</span>
         </button>
       ))}
