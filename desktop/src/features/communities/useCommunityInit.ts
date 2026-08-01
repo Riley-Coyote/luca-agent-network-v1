@@ -174,7 +174,9 @@ export function useCommunityInit(
       // legacy entries; this site refuses to apply one even if present.
       try {
         await applyCommunity(
-          activeCommunity.relayUrl,
+          activeCommunity.local
+            ? LOCAL_COMMUNITY_RELAY_URL
+            : activeCommunity.relayUrl,
           undefined,
           activeCommunity.token,
           activeCommunity.reposDir,
@@ -248,6 +250,7 @@ export function useCommunityInit(
     activeCommunity?.relayUrl,
     activeCommunity?.token,
     activeCommunity?.reposDir,
+    activeCommunity?.local,
     isSharedIdentity,
     communityKey,
   ]);

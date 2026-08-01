@@ -7,6 +7,13 @@ const ACTIVE_COMMUNITY_KEY = "buzz-active-community-id";
 const LEGACY_WORKSPACES_KEY = "buzz-workspaces";
 const LEGACY_ACTIVE_WORKSPACE_KEY = "buzz-active-workspace-id";
 
+export const LOCAL_COMMUNITY_RELAY_URL = "buzz-local://on-this-device";
+export const LOCAL_COMMUNITY_NAME = "On this device";
+
+export function isLocalCommunityRelayUrl(relayUrl: string): boolean {
+  return relayUrl === LOCAL_COMMUNITY_RELAY_URL;
+}
+
 /**
  * Expand a leading `~` to the user's home directory. The backend rejects
  * `~`-prefixed paths (`std::fs` does not expand the shell tilde), so the UI
@@ -109,6 +116,9 @@ export function normalizeRelayUrl(url: string): string {
 }
 
 export function deriveCommunityName(relayUrl: string): string {
+  if (isLocalCommunityRelayUrl(relayUrl)) {
+    return LOCAL_COMMUNITY_NAME;
+  }
   try {
     const url = new URL(
       relayUrl.replace("ws://", "http://").replace("wss://", "https://"),

@@ -3,6 +3,9 @@ import test from "node:test";
 
 import {
   clearCommunityStorage,
+  isLocalCommunityRelayUrl,
+  LOCAL_COMMUNITY_NAME,
+  LOCAL_COMMUNITY_RELAY_URL,
   migrateLegacyCommunityStorage,
 } from "./communityStorage.ts";
 

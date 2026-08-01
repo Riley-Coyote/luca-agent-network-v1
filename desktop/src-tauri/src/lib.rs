@@ -8,6 +8,7 @@ mod deep_link;
 mod event_sync;
 mod events;
 mod huddle;
+mod local_relay;
 mod luca;
 mod managed_agents;
 mod media_proxy;
