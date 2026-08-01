@@ -1,11 +1,15 @@
-# Luca Agent Network — Interactive Vision Demo
+# Mnemos — Interactive Product Vision
 
 Status: canonical brief for the isolated `agent/vision-demo` branch
 
+Implementation status: **Phase 1 visual-approval gate**. Network opening and
+recall are production-intent; the remaining surfaces are specified below but
+must not be described as implemented yet.
+
 ## Purpose
 
-Build a real, explorable product surface that makes the complete Luca Agent
-Network vision tangible before every production subsystem is finished. The
+Build a real, explorable product surface that makes the complete Mnemos
+personal-network vision tangible before every production subsystem is finished. The
 interface, navigation, interactions, state transitions and narrative are real.
 The agent cognition, memory events and network activity are deterministic demo
 fixtures behind a dedicated adapter.

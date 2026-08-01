@@ -71,7 +71,11 @@ function configureDevE2eBridgeFromUrl() {
   );
 }
 
-function renderApp() {
+function renderApp({
+  visionExperience,
+}: {
+  visionExperience?: React.ReactNode;
+} = {}) {
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       <CommunitiesProvider>
@@ -81,8 +85,8 @@ function renderApp() {
               <EmojiBurstProvider>
                 <PoofBurstProvider>
                   <UpdaterProvider>
-                    <App />
-                    <NostrBindConsentDialog />
+                    {visionExperience ?? <App />}
+                    {visionExperience ? null : <NostrBindConsentDialog />}
                   </UpdaterProvider>
                   <Toaster />
                 </PoofBurstProvider>
@@ -95,19 +99,12 @@ function renderApp() {
   );
 }
 
-async function renderVisionDemoIfRequested(): Promise<boolean> {
-  const url = new URL(window.location.href);
-  if (url.searchParams.get(VISION_DEMO_PARAM) !== VISION_DEMO_VALUE) {
+function isVisionDemoRequested(): boolean {
+  if (import.meta.env.VITE_ENABLE_VISION_DEMO !== "1") {
     return false;
   }
-
-  const { VisionDemoApp } = await import("@/vision-demo/VisionDemoApp");
-  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-    <React.StrictMode>
-      <VisionDemoApp />
-    </React.StrictMode>,
-  );
-  return true;
+  const url = new URL(window.location.href);
+  return url.searchParams.get(VISION_DEMO_PARAM) === VISION_DEMO_VALUE;
 }
 
 async function installE2eBridgeIfConfigured() {
@@ -125,7 +122,9 @@ async function installE2eBridgeIfConfigured() {
 }
 
 async function bootstrap() {
-  if (await renderVisionDemoIfRequested()) {
+  if (isVisionDemoRequested()) {
+    const { MnemosVisionApp } = await import("@/vision-demo/MnemosVisionApp");
+    renderApp({ visionExperience: <MnemosVisionApp /> });
     return;
   }
   resetDevWebviewStateFromUrl();

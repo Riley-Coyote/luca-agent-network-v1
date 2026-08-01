@@ -1,9 +1,13 @@
-# Luca Agent Network — Demo Shot List
+# Mnemos — Planned Demo Shot List
+
+Status: **capture plan, not current implementation inventory**. The Phase 1
+visual-approval build implements frames 1 and 2 only. Frames 3–8 remain the
+accepted expansion sequence after the shell is approved.
 
 Use a 1440×900 viewport for the primary presentation. Keep the quiet
-`Interactive vision · simulated activity` disclosure visible in every desktop
-capture. The story is deterministic, so each numbered beat can be opened
-directly without waiting for playback.
+compact `DEMO · 01/08` disclosure visible in every desktop capture. The story
+is deterministic, so each numbered beat can be opened directly without waiting
+for playback.
 
 ## Hero sequence
 
