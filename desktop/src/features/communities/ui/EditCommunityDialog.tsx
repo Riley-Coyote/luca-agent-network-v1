@@ -3,6 +3,7 @@ import * as React from "react";
 import type { Community } from "@/features/communities/types";
 import {
   expandTilde,
+  isLocalCommunityRelayUrl,
   normalizeRelayUrl,
 } from "@/features/communities/communityStorage";
 import { validateReposDir } from "@/shared/api/tauri";
@@ -75,9 +76,11 @@ export function EditCommunityDialog({
         updates.name = trimmedName;
       }
 
-      const normalizedUrl = normalizeRelayUrl(relayUrl.trim());
-      if (normalizedUrl !== community.relayUrl) {
-        updates.relayUrl = normalizedUrl;
+      if (!isLocalCommunityRelayUrl(community.relayUrl)) {
+        const normalizedUrl = normalizeRelayUrl(relayUrl.trim());
+        if (normalizedUrl !== community.relayUrl) {
+          updates.relayUrl = normalizedUrl;
+        }
       }
 
       const trimmedToken = token.trim() || undefined;
@@ -159,6 +162,7 @@ export function EditCommunityDialog({
               Relay URL
             </label>
             <Input
+              disabled={isLocalCommunityRelayUrl(community.relayUrl)}
               id="edit-ws-relay-url"
               onChange={(e) => setRelayUrl(e.target.value)}
               placeholder="wss://relay.example.com"
