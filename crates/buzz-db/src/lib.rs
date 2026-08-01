@@ -444,6 +444,12 @@ impl Db {
         }
     }
 
+    /// Return a clone of the SQLite pool for process-local services that share
+    /// the same database, such as FTS5 search.
+    pub fn sqlite_pool_clone(&self) -> Result<sqlx::SqlitePool> {
+        Ok(self.sqlite_pool()?.clone())
+    }
+
     /// Creates a local single-node database backed by SQLite.
     ///
     /// The embedded local schema is applied before this constructor returns.
@@ -2385,7 +2391,14 @@ impl Db {
         pubkey: &[u8],
         policy: &str,
     ) -> Result<()> {
-        user::set_channel_add_policy(self.pg_pool()?, community_id, pubkey, policy).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::set_channel_add_policy(pool, community_id, pubkey, policy).await
+            }
+            DbBackend::Postgres => {
+                user::set_channel_add_policy(self.pg_pool()?, community_id, pubkey, policy).await
+            }
+        }
     }
 
     /// Find an existing DM by its participant hash.
@@ -2394,7 +2407,14 @@ impl Db {
         community_id: CommunityId,
         participant_hash: &[u8],
     ) -> Result<Option<channel::ChannelRecord>> {
-        dm::find_dm_by_participants(self.pg_pool()?, community_id, participant_hash).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::find_dm_by_participants(pool, community_id, participant_hash).await
+            }
+            DbBackend::Postgres => {
+                dm::find_dm_by_participants(self.pg_pool()?, community_id, participant_hash).await
+            }
+        }
     }
 
     /// Create or return an existing DM channel.
@@ -2404,7 +2424,14 @@ impl Db {
         participants: &[&[u8]],
         created_by: &[u8],
     ) -> Result<channel::ChannelRecord> {
-        dm::create_dm(self.pg_pool()?, community_id, participants, created_by).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::create_dm(pool, community_id, participants, created_by).await
+            }
+            DbBackend::Postgres => {
+                dm::create_dm(self.pg_pool()?, community_id, participants, created_by).await
+            }
+        }
     }
 
     /// List all DMs for a user.
@@ -2415,7 +2442,14 @@ impl Db {
         limit: u32,
         cursor: Option<Uuid>,
     ) -> Result<Vec<dm::DmRecord>> {
-        dm::list_dms_for_user(self.pg_pool()?, community_id, pubkey, limit, cursor).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::list_dms_for_user(pool, community_id, pubkey, limit, cursor).await
+            }
+            DbBackend::Postgres => {
+                dm::list_dms_for_user(self.pg_pool()?, community_id, pubkey, limit, cursor).await
+            }
+        }
     }
 
     /// Open or retrieve a DM for the given participants.
@@ -2464,7 +2498,14 @@ impl Db {
         channel_id: Uuid,
         pubkey: &[u8],
     ) -> Result<()> {
-        dm::hide_dm(self.pg_pool()?, community_id, channel_id, pubkey).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::hide_dm(pool, community_id, channel_id, pubkey).await
+            }
+            DbBackend::Postgres => {
+                dm::hide_dm(self.pg_pool()?, community_id, channel_id, pubkey).await
+            }
+        }
     }
 
     /// Unhide a DM channel for a specific user.
@@ -2474,7 +2515,14 @@ impl Db {
         channel_id: Uuid,
         pubkey: &[u8],
     ) -> Result<()> {
-        dm::unhide_dm(self.pg_pool()?, community_id, channel_id, pubkey).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::unhide_dm(pool, community_id, channel_id, pubkey).await
+            }
+            DbBackend::Postgres => {
+                dm::unhide_dm(self.pg_pool()?, community_id, channel_id, pubkey).await
+            }
+        }
     }
 
     /// List the channel IDs of all DMs the given user currently has hidden.
@@ -2483,7 +2531,10 @@ impl Db {
         community_id: CommunityId,
         pubkey: &[u8],
     ) -> Result<Vec<Uuid>> {
-        dm::list_hidden_dms(self.pg_pool()?, community_id, pubkey).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => sqlite::list_hidden_dms(pool, community_id, pubkey).await,
+            DbBackend::Postgres => dm::list_hidden_dms(self.pg_pool()?, community_id, pubkey).await,
+        }
     }
 
     /// Insert thread metadata.
