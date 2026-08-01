@@ -7,11 +7,11 @@ production G1 implementation.
 
 ## Current gate
 
-Phase 1 is ready for visual review: the normal application bootstrap, Mnemos
-materials and typography, signature glyphs, deterministic agent identity
-specimens, the Network opening state, memory recall, inspector, composer, and
-responsive foundation. Agents, Brain, and Continuity deliberately remain
-approval-gate placeholders until the shell direction is accepted.
+Phase 1 is ready for visual review: the normal application bootstrap, the
+Buzz-derived rail-and-card shell, Mnemos materials and typography, deterministic
+agent identity specimens, the Network opening state, memory recall, inspector,
+composer, and responsive foundation. Agents, Brain, and Continuity deliberately
+remain approval-gate placeholders until the shell direction is accepted.
 
 ## Run locally
 

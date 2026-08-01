@@ -123,16 +123,22 @@ the simulated capabilities generally available or production-ready.
 
 ## Visual direction
 
-Mode: dark technical with an immersive edge.
+Mode: Buzz-derived light application shell with Mnemos instrument details.
 
-- One dominant central plane; side regions stay quiet.
-- Near-black tonal steps, hairline borders and precise spacing carry hierarchy.
-- Color is limited to identity, state, provenance and focus.
-- Typography is light and role-based: readable sans for conversation, mono for
-  cryptographic and system metadata.
-- Motion represents thinking, arrival, retrieval, consolidation and completion.
-- No decorative gradients, generic AI glow, oversized pills or card mosaics.
-- The memorable element is the visible continuity of the agents, not ornament.
+- The navigation rail is the underlying housing surface; conversation and
+  inspector regions sit above it as independent rounded cards.
+- Buzz's familiar open timeline, header density, composer proportions, and
+  interaction ergonomics remain recognizable.
+- Narrow neutral tones, hairlines, and restrained elevation establish depth.
+- Color is limited to operational state; the single red lamp appears only for
+  active work, retrieval, streaming, or required attention.
+- Typography is readable and product-scaled: Instrument Sans for conversation,
+  Fragment Mono for cryptographic metadata, and Doto only inside active display
+  surfaces.
+- The deterministic public-key identity specimens are the primary authored
+  Mnemos signature and remain stable across every surface.
+- No decorative gradients, generic AI glow, ornamental dashboards, or card
+  mosaics inside the conversation plane.
 
 ## Acceptance criteria
 

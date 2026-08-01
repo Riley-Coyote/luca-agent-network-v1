@@ -38,7 +38,7 @@ test("Mnemos vision foundation preserves the deterministic Network story", async
     "The conductor was intentionally removed",
   );
   await expect(page.getByTestId("vision-message-m-02")).toContainText(
-    "RECEIPT",
+    "Signed receipt",
   );
 
   await page.getByTestId("vision-message-m-02").getByRole("button").click();
@@ -54,10 +54,13 @@ test("Mnemos vision foundation preserves the deterministic Network story", async
     (element) => getComputedStyle(element).backgroundColor,
   );
   await composer.fill("A local note about the launch.");
-  const focusedBackground = await composerHousing.evaluate(
-    (element) => getComputedStyle(element).backgroundColor,
-  );
-  expect(focusedBackground).not.toBe(idleBackground);
+  await expect
+    .poll(() =>
+      composerHousing.evaluate(
+        (element) => getComputedStyle(element).backgroundColor,
+      ),
+    )
+    .not.toBe(idleBackground);
   await composer.press("Enter");
   await expect(page.getByTestId("vision-network-thread")).toContainText(
     "A local note about the launch.",
@@ -78,6 +81,31 @@ test("Mnemos vision foundation preserves the deterministic Network story", async
 
   expect(consoleErrors).toEqual([]);
 });
+
+for (const viewport of [
+  { width: 1440, height: 900 },
+  { width: 1280, height: 800 },
+  { width: 1024, height: 768 },
+] as const) {
+  test(`Mnemos vision shell stays contained at ${viewport.width}x${viewport.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await page.goto("/?vision=demo");
+
+    await expect(page.getByTestId("vision-demo-app")).toBeVisible();
+    await expect(page.getByLabel("Message the launch room")).toBeVisible();
+
+    const dimensions = await page.evaluate(() => ({
+      clientHeight: document.documentElement.clientHeight,
+      clientWidth: document.documentElement.clientWidth,
+      scrollHeight: document.documentElement.scrollHeight,
+      scrollWidth: document.documentElement.scrollWidth,
+    }));
+    expect(dimensions.scrollWidth).toBe(dimensions.clientWidth);
+    expect(dimensions.scrollHeight).toBe(dimensions.clientHeight);
+  });
+}
 
 test("Mnemos vision foundation remains usable at 390px", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });

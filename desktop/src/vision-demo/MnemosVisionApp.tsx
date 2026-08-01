@@ -2,6 +2,8 @@ import {
   ChevronDown,
   Command,
   Hash,
+  Info,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   Paperclip,
@@ -9,10 +11,12 @@ import {
   Pin,
   PinOff,
   Play,
+  Plus,
   RotateCcw,
   Search,
   Send,
   Smile,
+  UserPlus,
   X,
 } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, useEffect, useRef } from "react";
@@ -73,13 +77,12 @@ function Sidebar() {
     >
       <div className="mn-sidebar-brand">
         <div className="mn-brand-lockup">
-          <span className="mn-brand-mark" data-material="display">
-            <MnemosGlyph name="mnemos" />
-          </span>
           <div className="mn-sidebar-copy">
             <strong>MNEMOS</strong>
-            <span>PERSONAL NETWORK</span>
           </div>
+          <span className="mn-brand-mark">
+            <MnemosGlyph name="mnemos" />
+          </span>
         </div>
         <IconButton
           label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -89,9 +92,15 @@ function Sidebar() {
         </IconButton>
       </div>
 
+      <button className="mn-new-conversation" type="button">
+        <Plus aria-hidden="true" />
+        <span className="mn-sidebar-copy">New conversation</span>
+        <kbd className="mn-sidebar-copy">⌘ N</kbd>
+      </button>
+
       <button className="mn-command-search" type="button">
         <Search aria-hidden="true" />
-        <span className="mn-sidebar-copy">Search network</span>
+        <span className="mn-sidebar-copy">Search</span>
         <kbd className="mn-sidebar-copy">
           <Command aria-hidden="true" />K
         </kbd>
@@ -124,7 +133,7 @@ function Sidebar() {
 
       <section className="mn-sidebar-section mn-sidebar-copy">
         <header>
-          <span>ROOMS</span>
+          <span>RECENT CONVERSATIONS</span>
           <button aria-label="Add room" type="button">
             +
           </button>
@@ -266,7 +275,7 @@ function DemoControl() {
 }
 
 function TopChrome() {
-  const { data } = useVisionMode();
+  const { data, setInspector } = useVisionMode();
   return (
     <header className="mn-top-chrome">
       <div className="mn-window-drag" data-tauri-drag-region />
@@ -277,7 +286,11 @@ function TopChrome() {
           <span>Where the product learns to explain itself</span>
         </div>
       </div>
-      <button className="mn-participant-stack" type="button">
+      <button
+        className="mn-participant-stack"
+        onClick={() => setInspector({ kind: "agent", id: "luca" })}
+        type="button"
+      >
         <span className="mn-participant-marks">
           {data.agents.map((agent) => (
             <AgentIdentitySpecimen
@@ -288,8 +301,23 @@ function TopChrome() {
             />
           ))}
         </span>
-        <span>3 residents</span>
+        <span>Add participant</span>
+        <UserPlus aria-hidden="true" />
       </button>
+      <div className="mn-header-tools">
+        <IconButton label="Search this conversation">
+          <Search />
+        </IconButton>
+        <IconButton
+          label="Open thread context"
+          onClick={() => setInspector({ kind: "agent", id: "luca" })}
+        >
+          <Info />
+        </IconButton>
+        <IconButton label="More conversation actions">
+          <MoreHorizontal />
+        </IconButton>
+      </div>
       <DemoControl />
     </header>
   );
@@ -331,7 +359,7 @@ function PersonMessage({ message }: { message: DemoMessage }) {
         <header>
           <strong>{agent?.name ?? "Riley"}</strong>
           <span>{message.time}</span>
-          {agent ? <small>SIGNED · {agent.fingerprint}</small> : null}
+          {agent ? <small>{agent.role}</small> : null}
         </header>
         <p>{message.body}</p>
         {message.meta ? <footer>{message.meta}</footer> : null}
@@ -354,7 +382,7 @@ function MemoryRecall({ message }: { message: DemoMessage }) {
       <header>
         <div>
           <span className="mn-display-live">
-            <i /> RETRIEVAL COMPLETE
+            <i /> Remembered context
           </span>
           <span>{message.time}</span>
         </div>
@@ -365,7 +393,7 @@ function MemoryRecall({ message }: { message: DemoMessage }) {
         onClick={() => setInspector({ kind: "memory", id: memory.id })}
         type="button"
       >
-        <span className="mn-memory-index">MEMORY / 01</span>
+        <span className="mn-memory-index">RECALLED FROM YOUR BRAIN</span>
         <h2>{memory.title}</h2>
         <p>{memory.body}</p>
         <dl>
@@ -401,9 +429,9 @@ function MemoryRecall({ message }: { message: DemoMessage }) {
       </button>
       <footer>
         <span>
-          <MnemosGlyph name="receipt" /> RECEIPT · 7F21…A90C
+          <MnemosGlyph name="receipt" /> Signed receipt · 7F21…A90C
         </span>
-        <span>SELECT TO INSPECT PROVENANCE</span>
+        <span>Open provenance</span>
       </footer>
     </section>
   );
@@ -475,11 +503,14 @@ function Thread() {
   return (
     <div className="mn-thread-scroll" data-testid="vision-network-thread">
       <section className="mn-thread-intro">
-        <span className="mn-engraving">ROOM / 01 · CREATED JUL 22</span>
-        <h1>Launch room</h1>
+        <div className="mn-thread-intro-mark">
+          <MnemosGlyph name="network" />
+        </div>
+        <span className="mn-engraving">PRIVATE ROOM · CREATED JUL 22</span>
+        <h1>#launch-room</h1>
         <p>
-          A continuous room shared by Riley and three resident agents. Identity,
-          recall, and authorship remain inspectable at every turn.
+          A continuous room for shaping the Mnemos launch with Luca, Mara, and
+          Sol. Identity, recall, and authorship stay inspectable.
         </p>
         <div>
           {data.agents.map((agent) => (
@@ -489,7 +520,7 @@ function Thread() {
                 publicKey={agent.publicKey}
                 size={22}
               />
-              {agent.name}
+              <span>{agent.name}</span>
             </span>
           ))}
         </div>
@@ -528,12 +559,12 @@ function Composer() {
 
   return (
     <form className="mn-composer" onSubmit={submit}>
-      <div className="mn-composer-input" data-material="housing">
+      <div className="mn-composer-input">
         <textarea
           aria-label="Message the launch room"
           onChange={(event) => runtime.setDraft(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Message launch-room"
+          placeholder="Message #launch-room"
           rows={1}
           value={runtime.draft}
         />
@@ -547,7 +578,7 @@ function Composer() {
             </IconButton>
           </div>
           <div>
-            <span>LOCAL VISION NOTE</span>
+            <span>Vision demo · local note</span>
             <button
               aria-label="Send local note"
               className="mn-send-button"
@@ -757,16 +788,18 @@ function MnemosVisionShell() {
     <div className="mn-vision" data-mnemos-vision data-testid="vision-demo-app">
       <Sidebar />
       <main className="mn-main" data-inspector-open={Boolean(inspector)}>
-        <TopChrome />
         <div className="mn-workspace">
-          <div className="mn-conversation">
-            {data.runtime.view === "network" ? (
-              <Thread />
-            ) : (
-              <PendingSurface view={data.runtime.view} />
-            )}
-            {data.runtime.view === "network" ? <Composer /> : null}
-          </div>
+          <section className="mn-conversation-card">
+            <TopChrome />
+            <div className="mn-conversation">
+              {data.runtime.view === "network" ? (
+                <Thread />
+              ) : (
+                <PendingSurface view={data.runtime.view} />
+              )}
+              {data.runtime.view === "network" ? <Composer /> : null}
+            </div>
+          </section>
           <Inspector />
         </div>
       </main>
