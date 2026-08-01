@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -14,7 +15,7 @@ use buzz_db::{Db, DbConfig};
 use buzz_pubsub::{rate_limiter::AdmissionRateLimiter, InProcessNip98ReplayGuard, PubSubManager};
 use buzz_search::SearchService;
 
-use buzz_relay::config::Config;
+use buzz_relay::config::{Config, RelayProfile};
 use buzz_relay::metrics as relay_metrics;
 use buzz_relay::router::{build_health_router, build_router};
 use buzz_relay::state::{AppBackends, AppState};
@@ -1139,7 +1140,7 @@ async fn run_single_node(config: Config, tracer_init: telemetry::TracerInit) -> 
         ));
     }
 
-    relay_metrics::install(config.metrics_port, usage_metrics_idle_timeout_secs(60));
+    relay_metrics::install_loopback(config.metrics_port, usage_metrics_idle_timeout_secs(60));
     let db_path =
         std::env::var("BUZZ_LOCAL_DB").unwrap_or_else(|_| "buzz-local.sqlite".to_string());
     let media_root =
@@ -1232,11 +1233,11 @@ async fn serve(
 ) -> anyhow::Result<()> {
     let config = &state.config;
 
-    let health_addr = std::net::SocketAddr::new(config.bind_addr.ip(), config.health_port);
-    let health_listener = tokio::net::TcpListener::bind(health_addr)
+    let health_host = health_listener_ip(config.profile);
+    let health_listener = tokio::net::TcpListener::bind((health_host, config.health_port))
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to bind health address {health_addr}: {e}"))?;
-    info!(addr = %health_addr, "Health probe listener started");
+        .map_err(|e| anyhow::anyhow!("Failed to bind health port {}: {e}", config.health_port))?;
+    info!(host = %health_host, port = config.health_port, "Health probe listener started");
     tokio::spawn(async move {
         axum::serve(health_listener, health_router).await.ok();
     });
