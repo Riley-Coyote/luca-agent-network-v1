@@ -3991,7 +3991,14 @@ impl Db {
         community: CommunityId,
         report: moderation::NewReport<'_>,
     ) -> Result<Uuid> {
-        moderation::insert_report(self.pg_pool()?, community, report).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::insert_moderation_report(pool, community, report).await
+            }
+            DbBackend::Postgres => {
+                moderation::insert_report(self.pg_pool()?, community, report).await
+            }
+        }
     }
 
     /// List moderation reports for a community, newest first.
@@ -4001,7 +4008,14 @@ impl Db {
         status: Option<&str>,
         limit: i64,
     ) -> Result<Vec<moderation::ReportRecord>> {
-        moderation::list_reports(self.pg_pool()?, community, status, limit).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::list_moderation_reports(pool, community, status, limit).await
+            }
+            DbBackend::Postgres => {
+                moderation::list_reports(self.pg_pool()?, community, status, limit).await
+            }
+        }
     }
 
     /// Fetch one moderation report by row id.
@@ -4010,7 +4024,14 @@ impl Db {
         community: CommunityId,
         report_id: Uuid,
     ) -> Result<Option<moderation::ReportRecord>> {
-        moderation::get_report(self.pg_pool()?, community, report_id).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::get_moderation_report(pool, community, report_id).await
+            }
+            DbBackend::Postgres => {
+                moderation::get_report(self.pg_pool()?, community, report_id).await
+            }
+        }
     }
 
     /// Fetch one moderation report by signed NIP-56 report event id.
@@ -4019,7 +4040,14 @@ impl Db {
         community: CommunityId,
         report_event_id: &[u8],
     ) -> Result<Option<moderation::ReportRecord>> {
-        moderation::get_report_by_event(self.pg_pool()?, community, report_event_id).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::get_moderation_report_by_event(pool, community, report_event_id).await
+            }
+            DbBackend::Postgres => {
+                moderation::get_report_by_event(self.pg_pool()?, community, report_event_id).await
+            }
+        }
     }
 
     /// Resolve, dismiss, or escalate an open moderation report.
@@ -4031,15 +4059,30 @@ impl Db {
         resolved_by: &[u8],
         action_id: Option<Uuid>,
     ) -> Result<bool> {
-        moderation::resolve_report(
-            self.pg_pool()?,
-            community,
-            report_id,
-            status,
-            resolved_by,
-            action_id,
-        )
-        .await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::resolve_moderation_report(
+                    pool,
+                    community,
+                    report_id,
+                    status,
+                    resolved_by,
+                    action_id,
+                )
+                .await
+            }
+            DbBackend::Postgres => {
+                moderation::resolve_report(
+                    self.pg_pool()?,
+                    community,
+                    report_id,
+                    status,
+                    resolved_by,
+                    action_id,
+                )
+                .await
+            }
+        }
     }
 
     /// Upsert a community ban for a member pubkey.
@@ -4051,15 +4094,22 @@ impl Db {
         reason: Option<&str>,
         expires_at: Option<DateTime<Utc>>,
     ) -> Result<()> {
-        moderation::ban_member(
-            self.pg_pool()?,
-            community,
-            pubkey,
-            actor,
-            reason,
-            expires_at,
-        )
-        .await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::ban_member(pool, community, pubkey, actor, reason, expires_at).await
+            }
+            DbBackend::Postgres => {
+                moderation::ban_member(
+                    self.pg_pool()?,
+                    community,
+                    pubkey,
+                    actor,
+                    reason,
+                    expires_at,
+                )
+                .await
+            }
+        }
     }
 
     /// Lift a community ban for a member pubkey.
@@ -4069,7 +4119,12 @@ impl Db {
         pubkey: &[u8],
         actor: &[u8],
     ) -> Result<bool> {
-        moderation::unban_member(self.pg_pool()?, community, pubkey, actor).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => sqlite::unban_member(pool, community, pubkey, actor).await,
+            DbBackend::Postgres => {
+                moderation::unban_member(self.pg_pool()?, community, pubkey, actor).await
+            }
+        }
     }
 
     /// Upsert a community timeout/write-block for a member pubkey.
@@ -4081,15 +4136,22 @@ impl Db {
         muted_until: DateTime<Utc>,
         reason: Option<&str>,
     ) -> Result<()> {
-        moderation::timeout_member(
-            self.pg_pool()?,
-            community,
-            pubkey,
-            actor,
-            muted_until,
-            reason,
-        )
-        .await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::timeout_member(pool, community, pubkey, actor, muted_until, reason).await
+            }
+            DbBackend::Postgres => {
+                moderation::timeout_member(
+                    self.pg_pool()?,
+                    community,
+                    pubkey,
+                    actor,
+                    muted_until,
+                    reason,
+                )
+                .await
+            }
+        }
     }
 
     /// Clear a community timeout/write-block for a member pubkey.
@@ -4099,7 +4161,14 @@ impl Db {
         pubkey: &[u8],
         actor: &[u8],
     ) -> Result<bool> {
-        moderation::untimeout_member(self.pg_pool()?, community, pubkey, actor).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::untimeout_member(pool, community, pubkey, actor).await
+            }
+            DbBackend::Postgres => {
+                moderation::untimeout_member(self.pg_pool()?, community, pubkey, actor).await
+            }
+        }
     }
 
     /// Fetch the active ban/timeout restriction state for enforcement hot paths.
@@ -4109,7 +4178,7 @@ impl Db {
         pubkey: &[u8],
     ) -> Result<moderation::RestrictionState> {
         match &self.backend {
-            DbBackend::SQLite(_) => Ok(moderation::RestrictionState::default()),
+            DbBackend::SQLite(pool) => sqlite::restriction_state(pool, community, pubkey).await,
             DbBackend::Postgres => {
                 moderation::restriction_state(self.pg_pool()?, community, pubkey).await
             }
@@ -4122,7 +4191,10 @@ impl Db {
         community: CommunityId,
         pubkey: &[u8],
     ) -> Result<Option<moderation::BanRecord>> {
-        moderation::get_ban(self.pg_pool()?, community, pubkey).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => sqlite::get_ban(pool, community, pubkey).await,
+            DbBackend::Postgres => moderation::get_ban(self.pg_pool()?, community, pubkey).await,
+        }
     }
 
     /// List currently restricted members in a community.
@@ -4130,7 +4202,10 @@ impl Db {
         &self,
         community: CommunityId,
     ) -> Result<Vec<moderation::BanRecord>> {
-        moderation::list_restricted(self.pg_pool()?, community).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => sqlite::list_restricted(pool, community).await,
+            DbBackend::Postgres => moderation::list_restricted(self.pg_pool()?, community).await,
+        }
     }
 
     /// Insert a moderation audit action row.
@@ -4139,7 +4214,14 @@ impl Db {
         community: CommunityId,
         action: moderation::NewAction<'_>,
     ) -> Result<Uuid> {
-        moderation::insert_action(self.pg_pool()?, community, action).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::insert_moderation_action(pool, community, action).await
+            }
+            DbBackend::Postgres => {
+                moderation::insert_action(self.pg_pool()?, community, action).await
+            }
+        }
     }
 
     /// List moderation audit action rows, newest first.
@@ -4148,7 +4230,14 @@ impl Db {
         community: CommunityId,
         limit: i64,
     ) -> Result<Vec<moderation::ActionRecord>> {
-        moderation::list_actions(self.pg_pool()?, community, limit).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::list_moderation_actions(pool, community, limit).await
+            }
+            DbBackend::Postgres => {
+                moderation::list_actions(self.pg_pool()?, community, limit).await
+            }
+        }
     }
 
     /// Return the current owner of git repo name `repo_id` in `community`, or
