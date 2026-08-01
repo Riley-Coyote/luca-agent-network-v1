@@ -1094,6 +1094,7 @@ dependencies = [
  "buzz-auth",
  "buzz-core",
  "chrono",
+ "dashmap",
  "deadpool-redis",
  "futures-util",
  "nostr",

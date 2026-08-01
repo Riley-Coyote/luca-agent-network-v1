@@ -1,6 +1,6 @@
 //! S3/MinIO storage client.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
 use buzz_core::tenant::{CommunityId, TenantContext};
@@ -8,9 +8,11 @@ use buzz_core::tenant::{CommunityId, TenantContext};
 use crate::config::MediaConfig;
 use crate::error::MediaError;
 use bytes::Bytes;
+use futures_util::StreamExt;
 use s3::creds::Credentials;
 use s3::{Bucket, Region};
 use serde::{Deserialize, Serialize};
+use tokio_util::io::ReaderStream;
 
 /// A stream of byte chunks from S3, usable with `axum::body::Body::from_stream()`.
 pub type ByteStream = Pin<Box<dyn futures_core::Stream<Item = Result<Bytes, MediaError>> + Send>>;
@@ -22,6 +24,11 @@ pub struct MediaStorage {
 
 enum MediaBackend {
     S3(S3MediaStorage),
+    Filesystem(FilesystemMediaStorage),
+}
+
+struct FilesystemMediaStorage {
+    root: PathBuf,
 }
 
 struct S3MediaStorage {
@@ -76,126 +83,232 @@ impl MediaStorage {
         })
     }
 
+    /// Creates a filesystem-backed content-addressed media store rooted at `root`.
+    pub fn filesystem(root: impl Into<PathBuf>) -> Self {
+        Self {
+            backend: MediaBackend::Filesystem(FilesystemMediaStorage { root: root.into() }),
+        }
+    }
+
+    #[cfg(test)]
     fn s3(&self) -> &S3MediaStorage {
         match &self.backend {
             MediaBackend::S3(storage) => storage,
+            MediaBackend::Filesystem(_) => panic!("filesystem media storage has no S3 client"),
+        }
+    }
+
+    fn filesystem_path(storage: &FilesystemMediaStorage, key: &str) -> Result<PathBuf, MediaError> {
+        if key.is_empty()
+            || key.starts_with('/')
+            || key
+                .split('/')
+                .any(|part| part.is_empty() || part == "." || part == "..")
+        {
+            return Err(MediaError::StorageError(
+                "invalid media storage key".to_owned(),
+            ));
+        }
+        let filename = key.rsplit('/').next().expect("validated non-empty key");
+        let sha = filename.split('.').next().unwrap_or_default();
+        if sha.len() >= 4 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            Ok(storage.root.join(&sha[..2]).join(&sha[2..4]).join(key))
+        } else {
+            Ok(storage.root.join("_aux").join(key))
+        }
+    }
+
+    fn fs_error(error: std::io::Error) -> MediaError {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            MediaError::NotFound
+        } else {
+            MediaError::Io(error.to_string())
         }
     }
 
     /// Store an object from a byte slice.
-    ///
-    /// Used for images, sidecars, and thumbnails. For large video files use
-    /// [`put_file`] to avoid loading the entire blob into RAM.
     pub async fn put(&self, key: &str, bytes: &[u8], content_type: &str) -> Result<(), MediaError> {
-        self.s3()
-            .bucket
-            .put_object_with_content_type(key, bytes, content_type)
-            .await?;
-        Ok(())
+        match &self.backend {
+            MediaBackend::S3(storage) => {
+                storage
+                    .bucket
+                    .put_object_with_content_type(key, bytes, content_type)
+                    .await?;
+                Ok(())
+            }
+            MediaBackend::Filesystem(storage) => {
+                let path = Self::filesystem_path(storage, key)?;
+                if let Some(parent) = path.parent() {
+                    tokio::fs::create_dir_all(parent)
+                        .await
+                        .map_err(Self::fs_error)?;
+                }
+                tokio::fs::write(path, bytes).await.map_err(Self::fs_error)
+            }
+        }
     }
 
-    /// Stream a file from disk into S3 without loading it into RAM.
-    ///
-    /// Uses rust-s3's `put_object_stream_with_content_type` which reads from
-    /// the file incrementally via an 8 MiB `BufReader`. The full file is never
-    /// held in memory simultaneously. Intended for video blobs (up to 500 MB).
+    /// Stream a file from disk into storage without loading it into RAM.
     pub async fn put_file(
         &self,
         key: &str,
         path: &Path,
         content_type: &str,
     ) -> Result<(), MediaError> {
-        const BUF: usize = 8 * 1024 * 1024; // 8 MiB read buffer
-
-        let file = tokio::fs::File::open(path)
-            .await
-            .map_err(|e| MediaError::Io(e.to_string()))?;
-        let mut reader = tokio::io::BufReader::with_capacity(BUF, file);
-
-        self.s3()
-            .bucket
-            .put_object_stream_with_content_type(&mut reader, key, content_type)
-            .await?;
-        Ok(())
+        match &self.backend {
+            MediaBackend::S3(storage) => {
+                const BUF: usize = 8 * 1024 * 1024;
+                let file = tokio::fs::File::open(path)
+                    .await
+                    .map_err(|e| MediaError::Io(e.to_string()))?;
+                let mut reader = tokio::io::BufReader::with_capacity(BUF, file);
+                storage
+                    .bucket
+                    .put_object_stream_with_content_type(&mut reader, key, content_type)
+                    .await?;
+                Ok(())
+            }
+            MediaBackend::Filesystem(storage) => {
+                let target = Self::filesystem_path(storage, key)?;
+                if let Some(parent) = target.parent() {
+                    tokio::fs::create_dir_all(parent)
+                        .await
+                        .map_err(Self::fs_error)?;
+                }
+                tokio::fs::copy(path, target)
+                    .await
+                    .map(|_| ())
+                    .map_err(Self::fs_error)
+            }
+        }
     }
 
     /// Retrieve an object's bytes.
     pub async fn get(&self, key: &str) -> Result<Vec<u8>, MediaError> {
-        match self.s3().bucket.get_object(key).await {
-            Ok(response) => Ok(response.to_vec()),
-            Err(s3::error::S3Error::HttpFailWithBody(404, _)) => Err(MediaError::NotFound),
-            Err(e) => Err(MediaError::StorageError(e.to_string())),
+        match &self.backend {
+            MediaBackend::S3(storage) => match storage.bucket.get_object(key).await {
+                Ok(response) => Ok(response.to_vec()),
+                Err(s3::error::S3Error::HttpFailWithBody(404, _)) => Err(MediaError::NotFound),
+                Err(e) => Err(MediaError::StorageError(e.to_string())),
+            },
+            MediaBackend::Filesystem(storage) => {
+                tokio::fs::read(Self::filesystem_path(storage, key)?)
+                    .await
+                    .map_err(Self::fs_error)
+            }
         }
     }
 
-    /// Retrieve a byte range from an object via S3-native `Range` GET.
-    ///
-    /// `start` and `end` are inclusive byte offsets. Only the requested slice
-    /// is transferred from S3 — the full object is never loaded into RAM.
-    /// Intended for HTTP 206 range responses on large video blobs.
+    /// Retrieve an inclusive byte range from an object.
     pub async fn get_range(&self, key: &str, start: u64, end: u64) -> Result<Vec<u8>, MediaError> {
-        match self
-            .s3()
-            .bucket
-            .get_object_range(key, start, Some(end))
-            .await
-        {
-            Ok(response) => Ok(response.to_vec()),
-            Err(s3::error::S3Error::HttpFailWithBody(404, _)) => Err(MediaError::NotFound),
-            Err(e) => Err(MediaError::StorageError(e.to_string())),
+        match &self.backend {
+            MediaBackend::S3(storage) => {
+                match storage.bucket.get_object_range(key, start, Some(end)).await {
+                    Ok(response) => Ok(response.to_vec()),
+                    Err(s3::error::S3Error::HttpFailWithBody(404, _)) => Err(MediaError::NotFound),
+                    Err(e) => Err(MediaError::StorageError(e.to_string())),
+                }
+            }
+            MediaBackend::Filesystem(storage) => {
+                let bytes = tokio::fs::read(Self::filesystem_path(storage, key)?)
+                    .await
+                    .map_err(Self::fs_error)?;
+                let start = usize::try_from(start)
+                    .map_err(|_| MediaError::StorageError("range start overflow".to_owned()))?;
+                let end = usize::try_from(end)
+                    .map_err(|_| MediaError::StorageError("range end overflow".to_owned()))?;
+                if start > end || end >= bytes.len() {
+                    return Err(MediaError::StorageError("invalid media range".to_owned()));
+                }
+                Ok(bytes[start..=end].to_vec())
+            }
         }
     }
 
-    /// Stream an object's bytes from S3 without loading into RAM.
-    ///
-    /// Returns a pinned stream of `Result<Bytes, MediaError>` chunks.
-    /// The full object is never buffered — intended for streaming large
-    /// blobs (video) directly into HTTP responses via `Body::from_stream()`.
+    /// Stream an object's bytes without buffering its full content.
     pub async fn get_stream(&self, key: &str) -> Result<ByteStream, MediaError> {
-        let response = self
-            .s3()
-            .bucket
-            .get_object_stream(key)
-            .await
-            .map_err(|e| MediaError::StorageError(e.to_string()))?;
-
-        if response.status_code == 404 {
-            return Err(MediaError::NotFound);
+        match &self.backend {
+            MediaBackend::S3(storage) => {
+                let response = storage
+                    .bucket
+                    .get_object_stream(key)
+                    .await
+                    .map_err(|e| MediaError::StorageError(e.to_string()))?;
+                if response.status_code == 404 {
+                    return Err(MediaError::NotFound);
+                }
+                Ok(Box::pin(futures_util::StreamExt::map(
+                    response.bytes,
+                    |chunk| chunk.map_err(|e| MediaError::StorageError(e.to_string())),
+                )))
+            }
+            MediaBackend::Filesystem(storage) => {
+                let file = tokio::fs::File::open(Self::filesystem_path(storage, key)?)
+                    .await
+                    .map_err(Self::fs_error)?;
+                Ok(Box::pin(
+                    ReaderStream::new(file).map(|chunk| chunk.map_err(Self::fs_error)),
+                ))
+            }
         }
-
-        let stream = futures_util::StreamExt::map(response.bytes, |chunk| {
-            chunk.map_err(|e| MediaError::StorageError(e.to_string()))
-        });
-        Ok(Box::pin(stream))
     }
 
-    /// Check if an object exists. Returns false on 404.
+    /// Check if an object exists. Returns false on absence.
     pub async fn head(&self, key: &str) -> Result<bool, MediaError> {
-        match self.s3().bucket.head_object(key).await {
-            Ok(_) => Ok(true),
-            Err(s3::error::S3Error::HttpFailWithBody(404, _)) => Ok(false),
-            Err(e) => Err(MediaError::StorageError(e.to_string())),
+        match &self.backend {
+            MediaBackend::S3(storage) => match storage.bucket.head_object(key).await {
+                Ok(_) => Ok(true),
+                Err(s3::error::S3Error::HttpFailWithBody(404, _)) => Ok(false),
+                Err(e) => Err(MediaError::StorageError(e.to_string())),
+            },
+            MediaBackend::Filesystem(storage) => {
+                match tokio::fs::metadata(Self::filesystem_path(storage, key)?).await {
+                    Ok(_) => Ok(true),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+                    Err(error) => Err(Self::fs_error(error)),
+                }
+            }
         }
     }
 
-    /// Delete an object. Returns an error on failure — callers decide whether to propagate.
+    /// Delete an object.
     pub async fn delete(&self, key: &str) -> Result<(), MediaError> {
-        self.s3()
-            .bucket
-            .delete_object(key)
-            .await
-            .map_err(|e| MediaError::StorageError(e.to_string()))?;
-        Ok(())
+        match &self.backend {
+            MediaBackend::S3(storage) => {
+                storage
+                    .bucket
+                    .delete_object(key)
+                    .await
+                    .map_err(|e| MediaError::StorageError(e.to_string()))?;
+                Ok(())
+            }
+            MediaBackend::Filesystem(storage) => {
+                tokio::fs::remove_file(Self::filesystem_path(storage, key)?)
+                    .await
+                    .map_err(Self::fs_error)
+            }
+        }
     }
 
     /// HEAD with metadata — returns Content-Length (size).
     pub async fn head_with_metadata(&self, key: &str) -> Result<Option<BlobHeadMeta>, MediaError> {
-        match self.s3().bucket.head_object(key).await {
-            Ok((result, _)) => Ok(Some(BlobHeadMeta {
-                size: result.content_length.unwrap_or(0) as u64,
-            })),
-            Err(s3::error::S3Error::HttpFailWithBody(404, _)) => Ok(None),
-            Err(e) => Err(MediaError::StorageError(e.to_string())),
+        match &self.backend {
+            MediaBackend::S3(storage) => match storage.bucket.head_object(key).await {
+                Ok((result, _)) => Ok(Some(BlobHeadMeta {
+                    size: result.content_length.unwrap_or(0) as u64,
+                })),
+                Err(s3::error::S3Error::HttpFailWithBody(404, _)) => Ok(None),
+                Err(e) => Err(MediaError::StorageError(e.to_string())),
+            },
+            MediaBackend::Filesystem(storage) => {
+                match tokio::fs::metadata(Self::filesystem_path(storage, key)?).await {
+                    Ok(metadata) => Ok(Some(BlobHeadMeta {
+                        size: metadata.len(),
+                    })),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                    Err(error) => Err(Self::fs_error(error)),
+                }
+            }
         }
     }
 
@@ -221,8 +334,8 @@ impl MediaStorage {
         sha256: &str,
     ) -> Result<BlobMeta, MediaError> {
         let key = Self::ctx_sidecar_key(ctx, sha256);
-        let resp = self.s3().bucket.get_object(&key).await?;
-        let meta: BlobMeta = serde_json::from_slice(&resp.to_vec())?;
+        let bytes = self.get(&key).await?;
+        let meta: BlobMeta = serde_json::from_slice(&bytes)?;
         Ok(meta)
     }
 
@@ -319,6 +432,54 @@ mod tests {
             err.to_string().contains("must be configured together"),
             "unexpected error: {err}"
         );
+    }
+
+    #[tokio::test]
+    async fn filesystem_backend_roundtrips_cas_sidecars_ranges_and_pages() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = MediaStorage::filesystem(dir.path());
+        let sha = "a".repeat(64);
+        let key = format!("{sha}.bin");
+        storage
+            .put(&key, b"hello", "application/octet-stream")
+            .await
+            .unwrap();
+        assert_eq!(storage.get(&key).await.unwrap(), b"hello");
+        assert_eq!(storage.get_range(&key, 1, 3).await.unwrap(), b"ell");
+        assert_eq!(
+            storage
+                .head_with_metadata(&key)
+                .await
+                .unwrap()
+                .unwrap()
+                .size,
+            5
+        );
+        assert!(dir.path().join("aa").join("aa").join(&key).exists());
+
+        let a = tenant(1);
+        let b = tenant(2);
+        storage
+            .put_sidecar(
+                &a,
+                &sha,
+                &BlobMeta {
+                    mime_type: "text/plain".to_owned(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            storage.read_sidecar_mime(&a, &key).await.as_deref(),
+            Some("text/plain")
+        );
+        assert_eq!(storage.read_sidecar_mime(&b, &key).await, None);
+        let page = storage.list_page(None, 1).await.unwrap();
+        assert_eq!(page.objects.len(), 1);
+        assert!(page.is_truncated);
+        storage.delete(&key).await.unwrap();
+        assert!(!storage.head(&key).await.unwrap());
     }
 
     #[test]
