@@ -46,9 +46,41 @@ pub struct JoinPolicyConfig {
     pub version: String,
 }
 
+/// Relay runtime profile. The default preserves the production service graph;
+/// `single-node` selects only process-local or filesystem-backed services.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RelayProfile {
+    /// Postgres, Redis, S3, and Postgres FTS.
+    Production,
+    /// One-process local relay with no external service dependencies.
+    SingleNode,
+}
+
+impl RelayProfile {
+    /// Whether this profile must avoid every external service connection.
+    pub fn is_single_node(self) -> bool {
+        matches!(self, Self::SingleNode)
+    }
+
+    fn from_env() -> Result<Self, ConfigError> {
+        match std::env::var("BUZZ_PROFILE") {
+            Err(_) => Ok(Self::Production),
+            Ok(value) if value.trim().is_empty() || value.eq_ignore_ascii_case("production") => {
+                Ok(Self::Production)
+            }
+            Ok(value) if value.eq_ignore_ascii_case("single-node") => Ok(Self::SingleNode),
+            Ok(value) => Err(ConfigError::InvalidValue(format!(
+                "BUZZ_PROFILE must be 'production' or 'single-node', got {value:?}"
+            ))),
+        }
+    }
+}
+
 /// Relay runtime configuration, loaded from environment variables.
 #[derive(Debug, Clone)]
 pub struct Config {
+    /// Service topology selected by `BUZZ_PROFILE`.
+    pub profile: RelayProfile,
     /// Address the relay HTTP/WebSocket server binds to.
     pub bind_addr: SocketAddr,
     /// Postgres database connection URL.
@@ -397,6 +429,7 @@ fn ensure_git_path(
 impl Config {
     /// Loads configuration from environment variables, falling back to development defaults.
     pub fn from_env() -> Result<Self, ConfigError> {
+        let profile = RelayProfile::from_env()?;
         let bind_addr_raw =
             std::env::var("BUZZ_BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:3000".to_string());
         let bind_addr = parse_bind_addr(&bind_addr_raw)?;
@@ -858,6 +891,7 @@ impl Config {
         }
 
         Ok(Self {
+            profile,
             bind_addr,
             database_url,
             read_database_url,

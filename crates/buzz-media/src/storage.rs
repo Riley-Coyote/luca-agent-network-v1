@@ -17,6 +17,14 @@ pub type ByteStream = Pin<Box<dyn futures_core::Stream<Item = Result<Bytes, Medi
 
 /// S3-compatible object storage client.
 pub struct MediaStorage {
+    backend: MediaBackend,
+}
+
+enum MediaBackend {
+    S3(S3MediaStorage),
+}
+
+struct S3MediaStorage {
     bucket: Box<Bucket>,
 }
 
@@ -63,7 +71,15 @@ impl MediaStorage {
         let bucket = Bucket::new(&config.s3_bucket, region, creds)
             .map_err(|e| MediaError::StorageError(e.to_string()))?
             .with_path_style();
-        Ok(Self { bucket })
+        Ok(Self {
+            backend: MediaBackend::S3(S3MediaStorage { bucket }),
+        })
+    }
+
+    fn s3(&self) -> &S3MediaStorage {
+        match &self.backend {
+            MediaBackend::S3(storage) => storage,
+        }
     }
 
     /// Store an object from a byte slice.
@@ -71,7 +87,8 @@ impl MediaStorage {
     /// Used for images, sidecars, and thumbnails. For large video files use
     /// [`put_file`] to avoid loading the entire blob into RAM.
     pub async fn put(&self, key: &str, bytes: &[u8], content_type: &str) -> Result<(), MediaError> {
-        self.bucket
+        self.s3()
+            .bucket
             .put_object_with_content_type(key, bytes, content_type)
             .await?;
         Ok(())
@@ -95,7 +112,8 @@ impl MediaStorage {
             .map_err(|e| MediaError::Io(e.to_string()))?;
         let mut reader = tokio::io::BufReader::with_capacity(BUF, file);
 
-        self.bucket
+        self.s3()
+            .bucket
             .put_object_stream_with_content_type(&mut reader, key, content_type)
             .await?;
         Ok(())
@@ -103,7 +121,7 @@ impl MediaStorage {
 
     /// Retrieve an object's bytes.
     pub async fn get(&self, key: &str) -> Result<Vec<u8>, MediaError> {
-        match self.bucket.get_object(key).await {
+        match self.s3().bucket.get_object(key).await {
             Ok(response) => Ok(response.to_vec()),
             Err(s3::error::S3Error::HttpFailWithBody(404, _)) => Err(MediaError::NotFound),
             Err(e) => Err(MediaError::StorageError(e.to_string())),
@@ -116,7 +134,12 @@ impl MediaStorage {
     /// is transferred from S3 — the full object is never loaded into RAM.
     /// Intended for HTTP 206 range responses on large video blobs.
     pub async fn get_range(&self, key: &str, start: u64, end: u64) -> Result<Vec<u8>, MediaError> {
-        match self.bucket.get_object_range(key, start, Some(end)).await {
+        match self
+            .s3()
+            .bucket
+            .get_object_range(key, start, Some(end))
+            .await
+        {
             Ok(response) => Ok(response.to_vec()),
             Err(s3::error::S3Error::HttpFailWithBody(404, _)) => Err(MediaError::NotFound),
             Err(e) => Err(MediaError::StorageError(e.to_string())),
@@ -130,6 +153,7 @@ impl MediaStorage {
     /// blobs (video) directly into HTTP responses via `Body::from_stream()`.
     pub async fn get_stream(&self, key: &str) -> Result<ByteStream, MediaError> {
         let response = self
+            .s3()
             .bucket
             .get_object_stream(key)
             .await
@@ -147,7 +171,7 @@ impl MediaStorage {
 
     /// Check if an object exists. Returns false on 404.
     pub async fn head(&self, key: &str) -> Result<bool, MediaError> {
-        match self.bucket.head_object(key).await {
+        match self.s3().bucket.head_object(key).await {
             Ok(_) => Ok(true),
             Err(s3::error::S3Error::HttpFailWithBody(404, _)) => Ok(false),
             Err(e) => Err(MediaError::StorageError(e.to_string())),
@@ -156,7 +180,8 @@ impl MediaStorage {
 
     /// Delete an object. Returns an error on failure — callers decide whether to propagate.
     pub async fn delete(&self, key: &str) -> Result<(), MediaError> {
-        self.bucket
+        self.s3()
+            .bucket
             .delete_object(key)
             .await
             .map_err(|e| MediaError::StorageError(e.to_string()))?;
@@ -165,7 +190,7 @@ impl MediaStorage {
 
     /// HEAD with metadata — returns Content-Length (size).
     pub async fn head_with_metadata(&self, key: &str) -> Result<Option<BlobHeadMeta>, MediaError> {
-        match self.bucket.head_object(key).await {
+        match self.s3().bucket.head_object(key).await {
             Ok((result, _)) => Ok(Some(BlobHeadMeta {
                 size: result.content_length.unwrap_or(0) as u64,
             })),
@@ -196,7 +221,7 @@ impl MediaStorage {
         sha256: &str,
     ) -> Result<BlobMeta, MediaError> {
         let key = Self::ctx_sidecar_key(ctx, sha256);
-        let resp = self.bucket.get_object(&key).await?;
+        let resp = self.s3().bucket.get_object(&key).await?;
         let meta: BlobMeta = serde_json::from_slice(&resp.to_vec())?;
         Ok(meta)
     }
@@ -269,8 +294,8 @@ mod tests {
     fn static_keys_build_client_with_configured_region() {
         let storage = MediaStorage::new(&storage_config("buzz_dev", "buzz_dev_secret"))
             .expect("static creds should build a client");
-        match storage.bucket.region {
-            Region::Custom { ref region, .. } => assert_eq!(region, "us-west-2"),
+        match &storage.s3().bucket.region {
+            Region::Custom { region, .. } => assert_eq!(region, "us-west-2"),
             other => panic!("expected Custom region, got {other:?}"),
         }
     }
