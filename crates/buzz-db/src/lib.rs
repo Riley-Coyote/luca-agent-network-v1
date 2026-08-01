@@ -1201,25 +1201,30 @@ impl Db {
         if channel_ids.is_empty() {
             return Ok(std::collections::HashMap::new());
         }
-        let rows = sqlx::query(
-            r#"
+        match &self.backend {
+            DbBackend::SQLite(pool) => sqlite::communities_of_channels(pool, channel_ids).await,
+            DbBackend::Postgres => {
+                let rows = sqlx::query(
+                    r#"
             SELECT id, community_id
             FROM channels
             WHERE id = ANY($1)
               AND deleted_at IS NULL
             "#,
-        )
-        .bind(channel_ids)
-        .fetch_all(self.pg_pool()?)
-        .await?;
+                )
+                .bind(channel_ids)
+                .fetch_all(self.pg_pool()?)
+                .await?;
 
-        let mut out = std::collections::HashMap::with_capacity(rows.len());
-        for row in rows {
-            let ch: Uuid = row.try_get("id")?;
-            let cm: Uuid = row.try_get("community_id")?;
-            out.insert(ch, CommunityId::from_uuid(cm));
+                let mut out = std::collections::HashMap::with_capacity(rows.len());
+                for row in rows {
+                    let ch: Uuid = row.try_get("id")?;
+                    let cm: Uuid = row.try_get("community_id")?;
+                    out.insert(ch, CommunityId::from_uuid(cm));
+                }
+                Ok(out)
+            }
         }
-        Ok(out)
     }
 
     /// Inserts an event. Returns `(StoredEvent, was_inserted)` — `false` on duplicate.
@@ -1311,7 +1316,13 @@ impl Db {
         community_id: CommunityId,
         id_bytes: &[u8],
     ) -> Result<Option<StoredEvent>> {
-        event::get_event_by_id_including_deleted(self.pg_pool()?, community_id, id_bytes).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => sqlite::get_event_by_id(pool, community_id, id_bytes).await,
+            DbBackend::Postgres => {
+                event::get_event_by_id_including_deleted(self.pg_pool()?, community_id, id_bytes)
+                    .await
+            }
+        }
     }
 
     /// Strict tenant-scoped event lookup for exact HTTP duplicate recovery.
@@ -1355,14 +1366,21 @@ impl Db {
         parent_event_id: Option<&[u8]>,
         root_event_id: Option<&[u8]>,
     ) -> Result<bool> {
-        event::soft_delete_event_and_update_thread(
-            self.pg_pool()?,
-            community_id,
-            event_id,
-            parent_event_id,
-            root_event_id,
-        )
-        .await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::soft_delete_event(pool, community_id, event_id).await
+            }
+            DbBackend::Postgres => {
+                event::soft_delete_event_and_update_thread(
+                    self.pg_pool()?,
+                    community_id,
+                    event_id,
+                    parent_event_id,
+                    root_event_id,
+                )
+                .await
+            }
+        }
     }
 
     /// Returns the most recent `created_at` for a channel.
@@ -1555,6 +1573,13 @@ impl Db {
         channel_id: Option<Uuid>,
         thread_meta: Option<event::ThreadMetadataParams<'_>>,
     ) -> Result<(StoredEvent, bool)> {
+        if let DbBackend::SQLite(pool) = &self.backend {
+            // SQLite Phase 1 persists the canonical event; thread relationships
+            // remain durable in the event's NIP-10 tags until Phase 2 ports the
+            // denormalized thread metadata tables.
+            let _ = thread_meta;
+            return sqlite::insert_event(pool, community_id, event, channel_id).await;
+        }
         let result = event::insert_event_with_thread_metadata(
             self.pg_pool()?,
             community_id,
@@ -1776,6 +1801,19 @@ impl Db {
         actor_pubkey: &[u8],
         emoji: &str,
     ) -> Result<event::ReactionEventInsertOutcome> {
+        if let DbBackend::SQLite(pool) = &self.backend {
+            let _ = thread_meta;
+            return sqlite::insert_reaction_event(
+                pool,
+                community_id,
+                event,
+                channel_id,
+                target_event_id,
+                actor_pubkey,
+                emoji,
+            )
+            .await;
+        }
         let outcome = event::insert_reaction_event_with_thread_metadata(
             self.pg_pool()?,
             community_id,
@@ -2239,16 +2277,32 @@ impl Db {
         about: Option<&str>,
         nip05_handle: Option<&str>,
     ) -> Result<()> {
-        user::update_user_profile(
-            self.pg_pool()?,
-            community_id,
-            pubkey,
-            display_name,
-            avatar_url,
-            about,
-            nip05_handle,
-        )
-        .await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::update_user_profile(
+                    pool,
+                    community_id,
+                    pubkey,
+                    display_name,
+                    avatar_url,
+                    about,
+                    nip05_handle,
+                )
+                .await
+            }
+            DbBackend::Postgres => {
+                user::update_user_profile(
+                    self.pg_pool()?,
+                    community_id,
+                    pubkey,
+                    display_name,
+                    avatar_url,
+                    about,
+                    nip05_handle,
+                )
+                .await
+            }
+        }
     }
 
     /// Look up a user by NIP-05 handle.
@@ -2371,7 +2425,33 @@ impl Db {
         pubkeys: &[&[u8]],
         created_by: &[u8],
     ) -> Result<(channel::ChannelRecord, bool)> {
-        dm::open_dm(self.pg_pool()?, community_id, pubkeys, created_by).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::open_dm(pool, community_id, pubkeys, created_by, None)
+                    .await?
+                    .ok_or_else(|| DbError::InvalidData("unexpected duplicate DM open".into()))
+            }
+            DbBackend::Postgres => {
+                dm::open_dm(self.pg_pool()?, community_id, pubkeys, created_by).await
+            }
+        }
+    }
+
+    /// Atomically persist a SQLite DM-open command and its channel mutation.
+    /// `None` means the command event was already processed.
+    pub async fn open_dm_sqlite_command(
+        &self,
+        community_id: CommunityId,
+        pubkeys: &[&[u8]],
+        created_by: &[u8],
+        event: &nostr::Event,
+    ) -> Result<Option<(channel::ChannelRecord, bool)>> {
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::open_dm(pool, community_id, pubkeys, created_by, Some(event)).await
+            }
+            DbBackend::Postgres => Ok(None),
+        }
     }
 
     /// Hide a DM channel for a specific user.
@@ -2532,6 +2612,11 @@ impl Db {
         community_id: CommunityId,
         event_id: &[u8],
     ) -> Result<Option<thread::ThreadMetadataRecord>> {
+        if matches!(&self.backend, DbBackend::SQLite(_)) {
+            // SQLite Phase 1 derives ancestry from durable NIP-10 event tags;
+            // denormalized counters and metadata arrive with the Phase 2 port.
+            return Ok(None);
+        }
         thread::get_thread_metadata_by_event(self.pg_pool()?, community_id, event_id).await
     }
 
@@ -2582,6 +2667,17 @@ impl Db {
         pubkey: &[u8],
         emoji: &str,
     ) -> Result<bool> {
+        if let DbBackend::SQLite(pool) = &self.backend {
+            return sqlite::remove_reaction(
+                pool,
+                community,
+                event_id,
+                event_created_at,
+                pubkey,
+                emoji,
+            )
+            .await;
+        }
         reaction::remove_reaction(
             self.pg_pool()?,
             community,
@@ -2599,6 +2695,10 @@ impl Db {
         community: CommunityId,
         reaction_event_id: &[u8],
     ) -> Result<bool> {
+        if let DbBackend::SQLite(pool) = &self.backend {
+            return sqlite::remove_reaction_by_source_event_id(pool, community, reaction_event_id)
+                .await;
+        }
         reaction::remove_reaction_by_source_event_id(self.pg_pool()?, community, reaction_event_id)
             .await
     }
@@ -3839,6 +3939,9 @@ impl Db {
         event: &nostr::Event,
         channel_id: Option<Uuid>,
     ) -> Result<(StoredEvent, bool)> {
+        if let DbBackend::SQLite(pool) = &self.backend {
+            return sqlite::replace_event(pool, community_id, event, channel_id, None).await;
+        }
         let kind_i32 = buzz_core::kind::event_kind_i32(event);
         let pubkey_bytes = event.pubkey.to_bytes();
         let created_at_secs = event.created_at.as_secs() as i64;
@@ -4164,6 +4267,9 @@ impl Db {
         d_tag: &str,
         channel_id: Option<Uuid>,
     ) -> Result<(StoredEvent, bool)> {
+        if let DbBackend::SQLite(pool) = &self.backend {
+            return sqlite::replace_event(pool, community_id, event, channel_id, Some(d_tag)).await;
+        }
         let kind_i32 = buzz_core::kind::event_kind_i32(event);
         let pubkey_bytes = event.pubkey.to_bytes();
         let created_at_secs = event.created_at.as_secs() as i64;
