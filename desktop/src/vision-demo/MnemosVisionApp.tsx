@@ -5,7 +5,6 @@ import {
   Info,
   MoreHorizontal,
   PanelLeftClose,
-  PanelLeftOpen,
   Paperclip,
   Pause,
   Pin,
@@ -77,18 +76,22 @@ function Sidebar() {
     >
       <div className="mn-sidebar-brand">
         <div className="mn-brand-lockup">
-          <div className="mn-sidebar-copy">
-            <strong>MNEMOS</strong>
-          </div>
           <span className="mn-brand-mark">
             <MnemosGlyph name="mnemos" />
           </span>
+          <div className="mn-sidebar-copy">
+            <strong>MNEMOS</strong>
+          </div>
         </div>
         <IconButton
           label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
           onClick={() => setSidebarCollapsed(!isSidebarCollapsed)}
         >
-          {isSidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+          {isSidebarCollapsed ? (
+            <MnemosGlyph name="mnemos" />
+          ) : (
+            <PanelLeftClose />
+          )}
         </IconButton>
       </div>
 
