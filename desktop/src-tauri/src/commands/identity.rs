@@ -49,6 +49,35 @@ pub fn get_identity(state: State<'_, AppState>) -> Result<IdentityInfo, String> 
     })
 }
 
+// F11's native-only verification seam is active solely for the exact debug
+// setting `LUCA_TEST_FAIL_PERSONAL_HOME_PROVISIONING=1`. Any other value keeps
+// the normal relay-resolution path. These constants and the branch below are
+// absent from release builds.
+#[cfg(debug_assertions)]
+const LUCA_TEST_PERSONAL_HOME_FAILURE_ENV: &str = "LUCA_TEST_FAIL_PERSONAL_HOME_PROVISIONING";
+#[cfg(debug_assertions)]
+const LUCA_TEST_PERSONAL_HOME_FAILURE_VALUE: &str = "1";
+#[cfg(debug_assertions)]
+const LUCA_TEST_PERSONAL_HOME_FAILURE_ERROR: &str =
+    "Luca test failpoint: personal-home provisioning unavailable";
+
+#[cfg(debug_assertions)]
+fn personal_home_provisioning_failpoint_enabled() -> bool {
+    std::env::var(LUCA_TEST_PERSONAL_HOME_FAILURE_ENV)
+        .is_ok_and(|value| value == LUCA_TEST_PERSONAL_HOME_FAILURE_VALUE)
+}
+
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub fn get_default_relay_url() -> Result<String, String> {
+    if personal_home_provisioning_failpoint_enabled() {
+        return Err(LUCA_TEST_PERSONAL_HOME_FAILURE_ERROR.to_string());
+    }
+
+    Ok(relay::relay_ws_url())
+}
+
+#[cfg(not(debug_assertions))]
 #[tauri::command]
 pub fn get_default_relay_url() -> String {
     relay::relay_ws_url()
@@ -476,6 +505,75 @@ pub async fn nip44_decrypt_from_self(
     })
     .await
     .map_err(|e| format!("spawn_blocking failed: {e}"))?
+}
+
+#[cfg(all(test, debug_assertions))]
+mod default_relay_url_failpoint_tests {
+    use super::{
+        get_default_relay_url, LUCA_TEST_PERSONAL_HOME_FAILURE_ENV,
+        LUCA_TEST_PERSONAL_HOME_FAILURE_ERROR, LUCA_TEST_PERSONAL_HOME_FAILURE_VALUE,
+    };
+    use std::{ffi::OsString, sync::Mutex};
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    struct EnvRestore {
+        name: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvRestore {
+        fn set(name: &'static str, value: Option<&str>) -> Self {
+            let previous = std::env::var_os(name);
+            match value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
+            Self { name, previous }
+        }
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            match self.previous.take() {
+                Some(value) => std::env::set_var(self.name, value),
+                None => std::env::remove_var(self.name),
+            }
+        }
+    }
+
+    #[test]
+    fn exact_debug_value_forces_stable_native_failure() {
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _restore = EnvRestore::set(
+            LUCA_TEST_PERSONAL_HOME_FAILURE_ENV,
+            Some(LUCA_TEST_PERSONAL_HOME_FAILURE_VALUE),
+        );
+
+        assert_eq!(
+            get_default_relay_url(),
+            Err(LUCA_TEST_PERSONAL_HOME_FAILURE_ERROR.to_string())
+        );
+    }
+
+    #[test]
+    fn missing_or_inexact_debug_value_leaves_success_path_enabled() {
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        {
+            let _restore = EnvRestore::set(LUCA_TEST_PERSONAL_HOME_FAILURE_ENV, None);
+            assert!(get_default_relay_url().is_ok());
+        }
+
+        {
+            let _restore = EnvRestore::set(LUCA_TEST_PERSONAL_HOME_FAILURE_ENV, Some("true"));
+            assert!(get_default_relay_url().is_ok());
+        }
+    }
 }
 
 #[cfg(test)]
