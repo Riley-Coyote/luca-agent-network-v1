@@ -1189,6 +1189,16 @@ mod tests {
         assert_eq!(decision, ManagedDispatchReconciliation::Rejected);
         assert_eq!(done_rx.recv().expect("late cancellation result"), 0);
         cancellation.join().expect("join cancellation");
+        assert_eq!(
+            fixture
+                .outbox
+                .preflight_existing(&fixture.request)
+                .expect("outbox receipt")
+                .expect("retained outbox row")
+                .state,
+            ManagedOutboxState::Rejected,
+            "the outbox must retain the same terminal decision as dispatch authority"
+        );
         assert!(fixture.outbox.reconciliation_entries().is_empty());
         assert_eq!(
             fixture
@@ -1242,6 +1252,25 @@ mod tests {
             restarted
                 .settle_probe_terminal_rejection(&entry, &mut fixture.outbox, 101)
                 .expect("settle cancellation"),
+            ManagedDispatchReconciliation::Cancelled
+        );
+        assert_eq!(
+            fixture
+                .outbox
+                .preflight_existing(&fixture.request)
+                .expect("outbox receipt")
+                .expect("retained outbox row")
+                .state,
+            ManagedOutboxState::Cancelled,
+            "a cancellation that linearized first must remain the shared terminal decision"
+        );
+        assert_eq!(
+            fixture
+                .store
+                .lock()
+                .expect("store")
+                .authorize_reconciliation(&fixture.request, &fixture.event_id, 101)
+                .expect("terminal state"),
             ManagedDispatchReconciliation::Cancelled
         );
         assert!(fixture.outbox.reconciliation_entries().is_empty());

@@ -358,6 +358,21 @@ async fn luca_f09_exact_duplicate_probe_is_author_bound_non_ingesting_and_revoca
         .expect("missing-payload probe");
     assert_eq!(missing_payload.status(), reqwest::StatusCode::UNAUTHORIZED);
 
+    let wrong_payload_auth = nip98_post_header(&author, &probe_url, "{}");
+    let wrong_payload = client
+        .post(&probe_url)
+        .header("Authorization", wrong_payload_auth)
+        .header("Content-Type", "application/json")
+        .body(serde_json::to_string(&stored).expect("stored body"))
+        .send()
+        .await
+        .expect("wrong-payload probe");
+    assert_eq!(
+        wrong_payload.status(),
+        reqwest::StatusCode::UNAUTHORIZED,
+        "probe NIP-98 payload must bind the exact submitted event body"
+    );
+
     // Ordinary POST /events retains its existing ingest path. A newly seeded
     // current member can still send a fresh kind-9 event normally.
     let fresh_author = Keys::generate();

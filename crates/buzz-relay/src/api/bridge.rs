@@ -41,23 +41,17 @@ fn parse_event_submit_mode(
     }
 }
 
-fn enforce_probe_nip98(
+fn event_submit_auth_requirements(
     mode: EventSubmitMode,
-    headers: &HeaderMap,
-) -> Result<(), (StatusCode, Json<Value>)> {
-    if mode == EventSubmitMode::Probe
-        && headers
-            .get("authorization")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.strip_prefix("Nostr "))
-            .is_none()
-    {
-        return Err(api_error(
-            StatusCode::UNAUTHORIZED,
-            "exact event probe requires NIP-98 authorization",
-        ));
+    configured_require_auth_token: bool,
+) -> (bool, bool) {
+    match mode {
+        EventSubmitMode::Ingest => (configured_require_auth_token, false),
+        // Probe is an author-only exact-event oracle. It must never inherit
+        // the development X-Pubkey fallback, even on a dev-configured relay,
+        // and its fresh NIP-98 event must bind the exact submitted body.
+        EventSubmitMode::Probe => (true, true),
     }
-    Ok(())
 }
 
 async fn enforce_http_admission(
@@ -672,7 +666,8 @@ pub async fn submit_event(
             )
         })?;
     let mode = parse_event_submit_mode(raw_query.as_deref())?;
-    enforce_probe_nip98(mode, &headers)?;
+    let (require_auth_token, require_payload) =
+        event_submit_auth_requirements(mode, state.config.require_auth_token);
 
     let path = if mode == EventSubmitMode::Probe {
         "/events?mode=probe"
@@ -685,8 +680,8 @@ pub async fn submit_event(
         "POST",
         &url,
         Some(&body),
-        state.config.require_auth_token,
-        mode == EventSubmitMode::Probe,
+        require_auth_token,
+        require_payload,
     )?;
     let pubkey_hex = pubkey.to_hex();
 
@@ -2413,12 +2408,23 @@ mod tests {
             "x-pubkey",
             axum::http::HeaderValue::from_str(&keys.public_key().to_hex()).expect("pubkey header"),
         );
+        let (require_auth_token, require_payload) =
+            event_submit_auth_requirements(EventSubmitMode::Probe, false);
         assert!(
-            enforce_probe_nip98(EventSubmitMode::Probe, &headers).is_err(),
-            "probe mode must categorically require NIP-98"
+            verify_bridge_auth_with_options(
+                &headers,
+                "POST",
+                "http://localhost/events?mode=probe",
+                Some(b"{}"),
+                require_auth_token,
+                require_payload,
+            )
+            .is_err(),
+            "probe mode must categorically reject the dev X-Pubkey fallback"
         );
-        assert!(
-            enforce_probe_nip98(EventSubmitMode::Ingest, &headers).is_ok(),
+        assert_eq!(
+            event_submit_auth_requirements(EventSubmitMode::Ingest, false),
+            (false, false),
             "ordinary dev ingest keeps its existing X-Pubkey fallback"
         );
     }
