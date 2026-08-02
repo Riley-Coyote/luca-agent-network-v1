@@ -18,6 +18,18 @@ test("Mnemos vision foundation preserves the deterministic Network story", async
     page.getByTestId("vision-demo-disclosure-desktop"),
   ).toContainText("01/08");
 
+  await expect(page.locator(".mn-room-row svg")).toHaveCount(0);
+
+  const threadScrollbar = await page
+    .getByTestId("vision-network-thread")
+    .evaluate((element) => ({
+      colorScheme: getComputedStyle(element).colorScheme,
+      trackBackground: getComputedStyle(element, "::-webkit-scrollbar-track")
+        .backgroundColor,
+    }));
+  expect(threadScrollbar.colorScheme).toContain("light");
+  expect(threadScrollbar.trackBackground).not.toBe("rgb(0, 0, 0)");
+
   for (const [destination, lucideName] of [
     ["network", "messages-square"],
     ["agents", "users-round"],

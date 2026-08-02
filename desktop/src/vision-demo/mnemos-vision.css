@@ -31,6 +31,7 @@
   --mn-font-mono: "Fragment Mono", "SFMono-Regular", monospace;
   --mn-font-display: "Doto Variable", "Doto", monospace;
   background: var(--mn-base);
+  color-scheme: light;
   color: var(--mn-ink);
   font-family: var(--mn-font-ui);
   font-size: 15px;
@@ -239,8 +240,8 @@
   border-radius: 9px;
   display: flex;
   gap: 10px;
-  height: 38px;
-  margin: 7px 0 10px;
+  height: 36px;
+  margin: 6px 0 8px;
   min-width: 0;
   padding: 0 10px;
   text-align: left;
@@ -281,19 +282,19 @@
 
 .mn-primary-nav {
   display: grid;
-  gap: 2px;
+  gap: 1px;
 }
 
 .mn-nav-item {
   align-items: center;
   background: transparent;
   border: 0;
-  border-radius: 10px;
+  border-radius: 9px;
   display: flex;
-  gap: 10px;
-  height: 38px;
+  gap: 9px;
+  height: 36px;
   min-width: 0;
-  padding: 0 10px;
+  padding: 0 9px;
   text-align: left;
   transition:
     background 140ms ease,
@@ -352,7 +353,7 @@
 }
 
 .mn-sidebar-section {
-  margin-top: 21px;
+  margin-top: 18px;
 }
 
 .mn-sidebar[data-collapsed="true"] .mn-sidebar-section {
@@ -366,8 +367,8 @@
   font-size: 10px;
   font-weight: 580;
   justify-content: space-between;
-  letter-spacing: 0.075em;
-  padding: 0 10px 8px;
+  letter-spacing: 0.065em;
+  padding: 0 9px 6px;
 }
 
 .mn-sidebar-section > header button {
@@ -379,8 +380,14 @@
   display: inline-flex;
   height: 22px;
   justify-content: center;
+  opacity: 0.64;
   padding: 0;
   width: 22px;
+}
+
+.mn-sidebar-section > header:hover button,
+.mn-sidebar-section > header button:focus-visible {
+  opacity: 1;
 }
 
 .mn-sidebar-section > header button svg {
@@ -395,40 +402,33 @@
 
 .mn-room-list {
   display: grid;
-  gap: 2px;
+  gap: 0;
 }
 
 .mn-room-row {
   align-items: center;
   background: transparent;
   border: 0;
-  border-radius: 9px;
+  border-radius: 8px;
   display: flex;
-  gap: 9px;
-  height: 36px;
-  padding: 0 10px;
+  height: 32px;
+  padding: 0 9px;
   text-align: left;
   width: 100%;
 }
 
-.mn-room-row:hover,
-.mn-room-row[data-active="true"] {
-  background: var(--mn-pressed);
+.mn-room-row:hover {
+  background: color-mix(in srgb, var(--mn-base-deep) 80%, transparent);
 }
 
 .mn-room-row[data-active="true"] {
+  background: color-mix(in srgb, var(--mn-pressed) 74%, var(--mn-base));
   font-weight: 560;
-}
-
-.mn-room-row svg {
-  color: var(--mn-ink-3);
-  height: 14px;
-  width: 14px;
 }
 
 .mn-room-row span {
   flex: 1;
-  font-size: 13px;
+  font-size: 12.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -442,9 +442,9 @@
   display: inline-flex;
   font-size: 9px;
   font-weight: 500;
-  height: 18px;
+  height: 17px;
   justify-content: center;
-  min-width: 18px;
+  min-width: 17px;
   padding: 0 5px;
 }
 
@@ -459,9 +459,9 @@
   border: 0;
   border-radius: 9px;
   display: flex;
-  gap: 10px;
-  min-height: 47px;
-  padding: 5px 9px;
+  gap: 9px;
+  min-height: 42px;
+  padding: 3px 9px;
   text-align: left;
   width: 100%;
 }
@@ -477,13 +477,13 @@
 }
 
 .mn-resident-row strong {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 570;
 }
 
 .mn-resident-row small {
   color: var(--mn-ink-3);
-  font-size: 11px;
+  font-size: 10.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -494,8 +494,8 @@
   border-top: 1px solid color-mix(in srgb, var(--mn-line) 80%, transparent);
   display: flex;
   gap: 10px;
-  min-height: 58px;
-  padding: 12px 7px 0;
+  min-height: 54px;
+  padding: 10px 7px 0;
 }
 
 .mn-owner-specimen {
@@ -854,10 +854,34 @@
 
 /* Buzz-like open message timeline */
 .mn-thread-scroll {
+  background: var(--mn-card);
+  color-scheme: light;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+}
+
+.mn-thread-scroll::-webkit-scrollbar {
+  background: var(--mn-card);
+  width: 10px;
+}
+
+.mn-thread-scroll::-webkit-scrollbar-track {
+  background: var(--mn-card);
+}
+
+.mn-thread-scroll::-webkit-scrollbar-thumb {
+  background-clip: content-box;
+  background-color: var(--mn-line);
+  border: 3px solid var(--mn-card);
+  border-radius: 999px;
+  min-height: 48px;
+}
+
+.mn-thread-scroll::-webkit-scrollbar-thumb:hover,
+.mn-thread-scroll::-webkit-scrollbar-thumb:active {
+  background-color: var(--mn-ink-4);
 }
 
 .mn-thread-intro,

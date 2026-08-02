@@ -151,7 +151,6 @@ function Sidebar() {
               key={room.id}
               type="button"
             >
-              <Hash aria-hidden="true" />
               <span>{room.name}</span>
               {room.unread ? <b>{room.unread}</b> : null}
             </button>
@@ -175,7 +174,7 @@ function Sidebar() {
               <AgentIdentitySpecimen
                 accessibleName={agent.name}
                 publicKey={agent.publicKey}
-                size={27}
+                size={26}
                 state={runtime.isPlaying && index === 0 ? "working" : "present"}
               />
               <span>

@@ -8,6 +8,8 @@
   - `/var/folders/rv/v8ffrtfd18qgq08w73m_4qbh0000gn/T/TemporaryItems/NSIRD_screencaptureui_v8SRnc/Screenshot 2026-07-31 at 9.06.16 PM.png`
   - `/var/folders/rv/v8ffrtfd18qgq08w73m_4qbh0000gn/T/TemporaryItems/NSIRD_screencaptureui_ARFXuX/Screenshot 2026-07-31 at 9.35.09 PM.png`
   - `/var/folders/rv/v8ffrtfd18qgq08w73m_4qbh0000gn/T/TemporaryItems/NSIRD_screencaptureui_oIYp6U/Screenshot 2026-08-01 at 4.57.13 PM.png`
+  - `/var/folders/rv/v8ffrtfd18qgq08w73m_4qbh0000gn/T/TemporaryItems/NSIRD_screencaptureui_Fru9K0/Screenshot 2026-08-01 at 9.24.10 PM.png`
+  - `/var/folders/rv/v8ffrtfd18qgq08w73m_4qbh0000gn/T/TemporaryItems/NSIRD_screencaptureui_sxwkpd/Screenshot 2026-08-01 at 9.25.52 PM.png`
   - `/Users/rileycoyote/Downloads/ChatGPT Image Jul 18, 2026, 01_07_46 AM.png`
   - `/Users/rileycoyote/Downloads/ChatGPT Image Jul 31, 2026, 07_12_19 PM.png`
 - Implementation route: `http://127.0.0.1:4322/?vision=demo`
@@ -32,6 +34,8 @@
   - `docs/vision-demo/captures/mnemos-continuity-390x844.png`
   - `docs/vision-demo/captures/mnemos-icons-1440x900.png`
   - `docs/vision-demo/captures/mnemos-icons-390x844.png`
+  - `docs/vision-demo/captures/mnemos-rail-refined.png`
+  - `docs/vision-demo/captures/mnemos-scrollbar-beat-08.png`
 - Combined comparison evidence:
   - `docs/vision-demo/captures/qa-buzz-vs-mnemos.png`
   - `docs/vision-demo/captures/qa-mockup-vs-inspector.png`
@@ -41,6 +45,7 @@
   - `docs/vision-demo/captures/qa-reference-vs-complete-shell.png`
   - `docs/vision-demo/captures/qa-complete-surface-set.png`
   - `docs/vision-demo/captures/qa-custom-glyphs-vs-lucide.png`
+  - `docs/vision-demo/captures/qa-rail-before-vs-refined.png`
 - States: Network opening, recalled memory, synthesis, later return, Agents
   dossier, Brain provenance, Continuity evidence, inspectors, and responsive
   product surfaces.
@@ -144,11 +149,32 @@ The inspector comparison is large enough to judge header density, card separatio
   `docs/vision-demo/captures/mnemos-icons-1440x900.png`, and
   `docs/vision-demo/captures/mnemos-icons-390x844.png`.
 
+### Iteration 9 — passed
+
+- [P2] The long conversation inherited a dark native scrollbar track, creating
+  a black gutter against the light conversation card. Recent conversations also
+  retained channel hash icons, loose 36px rows, and a comparatively heavy
+  selected state, which made the rail feel more like a workspace channel list
+  than a finished personal chat product.
+- Fix: explicitly set the conversation scroller to a light native color scheme
+  with a white track and narrow neutral thumb; removed icons from recent
+  conversation rows; tightened them to 32px; reduced section gaps and label
+  tracking; softened the active conversation fill; and tightened resident-agent
+  rows while preserving the approved identity specimens.
+- Post-fix evidence:
+  `docs/vision-demo/captures/qa-rail-before-vs-refined.png`,
+  `docs/vision-demo/captures/mnemos-rail-refined.png`, and
+  `docs/vision-demo/captures/mnemos-scrollbar-beat-08.png`. Runtime inspection
+  confirms a light color scheme, `rgb(251, 251, 250)` track, neutral
+  `rgb(212, 214, 211)` thumb, 32px conversation rows, zero conversation-row
+  SVGs, and zero horizontal overflow.
+
 ## Findings
 
 No actionable P0, P1, or P2 visual mismatches remain for the completed vision
-scope. The icon system now matches the commercial finish of the shell while
-leaving the approved identity specimens and deferred wordmark treatment intact.
+scope. The rail now has the compact, text-forward rhythm of a frontier chat app,
+the light thread scrollbar belongs to the conversation card, and the approved
+identity specimens remain visually distinct from ordinary navigation chrome.
 
 ## Primary interactions and runtime checks
 
@@ -162,6 +188,8 @@ leaving the approved identity specimens and deferred wordmark treatment intact.
   continuity-event inspection, pinning, and all eight story states.
 - Verified every desktop and mobile destination renders the intended Lucide
   icon contract at a consistent optical size and stroke weight.
+- Verified the long-thread scrollbar track and thumb remain neutral on the light
+  conversation card and every recent-conversation row is icon-free.
 - Verified no document overflow at 1440×900, 1280×800, 1024×768, or 390×844.
 - Checked the live browser console: no errors.
 - Typecheck, focused E2E (9 tests), E2E build, and production build pass.
