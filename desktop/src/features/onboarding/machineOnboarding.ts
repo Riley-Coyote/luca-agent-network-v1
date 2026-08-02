@@ -228,12 +228,13 @@ export function useMachineOnboardingState({
   let stage: MachineOnboardingStage;
   if (identityResetFailed && identityQuery.status === "success") {
     stage = "reset-failed";
-  } else if (identityLocked && identityQuery.status === "success") {
+  } else if (
+    (identityLocked || identityLost) &&
+    identityQuery.status === "success"
+  ) {
     stage = "keyring-locked";
   } else if (relaunchRequired) {
     stage = "relaunch-required";
-  } else if (identityLost && identityQuery.status === "success") {
-    stage = "onboarding";
   } else if (identityQuery.status === "error") {
     stage = "ready";
   } else if (

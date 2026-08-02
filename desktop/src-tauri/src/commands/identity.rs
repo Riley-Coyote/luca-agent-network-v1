@@ -94,9 +94,13 @@ pub fn is_shared_identity() -> bool {
 /// Protected owner backup is desktop-held identity only. The env key has
 /// authority even when the optional shared-mode flag is absent, so its mere
 /// valid presence must deny export and recovery.
-fn is_env_supplied_identity() -> bool {
-    std::env::var("BUZZ_PRIVATE_KEY")
-        .ok()
+pub(crate) fn is_env_supplied_identity() -> bool {
+    is_env_supplied_identity_value(std::env::var("BUZZ_PRIVATE_KEY").ok())
+}
+
+fn is_env_supplied_identity_value(value: Option<String>) -> bool {
+    value
+        .map(zeroize::Zeroizing::new)
         .and_then(|key| Keys::parse(key.trim()).ok())
         .is_some()
 }
@@ -673,6 +677,23 @@ mod default_relay_url_failpoint_tests {
             let _restore = EnvRestore::set(LUCA_TEST_PERSONAL_HOME_FAILURE_ENV, Some("true"));
             assert!(get_default_relay_url().is_ok());
         }
+    }
+}
+
+#[cfg(test)]
+mod owner_recovery_env_tests {
+    use super::is_env_supplied_identity_value;
+    use nostr::{Keys, ToBech32};
+    use zeroize::Zeroizing;
+
+    #[test]
+    fn owner_identity_recovery_env_supplied_identity_is_denied() {
+        let nsec = Zeroizing::new(Keys::generate().secret_key().to_bech32().unwrap());
+        assert!(is_env_supplied_identity_value(Some(
+            nsec.as_str().to_owned()
+        )));
+        assert!(!is_env_supplied_identity_value(None));
+        assert!(!is_env_supplied_identity_value(Some("invalid".to_string())));
     }
 }
 

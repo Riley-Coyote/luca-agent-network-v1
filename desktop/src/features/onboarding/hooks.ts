@@ -487,9 +487,9 @@ export function useAppOnboardingState(isSharedIdentity: boolean) {
   const [isCompletingStarterSetup, setIsCompletingStarterSetup] =
     React.useState(false);
   const identityLost = identity?.lost === true;
-  // Keyring unreachable at boot — the real key is still in the OS keyring but
-  // the session cannot access it. No in-app recovery is possible; the user
-  // must unlock the keyring externally and relaunch. Mutually exclusive with lost.
+  // Lost and locked identities share the protected-backup recovery surface.
+  // A true first launch has neither flag and keeps the distinct manual nsec
+  // import path in ordinary onboarding.
   const identityLocked = identity?.locked === true;
   // Boot-time Phase 2 reset failed — wipe was attempted but verification failed.
   // The sentinel is preserved so the next relaunch retries automatically.
@@ -684,7 +684,7 @@ export function useAppOnboardingState(isSharedIdentity: boolean) {
     stage:
       identityResetFailed && identityQuery.status === "success"
         ? ("reset-failed" as const)
-        : identityLocked && identityQuery.status === "success"
+        : (identityLocked || identityLost) && identityQuery.status === "success"
           ? ("keyring-locked" as const)
           : relaunchRequired
             ? ("relaunch-required" as const)

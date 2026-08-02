@@ -1,6 +1,10 @@
 import * as React from "react";
 import { CheckCircle2, Info, LockKeyhole } from "lucide-react";
-import { exportProtectedOwnerIdentity } from "@/shared/api/tauriIdentity";
+import {
+  exportProtectedOwnerIdentity,
+  isValidOwnerBackupPassphrase,
+  ownerBackupPassphraseByteLength,
+} from "@/shared/api/tauriIdentity";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { ONBOARDING_PRIMARY_CTA_CLASS } from "./OnboardingChrome";
@@ -26,7 +30,10 @@ export function BackupStep({ direction, onBack, onNext }: BackupStepProps) {
   const [exportedFile, setExportedFile] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const canExport =
-    passphrase.length >= 12 && passphrase === confirmation && !isExporting;
+    isValidOwnerBackupPassphrase(passphrase) &&
+    passphrase === confirmation &&
+    !isExporting;
+  const passphraseBytes = ownerBackupPassphraseByteLength(passphrase);
 
   async function handleExport() {
     setIsExporting(true);
@@ -95,9 +102,8 @@ export function BackupStep({ direction, onBack, onNext }: BackupStepProps) {
                     aria-label="Backup passphrase"
                     autoComplete="new-password"
                     data-testid="onboarding-backup-passphrase"
-                    minLength={12}
                     onChange={(event) => setPassphrase(event.target.value)}
-                    placeholder="Passphrase (12 characters minimum)"
+                    placeholder="Passphrase (12–1024 UTF-8 bytes)"
                     type="password"
                     value={passphrase}
                   />
@@ -112,6 +118,11 @@ export function BackupStep({ direction, onBack, onNext }: BackupStepProps) {
                   />
                   {confirmation && passphrase !== confirmation ? (
                     <p className="text-xs text-destructive">Passphrases do not match.</p>
+                  ) : null}
+                  {passphrase && !isValidOwnerBackupPassphrase(passphrase) ? (
+                    <p className="text-xs text-destructive">
+                      Passphrase is {passphraseBytes} UTF-8 bytes; use 12–1024.
+                    </p>
                   ) : null}
                   {error ? (
                     <p className="text-xs text-destructive" role="alert">

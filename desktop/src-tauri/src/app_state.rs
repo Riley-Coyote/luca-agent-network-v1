@@ -135,7 +135,7 @@ pub struct AppState {
 /// treated as absent rather than left on an ephemeral identity.
 fn identity_from_env() -> Option<Keys> {
     match std::env::var("BUZZ_PRIVATE_KEY") {
-        Ok(nsec) => match Keys::parse(nsec.trim()) {
+        Ok(nsec) => match Keys::parse(zeroize::Zeroizing::new(nsec).trim()) {
             Ok(keys) => Some(keys),
             Err(error) => {
                 eprintln!("buzz-desktop: invalid BUZZ_PRIVATE_KEY: {error}");

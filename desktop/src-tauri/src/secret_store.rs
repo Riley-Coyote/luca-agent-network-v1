@@ -23,6 +23,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use zeroize::{Zeroize, Zeroizing};
 
 /// Result of probing the keyring before a migration: distinguishes "reachable
 /// but holds no entry" (safe to migrate into) from "unreachable this boot"
@@ -42,6 +43,19 @@ pub enum KeyringProbe {
 /// Username used for the single blob keychain entry. All secrets are stored
 /// as a JSON map under this name within the service.
 const BLOB_KEY: &str = "secrets";
+
+/// Parsed Keychain blob whose secret values are erased before deallocation.
+/// HashMap itself has no maintained `Zeroize` implementation, so the values
+/// are explicitly cleared while the allocations are still owned here.
+struct ZeroizingSecretMap(HashMap<String, String>);
+
+impl Drop for ZeroizingSecretMap {
+    fn drop(&mut self) {
+        for value in self.0.values_mut() {
+            value.zeroize();
+        }
+    }
+}
 
 // ── Interprocess advisory lock ─────────────────────────────────────────────
 //
@@ -596,17 +610,105 @@ impl SecretStore {
     /// Read one value directly from the OS-backed blob without consulting the
     /// process cache or attempting any legacy migration. Recovery uses this to
     /// bind verification and rollback to the value actually held by Keychain.
-    pub fn load_raw_readonly(&self, key: &str) -> Result<Option<String>, String> {
+    pub fn load_raw_readonly(&self, key: &str) -> Result<Option<Zeroizing<String>>, String> {
         #[cfg(feature = "system-keyring")]
         {
-            let Some(bytes) = self.read_blob_raw()? else {
-                return Ok(None);
+            let entry = keyring_entry(&self.service, BLOB_KEY)
+                .map_err(|_| "system keychain could not be opened".to_string())?;
+            let blob = match entry.get_password() {
+                Ok(blob) => Zeroizing::new(blob),
+                Err(keyring::Error::NoEntry) => return Ok(None),
+                Err(error) if is_keyring_availability_error(&error.to_string()) => {
+                    return Err("system keychain is unavailable".to_string());
+                }
+                Err(_) => return Err("system keychain could not be read".to_string()),
             };
-            let json =
-                String::from_utf8(bytes).map_err(|_| "keyring data is invalid".to_string())?;
-            let map = serde_json::from_str::<HashMap<String, String>>(&json)
-                .map_err(|_| "keyring data is invalid".to_string())?;
-            Ok(map.get(key).cloned())
+            let mut map = ZeroizingSecretMap(
+                serde_json::from_str::<HashMap<String, String>>(&blob)
+                    .map_err(|_| "keyring data is invalid".to_string())?,
+            );
+            Ok(map.0.remove(key).map(Zeroizing::new))
+        }
+        #[cfg(not(feature = "system-keyring"))]
+        {
+            let _ = key;
+            Err("system-keyring feature disabled".to_string())
+        }
+    }
+
+    /// Mutate the OS Keychain blob without populating the ordinary process
+    /// cache. Every blob, JSON, and map value used by protected recovery is
+    /// erased on drop; any older cached copy is erased and discarded.
+    #[cfg(feature = "system-keyring")]
+    fn mutate_raw_zeroizing(
+        &self,
+        mutation: impl FnOnce(&mut HashMap<String, String>),
+    ) -> Result<(), String> {
+        let _lock = acquire_blob_lock(&self.service)?;
+        let mut cache = self.cache.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some(cached) = cache.take() {
+            drop(ZeroizingSecretMap(cached));
+        }
+        drop(cache);
+        let entry = keyring_entry(&self.service, BLOB_KEY)
+            .map_err(|_| "system keychain could not be opened".to_string())?;
+        let mut map = match entry.get_password() {
+            Ok(blob) => {
+                let blob = Zeroizing::new(blob);
+                ZeroizingSecretMap(
+                    serde_json::from_str::<HashMap<String, String>>(&blob)
+                        .map_err(|_| "keyring data is invalid".to_string())?,
+                )
+            }
+            Err(keyring::Error::NoEntry) => ZeroizingSecretMap(HashMap::new()),
+            Err(error) if is_keyring_availability_error(&error.to_string()) => {
+                return Err("system keychain is unavailable".to_string());
+            }
+            Err(_) => return Err("system keychain could not be read".to_string()),
+        };
+        mutation(&mut map.0);
+        let json = Zeroizing::new(
+            serde_json::to_string(&map.0)
+                .map_err(|_| "keyring data could not be encoded".to_string())?,
+        );
+        entry
+            .set_password(&json)
+            .map_err(|_| "system keychain could not be written".to_string())?;
+        Ok(())
+    }
+
+    /// Direct recovery-only Keychain write with no retained plaintext cache.
+    pub(crate) fn store_raw_zeroizing(&self, key: &str, value: &str) -> Result<(), String> {
+        #[cfg(feature = "system-keyring")]
+        {
+            self.mutate_raw_zeroizing(|map| {
+                if let Some(previous) = map.insert(key.to_owned(), value.to_owned()) {
+                    drop(Zeroizing::new(previous));
+                }
+            })
+        }
+        #[cfg(not(feature = "system-keyring"))]
+        {
+            let _ = (key, value);
+            Err("system-keyring feature disabled".to_string())
+        }
+    }
+
+    /// Direct recovery-only Keychain delete with no retained plaintext cache.
+    pub(crate) fn delete_raw_zeroizing(&self, key: &str) -> Result<(), String> {
+        #[cfg(feature = "system-keyring")]
+        {
+            self.mutate_raw_zeroizing(|map| {
+                if let Some(previous) = map.remove(key) {
+                    drop(Zeroizing::new(previous));
+                }
+            })?;
+            #[cfg(target_os = "macos")]
+            let _ = delete_generic_password_options(dpk_opts(&self.service, key));
+            if let Ok(entry) = keyring_entry(&self.service, key) {
+                let _ = entry.delete_credential();
+            }
+            Ok(())
         }
         #[cfg(not(feature = "system-keyring"))]
         {

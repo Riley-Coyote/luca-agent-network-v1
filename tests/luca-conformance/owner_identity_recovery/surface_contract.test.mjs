@@ -52,3 +52,21 @@ test("confirmed recovery is recovery-only and serialized", async () => {
   assert.match(confirmation, /persist_verified_keychain/);
   assert.doesNotMatch(confirmation, /persist_imported_identity/);
 });
+
+test("lost and locked identities route to protected recovery", async () => {
+  for (const path of [
+    "desktop/src/features/onboarding/hooks.ts",
+    "desktop/src/features/onboarding/machineOnboarding.ts",
+  ]) {
+    const routing = await source(path);
+    assert.match(routing, /\(identityLocked \|\| identityLost\)/);
+    assert.match(routing, /keyring-locked/);
+  }
+});
+
+test("frontend passphrase gate measures UTF-8 bytes", async () => {
+  const frontend = await source("desktop/src/shared/api/tauriIdentity.ts");
+  assert.match(frontend, /new TextEncoder\(\)\.encode\(passphrase\)\.byteLength/);
+  assert.match(frontend, /OWNER_BACKUP_PASSPHRASE_MIN_BYTES = 12/);
+  assert.match(frontend, /OWNER_BACKUP_PASSPHRASE_MAX_BYTES = 1024/);
+});

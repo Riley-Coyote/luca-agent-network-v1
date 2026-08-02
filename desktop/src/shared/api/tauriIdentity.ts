@@ -9,6 +9,21 @@ type RawIdentity = {
   reset_failed?: boolean;
 };
 
+export const OWNER_BACKUP_PASSPHRASE_MIN_BYTES = 12;
+export const OWNER_BACKUP_PASSPHRASE_MAX_BYTES = 1024;
+
+export function ownerBackupPassphraseByteLength(passphrase: string): number {
+  return new TextEncoder().encode(passphrase).byteLength;
+}
+
+export function isValidOwnerBackupPassphrase(passphrase: string): boolean {
+  const bytes = ownerBackupPassphraseByteLength(passphrase);
+  return (
+    bytes >= OWNER_BACKUP_PASSPHRASE_MIN_BYTES &&
+    bytes <= OWNER_BACKUP_PASSPHRASE_MAX_BYTES
+  );
+}
+
 function fromRawIdentity(raw: RawIdentity): Identity {
   return {
     pubkey: raw.pubkey,

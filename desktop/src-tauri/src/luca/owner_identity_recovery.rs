@@ -8,7 +8,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
-    sync::atomic::Ordering,
+    sync::{atomic::Ordering, Mutex},
 };
 
 use age::{secrecy::SecretString, Decryptor, Encryptor};
@@ -280,7 +280,15 @@ pub(crate) fn export_protected_owner_backup(
     validate_passphrase(&passphrase)?;
     validate_backup_path(&destination)?;
     let keys = state.signing_keys()?;
-    let bundle = build_manifest(&keys)?;
+    export_protected_owner_backup_for_keys(&keys, destination, passphrase)
+}
+
+fn export_protected_owner_backup_for_keys(
+    keys: &Keys,
+    destination: PathBuf,
+    passphrase: Zeroizing<String>,
+) -> Result<OwnerBackupResult, String> {
+    let bundle = build_manifest(keys)?;
     let plaintext = bundle
         .to_canonical_secret_bytes()
         .map_err(|_| public_error("backup manifest could not be created"))?;
@@ -321,22 +329,22 @@ pub(crate) fn preview_protected_owner_backup(
 }
 
 trait RecoveryKeyStore {
-    fn load_raw(&self, key: &str) -> Result<Option<String>, String>;
+    fn load_raw(&self, key: &str) -> Result<Option<Zeroizing<String>>, String>;
     fn store(&self, key: &str, value: &str) -> Result<(), String>;
     fn delete(&self, key: &str) -> Result<(), String>;
 }
 
 impl RecoveryKeyStore for SecretStore {
-    fn load_raw(&self, key: &str) -> Result<Option<String>, String> {
+    fn load_raw(&self, key: &str) -> Result<Option<Zeroizing<String>>, String> {
         self.load_raw_readonly(key)
     }
 
     fn store(&self, key: &str, value: &str) -> Result<(), String> {
-        self.store(key, value)
+        self.store_raw_zeroizing(key, value)
     }
 
     fn delete(&self, key: &str) -> Result<(), String> {
-        self.delete(key)
+        self.delete_raw_zeroizing(key)
     }
 }
 
@@ -350,8 +358,7 @@ fn rollback_keychain(store: &dyn RecoveryKeyStore, prior: Option<&str>) -> Resul
 fn persist_verified_keychain(store: &dyn RecoveryKeyStore, keys: &Keys) -> Result<(), String> {
     let prior = store
         .load_raw(IDENTITY_KEY_NAME)
-        .map_err(|_| public_error("system keychain could not be read"))?
-        .map(Zeroizing::new);
+        .map_err(|_| public_error("system keychain could not be read"))?;
     let encoded = Zeroizing::new(
         keys.secret_key()
             .to_bech32()
@@ -364,7 +371,6 @@ fn persist_verified_keychain(store: &dyn RecoveryKeyStore, keys: &Keys) -> Resul
     let verification = store
         .load_raw(IDENTITY_KEY_NAME)
         .map_err(|_| public_error("system keychain read-back failed"))?
-        .map(Zeroizing::new)
         .ok_or_else(|| public_error("system keychain read-back failed"))
         .and_then(|readback| {
             let parsed = Keys::parse(readback.as_str())
@@ -381,8 +387,7 @@ fn persist_verified_keychain(store: &dyn RecoveryKeyStore, keys: &Keys) -> Resul
         })?;
         let restored = store
             .load_raw(IDENTITY_KEY_NAME)
-            .map_err(|_| public_error("system keychain rollback could not be verified"))?
-            .map(Zeroizing::new);
+            .map_err(|_| public_error("system keychain rollback could not be verified"))?;
         if restored.as_deref().map(String::as_str) != prior_value {
             return Err(public_error(
                 "system keychain rollback could not be verified",
@@ -401,6 +406,29 @@ fn validate_recovery_confirmation(
     actual_ciphertext_sha256: &str,
     actual_owner_pubkey: &str,
 ) -> Result<(), String> {
+    validate_confirmation_request(
+        identity_lost,
+        keyring_locked,
+        expected_ciphertext_sha256,
+        confirmed_owner_pubkey,
+    )?;
+    if actual_ciphertext_sha256 != expected_ciphertext_sha256 {
+        return Err(public_error("backup changed after preview"));
+    }
+    if actual_owner_pubkey != confirmed_owner_pubkey {
+        return Err(public_error(
+            "confirmed owner public key does not match the backup",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_confirmation_request(
+    identity_lost: bool,
+    keyring_locked: bool,
+    expected_ciphertext_sha256: &str,
+    confirmed_owner_pubkey: &str,
+) -> Result<(), String> {
     if !identity_lost && !keyring_locked {
         return Err(public_error(
             "identity recovery is only available while identity is lost or locked",
@@ -411,15 +439,48 @@ fn validate_recovery_confirmation(
     {
         return Err(public_error("recovery confirmation is invalid"));
     }
-    if actual_ciphertext_sha256 != expected_ciphertext_sha256 {
-        return Err(public_error("backup changed after preview"));
-    }
-    if actual_owner_pubkey != confirmed_owner_pubkey {
-        return Err(public_error(
-            "confirmed owner public key does not match the backup",
-        ));
-    }
     Ok(())
+}
+
+fn confirm_with_store(
+    store: &dyn RecoveryKeyStore,
+    identity_lost: bool,
+    keyring_locked: bool,
+    source: &Path,
+    passphrase: &str,
+    expected_ciphertext_sha256: &str,
+    confirmed_owner_pubkey: &str,
+) -> Result<ValidatedBackup, String> {
+    // Reject absent or malformed confirmation before any Keychain access.
+    validate_confirmation_request(
+        identity_lost,
+        keyring_locked,
+        expected_ciphertext_sha256,
+        confirmed_owner_pubkey,
+    )?;
+    let ciphertext = read_bounded_ciphertext(source)?;
+    let digest = sha256_hex(&ciphertext);
+    let validated = decrypt_and_validate(&ciphertext, passphrase, "")?;
+    validate_recovery_confirmation(
+        identity_lost,
+        keyring_locked,
+        expected_ciphertext_sha256,
+        confirmed_owner_pubkey,
+        &digest,
+        &validated.preview.owner_pubkey,
+    )?;
+    persist_verified_keychain(store, &validated.keys)?;
+    Ok(validated)
+}
+
+fn with_import_serialization<T>(
+    lock: &Mutex<()>,
+    operation: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let _guard = lock
+        .lock()
+        .map_err(|_| public_error("identity recovery is unavailable"))?;
+    operation()
 }
 
 pub(crate) fn confirm_protected_owner_recovery(
@@ -433,55 +494,46 @@ pub(crate) fn confirm_protected_owner_recovery(
     if shared_identity {
         return Err(public_error("shared identities cannot be imported"));
     }
-    let _mutation_guard = state
-        .identity_mutation
-        .lock()
-        .map_err(|_| public_error("identity recovery is unavailable"))?;
-    let identity_lost = state.identity_lost.load(Ordering::Acquire);
-    let keyring_locked = state.keyring_locked.load(Ordering::Acquire);
-    if !identity_lost && !keyring_locked {
-        return Err(public_error(
-            "identity recovery is only available while identity is lost or locked",
-        ));
-    }
+    with_import_serialization(&state.identity_mutation, || {
+        let identity_lost = state.identity_lost.load(Ordering::Acquire);
+        let keyring_locked = state.keyring_locked.load(Ordering::Acquire);
 
-    // Confirmation deliberately re-reads and re-decrypts the exact file.
-    let ciphertext = read_bounded_ciphertext(&source)?;
-    let digest = sha256_hex(&ciphertext);
-    let validated = decrypt_and_validate(&ciphertext, &passphrase, "")?;
-    validate_recovery_confirmation(
-        identity_lost,
-        keyring_locked,
-        &expected_ciphertext_sha256,
-        &confirmed_owner_pubkey,
-        &digest,
-        &validated.preview.owner_pubkey,
-    )?;
+        // Acquire the activation guard before the Keychain write so a poisoned
+        // AppState lock can never leave Keychain changed while memory stays stale.
+        let mut active_keys = state
+            .keys
+            .lock()
+            .map_err(|_| public_error("recovered identity could not be activated"))?;
+        let store = SecretStore::shared(crate::app_state::keyring_service());
+        let validated = confirm_with_store(
+            store,
+            identity_lost,
+            keyring_locked,
+            &source,
+            &passphrase,
+            &expected_ciphertext_sha256,
+            &confirmed_owner_pubkey,
+        )?;
 
-    // Acquire the activation guard before the Keychain write so a poisoned
-    // AppState lock can never leave Keychain changed while memory stays stale.
-    // The guard is not mutated until persistence and read-back both succeed.
-    let mut active_keys = state
-        .keys
-        .lock()
-        .map_err(|_| public_error("recovered identity could not be activated"))?;
-    let store = SecretStore::shared(crate::app_state::keyring_service());
-    persist_verified_keychain(store, &validated.keys)?;
-
-    let owner_pubkey = validated.keys.public_key().to_hex();
-    *active_keys = validated.keys;
-    state.identity_lost.store(false, Ordering::Release);
-    state.keyring_locked.store(false, Ordering::Release);
-    Ok(OwnerRecoveryResult {
-        owner_pubkey,
-        recovered: true,
+        let owner_pubkey = validated.keys.public_key().to_hex();
+        *active_keys = validated.keys;
+        state.identity_lost.store(false, Ordering::Release);
+        state.keyring_locked.store(false, Ordering::Release);
+        Ok(OwnerRecoveryResult {
+            owner_pubkey,
+            recovered: true,
+        })
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering as AtomicOrdering},
+        Arc, Barrier,
+    };
+    use std::time::Duration;
 
     fn test_passphrase() -> &'static str {
         "correct horse battery staple"
@@ -670,27 +722,35 @@ mod tests {
 
     #[derive(Default)]
     struct FakeStore {
-        value: Mutex<Option<String>>,
-        corrupt_readback: Mutex<bool>,
+        value: Mutex<Option<Zeroizing<String>>>,
+        readback_once: Mutex<Option<String>>,
+        fail_store: Mutex<bool>,
+        store_attempts: Mutex<usize>,
         writes: Mutex<usize>,
     }
 
     impl RecoveryKeyStore for FakeStore {
-        fn load_raw(&self, _key: &str) -> Result<Option<String>, String> {
-            let value = self.value.lock().unwrap().clone();
-            if *self.corrupt_readback.lock().unwrap()
-                && *self.writes.lock().unwrap() > 0
-                && value.is_some()
-            {
-                Ok(Some("not-an-nsec".to_string()))
-            } else {
-                Ok(value)
+        fn load_raw(&self, _key: &str) -> Result<Option<Zeroizing<String>>, String> {
+            if *self.writes.lock().unwrap() > 0 {
+                if let Some(value) = self.readback_once.lock().unwrap().take() {
+                    return Ok(Some(Zeroizing::new(value)));
+                }
             }
+            Ok(self
+                .value
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|value| Zeroizing::new(value.as_str().to_owned())))
         }
 
         fn store(&self, _key: &str, value: &str) -> Result<(), String> {
+            *self.store_attempts.lock().unwrap() += 1;
+            if *self.fail_store.lock().unwrap() {
+                return Err("injected store failure".to_string());
+            }
             *self.writes.lock().unwrap() += 1;
-            *self.value.lock().unwrap() = Some(value.to_owned());
+            *self.value.lock().unwrap() = Some(Zeroizing::new(value.to_owned()));
             Ok(())
         }
 
@@ -701,25 +761,149 @@ mod tests {
     }
 
     #[test]
-    fn owner_identity_recovery_keychain_readback_and_rollback() {
+    fn owner_identity_recovery_complete_export_preview_confirm() {
         let keys = Keys::generate();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("complete.luca-owner.age");
+        let exported = export_protected_owner_backup_for_keys(
+            &keys,
+            path.clone(),
+            Zeroizing::new(test_passphrase().to_owned()),
+        )
+        .unwrap();
+        let preview = preview_protected_owner_backup(
+            path.clone(),
+            Zeroizing::new(test_passphrase().to_owned()),
+            false,
+        )
+        .unwrap();
+        assert_eq!(preview.owner_pubkey, exported.owner_pubkey);
+        assert_eq!(preview.ciphertext_sha256, exported.ciphertext_sha256);
+
         let store = FakeStore::default();
-        persist_verified_keychain(&store, &keys).unwrap();
+        let recovered = confirm_with_store(
+            &store,
+            true,
+            false,
+            &path,
+            test_passphrase(),
+            &preview.ciphertext_sha256,
+            &preview.owner_pubkey,
+        )
+        .unwrap();
+        assert_eq!(recovered.keys.public_key(), keys.public_key());
         assert_eq!(
-            Keys::parse(store.value.lock().unwrap().as_deref().unwrap())
+            Keys::parse(store.value.lock().unwrap().as_deref().unwrap().as_str())
                 .unwrap()
                 .public_key(),
             keys.public_key()
         );
+    }
 
-        let prior = Keys::generate().secret_key().to_bech32().unwrap();
-        *store.value.lock().unwrap() = Some(prior.clone());
-        *store.writes.lock().unwrap() = 0;
-        *store.corrupt_readback.lock().unwrap() = true;
+    #[test]
+    fn owner_identity_recovery_missing_confirmation_is_zero_write() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("missing-confirmation.luca-owner.age");
+        fs::write(&path, test_ciphertext(&Keys::generate())).unwrap();
+        let store = FakeStore::default();
+        assert!(confirm_with_store(
+            &store,
+            true,
+            false,
+            &path,
+            test_passphrase(),
+            "",
+            &"a".repeat(64),
+        )
+        .is_err());
+        assert_eq!(*store.store_attempts.lock().unwrap(), 0);
+        assert_eq!(*store.writes.lock().unwrap(), 0);
+    }
+
+    #[test]
+    fn owner_identity_recovery_keychain_failures_and_mismatches_roll_back() {
+        let keys = Keys::generate();
+        let prior = Zeroizing::new(Keys::generate().secret_key().to_bech32().unwrap());
+        let store = FakeStore::default();
+        *store.value.lock().unwrap() = Some(Zeroizing::new(prior.as_str().to_owned()));
+
+        *store.fail_store.lock().unwrap() = true;
         assert!(persist_verified_keychain(&store, &keys).is_err());
-        // Disable corruption to inspect the actual restored value.
-        *store.corrupt_readback.lock().unwrap() = false;
-        assert_eq!(store.value.lock().unwrap().as_deref(), Some(prior.as_str()));
+        assert_eq!(
+            store.value.lock().unwrap().as_deref().unwrap().as_str(),
+            prior.as_str()
+        );
+        *store.fail_store.lock().unwrap() = false;
+
+        for invalid_readback in [
+            "not-an-nsec".to_string(),
+            Keys::generate().secret_key().to_bech32().unwrap(),
+        ] {
+            *store.writes.lock().unwrap() = 0;
+            *store.readback_once.lock().unwrap() = Some(invalid_readback);
+            assert!(persist_verified_keychain(&store, &keys).is_err());
+            assert_eq!(
+                store.value.lock().unwrap().as_deref().unwrap().as_str(),
+                prior.as_str()
+            );
+        }
+    }
+
+    #[test]
+    fn owner_identity_recovery_concurrent_confirmation_is_serialized() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("concurrent.luca-owner.age");
+        fs::write(&path, test_ciphertext(&Keys::generate())).unwrap();
+        let preview = preview_protected_owner_backup(
+            path.clone(),
+            Zeroizing::new(test_passphrase().to_owned()),
+            false,
+        )
+        .unwrap();
+        let lock = Arc::new(Mutex::new(()));
+        let store = Arc::new(FakeStore::default());
+        let path = Arc::new(path);
+        let digest = Arc::new(preview.ciphertext_sha256);
+        let pubkey = Arc::new(preview.owner_pubkey);
+        let start = Arc::new(Barrier::new(2));
+        let active = Arc::new(AtomicUsize::new(0));
+        let maximum = Arc::new(AtomicUsize::new(0));
+        let mut threads = Vec::new();
+
+        for _ in 0..2 {
+            let lock = Arc::clone(&lock);
+            let store = Arc::clone(&store);
+            let path = Arc::clone(&path);
+            let digest = Arc::clone(&digest);
+            let pubkey = Arc::clone(&pubkey);
+            let start = Arc::clone(&start);
+            let active = Arc::clone(&active);
+            let maximum = Arc::clone(&maximum);
+            threads.push(std::thread::spawn(move || {
+                start.wait();
+                with_import_serialization(&lock, || {
+                    let now = active.fetch_add(1, AtomicOrdering::SeqCst) + 1;
+                    maximum.fetch_max(now, AtomicOrdering::SeqCst);
+                    confirm_with_store(
+                        store.as_ref(),
+                        true,
+                        false,
+                        &path,
+                        test_passphrase(),
+                        &digest,
+                        &pubkey,
+                    )?;
+                    std::thread::sleep(Duration::from_millis(10));
+                    active.fetch_sub(1, AtomicOrdering::SeqCst);
+                    Ok(())
+                })
+                .unwrap();
+            }));
+        }
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        assert_eq!(maximum.load(AtomicOrdering::SeqCst), 1);
     }
 
     #[cfg(all(target_os = "macos", feature = "system-keyring"))]

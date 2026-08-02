@@ -3,6 +3,8 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { FileKey2, ShieldCheck } from "lucide-react";
 import {
   confirmProtectedOwnerIdentityRecovery,
+  isValidOwnerBackupPassphrase,
+  ownerBackupPassphraseByteLength,
   previewProtectedOwnerIdentity,
   type OwnerRecoveryPreview,
 } from "@/shared/api/tauriIdentity";
@@ -24,6 +26,7 @@ export function KeyringLockedScreen() {
   const [isPreviewing, setIsPreviewing] = React.useState(false);
   const [isRecovering, setIsRecovering] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const passphraseBytes = ownerBackupPassphraseByteLength(passphrase);
 
   function resetPreview() {
     setPreview(null);
@@ -32,7 +35,7 @@ export function KeyringLockedScreen() {
   }
 
   async function handlePreview() {
-    if (passphrase.length < 12) return;
+    if (!isValidOwnerBackupPassphrase(passphrase)) return;
     setIsPreviewing(true);
     setError(null);
     try {
@@ -81,12 +84,11 @@ export function KeyringLockedScreen() {
       <StartupWindowDragRegion />
       <div className="relative flex w-full max-w-[500px] flex-col items-center text-center">
         <h1 className="text-3xl font-semibold tracking-tight">
-          Unlock your system keyring
+          Recover your owner identity
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          Your identity is safe in the OS keyring, but it&apos;s unreachable this
-          session. Unlock your keyring or sign into your desktop session, then
-          relaunch Luca.
+          If your system keyring is locked, unlock it and relaunch Luca. If the
+          identity is unavailable, recover it from a protected Luca backup.
         </p>
 
         {showRecovery ? (
@@ -111,7 +113,6 @@ export function KeyringLockedScreen() {
                 autoComplete="current-password"
                 data-testid="owner-recovery-passphrase"
                 disabled={isPreviewing || isRecovering}
-                minLength={12}
                 onChange={(event) => {
                   setPassphrase(event.target.value);
                   resetPreview();
@@ -120,11 +121,18 @@ export function KeyringLockedScreen() {
                 type="password"
                 value={passphrase}
               />
+              {passphrase && !isValidOwnerBackupPassphrase(passphrase) ? (
+                <p className="text-xs text-destructive">
+                  Passphrase is {passphraseBytes} UTF-8 bytes; use 12–1024.
+                </p>
+              ) : null}
               {!preview ? (
                 <Button
                   className="w-full"
                   data-testid="preview-owner-recovery"
-                  disabled={passphrase.length < 12 || isPreviewing}
+                  disabled={
+                    !isValidOwnerBackupPassphrase(passphrase) || isPreviewing
+                  }
                   onClick={() => void handlePreview()}
                   type="button"
                 >

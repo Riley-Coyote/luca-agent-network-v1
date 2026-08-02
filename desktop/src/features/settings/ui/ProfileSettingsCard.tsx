@@ -14,6 +14,8 @@ import {
 } from "@/features/profile/hooks";
 import {
   exportProtectedOwnerIdentity,
+  isValidOwnerBackupPassphrase,
+  ownerBackupPassphraseByteLength,
   signOut,
 } from "@/shared/api/tauriIdentity";
 import {
@@ -109,7 +111,10 @@ function ProtectedOwnerBackupRow() {
   const [isExporting, setIsExporting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const canExport =
-    passphrase.length >= 12 && passphrase === confirmation && !isExporting;
+    isValidOwnerBackupPassphrase(passphrase) &&
+    passphrase === confirmation &&
+    !isExporting;
+  const passphraseBytes = ownerBackupPassphraseByteLength(passphrase);
 
   async function handleExport() {
     setIsExporting(true);
@@ -163,9 +168,8 @@ function ProtectedOwnerBackupRow() {
           <Input
             aria-label="Backup passphrase"
             autoComplete="new-password"
-            minLength={12}
             onChange={(event) => setPassphrase(event.target.value)}
-            placeholder="Passphrase (12 characters minimum)"
+            placeholder="Passphrase (12–1024 UTF-8 bytes)"
             type="password"
             value={passphrase}
           />
@@ -179,6 +183,11 @@ function ProtectedOwnerBackupRow() {
           />
           {confirmation && passphrase !== confirmation ? (
             <p className="text-xs text-destructive">Passphrases do not match.</p>
+          ) : null}
+          {passphrase && !isValidOwnerBackupPassphrase(passphrase) ? (
+            <p className="text-xs text-destructive">
+              Passphrase is {passphraseBytes} UTF-8 bytes; use 12–1024.
+            </p>
           ) : null}
           {error ? (
             <p className="text-xs text-destructive" role="alert">
