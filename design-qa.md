@@ -13,6 +13,8 @@
   - `/Users/rileycoyote/Downloads/ChatGPT Image Jul 18, 2026, 01_07_46 AM.png`
   - `/Users/rileycoyote/Downloads/ChatGPT Image Jul 31, 2026, 07_12_19 PM.png`
 - Implementation route: `http://127.0.0.1:4322/?vision=demo`
+- Dark-system reference:
+  `/Users/rileycoyote/Documents/Repositories/luca-terminal/luca-terminal-design-language-v2.html`
 - Implementation screenshots:
   - `docs/vision-demo/captures/mnemos-opening-1440x900.png`
   - `docs/vision-demo/captures/mnemos-memory-1440x900.png`
@@ -36,6 +38,13 @@
   - `docs/vision-demo/captures/mnemos-icons-390x844.png`
   - `docs/vision-demo/captures/mnemos-rail-refined.png`
   - `docs/vision-demo/captures/mnemos-scrollbar-beat-08.png`
+  - `docs/vision-demo/captures/mnemos-theme-light-opening.png`
+  - `docs/vision-demo/captures/mnemos-theme-dark-opening.png`
+  - `docs/vision-demo/captures/mnemos-theme-dark-inspector.png`
+  - `docs/vision-demo/captures/mnemos-theme-dark-agents.png`
+  - `docs/vision-demo/captures/mnemos-theme-dark-brain.png`
+  - `docs/vision-demo/captures/mnemos-theme-dark-continuity.png`
+  - `docs/vision-demo/captures/mnemos-theme-dark-390x844.png`
 - Combined comparison evidence:
   - `docs/vision-demo/captures/qa-buzz-vs-mnemos.png`
   - `docs/vision-demo/captures/qa-mockup-vs-inspector.png`
@@ -46,6 +55,7 @@
   - `docs/vision-demo/captures/qa-complete-surface-set.png`
   - `docs/vision-demo/captures/qa-custom-glyphs-vs-lucide.png`
   - `docs/vision-demo/captures/qa-rail-before-vs-refined.png`
+  - `docs/vision-demo/captures/qa-light-vs-dark-theme.png`
 - States: Network opening, recalled memory, synthesis, later return, Agents
   dossier, Brain provenance, Continuity evidence, inspectors, and responsive
   product surfaces.
@@ -169,12 +179,35 @@ The inspector comparison is large enough to judge header density, card separatio
   `rgb(212, 214, 211)` thumb, 32px conversation rows, zero conversation-row
   SVGs, and zero horizontal overflow.
 
+### Iteration 10 — passed
+
+- [P2] The vision demo exposed only the light housing system, preventing a
+  meaningful comparison with Riley's dark-native Luca language and leaving no
+  user-controlled theme preference.
+- Fix: added a persistent light/dark control to the conversation chrome and a
+  complete semantic dark token layer based on Luca's canonical tonal sequence:
+  `#141414` base, `#181818` raised, `#1C1C1C` conversation cards, `#202020`
+  elevated controls, and `#111111` inset display wells. No surface uses pure
+  black. Ordinary hierarchy remains monochrome; the red lamp remains reserved
+  for operational activity. Replaced light-only component colors, borders,
+  shadows, scrollbars, overlays, focus rings, and evidence surfaces with
+  theme-aware tokens. The short-viewport resident roster now scrolls rather
+  than painting beneath the owner footer.
+- Post-fix evidence: `docs/vision-demo/captures/qa-light-vs-dark-theme.png`,
+  the complete dark surface set, inspector capture, and 390px responsive
+  capture. Runtime inspection confirms `rgb(20, 20, 20)` housing,
+  `rgb(28, 28, 28)` cards, `rgb(17, 17, 17)` display wells, dark native color
+  scheme, no pure-black surfaces, no horizontal overflow, a neutral focus ring,
+  and zero browser console errors.
+
 ## Findings
 
 No actionable P0, P1, or P2 visual mismatches remain for the completed vision
 scope. The rail now has the compact, text-forward rhythm of a frontier chat app,
 the light thread scrollbar belongs to the conversation card, and the approved
 identity specimens remain visually distinct from ordinary navigation chrome.
+The dark mode is a parallel material system with Luca's narrow charcoal
+elevation steps, not a generic inversion of the approved light theme.
 
 ## Primary interactions and runtime checks
 
@@ -190,6 +223,8 @@ identity specimens remain visually distinct from ordinary navigation chrome.
   icon contract at a consistent optical size and stroke weight.
 - Verified the long-thread scrollbar track and thumb remain neutral on the light
   conversation card and every recent-conversation row is icon-free.
+- Verified light/dark switching, saved preference restoration, dark scrollbars,
+  every product destination, the memory inspector, and the 390px dark layout.
 - Verified no document overflow at 1440×900, 1280×800, 1024×768, or 390×844.
 - Checked the live browser console: no errors.
 - Typecheck, focused E2E (9 tests), E2E build, and production build pass.

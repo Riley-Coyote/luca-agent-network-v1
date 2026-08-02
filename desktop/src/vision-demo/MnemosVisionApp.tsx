@@ -7,6 +7,7 @@ import {
   Hash,
   Info,
   MoreHorizontal,
+  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   Paperclip,
@@ -20,6 +21,7 @@ import {
   Send,
   ShieldCheck,
   Smile,
+  Sun,
   UserPlus,
   X,
 } from "lucide-react";
@@ -279,7 +281,7 @@ function DemoControl() {
 }
 
 function TopChrome() {
-  const { data, setInspector } = useVisionMode();
+  const { data, setInspector, theme, setTheme } = useVisionMode();
   const activeDestination =
     destinations.find(({ id }) => id === data.runtime.view) ?? destinations[0];
   const headings: Record<DemoView, { title: string; detail: string }> = {
@@ -334,7 +336,10 @@ function TopChrome() {
         <UserPlus aria-hidden="true" />
       </button>
       <div className="mn-header-tools">
-        <IconButton label="Search this conversation">
+        <IconButton
+          className="mn-header-search"
+          label="Search this conversation"
+        >
           <Search />
         </IconButton>
         <IconButton
@@ -343,8 +348,18 @@ function TopChrome() {
         >
           <Info />
         </IconButton>
-        <IconButton label="More conversation actions">
+        <IconButton
+          className="mn-header-more"
+          label="More conversation actions"
+        >
           <MoreHorizontal />
+        </IconButton>
+        <IconButton
+          className="mn-theme-toggle"
+          label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+          onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+        >
+          {theme === "light" ? <Moon /> : <Sun />}
         </IconButton>
       </div>
       <DemoControl />
@@ -1337,9 +1352,14 @@ function MobileNavigation() {
 }
 
 function MnemosVisionShell() {
-  const { data, inspector } = useVisionMode();
+  const { data, inspector, theme } = useVisionMode();
   return (
-    <div className="mn-vision" data-mnemos-vision data-testid="vision-demo-app">
+    <div
+      className="mn-vision"
+      data-mnemos-vision
+      data-testid="vision-demo-app"
+      data-theme={theme}
+    >
       <Sidebar />
       <main className="mn-main" data-inspector-open={Boolean(inspector)}>
         <div className="mn-workspace">

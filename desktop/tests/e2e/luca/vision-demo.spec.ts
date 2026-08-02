@@ -156,6 +156,64 @@ test("Mnemos vision foundation remains usable at 390px", async ({ page }) => {
   expect(dimensions.scrollWidth).toBe(dimensions.clientWidth);
 });
 
+test("Mnemos dark mode uses the Luca tonal system and persists", async ({
+  page,
+}) => {
+  await page.goto("/?vision=demo");
+
+  const app = page.getByTestId("vision-demo-app");
+  await expect(app).toHaveAttribute("data-theme", "light");
+  await page.getByRole("button", { name: "Switch to dark mode" }).click();
+  await expect(app).toHaveAttribute("data-theme", "dark");
+  await expect
+    .poll(() =>
+      page
+        .locator(".mn-conversation-card")
+        .evaluate((element) => getComputedStyle(element).backgroundColor),
+    )
+    .toBe("rgb(28, 28, 28)");
+
+  await page.getByTestId("vision-demo-disclosure-desktop").click();
+  await page.getByTestId("vision-story-step-1").click();
+
+  const darkSurfaces = await page.evaluate(() => {
+    const root = document.querySelector<HTMLElement>("[data-mnemos-vision]");
+    const card = document.querySelector<HTMLElement>(".mn-conversation-card");
+    const thread = document.querySelector<HTMLElement>(".mn-thread-scroll");
+    const display = document.querySelector<HTMLElement>(
+      '[data-material="display"]',
+    );
+    if (!root || !card || !thread || !display) {
+      throw new Error("Expected dark mode surfaces were not rendered");
+    }
+    return {
+      root: getComputedStyle(root).backgroundColor,
+      card: getComputedStyle(card).backgroundColor,
+      display: getComputedStyle(display).backgroundColor,
+      colorScheme: getComputedStyle(root).colorScheme,
+      track: getComputedStyle(thread, "::-webkit-scrollbar-track")
+        .backgroundColor,
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    };
+  });
+
+  expect(darkSurfaces).toMatchObject({
+    root: "rgb(20, 20, 20)",
+    card: "rgb(28, 28, 28)",
+    display: "rgb(17, 17, 17)",
+    colorScheme: "dark",
+  });
+  expect(darkSurfaces.track).toBe(darkSurfaces.card);
+  expect(darkSurfaces.display).not.toBe("rgb(0, 0, 0)");
+  expect(darkSurfaces.scrollWidth).toBe(darkSurfaces.clientWidth);
+
+  await page.reload();
+  await expect(app).toHaveAttribute("data-theme", "dark");
+  await page.getByRole("button", { name: "Switch to light mode" }).click();
+  await expect(app).toHaveAttribute("data-theme", "light");
+});
+
 test("Agents, Brain, and Continuity remain explorable at every story beat", async ({
   page,
 }) => {
