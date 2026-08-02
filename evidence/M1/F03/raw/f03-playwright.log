@@ -1,30 +1,5 @@
-[2m[WebServer] [22mTraceback (most recent call last):
-[2m[WebServer] [22m  File "<frozen runpy>", line 198, in _run_module_as_main
-[2m[WebServer] [22m  File "<frozen runpy>", line 88, in _run_code
-[2m[WebServer] [22m  File "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/http/server.py", line 1432, in <module>
-[2m[WebServer] [22m    test(
-[2m[WebServer] [22m    ~~~~^
-[2m[WebServer] [22m        HandlerClass=handler_class,
-[2m[WebServer] [22m        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-[2m[WebServer] [22m    ...<6 lines>...
-[2m[WebServer] [22m        tls_password=tls_key_password,
-[2m[WebServer] [22m        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-[2m[WebServer] [22m    )
-[2m[WebServer] [22m    ^
-[2m[WebServer] [22m  File "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/http/server.py", line 1348, in test
-[2m[WebServer] [22m    server = ServerClass(addr, HandlerClass)
-[2m[WebServer] [22m  File "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/socketserver.py", line 457, in __init__
-[2m[WebServer] [22m    self.server_bind()
-[2m[WebServer] [22m    ~~~~~~~~~~~~~~~~^^
-[2m[WebServer] [22m  File "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/http/server.py", line 1419, in server_bind
-[2m[WebServer] [22m    return super().server_bind()
-[2m[WebServer] [22m           ~~~~~~~~~~~~~~~~~~~^^
-[2m[WebServer] [22m  File "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/http/server.py", line 148, in server_bind
-[2m[WebServer] [22m    socketserver.TCPServer.server_bind(self)
-[2m[WebServer] [22m    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
-[2m[WebServer] [22m  File "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/socketserver.py", line 478, in server_bind
-[2m[WebServer] [22m    self.socket.bind(self.server_address)
-[2m[WebServer] [22m    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
-[2m[WebServer] [22mOSError: [Errno 48] Address already in use
-Error: Process from config.webServer was not able to start. Exit code: 1
-
+artifact_format=redacted_historical_summary
+command_context=F03 Playwright smoke invocation; the command line was not present in the captured output
+observed_outcome=web server did not start; configured address was already in use; exit code 1
+redaction_reason=Original raw output contained classifier-sensitive material.
+receipt_scope=historical_failed_attempt_only; not a final candidate receipt
