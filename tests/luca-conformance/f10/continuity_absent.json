@@ -1,0 +1,17 @@
+{
+  "schema": "luca.f10.continuity-absent.v1",
+  "scenario_id": "all-continuity-components-absent",
+  "fixture_class": "generated_synthetic",
+  "components": {
+    "continuity_capsule": "absent",
+    "continuity_service": "absent",
+    "mnemos_profile": "absent"
+  },
+  "expected": {
+    "context_status": "unavailable",
+    "normal_final_publication": "published",
+    "cancelled_turn": "cancelled",
+    "published_final_count": 1,
+    "cancelled_final_count": 0
+  }
+}
