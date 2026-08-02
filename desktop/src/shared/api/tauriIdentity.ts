@@ -23,8 +23,62 @@ export async function getIdentity(): Promise<Identity> {
   return fromRawIdentity(await invokeTauri<RawIdentity>("get_identity"));
 }
 
-export async function getNsec(): Promise<string> {
-  return invokeTauri<string>("get_nsec");
+export type OwnerBackupResult = {
+  bundleId: string;
+  exportedAt: string;
+  ownerPubkey: string;
+  ciphertextSha256: string;
+  fileName: string;
+};
+
+export type OwnerRecoveryPreview = {
+  bundleId: string;
+  exportedAt: string;
+  ownerPubkey: string;
+  ciphertextSha256: string;
+  sourcePath: string;
+};
+
+export type OwnerRecoveryResult = {
+  ownerPubkey: string;
+  recovered: boolean;
+};
+
+export async function exportProtectedOwnerIdentity(
+  passphrase: string,
+  destinationPath?: string,
+): Promise<OwnerBackupResult> {
+  return invokeTauri<OwnerBackupResult>("export_protected_owner_identity", {
+    destinationPath,
+    passphrase,
+  });
+}
+
+export async function previewProtectedOwnerIdentity(
+  passphrase: string,
+  sourcePath?: string,
+): Promise<OwnerRecoveryPreview> {
+  return invokeTauri<OwnerRecoveryPreview>("preview_protected_owner_identity", {
+    sourcePath,
+    passphrase,
+  });
+}
+
+export async function confirmProtectedOwnerIdentityRecovery(
+  sourcePath: string,
+  passphrase: string,
+  expectedCiphertextSha256: string,
+  confirmedOwnerPubkey: string,
+): Promise<OwnerRecoveryResult> {
+  return invokeTauri<OwnerRecoveryResult>(
+    "confirm_protected_owner_identity_recovery",
+    {
+      sourcePath,
+      passphrase,
+      expectedCiphertextSha256,
+      confirmedOwnerPubkey,
+    },
+  );
 }
 
 export async function importIdentity(nsec: string): Promise<Identity> {

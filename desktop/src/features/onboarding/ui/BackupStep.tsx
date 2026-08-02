@@ -1,5 +1,8 @@
-import { Info, LockKeyhole } from "lucide-react";
+import * as React from "react";
+import { CheckCircle2, Info, LockKeyhole } from "lucide-react";
+import { exportProtectedOwnerIdentity } from "@/shared/api/tauriIdentity";
 import { Button } from "@/shared/ui/button";
+import { Input } from "@/shared/ui/input";
 import { ONBOARDING_PRIMARY_CTA_CLASS } from "./OnboardingChrome";
 import { OnboardingFooter } from "./OnboardingFooter";
 import {
@@ -17,6 +20,33 @@ type BackupStepProps = {
  * setup never reads, displays, or copies plaintext key material.
  */
 export function BackupStep({ direction, onBack, onNext }: BackupStepProps) {
+  const [passphrase, setPassphrase] = React.useState("");
+  const [confirmation, setConfirmation] = React.useState("");
+  const [isExporting, setIsExporting] = React.useState(false);
+  const [exportedFile, setExportedFile] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const canExport =
+    passphrase.length >= 12 && passphrase === confirmation && !isExporting;
+
+  async function handleExport() {
+    setIsExporting(true);
+    setError(null);
+    try {
+      const result = await exportProtectedOwnerIdentity(passphrase);
+      setExportedFile(result.fileName);
+      setPassphrase("");
+      setConfirmation("");
+    } catch (exportError) {
+      setError(
+        exportError instanceof Error
+          ? exportError.message
+          : "Protected backup could not be created.",
+      );
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   return (
     <OnboardingSlideTransition
       className="flex min-h-0 w-full flex-col items-center"
@@ -44,23 +74,62 @@ export function BackupStep({ direction, onBack, onNext }: BackupStepProps) {
             <LockKeyhole className="mt-0.5 h-5 w-5 shrink-0 text-foreground/70" />
             <div>
               <h2 className="text-sm font-medium text-foreground">
-                Protected recovery is not available yet
+                Create a protected recovery file
               </h2>
               <p className="mt-2 text-sm leading-6 text-foreground/75">
-                A protected export and import flow is planned for a later Luca
-                update. Until then, this setup cannot export your identity and
-                cannot reveal or copy its private key.
+                Luca encrypts your owner identity with a passphrase you choose.
+                Store the file and passphrase separately; neither can recover
+                your identity alone.
               </p>
-              <Button
-                aria-disabled="true"
-                className="mt-4 h-8 px-3 text-xs"
-                data-testid="onboarding-protected-export-unavailable"
-                disabled
-                type="button"
-                variant="outline"
-              >
-                Protected export — unavailable
-              </Button>
+              {exportedFile ? (
+                <p
+                  className="mt-4 flex items-center gap-2 text-xs text-foreground/80"
+                  data-testid="onboarding-protected-export-success"
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  Protected backup saved as {exportedFile}
+                </p>
+              ) : (
+                <div className="mt-4 space-y-3">
+                  <Input
+                    aria-label="Backup passphrase"
+                    autoComplete="new-password"
+                    data-testid="onboarding-backup-passphrase"
+                    minLength={12}
+                    onChange={(event) => setPassphrase(event.target.value)}
+                    placeholder="Passphrase (12 characters minimum)"
+                    type="password"
+                    value={passphrase}
+                  />
+                  <Input
+                    aria-label="Confirm backup passphrase"
+                    autoComplete="new-password"
+                    data-testid="onboarding-backup-passphrase-confirmation"
+                    onChange={(event) => setConfirmation(event.target.value)}
+                    placeholder="Confirm passphrase"
+                    type="password"
+                    value={confirmation}
+                  />
+                  {confirmation && passphrase !== confirmation ? (
+                    <p className="text-xs text-destructive">Passphrases do not match.</p>
+                  ) : null}
+                  {error ? (
+                    <p className="text-xs text-destructive" role="alert">
+                      {error}
+                    </p>
+                  ) : null}
+                  <Button
+                    className="h-8 px-3 text-xs"
+                    data-testid="onboarding-protected-export"
+                    disabled={!canExport}
+                    onClick={() => void handleExport()}
+                    type="button"
+                    variant="outline"
+                  >
+                    {isExporting ? "Creating…" : "Choose location and back up"}
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         </div>

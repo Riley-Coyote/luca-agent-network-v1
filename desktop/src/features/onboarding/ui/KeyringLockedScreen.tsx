@@ -1,36 +1,76 @@
 import * as React from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { importIdentity } from "@/shared/api/tauriIdentity";
+import { FileKey2, ShieldCheck } from "lucide-react";
+import {
+  confirmProtectedOwnerIdentityRecovery,
+  previewProtectedOwnerIdentity,
+  type OwnerRecoveryPreview,
+} from "@/shared/api/tauriIdentity";
 import { useSystemColorScheme } from "@/shared/theme/useSystemColorScheme";
 import { Button } from "@/shared/ui/button";
+import { Input } from "@/shared/ui/input";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
-import { NostrKeyImportForm } from "./NostrKeyImportForm";
+
+function compactPubkey(pubkey: string) {
+  return `${pubkey.slice(0, 12)}…${pubkey.slice(-8)}`;
+}
 
 export function KeyringLockedScreen() {
-  const queryClient = useQueryClient();
   const systemColorScheme = useSystemColorScheme();
-  const [showImport, setShowImport] = React.useState(false);
+  const [showRecovery, setShowRecovery] = React.useState(false);
+  const [passphrase, setPassphrase] = React.useState("");
+  const [preview, setPreview] = React.useState<OwnerRecoveryPreview | null>(null);
+  const [confirmed, setConfirmed] = React.useState(false);
+  const [isPreviewing, setIsPreviewing] = React.useState(false);
+  const [isRecovering, setIsRecovering] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
-  const handleReimportClick = React.useCallback(() => {
-    const confirmed = window.confirm(
-      "Importing a different nsec replaces the identity currently locked in the keyring for this install. The previous identity will no longer be accessible. Continue?",
-    );
-    if (confirmed) {
-      setShowImport(true);
+  function resetPreview() {
+    setPreview(null);
+    setConfirmed(false);
+    setError(null);
+  }
+
+  async function handlePreview() {
+    if (passphrase.length < 12) return;
+    setIsPreviewing(true);
+    setError(null);
+    try {
+      setPreview(await previewProtectedOwnerIdentity(passphrase));
+      setConfirmed(false);
+    } catch (previewError) {
+      setPreview(null);
+      setError(
+        previewError instanceof Error
+          ? previewError.message
+          : "The protected backup could not be verified.",
+      );
+    } finally {
+      setIsPreviewing(false);
     }
-  }, []);
+  }
 
-  const handleImport = React.useCallback(
-    async (nsec: string) => {
-      const identity = await importIdentity(nsec);
-      // Update the identity query cache so useIdentityQuery observers see
-      // locked: false. The bootedLocked latch in hooks.ts will then route
-      // to RelaunchRequiredScreen via bootedLocked && !identityLocked.
-      queryClient.setQueryData(["identity"], identity);
-    },
-    [queryClient],
-  );
+  async function handleRecover() {
+    if (!preview || !confirmed) return;
+    setIsRecovering(true);
+    setError(null);
+    try {
+      await confirmProtectedOwnerIdentityRecovery(
+        preview.sourcePath,
+        passphrase,
+        preview.ciphertextSha256,
+        preview.ownerPubkey,
+      );
+      await relaunch();
+    } catch (recoveryError) {
+      setError(
+        recoveryError instanceof Error
+          ? recoveryError.message
+          : "The owner identity could not be recovered.",
+      );
+      setIsRecovering(false);
+    }
+  }
 
   return (
     <div
@@ -44,17 +84,117 @@ export function KeyringLockedScreen() {
           Unlock your system keyring
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          Your identity is safe in the OS keyring, but it's unreachable this
+          Your identity is safe in the OS keyring, but it&apos;s unreachable this
           session. Unlock your keyring or sign into your desktop session, then
           relaunch Luca.
         </p>
 
-        {showImport ? (
-          <NostrKeyImportForm
-            backLabel="Cancel"
-            onBack={() => setShowImport(false)}
-            onImport={handleImport}
-          />
+        {showRecovery ? (
+          <div
+            className="mt-7 w-full rounded-xl border border-border/70 bg-muted/20 p-5 text-left"
+            data-testid="protected-owner-recovery"
+          >
+            <div className="flex items-start gap-3">
+              <FileKey2 className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+              <div>
+                <h2 className="text-sm font-medium">Recover from protected backup</h2>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  Preview validates the file without changing Luca or the system
+                  keychain. Recovery happens only after your explicit confirmation.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <Input
+                aria-label="Backup passphrase"
+                autoComplete="current-password"
+                data-testid="owner-recovery-passphrase"
+                disabled={isPreviewing || isRecovering}
+                minLength={12}
+                onChange={(event) => {
+                  setPassphrase(event.target.value);
+                  resetPreview();
+                }}
+                placeholder="Backup passphrase"
+                type="password"
+                value={passphrase}
+              />
+              {!preview ? (
+                <Button
+                  className="w-full"
+                  data-testid="preview-owner-recovery"
+                  disabled={passphrase.length < 12 || isPreviewing}
+                  onClick={() => void handlePreview()}
+                  type="button"
+                >
+                  {isPreviewing ? "Verifying…" : "Choose and preview backup"}
+                </Button>
+              ) : (
+                <div
+                  className="space-y-3 rounded-lg border border-border/70 bg-background/70 p-4"
+                  data-testid="owner-recovery-preview"
+                >
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <ShieldCheck className="h-4 w-4" />
+                    Valid protected backup
+                  </div>
+                  <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+                    <dt className="text-muted-foreground">Owner</dt>
+                    <dd className="truncate font-mono" title={preview.ownerPubkey}>
+                      {compactPubkey(preview.ownerPubkey)}
+                    </dd>
+                    <dt className="text-muted-foreground">Created</dt>
+                    <dd>{preview.exportedAt}</dd>
+                    <dt className="text-muted-foreground">Bundle</dt>
+                    <dd className="truncate font-mono" title={preview.bundleId}>
+                      {preview.bundleId}
+                    </dd>
+                  </dl>
+                  <label className="flex cursor-pointer items-start gap-2 text-xs leading-5">
+                    <input
+                      checked={confirmed}
+                      className="mt-1"
+                      data-testid="confirm-owner-pubkey"
+                      onChange={(event) => setConfirmed(event.target.checked)}
+                      type="checkbox"
+                    />
+                    <span>
+                      Replace this install&apos;s inaccessible identity with the
+                      owner shown above and relaunch Luca.
+                    </span>
+                  </label>
+                  <Button
+                    className="w-full"
+                    data-testid="confirm-owner-recovery"
+                    disabled={!confirmed || isRecovering}
+                    onClick={() => void handleRecover()}
+                    type="button"
+                  >
+                    {isRecovering ? "Recovering…" : "Recover and relaunch"}
+                  </Button>
+                </div>
+              )}
+              {error ? (
+                <p className="text-xs text-destructive" role="alert">
+                  {error}
+                </p>
+              ) : null}
+              <Button
+                className="w-full"
+                disabled={isPreviewing || isRecovering}
+                onClick={() => {
+                  setShowRecovery(false);
+                  setPassphrase("");
+                  resetPreview();
+                }}
+                type="button"
+                variant="ghost"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
         ) : (
           <div className="mt-8 flex w-full max-w-[300px] flex-col gap-3">
             <Button
@@ -69,11 +209,12 @@ export function KeyringLockedScreen() {
             </Button>
             <Button
               className="h-10 w-full"
-              onClick={handleReimportClick}
+              data-testid="recover-protected-owner-backup"
+              onClick={() => setShowRecovery(true)}
               type="button"
               variant="secondary"
             >
-              Re-import your key instead
+              Recover from protected backup
             </Button>
           </div>
         )}

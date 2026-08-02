@@ -593,6 +593,28 @@ impl SecretStore {
         }
     }
 
+    /// Read one value directly from the OS-backed blob without consulting the
+    /// process cache or attempting any legacy migration. Recovery uses this to
+    /// bind verification and rollback to the value actually held by Keychain.
+    pub fn load_raw_readonly(&self, key: &str) -> Result<Option<String>, String> {
+        #[cfg(feature = "system-keyring")]
+        {
+            let Some(bytes) = self.read_blob_raw()? else {
+                return Ok(None);
+            };
+            let json =
+                String::from_utf8(bytes).map_err(|_| "keyring data is invalid".to_string())?;
+            let map = serde_json::from_str::<HashMap<String, String>>(&json)
+                .map_err(|_| "keyring data is invalid".to_string())?;
+            Ok(map.get(key).cloned())
+        }
+        #[cfg(not(feature = "system-keyring"))]
+        {
+            let _ = key;
+            Err("system-keyring feature disabled".to_string())
+        }
+    }
+
     /// Insert all entries from `entries` into the blob in a single mutation.
     ///
     /// Entries that already exist in the blob are overwritten; entries not

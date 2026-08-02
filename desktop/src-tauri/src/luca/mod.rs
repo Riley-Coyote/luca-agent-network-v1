@@ -6,6 +6,7 @@ pub(crate) mod managed_message_outbox;
 pub(crate) mod managed_message_publisher;
 #[cfg(test)]
 mod reliability_f10;
+pub(crate) mod owner_identity_recovery;
 pub(crate) mod resident_registry;
 pub(crate) mod signing_broker;
 pub(crate) mod signing_transport;

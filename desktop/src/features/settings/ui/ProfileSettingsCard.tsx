@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Copy, Eye, EyeOff, Pencil } from "lucide-react";
+import { Check, ChevronDown, Copy, Pencil, ShieldCheck } from "lucide-react";
 import {
   AnimatePresence,
   LayoutGroup,
@@ -12,8 +12,10 @@ import {
   useProfileQuery,
   useUpdateProfileMutation,
 } from "@/features/profile/hooks";
-import { NsecMaskedDisplay } from "@/features/onboarding/ui/NsecMaskedDisplay";
-import { getNsec, signOut } from "@/shared/api/tauriIdentity";
+import {
+  exportProtectedOwnerIdentity,
+  signOut,
+} from "@/shared/api/tauriIdentity";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -100,86 +102,99 @@ function IdentityRow({
   );
 }
 
-/**
- * Collapsible row that reveals the user's nsec on demand.
- * The nsec is fetched only when first expanded and cleared on collapse.
- */
-function NsecRevealRow() {
+function ProtectedOwnerBackupRow() {
   const [isOpen, setIsOpen] = React.useState(false);
-  const [nsec, setNsec] = React.useState<string | null>(null);
-  const [isLoading, setIsLoading] = React.useState(false);
-  const [loadError, setLoadError] = React.useState<string | null>(null);
-  // Guards against a late-resolving getNsec() repopulating state after Hide
-  // or after the settings panel unmounts.
-  const fetchCancelledRef = React.useRef(false);
+  const [passphrase, setPassphrase] = React.useState("");
+  const [confirmation, setConfirmation] = React.useState("");
+  const [isExporting, setIsExporting] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const canExport =
+    passphrase.length >= 12 && passphrase === confirmation && !isExporting;
 
-  React.useEffect(() => {
-    return () => {
-      fetchCancelledRef.current = true;
-      setNsec(null);
-    };
-  }, []);
-
-  async function handleReveal() {
-    if (!isOpen) {
-      fetchCancelledRef.current = false;
-      setIsOpen(true);
-      setIsLoading(true);
-      setLoadError(null);
-      try {
-        const value = await getNsec();
-        if (!fetchCancelledRef.current) setNsec(value);
-      } catch (err) {
-        if (!fetchCancelledRef.current)
-          setLoadError(
-            err instanceof Error
-              ? err.message
-              : "Failed to retrieve private key.",
-          );
-      } finally {
-        if (!fetchCancelledRef.current) setIsLoading(false);
-      }
-    } else {
-      // Cancel any in-flight fetch before clearing state.
-      fetchCancelledRef.current = true;
-      setNsec(null);
+  async function handleExport() {
+    setIsExporting(true);
+    setError(null);
+    try {
+      const result = await exportProtectedOwnerIdentity(passphrase);
+      toast.success(`Protected backup saved as ${result.fileName}`);
+      setPassphrase("");
+      setConfirmation("");
       setIsOpen(false);
+    } catch (exportError) {
+      setError(
+        exportError instanceof Error
+          ? exportError.message
+          : "Protected backup could not be created.",
+      );
+    } finally {
+      setIsExporting(false);
     }
   }
 
   return (
-    <div className="px-4 py-3" data-testid="profile-private-key-row">
+    <div className="px-4 py-3" data-testid="profile-protected-backup-row">
       <div className="flex items-center justify-between gap-4">
-        <p className="text-sm font-medium">Private key</p>
+        <div>
+          <p className="text-sm font-medium">Protected owner backup</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Encrypted file for identity recovery
+          </p>
+        </div>
         <button
-          aria-label={isOpen ? "Hide private key" : "Reveal private key"}
+          aria-expanded={isOpen}
+          aria-label={isOpen ? "Cancel protected backup" : "Create protected backup"}
           className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          data-testid="profile-private-key-toggle"
-          onClick={() => void handleReveal()}
+          data-testid="profile-protected-backup-toggle"
+          onClick={() => {
+            setIsOpen((open) => !open);
+            setError(null);
+          }}
           type="button"
         >
-          {isOpen ? (
-            <>
-              <EyeOff className="h-4 w-4 shrink-0" />
-              Hide
-            </>
-          ) : (
-            <>
-              <Eye className="h-4 w-4 shrink-0" />
-              Reveal
-            </>
-          )}
+          <ShieldCheck className="h-4 w-4 shrink-0" />
+          {isOpen ? "Cancel" : "Back up"}
         </button>
       </div>
       {isOpen ? (
-        <div className="mt-2">
-          {isLoading ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
-          ) : loadError ? (
-            <p className="text-sm text-destructive">{loadError}</p>
-          ) : nsec ? (
-            <NsecMaskedDisplay nsec={nsec} />
+        <div className="mt-4 space-y-3 rounded-lg border border-border/60 bg-muted/20 p-3">
+          <p className="text-xs leading-5 text-muted-foreground">
+            Choose a unique passphrase. Luca never displays or copies the private key.
+          </p>
+          <Input
+            aria-label="Backup passphrase"
+            autoComplete="new-password"
+            minLength={12}
+            onChange={(event) => setPassphrase(event.target.value)}
+            placeholder="Passphrase (12 characters minimum)"
+            type="password"
+            value={passphrase}
+          />
+          <Input
+            aria-label="Confirm backup passphrase"
+            autoComplete="new-password"
+            onChange={(event) => setConfirmation(event.target.value)}
+            placeholder="Confirm passphrase"
+            type="password"
+            value={confirmation}
+          />
+          {confirmation && passphrase !== confirmation ? (
+            <p className="text-xs text-destructive">Passphrases do not match.</p>
           ) : null}
+          {error ? (
+            <p className="text-xs text-destructive" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <Button
+            className="h-8"
+            data-testid="profile-protected-backup-export"
+            disabled={!canExport}
+            onClick={() => void handleExport()}
+            size="sm"
+            type="button"
+          >
+            {isExporting ? "Creating…" : "Choose location and back up"}
+          </Button>
         </div>
       ) : null}
     </div>
@@ -895,7 +910,7 @@ export function ProfileSettingsCard({
                                 testId="profile-nip05"
                                 value={nip05Handle}
                               />
-                              <NsecRevealRow />
+                              <ProtectedOwnerBackupRow />
                             </div>
                           </details>
                         </div>
@@ -993,9 +1008,9 @@ export function ProfileSettingsCard({
               <AlertDialogTitle>Sign out and wipe all data?</AlertDialogTitle>
               <AlertDialogDescription>
                 This will delete your identity key, all agent settings, and
-                cached data from this device, then relaunch Buzz into first-run
-                setup. Make sure you have your private key (nsec) backed up
-                before continuing — this cannot be undone.
+                cached data from this device, then relaunch Luca into first-run
+                setup. Create a protected owner backup before continuing —
+                this cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

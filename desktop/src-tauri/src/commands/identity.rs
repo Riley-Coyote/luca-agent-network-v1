@@ -88,10 +88,17 @@ pub fn is_shared_identity() -> bool {
     std::env::var("BUZZ_SHARE_IDENTITY")
         .map(|v| v == "1")
         .unwrap_or(false)
-        && std::env::var("BUZZ_PRIVATE_KEY")
-            .ok()
-            .and_then(|k| Keys::parse(k.trim()).ok())
-            .is_some()
+        && is_env_supplied_identity()
+}
+
+/// Protected owner backup is desktop-held identity only. The env key has
+/// authority even when the optional shared-mode flag is absent, so its mere
+/// valid presence must deny export and recovery.
+fn is_env_supplied_identity() -> bool {
+    std::env::var("BUZZ_PRIVATE_KEY")
+        .ok()
+        .and_then(|key| Keys::parse(key.trim()).ok())
+        .is_some()
 }
 
 #[tauri::command]
@@ -189,11 +196,104 @@ pub fn build_observer_control_event(
 }
 
 #[tauri::command]
-pub fn get_nsec(state: State<'_, AppState>) -> Result<String, String> {
-    let keys = state.signing_keys()?;
-    keys.secret_key()
-        .to_bech32()
-        .map_err(|error| format!("encode nsec: {error}"))
+pub async fn export_protected_owner_identity(
+    destination_path: Option<String>,
+    passphrase: String,
+    app_handle: tauri::AppHandle,
+) -> Result<crate::luca::owner_identity_recovery::OwnerBackupResult, String> {
+    let passphrase = zeroize::Zeroizing::new(passphrase);
+    let destination_path = match destination_path {
+        Some(path) => std::path::PathBuf::from(path),
+        None => {
+            use tauri_plugin_dialog::DialogExt;
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            app_handle
+                .dialog()
+                .file()
+                .add_filter("Luca owner backup", &["age"])
+                .set_file_name("luca-owner-backup.luca-owner.age")
+                .save_file(move |selection| {
+                    let _ = sender.send(selection);
+                });
+            receiver
+                .await
+                .map_err(|_| "backup save dialog failed".to_string())?
+                .and_then(|selection| selection.as_path().map(std::path::Path::to_path_buf))
+                .ok_or_else(|| "backup creation cancelled".to_string())?
+        }
+    };
+    tokio::task::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        crate::luca::owner_identity_recovery::export_protected_owner_backup(
+            &state,
+            destination_path,
+            passphrase,
+            is_env_supplied_identity(),
+        )
+    })
+    .await
+    .map_err(|_| "protected backup task failed".to_string())?
+}
+
+#[tauri::command]
+pub async fn preview_protected_owner_identity(
+    source_path: Option<String>,
+    passphrase: String,
+    app_handle: tauri::AppHandle,
+) -> Result<crate::luca::owner_identity_recovery::OwnerRecoveryPreview, String> {
+    let passphrase = zeroize::Zeroizing::new(passphrase);
+    let source_path = match source_path {
+        Some(path) => std::path::PathBuf::from(path),
+        None => {
+            use tauri_plugin_dialog::DialogExt;
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            app_handle
+                .dialog()
+                .file()
+                .add_filter("Luca owner backup", &["age"])
+                .pick_file(move |selection| {
+                    let _ = sender.send(selection);
+                });
+            receiver
+                .await
+                .map_err(|_| "backup open dialog failed".to_string())?
+                .and_then(|selection| selection.as_path().map(std::path::Path::to_path_buf))
+                .ok_or_else(|| "backup preview cancelled".to_string())?
+        }
+    };
+    tokio::task::spawn_blocking(move || {
+        crate::luca::owner_identity_recovery::preview_protected_owner_backup(
+            source_path,
+            passphrase,
+            is_env_supplied_identity(),
+        )
+    })
+    .await
+    .map_err(|_| "protected backup preview task failed".to_string())?
+}
+
+#[tauri::command]
+pub async fn confirm_protected_owner_identity_recovery(
+    source_path: String,
+    passphrase: String,
+    expected_ciphertext_sha256: String,
+    confirmed_owner_pubkey: String,
+    app_handle: tauri::AppHandle,
+) -> Result<crate::luca::owner_identity_recovery::OwnerRecoveryResult, String> {
+    let passphrase = zeroize::Zeroizing::new(passphrase);
+    tokio::task::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        crate::luca::owner_identity_recovery::confirm_protected_owner_recovery(
+            &state,
+            std::path::PathBuf::from(source_path),
+            passphrase,
+            expected_ciphertext_sha256,
+            confirmed_owner_pubkey,
+            is_env_supplied_identity(),
+        )
+    })
+    .await
+    .map_err(|_| "protected owner recovery task failed".to_string())?
 }
 
 #[tauri::command]
