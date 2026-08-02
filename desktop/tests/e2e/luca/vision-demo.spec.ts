@@ -171,7 +171,7 @@ test("Mnemos dark mode uses the Luca tonal system and persists", async ({
         .locator(".mn-conversation-card")
         .evaluate((element) => getComputedStyle(element).backgroundColor),
     )
-    .toBe("rgb(28, 28, 28)");
+    .toBe("rgb(14, 14, 17)");
 
   await page.getByTestId("vision-demo-disclosure-desktop").click();
   await page.getByTestId("vision-story-step-1").click();
@@ -186,11 +186,17 @@ test("Mnemos dark mode uses the Luca tonal system and persists", async ({
     if (!root || !card || !thread || !display) {
       throw new Error("Expected dark mode surfaces were not rendered");
     }
+    const semanticTone = document.createElement("span");
+    semanticTone.style.backgroundColor = "var(--mn-success)";
+    root.appendChild(semanticTone);
+    const successTone = getComputedStyle(semanticTone).backgroundColor;
+    semanticTone.remove();
     return {
       root: getComputedStyle(root).backgroundColor,
       card: getComputedStyle(card).backgroundColor,
       display: getComputedStyle(display).backgroundColor,
       colorScheme: getComputedStyle(root).colorScheme,
+      successTone,
       track: getComputedStyle(thread, "::-webkit-scrollbar-track")
         .backgroundColor,
       scrollWidth: document.documentElement.scrollWidth,
@@ -199,12 +205,13 @@ test("Mnemos dark mode uses the Luca tonal system and persists", async ({
   });
 
   expect(darkSurfaces).toMatchObject({
-    root: "rgb(20, 20, 20)",
-    card: "rgb(28, 28, 28)",
-    display: "rgb(17, 17, 17)",
+    root: "rgb(10, 10, 12)",
+    card: "rgb(14, 14, 17)",
+    display: "rgb(8, 8, 10)",
     colorScheme: "dark",
   });
   expect(darkSurfaces.track).toBe(darkSurfaces.card);
+  expect(darkSurfaces.successTone).toBe("rgba(255, 255, 255, 0.46)");
   expect(darkSurfaces.display).not.toBe("rgb(0, 0, 0)");
   expect(darkSurfaces.scrollWidth).toBe(darkSurfaces.clientWidth);
 

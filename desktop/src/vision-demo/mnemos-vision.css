@@ -60,30 +60,30 @@
 }
 
 [data-mnemos-vision][data-theme="dark"] {
-  --mn-base: #141414;
-  --mn-base-deep: #181818;
-  --mn-card: #1c1c1c;
-  --mn-card-raised: #202020;
-  --mn-pressed: #292929;
-  --mn-line: rgb(255 255 255 / 9%);
-  --mn-line-soft: rgb(255 255 255 / 5.5%);
+  --mn-base: #0a0a0c;
+  --mn-base-deep: #0c0c0f;
+  --mn-card: #0e0e11;
+  --mn-card-raised: #121216;
+  --mn-pressed: #1a1a1f;
+  --mn-line: rgb(255 255 255 / 8%);
+  --mn-line-soft: rgb(255 255 255 / 4.5%);
   --mn-ink: rgb(255 255 255 / 92%);
   --mn-ink-2: rgb(255 255 255 / 70%);
   --mn-ink-3: rgb(255 255 255 / 46%);
   --mn-ink-4: rgb(255 255 255 / 25%);
-  --mn-display: #111111;
-  --mn-display-raised: #181818;
+  --mn-display: #08080a;
+  --mn-display-raised: #0c0c0f;
   --mn-phosphor: rgb(255 255 255 / 92%);
   --mn-display-dim: rgb(255 255 255 / 43%);
-  --mn-success: #4ade80;
-  --mn-surface-subtle: #181818;
-  --mn-surface-muted: #1a1a1a;
-  --mn-surface-hover: #202020;
+  --mn-success: rgb(255 255 255 / 46%);
+  --mn-surface-subtle: #101014;
+  --mn-surface-muted: #111116;
+  --mn-surface-hover: #17171c;
   --mn-card-edge: rgb(255 255 255 / 8%);
   --mn-display-line: rgb(255 255 255 / 10%);
   --mn-display-copy: rgb(255 255 255 / 74%);
   --mn-display-identity-line: rgb(255 255 255 / 13%);
-  --mn-action-hover: #242424;
+  --mn-action-hover: #1a1a20;
   --mn-overlay-scrim: rgb(0 0 0 / 42%);
   --mn-shadow-card: 0 1px 2px rgb(0 0 0 / 28%), 0 16px 42px rgb(0 0 0 / 18%);
   --mn-shadow-composer: 0 1px 2px rgb(0 0 0 / 28%), 0 8px 24px rgb(0 0 0 / 18%);

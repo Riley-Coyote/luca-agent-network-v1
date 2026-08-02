@@ -179,15 +179,15 @@ The inspector comparison is large enough to judge header density, card separatio
   `rgb(212, 214, 211)` thumb, 32px conversation rows, zero conversation-row
   SVGs, and zero horizontal overflow.
 
-### Iteration 10 — passed
+### Iteration 10 — superseded
 
 - [P2] The vision demo exposed only the light housing system, preventing a
   meaningful comparison with Riley's dark-native Luca language and leaving no
   user-controlled theme preference.
 - Fix: added a persistent light/dark control to the conversation chrome and a
-  complete semantic dark token layer based on Luca's canonical tonal sequence:
+  complete semantic dark token layer based on an initial charcoal sequence:
   `#141414` base, `#181818` raised, `#1C1C1C` conversation cards, `#202020`
-  elevated controls, and `#111111` inset display wells. No surface uses pure
+  elevated controls, and `#111111` inset display wells. No surface used pure
   black. Ordinary hierarchy remains monochrome; the red lamp remains reserved
   for operational activity. Replaced light-only component colors, borders,
   shadows, scrollbars, overlays, focus rings, and evidence surfaces with
@@ -198,7 +198,25 @@ The inspector comparison is large enough to judge header density, card separatio
   capture. Runtime inspection confirms `rgb(20, 20, 20)` housing,
   `rgb(28, 28, 28)` cards, `rgb(17, 17, 17)` display wells, dark native color
   scheme, no pure-black surfaces, no horizontal overflow, a neutral focus ring,
-  and zero browser console errors.
+  and zero browser console errors. Riley's visual review found this ladder too
+  bright and perceptually warm compared with Luca; Iteration 11 replaces it.
+
+### Iteration 11 — passed
+
+- [P1] The initial charcoal ladder read brown and muddy beside the actual Luca
+  app, despite using equal-channel RGB values. Screenshot sampling confirmed
+  the cause: Mnemos devoted most of its canvas to `rgb(28, 28, 28)`, while
+  Luca's dominant work surface is approximately `rgb(14, 14, 17)`.
+- Fix: rebuilt dark mode around the directly sampled Luca near-black ladder:
+  `#0A0A0C` shell, `#0C0C0F` inset housing, `#0E0E11` conversation plane,
+  `#121216` raised controls, and `#08080A` display wells. The two-point blue
+  lift prevents a warm cast without reading as colored UI. Removed the green
+  success treatment from dark mode; non-critical health and presence are now
+  monochrome, while the existing red operational lamp remains the only color.
+- Post-fix evidence: refreshed light/dark comparison and complete dark surface
+  captures. Runtime inspection confirms `rgb(10, 10, 12)` housing,
+  `rgb(14, 14, 17)` cards, `rgb(8, 8, 10)` display wells, no horizontal
+  overflow, and no browser console errors.
 
 ## Findings
 
@@ -206,8 +224,9 @@ No actionable P0, P1, or P2 visual mismatches remain for the completed vision
 scope. The rail now has the compact, text-forward rhythm of a frontier chat app,
 the light thread scrollbar belongs to the conversation card, and the approved
 identity specimens remain visually distinct from ordinary navigation chrome.
-The dark mode is a parallel material system with Luca's narrow charcoal
-elevation steps, not a generic inversion of the approved light theme.
+The dark mode is a parallel material system with Luca's sampled near-black
+monochrome elevation steps, not a generic inversion of the approved light
+theme.
 
 ## Primary interactions and runtime checks
 
@@ -227,7 +246,7 @@ elevation steps, not a generic inversion of the approved light theme.
   every product destination, the memory inspector, and the 390px dark layout.
 - Verified no document overflow at 1440×900, 1280×800, 1024×768, or 390×844.
 - Checked the live browser console: no errors.
-- Typecheck, focused E2E (9 tests), E2E build, and production build pass.
+- Typecheck, focused E2E (10 tests), E2E build, and production build pass.
 
 ## Follow-up polish
 
