@@ -69,6 +69,9 @@ F19 additionally owns:
 - `desktop/src-tauri/src/app_state.rs`
 - `desktop/src-tauri/src/secret_store.rs`
 - `desktop/src/shared/api/tauriIdentity.ts`
+- the protected-recovery routing lines in
+  `desktop/src/features/onboarding/hooks.ts` and
+  `desktop/src/features/onboarding/machineOnboarding.ts`
 - `desktop/src/features/onboarding/ui/BackupStep.tsx`
 - `desktop/src/features/onboarding/ui/KeyringLockedScreen.tsx`
 - `desktop/src/features/settings/ui/ProfileSettingsCard.tsx`
