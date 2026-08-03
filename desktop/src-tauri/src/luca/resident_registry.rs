@@ -23,7 +23,7 @@ use crate::{
     commands::create_managed_agent,
     managed_agents::{
         build_managed_agent_summary, load_managed_agents, load_personas, CreateManagedAgentRequest,
-        ManagedAgentRecord, ManagedAgentSummary,
+        ManagedAgentRecord, ManagedAgentSummary, RuntimeBinding,
     },
 };
 
@@ -236,6 +236,29 @@ fn existing_resident_for_persona(
     created_summary(&summary).map(Some)
 }
 
+fn existing_resident_for_runtime_binding(
+    app: &AppHandle,
+    state: &AppState,
+    binding: &RuntimeBinding,
+) -> Result<Option<CreatedResidentSummary>, String> {
+    let _store_guard = state
+        .managed_agents_store_lock
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let records = load_managed_agents(app)?;
+    let Some(record) = unique_record_for_runtime_binding(&records, binding)? else {
+        return Ok(None);
+    };
+
+    let runtimes = state
+        .managed_agent_processes
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let personas = load_personas(app).unwrap_or_default();
+    let summary = build_managed_agent_summary(app, record, &runtimes, &personas)?;
+    created_summary(&summary).map(Some)
+}
+
 fn unique_record_for_persona<'a>(
     records: &'a [ManagedAgentRecord],
     persona_id: &str,
@@ -248,6 +271,21 @@ fn unique_record_for_persona<'a>(
         return Err(format!(
             "persona {persona_id} is linked to multiple residents; repair is required"
         ));
+    }
+    Ok(first)
+}
+
+fn unique_record_for_runtime_binding<'a>(
+    records: &'a [ManagedAgentRecord],
+    binding: &RuntimeBinding,
+) -> Result<Option<&'a ManagedAgentRecord>, String> {
+    let mut matches = records
+        .iter()
+        .filter(|record| record.native_runtime_binding.as_ref() == Some(binding));
+    let first = matches.next();
+    if matches.next().is_some() {
+        return Err("this native runtime identity is linked to multiple residents; repair is required"
+            .to_string());
     }
     Ok(first)
 }
@@ -286,10 +324,18 @@ fn creation_error(
 fn recover_or_classify_creation_error(
     app: &AppHandle,
     state: &AppState,
-    persona_id: &str,
+    persona_id: Option<&str>,
+    runtime_binding: Option<&RuntimeBinding>,
     error: String,
 ) -> Result<CreateLucaResidentResponse, CreateLucaResidentError> {
-    match existing_resident_for_persona(app, state, persona_id) {
+    let recovered = match persona_id {
+        Some(persona_id) => existing_resident_for_persona(app, state, persona_id),
+        None => match runtime_binding {
+            Some(binding) => existing_resident_for_runtime_binding(app, state, binding),
+            None => Ok(None),
+        },
+    };
+    match recovered {
         Ok(Some(existing)) => Ok(recovered_response(
             existing,
             Some(bounded_recovery_notice(&error)),
@@ -345,6 +391,7 @@ pub(crate) async fn create_luca_resident(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
+    let runtime_binding = input.native_runtime_binding.clone();
 
     // Serialize Luca-owned creation across its full async lifecycle. The
     // existing store mutex cannot be held across the legacy command's awaits.
@@ -358,16 +405,26 @@ pub(crate) async fn create_luca_resident(
             }
         }
     }
+    if let Some(binding) = runtime_binding.as_ref() {
+        match existing_resident_for_runtime_binding(&app, &state, binding) {
+            Ok(Some(existing)) => return Ok(recovered_response(existing, None)),
+            Ok(None) => {}
+            Err(error) => {
+                return Err(creation_error(error, ResidentPersistence::Unknown));
+            }
+        }
+    }
 
     let mut created = match create_managed_agent(input, app.clone(), state.clone()).await {
         Ok(created) => created,
         Err(error) => {
-            return match persona_id.as_deref() {
-                Some(persona_id) => {
-                    recover_or_classify_creation_error(&app, &state, persona_id, error)
-                }
-                None => Err(creation_error(error, ResidentPersistence::Unknown)),
-            };
+            return recover_or_classify_creation_error(
+                &app,
+                &state,
+                persona_id.as_deref(),
+                runtime_binding.as_ref(),
+                error,
+            );
         }
     };
 
@@ -377,12 +434,13 @@ pub(crate) async fn create_luca_resident(
     let resident = match created_summary(&created.agent) {
         Ok(resident) => resident,
         Err(error) => {
-            return match persona_id.as_deref() {
-                Some(persona_id) => {
-                    recover_or_classify_creation_error(&app, &state, persona_id, error)
-                }
-                None => Err(creation_error(error, ResidentPersistence::Unknown)),
-            };
+            return recover_or_classify_creation_error(
+                &app,
+                &state,
+                persona_id.as_deref(),
+                runtime_binding.as_ref(),
+                error,
+            );
         }
     };
 
@@ -399,6 +457,7 @@ pub(crate) async fn create_luca_resident(
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::path::PathBuf;
 
     fn record(pubkey: &str, name: &str, persona_id: &str) -> ManagedAgentRecord {
         serde_json::from_value(json!({
@@ -500,6 +559,32 @@ mod tests {
         ];
         assert!(unique_record_for_persona(&duplicates, "persona:luca")
             .expect_err("two links must fail closed")
+            .contains("multiple residents"));
+    }
+
+    #[test]
+    fn resident_creation_reuses_native_runtime_identity_and_rejects_duplicates() {
+        let binding = RuntimeBinding::Hermes {
+            schema_version: 1,
+            profile_name: "default".to_string(),
+            hermes_home: PathBuf::from("/tmp/hermes"),
+            executable_path: PathBuf::from("/usr/local/bin/hermes"),
+            runtime_version: "1.0.0".to_string(),
+            default_workspace: None,
+        };
+        let mut first = record(&"2".repeat(64), "Default", "persona:unused");
+        first.persona_id = None;
+        first.native_runtime_binding = Some(binding.clone());
+        let records = vec![first.clone()];
+        let existing = unique_record_for_runtime_binding(&records, &binding)
+            .expect("one native binding is unambiguous")
+            .expect("resident must exist");
+        assert_eq!(existing.pubkey, "2".repeat(64));
+
+        let mut second = first;
+        second.pubkey = "3".repeat(64);
+        assert!(unique_record_for_runtime_binding(&[records[0].clone(), second], &binding)
+            .expect_err("duplicate native identity must fail closed")
             .contains("multiple residents"));
     }
 }

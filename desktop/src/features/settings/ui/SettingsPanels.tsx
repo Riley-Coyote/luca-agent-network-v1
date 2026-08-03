@@ -517,7 +517,7 @@ function ThemeSettingsCard() {
     >
       <SettingsSectionHeader
         title="Appearance"
-        description="Choose a theme for Buzz."
+        description="Choose a theme for Luca."
       />
 
       {/* Mode selector: System / Light / Dark */}

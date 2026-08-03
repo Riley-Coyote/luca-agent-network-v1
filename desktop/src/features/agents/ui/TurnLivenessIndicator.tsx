@@ -1,7 +1,7 @@
 import { motion, useReducedMotion } from "motion/react";
+import { Circle, LoaderCircle } from "lucide-react";
 
 import { cn } from "@/shared/lib/cn";
-import { FuzzyLogo } from "@/shared/ui/buzz-logo/FuzzyLogo";
 import { useTranscriptAnimationEnabled } from "./transcriptAnimationPreference";
 
 const MARKS = ["first", "second", "third"] as const;
@@ -10,7 +10,6 @@ const CYCLE_SECONDS = 1.8;
 
 export function TurnLivenessIndicator({
   className,
-  fuzz = false,
 }: {
   className?: string;
   /** Defaults to false — the indicator stays mounted for whole turns. */
@@ -28,13 +27,7 @@ export function TurnLivenessIndicator({
         data-testid="turn-liveness-indicator"
         role="status"
       >
-        <FuzzyLogo
-          ariaLabel="Agent turn in progress"
-          className="text-foreground"
-          fuzz={fuzz}
-          loop
-          loopRestSeconds={2}
-        />
+        <LoaderCircle className="h-5 w-5 animate-spin text-foreground" />
       </div>
     );
   }
@@ -61,11 +54,9 @@ export function TurnLivenessIndicator({
             times: [0, 0.3, 0.7, 1],
           }}
         >
-          <FuzzyLogo
-            ariaLabel=""
-            className="w-5! text-foreground"
-            fuzz={fuzz}
-            pulse={false}
+          <Circle
+            aria-hidden
+            className="h-1.5 w-1.5 fill-current text-foreground"
           />
         </motion.div>
       ))}

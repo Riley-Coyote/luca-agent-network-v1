@@ -33,8 +33,8 @@ struct BuiltInTeam {
 
 const BUILT_IN_TEAMS: &[BuiltInTeam] = &[BuiltInTeam {
     id: "builtin-team:welcome",
-    name: "Welcome Team",
-    description: Some("A friendly starter trio ready to help you plan, create, and ship."),
+    name: "Starter Residents",
+    description: Some("Luca, Vektor, and Anima — an optional starting network."),
     persona_ids: &["builtin:fizz", "builtin:honey", "builtin:bumble"],
 }];
 
@@ -92,6 +92,16 @@ fn merge_teams_impl(
     // Seed missing built-ins / re-promote existing ones that were downgraded.
     for built_in in built_in_team_records(built_ins, now) {
         if let Some(existing) = stored.iter_mut().find(|record| record.id == built_in.id) {
+            if existing.id == "builtin-team:welcome"
+                && existing.name == "Welcome Team"
+                && existing.description.as_deref()
+                    == Some("A friendly starter trio ready to help you plan, create, and ship.")
+            {
+                existing.name = built_in.name.clone();
+                existing.description = built_in.description.clone();
+                existing.updated_at = now.to_string();
+                changed = true;
+            }
             if !existing.is_builtin {
                 existing.is_builtin = true;
                 existing.updated_at = now.to_string();

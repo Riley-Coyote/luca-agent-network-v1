@@ -1,5 +1,3 @@
-import { BuzzMark } from "@/shared/ui/buzz-logo/BuzzMark";
-
 /**
  * Positions in the first-launch flow: landing, identity/key, harness setup,
  * default config, community choice, community profile, meet the team. Used as
@@ -41,7 +39,7 @@ export const ONBOARDING_INK_ICON_CLASS =
  * dots.
  */
 export function OnboardingChrome({
-  brand = "buzz",
+  brand = "luca",
   current,
   total = TOTAL_ONBOARDING_PAGES,
 }: {
@@ -59,13 +57,9 @@ export function OnboardingChrome({
         data-brand={brand}
         data-testid="onboarding-logo"
       >
-        {brand === "luca" ? (
-          <span className="font-mono text-xs font-medium uppercase tracking-[0.22em]">
-            Luca
-          </span>
-        ) : (
-          <BuzzMark className="h-auto w-full" />
-        )}
+        <span className="font-mono text-xs font-medium uppercase tracking-[0.22em]">
+          Luca
+        </span>
       </span>
       <div
         className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2"

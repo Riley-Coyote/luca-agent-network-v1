@@ -675,7 +675,7 @@ export function CommunityOnboardingFlow({
                   ) : starterChannelFailureCount >= 2 ? (
                     "Skip for now"
                   ) : (
-                    "Take me to Buzz"
+                    "Open Luca"
                   )}
                 </Button>
                 <Button

@@ -1,7 +1,6 @@
 import { useCommunityOnboarding } from "@/features/onboarding/communityOnboarding";
 import { useSystemColorScheme } from "@/shared/theme/useSystemColorScheme";
 import { Button } from "@/shared/ui/button";
-import { FlappingBee } from "@/shared/ui/buzz-logo/FlappingBee";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 
 /**
@@ -23,7 +22,7 @@ export function PendingInviteGate() {
     >
       <StartupWindowDragRegion />
       <div className="relative flex w-full max-w-[500px] flex-col items-center text-center">
-        <FlappingBee className="h-auto w-24" />
+        <LoaderCircle className="h-8 w-8 animate-spin text-muted-foreground" />
         <h1 className="mt-6 text-3xl font-semibold tracking-tight">
           Opening community link
         </h1>
@@ -53,3 +52,4 @@ export function PendingInviteGate() {
     </div>
   );
 }
+import { LoaderCircle } from "lucide-react";

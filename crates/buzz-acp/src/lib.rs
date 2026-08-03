@@ -1243,6 +1243,14 @@ async fn tokio_main() -> Result<()> {
 
     tracing::info!("buzz-acp starting: {}", config.summary());
 
+    // Capture the replay boundary before the runtime is spawned or initialized.
+    // Native runtimes can take several seconds to become ACP-ready; messages
+    // sent during that window must be included in the first relay subscription.
+    let startup_watermark: u64 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
     let observer = config
         .relay_observer
         .then(observer::ObserverHandle::in_process);
@@ -1360,16 +1368,6 @@ async fn tokio_main() -> Result<()> {
     }
     tracing::info!("agent_pool_ready agents={}", live_count);
     let mut pool = AgentPool::from_slots(agent_slots);
-
-    // Capture a startup watermark BEFORE connecting to the relay. This timestamp
-    // is used for membership notification replay (via startup_watermark) and as
-    // the initial subscribe_since for channels discovered at startup. The Subscribe
-    // handler falls back to subscribe_since when last_seen is None, closing the
-    // blind spot between "agents ready" and "first REQ sent".
-    let startup_watermark: u64 = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
 
     let pubkey_hex = config.identity.public_key().to_hex();
 

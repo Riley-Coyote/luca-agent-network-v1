@@ -1,6 +1,6 @@
 import * as React from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { CheckCheck, Clock, Radio } from "lucide-react";
+import { CheckCheck, Clock, LoaderCircle, Radio } from "lucide-react";
 
 import {
   useActiveAgentTurns,
@@ -23,7 +23,6 @@ import {
 } from "@/shared/ui/dialog";
 import { Toggle } from "@/shared/ui/toggle";
 import { AnimatedCount } from "@/shared/ui/AnimatedCount";
-import { FuzzyLogo } from "@/shared/ui/buzz-logo/FuzzyLogo";
 import type { PromptSection, TranscriptItem } from "./agentSessionTypes";
 import { TurnLivenessIndicator } from "./TurnLivenessIndicator";
 import { PromptSectionList as PromptContextSections } from "./PromptSectionAccordion";
@@ -208,11 +207,9 @@ export function AgentSessionTranscriptList({
       <div className={scrollContainerClassNames}>
         <div className="flex h-full min-h-40 flex-col items-center justify-center px-6 py-10 text-center">
           {isLoading ? (
-            <FuzzyLogo
-              ariaLabel="Waiting for ACP activity"
-              className="mx-auto text-muted-foreground"
-              fuzz={false}
-              loop
+            <LoaderCircle
+              aria-label="Waiting for ACP activity"
+              className="mx-auto h-5 w-5 animate-spin text-muted-foreground"
             />
           ) : (
             <>

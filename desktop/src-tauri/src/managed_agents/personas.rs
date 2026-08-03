@@ -25,36 +25,37 @@ const HONEY_SYSTEM_PROMPT: &str = "You are Honey, a warm and thoughtful communic
 
 const BUMBLE_SYSTEM_PROMPT: &str = "You are Bumble, a curious and adventurous researcher. Explore questions, compare options, check assumptions, and explain what you find clearly. Be candid when uncertain and favor useful evidence. Add occasional bee wordplay or 🐝🔎—keep it playful, never chaotic.";
 
+const LUCA_SYSTEM_PROMPT: &str = "You are Luca, a clear and grounded generalist collaborator. Help the user think, decide, create, and carry work forward while respecting durable context and the user's authority.";
+const VEKTOR_SYSTEM_PROMPT: &str = "You are Vektor, a rigorous systems and technical collaborator. Analyze architecture, identify constraints, implement carefully, and verify concrete outcomes without overstating certainty.";
+const ANIMA_SYSTEM_PROMPT: &str = "You are Anima, a perceptive creative and reflective collaborator. Help with narrative, meaning, relationships, expression, and synthesis while staying practical and honest.";
+
 const BUILT_IN_PERSONAS: &[BuiltInPersona] = &[
     BuiltInPersona {
         id: "builtin:fizz",
-        display_name: "Fizz",
-        avatar_url: Some(FIZZ_AVATAR),
-        system_prompt: FIZZ_SYSTEM_PROMPT,
-        name_pool: &[
-            "Nectar", "Comet", "Bramble", "Clover", "Pollen", "Amber", "Daisy", "Mason", "Thistle",
-            "Waxwing", "Hive", "Meadow", "Juniper", "Aster", "Sage", "Willow", "Orchard", "Buzz",
-        ],
+        display_name: "Luca",
+        avatar_url: None,
+        system_prompt: LUCA_SYSTEM_PROMPT,
+        name_pool: &["Luca"],
         model: None,
         runtime: None,
         default_active: true,
     },
     BuiltInPersona {
         id: "builtin:honey",
-        display_name: "Honey",
-        avatar_url: Some(HONEY_AVATAR),
-        system_prompt: HONEY_SYSTEM_PROMPT,
-        name_pool: &["Honey"],
+        display_name: "Vektor",
+        avatar_url: None,
+        system_prompt: VEKTOR_SYSTEM_PROMPT,
+        name_pool: &["Vektor"],
         model: None,
         runtime: None,
         default_active: true,
     },
     BuiltInPersona {
         id: "builtin:bumble",
-        display_name: "Bumble",
-        avatar_url: Some(BUMBLE_AVATAR),
-        system_prompt: BUMBLE_SYSTEM_PROMPT,
-        name_pool: &["Bumble"],
+        display_name: "Anima",
+        avatar_url: None,
+        system_prompt: ANIMA_SYSTEM_PROMPT,
+        name_pool: &["Anima"],
         model: None,
         runtime: None,
         default_active: true,
@@ -172,8 +173,27 @@ fn merge_personas(mut stored: Vec<AgentDefinition>, now: &str) -> (Vec<AgentDefi
 
     for built_in in built_in_persona_records(now) {
         if let Some(existing) = stored.iter_mut().find(|record| record.id == built_in.id) {
+            let legacy_seed = match existing.id.as_str() {
+                "builtin:fizz" => Some(("Fizz", FIZZ_SYSTEM_PROMPT, FIZZ_AVATAR)),
+                "builtin:honey" => Some(("Honey", HONEY_SYSTEM_PROMPT, HONEY_AVATAR)),
+                "builtin:bumble" => Some(("Bumble", BUMBLE_SYSTEM_PROMPT, BUMBLE_AVATAR)),
+                _ => None,
+            };
+            if legacy_seed.is_some_and(|(name, prompt, avatar)| {
+                existing.display_name == name
+                    && existing.system_prompt == prompt
+                    && existing.avatar_url.as_deref() == Some(avatar)
+            }) {
+                existing.display_name = built_in.display_name.clone();
+                existing.avatar_url = built_in.avatar_url.clone();
+                existing.system_prompt = built_in.system_prompt.clone();
+                existing.name_pool = built_in.name_pool.clone();
+                existing.updated_at = now.to_string();
+                changed = true;
+            }
             if !existing.is_builtin {
                 existing.is_builtin = true;
+                existing.updated_at = now.to_string();
                 changed = true;
             }
         } else {

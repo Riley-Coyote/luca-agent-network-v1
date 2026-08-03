@@ -334,43 +334,52 @@ pub(super) async fn start_local_agent_with_preflight(
 
     ensure_relay_mesh_for_record(app, &record_snapshot, allow_fresh_create_start).await?;
 
-    let _store_guard = state
-        .managed_agents_store_lock
-        .lock()
-        .map_err(|e| e.to_string())?;
-    let mut records = load_managed_agents(app)?;
-    let mut runtimes = state
-        .managed_agent_processes
-        .lock()
-        .map_err(|e| e.to_string())?;
-    let record = find_managed_agent_mut(&mut records, pubkey)?;
-    if record.backend != BackendKind::Local {
-        return Err(format!("agent {pubkey} is no longer a local agent"));
-    }
-    // Re-snapshot the persona onto the record at every spawn so the agent always
-    // starts with the current persona config (system_prompt, model, provider,
-    // runtime). This clears the "out of date" drift badge without requiring a
-    // delete+recreate. See `apply_persona_snapshot` for the precedence and
-    // env-override self-heal rules.
-    // Load personas once: used for snapshot application below and summary build
-    // at the end — avoids a second disk read for the same file in the same call.
-    let personas = load_personas(app).unwrap_or_default();
-    if let Some(persona_id) = record.persona_id.clone() {
-        if let Some(persona) = personas.iter().find(|p| p.id == persona_id) {
-            crate::managed_agents::persona_events::apply_persona_snapshot(record, persona);
-            record.updated_at = crate::util::now_iso();
+    // Runtime startup performs blocking process, keychain, HTTP client, and
+    // std::sync lock work. Keep that entire section off Tokio's async worker;
+    // reqwest's blocking client otherwise tries to drop its private runtime in
+    // an async context and can panic, poisoning the managed-agent store lock.
+    let app = app.clone();
+    let pubkey = pubkey.to_string();
+    let owner_hex = owner_hex.to_string();
+    tokio::task::spawn_blocking(move || {
+        use tauri::Manager;
+
+        let state = app.state::<AppState>();
+        let _store_guard = state
+            .managed_agents_store_lock
+            .lock()
+            .map_err(|e| e.to_string())?;
+        let mut records = load_managed_agents(&app)?;
+        let mut runtimes = state
+            .managed_agent_processes
+            .lock()
+            .map_err(|e| e.to_string())?;
+        let record = find_managed_agent_mut(&mut records, &pubkey)?;
+        if record.backend != BackendKind::Local {
+            return Err(format!("agent {pubkey} is no longer a local agent"));
         }
-    }
-    start_managed_agent_process(app, record, &mut runtimes, Some(owner_hex))?;
-    save_managed_agents(app, &records)?;
-    if let Some(saved_record) = records.iter().find(|r| r.pubkey == pubkey) {
-        retain_managed_agent_pending(app, state, saved_record);
-    }
-    let record = records
-        .iter()
-        .find(|record| record.pubkey == pubkey)
-        .ok_or_else(|| format!("agent {pubkey} not found"))?;
-    build_managed_agent_summary(app, record, &runtimes, &personas)
+        // Re-snapshot the persona onto the record at every spawn so the agent
+        // starts with the current persona config.
+        let personas = load_personas(&app).unwrap_or_default();
+        if let Some(persona_id) = record.persona_id.clone() {
+            if let Some(persona) = personas.iter().find(|p| p.id == persona_id) {
+                crate::managed_agents::persona_events::apply_persona_snapshot(record, persona);
+                record.updated_at = crate::util::now_iso();
+            }
+        }
+        start_managed_agent_process(&app, record, &mut runtimes, Some(&owner_hex))?;
+        save_managed_agents(&app, &records)?;
+        if let Some(saved_record) = records.iter().find(|r| r.pubkey == pubkey) {
+            retain_managed_agent_pending(&app, &state, saved_record);
+        }
+        let record = records
+            .iter()
+            .find(|record| record.pubkey == pubkey)
+            .ok_or_else(|| format!("agent {pubkey} not found"))?;
+        build_managed_agent_summary(&app, record, &runtimes, &personas)
+    })
+    .await
+    .map_err(|error| format!("managed-agent startup worker failed: {error}"))?
 }
 
 /// Deploy an agent to a provider backend. Resolves the binary, calls deploy via
