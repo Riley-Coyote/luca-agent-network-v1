@@ -128,7 +128,9 @@ pub(crate) struct EventQueryParityFixture {
     pub second_id: Vec<u8>,
     pub third_id: Vec<u8>,
     pub first_author: Vec<u8>,
+    pub gated_reader: Vec<u8>,
     pub p_tag_hex: String,
+    pub e_tag_hex: String,
     pub channel_id: Uuid,
 }
 
@@ -171,7 +173,7 @@ pub(crate) fn event_query_parity_vectors(
     fixture: &EventQueryParityFixture,
 ) -> Vec<(&'static str, EventQuery, Vec<Vec<u8>>, i64)> {
     let mut kinds = EventQuery::for_community(community_id);
-    kinds.kinds = Some(vec![1]);
+    kinds.kinds = Some(vec![30_175]);
 
     let mut author = EventQuery::for_community(community_id);
     author.authors = Some(vec![fixture.first_author.clone()]);
@@ -194,6 +196,14 @@ pub(crate) fn event_query_parity_vectors(
     let mut cursor = EventQuery::for_community(community_id);
     cursor.until = Some(DateTime::from_timestamp(102, 0).expect("valid timestamp"));
     cursor.before_id = Some(fixture.third_id.clone());
+    cursor.kinds = Some(vec![2, 30_023]);
+    cursor.channel_ids = Some(vec![fixture.channel_id]);
+
+    let mut e_tag = EventQuery::for_community(community_id);
+    e_tag.e_tags = Some(vec![fixture.e_tag_hex.clone(), "missing".to_string()]);
+
+    let mut gated = EventQuery::for_community(community_id);
+    gated.shared_gated_reader = Some(fixture.gated_reader.clone());
 
     let mut limited = EventQuery::for_community(community_id);
     limited.limit = Some(2);
@@ -227,8 +237,15 @@ pub(crate) fn event_query_parity_vectors(
             2,
         ),
         (
-            "cursor",
+            "cursor composition",
             cursor,
+            vec![fixture.second_id.clone(), fixture.first_id.clone()],
+            2,
+        ),
+        ("e-tag", e_tag, vec![fixture.first_id.clone()], 1),
+        (
+            "gated-reader",
+            gated,
             vec![fixture.second_id.clone(), fixture.first_id.clone()],
             2,
         ),
@@ -2121,10 +2138,12 @@ mod tests {
         let first_keys = Keys::generate();
         let second_keys = Keys::generate();
         let p_tag_hex = hex::encode(second_keys.public_key().to_bytes());
+        let e_tag_hex = "ab".repeat(32);
         let first = EventBuilder::new(Kind::Custom(30_023), "first")
             .tags([
                 Tag::parse(["d", "alpha"]).unwrap(),
                 Tag::parse(["p", &p_tag_hex.to_ascii_uppercase()]).unwrap(),
+                Tag::parse(["e", &e_tag_hex]).unwrap(),
             ])
             .custom_created_at(Timestamp::from(100_u64))
             .sign_with_keys(&first_keys)
@@ -2133,7 +2152,7 @@ mod tests {
             .custom_created_at(Timestamp::from(101_u64))
             .sign_with_keys(&second_keys)
             .unwrap();
-        let third = EventBuilder::new(Kind::Custom(1), "third")
+        let third = EventBuilder::new(Kind::Custom(30_175), "third")
             .custom_created_at(Timestamp::from(102_u64))
             .sign_with_keys(&first_keys)
             .unwrap();
@@ -2152,7 +2171,9 @@ mod tests {
             second_id: second.id.as_bytes().to_vec(),
             third_id: third.id.as_bytes().to_vec(),
             first_author: first.pubkey.to_bytes().to_vec(),
+            gated_reader: second.pubkey.to_bytes().to_vec(),
             p_tag_hex,
+            e_tag_hex,
             channel_id,
         };
         for (name, query, expected_ids, expected_count) in
