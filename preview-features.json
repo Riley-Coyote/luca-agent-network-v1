@@ -49,6 +49,15 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "localCommunities",
+      "name": "Local communities",
+      "description": "Create a community that lives entirely on this device (local relay)",
+      "defaultEnabled": true,
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

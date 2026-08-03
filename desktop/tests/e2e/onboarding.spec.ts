@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { nsecEncode } from "nostr-tools/nip19";
 
 import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
+import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
 import { installFakeCamera } from "../helpers/fakeCamera";
 import {
   E2E_IDENTITY_OVERRIDE_STORAGE_KEY,
@@ -77,6 +78,18 @@ const FIRST_RUN_ALICE = {
   ...TEST_IDENTITIES.alice,
   username: "",
 };
+
+async function setLocalCommunitiesFeature(page: Page, enabled: boolean) {
+  await page.addInitScript(
+    ({ key, enabled }) => {
+      window.localStorage.setItem(
+        key,
+        JSON.stringify({ localCommunities: enabled }),
+      );
+    },
+    { key: FEATURE_OVERRIDES_STORAGE_KEY, enabled },
+  );
+}
 
 async function seedOnboardingCompletion(page: Page, pubkey: string) {
   await page.addInitScript(
