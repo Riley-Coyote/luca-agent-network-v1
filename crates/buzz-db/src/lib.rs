@@ -668,7 +668,7 @@ impl Db {
     /// detached from the shared pool so a stable leader neither returns a locked
     /// session to other callers nor permanently consumes a pool slot. Dropping the
     /// guard closes the connection and releases the session-scoped lock.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "requires PostgreSQL operational infrastructure")]
     pub async fn try_lock_usage_metrics(
         &self,
         lock_key: i64,
@@ -779,37 +779,37 @@ impl Db {
     }
 
     /// Return per-community user counts split by human/agent.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "usage analytics is PostgreSQL-only")]
     pub async fn usage_user_counts(&self) -> Result<Vec<usage::CommunityUserCounts>> {
         usage::user_counts(self.pg_pool()?).await
     }
 
     /// Return per-community channel counts by type.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "usage analytics is PostgreSQL-only")]
     pub async fn usage_channel_counts(&self) -> Result<Vec<usage::CommunityChannelCount>> {
         usage::channel_counts(self.pg_pool()?).await
     }
 
     /// Return per-community kind=9 message counts.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "usage analytics is PostgreSQL-only")]
     pub async fn usage_message_counts(&self) -> Result<Vec<usage::CommunityMessageCount>> {
         usage::message_counts(self.pg_pool()?).await
     }
 
     /// Return per-community relay-member counts by role.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "usage analytics is PostgreSQL-only")]
     pub async fn usage_relay_member_counts(&self) -> Result<Vec<usage::CommunityMemberCount>> {
         usage::relay_member_counts(self.pg_pool()?).await
     }
 
     /// Return per-community workflow counts by status.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "usage analytics is PostgreSQL-only")]
     pub async fn usage_workflow_counts(&self) -> Result<Vec<usage::CommunityWorkflowCount>> {
         usage::workflow_counts(self.pg_pool()?).await
     }
 
     /// Return per-community git-repo counts.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "usage analytics is PostgreSQL-only")]
     pub async fn usage_git_repo_counts(&self) -> Result<Vec<usage::CommunityGitRepoCount>> {
         usage::git_repo_counts(self.pg_pool()?).await
     }
@@ -817,7 +817,7 @@ impl Db {
     /// Return per-community distinct active-user counts for a given SQL interval.
     ///
     /// `interval_sql` must be a trusted literal such as `"1 day"` or `"7 days"`.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "usage analytics is PostgreSQL-only")]
     pub async fn usage_active_user_counts(
         &self,
         interval_sql: &'static str,
@@ -826,7 +826,7 @@ impl Db {
     }
 
     /// Return per-community active-channel counts for a given SQL interval.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "usage analytics is PostgreSQL-only")]
     pub async fn usage_active_channel_counts(
         &self,
         interval_sql: &'static str,
@@ -835,7 +835,7 @@ impl Db {
     }
 
     /// Return all community id → host mappings.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "usage analytics is PostgreSQL-only")]
     pub async fn usage_community_hosts(&self) -> Result<Vec<usage::CommunityHost>> {
         usage::community_hosts(self.pg_pool()?).await
     }
@@ -844,7 +844,7 @@ impl Db {
     ///
     /// Returns a `'static` transaction because `PgPool` is `Arc`-backed internally.
     /// The transaction holds an owned pool handle, not a borrow.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "requires PostgreSQL operational infrastructure")]
     pub async fn begin_transaction(&self) -> Result<sqlx::Transaction<'static, sqlx::Postgres>> {
         self.pg_pool()?.begin().await.map_err(Into::into)
     }
@@ -901,7 +901,7 @@ impl Db {
     }
 
     /// Returns a community by host regardless of lifecycle state. Operator-plane only.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "community lifecycle management is PostgreSQL-only")]
     pub async fn lookup_community_by_host_for_management(
         &self,
         normalized_host: &str,
@@ -923,7 +923,7 @@ impl Db {
     ///
     /// This is an operator-plane helper, not a tenant-scoped data-plane read:
     /// callers must gate it on deployment-level operator auth before exposing it.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "community lifecycle management is PostgreSQL-only")]
     pub async fn list_communities_owned_by(
         &self,
         owner_pubkey: &str,
@@ -1107,7 +1107,7 @@ impl Db {
     /// Holds a per-owner advisory lock while enforcing the ownership limit.
     /// Identical create retries return the original record; host collisions and
     /// limit failures remain distinguishable to the operator API.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "community lifecycle management is PostgreSQL-only")]
     pub async fn create_community_with_owner(
         &self,
         normalized_host: &str,
@@ -1193,7 +1193,7 @@ impl Db {
     }
 
     /// Idempotently archives a community when the asserted pubkey is its current owner.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "community lifecycle management is PostgreSQL-only")]
     pub async fn archive_community_owned_by(
         &self,
         normalized_host: &str,
@@ -1227,7 +1227,7 @@ impl Db {
     }
 
     /// Idempotently restores a community when the asserted pubkey is its current owner.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "community lifecycle management is PostgreSQL-only")]
     pub async fn unarchive_community_owned_by(
         &self,
         normalized_host: &str,
@@ -1601,7 +1601,7 @@ impl Db {
     }
 
     /// Exclusively claim a batch of due matcher jobs from one community.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "push delivery persistence is PostgreSQL-only")]
     pub async fn claim_due_push_match_batch(
         &self,
         limit: i64,
@@ -1611,7 +1611,7 @@ impl Db {
     }
 
     /// Load active endpoint-enabled leases eligible for push matching.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "push delivery persistence is PostgreSQL-only")]
     pub async fn active_push_match_leases(
         &self,
         community: CommunityId,
@@ -1620,7 +1620,7 @@ impl Db {
     }
 
     /// Complete matcher jobs from one claimed batch while the fence holds.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "push delivery persistence is PostgreSQL-only")]
     pub async fn complete_push_match_batch(
         &self,
         community: CommunityId,
@@ -1631,7 +1631,7 @@ impl Db {
     }
 
     /// Release fenced matcher claims from one batch for retry.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "push delivery persistence is PostgreSQL-only")]
     pub async fn retry_push_match_batch(
         &self,
         community: CommunityId,
@@ -1643,13 +1643,13 @@ impl Db {
     }
 
     /// Delete exhausted matcher jobs (periodic sweep, off the claim path).
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "push delivery persistence is PostgreSQL-only")]
     pub async fn reap_exhausted_push_matches(&self) -> Result<u64> {
         push::reap_exhausted_matches(self.pg_pool()?).await
     }
 
     /// Idempotently enqueue a wake for a matched lease and event.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "push delivery persistence is PostgreSQL-only")]
     pub async fn enqueue_push_wake(
         &self,
         community: CommunityId,
@@ -1661,7 +1661,7 @@ impl Db {
     }
 
     /// Set-wise [`Self::enqueue_push_wake`]: one transaction per batch.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "push delivery persistence is PostgreSQL-only")]
     pub async fn enqueue_push_wakes(
         &self,
         community: CommunityId,
@@ -1671,7 +1671,7 @@ impl Db {
     }
 
     /// Exclusively claim due wake jobs for one community.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "push delivery persistence is PostgreSQL-only")]
     pub async fn claim_due_push_wakes(
         &self,
         community: CommunityId,
@@ -1682,7 +1682,7 @@ impl Db {
     }
 
     /// Revalidate a wake's claim, source event, and current lease before send.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "push delivery persistence is PostgreSQL-only")]
     pub async fn revalidate_push_wake(
         &self,
         community: CommunityId,
@@ -1693,7 +1693,7 @@ impl Db {
     }
 
     /// Mark a fenced wake claim delivered.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "push delivery persistence is PostgreSQL-only")]
     pub async fn complete_push_wake(
         &self,
         community: CommunityId,
@@ -1704,7 +1704,7 @@ impl Db {
     }
 
     /// Release a fenced wake claim for retry at the supplied time.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "push delivery persistence is PostgreSQL-only")]
     pub async fn retry_push_wake(
         &self,
         community: CommunityId,
@@ -1716,7 +1716,7 @@ impl Db {
     }
 
     /// Mark a fenced wake claim terminally failed.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "push delivery persistence is PostgreSQL-only")]
     pub async fn fail_push_wake(
         &self,
         community: CommunityId,
@@ -1727,7 +1727,7 @@ impl Db {
     }
 
     /// Disable an endpoint only if the specified lease generation is current.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "push delivery persistence is PostgreSQL-only")]
     pub async fn disable_push_endpoint(
         &self,
         community: CommunityId,
@@ -1747,7 +1747,7 @@ impl Db {
 
     /// Atomically persist a validated kind:30350 event and its effective lease.
     #[allow(clippy::too_many_arguments)]
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "push delivery persistence is PostgreSQL-only")]
     pub async fn accept_push_lease_event(
         &self,
         community: CommunityId,
@@ -4829,7 +4829,7 @@ impl Db {
     /// demoting the previous owner(s) to `member`. Verifies
     /// `expected_owner_pubkey` matches the current owner inside the same
     /// transaction to prevent stale-owner races.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "relay membership maintenance is PostgreSQL-only")]
     pub async fn transfer_ownership(
         &self,
         community: CommunityId,
@@ -4849,7 +4849,7 @@ impl Db {
     ///
     /// Idempotent — uses `ON CONFLICT DO NOTHING`. Returns the number of rows
     /// inserted, or 0 if the `pubkey_allowlist` table doesn't exist.
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "relay membership maintenance is PostgreSQL-only")]
     pub async fn backfill_from_allowlist(&self, community: CommunityId) -> Result<u64> {
         relay_members::backfill_from_allowlist(self.pg_pool()?, community).await
     }
@@ -5530,7 +5530,7 @@ impl Db {
     /// prevents the stale-snapshot race where a concurrent publication reads
     /// older state and overwrites a newer snapshot by arrival order.
     ///
-    #[sqlite_backend(implemented)]
+    #[sqlite_backend(unsupported = "relay membership maintenance is PostgreSQL-only")]
     pub async fn publish_nip43_membership_locked(
         &self,
         community_id: CommunityId,
