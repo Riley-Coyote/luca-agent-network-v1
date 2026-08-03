@@ -33,6 +33,7 @@ import { PageHeader } from "@/shared/ui/PageHeader";
 import { getInheritedAgentDefaults } from "./bakedEnvHelpers";
 import { ResidentSetup } from "@/features/luca/residents/ResidentSetup";
 import { useLucaResidentsQuery } from "@/features/luca/residents/hooks";
+import { NativeResidentImportSection } from "./NativeResidentImportSection";
 
 export function AgentsView() {
   const { openPersonaProfilePanel, openProfilePanel } = useProfilePanel();
@@ -146,6 +147,7 @@ export function AgentsView() {
             title="Agents"
           />
           <div className="flex flex-col gap-8">
+            <NativeResidentImportSection residents={agents.managedAgents} />
             <ResidentSetup
               isLoading={
                 residentsQuery.isLoading || personas.personasQuery.isLoading

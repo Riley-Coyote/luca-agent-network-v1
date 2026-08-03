@@ -31,6 +31,7 @@ fn record() -> ManagedAgentRecord {
         backend: Default::default(),
         backend_agent_id: None,
         provider_binary_path: None,
+        native_runtime_binding: None,
         team_id: None,
         persona_team_dir: None,
         persona_name_in_team: None,

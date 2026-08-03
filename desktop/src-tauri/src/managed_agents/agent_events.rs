@@ -188,6 +188,7 @@ mod tests {
             },
             backend_agent_id: Some("remote-id".to_string()),
             provider_binary_path: Some("/path/to/binary".to_string()),
+            native_runtime_binding: None,
             team_id: None,
             persona_team_dir: None,
             persona_name_in_team: None,

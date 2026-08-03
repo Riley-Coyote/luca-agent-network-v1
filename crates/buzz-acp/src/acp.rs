@@ -28,6 +28,7 @@ const LUCA_DESCENDANT_FORBIDDEN_ENV: &[&str] = &[
     "LUCA_MANAGED_RESIDENT_PUBKEY",
     "LUCA_MANAGED_SESSION_EPOCH",
     "LUCA_MANAGED_OWNER_ATTESTATION",
+    "LUCA_OPENCLAW_AGENT_ID",
 ];
 
 fn is_luca_descendant_forbidden_env(key: &str) -> bool {
@@ -153,9 +154,9 @@ fn agent_error_from_json(error: &serde_json::Value) -> AcpError {
     AcpError::AgentError { code, message }
 }
 
-fn build_initialize_params() -> serde_json::Value {
+fn build_initialize_params(protocol_version: u32) -> serde_json::Value {
     serde_json::json!({
-        "protocolVersion": 2,
+        "protocolVersion": protocol_version,
         "clientCapabilities": build_client_capabilities(),
         "clientInfo": {
             "name": "buzz-acp",
@@ -235,6 +236,23 @@ pub struct AcpClient {
     /// Managed final-message chunks for the one currently active prompt.
     /// This is populated only from public ACP `agent_message_chunk` updates.
     final_message_capture: Option<FinalChunkAccumulator>,
+    /// Protocol requested for this runtime process. Existing Buzz runtimes
+    /// remain on v2; native Hermes/OpenClaw bindings use the common v1 path.
+    requested_protocol_version: u32,
+}
+
+fn requested_protocol_version(command: &str) -> u32 {
+    let normalized = command
+        .replace('\\', "/")
+        .rsplit('/')
+        .next()
+        .unwrap_or(command)
+        .trim_end_matches(".exe")
+        .to_ascii_lowercase();
+    match normalized.as_str() {
+        "hermes" | "openclaw" => 1,
+        _ => 2,
+    }
 }
 
 /// Recursively merge `overlay` into `base`, with `overlay` winning on scalar/shape
@@ -574,6 +592,7 @@ impl AcpClient {
             steer_rx: None,
             goose_usage: UsageTracker::default(),
             final_message_capture: None,
+            requested_protocol_version: requested_protocol_version(command),
         })
     }
 
@@ -615,9 +634,7 @@ impl AcpClient {
     /// Must be called exactly once, before any other ACP method.
     /// The caller may inspect `agentCapabilities` in the returned value.
     pub async fn initialize(&mut self) -> Result<serde_json::Value, AcpError> {
-        // Requesting version 2 is an intentional temporary pin — we are squatting
-        // on ACP v2 ahead of the upstream ACP RFD. Revisit when that RFD merges.
-        let params = build_initialize_params();
+        let params = build_initialize_params(self.requested_protocol_version);
         let result = self.send_request("initialize", params).await?;
         tracing::debug!(target: "acp::init", "initialize response: {result}");
         Ok(result)
@@ -644,12 +661,32 @@ impl AcpClient {
         mcp_servers: Vec<McpServer>,
         system_prompt: Option<&str>,
     ) -> Result<SessionNewResponse, AcpError> {
+        self.session_new_full_with_meta(cwd, mcp_servers, system_prompt, None)
+            .await
+    }
+
+    /// Send `session/new` with runtime-specific, non-secret routing metadata.
+    pub async fn session_new_full_with_meta(
+        &mut self,
+        cwd: &str,
+        mcp_servers: Vec<McpServer>,
+        system_prompt: Option<&str>,
+        meta: Option<serde_json::Value>,
+    ) -> Result<SessionNewResponse, AcpError> {
         let mut params = serde_json::json!({
             "cwd": cwd,
             "mcpServers": mcp_servers,
         });
         if let Some(sp) = system_prompt {
             params["systemPrompt"] = serde_json::Value::String(sp.to_owned());
+        }
+        if let Some(meta) = meta {
+            if !meta.is_object() {
+                return Err(AcpError::Protocol(
+                    "session metadata must be a JSON object".into(),
+                ));
+            }
+            params["_meta"] = meta;
         }
         let result = self.send_request("session/new", params).await?;
         let session_id = result["sessionId"]
@@ -2222,6 +2259,14 @@ mod tests {
         assert_eq!(msg["id"].as_u64(), Some(42));
         assert_eq!(msg["jsonrpc"].as_str(), Some("2.0"));
         assert_eq!(msg["method"].as_str(), Some("initialize"));
+    }
+
+    #[test]
+    fn native_runtimes_request_common_acp_v1() {
+        assert_eq!(requested_protocol_version("hermes"), 1);
+        assert_eq!(requested_protocol_version("/opt/homebrew/bin/openclaw"), 1);
+        assert_eq!(requested_protocol_version("codex-acp"), 2);
+        assert_eq!(build_initialize_params(1)["protocolVersion"], 1);
     }
 
     #[test]

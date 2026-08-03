@@ -34,7 +34,7 @@ mod unix {
     #[derive(Debug, Error)]
     pub enum SigningClientError {
         /// Standard input was not a usable inherited Unix socket.
-        #[error("managed signing broker is not available on inherited standard input")]
+        #[error("managed signing broker is not available on inherited standard input: {0}")]
         InheritedChannel(#[source] io::Error),
         /// A previously observed terminal failure permanently closed this session.
         #[error("managed signing broker session is closed")]

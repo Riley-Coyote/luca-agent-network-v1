@@ -112,6 +112,7 @@ impl AgentDefinition {
             backend: BackendKind::default(),
             backend_agent_id: None,
             provider_binary_path: None,
+            native_runtime_binding: None,
             team_id: None,
             persona_team_dir: None,
             persona_name_in_team: None,
@@ -296,6 +297,10 @@ pub struct ManagedAgentRecord {
     pub backend_agent_id: Option<String>,
     #[serde(default)]
     pub provider_binary_path: Option<String>,
+    /// Durable, secret-free binding to an imported Hermes profile or OpenClaw
+    /// agent. Native credentials remain in their original protected stores.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_runtime_binding: Option<super::RuntimeBinding>,
     /// Installed team directory path (absolute). Set when agent was created from a team persona.
     #[serde(
         default,
@@ -500,6 +505,7 @@ pub struct ManagedAgentSummary {
     pub env_vars: BTreeMap<String, String>,
     pub backend: BackendKind,
     pub backend_agent_id: Option<String>,
+    pub native_runtime_binding: Option<super::RuntimeBinding>,
     pub status: String,
     pub pid: Option<u32>,
     pub created_at: String,

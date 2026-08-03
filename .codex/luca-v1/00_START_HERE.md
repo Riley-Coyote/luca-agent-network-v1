@@ -1,5 +1,9 @@
 # Luca Agent Network V1 — Implementation Handoff
 
+> **Current operating mode:** Read `USABLE_BUILD_MODE.md` first. Riley has
+> paused milestone-grade verification. The immediate goal is a usable local
+> messaging build, with a strict one-attempt/one-repair failure budget.
+
 ## The product
 
 Ship a personal network where one owner can talk directly with persistent AI
@@ -37,18 +41,19 @@ ownership, machine-checked evidence receipts and bounded model routing.
 
 ## Read in this order
 
-1. `PRODUCT_AND_SCOPE_LOCK.md`
-2. `DEMO_AND_ACCEPTANCE.md`
-3. `ARCHITECTURE_IMPLEMENTATION_SPEC.md`
-4. `SECURITY_THREAT_MODEL.md`
-5. `DECISION_DELTAS_FINAL.md`
-6. subsystem contracts (`SIGNING_BROKER_SPEC.md` through
+1. `USABLE_BUILD_MODE.md`
+2. `PRODUCT_AND_SCOPE_LOCK.md`
+3. `DEMO_AND_ACCEPTANCE.md`
+4. `ARCHITECTURE_IMPLEMENTATION_SPEC.md`
+5. `SECURITY_THREAT_MODEL.md`
+6. `DECISION_DELTAS_FINAL.md`
+7. subsystem contracts (`SIGNING_BROKER_SPEC.md` through
    `RESIDENT_BACKUP_RESTORE_SPEC.md`)
-7. `TARGET_CODE_MAP.md`
-8. `TASK_GRAPH.yaml` and `TASK_CAPSULE_CATALOG.yaml`
-9. `PROOF_TRACE_MATRIX.yaml`, `EVIDENCE_SCHEMAS.md` and
+8. `TARGET_CODE_MAP.md`
+9. `TASK_GRAPH.yaml` and `TASK_CAPSULE_CATALOG.yaml`
+10. `PROOF_TRACE_MATRIX.yaml`, `EVIDENCE_SCHEMAS.md` and
    `SWARM_AND_RECURSIVE_VERIFICATION.md`
-10. `M0_G0_EVIDENCE_INDEX.md` and `G0_VERDICT.md`
+11. `M0_G0_EVIDENCE_INDEX.md` and `G0_VERDICT.md`
 
 ## Non-negotiable stop conditions
 

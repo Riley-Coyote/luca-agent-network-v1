@@ -477,6 +477,9 @@ pub struct PromptContext {
     /// Harness identity string for NIP-AM `harness` field. Derived from the
     /// configured `agent_command` at startup (e.g. `"goose"`, `"buzz-agent"`).
     pub harness_name: String,
+    /// Exact imported OpenClaw identity. Required for the OpenClaw harness;
+    /// never inferred as the native default agent.
+    pub openclaw_agent_id: Option<String>,
     /// Managed-only typed final-publication client. Ordinary legacy Buzz keeps
     /// this unset and retains its existing key-backed behavior.
     pub managed_final_publisher: Option<crate::luca_final_publisher::ManagedFinalPublisherContext>,
@@ -755,6 +758,7 @@ const PERMISSION_MODE_TIMEOUT: Duration = Duration::from_secs(5);
 async fn create_session_and_apply_model(
     agent: &mut OwnedAgent,
     ctx: &PromptContext,
+    source: &PromptSource,
     agent_core: Option<&str>,
     agent_canvas: Option<&str>,
 ) -> Result<String, AcpError> {
@@ -776,9 +780,10 @@ async fn create_session_and_apply_model(
         agent_canvas,
     );
 
+    let session_meta = openclaw_session_meta(ctx, source)?;
     let resp = agent
         .acp
-        .session_new_full(
+        .session_new_full_with_meta(
             &ctx.cwd,
             ctx.mcp_servers.clone(),
             session_new_system_prompt(
@@ -786,6 +791,7 @@ async fn create_session_and_apply_model(
                 agent.protocol_version,
                 combined_system_prompt.as_deref(),
             ),
+            session_meta,
         )
         .await?;
 
@@ -876,6 +882,44 @@ async fn create_session_and_apply_model(
     }
 
     Ok(resp.session_id)
+}
+
+fn openclaw_session_meta(
+    ctx: &PromptContext,
+    source: &PromptSource,
+) -> Result<Option<serde_json::Value>, AcpError> {
+    if ctx.harness_name != "openclaw" {
+        return Ok(None);
+    }
+    let agent_id = ctx
+        .openclaw_agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            AcpError::Protocol(
+                "OpenClaw runtime requires an exact imported agentId; refusing default fallback"
+                    .into(),
+            )
+        })?;
+    let (kind, source_id) = match source {
+        PromptSource::Channel(channel_id) => {
+            let kind = ctx
+                .channel_info
+                .get(channel_id)
+                .map(|channel| channel.channel_type.as_str())
+                .filter(|value| *value == "dm")
+                .unwrap_or("room");
+            (kind, channel_id.to_string())
+        }
+        PromptSource::Heartbeat => ("heartbeat", "resident".to_string()),
+    };
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(format!("{agent_id}\0{kind}\0{source_id}").as_bytes());
+    let opaque = hex::encode(&digest[..12]);
+    Ok(Some(serde_json::json!({
+        "sessionKey": format!("agent:{agent_id}:luca:{kind}:{opaque}")
+    })))
 }
 
 /// Send the appropriate ACP model-switch request with a timeout.
@@ -1494,6 +1538,7 @@ pub async fn run_prompt_task(
                 match create_session_and_apply_model(
                     &mut agent,
                     &ctx,
+                    &source,
                     agent_core.as_deref(),
                     agent_canvas.as_deref(),
                 )
@@ -1543,7 +1588,7 @@ pub async fn run_prompt_task(
             if let Some(sid) = &agent.state.heartbeat_session {
                 (sid.clone(), false)
             } else {
-                match create_session_and_apply_model(&mut agent, &ctx, None, None).await {
+                match create_session_and_apply_model(&mut agent, &ctx, &source, None, None).await {
                     Ok(sid) => {
                         tracing::info!(
                             target: "pool::session",
@@ -5450,8 +5495,57 @@ mod tests {
             agent_owner_pubkey: owner_pubkey,
             memory_enabled: false,
             harness_name: "goose".to_string(),
+            openclaw_agent_id: None,
             managed_final_publisher: None,
         }
+    }
+
+    #[test]
+    fn openclaw_session_metadata_is_stable_and_conversation_isolated() {
+        let mut ctx = make_prompt_context_no_owner();
+        ctx.harness_name = "openclaw".to_string();
+        ctx.openclaw_agent_id = Some("luca".to_string());
+        let dm = uuid::Uuid::new_v4();
+        let room = uuid::Uuid::new_v4();
+        ctx.channel_info.insert(
+            dm,
+            crate::relay::ChannelInfo {
+                name: "dm".into(),
+                channel_type: "dm".into(),
+            },
+        );
+        ctx.channel_info.insert(
+            room,
+            crate::relay::ChannelInfo {
+                name: "room".into(),
+                channel_type: "stream".into(),
+            },
+        );
+
+        let first = openclaw_session_meta(&ctx, &PromptSource::Channel(dm))
+            .expect("metadata")
+            .expect("openclaw metadata");
+        let repeat = openclaw_session_meta(&ctx, &PromptSource::Channel(dm))
+            .expect("metadata")
+            .expect("openclaw metadata");
+        let other = openclaw_session_meta(&ctx, &PromptSource::Channel(room))
+            .expect("metadata")
+            .expect("openclaw metadata");
+        assert_eq!(first, repeat);
+        assert_ne!(first, other);
+        assert!(first["sessionKey"]
+            .as_str()
+            .expect("session key")
+            .starts_with("agent:luca:luca:dm:"));
+    }
+
+    #[test]
+    fn openclaw_session_metadata_refuses_default_agent_fallback() {
+        let mut ctx = make_prompt_context_no_owner();
+        ctx.harness_name = "openclaw".to_string();
+        let error = openclaw_session_meta(&ctx, &PromptSource::Heartbeat)
+            .expect_err("missing exact agent id must fail");
+        assert!(error.to_string().contains("exact imported agentId"));
     }
 
     // ── render_canvas_section ────────────────────────────────────────────────

@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use crate::app_state::AppState;
 
 const DEFAULT_RELAY_WS_URL: &str = "ws://localhost:3000";
+const MANAGED_PROFILE_SYNC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 // A reached-but-malformed 2xx body is NOT a connectivity failure, so this
 // message must never carry the "relay unreachable:" prefix the frontend
@@ -434,6 +435,7 @@ pub async fn sync_managed_agent_profile(
     }
     let response = request
         .body(body_bytes)
+        .timeout(MANAGED_PROFILE_SYNC_TIMEOUT)
         .send()
         .await
         .map_err(|e| classify_request_error(&e))?;

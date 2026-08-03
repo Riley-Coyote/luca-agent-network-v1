@@ -697,6 +697,7 @@ pub fn run() {
             fetch_link_preview_title,
             discover_acp_auth_methods,
             discover_acp_providers,
+            discover_native_residents,
             discover_git_bash_prerequisite,
             install_acp_runtime,
             connect_acp_runtime,

@@ -84,10 +84,14 @@ impl KeyStore for SecretStore {
         SecretStore::load_all_readonly(self)
     }
     fn write_and_verify(&self, name: &str, value: &str) -> Result<(), String> {
-        self.store(name, value)?;
-        match self.load(name)? {
-            Some(stored) if stored == value => Ok(()),
-            _ => Err("keyring read-back verify failed".to_string()),
+        // Bypass the ordinary process cache for both halves of the durability
+        // check. A cache hit only proves that this process saw the write; it
+        // does not prove that the OS keyring can return it after restart.
+        self.store_raw_zeroizing(name, value)?;
+        if self.verify_stored_raw(name, value)? {
+            Ok(())
+        } else {
+            Err("keyring read-back verify failed".to_string())
         }
     }
     fn store_all(&self, entries: &HashMap<String, String>) -> Result<(), String> {

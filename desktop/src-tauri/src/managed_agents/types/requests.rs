@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 
+use crate::managed_agents::RuntimeBinding;
+
 use super::{
     default_start_on_app_launch, validate_respond_to_allowlist, AgentDefinition, BackendKind,
     RelayMeshConfig, RespondTo,
@@ -172,6 +174,11 @@ pub struct CreateManagedAgentRequest {
     pub start_on_app_launch: bool,
     #[serde(default)]
     pub backend: BackendKind,
+    /// Exact, secret-free native identity selected during discovery. When
+    /// present, the backend validates it before creating the resident and
+    /// derives the runtime command at launch instead of trusting UI strings.
+    #[serde(default)]
+    pub native_runtime_binding: Option<RuntimeBinding>,
     /// `None` = caller expressed no preference: the definition's
     /// `respond_to` default applies when linked, `RespondTo::default()`
     /// otherwise. `Some` is an explicit instance-level choice and always

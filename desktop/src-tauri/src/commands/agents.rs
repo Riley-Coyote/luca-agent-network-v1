@@ -502,6 +502,9 @@ pub async fn create_managed_agent(
         }
     }
     crate::managed_agents::validate_user_env_keys(&input.env_vars)?;
+    if let Some(binding) = input.native_runtime_binding.as_ref() {
+        crate::managed_agents::validate_native_runtime_binding(binding)?;
+    }
 
     // Validate & normalize the respond-to allowlist BEFORE any side effects.
     // The harness has its own validator (buzz-acp/src/config.rs) but we want
@@ -801,6 +804,7 @@ pub async fn create_managed_agent(
             backend: input.backend.clone(),
             backend_agent_id: None,
             provider_binary_path,
+            native_runtime_binding: input.native_runtime_binding.clone(),
             persona_team_dir: None,
             persona_name_in_team: None,
             env_vars: input.env_vars.clone(),

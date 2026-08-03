@@ -200,6 +200,7 @@ fn team_export_with_instance_and_memory_level_uses_supplied_entries() {
         backend: crate::managed_agents::BackendKind::Local,
         backend_agent_id: None,
         provider_binary_path: None,
+        native_runtime_binding: None,
         team_id: Some("t1".to_string()),
         persona_team_dir: None,
         persona_name_in_team: None,

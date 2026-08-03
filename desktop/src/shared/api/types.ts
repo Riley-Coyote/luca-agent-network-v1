@@ -380,6 +380,8 @@ export type ManagedAgent = {
   autoRestartOnConfigChange: boolean;
   backend: ManagedAgentBackend;
   backendAgentId: string | null;
+  /** Exact secret-free native identity bound to this resident, when imported. */
+  nativeRuntimeBinding: RuntimeBinding | null;
   /** Who the agent should respond to. Maps to `buzz-acp --respond-to`. */
   respondTo: RespondToMode;
   /**
@@ -442,6 +444,8 @@ export type CreateManagedAgentInput = {
   spawnAfterCreate?: boolean;
   startOnAppLaunch?: boolean;
   backend?: ManagedAgentBackend;
+  /** Exact secret-free identity returned by native resident discovery. */
+  nativeRuntimeBinding?: RuntimeBinding;
   /** Inbound author gate mode. Omitted = `"owner-only"` (server default). */
   respondTo?: RespondToMode;
   /**
@@ -541,6 +545,56 @@ export type AcpRuntime = AcpRuntimeCatalogEntry & {
   availability: "available";
   command: string;
   binaryPath: string;
+};
+
+export type SecretRef = {
+  provider: "keychain" | "protected_file" | "native_store";
+  locator: string;
+  identityHash?: string;
+};
+
+export type RuntimeBinding =
+  | {
+      kind: "hermes";
+      schemaVersion: 1;
+      profileName: string;
+      hermesHome: string;
+      executablePath: string;
+      runtimeVersion: string;
+      defaultWorkspace?: string;
+    }
+  | {
+      kind: "openclaw";
+      schemaVersion: 1;
+      agentId: string;
+      executablePath: string;
+      runtimeVersion: string;
+      gatewayIdentity: string;
+      gatewayUrlRef: SecretRef;
+      gatewayTokenFileRef?: SecretRef;
+      gatewayPasswordFileRef?: SecretRef;
+      openClawProfile?: string;
+      stateDirectory?: string;
+      defaultWorkspace?: string;
+    };
+
+export type ResidentReadiness =
+  | { status: "discovered"; message: string }
+  | { status: "ready" }
+  | { status: "degraded"; code: string; message: string }
+  | { status: "unavailable"; code: string; message: string };
+
+export type DiscoveredResidentCandidate = {
+  nativeType: "hermes" | "openclaw";
+  nativeId: string;
+  displayName: string;
+  canonicalLocation?: string;
+  workspace?: string;
+  modelSummary?: string;
+  runtimeVersion?: string;
+  readiness: ResidentReadiness;
+  warnings: Array<{ code: string; message: string }>;
+  bindingPreview: RuntimeBinding;
 };
 
 export type InstallStepResult = {

@@ -1440,8 +1440,15 @@ pub fn build_managed_agent_summary(
 
     // Resolve the effective harness the same way, then derive args/mcp from it,
     // so the UI reflects the persona's current harness (or an explicit pin).
-    let effective_command = crate::managed_agents::record_agent_command(record, personas);
-    let effective_args = normalize_agent_args(&effective_command, record.agent_args.clone());
+    let (effective_command, effective_args) = record
+        .native_runtime_binding
+        .as_ref()
+        .map(super::RuntimeBinding::launch_preview)
+        .unwrap_or_else(|| {
+            let command = crate::managed_agents::record_agent_command(record, personas);
+            let args = normalize_agent_args(&command, record.agent_args.clone());
+            (command, args)
+        });
     let effective_mcp_command = known_acp_runtime(&effective_command)
         .and_then(|r| r.mcp_command)
         .unwrap_or("")
@@ -1472,6 +1479,7 @@ pub fn build_managed_agent_summary(
         env_vars: record.env_vars.clone(),
         backend: record.backend.clone(),
         backend_agent_id: record.backend_agent_id.clone(),
+        native_runtime_binding: record.native_runtime_binding.clone(),
         status,
         pid,
         created_at: record.created_at.clone(),
@@ -1614,8 +1622,19 @@ pub fn spawn_agent_child(
     // Load global config once; used for runtime_metadata_env_vars (model/provider fallback)
     // and for the env-var merge at spawn time.
     let global = crate::managed_agents::load_global_agent_config(app).unwrap_or_default();
-    let effective_command = super::record_agent_command(record, &personas);
-    let agent_args = normalize_agent_args(&effective_command, record.agent_args.clone());
+    let native_runtime = record
+        .native_runtime_binding
+        .as_ref()
+        .map(super::resolve_native_runtime_binding)
+        .transpose()?;
+    let effective_command = native_runtime
+        .as_ref()
+        .map(|runtime| runtime.command.display().to_string())
+        .unwrap_or_else(|| super::record_agent_command(record, &personas));
+    let agent_args = native_runtime
+        .as_ref()
+        .map(|runtime| runtime.args.clone())
+        .unwrap_or_else(|| normalize_agent_args(&effective_command, record.agent_args.clone()));
     let resolved_acp_command = resolve_command(&record.acp_command)
         .ok_or_else(|| missing_command_message(&record.acp_command, "ACP harness command"))?;
     let effective_mcp_command = known_acp_runtime(&effective_command)
@@ -1702,7 +1721,11 @@ pub fn spawn_agent_child(
     );
 
     let mut command = std::process::Command::new(&resolved_acp_command);
-    if let Some(home) = super::default_agent_workdir() {
+    if let Some(home) = native_runtime
+        .as_ref()
+        .and_then(|runtime| runtime.default_workspace.clone())
+        .or_else(super::default_agent_workdir)
+    {
         command.current_dir(home);
     }
     #[cfg(unix)]
@@ -1972,6 +1995,19 @@ pub fn spawn_agent_child(
     );
     for (key, value) in super::env_vars::merged_user_env(&persona_over_global, &record.env_vars) {
         command.env(key, value);
+    }
+    // Native binding values are trusted backend derivations, written after
+    // user env so editable fields cannot redirect a Hermes profile or an
+    // OpenClaw session to a different native identity.
+    if let Some(runtime) = &native_runtime {
+        for (key, value) in &runtime.environment {
+            command.env(key, value);
+        }
+        for (key, value) in &runtime.harness_environment {
+            command.env(key, value);
+        }
+    } else {
+        command.env_remove("LUCA_OPENCLAW_AGENT_ID");
     }
     configure_runtime_cli(&mut command, runtime_meta);
 

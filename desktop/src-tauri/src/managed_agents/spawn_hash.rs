@@ -130,6 +130,9 @@ pub(crate) fn spawn_config_hash(
     record.idle_timeout_seconds.hash(&mut hasher);
     record.max_turn_duration_seconds.hash(&mut hasher);
     record.parallelism.hash(&mut hasher);
+    serde_json::to_string(&record.native_runtime_binding)
+        .unwrap_or_default()
+        .hash(&mut hasher);
 
     hasher.finish()
 }

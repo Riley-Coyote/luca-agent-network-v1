@@ -37,6 +37,8 @@ import type {
   InstallRuntimeResult,
   GitBashPrerequisite,
   RuntimeConfigSurface,
+  DiscoveredResidentCandidate,
+  RuntimeBinding,
 } from "@/shared/api/types";
 
 export * from "@/shared/api/tauriChannels";
@@ -152,6 +154,7 @@ export type RawManagedAgent = {
   auto_restart_on_config_change?: boolean;
   backend: ManagedAgentBackend;
   backend_agent_id: string | null;
+  native_runtime_binding?: RuntimeBinding | null;
   // Optional: pre-feature mock fixtures may omit these. Mapped to
   // `"owner-only"` / `[]` in `fromRawManagedAgent`.
   respond_to?: ManagedAgent["respondTo"];
@@ -716,6 +719,7 @@ export function fromRawManagedAgent(agent: RawManagedAgent): ManagedAgent {
     autoRestartOnConfigChange: agent.auto_restart_on_config_change ?? true,
     backend: agent.backend,
     backendAgentId: agent.backend_agent_id,
+    nativeRuntimeBinding: agent.native_runtime_binding ?? null,
     // Fallbacks for pre-feature mocks/fixtures that don't carry these fields.
     // Real agent records always include them (defaulted server-side).
     respondTo: agent.respond_to ?? "owner-only",
@@ -869,6 +873,7 @@ export async function createManagedAgent(
         spawnAfterCreate: input.spawnAfterCreate,
         startOnAppLaunch: input.startOnAppLaunch,
         backend: input.backend,
+        nativeRuntimeBinding: input.nativeRuntimeBinding,
         respondTo: input.respondTo,
         respondToAllowlist: input.respondToAllowlist,
         relayMesh: input.relayMesh,
@@ -937,6 +942,16 @@ export async function discoverAcpRuntimes(): Promise<AcpRuntimeCatalogEntry[]> {
   return (
     await invokeTauri<RawAcpRuntimeCatalogEntry[]>("discover_acp_providers")
   ).map(fromRawAcpRuntimeCatalogEntry);
+}
+
+/** Read-only enumeration of exact native Hermes/OpenClaw identities. */
+export async function discoverNativeResidents(): Promise<
+  DiscoveredResidentCandidate[]
+> {
+  return invokeTauri<DiscoveredResidentCandidate[]>(
+    "discover_native_residents",
+    {},
+  );
 }
 
 export async function installAcpRuntime(

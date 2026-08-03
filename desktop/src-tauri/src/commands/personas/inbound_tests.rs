@@ -185,6 +185,7 @@ fn local_agent() -> ManagedAgentRecord {
         },
         backend_agent_id: Some("local-remote-id".to_string()),
         provider_binary_path: Some("/local/bin".to_string()),
+        native_runtime_binding: None,
         team_id: None,
         persona_team_dir: None,
         persona_name_in_team: None,

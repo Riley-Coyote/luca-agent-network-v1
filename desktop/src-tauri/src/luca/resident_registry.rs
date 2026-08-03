@@ -22,8 +22,8 @@ use crate::{
     app_state::AppState,
     commands::create_managed_agent,
     managed_agents::{
-        build_managed_agent_summary, load_managed_agents, load_personas,
-        CreateManagedAgentRequest, ManagedAgentRecord, ManagedAgentSummary,
+        build_managed_agent_summary, load_managed_agents, load_personas, CreateManagedAgentRequest,
+        ManagedAgentRecord, ManagedAgentSummary,
     },
 };
 
@@ -322,17 +322,9 @@ fn created_summary(agent: &ManagedAgentSummary) -> Result<CreatedResidentSummary
     Ok(CreatedResidentSummary {
         resident_pubkey: Hex64::parse(agent.pubkey.clone())
             .map_err(|_| "created resident returned an invalid public key".to_string())?,
-        display_name: required_text(
-            &agent.name,
-            MAX_DISPLAY_NAME_BYTES,
-            "resident display name",
-        )?,
+        display_name: required_text(&agent.name, MAX_DISPLAY_NAME_BYTES, "resident display name")?,
         persona_id: optional_binding(agent.persona_id.as_deref(), "persona id")?,
-        runtime_command: required_text(
-            &agent.agent_command,
-            MAX_BINDING_BYTES,
-            "runtime command",
-        )?,
+        runtime_command: required_text(&agent.agent_command, MAX_BINDING_BYTES, "runtime command")?,
         provider_id: optional_binding(agent.provider.as_deref(), "provider id")?,
         model_id: optional_binding(agent.model.as_deref(), "model id")?,
         status: required_text(&agent.status, 64, "resident status")?,
@@ -452,8 +444,7 @@ mod tests {
             .iter()
             .map(|record| (record.pubkey.clone(), "running".to_string()))
             .collect();
-        let registry =
-            registry_from_records(&records, &statuses).expect("registry must project");
+        let registry = registry_from_records(&records, &statuses).expect("registry must project");
         assert_eq!(registry.schema, REGISTRY_SCHEMA);
         assert_eq!(registry.residents.len(), 3);
         assert!(registry.residents.iter().all(|resident| resident.active));
@@ -489,8 +480,7 @@ mod tests {
             .contains("duplicate"));
 
         let invalid = vec![record(&"A".repeat(64), "Invalid", "persona:invalid")];
-        let invalid_statuses =
-            HashMap::from([("A".repeat(64), "stopped".to_string())]);
+        let invalid_statuses = HashMap::from([("A".repeat(64), "stopped".to_string())]);
         assert!(registry_from_records(&invalid, &invalid_statuses)
             .expect_err("uppercase key must fail")
             .contains("invalid public key"));

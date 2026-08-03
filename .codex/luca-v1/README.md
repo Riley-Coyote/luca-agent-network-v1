@@ -5,6 +5,10 @@ delivery workflow. Its source coordinate is Buzz
 `7e34bee62cacaa9d8a96c14d5892a471b59a1983`; the upstream remote remains
 `https://github.com/block/buzz.git`.
 
+Current execution is governed by `USABLE_BUILD_MODE.md`: milestone-grade
+verification is paused in favor of the shortest path to a usable local
+messaging build.
+
 Included artifacts:
 
 - task graph and task capsules;
