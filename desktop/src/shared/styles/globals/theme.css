@@ -788,19 +788,18 @@
  * selection. The legacy gradient rules above remain for migration safety, but
  * Luca's mounted shell does not consume those layers.
  */
+/*
+ * The `--mn-*` scale itself is defined ONCE, in `globals/conversation-shell.css`
+ * (imported last). This block only maps that scale onto semantic tokens.
+ *
+ * It previously declared its own, lighter copy of the scale here. Because this
+ * selector list includes the compound `:root[data-buzz-sidebar].dark`, it
+ * outranked the production values on specificity no matter the import order —
+ * so the shell silently painted from this copy while the intended palette sat
+ * dead. Add values here again and that regression returns.
+ */
 :root[data-buzz-sidebar],
 :root[data-buzz-sidebar].dark {
-  --mn-canvas: 220 5% 6%;
-  --mn-sidebar: 220 5% 5%;
-  --mn-surface: 220 4% 8%;
-  --mn-surface-raised: 220 4% 10%;
-  --mn-surface-hover: 220 4% 12%;
-  --mn-border: 220 4% 16%;
-  --mn-border-strong: 220 4% 23%;
-  --mn-ink: 210 10% 91%;
-  --mn-ink-muted: 210 6% 64%;
-  --mn-ink-faint: 210 4% 43%;
-  --mn-focus: 213 94% 68%;
   --luca-shell-canvas: hsl(var(--mn-canvas));
   --luca-shell-sidebar: hsl(var(--mn-sidebar));
   --luca-shell-surface: hsl(var(--mn-surface));

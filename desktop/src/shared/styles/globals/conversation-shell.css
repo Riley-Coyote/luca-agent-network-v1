@@ -4,12 +4,30 @@
   --font-ui: "Instrument Sans", "Inter Variable", "Avenir Next", "Segoe UI", sans-serif;
   --font-mono: "Fragment Mono", "SFMono-Regular", "SF Mono", monospace;
   --font-instrument: "Doto", "Fragment Mono", "SFMono-Regular", monospace;
+  /* ------------------------------------------------------------------
+   * THE SHELL SCALE — single source of truth.
+   *
+   * Every surface, ink and hairline in the Luca shell resolves from these
+   * values. Do not redefine them anywhere else, and never set the semantic
+   * tokens they feed (--background, --primary, --sidebar-*, …) as inline
+   * styles from JS: inline styles outrank all stylesheets and silently
+   * repaint the app in a different palette.
+   *
+   * Depth is three steps, not shadows:
+   *   canvas  — the floor everything else rests on (deepest)
+   *   sidebar — the rail, a hair above the floor
+   *   surface — the cards (conversation, inspector) that sit on top
+   * Cool near-black throughout; never pure black.
+   * ------------------------------------------------------------------ */
   --mn-canvas: 220 7% 3.5%;
   --mn-sidebar: 220 7% 4.5%;
   --mn-surface: 220 6% 6.5%;
   --mn-raised: 220 6% 8.5%;
   --mn-hover: 220 5% 11%;
   --mn-glass: 220 8% 2.4%;
+  /* Aliases consumed by the semantic mappings in theme.css. */
+  --mn-surface-raised: 220 6% 8.5%;
+  --mn-surface-hover: 220 5% 11%;
   --mn-border: 210 5% 17%;
   --mn-border-strong: 210 5% 23%;
   --mn-ink: 210 8% 91%;

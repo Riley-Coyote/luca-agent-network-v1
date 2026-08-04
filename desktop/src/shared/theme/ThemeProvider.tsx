@@ -224,14 +224,22 @@ export function isBuzzTheme(themeName: string): boolean {
 }
 
 /**
- * Resolve the accent to actually apply for a theme. Luca's shell uses its
- * fixed default accent; optional syntax themes retain a user's selection.
+ * Resolve the accent to actually apply for a theme. Luca's shell pins the
+ * neutral accent; optional syntax themes retain a user's selection.
+ *
+ * Neutral derives `--primary` from the shell's own foreground, so fills,
+ * active plates and selection stay in the greyscale ink cascade that
+ * `conversation-shell.css` establishes. Returning a chromatic accent here
+ * instead writes a saturated colour onto `--primary`/`--sidebar-active` as an
+ * inline style, which outranks the CSS shell palette and puts colour on flat
+ * fills — colour in this product is reserved for signal (state, fault), not
+ * for surfaces.
  */
 function resolveEffectiveAccent(
   themeName: string,
   accentColor: string,
 ): string {
-  return isBuzzTheme(themeName) ? DEFAULT_ACCENT : accentColor;
+  return isBuzzTheme(themeName) ? NEUTRAL_ACCENT : accentColor;
 }
 
 /**
