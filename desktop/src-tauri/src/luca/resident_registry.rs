@@ -22,8 +22,9 @@ use crate::{
     app_state::AppState,
     commands::create_managed_agent,
     managed_agents::{
-        build_managed_agent_summary, load_managed_agents, load_personas, CreateManagedAgentRequest,
-        ManagedAgentRecord, ManagedAgentSummary, RuntimeBinding,
+        CreateManagedAgentRequest, ManagedAgentRecord, ManagedAgentSummary, RuntimeBinding,
+        build_managed_agent_summary, load_managed_agents, load_personas,
+        native_runtime_semantic_key, revalidate_native_runtime_binding, save_managed_agents,
     },
 };
 
@@ -245,10 +246,40 @@ fn existing_resident_for_runtime_binding(
         .managed_agents_store_lock
         .lock()
         .map_err(|error| error.to_string())?;
-    let records = load_managed_agents(app)?;
-    let Some(record) = unique_record_for_runtime_binding(&records, binding)? else {
+    let mut records = load_managed_agents(app)?;
+    let Some(index) = records.iter().position(|record| {
+        record
+            .native_runtime_binding
+            .as_ref()
+            .is_some_and(|existing| {
+                native_runtime_semantic_key(existing) == native_runtime_semantic_key(binding)
+            })
+    }) else {
         return Ok(None);
     };
+    if records
+        .iter()
+        .filter(|record| {
+            record
+                .native_runtime_binding
+                .as_ref()
+                .is_some_and(|existing| {
+                    native_runtime_semantic_key(existing) == native_runtime_semantic_key(binding)
+                })
+        })
+        .count()
+        > 1
+    {
+        return Err(
+            "this native runtime identity is linked to multiple residents; repair is required"
+                .into(),
+        );
+    }
+    if records[index].native_runtime_binding.as_ref() != Some(binding) {
+        records[index].native_runtime_binding = Some(binding.clone());
+        save_managed_agents(app, &records)?;
+    }
+    let record = &records[index];
 
     let runtimes = state
         .managed_agent_processes
@@ -275,17 +306,25 @@ fn unique_record_for_persona<'a>(
     Ok(first)
 }
 
+#[cfg(test)]
 fn unique_record_for_runtime_binding<'a>(
     records: &'a [ManagedAgentRecord],
     binding: &RuntimeBinding,
 ) -> Result<Option<&'a ManagedAgentRecord>, String> {
-    let mut matches = records
-        .iter()
-        .filter(|record| record.native_runtime_binding.as_ref() == Some(binding));
+    let mut matches = records.iter().filter(|record| {
+        record
+            .native_runtime_binding
+            .as_ref()
+            .is_some_and(|existing| {
+                native_runtime_semantic_key(existing) == native_runtime_semantic_key(binding)
+            })
+    });
     let first = matches.next();
     if matches.next().is_some() {
-        return Err("this native runtime identity is linked to multiple residents; repair is required"
-            .to_string());
+        return Err(
+            "this native runtime identity is linked to multiple residents; repair is required"
+                .to_string(),
+        );
     }
     Ok(first)
 }
@@ -381,10 +420,19 @@ fn created_summary(agent: &ManagedAgentSummary) -> Result<CreatedResidentSummary
 /// without ever serializing its temporary legacy nsec into the renderer.
 #[tauri::command]
 pub(crate) async fn create_luca_resident(
-    input: CreateManagedAgentRequest,
+    mut input: CreateManagedAgentRequest,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<CreateLucaResidentResponse, CreateLucaResidentError> {
+    // Serialize Luca-owned creation across its full async lifecycle. The
+    // existing store mutex cannot be held across the legacy command's awaits.
+    let _creation_guard = resident_creation_lock().lock().await;
+    if let Some(binding) = input.native_runtime_binding.as_ref() {
+        input.native_runtime_binding = Some(
+            revalidate_native_runtime_binding(binding)
+                .map_err(|error| creation_error(error, ResidentPersistence::NotPersisted))?,
+        );
+    }
     let persona_id = input
         .persona_id
         .as_deref()
@@ -392,10 +440,6 @@ pub(crate) async fn create_luca_resident(
         .filter(|value| !value.is_empty())
         .map(str::to_string);
     let runtime_binding = input.native_runtime_binding.clone();
-
-    // Serialize Luca-owned creation across its full async lifecycle. The
-    // existing store mutex cannot be held across the legacy command's awaits.
-    let _creation_guard = resident_creation_lock().lock().await;
     if let Some(persona_id) = persona_id.as_deref() {
         match existing_resident_for_persona(&app, &state, persona_id) {
             Ok(Some(existing)) => return Ok(recovered_response(existing, None)),
@@ -507,10 +551,12 @@ mod tests {
         assert_eq!(registry.schema, REGISTRY_SCHEMA);
         assert_eq!(registry.residents.len(), 3);
         assert!(registry.residents.iter().all(|resident| resident.active));
-        assert!(registry
-            .residents
-            .iter()
-            .all(|resident| resident.runtime.runtime_id.as_deref() == Some("fixture-noop")));
+        assert!(
+            registry
+                .residents
+                .iter()
+                .all(|resident| resident.runtime.runtime_id.as_deref() == Some("fixture-noop"))
+        );
 
         let serialized = serde_json::to_string(&registry).expect("registry must serialize");
         for forbidden in [
@@ -534,15 +580,19 @@ mod tests {
             record(&key, "Second", "persona:second"),
         ];
         let statuses = HashMap::from([(key.clone(), "stopped".to_string())]);
-        assert!(registry_from_records(&duplicate, &statuses)
-            .expect_err("duplicate must fail")
-            .contains("duplicate"));
+        assert!(
+            registry_from_records(&duplicate, &statuses)
+                .expect_err("duplicate must fail")
+                .contains("duplicate")
+        );
 
         let invalid = vec![record(&"A".repeat(64), "Invalid", "persona:invalid")];
         let invalid_statuses = HashMap::from([("A".repeat(64), "stopped".to_string())]);
-        assert!(registry_from_records(&invalid, &invalid_statuses)
-            .expect_err("uppercase key must fail")
-            .contains("invalid public key"));
+        assert!(
+            registry_from_records(&invalid, &invalid_statuses)
+                .expect_err("uppercase key must fail")
+                .contains("invalid public key")
+        );
     }
 
     #[test]
@@ -557,9 +607,11 @@ mod tests {
             record(&"f".repeat(64), "Luca A", "persona:luca"),
             record(&"1".repeat(64), "Luca B", "persona:luca"),
         ];
-        assert!(unique_record_for_persona(&duplicates, "persona:luca")
-            .expect_err("two links must fail closed")
-            .contains("multiple residents"));
+        assert!(
+            unique_record_for_persona(&duplicates, "persona:luca")
+                .expect_err("two links must fail closed")
+                .contains("multiple residents")
+        );
     }
 
     #[test]
@@ -583,8 +635,10 @@ mod tests {
 
         let mut second = first;
         second.pubkey = "3".repeat(64);
-        assert!(unique_record_for_runtime_binding(&[records[0].clone(), second], &binding)
-            .expect_err("duplicate native identity must fail closed")
-            .contains("multiple residents"));
+        assert!(
+            unique_record_for_runtime_binding(&[records[0].clone(), second], &binding)
+                .expect_err("duplicate native identity must fail closed")
+                .contains("multiple residents")
+        );
     }
 }

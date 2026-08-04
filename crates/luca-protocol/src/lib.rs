@@ -11,6 +11,7 @@ mod canonical;
 mod diagnostic;
 mod frame;
 mod ids;
+mod managed_permission;
 mod message_publish;
 mod owner_identity;
 mod relay_auth;
@@ -29,6 +30,11 @@ pub use frame::{
 pub use ids::{
     BundleId, CanonicalTimestamp, Hex64, OpaqueId, ProtocolValueError, SafeU53, Sha256Ref,
     JSON_SAFE_INTEGER_MAX,
+};
+pub use managed_permission::{
+    ManagedPermissionDecisionV1, ManagedPermissionDispositionV1, ManagedPermissionError,
+    ManagedPermissionOptionV1, ManagedPermissionRequestV1, MANAGED_PERMISSION_PROTOCOL,
+    MANAGED_PERMISSION_TIMEOUT_SECS,
 };
 pub use message_publish::{
     derive_message_publish_idempotency_key, ManagedMessagePublishRequestV1,

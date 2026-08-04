@@ -8,7 +8,10 @@ use forum::{forum_message_from_event, forum_reply_from_event};
 use crate::{
     app_state::AppState,
     events,
-    managed_agents::{find_managed_agent_mut, load_managed_agents, ManagedAgentRecord},
+    managed_agents::{
+        find_managed_agent_mut, load_managed_agents, save_managed_agents,
+        start_managed_agent_process, stop_managed_agent_process, BackendKind, ManagedAgentRecord,
+    },
     models::{
         FeedItemInfo, FeedMeta, FeedResponse, FeedSections, ForumMessageInfo, ForumPostsResponse,
         ForumThreadReplyInfo, ForumThreadResponse, SearchResponse, SendChannelMessageResponse,
@@ -17,6 +20,46 @@ use crate::{
     nostr_convert,
     relay::{query_relay, submit_event, submit_event_with_keys, submit_signed_event},
 };
+
+/// Result of an owner-requested cancellation for exactly one managed dispatch.
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelManagedTurnResult {
+    pub status: CancelManagedTurnStatus,
+    pub dispatch_receipt_id: String,
+    pub resident_pubkey: String,
+    pub session_epoch: u64,
+    pub control_event_id: Option<String>,
+}
+
+/// Truthful terminal status for the local cleanup performed by a managed turn cancellation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CancelManagedTurnStatus {
+    /// Another terminal transition won before cancellation could be persisted.
+    AlreadyTerminal,
+    /// The relay control path failed, so desktop restarted the resident immediately.
+    RestartedAfterControlFailure,
+    /// No backend-visible acknowledgement exists, so desktop restarted after the bounded grace.
+    RestartedAfterWatchdog,
+    /// Local work was stopped, but an earlier relay submission may already have published a final.
+    PublicationAmbiguous,
+}
+
+const MANAGED_CANCEL_CLEANUP_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
+fn completed_cancel_status(
+    had_outbox_authority: bool,
+    control_reached_relay: bool,
+) -> CancelManagedTurnStatus {
+    if had_outbox_authority {
+        CancelManagedTurnStatus::PublicationAmbiguous
+    } else if control_reached_relay {
+        CancelManagedTurnStatus::RestartedAfterWatchdog
+    } else {
+        CancelManagedTurnStatus::RestartedAfterControlFailure
+    }
+}
 
 // ── Reads (pure-nostr) ──────────────────────────────────────────────────────
 
@@ -645,6 +688,152 @@ pub async fn send_channel_message(
         depth,
         created_at: chrono::Utc::now().timestamp(),
     })
+}
+
+/// Cancel one active managed resident turn.
+///
+/// The durable dispatch cancellation is the authority boundary and always
+/// happens before the signed `!cancel` relay control event. The latter reaches
+/// ACP's existing session/cancel path. Because relay acceptance is not a
+/// harness acknowledgement, desktop waits the five-second grace and then
+/// replaces the local process group. A final submitted before cancellation may
+/// remain publication-ambiguous and is reported as such.
+#[tauri::command]
+pub async fn cancel_managed_turn(
+    conversation_id: String,
+    resident_pubkey: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<CancelManagedTurnResult, String> {
+    let channel_id = uuid::Uuid::parse_str(&conversation_id)
+        .map_err(|_| "managed cancellation requires an exact conversation UUID".to_string())?;
+    let resident_pubkey = resident_pubkey.trim().to_ascii_lowercase();
+    let owner_keys = state.signing_keys()?;
+    let owner_pubkey = owner_keys.public_key().to_hex();
+    let dispatch_store = crate::luca::managed_dispatch_store::global_dispatch_store(&app)?;
+    let (cancellation, active_dispatch_receipt_id, active_session_epoch) = {
+        let mut store = dispatch_store
+            .lock()
+            .map_err(|_| "managed dispatch store lock is unavailable".to_string())?;
+        let active = store
+            .resolve_unique_active(&owner_pubkey, &conversation_id, &resident_pubkey)
+            .map_err(|error| format!("managed cancellation denied: {error:?}"))?;
+        let dispatch_receipt_id = active.dispatch_receipt_id.clone();
+        let session_epoch = active.session_epoch;
+        let cancellation = store
+            .cancel_exact(
+                &owner_pubkey,
+                &conversation_id,
+                &resident_pubkey,
+                &active.dispatch_receipt_id,
+                active.session_epoch,
+            )
+            .map_err(|error| format!("managed cancellation denied: {error:?}"))?;
+        (cancellation, dispatch_receipt_id, session_epoch)
+    };
+    let cancellation = match cancellation {
+        crate::luca::managed_dispatch_store::ExactDispatchCancellationResult::Cancelled(value) => {
+            value
+        }
+        crate::luca::managed_dispatch_store::ExactDispatchCancellationResult::AlreadyTerminal => {
+            return Ok(CancelManagedTurnResult {
+                status: CancelManagedTurnStatus::AlreadyTerminal,
+                dispatch_receipt_id: active_dispatch_receipt_id,
+                resident_pubkey,
+                session_epoch: active_session_epoch,
+                control_event_id: None,
+            });
+        }
+    };
+
+    // There is no backend-visible acknowledgement from the harness for a
+    // relay-delivered `!cancel`. Relay acceptance therefore cannot be treated
+    // as proof that ACP completed `session/cancel`. After the existing five
+    // second ACP grace, desktop conservatively replaces the process group.
+    let control_event = build_managed_agent_channel_message(
+        channel_id,
+        "!cancel",
+        None,
+        &[resident_pubkey.clone()],
+        &[],
+    )
+    .and_then(|builder| {
+        builder
+            .sign_with_keys(&owner_keys)
+            .map_err(|error| format!("sign managed cancellation control: {error}"))
+    });
+    let (control_reached_relay, control_event_id, control_error) = match control_event {
+        Ok(event) => {
+            let event_id = event.id.to_hex();
+            match submit_signed_event(&event, &state).await {
+                Ok(_) => (true, Some(event_id), None),
+                Err(error) => (
+                    false,
+                    None,
+                    Some(format!("publish relay !cancel control: {error}")),
+                ),
+            }
+        }
+        Err(error) => (false, None, Some(error)),
+    };
+    if control_reached_relay {
+        tokio::time::sleep(MANAGED_CANCEL_CLEANUP_GRACE).await;
+    }
+    if let Err(restart_error) =
+        restart_managed_resident_after_cancel(app, resident_pubkey.clone(), owner_pubkey).await
+    {
+        let control_detail = control_error
+            .as_deref()
+            .unwrap_or("relay control was accepted but not acknowledged by the harness");
+        let publication_detail = if cancellation.had_outbox_authority {
+            "; an earlier final publication remains ambiguous"
+        } else {
+            ""
+        };
+        return Err(format!(
+            "managed dispatch is durably cancelled; {control_detail}{publication_detail}; local cleanup restart failed: {restart_error}"
+        ));
+    }
+    let status = completed_cancel_status(cancellation.had_outbox_authority, control_reached_relay);
+    Ok(CancelManagedTurnResult {
+        status,
+        dispatch_receipt_id: cancellation.trigger_event_id,
+        resident_pubkey: cancellation.resident_pubkey,
+        session_epoch: cancellation.session_epoch,
+        control_event_id,
+    })
+}
+
+/// Stop then start the exact local resident after a durable cancellation could
+/// not reach ACP over the relay. This uses the same process-group and broker
+/// lifecycle as ordinary managed-agent restart rather than killing a PID ad hoc.
+async fn restart_managed_resident_after_cancel(
+    app: AppHandle,
+    resident_pubkey: String,
+    owner_pubkey: String,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        use tauri::Manager;
+        let state = app.state::<AppState>();
+        let _store_guard = state
+            .managed_agents_store_lock
+            .lock()
+            .map_err(|error| error.to_string())?;
+        let mut records = load_managed_agents(&app)?;
+        let mut runtimes = state
+            .managed_agent_processes
+            .lock()
+            .map_err(|error| error.to_string())?;
+        let record = find_managed_agent_mut(&mut records, &resident_pubkey)?;
+        if record.backend != BackendKind::Local {
+            return Err("managed cancellation fallback requires a local resident runtime".into());
+        }
+        stop_managed_agent_process(&app, record, &mut runtimes)?;
+        start_managed_agent_process(&app, record, &mut runtimes, Some(&owner_pubkey))?;
+        save_managed_agents(&app, &records)
+    })
+    .await
+    .map_err(|error| format!("managed cancellation restart worker failed: {error}"))?
 }
 
 fn event_has_client_marker(event: &Event, marker: &str) -> bool {

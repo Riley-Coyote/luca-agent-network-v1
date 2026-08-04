@@ -9,6 +9,8 @@ import {
 import { toast } from "sonner";
 
 import { useAgentWorking } from "@/features/agents/agentWorkingSignal";
+import { useManagedPermissions } from "@/features/agents/useManagedPermissions";
+import { ManagedPermissionCard } from "@/features/agents/ui/ManagedPermissionCard";
 import { isManagedAgentActive } from "@/features/agents/lib/managedAgentControlActions";
 import {
   mergeObserverEventWindows,
@@ -94,6 +96,7 @@ export function AgentSessionThreadPanel({
   widthPx,
   transparentChrome = false,
 }: AgentSessionThreadPanelProps) {
+  const pendingManagedPermissions = useManagedPermissions();
   const isLive = isManagedAgentActive(agent);
   const isOverlay = useIsThreadPanelOverlay();
   const sessionChannelId = channelId ?? channel?.id ?? null;
@@ -237,6 +240,12 @@ export function AgentSessionThreadPanel({
       ? `#${scopeChannelName}`
       : "1 channel"
     : "All channels";
+  const visiblePermissionRequests = pendingManagedPermissions.filter(
+    (pending) =>
+      pending.request.residentPubkey === agent.pubkey &&
+      (!sessionChannelId ||
+        pending.request.conversationId === sessionChannelId),
+  );
   const animateActivity = useTranscriptAnimationEnabled();
   const showTimestamps = useTranscriptTimestampsEnabled();
   async function handleInterruptTurn() {
@@ -245,10 +254,20 @@ export function AgentSessionThreadPanel({
     }
 
     try {
-      await cancelManagedAgentTurn(agent.pubkey, channel.id);
-      toast.success(
-        `Stop signal sent to ${agent.name}. It may take a moment to respond.`,
-      );
+      const result = await cancelManagedAgentTurn(agent.pubkey, channel.id);
+      if (result.status === "publication_ambiguous") {
+        toast.warning(
+          `${agent.name} was stopped and restarted, but a final response already in flight may still arrive.`,
+        );
+      } else {
+        toast.success(
+          result.status === "restarted_after_control_failure"
+            ? `${agent.name} was stopped and restarted after the relay control failed.`
+            : result.status === "restarted_after_watchdog"
+              ? `${agent.name} was stopped and restarted after the cancellation grace period.`
+              : `${agent.name}'s turn had already ended.`,
+        );
+      }
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -460,6 +479,17 @@ export function AgentSessionThreadPanel({
         panelPadding
       >
         <div ref={topSentinelRef} aria-hidden className="h-px" />
+        {visiblePermissionRequests.length > 0 ? (
+          <div className="grid gap-2 pb-2">
+            {visiblePermissionRequests.map((pending) => (
+              <ManagedPermissionCard
+                compact
+                key={pending.pendingId}
+                pending={pending}
+              />
+            ))}
+          </div>
+        ) : null}
         <div ref={contentRef}>
           <ManagedAgentSessionPanel
             agent={agent}

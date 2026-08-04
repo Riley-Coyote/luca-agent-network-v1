@@ -1,6 +1,38 @@
 use crate::managed_agents::known_acp_runtime;
 
 #[test]
+fn restart_dispatch_terminalization_requires_fully_terminal_startup_proof() {
+    let temp = tempfile::tempdir().expect("temp");
+    let store = std::sync::Arc::new(std::sync::Mutex::new(
+        crate::luca::managed_dispatch_store::ManagedDispatchStore::load(
+            temp.path().join("dispatches.json"),
+        )
+        .expect("store"),
+    ));
+
+    assert_eq!(
+        super::terminalize_restart_dispatches_if_proven(
+            crate::luca::managed_message_outbox::StartupOutboxReconciliation::Deferred,
+            &store,
+            &"ab".repeat(32),
+            7,
+        )
+        .expect("deferred proof"),
+        None
+    );
+    assert_eq!(
+        super::terminalize_restart_dispatches_if_proven(
+            crate::luca::managed_message_outbox::StartupOutboxReconciliation::FullyTerminal,
+            &store,
+            &"ab".repeat(32),
+            7,
+        )
+        .expect("complete proof"),
+        Some(0)
+    );
+}
+
+#[test]
 fn managed_signing_registry_refuses_overlapping_outbox_owner() {
     let resident = format!("test-resident-{}", uuid::Uuid::new_v4());
     let (first_endpoint, first_child) =
@@ -548,6 +580,56 @@ fn non_persona_agent_never_drifts() {
 use super::runtime_metadata_env_vars;
 
 #[test]
+fn native_runtime_env_policy_withholds_luca_env_and_scrubs_ambient_secrets() {
+    let luca_user_env = std::collections::BTreeMap::from([
+        (
+            "ANTHROPIC_API_KEY".to_string(),
+            "persona-secret".to_string(),
+        ),
+        ("CUSTOM_LUCA_SETTING".to_string(), "not-native".to_string()),
+    ]);
+    let policy = super::native_runtime_env_policy(
+        luca_user_env,
+        [
+            "BUZZ_PRIVATE_KEY".to_string(),
+            "NOSTR_PRIVATE_KEY".to_string(),
+            "ANTHROPIC_API_KEY".to_string(),
+            "OPENAI_API_KEY".to_string(),
+            "DATABRICKS_TOKEN".to_string(),
+            "AWS_SECRET_ACCESS_KEY".to_string(),
+            "PATH".to_string(),
+            "HERMES_API_KEY".to_string(),
+            "OPENCLAW_GATEWAY_TOKEN".to_string(),
+        ],
+    );
+
+    assert!(policy.user_env.is_empty());
+    for forbidden in [
+        "BUZZ_PRIVATE_KEY",
+        "NOSTR_PRIVATE_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "DATABRICKS_TOKEN",
+        "AWS_SECRET_ACCESS_KEY",
+    ] {
+        assert!(policy.scrub_ambient.iter().any(|key| key == forbidden));
+    }
+    assert!(!policy.scrub_ambient.iter().any(|key| key == "PATH"));
+    assert!(
+        !policy
+            .scrub_ambient
+            .iter()
+            .any(|key| key == "HERMES_API_KEY")
+    );
+    assert!(
+        !policy
+            .scrub_ambient
+            .iter()
+            .any(|key| key == "OPENCLAW_GATEWAY_TOKEN")
+    );
+}
+
+#[test]
 fn runtime_metadata_env_vars_injects_model_and_provider() {
     let vars = runtime_metadata_env_vars(
         Some("GOOSE_MODEL"),
@@ -651,18 +733,22 @@ fn claude_spawn_uses_the_probed_cli_executable() {
     } else {
         std::env::remove_var("PATH");
     }
-    assert!(command
-        .get_envs()
-        .any(|(key, value)| { key == "CLAUDE_CODE_EXECUTABLE" && value == Some(cli.as_os_str()) }));
+    assert!(
+        command.get_envs().any(|(key, value)| {
+            key == "CLAUDE_CODE_EXECUTABLE" && value == Some(cli.as_os_str())
+        })
+    );
 }
 
 #[test]
 fn codex_spawn_does_not_set_a_claude_executable() {
     let mut command = std::process::Command::new("buzz-acp");
     super::configure_runtime_cli(&mut command, super::known_acp_runtime("codex-acp"));
-    assert!(!command
-        .get_envs()
-        .any(|(key, _)| key == "CLAUDE_CODE_EXECUTABLE"));
+    assert!(
+        !command
+            .get_envs()
+            .any(|(key, _)| key == "CLAUDE_CODE_EXECUTABLE")
+    );
 }
 
 // ── PGID-based orphan sweep tests ───────────────────────────────────────

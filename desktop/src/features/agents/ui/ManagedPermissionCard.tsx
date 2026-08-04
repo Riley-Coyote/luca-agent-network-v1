@@ -1,0 +1,85 @@
+import * as React from "react";
+import { ShieldAlert } from "lucide-react";
+import { toast } from "sonner";
+
+import { resolveManagedPermission } from "@/shared/api/managedPermissions";
+import type { PendingManagedPermission } from "@/shared/api/types";
+import { Button } from "@/shared/ui/button";
+
+type ManagedPermissionCardProps = {
+  pending: PendingManagedPermission;
+  compact?: boolean;
+};
+
+export function ManagedPermissionCard({
+  pending,
+  compact = false,
+}: ManagedPermissionCardProps) {
+  const [resolving, setResolving] = React.useState<string | null>(null);
+  const request = pending.request;
+
+  async function decide(optionId?: string) {
+    setResolving(optionId ?? "cancel");
+    try {
+      await resolveManagedPermission(pending.pendingId, optionId);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "This permission request is no longer active.",
+      );
+      setResolving(null);
+    }
+  }
+
+  return (
+    <section
+      aria-label="Agent permission required"
+      className="border border-border bg-card text-card-foreground shadow-sm"
+      data-testid="managed-permission-card"
+    >
+      <div className={compact ? "p-3" : "p-4"}>
+        <div className="flex items-start gap-3">
+          <ShieldAlert
+            aria-hidden="true"
+            className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+          />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">Permission required</p>
+            <p className="mt-1 text-sm leading-5 text-muted-foreground">
+              {request.title || "An agent is waiting for your decision."}
+            </p>
+            {request.toolCallId ? (
+              <p className="mt-2 truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70">
+                {request.toolCallId}
+              </p>
+            ) : null}
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+          <Button
+            disabled={resolving !== null}
+            onClick={() => void decide()}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            Cancel
+          </Button>
+          {request.options.map((option) => (
+            <Button
+              disabled={resolving !== null}
+              key={option.optionId}
+              onClick={() => void decide(option.optionId)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              {resolving === option.optionId ? "Sending…" : option.name}
+            </Button>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}

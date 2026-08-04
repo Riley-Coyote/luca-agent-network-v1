@@ -254,6 +254,16 @@ pub(crate) struct ManagedOutboxReconcileEntry {
     pub created_order: u64,
 }
 
+/// Proof produced by one bounded startup reconciliation pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StartupOutboxReconciliation {
+    /// Every entry present at the start reached durable terminal state and no
+    /// reconciliation work remains.
+    FullyTerminal,
+    /// At least one entry was unavailable/deferred, or work still remains.
+    Deferred,
+}
+
 /// Typed failure returned by a desktop-owned publication authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ManagedPublicationAuthorityError {

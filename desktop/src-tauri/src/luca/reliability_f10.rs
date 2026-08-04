@@ -97,6 +97,7 @@ mod tests {
                 ManagedPublicationAuthorityError::Unavailable
             }
             DispatchAuthorizationError::Unknown
+            | DispatchAuthorizationError::Ambiguous
             | DispatchAuthorizationError::Expired
             | DispatchAuthorizationError::Terminal
             | DispatchAuthorizationError::WrongOwner

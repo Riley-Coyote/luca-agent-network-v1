@@ -5,7 +5,7 @@ use crate::{
     app_state::AppState,
     managed_agents::{
         command_availability, is_npm_global_install, AcpRuntimeCatalogEntry,
-        DiscoverManagedAgentPrereqsRequest, DiscoveredResidentCandidate, InstallRuntimeResult,
+        DiscoverManagedAgentPrereqsRequest, InstallRuntimeResult,
         InstallStepResult, ManagedAgentPrereqsInfo, RelayAgentInfo, DEFAULT_ACP_COMMAND,
     },
     nostr_convert,
@@ -72,8 +72,8 @@ pub async fn discover_acp_providers() -> Result<Vec<AcpRuntimeCatalogEntry>, Str
 /// Enumerate exact Hermes profiles and OpenClaw agents without changing either
 /// native system. Import is a separate explicit operation.
 #[tauri::command]
-pub async fn discover_native_residents() -> Result<Vec<DiscoveredResidentCandidate>, String> {
-    tokio::task::spawn_blocking(crate::managed_agents::discover_native_resident_candidates)
+pub async fn discover_native_residents() -> Result<crate::managed_agents::NativeResidentDiscoveryOutcome, String> {
+    tokio::task::spawn_blocking(crate::managed_agents::discover_native_resident_outcome)
         .await
         .map_err(|e| format!("native resident discovery task failed: {e}"))
 }

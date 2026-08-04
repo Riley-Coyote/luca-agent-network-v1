@@ -24,6 +24,7 @@ use super::managed_message_outbox::UnavailableManagedMessagePublicationAuthority
 use super::managed_message_outbox::{
     FrozenManagedMessageEvent, ManagedMessageOutbox, ManagedMessageOutboxError,
     ManagedMessagePublicationAuthority, ManagedOutboxState, ManagedPublicationAuthorityError,
+    StartupOutboxReconciliation,
 };
 use super::signing_transport::{write_frame, SigningFrameReader, SigningTransportError};
 
@@ -192,6 +193,33 @@ impl ResidentSigningBroker {
             .map_err(|_| {
                 SigningBrokerError::MessagePublication(ManagedMessageOutboxError::Persistence)
             })
+    }
+
+    /// Attempt exactly the reconciliation rows visible at startup, once each.
+    ///
+    /// The snapshot count is a hard bound. A deferred row cannot turn this
+    /// into an unbounded retry loop, and dispatch restart terminalization is
+    /// safe only after this returns [`StartupOutboxReconciliation::FullyTerminal`].
+    pub(crate) fn reconcile_publication_outbox_startup_pass(
+        &mut self,
+    ) -> StartupOutboxReconciliation {
+        let installation_session_id = self.session.binding().installation_session_id.clone();
+        let startup_entry_count = self.message_outbox.reconciliation_entries().len();
+        let mut deferred = false;
+        for _ in 0..startup_entry_count {
+            if self
+                .publication_authority
+                .reconcile_on_start(&mut self.message_outbox, &installation_session_id)
+                .is_err()
+            {
+                deferred = true;
+            }
+        }
+        if !deferred && self.message_outbox.reconciliation_entries().is_empty() {
+            StartupOutboxReconciliation::FullyTerminal
+        } else {
+            StartupOutboxReconciliation::Deferred
+        }
     }
 
     /// Process either frozen operation while sharing one sequence/session gate.
@@ -1102,6 +1130,144 @@ mod tests {
         ) -> Result<(), ManagedPublicationAuthorityError> {
             Err(ManagedPublicationAuthorityError::Denied)
         }
+    }
+
+    struct StartupPassAuthority {
+        calls: Arc<Mutex<usize>>,
+        defer_call: Option<usize>,
+    }
+
+    impl ManagedMessagePublicationAuthority for StartupPassAuthority {
+        fn authorize_request(
+            &mut self,
+            _request: &ManagedMessagePublishRequestV1,
+            _now_unix_secs: u64,
+        ) -> Result<(), ManagedPublicationAuthorityError> {
+            Ok(())
+        }
+
+        fn publish_prepared(
+            &mut self,
+            _request: &ManagedMessagePublishRequestV1,
+            _outbox: &mut ManagedMessageOutbox,
+            _installation_session_id: &OpaqueId,
+        ) -> Result<(), ManagedPublicationAuthorityError> {
+            Err(ManagedPublicationAuthorityError::Unavailable)
+        }
+
+        fn reconcile_on_start(
+            &mut self,
+            outbox: &mut ManagedMessageOutbox,
+            installation_session_id: &OpaqueId,
+        ) -> Result<(), ManagedPublicationAuthorityError> {
+            let call = {
+                let mut calls = self.calls.lock().expect("calls");
+                *calls += 1;
+                *calls
+            };
+            if self.defer_call == Some(call) {
+                return Err(ManagedPublicationAuthorityError::Unavailable);
+            }
+            let entry = outbox
+                .reconciliation_entries()
+                .into_iter()
+                .next()
+                .ok_or(ManagedPublicationAuthorityError::Invalid)?;
+            outbox
+                .mark_submitted(&entry.idempotency_key, installation_session_id, false)
+                .map_err(|_| ManagedPublicationAuthorityError::Invalid)?;
+            outbox
+                .mark_accepted(
+                    &entry.idempotency_key,
+                    OpaqueId::parse(format!("startup-publication-{call}"))
+                        .expect("publication receipt"),
+                )
+                .map_err(|_| ManagedPublicationAuthorityError::Invalid)?;
+            outbox
+                .mark_authority_finalized(&entry.idempotency_key)
+                .map_err(|_| ManagedPublicationAuthorityError::Invalid)
+        }
+    }
+
+    fn startup_pass_broker(
+        defer_call: Option<usize>,
+        calls: Arc<Mutex<usize>>,
+    ) -> ResidentSigningBroker {
+        let keys = Keys::parse(&"0c".repeat(32)).expect("valid fixture key");
+        let runtime = hex('c');
+        let binding = LocalBrokerSessionBinding {
+            owner_pubkey: hex('a'),
+            resident_pubkey: Hex64::parse(keys.public_key().to_hex())
+                .expect("valid resident pubkey"),
+            acp_pid: 8123,
+            session_epoch: SafeU53::new(4).expect("valid epoch"),
+            runtime_configuration_sha256: runtime,
+            installation_session_id: OpaqueId::parse("installation-startup-pass")
+                .expect("installation ID"),
+            relay_url: "wss://relay.example.test".to_owned(),
+            relay_query_url: "https://relay.example.test/query".to_owned(),
+            owner_attestation: None,
+        };
+        let mut broker = ResidentSigningBroker::new_with_publication_authority(
+            keys,
+            binding,
+            Box::new(StartupPassAuthority { calls, defer_call }),
+        )
+        .expect("matching broker");
+        let installation_session_id = broker.session.binding().installation_session_id.clone();
+        for index in 0..2 {
+            let mut request = publish_request(&broker);
+            request.dispatch_receipt_id =
+                OpaqueId::parse(format!("startup-dispatch-{index}")).expect("dispatch receipt");
+            request.turn_id = OpaqueId::parse(format!("startup-turn-{index}")).expect("turn ID");
+            request.idempotency_key = derive_message_publish_idempotency_key(
+                &request.dispatch_receipt_id,
+                &request.resident_pubkey,
+            )
+            .expect("idempotency key");
+            request.final_draft = format!("Frozen startup final {index}");
+            let event_json = broker
+                .build_managed_message_event(&request, 1_700_000_000 + index)
+                .expect("event");
+            let event = FrozenManagedMessageEvent::parse(event_json, &request).expect("frozen");
+            broker
+                .message_outbox
+                .prepare(
+                    &request,
+                    event,
+                    &installation_session_id,
+                    request.cancellation_epoch.get(),
+                    false,
+                )
+                .expect("prepare startup entry");
+        }
+        broker
+    }
+
+    #[test]
+    fn startup_pass_reports_fully_terminal_after_attempting_two_frozen_entries_once() {
+        let calls = Arc::new(Mutex::new(0));
+        let mut broker = startup_pass_broker(None, Arc::clone(&calls));
+
+        assert_eq!(
+            broker.reconcile_publication_outbox_startup_pass(),
+            StartupOutboxReconciliation::FullyTerminal
+        );
+        assert_eq!(*calls.lock().expect("calls"), 2);
+        assert!(broker.message_outbox.reconciliation_entries().is_empty());
+    }
+
+    #[test]
+    fn startup_pass_reports_deferred_and_preserves_one_of_two_frozen_entries() {
+        let calls = Arc::new(Mutex::new(0));
+        let mut broker = startup_pass_broker(Some(2), Arc::clone(&calls));
+
+        assert_eq!(
+            broker.reconcile_publication_outbox_startup_pass(),
+            StartupOutboxReconciliation::Deferred
+        );
+        assert_eq!(*calls.lock().expect("calls"), 2);
+        assert_eq!(broker.message_outbox.reconciliation_entries().len(), 1);
     }
 
     #[test]

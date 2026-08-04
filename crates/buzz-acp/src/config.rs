@@ -1170,7 +1170,13 @@ impl Config {
             typing_enabled: !args.no_typing && !managed_identity,
             memory_enabled: args.memory && !args.no_memory && !managed_identity,
             model,
-            permission_mode: args.permission_mode,
+            // Managed permissions are mediated by the desktop-local channel;
+            // never ask a runtime to bypass that request flow.
+            permission_mode: if managed_identity {
+                PermissionMode::Default
+            } else {
+                args.permission_mode
+            },
             respond_to: args.respond_to,
             respond_to_allowlist,
             allowed_respond_to,

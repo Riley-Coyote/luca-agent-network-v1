@@ -733,6 +733,9 @@ pub fn run() {
             get_feed,
             search_messages,
             send_channel_message,
+            cancel_managed_turn,
+            list_pending_managed_permissions,
+            resolve_managed_permission,
             send_managed_agent_channel_message,
             has_managed_agent_channel_message_marker,
             get_forum_posts,
@@ -900,12 +903,14 @@ pub fn run() {
     let restart_requested = Arc::new(AtomicBool::new(false));
     app.run(move |app_handle, event| match event {
         RunEvent::ExitRequested { code, .. } => {
+            crate::luca::managed_permission::cancel_all();
             if is_restart_request(code) {
                 restart_requested.store(true, Ordering::SeqCst);
             }
             shut_down_app(app_handle, &run_shutdown_done);
         }
         RunEvent::Exit => {
+            crate::luca::managed_permission::cancel_all();
             shut_down_app(app_handle, &run_shutdown_done);
             app_handle.state::<ClipboardState>().release();
 

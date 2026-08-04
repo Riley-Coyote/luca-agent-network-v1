@@ -2,24 +2,25 @@ import * as React from "react";
 import { Download, LoaderCircle, RefreshCw, TriangleAlert } from "lucide-react";
 
 import { useCreateManagedAgentMutation } from "@/features/agents/hooks";
-import {
-  discoverNativeResidents,
-} from "@/shared/api/tauri";
+import { discoverNativeResidents } from "@/shared/api/tauri";
 import type {
   DiscoveredResidentCandidate,
   ManagedAgent,
+  NativeResidentDiscoveryOutcome,
   RuntimeBinding,
 } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
 
 function bindingIdentity(binding: RuntimeBinding): string {
   return binding.kind === "hermes"
-    ? `hermes:${binding.profileName}`
-    : `openclaw:${binding.gatewayIdentity}:${binding.agentId}`;
+    ? `hermes:${binding.hermesHome}:${binding.profileName.trim()}`
+    : `openclaw:${binding.gatewayIdentity.trim()}:${binding.agentId.trim()}`;
 }
 
 function runtimeLabel(candidate: DiscoveredResidentCandidate): string {
-  return candidate.nativeType === "hermes" ? "Hermes profile" : "OpenClaw agent";
+  return candidate.nativeType === "hermes"
+    ? "Hermes profile"
+    : "OpenClaw agent";
 }
 
 export function NativeResidentImportSection({
@@ -27,11 +28,11 @@ export function NativeResidentImportSection({
 }: {
   residents: ManagedAgent[];
 }) {
-  const [candidates, setCandidates] = React.useState<
-    DiscoveredResidentCandidate[]
-  >([]);
+  const [discovery, setDiscovery] =
+    React.useState<NativeResidentDiscoveryOutcome | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
   const [importing, setImporting] = React.useState<string | null>(null);
   const createMutation = useCreateManagedAgentMutation();
 
@@ -49,8 +50,9 @@ export function NativeResidentImportSection({
   const refresh = React.useCallback(async () => {
     setIsLoading(true);
     setError(null);
+    setNotice(null);
     try {
-      setCandidates(await discoverNativeResidents());
+      setDiscovery(await discoverNativeResidents());
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -63,9 +65,10 @@ export function NativeResidentImportSection({
   }, [refresh]);
 
   async function importCandidate(candidate: DiscoveredResidentCandidate) {
-    const identity = bindingIdentity(candidate.bindingPreview);
+    const identity = candidate.semanticId;
     setImporting(identity);
     setError(null);
+    setNotice(null);
     try {
       const command = candidate.bindingPreview.executablePath;
       const result = await createMutation.mutateAsync({
@@ -82,7 +85,21 @@ export function NativeResidentImportSection({
         startOnAppLaunch: true,
       });
       if (result.spawnError) {
-        setError(`${candidate.displayName} was imported but could not start: ${result.spawnError}`);
+        setError(
+          `${candidate.displayName} was imported but could not start: ${result.spawnError}`,
+        );
+      } else if (result.profileSyncError) {
+        setError(
+          `${candidate.displayName} is imported, but its public profile could not sync: ${result.profileSyncError}`,
+        );
+      } else if (result.recoveryNotice) {
+        setNotice(`Reused ${candidate.displayName}: ${result.recoveryNotice}`);
+      } else if (result.reused) {
+        setNotice(
+          `${candidate.displayName} was already linked; its verified runtime binding was refreshed.`,
+        );
+      } else {
+        setNotice(`${candidate.displayName} is imported and ready to use.`);
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -91,17 +108,34 @@ export function NativeResidentImportSection({
     }
   }
 
-  if (!isLoading && candidates.length === 0 && !error) return null;
+  const candidates =
+    discovery?.runtimes.flatMap((runtime) => runtime.candidates) ?? [];
+  const discoveryNotices =
+    discovery?.runtimes.filter(
+      (runtime) => runtime.status !== "available" && runtime.message,
+    ) ?? [];
+
+  if (
+    !isLoading &&
+    candidates.length === 0 &&
+    discoveryNotices.length === 0 &&
+    !error
+  )
+    return null;
 
   return (
-    <section aria-labelledby="native-residents-title" className="overflow-hidden rounded-xl border border-border/70 bg-card/40">
+    <section
+      aria-labelledby="native-residents-title"
+      className="overflow-hidden rounded-xl border border-border/70 bg-card/40"
+    >
       <div className="flex items-start justify-between gap-4 border-b border-border/60 px-5 py-4">
         <div className="min-w-0">
           <h2 className="text-sm font-medium" id="native-residents-title">
             Agents already on this Mac
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Import their existing identity and configuration. Mnemos does not copy their credentials.
+            Import their existing identity and configuration. Mnemos does not
+            copy their credentials.
           </p>
         </div>
         <Button
@@ -123,7 +157,7 @@ export function NativeResidentImportSection({
       ) : (
         <div className="divide-y divide-border/60">
           {candidates.map((candidate) => {
-            const identity = bindingIdentity(candidate.bindingPreview);
+            const identity = candidate.semanticId;
             const isImported = imported.has(identity);
             const isImporting = importing === identity;
             const unavailable = candidate.readiness.status === "unavailable";
@@ -131,14 +165,31 @@ export function NativeResidentImportSection({
               <div className="flex items-center gap-4 px-5 py-3" key={identity}>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-2">
-                    <span className="truncate text-sm font-medium">{candidate.displayName}</span>
+                    <span className="truncate text-sm font-medium">
+                      {candidate.displayName}
+                    </span>
                     <span className="shrink-0 font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
                       {runtimeLabel(candidate)}
                     </span>
                   </div>
                   <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {candidate.modelSummary ?? candidate.workspace ?? candidate.nativeId}
+                    {candidate.modelSummary ??
+                      candidate.workspace ??
+                      candidate.nativeId}
                   </p>
+                  {candidate.readiness.status !== "ready" ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {candidate.readiness.message}
+                    </p>
+                  ) : null}
+                  {candidate.warnings.map((warning) => (
+                    <p
+                      className="mt-1 text-xs text-amber-700 dark:text-amber-300"
+                      key={warning.code}
+                    >
+                      {warning.message}
+                    </p>
+                  ))}
                 </div>
                 <Button
                   disabled={isImported || unavailable || importing !== null}
@@ -146,8 +197,16 @@ export function NativeResidentImportSection({
                   size="sm"
                   variant={isImported ? "ghost" : "outline"}
                 >
-                  {isImporting ? <LoaderCircle className="animate-spin" /> : <Download />}
-                  {isImported ? "Imported" : isImporting ? "Importing" : "Import"}
+                  {isImporting ? (
+                    <LoaderCircle className="animate-spin" />
+                  ) : (
+                    <Download />
+                  )}
+                  {isImported
+                    ? "Imported"
+                    : isImporting
+                      ? "Importing"
+                      : "Import"}
                 </Button>
               </div>
             );
@@ -155,10 +214,25 @@ export function NativeResidentImportSection({
         </div>
       )}
 
+      {discoveryNotices.map((runtime) => (
+        <div
+          className="flex items-start gap-2 border-t border-border/60 px-5 py-3 text-sm text-muted-foreground"
+          key={runtime.nativeType}
+        >
+          <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+          <span>{runtime.message}</span>
+        </div>
+      ))}
+
       {error ? (
         <div className="flex items-start gap-2 border-t border-border/60 px-5 py-3 text-sm text-destructive">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" />
           <span>{error}</span>
+        </div>
+      ) : null}
+      {notice ? (
+        <div className="border-t border-border/60 px-5 py-3 text-sm text-muted-foreground">
+          {notice}
         </div>
       ) : null}
     </section>

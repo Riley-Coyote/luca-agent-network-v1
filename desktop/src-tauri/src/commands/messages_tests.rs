@@ -1,6 +1,36 @@
 use super::*;
 
 #[test]
+fn managed_cancel_status_never_claims_terminal_cancel_without_an_ack() {
+    assert_eq!(
+        completed_cancel_status(false, true),
+        CancelManagedTurnStatus::RestartedAfterWatchdog
+    );
+    assert_eq!(
+        completed_cancel_status(false, false),
+        CancelManagedTurnStatus::RestartedAfterControlFailure
+    );
+    assert_eq!(MANAGED_CANCEL_CLEANUP_GRACE.as_secs(), 5);
+}
+
+#[test]
+fn managed_cancel_status_discloses_ambiguous_prior_publication() {
+    assert_eq!(
+        completed_cancel_status(true, true),
+        CancelManagedTurnStatus::PublicationAmbiguous
+    );
+    assert_eq!(
+        completed_cancel_status(true, false),
+        CancelManagedTurnStatus::PublicationAmbiguous
+    );
+    assert_eq!(
+        serde_json::to_value(CancelManagedTurnStatus::PublicationAmbiguous)
+            .expect("serialize status"),
+        serde_json::json!("publication_ambiguous")
+    );
+}
+
+#[test]
 fn marker_author_scope_validates_scope_and_required_pubkey() {
     assert_eq!(
         marker_author_for_scope(None, Some("agent")),

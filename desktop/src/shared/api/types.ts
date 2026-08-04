@@ -461,6 +461,8 @@ export type CreateManagedAgentResponse = {
   privateKeyNsec: string;
   profileSyncError: string | null;
   spawnError: string | null;
+  reused: boolean;
+  recoveryNotice: string | null;
 };
 
 export type ManagedAgentLog = {
@@ -469,7 +471,38 @@ export type ManagedAgentLog = {
 };
 
 export type CancelManagedAgentTurnResult = {
-  status: "sent" | "no_active_turn";
+  status:
+    | "already_terminal"
+    | "restarted_after_control_failure"
+    | "restarted_after_watchdog"
+    | "publication_ambiguous";
+  dispatchReceiptId: string;
+  residentPubkey: string;
+  sessionEpoch: number;
+  controlEventId: string | null;
+};
+
+export type ManagedPermissionOption = {
+  optionId: string;
+  name: string;
+  kind: string;
+};
+
+export type ManagedPermissionRequest = {
+  protocol: "luca.managed.permission.v1";
+  residentPubkey: string;
+  conversationId: string;
+  sessionEpoch: number;
+  turnId: string;
+  acpRequestId: string;
+  title: string;
+  toolCallId: string | null;
+  options: ManagedPermissionOption[];
+};
+
+export type PendingManagedPermission = {
+  pendingId: string;
+  request: ManagedPermissionRequest;
 };
 
 /**
@@ -587,6 +620,10 @@ export type ResidentReadiness =
 export type DiscoveredResidentCandidate = {
   nativeType: "hermes" | "openclaw";
   nativeId: string;
+  /** Backend-issued stable native identity used for duplicate detection. */
+  semanticId: string;
+  /** Full verified binding fingerprint; changes without changing semantic identity. */
+  bindingFingerprint: string;
   displayName: string;
   canonicalLocation?: string;
   workspace?: string;
@@ -595,6 +632,23 @@ export type DiscoveredResidentCandidate = {
   readiness: ResidentReadiness;
   warnings: Array<{ code: string; message: string }>;
   bindingPreview: RuntimeBinding;
+};
+
+export type NativeDiscoveryStatus =
+  | "available"
+  | "absent"
+  | "degraded"
+  | "failed";
+
+export type NativeRuntimeDiscoveryOutcome = {
+  nativeType: "hermes" | "openclaw";
+  status: NativeDiscoveryStatus;
+  message?: string;
+  candidates: DiscoveredResidentCandidate[];
+};
+
+export type NativeResidentDiscoveryOutcome = {
+  runtimes: NativeRuntimeDiscoveryOutcome[];
 };
 
 export type InstallStepResult = {

@@ -68,6 +68,20 @@ with a TypeScript lookup table or an id comparison in a component.
    sole onboarding surface that chooses and persists `preferred_runtime`.
    `onboarding-agent-defaults.spec.ts` is the acceptance gate for anything
    touching this flow or the shared renderer.
+8. **Native resident identity is not its runtime binding.** Hermes is keyed by
+   canonical Hermes home plus profile name; OpenClaw is keyed by canonical
+   gateway configuration location plus configured bind host/port and exact
+   agent ID. Executable path, version, and resolved configuration belong to the
+   separate binding fingerprint. Re-import must reuse the resident key and may
+   refresh only a revalidated binding. Never infer identity from online state,
+   copy credentials, mutate a native runtime config, or substitute a different
+   profile/agent when the selected binding is unavailable.
+9. **Managed permissions are local and fail closed.** Managed ACP runs in its
+   native default permission mode and forwards only runtime-advertised options
+   over the dedicated inherited local control channel. Decisions are bound to
+   resident, session epoch, turn, conversation, and ACP request ID. They are
+   never published to the relay or persisted as policy. Legacy unmanaged ACP
+   permission behavior remains separate.
 
 ## The tests that enforce this
 

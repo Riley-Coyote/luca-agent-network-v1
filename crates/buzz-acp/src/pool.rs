@@ -1233,6 +1233,7 @@ fn send_prompt_result(
     batch: Option<FlushBatch>,
 ) {
     agent.acp.clear_steer_rx();
+    agent.acp.clear_managed_turn_id();
     agent.acp.discard_final_message_capture();
     let _ = result_tx.send(PromptResult {
         agent,
@@ -1340,6 +1341,13 @@ pub async fn run_prompt_task(
         Some(b) => PromptSource::Channel(b.channel_id),
         None => PromptSource::Heartbeat,
     };
+    let managed_conversation_id = match &source {
+        PromptSource::Channel(channel_id) => Some(channel_id.to_string()),
+        PromptSource::Heartbeat => None,
+    };
+    agent
+        .acp
+        .set_managed_turn_context(&turn_id, managed_conversation_id.as_deref());
     let observer_channel_id = match &source {
         PromptSource::Channel(channel_id) => Some(*channel_id),
         PromptSource::Heartbeat => None,

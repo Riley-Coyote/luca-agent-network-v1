@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     sync::{Mutex, OnceLock},
     thread::JoinHandle,
 };
@@ -10,10 +10,10 @@ use super::agent_env::build_buzz_agent_provider_defaults;
 
 use crate::{
     managed_agents::{
+        KnownAcpRuntime, ManagedAgentProcess, ManagedAgentRecord, ManagedAgentSummary,
         append_log_marker, known_acp_runtime, login_shell_path, managed_agent_log_path,
         missing_command_message, normalize_agent_args, open_log_file, resolve_command,
-        spawn_key_refusal, KnownAcpRuntime, ManagedAgentProcess, ManagedAgentRecord,
-        ManagedAgentSummary,
+        spawn_key_refusal,
     },
     util::now_iso,
 };
@@ -25,6 +25,57 @@ mod sweep;
 pub(crate) use sweep::sweep_untracked_bundle_harnesses;
 
 type RespondToEnv = (Vec<(&'static str, String)>, Vec<&'static str>);
+
+#[derive(Debug, PartialEq, Eq)]
+struct NativeRuntimeEnvPolicy {
+    user_env: BTreeMap<String, String>,
+    scrub_ambient: Vec<String>,
+}
+
+fn is_native_runtime_forbidden_env_key(key: &str) -> bool {
+    let upper = key.to_ascii_uppercase();
+    if upper.starts_with("HERMES_") || upper.starts_with("OPENCLAW_") {
+        return false;
+    }
+    matches!(
+        upper.as_str(),
+        "BUZZ_PRIVATE_KEY"
+            | "NOSTR_PRIVATE_KEY"
+            | "BUZZ_AUTH_TAG"
+            | "BUZZ_API_TOKEN"
+            | "BUZZ_ACP_PRIVATE_KEY"
+            | "BUZZ_ACP_API_TOKEN"
+            | "AWS_ACCESS_KEY_ID"
+            | "AWS_SECRET_ACCESS_KEY"
+            | "AWS_SESSION_TOKEN"
+            | "DATABRICKS_TOKEN"
+            | "GOOGLE_APPLICATION_CREDENTIALS"
+    ) || upper.ends_with("_API_KEY")
+        || upper.ends_with("_ACCESS_TOKEN")
+        || upper.ends_with("_AUTH_TOKEN")
+        || upper.ends_with("_CLIENT_SECRET")
+        || upper.ends_with("_PASSWORD")
+        || upper.ends_with("_CREDENTIALS")
+}
+
+/// Imported native identities own their provider authentication. Luca does not
+/// layer global/persona/agent env onto them, and ambient owner/provider secrets
+/// are explicitly removed before the harness and all descendants start.
+fn native_runtime_env_policy(
+    _luca_user_env: BTreeMap<String, String>,
+    ambient_keys: impl IntoIterator<Item = String>,
+) -> NativeRuntimeEnvPolicy {
+    let mut scrub_ambient = ambient_keys
+        .into_iter()
+        .filter(|key| is_native_runtime_forbidden_env_key(key))
+        .collect::<Vec<_>>();
+    scrub_ambient.sort();
+    scrub_ambient.dedup();
+    NativeRuntimeEnvPolicy {
+        user_env: BTreeMap::new(),
+        scrub_ambient,
+    }
+}
 
 #[derive(Debug)]
 struct ManagedSigningBrokerOwner {
@@ -73,6 +124,29 @@ fn next_managed_session_epoch() -> Result<luca_protocol::SafeU53, String> {
     let random = uuid::Uuid::new_v4().as_u128() as u64;
     let epoch = (random & luca_protocol::JSON_SAFE_INTEGER_MAX).max(1);
     luca_protocol::SafeU53::new(epoch).map_err(|error| error.to_string())
+}
+
+fn terminalize_restart_dispatches_if_proven(
+    startup_status: crate::luca::managed_message_outbox::StartupOutboxReconciliation,
+    dispatch_store: &std::sync::Arc<
+        std::sync::Mutex<crate::luca::managed_dispatch_store::ManagedDispatchStore>,
+    >,
+    resident_pubkey: &str,
+    replacement_session_epoch: u64,
+) -> Result<Option<usize>, String> {
+    match startup_status {
+        crate::luca::managed_message_outbox::StartupOutboxReconciliation::FullyTerminal => {
+            dispatch_store
+                .lock()
+                .map_err(|_| "managed dispatch store lock is unavailable".to_string())?
+                .terminalize_prior_epoch_after_outbox_reconciliation(
+                    resident_pubkey,
+                    replacement_session_epoch,
+                )
+                .map(Some)
+        }
+        crate::luca::managed_message_outbox::StartupOutboxReconciliation::Deferred => Ok(None),
+    }
 }
 
 fn managed_owner_attestation(
@@ -1700,6 +1774,12 @@ pub fn spawn_agent_child(
     let (desktop_broker_endpoint, managed_acp_stdin) =
         crate::luca::signing_transport::create_exclusive_acp_socketpair()
             .map_err(|error| error.to_string())?;
+    #[cfg(unix)]
+    let managed_permission_fd = crate::luca::managed_permission::create_endpoint(
+        app.clone(),
+        resident_pubkey.clone(),
+        session_epoch,
+    )?;
     let spawn_config_hash = super::spawn_hash::spawn_config_hash(
         record,
         &personas,
@@ -1746,6 +1826,8 @@ pub fn spawn_agent_child(
         "LUCA_MANAGED_SESSION_EPOCH",
         session_epoch.get().to_string(),
     );
+    #[cfg(unix)]
+    command.env("LUCA_MANAGED_PERMISSION_FD", "3");
     if let Some((_, attestation_json)) = &owner_attestation {
         command.env("LUCA_MANAGED_OWNER_ATTESTATION", attestation_json);
     } else {
@@ -1791,7 +1873,7 @@ pub fn spawn_agent_child(
     let spawned_setup_mode;
     {
         use crate::managed_agents::{
-            agent_readiness, resolve_effective_agent_env, AgentReadiness, Requirement,
+            AgentReadiness, Requirement, agent_readiness, resolve_effective_agent_env,
         };
 
         let effective = resolve_effective_agent_env(record, &personas, runtime_meta, &global);
@@ -1929,7 +2011,9 @@ pub fn spawn_agent_child(
     // Baked-in provider defaults for internal builds (buzz-releases sets
     // BUZZ_BUILD_BUZZ_AGENT_* at compile time; OSS builds bake nothing).
     // Written FIRST so that record/persona metadata env vars below override them.
-    build_buzz_agent_provider_defaults(&mut command);
+    if native_runtime.is_none() {
+        build_buzz_agent_provider_defaults(&mut command);
+    }
     if let Some(meta) = runtime_meta {
         for (key, value) in runtime_metadata_env_vars(
             meta.model_env_var,
@@ -1993,8 +2077,21 @@ pub fn spawn_agent_child(
         &global.env_vars,
         &super::env_vars::live_persona_env(&personas, record.persona_id.as_deref()),
     );
-    for (key, value) in super::env_vars::merged_user_env(&persona_over_global, &record.env_vars) {
+    let merged_user_env = super::env_vars::merged_user_env(&persona_over_global, &record.env_vars);
+    let (spawn_user_env, native_scrub) = if native_runtime.is_some() {
+        let policy = native_runtime_env_policy(
+            merged_user_env,
+            std::env::vars_os().filter_map(|(key, _)| key.into_string().ok()),
+        );
+        (policy.user_env, policy.scrub_ambient)
+    } else {
+        (merged_user_env, Vec::new())
+    };
+    for (key, value) in spawn_user_env {
         command.env(key, value);
+    }
+    for key in native_scrub {
+        command.env_remove(key);
     }
     // Native binding values are trusted backend derivations, written after
     // user env so editable fields cannot redirect a Hermes profile or an
@@ -2014,7 +2111,7 @@ pub fn spawn_agent_child(
     // Buzz shared compute is stored as a native provider; derive the OpenAI-compatible
     // transport at spawn time and scrub any unrelated ambient OpenAI key.
     #[cfg(feature = "mesh-llm")]
-    if effective_provider == Some(super::RELAY_MESH_PROVIDER_ID) {
+    if native_runtime.is_none() && effective_provider == Some(super::RELAY_MESH_PROVIDER_ID) {
         let mut mesh_env = std::collections::BTreeMap::new();
         super::apply_relay_mesh_env(&mut mesh_env, effective_provider, effective_model);
         command.env_remove("OPENAI_API_KEY");
@@ -2037,6 +2134,18 @@ pub fn spawn_agent_child(
     {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
+        let permission_fd = managed_permission_fd.raw_fd();
+        unsafe {
+            command.pre_exec(move || {
+                if libc::dup2(permission_fd, 3) == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if libc::fcntl(3, libc::F_SETFD, 0) == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
     }
     // Windows: suppress the harness console window. Without this a bare
     // terminal pops for buzz-acp.exe and lingers (the app itself sets
@@ -2086,12 +2195,12 @@ pub fn spawn_agent_child(
             resident_keys.clone(),
             &effective_relay_url,
             record.auth_tag.clone(),
-            dispatch_store,
+            std::sync::Arc::clone(&dispatch_store),
         )
         .map_err(|error| format!("failed to bind managed message publisher: {error}"))?;
-        Ok((outbox_path, publisher))
+        Ok((outbox_path, publisher, dispatch_store))
     })();
-    let (outbox_path, publisher) = match publisher_setup {
+    let (outbox_path, publisher, dispatch_store) = match publisher_setup {
         Ok(setup) => setup,
         Err(error) => {
             let _ = child.kill();
@@ -2127,12 +2236,29 @@ pub fn spawn_agent_child(
         }
     }
     let broker_thread_name = format!("luca-signing-{}", &record.pubkey[..8]);
+    let resident_for_broker = resident_pubkey.clone();
+    let epoch_for_broker = session_epoch;
     let broker_thread =
         match std::thread::Builder::new()
             .name(broker_thread_name)
             .spawn(move || {
-                if let Err(error) = broker.reconcile_publication_outbox_slice() {
-                    eprintln!("luca-signing: managed publication reconciliation deferred: {error}");
+                let startup_status = broker.reconcile_publication_outbox_startup_pass();
+                match terminalize_restart_dispatches_if_proven(
+                    startup_status,
+                    &dispatch_store,
+                    resident_for_broker.as_str(),
+                    epoch_for_broker.get(),
+                ) {
+                    Ok(Some(interrupted)) if interrupted > 0 => eprintln!(
+                        "luca-signing: interrupted {interrupted} prior-epoch managed dispatch(es) after complete startup outbox reconciliation"
+                    ),
+                    Ok(Some(_)) => {}
+                    Ok(None) => eprintln!(
+                        "luca-signing: managed publication startup reconciliation deferred; preserving prior dispatch authority"
+                    ),
+                    Err(error) => eprintln!(
+                        "luca-signing: failed to terminalize prior dispatches after startup reconciliation: {error}"
+                    ),
                 }
                 let caller = crate::luca::local_broker_session::LocalBrokerCaller {
                     acp_pid: child_pid,
@@ -2141,6 +2267,10 @@ pub fn spawn_agent_child(
                 if let Err(error) = broker.serve_relay_auth_session(&mut broker_stream, caller) {
                     eprintln!("luca-signing: managed broker session closed: {error}");
                 }
+                crate::luca::managed_permission::cancel_resident_session(
+                    resident_for_broker.as_str(),
+                    epoch_for_broker.get(),
+                );
             }) {
             Ok(handle) => handle,
             Err(error) => {

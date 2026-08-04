@@ -7,6 +7,11 @@ set -eu
   env
   printf '[outer-fds]\n'
   ls -l /dev/fd
+  if [ -S "/dev/fd/$LUCA_PERMISSION_PROBE_FD" ]; then
+    printf '[outer-permission-fd]socket\n'
+  else
+    printf '[outer-permission-fd]not-socket\n'
+  fi
   if [ -p /dev/fd/0 ] || [ "$(stat -f '%HT' /dev/fd/0 2>/dev/null || true)" = "Fifo" ]; then
     printf '[outer-stdin]pipe\n'
   else
@@ -22,6 +27,11 @@ set -eu
     env
     printf "[nested-fds]\n"
     ls -l /dev/fd
+    if [ -S "/dev/fd/$LUCA_PERMISSION_PROBE_FD" ]; then
+      printf "[nested-permission-fd]socket\n"
+    else
+      printf "[nested-permission-fd]not-socket\n"
+    fi
     if [ -p /dev/fd/0 ] || [ "$(stat -f "%HT" /dev/fd/0 2>/dev/null || true)" = "Fifo" ]; then
       printf "[nested-stdin]pipe\n"
     else
@@ -56,8 +66,22 @@ fn luca_read_probe(path: &std::path::Path) -> String {
 #[cfg(unix)]
 #[tokio::test]
 async fn luca_descendant_isolation_managed_spawn_uses_pipe_and_scrubs_nested_shell() {
+    use std::os::fd::{AsRawFd, IntoRawFd};
+
     let outer_path = luca_probe_path("managed-outer");
     let nested_path = luca_probe_path("managed-nested");
+    let (_desktop_permission_socket, child_permission_socket) =
+        std::os::unix::net::UnixStream::pair().expect("create permission probe socket");
+    nix::fcntl::fcntl(
+        &child_permission_socket,
+        nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::empty()),
+    )
+    .expect("make probe socket inheritable");
+    let permission_fd = child_permission_socket.as_raw_fd();
+    std::env::set_var("LUCA_MANAGED_PERMISSION_FD", permission_fd.to_string());
+    std::env::set_var("LUCA_MANAGED_RESIDENT_PUBKEY", "11".repeat(32));
+    std::env::set_var("LUCA_MANAGED_SESSION_EPOCH", "7");
+    let _permission_fd_owner_transferred = child_permission_socket.into_raw_fd();
     let mut extra_env = vec![
         (
             "LUCA_OUTER_PROBE".to_owned(),
@@ -75,6 +99,10 @@ async fn luca_descendant_isolation_managed_spawn_uses_pipe_and_scrubs_nested_she
             "BUZZ_MANAGED_AGENT".to_owned(),
             "desktop-lifecycle-marker".to_owned(),
         ),
+        (
+            "LUCA_PERMISSION_PROBE_FD".to_owned(),
+            permission_fd.to_string(),
+        ),
     ];
     for key in LUCA_DESCENDANT_FORBIDDEN_ENV {
         extra_env.push(((*key).to_owned(), format!("secret-for-{key}")));
@@ -90,6 +118,9 @@ async fn luca_descendant_isolation_managed_spawn_uses_pipe_and_scrubs_nested_she
     let mut client = AcpClient::spawn_managed("/bin/sh", &args, &extra_env, false)
         .await
         .expect("spawn through the production managed ACP path");
+    std::env::remove_var("LUCA_MANAGED_PERMISSION_FD");
+    std::env::remove_var("LUCA_MANAGED_RESIDENT_PUBKEY");
+    std::env::remove_var("LUCA_MANAGED_SESSION_EPOCH");
     let initialized = client
         .initialize()
         .await
@@ -105,6 +136,14 @@ async fn luca_descendant_isolation_managed_spawn_uses_pipe_and_scrubs_nested_she
     assert!(nested.contains("LUCA_DESCENDANT_SAFE_SENTINEL=preserved"));
     assert!(outer.contains("BUZZ_MANAGED_AGENT=desktop-lifecycle-marker"));
     assert!(nested.contains("BUZZ_MANAGED_AGENT=desktop-lifecycle-marker"));
+    assert!(
+        outer.contains("[outer-permission-fd]not-socket"),
+        "managed model inherited the local permission socket:\n{outer}"
+    );
+    assert!(
+        nested.contains("[nested-permission-fd]not-socket"),
+        "nested model descendant inherited the local permission socket:\n{nested}"
+    );
     assert!(
         outer.contains("[outer-stdin]pipe"),
         "managed model stdin was not the replacement ACP pipe:\n{outer}"

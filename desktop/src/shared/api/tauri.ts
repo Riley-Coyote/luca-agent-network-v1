@@ -37,7 +37,7 @@ import type {
   InstallRuntimeResult,
   GitBashPrerequisite,
   RuntimeConfigSurface,
-  DiscoveredResidentCandidate,
+  NativeResidentDiscoveryOutcome,
   RuntimeBinding,
 } from "@/shared/api/types";
 
@@ -167,6 +167,8 @@ type RawCreateLucaResidentResponse = {
   };
   profileSyncError: string | null;
   spawnError: string | null;
+  reused: boolean;
+  recoveryNotice: string | null;
 };
 
 type RawManagedAgentLog = {
@@ -896,6 +898,8 @@ export async function createManagedAgent(
     privateKeyNsec: "",
     profileSyncError: response.profileSyncError,
     spawnError: response.spawnError,
+    reused: response.reused,
+    recoveryNotice: response.recoveryNotice,
   };
 }
 
@@ -945,10 +949,8 @@ export async function discoverAcpRuntimes(): Promise<AcpRuntimeCatalogEntry[]> {
 }
 
 /** Read-only enumeration of exact native Hermes/OpenClaw identities. */
-export async function discoverNativeResidents(): Promise<
-  DiscoveredResidentCandidate[]
-> {
-  return invokeTauri<DiscoveredResidentCandidate[]>(
+export async function discoverNativeResidents(): Promise<NativeResidentDiscoveryOutcome> {
+  return invokeTauri<NativeResidentDiscoveryOutcome>(
     "discover_native_residents",
     {},
   );

@@ -206,13 +206,54 @@ pub(crate) fn resolve_native_runtime_binding(
 /// Re-discover before the first durable write so stale or renderer-forged
 /// bindings fail closed. Discovery remains read-only.
 pub fn validate_native_runtime_binding(binding: &RuntimeBinding) -> Result<(), String> {
-    let matched = discover_native_resident_candidates()
+    revalidate_native_runtime_binding(binding).map(|_| ())
+}
+
+/// Return a current, verified binding for the same durable native identity.
+/// Mutable discovery details (such as an upgraded executable path) are a
+/// fingerprint, not the identity itself, and are refreshed before persistence.
+pub fn revalidate_native_runtime_binding(
+    binding: &RuntimeBinding,
+) -> Result<RuntimeBinding, String> {
+    let verified = discover_native_resident_candidates()
         .into_iter()
-        .any(|candidate| candidate.binding_preview == *binding);
-    if !matched {
-        return Err("native identity binding no longer matches current discovery".into());
+        .find(|candidate| {
+            native_runtime_semantic_key(&candidate.binding_preview)
+                == native_runtime_semantic_key(binding)
+        })
+        .map(|candidate| candidate.binding_preview)
+        .ok_or_else(|| "native identity binding no longer matches current discovery".to_string())?;
+    resolve_native_runtime_binding(&verified)?;
+    Ok(verified)
+}
+
+/// Stable, non-secret identity used for idempotent native imports. Full
+/// bindings remain the verified launch fingerprint stored on the resident.
+pub fn native_runtime_semantic_key(binding: &RuntimeBinding) -> String {
+    match binding {
+        RuntimeBinding::Hermes {
+            profile_name,
+            hermes_home,
+            ..
+        } => {
+            format!("hermes:{}:{}", hermes_home.display(), profile_name.trim())
+        }
+        RuntimeBinding::Openclaw {
+            gateway_identity,
+            agent_id,
+            ..
+        } => {
+            format!("openclaw:{}:{}", gateway_identity.trim(), agent_id.trim())
+        }
     }
-    resolve_native_runtime_binding(binding).map(|_| ())
+}
+
+/// Opaque fingerprint of the full verified launch binding. This intentionally
+/// changes when executable or runtime metadata changes while the semantic key
+/// remains stable for idempotency.
+pub fn native_runtime_binding_fingerprint(binding: &RuntimeBinding) -> String {
+    let bytes = serde_json::to_vec(binding).unwrap_or_default();
+    hex::encode(Sha256::digest(bytes))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -252,6 +293,8 @@ pub struct DiscoveryWarning {
 pub struct DiscoveredResidentCandidate {
     pub native_type: NativeRuntimeKind,
     pub native_id: String,
+    pub semantic_id: String,
+    pub binding_fingerprint: String,
     pub display_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub canonical_location: Option<PathBuf>,
@@ -264,6 +307,31 @@ pub struct DiscoveredResidentCandidate {
     pub readiness: ResidentReadiness,
     pub warnings: Vec<DiscoveryWarning>,
     pub binding_preview: RuntimeBinding,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeDiscoveryStatus {
+    Available,
+    Absent,
+    Degraded,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeRuntimeDiscoveryOutcome {
+    pub native_type: NativeRuntimeKind,
+    pub status: NativeDiscoveryStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    pub candidates: Vec<DiscoveredResidentCandidate>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeResidentDiscoveryOutcome {
+    pub runtimes: Vec<NativeRuntimeDiscoveryOutcome>,
 }
 
 #[derive(Debug)]
@@ -388,19 +456,35 @@ fn parse_hermes_profile_details(output: &str) -> HermesProfileDetails {
     details
 }
 
-fn discover_hermes() -> Vec<DiscoveredResidentCandidate> {
+fn discover_hermes() -> NativeRuntimeDiscoveryOutcome {
     let Some(executable_path) = canonical_executable("hermes") else {
-        return Vec::new();
+        return NativeRuntimeDiscoveryOutcome {
+            native_type: NativeRuntimeKind::Hermes,
+            status: NativeDiscoveryStatus::Absent,
+            message: Some("Hermes is not installed or is not on this app's PATH.".into()),
+            candidates: Vec::new(),
+        };
     };
     let runtime_version = command_version(&executable_path).unwrap_or_else(|| "unknown".into());
     let Ok(list) = run_bounded(&executable_path, &["profile", "list"], DISCOVERY_TIMEOUT) else {
-        return Vec::new();
+        return NativeRuntimeDiscoveryOutcome {
+            native_type: NativeRuntimeKind::Hermes,
+            status: NativeDiscoveryStatus::Failed,
+            message: Some(
+                "Hermes could not be queried. Check that it can run from a login shell.".into(),
+            ),
+            candidates: Vec::new(),
+        };
     };
     if !list.status.success() {
-        return Vec::new();
+        return NativeRuntimeDiscoveryOutcome {
+            native_type: NativeRuntimeKind::Hermes,
+            status: NativeDiscoveryStatus::Failed,
+            message: Some("Hermes profile discovery failed.".into()),
+            candidates: Vec::new(),
+        };
     }
-
-    parse_hermes_profile_names(&output_text(&list))
+    let candidates = parse_hermes_profile_names(&output_text(&list))
         .into_iter()
         .filter_map(|(profile_name, listed_model)| {
             let shown = run_bounded(
@@ -431,27 +515,52 @@ fn discover_hermes() -> Vec<DiscoveredResidentCandidate> {
                     ),
                 }
             };
+            let binding_preview = RuntimeBinding::Hermes {
+                schema_version: 1,
+                profile_name,
+                hermes_home: canonical_home,
+                executable_path: executable_path.clone(),
+                runtime_version: runtime_version.clone(),
+                default_workspace: None,
+            };
             Some(DiscoveredResidentCandidate {
                 native_type: NativeRuntimeKind::Hermes,
-                native_id: profile_name.clone(),
-                display_name: profile_name.clone(),
-                canonical_location: Some(canonical_home.clone()),
+                native_id: match &binding_preview {
+                    RuntimeBinding::Hermes { profile_name, .. } => profile_name.clone(),
+                    _ => unreachable!(),
+                },
+                display_name: match &binding_preview {
+                    RuntimeBinding::Hermes { profile_name, .. } => profile_name.clone(),
+                    _ => unreachable!(),
+                },
+                semantic_id: native_runtime_semantic_key(&binding_preview),
+                binding_fingerprint: native_runtime_binding_fingerprint(&binding_preview),
+                canonical_location: match &binding_preview {
+                    RuntimeBinding::Hermes { hermes_home, .. } => Some(hermes_home.clone()),
+                    _ => None,
+                },
                 workspace: None,
                 model_summary: details.model.or(listed_model),
                 runtime_version: Some(runtime_version.clone()),
                 readiness,
                 warnings: Vec::new(),
-                binding_preview: RuntimeBinding::Hermes {
-                    schema_version: 1,
-                    profile_name,
-                    hermes_home: canonical_home,
-                    executable_path: executable_path.clone(),
-                    runtime_version: runtime_version.clone(),
-                    default_workspace: None,
-                },
+                binding_preview,
             })
         })
-        .collect()
+        .collect::<Vec<_>>();
+    let degraded = candidates
+        .iter()
+        .any(|candidate| matches!(candidate.readiness, ResidentReadiness::Unavailable { .. }));
+    NativeRuntimeDiscoveryOutcome {
+        native_type: NativeRuntimeKind::Hermes,
+        status: if degraded {
+            NativeDiscoveryStatus::Degraded
+        } else {
+            NativeDiscoveryStatus::Available
+        },
+        message: degraded.then(|| "One or more Hermes profiles are unavailable.".into()),
+        candidates,
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -479,13 +588,35 @@ struct OpenclawGatewayStatus {
     rpc: OpenclawRpcStatus,
     #[serde(default)]
     service: OpenclawServiceStatus,
+    #[serde(default)]
+    config: OpenclawGatewayConfigStatus,
 }
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct OpenclawGatewayTarget {
     #[serde(default)]
-    probe_url: Option<String>,
+    bind_host: Option<String>,
+    #[serde(default)]
+    port: Option<u16>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenclawGatewayConfigStatus {
+    #[serde(default)]
+    daemon: OpenclawConfigFile,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenclawConfigFile {
+    #[serde(default)]
+    path: Option<PathBuf>,
+    #[serde(default)]
+    exists: bool,
+    #[serde(default)]
+    valid: bool,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -522,9 +653,31 @@ fn nonsecret_identity(value: &str) -> String {
     format!("gateway:{}", hex::encode(&digest[..12]))
 }
 
-fn discover_openclaw() -> Vec<DiscoveredResidentCandidate> {
+/// A gateway locator derived from configured launch facts, never RPC health.
+/// The canonical config path scopes identical local bind/port pairs belonging
+/// to different OpenClaw installations.
+fn configured_gateway_locator(status: &OpenclawGatewayStatus) -> Option<String> {
+    let config = &status.config.daemon;
+    if !config.exists || !config.valid {
+        return None;
+    }
+    let config_path = config.path.as_ref()?.canonicalize().ok()?;
+    let host = status.gateway.bind_host.as_deref()?.trim();
+    let port = status.gateway.port?;
+    if host.is_empty() {
+        return None;
+    }
+    Some(format!("{}|ws://{host}:{port}", config_path.display()))
+}
+
+fn discover_openclaw() -> NativeRuntimeDiscoveryOutcome {
     let Some(executable_path) = canonical_executable("openclaw") else {
-        return Vec::new();
+        return NativeRuntimeDiscoveryOutcome {
+            native_type: NativeRuntimeKind::Openclaw,
+            status: NativeDiscoveryStatus::Absent,
+            message: Some("OpenClaw is not installed or is not on this app's PATH.".into()),
+            candidates: Vec::new(),
+        };
     };
     let runtime_version = command_version(&executable_path).unwrap_or_else(|| "unknown".into());
     let Ok(list) = run_bounded(
@@ -532,13 +685,28 @@ fn discover_openclaw() -> Vec<DiscoveredResidentCandidate> {
         &["agents", "list", "--json", "--bindings"],
         DISCOVERY_TIMEOUT,
     ) else {
-        return Vec::new();
+        return NativeRuntimeDiscoveryOutcome {
+            native_type: NativeRuntimeKind::Openclaw,
+            status: NativeDiscoveryStatus::Failed,
+            message: Some("OpenClaw could not list its agents.".into()),
+            candidates: Vec::new(),
+        };
     };
     if !list.status.success() {
-        return Vec::new();
+        return NativeRuntimeDiscoveryOutcome {
+            native_type: NativeRuntimeKind::Openclaw,
+            status: NativeDiscoveryStatus::Failed,
+            message: Some("OpenClaw returned an unreadable agent list.".into()),
+            candidates: Vec::new(),
+        };
     }
     let Ok(agents) = serde_json::from_slice::<Vec<OpenclawAgentRow>>(&list.stdout) else {
-        return Vec::new();
+        return NativeRuntimeDiscoveryOutcome {
+            native_type: NativeRuntimeKind::Openclaw,
+            status: NativeDiscoveryStatus::Failed,
+            message: Some("OpenClaw returned an unreadable agent list.".into()),
+            candidates: Vec::new(),
+        };
     };
 
     let gateway_status = run_bounded(
@@ -549,12 +717,11 @@ fn discover_openclaw() -> Vec<DiscoveredResidentCandidate> {
     .ok()
     .and_then(|output| serde_json::from_slice::<OpenclawGatewayStatus>(&output.stdout).ok())
     .unwrap_or_default();
-    let gateway_locator = gateway_status
-        .gateway
-        .probe_url
+    let gateway_locator = configured_gateway_locator(&gateway_status);
+    let gateway_identity = gateway_locator
         .as_deref()
-        .unwrap_or("openclaw-configured-gateway");
-    let gateway_identity = nonsecret_identity(gateway_locator);
+        .map(nonsecret_identity)
+        .unwrap_or_default();
     let state_directory = dirs::home_dir().map(|home| home.join(".openclaw"));
     let warnings: Vec<DiscoveryWarning> = gateway_status
         .service
@@ -567,10 +734,15 @@ fn discover_openclaw() -> Vec<DiscoveredResidentCandidate> {
         })
         .collect();
 
-    agents
+    let candidates = agents
         .into_iter()
         .map(|agent| {
-            let readiness = if gateway_status.rpc.ok {
+            let readiness = if gateway_locator.is_none() {
+                ResidentReadiness::Unavailable {
+                    code: "OPENCLAW_GATEWAY_IDENTITY_UNAVAILABLE".into(),
+                    message: "OpenClaw has no stable configured Gateway locator; this agent cannot be imported safely.".into(),
+                }
+            } else if gateway_status.rpc.ok {
                 ResidentReadiness::Discovered {
                     message:
                         "Exact OpenClaw agent and Gateway found; ACP readiness not yet tested."
@@ -588,9 +760,28 @@ fn discover_openclaw() -> Vec<DiscoveredResidentCandidate> {
                 .identity_name
                 .or(agent.name)
                 .unwrap_or_else(|| agent.id.clone());
+            let binding_preview = RuntimeBinding::Openclaw {
+                schema_version: 1,
+                agent_id: agent.id.clone(),
+                executable_path: executable_path.clone(),
+                runtime_version: runtime_version.clone(),
+                gateway_identity: gateway_identity.clone(),
+                gateway_url_ref: SecretRef {
+                    provider: SecretRefProvider::NativeStore,
+                    locator: "openclaw:gateway:url".into(),
+                    identity_hash: Some(gateway_identity.clone()),
+                },
+                gateway_token_file_ref: None,
+                gateway_password_file_ref: None,
+                open_claw_profile: None,
+                state_directory: state_directory.clone(),
+                default_workspace: agent.workspace.clone(),
+            };
             DiscoveredResidentCandidate {
                 native_type: NativeRuntimeKind::Openclaw,
                 native_id: agent.id.clone(),
+                semantic_id: native_runtime_semantic_key(&binding_preview),
+                binding_fingerprint: native_runtime_binding_fingerprint(&binding_preview),
                 display_name,
                 canonical_location: agent.agent_dir,
                 workspace: agent.workspace.clone(),
@@ -598,33 +789,47 @@ fn discover_openclaw() -> Vec<DiscoveredResidentCandidate> {
                 runtime_version: Some(runtime_version.clone()),
                 readiness,
                 warnings: warnings.clone(),
-                binding_preview: RuntimeBinding::Openclaw {
-                    schema_version: 1,
-                    agent_id: agent.id,
-                    executable_path: executable_path.clone(),
-                    runtime_version: runtime_version.clone(),
-                    gateway_identity: gateway_identity.clone(),
-                    gateway_url_ref: SecretRef {
-                        provider: SecretRefProvider::NativeStore,
-                        locator: "openclaw:gateway:url".into(),
-                        identity_hash: Some(gateway_identity.clone()),
-                    },
-                    gateway_token_file_ref: None,
-                    gateway_password_file_ref: None,
-                    open_claw_profile: None,
-                    state_directory: state_directory.clone(),
-                    default_workspace: agent.workspace,
-                },
+                binding_preview,
             }
         })
-        .collect()
+        .collect::<Vec<_>>();
+    let degraded = gateway_locator.is_none() || !gateway_status.rpc.ok;
+    NativeRuntimeDiscoveryOutcome {
+        native_type: NativeRuntimeKind::Openclaw,
+        status: if degraded {
+            NativeDiscoveryStatus::Degraded
+        } else {
+            NativeDiscoveryStatus::Available
+        },
+        message: degraded.then(|| {
+            if gateway_locator.is_none() {
+                "OpenClaw has no stable configured Gateway locator.".into()
+            } else {
+                gateway_status
+                    .rpc
+                    .error
+                    .unwrap_or_else(|| "OpenClaw Gateway is configured but unavailable.".into())
+            }
+        }),
+        candidates,
+    }
 }
 
 /// Discover linkable native identities without mutating either native system.
 pub fn discover_native_resident_candidates() -> Vec<DiscoveredResidentCandidate> {
-    let mut candidates = discover_hermes();
-    candidates.extend(discover_openclaw());
-    candidates
+    discover_native_resident_outcome()
+        .runtimes
+        .into_iter()
+        .flat_map(|outcome| outcome.candidates)
+        .collect()
+}
+
+/// Per-runtime result preserves absent, degraded, and failed states instead of
+/// conflating them with an empty successful scan.
+pub fn discover_native_resident_outcome() -> NativeResidentDiscoveryOutcome {
+    NativeResidentDiscoveryOutcome {
+        runtimes: vec![discover_hermes(), discover_openclaw()],
+    }
 }
 
 #[cfg(test)]
@@ -695,6 +900,101 @@ mod tests {
         assert_ne!(
             nonsecret_identity("ws://127.0.0.1:18789"),
             nonsecret_identity("wss://gateway.example.test")
+        );
+    }
+
+    #[test]
+    fn semantic_identity_survives_binding_refresh_while_fingerprint_changes() {
+        let original = RuntimeBinding::Hermes {
+            schema_version: 1,
+            profile_name: "default".into(),
+            hermes_home: PathBuf::from("/tmp/hermes/default"),
+            executable_path: PathBuf::from("/usr/local/bin/hermes"),
+            runtime_version: "1.0.0".into(),
+            default_workspace: None,
+        };
+        let refreshed = RuntimeBinding::Hermes {
+            schema_version: 1,
+            profile_name: "default".into(),
+            hermes_home: PathBuf::from("/tmp/hermes/default"),
+            runtime_version: "1.1.0".into(),
+            executable_path: PathBuf::from("/opt/homebrew/bin/hermes"),
+            default_workspace: None,
+        };
+        assert_eq!(
+            native_runtime_semantic_key(&original),
+            native_runtime_semantic_key(&refreshed)
+        );
+        assert_ne!(
+            native_runtime_binding_fingerprint(&original),
+            native_runtime_binding_fingerprint(&refreshed)
+        );
+    }
+
+    #[test]
+    fn structured_outcomes_preserve_absent_and_failed_runtime_states() {
+        let outcome = NativeResidentDiscoveryOutcome {
+            runtimes: vec![
+                NativeRuntimeDiscoveryOutcome {
+                    native_type: NativeRuntimeKind::Hermes,
+                    status: NativeDiscoveryStatus::Absent,
+                    message: Some("Hermes is not installed.".into()),
+                    candidates: Vec::new(),
+                },
+                NativeRuntimeDiscoveryOutcome {
+                    native_type: NativeRuntimeKind::Openclaw,
+                    status: NativeDiscoveryStatus::Failed,
+                    message: Some("OpenClaw could not be queried.".into()),
+                    candidates: Vec::new(),
+                },
+            ],
+        };
+        let json = serde_json::to_value(&outcome).expect("outcome serializes");
+        assert_eq!(json["runtimes"][0]["status"], "absent");
+        assert_eq!(json["runtimes"][1]["status"], "failed");
+    }
+
+    #[test]
+    fn configured_gateway_identity_is_stable_when_rpc_goes_offline() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let config_path = dir.path().join("openclaw.json");
+        std::fs::write(&config_path, "{}").expect("config fixture");
+        let status = |online| OpenclawGatewayStatus {
+            gateway: OpenclawGatewayTarget {
+                bind_host: Some("127.0.0.1".into()),
+                port: Some(18789),
+            },
+            rpc: OpenclawRpcStatus {
+                ok: online,
+                error: (!online).then(|| "connection refused".into()),
+            },
+            config: OpenclawGatewayConfigStatus {
+                daemon: OpenclawConfigFile {
+                    path: Some(config_path.clone()),
+                    exists: true,
+                    valid: true,
+                },
+            },
+            ..OpenclawGatewayStatus::default()
+        };
+        let online = configured_gateway_locator(&status(true)).expect("online locator");
+        let offline = configured_gateway_locator(&status(false)).expect("offline locator");
+        assert_eq!(nonsecret_identity(&online), nonsecret_identity(&offline));
+    }
+
+    #[test]
+    fn identical_hermes_profile_names_in_different_homes_are_distinct() {
+        let binding = |home: &str| RuntimeBinding::Hermes {
+            schema_version: 1,
+            profile_name: "default".into(),
+            hermes_home: PathBuf::from(home),
+            executable_path: PathBuf::from("/usr/local/bin/hermes"),
+            runtime_version: "1.0.0".into(),
+            default_workspace: None,
+        };
+        assert_ne!(
+            native_runtime_semantic_key(&binding("/tmp/hermes-a")),
+            native_runtime_semantic_key(&binding("/tmp/hermes-b"))
         );
     }
 }

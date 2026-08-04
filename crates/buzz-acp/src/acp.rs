@@ -29,7 +29,163 @@ const LUCA_DESCENDANT_FORBIDDEN_ENV: &[&str] = &[
     "LUCA_MANAGED_SESSION_EPOCH",
     "LUCA_MANAGED_OWNER_ATTESTATION",
     "LUCA_OPENCLAW_AGENT_ID",
+    "LUCA_MANAGED_PERMISSION_FD",
 ];
+
+const MANAGED_PERMISSION_MAX_FRAME_BYTES: usize = 64 * 1024;
+const MANAGED_PERMISSION_CLIENT_DEADLINE_SECS: u64 = 125;
+#[cfg(unix)]
+static MANAGED_PERMISSION_CLIENT: std::sync::OnceLock<std::sync::Arc<ManagedPermissionClient>> =
+    std::sync::OnceLock::new();
+
+/// The non-signing, inherited local channel used only for one managed ACP
+/// permission request at a time. It is intentionally distinct from the
+/// signing broker and carries no resident secret or signing capability.
+#[cfg(unix)]
+struct ManagedPermissionClient {
+    stream: tokio::sync::Mutex<tokio::net::UnixStream>,
+    resident_pubkey: luca_protocol::Hex64,
+    session_epoch: luca_protocol::SafeU53,
+}
+
+#[cfg(unix)]
+impl ManagedPermissionClient {
+    fn from_inherited_fd() -> Result<Option<std::sync::Arc<Self>>, AcpError> {
+        if let Some(client) = MANAGED_PERMISSION_CLIENT.get() {
+            return Ok(Some(std::sync::Arc::clone(client)));
+        }
+        use nix::fcntl::{fcntl, FcntlArg, FdFlag};
+        use std::os::fd::AsRawFd;
+
+        let raw = match std::env::var("LUCA_MANAGED_PERMISSION_FD") {
+            Ok(value) => value
+                .parse::<i32>()
+                .map_err(|_| AcpError::Protocol("invalid managed permission fd".into()))?,
+            Err(std::env::VarError::NotPresent) => return Ok(None),
+            Err(_) => return Err(AcpError::Protocol("invalid managed permission fd".into())),
+        };
+        if raw < 3 {
+            return Err(AcpError::Protocol(
+                "managed permission fd is not a dedicated descriptor".into(),
+            ));
+        }
+        // Ensure a model/tool descendant cannot inherit the bootstrap fd. The
+        // duplicated stream below also has close-on-exec set by Rust.
+        let file = std::fs::File::open(format!("/dev/fd/{raw}"))
+            .map_err(|error| AcpError::Protocol(format!("open managed permission fd: {error}")))?;
+        fcntl(&file, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)).map_err(|error| {
+            AcpError::Protocol(format!("secure managed permission fd: {error}"))
+        })?;
+        if file.as_raw_fd() == raw {
+            return Err(AcpError::Protocol(
+                "managed permission fd was not duplicated".into(),
+            ));
+        }
+        let stream = std::os::unix::net::UnixStream::from(std::os::fd::OwnedFd::from(file));
+        nix::unistd::close(raw).map_err(|error| {
+            AcpError::Protocol(format!("close managed permission bootstrap fd: {error}"))
+        })?;
+        stream.set_nonblocking(true).map_err(AcpError::Io)?;
+        let resident_pubkey = std::env::var("LUCA_MANAGED_RESIDENT_PUBKEY")
+            .ok()
+            .and_then(|value| luca_protocol::Hex64::parse(value).ok())
+            .ok_or_else(|| {
+                AcpError::Protocol("managed permission channel missing resident binding".into())
+            })?;
+        let session_epoch = std::env::var("LUCA_MANAGED_SESSION_EPOCH")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .and_then(|value| luca_protocol::SafeU53::new(value).ok())
+            .ok_or_else(|| {
+                AcpError::Protocol("managed permission channel missing session binding".into())
+            })?;
+        let client = std::sync::Arc::new(Self {
+            stream: tokio::sync::Mutex::new(
+                tokio::net::UnixStream::from_std(stream).map_err(AcpError::Io)?,
+            ),
+            resident_pubkey,
+            session_epoch,
+        });
+        // All pool slots share one serialized request/response reader. A
+        // racing startup slot discards its duplicate and adopts the winner.
+        let _ = MANAGED_PERMISSION_CLIENT.set(std::sync::Arc::clone(&client));
+        Ok(Some(std::sync::Arc::clone(
+            MANAGED_PERMISSION_CLIENT.get().unwrap_or(&client),
+        )))
+    }
+
+    async fn decide(
+        &self,
+        turn_id: &str,
+        conversation_id: &str,
+        acp_request_id: &serde_json::Value,
+        title: String,
+        tool_call_id: Option<String>,
+        options: Vec<luca_protocol::ManagedPermissionOptionV1>,
+    ) -> Result<luca_protocol::ManagedPermissionDecisionV1, AcpError> {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let request = luca_protocol::ManagedPermissionRequestV1 {
+            protocol: luca_protocol::MANAGED_PERMISSION_PROTOCOL.into(),
+            resident_pubkey: self.resident_pubkey.clone(),
+            session_epoch: self.session_epoch,
+            turn_id: luca_protocol::OpaqueId::parse(turn_id)
+                .map_err(|_| AcpError::Protocol("invalid managed turn id".into()))?,
+            conversation_id: luca_protocol::OpaqueId::parse(conversation_id)
+                .map_err(|_| AcpError::Protocol("invalid managed conversation id".into()))?,
+            acp_request_id: serde_json::to_string(acp_request_id).map_err(AcpError::Json)?,
+            title,
+            tool_call_id,
+            options,
+        };
+        request
+            .validate()
+            .map_err(|error| AcpError::Protocol(error.to_string()))?;
+        let mut stream = self.stream.lock().await;
+        let bytes = serde_json::to_vec(&request).map_err(AcpError::Json)?;
+        if bytes.len() > MANAGED_PERMISSION_MAX_FRAME_BYTES {
+            return Err(AcpError::Protocol(
+                "managed permission request exceeds bound".into(),
+            ));
+        }
+        stream.write_all(&bytes).await?;
+        stream.write_all(b"\n").await?;
+        stream.flush().await?;
+        let mut reader = BufReader::new(&mut *stream);
+        let deadline = tokio::time::Instant::now()
+            + std::time::Duration::from_secs(MANAGED_PERMISSION_CLIENT_DEADLINE_SECS);
+        loop {
+            let mut line = String::new();
+            let remaining = deadline
+                .checked_duration_since(tokio::time::Instant::now())
+                .ok_or_else(|| {
+                    AcpError::Timeout(std::time::Duration::from_secs(
+                        MANAGED_PERMISSION_CLIENT_DEADLINE_SECS,
+                    ))
+                })?;
+            let count = tokio::time::timeout(remaining, reader.read_line(&mut line))
+                .await
+                .map_err(|_| {
+                    AcpError::Timeout(std::time::Duration::from_secs(
+                        MANAGED_PERMISSION_CLIENT_DEADLINE_SECS,
+                    ))
+                })??;
+            if count == 0 || line.len() > MANAGED_PERMISSION_MAX_FRAME_BYTES {
+                return Err(AcpError::Protocol(
+                    "managed permission channel closed or exceeded bound".into(),
+                ));
+            }
+            let Ok(decision) =
+                serde_json::from_str::<luca_protocol::ManagedPermissionDecisionV1>(&line)
+            else {
+                continue;
+            };
+            if decision.validate_for(&request).is_ok() {
+                return Ok(decision);
+            }
+            tracing::warn!(target: "acp::permission", "discarded stale managed permission response");
+        }
+    }
+}
 
 fn is_luca_descendant_forbidden_env(key: &str) -> bool {
     LUCA_DESCENDANT_FORBIDDEN_ENV
@@ -191,6 +347,11 @@ pub struct AcpClient {
     /// Guards against double-response if a timeout fires after the allow_once
     /// response was written but before `pending_permission_id` was cleared.
     permission_responded: bool,
+    #[cfg(unix)]
+    managed_permission: Option<std::sync::Arc<ManagedPermissionClient>>,
+    managed_identity: bool,
+    managed_turn_id: Option<String>,
+    managed_conversation_id: Option<String>,
     /// The JSON-RPC id of the most recently sent `session/prompt` request.
     /// Used by [`cancel_with_cleanup`] to drain the correct response.
     /// Set in [`session_prompt_with_idle_timeout`]; consumed in [`cancel_with_cleanup`].
@@ -505,6 +666,17 @@ impl AcpClient {
     ) -> Result<Self, AcpError> {
         use std::process::Stdio;
 
+        // Consume the inherited desktop permission bootstrap before creating
+        // any model/tool descendant. `from_inherited_fd` duplicates the socket
+        // with close-on-exec and closes the original descriptor, so the child
+        // spawned below cannot inherit local approval authority.
+        #[cfg(unix)]
+        let managed_permission = if managed_identity {
+            ManagedPermissionClient::from_inherited_fd()?
+        } else {
+            None
+        };
+
         let mut cmd = tokio::process::Command::new(command);
         cmd.args(args)
             .stdin(Stdio::piped())
@@ -583,6 +755,11 @@ impl AcpClient {
             next_id: 0,
             pending_permission_id: None,
             permission_responded: false,
+            #[cfg(unix)]
+            managed_permission,
+            managed_identity,
+            managed_turn_id: None,
+            managed_conversation_id: None,
             last_prompt_id: None,
             current_hard_deadline: None,
             observer: None,
@@ -934,6 +1111,18 @@ impl AcpClient {
     /// Start collecting public final-answer chunks for one managed turn.
     pub fn begin_final_message_capture(&mut self) {
         self.final_message_capture = Some(FinalChunkAccumulator::default());
+    }
+
+    /// Bind permission prompts observed during this ACP prompt to the exact
+    /// harness turn. Cleared on every prompt return path.
+    pub fn set_managed_turn_context(&mut self, turn_id: &str, conversation_id: Option<&str>) {
+        self.managed_turn_id = Some(turn_id.to_owned());
+        self.managed_conversation_id = conversation_id.map(str::to_owned);
+    }
+
+    pub fn clear_managed_turn_id(&mut self) {
+        self.managed_turn_id = None;
+        self.managed_conversation_id = None;
     }
 
     /// Consume the final draft only after an ACP EndTurn response.
@@ -1811,7 +2000,7 @@ impl AcpClient {
         }
     }
 
-    /// Auto-approve a `session/request_permission` request from the agent.
+    /// Resolve a `session/request_permission` request from the agent.
     ///
     /// Finds the option with `kind == "allow_once"` and responds with its `optionId`.
     /// If no `allow_once` option exists, falls back to `reject_once`.
@@ -1842,7 +2031,101 @@ impl AcpClient {
             options.len()
         );
 
-        // Find allow_once by kind — NEVER hardcode optionId.
+        #[cfg(unix)]
+        if self.managed_identity {
+            let Some(permission) = self.managed_permission.as_ref() else {
+                self.write_ndjson(&permission_response_cancelled(&id))
+                    .await?;
+                self.permission_responded = true;
+                self.pending_permission_id = None;
+                return Ok(());
+            };
+            let turn_id = self.managed_turn_id.as_deref().ok_or_else(|| {
+                AcpError::Protocol(
+                    "managed permission request arrived outside an active turn".into(),
+                )
+            })?;
+            let Some(conversation_id) = self.managed_conversation_id.as_deref() else {
+                self.write_ndjson(&permission_response_cancelled(&id))
+                    .await?;
+                self.permission_responded = true;
+                self.pending_permission_id = None;
+                return Ok(());
+            };
+            let runtime_options = options
+                .iter()
+                .filter_map(|option| {
+                    Some(luca_protocol::ManagedPermissionOptionV1 {
+                        option_id: option.get("optionId")?.as_str()?.to_owned(),
+                        name: option
+                            .get("name")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or_default()
+                            .to_owned(),
+                        kind: option
+                            .get("kind")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or_default()
+                            .to_owned(),
+                    })
+                })
+                .collect::<Vec<_>>();
+            let title = msg
+                .get("params")
+                .and_then(|params| params.get("title"))
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_owned();
+            let tool_call_id = msg
+                .get("params")
+                .and_then(|params| params.get("toolCallId"))
+                .and_then(|value| value.as_str())
+                .map(str::to_owned);
+            let decision = match permission
+                .decide(
+                    turn_id,
+                    conversation_id,
+                    &id,
+                    title,
+                    tool_call_id,
+                    runtime_options,
+                )
+                .await
+            {
+                Ok(decision) => decision,
+                // The channel is fail-closed: malformed, stale, closed and
+                // timed-out desktop paths become the ACP cancelled outcome.
+                Err(error) => {
+                    tracing::warn!(target: "acp::permission", "managed permission denied by local channel: {error}");
+                    self.write_ndjson(&permission_response_cancelled(&id))
+                        .await?;
+                    self.permission_responded = true;
+                    self.pending_permission_id = None;
+                    return Ok(());
+                }
+            };
+            let response = match decision.disposition {
+                luca_protocol::ManagedPermissionDispositionV1::Selected => {
+                    permission_response_selected(
+                        &id,
+                        decision.option_id.as_deref().ok_or_else(|| {
+                            AcpError::Protocol(
+                                "managed selected permission omitted option id".into(),
+                            )
+                        })?,
+                    )
+                }
+                luca_protocol::ManagedPermissionDispositionV1::Cancelled => {
+                    permission_response_cancelled(&id)
+                }
+            };
+            self.write_ndjson(&response).await?;
+            self.permission_responded = true;
+            self.pending_permission_id = None;
+            return Ok(());
+        }
+
+        // Legacy path: find allow_once by kind — NEVER hardcode optionId.
         let allow_once = options
             .iter()
             .find(|opt| opt.get("kind").and_then(|k| k.as_str()) == Some("allow_once"));

@@ -27,6 +27,8 @@ import { RightAuxiliaryPane } from "@/features/channels/ui/RightAuxiliaryPane";
 import { useChannelWorkingAgentPubkeys } from "@/features/agents/agentWorkingSignal";
 import { BotActivityComposerAction } from "@/features/channels/ui/BotActivityBar";
 import { ConversationAgentActivityStrip } from "@/features/channels/ui/ConversationAgentActivityStrip";
+import { useManagedPermissions } from "@/features/agents/useManagedPermissions";
+import { ManagedPermissionCard } from "@/features/agents/ui/ManagedPermissionCard";
 import {
   containsWelcomePersonaMention,
   WelcomeComposerBanner,
@@ -147,6 +149,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   const welcomeComposerHideTimerRef = React.useRef<number | null>(null);
   const [welcomeComposerBannerState, setWelcomeComposerBannerState] =
     React.useState<WelcomeComposerBannerState>("prompt");
+  const pendingManagedPermissions = useManagedPermissions();
   const { goChannel } = useAppNavigation();
   const prepareDmSendChannel = usePrepareDmSendChannel(
     activeChannel,
@@ -160,6 +163,13 @@ export const ChannelPane = React.memo(function ChannelPane({
     !activeChannel.archivedAt;
   const hasMainComposerOverlay = !isNonMemberView;
   const activeChannelId = activeChannel?.id ?? null;
+  const activePermissionRequests = React.useMemo(
+    () =>
+      pendingManagedPermissions.filter(
+        (pending) => pending.request.conversationId === activeChannelId,
+      ),
+    [activeChannelId, pendingManagedPermissions],
+  );
   const activeChannelIdRef = React.useRef(activeChannelId);
   const channelPaneMountedRef = React.useRef(false);
   activeChannelIdRef.current = activeChannelId;
@@ -412,7 +422,13 @@ export const ChannelPane = React.memo(function ChannelPane({
       openThreadHeadId,
       threadMessages,
     );
-  }, [openThreadHeadId, profiles, threadMessages, threadSummaries, visibleMessages]);
+  }, [
+    openThreadHeadId,
+    profiles,
+    threadMessages,
+    threadSummaries,
+    visibleMessages,
+  ]);
   useRenderScopedReactionHydration({
     activeChannel,
     mainTimelineEntries,
@@ -559,9 +575,7 @@ export const ChannelPane = React.memo(function ChannelPane({
             expandedThreadHeadId={openThreadHeadId}
             onExpandThreadReplies={onExpandThreadReplies}
             onReply={
-              activeChannel?.archivedAt
-                ? undefined
-                : onSelectThreadReplyTarget
+              activeChannel?.archivedAt ? undefined : onSelectThreadReplyTarget
             }
             onToggleThread={
               activeChannel?.archivedAt ? undefined : onOpenThread
@@ -614,6 +628,16 @@ export const ChannelPane = React.memo(function ChannelPane({
               ref={composerWrapperRef}
             >
               <div className="composer-overlay-corner-masks pointer-events-auto">
+                {activePermissionRequests.length > 0 ? (
+                  <div className="mx-auto mb-2 grid w-full max-w-[48rem] gap-2">
+                    {activePermissionRequests.map((pending) => (
+                      <ManagedPermissionCard
+                        key={pending.pendingId}
+                        pending={pending}
+                      />
+                    ))}
+                  </div>
+                ) : null}
                 {timeoutState.active ? (
                   <ComposerTimeoutBanner
                     expiresAtMs={timeoutState.expiresAtMs}

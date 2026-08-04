@@ -243,6 +243,7 @@ impl ManagedMessagePublisher {
                 ManagedPublicationAuthorityError::Unavailable
             }
             DispatchAuthorizationError::Unknown
+            | DispatchAuthorizationError::Ambiguous
             | DispatchAuthorizationError::Expired
             | DispatchAuthorizationError::Terminal
             | DispatchAuthorizationError::WrongOwner
@@ -1100,6 +1101,14 @@ mod tests {
             ManagedRelayProbeOutcome::Absent
         ));
         server.join().expect("server");
+    }
+
+    #[test]
+    fn ambiguous_dispatch_lookup_is_denied_without_detail() {
+        assert_eq!(
+            ManagedMessagePublisher::map_dispatch_error(DispatchAuthorizationError::Ambiguous),
+            ManagedPublicationAuthorityError::Denied
+        );
     }
 
     #[test]
