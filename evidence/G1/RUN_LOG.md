@@ -205,3 +205,50 @@ attachment/search sections are untested, and the biome gate fails, so the checkl
    F03/F06 are explicitly superseded for G1 by `G1_ONBOARDING_CORRECTION.md`; F09/F11/F15 are partial.
    This run therefore targets the operative repository checklist (`docs/luca/G1_CHECKLIST.md`), which
    `HANDOFF.md` and `CLAUDE.md` name as authoritative, and which permits documented scope decisions.
+
+## Codex continuation — 2026-08-04
+
+Final candidate: `e7aad47f5d0debc6681ceef55b7c74fff42b7f6c`
+
+The previously unexecuted runtime cases were completed against the preserved
+clean profile. Full, public-safe results are in
+`evidence/G1/candidate-e7aad47f/VERDICT.md`.
+
+- PASS — exact durable cancellation for long Hermes and OpenClaw turns.
+- PASS — one conversation Stop cancelled both active mixed-room residents.
+- PASS — five-second cleanup replaced both managed process groups; no tested
+  cancelled dispatch published a late final.
+- PASS — `publication_ambiguous` is the explicit result for a dispatch that had
+  already acquired publication authority.
+- PASS — managed permission allow, reject, cancel-while-pending, 120-second
+  expiry, app-close cleanup, and stale-decision rejection.
+- PASS — permission request and decision identifiers were absent from stored
+  relay events.
+- PASS — managed model and nested descendants did not inherit signing
+  coordinates or the permission socket.
+- PASS — the unmanaged ACP compatibility path retains its existing environment
+  behavior. The initial combined proof exposed a missing test-only descriptor;
+  the fixture was repaired and all three isolation tests now pass.
+- PASS — app crash during an active fixture turn produced an interrupted
+  dispatch and no publication for that tested turn.
+- PASS — a frozen final reconciled after restart exactly once and remained one
+  event after another restart.
+- PASS — a missing Hermes executable preserved the resident identity and showed
+  a useful degraded-state error; the real binding was then restored.
+- PASS — installed-app PNG attachment upload/send/render and search-to-target.
+- PASS — unread state, direct-message badge, timeline scrolling, Jump-to-latest,
+  inline-reply expansion, pagination/deep-link/scroll unit coverage.
+- PASS — exact-candidate focused Rust tests, Cargo check, typecheck, focused
+  Biome checks, 47 timeline tests, production frontend build, upstream
+  integration suite, native build/sign/install/relaunch, and installed-app
+  smoke.
+- PASS — the remaining user-visible `Mnemos` label on native import was changed
+  to `Luca` before the final native rebuild.
+
+### Updated verdict
+
+**The functional G1 contract is complete. Formal G1 remains unclaimed only
+until an independent reviewer signs off on this exact candidate.** No unresolved
+P0 or P1 finding remains. The legacy planning-kit validator corpus is still a
+separate historical-evidence reconciliation project and is not substituted for
+the operative live checklist.

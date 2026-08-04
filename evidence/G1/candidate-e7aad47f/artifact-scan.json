@@ -1,0 +1,8 @@
+{
+  "findings": [],
+  "mode": "clean",
+  "scanned_artifact_count": 5,
+  "scanned_byte_count": 17955,
+  "schema": "luca.artifact-scanner.v1",
+  "status": "PASS"
+}
