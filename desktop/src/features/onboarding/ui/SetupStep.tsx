@@ -149,7 +149,7 @@ function RuntimeStatus({
       <div className="flex flex-col items-center gap-1.5">
         <Button
           aria-label={`Sign in to ${runtime.label}`}
-          className="buzz-onboarding-runtime-setup h-5 rounded-full bg-[var(--buzz-welcome-chartreuse)]/30 px-2.5 font-mono !text-badge font-normal uppercase text-foreground hover:bg-[var(--buzz-welcome-chartreuse)]/40"
+          className="buzz-onboarding-runtime-setup h-5 rounded-full bg-foreground/10 px-2.5 font-mono !text-badge font-normal uppercase text-foreground hover:bg-foreground/15"
           data-testid={`onboarding-runtime-instructions-${runtime.id}`}
           onClick={() => {
             if (didSignInCheckTimeOut) {
@@ -203,7 +203,7 @@ function RuntimeStatus({
     return (
       <div
         aria-label={`Installing ${runtime.label}`}
-        className="flex h-5 items-center gap-2 rounded-full bg-white/60 px-2.5 font-mono text-badge font-normal uppercase text-foreground"
+        className="flex h-5 items-center gap-2 rounded-full bg-foreground/10 px-2.5 font-mono text-badge font-normal uppercase text-foreground"
         role="status"
       >
         <Spinner className="h-3 w-3 border-2 text-foreground" />
@@ -217,7 +217,7 @@ function RuntimeStatus({
       <Tooltip>
         <TooltipTrigger asChild>
           <span
-            className="inline-flex h-5 cursor-default items-center rounded-full bg-[#EBEFEF] px-2.5 font-mono text-badge font-normal uppercase text-foreground"
+            className="inline-flex h-5 cursor-default items-center rounded-full bg-foreground/10 px-2.5 font-mono text-badge font-normal uppercase text-foreground"
             data-testid={`onboarding-runtime-ready-${runtime.id}`}
           >
             READY
@@ -240,7 +240,7 @@ function RuntimeStatus({
     return (
       <Button
         aria-label={`Check ${runtime.label} again`}
-        className="buzz-onboarding-runtime-setup h-5 rounded-full bg-[var(--buzz-welcome-chartreuse)]/30 px-2.5 font-mono !text-badge font-normal uppercase text-foreground hover:bg-[var(--buzz-welcome-chartreuse)]/40"
+        className="buzz-onboarding-runtime-setup h-5 rounded-full bg-foreground/10 px-2.5 font-mono !text-badge font-normal uppercase text-foreground hover:bg-foreground/15"
         disabled={runtimesQuery.isFetching}
         onClick={() => void runtimesQuery.refetch()}
         type="button"
@@ -256,7 +256,7 @@ function RuntimeStatus({
     return (
       <Button
         aria-label={`${installError ? "Retry installing" : "Install"} ${runtime.label}`}
-        className="buzz-onboarding-runtime-setup h-5 rounded-full bg-[var(--buzz-welcome-chartreuse)]/30 px-2.5 font-mono !text-badge font-normal uppercase text-foreground hover:bg-[var(--buzz-welcome-chartreuse)]/40"
+        className="buzz-onboarding-runtime-setup h-5 rounded-full bg-foreground/10 px-2.5 font-mono !text-badge font-normal uppercase text-foreground hover:bg-foreground/15"
         data-testid={`onboarding-runtime-install-${runtime.id}`}
         onClick={onInstall}
         type="button"
@@ -270,7 +270,7 @@ function RuntimeStatus({
   return (
     <Button
       aria-label={`View ${runtime.label} install instructions`}
-      className="buzz-onboarding-runtime-setup h-5 rounded-full bg-[var(--buzz-welcome-chartreuse)]/30 px-2.5 font-mono !text-badge font-normal uppercase text-foreground hover:bg-[var(--buzz-welcome-chartreuse)]/40"
+      className="buzz-onboarding-runtime-setup h-5 rounded-full bg-foreground/10 px-2.5 font-mono !text-badge font-normal uppercase text-foreground hover:bg-foreground/15"
       data-testid={`onboarding-runtime-instructions-${runtime.id}`}
       onClick={() => void openUrl(runtime.installInstructionsUrl)}
       type="button"
@@ -478,13 +478,12 @@ function RuntimeCard({
   return (
     <Card
       className={cn(
-        "group h-[224px] w-full max-w-[288px] select-none items-center px-3 py-1.5 text-center",
+        "group flex h-[224px] w-full max-w-[288px] select-none flex-col items-center justify-center px-4 py-4 text-center",
         installError && "ring-1 ring-destructive/40",
-        isReady && "brightness-[0.98]",
       )}
       data-ready={isReady ? "true" : "false"}
       data-testid={`onboarding-runtime-${runtime.id}`}
-      variant="textured"
+      variant="default"
     >
       <RuntimeReadinessIndicator ready={isReady} runtime={runtime} />
 
@@ -620,7 +619,7 @@ function RuntimeProvidersSection({
           <RuntimeProvidersLoadingState />
         ) : errorMessage ? null : (
           <p
-            className="max-w-[560px] rounded-2xl bg-white/70 px-6 py-6 text-sm text-muted-foreground"
+            className="max-w-[560px] rounded-2xl border border-border/60 bg-foreground/[0.04] px-6 py-6 text-sm text-muted-foreground"
             data-testid="onboarding-acp-empty"
           >
             No supported agent harnesses were detected yet. Install Claude Code

@@ -124,6 +124,7 @@ export function MachineOnboardingFlow({
         <OnboardingChrome
           brand="luca"
           current={page === "config" ? 4 : page === "setup" ? 3 : 2}
+          total={4}
         />
       ) : null}
       <OnboardingFooterProvider>

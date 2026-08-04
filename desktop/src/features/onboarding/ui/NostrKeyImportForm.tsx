@@ -143,7 +143,7 @@ export function NostrKeyImportForm({
           <Card
             className="w-full px-8 py-12"
             data-testid="nostr-import-card"
-            variant="textured"
+            variant="default"
           >
             <div className="relative w-full">
               <Input

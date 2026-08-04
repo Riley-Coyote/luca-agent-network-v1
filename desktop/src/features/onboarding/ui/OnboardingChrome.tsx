@@ -9,11 +9,14 @@ export const TOTAL_ONBOARDING_PAGES = 7;
 const ONBOARDING_CTA_SHAPE = "h-[2.375rem] rounded-full px-6";
 
 /**
- * Primary-CTA styling for the in-step onboarding pages: the shared pill with a
- * light-blue label (`--buzz-onboarding-cta-label`, available on any
- * `.buzz-onboarding-neutral-theme` subtree).
+ * Primary-CTA styling for the in-step onboarding pages: just the shared pill
+ * shape. The label color is left to the Button's default
+ * `text-primary-foreground`, which is correctly paired with `--primary` in
+ * every onboarding theme variant. (The old `--buzz-onboarding-cta-label`
+ * override was near-white and rendered invisible once `--primary` became a
+ * near-white pill during the Buzz-branding removal.)
  */
-export const ONBOARDING_PRIMARY_CTA_CLASS = `${ONBOARDING_CTA_SHAPE} text-[var(--buzz-onboarding-cta-label)]`;
+export const ONBOARDING_PRIMARY_CTA_CLASS = ONBOARDING_CTA_SHAPE;
 
 /**
  * Primary-CTA styling for the landing screen only: the shared pill with the
