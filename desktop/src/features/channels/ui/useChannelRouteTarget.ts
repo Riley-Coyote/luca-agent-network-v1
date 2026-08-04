@@ -123,7 +123,7 @@ export function useChannelRouteTarget({
       setProfilePanelPubkey(null, { replace: true });
       setEditTargetId(null);
       setOpenThreadHeadId(targetMessage.id, { replace: true });
-      setThreadReplyTargetId(targetMessage.id);
+      setThreadReplyTargetId(null);
       setThreadScrollTargetId(null);
       setExpandedThreadReplyIds(new Set());
       handledThreadRouteTargetRef.current = targetKey;
@@ -148,7 +148,7 @@ export function useChannelRouteTarget({
     setProfilePanelPubkey(null, { replace: true });
     setEditTargetId(null);
     setOpenThreadHeadId(routeTarget.threadHeadId, { replace: true });
-    setThreadReplyTargetId(routeTarget.threadHeadId);
+    setThreadReplyTargetId(null);
     setThreadScrollTargetId(targetMessageId);
     setExpandedThreadReplyIds(routeTarget.expandedReplyIds);
     handledThreadRouteTargetRef.current = targetKey;

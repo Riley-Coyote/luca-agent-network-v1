@@ -1,4 +1,7 @@
 import { getDmParticipantPreview } from "@/features/channels/lib/dmParticipantDisplay";
+import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
+import { normalizePubkey } from "@/shared/lib/pubkey";
+import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 
 export type DirectMessageIntroParticipant = {
@@ -12,6 +15,7 @@ export function DirectMessageIntroAvatarStack({
 }: {
   participants: DirectMessageIntroParticipant[];
 }) {
+  const knownAgentPubkeys = useKnownAgentPubkeys();
   const { hiddenCount, visibleParticipants } =
     getDmParticipantPreview(participants);
   const stackItemCount = visibleParticipants.length + (hiddenCount > 0 ? 1 : 0);
@@ -36,12 +40,21 @@ export function DirectMessageIntroAvatarStack({
             }),
           }}
         >
-          <UserAvatar
-            avatarUrl={participant.avatarUrl}
-            className="h-[60px] w-[60px] text-base"
-            displayName={participant.displayName}
-            size="md"
-          />
+          {knownAgentPubkeys.has(normalizePubkey(participant.pubkey)) ? (
+            <AgentIdentitySpecimen
+              accessibleName={participant.displayName}
+              publicKey={participant.pubkey}
+              size={52}
+              state="present"
+            />
+          ) : (
+            <UserAvatar
+              avatarUrl={participant.avatarUrl}
+              className="h-[52px] w-[52px] text-sm"
+              displayName={participant.displayName}
+              size="md"
+            />
+          )}
         </div>
       ))}
       {hiddenCount > 0 ? (

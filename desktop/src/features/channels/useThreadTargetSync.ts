@@ -5,9 +5,8 @@ import type { TimelineMessage } from "@/features/messages/types";
 
 /**
  * Keeps thread-panel and edit-composer targets consistent with the messages
- * that are actually loaded: closes the thread panel when its head message
- * disappears, seeds the reply target from the thread head, and clears stale
- * reply/edit targets that no longer resolve to a message.
+ * that are actually loaded: collapses an inline thread when its head message
+ * disappears and clears stale reply/edit targets that no longer resolve.
  */
 export function useThreadTargetSync({
   clearOptimisticThreadOverride,
@@ -50,13 +49,8 @@ export function useThreadTargetSync({
       return;
     }
 
-    if (openThreadHeadMessage && !threadReplyTargetId) {
-      setThreadReplyTargetId(openThreadHeadMessage.id);
-      return;
-    }
-
     if (threadReplyTargetId && !threadReplyTargetMessage) {
-      setThreadReplyTargetId(openThreadHeadMessage?.id ?? null);
+      setThreadReplyTargetId(null);
     }
     if (editTargetId && !editTargetMessage) {
       setEditTargetId(null);

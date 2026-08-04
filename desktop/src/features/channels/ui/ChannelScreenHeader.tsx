@@ -15,6 +15,11 @@ import {
 } from "@/features/profile/ui/ProfileAvatarWithStatus";
 import { Button } from "@/shared/ui/button";
 import type { Channel, PresenceStatus } from "@/shared/api/types";
+import { normalizePubkey } from "@/shared/lib/pubkey";
+import {
+  AgentIdentitySpecimen,
+  shortAgentFingerprint,
+} from "@/shared/ui/AgentIdentitySpecimen";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 
 const DM_HEADER_AVATAR_SIZE = 32;
@@ -31,6 +36,7 @@ type ChannelScreenHeaderProps = {
   activeDmAvatarUrl: string | null;
   activeDmHeaderParticipants: ActiveDmHeaderParticipant[];
   activeDmPresenceStatus: PresenceStatus | null;
+  agentPubkeys: ReadonlySet<string>;
   chromeWrapperRef?: React.Ref<HTMLDivElement>;
   currentPubkey?: string;
   isAddBotOpen?: boolean;
@@ -51,6 +57,7 @@ export function ChannelScreenHeader({
   activeDmAvatarUrl,
   activeDmHeaderParticipants,
   activeDmPresenceStatus,
+  agentPubkeys,
   chromeWrapperRef,
   currentPubkey,
   isAddBotOpen,
@@ -71,6 +78,14 @@ export function ChannelScreenHeader({
     activeChannel.visibility === "open" &&
     !activeChannel.archivedAt &&
     onJoinChannel;
+  const primaryDmParticipant = activeDmHeaderParticipants[0] ?? null;
+  const primaryDmIsAgent = Boolean(
+    primaryDmParticipant &&
+      agentPubkeys.has(normalizePubkey(primaryDmParticipant.pubkey)),
+  );
+  const groupAgentCount = activeDmHeaderParticipants.filter((participant) =>
+    agentPubkeys.has(normalizePubkey(participant.pubkey)),
+  ).length;
 
   const actions = activeChannel ? (
     showJoinButton ? (
@@ -107,11 +122,38 @@ export function ChannelScreenHeader({
       actions={actions}
       channelType={activeChannel?.channelType}
       description={getChannelDescription(activeChannel)}
+      identityMeta={
+        activeChannel?.channelType === "dm" ? (
+          isGroupDm ? (
+            `${groupAgentCount} ${groupAgentCount === 1 ? "agent" : "agents"}`
+          ) : primaryDmIsAgent && primaryDmParticipant ? (
+            <>
+              {shortAgentFingerprint(primaryDmParticipant.pubkey)}
+              <span className="ml-3" data-luca-agent-state>
+                {activeDmPresenceStatus === "offline" ? "unavailable" : "present"}
+              </span>
+            </>
+          ) : null
+        ) : null
+      }
       leadingContent={
         activeChannel?.channelType === "dm" ? (
           isGroupDm ? (
             <DmHeaderParticipantStack
+              agentPubkeys={agentPubkeys}
               participants={activeDmHeaderParticipants}
+            />
+          ) : primaryDmIsAgent && primaryDmParticipant ? (
+            <AgentIdentitySpecimen
+              accessibleName={primaryDmParticipant.displayName}
+              className="mr-1.5"
+              publicKey={primaryDmParticipant.pubkey}
+              size={26}
+              state={
+                activeDmPresenceStatus === "offline"
+                  ? "unavailable"
+                  : "present"
+              }
             />
           ) : (
             <ProfileAvatarWithStatus
@@ -142,8 +184,10 @@ export function ChannelScreenHeader({
 }
 
 function DmHeaderParticipantStack({
+  agentPubkeys,
   participants,
 }: {
+  agentPubkeys: ReadonlySet<string>;
   participants: ActiveDmHeaderParticipant[];
 }) {
   const { hiddenCount, visibleParticipants } =
@@ -170,12 +214,21 @@ function DmHeaderParticipantStack({
             }),
           }}
         >
-          <UserAvatar
-            avatarUrl={participant.avatarUrl}
-            className="h-8 w-8 text-xs"
-            displayName={participant.displayName}
-            size="sm"
-          />
+          {agentPubkeys.has(normalizePubkey(participant.pubkey)) ? (
+            <AgentIdentitySpecimen
+              accessibleName={participant.displayName}
+              publicKey={participant.pubkey}
+              size={26}
+              state="present"
+            />
+          ) : (
+            <UserAvatar
+              avatarUrl={participant.avatarUrl}
+              className="h-[26px] w-[26px] text-[10px]"
+              displayName={participant.displayName}
+              size="sm"
+            />
+          )}
         </div>
       ))}
       {hiddenCount > 0 ? (

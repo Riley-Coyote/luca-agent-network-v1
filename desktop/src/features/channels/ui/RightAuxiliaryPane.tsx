@@ -28,6 +28,7 @@ export function RightAuxiliaryPane({
         "group/right-pane relative flex h-full shrink-0 flex-col overflow-hidden bg-background before:pointer-events-none before:absolute before:bottom-0 before:left-0 before:top-0 before:z-50 before:w-px before:bg-border/80 before:content-['']",
       )}
       data-testid={testId}
+      data-luca-inspector
       style={{
         maxWidth: constrainToAvailableSpace
           ? `calc(100% - ${AUXILIARY_PANEL_MIN_WIDTH_PX}px)`

@@ -31,6 +31,7 @@ import { getConfigNudgeAuthorPubkey } from "@/features/messages/ui/configNudgeAu
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
+import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import { useChannelNavigation } from "@/shared/context/ChannelNavigationContext";
 import { parseImetaTags } from "@/features/messages/lib/parseImeta";
 import { useMessageEmoji } from "@/features/messages/lib/useMessageEmoji";
@@ -40,7 +41,6 @@ import { resolveMentionProps } from "@/shared/lib/resolveMentionNames";
 import { Markdown } from "@/shared/ui/markdown";
 import type { VideoReviewContext } from "@/shared/ui/VideoPlayer";
 import { MessageActionBar } from "./MessageActionBar";
-import { MessageAgentOwner } from "./MessageAgentOwner";
 import { MessageAuthorText, MessageHeaderRow } from "./MessageHeader";
 import { MessageTimestamp } from "./MessageTimestamp";
 import { WaveMessageAttachment } from "./WaveMessageAttachment";
@@ -203,6 +203,7 @@ export const MessageRow = React.memo(
       (message.pubkey && isKnownAgentPubkey(message.pubkey))
         ? "bot"
         : message.role;
+    const isAgentAuthor = profilePopoverRole === "bot" && Boolean(message.pubkey);
     const agentMentionPubkeysByName = React.useMemo(() => {
       if (!mentionPubkeysByName) {
         return undefined;
@@ -353,7 +354,7 @@ export const MessageRow = React.memo(
             <Markdown
               channelNames={channelNames}
               className={cn(
-                "max-w-full text-sm",
+                "max-w-full text-[15px] leading-[1.68] text-foreground/90",
                 emojiOnly &&
                   "text-4xl leading-tight [&_p]:leading-tight [&_img[data-custom-emoji]]:h-[1.45em] [&_img[data-custom-emoji]]:align-middle [&_button:has(img[data-custom-emoji])]:align-middle",
               )}
@@ -381,24 +382,34 @@ export const MessageRow = React.memo(
 
     const isThreadReplyLayout = layoutVariant === "thread-reply";
     const guideBleedRem = isThreadReplyLayout ? 0.25 : 0;
-    const avatarButtonRadiusClass = "rounded-full";
+    const avatarButtonRadiusClass = isAgentAuthor ? "rounded-lg" : "rounded-full";
 
     const respondToDotColor =
       message.respondTo === "anyone"
-        ? "bg-emerald-500"
+        ? "bg-foreground/70"
         : message.respondTo === "allowlist"
-          ? "bg-amber-500"
+          ? "bg-foreground/35"
           : null;
 
     const avatarNode = (
       <div className="relative shrink-0">
-        <UserAvatar
-          accent={message.accent}
-          avatarUrl={message.avatarUrl ?? null}
-          className="shrink-0"
-          displayName={message.author}
-          testId="message-avatar"
-        />
+        {isAgentAuthor && message.pubkey ? (
+          <AgentIdentitySpecimen
+            accessibleName={message.author}
+            className="shrink-0"
+            publicKey={message.pubkey}
+            size={28}
+            state="present"
+          />
+        ) : (
+          <UserAvatar
+            accent={message.accent}
+            avatarUrl={message.avatarUrl ?? null}
+            className="h-7 w-7 shrink-0 text-xs"
+            displayName={message.author}
+            testId="message-avatar"
+          />
+        )}
         {respondToDotColor && !isThreadReplyLayout ? (
           <span
             className={cn(
@@ -460,13 +471,6 @@ export const MessageRow = React.memo(
     ) : (
       <MessageAuthorText as="h3">{message.author}</MessageAuthorText>
     );
-    const agentOwnerNode = message.isAgent ? (
-      <MessageAgentOwner
-        ownerLabel={message.ownerLabel}
-        ownerPubkey={message.ownerPubkey}
-      />
-    ) : null;
-
     const actionBarNode = (
       <div
         className={cn(
@@ -552,7 +556,6 @@ export const MessageRow = React.memo(
         ) : (
           authorNode
         )}
-        {agentOwnerNode}
         {inlineMetadataNode}
         {message.personaDisplayName &&
         message.personaDisplayName !== message.author ? (
@@ -771,17 +774,17 @@ export const MessageRow = React.memo(
 
         <article
           className={cn(
-            "group/message relative z-10 rounded-2xl transition-colors",
+            "group/message relative z-10 rounded-[10px] transition-colors",
             playEntrance && "motion-enter-conversation",
-            "py-1",
+            "py-1.5",
             hoverBackground
-              ? "mx-1 px-2 hover:bg-muted/50 focus-within:bg-muted/50"
+              ? "mx-1 px-2 hover:bg-muted/45 focus-within:bg-muted/45"
               : isThreadReplyLayout
                 ? "mx-1 px-2"
                 : "px-2",
             "flex gap-2.5",
             isContinuation ? "items-center" : "items-start",
-            hasActiveReminder ? "bg-blue-500/10" : "",
+            hasActiveReminder ? "bg-foreground/[0.045]" : "",
             highlighted
               ? "-mx-4 rounded-none px-6 before:absolute before:-inset-y-1.5 before:inset-x-0 before:animate-[route-target-highlight-fade_2s_ease-out_forwards] before:bg-primary/10 before:content-[''] motion-reduce:before:animate-none sm:-mx-6 sm:px-8"
               : "",

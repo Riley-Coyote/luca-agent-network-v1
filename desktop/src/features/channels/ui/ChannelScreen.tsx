@@ -648,6 +648,7 @@ export function ChannelScreen({
     setThreadScrollTargetId(null);
   }, []);
   const handleTargetReached = React.useCallback(() => {
+    setThreadScrollTargetId(null);
     clearMessageRouteTarget({ replace: true });
   }, [clearMessageRouteTarget]);
   React.useEffect(() => {
@@ -683,10 +684,7 @@ export function ChannelScreen({
   });
 
   const hasAuxiliaryPanel = Boolean(
-    effectiveOpenThreadHeadId ||
-      openAgentSessionPubkey ||
-      profilePanelPubkey ||
-      channelManagementOpen,
+    openAgentSessionPubkey || profilePanelPubkey || channelManagementOpen,
   );
   const displayedThreadHeadMessage = threadPanelData.threadHead;
   const displayedThreadMessages = threadPanelData.visibleReplies;
@@ -757,6 +755,7 @@ export function ChannelScreen({
         activeDmAvatarUrl={activeDmAvatarUrl}
         activeDmHeaderParticipants={activeDmHeaderParticipants}
         activeDmPresenceStatus={activeDmPresenceStatus}
+        agentPubkeys={agentPubkeys}
         chromeWrapperRef={channelHeaderChromeRef}
         currentPubkey={currentPubkey}
         isAddBotOpen={isAddBotOpen}
@@ -777,6 +776,7 @@ export function ChannelScreen({
       activeDmAvatarUrl,
       activeDmHeaderParticipants,
       activeDmPresenceStatus,
+      agentPubkeys,
       channelHeaderChromeRef,
       currentPubkey,
       isAddBotOpen,
@@ -942,7 +942,9 @@ export function ChannelScreen({
                   ownerProfiles={messageOwnerProfiles}
                   firstUnreadMessageId={firstUnreadMessageId}
                   unreadCount={unreadCount}
-                  targetMessageId={mainTimelineTargetMessageId}
+                  targetMessageId={
+                    threadScrollTargetId ?? mainTimelineTargetMessageId
+                  }
                   threadHeadMessage={displayedThreadHeadMessage}
                   threadMessages={displayedThreadMessages}
                   threadMessagesPending={threadRepliesQuery.isPending}

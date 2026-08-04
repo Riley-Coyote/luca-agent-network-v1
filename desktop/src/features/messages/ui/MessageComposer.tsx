@@ -973,10 +973,11 @@ function MessageComposerImpl({
     <>
       <footer
         className={cn(
-          "relative z-10 shrink-0 bg-transparent px-4 pb-2 pt-0",
+          "relative z-10 shrink-0 bg-transparent px-0 pb-3 pt-0",
           showTopBorder ? "border-t border-border/40 pt-3" : "",
           containerClassName,
         )}
+        data-luca-reading-plane
       >
         <div
           aria-hidden="true"
@@ -990,7 +991,7 @@ function MessageComposerImpl({
             onCancelReply={onCancelReply}
           />
           <form
-            className="relative z-10 isolate rounded-2xl border border-border/50 bg-background/80 px-3 pb-2 pt-3 shadow-none backdrop-blur-md supports-[backdrop-filter]:bg-background/70 dark:bg-background/70 dark:backdrop-blur-xl dark:supports-[backdrop-filter]:bg-background/55 sm:px-4"
+            className="relative z-10 isolate rounded-lg border border-border bg-card px-3 pb-2 pt-3 shadow-none sm:px-4"
             data-testid="message-composer"
             onDragEnter={ownsDropZone ? media.handleDragEnter : undefined}
             onDragLeave={ownsDropZone ? media.handleDragLeave : undefined}

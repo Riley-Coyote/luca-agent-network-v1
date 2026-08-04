@@ -5,7 +5,7 @@ import {
   Copy,
   FileText,
   FolderGit2,
-  Hash,
+  MessagesSquare,
   House,
   Lock,
   Zap,
@@ -30,6 +30,7 @@ type ChatHeaderProps = {
   channelType?: ChannelType;
   visibility?: ChannelVisibility;
   leadingContent?: React.ReactNode;
+  identityMeta?: React.ReactNode;
   mode?: "home" | "channel" | "agents" | "workflows" | "pulse" | "projects";
   overlaysContent?: boolean;
   statusBadge?: React.ReactNode;
@@ -38,7 +39,6 @@ type ChatHeaderProps = {
 };
 
 const HEADER_ICON_CLASS = "h-4 w-4 text-muted-foreground";
-const CHANNEL_HASH_ICON_CLASS = "h-4 w-4 translate-y-px";
 
 function ChannelIcon({
   channelType,
@@ -81,7 +81,7 @@ function ChannelIcon({
     return <FileText className={HEADER_ICON_CLASS} />;
   }
 
-  return <Hash className={CHANNEL_HASH_ICON_CLASS} color="gray" />;
+  return <MessagesSquare className={HEADER_ICON_CLASS} />;
 }
 
 export function ChatHeader({
@@ -93,6 +93,7 @@ export function ChatHeader({
   channelType,
   visibility,
   leadingContent,
+  identityMeta,
   mode = "channel",
   overlaysContent = false,
   statusBadge,
@@ -115,7 +116,7 @@ export function ChatHeader({
   const header = (
     <header
       className={cn(
-        "pointer-events-auto relative z-30 min-w-0 shrink-0 cursor-default select-none bg-transparent px-5 py-2 transition-[margin,padding] duration-200 ease-linear",
+        "pointer-events-auto relative z-30 min-w-0 shrink-0 cursor-default select-none border-b border-border/70 bg-background px-5 py-2 transition-[margin,padding] duration-200 ease-linear",
         overlaysContent && !belowSystemChrome && "-mb-14",
       )}
       data-testid="chat-header"
@@ -135,7 +136,7 @@ export function ChatHeader({
             </div>
             <h1
               className={cn(
-                "min-w-0 truncate text-base font-semibold leading-6 tracking-tight",
+                "min-w-0 truncate text-[0.9375rem] font-medium leading-6 tracking-[-0.01em]",
                 channelType !== "dm" && "translate-y-px",
               )}
               data-testid="chat-title"
@@ -143,6 +144,11 @@ export function ChatHeader({
             >
               {title}
             </h1>
+            {identityMeta ? (
+              <div className="ml-1 shrink-0" data-luca-header-meta>
+                {identityMeta}
+              </div>
+            ) : null}
             <Button
               aria-label={`Copy channel name: ${title}`}
               className="h-6 w-6 shrink-0 opacity-0 text-muted-foreground transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/title:opacity-100"
@@ -179,9 +185,7 @@ export function ChatHeader({
       ref={chromeWrapperRef}
       className={cn(
         "pointer-events-none relative z-40 overflow-visible rounded-tl-xl",
-        transparentChrome
-          ? "bg-transparent"
-          : "bg-background/80 backdrop-blur-md supports-backdrop-filter:bg-background/70 dark:bg-background/70 dark:backdrop-blur-xl dark:supports-backdrop-filter:bg-background/55",
+        transparentChrome ? "bg-transparent" : "bg-background",
         channelChrome.negativeMargin,
       )}
     >

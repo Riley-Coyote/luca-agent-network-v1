@@ -4,7 +4,7 @@ import {
   ChevronDown,
   CircleDot,
   FileText,
-  Hash,
+  MessagesSquare,
   Lock,
   X,
 } from "lucide-react";
@@ -17,6 +17,7 @@ import {
 
 import { ChannelContextMenuItems } from "@/features/sidebar/ui/ChannelContextMenu";
 import type { ActiveChannelTurnSummary } from "@/features/agents/activeAgentTurnsStore";
+import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
 import { formatElapsed } from "@/features/agents/ui/agentSessionUtils";
 import { getEphemeralChannelDisplay } from "@/features/channels/lib/ephemeralChannel";
 import { EphemeralChannelBadge } from "@/features/channels/ui/EphemeralChannelBadge";
@@ -27,7 +28,12 @@ import {
 } from "@/features/profile/ui/ProfileAvatarWithStatus";
 import type { Channel, PresenceStatus } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
+import { normalizePubkey } from "@/shared/lib/pubkey";
 import { useNow } from "@/shared/lib/useNow";
+import {
+  AgentIdentitySpecimen,
+  shortAgentFingerprint,
+} from "@/shared/ui/AgentIdentitySpecimen";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -168,6 +174,7 @@ function DmChannelIcon({
   participants?: SidebarDmParticipant[];
   presenceStatus?: PresenceStatus;
 }) {
+  const knownAgentPubkeys = useKnownAgentPubkeys();
   const primaryParticipant = participants?.[0];
 
   if (!primaryParticipant) {
@@ -178,17 +185,56 @@ function DmChannelIcon({
     return (
       <span
         aria-hidden="true"
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sidebar-accent/80 text-2xs font-semibold leading-none text-sidebar-foreground shadow-none"
+        className="flex h-6 w-7 shrink-0 items-center"
         data-testid={`channel-dm-count-${channelName}`}
       >
-        <span className="translate-x-px leading-none">
-          {participants.length}
-        </span>
+        {participants.slice(0, 2).map((participant, index) => {
+          const isAgent = knownAgentPubkeys.has(
+            normalizePubkey(participant.pubkey),
+          );
+          return isAgent ? (
+            <AgentIdentitySpecimen
+              accessibleName={participant.label}
+              className={cn(index > 0 && "-ml-1.5")}
+              key={participant.pubkey}
+              publicKey={participant.pubkey}
+              size={20}
+              state="present"
+            />
+          ) : (
+            <ProfileAvatarWithStatus
+              avatarClassName="bg-sidebar-accent text-[9px] text-sidebar-foreground shadow-none"
+              avatarUrl={participant.avatarUrl}
+              className={cn("h-5 w-5", index > 0 && "-ml-1.5")}
+              geometry={scaleProfileAvatarStatusGeometry(
+                DEFAULT_HOVER_PROFILE_STATUS_GEOMETRY,
+                20,
+              )}
+              iconClassName="h-3 w-3"
+              key={participant.pubkey}
+              label={participant.label}
+              size={20}
+            />
+          );
+        })}
       </span>
     );
   }
 
   if (isPair || !participants || participants.length <= 1) {
+    if (
+      knownAgentPubkeys.has(normalizePubkey(primaryParticipant.pubkey))
+    ) {
+      return (
+        <AgentIdentitySpecimen
+          accessibleName={primaryParticipant.label}
+          publicKey={primaryParticipant.pubkey}
+          size={20}
+          state={presenceStatus === "offline" ? "unavailable" : "present"}
+        />
+      );
+    }
+
     return (
       <span className="relative flex h-6 w-6 shrink-0 items-center justify-center">
         <ProfileAvatarWithStatus
@@ -242,7 +288,7 @@ function SidebarChannelIcon({
     return <FileText className="h-4 w-4" />;
   }
 
-  return <Hash className="h-4 w-4" />;
+  return <MessagesSquare className="h-4 w-4" />;
 }
 
 export function ChannelMenuButton({
@@ -268,8 +314,17 @@ export function ChannelMenuButton({
   presenceStatus?: PresenceStatus;
   onSelectChannel: (channelId: string) => void;
 }) {
+  const knownAgentPubkeys = useKnownAgentPubkeys();
   const resolvedLabel = label ?? channel.name;
   const ephemeralDisplay = getEphemeralChannelDisplay(channel);
+  const primaryDmParticipant = dmParticipants?.[0] ?? null;
+  const agentFingerprint =
+    channel.channelType === "dm" &&
+    channel.participantPubkeys.length === 2 &&
+    primaryDmParticipant &&
+    knownAgentPubkeys.has(normalizePubkey(primaryDmParticipant.pubkey))
+      ? shortAgentFingerprint(primaryDmParticipant.pubkey)
+      : null;
 
   return (
     <SidebarMenuButton
@@ -297,6 +352,14 @@ export function ChannelMenuButton({
       <span className="min-w-0 flex-1 truncate" data-sidebar-row-label>
         {resolvedLabel}
       </span>
+      {agentFingerprint ? (
+        <span
+          className="hidden shrink-0 font-mono text-[8px] tracking-[0.08em] text-sidebar-foreground/35 group-data-[collapsible=icon]:hidden xl:inline"
+          data-sidebar-row-meta
+        >
+          {agentFingerprint}
+        </span>
+      ) : null}
       {ephemeralDisplay ? (
         <EphemeralChannelBadge
           display={ephemeralDisplay}

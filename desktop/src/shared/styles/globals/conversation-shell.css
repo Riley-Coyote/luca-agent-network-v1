@@ -1,0 +1,250 @@
+/* Luca conversation-first shell. Kept last so this production-intent layer
+   can refine legacy Buzz surfaces without forking their data components. */
+:root[data-buzz-sidebar] {
+  --font-ui: "Instrument Sans", "Inter Variable", "Avenir Next", "Segoe UI", sans-serif;
+  --font-mono: "Fragment Mono", "SFMono-Regular", "SF Mono", monospace;
+  --font-instrument: "Doto", "Fragment Mono", "SFMono-Regular", monospace;
+  --mn-canvas: 220 7% 3.5%;
+  --mn-sidebar: 220 7% 4.5%;
+  --mn-surface: 220 6% 6.5%;
+  --mn-raised: 220 6% 8.5%;
+  --mn-hover: 220 5% 11%;
+  --mn-glass: 220 8% 2.4%;
+  --mn-border: 210 5% 17%;
+  --mn-border-strong: 210 5% 23%;
+  --mn-ink: 210 8% 91%;
+  --mn-ink-muted: 210 5% 62%;
+  --mn-ink-faint: 210 4% 40%;
+  --mn-focus: 213 94% 68%;
+
+  --background: var(--mn-surface);
+  --foreground: var(--mn-ink);
+  --card: var(--mn-raised);
+  --card-foreground: var(--mn-ink);
+  --popover: var(--mn-raised);
+  --popover-foreground: var(--mn-ink);
+  --secondary: var(--mn-hover);
+  --secondary-foreground: var(--mn-ink);
+  --muted: var(--mn-hover);
+  --muted-foreground: var(--mn-ink-muted);
+  --accent: var(--mn-hover);
+  --accent-foreground: var(--mn-ink);
+  --border: var(--mn-border);
+  --input: var(--mn-border-strong);
+  --ring: var(--mn-focus);
+  --primary: 210 7% 87%;
+  --primary-foreground: 220 10% 8%;
+
+  --sidebar: var(--mn-sidebar);
+  --sidebar-foreground: var(--mn-ink);
+  --sidebar-primary: 210 7% 87%;
+  --sidebar-primary-foreground: 220 10% 8%;
+  --sidebar-accent: var(--mn-hover);
+  --sidebar-accent-foreground: var(--mn-ink);
+  --sidebar-border: var(--mn-border);
+  --sidebar-ring: var(--mn-focus);
+  --sidebar-active: 210 7% 82%;
+  --sidebar-active-foreground: 220 10% 8%;
+  --buzz-active-surface: hsl(210 7% 82%);
+  --buzz-active-foreground: hsl(220 10% 8%);
+  color-scheme: dark;
+}
+
+:root[data-buzz-sidebar] .luca-theme-shell-layer {
+  background: hsl(var(--mn-canvas));
+  background-image: none;
+}
+
+:root[data-buzz-sidebar] [data-app-top-chrome] {
+  background: hsl(var(--mn-canvas));
+  border-color: hsl(var(--mn-border));
+  min-height: 40px;
+}
+
+:root[data-buzz-sidebar] [data-sidebar="sidebar"] {
+  background: hsl(var(--mn-sidebar));
+  border-color: hsl(var(--mn-border));
+}
+
+:root[data-buzz-sidebar] [data-luca-conversation-surface] {
+  background: hsl(var(--mn-surface));
+  border: 1px solid hsl(var(--mn-border));
+  border-radius: 12px;
+  box-shadow: none;
+  margin: 1px 8px 8px 1px;
+}
+
+:root[data-buzz-sidebar] [data-sidebar="group"] {
+  padding-block: 4px;
+}
+
+:root[data-buzz-sidebar] [data-sidebar="group-label"] {
+  color: hsl(var(--mn-ink-faint));
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  line-height: 24px;
+  text-transform: uppercase;
+}
+
+:root[data-buzz-sidebar] [data-sidebar="menu"] {
+  gap: 1px;
+}
+
+:root[data-buzz-sidebar] [data-sidebar="menu-button"] {
+  border: 1px solid transparent;
+  color: hsl(var(--mn-ink-muted));
+  min-height: 30px;
+}
+
+:root[data-buzz-sidebar]
+  [data-sidebar="menu-button"]:not([data-active="true"]):hover {
+  background: hsl(var(--mn-hover));
+  color: hsl(var(--mn-ink));
+}
+
+:root[data-buzz-sidebar] [data-sidebar="menu-button"][data-active="true"] {
+  background: hsl(var(--sidebar-active));
+  border-color: hsl(210 5% 88% / 0.1);
+  color: hsl(var(--sidebar-active-foreground));
+  font-weight: 520;
+}
+
+:root[data-buzz-sidebar]
+  [data-sidebar="menu-button"][data-active="true"]
+  :is(svg, [data-sidebar-row-meta]) {
+  color: hsl(var(--sidebar-active-foreground) / 0.72);
+}
+
+:root[data-buzz-sidebar] [data-testid="sidebar-search-trigger"] {
+  background: hsl(var(--mn-raised));
+  border: 1px solid hsl(var(--mn-border));
+  border-radius: 6px;
+  box-shadow: none;
+  min-height: 32px;
+}
+
+:root[data-buzz-sidebar] [data-testid="sidebar-profile-card"] {
+  border-radius: 7px;
+}
+
+:root[data-buzz-sidebar] [data-testid="chat-header"] {
+  background: hsl(var(--mn-surface));
+  border-color: hsl(var(--mn-border));
+  min-height: 52px;
+  padding: 7px 22px;
+}
+
+:root[data-buzz-sidebar] [data-testid="chat-title"] {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+}
+
+:root[data-buzz-sidebar] [data-luca-header-meta],
+:root[data-buzz-sidebar] [data-luca-agent-state] {
+  color: hsl(var(--mn-ink-faint));
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+:root[data-buzz-sidebar] [data-luca-agent-state] {
+  font-family: var(--font-instrument, var(--font-mono));
+}
+
+:root[data-buzz-sidebar] [data-luca-agent-strip] {
+  align-items: center;
+  background: hsl(var(--mn-glass));
+  border-bottom: 1px solid hsl(var(--mn-border));
+  display: flex;
+  gap: 18px;
+  min-height: 46px;
+  padding: 0 22px;
+}
+
+:root[data-buzz-sidebar] [data-luca-reading-plane] {
+  margin-inline: auto;
+  max-width: 48rem;
+  width: 100%;
+}
+
+:root[data-buzz-sidebar] [data-testid="message-row"] {
+  border-radius: 6px;
+}
+
+:root[data-buzz-sidebar] [data-testid="message-row"]:hover {
+  background: hsl(var(--mn-raised) / 0.55);
+}
+
+:root[data-buzz-sidebar] [data-message-content] {
+  color: hsl(var(--mn-ink) / 0.88);
+  font-size: 15px;
+  line-height: 1.68;
+}
+
+:root[data-buzz-sidebar] [data-testid="message-thread-summary"] {
+  color: hsl(var(--mn-ink-faint));
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+:root[data-buzz-sidebar] [data-testid="message-composer"] {
+  background: hsl(var(--mn-raised));
+  border-color: hsl(var(--mn-border-strong));
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+:root[data-buzz-sidebar] [data-testid="channel-composer-activity-row"] {
+  background: transparent;
+}
+
+:root[data-buzz-sidebar] [data-luca-inspector] {
+  background: hsl(var(--mn-glass));
+  border-color: hsl(var(--mn-border));
+}
+
+:root[data-buzz-sidebar] * {
+  scrollbar-color: hsl(var(--mn-border-strong)) transparent;
+}
+
+:root[data-buzz-sidebar] *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:root[data-buzz-sidebar] *::-webkit-scrollbar-thumb {
+  background: hsl(var(--mn-border-strong));
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+
+@media (max-width: 1024px) {
+  :root[data-buzz-sidebar] [data-luca-reading-plane] {
+    max-width: calc(100% - 40px);
+  }
+}
+
+@media (max-width: 640px) {
+  :root[data-buzz-sidebar] [data-luca-conversation-surface] {
+    border-radius: 0;
+    border-width: 0;
+    margin: 0;
+  }
+
+  :root[data-buzz-sidebar] [data-testid="chat-header"] {
+    padding-inline: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-buzz-sidebar] [data-sidebar="menu-button"],
+  :root[data-buzz-sidebar] [data-testid="chat-header"] {
+    transition: none !important;
+  }
+}

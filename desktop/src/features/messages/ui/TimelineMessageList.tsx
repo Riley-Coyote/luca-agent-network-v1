@@ -79,6 +79,9 @@ type TimelineMessageListProps = {
   onMarkUnread?: (message: TimelineMessage) => void;
   onMarkRead?: (message: TimelineMessage) => void;
   onReply?: (message: TimelineMessage) => void;
+  onToggleThread?: (message: TimelineMessage) => void;
+  onExpandThreadReplies?: (message: TimelineMessage) => void;
+  expandedThreadHeadId?: string | null;
   isSendingVideoReviewComment?: boolean;
   onSendVideoReviewComment?: (
     message: TimelineMessage,
@@ -144,6 +147,9 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
   onMarkUnread,
   onMarkRead,
   onReply,
+  onToggleThread,
+  onExpandThreadReplies,
+  expandedThreadHeadId = null,
   isSendingVideoReviewComment = false,
   onSendVideoReviewComment,
   onToggleReaction,
@@ -277,6 +283,9 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
               onMarkRead={onMarkRead}
               onMarkUnread={onMarkUnread}
               onReply={onReply}
+              onToggleThread={onToggleThread}
+              onExpandThreadReplies={onExpandThreadReplies}
+              expandedThreadHeadId={expandedThreadHeadId}
               onToggleReaction={onToggleReaction}
               profiles={profiles}
               searchActiveMessageId={searchActiveMessageId}
@@ -308,6 +317,9 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
       onMarkRead,
       onMarkUnread,
       onReply,
+      onToggleThread,
+      onExpandThreadReplies,
+      expandedThreadHeadId,
       onToggleReaction,
       profiles,
       ownerProfiles,
@@ -771,7 +783,11 @@ function TimelineRowShell({
 }) {
   return (
     <div
-      className={cn(useContentVisibility && "timeline-row-cv")}
+      className={cn(
+        "mx-auto w-full max-w-[48rem] px-0",
+        useContentVisibility && "timeline-row-cv",
+      )}
+      data-luca-reading-plane
       data-timeline-item-key={getTimelineItemKey(item)}
       style={useContentVisibility ? timelineRowReserveStyle(item) : undefined}
     >
@@ -834,6 +850,9 @@ type MessageRowItemProps = Pick<
   | "onMarkUnread"
   | "onMarkRead"
   | "onReply"
+  | "onToggleThread"
+  | "onExpandThreadReplies"
+  | "expandedThreadHeadId"
   | "onToggleReaction"
   | "profiles"
   | "searchActiveMessageId"
@@ -872,6 +891,9 @@ function MessageRowItem({
   onMarkUnread,
   onMarkRead,
   onReply,
+  onToggleThread,
+  onExpandThreadReplies,
+  expandedThreadHeadId,
   onToggleReaction,
   profiles,
   searchActiveMessageId,
@@ -890,12 +912,12 @@ function MessageRowItem({
   const canDelete = canManage && onDelete ? onDelete : undefined;
   const canEdit = canManage && onEdit ? onEdit : undefined;
 
-  if (summary && onReply) {
+  if (summary && onToggleThread) {
     const isHighlighted = message.id === highlightedMessageId;
     return (
       <div
         className={cn(
-          "group/message relative mx-1 mb-1 flex flex-col gap-0 rounded-2xl px-0 py-1 transition-colors hover:bg-muted/50 focus-within:bg-muted/50",
+          "group/message relative mx-1 mb-1 flex flex-col gap-0 rounded-[10px] px-0 py-1 transition-colors hover:bg-muted/45 focus-within:bg-muted/45",
           isHighlighted &&
             "-mx-4 px-4 before:absolute before:-inset-y-1.5 before:inset-x-0 before:animate-[route-target-highlight-fade_2s_ease-out_forwards] before:bg-primary/10 before:content-[''] motion-reduce:before:animate-none sm:-mx-6 sm:px-6",
         )}
@@ -937,7 +959,12 @@ function MessageRowItem({
         <MessageThreadSummaryRow
           depth={message.depth}
           message={message}
-          onOpenThread={onReply}
+          expanded={message.id === expandedThreadHeadId}
+          onOpenThread={
+            message.parentId && onExpandThreadReplies
+              ? onExpandThreadReplies
+              : onToggleThread
+          }
           showDepthGuides={false}
           summary={summary}
           summaryIndentOffsetRem={-THREAD_REPLY_ROW_MARGIN_INLINE_REM}

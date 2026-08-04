@@ -12,8 +12,10 @@
 @import "./globals/utilities.css";
 @import "./globals/media-controls.css";
 @import "./globals/avatar-framing.css";
+@import "./globals/agent-identity.css";
 @import "./globals/image-lightbox.css";
 @import "./globals/video-review.css";
 @import "./globals/progress.css";
+@import "./globals/conversation-shell.css";
 
 @config "../../../tailwind.config.js";

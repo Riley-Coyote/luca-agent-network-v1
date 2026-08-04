@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildDescendantStatsByMessageId,
+  buildInlineConversationEntries,
   buildMainTimelineEntries,
   buildThreadPanelData,
   buildThreadPanelDataFromIndex,
@@ -65,6 +66,33 @@ test("buildMainTimelineEntries includes broadcast replies", () => {
     ),
     ["root", "broadcast-reply"],
   );
+});
+
+test("buildInlineConversationEntries places a flattened reply branch beneath its root", () => {
+  const root = message({ id: "root", createdAt: 1 });
+  const laterRoot = message({ id: "later", createdAt: 4 });
+  const reply = message({
+    id: "reply",
+    createdAt: 2,
+    parentId: "root",
+    rootId: "root",
+    depth: 3,
+  });
+
+  const entries = buildInlineConversationEntries(
+    [
+      { message: root, summary: null },
+      { message: laterRoot, summary: null },
+    ],
+    "root",
+    [{ message: reply, summary: null }],
+  );
+
+  assert.deepEqual(
+    entries.map((entry) => entry.message.id),
+    ["root", "reply", "later"],
+  );
+  assert.equal(entries[1].message.depth, 1);
 });
 
 test("buildMainTimelineEntries keeps huddle thread replies out of the parent timeline summary", () => {

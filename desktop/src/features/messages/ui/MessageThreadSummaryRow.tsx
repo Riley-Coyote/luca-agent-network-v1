@@ -60,6 +60,7 @@ export function MessageThreadSummaryRow({
   depthGuideDepths,
   highlightThreadLineDepths,
   message,
+  expanded = false,
   onCollapseDepthGuide,
   onCollapseDepthGuideHoverChange,
   onOpenThread,
@@ -73,6 +74,7 @@ export function MessageThreadSummaryRow({
   depthGuideDepths?: ReadonlyArray<number>;
   highlightThreadLineDepths?: ReadonlyArray<number>;
   message: TimelineMessage;
+  expanded?: boolean;
   onCollapseDepthGuide?: (message: TimelineMessage) => void;
   onCollapseDepthGuideHoverChange?: (
     message: TimelineMessage,
@@ -95,9 +97,11 @@ export function MessageThreadSummaryRow({
     THREAD_SUMMARY_SURFACE_AVATAR_INSET_REM,
   )})`;
   const replyLabel = summary.replyCount === 1 ? "reply" : "replies";
-  const summaryAriaLabel = summary.lastReplyAt
-    ? `View thread with ${summary.replyCount} ${replyLabel}, last reply ${formatThreadSummaryLastReplyTime(summary.lastReplyAt)}`
-    : `View thread with ${summary.replyCount} ${replyLabel}`;
+  const summaryAriaLabel = expanded
+    ? `Collapse ${summary.replyCount} inline ${replyLabel}`
+    : summary.lastReplyAt
+      ? `Expand ${summary.replyCount} inline ${replyLabel}, last reply ${formatThreadSummaryLastReplyTime(summary.lastReplyAt)}`
+      : `Expand ${summary.replyCount} inline ${replyLabel}`;
   const guideDepths = depthGuideDepths
     ? [...depthGuideDepths]
     : Array.from({ length: Math.max(0, depth - 1) }, (_, index) => index + 1);
@@ -267,7 +271,7 @@ export function MessageThreadSummaryRow({
                     className="col-start-1 row-start-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
                     data-testid="message-thread-summary-hover-action"
                   >
-                    View thread
+                    {expanded ? "Collapse replies" : "Expand replies"}
                   </span>
                 </span>
               </>

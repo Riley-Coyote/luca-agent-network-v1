@@ -1,0 +1,119 @@
+.agent-identity-specimen {
+  --agent-specimen-size: 32px;
+  align-items: center;
+  background: hsl(var(--mn-glass, var(--mn-canvas)));
+  border: 1px solid hsl(var(--mn-border-strong));
+  border-radius: 5px;
+  color: hsl(var(--mn-ink));
+  display: inline-flex;
+  height: var(--agent-specimen-size);
+  justify-content: center;
+  position: relative;
+  width: var(--agent-specimen-size);
+}
+
+.agent-identity-specimen[data-custody="guest"] {
+  border-style: dashed;
+}
+
+.agent-identity-specimen[data-custody="owner"] {
+  box-shadow: inset 0 0 0 1px hsl(var(--mn-ink) / 0.08);
+}
+
+.agent-identity-specimen__matrix {
+  height: 72%;
+  overflow: visible;
+  width: 72%;
+}
+
+.agent-identity-specimen__cell {
+  fill: currentColor;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.agent-identity-specimen__lamp {
+  background: currentColor;
+  border: 2px solid hsl(var(--mn-glass, var(--mn-canvas)));
+  border-radius: 999px;
+  bottom: -3px;
+  height: 7px;
+  opacity: 0;
+  position: absolute;
+  right: -3px;
+  width: 7px;
+}
+
+.agent-identity-specimen[data-agent-state="idle"] {
+  color: hsl(var(--mn-ink-muted));
+}
+
+.agent-identity-specimen[data-agent-state="unavailable"] {
+  background: transparent;
+  color: hsl(var(--mn-ink-faint));
+}
+
+.agent-identity-specimen[data-agent-state="unavailable"]
+  .agent-identity-specimen__cell {
+  fill: transparent;
+  stroke: currentColor;
+  stroke-width: 0.14;
+}
+
+.agent-identity-specimen[data-agent-state="thinking"]
+  .agent-identity-specimen__cell,
+.agent-identity-specimen[data-agent-state="working"]
+  .agent-identity-specimen__cell,
+.agent-identity-specimen[data-agent-state="responding"]
+  .agent-identity-specimen__cell {
+  animation: agent-specimen-compute 1.9s steps(4, end) infinite;
+  animation-delay: calc(var(--agent-cell-index, 0) * -45ms);
+}
+
+.agent-identity-specimen[data-agent-state="thinking"]
+  .agent-identity-specimen__lamp,
+.agent-identity-specimen[data-agent-state="working"]
+  .agent-identity-specimen__lamp,
+.agent-identity-specimen[data-agent-state="responding"]
+  .agent-identity-specimen__lamp {
+  animation: agent-specimen-lamp 2.4s steps(3, end) infinite;
+  opacity: 0.72;
+}
+
+.agent-identity-specimen[data-agent-state="fault"] {
+  color: hsl(var(--destructive));
+}
+
+.agent-identity-specimen[data-agent-state="fault"]
+  .agent-identity-specimen__lamp {
+  background: hsl(var(--destructive));
+  opacity: 1;
+}
+
+@keyframes agent-specimen-compute {
+  0%,
+  100% {
+    opacity: 0.42;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes agent-specimen-lamp {
+  0%,
+  74% {
+    opacity: 0.32;
+  }
+  75%,
+  100% {
+    opacity: 0.9;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-identity-specimen__cell,
+  .agent-identity-specimen__lamp {
+    animation: none !important;
+  }
+}

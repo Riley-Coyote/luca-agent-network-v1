@@ -34,7 +34,7 @@ export function MessageTimestamp({
         <TooltipTrigger asChild>
           <p
             className={cn(
-              "shrink-0 cursor-default whitespace-nowrap text-xs font-normal leading-4 tabular-nums text-muted-foreground/55",
+              "shrink-0 cursor-default whitespace-nowrap font-mono text-[0.59375rem] font-normal leading-4 tracking-[0.06em] tabular-nums text-muted-foreground/65",
               className,
             )}
           >

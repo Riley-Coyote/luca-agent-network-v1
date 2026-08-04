@@ -465,6 +465,35 @@ export function buildMainTimelineEntries(
 }
 
 /**
+ * Places the selected thread branch directly beneath its root in the main
+ * conversation. Thread/event semantics stay unchanged; only the presentation
+ * is flattened to a single readable indentation level.
+ */
+export function buildInlineConversationEntries(
+  mainEntries: readonly MainTimelineEntry[],
+  openThreadHeadId: string | null,
+  threadReplies: readonly MainTimelineEntry[],
+): MainTimelineEntry[] {
+  if (!openThreadHeadId || threadReplies.length === 0) {
+    return [...mainEntries];
+  }
+
+  const entries: MainTimelineEntry[] = [];
+  for (const entry of mainEntries) {
+    entries.push(entry);
+    if (entry.message.id !== openThreadHeadId) continue;
+
+    for (const reply of threadReplies) {
+      entries.push({
+        ...reply,
+        message: normalizeInlineReplyMessage(reply.message, 1),
+      });
+    }
+  }
+  return entries;
+}
+
+/**
  * Whether the unread "New" divider should render above the entry at `index`.
  * The divider marks a read/unread boundary, so it only makes sense when there
  * is a rendered message above the first unread. When the first unread is the
@@ -525,7 +554,9 @@ export function buildThreadPanelDataFromIndex(
     totalReplyCount:
       descendantStatsByMessageId.get(openThreadHeadId)?.descendantCount ?? 0,
     visibleReplies,
-    replyTargetMessage: replyTargetInBranch ?? normalizedThreadHead,
+    replyTargetMessage: threadReplyTargetId
+      ? (replyTargetInBranch ?? normalizedThreadHead)
+      : null,
   };
 }
 

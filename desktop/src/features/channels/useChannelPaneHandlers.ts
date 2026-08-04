@@ -104,7 +104,7 @@ export function useChannelPaneHandlers({
   }, []);
 
   const handleCancelThreadReply = React.useCallback(() => {
-    setThreadReplyTargetId(openThreadHeadIdRef.current);
+    setThreadReplyTargetId(null);
   }, [setThreadReplyTargetId]);
 
   const handleCloseThread = React.useCallback(() => {
@@ -182,7 +182,7 @@ export function useChannelPaneHandlers({
       deferPanelState(() => {
         onOptimisticOpenThreadHeadIdChange(message.id);
         setOpenThreadHeadId(message.id);
-        setThreadReplyTargetId(message.id);
+        setThreadReplyTargetId(null);
         setThreadScrollTargetId(null);
         setExpandedThreadReplyIds(new Set());
       });
@@ -200,15 +200,27 @@ export function useChannelPaneHandlers({
   );
 
   const handleSelectThreadReplyTarget = React.useCallback(
-    (message: { id: string }) => {
+    (message: { id: string; parentId?: string | null; rootId?: string | null }) => {
+      const threadHeadId = message.rootId ?? message.parentId ?? message.id;
+      if (openThreadHeadIdRef.current !== threadHeadId) {
+        onOptimisticOpenThreadHeadIdChange(threadHeadId);
+        setOpenThreadHeadId(threadHeadId);
+        setExpandedThreadReplyIds(new Set());
+      }
       if (threadReplyTargetIdRef.current === message.id) {
-        setThreadReplyTargetId(openThreadHeadIdRef.current);
+        setThreadReplyTargetId(null);
       } else {
         setThreadReplyTargetId(message.id);
       }
       setEditTargetId(null);
     },
-    [setEditTargetId, setThreadReplyTargetId],
+    [
+      onOptimisticOpenThreadHeadIdChange,
+      setEditTargetId,
+      setExpandedThreadReplyIds,
+      setOpenThreadHeadId,
+      setThreadReplyTargetId,
+    ],
   );
 
   const handleExpandThreadReplies = React.useCallback(
@@ -312,7 +324,7 @@ export function useChannelPaneHandlers({
       // thread. If they navigated away during the async send, don't disrupt
       // the thread they are currently viewing.
       if (openThreadHeadIdRef.current === activeThreadHeadId) {
-        setThreadReplyTargetId(activeThreadHeadId);
+        setThreadReplyTargetId(null);
         if (activeThreadHeadId && parentEventId !== activeThreadHeadId) {
           setThreadScrollTargetId(sentMessage.id);
         }

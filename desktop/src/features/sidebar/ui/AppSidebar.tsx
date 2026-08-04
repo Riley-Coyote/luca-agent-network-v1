@@ -579,7 +579,7 @@ export function AppSidebar({
             ref={scrollRef}
           >
             <div
-              className="flex w-full flex-col gap-2 px-[3px]"
+              className="flex w-full flex-col gap-1 px-[3px]"
               data-testid="sidebar-scroll-content"
             >
               <AppSidebarPrimaryMenu
