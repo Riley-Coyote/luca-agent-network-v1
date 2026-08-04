@@ -1,0 +1,11 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.95s
+     Running unittests src/lib.rs (desktop/src-tauri/target/debug/deps/buzz_lib-a24758eb5268ef1f)
+
+running 4 tests
+test luca::resident_registry::tests::resident_creation_reuses_one_persona_link_and_rejects_ambiguous_links ... ok
+test luca::resident_registry::tests::resident_creation_reuses_native_runtime_identity_and_rejects_duplicates ... ok
+test luca::resident_registry::tests::registry_rejects_duplicate_or_noncanonical_resident_identities ... ok
+test luca::resident_registry::tests::registry_projects_three_public_residents_without_protected_fields ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 1637 filtered out; finished in 0.00s
+

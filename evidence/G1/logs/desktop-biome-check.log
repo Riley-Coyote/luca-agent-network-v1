@@ -1,0 +1,335 @@
+src/features/channels/ui/ChannelPane.tsx:750:7 lint/complexity/noUselessFragments  FIXABLE  ━━━━━━━━━━
+
+  i This fragment is unnecessary.
+  
+    748 │       ) : null}
+    749 │ 
+  > 750 │       <>
+        │       ^^
+  > 751 │         {channelManagementOpen && activeChannel ? (
+         ...
+  > 832 │         ) : null}
+  > 833 │       </>
+        │       ^^^
+    834 │     </div>
+    835 │   );
+  
+  i A fragment is redundant if it contains only one child, or if it is the child of a html element, and is not a keyed fragment.
+  
+  i Unsafe fix: Remove the Fragment
+  
+    748 748 │         ) : null}
+    749 749 │   
+    750     │ - ······<>
+    751     │ - ········{channelManagementOpen·&&·activeChannel·?·(
+        750 │ + ······{channelManagementOpen·&&·activeChannel·?·(
+    752 751 │             <ChannelManagementAuxiliaryPanel
+    753 752 │               activeChannel={activeChannel}
+    ······· │ 
+    831 830 │             })()
+    832 831 │           ) : null}
+    833     │ - ······</>
+    834 832 │       </div>
+    835 833 │     );
+  
+
+src/shared/styles/globals/agent-identity.css:117:21 lint/complexity/noImportantStyles  FIXABLE  ━━━━━━━━━━
+
+  ! Avoid the use of the !important style.
+  
+    115 │   .agent-identity-specimen__cell,
+    116 │   .agent-identity-specimen__lamp {
+  > 117 │     animation: none !important;
+        │                     ^^^^^^^^^^
+    118 │   }
+    119 │ }
+  
+  i This style reverses the cascade logic, and precedence is reversed. This could lead to having styles with higher specificity being overridden by styles with lower specificity.
+  
+  i Unsafe fix: Remove the style.
+  
+    117 │ ····animation:·none·!important;
+        │                    ----------- 
+
+src/shared/styles/globals/conversation-shell.css:248:22 lint/complexity/noImportantStyles  FIXABLE  ━━━━━━━━━━
+
+  ! Avoid the use of the !important style.
+  
+    246 │   :root[data-buzz-sidebar] [data-sidebar="menu-button"],
+    247 │   :root[data-buzz-sidebar] [data-testid="chat-header"] {
+  > 248 │     transition: none !important;
+        │                      ^^^^^^^^^^
+    249 │   }
+    250 │ }
+  
+  i This style reverses the cascade logic, and precedence is reversed. This could lead to having styles with higher specificity being overridden by styles with lower specificity.
+  
+  i Unsafe fix: Remove the style.
+  
+    248 │ ····transition:·none·!important;
+        │                     ----------- 
+
+src/features/channels/ui/ChannelScreenHeader.tsx format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    131 131 │                 {shortAgentFingerprint(primaryDmParticipant.pubkey)}
+    132 132 │                 <span className="ml-3" data-luca-agent-state>
+    133     │ - ················{activeDmPresenceStatus·===·"offline"·?·"unavailable"·:·"present"}
+        133 │ + ················{activeDmPresenceStatus·===·"offline"
+        134 │ + ··················?·"unavailable"
+        135 │ + ··················:·"present"}
+    134 136 │                 </span>
+    135 137 │               </>
+    ······· │ 
+    151 153 │                 size={26}
+    152 154 │                 state={
+    153     │ - ················activeDmPresenceStatus·===·"offline"
+    154     │ - ··················?·"unavailable"
+    155     │ - ··················:·"present"
+        155 │ + ················activeDmPresenceStatus·===·"offline"·?·"unavailable"·:·"present"
+    156 156 │                 }
+    157 157 │               />
+  
+
+src/features/channels/useChannelPaneHandlers.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    201 201 │   
+    202 202 │     const handleSelectThreadReplyTarget = React.useCallback(
+    203     │ - ····(message:·{·id:·string;·parentId?:·string·|·null;·rootId?:·string·|·null·})·=>·{
+        203 │ + ····(message:·{
+        204 │ + ······id:·string;
+        205 │ + ······parentId?:·string·|·null;
+        206 │ + ······rootId?:·string·|·null;
+        207 │ + ····})·=>·{
+    204 208 │         const threadHeadId = message.rootId ?? message.parentId ?? message.id;
+    205 209 │         if (openThreadHeadIdRef.current !== threadHeadId) {
+  
+
+src/features/messages/ui/MessageRow.tsx format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    204 204 │           ? "bot"
+    205 205 │           : message.role;
+    206     │ - ····const·isAgentAuthor·=·profilePopoverRole·===·"bot"·&&·Boolean(message.pubkey);
+        206 │ + ····const·isAgentAuthor·=
+        207 │ + ······profilePopoverRole·===·"bot"·&&·Boolean(message.pubkey);
+    207 208 │       const agentMentionPubkeysByName = React.useMemo(() => {
+    208 209 │         if (!mentionPubkeysByName) {
+    ······· │ 
+    383 384 │       const isThreadReplyLayout = layoutVariant === "thread-reply";
+    384 385 │       const guideBleedRem = isThreadReplyLayout ? 0.25 : 0;
+    385     │ - ····const·avatarButtonRadiusClass·=·isAgentAuthor·?·"rounded-lg"·:·"rounded-full";
+        386 │ + ····const·avatarButtonRadiusClass·=·isAgentAuthor
+        387 │ + ······?·"rounded-lg"
+        388 │ + ······:·"rounded-full";
+    386 389 │   
+    387 390 │       const respondToDotColor =
+  
+
+src/features/onboarding/ui/BackupStep.tsx format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    118 118 │                     />
+    119 119 │                     {confirmation && passphrase !== confirmation ? (
+    120     │ - ····················<p·className="text-xs·text-destructive">Passphrases·do·not·match.</p>
+        120 │ + ····················<p·className="text-xs·text-destructive">
+        121 │ + ······················Passphrases·do·not·match.
+        122 │ + ····················</p>
+    121 123 │                     ) : null}
+    122 124 │                     {passphrase && !isValidOwnerBackupPassphrase(passphrase) ? (
+  
+
+src/features/onboarding/ui/KeyringLockedScreen.tsx format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+     22  22 │     const [showRecovery, setShowRecovery] = React.useState(false);
+     23  23 │     const [passphrase, setPassphrase] = React.useState("");
+     24     │ - ··const·[preview,·setPreview]·=·React.useState<OwnerRecoveryPreview·|·null>(null);
+         24 │ + ··const·[preview,·setPreview]·=·React.useState<OwnerRecoveryPreview·|·null>(
+         25 │ + ····null,
+         26 │ + ··);
+     25  27 │     const [confirmed, setConfirmed] = React.useState(false);
+     26  28 │     const [isPreviewing, setIsPreviewing] = React.useState(false);
+    ······· │ 
+    100 102 │                 <FileKey2 className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+    101 103 │                 <div>
+    102     │ - ················<h2·className="text-sm·font-medium">Recover·from·protected·backup</h2>
+        104 │ + ················<h2·className="text-sm·font-medium">
+        105 │ + ··················Recover·from·protected·backup
+        106 │ + ················</h2>
+    103 107 │                   <p className="mt-1 text-xs leading-5 text-muted-foreground">
+    104 108 │                     Preview validates the file without changing Luca or the system
+    105     │ - ··················keychain.·Recovery·happens·only·after·your·explicit·confirmation.
+        109 │ + ··················keychain.·Recovery·happens·only·after·your·explicit
+        110 │ + ··················confirmation.
+    106 111 │                   </p>
+    107 112 │                 </div>
+    ······· │ 
+    150 155 │                     <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+    151 156 │                       <dt className="text-muted-foreground">Owner</dt>
+    152     │ - ····················<dd·className="truncate·font-mono"·title={preview.ownerPubkey}>
+        157 │ + ····················<dd
+        158 │ + ······················className="truncate·font-mono"
+        159 │ + ······················title={preview.ownerPubkey}
+        160 │ + ····················>
+    153 161 │                         {compactPubkey(preview.ownerPubkey)}
+    154 162 │                       </dd>
+  
+
+src/features/settings/ui/ProfileSettingsCard.tsx format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+     148  148 │           <button
+     149  149 │             aria-expanded={isOpen}
+     150      │ - ··········aria-label={isOpen·?·"Cancel·protected·backup"·:·"Create·protected·backup"}
+          150 │ + ··········aria-label={
+          151 │ + ············isOpen·?·"Cancel·protected·backup"·:·"Create·protected·backup"
+          152 │ + ··········}
+     151  153 │             className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+     152  154 │             data-testid="profile-protected-backup-toggle"
+    ········· │ 
+     164  166 │           <div className="mt-4 space-y-3 rounded-lg border border-border/60 bg-muted/20 p-3">
+     165  167 │             <p className="text-xs leading-5 text-muted-foreground">
+     166      │ - ············Choose·a·unique·passphrase.·Luca·never·displays·or·copies·the·private·key.
+          168 │ + ············Choose·a·unique·passphrase.·Luca·never·displays·or·copies·the
+          169 │ + ············private·key.
+     167  170 │             </p>
+     168  171 │             <Input
+    ········· │ 
+     183  186 │             />
+     184  187 │             {confirmation && passphrase !== confirmation ? (
+     185      │ - ············<p·className="text-xs·text-destructive">Passphrases·do·not·match.</p>
+          188 │ + ············<p·className="text-xs·text-destructive">
+          189 │ + ··············Passphrases·do·not·match.
+          190 │ + ············</p>
+     186  191 │             ) : null}
+     187  192 │             {passphrase && !isValidOwnerBackupPassphrase(passphrase) ? (
+    ········· │ 
+    1019 1024 │                   This will delete your identity key, all agent settings, and
+    1020 1025 │                   cached data from this device, then relaunch Luca into first-run
+    1021      │ - ················setup.·Create·a·protected·owner·backup·before·continuing·—
+    1022      │ - ················this·cannot·be·undone.
+         1026 │ + ················setup.·Create·a·protected·owner·backup·before·continuing·—·this
+         1027 │ + ················cannot·be·undone.
+    1023 1028 │                 </AlertDialogDescription>
+    1024 1029 │               </AlertDialogHeader>
+  
+
+src/features/sidebar/ui/SidebarSection.tsx format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    223 223 │   
+    224 224 │     if (isPair || !participants || participants.length <= 1) {
+    225     │ - ····if·(
+    226     │ - ······knownAgentPubkeys.has(normalizePubkey(primaryParticipant.pubkey))
+    227     │ - ····)·{
+        225 │ + ····if·(knownAgentPubkeys.has(normalizePubkey(primaryParticipant.pubkey)))·{
+    228 226 │         return (
+    229 227 │           <AgentIdentitySpecimen
+  
+
+src/shared/styles/globals/conversation-shell.css format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+      2   2 │      can refine legacy Buzz surfaces without forking their data components. */
+      3   3 │   :root[data-buzz-sidebar] {
+      4     │ - ··--font-ui:·"Instrument·Sans",·"Inter·Variable",·"Avenir·Next",·"Segoe·UI",·sans-serif;
+          4 │ + ··--font-ui:
+          5 │ + ····"Instrument·Sans",·"Inter·Variable",·"Avenir·Next",·"Segoe·UI",·sans-serif;
+      5   6 │     --font-mono: "Fragment Mono", "SFMono-Regular", "SF Mono", monospace;
+      6   7 │     --font-instrument: "Doto", "Fragment Mono", "SFMono-Regular", monospace;
+  
+
+src/shared/styles/globals/theme.css format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    892 892 │   :root[data-buzz-sidebar] body {
+    893 893 │     font-family:
+    894     │ - ····"Instrument·Sans",·"Inter·Variable",·"Avenir·Next",·"Segoe·UI",
+    895     │ - ····sans-serif;
+        894 │ + ····"Instrument·Sans",·"Inter·Variable",·"Avenir·Next",·"Segoe·UI",·sans-serif;
+    896 895 │   }
+    897 896 │   
+    898     │ - :root[data-buzz-sidebar]
+    899     │ - ··:is(time,·code,·kbd,·[data-font="mono"],·.font-mono)·{
+        897 │ + :root[data-buzz-sidebar]·:is(time,·code,·kbd,·[data-font="mono"],·.font-mono)·{
+    900 898 │     font-family: "Fragment Mono", "SFMono-Regular", "SF Mono", monospace;
+    901 899 │   }
+  
+
+src/shared/ui/AgentIdentitySpecimen.test.mjs format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    10 10 │     assert.deepEqual(first, second);
+    11 11 │     assert.equal(first.length, 7);
+    12    │ - ··assert.equal(first.every((row)·=>·row.length·===·7),·true);
+       12 │ + ··assert.equal(
+       13 │ + ····first.every((row)·=>·row.length·===·7),
+       14 │ + ····true,
+       15 │ + ··);
+    13 16 │     assert.equal(
+    14 17 │       first.every((row) => row.every((cell, index) => cell === row[6 - index])),
+  
+
+src/shared/ui/AgentIdentitySpecimen.tsx:97:25 lint/suspicious/noArrayIndexKey ━━━━━━━━━━━━━━━━━━━━━━
+
+  × Avoid using the index of an array as key property in an element.
+  
+    95 │                 className="agent-identity-specimen__cell"
+    96 │                 height="0.74"
+  > 97 │                 key={`${rowIndex}-${columnIndex}`}
+       │                         ^^^^^^^^
+    98 │                 rx="0.08"
+    99 │                 style={
+  
+  i This is the source of the key value.
+  
+    89 │         viewBox="0 0 7 7"
+    90 │       >
+  > 91 │         {matrix.flatMap((row, rowIndex) =>
+       │                               ^^^^^^^^
+    92 │           row.map((active, columnIndex) =>
+    93 │             active ? (
+  
+  i The order of the items may change, and this also affects performances and component state.
+  
+  i Check the React documentation. 
+  
+
+src/shared/ui/AgentIdentitySpecimen.tsx format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+     43  43 │         row * SOURCE_COLUMNS + SOURCE_COLUMNS,
+     44  44 │       );
+     45     │ - ····return·[...half,·...half.slice(0,·GRID_SIZE·-·SOURCE_COLUMNS).reverse()].map(
+     46     │ - ······Boolean,
+     47     │ - ····);
+         45 │ + ····return·[
+         46 │ + ······...half,
+         47 │ + ······...half.slice(0,·GRID_SIZE·-·SOURCE_COLUMNS).reverse(),
+         48 │ + ····].map(Boolean);
+     48  49 │     });
+     49  50 │   }
+  
+
+Checked 1435 files in 861ms. No fixes applied.
+Found 12 errors.
+Found 2 warnings.
+Found 1 info.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

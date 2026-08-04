@@ -1,0 +1,70 @@
+    Checking objc2-exception-helper v0.1.1
+    Checking ring v0.17.14
+   Compiling rustls v0.23.42
+    Checking objc2 v0.6.4
+    Checking secp256k1-sys v0.10.1
+    Checking zstd-sys v2.0.16+zstd.1.5.7
+    Checking libsqlite3-sys v0.35.0
+   Compiling buzz-desktop v0.4.22 (/Users/rileycoyote/Documents/Repositories/luca-agent-network-v1/desktop/src-tauri)
+    Checking rusqlite v0.37.0
+    Checking secp256k1 v0.29.1
+    Checking zstd-safe v7.2.4
+    Checking block2 v0.6.2
+    Checking objc2-core-audio-types v0.3.2
+    Checking nostr v0.44.4
+    Checking rustls-webpki v0.103.13
+    Checking zstd v0.13.3
+    Checking dispatch2 v0.3.1
+    Checking zip v8.6.0
+    Checking objc2-core-foundation v0.3.2
+    Checking ctrlc v3.5.2
+    Checking buzz-core v0.1.0 (/Users/rileycoyote/Documents/Repositories/luca-agent-network-v1/crates/buzz-core)
+    Checking buzz-sdk v0.1.0 (/Users/rileycoyote/Documents/Repositories/luca-agent-network-v1/crates/buzz-sdk)
+    Checking tokio-rustls v0.26.4
+    Checking tungstenite v0.29.0
+    Checking rustls-platform-verifier v0.7.0
+    Checking objc2-foundation v0.3.2
+    Checking objc2-core-graphics v0.3.2
+    Checking luca-protocol v0.1.0 (/Users/rileycoyote/Documents/Repositories/luca-agent-network-v1/crates/luca-protocol)
+   Compiling ureq v2.12.1
+    Checking hyper-rustls v0.27.9
+    Checking tokio-tungstenite v0.29.0
+    Checking axum v0.8.9
+    Checking reqwest v0.13.4
+    Checking luca-diagnostics v0.1.0 (/Users/rileycoyote/Documents/Repositories/luca-agent-network-v1/crates/luca-diagnostics)
+    Checking luca-signing-client v0.1.0 (/Users/rileycoyote/Documents/Repositories/luca-agent-network-v1/crates/luca-signing-client)
+   Compiling sherpa-onnx-sys v1.13.4
+    Checking sherpa-onnx v1.13.4
+    Checking buzz-agent v0.1.0 (/Users/rileycoyote/Documents/Repositories/luca-agent-network-v1/crates/buzz-agent)
+    Checking objc2-app-kit v0.3.2
+    Checking objc2-core-audio v0.3.2
+    Checking mac-notification-sys v0.6.15
+    Checking objc2-audio-toolbox v0.3.2
+    Checking notify-rust v4.18.0
+    Checking coreaudio-rs v0.14.2
+    Checking cpal v0.17.3
+    Checking rodio v0.22.2
+    Checking objc2-web-kit v0.3.2
+    Checking tao v0.35.3
+    Checking window-vibrancy v0.6.0
+    Checking muda v0.19.3
+    Checking objc2-osa-kit v0.3.2
+    Checking rfd v0.16.0
+    Checking global-hotkey v0.8.0
+    Checking arboard v3.6.1
+    Checking osakit v0.3.1
+    Checking wry v0.55.1
+    Checking tauri-runtime v2.11.3
+    Checking tauri-runtime-wry v2.11.4
+    Checking tauri v2.11.5
+    Checking tauri-plugin-deep-link v2.4.9
+    Checking tauri-plugin-fs v2.5.1
+    Checking tauri-plugin-process v2.3.1
+    Checking tauri-plugin-updater v2.10.1
+    Checking tauri-plugin-global-shortcut v2.3.2
+    Checking tauri-plugin-opener v2.5.4
+    Checking tauri-plugin-window-state v2.4.1
+    Checking tauri-plugin-notification v2.3.3
+    Checking tauri-plugin-single-instance v2.4.2
+    Checking tauri-plugin-dialog v2.7.1
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 22.69s

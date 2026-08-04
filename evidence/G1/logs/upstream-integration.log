@@ -1,0 +1,919 @@
+./scripts/run-tests.sh integration
+[0;34m[run-tests][0m Loading .env...
+
+[0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+[0;36m  Integration Tests (requires running services)[0m
+[0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+Services already healthy
+cargo run -p buzz-admin -- migrate
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.85s
+     Running `target/debug/buzz-admin migrate`
+Database migrations complete.
+./scripts/seed-local-community.sh
+INSERT 0 0
+Seeded local dev community host(s):
+  - localhost:3000
+  - localhost
+  - 127.0.0.1
+  - 127.0.0.1:3000
+[0;34m[run-tests][0m Running: buzz-db tests
+   Compiling serde_core v1.0.228
+   Compiling ring v0.17.14
+   Compiling num-traits v0.2.19
+   Compiling futures-sink v0.3.32
+   Compiling concurrent-queue v2.5.0
+   Compiling crossbeam-queue v0.3.12
+   Compiling sha2 v0.10.9
+   Compiling byteorder v1.5.0
+   Compiling digest v0.10.7
+   Compiling futures-util v0.3.32
+   Compiling futures-channel v0.3.32
+   Compiling event-listener v5.4.1
+   Compiling chrono v0.4.45
+   Compiling atoi v2.0.0
+   Compiling serde v1.0.228
+   Compiling serde_json v1.0.150
+   Compiling uuid v1.23.1
+   Compiling smallvec v1.15.1
+   Compiling either v1.16.0
+   Compiling secp256k1 v0.29.1
+   Compiling bitcoin_hashes v0.14.1
+   Compiling icu_normalizer v2.2.0
+   Compiling parking_lot_core v0.9.12
+   Compiling parking_lot v0.12.5
+   Compiling futures-intrusive v0.5.0
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling nostr v0.44.3
+   Compiling buzz-core v0.1.0 (/Users/rileycoyote/Documents/Repositories/luca-agent-network-v1/crates/buzz-core)
+   Compiling rustls v0.23.42
+   Compiling rustls-webpki v0.103.13
+   Compiling sqlx-core v0.9.0
+   Compiling sqlx-postgres v0.9.0
+   Compiling sqlx-macros-core v0.9.0
+   Compiling sqlx-macros v0.9.0
+   Compiling sqlx v0.9.0
+   Compiling buzz-db v0.1.0 (/Users/rileycoyote/Documents/Repositories/luca-agent-network-v1/crates/buzz-db)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.86s
+     Running unittests src/lib.rs (target/debug/deps/buzz_db-c2b940e8ccfcf6db)
+
+running 204 tests
+test api_token::tests::active_lookup_by_hash_is_scoped_to_community ... ignored, requires Postgres
+test api_token::tests::lookup_by_hash_is_scoped_to_community ... ignored, requires Postgres
+test archived_identities::tests::archived_identity_state_is_community_scoped ... ignored, requires Postgres
+test channel::tests::accessible_channel_ids_are_not_truncated_at_one_thousand ... ignored, requires Postgres
+test channel::tests::get_channel_is_scoped_when_channel_uuid_collides_across_communities ... ignored, requires Postgres
+test channel::tests::get_users_bulk_is_scoped_when_pubkey_exists_in_multiple_communities ... ignored, requires Postgres
+test channel::tests::reap_expired_ephemeral_channels_returns_row_community_and_host ... ignored, requires Postgres
+test channel::tests::test_agent_owner_can_remove_bot ... ignored, requires Postgres
+test channel::tests::test_random_user_cannot_remove_bot ... ignored, requires Postgres
+test channel::tests::test_unarchive_expired_ephemeral_channel_renews_ttl_deadline ... ignored, requires Postgres
+test event::tests::access_scope_is_applied_before_historical_page_limit ... ignored, requires Postgres
+test event::tests::claim_due_reminder_is_won_by_exactly_one_of_two_racing_pods ... ignored, requires Postgres
+test event::tests::event_insert_ttl_trigger_handles_permanent_ephemeral_duplicate_and_activation_race ... ignored, requires Postgres
+test dm::tests::participant_hash_differs_for_different_sets ... ok
+test dm::tests::participant_hash_deduplicates ... ok
+test dm::tests::participant_hash_returns_32_bytes ... ok
+test dm::tests::participant_hash_is_order_independent ... ok
+test event::tests::get_event_by_id_is_scoped_when_event_id_collides_across_communities ... ignored, requires Postgres
+test event::tests::huddle_started_content_requires_matching_ephemeral_field ... ok
+test event::tests::extract_not_before_from_reminder ... ok
+test event::tests::extract_d_tag_single_element_d_tag_ignored ... ok
+test event::tests::extract_d_tag_missing_becomes_empty_string ... ok
+test event::tests::extract_not_before_non_numeric_returns_none ... ok
+test event::tests::extract_not_before_non_reminder_returns_none ... ok
+test event::tests::extract_not_before_absent_returns_none ... ok
+test event::tests::permanent_channel_event_commits_do_not_lock_the_channel_row ... ignored, requires Postgres
+test event::tests::extract_d_tag_from_nip33_event ... ok
+test event::tests::query_due_reminders_returns_row_community_and_host_per_tenant ... ignored, requires Postgres
+test event::tests::extract_d_tag_nip29_group_metadata ... ok
+test event::tests::reaction_single_tx_cross_community_target_rejected ... ignored, requires Postgres
+test event::tests::reaction_single_tx_duplicate_short_circuit_stores_no_event ... ignored, requires Postgres
+test event::tests::reaction_single_tx_event_insert_failure_rolls_back_reaction ... ignored, requires Postgres
+test event::tests::reaction_single_tx_reactivates_soft_deleted_reaction ... ignored, requires Postgres
+test event::tests::release_due_reminder_rolls_back_only_the_matching_stamp ... ignored, requires Postgres
+test event::tests::extract_d_tag_preserves_full_value ... ok
+test event::tests::reminder_claim_and_release_are_confined_to_their_community ... ignored, requires Postgres
+test event::tests::extract_d_tag_first_d_wins ... ok
+test event::tests::extract_d_tag_non_nip33_returns_none ... ok
+test event::tests::extract_d_tag_empty_value_preserved ... ok
+test feed::tests::activity_query_excludes_workflow_execution_kinds ... ok
+test feed::tests::channel_id_bytes_encoding_is_correct ... ok
+test feed::tests::activity_query_includes_agent_job_kinds ... ok
+test feed::tests::channel_id_list_with_single_entry ... ok
+test feed::tests::json_tag_format_for_p_tag_mention ... ok
+test feed::tests::json_tag_format_is_compact_not_pretty ... ok
+test feed::tests::json_tag_format_p_tag_is_first_element ... ok
+test feed::tests::json_tag_format_round_trips_through_serde ... ok
+test feed::tests::mentions_query_includes_stream_message_kind ... ok
+test feed::tests::multiple_channel_ids_produce_distinct_byte_sequences ... ok
+test feed::tests::needs_action_kinds_do_not_overlap_with_activity_kinds ... ok
+test feed::tests::empty_channel_list_means_global_only ... ok
+test feed::tests::mentions_query_is_tenant_scoped_and_joins_mentions_by_composite_key ... ok
+test feed::tests::needs_action_query_includes_approval_and_reminder_kinds ... ok
+test feed::tests::channel_id_list_with_multiple_entries_are_distinct ... ok
+test feed::tests::needs_action_query_is_tenant_scoped_and_joins_mentions_by_composite_key ... ok
+test feed::tests::nil_uuid_channel_id_bytes_are_all_zeros ... ok
+test feed::tests::non_empty_channel_list_includes_global_and_accessible_channels ... ok
+test feed::tests::pubkey_hex_encoding_32_byte_key ... ok
+test feed::tests::pubkey_hex_encoding_all_ff ... ok
+test feed::tests::pubkey_hex_encoding_all_zeros ... ok
+test feed::tests::query_activity_is_scoped_and_empty_channels_are_global_only ... ignored, requires Postgres
+test feed::tests::query_mentions_is_scoped_across_communities ... ignored, requires Postgres
+test feed::tests::pubkey_hex_encoding_is_lowercase ... ok
+test feed::tests::query_needs_action_is_scoped_across_communities ... ignored, requires Postgres
+test git_repo::tests::names_are_scoped_per_community ... ignored, requires Postgres
+test git_repo::tests::release_is_owner_scoped_and_frees_the_name ... ignored, requires Postgres
+test git_repo::tests::repo_name_owner_reflects_reservation ... ignored, requires Postgres
+test git_repo::tests::reserve_classifies_fresh_idempotent_and_collision ... ignored, requires Postgres
+test migration::tests::populated_upgrade_preserves_search_policy_except_for_push_leases ... ignored, requires Postgres
+test migration::tests::pre_0007_ambiguous_nip_rs_data_blocks_without_mutation_and_allows_retry ... ignored, requires Postgres
+test migration::tests::run_migrations_applies_consolidated_initial_schema_on_fresh_database ... ignored, requires Postgres
+test moderation::tests::expired_ban_does_not_hide_active_timeout ... ignored, requires Postgres
+test moderation::tests::report_reingest_returns_same_id_and_preserves_resolution ... ignored, requires Postgres
+test moderation::tests::resolve_report_returns_false_after_report_is_closed ... ignored, requires Postgres
+test moderation::tests::restrictions_are_confined_to_their_community ... ignored, requires Postgres
+test migration::tests::migration_lint_detects_tables_missing_community_id_by_default ... ok
+test partition::tests::suffix_validation ... ok
+test partition::tests::date_str_validation ... ok
+test partition::tests::table_allowlist ... ok
+test product_feedback::tests::duplicate_event_keeps_first_community_provenance ... ignored, requires migrated Postgres
+test push::tests::acceptance_constraint_failure_rolls_back_source_event ... ignored, requires Postgres
+test push::tests::batch_claim_is_single_community_and_setwise_ops_honor_the_fence ... ignored, requires Postgres
+test push::tests::concurrent_enqueue_is_atomic_and_community_scoped ... ignored, requires Postgres
+test push::tests::delivered_wake_is_retained_while_rematch_is_queued ... ignored, requires Postgres
+test push::tests::endpoint_invalidation_is_scoped_to_community_and_generation ... ignored, requires Postgres
+test push::tests::exhausted_match_job_is_reaped_and_cannot_pin_retention ... ignored, requires Postgres
+test push::tests::gate_orders_lease_activation_after_in_flight_event_and_backfills_it ... ignored, requires Postgres
+test push::tests::matcher_claim_is_exclusive_across_workers ... ignored, requires Postgres
+test push::tests::matcher_load_error_preserves_claimed_job_for_recovery ... ignored, requires Postgres
+test push::tests::matcher_trigger_is_allowlisted_and_deleted_events_are_discarded ... ignored, requires Postgres
+test push::tests::replacement_and_revoke_are_community_scoped_and_dual_ordered ... ignored, requires Postgres
+test push::tests::send_revalidation_suppresses_rotated_claim_and_retry_preserves_id ... ignored, requires Postgres
+test push::tests::setwise_enqueue_maps_outcomes_per_request ... ignored, requires Postgres
+test push::tests::source_event_collision_is_protocol_outcome_without_event_insert ... ignored, requires Postgres
+test relay_members::tests::invite_claim_persists_policy_version_and_legacy_claim_does_not ... ignored, requires Postgres
+test relay_members::tests::membership_is_confined_to_its_community ... ignored, requires Postgres
+test relay_members::tests::owner_bootstrap_is_confined_to_its_community ... ignored, requires Postgres
+test relay_members::tests::transfer_ownership_already_owner_is_noop ... ignored, requires Postgres
+test relay_members::tests::transfer_ownership_demotes_old_owner_to_member ... ignored, requires Postgres
+test relay_members::tests::transfer_ownership_is_community_scoped ... ignored, requires Postgres
+test relay_members::tests::transfer_ownership_no_owner_returns_no_owner ... ignored, requires Postgres
+test relay_members::tests::transfer_ownership_promotes_existing_member ... ignored, requires Postgres
+test relay_members::tests::transfer_ownership_returns_limit_reached_for_maxed_transferee ... ignored, requires Postgres
+test relay_members::tests::transfer_ownership_returns_owner_conflict_when_expected_mismatches ... ignored, requires Postgres
+test replica_fence::tests::probe_fails_closed_when_replica_lsn_unavailable ... ignored, requires Postgres
+test replica_fence::tests::sample_writer_fails_closed_when_activity_is_masked ... ignored, requires Postgres
+test replica_fence::tests::sample_writer_sees_open_transactions_and_ignores_idle ... ignored, requires Postgres
+test tests::allowlist_is_scoped_to_community ... ignored, requires Postgres
+test tests::armed_pool_rejects_old_channel_inserts_through_public_api ... ignored, requires Postgres
+test tests::channel_cursor_above_fence_stays_on_writer_preventing_middle_hole ... ignored, requires Postgres
+test tests::channel_window_routes_head_to_writer_and_cursor_pages_to_replica ... ignored, requires Postgres
+test tests::communities_of_channels_present_for_existing_absent_for_missing ... ignored, requires Postgres
+test tests::concurrent_same_owner_create_returns_the_winning_row_to_both_callers ... ignored, requires Postgres
+test tests::create_community_with_owner_enforces_per_owner_limit ... ignored, requires Postgres
+test tests::create_community_with_owner_is_atomic_and_create_only ... ignored, requires Postgres
+test tests::created_at_floor_guard_aborts_old_channel_rows_at_commit ... ignored, requires Postgres
+test tests::database_guard_covers_legacy_writer_and_nip09_deletion ... ignored, requires Postgres
+test tests::duplicate_nip_rs_discriminator_tags_keep_legacy_retention ... ignored, requires Postgres
+test tests::ensure_configured_community_reports_insert_winner ... ignored, requires Postgres
+test tests::fence_probe_refuses_to_start_without_verified_floor_guard ... ignored, requires Postgres
+test tests::floor_guard_blocks_updates_that_move_rows_below_the_fence ... ignored, requires Postgres
+test tests::list_communities_owned_by_returns_only_owner_rows ... ignored, requires Postgres
+test tests::lookup_community_by_host_matches_case_insensitive_host_index ... ignored, requires Postgres
+test tests::mesh_status_replacement_keeps_one_physical_row ... ignored, requires Postgres
+test tests::nip_rs_hard_delete_fence_fails_closed_and_scopes_opt_in_to_transaction ... ignored, requires Postgres
+test tests::nip_rs_replacement_hard_deletes_payload_and_watermark_rejects_replay ... ignored, requires Postgres
+test tests::reactions_are_scoped_to_community ... ignored, requires Postgres
+test replica_fence::tests::fence_starts_closed_and_opens_on_advance ... ok
+test replica_fence::tests::stale_fence_reads_as_closed ... ok
+test migration::tests::migration_lint_accepts_scoped_key_constraints_led_by_community_id ... ok
+test tests::test_usage_metrics_lock_has_single_owner_and_releases_on_drop ... ignored, requires Postgres
+test tests::thread_full_replica_page_above_fence_is_reverified_on_writer ... ignored, requires Postgres
+test tests::thread_replies_cursor_pages_route_to_replica_with_writer_terminal_verification ... ignored, requires Postgres
+test migration::tests::migration_lint_detects_scoped_key_constraints_not_led_by_community_id ... ok
+test tests::unarchive_community_owned_by_restores_admission_idempotently ... ignored, requires Postgres
+test thread::tests::channel_window_exact_multiple_final_page_reports_exhausted ... ignored, requires Postgres
+test thread::tests::channel_window_joins_thread_summaries_with_participants ... ignored, requires Postgres
+test thread::tests::channel_window_pages_same_second_ties_without_loss ... ignored, requires Postgres
+test thread::tests::channel_window_top_level_predicate ... ignored, requires Postgres
+test thread::tests::get_thread_metadata_by_event_is_scoped_when_event_id_collides_across_communities ... ignored, requires Postgres
+test thread::tests::get_thread_replies_pages_same_second_ties_without_loss ... ignored, requires Postgres
+test thread::tests::get_thread_replies_reaches_nested_depth_two_replies ... ignored, requires Postgres
+test thread::tests::get_thread_replies_reconstructs_stored_events ... ignored, requires Postgres
+test thread::tests::get_thread_replies_skips_unreconstructable_row ... ignored, requires Postgres
+test thread::tests::insert_thread_metadata_nested_reply_creates_root_stub ... ignored, requires Postgres
+test usage::tests::test_active_user_counts_unknown_bucket_for_profileless_poster ... ignored, requires Postgres
+test usage::tests::test_channel_counts_drops_to_zero_after_last_channel_deleted ... ignored, requires Postgres
+test usage::tests::test_channel_counts_scoped_and_excludes_deleted ... ignored, requires Postgres
+test usage::tests::test_community_count_increases ... ignored, requires Postgres
+test usage::tests::test_community_hosts_returns_mapping ... ignored, requires Postgres
+test usage::tests::test_git_repo_counts_scoped_per_community ... ignored, requires Postgres
+test usage::tests::test_user_counts_excludes_deactivated ... ignored, requires Postgres
+test usage::tests::test_user_counts_scoped_per_community ... ignored, requires Postgres
+test tests::read_falls_back_to_writer_when_no_replica_configured ... ok
+test user::tests::like_escape_backslash ... ok
+test user::tests::like_escape_normal_input_unchanged ... ok
+test user::tests::like_escape_combined ... ok
+test event::tests::extract_d_tag_boundary_kinds ... ok
+test user::tests::test_get_policy_unknown_pubkey ... ignored, requires Postgres
+test user::tests::test_owner_only_with_no_owner ... ignored, requires Postgres
+test user::tests::like_escape_underscore ... ok
+test user::tests::like_escape_percent ... ok
+test user::tests::test_set_agent_owner_already_owned ... ignored, requires Postgres
+test user::tests::test_set_agent_owner_and_get_policy ... ignored, requires Postgres
+test user::tests::test_set_agent_owner_nonexistent_agent ... ignored, requires Postgres
+test user::tests::test_set_channel_add_policy ... ignored, requires Postgres
+test user::tests::test_set_channel_add_policy_nonexistent_user ... ignored, requires Postgres
+test user::tests::test_set_channel_add_policy_rejects_invalid ... ignored, requires Postgres
+test workflow::tests::approval_is_confined_to_its_community ... ignored, requires Postgres
+test workflow::tests::approval_record_denied_with_note ... ok
+test workflow::tests::approval_record_clone_is_independent ... ok
+test workflow::tests::approval_record_fields_are_accessible ... ok
+test workflow::tests::approval_record_granted_with_pubkey_and_note ... ok
+test workflow::tests::approval_status_display_is_lowercase ... ok
+test workflow::tests::attach_links_run_to_claim_and_is_idempotent ... ignored, requires Postgres
+test workflow::tests::claim_confined_to_its_community ... ignored, requires Postgres
+test workflow::tests::concurrent_same_window_claims_exactly_one_wins ... ignored, requires Postgres
+test workflow::tests::approval_status_from_str_rejects_unknown ... ok
+test workflow::tests::approval_status_from_str_round_trips ... ok
+test workflow::tests::latest_after_prune_below_interval_breaks_anchor ... ignored, requires Postgres
+test workflow::tests::run_status_display_is_lowercase ... ok
+test workflow::tests::run_status_from_str_rejects_unknown ... ok
+test workflow::tests::workflow_delete_is_confined_to_its_community ... ignored, requires Postgres
+test workflow::tests::workflow_lookup_is_confined_to_its_community ... ignored, requires Postgres
+test workflow::tests::run_status_from_str_round_trips ... ok
+test workflow::tests::workflow_record_channel_id_can_be_none ... ok
+test workflow::tests::workflow_record_clone_is_independent ... ok
+test workflow::tests::workflow_record_disabled_has_enabled_false ... ok
+test workflow::tests::workflow_record_status_variants ... ok
+test workflow::tests::workflow_record_fields_are_accessible ... ok
+test workflow::tests::workflow_run_record_clone_is_independent ... ok
+test workflow::tests::workflow_run_record_execution_trace_is_json_array ... ok
+test workflow::tests::workflow_run_record_failed_with_error_message ... ok
+test workflow::tests::workflow_run_record_fields_are_accessible ... ok
+test workflow::tests::workflow_run_record_no_trigger_event ... ok
+test workflow::tests::workflow_status_display_is_lowercase ... ok
+test workflow::tests::workflow_status_equality ... ok
+test workflow::tests::workflow_status_from_str_rejects_unknown ... ok
+test workflow::tests::workflow_status_from_str_round_trips ... ok
+test migration::tests::embedded_migrator_contains_consolidated_initial_schema ... ok
+test migration::tests::all_non_operator_global_tables_have_not_null_community_id ... ok
+test migration::tests::channels_community_id_is_immutable_after_insert ... ok
+test migration::tests::scoped_primary_key_unique_and_foreign_key_constraints_lead_with_community_id ... ok
+test event::tests::luca_f09_idempotency_lookup_includes_tombstone_and_scopes_tenant ... ok
+
+test result: ok. 83 passed; 0 failed; 121 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+   Doc-tests buzz_db
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[0;32m[run-tests][0m buzz-db tests passed
+[0;34m[run-tests][0m Running: buzz-auth (no integration tests found)
+[0;32m[run-tests][0m buzz-auth (no integration tests found) passed
+[0;34m[run-tests][0m Running: workspace integration tests
+
+running 2 tests
+test luca_f08_resident_fixtures_are_public_only_deterministic_and_isolated ... ok
+test luca_f08_derivation_is_repeatable_without_serializing_secret_material ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test luca_f09_final_chunk_boundary_rejects_oversized_drafts_before_broker_handoff ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test luca_f10_cancel_remains_terminal_before_publication_when_continuity_is_absent ... ok
+test luca_f10_normal_final_reaches_the_real_typed_publication_boundary_when_continuity_is_absent ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+test luca_f15_agents_view_exposes_only_safe_resident_creation ... ok
+test luca_f15_three_resident_setup_contract_is_public_and_peer_based ... ok
+test luca_f15_renderer_adapter_has_no_private_key_response_field ... ok
+test luca_f15_registry_source_omits_protected_managed_record_fields ... ok
+test luca_f15_legacy_nsec_is_raii_guarded_and_mock_safe_path_never_builds_one ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+test luca_f18_redaction_never_returns_matched_secret_or_protected_body ... ok
+test luca_f18_clean_public_fixture_artifacts_pass_the_gate_scan ... ok
+test luca_f18_synthetic_sentinels_are_detected_without_disclosing_values_or_paths ... ok
+test luca_f18_scan_local_ids_are_not_content_hash_oracles ... ok
+test luca_f18_output_failures_are_path_safe_and_do_not_leave_a_report ... ok
+test luca_f18_scanner_rejects_empty_and_symlinked_roots_without_path_disclosure ... ok
+test luca_f18_scanner_detects_the_exact_legacy_and_provider_assignment_corpus ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
+
+running 14 tests
+test cache_hit_short_circuits_network ... ok
+test refresh_now_without_refresh_token_is_terminal ... ok
+test refresh_now_coalesces_when_another_caller_already_refreshed ... ok
+test refresh_now_runs_grant_on_unexpired_rejected_token ... ok
+test refreshed_token_is_persisted_to_disk ... ok
+test expired_cache_silently_refreshes ... ok
+test session_set_model_empty_model_id_returns_error ... ok
+test session_set_model_unknown_session_returns_error ... ok
+test session_set_model_switches_databricks_legacy_route ... ok
+test session_set_model_switches_databricks_v2_route ... ok
+test databricks_v2_other_models_route_through_ai_gateway_mlflow_chat ... ok
+test databricks_v2_claude_routes_through_ai_gateway_anthropic_messages ... ok
+test databricks_v2_gpt5_routes_through_ai_gateway_responses ... ok
+test databricks_envelope_routes_through_serving_endpoints_and_strips_model ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.68s
+
+
+running 14 tests
+test rejects_oversized_line ... ok
+test steer_rejected_when_no_active_run ... ok
+test cancelled_turn_with_usage_emits_notification_before_response ... ok
+test system_prompt_reaches_llm_system_role ... ok
+test system_prompt_absent_no_canary ... ok
+test tool_call_then_end_turn ... ok
+test no_usage_turn_emits_no_usage_notification ... ok
+test text_only_end_turn ... ok
+test steer_rejected_on_run_id_mismatch ... ok
+test steer_rejected_on_empty_prompt ... ok
+test usage_notification_emitted_before_prompt_response ... ok
+test steer_folds_into_active_turn_without_cancelling ... ok
+test session_new_rejects_oversized_system_prompt ... ok
+test rejects_concurrent_prompts ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+
+running 14 tests
+test test_oversized_line_kills_agent ... ok
+test test_session_new_rejects_relative_cwd ... ok
+test test_malformed_json_rpc ... ok
+test test_initialize_version_check ... ok
+test test_text_only_response ... ok
+test test_permission_denied_continues ... ok
+test test_unsupported_content_block ... ok
+test test_no_reasoning_no_thought_chunk ... ok
+test test_full_tool_call_transcript ... ok
+test test_thought_chunk_emitted_before_message_chunk_chat_completions_reasoning_content ... ok
+test test_thought_chunk_emitted_before_message_chunk_anthropic ... ok
+test test_thought_chunk_emitted_before_message_chunk_responses_api ... ok
+test test_cancel_notification_no_reply ... ok
+test test_concurrent_prompt_rejected ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+
+
+running 8 tests
+test global_agents_md_loaded ... ok
+test hints_suppressed_with_env_var ... ok
+test global_skills_loaded_and_project_wins ... ok
+test skills_loaded_from_agents_skills_dir ... ok
+test symlinked_skill_dir_is_discovered ... ok
+test hints_loaded_from_cwd_agents_md ... ok
+test git_root_hints_included ... ok
+test load_skill_tool_returns_body ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+
+running 1 test
+test openai_auto_upgrades_chat_to_responses_on_databricks_signal ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 22 tests
+test cancel_leaves_history_valid_for_next_prompt ... ok
+test assistant_text_preserved_across_prompts ... ok
+test handoff_summary_prompt_keeps_latest_item_when_one_item_exceeds_budget ... ok
+test handoff_summary_prompt_includes_full_history_within_context_budget ... ok
+test empty_assistant_serializes_as_empty_string ... ok
+test mcp_server_count_cap ... ok
+test description_clamping_enforced ... ok
+test stale_usage_plus_history_growth_triggers_handoff ... ok
+test hook_tools_hidden_from_llm ... ok
+test cancel_sends_notifications_cancelled_to_any_mcp_server ... ok
+test hook_stop_consecutive_end_turn_uses_rejection_budget ... ok
+test hook_stop_budget_exhausted ... ok
+test hook_stop_blocks_premature_end ... ok
+test hook_stop_budget_resets_per_prompt ... ok
+test per_turn_tool_call_cap_enforced ... ok
+test token_usage_over_budget_triggers_handoff ... ok
+test hook_post_compact_injects_after_handoff ... ok
+test history_budget_evicts_old_turns ... ok
+test hook_stop_timeout_failopen ... ok
+test tool_metadata_caps_enforced ... ok
+test cancel_kills_inflight_tool_via_mcp_notification ... ok
+test mcp_init_timeout_kills_child ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.04s
+
+
+running 7 tests
+test auth_deny_any_claim_is_ok ... ok
+test foreign_row_label_is_rejected ... ok
+test auth_allow_foreign_claim_bites ... ok
+test state_flip_bites_state_mismatch ... ok
+test impl_bug_bites_coverage_breach ... ok
+test check_trace_is_deterministic_and_total ... ok
+test clean_trace_is_accepted ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+
+running 6 tests
+test empty_trace_is_coverage_breach ... ok
+test missing_required_action_is_coverage_breach ... ok
+test coverage_breach_is_caught ... ok
+test foreign_row_leak_is_non_interference ... ok
+test bad_host_channel_mismatch_is_illegal_transition ... ok
+test good_trace_passes_check ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test static_creds_round_trip_against_minio ... ignored, requires a live MinIO (docker compose up -d minio minio-init)
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 51 tests
+test test_backpressure_unit ... ok
+test test_binary_frame ... ok
+test test_close_handshake ... ok
+test test_120s_timeout ... ok
+test test_cancellation_immediate ... ok
+test test_event_shape_missing_id ... ok
+test test_close_keeps_connection ... ok
+test test_event_tag_string_too_long ... ok
+test test_event_missing_sig ... ok
+test test_event_too_many_tags ... ok
+test test_graceful_close ... ok
+test test_kind_rejection ... ok
+test test_json_injection_sub_id ... ok
+test test_invalid_hex_in_p_filter ... ok
+test test_invalid_hex_in_event_id ... ok
+test test_malformed_req_non_object_filter ... ok
+test test_malformed_req_non_string_sub_id ... ok
+test test_max_frame_size ... ok
+test test_malformed_req_too_few ... ok
+test test_multi_value_p ... ok
+test test_multiple_filters ... ok
+test test_multiple_p_tags ... ok
+test test_negative_created_at ... ok
+test test_multiple_subscribers_same_p ... ok
+test test_no_p_filter ... ok
+test test_no_p_tag ... ok
+test test_overlong_sub_id ... ok
+test test_control_msg_backpressure ... ok
+test test_ping_pong ... ok
+test test_fan_out_drop_doesnt_close ... ok
+test test_event_rate_limit ... ok
+test test_req_after_close ... ok
+test test_second_sub_different_id ... ok
+test test_unknown_message ... ok
+test test_unsupported_filter_field ... ok
+test test_uppercase_hex_in_event_fields ... ok
+test test_uppercase_hex_in_p_filter ... ok
+test test_second_sub_same_id ... ok
+test test_reader_backpressure_closes ... ok
+test test_write_timeout ... ok
+test test_message_rate_limit ... ok
+test test_ping_counts_toward_rate_limit ... ok
+test test_global_conn_cap ... ok
+test test_no_client_data_in_logs ... ok
+test test_conn_counter_no_leak ... ok
+test test_close_unknown_sub_id ... ok
+test test_eose_try_send_failure ... ok
+test test_no_replay ... ok
+test test_live_delivery ... ok
+test test_close_removes_sub ... ok
+test test_no_events_after_close ... ok
+
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+
+running 5 tests
+test resolve_pack_buzz_agent_persona_emits_buzz_agent_vars ... ok
+test resolve_pack_goose_persona_emits_correct_runtime_env_vars ... ok
+test import_filter_strips_derived_preserves_knobs ... ok
+test model_without_provider_prefix_emits_model_only ... ok
+test full_pipeline_two_runtimes_different_env_vars ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 13 tests
+test model_split_cases ... ok
+test persona_parse_round_trip ... ok
+test operator_config_fields_rejected_in_frontmatter ... ok
+test validate_zero_personas_in_pipeline ... ok
+test validation_catches_missing_required_fields ... ok
+test validation_catches_unknown_behavioral_keys ... ok
+test validate_duplicate_names_in_pipeline ... ok
+test resolve_multi_persona_pack ... ok
+test resolve_persona_by_name_not_found ... ok
+test resolve_full_pipeline ... ok
+test defaults_merge_persona_overrides ... ok
+test resolve_persona_by_name_found ... ok
+test full_pipeline_load_and_validate ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 18 tests
+test author_only_kinds_are_storage_level_unsearchable ... ignored, requires Postgres
+test channel_less_only_excludes_per_channel_events ... ignored, requires Postgres
+test channel_scope_restricts_results ... ignored, requires Postgres
+test deleted_events_are_excluded ... ignored, requires Postgres
+test empty_query_returns_empty_result_no_roundtrip ... ignored, requires Postgres
+test enormous_page_number_is_clamped ... ignored, requires Postgres
+test excluded_kinds_are_storage_level_unsearchable ... ignored, requires Postgres
+test kind0_search_by_display_name_works_without_flattening ... ignored, requires Postgres
+test nul_bytes_in_query_are_sanitized ... ignored, requires Postgres
+test p_gated_persistent_kinds_have_storage_null_tsvector ... ignored, requires Postgres
+test pagination_works ... ignored, requires Postgres
+test prefix_mode_handles_tsquery_boundary_punctuation ... ignored, requires Postgres
+test prefix_mode_matches_final_token_prefix_without_changing_full_text ... ignored, requires Postgres
+test prefix_mode_preserves_storage_level_privacy_exclusions ... ignored, requires Postgres
+test search_does_not_return_other_community_events ... ignored, requires Postgres
+test search_finds_event_in_same_community ... ignored, requires Postgres
+test since_until_filters ... ignored, requires Postgres
+test very_long_query_is_bounded_before_pg_parse ... ignored, requires Postgres
+
+test result: ok. 0 passed; 0 failed; 18 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 19 tests
+test api_tokens_nip98_replay::nip98_replay_seenset_is_shared_and_community_scoped ... ignored
+test channelless_global_events_dms::dm_does_not_cross_deliver_between_communities ... ignored
+test channelless_global_events_dms::same_event_id_and_dtag_coexist_across_communities ... ignored
+test channels_membership::same_channel_uuid_in_two_communities_is_isolated ... ignored
+test feed_read_side_isolation::feed_mentions_do_not_cross_communities_over_the_wire ... ignored
+test git_hosting::same_owner_repo_isolated_push_does_not_cross ... ignored
+test media_blossom::media_metadata_boundary_holds_while_blob_bytes_shared ... ignored
+test membership_allowlist::archive_in_a_does_not_affect_b ... ignored
+test mesh_agents_cli::one_key_two_communities_no_bleed ... ignored
+test nip11_relay_info::nip11_is_not_a_cross_community_enumeration_oracle ... ignored
+test pubsub_presence_typing::fanout_and_presence_do_not_cross_communities ... ignored
+test row_zero_host_binding::client_supplied_community_cannot_override_host ... ignored
+test row_zero_host_binding::unmapped_host_fails_closed_generically ... ignored
+test search_fts::search_results_and_deletes_are_community_scoped ... ignored
+test users_profiles_nip05::same_nip05_local_part_on_two_hosts_is_independent ... ignored
+test users_profiles_nip05::same_pubkey_distinct_profiles_in_two_communities ... ignored
+test workflows::approval_token_is_community_confined ... ignored
+test workflows::workflow_trigger_is_community_confined ... ignored
+test api_tokens_nip98_replay::token_minted_in_a_does_not_authorize_in_b ... ok
+
+test result: ok. 1 passed; 0 failed; 18 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 29 tests
+test test_author_can_count_own_reminders_http ... ignored
+test test_author_can_query_own_reminders_http ... ignored
+test test_author_can_subscribe_to_own_reminders_ws ... ignored
+test test_fanout_isolation_other_user_does_not_receive_reminder ... ignored
+test test_mixed_kind_filter_omits_other_authors_reminders_ws ... ignored
+test test_other_user_cannot_count_reminders_http ... ignored
+test test_other_user_cannot_query_reminders_http ... ignored
+test test_other_user_subscription_closed_for_author_only_kind_ws ... ignored
+test test_reminder_accepted_expiration_without_not_before ... ignored
+test test_reminder_accepted_missing_not_before ... ignored
+test test_reminder_accepted_with_expiration_after_not_before ... ignored
+test test_reminder_accepted_with_malformed_expiration ... ignored
+test test_reminder_accepted_with_valid_not_before ... ignored
+test test_reminder_not_before_max_safe_integer_rejected_too_far_in_future ... ignored
+test test_reminder_not_before_zero_accepted ... ignored
+test test_reminder_rejected_duplicate_d_tag ... ignored
+test test_reminder_rejected_duplicate_not_before ... ignored
+test test_reminder_rejected_empty_d_tag ... ignored
+test test_reminder_rejected_expiration_before_not_before ... ignored
+test test_reminder_rejected_expiration_equal_to_not_before ... ignored
+test test_reminder_rejected_malformed_not_before_leading_zero ... ignored
+test test_reminder_rejected_malformed_not_before_non_digits ... ignored
+test test_reminder_rejected_missing_d_tag ... ignored
+test test_reminder_rejected_not_before_above_max_safe_integer ... ignored
+test test_reminder_rejected_not_before_too_far_in_future ... ignored
+test test_reminder_replacement_semantics ... ignored
+test test_scheduler_delivers_due_reminder_to_author_subscription ... ignored
+test test_ws_count_returns_zero_for_other_users_reminders ... ignored
+test test_ws_search_isolation_other_user_cannot_find_reminder ... ignored
+
+test result: ok. 0 passed; 0 failed; 29 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test git_clone_push_fetch_force_roundtrip ... ignored, requires live relay + MinIO + git
+test git_concurrent_push_one_wins_and_repo_recovers ... ignored, requires live relay + MinIO + git
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 19 tests
+test test_agent_can_self_delete_channel ... ignored
+test test_agent_can_self_edit_message ... ignored
+test test_owner_can_archive_agent_channel ... ignored
+test test_owner_can_delete_agent_channel ... ignored
+test test_owner_can_delete_agent_message ... ignored
+test test_owner_can_delete_agent_message_in_private_channel ... ignored
+test test_owner_can_delete_agent_message_kind5 ... ignored
+test test_owner_can_delete_private_agent_channel ... ignored
+test test_owner_can_edit_agent_channel_metadata ... ignored
+test test_owner_can_edit_agent_message ... ignored
+test test_owner_can_edit_agent_message_in_private_channel ... ignored
+test test_owner_can_edit_metadata_of_private_agent_channel ... ignored
+test test_removed_author_cannot_delete_own_message_in_private_channel ... ignored
+test test_removed_author_cannot_edit_own_message_in_private_channel ... ignored
+test test_third_party_cannot_delete_agent_channel ... ignored
+test test_third_party_cannot_delete_agent_message ... ignored
+test test_third_party_cannot_delete_agent_message_kind5 ... ignored
+test test_third_party_cannot_edit_agent_channel_metadata ... ignored
+test test_third_party_cannot_edit_agent_message ... ignored
+
+test result: ok. 0 passed; 0 failed; 19 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 8 tests
+test test_long_form_a_tag_deletion ... ignored
+test test_long_form_accepted ... ignored
+test test_long_form_malformed_e_plus_a_does_not_delete ... ignored
+test test_long_form_nip33_replacement ... ignored
+test test_long_form_retrievable ... ignored
+test test_long_form_set_twice_preserves_published_at ... ignored
+test test_long_form_stale_write_rejected ... ignored
+test test_long_form_stray_h_tag_ignored ... ignored
+
+test result: ok. 0 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+test test_legacy_fat_agent_event_still_accepted ... ignored
+test test_managed_agent_nip33_replacement_newer_wins ... ignored
+test test_managed_agent_publish_and_query ... ignored
+test test_managed_agent_round_trips_only_projected_fields ... ignored
+test test_managed_agent_tombstone_deletes_coordinate ... ignored
+
+test result: ok. 0 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+test test_get_nonexistent_returns_404 ... ignored
+test test_upload_and_get ... ignored
+test test_upload_hash_mismatch_returns_400 ... ignored
+test test_upload_idempotent ... ignored
+test test_upload_missing_x_sha256_returns_401 ... ignored
+test test_upload_no_auth_returns_401 ... ignored
+test test_upload_real_image ... ignored
+
+test result: ok. 0 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 21 tests
+test test_auth_empty_content ... ignored
+test test_auth_expired_token ... ignored
+test test_auth_missing_expiration ... ignored
+test test_auth_missing_t_tag ... ignored
+test test_auth_server_tag_correct ... ignored
+test test_auth_server_tag_mismatch ... ignored
+test test_auth_wrong_kind ... ignored
+test test_concurrent_upload_same_file ... ignored
+test test_legacy_media_route_rejects_non_media ... ignored
+test test_legacy_media_route_still_accepts_canonical_media ... ignored
+test test_standard_upload_rejects_recognized_audio ... ignored
+test test_upload_gif_roundtrip ... ignored
+test test_upload_pdf_accepted ... ignored
+test test_upload_png_roundtrip ... ignored
+test test_upload_random_bytes_accepted ... ignored
+test test_upload_svg_accepted_as_text_xml ... ignored
+test test_upload_webp_roundtrip ... ignored
+test test_upload_zero_bytes_accepted ... ignored
+test test_ws_invalid_imeta_external_url ... ignored
+test test_ws_invalid_imeta_missing_fields ... ignored
+test test_ws_valid_imeta ... ignored
+
+test result: ok. 0 passed; 0 failed; 21 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+test test_video_content_type_header_ignored ... ignored
+test test_video_poster_imeta_accepted_via_ws ... ignored
+test test_video_poster_imeta_rejects_video_as_poster ... ignored
+test test_video_range_request_206 ... ignored
+test test_video_range_request_416 ... ignored
+test test_video_upload_and_get ... ignored
+test test_video_upload_no_auth_returns_401 ... ignored
+
+test result: ok. 0 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+test live_agent_completes_chat_over_mesh ... ignored
+test live_split_model_completes ... ignored
+test trust_member_reads_mesh_status ... ignored
+test trust_nonmember_read_denied ... ignored
+
+test result: ok. 0 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 25 tests
+test test_channel_window_rejects_half_cursor_and_client_overlay_kinds ... ignored
+test test_channel_window_rows_overlays_and_exact_multiple_exhaustion ... ignored
+test test_dm_discovery_events_emitted ... ignored
+test test_empty_kinds_returns_zero_events ... ignored
+test test_historical_req_dedup_preserves_or_semantics ... ignored
+test test_nip10_root_mismatch_rejected ... ignored
+test test_nip10_thread_reply_creates_metadata ... ignored
+test test_nip10_thread_reply_not_in_top_level ... ignored
+test test_nip10_unknown_parent_rejected ... ignored
+test test_nip17_gift_wrap_accepted ... ignored
+test test_nip17_gift_wrap_not_searchable ... ignored
+test test_nip17_gift_wrap_recipient_receives ... ignored
+test test_nip17_gift_wrap_requires_p_filter ... ignored
+test test_nip50_search_empty_results ... ignored
+test test_nip50_search_mixed_filters_rejected ... ignored
+test test_nip50_search_relevance_order ... ignored
+test test_nip50_search_returns_results_and_eose ... ignored
+test test_nipdv_explicit_kind_query_forbidden_for_third_party ... ignored
+test test_nipdv_hide_then_reopen_updates_snapshot ... ignored
+test test_nipdv_ids_query_rejects_third_party ... ignored
+test test_nipdv_same_second_reopen_supersedes_hide ... ignored
+test test_nipdv_search_rejects_third_party ... ignored
+test test_nipdv_snapshot_is_private_to_owner ... ignored
+test test_nipdv_two_viewers_independent_snapshots ... ignored
+test test_nipdv_ws_req_rejects_third_party ... ignored
+
+test result: ok. 0 passed; 0 failed; 25 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 13 tests
+test test_behavioral_fields_persona_ingests_and_round_trips ... ignored
+test test_persona_accepts_valid_slugs ... ignored
+test test_persona_multiple_per_author ... ignored
+test test_persona_nip33_older_does_not_replace_newer ... ignored
+test test_persona_nip33_replacement_newer_wins ... ignored
+test test_persona_publish_and_query ... ignored
+test test_persona_rejects_d_tag_special_chars ... ignored
+test test_persona_rejects_d_tag_starting_with_underscore ... ignored
+test test_persona_rejects_d_tag_too_long ... ignored
+test test_persona_rejects_d_tag_uppercase ... ignored
+test test_persona_rejects_empty_d_tag ... ignored
+test test_persona_rejects_missing_d_tag ... ignored
+test test_promptless_persona_ingests_and_round_trips ... ignored
+
+test result: ok. 0 passed; 0 failed; 13 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 39 tests
+test luca_f09_exact_duplicate_probe_is_author_bound_non_ingesting_and_revocation_safe ... ignored
+test test_auth_event_kind_rejected ... ignored
+test test_client_submitted_nip43_membership_snapshots_are_rejected ... ignored
+test test_close_subscription_stops_delivery ... ignored
+test test_connect_and_authenticate ... ignored
+test test_eose_sent_for_empty_subscription ... ignored
+test test_ephemeral_event_not_stored ... ignored
+test test_invite_claim_rejects_invalid_code ... ignored
+test test_invite_code_minted_for_one_host_fails_on_another ... ignored
+test test_invite_mint_and_claim_admits_new_pubkey ... ignored
+test test_invite_mint_requires_owner_or_admin ... ignored
+test test_kind0_nip05_sync ... ignored
+test test_large_event_frame_below_configured_limit_is_accepted ... ignored
+test test_membership_notification_emitted_on_add ... ignored
+test test_membership_notification_emitted_on_remove ... ignored
+test test_membership_notification_kind_rejected ... ignored
+test test_membership_notification_mixed_filter_rejected ... ignored
+test test_membership_notification_multi_p_rejected ... ignored
+test test_membership_notification_requires_own_p_filter ... ignored
+test test_membership_notification_requires_p_filter ... ignored
+test test_membership_notification_wildcard_filter_rejected ... ignored
+test test_multiple_concurrent_clients ... ignored
+test test_nip11_relay_info ... ignored
+test test_nip29_put_user_default_policy_allows ... ignored
+test test_nip29_put_user_nobody_blocks ... ignored
+test test_nip29_put_user_owner_only_blocks ... ignored
+test test_nip29_put_user_self_add_bypasses_policy ... ignored
+test test_nip29_standard_client_flow ... ignored
+test test_private_channel_any_member_can_invite ... ignored
+test test_private_channel_member_cannot_grant_admin ... ignored
+test test_private_channel_non_member_cannot_invite ... ignored
+test test_pubkey_mismatch_rejected ... ignored
+test test_reply_ingest_pushes_live_thread_summary ... ignored
+test test_send_event_and_receive_via_subscription ... ignored
+test test_stored_events_returned_before_eose ... ignored
+test test_subscription_filters_by_kind ... ignored
+test test_subscription_limit_enforced ... ignored
+test test_unarchive_emits_member_added_notification ... ignored
+test test_unauthenticated_rejected ... ignored
+
+test result: ok. 0 passed; 0 failed; 39 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+test test_team_nip33_replacement_newer_wins ... ignored
+test test_team_publish_and_query ... ignored
+test test_team_tombstone_deletes_coordinate ... ignored
+
+test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+test test_user_status_accepted ... ignored
+test test_user_status_multiple_d_tags_coexist ... ignored
+test test_user_status_nip33_replacement ... ignored
+test test_user_status_retrievable ... ignored
+test test_user_status_stale_write_rejected ... ignored
+
+test result: ok. 0 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+test nip42_cross_host_rejected_a_relay_tag_on_b_connection ... ignored, requires two-host multi-tenant relay
+test nip42_cross_host_rejected_b_relay_tag_on_a_connection ... ignored, requires two-host multi-tenant relay
+test nip42_matching_host_accepted_a ... ignored, requires two-host multi-tenant relay
+test nip42_matching_host_accepted_b ... ignored, requires two-host multi-tenant relay
+
+test result: ok. 0 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 8 tests
+test missing_method_hint ... ok
+test missing_path ... ok
+test old_git_no_authtype_capability ... ok
+test malformed_nip_oa_auth_tag_fails_closed ... ok
+test includes_nip_oa_auth_tag_in_signed_event ... ok
+test missing_key ... ok
+test bad_keyfile_permissions ... ok
+test happy_path ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+
+running 4 tests
+test detects_real_shape_secrets_and_absolute_paths_without_exposing_them ... ok
+test redacts_synthetic_secret_body_and_path_without_preserving_any_value ... ok
+test classification_is_stable_and_ordered_by_source_position ... ok
+test exact_legacy_and_provider_assignment_corpus_matches_the_scanner_contract ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 12 tests
+test emit_public_only_crypto_vectors ... ignored, prints public-only vector values for deliberate fixture refresh
+test strict_json_enforces_caller_byte_bound ... ok
+test strict_json_rejects_all_negative_vectors ... ok
+test message_publish_rejects_unsorted_tags_wrong_hash_and_unsafe_integer ... ok
+test safe_diagnostic_is_fixed_field_and_body_free ... ok
+test frame_deadline_and_size_limits_fail_closed ... ok
+test rfc8785_vectors_match_canonical_bytes_and_hashes ... ok
+test message_frame_and_body_free_result_share_checked_vector ... ok
+test frame_wire_encoding_requires_exact_rfc8785_bytes ... ok
+test owner_identity_vector_derives_secret_only_in_memory ... ok
+test checked_schemas_are_strict_and_preserve_the_m1_boundary ... ok
+test checked_signature_vector_is_public_only_and_verifies ... ok
+
+test result: ok. 11 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 6 tests
+test emit_public_only_relay_auth_vector ... ignored, prints public-only vector values for deliberate fixture refresh
+test relay_auth_rejects_semantically_unbounded_requests ... ok
+test relay_auth_broker_frames_reject_operation_type_mismatch ... ok
+test relay_auth_public_event_vectors_are_canonical_and_verify ... ok
+test relay_auth_result_rejects_unsigned_mismatched_and_stale_events ... ok
+test relay_auth_requests_and_frames_match_checked_vectors ... ok
+
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 1 test
+test message_publish_vectors_match_the_frozen_m1_protocol_fixture ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+[0;32m[run-tests][0m workspace integration tests passed
+
+[0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+[0;36m  Test Summary[0m
+[0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+
+  Duration: 50s
+
+  [0;32mPassed (3):[0m
+    [0;32mpass[0m buzz-db tests
+    [0;32mpass[0m buzz-auth (no integration tests found)
+    [0;32mpass[0m workspace integration tests
+
+[0;32m[run-tests][0m All tests passed!

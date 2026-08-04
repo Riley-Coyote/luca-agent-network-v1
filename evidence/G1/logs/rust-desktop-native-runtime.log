@@ -1,0 +1,89 @@
+   Compiling objc2-exception-helper v0.1.1
+   Compiling ring v0.17.14
+   Compiling aws-lc-sys v0.42.0
+   Compiling secp256k1-sys v0.10.1
+   Compiling bzip2-sys v0.1.13+1.0.8
+   Compiling zstd-sys v2.0.16+zstd.1.5.7
+   Compiling mac-notification-sys v0.6.15
+   Compiling libsqlite3-sys v0.35.0
+   Compiling buzz-desktop v0.4.22 (/Users/rileycoyote/Documents/Repositories/luca-agent-network-v1/desktop/src-tauri)
+   Compiling objc2 v0.6.4
+   Compiling secp256k1 v0.29.1
+   Compiling bzip2 v0.4.4
+   Compiling block2 v0.6.2
+   Compiling objc2-core-audio-types v0.3.2
+   Compiling dispatch2 v0.3.1
+   Compiling rustls v0.23.42
+   Compiling nostr v0.44.4
+   Compiling rusqlite v0.37.0
+   Compiling objc2-core-foundation v0.3.2
+   Compiling ctrlc v3.5.2
+   Compiling rustls-webpki v0.103.13
+   Compiling zstd-safe v7.2.4
+   Compiling zstd v0.13.3
+   Compiling objc2-foundation v0.3.2
+   Compiling objc2-core-graphics v0.3.2
+   Compiling zip v8.6.0
+   Compiling buzz-core v0.1.0 (/Users/rileycoyote/Documents/Repositories/luca-agent-network-v1/crates/buzz-core)
+   Compiling buzz-sdk v0.1.0 (/Users/rileycoyote/Documents/Repositories/luca-agent-network-v1/crates/buzz-sdk)
+   Compiling ureq v2.12.1
+   Compiling luca-protocol v0.1.0 (/Users/rileycoyote/Documents/Repositories/luca-agent-network-v1/crates/luca-protocol)
+   Compiling luca-diagnostics v0.1.0 (/Users/rileycoyote/Documents/Repositories/luca-agent-network-v1/crates/luca-diagnostics)
+   Compiling sherpa-onnx-sys v1.13.4
+   Compiling sherpa-onnx v1.13.4
+   Compiling objc2-app-kit v0.3.2
+   Compiling objc2-core-audio v0.3.2
+   Compiling objc2-audio-toolbox v0.3.2
+   Compiling notify-rust v4.18.0
+   Compiling coreaudio-rs v0.14.2
+   Compiling cpal v0.17.3
+   Compiling rodio v0.22.2
+   Compiling objc2-web-kit v0.3.2
+   Compiling tao v0.35.3
+   Compiling window-vibrancy v0.6.0
+   Compiling muda v0.19.3
+   Compiling objc2-osa-kit v0.3.2
+   Compiling global-hotkey v0.8.0
+   Compiling rfd v0.16.0
+   Compiling arboard v3.6.1
+   Compiling osakit v0.3.1
+   Compiling wry v0.55.1
+   Compiling tauri-runtime v2.11.3
+   Compiling tauri-runtime-wry v2.11.4
+   Compiling tauri v2.11.5
+   Compiling aws-lc-rs v1.17.1
+   Compiling tauri-plugin-fs v2.5.1
+   Compiling tauri-plugin-deep-link v2.4.9
+   Compiling tauri-plugin-notification v2.3.3
+   Compiling tauri-plugin-opener v2.5.4
+   Compiling tauri-plugin-process v2.3.1
+   Compiling tauri-plugin-window-state v2.4.1
+   Compiling tauri-plugin-global-shortcut v2.3.2
+   Compiling tauri-plugin-single-instance v2.4.2
+   Compiling tauri-plugin-dialog v2.7.1
+   Compiling tokio-rustls v0.26.4
+   Compiling rustls-platform-verifier v0.7.0
+   Compiling tungstenite v0.29.0
+   Compiling hyper-rustls v0.27.9
+   Compiling tokio-tungstenite v0.29.0
+   Compiling reqwest v0.13.4
+   Compiling axum v0.8.9
+   Compiling tauri-plugin-updater v2.10.1
+   Compiling buzz-agent v0.1.0 (/Users/rileycoyote/Documents/Repositories/luca-agent-network-v1/crates/buzz-agent)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 46.70s
+     Running unittests src/lib.rs (desktop/src-tauri/target/debug/deps/buzz_lib-a24758eb5268ef1f)
+
+running 10 tests
+test managed_agents::native_runtime::tests::identical_hermes_profile_names_in_different_homes_are_distinct ... ok
+test managed_agents::native_runtime::tests::parses_canonical_hermes_profile_details ... ok
+test managed_agents::native_runtime::tests::gateway_identity_is_stable_and_target_specific ... ok
+test managed_agents::native_runtime::tests::structured_outcomes_preserve_absent_and_failed_runtime_states ... ok
+test managed_agents::native_runtime::tests::configured_gateway_identity_is_stable_when_rpc_goes_offline ... ok
+test managed_agents::native_runtime::tests::semantic_identity_survives_binding_refresh_while_fingerprint_changes ... ok
+test managed_agents::native_runtime::tests::parses_hermes_profile_table_without_treating_headers_as_profiles ... ok
+test managed_agents::native_runtime::tests::binding_round_trip_contains_references_not_secret_values ... ok
+test managed_agents::runtime::tests::native_runtime_env_policy_withholds_luca_env_and_scrubs_ambient_secrets ... ok
+test luca::resident_registry::tests::resident_creation_reuses_native_runtime_identity_and_rejects_duplicates ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 1631 filtered out; finished in 0.01s
+

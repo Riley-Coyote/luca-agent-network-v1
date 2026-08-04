@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.80s
+     Running unittests src/lib.rs (desktop/src-tauri/target/debug/deps/buzz_lib-a24758eb5268ef1f)
+
+running 2 tests
+test commands::messages::tests::managed_cancel_status_never_claims_terminal_cancel_without_an_ack ... ok
+test commands::messages::tests::managed_cancel_status_discloses_ambiguous_prior_publication ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1639 filtered out; finished in 0.00s
+
