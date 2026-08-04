@@ -210,6 +210,14 @@ async fn luca_descendant_isolation_legacy_spawn_preserves_buzz_environment() {
             "BUZZ_MANAGED_AGENT".to_owned(),
             "synthetic-legacy-lifecycle-marker".to_owned(),
         ),
+        // The shared shell probe always inspects this descriptor. Point the
+        // legacy case at a deliberately absent descriptor so it can assert
+        // ordinary environment preservation without requiring Luca's managed
+        // permission socket.
+        (
+            "LUCA_PERMISSION_PROBE_FD".to_owned(),
+            "999999".to_owned(),
+        ),
     ];
     let args = vec![
         "-c".to_owned(),

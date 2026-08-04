@@ -1,14 +1,29 @@
 import { invokeTauri } from "@/shared/api/tauri";
 import { sendAgentObserverControl } from "@/shared/api/observerRelay";
-import type { CancelManagedAgentTurnResult } from "@/shared/api/types";
+import type {
+  CancelManagedAgentTurnResult,
+  CancellableManagedTurn,
+} from "@/shared/api/types";
+
+export async function listCancellableManagedTurns(
+  channelId: string,
+): Promise<CancellableManagedTurn[]> {
+  return invokeTauri<CancellableManagedTurn[]>(
+    "list_cancellable_managed_turns",
+    { conversationId: channelId },
+  );
+}
 
 export async function cancelManagedAgentTurn(
   pubkey: string,
   channelId: string,
+  exact?: Pick<CancellableManagedTurn, "dispatchReceiptId" | "sessionEpoch">,
 ): Promise<CancelManagedAgentTurnResult> {
   return invokeTauri<CancelManagedAgentTurnResult>("cancel_managed_turn", {
     conversationId: channelId,
     residentPubkey: pubkey,
+    dispatchReceiptId: exact?.dispatchReceiptId ?? null,
+    sessionEpoch: exact?.sessionEpoch ?? null,
   });
 }
 

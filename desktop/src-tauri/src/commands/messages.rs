@@ -32,6 +32,15 @@ pub struct CancelManagedTurnResult {
     pub control_event_id: Option<String>,
 }
 
+/// Secret-free control-plane row used to render an exact Stop affordance.
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CancellableManagedTurn {
+    pub dispatch_receipt_id: String,
+    pub resident_pubkey: String,
+    pub session_epoch: u64,
+}
+
 /// Truthful terminal status for the local cleanup performed by a managed turn cancellation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -59,6 +68,32 @@ fn completed_cancel_status(
     } else {
         CancelManagedTurnStatus::RestartedAfterControlFailure
     }
+}
+
+/// Return every exact pending/active managed turn in one conversation that is
+/// backed by the resident's current local broker epoch.
+#[tauri::command]
+pub fn list_cancellable_managed_turns(
+    conversation_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<CancellableManagedTurn>, String> {
+    uuid::Uuid::parse_str(&conversation_id)
+        .map_err(|_| "managed cancellation requires an exact conversation UUID".to_string())?;
+    let owner_pubkey = state.signing_keys()?.public_key().to_hex();
+    let store = crate::luca::managed_dispatch_store::global_dispatch_store(&app)?;
+    let turns = store
+        .lock()
+        .map_err(|_| "managed dispatch store lock is unavailable".to_string())?
+        .cancellable_for_conversation(&owner_pubkey, &conversation_id)
+        .into_iter()
+        .map(|turn| CancellableManagedTurn {
+            dispatch_receipt_id: turn.dispatch_receipt_id,
+            resident_pubkey: turn.resident_pubkey,
+            session_epoch: turn.session_epoch,
+        })
+        .collect();
+    Ok(turns)
 }
 
 // ── Reads (pure-nostr) ──────────────────────────────────────────────────────
@@ -702,6 +737,8 @@ pub async fn send_channel_message(
 pub async fn cancel_managed_turn(
     conversation_id: String,
     resident_pubkey: String,
+    dispatch_receipt_id: Option<String>,
+    session_epoch: Option<u64>,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<CancelManagedTurnResult, String> {
@@ -715,18 +752,34 @@ pub async fn cancel_managed_turn(
         let mut store = dispatch_store
             .lock()
             .map_err(|_| "managed dispatch store lock is unavailable".to_string())?;
-        let active = store
-            .resolve_unique_active(&owner_pubkey, &conversation_id, &resident_pubkey)
-            .map_err(|error| format!("managed cancellation denied: {error:?}"))?;
-        let dispatch_receipt_id = active.dispatch_receipt_id.clone();
-        let session_epoch = active.session_epoch;
+        let (dispatch_receipt_id, session_epoch) = match (dispatch_receipt_id, session_epoch) {
+            (Some(receipt), Some(epoch)) if !receipt.trim().is_empty() && epoch != 0 => {
+                (receipt, epoch)
+            }
+            (None, None) => {
+                let exact = store
+                    .resolve_unique_cancellable(
+                        &owner_pubkey,
+                        &conversation_id,
+                        &resident_pubkey,
+                    )
+                    .map_err(|error| format!("managed cancellation denied: {error:?}"))?;
+                (exact.dispatch_receipt_id, exact.session_epoch)
+            }
+            _ => {
+                return Err(
+                    "managed cancellation requires both dispatch receipt and session epoch"
+                        .to_string(),
+                )
+            }
+        };
         let cancellation = store
             .cancel_exact(
                 &owner_pubkey,
                 &conversation_id,
                 &resident_pubkey,
-                &active.dispatch_receipt_id,
-                active.session_epoch,
+                &dispatch_receipt_id,
+                session_epoch,
             )
             .map_err(|error| format!("managed cancellation denied: {error:?}"))?;
         (cancellation, dispatch_receipt_id, session_epoch)

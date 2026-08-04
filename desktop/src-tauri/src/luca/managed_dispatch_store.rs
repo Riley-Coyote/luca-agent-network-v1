@@ -146,13 +146,12 @@ pub(crate) struct ExactDispatchCancellation {
     pub had_outbox_authority: bool,
 }
 
-/// Minimal control-plane lookup for exactly one live resident dispatch.
-///
-/// This exposes only the existing receipt and epoch required to make a later
-/// exact cancellation request; it never exposes prompt text or broker state.
+/// One exact pending or active turn that the current resident process can
+/// cancel. Prompt text and broker secrets never leave the authority layer.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ExactActiveDispatch {
+pub(crate) struct CancellableManagedDispatch {
     pub dispatch_receipt_id: String,
+    pub resident_pubkey: String,
     pub session_epoch: u64,
 }
 
@@ -355,40 +354,73 @@ impl ManagedDispatchStore {
         Ok(cancelled)
     }
 
-    /// Resolve the one currently live dispatch for a resident conversation.
+    /// Resolve the one currently cancellable dispatch for a resident conversation.
     ///
     /// Missing rows, stale epochs, and more than one match all fail closed so
     /// callers cannot accidentally turn a broad UI action into cancellation of
     /// an arbitrary turn.
-    pub(crate) fn resolve_unique_active(
+    pub(crate) fn resolve_unique_cancellable(
         &self,
         owner_pubkey: &str,
         conversation_id: &str,
         resident_pubkey: &str,
-    ) -> Result<ExactActiveDispatch, DispatchAuthorizationError> {
-        let owner_pubkey = owner_pubkey.to_ascii_lowercase();
+    ) -> Result<CancellableManagedDispatch, DispatchAuthorizationError> {
         let resident_pubkey = resident_pubkey.to_ascii_lowercase();
-        let mut matches = self.dispatches.values().filter_map(|dispatch| {
-            if dispatch.owner_pubkey != owner_pubkey
-                || dispatch.conversation_id != conversation_id
-                || dispatch.resident_pubkey != resident_pubkey
-                || dispatch.state != ManagedDispatchState::Active
-            {
-                return None;
-            }
-            let session_epoch = dispatch.session_epoch?;
-            (self.active_sessions.get(&resident_pubkey) == Some(&session_epoch)).then(|| {
-                ExactActiveDispatch {
-                    dispatch_receipt_id: dispatch.trigger_event_id.clone(),
-                    session_epoch,
-                }
-            })
-        });
+        let mut matches = self
+            .cancellable_for_conversation(owner_pubkey, conversation_id)
+            .into_iter()
+            .filter(|turn| turn.resident_pubkey == resident_pubkey);
         let exact = matches.next().ok_or(DispatchAuthorizationError::Unknown)?;
         if matches.next().is_some() {
             return Err(DispatchAuthorizationError::Ambiguous);
         }
         Ok(exact)
+    }
+
+    /// List exact cancellable dispatches for one owner conversation.
+    ///
+    /// Pending rows are cancellable only while the same resident has a live
+    /// broker epoch. This lets the UI expose truthful Stop controls before a
+    /// final-response publication request claims the row as Active.
+    pub(crate) fn cancellable_for_conversation(
+        &self,
+        owner_pubkey: &str,
+        conversation_id: &str,
+    ) -> Vec<CancellableManagedDispatch> {
+        let owner_pubkey = owner_pubkey.to_ascii_lowercase();
+        let mut turns = self
+            .dispatches
+            .values()
+            .filter_map(|dispatch| {
+                if dispatch.owner_pubkey != owner_pubkey
+                    || dispatch.conversation_id != conversation_id
+                    || !matches!(
+                        dispatch.state,
+                        ManagedDispatchState::Pending | ManagedDispatchState::Active
+                    )
+                {
+                    return None;
+                }
+                let active_epoch = *self.active_sessions.get(&dispatch.resident_pubkey)?;
+                if dispatch
+                    .session_epoch
+                    .is_some_and(|bound| bound != active_epoch)
+                {
+                    return None;
+                }
+                Some(CancellableManagedDispatch {
+                    dispatch_receipt_id: dispatch.trigger_event_id.clone(),
+                    resident_pubkey: dispatch.resident_pubkey.clone(),
+                    session_epoch: active_epoch,
+                })
+            })
+            .collect::<Vec<_>>();
+        turns.sort_by(|left, right| {
+            left.resident_pubkey
+                .cmp(&right.resident_pubkey)
+                .then_with(|| left.dispatch_receipt_id.cmp(&right.dispatch_receipt_id))
+        });
+        turns
     }
 
     /// Persist cancellation of exactly one claimed resident turn before the
@@ -440,6 +472,28 @@ impl ManagedDispatchStore {
                 dispatch.interruption_reason = None;
                 // A frozen event may still need the encrypted-outbox handshake.
                 dispatch.outbox_finalized = !receipt.had_outbox_authority;
+                if self.persist().is_err() {
+                    self.dispatches = previous;
+                    return Err(DispatchAuthorizationError::Persistence);
+                }
+                Ok(ExactDispatchCancellationResult::Cancelled(receipt))
+            }
+            ManagedDispatchState::Pending
+                if dispatch.session_epoch.is_none()
+                    && self.active_sessions.get(&dispatch.resident_pubkey)
+                        == Some(&session_epoch) =>
+            {
+                let receipt = ExactDispatchCancellation {
+                    trigger_event_id: dispatch.trigger_event_id.clone(),
+                    resident_pubkey: dispatch.resident_pubkey.clone(),
+                    conversation_id: dispatch.conversation_id.clone(),
+                    session_epoch,
+                    had_outbox_authority: false,
+                };
+                dispatch.session_epoch = Some(session_epoch);
+                dispatch.state = ManagedDispatchState::Cancelled;
+                dispatch.interruption_reason = None;
+                dispatch.outbox_finalized = true;
                 if self.persist().is_err() {
                     self.dispatches = previous;
                     return Err(DispatchAuthorizationError::Persistence);
@@ -2194,7 +2248,61 @@ mod tests {
     }
 
     #[test]
-    fn resolve_unique_active_fails_closed_for_no_match_and_ambiguity() {
+    fn pending_turn_is_listed_and_cancelled_against_current_broker_epoch() {
+        let owner = Keys::parse(&"93".repeat(32)).expect("owner");
+        let resident = Keys::parse(&"94".repeat(32)).expect("resident");
+        let trigger = event(&owner, &resident, CHANNEL_ONE, "cancel pending");
+        let temp = tempfile::tempdir().expect("temp");
+        let path = temp.path().join("dispatches.json");
+        let mut store = ManagedDispatchStore::load(path.clone()).expect("store");
+        store
+            .stage_owner_event(&trigger, &[resident.public_key().to_hex()], 100)
+            .expect("stage");
+        assert!(store
+            .cancellable_for_conversation(&owner.public_key().to_hex(), CHANNEL_ONE)
+            .is_empty());
+
+        store
+            .activate_session(&resident.public_key().to_hex(), 29)
+            .expect("epoch");
+        assert_eq!(
+            store.cancellable_for_conversation(&owner.public_key().to_hex(), CHANNEL_ONE),
+            vec![CancellableManagedDispatch {
+                dispatch_receipt_id: trigger.id.to_hex(),
+                resident_pubkey: resident.public_key().to_hex(),
+                session_epoch: 29,
+            }]
+        );
+
+        let cancelled = store
+            .cancel_exact(
+                &owner.public_key().to_hex(),
+                CHANNEL_ONE,
+                &resident.public_key().to_hex(),
+                &trigger.id.to_hex(),
+                29,
+            )
+            .expect("cancel pending");
+        assert!(matches!(
+            cancelled,
+            ExactDispatchCancellationResult::Cancelled(ExactDispatchCancellation {
+                session_epoch: 29,
+                had_outbox_authority: false,
+                ..
+            })
+        ));
+        let reloaded = ManagedDispatchStore::load(path).expect("reload");
+        let row = reloaded
+            .dispatches
+            .get(&(trigger.id.to_hex(), resident.public_key().to_hex()))
+            .expect("row");
+        assert_eq!(row.state, ManagedDispatchState::Cancelled);
+        assert_eq!(row.session_epoch, Some(29));
+        assert!(row.outbox_finalized);
+    }
+
+    #[test]
+    fn resolve_unique_cancellable_fails_closed_for_no_match_and_ambiguity() {
         let owner = Keys::parse(&"97".repeat(32)).expect("owner");
         let resident = Keys::parse(&"98".repeat(32)).expect("resident");
         let first = event(&owner, &resident, CHANNEL_ONE, "first");
@@ -2204,7 +2312,7 @@ mod tests {
             ManagedDispatchStore::load(temp.path().join("dispatches.json")).expect("store");
 
         assert_eq!(
-            store.resolve_unique_active(
+            store.resolve_unique_cancellable(
                 &owner.public_key().to_hex(),
                 CHANNEL_ONE,
                 &resident.public_key().to_hex(),
@@ -2223,14 +2331,15 @@ mod tests {
             .expect("activate first");
         assert_eq!(
             store
-                .resolve_unique_active(
+                .resolve_unique_cancellable(
                     &owner.public_key().to_hex(),
                     CHANNEL_ONE,
                     &resident.public_key().to_hex(),
                 )
                 .expect("exact active"),
-            ExactActiveDispatch {
+            CancellableManagedDispatch {
                 dispatch_receipt_id: first.id.to_hex(),
+                resident_pubkey: resident.public_key().to_hex(),
                 session_epoch: 23,
             }
         );
@@ -2242,7 +2351,7 @@ mod tests {
             .authorize_publication(&request(&owner, &resident, &second, CHANNEL_ONE, 23), 103)
             .expect("activate second");
         assert_eq!(
-            store.resolve_unique_active(
+            store.resolve_unique_cancellable(
                 &owner.public_key().to_hex(),
                 CHANNEL_ONE,
                 &resident.public_key().to_hex(),

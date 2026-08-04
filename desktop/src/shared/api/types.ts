@@ -482,6 +482,12 @@ export type CancelManagedAgentTurnResult = {
   controlEventId: string | null;
 };
 
+export type CancellableManagedTurn = {
+  dispatchReceiptId: string;
+  residentPubkey: string;
+  sessionEpoch: number;
+};
+
 export type ManagedPermissionOption = {
   optionId: string;
   name: string;

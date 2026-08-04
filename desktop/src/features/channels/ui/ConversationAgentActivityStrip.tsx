@@ -4,7 +4,11 @@ import { toast } from "sonner";
 
 import type { BotActivityAgent } from "@/features/channels/ui/BotActivityBar";
 import type { ChannelAgentSessionAgent } from "@/features/channels/ui/useChannelAgentSessions";
-import { cancelManagedAgentTurn } from "@/shared/api/agentControl";
+import {
+  cancelManagedAgentTurn,
+  listCancellableManagedTurns,
+} from "@/shared/api/agentControl";
+import type { CancellableManagedTurn } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import {
   AgentIdentitySpecimen,
@@ -39,20 +43,49 @@ export function ConversationAgentActivityStrip({
   workingPubkeys,
 }: ConversationAgentActivityStripProps) {
   const [stopping, setStopping] = React.useState(false);
-  const working = new Set(workingPubkeys.map(normalizePubkey));
+  const [cancellableTurns, setCancellableTurns] = React.useState<
+    CancellableManagedTurn[]
+  >([]);
+
+  React.useEffect(() => {
+    let active = true;
+    if (!channelId) {
+      setCancellableTurns([]);
+      return;
+    }
+    const refresh = async () => {
+      try {
+        const turns = await listCancellableManagedTurns(channelId);
+        if (active) setCancellableTurns(turns);
+      } catch {
+        if (active) setCancellableTurns([]);
+      }
+    };
+    void refresh();
+    const interval = window.setInterval(() => void refresh(), 750);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [channelId]);
+
+  const working = new Set([
+    ...workingPubkeys.map(normalizePubkey),
+    ...cancellableTurns.map((turn) => normalizePubkey(turn.residentPubkey)),
+  ]);
   const sessions = new Map(
     sessionAgents.map((agent) => [normalizePubkey(agent.pubkey), agent]),
   );
-  const cancellablePubkeys = [...working].filter((pubkey) =>
-    sessions.has(pubkey),
+  const exactCancellableTurns = cancellableTurns.filter((turn) =>
+    sessions.has(normalizePubkey(turn.residentPubkey)),
   );
 
   async function stopConversationWork() {
-    if (!channelId || cancellablePubkeys.length === 0 || stopping) return;
+    if (!channelId || exactCancellableTurns.length === 0 || stopping) return;
     setStopping(true);
     const results = await Promise.allSettled(
-      cancellablePubkeys.map((pubkey) =>
-        cancelManagedAgentTurn(pubkey, channelId),
+      exactCancellableTurns.map((turn) =>
+        cancelManagedAgentTurn(turn.residentPubkey, channelId, turn),
       ),
     );
     const completed = results.filter(
@@ -88,6 +121,7 @@ export function ConversationAgentActivityStrip({
           : `${failed} residents could not be stopped.`,
       );
     }
+    setCancellableTurns([]);
     setStopping(false);
   }
 
@@ -122,7 +156,7 @@ export function ConversationAgentActivityStrip({
           </button>
         );
       })}
-      {cancellablePubkeys.length > 0 ? (
+      {exactCancellableTurns.length > 0 ? (
         <button
           aria-label="Stop all active residents in this conversation"
           className="ml-auto flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"

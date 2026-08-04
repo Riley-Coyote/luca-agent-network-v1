@@ -78,7 +78,13 @@ OLD_APP="$STAGE_DIR/$APP_NAME.previous.app"
 codesign --verify --deep --strict "$NEW_APP"
 
 running_pids() {
-    ps -axo pid=,command= | awk -v exe="$INSTALL_APP/Contents/MacOS/buzz-desktop" '$2 == exe {print $1}'
+    ps -axo pid=,command= | awk -v exe="$INSTALL_APP/Contents/MacOS/buzz-desktop" '
+        {
+            pid = $1
+            sub(/^[[:space:]]*[0-9]+[[:space:]]+/, "", $0)
+            if ($0 == exe) print pid
+        }
+    '
 }
 
 /usr/bin/osascript -e "tell application id \"$APP_ID\" to quit" >/dev/null 2>&1 || true
@@ -110,10 +116,26 @@ codesign --verify --deep --strict "$INSTALL_APP"
 "$LSREGISTER" -f "$INSTALL_APP"
 /usr/bin/open -n "$INSTALL_APP"
 
-for _ in 1 2 3 4 5 6 7 8 9 10; do
+# LaunchServices can retain the prior dev-bundle path while two bundles with
+# the same identifier are present during the atomic swap. Give the registered
+# launch a bounded chance, then start the exact installed executable rather
+# than rolling back a healthy build because macOS resolved the stale path.
+for _ in $(seq 1 20); do
     [[ -n "$(running_pids)" ]] && break
     sleep 0.5
 done
+if [[ -z "$(running_pids)" ]]; then
+    INSTALL_LOG="$HOME/Library/Logs/Luca Agent Network Dev.log"
+    echo "LaunchServices did not start the installed path; launching its exact executable."
+    env BUZZ_DEV_KEYRING_SERVICE="$KEYRING_SERVICE" \
+        "$INSTALL_APP/Contents/MacOS/buzz-desktop" \
+        >>"$INSTALL_LOG" 2>&1 &
+    disown
+    for _ in $(seq 1 40); do
+        [[ -n "$(running_pids)" ]] && break
+        sleep 0.5
+    done
+fi
 if [[ -z "$(running_pids)" ]]; then
     echo "$APP_NAME did not remain running after launch." >&2
     false
