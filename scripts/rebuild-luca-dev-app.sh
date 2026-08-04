@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# Rebuild, install, register, and relaunch the frozen Luca development bundle.
+#
+# This preserves the stable development bundle identity used by macOS
+# permissions and computer-use tooling. It does not reset app data or keychain
+# state. Run from anywhere inside the repository.
+
+set -euo pipefail
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+BUILD_APP="$REPO_ROOT/desktop/src-tauri/target/debug/bundle/macos/Luca Agent Network Dev.app"
+INSTALL_APP="${LUCA_DEV_INSTALL_APP:-$HOME/Applications/Luca Agent Network Dev.app}"
+APP_ID="com.luca.agent-network.dev"
+APP_NAME="Luca Agent Network Dev"
+DEFAULT_KEYRING_SERVICE="buzz-desktop-dev.luca-v1"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+
+case "$INSTALL_APP" in
+    */Applications/Luca\ Agent\ Network\ Dev.app) ;;
+    *)
+        echo "Refusing unexpected install path: $INSTALL_APP" >&2
+        exit 2
+        ;;
+esac
+
+cd "$REPO_ROOT"
+. ./bin/activate-hermit
+
+echo "Building $APP_NAME from $(git rev-parse --short HEAD)..."
+(
+    cd desktop
+    pnpm exec tauri build --debug --bundles app \
+        --config src-tauri/tauri.dev.conf.json --ci
+)
+
+if [[ ! -d "$BUILD_APP" ]]; then
+    echo "Expected bundle was not produced: $BUILD_APP" >&2
+    exit 1
+fi
+
+KEYRING_SERVICE="$DEFAULT_KEYRING_SERVICE"
+if [[ -f "$INSTALL_APP/Contents/Info.plist" ]]; then
+    EXISTING_SERVICE=$(/usr/libexec/PlistBuddy \
+        -c 'Print :LSEnvironment:BUZZ_DEV_KEYRING_SERVICE' \
+        "$INSTALL_APP/Contents/Info.plist" 2>/dev/null || true)
+    if [[ -n "$EXISTING_SERVICE" ]]; then
+        KEYRING_SERVICE="$EXISTING_SERVICE"
+    fi
+fi
+
+PLIST="$BUILD_APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $APP_NAME" "$PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$PLIST"
+if ! /usr/libexec/PlistBuddy -c 'Print :LSEnvironment' "$PLIST" >/dev/null 2>&1; then
+    /usr/libexec/PlistBuddy -c 'Add :LSEnvironment dict' "$PLIST"
+fi
+if /usr/libexec/PlistBuddy -c 'Print :LSEnvironment:BUZZ_DEV_KEYRING_SERVICE' "$PLIST" >/dev/null 2>&1; then
+    /usr/libexec/PlistBuddy -c "Set :LSEnvironment:BUZZ_DEV_KEYRING_SERVICE $KEYRING_SERVICE" "$PLIST"
+else
+    /usr/libexec/PlistBuddy -c "Add :LSEnvironment:BUZZ_DEV_KEYRING_SERVICE string $KEYRING_SERVICE" "$PLIST"
+fi
+
+codesign --force --deep --sign - \
+    --entitlements "$REPO_ROOT/desktop/src-tauri/Entitlements.plist" \
+    "$BUILD_APP"
+codesign --verify --deep --strict "$BUILD_APP"
+
+BUILT_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")
+if [[ "$BUILT_ID" != "$APP_ID" ]]; then
+    echo "Unexpected bundle identifier: $BUILT_ID" >&2
+    exit 1
+fi
+
+STAGE_DIR=$(mktemp -d /tmp/luca-dev-install.XXXXXX)
+NEW_APP="$STAGE_DIR/$APP_NAME.app"
+OLD_APP="$STAGE_DIR/$APP_NAME.previous.app"
+/usr/bin/ditto "$BUILD_APP" "$NEW_APP"
+codesign --verify --deep --strict "$NEW_APP"
+
+running_pids() {
+    ps -axo pid=,command= | awk -v exe="$INSTALL_APP/Contents/MacOS/buzz-desktop" '$2 == exe {print $1}'
+}
+
+/usr/bin/osascript -e "tell application id \"$APP_ID\" to quit" >/dev/null 2>&1 || true
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    [[ -z "$(running_pids)" ]] && break
+    sleep 0.5
+done
+if [[ -n "$(running_pids)" ]]; then
+    running_pids | xargs kill -TERM
+    sleep 1
+fi
+
+if [[ -d "$INSTALL_APP" ]]; then
+    mv "$INSTALL_APP" "$OLD_APP"
+fi
+
+rollback() {
+    if [[ -d "$OLD_APP" ]]; then
+        [[ -d "$INSTALL_APP" ]] && mv "$INSTALL_APP" "$NEW_APP.failed"
+        mv "$OLD_APP" "$INSTALL_APP"
+        "$LSREGISTER" -f "$INSTALL_APP" || true
+        /usr/bin/open -n "$INSTALL_APP" || true
+    fi
+}
+trap rollback ERR
+
+mv "$NEW_APP" "$INSTALL_APP"
+codesign --verify --deep --strict "$INSTALL_APP"
+"$LSREGISTER" -f "$INSTALL_APP"
+/usr/bin/open -n "$INSTALL_APP"
+
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    [[ -n "$(running_pids)" ]] && break
+    sleep 0.5
+done
+if [[ -z "$(running_pids)" ]]; then
+    echo "$APP_NAME did not remain running after launch." >&2
+    false
+fi
+
+trap - ERR
+echo "Installed and running: $INSTALL_APP"
+echo "Bundle ID: $APP_ID"
+echo "Previous bundle backup: $OLD_APP"
