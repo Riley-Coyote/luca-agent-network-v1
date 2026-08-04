@@ -134,8 +134,8 @@ export function NativeResidentImportSection({
             Agents already on this Mac
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Import their existing identity and configuration. Mnemos does not
-            copy their credentials.
+            Import their existing identity and configuration. Luca does not copy
+            their credentials.
           </p>
         </div>
         <Button
