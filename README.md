@@ -1,3 +1,10 @@
+> [!IMPORTANT]
+> This repository is the private Luca application fork of Buzz. Start with
+> [HANDOFF.md](HANDOFF.md) for the current product, architecture, branch map,
+> completed work, exact verification state, and continuation instructions.
+> The Buzz documentation below is retained as upstream technical reference;
+> it is not the current Luca product specification.
+
 <h1 align="center">Buzz 🐝</h1>
 
 <p align="center">

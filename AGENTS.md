@@ -1,4 +1,23 @@
-# AGENTS.md — AI Agent Contributor Guide
+# Luca fork instructions
+
+This checkout is the Luca personal-agent application, derived from Buzz. Before
+changing code, read [HANDOFF.md](HANDOFF.md) and
+[docs/luca/G1_CHECKLIST.md](docs/luca/G1_CHECKLIST.md). Those files override
+Buzz product assumptions in the upstream guide below. In particular:
+
+- Luca is a personal agent network, not an organization/community product.
+- There is no conductor. The owner talks directly with persistent residents in
+  DMs and multi-agent conversations.
+- Buzz remains the messaging/event/UI foundation; do not rebuild its transport.
+- Resident cryptographic identity is stable across runtime/model changes.
+- Native Hermes/OpenClaw configuration is read-only and credentials are never
+  copied into Luca.
+- `agent/runtime-reliability` is the integrated continuation branch. The
+  `agent/vision-demo` branch is a visual reference and must not be merged
+  wholesale.
+- Do not claim G1 from unit tests alone. Use the repository checklist.
+
+# AGENTS.md — Upstream AI Agent Contributor Guide
 
 This guide is for AI agents contributing to the Buzz codebase. It covers
 agent-specific context and conventions. For general contributor info (setup,
