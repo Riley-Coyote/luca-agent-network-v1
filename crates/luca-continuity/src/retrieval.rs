@@ -35,11 +35,12 @@ pub const MAX_VECTOR_ENTRIES: usize = 4_096;
 /// Maximum aggregate fixed-point components accepted by one vector index.
 pub const MAX_VECTOR_COMPONENTS: usize = 1_048_576;
 
-const MAX_RECORD_BODY_BYTES: usize = 1_048_576;
-const MAX_TAGS: usize = 256;
-const MAX_AGGREGATE_TAG_BYTES: usize = 64 * 1024;
-const MAX_PROVENANCE_REFS: usize = 256;
-const MAX_INPUT_EDGES: usize = 256;
+pub(crate) const MAX_RECORD_BODY_BYTES: usize = 1_048_576;
+pub(crate) const MAX_TAGS: usize = 256;
+pub(crate) const MAX_AGGREGATE_TAG_BYTES: usize = 64 * 1024;
+pub(crate) const MAX_PROVENANCE_REFS: usize = 256;
+pub(crate) const MAX_INPUT_EDGES: usize = 256;
+pub(crate) const MAX_CONFIDENCE_BASIS_POINTS: u16 = 10_000;
 
 /// Process-memory plaintext that always zeroizes and never prints its value.
 ///
@@ -222,7 +223,7 @@ impl RetrievalRecord {
                 .any(|edge| !seen.insert((edge.target_record_id.clone(), edge.relation.clone())))
         };
         if input.body.len() > MAX_RECORD_BODY_BYTES
-            || input.confidence_basis_points > 10_000
+            || input.confidence_basis_points > MAX_CONFIDENCE_BASIS_POINTS
             || input.tags.len() > MAX_TAGS
             || input
                 .tags

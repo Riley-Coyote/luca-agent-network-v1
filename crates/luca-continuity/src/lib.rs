@@ -15,6 +15,7 @@ mod repository;
 mod retrieval;
 mod retrieval_fts;
 mod retrieval_graph;
+mod retrieval_material;
 mod revision;
 mod scope;
 
@@ -36,6 +37,9 @@ pub use retrieval::{
     MAX_HYDRATED_BODY_BYTES, MAX_HYDRATED_EDGES, MAX_HYDRATED_RECORDS, MAX_HYDRATED_TAG_BYTES,
     MAX_LEXICAL_SEEDS, MAX_OUTGOING_EDGES, MAX_RETRIEVAL_CUE_BYTES, MAX_RETRIEVAL_HITS,
     MAX_VECTOR_COMPONENTS, MAX_VECTOR_ENTRIES,
+};
+pub use retrieval_material::{
+    RetrievalMaterialV1, RETRIEVAL_MATERIAL_PROTOCOL_V1, RETRIEVAL_MATERIAL_VERSION_V1,
 };
 pub use revision::{
     derive_envelope_replacement_digest, derive_revision_idempotency_key,
