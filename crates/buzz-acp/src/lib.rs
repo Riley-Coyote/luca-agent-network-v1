@@ -2,6 +2,7 @@
 
 mod acp;
 mod config;
+pub mod continuity_provider;
 mod engram_fetch;
 mod filter;
 pub mod luca_final_publisher;
