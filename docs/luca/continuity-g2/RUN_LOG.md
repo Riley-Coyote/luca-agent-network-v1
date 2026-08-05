@@ -219,3 +219,19 @@ Risks/known limits:
   resurrected by revision-order inference after restart.
 - Added acceptance A209 and decision D29. K06 remains unclaimed until protected
   backup/restore includes the resulting authority state.
+
+## 2026-08-05 — K06 — independent recovery/security review blocked
+
+- Initial rotation and protected-backup implementation passed 31 focused tests,
+  formatting, and scoped diff checks but is not accepted.
+- Independent review found that normal crash WAL/SHM state was rejected before
+  SQLite recovery, partial keychain installs were not recoverable, destination
+  owner/root authority was underconstrained, source mappings were not restored
+  transactionally, terminal rotation replay was not request-bound, and the
+  lifecycle lock was not AppState-owned.
+- Archive bounds, symlink rejection, ciphertext/manifest tamper evidence,
+  fresh-keychain restore, and real subprocess crash/reopen proofs were also
+  incomplete.
+- One bounded repair is active. K06, A207, A208, and G2.2 remain unclaimed, and
+  K06 must also incorporate K05D revision authority before final review.
+- Evidence: `evidence/G2/G2.2/K06/security-review-block.md`.
