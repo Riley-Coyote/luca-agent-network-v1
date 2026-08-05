@@ -16,6 +16,17 @@ use std::fmt;
 
 const REVISION_IDEMPOTENCY_DOMAIN_V1: &str = "luca.continuity.revision.idempotency.v1";
 const ENCRYPTED_RECORD_REFERENCE_DOMAIN_V1: &str = "luca.continuity.encrypted-record-ref.v1";
+const ARTIFACT_REGISTRATION_IDEMPOTENCY_DOMAIN_V1: &str =
+    "luca.continuity.artifact-registration.idempotency.v1";
+
+/// Schema version of the body-free revision-authority projection.
+pub const REVISION_AUTHORITY_SCHEMA_V1: u16 = 1;
+/// Maximum lineage-authority rows returned by one deterministic projection.
+pub const MAX_REVISION_AUTHORITY_HEADS: usize = 4_096;
+/// Maximum derived-artifact references retained by one lineage.
+pub const MAX_DERIVED_ARTIFACTS_PER_LINEAGE: usize = 256;
+/// Maximum derived-artifact references retained by one complete ledger.
+pub const MAX_DERIVED_ARTIFACTS_PER_LEDGER: usize = 16_384;
 
 /// The operational retrieval state of one immutable record lineage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -218,6 +229,19 @@ pub struct ArtifactRegistrationReceipt {
     pub complete_inventory: Vec<Sha256Ref>,
 }
 
+#[derive(Serialize)]
+struct CanonicalArtifactRegistrationBinding<'a> {
+    domain: &'static str,
+    namespace: &'a ContinuityNamespaceV1,
+    scope: &'a ContinuityScopeV1,
+    record_type: &'a OpaqueId,
+    lineage_envelope_key_version: SafeU53,
+    lineage_root_id: &'a OpaqueId,
+    expected_head_record_id: &'a OpaqueId,
+    request_ref: &'a Sha256Ref,
+    derived_artifact_refs: &'a [Sha256Ref],
+}
+
 /// A body-free receipt retained for idempotent replay.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RevisionReceipt {
@@ -232,6 +256,44 @@ pub struct RevisionReceipt {
     /// Deterministic terminal purge plan when the operation forgot a lineage.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub purge_plan: Option<PurgePlan>,
+}
+
+/// Body-free authoritative state for one known immutable record lineage.
+///
+/// This projection deliberately distinguishes the lineage's exact last head
+/// from the head eligible for retrieval. Archived and forgotten lineages keep
+/// their explicit lifecycle authority while exposing no active head; callers
+/// must never reconstruct either value from revision ordering.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ActiveRevisionHead {
+    /// Version of this body-free authority projection.
+    pub schema_version: u16,
+    /// Exact owner/resident namespace authority for the lineage.
+    pub namespace: ContinuityNamespaceV1,
+    /// Exact source, project, room, and conversation binding for the lineage.
+    pub scope: ContinuityScopeV1,
+    /// Immutable lineage root identifier.
+    pub lineage_root_id: OpaqueId,
+    /// Exact last immutable head retained by the lineage lifecycle.
+    pub lineage_head_record_id: OpaqueId,
+    /// Retrieval-eligible head, present only while the lifecycle is active.
+    pub active_head_record_id: Option<OpaqueId>,
+    /// Explicit lifecycle authority; never inferred from envelope order.
+    pub lifecycle: RevisionLifecycle,
+    /// Whether an owner correction currently pins successor authority.
+    pub pinned_owner_correction: bool,
+    /// Exact durable record kind shared by the complete lineage.
+    pub record_type: OpaqueId,
+    /// Envelope key version authenticated by every retained lineage record.
+    ///
+    /// This is not K06's globally active root-key version. Rotation or restore
+    /// must reconcile it through an authenticated desktop transaction before
+    /// hydration; the pure ledger never infers or advances it.
+    pub lineage_envelope_key_version: SafeU53,
+    /// Complete sorted body-free derived-artifact inventory.
+    pub derived_artifact_refs: Vec<Sha256Ref>,
+    /// Idempotency key of the exact authority mutation producing this state.
+    pub authority_mutation_idempotency_key: Sha256Ref,
 }
 
 #[derive(Serialize)]
@@ -260,16 +322,24 @@ struct IdempotencyEntry {
 }
 
 #[derive(Debug, Clone)]
+struct ArtifactIdempotencyEntry {
+    canonical_request: Vec<u8>,
+    receipt: ArtifactRegistrationReceipt,
+}
+
+#[derive(Debug, Clone)]
 struct Lineage {
+    lineage_root_id: OpaqueId,
     namespace: ContinuityNamespaceV1,
     scope: ContinuityScopeV1,
     record_type: OpaqueId,
-    key_version: SafeU53,
+    lineage_envelope_key_version: SafeU53,
     record_ids: Vec<OpaqueId>,
     head_record_id: OpaqueId,
     lifecycle: RevisionLifecycle,
     pinned_owner_correction: bool,
     derived_artifact_inventory: Vec<Sha256Ref>,
+    authority_mutation_idempotency_key: Sha256Ref,
 }
 
 /// Pure in-memory append-only encrypted-record lifecycle ledger.
@@ -278,6 +348,7 @@ pub struct RevisionLedger {
     records: BTreeMap<String, ContinuityRecordV1>,
     lineages: BTreeMap<String, Lineage>,
     idempotency: BTreeMap<String, IdempotencyEntry>,
+    artifact_idempotency: BTreeMap<String, ArtifactIdempotencyEntry>,
 }
 
 impl fmt::Debug for RevisionLedger {
@@ -292,6 +363,10 @@ impl fmt::Debug for RevisionLedger {
             .field("lineages", &lifecycles)
             .field("record_count", &self.records.len())
             .field("idempotency_receipt_count", &self.idempotency.len())
+            .field(
+                "artifact_idempotency_receipt_count",
+                &self.artifact_idempotency.len(),
+            )
             .finish()
     }
 }
@@ -370,19 +445,132 @@ impl RevisionLedger {
             .map(|lineage| lineage.lifecycle)
     }
 
+    /// Return a bounded, stable-ID-ordered authority projection for every lineage.
+    ///
+    /// Archived and forgotten lineages remain in the projection with an absent
+    /// `active_head_record_id`, preventing restart code from resurrecting a
+    /// ciphertext merely because it has the largest revision number.
+    pub fn active_heads(&self) -> Result<Vec<ActiveRevisionHead>, ContinuityError> {
+        if self.lineages.len() > MAX_REVISION_AUTHORITY_HEADS {
+            return Err(ContinuityError::InvalidRevisionRequest);
+        }
+        self.validate_artifact_authority_bounds()?;
+        if self
+            .lineages
+            .values()
+            .any(|lineage| lineage.namespace.key_version != lineage.lineage_envelope_key_version)
+        {
+            return Err(ContinuityError::RevisionConflict);
+        }
+
+        Ok(self
+            .lineages
+            .values()
+            .map(|lineage| ActiveRevisionHead {
+                schema_version: REVISION_AUTHORITY_SCHEMA_V1,
+                namespace: lineage.namespace.clone(),
+                scope: lineage.scope.clone(),
+                lineage_root_id: lineage.lineage_root_id.clone(),
+                lineage_head_record_id: lineage.head_record_id.clone(),
+                active_head_record_id: (lineage.lifecycle == RevisionLifecycle::Active)
+                    .then(|| lineage.head_record_id.clone()),
+                lifecycle: lineage.lifecycle,
+                pinned_owner_correction: lineage.pinned_owner_correction,
+                record_type: lineage.record_type.clone(),
+                lineage_envelope_key_version: lineage.lineage_envelope_key_version,
+                derived_artifact_refs: lineage.derived_artifact_inventory.clone(),
+                authority_mutation_idempotency_key: lineage
+                    .authority_mutation_idempotency_key
+                    .clone(),
+            })
+            .collect())
+    }
+
+    /// Verify one lineage's authenticated envelope key version without rekeying it.
+    ///
+    /// K06 rotation and restore own envelope replacement and generation CAS.
+    /// They must rebuild or hydrate revision authority from one authenticated
+    /// generation. A mismatch fails closed here; this method never guesses,
+    /// advances, or mutates key-version authority.
+    pub fn verify_lineage_envelope_key_version(
+        &self,
+        lineage_root_id: &OpaqueId,
+        authenticated_envelope_key_version: SafeU53,
+    ) -> Result<(), ContinuityError> {
+        let lineage = self
+            .lineage(lineage_root_id)
+            .ok_or(ContinuityError::RevisionConflict)?;
+        if lineage.lineage_envelope_key_version != authenticated_envelope_key_version
+            || lineage.namespace.key_version != lineage.lineage_envelope_key_version
+        {
+            return Err(ContinuityError::RevisionConflict);
+        }
+        Ok(())
+    }
+
+    /// Derive the domain-separated idempotency key for one artifact mutation.
+    pub fn derive_artifact_registration_idempotency_key(
+        &self,
+        lineage_root_id: &OpaqueId,
+        expected_head_record_id: &OpaqueId,
+        request_ref: &Sha256Ref,
+        artifacts: &[Sha256Ref],
+    ) -> Result<Sha256Ref, ContinuityError> {
+        require_bounded_sorted_unique_artifacts(artifacts)?;
+        if artifacts.is_empty() {
+            return Err(ContinuityError::InvalidRevisionRequest);
+        }
+        let canonical = self.canonical_artifact_registration_binding(
+            lineage_root_id,
+            expected_head_record_id,
+            request_ref,
+            artifacts,
+        )?;
+        Sha256Ref::parse(format!("sha256:{}", hex::encode(Sha256::digest(canonical))))
+            .map_err(|_| ContinuityError::InvalidRevisionRequest)
+    }
+
     /// Idempotently append body-free derived artifacts to one exact lineage.
     ///
     /// References are never removed. Forget must later present the exact full
     /// inventory so incomplete or injected purge targets fail atomically.
     pub fn register_derived_artifacts(
         &mut self,
+        idempotency_key: Sha256Ref,
+        request_ref: Sha256Ref,
         lineage_root_id: &OpaqueId,
         expected_head_record_id: &OpaqueId,
         artifacts: Vec<Sha256Ref>,
     ) -> Result<ArtifactRegistrationReceipt, ContinuityError> {
-        require_sorted_unique(&artifacts)?;
+        require_bounded_sorted_unique_artifacts(&artifacts)?;
+        if artifacts.is_empty() {
+            return Err(ContinuityError::InvalidRevisionRequest);
+        }
+        let canonical = self.canonical_artifact_registration_binding(
+            lineage_root_id,
+            expected_head_record_id,
+            &request_ref,
+            &artifacts,
+        )?;
+        if let Some(existing) = self.artifact_idempotency.get(idempotency_key.as_str()) {
+            return if existing.canonical_request == canonical {
+                Ok(existing.receipt.clone())
+            } else {
+                Err(ContinuityError::IdempotencyConflict)
+            };
+        }
+        let expected_key = Sha256Ref::parse(format!(
+            "sha256:{}",
+            hex::encode(Sha256::digest(&canonical))
+        ))
+        .map_err(|_| ContinuityError::InvalidRevisionRequest)?;
+        if idempotency_key != expected_key {
+            return Err(ContinuityError::InvalidRevisionRequest);
+        }
+
+        let aggregate_count = self.validate_artifact_authority_bounds()?;
         let lineage = self
-            .lineage_mut(lineage_root_id)
+            .lineage(lineage_root_id)
             .ok_or(ContinuityError::RevisionConflict)?;
         if &lineage.head_record_id != expected_head_record_id {
             return Err(ContinuityError::RevisionConflict);
@@ -390,6 +578,30 @@ impl RevisionLedger {
         if lineage.lifecycle == RevisionLifecycle::Forgotten {
             return Err(ContinuityError::LifecycleConflict);
         }
+        let new_count = artifacts
+            .iter()
+            .filter(|artifact| !lineage.derived_artifact_inventory.contains(artifact))
+            .count();
+        if new_count == 0 {
+            return Err(ContinuityError::InvalidRevisionRequest);
+        }
+        let next_lineage_count = lineage
+            .derived_artifact_inventory
+            .len()
+            .checked_add(new_count)
+            .ok_or(ContinuityError::InvalidRevisionRequest)?;
+        let next_aggregate_count = aggregate_count
+            .checked_add(new_count)
+            .ok_or(ContinuityError::InvalidRevisionRequest)?;
+        if next_lineage_count > MAX_DERIVED_ARTIFACTS_PER_LINEAGE
+            || next_aggregate_count > MAX_DERIVED_ARTIFACTS_PER_LEDGER
+        {
+            return Err(ContinuityError::InvalidRevisionRequest);
+        }
+
+        let lineage = self
+            .lineage_mut(lineage_root_id)
+            .ok_or(ContinuityError::RevisionConflict)?;
         let newly_registered: Vec<_> = artifacts
             .iter()
             .filter(|artifact| !lineage.derived_artifact_inventory.contains(artifact))
@@ -399,10 +611,56 @@ impl RevisionLedger {
             .derived_artifact_inventory
             .extend(newly_registered.iter().cloned());
         lineage.derived_artifact_inventory.sort();
-        Ok(ArtifactRegistrationReceipt {
+        lineage.authority_mutation_idempotency_key = idempotency_key.clone();
+        let receipt = ArtifactRegistrationReceipt {
             lineage_root_id: lineage_root_id.clone(),
             newly_registered,
             complete_inventory: lineage.derived_artifact_inventory.clone(),
+        };
+        self.artifact_idempotency.insert(
+            idempotency_key.as_str().to_owned(),
+            ArtifactIdempotencyEntry {
+                canonical_request: canonical,
+                receipt: receipt.clone(),
+            },
+        );
+        Ok(receipt)
+    }
+
+    fn canonical_artifact_registration_binding(
+        &self,
+        lineage_root_id: &OpaqueId,
+        expected_head_record_id: &OpaqueId,
+        request_ref: &Sha256Ref,
+        artifacts: &[Sha256Ref],
+    ) -> Result<Vec<u8>, ContinuityError> {
+        let lineage = self
+            .lineage(lineage_root_id)
+            .ok_or(ContinuityError::RevisionConflict)?;
+        canonicalize(&CanonicalArtifactRegistrationBinding {
+            domain: ARTIFACT_REGISTRATION_IDEMPOTENCY_DOMAIN_V1,
+            namespace: &lineage.namespace,
+            scope: &lineage.scope,
+            record_type: &lineage.record_type,
+            lineage_envelope_key_version: lineage.lineage_envelope_key_version,
+            lineage_root_id,
+            expected_head_record_id,
+            request_ref,
+            derived_artifact_refs: artifacts,
+        })
+        .map_err(|_| ContinuityError::InvalidRevisionRequest)
+    }
+
+    fn validate_artifact_authority_bounds(&self) -> Result<usize, ContinuityError> {
+        self.lineages.values().try_fold(0_usize, |total, lineage| {
+            if lineage.derived_artifact_inventory.len() > MAX_DERIVED_ARTIFACTS_PER_LINEAGE {
+                return Err(ContinuityError::InvalidRevisionRequest);
+            }
+            require_sorted_unique(&lineage.derived_artifact_inventory)?;
+            total
+                .checked_add(lineage.derived_artifact_inventory.len())
+                .filter(|next| *next <= MAX_DERIVED_ARTIFACTS_PER_LEDGER)
+                .ok_or(ContinuityError::InvalidRevisionRequest)
         })
     }
 
@@ -416,7 +674,7 @@ impl RevisionLedger {
 
     fn validate_request_shape(&self, request: &RevisionRequest) -> Result<(), ContinuityError> {
         require_sorted_unique(&request.signed_source_event_refs)?;
-        require_sorted_unique(&request.derived_artifact_refs)?;
+        require_bounded_sorted_unique_artifacts(&request.derived_artifact_refs)?;
         match request.operation {
             RevisionOperation::Create
             | RevisionOperation::Revise
@@ -487,7 +745,7 @@ impl RevisionLedger {
                     &lineage.namespace,
                     &lineage.scope,
                     &lineage.record_type,
-                    lineage.key_version,
+                    lineage.lineage_envelope_key_version,
                 )
             };
         canonical_idempotency_binding(
@@ -521,7 +779,7 @@ impl RevisionLedger {
                 &lineage.namespace,
                 &lineage.scope,
                 &lineage.record_type,
-                lineage.key_version,
+                lineage.lineage_envelope_key_version,
                 request,
             )
         }
@@ -571,6 +829,9 @@ impl RevisionLedger {
         {
             return Err(ContinuityError::RevisionConflict);
         }
+        if self.lineages.len() >= MAX_REVISION_AUTHORITY_HEADS {
+            return Err(ContinuityError::InvalidRevisionRequest);
+        }
         DurableContinuityRecordKind::parse(&successor.record_type)?;
         self.require_unique_namespace_nonce(successor)?;
         let root = request.lineage_root_id.clone();
@@ -580,15 +841,17 @@ impl RevisionLedger {
         self.lineages.insert(
             root.as_str().to_owned(),
             Lineage {
+                lineage_root_id: root.clone(),
                 namespace: successor.namespace.clone(),
                 scope: successor.scope.clone(),
                 record_type: successor.record_type.clone(),
-                key_version: successor.key_version,
+                lineage_envelope_key_version: successor.key_version,
                 record_ids: vec![head.clone()],
                 head_record_id: head.clone(),
                 lifecycle: RevisionLifecycle::Active,
                 pinned_owner_correction: false,
                 derived_artifact_inventory: Vec::new(),
+                authority_mutation_idempotency_key: request.idempotency_key.clone(),
             },
         );
         Ok(RevisionReceipt {
@@ -661,6 +924,7 @@ impl RevisionLedger {
         lineage.record_ids.push(head.clone());
         lineage.head_record_id = head.clone();
         lineage.lifecycle = next_lifecycle;
+        lineage.authority_mutation_idempotency_key = request.idempotency_key.clone();
         if owner_correction {
             lineage.pinned_owner_correction = true;
         }
@@ -693,7 +957,7 @@ impl RevisionLedger {
         if successor.namespace != lineage.namespace
             || successor.scope != lineage.scope
             || successor.record_type != lineage.record_type
-            || successor.key_version != lineage.key_version
+            || successor.key_version != lineage.lineage_envelope_key_version
             || successor.revision != next_revision
             || successor.predecessor_record_id.as_ref() != Some(&lineage.head_record_id)
             || self.records.contains_key(successor.record_id.as_str())
@@ -733,6 +997,7 @@ impl RevisionLedger {
             return Err(ContinuityError::LifecycleConflict);
         }
         lineage.lifecycle = RevisionLifecycle::Archived;
+        lineage.authority_mutation_idempotency_key = request.idempotency_key.clone();
         Ok(RevisionReceipt {
             lineage_root_id: request.lineage_root_id.clone(),
             operation: RevisionOperation::Archive,
@@ -764,6 +1029,7 @@ impl RevisionLedger {
             derived_artifact_refs: lineage.derived_artifact_inventory.clone(),
         };
         lineage.lifecycle = RevisionLifecycle::Forgotten;
+        lineage.authority_mutation_idempotency_key = request.idempotency_key.clone();
         Ok(RevisionReceipt {
             lineage_root_id: request.lineage_root_id.clone(),
             operation: RevisionOperation::Forget,
@@ -779,5 +1045,436 @@ fn require_sorted_unique(values: &[Sha256Ref]) -> Result<(), ContinuityError> {
         Err(ContinuityError::InvalidRevisionRequest)
     } else {
         Ok(())
+    }
+}
+
+fn require_bounded_sorted_unique_artifacts(values: &[Sha256Ref]) -> Result<(), ContinuityError> {
+    if values.len() > MAX_DERIVED_ARTIFACTS_PER_LINEAGE {
+        return Err(ContinuityError::InvalidRevisionRequest);
+    }
+    require_sorted_unique(values)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::envelope::{encrypt_record, RecordMetadata};
+    use luca_protocol::{
+        CanonicalTimestamp, ContinuityNamespaceKindV1, Hex64, CONTINUITY_PROTOCOL,
+    };
+
+    fn opaque(value: &str) -> OpaqueId {
+        OpaqueId::parse(value).unwrap()
+    }
+
+    fn hash(digit: char) -> Sha256Ref {
+        Sha256Ref::parse(format!("sha256:{}", digit.to_string().repeat(64))).unwrap()
+    }
+
+    fn indexed_hash(index: usize) -> Sha256Ref {
+        Sha256Ref::parse(format!("sha256:{index:064x}")).unwrap()
+    }
+
+    fn namespace() -> ContinuityNamespaceV1 {
+        ContinuityNamespaceV1 {
+            protocol: CONTINUITY_PROTOCOL.into(),
+            owner_pubkey: Hex64::parse("1".repeat(64)).unwrap(),
+            kind: ContinuityNamespaceKindV1::ResidentPrivate,
+            resident_pubkey: Some(Hex64::parse("2".repeat(64)).unwrap()),
+            namespace_ref: hash('3'),
+            key_version: SafeU53::new(1).unwrap(),
+        }
+    }
+
+    fn scope(namespace: &ContinuityNamespaceV1) -> ContinuityScopeV1 {
+        ContinuityScopeV1 {
+            protocol: CONTINUITY_PROTOCOL.into(),
+            namespace_ref: namespace.namespace_ref.clone(),
+            scope_ref: hash('4'),
+            source_id: Some(opaque("source-1")),
+            project_id: Some(opaque("project-1")),
+            room_id: Some(opaque("room-1")),
+            conversation_id: Some(opaque("conversation-1")),
+        }
+    }
+
+    fn lineage(
+        root: &str,
+        head: &str,
+        lifecycle: RevisionLifecycle,
+        pinned_owner_correction: bool,
+        transition_key: char,
+    ) -> Lineage {
+        let namespace = namespace();
+        Lineage {
+            lineage_root_id: opaque(root),
+            namespace: namespace.clone(),
+            scope: scope(&namespace),
+            record_type: opaque("hypomnema"),
+            lineage_envelope_key_version: SafeU53::new(1).unwrap(),
+            record_ids: vec![opaque(root), opaque(head)],
+            head_record_id: opaque(head),
+            lifecycle,
+            pinned_owner_correction,
+            derived_artifact_inventory: vec![hash('8'), hash('9')],
+            authority_mutation_idempotency_key: hash(transition_key),
+        }
+    }
+
+    fn initial_record(record_id: &str) -> ContinuityRecordV1 {
+        let namespace = namespace();
+        encrypt_record(
+            RecordMetadata {
+                protocol: CONTINUITY_PROTOCOL.into(),
+                record_id: opaque(record_id),
+                namespace: namespace.clone(),
+                scope: scope(&namespace),
+                record_type: opaque("hypomnema"),
+                revision: SafeU53::new(0).unwrap(),
+                predecessor_record_id: None,
+                created_at: CanonicalTimestamp::parse("2026-08-05T00:00:00Z").unwrap(),
+                author_kind: opaque("owner"),
+                provenance_refs: vec![hash('5')],
+                key_version: SafeU53::new(1).unwrap(),
+            },
+            &[7; 32],
+            b"private test body",
+        )
+        .unwrap()
+    }
+
+    fn lifecycle_request(
+        operation: RevisionOperation,
+        root: &str,
+        successor: Option<ContinuityRecordV1>,
+    ) -> RevisionRequest {
+        let successor_ciphertext_ref = successor
+            .as_ref()
+            .map(encrypted_record_reference)
+            .transpose()
+            .unwrap();
+        let namespace = namespace();
+        let mut request = RevisionRequest {
+            idempotency_key: hash('f'),
+            operation,
+            lineage_root_id: opaque(root),
+            expected_head_record_id: (operation != RevisionOperation::Create).then(|| opaque(root)),
+            actor: RevisionActor::Owner,
+            signed_source_event_refs: vec![hash('6')],
+            request_ref: hash('7'),
+            successor,
+            successor_ciphertext_ref,
+            rollback_source_record_id: None,
+            derived_artifact_refs: Vec::new(),
+        };
+        request.idempotency_key = derive_revision_idempotency_key(
+            &namespace,
+            &scope(&namespace),
+            &opaque("hypomnema"),
+            SafeU53::new(1).unwrap(),
+            &request,
+        )
+        .unwrap();
+        request
+    }
+
+    fn create_lineage(ledger: &mut RevisionLedger, root: &str) {
+        ledger
+            .apply(lifecycle_request(
+                RevisionOperation::Create,
+                root,
+                Some(initial_record(root)),
+            ))
+            .unwrap();
+    }
+
+    #[test]
+    fn active_heads_are_deterministic_and_preserve_body_free_authority() {
+        let mut ledger = RevisionLedger::default();
+        ledger.lineages.insert(
+            "root-z".into(),
+            lineage("root-z", "head-z", RevisionLifecycle::Active, false, 'b'),
+        );
+        ledger.lineages.insert(
+            "root-a".into(),
+            lineage("root-a", "head-a", RevisionLifecycle::Active, true, 'a'),
+        );
+
+        let first = ledger.active_heads().unwrap();
+        let second = ledger.active_heads().unwrap();
+
+        assert_eq!(first, second);
+        assert_eq!(
+            first
+                .iter()
+                .map(|head| head.lineage_root_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["root-a", "root-z"]
+        );
+        assert_eq!(first[0].schema_version, REVISION_AUTHORITY_SCHEMA_V1);
+        assert_eq!(first[0].lineage_head_record_id, opaque("head-a"));
+        assert_eq!(first[0].active_head_record_id, Some(opaque("head-a")));
+        assert!(first[0].pinned_owner_correction);
+        assert_eq!(first[0].derived_artifact_refs, vec![hash('8'), hash('9')]);
+        assert_eq!(first[0].authority_mutation_idempotency_key, hash('a'));
+        assert_eq!(first[0].scope.source_id, Some(opaque("source-1")));
+    }
+
+    #[test]
+    fn archived_and_forgotten_lineages_have_explicit_absent_active_heads() {
+        let mut ledger = RevisionLedger::default();
+        create_lineage(&mut ledger, "archived-root");
+        create_lineage(&mut ledger, "forgotten-root");
+        let archive = lifecycle_request(RevisionOperation::Archive, "archived-root", None);
+        let archive_key = archive.idempotency_key.clone();
+        ledger.apply(archive).unwrap();
+        let forget = lifecycle_request(RevisionOperation::Forget, "forgotten-root", None);
+        let forget_key = forget.idempotency_key.clone();
+        ledger.apply(forget).unwrap();
+
+        let heads = ledger.active_heads().unwrap();
+        assert_eq!(heads.len(), 2);
+        assert_eq!(heads[0].lifecycle, RevisionLifecycle::Archived);
+        assert_eq!(heads[0].lineage_head_record_id, opaque("archived-root"));
+        assert_eq!(heads[0].active_head_record_id, None);
+        assert_eq!(heads[0].authority_mutation_idempotency_key, archive_key);
+        assert_eq!(heads[1].lifecycle, RevisionLifecycle::Forgotten);
+        assert_eq!(heads[1].lineage_head_record_id, opaque("forgotten-root"));
+        assert_eq!(heads[1].active_head_record_id, None);
+        assert_eq!(heads[1].authority_mutation_idempotency_key, forget_key);
+    }
+
+    #[test]
+    fn public_create_rejects_lineage_overflow_without_mutation() {
+        let mut ledger = RevisionLedger::default();
+        for index in 0..MAX_REVISION_AUTHORITY_HEADS {
+            let root = format!("root-{index:04}");
+            create_lineage(&mut ledger, &root);
+        }
+        let record_count = ledger.records.len();
+        let idempotency_count = ledger.idempotency.len();
+        let overflow = lifecycle_request(
+            RevisionOperation::Create,
+            "root-overflow",
+            Some(initial_record("root-overflow")),
+        );
+
+        assert_eq!(
+            ledger.apply(overflow),
+            Err(ContinuityError::InvalidRevisionRequest)
+        );
+        assert_eq!(ledger.records.len(), record_count);
+        assert_eq!(ledger.idempotency.len(), idempotency_count);
+        assert_eq!(ledger.lineages.len(), MAX_REVISION_AUTHORITY_HEADS);
+        assert_eq!(
+            ledger.active_heads().unwrap().len(),
+            MAX_REVISION_AUTHORITY_HEADS
+        );
+        assert_eq!(ledger.lifecycle(&opaque("root-overflow")), None);
+    }
+
+    #[test]
+    fn artifact_registration_replays_exact_receipt_and_changes_projection_authority() {
+        let mut ledger = RevisionLedger::default();
+        create_lineage(&mut ledger, "artifact-root");
+        let before = ledger.active_heads().unwrap()[0]
+            .authority_mutation_idempotency_key
+            .clone();
+        let artifacts = vec![hash('8'), hash('9')];
+        let request_ref = hash('a');
+        let key = ledger
+            .derive_artifact_registration_idempotency_key(
+                &opaque("artifact-root"),
+                &opaque("artifact-root"),
+                &request_ref,
+                &artifacts,
+            )
+            .unwrap();
+        let first = ledger
+            .register_derived_artifacts(
+                key.clone(),
+                request_ref.clone(),
+                &opaque("artifact-root"),
+                &opaque("artifact-root"),
+                artifacts.clone(),
+            )
+            .unwrap();
+        let next_artifacts = vec![hash('a')];
+        let next_request_ref = hash('c');
+        let next_key = ledger
+            .derive_artifact_registration_idempotency_key(
+                &opaque("artifact-root"),
+                &opaque("artifact-root"),
+                &next_request_ref,
+                &next_artifacts,
+            )
+            .unwrap();
+        ledger
+            .register_derived_artifacts(
+                next_key.clone(),
+                next_request_ref,
+                &opaque("artifact-root"),
+                &opaque("artifact-root"),
+                next_artifacts,
+            )
+            .unwrap();
+        let replay = ledger
+            .register_derived_artifacts(
+                key.clone(),
+                request_ref,
+                &opaque("artifact-root"),
+                &opaque("artifact-root"),
+                artifacts,
+            )
+            .unwrap();
+
+        assert_eq!(first, replay);
+        assert_eq!(first.newly_registered, vec![hash('8'), hash('9')]);
+        let projected = &ledger.active_heads().unwrap()[0];
+        assert_ne!(projected.authority_mutation_idempotency_key, before);
+        assert_eq!(projected.authority_mutation_idempotency_key, next_key);
+        assert_eq!(
+            projected.derived_artifact_refs,
+            vec![hash('8'), hash('9'), hash('a')]
+        );
+
+        assert_eq!(
+            ledger.register_derived_artifacts(
+                key,
+                hash('b'),
+                &opaque("artifact-root"),
+                &opaque("artifact-root"),
+                vec![hash('8'), hash('9')],
+            ),
+            Err(ContinuityError::IdempotencyConflict)
+        );
+        assert_eq!(
+            ledger.active_heads().unwrap()[0].derived_artifact_refs,
+            vec![hash('8'), hash('9'), hash('a')]
+        );
+    }
+
+    #[test]
+    fn cumulative_artifact_caps_fail_before_authority_mutation() {
+        let mut per_lineage = RevisionLedger::default();
+        create_lineage(&mut per_lineage, "per-lineage-root");
+        let full_inventory: Vec<_> = (0..MAX_DERIVED_ARTIFACTS_PER_LINEAGE)
+            .map(indexed_hash)
+            .collect();
+        let request_ref = hash('a');
+        let initial_key = per_lineage
+            .derive_artifact_registration_idempotency_key(
+                &opaque("per-lineage-root"),
+                &opaque("per-lineage-root"),
+                &request_ref,
+                &full_inventory,
+            )
+            .unwrap();
+        per_lineage
+            .register_derived_artifacts(
+                initial_key.clone(),
+                request_ref,
+                &opaque("per-lineage-root"),
+                &opaque("per-lineage-root"),
+                full_inventory.clone(),
+            )
+            .unwrap();
+        let overflow_ref = hash('b');
+        let overflow_artifact = vec![indexed_hash(MAX_DERIVED_ARTIFACTS_PER_LINEAGE)];
+        let overflow_key = per_lineage
+            .derive_artifact_registration_idempotency_key(
+                &opaque("per-lineage-root"),
+                &opaque("per-lineage-root"),
+                &overflow_ref,
+                &overflow_artifact,
+            )
+            .unwrap();
+        assert_eq!(
+            per_lineage.register_derived_artifacts(
+                overflow_key,
+                overflow_ref,
+                &opaque("per-lineage-root"),
+                &opaque("per-lineage-root"),
+                overflow_artifact,
+            ),
+            Err(ContinuityError::InvalidRevisionRequest)
+        );
+        let projected = &per_lineage.active_heads().unwrap()[0];
+        assert_eq!(projected.derived_artifact_refs, full_inventory);
+        assert_eq!(projected.authority_mutation_idempotency_key, initial_key);
+
+        let mut aggregate = RevisionLedger::default();
+        for index in 0..(MAX_DERIVED_ARTIFACTS_PER_LEDGER / MAX_DERIVED_ARTIFACTS_PER_LINEAGE) {
+            let root = format!("aggregate-root-{index:02}");
+            let mut state = lineage(&root, &root, RevisionLifecycle::Active, false, 'c');
+            state.derived_artifact_inventory = (0..MAX_DERIVED_ARTIFACTS_PER_LINEAGE)
+                .map(indexed_hash)
+                .collect();
+            aggregate.lineages.insert(root, state);
+        }
+        let mut target = lineage(
+            "aggregate-target",
+            "aggregate-target",
+            RevisionLifecycle::Active,
+            false,
+            'd',
+        );
+        target.derived_artifact_inventory.clear();
+        aggregate.lineages.insert("aggregate-target".into(), target);
+        let aggregate_ref = hash('e');
+        let artifact = vec![hash('f')];
+        let aggregate_key = aggregate
+            .derive_artifact_registration_idempotency_key(
+                &opaque("aggregate-target"),
+                &opaque("aggregate-target"),
+                &aggregate_ref,
+                &artifact,
+            )
+            .unwrap();
+        assert_eq!(
+            aggregate.register_derived_artifacts(
+                aggregate_key,
+                aggregate_ref,
+                &opaque("aggregate-target"),
+                &opaque("aggregate-target"),
+                artifact,
+            ),
+            Err(ContinuityError::InvalidRevisionRequest)
+        );
+        assert!(aggregate
+            .lineage(&opaque("aggregate-target"))
+            .unwrap()
+            .derived_artifact_inventory
+            .is_empty());
+        assert_eq!(aggregate.active_heads().unwrap().len(), 65);
+    }
+
+    #[test]
+    fn envelope_key_version_mismatch_fails_closed_without_rekey_inference() {
+        let mut ledger = RevisionLedger::default();
+        create_lineage(&mut ledger, "version-root");
+        assert_eq!(
+            ledger.verify_lineage_envelope_key_version(
+                &opaque("version-root"),
+                SafeU53::new(1).unwrap(),
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            ledger.verify_lineage_envelope_key_version(
+                &opaque("version-root"),
+                SafeU53::new(2).unwrap(),
+            ),
+            Err(ContinuityError::RevisionConflict)
+        );
+
+        ledger
+            .lineage_mut(&opaque("version-root"))
+            .unwrap()
+            .lineage_envelope_key_version = SafeU53::new(2).unwrap();
+        assert_eq!(
+            ledger.active_heads(),
+            Err(ContinuityError::RevisionConflict)
+        );
     }
 }

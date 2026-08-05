@@ -38,8 +38,10 @@ pub use retrieval::{
     MAX_VECTOR_ENTRIES,
 };
 pub use revision::{
-    derive_revision_idempotency_key, encrypted_record_reference, ArtifactRegistrationReceipt,
-    DurableContinuityRecordKind, PurgePlan, RevisionActor, RevisionLedger, RevisionLifecycle,
-    RevisionOperation, RevisionReceipt, RevisionRequest,
+    derive_revision_idempotency_key, encrypted_record_reference, ActiveRevisionHead,
+    ArtifactRegistrationReceipt, DurableContinuityRecordKind, PurgePlan, RevisionActor,
+    RevisionLedger, RevisionLifecycle, RevisionOperation, RevisionReceipt, RevisionRequest,
+    MAX_DERIVED_ARTIFACTS_PER_LEDGER, MAX_DERIVED_ARTIFACTS_PER_LINEAGE,
+    MAX_REVISION_AUTHORITY_HEADS, REVISION_AUTHORITY_SCHEMA_V1,
 };
 pub use scope::NamespaceScope;

@@ -202,8 +202,23 @@ fn revise(
 }
 
 fn register_artifacts(ledger: &mut RevisionLedger, head: &str, artifacts: Vec<Sha256Ref>) {
+    let request_ref = sha('b');
+    let idempotency_key = ledger
+        .derive_artifact_registration_idempotency_key(
+            &id("record-0"),
+            &id(head),
+            &request_ref,
+            &artifacts,
+        )
+        .unwrap();
     ledger
-        .register_derived_artifacts(&id("record-0"), &id(head), artifacts)
+        .register_derived_artifacts(
+            idempotency_key,
+            request_ref,
+            &id("record-0"),
+            &id(head),
+            artifacts,
+        )
         .unwrap();
 }
 
@@ -794,14 +809,36 @@ fn nonce_is_unique_across_heads_older_revisions_and_lineages() {
 fn forget_requires_the_exact_authoritative_artifact_inventory() {
     let mut ledger = RevisionLedger::default();
     create(&mut ledger);
+    let request_ref = sha('b');
+    let artifacts = vec![sha('8'), sha('9')];
+    let idempotency_key = ledger
+        .derive_artifact_registration_idempotency_key(
+            &id("record-0"),
+            &id("record-0"),
+            &request_ref,
+            &artifacts,
+        )
+        .unwrap();
     let first = ledger
-        .register_derived_artifacts(&id("record-0"), &id("record-0"), vec![sha('8'), sha('9')])
+        .register_derived_artifacts(
+            idempotency_key.clone(),
+            request_ref.clone(),
+            &id("record-0"),
+            &id("record-0"),
+            artifacts.clone(),
+        )
         .unwrap();
     assert_eq!(first.newly_registered, vec![sha('8'), sha('9')]);
     let replay = ledger
-        .register_derived_artifacts(&id("record-0"), &id("record-0"), vec![sha('8'), sha('9')])
+        .register_derived_artifacts(
+            idempotency_key,
+            request_ref,
+            &id("record-0"),
+            &id("record-0"),
+            artifacts,
+        )
         .unwrap();
-    assert!(replay.newly_registered.is_empty());
+    assert_eq!(replay, first);
     assert_eq!(replay.complete_inventory, vec![sha('8'), sha('9')]);
 
     for (key, artifacts) in [

@@ -248,3 +248,18 @@ Risks/known limits:
   boundary.
 - One bounded repair is active. K05D, A209, K06, and G2.2 remain unclaimed.
 - Evidence: `evidence/G2/G2.2/K05D/review-block.md`.
+
+## 2026-08-05 — K05D — bounded pure-projection repair passed
+
+- Public lineage and cumulative artifact caps now fail before authority
+  mutation, and artifact registration has exact canonical replay/conflict
+  semantics with original-receipt retention.
+- Lineage envelope version is distinct from K06 root-key activation and fails
+  closed on authenticated reconciliation mismatch.
+- Independent re-review found no P0/P1/P2. All 59 continuity tests and strict
+  Clippy pass.
+- This closes only the pure-crate slice. Desktop snapshot persistence,
+  hydration, CAS generation, immutable reads, and protected-backup integration
+  remain before K05D/A209 may pass.
+- Evidence: `evidence/G2/G2.2/K05D/projection-review-pass.md` and
+  `evidence/G2/G2.2/K05D/restart-contract.md`.
