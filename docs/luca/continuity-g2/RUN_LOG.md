@@ -258,6 +258,20 @@ Risks/known limits:
   closed on authenticated reconciliation mismatch.
 - Independent re-review found no P0/P1/P2. All 59 continuity tests and strict
   Clippy pass.
+
+## 2026-08-05 — K05D — restart snapshot stopped at repair ceiling
+
+- Added deterministic snapshot export/hydration, digest-only typed replay,
+  explicit purge progress, and permanent body-free tombstones. All 65 focused
+  continuity tests, strict Clippy, formatting, and diff checks pass.
+- Independent adversarial review found retained-record rotation could not
+  hydrate, artifact purge authority was ambiguous across lineages, aggregate
+  preallocation bounds were incomplete, and historical artifact receipts did
+  not prove exact ordered inventory transitions.
+- K05D already consumed its planned repair. Desktop CAS/persistence did not
+  start, and K05D, A209, K06, and G2.2 remain unclaimed pending Riley's explicit
+  authorization for one additional surgical repair.
+- Evidence: `evidence/G2/G2.2/K05D/restart-snapshot-review-block.md`.
 - This closes only the pure-crate slice. Desktop snapshot persistence,
   hydration, CAS generation, immutable reads, and protected-backup integration
   remain before K05D/A209 may pass.
