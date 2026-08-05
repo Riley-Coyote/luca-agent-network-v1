@@ -1,0 +1,447 @@
+schema_version: 1
+project: luca-agent-network-v1
+phase: G2
+branch: agent/continuity-g2
+baseline_commit: 4781dca6
+source_authority: docs/luca/continuity-audit
+max_parallel_write_lanes: 3
+max_spawn_depth: 1
+repair_policy:
+  max_evidence_based_repairs: 1
+  repeated_environment_failure: stop_and_record
+lanes:
+  control:
+    owns:
+      - docs/luca/continuity-g2
+      - evidence/G2
+      - scripts/luca/validate_g2_control.py
+      - Cargo.toml
+      - Cargo.lock
+      - desktop/src-tauri/Cargo.toml
+      - desktop/src-tauri/src/lib.rs
+      - HANDOFF.md
+  protocol_storage:
+    owns:
+      - crates/luca-protocol
+      - crates/luca-continuity
+      - schemas/luca/continuity
+      - tests/luca-conformance/continuity
+  runtime_cognition:
+    owns:
+      - crates/buzz-acp
+      - desktop/src-tauri/src/luca/continuity
+      - desktop/src-tauri/src/luca/cognition
+  import_frontend:
+    owns:
+      - desktop/src-tauri/src/luca/imports
+      - desktop/src/features/luca/continuity
+      - desktop/src/features/luca/brain
+      - desktop/src/features/luca/imports
+      - desktop/src/features/luca/onboarding
+global_rules:
+  - conversation_and_final_publication_never_depend_on_continuity
+  - signed_events_are_canonical_chronology_and_authorship
+  - resident_public_keys_are_canonical_identity
+  - resident_private_namespaces_never_cross_residents
+  - room_membership_never_grants_memory_access
+  - owner_brain_recall_requires_current_persisted_egress_grant
+  - pre_turn_retrieval_performs_zero_persistent_mutations
+  - post_turn_jobs_begin_only_after_exact_final_event_is_durable
+  - retrieved_and_imported_content_is_untrusted_reference_material
+  - reference_repositories_and_native_configuration_are_read_only
+  - no_private_bodies_or_keys_in_logs_evidence_wal_or_crash_reports
+  - scheduled_cognition_is_opt_in_bounded_and_tool_denied
+  - no_conductor
+gates:
+  - id: G2.0
+    title: Durable control plane
+    tasks: [C00, C01, C02]
+    barrier_task: C02
+  - id: G2.1
+    title: Conversation and protocol parity
+    tasks: [P01, P02, P03, P04]
+    barrier_task: P04
+  - id: G2.2
+    title: Encrypted continuity kernel
+    tasks: [K01, K02, K03, K03D, K04, K05, K06]
+    barrier_task: K06
+  - id: G2.3
+    title: Turn continuity and durable writes
+    tasks: [T01, T02, T03, T03D, T04, T05]
+    barrier_task: T05
+  - id: G2.4
+    title: Universal brain and imports
+    tasks: [B01, B01D, B02, B03, B04, B05]
+    barrier_task: B05
+  - id: G2.5
+    title: Bounded scheduled inner life
+    tasks: [I01, I02, I03, I04]
+    barrier_task: I04
+  - id: G2.6
+    title: Integrated native gate
+    tasks: [N01, N02, N03]
+    barrier_task: N03
+tasks:
+  - id: C00
+    gate: G2.0
+    title: Create exact-baseline isolated branch and worktree
+    depends_on: []
+    lane: control
+    risk: high
+    owner_role: integration_lead
+    reviewer_role: independent_reviewer
+    outputs: [pushed_branch, isolated_worktree, source_preservation_record]
+    checks: [git_branch_and_head, git_worktree_inventory, remote_reachability]
+    acceptance: [A001, A002]
+  - id: C01
+    gate: G2.0
+    title: Install durable control package and evidence system
+    depends_on: [C00]
+    lane: control
+    risk: high
+    owner_role: integration_lead
+    reviewer_role: independent_reviewer
+    outputs: [build_spec, task_graph, acceptance_matrix, decision_ledger, run_log, receipt_template]
+    checks: [control_validator, audit_checksum_verification]
+    acceptance: [A003, A004]
+  - id: C02
+    gate: G2.0
+    title: Freeze interfaces, ownership, and G2.0 verdict
+    depends_on: [C01]
+    lane: control
+    risk: critical
+    owner_role: security_lead
+    reviewer_role: milestone_reviewer
+    outputs: [frozen_interface_index, ownership_matrix, g2_0_verdict]
+    checks: [dag_validation, ownership_overlap_scan, scope_consistency_review]
+    acceptance: []
+  - id: P01
+    gate: G2.1
+    title: Add versioned continuity protocol contracts and conformance vectors
+    depends_on: [C02]
+    lane: protocol_storage
+    risk: critical
+    owner_role: protocol_implementer
+    reviewer_role: security_reviewer
+    outputs: [rust_contracts, json_schemas, golden_vectors, body_free_diagnostics]
+    checks: [protocol_unit_tests, schema_vector_tests, public_api_docs]
+    acceptance: [A101]
+  - id: P02
+    gate: G2.1
+    title: Add bounded plain-room signed-history rehydration
+    depends_on: [C02]
+    lane: runtime_cognition
+    risk: high
+    owner_role: runtime_implementer
+    reviewer_role: messaging_reviewer
+    outputs: [room_history_loader, ordering_and_isolation_tests]
+    checks: [dm_history_regression, group_history_tests, pagination_and_byte_limits]
+    acceptance: [A102]
+  - id: P03
+    gate: G2.1
+    title: Add fake continuity provider and failure matrix
+    depends_on: [P01]
+    lane: runtime_cognition
+    risk: high
+    owner_role: runtime_implementer
+    reviewer_role: protocol_reviewer
+    outputs: [fake_provider, all_layer_status_fixtures, deadline_and_size_tests]
+    checks: [ready_empty_denied_stale_locked_unavailable_timeout_invalid]
+    acceptance: [A103]
+  - id: P04
+    gate: G2.1
+    title: Make G1 F10 and mixed-room regressions permanent
+    depends_on: [P02, P03]
+    lane: control
+    risk: critical
+    owner_role: integration_lead
+    reviewer_role: milestone_reviewer
+    outputs: [continuity_absent_regression, g2_1_verdict]
+    checks: [hermes_dm, openclaw_dm, mixed_room, cancel_and_permission_regression]
+    acceptance: [A104]
+  - id: K01
+    gate: G2.2
+    title: Create pure Rust luca-continuity crate and namespace model
+    depends_on: [P04]
+    lane: protocol_storage
+    risk: high
+    owner_role: kernel_implementer
+    reviewer_role: architecture_reviewer
+    outputs: [crate, namespace_scope_engine, synthetic_fixtures]
+    checks: [unit_tests, scope_isolation_tests, no_platform_dependencies]
+    acceptance: []
+  - id: K02
+    gate: G2.2
+    title: Implement keychain master key and domain-separated key derivation
+    depends_on: [K01]
+    lane: runtime_cognition
+    risk: critical
+    owner_role: security_implementer
+    reviewer_role: independent_security_reviewer
+    outputs: [key_lifecycle, hkdf_namespace_keys, locked_failure_path]
+    checks: [keychain_tests, domain_separation_vectors, child_environment_scan]
+    acceptance: [A201]
+  - id: K03
+    gate: G2.2
+    title: Implement authenticated encrypted record store
+    depends_on: [K01, K02]
+    lane: protocol_storage
+    risk: critical
+    owner_role: storage_implementer
+    reviewer_role: independent_security_reviewer
+    outputs: [xchacha_envelopes, canonical_aad, encrypted_record_repository_contract]
+    checks: [tamper_nonce_aad_tests, cross_namespace_decrypt_rejection, corrupt_record_isolation]
+    acceptance: [A202, A203]
+  - id: K03D
+    gate: G2.2
+    title: Integrate encrypted SQLite persistence in trusted desktop
+    depends_on: [K02, K03]
+    lane: runtime_cognition
+    risk: critical
+    owner_role: desktop_storage_implementer
+    reviewer_role: independent_security_reviewer
+    outputs: [encrypted_sqlite_store, body_free_metadata, locked_degraded_path]
+    checks: [wal_plaintext_scan, log_and_crash_scan, chat_operational_when_locked]
+    acceptance: [A204]
+  - id: K04
+    gate: G2.2
+    title: Port in-memory retrieval and bounded graph activation
+    depends_on: [K03D]
+    lane: protocol_storage
+    risk: high
+    owner_role: retrieval_implementer
+    reviewer_role: kernel_reviewer
+    outputs: [memory_fts, lexical_seeding, graph_activation, optional_memory_vectors]
+    checks: [mnemos_vectors, bounds_tests, restart_rehydration, disk_plaintext_scan]
+    acceptance: [A205]
+  - id: K05
+    gate: G2.2
+    title: Implement revisions, correction, rollback, archive, and forget
+    depends_on: [K03]
+    lane: protocol_storage
+    risk: high
+    owner_role: kernel_implementer
+    reviewer_role: data_integrity_reviewer
+    outputs: [revision_chain, pinned_corrections, rollback_api, forget_semantics]
+    checks: [history_preservation, idempotency, pinned_authority_tests]
+    acceptance: [A206]
+  - id: K06
+    gate: G2.2
+    title: Implement crash-safe rotation and protected backup/restore
+    depends_on: [K03D, K05]
+    lane: runtime_cognition
+    risk: critical
+    owner_role: security_implementer
+    reviewer_role: independent_security_reviewer
+    outputs: [rotation_journal, age_backup_with_wrapped_continuity_key, zero_write_preview, confirmed_keychain_install, restore_validation, g2_2_verdict]
+    checks: [rotation_crash_matrix, wrong_passphrase, backup_tamper, fresh_keychain_decrypt_restore, identity_mapping_restore]
+    acceptance: [A207, A208]
+  - id: T01
+    gate: G2.3
+    title: Assemble bounded read-only continuity packets
+    depends_on: [K04, K05, K06]
+    lane: runtime_cognition
+    risk: critical
+    owner_role: runtime_implementer
+    reviewer_role: security_reviewer
+    outputs: [context_resolver, 48k_packet_builder, provenance_receipt, injection_boundary]
+    checks: [zero_mutation, prompt_injection_fixture, timeout_and_partial_layer_matrix]
+    acceptance: [A301, A302, A305]
+  - id: T02
+    gate: G2.3
+    title: Integrate one pre-turn continuity request at ACP seam
+    depends_on: [T01]
+    lane: runtime_cognition
+    risk: critical
+    owner_role: runtime_implementer
+    reviewer_role: messaging_reviewer
+    outputs: [preturn_integration, egress_filter, fresh_session_rehydration]
+    checks: [hermes_fresh_session, openclaw_fresh_session, continuity_absent_chat]
+    acceptance: [A303, A304]
+  - id: T03
+    gate: G2.3
+    title: Project and validate managed portable NIP-AE Capsules
+    depends_on: [K02, T01]
+    lane: protocol_storage
+    risk: critical
+    owner_role: protocol_implementer
+    reviewer_role: security_reviewer
+    outputs: [capsule_projection, projection_versioning, stale_invalid_states]
+    checks: [compact_projection, canonical_versions, notebook_authority_exclusion]
+    acceptance: []
+  - id: T03D
+    gate: G2.3
+    title: Integrate allowlisted desktop NIP-AE Capsule crypto operations
+    depends_on: [T03, K02]
+    lane: runtime_cognition
+    risk: critical
+    owner_role: desktop_security_implementer
+    reviewer_role: independent_security_reviewer
+    outputs: [desktop_crypto_ops, capsule_store, safe_failure_states]
+    checks: [operation_allowlist, key_non_export, tamper_tests, child_environment_scan]
+    acceptance: [A313]
+  - id: T04
+    gate: G2.3
+    title: Run idempotent post-publication resident metabolism
+    depends_on: [T02, K05]
+    lane: runtime_cognition
+    risk: critical
+    owner_role: cognition_implementer
+    reviewer_role: data_integrity_reviewer
+    outputs: [durable_job_scheduler, salience_gate, private_mutations, shared_proposals, anti_rumination_policy, bounded_identity_update_frequency]
+    checks: [exact_event_idempotency, cancel_failed_no_write, restart_one_terminal_outcome, revision_and_rollback, anti_rumination_clock_matrix, no_runtime_substitution]
+    acceptance: [A306, A307, A308, A309, A310, A314]
+  - id: T05
+    gate: G2.3
+    title: Enforce group primary/observer continuity rules
+    depends_on: [P02, T02, T03D, T04]
+    lane: runtime_cognition
+    risk: critical
+    owner_role: integration_lead
+    reviewer_role: milestone_reviewer
+    outputs: [dispatch_set_observers, per_resident_grants, g2_3_verdict]
+    checks: [mixed_room_isolation, observer_exclusion, cross_resident_sentinel_scan]
+    acceptance: [A311, A312]
+  - id: B01
+    gate: G2.4
+    title: Implement owner-brain and provider-egress grant policy
+    depends_on: [T05]
+    lane: protocol_storage
+    risk: critical
+    owner_role: policy_implementer
+    reviewer_role: privacy_reviewer
+    outputs: [owner_namespace_policy, grant_state_machine, stale_binding_rules, repository_traits]
+    checks: [policy_unit_tests, binding_and_unknown_egress_matrix]
+    acceptance: []
+  - id: B01D
+    gate: G2.4
+    title: Integrate owner brain, grant persistence, and provider-egress enforcement
+    depends_on: [B01]
+    lane: runtime_cognition
+    risk: critical
+    owner_role: desktop_security_implementer
+    reviewer_role: independent_privacy_reviewer
+    outputs: [owner_brain_store, grant_store, recall_receipts, effective_payload_filter]
+    checks: [grant_revoke_stale_unknown_remote, independent_resident_receipts, outbound_payload_capture]
+    acceptance: [A401, A402, A403, A412]
+  - id: B02
+    gate: G2.4
+    title: Add credential-excluding discovery adapters
+    depends_on: [T05]
+    lane: import_frontend
+    risk: high
+    owner_role: import_implementer
+    reviewer_role: privacy_reviewer
+    outputs: [legacy_luca, mnemos, hermes, openclaw, claude, codex, folder_discovery]
+    checks: [config_hash_immutability, secret_exclusion, degraded_reports]
+    acceptance: [A404]
+  - id: B03
+    gate: G2.4
+    title: Build local parsers and atomic import transaction
+    depends_on: [B02, K03]
+    lane: import_frontend
+    risk: critical
+    owner_role: import_implementer
+    reviewer_role: data_integrity_reviewer
+    outputs: [parsers, normalization, hashes, dedupe, staging, atomic_commit, recovery]
+    checks: [format_matrix, cancel_crash_no_partial, idempotent_reimport, explicit_diff]
+    acceptance: [A405, A406, A407]
+  - id: B04
+    gate: G2.4
+    title: Add Imported History and source-backed migration proposals
+    depends_on: [B01D, B03]
+    lane: import_frontend
+    risk: high
+    owner_role: product_implementer
+    reviewer_role: provenance_reviewer
+    outputs: [archive_search, owner_signed_manifest, source_attribution, reviewed_migration_set]
+    checks: [no_fabricated_signatures, sidebar_exclusion, recall_authorization, no_silent_identity_or_owner_brain_rewrite]
+    acceptance: [A408, A409, A410, A413]
+  - id: B05
+    gate: G2.4
+    title: Integrate Brain Setup, imports, grants, proposals, and backup UI
+    depends_on: [B01D, B04, K06]
+    lane: import_frontend
+    risk: high
+    owner_role: frontend_implementer
+    reviewer_role: milestone_reviewer
+    outputs: [setup_flow, preview, grants, proposals, archive, backup_restore, g2_4_verdict]
+    checks: [skip_path, accessibility, error_states, focused_e2e]
+    acceptance: [A411]
+  - id: I01
+    gate: G2.5
+    title: Implement cognition schedule policy and budgets
+    depends_on: [B05]
+    lane: protocol_storage
+    risk: critical
+    owner_role: policy_implementer
+    reviewer_role: safety_reviewer
+    outputs: [opt_in_schedule, presets, quiet_hours, daily_budgets, catchup_rules]
+    checks: [clock_matrix, sleep_resume, no_catchup_storm, disabled_no_job]
+    acceptance: [A501, A502]
+  - id: I02
+    gate: G2.5
+    title: Run resident-authored reflection with strict authority limits
+    depends_on: [I01, T04]
+    lane: runtime_cognition
+    risk: critical
+    owner_role: cognition_implementer
+    reviewer_role: safety_reviewer
+    outputs: [same_runtime_reflection, tool_denial, preemption, allowed_outcomes]
+    checks: [no_substitution, permission_denial, user_turn_preemption, offline_behavior, body_free_cost_usage_receipts]
+    acceptance: [A503, A504, A505, A506, A511]
+  - id: I03
+    gate: G2.5
+    title: Gate and publish conservative proactive resident DMs
+    depends_on: [I02]
+    lane: runtime_cognition
+    risk: critical
+    owner_role: messaging_implementer
+    reviewer_role: safety_reviewer
+    outputs: [candidate_gates, topic_fingerprint, signed_dm_publication, exactly_once_outbox]
+    checks: [novelty_usefulness_privacy, 24h_limit, 30d_dedupe, quiet_hours, correct_signer]
+    acceptance: [A507, A508, A509, A510]
+  - id: I04
+    gate: G2.5
+    title: Add continuity rail, job activity, and schedule controls
+    depends_on: [I01, I03, B05]
+    lane: import_frontend
+    risk: high
+    owner_role: frontend_implementer
+    reviewer_role: milestone_reviewer
+    outputs: [continuity_rail, layered_disclosure, revisions, rollback, schedule, proactive_history, g2_5_verdict]
+    checks: [private_body_separation, reduced_motion, accessibility, focused_e2e]
+    acceptance: []
+  - id: N01
+    gate: G2.6
+    title: Run installed-app functional and failure drill matrix
+    depends_on: [I04, T05]
+    lane: control
+    risk: critical
+    owner_role: integration_lead
+    reviewer_role: independent_native_reviewer
+    outputs: [installed_bundle, hermes_openclaw_dm, mixed_room, relaunch, sleep, import, backup, rollback, failure_drills]
+    checks: [native_clickthrough, runtime_logs, screenshot_and_secret_scan]
+    acceptance: [A601, A602, A603]
+  - id: N02
+    gate: G2.6
+    title: Run final full repository and artifact gates once
+    depends_on: [N01]
+    lane: control
+    risk: critical
+    owner_role: integration_lead
+    reviewer_role: security_reviewer
+    outputs: [full_ci, production_build, artifact_scans, acceptance_index]
+    checks: [fmt, clippy, unit, integration, frontend, build, native_smoke]
+    acceptance: [A604]
+  - id: N03
+    gate: G2.6
+    title: Publish signed G2 verdict and continuation handoff
+    depends_on: [N02]
+    lane: control
+    risk: critical
+    owner_role: milestone_lead
+    reviewer_role: independent_milestone_reviewer
+    outputs: [g2_verdict, known_limits, handoff, remote_branch]
+    checks: [all_required_acceptance_evidenced, no_open_critical_findings]
+    acceptance: [A605, A606]
