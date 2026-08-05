@@ -6,6 +6,7 @@
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
 
     use luca_protocol::{
@@ -37,8 +38,10 @@ mod tests {
         schema: String,
         scenario_id: String,
         fixture_class: String,
+        proof_scope: String,
         components: ContinuityComponents,
-        expected: ExpectedOutcomes,
+        semantic_fixtures: Vec<SemanticFixture>,
+        mixed_room: MixedRoomExpected,
     }
 
     #[derive(Debug, Deserialize)]
@@ -49,11 +52,19 @@ mod tests {
     }
 
     #[derive(Debug, Deserialize)]
-    struct ExpectedOutcomes {
+    struct SemanticFixture {
+        binding: String,
         context_status: String,
         normal_final_publication: String,
         cancelled_turn: String,
         published_final_count: usize,
+        cancelled_final_count: usize,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct MixedRoomExpected {
+        context_status: String,
+        correctly_attributed_final_count: usize,
         cancelled_final_count: usize,
     }
 
@@ -78,12 +89,33 @@ mod tests {
     }
 
     fn assert_all_continuity_absent(fixture: &ContinuityAbsentFixture) {
-        assert_eq!(fixture.schema, "luca.f10.continuity-absent.v1");
+        assert_eq!(fixture.schema, "luca.f10.continuity-absent.v2");
+        assert_eq!(fixture.scenario_id, "all-continuity-components-absent");
         assert_eq!(fixture.fixture_class, "generated_synthetic");
+        assert_eq!(
+            fixture.proof_scope,
+            "synthetic_bindings_not_native_runtime_proof"
+        );
         assert_eq!(fixture.components.continuity_capsule, "absent");
         assert_eq!(fixture.components.continuity_service, "absent");
         assert_eq!(fixture.components.mnemos_profile, "absent");
-        assert_eq!(fixture.expected.context_status, "unavailable");
+        let bindings = fixture
+            .semantic_fixtures
+            .iter()
+            .map(|semantic| semantic.binding.as_str())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(bindings, BTreeSet::from(["hermes", "openclaw"]));
+        for semantic in &fixture.semantic_fixtures {
+            assert!(matches!(semantic.binding.as_str(), "hermes" | "openclaw"));
+            assert_eq!(semantic.context_status, "unavailable");
+            assert_eq!(semantic.normal_final_publication, "published");
+            assert_eq!(semantic.cancelled_turn, "cancelled");
+            assert_eq!(semantic.published_final_count, 1);
+            assert_eq!(semantic.cancelled_final_count, 0);
+        }
+        assert_eq!(fixture.mixed_room.context_status, "unavailable");
+        assert_eq!(fixture.mixed_room.correctly_attributed_final_count, 2);
+        assert_eq!(fixture.mixed_room.cancelled_final_count, 0);
     }
 
     fn opaque(value: impl Into<String>) -> OpaqueId {
@@ -111,7 +143,7 @@ mod tests {
 
     struct StoreBackedAcceptingAuthority {
         store: Arc<Mutex<ManagedDispatchStore>>,
-        published_final_count: Arc<Mutex<usize>>,
+        published_final_residents: Arc<Mutex<Vec<String>>>,
     }
 
     impl ManagedMessagePublicationAuthority for StoreBackedAcceptingAuthority {
@@ -190,10 +222,10 @@ mod tests {
             outbox
                 .mark_authority_finalized(&request.idempotency_key)
                 .map_err(|_| ManagedPublicationAuthorityError::Invalid)?;
-            *self
-                .published_final_count
+            self.published_final_residents
                 .lock()
-                .map_err(|_| ManagedPublicationAuthorityError::Unavailable)? += 1;
+                .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+                .push(event.pubkey.to_hex());
             Ok(())
         }
     }
@@ -208,6 +240,24 @@ mod tests {
             .custom_created_at(Timestamp::from(NOW_SECS))
             .sign_with_keys(owner)
             .expect("sign generated owner fixture")
+    }
+
+    fn mixed_room_owner_trigger(
+        owner: &Keys,
+        hermes: &Keys,
+        openclaw: &Keys,
+        content: &str,
+    ) -> nostr::Event {
+        EventBuilder::new(Kind::Custom(9), content)
+            .tags([
+                Tag::parse(["h", CHANNEL]).expect("synthetic h tag"),
+                Tag::public_key(owner.public_key()),
+                Tag::public_key(hermes.public_key()),
+                Tag::public_key(openclaw.public_key()),
+            ])
+            .custom_created_at(Timestamp::from(NOW_SECS))
+            .sign_with_keys(owner)
+            .expect("sign generated mixed-room owner fixture")
     }
 
     fn publish_request(
@@ -262,28 +312,14 @@ mod tests {
         .expect("encode synthetic publication frame")
     }
 
-    #[test]
-    fn luca_f10_real_publication_and_dispatch_cancellation_survive_total_continuity_absence() {
-        let fixture = absent_fixture();
-        assert_all_continuity_absent(&fixture);
-
-        let owner = Keys::generate();
-        let resident = Keys::generate();
-        let normal_trigger = owner_trigger(&owner, &resident, "synthetic normal trigger");
-        let cancelled_trigger = owner_trigger(&owner, &resident, "synthetic cancelled trigger");
-        let temp = tempfile::tempdir().expect("synthetic dispatch directory");
-        let mut dispatch_store = ManagedDispatchStore::load(temp.path().join("dispatches.json"))
-            .expect("synthetic dispatch store");
-        for trigger in [&normal_trigger, &cancelled_trigger] {
-            dispatch_store
-                .stage_owner_event(trigger, &[resident.public_key().to_hex()], NOW_SECS)
-                .expect("stage generated owner dispatch");
-        }
-        dispatch_store
-            .activate_session(&resident.public_key().to_hex(), SESSION_EPOCH)
-            .expect("activate generated resident session");
-        let dispatch_store = Arc::new(Mutex::new(dispatch_store));
-        let published_final_count = Arc::new(Mutex::new(0_usize));
+    fn publish_via_real_desktop_chain(
+        owner: &Keys,
+        resident: &Keys,
+        trigger: &nostr::Event,
+        store: Arc<Mutex<ManagedDispatchStore>>,
+        published_final_residents: Arc<Mutex<Vec<String>>>,
+        sequence: u64,
+    ) -> ManagedMessagePublishResultV1 {
         let runtime_configuration_sha256 =
             Hex64::parse("c".repeat(64)).expect("synthetic runtime digest");
         let session_epoch = SafeU53::new(SESSION_EPOCH).expect("synthetic epoch");
@@ -294,7 +330,7 @@ mod tests {
             acp_pid: 8123,
             session_epoch,
             runtime_configuration_sha256: runtime_configuration_sha256.clone(),
-            installation_session_id: opaque("f10-synthetic-installation"),
+            installation_session_id: opaque(format!("f10-synthetic-installation-{sequence}")),
             relay_url: "wss://relay.example.test".to_owned(),
             relay_query_url: "https://relay.example.test/query".to_owned(),
             owner_attestation: None,
@@ -303,8 +339,8 @@ mod tests {
             resident.clone(),
             binding,
             Box::new(StoreBackedAcceptingAuthority {
-                store: Arc::clone(&dispatch_store),
-                published_final_count: Arc::clone(&published_final_count),
+                store,
+                published_final_residents,
             }),
         )
         .expect("generated resident broker");
@@ -312,27 +348,118 @@ mod tests {
             acp_pid: 8123,
             runtime_configuration_sha256: &runtime_configuration_sha256,
         };
-
-        let normal_request = publish_request(
-            &owner,
-            &resident,
-            &normal_trigger,
-            "synthetic final response",
-        );
-        let normal_response = broker
+        let request = publish_request(owner, resident, trigger, "synthetic final response");
+        let response = broker
             .handle_message_publish_frame(
-                &encoded_frame(session_epoch, normal_request, 1),
+                // Each helper invocation creates a fresh broker session, whose
+                // framed sequence must therefore begin at one. `sequence`
+                // remains the synthetic installation identifier so each
+                // authority chain is still independently traceable.
+                &encoded_frame(session_epoch, request, 1),
                 caller,
                 NOW_MS,
             )
-            .expect("normal publication survives absent continuity");
-        let normal_response =
-            decode_length_prefixed_result_frame::<ManagedMessagePublishResultV1>(&normal_response)
-                .expect("decode normal body-free receipt");
-        assert!(matches!(
-            normal_response.result,
-            ManagedMessagePublishResultV1::Published { .. }
-        ));
+            .expect("desktop dispatch, signing broker, and outbox chain completes");
+        decode_length_prefixed_result_frame::<ManagedMessagePublishResultV1>(&response)
+            .expect("decode body-free publication receipt")
+            .result
+    }
+
+    #[test]
+    fn luca_f10_synthetic_hermes_openclaw_dms_and_mixed_room_survive_total_continuity_absence() {
+        let fixture = absent_fixture();
+        assert_all_continuity_absent(&fixture);
+        let hermes_expected = fixture
+            .semantic_fixtures
+            .iter()
+            .find(|semantic| semantic.binding == "hermes")
+            .expect("fixture has Hermes binding");
+        let openclaw_expected = fixture
+            .semantic_fixtures
+            .iter()
+            .find(|semantic| semantic.binding == "openclaw")
+            .expect("fixture has OpenClaw binding");
+        let expected_dm_final_count = fixture
+            .semantic_fixtures
+            .iter()
+            .map(|semantic| semantic.published_final_count)
+            .sum::<usize>();
+        let expected_cancelled_final_count = fixture
+            .semantic_fixtures
+            .iter()
+            .map(|semantic| semantic.cancelled_final_count)
+            .sum::<usize>()
+            + fixture.mixed_room.cancelled_final_count;
+        assert_eq!(
+            fixture.mixed_room.correctly_attributed_final_count % fixture.semantic_fixtures.len(),
+            0,
+            "mixed-room expected finals distribute across the fixture residents"
+        );
+        let expected_mixed_finals_per_resident =
+            fixture.mixed_room.correctly_attributed_final_count / fixture.semantic_fixtures.len();
+
+        let owner = Keys::generate();
+        let hermes = Keys::generate();
+        let openclaw = Keys::generate();
+        let hermes_normal = owner_trigger(&owner, &hermes, "synthetic Hermes DM normal trigger");
+        let hermes_cancelled =
+            owner_trigger(&owner, &hermes, "synthetic Hermes DM cancelled trigger");
+        let openclaw_normal =
+            owner_trigger(&owner, &openclaw, "synthetic OpenClaw DM normal trigger");
+        let openclaw_cancelled =
+            owner_trigger(&owner, &openclaw, "synthetic OpenClaw DM cancelled trigger");
+        let mixed_room =
+            mixed_room_owner_trigger(&owner, &hermes, &openclaw, "synthetic mixed room trigger");
+        let temp = tempfile::tempdir().expect("synthetic dispatch directory");
+        let mut dispatch_store = ManagedDispatchStore::load(temp.path().join("dispatches.json"))
+            .expect("synthetic dispatch store");
+        for (trigger, residents) in [
+            (&hermes_normal, vec![hermes.public_key().to_hex()]),
+            (&hermes_cancelled, vec![hermes.public_key().to_hex()]),
+            (&openclaw_normal, vec![openclaw.public_key().to_hex()]),
+            (&openclaw_cancelled, vec![openclaw.public_key().to_hex()]),
+            (
+                &mixed_room,
+                vec![hermes.public_key().to_hex(), openclaw.public_key().to_hex()],
+            ),
+        ] {
+            dispatch_store
+                .stage_owner_event(trigger, &residents, NOW_SECS)
+                .expect("stage generated owner dispatch");
+        }
+        dispatch_store
+            .activate_session(&hermes.public_key().to_hex(), SESSION_EPOCH)
+            .expect("activate generated Hermes session");
+        dispatch_store
+            .activate_session(&openclaw.public_key().to_hex(), SESSION_EPOCH)
+            .expect("activate generated OpenClaw session");
+        let dispatch_store = Arc::new(Mutex::new(dispatch_store));
+        let published_final_residents = Arc::new(Mutex::new(Vec::new()));
+
+        for (resident, trigger, sequence) in [
+            (&hermes, &hermes_normal, 1),
+            (&openclaw, &openclaw_normal, 2),
+        ] {
+            assert!(matches!(
+                publish_via_real_desktop_chain(
+                    &owner,
+                    resident,
+                    trigger,
+                    Arc::clone(&dispatch_store),
+                    Arc::clone(&published_final_residents),
+                    sequence,
+                ),
+                ManagedMessagePublishResultV1::Published { .. }
+            ));
+        }
+        assert_eq!(
+            published_final_residents
+                .lock()
+                .expect("DM publication authors")
+                .len(),
+            expected_dm_final_count,
+            "fixture controls the normal DM final count"
+        );
 
         assert_eq!(
             dispatch_store
@@ -341,49 +468,96 @@ mod tests {
                 .cancel_matching(
                     &owner.public_key().to_hex(),
                     CHANNEL,
-                    Some(&format!("thread:{}", cancelled_trigger.id.to_hex())),
-                    &[resident.public_key().to_hex()],
+                    Some(&format!("thread:{}", hermes_cancelled.id.to_hex())),
+                    &[hermes.public_key().to_hex()],
                 )
                 .expect("real desktop dispatch cancellation"),
-            1
+            1,
+            "synthetic Hermes cancellation remains terminal"
         );
-        let cancelled_request = publish_request(
-            &owner,
-            &resident,
-            &cancelled_trigger,
-            "synthetic final that must not publish",
-        );
-        let cancelled_response = broker
-            .handle_message_publish_frame(
-                &encoded_frame(session_epoch, cancelled_request, 2),
-                caller,
-                NOW_MS,
-            )
-            .expect("cancellation survives absent continuity");
-        let cancelled_response =
-            decode_length_prefixed_result_frame::<ManagedMessagePublishResultV1>(
-                &cancelled_response,
-            )
-            .expect("decode cancelled body-free receipt");
         assert!(matches!(
-            cancelled_response.result,
+            publish_via_real_desktop_chain(
+                &owner,
+                &hermes,
+                &hermes_cancelled,
+                Arc::clone(&dispatch_store),
+                Arc::clone(&published_final_residents),
+                3,
+            ),
+            ManagedMessagePublishResultV1::Cancelled { .. }
+        ));
+        assert_eq!(
+            dispatch_store
+                .lock()
+                .expect("dispatch store")
+                .cancel_matching(
+                    &owner.public_key().to_hex(),
+                    CHANNEL,
+                    Some(&format!("thread:{}", openclaw_cancelled.id.to_hex())),
+                    &[openclaw.public_key().to_hex()],
+                )
+                .expect("real desktop dispatch cancellation"),
+            1,
+            "synthetic OpenClaw cancellation remains terminal"
+        );
+        assert!(matches!(
+            publish_via_real_desktop_chain(
+                &owner,
+                &openclaw,
+                &openclaw_cancelled,
+                Arc::clone(&dispatch_store),
+                Arc::clone(&published_final_residents),
+                4,
+            ),
             ManagedMessagePublishResultV1::Cancelled { .. }
         ));
 
-        let published = *published_final_count.lock().expect("publication count");
-        assert_eq!(published, fixture.expected.published_final_count);
-        assert_eq!(fixture.expected.cancelled_final_count, 0);
-        assert_eq!(fixture.expected.normal_final_publication, "published");
-        assert_eq!(fixture.expected.cancelled_turn, "cancelled");
+        for (resident, sequence) in [(&hermes, 5), (&openclaw, 6)] {
+            assert!(matches!(
+                publish_via_real_desktop_chain(
+                    &owner,
+                    resident,
+                    &mixed_room,
+                    Arc::clone(&dispatch_store),
+                    Arc::clone(&published_final_residents),
+                    sequence,
+                ),
+                ManagedMessagePublishResultV1::Published { .. }
+            ));
+        }
+
+        let published = published_final_residents
+            .lock()
+            .expect("publication authors")
+            .clone();
+        assert_eq!(
+            published
+                .iter()
+                .filter(|pubkey| *pubkey == &hermes.public_key().to_hex())
+                .count(),
+            hermes_expected.published_final_count + expected_mixed_finals_per_resident
+        );
+        assert_eq!(
+            published
+                .iter()
+                .filter(|pubkey| *pubkey == &openclaw.public_key().to_hex())
+                .count(),
+            openclaw_expected.published_final_count + expected_mixed_finals_per_resident
+        );
+        assert_eq!(
+            published.len(),
+            expected_dm_final_count + fixture.mixed_room.correctly_attributed_final_count,
+            "each DM and mixed-room resident final publishes exactly once"
+        );
 
         let trace = ConversationSurvivalTrace {
             schema: "luca.f10.conversation-survival-trace.v1",
             scenario_id: fixture.scenario_id,
-            context_status: fixture.expected.context_status,
+            context_status: fixture.mixed_room.context_status.clone(),
             normal_final_publication: "published",
             cancelled_turn: "cancelled",
-            published_final_count: published,
-            cancelled_final_count: 0,
+            published_final_count: published.len(),
+            cancelled_final_count: expected_cancelled_final_count,
             protected_artifacts_emitted: false,
         };
         println!(

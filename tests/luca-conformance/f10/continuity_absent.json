@@ -1,17 +1,34 @@
 {
-  "schema": "luca.f10.continuity-absent.v1",
+  "schema": "luca.f10.continuity-absent.v2",
   "scenario_id": "all-continuity-components-absent",
   "fixture_class": "generated_synthetic",
+  "proof_scope": "synthetic_bindings_not_native_runtime_proof",
   "components": {
     "continuity_capsule": "absent",
     "continuity_service": "absent",
     "mnemos_profile": "absent"
   },
-  "expected": {
+  "semantic_fixtures": [
+    {
+      "binding": "hermes",
+      "context_status": "unavailable",
+      "normal_final_publication": "published",
+      "cancelled_turn": "cancelled",
+      "published_final_count": 1,
+      "cancelled_final_count": 0
+    },
+    {
+      "binding": "openclaw",
+      "context_status": "unavailable",
+      "normal_final_publication": "published",
+      "cancelled_turn": "cancelled",
+      "published_final_count": 1,
+      "cancelled_final_count": 0
+    }
+  ],
+  "mixed_room": {
     "context_status": "unavailable",
-    "normal_final_publication": "published",
-    "cancelled_turn": "cancelled",
-    "published_final_count": 1,
+    "correctly_attributed_final_count": 2,
     "cancelled_final_count": 0
   }
 }

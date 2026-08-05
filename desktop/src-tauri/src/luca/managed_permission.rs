@@ -162,3 +162,162 @@ pub(crate) fn cancel_resident_session(resident_pubkey: &str, session_epoch: u64)
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+
+    use luca_protocol::{
+        Hex64, ManagedPermissionOptionV1, OpaqueId, SafeU53, MANAGED_PERMISSION_PROTOCOL,
+    };
+    use serde::Deserialize;
+
+    use super::*;
+
+    #[derive(Debug, Deserialize)]
+    struct ContinuityAbsentFixture {
+        schema: String,
+        fixture_class: String,
+        proof_scope: String,
+        semantic_fixtures: Vec<SemanticFixture>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct SemanticFixture {
+        binding: String,
+    }
+
+    fn fixture() -> ContinuityAbsentFixture {
+        serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/luca-conformance/f10/continuity_absent.json"
+        )))
+        .expect("F10 fixture must be valid JSON")
+    }
+
+    fn request(acp_request_id: &str, session_epoch: u64) -> ManagedPermissionRequestV1 {
+        ManagedPermissionRequestV1 {
+            protocol: MANAGED_PERMISSION_PROTOCOL.into(),
+            resident_pubkey: Hex64::parse("1".repeat(64)).expect("synthetic resident"),
+            session_epoch: SafeU53::new(session_epoch).expect("synthetic epoch"),
+            turn_id: OpaqueId::parse(format!("turn-{acp_request_id}")).expect("synthetic turn"),
+            conversation_id: OpaqueId::parse("conversation-f10").expect("synthetic conversation"),
+            acp_request_id: acp_request_id.into(),
+            title: "Synthetic managed permission".into(),
+            tool_call_id: None,
+            options: vec![
+                ManagedPermissionOptionV1 {
+                    option_id: "runtime-allow".into(),
+                    name: "Allow".into(),
+                    kind: "allow_once".into(),
+                },
+                ManagedPermissionOptionV1 {
+                    option_id: "runtime-reject".into(),
+                    name: "Reject".into(),
+                    kind: "reject_once".into(),
+                },
+            ],
+        }
+    }
+
+    fn insert_pending(
+        request: ManagedPermissionRequestV1,
+    ) -> (String, mpsc::Receiver<ManagedPermissionDecisionV1>) {
+        let id = pending_id(&request);
+        let (tx, rx) = mpsc::channel();
+        pending().lock().expect("pending registry").insert(
+            id.clone(),
+            Pending {
+                request,
+                decision_tx: tx,
+            },
+        );
+        (id, rx)
+    }
+
+    #[test]
+    fn f10_continuity_absence_keeps_managed_permission_selection_and_cancellation_independent() {
+        let fixture = fixture();
+        assert_eq!(fixture.schema, "luca.f10.continuity-absent.v2");
+        assert_eq!(fixture.fixture_class, "generated_synthetic");
+        assert_eq!(
+            fixture.proof_scope,
+            "synthetic_bindings_not_native_runtime_proof"
+        );
+        let bindings = fixture
+            .semantic_fixtures
+            .iter()
+            .map(|semantic| semantic.binding.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            bindings,
+            std::collections::BTreeSet::from(["hermes", "openclaw"])
+        );
+
+        cancel_all();
+        let allow_request = request("allow", 7);
+        let (allow_id, allow_rx) = insert_pending(allow_request.clone());
+        resolve(&allow_id, Some("runtime-allow".into())).expect("advertised allow resolves");
+        let allow = allow_rx.recv().expect("allow decision delivered");
+        assert_eq!(allow.disposition, ManagedPermissionDispositionV1::Selected);
+        assert_eq!(allow.option_id.as_deref(), Some("runtime-allow"));
+        allow
+            .validate_for(&allow_request)
+            .expect("allow binds exact request");
+        assert!(
+            resolve(&allow_id, Some("runtime-allow".into())).is_err(),
+            "resolved ID is stale"
+        );
+
+        let reject_request = request("reject", 7);
+        let (reject_id, reject_rx) = insert_pending(reject_request.clone());
+        resolve(&reject_id, Some("runtime-reject".into())).expect("advertised reject resolves");
+        let reject = reject_rx.recv().expect("reject decision delivered");
+        assert_eq!(reject.disposition, ManagedPermissionDispositionV1::Selected);
+        assert_eq!(reject.option_id.as_deref(), Some("runtime-reject"));
+        reject
+            .validate_for(&reject_request)
+            .expect("reject binds exact request");
+
+        let cancel_request = request("cancel", 7);
+        let (cancel_id, cancel_rx) = insert_pending(cancel_request.clone());
+        resolve(&cancel_id, None).expect("explicit cancellation resolves");
+        let cancellation = cancel_rx.recv().expect("cancellation delivered");
+        assert_eq!(
+            cancellation.disposition,
+            ManagedPermissionDispositionV1::Cancelled
+        );
+        cancellation
+            .validate_for(&cancel_request)
+            .expect("cancellation binds exact request");
+
+        let session_request = request("session", 7);
+        let resident = session_request.resident_pubkey.as_str().to_owned();
+        let (session_id, session_rx) = insert_pending(session_request.clone());
+        cancel_resident_session(&resident, 8);
+        assert!(
+            session_rx.try_recv().is_err(),
+            "wrong epoch cannot cancel pending request"
+        );
+        assert!(list_pending()
+            .expect("pending list")
+            .iter()
+            .any(|entry| entry.pending_id == session_id));
+        cancel_resident_session(&resident, 7);
+        let session_cancellation = session_rx.recv().expect("matching epoch cancels");
+        assert_eq!(
+            session_cancellation.disposition,
+            ManagedPermissionDispositionV1::Cancelled
+        );
+        session_cancellation
+            .validate_for(&session_request)
+            .expect("session cancellation binds request");
+        assert!(
+            resolve(&session_id, None).is_err(),
+            "cancelled ID is stale or unknown"
+        );
+        assert!(list_pending().expect("pending list").is_empty());
+        // This test reaches only the private desktop registry and local decisions;
+        // it neither creates a relay event nor calls publication/signing authority.
+    }
+}
