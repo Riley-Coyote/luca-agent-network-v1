@@ -339,6 +339,19 @@ Risks/known limits:
 - K04D's pure slice is complete. A210 remains open until the K05D desktop lease
   proves zeroization on success, retry, error, and timeout.
 - Evidence: `evidence/G2/G2.2/K04D/security-review-pass.md`.
+
+## 2026-08-05 — K05D desktop slice A — independent review blocked commit
+
+- The focused authority, store, backup, rotation, and desktop checks were
+  green, including the corrected writer-locked historical replay race.
+- Independent source review still found unbounded normalized scalar
+  allocation, non-exact object inventories, a multi-snapshot hydration read,
+  a non-composable whole-owner restore seam, and a header-zero/WAL classifier
+  that creates temporary state before proving the source version.
+- No desktop slice-A commit or A209 claim was made. Riley authorized one
+  surgical repair pass; the five findings are the frozen repair scope.
+- Evidence:
+  `evidence/G2/G2.2/K05D/desktop-slice-a-review-block.md`.
 - This closes only the pure-crate slice. Desktop snapshot persistence,
   hydration, CAS generation, immutable reads, and protected-backup integration
   remain before K05D/A209 may pass.
