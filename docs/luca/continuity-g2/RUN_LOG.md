@@ -34,6 +34,40 @@ source content. Detailed artifacts live under `evidence/G2/<gate>/<task>/`.
   rendered UTF-8 replay ceiling, newest complete messages retained.
 - Product implementation is authorized beginning with P01 and P02.
 
+## 2026-08-04 — P01/P02 — G2.1 parallel start
+
+- P01 owns versioned protocol contracts, schemas, and vectors only.
+- P02 owns ordinary stream-room history replay in `buzz-acp` only.
+- Shared manifests, lockfiles, G1 authority modules, and publication paths remain
+  under the integration mutex.
+- Both lanes are based on completed read-only reconnaissance and have disjoint
+  file ownership.
+
+## 2026-08-04 — P02 — bounded ordinary-room history
+
+- Added signed history replay only for ordinary `stream` rooms while preserving
+  thread precedence and existing DM/forum/workflow behavior.
+- Validates event ID, signature, kind, and exact room tag; orders deterministically;
+  enforces count and 16 KiB UTF-8 bounds; excludes trigger/duplicate event IDs.
+- One bounded repair corrected oversized-message retention and conservative
+  truncation after trigger exclusion.
+- Focused room tests 7/7, ACP library 598/598, F10 2/2, no-deps clippy PASS.
+- Independent messaging review: PASS.
+
+## 2026-08-05 — P01 — continuity protocol contracts
+
+- Added all 16 versioned G2 contracts with strict unknown-field and protocol
+  rejection, deserialize-time semantic validation, body-free diagnostics, and
+  checked JSON Schema 2020-12 conformance.
+- Bound continuity-job idempotency to owner, resident, source event, and
+  resident role with a domain-separated SHA-256 derivation.
+- Golden fixtures round-trip through all 16 types and carry checked canonical
+  RFC 8785 hashes; packet sizing covers the complete canonical representation.
+- One bounded repair closed validation, size, encryption-envelope, schema, and
+  vector gaps found by independent review.
+- Protocol tests, all-target clippy, and rustdoc generation pass. Final
+  independent security recheck: PASS.
+
 ## Entry template
 
 ```text

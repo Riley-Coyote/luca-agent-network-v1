@@ -17,8 +17,8 @@ installed-app rows pass and `N03` records an explicit verdict.
 
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
-| A101 | Versioned contracts and golden vectors round-trip with body-free diagnostics. | NOT RUN | |
-| A102 | DM and plain-room signed history is bounded, ordered, recent, and isolated. | NOT RUN | |
+| A101 | Versioned contracts and golden vectors round-trip with body-free diagnostics. | PASS | `receipts/P01.md` |
+| A102 | DM and plain-room signed history is bounded, ordered, recent, and isolated. | PASS | `receipts/P02.md` |
 | A103 | Every layer state is reproducible through the fake provider. | NOT RUN | |
 | A104 | Hermes DM, OpenClaw DM, mixed room, cancellation, permissions, and publication work with continuity absent. | NOT RUN | |
 
