@@ -272,6 +272,17 @@ Risks/known limits:
   start, and K05D, A209, K06, and G2.2 remain unclaimed pending Riley's explicit
   authorization for one additional surgical repair.
 - Evidence: `evidence/G2/G2.2/K05D/restart-snapshot-review-block.md`.
+
+## 2026-08-05 — Riley authorized surgical K05D and K06 repairs
+
+- Riley explicitly authorized one additional repair pass for the complete
+  recorded K05D restart-snapshot block and the two residual K06 recovery and
+  backup-bound defects.
+- K05D and K06 repairs run in parallel with disjoint ownership. Neither task
+  may pass until its focused checks and an independent adversarial re-review
+  pass.
+- Desktop revision-authority integration remains paused until the K05D pure
+  interface is accepted and frozen.
 - This closes only the pure-crate slice. Desktop snapshot persistence,
   hydration, CAS generation, immutable reads, and protected-backup integration
   remain before K05D/A209 may pass.
