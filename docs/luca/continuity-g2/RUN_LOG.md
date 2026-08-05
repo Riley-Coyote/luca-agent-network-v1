@@ -457,3 +457,18 @@ Risks/known limits:
   replacement and historical replay tests, exact formatting, and diff checks.
 - Independent security review found no blocker and accepted A207/K06.
 - Evidence: `evidence/G2/G2.2/K06/a207-security-review-pass.md`.
+
+## 2026-08-05 — G2.2 encrypted continuity kernel — PASS
+
+- All G2.2 tasks K01–K06 and acceptance rows A201–A210 are complete.
+- One consolidated gate passed 81 pure-kernel tests and 83 trusted-desktop
+  continuity tests. The desktop set included locked/absent fail-soft G1
+  messaging and permission regressions.
+- Exact Rust formatting, repository diff validation, and G2 control validation
+  passed.
+- No additional broad CI run was performed. Prior task evidence and independent
+  reviews were reused, and the consolidated gate exercised only the integrated
+  continuity boundary changed since those reviews.
+- The remaining dead-code warnings identify G2.3 read-lease consumers and
+  legacy rotation helpers; they do not represent a G2.2 correctness failure.
+- Verdict: `docs/luca/continuity-g2/G2_2_VERDICT.md`.
