@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>dot-display lab</title>
+    <style>
+      :root { --line:#1b1e22; --dim:#7b828a; --faint:#4a5057; --ink:#d6dade; }
+      * { box-sizing: border-box; }
+      body {
+        background:#08090b; color:var(--ink); margin:0; padding:24px 26px 60px;
+        font:13px/1.5 Inter, ui-sans-serif, system-ui, sans-serif;
+        -webkit-font-smoothing:antialiased;
+      }
+      h1 { font-size:15px; font-weight:500; margin:0 0 3px; }
+      .sub { color:var(--dim); font-size:12px; margin:0 0 18px; max-width:74ch; }
+      h2 {
+        font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+        color:var(--faint); font-weight:500; margin:26px 0 10px;
+        border-top:1px solid var(--line); padding-top:14px;
+      }
+      h2 span { color:var(--dim); text-transform:none; letter-spacing:0; font-size:11px; }
+      .row { display:flex; flex-wrap:wrap; gap:22px; align-items:flex-end; }
+      .cellbox { text-align:center; }
+      .cellbox canvas { border-radius:5px; border:1px solid #24272b; display:block; }
+      .sizes { display:flex; gap:8px; align-items:flex-end; }
+      .cap { color:var(--dim); font-size:10px; letter-spacing:.07em;
+             text-transform:uppercase; margin-top:7px; }
+      .note { color:var(--faint); font-size:10.5px; max-width:34ch; margin-top:3px;
+              text-transform:none; letter-spacing:0; line-height:1.4; }
+      .bar {
+        position:sticky; top:0; z-index:10; background:#08090bee;
+        backdrop-filter:blur(8px); border-bottom:1px solid var(--line);
+        margin:0 -26px 18px; padding:12px 26px; display:flex; gap:18px;
+        flex-wrap:wrap; align-items:center;
+      }
+      .ctl { display:flex; align-items:center; gap:8px; color:var(--dim); font-size:11.5px; }
+      input[type=range]{ -webkit-appearance:none; appearance:none; height:3px; width:110px;
+        background:#33383e; border-radius:2px; outline:none; }
+      input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:12px; height:12px;
+        border-radius:50%; background:var(--ink); cursor:pointer; border:2px solid #08090b; }
+      button { font:inherit; font-size:11.5px; color:var(--ink); background:#14171a;
+        border:1px solid #33383e; border-radius:6px; padding:6px 11px; cursor:pointer; }
+      button.on { border-color:#6d93c9; color:#9dbbe4; }
+      .val { color:var(--ink); min-width:3ch; font-variant-numeric:tabular-nums; }
+      #fps { color:var(--ink); font-variant-numeric:tabular-nums; }
+    </style>
+  </head>
+  <body>
+    <h1>dot-display lab</h1>
+    <p class="sub">
+      Every scene at 28 / 48 / 96 / 300px. 28px is the gate — the rail is where these live,
+      so a scene that only sings large has failed. Colour law is suspended: toggle
+      magnitude colour to see "how much just moved" as a live dial.
+    </p>
+
+    <div class="bar">
+      <button id="t-color">colour by magnitude</button>
+      <button id="t-bloom">bloom</button>
+      <div class="ctl">panels <span class="val" id="npanels">0</span></div>
+      <div class="ctl">fps <span id="fps">–</span></div>
+      <div class="ctl">loops <span class="val" id="loops">–</span></div>
+    </div>
+
+    <div id="mount"></div>
+
+    <script type="module">
+      import { registerPanel, unregisterPanel, registerScene, __dotDisplayStats }
+        from "/src/shared/ui/dot-display/engine.ts";
+      import { labScenes, buildMagnitudeLut }
+        from "/src/shared/ui/dot-display/scenes-lab.ts";
+
+      for (const [name, fn] of Object.entries(labScenes)) registerScene(name, fn);
+      const LUT = buildMagnitudeLut();
+      const SEED = "35653885e1eeb9c1a0759c24b502f6105714f0198ee83d04468b9905752ec899";
+      const SIZES = [28, 48, 96, 300];
+      const CELL  = { 28: 2, 48: 2, 96: 4, 300: 6 };
+
+      const GROUPS = [
+        ["Track 1 — repairs", "original above, rework below — same state, brought to the standard of pulse", [
+          ["work",     "original — clears the buffer every frame"],
+          ["workV2",   "advancing soft front, textured wake, quantised ticks"],
+          ["fault",    "original — one row of a fourteen-row lattice"],
+          ["faultV2",  "field losing charge from the edges, broken trace last to go"],
+          ["recall",   "original — points toggle 1.0 ↔ 0.2"],
+          ["recallV2", "gradient wedge, each memory flares then cools"],
+          ["net",      "original — nodes blink"],
+          ["netV2",    "charge travels along the links"],
+          ["sleep",    "original"],
+          ["sleepV2",  "slow dim swell under the twinkle"],
+        ]],
+        ["Track 2 — one critical field, many forcings", "sandpile physics; only the pour point differs between states", [
+          ["pileListen", "barely fed — micro-topples ARE the twinkle"],
+          ["pileThink",  "pour at the centre, cascades bloom outward"],
+          ["pileWork",   "metered pour walking across the field"],
+          ["pileRecall", "the pour orbits, lighting what it passes"],
+          ["pileNet",    "two pour points, cascades colliding"],
+        ]],
+        ["Track 3 — new physical substrates", "chosen to fit specific states", [
+          ["chladni",      "sand settling on nodal lines — literally 'noise resolving into order'"],
+          ["dla",          "walkers stick to what is already remembered; memory accretes"],
+          ["interference", "each participant is a source; talking = waves interfering"],
+          ["flow",         "curl-noise advection — divergence-free current"],
+        ]],
+        ["Reference — the ones that already work", "for direct comparison", [
+          ["listen", ""], ["think", ""], ["pulse", ""], ["sigil", "identity, static by design"],
+        ]],
+      ];
+
+      let colorOn = false, bloomOn = false;
+      const made = [];
+
+      function build() {
+        for (const c of made) unregisterPanel(c);
+        made.length = 0;
+        const mount = document.getElementById("mount");
+        mount.innerHTML = "";
+        for (const [title, note, items] of GROUPS) {
+          const h = document.createElement("h2");
+          h.innerHTML = title + (note ? ' <span>· ' + note + '</span>' : '');
+          mount.appendChild(h);
+          const row = document.createElement("div");
+          row.className = "row";
+          mount.appendChild(row);
+          for (const [scene, desc] of items) {
+            const box = document.createElement("div");
+            box.className = "cellbox";
+            const sizes = document.createElement("div");
+            sizes.className = "sizes";
+            for (const s of SIZES) {
+              const cv = document.createElement("canvas");
+              cv.style.width = s + "px"; cv.style.height = s + "px";
+              cv.dataset.scene = scene;
+              sizes.appendChild(cv);
+              const panel = registerPanel(cv, {
+                seed: SEED, cell: CELL[s], bloom: bloomOn ? 1 : 0,
+                breath: scene === "sigil",
+              });
+              if (colorOn) panel.enableMagnitude(LUT); else panel.disableMagnitude();
+              made.push(cv);
+            }
+            box.appendChild(sizes);
+            const cap = document.createElement("div");
+            cap.className = "cap";
+            cap.textContent = scene;
+            if (desc) {
+              const n = document.createElement("div");
+              n.className = "note"; n.textContent = desc;
+              cap.appendChild(n);
+            }
+            box.appendChild(cap);
+            row.appendChild(box);
+          }
+        }
+      }
+
+      document.getElementById("t-color").addEventListener("click", (e) => {
+        colorOn = !colorOn; e.target.classList.toggle("on", colorOn); build();
+      });
+      document.getElementById("t-bloom").addEventListener("click", (e) => {
+        bloomOn = !bloomOn; e.target.classList.toggle("on", bloomOn); build();
+      });
+
+      build();
+
+      // perf readout
+      let last = performance.now(), frames = 0;
+      (function tick() {
+        frames++;
+        const now = performance.now();
+        if (now - last >= 1000) {
+          const s = __dotDisplayStats();
+          document.getElementById("fps").textContent = frames;
+          document.getElementById("npanels").textContent = s.panels;
+          document.getElementById("loops").textContent = s.running ? 1 : 0;
+          frames = 0; last = now;
+        }
+        requestAnimationFrame(tick);
+      })();
+      window.__stats = __dotDisplayStats;
+    </script>
+  </body>
+</html>
