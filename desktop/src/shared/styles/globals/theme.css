@@ -835,7 +835,13 @@
   --buzz-sidebar-scrollbar-thumb: hsl(var(--mn-ink) / 0.14);
   --buzz-active-fill: var(--mn-ink);
   --buzz-active-surface: hsl(var(--mn-ink) / 0.1);
-  --buzz-active-foreground: hsl(var(--mn-ink));
+  /* BARE HSL TRIPLET, not a colour. It feeds --sidebar-active-foreground, which
+     Tailwind consumes as hsl(var(...)); wrapping it here yields hsl(hsl(...)),
+     which is invalid at computed-value time, so `color` silently falls back to
+     the inherited ink and the active item renders its glyph in the same value
+     as its own fill — a blank plate. It must also CONTRAST with
+     --buzz-active-fill above (near-white ink), hence the canvas, not the ink. */
+  --buzz-active-foreground: var(--mn-canvas);
   --buzz-channel-fg: hsl(var(--mn-ink-muted));
   --buzz-dm-fg: hsl(var(--mn-ink-muted));
   --buzz-nav-fg: hsl(var(--mn-ink));

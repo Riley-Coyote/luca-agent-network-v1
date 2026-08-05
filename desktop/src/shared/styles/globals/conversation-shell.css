@@ -63,8 +63,11 @@
   --sidebar-ring: var(--mn-focus);
   --sidebar-active: 210 7% 82%;
   --sidebar-active-foreground: 220 10% 8%;
+  /* --buzz-active-surface is used directly as a colour; --buzz-active-foreground
+     feeds --sidebar-active-foreground and is re-wrapped by Tailwind, so it stays
+     a bare triplet. See the note in theme.css. */
   --buzz-active-surface: hsl(210 7% 82%);
-  --buzz-active-foreground: hsl(220 10% 8%);
+  --buzz-active-foreground: 220 10% 8%;
   color-scheme: dark;
 }
 
