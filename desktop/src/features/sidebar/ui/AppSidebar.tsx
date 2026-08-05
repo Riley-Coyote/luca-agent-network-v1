@@ -539,7 +539,7 @@ export function AppSidebar({
   return (
     <Sidebar
       className="!border-r-0"
-      collapsible="offcanvas"
+      collapsible="icon"
       data-testid="app-sidebar"
       variant="sidebar"
     >

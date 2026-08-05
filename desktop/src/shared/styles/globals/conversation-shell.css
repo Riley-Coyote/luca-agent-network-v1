@@ -84,12 +84,16 @@
   border-color: hsl(var(--mn-border));
 }
 
+/* The conversation card. The lip is equal on top, right and bottom; the left
+   edge keeps a 1px seam against the rail (paired with the sidebar's `pr-px`),
+   so the card reads as a panel resting on the floor rather than a boxed-in
+   region. Radius comes from `--radius` — do not hardcode a second value. */
 :root[data-buzz-sidebar] [data-luca-conversation-surface] {
   background: hsl(var(--mn-surface));
   border: 1px solid hsl(var(--mn-border));
-  border-radius: 12px;
+  border-radius: var(--radius);
   box-shadow: none;
-  margin: 1px 8px 8px 1px;
+  margin: 8px 8px 8px 1px;
 }
 
 :root[data-buzz-sidebar] [data-sidebar="group"] {
