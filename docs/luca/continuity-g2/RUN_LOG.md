@@ -193,3 +193,18 @@ Risks/known limits:
 - SQLite EXPLAIN inspection confirmed guard execution before the output Column.
   Focused tests pass 14/14; formatting, locked metadata, diff checks, and control
   validation pass. Independent final security re-review: PASS.
+
+## 2026-08-05 — K04 — in-memory retrieval and bounded graph activation
+
+- Added exact-scope process-memory FTS5 hydration, deterministic integer lexical
+  seeding, bounded typed graph activation, source-backed paths, and optional
+  caller-provided memory-only vectors that remain off by default.
+- Initial independent review found shared-corpus rank influence, floating-point
+  scoring, aggregate allocation gaps, missing provenance enforcement, and
+  duplicate-edge amplification.
+- One bounded repair isolated FTS per exact scope, removed BM25/floating point,
+  bounded records/plaintext/edges/vectors before cloning, required active
+  provenance, and rejected duplicate relation edges.
+- Final independent review: PASS. All 53 continuity tests, 17 focused retrieval
+  vectors, strict Clippy, formatting, diff, source-boundary, and disk-artifact
+  checks pass.
