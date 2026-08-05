@@ -19,7 +19,10 @@ use luca_protocol::{
     LucaBackupManifestV1, OpaqueId, OwnerIdentityBundleV1, SafeU53, Sha256Ref, CONTINUITY_PROTOCOL,
 };
 use nostr::Keys;
-use serde::{Deserialize, Serialize};
+use serde::{
+    de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor},
+    Deserialize, Deserializer as _, Serialize,
+};
 use sha2::{Digest, Sha256};
 use tempfile::Builder as TempFileBuilder;
 use zeroize::{Zeroize, Zeroizing};
@@ -55,6 +58,15 @@ const ABSENT_IDENTITY_MARKER: &str = "luca.continuity.owner-identity.absent.v1";
 const ARCHIVE_INTEGRITY_DOMAIN: &[u8] = b"luca.continuity.backup.integrity.v1";
 const MAPPING_REF_DOMAIN: &[u8] = b"luca.continuity.backup.mapping-ref.v1";
 const SNAPSHOT_REF_DOMAIN: &[u8] = b"luca.continuity.backup.snapshot-ref.v1";
+const PREFLIGHT_BOUND_ERROR: &str = "luca backup collection bound exceeded";
+const ARCHIVE_FIELDS: &[&str] = &[
+    "manifest",
+    "owner_identity",
+    "active_key_version",
+    "continuity_master_key_b64",
+    "records",
+    "mappings",
+];
 
 /// Source/identity mapping intentionally excludes paths and runtime/provider
 /// details. `source_ref` is a stable content-derived identifier.
@@ -553,6 +565,11 @@ fn decrypt_archive(
     if plaintext.len() > MAX_PLAINTEXT_BYTES {
         return Err(ContinuityBackupError::BoundExceeded);
     }
+    // Inspect the decrypted JSON stream without materializing its values. This
+    // rejects collection overflow and malformed top-level shape before strict
+    // canonicalization clones the complete archive or typed deserialization
+    // allocates either collection.
+    let preflight = preflight_archive_structure(&plaintext)?;
     let canonical = Zeroizing::new(
         parse_and_canonicalize_strict(&plaintext, MAX_PLAINTEXT_BYTES)
             .map_err(|_| ContinuityBackupError::InvalidArchive)?,
@@ -560,100 +577,145 @@ fn decrypt_archive(
     if canonical.as_slice() != plaintext.as_slice() {
         return Err(ContinuityBackupError::InvalidArchive);
     }
-    preflight_archive_collections(&plaintext)?;
     let archive = serde_json::from_slice::<BackupArchiveV1>(&plaintext)
         .map_err(|_| ContinuityBackupError::InvalidArchive)?;
+    if archive.records.len() != preflight.record_count
+        || archive.mappings.len() != preflight.mapping_count
+    {
+        return Err(ContinuityBackupError::InvalidArchive);
+    }
     validate_archive(archive)
 }
 
-fn preflight_archive_collections(bytes: &[u8]) -> Result<(), ContinuityBackupError> {
-    count_canonical_array(bytes, b"\"records\":[", MAX_CONTINUITY_SNAPSHOT_RECORDS)?;
-    count_canonical_array(bytes, b"\"mappings\":[", MAX_SOURCE_MAPPINGS)?;
-    Ok(())
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ArchiveStructurePreflight {
+    record_count: usize,
+    mapping_count: usize,
 }
 
-fn count_canonical_array(
-    bytes: &[u8],
-    marker: &[u8],
+struct BoundedSequenceSeed {
     maximum: usize,
-) -> Result<usize, ContinuityBackupError> {
-    let start = bytes
-        .windows(marker.len())
-        .position(|window| window == marker)
-        .ok_or(ContinuityBackupError::InvalidArchive)?
-        .checked_add(marker.len())
-        .ok_or(ContinuityBackupError::BoundExceeded)?;
-    let mut depth = 1usize;
-    let mut in_string = false;
-    let mut escaped = false;
-    let mut count = 0usize;
-    let mut has_item = false;
-    for byte in &bytes[start..] {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if *byte == b'\\' {
-                escaped = true;
-            } else if *byte == b'"' {
-                in_string = false;
-            }
-            continue;
-        }
-        match *byte {
-            b'"' => {
-                in_string = true;
-                if depth == 1 {
-                    has_item = true;
-                }
-            }
-            b'[' | b'{' => {
-                if depth == 1 {
-                    has_item = true;
-                }
-                depth = depth
-                    .checked_add(1)
-                    .ok_or(ContinuityBackupError::BoundExceeded)?;
-            }
-            b']' => {
-                depth = depth
-                    .checked_sub(1)
-                    .ok_or(ContinuityBackupError::InvalidArchive)?;
-                if depth == 0 {
-                    if has_item {
-                        count = count
-                            .checked_add(1)
-                            .ok_or(ContinuityBackupError::BoundExceeded)?;
-                    }
-                    return if count <= maximum {
-                        Ok(count)
-                    } else {
-                        Err(ContinuityBackupError::BoundExceeded)
-                    };
-                }
-            }
-            b'}' => {
-                depth = depth
-                    .checked_sub(1)
-                    .ok_or(ContinuityBackupError::InvalidArchive)?;
-            }
-            b',' if depth == 1 => {
-                if !has_item {
-                    return Err(ContinuityBackupError::InvalidArchive);
-                }
-                count = count
-                    .checked_add(1)
-                    .ok_or(ContinuityBackupError::BoundExceeded)?;
-                if count >= maximum {
-                    return Err(ContinuityBackupError::BoundExceeded);
-                }
-                has_item = false;
-            }
-            b' ' | b'\n' | b'\r' | b'\t' => {}
-            _ if depth == 1 => has_item = true,
-            _ => {}
-        }
+}
+
+struct BoundedSequenceVisitor {
+    maximum: usize,
+}
+
+impl<'de> DeserializeSeed<'de> for BoundedSequenceSeed {
+    type Value = usize;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(BoundedSequenceVisitor {
+            maximum: self.maximum,
+        })
     }
-    Err(ContinuityBackupError::InvalidArchive)
+}
+
+impl<'de> Visitor<'de> for BoundedSequenceVisitor {
+    type Value = usize;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "an array with at most {} entries", self.maximum)
+    }
+
+    fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        if sequence
+            .size_hint()
+            .is_some_and(|length| length > self.maximum)
+        {
+            return Err(de::Error::custom(PREFLIGHT_BOUND_ERROR));
+        }
+        let mut count = 0usize;
+        while sequence.next_element::<IgnoredAny>()?.is_some() {
+            count = count
+                .checked_add(1)
+                .ok_or_else(|| de::Error::custom(PREFLIGHT_BOUND_ERROR))?;
+            if count > self.maximum {
+                return Err(de::Error::custom(PREFLIGHT_BOUND_ERROR));
+            }
+        }
+        Ok(count)
+    }
+}
+
+struct ArchiveStructureVisitor;
+
+impl<'de> Visitor<'de> for ArchiveStructureVisitor {
+    type Value = ArchiveStructurePreflight;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("the exact Luca backup top-level object")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut seen = 0u8;
+        let mut record_count = None;
+        let mut mapping_count = None;
+        while let Some(field) = map.next_key::<&str>()? {
+            let (bit, duplicate_name) = match field {
+                "manifest" => (1 << 0, "manifest"),
+                "owner_identity" => (1 << 1, "owner_identity"),
+                "active_key_version" => (1 << 2, "active_key_version"),
+                "continuity_master_key_b64" => (1 << 3, "continuity_master_key_b64"),
+                "records" => (1 << 4, "records"),
+                "mappings" => (1 << 5, "mappings"),
+                _ => return Err(de::Error::unknown_field(field, ARCHIVE_FIELDS)),
+            };
+            if seen & bit != 0 {
+                return Err(de::Error::duplicate_field(duplicate_name));
+            }
+            seen |= bit;
+            match field {
+                "records" => {
+                    record_count = Some(map.next_value_seed(BoundedSequenceSeed {
+                        maximum: MAX_CONTINUITY_SNAPSHOT_RECORDS,
+                    })?);
+                }
+                "mappings" => {
+                    mapping_count = Some(map.next_value_seed(BoundedSequenceSeed {
+                        maximum: MAX_SOURCE_MAPPINGS,
+                    })?);
+                }
+                _ => {
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+        }
+        if seen != 0b11_1111 {
+            return Err(de::Error::custom("incomplete Luca backup top-level object"));
+        }
+        Ok(ArchiveStructurePreflight {
+            record_count: record_count.ok_or_else(|| de::Error::missing_field("records"))?,
+            mapping_count: mapping_count.ok_or_else(|| de::Error::missing_field("mappings"))?,
+        })
+    }
+}
+
+fn preflight_archive_structure(
+    bytes: &[u8],
+) -> Result<ArchiveStructurePreflight, ContinuityBackupError> {
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    let result = (&mut deserializer).deserialize_map(ArchiveStructureVisitor);
+    let preflight = result.map_err(|error| {
+        if error.to_string().contains(PREFLIGHT_BOUND_ERROR) {
+            ContinuityBackupError::BoundExceeded
+        } else {
+            ContinuityBackupError::InvalidArchive
+        }
+    })?;
+    deserializer
+        .end()
+        .map_err(|_| ContinuityBackupError::InvalidArchive)?;
+    Ok(preflight)
 }
 
 fn validate_path(path: &Path) -> Result<(), ContinuityBackupError> {
@@ -1362,6 +1424,42 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct CommitThenErrorKeychain {
+        values: RefCell<BTreeMap<String, String>>,
+        commit_then_error_name: RefCell<Option<String>>,
+    }
+
+    impl ContinuityKeyStore for CommitThenErrorKeychain {
+        fn load_raw(
+            &self,
+            name: &str,
+        ) -> Result<Option<Zeroizing<String>>, ContinuityKeyStoreError> {
+            Ok(self.values.borrow().get(name).cloned().map(Zeroizing::new))
+        }
+
+        fn store_raw(&self, name: &str, value: &str) -> Result<(), ContinuityKeyStoreError> {
+            self.values
+                .borrow_mut()
+                .insert(name.to_owned(), value.to_owned());
+            if self
+                .commit_then_error_name
+                .borrow()
+                .as_deref()
+                .is_some_and(|target| target == name)
+            {
+                self.commit_then_error_name.borrow_mut().take();
+                return Err(ContinuityKeyStoreError::Locked);
+            }
+            Ok(())
+        }
+
+        fn delete_raw(&self, name: &str) -> Result<(), ContinuityKeyStoreError> {
+            self.values.borrow_mut().remove(name);
+            Ok(())
+        }
+    }
+
     fn hex(byte: u8) -> Hex64 {
         Hex64::parse(hex::encode([byte; 32])).unwrap()
     }
@@ -1698,6 +1796,94 @@ mod tests {
     }
 
     #[test]
+    fn committed_candidate_write_error_reconciles_old_and_absent_roots() {
+        for old_root_present in [true, false] {
+            let source_dir = TempDir::new().unwrap();
+            let destination_dir = TempDir::new().unwrap();
+            let restore_dir = TempDir::new().unwrap();
+            let (identity, owner) = owner_identity();
+            let root = ContinuityMasterKey::new_for_test([0x51; 32]);
+            let mut source_store = open(source_dir.path());
+            seed(&mut source_store, &root, &owner);
+            let lifecycle = ContinuityLifecycleLock::new_for_test();
+            let path = destination_dir.path().join(format!(
+                "commit-ambiguous-{}.luca-backup.age",
+                if old_root_present { "old" } else { "absent" }
+            ));
+            let exported = export_continuity_backup(
+                &lifecycle,
+                &mut source_store,
+                &root,
+                identity,
+                owner.clone(),
+                OpaqueId::parse(format!(
+                    "backup-commit-ambiguous-{}",
+                    if old_root_present { "old" } else { "absent" }
+                ))
+                .unwrap(),
+                CanonicalTimestamp::parse("2026-08-05T00:00:00Z").unwrap(),
+                vec![mapping()],
+                &path,
+                passphrase(),
+            )
+            .unwrap();
+            let confirmation = ContinuityRestoreConfirmation {
+                backup_id: exported.preview.backup_id,
+                owner_pubkey: owner.clone(),
+                ciphertext_sha256: exported.preview.ciphertext_sha256,
+            };
+            let mut restored = open(restore_dir.path());
+            let keychain = CommitThenErrorKeychain::default();
+            if old_root_present {
+                keychain
+                    .store_raw(CONTINUITY_MASTER_KEY_NAME, &root.to_base64())
+                    .unwrap();
+                owner_identity().0.owner_secret_nsec.with_exposed(|nsec| {
+                    keychain.store_raw(IDENTITY_KEY_NAME, nsec).unwrap();
+                });
+            }
+            *keychain.commit_then_error_name.borrow_mut() =
+                Some(CONTINUITY_MASTER_KEY_NAME.to_owned());
+
+            assert_eq!(
+                restore_continuity_backup(
+                    &lifecycle,
+                    &mut restored,
+                    &keychain,
+                    &path,
+                    passphrase(),
+                    &confirmation,
+                    restore_dir.path(),
+                    &mut NoRestoreCrash,
+                ),
+                Err(ContinuityBackupError::Keychain(
+                    ContinuityKeyStoreError::Locked
+                ))
+            );
+
+            assert!(keychain.load_raw(RESTORE_STATE_KEY).unwrap().is_none());
+            assert!(keychain
+                .load_raw(CONTINUITY_MASTER_KEY_ROLLBACK_NAME)
+                .unwrap()
+                .is_none());
+            assert!(keychain.load_raw(IDENTITY_ROLLBACK_KEY).unwrap().is_none());
+            assert_eq!(
+                active_master_verifier(&keychain).unwrap(),
+                old_root_present.then(|| hash_hex(root.as_bytes()).unwrap())
+            );
+            assert_eq!(
+                active_identity_verifier(&keychain).unwrap(),
+                old_root_present.then_some(owner)
+            );
+            assert!(restored
+                .snapshot_owner_encrypted(&confirmation.owner_pubkey)
+                .unwrap()
+                .records
+                .is_empty());
+        }
+    }
+
+    #[test]
     fn corrupt_existing_identity_is_never_overwritten() {
         let source_dir = TempDir::new().unwrap();
         let destination_dir = TempDir::new().unwrap();
@@ -1985,14 +2171,47 @@ mod tests {
     }
 
     #[test]
-    fn archive_collection_preflight_rejects_overflow_and_truncation() {
+    fn archive_structure_preflight_counts_exact_collections_and_shape() {
+        let fixture = br#"{"manifest":{},"owner_identity":{},"active_key_version":1,"continuity_master_key_b64":"x","records":[{},{}],"mappings":[{}]}"#;
         assert_eq!(
-            count_canonical_array(b"{\"records\":[{},{}]}", b"\"records\":[", 1),
-            Err(ContinuityBackupError::BoundExceeded)
+            preflight_archive_structure(fixture),
+            Ok(ArchiveStructurePreflight {
+                record_count: 2,
+                mapping_count: 1,
+            })
         );
         assert_eq!(
-            count_canonical_array(b"{\"records\":[{}", b"\"records\":[", 10),
+            preflight_archive_structure(br#"{"records":[]}"#),
             Err(ContinuityBackupError::InvalidArchive)
         );
+        assert_eq!(
+            preflight_archive_structure(br#"{"records":[],"records":[]}"#),
+            Err(ContinuityBackupError::InvalidArchive)
+        );
+    }
+
+    #[test]
+    fn archive_structure_preflight_rejects_each_over_cap_array_before_invalid_tail() {
+        for (field, maximum) in [
+            ("records", MAX_CONTINUITY_SNAPSHOT_RECORDS),
+            ("mappings", MAX_SOURCE_MAPPINGS),
+        ] {
+            let mut fixture = format!("{{\"{field}\":[").into_bytes();
+            for index in 0..=maximum {
+                if index > 0 {
+                    fixture.push(b',');
+                }
+                fixture.extend_from_slice(b"{}");
+            }
+            // The fixture intentionally has no closing array/object and is not
+            // canonical JSON. BoundExceeded proves the streaming preflight
+            // stopped on the collection cap before parsing/canonicalizing tail.
+            fixture.extend_from_slice(b",definitely-not-json");
+            assert_eq!(
+                preflight_archive_structure(&fixture),
+                Err(ContinuityBackupError::BoundExceeded),
+                "{field} must fail on its collection bound"
+            );
+        }
     }
 }

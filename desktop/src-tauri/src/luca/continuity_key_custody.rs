@@ -297,11 +297,16 @@ pub(crate) fn install_candidate_master_key<S: ContinuityKeyStore>(
     }
     let encoded = candidate.to_base64();
     if let Err(error) = store.store_raw(CONTINUITY_MASTER_KEY_NAME, &encoded) {
-        let _ = store.delete_raw(CONTINUITY_MASTER_KEY_ROLLBACK_NAME);
+        // A SecretStore write error is commit-ambiguous: the keychain blob may
+        // already contain the candidate even though the backend reported an
+        // error. Keep the verified rollback slot so the restore journal can
+        // read back active authority and deterministically reconcile old/new.
         return Err(error);
     }
     if let Err(error) = verify_exact_slot(store, CONTINUITY_MASTER_KEY_NAME, &encoded) {
-        let _ = rollback_candidate_master_key(store);
+        // Read-back failure is likewise not authority to discard rollback.
+        // The outer restore journal owns reconciliation once a candidate write
+        // has been attempted.
         return Err(error);
     }
     Ok(())
@@ -359,6 +364,7 @@ mod tests {
         reads: RefCell<usize>,
         writes: RefCell<usize>,
         substitute_after_write: RefCell<Option<String>>,
+        commit_then_error: RefCell<Option<(String, ContinuityKeyStoreError)>>,
     }
 
     impl ContinuityKeyStore for FakeStore {
@@ -391,6 +397,16 @@ mod tests {
                 .clone()
                 .unwrap_or_else(|| value.to_owned());
             self.values.borrow_mut().insert(name.to_owned(), value);
+            let committed_error = self
+                .commit_then_error
+                .borrow()
+                .as_ref()
+                .filter(|(target, _)| target == name)
+                .map(|(_, error)| *error);
+            if let Some(error) = committed_error {
+                self.commit_then_error.borrow_mut().take();
+                return Err(error);
+            }
             Ok(())
         }
 
@@ -573,6 +589,51 @@ mod tests {
         install_candidate_master_key(&store, &candidate).unwrap();
         rollback_candidate_master_key(&store).unwrap();
         assert!(store.values.borrow().is_empty());
+    }
+
+    #[test]
+    fn commit_ambiguous_candidate_write_retains_verified_rollback_authority() {
+        for prior in [Some(encoded_key(1)), None] {
+            let store = FakeStore::default();
+            if let Some(prior) = prior.as_ref() {
+                store
+                    .values
+                    .borrow_mut()
+                    .insert(CONTINUITY_MASTER_KEY_NAME.to_owned(), prior.clone());
+            }
+            *store.commit_then_error.borrow_mut() = Some((
+                CONTINUITY_MASTER_KEY_NAME.to_owned(),
+                ContinuityKeyStoreError::Locked,
+            ));
+            let candidate = ContinuityMasterKey::new_for_test([2; MASTER_KEY_BYTES]);
+
+            assert_eq!(
+                install_candidate_master_key(&store, &candidate),
+                Err(ContinuityKeyStoreError::Locked)
+            );
+            assert_eq!(
+                store.values.borrow().get(CONTINUITY_MASTER_KEY_NAME),
+                Some(&encoded_key(2))
+            );
+            assert_eq!(
+                store
+                    .values
+                    .borrow()
+                    .get(CONTINUITY_MASTER_KEY_ROLLBACK_NAME)
+                    .map(String::as_str),
+                prior.as_deref().or(Some(ABSENT_ROLLBACK_MARKER))
+            );
+
+            rollback_candidate_master_key(&store).unwrap();
+            assert_eq!(
+                store.values.borrow().get(CONTINUITY_MASTER_KEY_NAME),
+                prior.as_ref()
+            );
+            assert!(!store
+                .values
+                .borrow()
+                .contains_key(CONTINUITY_MASTER_KEY_ROLLBACK_NAME));
+        }
     }
 
     #[test]

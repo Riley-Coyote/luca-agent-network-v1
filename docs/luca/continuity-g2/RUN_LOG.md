@@ -283,6 +283,20 @@ Risks/known limits:
   pass.
 - Desktop revision-authority integration remains paused until the K05D pure
   interface is accepted and frozen.
+
+## 2026-08-05 — K06 — authorized residual repair passed
+
+- Commit-ambiguous candidate root-key errors now preserve rollback and journal
+  authority until deterministic old/new read-back reconciliation completes.
+- Backup collection bounds now run through a streaming exact-shape preflight
+  before canonicalization or typed materialization and stop at cap plus one.
+- Root and independent review each passed 11 custody and 11 backup tests,
+  exact-file formatting, and scoped diff checks; no blocking findings remain
+  in the authorized repair.
+- K06 remains in progress because protected backup/restore and rotation must
+  incorporate the accepted K05D authority state before A207/A208 or G2.2 can
+  pass.
+- Evidence: `evidence/G2/G2.2/K06/second-repair-review-pass.md`.
 - This closes only the pure-crate slice. Desktop snapshot persistence,
   hydration, CAS generation, immutable reads, and protected-backup integration
   remain before K05D/A209 may pass.
