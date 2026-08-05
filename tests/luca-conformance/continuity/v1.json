@@ -1,0 +1,199 @@
+{
+  "schema": "luca.conformance.continuity.v1",
+  "all_layer_statuses": ["ready", "empty", "denied", "stale", "locked", "unavailable", "timeout", "invalid"],
+  "contracts": {
+    "namespace": {
+      "protocol": "luca.continuity.v1",
+      "owner_pubkey": "1111111111111111111111111111111111111111111111111111111111111111",
+      "kind": "resident_private",
+      "resident_pubkey": "3333333333333333333333333333333333333333333333333333333333333333",
+      "namespace_ref": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "key_version": 1
+    },
+    "scope": {
+      "protocol": "luca.continuity.v1",
+      "namespace_ref": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "scope_ref": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "conversation_id": "conversation-1"
+    },
+    "record": {
+      "protocol": "luca.continuity.v1",
+      "record_id": "record-1",
+      "namespace": {
+        "protocol": "luca.continuity.v1",
+        "owner_pubkey": "1111111111111111111111111111111111111111111111111111111111111111",
+        "kind": "resident_private",
+        "resident_pubkey": "3333333333333333333333333333333333333333333333333333333333333333",
+        "namespace_ref": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "key_version": 1
+      },
+      "scope": {
+        "protocol": "luca.continuity.v1",
+        "namespace_ref": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "scope_ref": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        "conversation_id": "conversation-1"
+      },
+      "record_type": "handoff",
+      "revision": 0,
+      "created_at": "2026-08-04T00:00:00Z",
+      "author_kind": "resident",
+      "provenance_refs": ["sha256:5555555555555555555555555555555555555555555555555555555555555555"],
+      "key_version": 1,
+      "aad_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+      "nonce_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "ciphertext_b64": "AQ=="
+    },
+    "context_request": {
+      "protocol": "luca.continuity.v1",
+      "request_id": "request-1",
+      "owner_pubkey": "1111111111111111111111111111111111111111111111111111111111111111",
+      "resident_pubkey": "3333333333333333333333333333333333333333333333333333333333333333",
+      "conversation_id": "conversation-1",
+      "binding_ref": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "canonical_dispatch_ref": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+      "provider_egress": "local",
+      "deadline_unix_ms": 1700000000000,
+      "max_packet_bytes": 49152,
+      "history_event_ids": ["7777777777777777777777777777777777777777777777777777777777777777"]
+    },
+    "context_result": {
+      "protocol": "luca.continuity.v1",
+      "request_id": "request-1",
+      "resident_pubkey": "3333333333333333333333333333333333333333333333333333333333333333",
+      "layers": [{
+        "layer": "resident_private",
+        "status": "ready",
+        "provenance_ref": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+      }],
+      "packet": {
+        "protocol": "luca.continuity.v1",
+        "packet_id": "packet-1",
+        "content": "UNTRUSTED_REFERENCE\nsource=synthetic\n",
+        "provenance_refs": ["sha256:5555555555555555555555555555555555555555555555555555555555555555"]
+      },
+      "receipt_ref": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+      "diagnostics": []
+    },
+    "packet": {
+      "protocol": "luca.continuity.v1",
+      "packet_id": "packet-1",
+      "content": "UNTRUSTED_REFERENCE\nsource=synthetic\n",
+      "provenance_refs": ["sha256:5555555555555555555555555555555555555555555555555555555555555555"]
+    },
+    "mutation": {
+      "protocol": "luca.continuity.v1",
+      "mutation_id": "mutation-1",
+      "namespace_ref": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "scope_ref": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "state": "committed",
+      "record_id": "record-1",
+      "source_event_ids": ["7777777777777777777777777777777777777777777777777777777777777777"],
+      "author_kind": "resident",
+      "created_at": "2026-08-04T00:00:00Z",
+      "body_ciphertext_ref": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+    },
+    "job": {
+      "protocol": "luca.continuity.v1",
+      "job_id": "job-1",
+      "idempotency_key": "ca13661347a2c286306d310a577785f8f21691c9ccf9d5386df529220f99bbd0",
+      "owner_pubkey": "1111111111111111111111111111111111111111111111111111111111111111",
+      "resident_pubkey": "3333333333333333333333333333333333333333333333333333333333333333",
+      "source_event_id": "7777777777777777777777777777777777777777777777777777777777777777",
+      "resident_role": "primary",
+      "job_kind": "post_publication",
+      "state": "pending",
+      "created_at": "2026-08-04T00:00:00Z"
+    },
+    "grant": {
+      "protocol": "luca.continuity.v1",
+      "grant_id": "grant-1",
+      "owner_pubkey": "1111111111111111111111111111111111111111111111111111111111111111",
+      "resident_pubkey": "3333333333333333333333333333333333333333333333333333333333333333",
+      "source_scope_ref": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "provider_egress": "local",
+      "binding_ref": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "grant_version": 1,
+      "state": "active",
+      "created_at": "2026-08-04T00:00:00Z"
+    },
+    "import_discovery": {
+      "protocol": "luca.continuity.v1",
+      "report_id": "report-1",
+      "generated_at": "2026-08-04T00:00:00Z",
+      "sources": [{"source_kind": "mnemos", "state": "available", "item_count": 3}]
+    },
+    "import_plan": {
+      "protocol": "luca.continuity.v1",
+      "plan_id": "plan-1",
+      "created_at": "2026-08-04T00:00:00Z",
+      "source_hashes": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+      "mapping_refs": ["sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
+      "unsupported_count": 0,
+      "consent_ref": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "write_intent": false
+    },
+    "import_receipt": {
+      "protocol": "luca.continuity.v1",
+      "commit_id": "commit-1",
+      "plan_id": "plan-1",
+      "state": "committed",
+      "source_hashes": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+      "imported_count": 3,
+      "unsupported_count": 0,
+      "completed_at": "2026-08-04T00:00:01Z",
+      "diagnostics": []
+    },
+    "schedule": {
+      "protocol": "luca.continuity.v1",
+      "resident_pubkey": "3333333333333333333333333333333333333333333333333333333333333333",
+      "enabled": true,
+      "min_idle_minutes": 15,
+      "cadence_minutes": 240,
+      "max_cycles_per_day": 3,
+      "max_proactive_per_24h": 1,
+      "quiet_start_hour": 22,
+      "quiet_end_hour": 8,
+      "catch_up": true
+    },
+    "candidate": {
+      "protocol": "luca.continuity.v1",
+      "candidate_id": "candidate-1",
+      "resident_pubkey": "3333333333333333333333333333333333333333333333333333333333333333",
+      "state": "published",
+      "source_refs": ["sha256:5555555555555555555555555555555555555555555555555555555555555555"],
+      "novelty_ref": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "privacy_passed": true,
+      "rate_passed": true,
+      "quiet_hours_passed": true,
+      "publication_receipt_id": "publication-1"
+    },
+    "capsule": {
+      "protocol": "luca.continuity.v1",
+      "capsule_id": "capsule-1",
+      "owner_pubkey": "1111111111111111111111111111111111111111111111111111111111111111",
+      "resident_pubkey": "3333333333333333333333333333333333333333333333333333333333333333",
+      "binding_ref": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "current_state_ref": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "revision": 2,
+      "created_at": "2026-08-04T00:00:00Z",
+      "integrity_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    "backup": {
+      "protocol": "luca.continuity.v1",
+      "backup_id": "backup-1",
+      "created_at": "2026-08-04T00:00:00Z",
+      "owner_pubkey": "1111111111111111111111111111111111111111111111111111111111111111",
+      "format_version": 1,
+      "encrypted_content_refs": ["sha256:9999999999999999999999999999999999999999999999999999999999999999"],
+      "mapping_refs": ["sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
+      "integrity_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    }
+  },
+  "canonical_packet_json": "{\"content\":\"UNTRUSTED_REFERENCE\\nsource=synthetic\\n\",\"packet_id\":\"packet-1\",\"protocol\":\"luca.continuity.v1\",\"provenance_refs\":[\"sha256:5555555555555555555555555555555555555555555555555555555555555555\"]}",
+  "canonical_packet_sha256": "92ac2103e888f3a225122b955d3faeae6ad3822075791b0776d110f05405a435",
+  "negative": {
+    "wrong_protocol": "luca.continuity.v2",
+    "unknown_status": "error",
+    "forbidden_diagnostic_fields": ["message", "detail", "body", "path", "context"]
+  }
+}

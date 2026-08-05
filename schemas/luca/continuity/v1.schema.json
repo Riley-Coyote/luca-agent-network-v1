@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://luca.local/schemas/continuity/v1.schema.json",
+  "title": "Luca continuity V1 contracts",
+  "$defs": {
+    "protocol": {"const": "luca.continuity.v1"},
+    "hex64": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "opaque": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$"},
+    "ref": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "safe_u53": {"type":"integer","minimum":0,"maximum":9007199254740991},
+    "timestamp": {"type":"string","pattern":"^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"},
+    "status": {"enum": ["ready", "empty", "denied", "stale", "locked", "unavailable", "timeout", "invalid"]},
+    "safe_diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "timestamp", "component", "operation", "status_code", "duration_ms", "retryable"],
+      "properties": {
+        "protocol": {"const": "luca.safe-diagnostic.v1"},
+        "timestamp": {"$ref": "#/$defs/timestamp"},
+        "component": {"$ref": "#/$defs/opaque"},
+        "operation": {"$ref": "#/$defs/opaque"},
+        "status_code": {"$ref": "#/$defs/opaque"},
+        "request_id": {"$ref": "#/$defs/opaque"},
+        "turn_id": {"$ref": "#/$defs/opaque"},
+        "resident_ref": {"$ref": "#/$defs/ref"},
+        "conversation_ref": {"$ref": "#/$defs/ref"},
+        "duration_ms": {"$ref": "#/$defs/safe_u53"},
+        "retryable": {"type": "boolean"}
+      },
+      "$comment": "Body, message, detail, path, context, memory content, and arbitrary maps are intentionally unrepresentable."
+    },
+    "namespace": {"type":"object","additionalProperties":false,"required":["protocol","owner_pubkey","kind","namespace_ref","key_version"],"properties":{"protocol":{"$ref":"#/$defs/protocol"},"owner_pubkey":{"$ref":"#/$defs/hex64"},"kind":{"enum":["owner_brain","resident_private"]},"resident_pubkey":{"$ref":"#/$defs/hex64"},"namespace_ref":{"$ref":"#/$defs/ref"},"key_version":{"type":"integer","minimum":1,"maximum":9007199254740991}},"oneOf":[{"properties":{"kind":{"const":"owner_brain"}},"not":{"required":["resident_pubkey"]}},{"properties":{"kind":{"const":"resident_private"}},"required":["resident_pubkey"]}]},
+    "scope": {"type":"object","additionalProperties":false,"required":["protocol","namespace_ref","scope_ref"],"properties":{"protocol":{"$ref":"#/$defs/protocol"},"namespace_ref":{"$ref":"#/$defs/ref"},"scope_ref":{"$ref":"#/$defs/ref"},"source_id":{"$ref":"#/$defs/opaque"},"project_id":{"$ref":"#/$defs/opaque"},"room_id":{"$ref":"#/$defs/opaque"},"conversation_id":{"$ref":"#/$defs/opaque"}},"anyOf":[{"required":["source_id"]},{"required":["project_id"]},{"required":["room_id"]},{"required":["conversation_id"]}]},
+    "record": {"type":"object","additionalProperties":false,"required":["protocol","record_id","namespace","scope","record_type","revision","created_at","author_kind","provenance_refs","key_version","aad_sha256","nonce_b64","ciphertext_b64"],"properties":{"protocol":{"$ref":"#/$defs/protocol"},"record_id":{"$ref":"#/$defs/opaque"},"namespace":{"$ref":"#/$defs/namespace"},"scope":{"$ref":"#/$defs/scope"},"record_type":{"$ref":"#/$defs/opaque"},"revision":{"$ref":"#/$defs/safe_u53"},"predecessor_record_id":{"$ref":"#/$defs/opaque"},"created_at":{"$ref":"#/$defs/timestamp"},"author_kind":{"$ref":"#/$defs/opaque"},"provenance_refs":{"type":"array","maxItems":256,"uniqueItems":true,"items":{"$ref":"#/$defs/ref"}},"key_version":{"$ref":"#/$defs/safe_u53"},"aad_sha256":{"$ref":"#/$defs/hex64"},"nonce_b64":{"type":"string","pattern":"^[A-Za-z0-9+/]{32}$","contentEncoding":"base64","$comment":"Runtime conformance decodes and requires exactly 24 bytes."},"ciphertext_b64":{"type":"string","minLength":4,"maxLength":1398104,"contentEncoding":"base64","$comment":"Runtime conformance requires canonical base64 and 1..1048576 decoded bytes."}},"oneOf":[{"properties":{"revision":{"const":0}},"not":{"required":["predecessor_record_id"]}},{"properties":{"revision":{"minimum":1}},"required":["predecessor_record_id"]}]},
+    "context_request": {"type":"object","additionalProperties":false,"required":["protocol","request_id","owner_pubkey","resident_pubkey","conversation_id","binding_ref","canonical_dispatch_ref","provider_egress","deadline_unix_ms","max_packet_bytes","history_event_ids"],"properties":{"protocol":{"$ref":"#/$defs/protocol"},"request_id":{"$ref":"#/$defs/opaque"},"owner_pubkey":{"$ref":"#/$defs/hex64"},"resident_pubkey":{"$ref":"#/$defs/hex64"},"conversation_id":{"$ref":"#/$defs/opaque"},"binding_ref":{"$ref":"#/$defs/ref"},"canonical_dispatch_ref":{"$ref":"#/$defs/ref"},"provider_egress":{"enum":["local","remote","unknown"]},"deadline_unix_ms":{"$ref":"#/$defs/safe_u53"},"max_packet_bytes":{"type":"integer","minimum":1,"maximum":49152},"history_event_ids":{"type":"array","maxItems":256,"uniqueItems":true,"items":{"$ref":"#/$defs/hex64"}}}},
+    "packet": {"type":"object","additionalProperties":false,"required":["protocol","packet_id","content","provenance_refs"],"properties":{"protocol":{"$ref":"#/$defs/protocol"},"packet_id":{"$ref":"#/$defs/opaque"},"content":{"type":"string","minLength":1,"maxLength":49152},"provenance_refs":{"type":"array","minItems":1,"maxItems":256,"uniqueItems":true,"items":{"$ref":"#/$defs/ref"}}},"$comment":"The hard 49152-byte limit applies to the complete RFC 8785 serialized packet, including protocol, packet_id, delimiters, escaping, and provenance. maxLength is only a coarse character ceiling; runtime conformance is authoritative for UTF-8/canonical bytes."},
+    "context_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "request_id", "resident_pubkey", "layers", "receipt_ref", "diagnostics"],
+      "properties": {
+        "protocol": {"$ref": "#/$defs/protocol"},
+        "request_id": {"$ref": "#/$defs/opaque"},
+        "resident_pubkey": {"$ref": "#/$defs/hex64"},
+        "layers": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["layer", "status"],
+            "properties": {
+              "layer": {"$ref": "#/$defs/opaque"},
+              "status": {"$ref": "#/$defs/status"},
+              "provenance_ref": {"$ref": "#/$defs/ref"},
+              "diagnostic": {"$ref": "#/$defs/safe_diagnostic"}
+            },
+            "oneOf": [
+              {"properties": {"status": {"const": "ready"}}, "required": ["provenance_ref"]},
+              {"properties": {"status": {"enum": ["empty", "denied", "stale", "locked", "unavailable", "timeout", "invalid"]}}, "not": {"required": ["provenance_ref"]}}
+            ]
+          }
+        },
+        "packet": {"$ref": "#/$defs/packet"},
+        "receipt_ref": {"$ref": "#/$defs/ref"},
+        "diagnostics": {"type": "array", "maxItems": 16, "items": {"$ref": "#/$defs/safe_diagnostic"}}
+      },
+      "allOf": [
+        {
+          "if": {"required": ["packet"]},
+          "then": {"properties": {"layers": {"contains": {"properties": {"status": {"const": "ready"}}, "required": ["status"]}}}}
+        },
+        {
+          "if": {"properties": {"layers": {"contains": {"properties": {"status": {"const": "ready"}}, "required": ["status"]}}}},
+          "then": {"required": ["packet"]}
+        }
+      ]
+    },
+    "mutation": {"type":"object","additionalProperties":false,"required":["protocol","mutation_id","namespace_ref","scope_ref","state","record_id","source_event_ids","author_kind","created_at","body_ciphertext_ref"],"properties":{"protocol":{"$ref":"#/$defs/protocol"},"mutation_id":{"$ref":"#/$defs/opaque"},"namespace_ref":{"$ref":"#/$defs/ref"},"scope_ref":{"$ref":"#/$defs/ref"},"state":{"enum":["proposed","committed"]},"record_id":{"$ref":"#/$defs/opaque"},"predecessor_record_id":{"$ref":"#/$defs/opaque"},"source_event_ids":{"type":"array","minItems":1,"maxItems":256,"uniqueItems":true,"items":{"$ref":"#/$defs/hex64"}},"author_kind":{"$ref":"#/$defs/opaque"},"created_at":{"$ref":"#/$defs/timestamp"},"body_ciphertext_ref":{"$ref":"#/$defs/ref"}}},
+    "job": {"type":"object","additionalProperties":false,"required":["protocol","job_id","idempotency_key","owner_pubkey","resident_pubkey","source_event_id","resident_role","job_kind","state","created_at"],"properties":{"protocol":{"$ref":"#/$defs/protocol"},"job_id":{"$ref":"#/$defs/opaque"},"idempotency_key":{"$ref":"#/$defs/hex64","$comment":"Runtime conformance requires SHA-256 over the luca.continuity.job.idempotency.v1 NUL-terminated domain and length-prefixed decoded owner_pubkey, resident_pubkey, source_event_id, and UTF-8 resident_role label."},"owner_pubkey":{"$ref":"#/$defs/hex64"},"resident_pubkey":{"$ref":"#/$defs/hex64"},"source_event_id":{"$ref":"#/$defs/hex64"},"resident_role":{"enum":["primary","observer"]},"job_kind":{"$ref":"#/$defs/opaque"},"state":{"enum":["pending","running","completed","cancelled","failed"]},"created_at":{"$ref":"#/$defs/timestamp"}}},
+    "grant": {"type":"object","additionalProperties":false,"required":["protocol","grant_id","owner_pubkey","resident_pubkey","source_scope_ref","provider_egress","binding_ref","grant_version","state","created_at"],"properties":{"protocol":{"$ref":"#/$defs/protocol"},"grant_id":{"$ref":"#/$defs/opaque"},"owner_pubkey":{"$ref":"#/$defs/hex64"},"resident_pubkey":{"$ref":"#/$defs/hex64"},"source_scope_ref":{"$ref":"#/$defs/ref"},"provider_egress":{"enum":["local","remote","unknown"]},"binding_ref":{"$ref":"#/$defs/ref"},"grant_version":{"type":"integer","minimum":1,"maximum":9007199254740991},"state":{"enum":["active","revoked","stale"]},"created_at":{"$ref":"#/$defs/timestamp"},"revoked_at":{"$ref":"#/$defs/timestamp"}},"oneOf":[{"properties":{"state":{"const":"active"},"provider_egress":{"enum":["local","remote"]}},"not":{"required":["revoked_at"]}},{"properties":{"state":{"const":"revoked"}},"required":["revoked_at"]},{"properties":{"state":{"const":"stale"}},"not":{"required":["revoked_at"]}}]},
+    "import_discovery": {"type":"object","additionalProperties":false,"required":["protocol","report_id","generated_at","sources"],"properties":{"protocol":{"$ref":"#/$defs/protocol"},"report_id":{"$ref":"#/$defs/opaque"},"generated_at":{"$ref":"#/$defs/timestamp"},"sources":{"type":"array","maxItems":128,"items":{"type":"object","additionalProperties":false,"required":["source_kind","state","item_count"],"properties":{"source_kind":{"$ref":"#/$defs/opaque"},"state":{"enum":["available","absent","degraded","failed"]},"item_count":{"$ref":"#/$defs/safe_u53"},"code":{"$ref":"#/$defs/opaque"}},"oneOf":[{"properties":{"state":{"const":"available"}},"not":{"required":["code"]}},{"properties":{"state":{"const":"absent"},"item_count":{"const":0}},"not":{"required":["code"]}},{"properties":{"state":{"const":"degraded"}},"required":["code"]},{"properties":{"state":{"const":"failed"},"item_count":{"const":0}},"required":["code"]}]}}}},
+    "import_plan": {"type":"object","additionalProperties":false,"required":["protocol","plan_id","created_at","source_hashes","mapping_refs","unsupported_count","consent_ref","write_intent"],"properties":{"protocol":{"$ref":"#/$defs/protocol"},"plan_id":{"$ref":"#/$defs/opaque"},"created_at":{"$ref":"#/$defs/timestamp"},"source_hashes":{"type":"array","minItems":1,"maxItems":256,"uniqueItems":true,"items":{"$ref":"#/$defs/hex64"}},"mapping_refs":{"type":"array","maxItems":256,"uniqueItems":true,"items":{"$ref":"#/$defs/ref"}},"unsupported_count":{"$ref":"#/$defs/safe_u53"},"consent_ref":{"$ref":"#/$defs/ref"},"write_intent":{"const":false}}},
+    "import_receipt": {"type":"object","additionalProperties":false,"required":["protocol","commit_id","plan_id","state","source_hashes","imported_count","unsupported_count","completed_at","diagnostics"],"properties":{"protocol":{"$ref":"#/$defs/protocol"},"commit_id":{"$ref":"#/$defs/opaque"},"plan_id":{"$ref":"#/$defs/opaque"},"state":{"enum":["committed","cancelled","failed"]},"source_hashes":{"type":"array","minItems":1,"maxItems":256,"uniqueItems":true,"items":{"$ref":"#/$defs/hex64"}},"imported_count":{"$ref":"#/$defs/safe_u53"},"unsupported_count":{"$ref":"#/$defs/safe_u53"},"completed_at":{"$ref":"#/$defs/timestamp"},"diagnostics":{"type":"array","maxItems":16,"items":{"$ref":"#/$defs/safe_diagnostic"}}},"allOf":[{"if":{"properties":{"state":{"enum":["cancelled","failed"]}}},"then":{"properties":{"imported_count":{"const":0}}}}]},
+    "schedule": {"type":"object","additionalProperties":false,"required":["protocol","resident_pubkey","enabled","min_idle_minutes","cadence_minutes","max_cycles_per_day","max_proactive_per_24h","quiet_start_hour","quiet_end_hour","catch_up"],"properties":{"protocol":{"$ref":"#/$defs/protocol"},"resident_pubkey":{"$ref":"#/$defs/hex64"},"enabled":{"type":"boolean"},"min_idle_minutes":{"$ref":"#/$defs/safe_u53"},"cadence_minutes":{"$ref":"#/$defs/safe_u53"},"max_cycles_per_day":{"type":"integer","minimum":0,"maximum":3},"max_proactive_per_24h":{"type":"integer","minimum":0,"maximum":1},"quiet_start_hour":{"type":"integer","minimum":0,"maximum":23},"quiet_end_hour":{"type":"integer","minimum":0,"maximum":23},"catch_up":{"type":"boolean"}},"allOf":[{"if":{"properties":{"enabled":{"const":true}}},"then":{"properties":{"min_idle_minutes":{"minimum":1},"cadence_minutes":{"minimum":1}}}}]},
+    "candidate": {"type":"object","additionalProperties":false,"required":["protocol","candidate_id","resident_pubkey","state","source_refs","novelty_ref","privacy_passed","rate_passed","quiet_hours_passed"],"properties":{"protocol":{"$ref":"#/$defs/protocol"},"candidate_id":{"$ref":"#/$defs/opaque"},"resident_pubkey":{"$ref":"#/$defs/hex64"},"state":{"enum":["pending","rejected","published","expired"]},"source_refs":{"type":"array","minItems":1,"maxItems":256,"uniqueItems":true,"items":{"$ref":"#/$defs/ref"}},"novelty_ref":{"$ref":"#/$defs/ref"},"privacy_passed":{"type":"boolean"},"rate_passed":{"type":"boolean"},"quiet_hours_passed":{"type":"boolean"},"publication_receipt_id":{"$ref":"#/$defs/opaque"}},"oneOf":[{"properties":{"state":{"const":"published"},"privacy_passed":{"const":true},"rate_passed":{"const":true},"quiet_hours_passed":{"const":true}},"required":["publication_receipt_id"]},{"properties":{"state":{"enum":["pending","rejected","expired"]}},"not":{"required":["publication_receipt_id"]}}]},
+    "capsule": {"type":"object","additionalProperties":false,"required":["protocol","capsule_id","owner_pubkey","resident_pubkey","binding_ref","current_state_ref","revision","created_at","integrity_sha256"],"properties":{"protocol":{"$ref":"#/$defs/protocol"},"capsule_id":{"$ref":"#/$defs/opaque"},"owner_pubkey":{"$ref":"#/$defs/hex64"},"resident_pubkey":{"$ref":"#/$defs/hex64"},"binding_ref":{"$ref":"#/$defs/ref"},"current_state_ref":{"$ref":"#/$defs/ref"},"revision":{"$ref":"#/$defs/safe_u53"},"created_at":{"$ref":"#/$defs/timestamp"},"integrity_sha256":{"$ref":"#/$defs/hex64"}}},
+    "backup": {"type":"object","additionalProperties":false,"required":["protocol","backup_id","created_at","owner_pubkey","format_version","encrypted_content_refs","mapping_refs","integrity_sha256"],"properties":{"protocol":{"$ref":"#/$defs/protocol"},"backup_id":{"$ref":"#/$defs/opaque"},"created_at":{"$ref":"#/$defs/timestamp"},"owner_pubkey":{"$ref":"#/$defs/hex64"},"format_version":{"type":"integer","minimum":1,"maximum":9007199254740991},"encrypted_content_refs":{"type":"array","minItems":1,"maxItems":256,"uniqueItems":true,"items":{"$ref":"#/$defs/ref"}},"mapping_refs":{"type":"array","maxItems":256,"uniqueItems":true,"items":{"$ref":"#/$defs/ref"}},"integrity_sha256":{"$ref":"#/$defs/hex64"}}}
+  },
+  "oneOf": [{"$ref":"#/$defs/namespace"},{"$ref":"#/$defs/scope"},{"$ref":"#/$defs/record"},{"$ref":"#/$defs/context_request"},{"$ref":"#/$defs/context_result"},{"$ref":"#/$defs/packet"},{"$ref":"#/$defs/mutation"},{"$ref":"#/$defs/job"},{"$ref":"#/$defs/grant"},{"$ref":"#/$defs/import_discovery"},{"$ref":"#/$defs/import_plan"},{"$ref":"#/$defs/import_receipt"},{"$ref":"#/$defs/schedule"},{"$ref":"#/$defs/candidate"},{"$ref":"#/$defs/capsule"},{"$ref":"#/$defs/backup"}],
+  "$comment": "Diagnostics and receipts are body-free. No continuity body, title, tag, path, credential, or key is representable outside encrypted ciphertext and the bounded packet."
+}

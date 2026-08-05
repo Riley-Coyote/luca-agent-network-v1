@@ -2614,10 +2614,37 @@ pub(crate) fn render_canvas_section(event_id: &str, timestamp: &str, channel_uui
     )
 }
 
-/// Fetch conversation context (thread or DM) for a batch before prompting.
+#[derive(Debug, PartialEq, Eq)]
+enum ConversationHistoryScope {
+    Thread(String),
+    Dm,
+    Room,
+    None,
+}
+
+fn conversation_history_scope(
+    batch: &FlushBatch,
+    channel_info: &Option<PromptChannelInfo>,
+) -> ConversationHistoryScope {
+    let Some(last_event) = batch.events.last() else {
+        return ConversationHistoryScope::None;
+    };
+    let tags = crate::queue::parse_thread_tags(&last_event.event);
+    if let Some(root_id) = tags.root_event_id {
+        return ConversationHistoryScope::Thread(root_id);
+    }
+
+    match channel_info.as_ref().map(|info| info.channel_type.as_str()) {
+        Some("dm") => ConversationHistoryScope::Dm,
+        Some("stream") => ConversationHistoryScope::Room,
+        _ => ConversationHistoryScope::None,
+    }
+}
+
+/// Fetch conversation context (thread, DM, or ordinary stream room) for a batch before prompting.
 ///
 /// Returns `None` if:
-/// - The event is a plain channel message (not a thread reply, not a DM)
+/// - The event is not a thread reply, DM, or ordinary stream room message
 /// - The REST fetch fails or times out (graceful degradation)
 /// - `context_message_limit` is 0
 ///
@@ -2629,26 +2656,34 @@ async fn fetch_conversation_context(
     ctx: &PromptContext,
 ) -> Option<ConversationContext> {
     let limit = ctx.context_message_limit;
-    let is_dm = channel_info
-        .as_ref()
-        .map(|ci| ci.channel_type == "dm")
-        .unwrap_or(false);
-
-    // Check thread tags on the last event first — this applies to both
-    // channels and DMs. A DM reply needs thread context (not channel history)
-    // because /api/channels/{id}/messages excludes thread replies.
-    let last_event = batch.events.last()?;
-    let tags = crate::queue::parse_thread_tags(&last_event.event);
-    if let Some(root_id) = tags.root_event_id {
-        return fetch_thread_context(batch.channel_id, &root_id, limit, &ctx.rest_client).await;
+    match conversation_history_scope(batch, channel_info) {
+        // Thread precedence applies to every channel type, including DMs and
+        // rooms, so a reply never turns into a linear replay.
+        ConversationHistoryScope::Thread(root_id) => {
+            fetch_thread_context(batch.channel_id, &root_id, limit, &ctx.rest_client).await
+        }
+        ConversationHistoryScope::Dm => {
+            fetch_dm_context(batch.channel_id, limit, &ctx.rest_client).await
+        }
+        // Only ordinary stream rooms receive linear room replay. Forum and workflow
+        // channels retain their established behavior; their semantics are not a
+        // substitute for Luca's multi-agent room chronology.
+        ConversationHistoryScope::Room => {
+            let trigger_event_ids: HashSet<String> = batch
+                .events
+                .iter()
+                .map(|batch_event| batch_event.event.id.to_hex())
+                .collect();
+            fetch_room_context(
+                batch.channel_id,
+                limit,
+                &trigger_event_ids,
+                &ctx.rest_client,
+            )
+            .await
+        }
+        ConversationHistoryScope::None => None,
     }
-
-    // DM non-reply: fetch recent conversation history.
-    if is_dm {
-        return fetch_dm_context(batch.channel_id, limit, &ctx.rest_client).await;
-    }
-
-    None
 }
 
 /// Normalize AND validate a pubkey for the batch profile API request.
@@ -2681,7 +2716,8 @@ fn collect_prompt_pubkeys(
 
     let context_messages = match conversation_context {
         Some(ConversationContext::Thread { messages, .. })
-        | Some(ConversationContext::Dm { messages, .. }) => Some(messages),
+        | Some(ConversationContext::Dm { messages, .. })
+        | Some(ConversationContext::Room { messages, .. }) => Some(messages),
         None => None,
     };
 
@@ -2911,6 +2947,56 @@ async fn fetch_dm_context(
     .await
 }
 
+/// Fetch recent ordinary stream-room history via Nostr query.
+///
+/// Unlike the older DM path, the room parser treats the HTTP response as
+/// untrusted: every entry must be a valid signed stream message carrying the
+/// exact requested `h` tag before it can reach an ACP prompt.
+async fn fetch_room_context(
+    channel_id: Uuid,
+    limit: u32,
+    excluded_event_ids: &HashSet<String>,
+    rest: &RestClient,
+) -> Option<ConversationContext> {
+    use nostr::{Alphabet, SingleLetterTag};
+
+    let h_tag = SingleLetterTag::lowercase(Alphabet::H);
+    let ch_str = channel_id.to_string();
+    let filter = nostr::Filter::new()
+        .kinds([
+            nostr::Kind::Custom(buzz_core::kind::KIND_STREAM_MESSAGE as u16),
+            nostr::Kind::Custom(buzz_core::kind::KIND_STREAM_MESSAGE_V2 as u16),
+        ])
+        .custom_tags(h_tag, [ch_str.as_str()])
+        .limit(limit as usize);
+
+    fetch_with_retry(|| async {
+        match timeout(
+            CONTEXT_FETCH_TIMEOUT,
+            rest.query(std::slice::from_ref(&filter)),
+        )
+        .await
+        {
+            Ok(Ok(json)) => parse_nostr_room_response(json, channel_id, limit, excluded_event_ids),
+            Ok(Err(e)) => {
+                tracing::warn!(
+                    channel_id = %channel_id,
+                    "room context fetch failed: {e} — will retry"
+                );
+                None
+            }
+            Err(_) => {
+                tracing::warn!(
+                    channel_id = %channel_id,
+                    "room context fetch timed out — will retry"
+                );
+                None
+            }
+        }
+    })
+    .await
+}
+
 /// Parse the legacy REST thread response (used in tests only).
 #[cfg(test)]
 fn parse_thread_response(json: serde_json::Value) -> Option<ConversationContext> {
@@ -3092,6 +3178,96 @@ fn parse_nostr_dm_response(json: serde_json::Value, limit: u32) -> Option<Conver
 
     Some(ConversationContext::Dm {
         messages,
+        total,
+        truncated,
+    })
+}
+
+/// Parse an untrusted Nostr query response into recent plain-room context.
+///
+/// This path validates the signed event, exact room tag, and message kind even
+/// though the relay query is already scoped, then applies a defensive count
+/// bound and deterministic chronology ordering.
+fn parse_nostr_room_response(
+    json: serde_json::Value,
+    channel_id: Uuid,
+    limit: u32,
+    excluded_event_ids: &HashSet<String>,
+) -> Option<ConversationContext> {
+    if limit == 0 {
+        return None;
+    }
+
+    let events = json.as_array()?;
+    let page_saturated = events.len() >= limit as usize;
+    let room = channel_id.to_string();
+    let mut messages: Vec<(u64, String, ContextMessage)> = Vec::new();
+    let mut seen_event_ids = HashSet::new();
+    let mut valid_unique_before_exclusion = 0usize;
+
+    for value in events {
+        let Ok(event) = serde_json::from_value::<nostr::Event>(value.clone()) else {
+            continue;
+        };
+        let accepted_kind = event.kind
+            == nostr::Kind::Custom(buzz_core::kind::KIND_STREAM_MESSAGE as u16)
+            || event.kind == nostr::Kind::Custom(buzz_core::kind::KIND_STREAM_MESSAGE_V2 as u16);
+        let exact_room = event.tags.iter().any(|tag| {
+            let parts = tag.as_slice();
+            parts.len() >= 2 && parts[0] == "h" && parts[1] == room
+        });
+        if !accepted_kind || !exact_room || !event.verify_id() || !event.verify_signature() {
+            continue;
+        }
+
+        let event_id = event.id.to_hex();
+        if !seen_event_ids.insert(event_id.clone()) {
+            continue;
+        }
+        valid_unique_before_exclusion += 1;
+        if excluded_event_ids.contains(&event_id) {
+            continue;
+        }
+
+        let timestamp_secs = event.created_at.as_secs();
+        let timestamp = chrono::DateTime::from_timestamp(timestamp_secs as i64, 0)
+            .map(|dt| dt.to_rfc3339())
+            .unwrap_or_else(|| timestamp_secs.to_string());
+        messages.push((
+            timestamp_secs,
+            event_id,
+            ContextMessage {
+                pubkey: event.pubkey.to_hex(),
+                timestamp,
+                content: event.content,
+            },
+        ));
+    }
+
+    // A relay normally returns newest-first and honors the limit. Sort anyway
+    // for reproducible prompt chronology, including same-second events.
+    messages.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+    let returned = messages.len();
+    let over_limit = returned > limit as usize;
+    if over_limit {
+        let first_kept = returned - limit as usize;
+        messages.drain(..first_kept);
+    }
+    if messages.is_empty() {
+        return None;
+    }
+
+    // Page saturation is evidence that older events may exist even when
+    // exclusions/dedup reduce the displayed set below `limit`. `total` remains
+    // a truthful lower bound: valid unique room events observed on this page
+    // before suppressing current trigger events, never a fabricated +1.
+    let truncated = page_saturated || over_limit;
+    let total = valid_unique_before_exclusion;
+    Some(ConversationContext::Room {
+        messages: messages
+            .into_iter()
+            .map(|(_, _, message)| message)
+            .collect(),
         total,
         truncated,
     })
@@ -4223,6 +4399,221 @@ mod tests {
     fn test_parse_dm_response_missing_messages_key() {
         let json = json!({ "data": [] });
         assert!(parse_dm_response(json, 12).is_none());
+    }
+
+    fn signed_room_event(
+        keys: &Keys,
+        channel_id: Uuid,
+        content: &str,
+        created_at: u64,
+    ) -> nostr::Event {
+        let channel = channel_id.to_string();
+        EventBuilder::new(
+            Kind::Custom(buzz_core::kind::KIND_STREAM_MESSAGE as u16),
+            content,
+        )
+        .tags([Tag::parse(["h", channel.as_str()]).expect("valid room tag")])
+        .custom_created_at(Timestamp::from(created_at))
+        .sign_with_keys(keys)
+        .expect("signed room event")
+    }
+
+    fn room_event_batch(event: nostr::Event, channel_id: Uuid) -> FlushBatch {
+        FlushBatch {
+            channel_id,
+            events: vec![crate::queue::BatchEvent {
+                event,
+                prompt_tag: "test".to_string(),
+                received_at: std::time::Instant::now(),
+            }],
+            cancelled_events: vec![],
+            cancel_reason: None,
+        }
+    }
+
+    #[test]
+    fn room_history_parser_orders_recent_window_and_defensively_bounds_count() {
+        let keys = Keys::generate();
+        let room = Uuid::new_v4();
+        let oldest = signed_room_event(&keys, room, "oldest", 10);
+        let middle = signed_room_event(&keys, room, "middle", 20);
+        let newest = signed_room_event(&keys, room, "newest", 30);
+        let json = json!([newest, oldest, middle]);
+
+        let context =
+            parse_nostr_room_response(json, room, 2, &HashSet::new()).expect("valid room context");
+        match context {
+            ConversationContext::Room {
+                messages,
+                total,
+                truncated,
+            } => {
+                assert_eq!(
+                    messages
+                        .iter()
+                        .map(|message| message.content.as_str())
+                        .collect::<Vec<_>>(),
+                    vec!["middle", "newest"],
+                    "retain the newest whole messages in ascending chronology"
+                );
+                assert_eq!(total, 3);
+                assert!(truncated);
+            }
+            other => panic!("expected room context, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn room_history_parser_excludes_malformed_wrong_room_wrong_kind_and_bad_signature() {
+        let keys = Keys::generate();
+        let room = Uuid::new_v4();
+        let other_room = Uuid::new_v4();
+        let valid = signed_room_event(&keys, room, "valid", 10);
+        let wrong_room = signed_room_event(&keys, other_room, "wrong room", 20);
+        let channel = room.to_string();
+        let wrong_kind = EventBuilder::new(Kind::TextNote, "wrong kind")
+            .tags([Tag::parse(["h", channel.as_str()]).expect("valid room tag")])
+            .sign_with_keys(&keys)
+            .expect("signed wrong kind");
+        let mut bad_signature = serde_json::to_value(signed_room_event(&keys, room, "signed", 40))
+            .expect("serialize event");
+        bad_signature["content"] = json!("tampered");
+
+        let context = parse_nostr_room_response(
+            json!([valid, wrong_room, wrong_kind, bad_signature, {"not": "an event"}]),
+            room,
+            12,
+            &HashSet::new(),
+        )
+        .expect("the one valid signed room event remains");
+        match context {
+            ConversationContext::Room { messages, .. } => {
+                assert_eq!(messages.len(), 1);
+                assert_eq!(messages[0].content, "valid");
+            }
+            other => panic!("expected room context, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn room_history_excludes_trigger_batch_ids_and_deduplicates_query_replays() {
+        let keys = Keys::generate();
+        let room = Uuid::new_v4();
+        let prior = signed_room_event(&keys, room, "prior", 10);
+        let trigger = signed_room_event(&keys, room, "trigger", 20);
+        let excluded_event_ids = HashSet::from([trigger.id.to_hex()]);
+
+        let context = parse_nostr_room_response(
+            json!([trigger, prior.clone(), prior]),
+            room,
+            12,
+            &excluded_event_ids,
+        )
+        .expect("the unique non-trigger room event remains");
+        match context {
+            ConversationContext::Room {
+                messages,
+                total,
+                truncated,
+            } => {
+                assert_eq!(messages.len(), 1);
+                assert_eq!(messages[0].content, "prior");
+                assert_eq!(
+                    total, 2,
+                    "count valid unique room events before trigger exclusion"
+                );
+                assert!(!truncated);
+            }
+            other => panic!("expected room context, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn room_history_preserves_saturated_page_truncation_after_trigger_exclusion() {
+        let keys = Keys::generate();
+        let room = Uuid::new_v4();
+        let prior = signed_room_event(&keys, room, "prior", 10);
+        let trigger = signed_room_event(&keys, room, "trigger", 20);
+        let excluded_event_ids = HashSet::from([trigger.id.to_hex()]);
+
+        let context =
+            parse_nostr_room_response(json!([trigger, prior]), room, 2, &excluded_event_ids)
+                .expect("the non-trigger event remains on a saturated page");
+        match context {
+            ConversationContext::Room {
+                messages,
+                total,
+                truncated,
+            } => {
+                assert_eq!(messages.len(), 1, "displayed count falls below page limit");
+                assert_eq!(messages[0].content, "prior");
+                assert_eq!(total, 2, "truthful observed valid-unique lower bound");
+                assert!(truncated, "raw limit saturation survives trigger exclusion");
+            }
+            other => panic!("expected room context, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn history_scope_keeps_thread_precedence_and_leaves_forum_workflow_unchanged() {
+        let keys = Keys::generate();
+        let room = Uuid::new_v4();
+        let plain = room_event_batch(signed_room_event(&keys, room, "plain", 10), room);
+        assert_eq!(
+            conversation_history_scope(
+                &plain,
+                &Some(PromptChannelInfo {
+                    name: "room".into(),
+                    channel_type: "stream".into()
+                }),
+            ),
+            ConversationHistoryScope::Room
+        );
+        assert_eq!(
+            conversation_history_scope(
+                &plain,
+                &Some(PromptChannelInfo {
+                    name: "dm".into(),
+                    channel_type: "dm".into()
+                }),
+            ),
+            ConversationHistoryScope::Dm
+        );
+        for channel_type in ["forum", "workflow"] {
+            assert_eq!(
+                conversation_history_scope(
+                    &plain,
+                    &Some(PromptChannelInfo {
+                        name: channel_type.into(),
+                        channel_type: channel_type.into()
+                    }),
+                ),
+                ConversationHistoryScope::None
+            );
+        }
+
+        let root = "a".repeat(64);
+        let channel = room.to_string();
+        let reply = EventBuilder::new(
+            Kind::Custom(buzz_core::kind::KIND_STREAM_MESSAGE as u16),
+            "reply",
+        )
+        .tags([
+            Tag::parse(["h", channel.as_str()]).expect("valid room tag"),
+            Tag::parse(["e", root.as_str(), "", "reply"]).expect("valid reply tag"),
+        ])
+        .sign_with_keys(&keys)
+        .expect("signed thread reply");
+        assert_eq!(
+            conversation_history_scope(
+                &room_event_batch(reply, room),
+                &Some(PromptChannelInfo {
+                    name: "room".into(),
+                    channel_type: "stream".into()
+                }),
+            ),
+            ConversationHistoryScope::Thread(root)
+        );
     }
 
     #[test]

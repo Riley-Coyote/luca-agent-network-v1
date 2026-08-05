@@ -41,7 +41,9 @@ conversation error.
   existing thread-first and DM behavior, and caps the rendered replay block at
   16 KiB UTF-8 in addition to the existing count limit. It retains newest whole
   messages that fit, skips a single oversized message, and reports body-free
-  truncation state. Forum/workflow replay remains unchanged.
+  truncation state. Replay deduplicates signed event IDs and excludes the
+  current triggering batch so prompt bodies are not repeated. Forum/workflow
+  replay remains unchanged.
 - Postturn: one idempotent job only after exact final-event relay acceptance and
   local outbox finalization.
 - Keys: desktop-owned only; no key-bearing request enters renderer, ACP, model,

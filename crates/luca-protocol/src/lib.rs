@@ -3,11 +3,14 @@
 //! This crate deliberately contains no key custody, signing capability,
 //! routing, continuity, room, or persistence behavior. It gives the M1
 //! authority components one strict representation for canonical JSON,
-//! identifiers, managed final publication, owner recovery, and diagnostics.
+//! identifiers, managed final publication, owner recovery, diagnostics, and
+//! body-safe continuity. Continuity contracts reject semantic invalidity while
+//! deserializing and contain no storage or key-custody behavior.
 
 #![forbid(unsafe_code)]
 
 mod canonical;
+mod continuity;
 mod diagnostic;
 mod frame;
 mod ids;
@@ -20,6 +23,7 @@ pub use canonical::{
     canonical_sha256, canonicalize, parse_and_canonicalize_strict, parse_strict_json,
     CanonicalError,
 };
+pub use continuity::*;
 pub use diagnostic::{SafeDiagnosticV1, SAFE_DIAGNOSTIC_PROTOCOL};
 pub use frame::{
     decode_length_prefixed_frame, decode_length_prefixed_result_frame,

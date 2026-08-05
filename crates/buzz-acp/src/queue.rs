@@ -41,6 +41,13 @@ const IN_FLIGHT_DEADLINE_BUFFER_SECS: u64 = 100;
 /// Default in-flight deadline: default max_turn (7200s) + 100s buffer.
 const DEFAULT_IN_FLIGHT_DEADLINE_SECS: u64 = 7300;
 
+/// Hard ceiling for the rendered plain-room replay section in an ACP prompt.
+///
+/// This is intentionally separate from the trigger event and other prompt
+/// sections.  When the window exceeds the budget, the oldest whole replay
+/// messages are omitted and the section says only that it was truncated.
+pub(crate) const MAX_ROOM_REPLAY_RENDERED_BYTES: usize = 16 * 1024;
+
 /// An event waiting in the queue.
 #[derive(Debug, Clone)]
 pub struct QueuedEvent {
@@ -980,6 +987,12 @@ pub enum ConversationContext {
         total: usize,
         truncated: bool,
     },
+    /// Recent plain stream-room conversation history.
+    Room {
+        messages: Vec<ContextMessage>,
+        total: usize,
+        truncated: bool,
+    },
 }
 
 /// A single message in a conversation context section.
@@ -1349,6 +1362,13 @@ fn format_conversation_context(
             total,
             truncated,
         } => ("Conversation Context", messages, total, truncated),
+        ConversationContext::Room {
+            messages,
+            total,
+            truncated,
+        } => {
+            return format_room_conversation_context(messages, *total, *truncated, profile_lookup);
+        }
     };
 
     let trunc_label = if *truncated { ", truncated" } else { "" };
@@ -1366,6 +1386,62 @@ fn format_conversation_context(
         ));
     }
     s
+}
+
+/// Render plain room history under a fixed UTF-8 byte ceiling.
+///
+/// Consider entries newest-to-oldest, keeping every whole entry that still
+/// fits. An individually oversized entry is skipped without hiding smaller
+/// older entries, and the selected messages are rendered in chronology order.
+/// The truncation label contains no omitted body data.
+fn format_room_conversation_context(
+    messages: &[ContextMessage],
+    total: usize,
+    initially_truncated: bool,
+    profile_lookup: Option<&PromptProfileLookup>,
+) -> String {
+    let mut selected: Vec<&ContextMessage> = Vec::new();
+    for message in messages.iter().rev() {
+        let mut candidate = Vec::with_capacity(selected.len() + 1);
+        candidate.push(message);
+        candidate.extend(selected.iter().copied());
+        let candidate_truncated = initially_truncated || candidate.len() < messages.len();
+        let rendered =
+            render_room_message_selection(&candidate, total, candidate_truncated, profile_lookup);
+        if rendered.len() <= MAX_ROOM_REPLAY_RENDERED_BYTES {
+            selected = candidate;
+        }
+    }
+
+    render_room_message_selection(
+        &selected,
+        total,
+        initially_truncated || selected.len() < messages.len(),
+        profile_lookup,
+    )
+}
+
+fn render_room_message_selection(
+    messages: &[&ContextMessage],
+    total: usize,
+    truncated: bool,
+    profile_lookup: Option<&PromptProfileLookup>,
+) -> String {
+    let trunc_label = if truncated { ", truncated" } else { "" };
+    let mut rendered = format!(
+        "[Room Context ({} of {total} messages{trunc_label})]",
+        messages.len()
+    );
+    for (i, msg) in messages.iter().enumerate() {
+        rendered.push_str(&format!(
+            "\n[{}] {} ({}): {}",
+            i + 1,
+            format_prompt_actor(&msg.pubkey, profile_lookup),
+            msg.timestamp,
+            msg.content,
+        ));
+    }
+    rendered
 }
 
 /// Arguments for [`format_prompt`] beyond the required [`FlushBatch`].
@@ -4813,5 +4889,75 @@ mod tests {
             after_second >= after_first,
             "second extend must not move deadline backward (monotonic)"
         );
+    }
+
+    #[test]
+    fn room_context_skips_oversized_newest_entry_but_keeps_small_older_entry() {
+        let messages = vec![
+            ContextMessage {
+                pubkey: "a".repeat(64),
+                timestamp: "2026-08-04T00:00:00Z".into(),
+                content: "small older message".into(),
+            },
+            ContextMessage {
+                pubkey: "b".repeat(64),
+                timestamp: "2026-08-04T00:00:01Z".into(),
+                content: format!(
+                    "OVERSIZED:{}",
+                    "🦊".repeat(MAX_ROOM_REPLAY_RENDERED_BYTES / 4)
+                ),
+            },
+        ];
+
+        let rendered = format_room_conversation_context(&messages, 2, false, None);
+        assert!(rendered.len() <= MAX_ROOM_REPLAY_RENDERED_BYTES);
+        assert!(rendered.contains("small older message"));
+        assert!(
+            !rendered.contains("OVERSIZED:"),
+            "omitted body must not leak"
+        );
+        assert!(rendered.contains(", truncated") && rendered.starts_with("[Room Context"));
+    }
+
+    #[test]
+    fn room_context_skips_middle_oversized_entry_and_keeps_small_ends_in_order() {
+        let messages = vec![
+            ContextMessage {
+                pubkey: "a".repeat(64),
+                timestamp: "2026-08-04T00:00:00Z".into(),
+                content: "small older message".into(),
+            },
+            ContextMessage {
+                pubkey: "b".repeat(64),
+                timestamp: "2026-08-04T00:00:01Z".into(),
+                content: format!(
+                    "OVERSIZED:{}",
+                    "🦊".repeat(MAX_ROOM_REPLAY_RENDERED_BYTES / 4)
+                ),
+            },
+            ContextMessage {
+                pubkey: "c".repeat(64),
+                timestamp: "2026-08-04T00:00:02Z".into(),
+                content: "small newest message".into(),
+            },
+        ];
+
+        let rendered = format_room_conversation_context(&messages, 3, false, None);
+        assert!(rendered.len() <= MAX_ROOM_REPLAY_RENDERED_BYTES);
+        let older_position = rendered
+            .find("small older message")
+            .expect("older retained");
+        let newest_position = rendered
+            .find("small newest message")
+            .expect("newest retained");
+        assert!(
+            older_position < newest_position,
+            "retained entries stay chronological"
+        );
+        assert!(
+            !rendered.contains("OVERSIZED:"),
+            "omitted body must not leak"
+        );
+        assert!(rendered.contains(", truncated") && rendered.starts_with("[Room Context"));
     }
 }
