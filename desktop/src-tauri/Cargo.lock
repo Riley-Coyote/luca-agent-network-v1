@@ -87,7 +87,7 @@ dependencies = [
  "chacha20poly1305",
  "cipher 0.4.4",
  "cookie-factory",
- "hkdf",
+ "hkdf 0.12.4",
  "hmac 0.12.1",
  "hpke",
  "i18n-embed",
@@ -117,7 +117,7 @@ dependencies = [
  "bech32",
  "chacha20poly1305",
  "cookie-factory",
- "hkdf",
+ "hkdf 0.12.4",
  "hpke",
  "io_tee",
  "nom 8.0.0",
@@ -1061,11 +1061,13 @@ dependencies = [
  "flate2",
  "futures-util",
  "hex",
+ "hkdf 0.13.0",
  "image",
  "infer",
  "iroh",
  "keyring",
  "libc",
+ "luca-continuity",
  "luca-diagnostics",
  "luca-protocol",
  "luca-signing-client",
@@ -1082,6 +1084,7 @@ dependencies = [
  "opus",
  "plist",
  "png 0.18.1",
+ "rand 0.10.2",
  "regex",
  "reqwest 0.13.4",
  "rodio",
@@ -1095,6 +1098,7 @@ dependencies = [
  "sha2 0.11.0",
  "sherpa-onnx",
  "strip-ansi-escapes",
+ "subtle",
  "tar",
  "tauri",
  "tauri-build",
@@ -2188,7 +2192,7 @@ dependencies = [
  "cbc",
  "dbus",
  "fastrand",
- "hkdf",
+ "hkdf 0.12.4",
  "num",
  "once_cell",
  "openssl",
@@ -2535,7 +2539,7 @@ dependencies = [
  "ff",
  "generic-array",
  "group",
- "hkdf",
+ "hkdf 0.12.4",
  "rand_core 0.6.4",
  "sec1",
  "subtle",
@@ -3772,6 +3776,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hkdf"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4aaa26c720c68b866f2c96ef5c1264b3e6f473fe5d4ce61cd44bbe913e553018"
+dependencies = [
+ "hmac 0.13.0",
+]
+
+[[package]]
 name = "hmac"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3800,7 +3813,7 @@ dependencies = [
  "chacha20poly1305",
  "digest 0.10.7",
  "generic-array",
- "hkdf",
+ "hkdf 0.12.4",
  "hmac 0.12.1",
  "p256",
  "rand_core 0.6.4",
@@ -5014,6 +5027,13 @@ name = "lru-slab"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
+
+[[package]]
+name = "luca-continuity"
+version = "0.1.0"
+dependencies = [
+ "luca-protocol",
+]
 
 [[package]]
 name = "luca-diagnostics"
@@ -8829,7 +8849,7 @@ dependencies = [
  "cbc",
  "futures-util",
  "generic-array",
- "hkdf",
+ "hkdf 0.12.4",
  "num",
  "once_cell",
  "rand 0.8.6",
