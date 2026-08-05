@@ -20,7 +20,7 @@ installed-app rows pass and `N03` records an explicit verdict.
 | A101 | Versioned contracts and golden vectors round-trip with body-free diagnostics. | PASS | `receipts/P01.md` |
 | A102 | DM and plain-room signed history is bounded, ordered, recent, and isolated. | PASS | `receipts/P02.md` |
 | A103 | Every layer state is reproducible through the fake provider. | PASS | `receipts/P03.md` |
-| A104 | Hermes DM, OpenClaw DM, mixed room, cancellation, permissions, and publication work with continuity absent. | NOT RUN | |
+| A104 | Hermes DM, OpenClaw DM, mixed room, cancellation, permissions, and publication work with continuity absent. | PASS | `receipts/P04.md` |
 
 ## G2.2 — Encrypted continuity kernel
 

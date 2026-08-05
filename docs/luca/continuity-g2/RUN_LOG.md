@@ -80,6 +80,21 @@ source content. Detailed artifacts live under `evidence/G2/<gate>/<task>/`.
 - Focused provider tests 5/5, full ACP library 603/603, no-deps clippy and format
   checks PASS. Independent protocol review: PASS with no findings.
 
+## 2026-08-05 — P04 — permanent continuity-absent regressions
+
+- Replaced the single generic continuity-absent fixture with an explicitly
+  synthetic Hermes/OpenClaw pair and mixed-room expectations.
+- Both residents traverse the real desktop dispatch, signing-broker, and
+  encrypted-outbox state machines; cancellation produces zero late finals.
+- Added test-only coverage of the real managed-permission registry for runtime-
+  advertised allow/reject options, explicit cancellation, exact request
+  binding, stale decisions, and session-epoch isolation.
+- Initial independent review found three proof gaps. One bounded repair closed
+  all three; final review found no P0/P1/P2 issues and returned PASS.
+- Focused ACP, protocol, desktop permission, desktop F10, locked-metadata, JSON,
+  and diff checks pass. G2.1 is PASS as a source/conformance gate only; installed
+  native runtime proof remains G2.6.
+
 ## Entry template
 
 ```text
