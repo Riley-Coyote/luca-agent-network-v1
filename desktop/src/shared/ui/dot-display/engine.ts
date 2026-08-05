@@ -18,6 +18,8 @@
  * a board.
  */
 
+import { dlaScene, MAGNITUDE_LUT_INKFLOOR, pileScene } from "./physics";
+
 /** Identity is stable per seed: same public key, same mark, forever. */
 function seeded(input: string): () => number {
   const str = String(input);
@@ -67,6 +69,10 @@ export interface DotPanelOptions {
 
 const DEFAULT_CELL = 4;
 
+/** Below this, a cell is treated as carrying no event at all and is drawn in
+ *  plain ink rather than sampled from the colour ramp. See `draw`. */
+const MAGNITUDE_EPSILON = 0.02;
+
 interface SigilCache {
   grid: number[][];
   patternWidth: number;
@@ -95,10 +101,9 @@ export class DotPanel {
   private canvasW = 0;
   private canvasH = 0;
 
-  /** Per-scene memoised state (sigil pattern, node graph, recall points). */
+  /** Memoised sigil pattern. The only per-scene cache the engine itself owns —
+   *  physics-carrying scenes use the generic `sim` slot below. */
   private sigil: SigilCache | null = null;
-  private netNodes: Array<[number, number]> | null = null;
-  private recallPoints: Array<[number, number]> | null = null;
 
   /**
    * Free-form per-panel simulation state, for scenes that carry a physics
@@ -189,8 +194,6 @@ export class DotPanel {
     if (this.magnitude) this.magnitude = new Float32Array(W * H);
     // Every cached pattern and physics is sized to the old lattice.
     this.sigil = null;
-    this.netNodes = null;
-    this.recallPoints = null;
     this.sim = null;
     return true;
   }
@@ -324,8 +327,15 @@ export class DotPanel {
         const i = y * W + x;
         const q = this.buf[i];
         if (q <= 0.03) continue;
-        if (mag && lut) {
+        if (mag && lut && mag[i] > MAGNITUDE_EPSILON) {
           // Colour reads the magnitude of what happened here, not the charge.
+          //
+          // The epsilon matters: magnitude 0 means "no event here", NOT "a tiny
+          // event". Without it, every structural cell — the sandpile's resting
+          // slope, which covers most of the field — samples the cold end of the
+          // ramp and paints in that colour. On the ink-floor ramp, whose cold end
+          // is a light grey, that turns an idle mark into a solid grey block.
+          // Structure stays plain ink; only real events take the ramp.
           const m = Math.max(0, Math.min(255, (mag[i] * 255) | 0)) * 3;
           c.fillStyle = `rgba(${lut[m]},${lut[m + 1]},${lut[m + 2]},${Math.min(1, q)})`;
         } else {
@@ -386,26 +396,6 @@ export class DotPanel {
     return this.sigil;
   }
 
-  getNetNodes(): Array<[number, number]> {
-    if (this.netNodes) return this.netNodes;
-    const rnd = seeded(`${this.opt.seed}n`);
-    const nodes: Array<[number, number]> = [];
-    for (let i = 0; i < 6; i++) {
-      nodes.push([0.14 + rnd() * 0.72, 0.18 + rnd() * 0.64]);
-    }
-    this.netNodes = nodes;
-    return nodes;
-  }
-
-  getRecallPoints(): Array<[number, number]> {
-    if (this.recallPoints) return this.recallPoints;
-    const rnd = seeded(`${this.opt.seed}r`);
-    const pts: Array<[number, number]> = [];
-    for (let i = 0; i < 9; i++) pts.push([rnd(), rnd()]);
-    this.recallPoints = pts;
-    return pts;
-  }
-
   /** Re-seat the lattice origin so a PATTERN (not the cell grid) is centred on
    *  the pixel box. Centring in whole cells leaves the odd cell on one side,
    *  which at 20px is a visible lean. */
@@ -459,109 +449,49 @@ export const scenes: Record<DotScene, SceneFn> = {
     }
   },
 
-  /** Present, doing nothing. Breathes at 1.7s — slower than a person. */
-  listen(p, t) {
-    p.fade(0.9);
-    const amp = 0.16 + 0.13 * (0.5 + 0.5 * Math.sin(t / 1700));
-    const n = p.W * p.H * 0.05;
-    for (let i = 0; i < n; i++) {
-      p.add(
-        Math.floor(Math.random() * p.W),
-        Math.floor(Math.random() * p.H),
-        amp * Math.random(),
-      );
-    }
-    const cy = p.H / 2 + Math.sin(t / 2400) * (p.H * 0.06);
-    p.disc(
-      p.W / 2,
-      cy,
-      Math.max(1.5, p.H * 0.1 + Math.sin(t / 900) * 0.9),
-      0.5,
-      true,
-    );
-  },
+  /**
+   * Present, doing nothing. The field is fed barely above nothing, so it rests
+   * just below the critical slope and the occasional micro-topple *is* the
+   * twinkle — idle is the same physics as thinking, only starved.
+   */
+  listen: pileScene("listen", 4, (p) => [
+    Math.floor(Math.random() * p.W),
+    Math.floor(Math.random() * p.H),
+  ]),
 
-  /** Noise resolving into order, then loosening. Never completes: a token
-   *  stream is not a progress bar and should not pretend to be one. */
-  think(p, t) {
-    p.fade(0.84);
-    const cyc = (t % 3200) / 3200;
-    const order = cyc < 0.62 ? cyc / 0.62 : 1 - (cyc - 0.62) / 0.38;
-    const bw = Math.max(3, Math.floor(p.W * 0.42));
-    const bh = Math.max(2, Math.floor(p.H * 0.34));
-    const bx = Math.round((p.W - bw) / 2);
-    const by = Math.round((p.H - bh) / 2);
-    const n = Math.round(bw * bh * 0.9);
-    for (let i = 0; i < n; i++) {
-      const tx = bx + (i % bw);
-      const ty = by + (Math.floor(i / bw) % bh);
-      const jx = Math.round((Math.random() - 0.5) * (1 - order) * p.W * 0.9);
-      const jy = Math.round((Math.random() - 0.5) * (1 - order) * p.H * 0.9);
-      p.set(tx + jx, ty + jy, 0.35 + 0.5 * order * Math.random());
-    }
-  },
+  /**
+   * Generating. Grains pour at the centre and cascades bloom outward on a power
+   * law, so it is mostly small activity punctuated by the occasional whole-field
+   * avalanche. It never completes and never repeats — a token stream is not a
+   * progress bar and should not pretend to be one.
+   */
+  think: pileScene("think", 34, (p) => [p.W >> 1, p.H >> 1]),
 
-  /** A sweep, lighting what it finds — so the count you see is literally how
-   *  many things were pulled. */
-  recall(p, t) {
-    const pts = p.getRecallPoints();
-    p.fade(0.9);
-    const cx = p.W / 2;
-    const cy = p.H / 2;
-    const a = (t / 1500) % (Math.PI * 2);
-    const rad = Math.min(p.W, p.H) * 0.46;
-    for (let s = 0; s < rad; s += 1) {
-      p.set(cx + Math.cos(a) * s, cy + Math.sin(a) * s, 0.24 + 0.5 * (s / rad));
-    }
-    for (const pt of pts) {
-      const x = 1 + pt[0] * (p.W - 2);
-      const y = 1 + pt[1] * (p.H - 2);
-      let pa = Math.atan2(y - cy, x - cx);
-      if (pa < 0) pa += Math.PI * 2;
-      const d = Math.abs(pa - a);
-      p.set(x, y, d < 0.22 || d > 6.06 ? 1 : 0.2);
-    }
-  },
+  /**
+   * Reading memory. Not a sandpile: walkers stick to what is already remembered,
+   * so the mark visibly accretes into a dendrite. The different physics is
+   * deliberate — it is what keeps `recall` distinguishable from the pile states
+   * at rail scale.
+   */
+  recall: dlaScene,
 
-  /** Indeterminate background work: the lattice, swept. Ticks are steps, not a
-   *  smooth fill. */
-  work(p, t) {
-    p.buf.fill(0);
-    const prog = (t % 4200) / 4200;
-    const edge = Math.floor(prog * p.W);
-    const base = p.H - 2;
-    for (let x = 0; x < edge; x++) {
-      for (let y = 0; y < base; y++) {
-        if ((x + y) % 2) continue;
-        p.set(x, y, 0.34);
-      }
-    }
-    for (let y = 0; y < base; y++) p.set(edge, y, 0.95);
-    for (let x = 0; x < p.W; x += 4) p.set(x, base + 1, x < edge ? 0.7 : 0.16);
-  },
+  /** Background work: a metered pour walking across the field. Determinate in
+   *  position, but the ticks are topple events rather than a smooth fill. */
+  work: pileScene("work", 26, (p, _st, t) => [
+    Math.floor(((t / 5200) % 1) * p.W),
+    p.H >> 1,
+  ]),
 
-  /** A room's own mark: activation spreading two hops, so a glance at the rail
+  /** A room: two pour points, cascades colliding — so a glance at the rail
    *  tells you the room is alive without you. */
-  net(p, t) {
-    const nodes = p.getNetNodes();
-    p.fade(0.9);
-    const phase = (t % 3600) / 3600;
-    for (let i = 0; i < nodes.length; i++) {
-      const a: [number, number] = [
-        1 + nodes[i][0] * (p.W - 2),
-        1 + nodes[i][1] * (p.H - 2),
-      ];
-      const other = nodes[(i + 2) % nodes.length];
-      const b: [number, number] = [
-        1 + other[0] * (p.W - 2),
-        1 + other[1] * (p.H - 2),
-      ];
-      p.link(a[0], a[1], b[0], b[1], 0.2);
-      const hop = i / nodes.length;
-      const lit = Math.abs((phase - hop) % 1) < 0.14;
-      p.disc(a[0], a[1], lit ? 2 : 1.2, lit ? 1 : 0.42, true);
-    }
-  },
+  net: pileScene("net", 22, (p, st, t) => {
+    const which = Math.sin(t / 1700) > 0 ? 0.3 : 0.7;
+    st.angle += 0.02;
+    return [
+      Math.floor(p.W * which),
+      Math.floor(p.H * (0.4 + 0.2 * Math.sin(st.angle))),
+    ];
+  }),
 
   /** Asleep — the well nearly out, one dot every few seconds. */
   sleep(p) {
@@ -586,18 +516,42 @@ export const scenes: Record<DotScene, SceneFn> = {
     p.disc(p.W / 2, p.H / 2, 1.2, 0.9, true);
   },
 
-  /** Disconnected — a stalled trace with a gap in it. The glass stays
-   *  monochrome; the lamp beside it is the one place colour is allowed. */
+  /**
+   * Disconnected — the field losing charge.
+   *
+   * The earlier version lit one row of a fourteen-row lattice, so ~90% of the
+   * panel was empty and it read as broken rather than as *disconnected*. Here
+   * the whole field is de-energising from the edges inward and the stalled
+   * trace is simply the last thing still lit. Monochrome by law: nothing is
+   * happening, so there is no magnitude to colour.
+   */
   fault(p, t) {
-    p.fade(0.9);
-    const y = Math.round(p.H / 2);
-    const gap = Math.round(p.W * 0.5);
-    const jitter = Math.sin(t / 220) > 0.86 ? 1 : 0;
-    for (let x = 0; x < p.W; x++) {
-      if (Math.abs(x - gap) < Math.max(2, p.W * 0.09)) continue;
-      p.set(x, y + (x > gap ? jitter : 0), 0.5);
+    p.fade(0.93);
+    const cx = (p.W - 1) / 2;
+    const cy = (p.H - 1) / 2;
+    const maxR = Math.hypot(cx, cy);
+    // A collapsing horizon — outside it the field has already gone dark.
+    const horizon = maxR * (0.6 + 0.4 * (0.5 + 0.5 * Math.sin(t / 5400)));
+    for (let y = 0; y < p.H; y++) {
+      for (let x = 0; x < p.W; x++) {
+        const r = Math.hypot(x - cx, y - cy);
+        if (r > horizon) continue;
+        // Dying static: sparse, dim, and biased toward the centre.
+        if (Math.random() < 0.04) p.add(x, y, 0.04 + 0.13 * (1 - r / horizon));
+      }
     }
-    if (Math.sin(t / 700) > 0) p.set(gap, y, 0.85);
+    // The stalled trace, still the strongest thing on the panel.
+    const y0 = Math.round(cy);
+    const gap = Math.round(p.W * 0.5);
+    const gapW = Math.max(2, p.W * 0.1);
+    const jitter = Math.sin(t / 190) > 0.84 ? 1 : 0;
+    for (let x = 0; x < p.W; x++) {
+      if (Math.abs(x - gap) < gapW) continue;
+      const falloff = 1 - Math.abs(x - cx) / (p.W * 0.75);
+      p.set(x, y0 + (x > gap ? jitter : 0), 0.32 + 0.4 * Math.max(0, falloff));
+    }
+    // The one surviving contact, arcing across the gap.
+    if (Math.sin(t / 640) > 0.93) p.add(gap, y0, 0.9);
   },
 
   /** Occupancy as a held level. A quantity is not a process: this never
@@ -646,6 +600,32 @@ const extraScenes = new Map<string, SceneFn>();
 
 export function registerScene(name: string, fn: SceneFn): void {
   extraScenes.set(name, fn);
+}
+
+/**
+ * Scenes that actually write `panel.magnitude`. Colour is enabled ONLY for
+ * these, because a scene whose magnitude is zero everywhere gets painted the
+ * cold end of the ramp in every cell — flat indigo, and worse than monochrome.
+ * Colour therefore reads as "how much just moved", never as decoration.
+ *
+ * Keep this in step with the scene table: a scene added here that does not
+ * write magnitude will go flat, and one omitted from here will lose its colour.
+ */
+const MAGNITUDE_SCENES: ReadonlySet<DotScene> = new Set<DotScene>([
+  "listen",
+  "think",
+  "recall",
+  "work",
+  "net",
+]);
+
+/**
+ * Apply the colour law for a panel's current scene. Idempotent, so it is safe
+ * to call on every scene change.
+ */
+export function applySceneColour(p: DotPanel): void {
+  if (MAGNITUDE_SCENES.has(p.scene)) p.enableMagnitude(MAGNITUDE_LUT_INKFLOOR);
+  else p.disableMagnitude();
 }
 
 function runScene(p: DotPanel, t: number): void {
@@ -732,6 +712,7 @@ export function registerPanel(
   intersectionObserver?.observe(canvas);
   resizeObserver?.observe(canvas);
 
+  applySceneColour(panel);
   settle(panel);
   startLoop();
   return panel;

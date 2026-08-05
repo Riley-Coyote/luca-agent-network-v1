@@ -55,6 +55,7 @@
 
     <div class="bar">
       <button id="t-color">colour by magnitude</button>
+      <button id="t-ink">ink-floor ramp (production law)</button>
       <button id="t-bloom">bloom</button>
       <div class="ctl">panels <span class="val" id="npanels">0</span></div>
       <div class="ctl">fps <span id="fps">–</span></div>
@@ -66,11 +67,10 @@
     <script type="module">
       import { registerPanel, unregisterPanel, registerScene, __dotDisplayStats }
         from "/src/shared/ui/dot-display/engine.ts";
-      import { labScenes, buildMagnitudeLut }
+      import { labScenes, MAGNITUDE_LUT, MAGNITUDE_LUT_INKFLOOR }
         from "/src/shared/ui/dot-display/scenes-lab.ts";
 
       for (const [name, fn] of Object.entries(labScenes)) registerScene(name, fn);
-      const LUT = buildMagnitudeLut();
       const SEED = "35653885e1eeb9c1a0759c24b502f6105714f0198ee83d04468b9905752ec899";
       const SIZES = [28, 48, 96, 300];
       const CELL  = { 28: 2, 48: 2, 96: 4, 300: 6 };
@@ -106,7 +106,7 @@
         ]],
       ];
 
-      let colorOn = false, bloomOn = false;
+      let colorOn = false, bloomOn = false, inkOn = false;
       const made = [];
 
       function build() {
@@ -135,7 +135,8 @@
                 seed: SEED, cell: CELL[s], bloom: bloomOn ? 1 : 0,
                 breath: scene === "sigil",
               });
-              if (colorOn) panel.enableMagnitude(LUT); else panel.disableMagnitude();
+              if (colorOn) panel.enableMagnitude(inkOn ? MAGNITUDE_LUT_INKFLOOR : MAGNITUDE_LUT);
+              else panel.disableMagnitude();
               made.push(cv);
             }
             box.appendChild(sizes);
@@ -155,6 +156,16 @@
 
       document.getElementById("t-color").addEventListener("click", (e) => {
         colorOn = !colorOn; e.target.classList.toggle("on", colorOn); build();
+      });
+      document.getElementById("t-ink").addEventListener("click", (e) => {
+        // Ink-floor keeps quiet events legible greyscale instead of dropping
+        // them to an indigo that vanishes on the floor. Implies colour.
+        inkOn = !inkOn; e.target.classList.toggle("on", inkOn);
+        if (inkOn && !colorOn) {
+          colorOn = true;
+          document.getElementById("t-color").classList.add("on");
+        }
+        build();
       });
       document.getElementById("t-bloom").addEventListener("click", (e) => {
         bloomOn = !bloomOn; e.target.classList.toggle("on", bloomOn); build();
