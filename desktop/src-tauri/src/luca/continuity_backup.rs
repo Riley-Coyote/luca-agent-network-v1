@@ -13,7 +13,12 @@ use std::{
 };
 
 use age::{secrecy::SecretString, Decryptor, Encryptor};
-use luca_continuity::{decrypt_record, NamespaceKey};
+use luca_continuity::{
+    decrypt_record, NamespaceKey, RevisionLedger, RevisionLedgerSnapshotV1,
+    MAX_ARTIFACT_IDEMPOTENCY_ENTRIES, MAX_REVISION_AUTHORITY_HEADS,
+    MAX_REVISION_IDEMPOTENCY_ENTRIES, MAX_REVISION_SNAPSHOT_CANONICAL_BYTES,
+    MAX_REVISION_SNAPSHOT_RECORDS,
+};
 use luca_protocol::{
     canonicalize, parse_and_canonicalize_strict, CanonicalTimestamp, ContinuityRecordV1, Hex64,
     LucaBackupManifestV1, OpaqueId, OwnerIdentityBundleV1, SafeU53, Sha256Ref, CONTINUITY_PROTOCOL,
@@ -34,16 +39,20 @@ use super::{
         CONTINUITY_MASTER_KEY_NAME, CONTINUITY_MASTER_KEY_ROLLBACK_NAME,
     },
     continuity_key_derivation::derive_namespace_key,
+    continuity_revision_authority::AuthorityExpectationV1,
     continuity_store::{
         ContinuityEncryptedSnapshot, ContinuityRestoreDestination, ContinuitySourceMapping,
         ContinuityStore, ContinuityStoreError, MAX_CONTINUITY_SNAPSHOT_BYTES,
         MAX_CONTINUITY_SNAPSHOT_RECORDS,
     },
 };
-use crate::app_state::ContinuityLifecycleLock;
+use crate::{
+    app_state::{keyring_service, ContinuityLifecycleLock},
+    secret_store::SecretStore,
+};
 
 const BACKUP_EXTENSION: &str = "luca-backup.age";
-const BACKUP_FORMAT_VERSION: u64 = 1;
+const BACKUP_FORMAT_VERSION: u64 = 2;
 const MIN_PASSPHRASE_BYTES: usize = 12;
 const MAX_PASSPHRASE_BYTES: usize = 1024;
 const MAX_CIPHERTEXT_BYTES: usize = 160 * 1024 * 1024;
@@ -64,7 +73,7 @@ const ARCHIVE_FIELDS: &[&str] = &[
     "owner_identity",
     "active_key_version",
     "continuity_master_key_b64",
-    "records",
+    "revision_snapshot",
     "mappings",
 ];
 
@@ -85,7 +94,7 @@ struct BackupArchiveV1 {
     owner_identity: OwnerIdentityBundleV1,
     active_key_version: SafeU53,
     continuity_master_key_b64: String,
-    records: Vec<ContinuityRecordV1>,
+    revision_snapshot: RevisionLedgerSnapshotV1,
     mappings: Vec<BackupSourceMappingV1>,
 }
 
@@ -104,6 +113,7 @@ struct BackupIntegrityInput<'a> {
     owner_pubkey: &'a Hex64,
     format_version: SafeU53,
     active_key_version: SafeU53,
+    revision_snapshot_fingerprint: &'a Sha256Ref,
     master_key_sha256: Hex64,
     owner_identity_sha256: &'a Hex64,
     encrypted_content_refs: &'a [Sha256Ref],
@@ -167,6 +177,13 @@ pub(crate) struct ContinuityRestoreReceipt {
     /// Validated, exact mappings for the import/source authority to persist in
     /// the same outer application transaction. They are never silently dropped.
     pub(crate) mappings: Vec<BackupSourceMappingV1>,
+}
+
+/// Body-free, read-only restore-journal state used by immutable readers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RestoreReadStatusV1 {
+    Clear,
+    Pending,
 }
 
 impl From<&BackupSourceMappingV1> for ContinuitySourceMapping {
@@ -318,13 +335,18 @@ fn validate_mappings(
 fn snapshot_ref(
     owner_pubkey: &Hex64,
     active_key_version: SafeU53,
-    records: &[ContinuityRecordV1],
+    revision_snapshot: Option<&RevisionLedgerSnapshotV1>,
     mappings: &[BackupSourceMappingV1],
 ) -> Result<Sha256Ref, ContinuityBackupError> {
-    let refs = record_refs(records)?;
+    let authority_ref = match revision_snapshot {
+        Some(snapshot) => snapshot
+            .fingerprint()
+            .map_err(|_| ContinuityBackupError::Integrity)?,
+        None => hash_ref(b"luca.continuity.backup.absent-authority.v1", &[])?,
+    };
     let mapping_refs = validate_mappings(mappings)?;
-    let encoded =
-        canonicalize(&(refs, mapping_refs)).map_err(|_| ContinuityBackupError::InvalidArchive)?;
+    let encoded = canonicalize(&(authority_ref, mapping_refs))
+        .map_err(|_| ContinuityBackupError::InvalidArchive)?;
     hash_ref(
         SNAPSHOT_REF_DOMAIN,
         &[
@@ -339,9 +361,13 @@ fn calculate_integrity(
     manifest: &LucaBackupManifestV1,
     owner_identity: &OwnerIdentityBundleV1,
     active_key_version: SafeU53,
+    revision_snapshot: &RevisionLedgerSnapshotV1,
     root: &ContinuityMasterKey,
 ) -> Result<Hex64, ContinuityBackupError> {
     let master_key_sha256 = hash_hex(root.as_bytes())?;
+    let revision_snapshot_fingerprint = revision_snapshot
+        .fingerprint()
+        .map_err(|_| ContinuityBackupError::Integrity)?;
     let input = BackupIntegrityInput {
         domain: std::str::from_utf8(ARCHIVE_INTEGRITY_DOMAIN)
             .map_err(|_| ContinuityBackupError::InvalidArchive)?,
@@ -351,6 +377,7 @@ fn calculate_integrity(
         owner_pubkey: &manifest.owner_pubkey,
         format_version: manifest.format_version,
         active_key_version,
+        revision_snapshot_fingerprint: &revision_snapshot_fingerprint,
         master_key_sha256,
         owner_identity_sha256: &owner_identity.manifest_sha256,
         encrypted_content_refs: &manifest.encrypted_content_refs,
@@ -394,14 +421,15 @@ fn authenticate_records(
 }
 
 fn build_archive(
-    snapshot: ContinuityEncryptedSnapshot,
+    encrypted_snapshot: ContinuityEncryptedSnapshot,
+    revision_snapshot: RevisionLedgerSnapshotV1,
     root: &ContinuityMasterKey,
     owner_identity: OwnerIdentityBundleV1,
     backup_id: OpaqueId,
     created_at: CanonicalTimestamp,
     mut mappings: Vec<BackupSourceMappingV1>,
 ) -> Result<BackupArchiveV1, ContinuityBackupError> {
-    if snapshot.records.len() > MAX_CONTINUITY_SNAPSHOT_RECORDS
+    if revision_snapshot.records.len() > MAX_REVISION_SNAPSHOT_RECORDS
         || mappings.len() > MAX_SOURCE_MAPPINGS
     {
         return Err(ContinuityBackupError::BoundExceeded);
@@ -409,39 +437,45 @@ fn build_archive(
     owner_identity
         .validate()
         .map_err(|_| ContinuityBackupError::InvalidArchive)?;
-    if owner_identity.owner_pubkey != snapshot.owner_pubkey {
+    if owner_identity.owner_pubkey != encrypted_snapshot.owner_pubkey {
         return Err(ContinuityBackupError::Integrity);
     }
     let identity_keys = owner_identity
         .owner_secret_nsec
         .with_exposed(Keys::parse)
         .map_err(|_| ContinuityBackupError::InvalidArchive)?;
-    if identity_keys.public_key().to_hex() != snapshot.owner_pubkey.as_str() {
+    if identity_keys.public_key().to_hex() != encrypted_snapshot.owner_pubkey.as_str() {
+        return Err(ContinuityBackupError::Integrity);
+    }
+    let normalized = RevisionLedger::from_snapshot(revision_snapshot.clone())
+        .and_then(|ledger| ledger.export_snapshot())
+        .map_err(|_| ContinuityBackupError::Integrity)?;
+    if normalized != revision_snapshot {
+        return Err(ContinuityBackupError::Integrity);
+    }
+    let mut stored_records = encrypted_snapshot
+        .records
+        .iter()
+        .map(|row| row.record.clone())
+        .collect::<Vec<_>>();
+    stored_records.sort_by(|left, right| left.record_id.as_str().cmp(right.record_id.as_str()));
+    if stored_records != revision_snapshot.records {
         return Err(ContinuityBackupError::Integrity);
     }
     authenticate_records(
         root,
-        &snapshot.owner_pubkey,
-        snapshot.active_key_version,
-        &snapshot
-            .records
-            .iter()
-            .map(|r| r.record.clone())
-            .collect::<Vec<_>>(),
+        &encrypted_snapshot.owner_pubkey,
+        encrypted_snapshot.active_key_version,
+        &revision_snapshot.records,
     )?;
     mappings.sort_by(|a, b| a.mapping_ref.as_str().cmp(b.mapping_ref.as_str()));
-    let records = snapshot
-        .records
-        .into_iter()
-        .map(|stored| stored.record)
-        .collect::<Vec<_>>();
-    let encrypted_content_refs = record_refs(&records)?;
+    let encrypted_content_refs = record_refs(&revision_snapshot.records)?;
     let mapping_refs = validate_mappings(&mappings)?;
     let mut manifest = LucaBackupManifestV1 {
         protocol: CONTINUITY_PROTOCOL.to_owned(),
         backup_id,
         created_at,
-        owner_pubkey: snapshot.owner_pubkey,
+        owner_pubkey: encrypted_snapshot.owner_pubkey,
         format_version: SafeU53::new(BACKUP_FORMAT_VERSION)
             .map_err(|_| ContinuityBackupError::InvalidArchive)?,
         encrypted_content_refs,
@@ -452,15 +486,16 @@ fn build_archive(
     manifest.integrity_sha256 = calculate_integrity(
         &manifest,
         &owner_identity,
-        snapshot.active_key_version,
+        encrypted_snapshot.active_key_version,
+        &revision_snapshot,
         root,
     )?;
     Ok(BackupArchiveV1 {
         manifest,
         owner_identity,
-        active_key_version: snapshot.active_key_version,
+        active_key_version: encrypted_snapshot.active_key_version,
         continuity_master_key_b64: root.to_base64().to_string(),
-        records,
+        revision_snapshot,
         mappings,
     })
 }
@@ -468,7 +503,7 @@ fn build_archive(
 fn validate_archive(
     mut archive: BackupArchiveV1,
 ) -> Result<BackupArchiveV1, ContinuityBackupError> {
-    if archive.records.len() > MAX_CONTINUITY_SNAPSHOT_RECORDS
+    if archive.revision_snapshot.records.len() > MAX_REVISION_SNAPSHOT_RECORDS
         || archive.mappings.len() > MAX_SOURCE_MAPPINGS
     {
         return Err(ContinuityBackupError::BoundExceeded);
@@ -481,6 +516,16 @@ fn validate_archive(
         .owner_identity
         .validate()
         .map_err(|_| ContinuityBackupError::InvalidArchive)?;
+    let normalized = RevisionLedger::from_snapshot(archive.revision_snapshot.clone())
+        .and_then(|ledger| ledger.export_snapshot())
+        .map_err(|_| ContinuityBackupError::Integrity)?;
+    let canonical_snapshot = canonicalize(&archive.revision_snapshot)
+        .map_err(|_| ContinuityBackupError::InvalidArchive)?;
+    if normalized != archive.revision_snapshot
+        || canonical_snapshot.len() > MAX_REVISION_SNAPSHOT_CANONICAL_BYTES
+    {
+        return Err(ContinuityBackupError::Integrity);
+    }
     let identity_keys = archive
         .owner_identity
         .owner_secret_nsec
@@ -490,7 +535,8 @@ fn validate_archive(
         || archive.active_key_version.get() == 0
         || archive.owner_identity.owner_pubkey != archive.manifest.owner_pubkey
         || identity_keys.public_key().to_hex() != archive.manifest.owner_pubkey.as_str()
-        || record_refs(&archive.records)? != archive.manifest.encrypted_content_refs
+        || record_refs(&archive.revision_snapshot.records)?
+            != archive.manifest.encrypted_content_refs
         || validate_mappings(&archive.mappings)? != archive.manifest.mapping_refs
     {
         return Err(ContinuityBackupError::Integrity);
@@ -501,6 +547,7 @@ fn validate_archive(
         &archive.manifest,
         &archive.owner_identity,
         archive.active_key_version,
+        &archive.revision_snapshot,
         &root,
     )? != archive.manifest.integrity_sha256
     {
@@ -510,7 +557,7 @@ fn validate_archive(
         &root,
         &archive.manifest.owner_pubkey,
         archive.active_key_version,
-        &archive.records,
+        &archive.revision_snapshot.records,
     )?;
     // Normalize the secret string so malformed noncanonical base64 never survives.
     archive.continuity_master_key_b64.zeroize();
@@ -579,7 +626,12 @@ fn decrypt_archive(
     }
     let archive = serde_json::from_slice::<BackupArchiveV1>(&plaintext)
         .map_err(|_| ContinuityBackupError::InvalidArchive)?;
-    if archive.records.len() != preflight.record_count
+    if archive.revision_snapshot.records.len() != preflight.record_count
+        || archive.revision_snapshot.lineages.len() != preflight.lineage_count
+        || archive.revision_snapshot.revision_idempotency.len()
+            != preflight.revision_idempotency_count
+        || archive.revision_snapshot.artifact_idempotency.len()
+            != preflight.artifact_idempotency_count
         || archive.mappings.len() != preflight.mapping_count
     {
         return Err(ContinuityBackupError::InvalidArchive);
@@ -590,7 +642,18 @@ fn decrypt_archive(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ArchiveStructurePreflight {
     record_count: usize,
+    lineage_count: usize,
+    revision_idempotency_count: usize,
+    artifact_idempotency_count: usize,
     mapping_count: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RevisionSnapshotStructurePreflight {
+    record_count: usize,
+    lineage_count: usize,
+    revision_idempotency_count: usize,
+    artifact_idempotency_count: usize,
 }
 
 struct BoundedSequenceSeed {
@@ -646,6 +709,94 @@ impl<'de> Visitor<'de> for BoundedSequenceVisitor {
 
 struct ArchiveStructureVisitor;
 
+struct RevisionSnapshotStructureSeed;
+
+struct RevisionSnapshotStructureVisitor;
+
+impl<'de> DeserializeSeed<'de> for RevisionSnapshotStructureSeed {
+    type Value = RevisionSnapshotStructurePreflight;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_map(RevisionSnapshotStructureVisitor)
+    }
+}
+
+impl<'de> Visitor<'de> for RevisionSnapshotStructureVisitor {
+    type Value = RevisionSnapshotStructurePreflight;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("the exact revision snapshot object")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "schema_version",
+            "records",
+            "lineages",
+            "revision_idempotency",
+            "artifact_idempotency",
+        ];
+        let mut seen = 0u8;
+        let mut counts = RevisionSnapshotStructurePreflight {
+            record_count: 0,
+            lineage_count: 0,
+            revision_idempotency_count: 0,
+            artifact_idempotency_count: 0,
+        };
+        while let Some(field) = map.next_key::<&str>()? {
+            let (bit, name) = match field {
+                "schema_version" => (1 << 0, "schema_version"),
+                "records" => (1 << 1, "records"),
+                "lineages" => (1 << 2, "lineages"),
+                "revision_idempotency" => (1 << 3, "revision_idempotency"),
+                "artifact_idempotency" => (1 << 4, "artifact_idempotency"),
+                _ => return Err(de::Error::unknown_field(field, FIELDS)),
+            };
+            if seen & bit != 0 {
+                return Err(de::Error::duplicate_field(name));
+            }
+            seen |= bit;
+            match field {
+                "records" => {
+                    counts.record_count = map.next_value_seed(BoundedSequenceSeed {
+                        maximum: MAX_REVISION_SNAPSHOT_RECORDS,
+                    })?;
+                }
+                "lineages" => {
+                    counts.lineage_count = map.next_value_seed(BoundedSequenceSeed {
+                        maximum: MAX_REVISION_AUTHORITY_HEADS,
+                    })?;
+                }
+                "revision_idempotency" => {
+                    counts.revision_idempotency_count =
+                        map.next_value_seed(BoundedSequenceSeed {
+                            maximum: MAX_REVISION_IDEMPOTENCY_ENTRIES,
+                        })?;
+                }
+                "artifact_idempotency" => {
+                    counts.artifact_idempotency_count =
+                        map.next_value_seed(BoundedSequenceSeed {
+                            maximum: MAX_ARTIFACT_IDEMPOTENCY_ENTRIES,
+                        })?;
+                }
+                _ => {
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+        }
+        if seen != 0b1_1111 {
+            return Err(de::Error::custom("incomplete revision snapshot object"));
+        }
+        Ok(counts)
+    }
+}
+
 impl<'de> Visitor<'de> for ArchiveStructureVisitor {
     type Value = ArchiveStructurePreflight;
 
@@ -658,7 +809,7 @@ impl<'de> Visitor<'de> for ArchiveStructureVisitor {
         A: MapAccess<'de>,
     {
         let mut seen = 0u8;
-        let mut record_count = None;
+        let mut revision = None;
         let mut mapping_count = None;
         while let Some(field) = map.next_key::<&str>()? {
             let (bit, duplicate_name) = match field {
@@ -666,7 +817,7 @@ impl<'de> Visitor<'de> for ArchiveStructureVisitor {
                 "owner_identity" => (1 << 1, "owner_identity"),
                 "active_key_version" => (1 << 2, "active_key_version"),
                 "continuity_master_key_b64" => (1 << 3, "continuity_master_key_b64"),
-                "records" => (1 << 4, "records"),
+                "revision_snapshot" => (1 << 4, "revision_snapshot"),
                 "mappings" => (1 << 5, "mappings"),
                 _ => return Err(de::Error::unknown_field(field, ARCHIVE_FIELDS)),
             };
@@ -675,10 +826,8 @@ impl<'de> Visitor<'de> for ArchiveStructureVisitor {
             }
             seen |= bit;
             match field {
-                "records" => {
-                    record_count = Some(map.next_value_seed(BoundedSequenceSeed {
-                        maximum: MAX_CONTINUITY_SNAPSHOT_RECORDS,
-                    })?);
+                "revision_snapshot" => {
+                    revision = Some(map.next_value_seed(RevisionSnapshotStructureSeed)?);
                 }
                 "mappings" => {
                     mapping_count = Some(map.next_value_seed(BoundedSequenceSeed {
@@ -693,8 +842,12 @@ impl<'de> Visitor<'de> for ArchiveStructureVisitor {
         if seen != 0b11_1111 {
             return Err(de::Error::custom("incomplete Luca backup top-level object"));
         }
+        let revision = revision.ok_or_else(|| de::Error::missing_field("revision_snapshot"))?;
         Ok(ArchiveStructurePreflight {
-            record_count: record_count.ok_or_else(|| de::Error::missing_field("records"))?,
+            record_count: revision.record_count,
+            lineage_count: revision.lineage_count,
+            revision_idempotency_count: revision.revision_idempotency_count,
+            artifact_idempotency_count: revision.artifact_idempotency_count,
             mapping_count: mapping_count.ok_or_else(|| de::Error::missing_field("mappings"))?,
         })
     }
@@ -809,7 +962,7 @@ fn preview_from(
         backup_id: archive.manifest.backup_id.clone(),
         created_at: archive.manifest.created_at.clone(),
         owner_pubkey: archive.manifest.owner_pubkey.clone(),
-        record_count: archive.records.len(),
+        record_count: archive.revision_snapshot.records.len(),
         mapping_count: archive.mappings.len(),
         ciphertext_sha256: hash_hex(ciphertext)?,
     })
@@ -825,7 +978,7 @@ pub(crate) fn export_continuity_backup(
     owner_pubkey: Hex64,
     backup_id: OpaqueId,
     created_at: CanonicalTimestamp,
-    mappings: Vec<BackupSourceMappingV1>,
+    mut mappings: Vec<BackupSourceMappingV1>,
     destination: &Path,
     passphrase: Zeroizing<String>,
 ) -> Result<ContinuityBackupReceipt, ContinuityBackupError> {
@@ -834,14 +987,30 @@ pub(crate) fn export_continuity_backup(
     }
     validate_path(destination)?;
     let _guard = lifecycle.lock().map_err(|_| ContinuityBackupError::Io)?;
+    let generation = store
+        .load_revision_generation(&owner_pubkey)?
+        .ok_or(ContinuityBackupError::Integrity)?;
     let snapshot = store.snapshot_owner_encrypted(&owner_pubkey)?;
+    if generation.token.active_root_key_version != snapshot.active_key_version {
+        return Err(ContinuityBackupError::Integrity);
+    }
+    let stored_mappings = snapshot
+        .source_mappings
+        .iter()
+        .map(BackupSourceMappingV1::from)
+        .collect::<Vec<_>>();
+    mappings.sort_by(|left, right| left.mapping_ref.as_str().cmp(right.mapping_ref.as_str()));
+    if !mappings.is_empty() && mappings != stored_mappings {
+        return Err(ContinuityBackupError::Integrity);
+    }
     let archive = build_archive(
         snapshot,
+        generation.snapshot,
         root,
         owner_identity,
         backup_id,
         created_at,
-        mappings,
+        stored_mappings,
     )?;
     let plaintext =
         Zeroizing::new(canonicalize(&archive).map_err(|_| ContinuityBackupError::InvalidArchive)?);
@@ -905,6 +1074,24 @@ fn load_restore_state<S: ContinuityKeyStore>(
         return Err(ContinuityBackupError::Integrity);
     }
     Ok(Some(state))
+}
+
+/// Inspect only the existing restore journal. Absence is clear; malformed or
+/// inaccessible state is an error and is never collapsed into `Clear`.
+pub(crate) fn read_restore_status_existing_only<S: ContinuityKeyStore>(
+    key_store: &S,
+) -> Result<RestoreReadStatusV1, ContinuityBackupError> {
+    Ok(match load_restore_state(key_store)? {
+        Some(_) => RestoreReadStatusV1::Pending,
+        None => RestoreReadStatusV1::Clear,
+    })
+}
+
+/// Production read-only wrapper. Constructing this keyring handle performs no
+/// migration, key minting, cache population, or write.
+pub(crate) fn read_desktop_restore_status_existing_only(
+) -> Result<RestoreReadStatusV1, ContinuityBackupError> {
+    read_restore_status_existing_only(&SecretStore::keyring(keyring_service()))
 }
 
 fn master_verifier(encoded: &str) -> Result<Hex64, ContinuityBackupError> {
@@ -1115,16 +1302,59 @@ fn validate_restore_destination<S: ContinuityKeyStore>(
     candidate_master_sha256: &Hex64,
 ) -> Result<(), ContinuityBackupError> {
     let destination = store.restore_destination(owner_pubkey)?;
+    let authority = store.load_revision_generation(owner_pubkey)?;
     let master = active_master_verifier(key_store)?;
     let identity = active_identity_verifier(key_store)?;
-    match (destination, master.as_ref(), identity.as_ref()) {
-        (ContinuityRestoreDestination::Empty, None, None) => Ok(()),
-        (
-            ContinuityRestoreDestination::Empty | ContinuityRestoreDestination::ExactOwner,
-            Some(master),
-            Some(identity),
-        ) if master == candidate_master_sha256 && identity == owner_pubkey => Ok(()),
+    match (destination, authority, master.as_ref(), identity.as_ref()) {
+        (ContinuityRestoreDestination::Empty, None, None, None) => Ok(()),
+        (ContinuityRestoreDestination::Empty, None, Some(master), Some(identity))
+            if master == candidate_master_sha256 && identity == owner_pubkey =>
+        {
+            Ok(())
+        }
+        (ContinuityRestoreDestination::ExactOwner, Some(_), Some(master), Some(identity))
+            if master == candidate_master_sha256 && identity == owner_pubkey =>
+        {
+            Ok(())
+        }
         _ => Err(ContinuityBackupError::Integrity),
+    }
+}
+
+fn persisted_snapshot_ref(
+    store: &mut ContinuityStore,
+    owner_pubkey: &Hex64,
+) -> Result<Sha256Ref, ContinuityBackupError> {
+    let encrypted = store.snapshot_owner_encrypted(owner_pubkey)?;
+    let mappings = encrypted
+        .source_mappings
+        .iter()
+        .map(BackupSourceMappingV1::from)
+        .collect::<Vec<_>>();
+    match store.load_revision_generation(owner_pubkey)? {
+        Some(generation) => {
+            let mut records = encrypted
+                .records
+                .into_iter()
+                .map(|row| row.record)
+                .collect::<Vec<_>>();
+            records.sort_by(|left, right| left.record_id.as_str().cmp(right.record_id.as_str()));
+            if encrypted.active_key_version != generation.token.active_root_key_version
+                || records != generation.snapshot.records
+            {
+                return Err(ContinuityBackupError::Integrity);
+            }
+            snapshot_ref(
+                owner_pubkey,
+                encrypted.active_key_version,
+                Some(&generation.snapshot),
+                &mappings,
+            )
+        }
+        None if encrypted.records.is_empty() && mappings.is_empty() => {
+            snapshot_ref(owner_pubkey, encrypted.active_key_version, None, &mappings)
+        }
+        None => Err(ContinuityBackupError::Integrity),
     }
 }
 
@@ -1171,23 +1401,7 @@ fn recover_pending_restore_locked<S: ContinuityKeyStore>(
     let Some(state) = load_restore_state(key_store)? else {
         return Ok(false);
     };
-    let snapshot = store.snapshot_owner_encrypted(&state.owner_pubkey)?;
-    let records = snapshot
-        .records
-        .into_iter()
-        .map(|row| row.record)
-        .collect::<Vec<_>>();
-    let mappings = snapshot
-        .source_mappings
-        .iter()
-        .map(BackupSourceMappingV1::from)
-        .collect::<Vec<_>>();
-    let current = snapshot_ref(
-        &state.owner_pubkey,
-        snapshot.active_key_version,
-        &records,
-        &mappings,
-    )?;
+    let current = persisted_snapshot_ref(store, &state.owner_pubkey)?;
     if current == state.new_snapshot_ref {
         reconcile_authority_to_new(key_store, &state)?;
     } else if current == state.old_snapshot_ref {
@@ -1257,27 +1471,11 @@ pub(crate) fn restore_continuity_backup<S: ContinuityKeyStore>(
         .map_err(|_| ContinuityBackupError::Io)?;
     crash.checkpoint(RestoreCrashPoint::AfterStage)?;
 
-    let old = store.snapshot_owner_encrypted(&archive.manifest.owner_pubkey)?;
-    let old_records = old
-        .records
-        .iter()
-        .map(|row| row.record.clone())
-        .collect::<Vec<_>>();
-    let old_mappings = old
-        .source_mappings
-        .iter()
-        .map(BackupSourceMappingV1::from)
-        .collect::<Vec<_>>();
-    let old_ref = snapshot_ref(
-        &old.owner_pubkey,
-        old.active_key_version,
-        &old_records,
-        &old_mappings,
-    )?;
+    let old_ref = persisted_snapshot_ref(store, &archive.manifest.owner_pubkey)?;
     let new_ref = snapshot_ref(
         &archive.manifest.owner_pubkey,
         archive.active_key_version,
-        &archive.records,
+        Some(&archive.revision_snapshot),
         &archive.mappings,
     )?;
     // Existing active slots are validated before any state write. Their
@@ -1320,11 +1518,19 @@ pub(crate) fn restore_continuity_backup<S: ContinuityKeyStore>(
         .iter()
         .map(ContinuitySourceMapping::from)
         .collect::<Vec<_>>();
-    let activation = store.replace_owner_snapshot_atomically(
-        &archive.manifest.owner_pubkey,
-        &archive.records,
-        &mappings,
+    let authority_expectation =
+        match store.load_revision_generation(&archive.manifest.owner_pubkey)? {
+            Some(generation) => AuthorityExpectationV1::Existing(generation.token),
+            None => AuthorityExpectationV1::UninitializedOwner {
+                owner_pubkey: archive.manifest.owner_pubkey.clone(),
+                active_root_key_version: archive.active_key_version,
+            },
+        };
+    let activation = store.replace_complete_owner_generation_atomically(
+        &authority_expectation,
         archive.active_key_version,
+        &archive.revision_snapshot,
+        &mappings,
     );
     if let Err(error) = activation {
         return Err(handle_restore_error(store, key_store, error.into()));
@@ -1334,30 +1540,13 @@ pub(crate) fn restore_continuity_backup<S: ContinuityKeyStore>(
         return Err(handle_restore_error(store, key_store, error));
     }
     crash.checkpoint(RestoreCrashPoint::AfterStoreActivation)?;
-    let active = store.snapshot_owner_encrypted(&archive.manifest.owner_pubkey)?;
-    let active_records = active
-        .records
-        .into_iter()
-        .map(|row| row.record)
-        .collect::<Vec<_>>();
-    let active_mappings = active
-        .source_mappings
-        .iter()
-        .map(BackupSourceMappingV1::from)
-        .collect::<Vec<_>>();
     authenticate_records(
         &candidate,
         &archive.manifest.owner_pubkey,
-        active.active_key_version,
-        &active_records,
+        archive.active_key_version,
+        &archive.revision_snapshot.records,
     )?;
-    if snapshot_ref(
-        &archive.manifest.owner_pubkey,
-        active.active_key_version,
-        &active_records,
-        &active_mappings,
-    )? != state.new_snapshot_ref
-    {
+    if persisted_snapshot_ref(store, &archive.manifest.owner_pubkey)? != state.new_snapshot_ref {
         return Err(ContinuityBackupError::Integrity);
     }
     state.phase = RestorePhase::Verified;
@@ -1373,7 +1562,7 @@ pub(crate) fn restore_continuity_backup<S: ContinuityKeyStore>(
     Ok(ContinuityRestoreReceipt {
         backup_id: archive.manifest.backup_id.clone(),
         owner_pubkey: archive.manifest.owner_pubkey.clone(),
-        restored_records: archive.records.len(),
+        restored_records: archive.revision_snapshot.records.len(),
         restored_mappings: archive.mappings.len(),
         mappings: archive.mappings.clone(),
     })
@@ -1387,9 +1576,12 @@ impl fmt::Display for ContinuityBackupError {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, collections::BTreeMap};
+    use std::{cell::RefCell, collections::BTreeMap, path::PathBuf};
 
-    use luca_continuity::{encrypt_record, RecordMetadata};
+    use luca_continuity::{
+        derive_revision_idempotency_key, encrypt_record, encrypted_record_reference,
+        RecordMetadata, RevisionActor, RevisionOperation, RevisionRequest,
+    };
     use luca_protocol::{
         BundleId, ContinuityNamespaceKindV1, ContinuityNamespaceV1, ContinuityScopeV1, SecretNsec,
         OWNER_IDENTITY_CANONICALIZATION, OWNER_IDENTITY_FORMAT, OWNER_IDENTITY_VERSION,
@@ -1475,6 +1667,37 @@ mod tests {
         }
     }
 
+    fn durable_tree_snapshot(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+        fn walk(root: &Path, current: &Path, snapshot: &mut BTreeMap<PathBuf, Vec<u8>>) {
+            let mut entries = fs::read_dir(current)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .collect::<Vec<_>>();
+            entries.sort();
+            for path in entries {
+                if path.is_dir() {
+                    walk(root, &path, snapshot);
+                    continue;
+                }
+                if path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.ends_with("-shm"))
+                {
+                    continue;
+                }
+                snapshot.insert(
+                    path.strip_prefix(root).unwrap().to_owned(),
+                    fs::read(path).unwrap(),
+                );
+            }
+        }
+
+        let mut snapshot = BTreeMap::new();
+        walk(root, root, &mut snapshot);
+        snapshot
+    }
+
     fn seed(store: &mut ContinuityStore, root: &ContinuityMasterKey, owner: &Hex64) {
         let namespace = ContinuityNamespaceV1 {
             protocol: CONTINUITY_PROTOCOL.to_owned(),
@@ -1504,7 +1727,7 @@ mod tests {
                 revision: SafeU53::new(0).unwrap(),
                 predecessor_record_id: None,
                 created_at: CanonicalTimestamp::parse("2026-08-05T00:00:00Z").unwrap(),
-                author_kind: OpaqueId::parse("resident").unwrap(),
+                author_kind: OpaqueId::parse("owner").unwrap(),
                 provenance_refs: vec![sha(5)],
                 key_version: SafeU53::new(1).unwrap(),
             },
@@ -1512,7 +1735,57 @@ mod tests {
             b"private continuity body",
         )
         .unwrap();
-        store.put_encrypted(&record).unwrap();
+        let mut request = RevisionRequest {
+            idempotency_key: sha(9),
+            operation: RevisionOperation::Create,
+            lineage_root_id: record.record_id.clone(),
+            expected_head_record_id: None,
+            actor: RevisionActor::Owner,
+            signed_source_event_refs: vec![sha(5)],
+            request_ref: sha(6),
+            successor_ciphertext_ref: Some(encrypted_record_reference(&record).unwrap()),
+            successor: Some(record.clone()),
+            rollback_source_record_id: None,
+            derived_artifact_refs: Vec::new(),
+        };
+        request.idempotency_key = derive_revision_idempotency_key(
+            &record.namespace,
+            &record.scope,
+            &record.record_type,
+            record.key_version,
+            &request,
+        )
+        .unwrap();
+        let created = store
+            .apply_revision_transition_cas(
+                &AuthorityExpectationV1::UninitializedOwner {
+                    owner_pubkey: owner.clone(),
+                    active_root_key_version: SafeU53::new(1).unwrap(),
+                },
+                request,
+            )
+            .unwrap();
+        let snapshot = store
+            .load_revision_generation(owner)
+            .unwrap()
+            .unwrap()
+            .snapshot;
+        store
+            .replace_complete_owner_generation_atomically(
+                &AuthorityExpectationV1::Existing(created.token),
+                SafeU53::new(1).unwrap(),
+                &snapshot,
+                &[ContinuitySourceMapping::from(&mapping())],
+            )
+            .unwrap();
+    }
+
+    fn authority_snapshot(store: &ContinuityStore, owner: &Hex64) -> RevisionLedgerSnapshotV1 {
+        store
+            .load_revision_generation(owner)
+            .unwrap()
+            .unwrap()
+            .snapshot
     }
 
     fn mapping() -> BackupSourceMappingV1 {
@@ -1570,6 +1843,10 @@ mod tests {
         let root = ContinuityMasterKey::new_for_test([0x51; 32]);
         let mut source_store = open(source_dir.path());
         seed(&mut source_store, &root, &owner);
+        let source_generation = source_store
+            .load_revision_generation(&owner)
+            .unwrap()
+            .unwrap();
         let lifecycle = ContinuityLifecycleLock::new_for_test();
         let path = destination_dir.path().join("test.luca-backup.age");
         let receipt = export_continuity_backup(
@@ -1633,10 +1910,20 @@ mod tests {
                 .len(),
             1
         );
+        let restored_generation = restored.load_revision_generation(&owner).unwrap().unwrap();
+        assert_ne!(
+            restored_generation.token.store_epoch,
+            source_generation.token.store_epoch
+        );
+        assert_eq!(
+            restored_generation.token.snapshot_fingerprint,
+            source_generation.token.snapshot_fingerprint
+        );
+        assert_eq!(restored_generation.snapshot, source_generation.snapshot);
     }
 
     #[test]
-    fn preview_wrong_passphrase_and_confirmation_fail_before_state_writes() {
+    fn preview_wrong_passphrase_fails_before_state_writes() {
         let source_dir = TempDir::new().unwrap();
         let destination_dir = TempDir::new().unwrap();
         let (identity, owner) = owner_identity();
@@ -1665,6 +1952,83 @@ mod tests {
     }
 
     #[test]
+    fn restore_confirmation_mismatch_performs_zero_keychain_store_or_staging_writes() {
+        let source_dir = TempDir::new().unwrap();
+        let destination_dir = TempDir::new().unwrap();
+        let restore_dir = TempDir::new().unwrap();
+        let (identity, owner) = owner_identity();
+        let root = ContinuityMasterKey::new_for_test([0x51; 32]);
+        let mut source_store = open(source_dir.path());
+        seed(&mut source_store, &root, &owner);
+        let lifecycle = ContinuityLifecycleLock::new_for_test();
+        let path = destination_dir.path().join("confirmation.luca-backup.age");
+        let exported = export_continuity_backup(
+            &lifecycle,
+            &mut source_store,
+            &root,
+            identity,
+            owner.clone(),
+            OpaqueId::parse("backup-confirmation-mismatch").unwrap(),
+            CanonicalTimestamp::parse("2026-08-05T00:00:00Z").unwrap(),
+            vec![mapping()],
+            &path,
+            passphrase(),
+        )
+        .unwrap();
+        let confirmation = ContinuityRestoreConfirmation {
+            backup_id: exported.preview.backup_id,
+            owner_pubkey: exported.preview.owner_pubkey,
+            ciphertext_sha256: hex(0xee),
+        };
+        assert_ne!(
+            confirmation.ciphertext_sha256,
+            exported.preview.ciphertext_sha256
+        );
+
+        let mut restored = open(restore_dir.path());
+        let keychain = FakeKeychain::default();
+        keychain
+            .store_raw("unrelated-test-slot", "must-remain-byte-identical")
+            .unwrap();
+        let keychain_before = keychain.0.borrow().clone();
+        let destination_before = restored.restore_destination(&owner).unwrap();
+        let authority_before = restored.load_revision_generation(&owner).unwrap();
+        let mappings_before = restored.source_mappings_for_test(&owner).unwrap();
+        let changes_before = restored.connection.total_changes();
+        let files_before = durable_tree_snapshot(restore_dir.path());
+
+        assert_eq!(
+            restore_continuity_backup(
+                &lifecycle,
+                &mut restored,
+                &keychain,
+                &path,
+                passphrase(),
+                &confirmation,
+                restore_dir.path(),
+                &mut NoRestoreCrash,
+            ),
+            Err(ContinuityBackupError::ConfirmationMismatch)
+        );
+
+        assert_eq!(keychain_before, *keychain.0.borrow());
+        assert_eq!(
+            restored.restore_destination(&owner).unwrap(),
+            destination_before
+        );
+        assert_eq!(
+            restored.load_revision_generation(&owner).unwrap(),
+            authority_before
+        );
+        assert_eq!(
+            restored.source_mappings_for_test(&owner).unwrap(),
+            mappings_before
+        );
+        assert_eq!(restored.connection.total_changes(), changes_before);
+        assert_eq!(durable_tree_snapshot(restore_dir.path()), files_before);
+    }
+
+    #[test]
     fn mixed_physical_key_versions_are_rejected() {
         let source_dir = TempDir::new().unwrap();
         let destination_dir = TempDir::new().unwrap();
@@ -1672,18 +2036,16 @@ mod tests {
         let root = ContinuityMasterKey::new_for_test([0x51; 32]);
         let mut source_store = open(source_dir.path());
         seed(&mut source_store, &root, &owner);
-        let records = source_store
-            .snapshot_owner_encrypted(&owner)
-            .unwrap()
-            .records
-            .into_iter()
-            .map(|row| row.record)
-            .collect::<Vec<_>>();
         source_store
-            .replace_owner_snapshot_atomically(&owner, &records, &[], SafeU53::new(2).unwrap())
+            .connection
+            .execute(
+                "UPDATE continuity_owner_versions SET active_key_version=2
+                 WHERE owner_pubkey=?1",
+                [owner.as_str()],
+            )
             .unwrap();
         let path = destination_dir.path().join("mixed.luca-backup.age");
-        assert_eq!(
+        assert!(matches!(
             export_continuity_backup(
                 &ContinuityLifecycleLock::new_for_test(),
                 &mut source_store,
@@ -1696,8 +2058,8 @@ mod tests {
                 &path,
                 passphrase(),
             ),
-            Err(ContinuityBackupError::Integrity)
-        );
+            Err(ContinuityBackupError::Store(_)) | Err(ContinuityBackupError::Integrity)
+        ));
         assert!(!path.exists());
     }
 
@@ -1791,6 +2153,110 @@ mod tests {
             } else {
                 assert_eq!(count, 0);
                 assert_eq!(mapping_count, 0);
+            }
+        }
+    }
+
+    #[test]
+    fn fresh_keychain_restore_crash_boundaries_recover_empty_or_verified_candidate_state() {
+        for point in [
+            RestoreCrashPoint::AfterKeyInstall,
+            RestoreCrashPoint::AfterStoreActivation,
+        ] {
+            let source_dir = TempDir::new().unwrap();
+            let destination_dir = TempDir::new().unwrap();
+            let restore_dir = TempDir::new().unwrap();
+            let (identity, owner) = owner_identity();
+            let root = ContinuityMasterKey::new_for_test([0x51; 32]);
+            let expected_root = hash_hex(root.as_bytes()).unwrap();
+            let mut source_store = open(source_dir.path());
+            seed(&mut source_store, &root, &owner);
+            let lifecycle = ContinuityLifecycleLock::new_for_test();
+            let path = destination_dir.path().join("fresh-crash.luca-backup.age");
+            let exported = export_continuity_backup(
+                &lifecycle,
+                &mut source_store,
+                &root,
+                identity,
+                owner.clone(),
+                OpaqueId::parse(match point {
+                    RestoreCrashPoint::AfterKeyInstall => "backup-fresh-after-key-install",
+                    RestoreCrashPoint::AfterStoreActivation => {
+                        "backup-fresh-after-store-activation"
+                    }
+                    _ => unreachable!(),
+                })
+                .unwrap(),
+                CanonicalTimestamp::parse("2026-08-05T00:00:00Z").unwrap(),
+                vec![mapping()],
+                &path,
+                passphrase(),
+            )
+            .unwrap();
+            let confirmation = ContinuityRestoreConfirmation {
+                backup_id: exported.preview.backup_id,
+                owner_pubkey: owner.clone(),
+                ciphertext_sha256: exported.preview.ciphertext_sha256,
+            };
+            let mut restored = open(restore_dir.path());
+            let keychain = FakeKeychain::default();
+            assert!(keychain.0.borrow().is_empty());
+
+            assert_eq!(
+                restore_continuity_backup(
+                    &lifecycle,
+                    &mut restored,
+                    &keychain,
+                    &path,
+                    passphrase(),
+                    &confirmation,
+                    restore_dir.path(),
+                    &mut FailAt(Some(point)),
+                ),
+                Err(ContinuityBackupError::InjectedCrash(point))
+            );
+            assert!(recover_pending_restore(&lifecycle, &mut restored, &keychain).unwrap());
+            assert!(keychain.load_raw(RESTORE_STATE_KEY).unwrap().is_none());
+            assert!(keychain
+                .load_raw(CONTINUITY_MASTER_KEY_ROLLBACK_NAME)
+                .unwrap()
+                .is_none());
+            assert!(keychain.load_raw(IDENTITY_ROLLBACK_KEY).unwrap().is_none());
+
+            let encrypted = restored.snapshot_owner_encrypted(&owner).unwrap();
+            let mappings = restored.source_mappings_for_test(&owner).unwrap();
+            if point == RestoreCrashPoint::AfterKeyInstall {
+                assert!(keychain.0.borrow().is_empty());
+                assert_eq!(active_master_verifier(&keychain).unwrap(), None);
+                assert_eq!(active_identity_verifier(&keychain).unwrap(), None);
+                assert!(encrypted.records.is_empty());
+                assert!(mappings.is_empty());
+                assert!(restored.load_revision_generation(&owner).unwrap().is_none());
+            } else {
+                assert_eq!(
+                    active_master_verifier(&keychain).unwrap(),
+                    Some(expected_root)
+                );
+                assert_eq!(
+                    active_identity_verifier(&keychain).unwrap(),
+                    Some(owner.clone())
+                );
+                assert_eq!(encrypted.records.len(), 1);
+                assert_eq!(mappings, vec![ContinuitySourceMapping::from(&mapping())]);
+                let active_root = ContinuityMasterKey::from_base64(
+                    &keychain
+                        .load_raw(CONTINUITY_MASTER_KEY_NAME)
+                        .unwrap()
+                        .unwrap(),
+                )
+                .unwrap();
+                let records = encrypted
+                    .records
+                    .iter()
+                    .map(|row| row.record.clone())
+                    .collect::<Vec<_>>();
+                authenticate_records(&active_root, &owner, encrypted.active_key_version, &records)
+                    .unwrap();
             }
         }
     }
@@ -1954,8 +2420,10 @@ mod tests {
         let mut source_store = open(source_dir.path());
         seed(&mut source_store, &root, &owner);
         let snapshot = source_store.snapshot_owner_encrypted(&owner).unwrap();
+        let authority = authority_snapshot(&source_store, &owner);
         let mut archive = build_archive(
             snapshot,
+            authority,
             &root,
             identity,
             OpaqueId::parse("backup-tamper-ciphertext").unwrap(),
@@ -1963,34 +2431,31 @@ mod tests {
             vec![mapping()],
         )
         .unwrap();
-        let replacement = if archive.records[0].ciphertext_b64.starts_with('A') {
+        let replacement = if archive.revision_snapshot.records[0]
+            .ciphertext_b64
+            .starts_with('A')
+        {
             "B"
         } else {
             "A"
         };
-        archive.records[0]
+        archive.revision_snapshot.records[0]
             .ciphertext_b64
             .replace_range(0..1, replacement);
-        archive.manifest.encrypted_content_refs = record_refs(&archive.records).unwrap();
-        archive.manifest.integrity_sha256 = calculate_integrity(
-            &archive.manifest,
-            &archive.owner_identity,
-            archive.active_key_version,
-            &root,
-        )
-        .unwrap();
         let tampered = canonicalize(&archive).unwrap();
         let path = destination_dir.path().join("ciphertext.luca-backup.age");
         fs::write(&path, encrypt_archive(&tampered, &passphrase()).unwrap()).unwrap();
         assert_eq!(
             preview_continuity_backup(&path, passphrase()),
-            Err(ContinuityBackupError::Authentication)
+            Err(ContinuityBackupError::Integrity)
         );
 
         let (identity, owner) = owner_identity();
         let snapshot = source_store.snapshot_owner_encrypted(&owner).unwrap();
+        let authority = authority_snapshot(&source_store, &owner);
         let mut archive = build_archive(
             snapshot,
+            authority,
             &root,
             identity,
             OpaqueId::parse("backup-tamper-manifest").unwrap(),
@@ -2172,31 +2637,57 @@ mod tests {
 
     #[test]
     fn archive_structure_preflight_counts_exact_collections_and_shape() {
-        let fixture = br#"{"manifest":{},"owner_identity":{},"active_key_version":1,"continuity_master_key_b64":"x","records":[{},{}],"mappings":[{}]}"#;
+        let fixture = br#"{"manifest":{},"owner_identity":{},"active_key_version":1,"continuity_master_key_b64":"x","revision_snapshot":{"schema_version":1,"records":[{},{}],"lineages":[{}],"revision_idempotency":[],"artifact_idempotency":[]},"mappings":[{}]}"#;
         assert_eq!(
             preflight_archive_structure(fixture),
             Ok(ArchiveStructurePreflight {
                 record_count: 2,
+                lineage_count: 1,
+                revision_idempotency_count: 0,
+                artifact_idempotency_count: 0,
                 mapping_count: 1,
             })
         );
         assert_eq!(
-            preflight_archive_structure(br#"{"records":[]}"#),
+            preflight_archive_structure(br#"{"revision_snapshot":{}}"#),
             Err(ContinuityBackupError::InvalidArchive)
         );
         assert_eq!(
-            preflight_archive_structure(br#"{"records":[],"records":[]}"#),
+            preflight_archive_structure(br#"{"revision_snapshot":{},"revision_snapshot":{}}"#),
             Err(ContinuityBackupError::InvalidArchive)
         );
     }
 
     #[test]
     fn archive_structure_preflight_rejects_each_over_cap_array_before_invalid_tail() {
-        for (field, maximum) in [
-            ("records", MAX_CONTINUITY_SNAPSHOT_RECORDS),
-            ("mappings", MAX_SOURCE_MAPPINGS),
+        for (field, maximum, prefix) in [
+            (
+                "records",
+                MAX_REVISION_SNAPSHOT_RECORDS,
+                "{\"manifest\":{},\"owner_identity\":{},\"active_key_version\":1,\"continuity_master_key_b64\":\"x\",\"revision_snapshot\":{\"schema_version\":1,\"records\":[",
+            ),
+            (
+                "lineages",
+                MAX_REVISION_AUTHORITY_HEADS,
+                "{\"manifest\":{},\"owner_identity\":{},\"active_key_version\":1,\"continuity_master_key_b64\":\"x\",\"revision_snapshot\":{\"schema_version\":1,\"records\":[],\"lineages\":[",
+            ),
+            (
+                "revision_idempotency",
+                MAX_REVISION_IDEMPOTENCY_ENTRIES,
+                "{\"manifest\":{},\"owner_identity\":{},\"active_key_version\":1,\"continuity_master_key_b64\":\"x\",\"revision_snapshot\":{\"schema_version\":1,\"records\":[],\"lineages\":[],\"revision_idempotency\":[",
+            ),
+            (
+                "artifact_idempotency",
+                MAX_ARTIFACT_IDEMPOTENCY_ENTRIES,
+                "{\"manifest\":{},\"owner_identity\":{},\"active_key_version\":1,\"continuity_master_key_b64\":\"x\",\"revision_snapshot\":{\"schema_version\":1,\"records\":[],\"lineages\":[],\"revision_idempotency\":[],\"artifact_idempotency\":[",
+            ),
+            (
+                "mappings",
+                MAX_SOURCE_MAPPINGS,
+                "{\"manifest\":{},\"owner_identity\":{},\"active_key_version\":1,\"continuity_master_key_b64\":\"x\",\"revision_snapshot\":{\"schema_version\":1,\"records\":[],\"lineages\":[],\"revision_idempotency\":[],\"artifact_idempotency\":[]},\"mappings\":[",
+            ),
         ] {
-            let mut fixture = format!("{{\"{field}\":[").into_bytes();
+            let mut fixture = prefix.as_bytes().to_vec();
             for index in 0..=maximum {
                 if index > 0 {
                     fixture.push(b',');
@@ -2213,5 +2704,52 @@ mod tests {
                 "{field} must fail on its collection bound"
             );
         }
+    }
+
+    #[test]
+    fn restore_status_read_is_body_free_existing_only_and_malformed_is_not_clear() {
+        let keychain = FakeKeychain::default();
+        let before = keychain.0.borrow().clone();
+        assert_eq!(
+            read_restore_status_existing_only(&keychain),
+            Ok(RestoreReadStatusV1::Clear)
+        );
+        assert_eq!(before, *keychain.0.borrow());
+
+        keychain
+            .store_raw(RESTORE_STATE_KEY, "not-canonical-restore-state")
+            .unwrap();
+        assert_eq!(
+            read_restore_status_existing_only(&keychain),
+            Err(ContinuityBackupError::Integrity)
+        );
+        assert_eq!(
+            keychain
+                .load_raw(RESTORE_STATE_KEY)
+                .unwrap()
+                .unwrap()
+                .as_str(),
+            "not-canonical-restore-state"
+        );
+
+        let state = RestoreStateV1 {
+            protocol: CONTINUITY_PROTOCOL.to_owned(),
+            backup_id: OpaqueId::parse("pending-read-test").unwrap(),
+            owner_pubkey: hex(1),
+            old_snapshot_ref: sha(2),
+            new_snapshot_ref: sha(3),
+            old_master_key_sha256: None,
+            new_master_key_sha256: hex(4),
+            old_identity_pubkey: None,
+            new_identity_pubkey: hex(5),
+            phase: RestorePhase::Prepared,
+        };
+        store_restore_state(&keychain, &state).unwrap();
+        let before = keychain.0.borrow().clone();
+        assert_eq!(
+            read_restore_status_existing_only(&keychain),
+            Ok(RestoreReadStatusV1::Pending)
+        );
+        assert_eq!(before, *keychain.0.borrow());
     }
 }
