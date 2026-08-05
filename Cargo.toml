@@ -27,6 +27,7 @@ members = [
     "crates/buzz-relay-mesh",
     "crates/buzz-dev-mcp",
     "crates/luca-protocol",
+    "crates/luca-continuity",
     "crates/luca-diagnostics",
     "crates/luca-signing-client",
     "examples/countdown-bot",
@@ -141,6 +142,7 @@ buzz-sdk = { path = "crates/buzz-sdk" }
 buzz-ws-client = { path = "crates/buzz-ws-client" }
 buzz-relay-mesh = { path = "crates/buzz-relay-mesh" }
 luca-protocol = { path = "crates/luca-protocol" }
+luca-continuity = { path = "crates/luca-continuity" }
 luca-diagnostics = { path = "crates/luca-diagnostics" }
 luca-signing-client = { path = "crates/luca-signing-client" }
 

@@ -1,0 +1,11 @@
+[package]
+name = "luca-continuity"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88.0"
+license = "Apache-2.0"
+description = "Pure deterministic continuity namespace and scope enforcement for Luca"
+publish = false
+
+[dependencies]
+luca-protocol = { path = "../luca-protocol" }
