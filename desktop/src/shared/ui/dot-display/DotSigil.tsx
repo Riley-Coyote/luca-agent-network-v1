@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
 import {
+  applySceneColour,
   type DotPanelOptions,
   type DotScene,
   registerPanel,
@@ -79,6 +80,8 @@ export function DotSigil({
     const panel = registerPanel(canvas, { seed, cell, breath, level, bloom });
     if (panel.scene !== scene) {
       panel.scene = scene;
+      // Colour follows the scene: only scenes that write magnitude get the ramp.
+      applySceneColour(panel);
       // Re-settle so a switch into a static scene (sigil, fill) paints at once
       // rather than waiting for the next frame, and so the same happens under
       // reduced motion where there is no next frame.
