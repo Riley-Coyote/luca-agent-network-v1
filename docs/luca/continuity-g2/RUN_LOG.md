@@ -414,3 +414,17 @@ Risks/known limits:
 - K05D and A209 remain open for the AppState-owned immutable read lease. K06
   remains open until backup and rotation consume this accepted authority seam.
 - Evidence: `evidence/G2/G2.2/K05D/desktop-slice-a-review-pass.md`.
+
+## 2026-08-05 — K06/A208 — protected backup and restore passed
+
+- Commit `cc715962` completes the version-two protected archive around one
+  exact revision-authority snapshot, source mappings, owner recovery material,
+  and the wrapped continuity root.
+- Focused verification passed all 14 backup tests, including zero-write preview
+  and confirmation mismatch, wrong passphrase, ciphertext/manifest tamper,
+  strict collection bounds, exact mapping restore, and fresh-keychain recovery
+  on both sides of the keychain/SQLite activation boundary.
+- Independent security review found no blocking issue and accepted A208.
+- K06 and G2.2 remain open only for A207's atomic authority-aware rotation and
+  the remaining K05D immutable-lease review.
+- Evidence: `evidence/G2/G2.2/K06/a208-security-review-pass.md`.
