@@ -33,6 +33,18 @@ pub enum ContinuityError {
     ReplayConflict,
     /// A malformed or internally inconsistent encrypted record was isolated.
     CorruptRecord,
+    /// A revision request was incomplete or did not match its operation.
+    InvalidRevisionRequest,
+    /// A revision successor did not bind to the exact current lineage head.
+    RevisionConflict,
+    /// The requested operation is not allowed in the lineage lifecycle state.
+    LifecycleConflict,
+    /// A pinned owner correction requires a later explicit owner correction.
+    PinnedOwnerCorrection,
+    /// A record type was not in the closed durable continuity allowlist.
+    UnsupportedRecordType,
+    /// One idempotency key was reused for a different canonical operation.
+    IdempotencyConflict,
 }
 
 impl fmt::Display for ContinuityError {
@@ -52,6 +64,14 @@ impl fmt::Display for ContinuityError {
             Self::NonceCollision => "continuity nonce collision",
             Self::ReplayConflict => "continuity record replay conflict",
             Self::CorruptRecord => "corrupt continuity record isolated",
+            Self::InvalidRevisionRequest => "invalid continuity revision request",
+            Self::RevisionConflict => "continuity revision does not match the current lineage",
+            Self::LifecycleConflict => "continuity lifecycle does not allow this operation",
+            Self::PinnedOwnerCorrection => {
+                "pinned owner correction requires a later explicit owner correction"
+            }
+            Self::UnsupportedRecordType => "record type is not allowed for durable continuity",
+            Self::IdempotencyConflict => "continuity idempotency key conflicts with prior request",
         };
         formatter.write_str(message)
     }

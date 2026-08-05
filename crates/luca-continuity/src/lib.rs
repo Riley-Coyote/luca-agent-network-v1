@@ -12,6 +12,7 @@ mod error;
 mod fixtures;
 mod namespace;
 mod repository;
+mod revision;
 mod scope;
 
 pub use envelope::{
@@ -24,5 +25,10 @@ pub use namespace::NamespaceKey;
 pub use repository::{
     AuthenticatedRecord, CorruptRecordDiagnostic, EncryptedRecordRepository,
     InMemoryEncryptedRecordRepository, RecordWriteOutcome, MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES,
+};
+pub use revision::{
+    derive_revision_idempotency_key, encrypted_record_reference, ArtifactRegistrationReceipt,
+    DurableContinuityRecordKind, PurgePlan, RevisionActor, RevisionLedger, RevisionLifecycle,
+    RevisionOperation, RevisionReceipt, RevisionRequest,
 };
 pub use scope::NamespaceScope;
