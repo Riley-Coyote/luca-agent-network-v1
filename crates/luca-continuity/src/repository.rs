@@ -63,6 +63,11 @@ impl AuthenticatedRecord {
     pub fn body(&self) -> &DecryptedRecordBody {
         &self.body
     }
+
+    /// Consume the authenticated envelope and zeroizing plaintext together.
+    pub fn into_parts(self) -> (ContinuityRecordV1, DecryptedRecordBody) {
+        (self.record, self.body)
+    }
 }
 
 impl fmt::Debug for AuthenticatedRecord {
@@ -374,6 +379,23 @@ mod tests {
         let records = repository.read_exact_structural(&requested);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].record_id.as_str(), "record-1");
+    }
+
+    #[test]
+    fn authenticated_record_can_be_consumed_without_copying_plaintext() {
+        let key = [9_u8; 32];
+        let first_metadata = metadata("record-1");
+        let requested = address(&first_metadata);
+        let encrypted = encrypt_record(first_metadata, &key, b"private body").unwrap();
+        let mut repository = InMemoryEncryptedRecordRepository::default();
+        repository.put_encrypted(encrypted).unwrap();
+        let authenticated = repository
+            .read_exact_authenticated(&requested, &key)
+            .pop()
+            .unwrap();
+        let (record, body) = authenticated.into_parts();
+        assert_eq!(record.record_id.as_str(), "record-1");
+        assert_eq!(body.as_bytes(), b"private body");
     }
 
     #[test]

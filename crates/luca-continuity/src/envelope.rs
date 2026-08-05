@@ -38,6 +38,20 @@ impl DecryptedRecordBody {
     pub fn as_bytes(&self) -> &[u8] {
         self.0.as_slice()
     }
+
+    /// Consume authenticated bytes into zeroizing UTF-8 without copying them.
+    pub(crate) fn into_zeroizing_utf8(mut self) -> Result<Zeroizing<String>, ContinuityError> {
+        let bytes = std::mem::take(&mut *self.0);
+        match String::from_utf8(bytes) {
+            Ok(text) => Ok(Zeroizing::new(text)),
+            Err(error) => {
+                // `FromUtf8Error` owns the original allocation. Re-wrap it
+                // before returning so invalid plaintext is erased as well.
+                let _invalid = Zeroizing::new(error.into_bytes());
+                Err(ContinuityError::InvalidRetrievalRecord)
+            }
+        }
+    }
 }
 
 impl AsRef<[u8]> for DecryptedRecordBody {

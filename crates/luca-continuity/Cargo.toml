@@ -11,6 +11,7 @@ publish = false
 base64 = { workspace = true }
 chacha20poly1305 = "=0.10.1"
 hex = { workspace = true }
+hmac = { workspace = true }
 luca-protocol = { path = "../luca-protocol" }
 rand = { workspace = true }
 rusqlite = { workspace = true }

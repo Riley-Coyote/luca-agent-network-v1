@@ -324,6 +324,21 @@ Risks/known limits:
   immutable plaintext lease or A209 claim may pass until K04D does.
 - Decision: D33. Evidence:
   `evidence/G2/G2.2/K05D/desktop-read-map.md`.
+
+## 2026-08-05 — K04D — pure zeroizing retrieval gate passed
+
+- Replaced ordinary body, tag, cue, record, hit, and result ownership with a
+  redacted zeroizing text owner.
+- The consuming authenticated-body bridge reuses the decrypted allocation and
+  zeroizes invalid UTF-8 before returning a body-free error.
+- In-memory SQLite now receives only per-index HMAC-SHA256 opaque terms,
+  record identifiers, and numeric frequencies; no body, tag, or cue plaintext
+  crosses the SQLite boundary.
+- Root and independent review passed all 75 continuity tests, strict Clippy,
+  exact formatting, and scoped diff checks with no findings.
+- K04D's pure slice is complete. A210 remains open until the K05D desktop lease
+  proves zeroization on success, retry, error, and timeout.
+- Evidence: `evidence/G2/G2.2/K04D/security-review-pass.md`.
 - This closes only the pure-crate slice. Desktop snapshot persistence,
   hydration, CAS generation, immutable reads, and protected-backup integration
   remain before K05D/A209 may pass.

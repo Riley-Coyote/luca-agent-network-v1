@@ -1,15 +1,16 @@
 use luca_continuity::{
-    ContinuityError, InMemoryRetrievalIndex, InMemoryVectorIndex, NamespaceKey, NamespaceScope,
-    RetrievalEdge, RetrievalQuery, RetrievalRecord, RetrievalRecordInput, RetrievalRecordState,
-    RetrievalRelation, MAX_ACTIVATED_CANDIDATES, MAX_GRAPH_DEPTH, MAX_HYDRATED_BODY_BYTES,
-    MAX_HYDRATED_EDGES, MAX_HYDRATED_RECORDS, MAX_HYDRATED_TAG_BYTES, MAX_LEXICAL_SEEDS,
-    MAX_OUTGOING_EDGES, MAX_RETRIEVAL_CUE_BYTES, MAX_RETRIEVAL_HITS, MAX_VECTOR_COMPONENTS,
-    MAX_VECTOR_ENTRIES,
+    decrypt_record, encrypt_record, ContinuityError, InMemoryRetrievalIndex, InMemoryVectorIndex,
+    NamespaceKey, NamespaceScope, RecordMetadata, RetrievalEdge, RetrievalQuery, RetrievalRecord,
+    RetrievalRecordInput, RetrievalRecordState, RetrievalRelation, RetrievalText,
+    MAX_ACTIVATED_CANDIDATES, MAX_GRAPH_DEPTH, MAX_HYDRATED_BODY_BYTES, MAX_HYDRATED_EDGES,
+    MAX_HYDRATED_RECORDS, MAX_HYDRATED_TAG_BYTES, MAX_LEXICAL_SEEDS, MAX_OUTGOING_EDGES,
+    MAX_RETRIEVAL_CUE_BYTES, MAX_RETRIEVAL_HITS, MAX_VECTOR_COMPONENTS, MAX_VECTOR_ENTRIES,
 };
 use luca_protocol::{
-    ContinuityNamespaceKindV1, ContinuityNamespaceV1, ContinuityScopeV1, Hex64, OpaqueId, SafeU53,
-    Sha256Ref, CONTINUITY_PROTOCOL,
+    CanonicalTimestamp, ContinuityNamespaceKindV1, ContinuityNamespaceV1, ContinuityScopeV1, Hex64,
+    OpaqueId, SafeU53, Sha256Ref, CONTINUITY_PROTOCOL,
 };
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 fn hex(digit: char) -> Hex64 {
     Hex64::parse(digit.to_string().repeat(64)).unwrap()
@@ -89,8 +90,11 @@ fn record(
         record_id: id(record_id.clone()),
         record_type: id("engram"),
         revision: SafeU53::new(3).unwrap(),
-        body: body.into(),
-        tags: vec!["continuity".to_owned(), "unresolved".to_owned()],
+        body: RetrievalText::new(body.into()),
+        tags: vec![
+            RetrievalText::from("continuity"),
+            RetrievalText::from("unresolved"),
+        ],
         confidence_basis_points: 8_000,
         provenance_refs: vec![sha('c')],
         outgoing_edges,
@@ -102,7 +106,7 @@ fn record(
 fn query(address: NamespaceScope, cue: impl Into<String>) -> RetrievalQuery {
     RetrievalQuery {
         address,
-        cue: cue.into(),
+        cue: RetrievalText::new(cue.into()),
         query_vector: None,
     }
 }
@@ -113,6 +117,47 @@ fn hit_ids(result: &luca_continuity::RetrievalResult) -> Vec<String> {
         .iter()
         .map(|hit| hit.record().record_id().as_str().to_owned())
         .collect()
+}
+
+#[test]
+fn decrypted_body_is_consumed_into_redacted_zeroizing_retrieval_ownership() {
+    fn assert_zeroize_on_drop<T: ZeroizeOnDrop>() {}
+    assert_zeroize_on_drop::<RetrievalText>();
+
+    let address = base_scope();
+    let metadata = |record_id| RecordMetadata {
+        protocol: CONTINUITY_PROTOCOL.into(),
+        record_id: id(record_id),
+        namespace: address.namespace().as_protocol().clone(),
+        scope: address.as_protocol().clone(),
+        record_type: id("hypomnema"),
+        revision: SafeU53::new(0).unwrap(),
+        predecessor_record_id: None,
+        created_at: CanonicalTimestamp::parse("2026-08-05T00:00:00Z").unwrap(),
+        author_kind: id("resident"),
+        provenance_refs: vec![sha('c')],
+        key_version: SafeU53::new(1).unwrap(),
+    };
+    let key = [7_u8; 32];
+    let encrypted =
+        encrypt_record(metadata("consuming-bridge"), &key, b"consumed private body").unwrap();
+    let decrypted = decrypt_record(&encrypted, &key).unwrap();
+    let text = RetrievalText::from_decrypted_body(decrypted).unwrap();
+    assert_eq!(text.as_str(), "consumed private body");
+    assert_eq!(format!("{text:?}"), "RetrievalText([REDACTED])");
+
+    let clone = text.clone();
+    assert_eq!(clone.as_str(), text.as_str());
+    assert_eq!(format!("{clone:?}"), "RetrievalText([REDACTED])");
+    let mut explicitly_erased = clone;
+    explicitly_erased.zeroize();
+    assert!(explicitly_erased.as_str().is_empty());
+
+    let invalid_utf8 = encrypt_record(metadata("invalid-utf8"), &key, &[0xff]).unwrap();
+    assert_eq!(
+        RetrievalText::from_decrypted_body(decrypt_record(&invalid_utf8, &key).unwrap()),
+        Err(ContinuityError::InvalidRetrievalRecord)
+    );
 }
 
 #[test]
@@ -472,7 +517,7 @@ fn optional_vectors_are_memory_only_and_off_unless_explicitly_queried() {
         .retrieve(
             &RetrievalQuery {
                 address: address.clone(),
-                cue: "vector".to_owned(),
+                cue: RetrievalText::from("vector"),
                 query_vector: Some(vec![1_000, 1_000]),
             },
             Some(&vectors),
@@ -484,7 +529,7 @@ fn optional_vectors_are_memory_only_and_off_unless_explicitly_queried() {
         index.retrieve(
             &RetrievalQuery {
                 address,
-                cue: "vector".to_owned(),
+                cue: RetrievalText::from("vector"),
                 query_vector: Some(Vec::new()),
             },
             Some(&vectors),
@@ -495,7 +540,7 @@ fn optional_vectors_are_memory_only_and_off_unless_explicitly_queried() {
         .retrieve(
             &RetrievalQuery {
                 address: base_scope(),
-                cue: "vector".to_owned(),
+                cue: RetrievalText::from("vector"),
                 query_vector: Some(vec![1, 1, 1]),
             },
             Some(&vectors),
@@ -511,8 +556,8 @@ fn oversized_aggregate_tags_are_rejected_before_fts_hydration() {
         record_id: id("oversized-tags"),
         record_type: id("engram"),
         revision: SafeU53::new(1).unwrap(),
-        body: "safe body".to_owned(),
-        tags: vec!["a".repeat(65 * 1024)],
+        body: RetrievalText::from("safe body"),
+        tags: vec![RetrievalText::new("a".repeat(65 * 1024))],
         confidence_basis_points: 1,
         provenance_refs: vec![sha('d')],
         outgoing_edges: vec![],
@@ -531,7 +576,7 @@ fn only_active_records_are_indexed_and_sqlite_has_no_disk_backing() {
         record_id: archived.record_id().clone(),
         record_type: archived.record_type().clone(),
         revision: archived.revision(),
-        body: archived.body().to_owned(),
+        body: archived.body_text().clone(),
         tags: archived.tags().to_vec(),
         confidence_basis_points: archived.confidence_basis_points(),
         provenance_refs: archived.provenance_refs().to_vec(),
@@ -601,7 +646,7 @@ fn active_records_require_source_provenance() {
             record_id: id("provenance-required"),
             record_type: id("engram"),
             revision: SafeU53::new(1).unwrap(),
-            body: "body".to_owned(),
+            body: RetrievalText::from("body"),
             tags: vec![],
             confidence_basis_points: 1,
             provenance_refs: vec![],
@@ -623,7 +668,7 @@ fn duplicate_target_relation_edges_are_rejected_before_traversal() {
         record_id: id("duplicate-edge-source"),
         record_type: id("engram"),
         revision: SafeU53::new(1).unwrap(),
-        body: "body".to_owned(),
+        body: RetrievalText::from("body"),
         tags: vec![],
         confidence_basis_points: 1,
         provenance_refs: vec![sha('d')],
@@ -683,8 +728,8 @@ fn aggregate_body_tag_and_edge_bounds_are_rejected_before_hydration() {
                 record_id: id(format!("tag-cap-{position}")),
                 record_type: id("engram"),
                 revision: SafeU53::new(1).unwrap(),
-                body: "body".to_owned(),
-                tags: vec!["t".repeat(per_record_tag_bytes)],
+                body: RetrievalText::from("body"),
+                tags: vec![RetrievalText::new("t".repeat(per_record_tag_bytes))],
                 confidence_basis_points: 1,
                 provenance_refs: vec![sha('d')],
                 outgoing_edges: vec![],

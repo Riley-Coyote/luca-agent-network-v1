@@ -1,11 +1,14 @@
 //! Exact-scope, bounded, source-backed in-memory continuity retrieval.
 
 use crate::{
-    retrieval_fts::MemoryFts, retrieval_graph::activate_graph, ContinuityError, NamespaceScope,
+    retrieval_fts::MemoryFts, retrieval_graph::activate_graph, ContinuityError,
+    DecryptedRecordBody, NamespaceScope,
 };
 use luca_protocol::{OpaqueId, SafeU53, Sha256Ref};
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 /// Maximum UTF-8 cue size accepted by retrieval.
 pub const MAX_RETRIEVAL_CUE_BYTES: usize = 4 * 1024;
@@ -37,6 +40,85 @@ const MAX_TAGS: usize = 256;
 const MAX_AGGREGATE_TAG_BYTES: usize = 64 * 1024;
 const MAX_PROVENANCE_REFS: usize = 256;
 const MAX_INPUT_EDGES: usize = 256;
+
+/// Process-memory plaintext that always zeroizes and never prints its value.
+///
+/// This is the only text ownership admitted for retrieval bodies, tags, cues,
+/// stored records, and returned hits. Cloning preserves the zeroizing wrapper.
+pub struct RetrievalText(Zeroizing<String>);
+
+impl RetrievalText {
+    /// Wrap caller-owned UTF-8 so its allocation is erased on drop.
+    pub fn new(value: String) -> Self {
+        Self(Zeroizing::new(value))
+    }
+
+    /// Consume authenticated decrypted bytes without creating a plaintext copy.
+    pub fn from_decrypted_body(body: DecryptedRecordBody) -> Result<Self, ContinuityError> {
+        body.into_zeroizing_utf8().map(Self)
+    }
+
+    /// Borrow plaintext only for immediate in-memory retrieval or assembly.
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl From<String> for RetrievalText {
+    fn from(value: String) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<&str> for RetrievalText {
+    fn from(value: &str) -> Self {
+        Self::new(value.to_owned())
+    }
+}
+
+impl Clone for RetrievalText {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl PartialEq for RetrievalText {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+impl Eq for RetrievalText {}
+
+impl PartialOrd for RetrievalText {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RetrievalText {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.as_str().cmp(other.as_str())
+    }
+}
+
+impl Zeroize for RetrievalText {
+    fn zeroize(&mut self) {
+        self.0.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for RetrievalText {}
+
+impl fmt::Debug for RetrievalText {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("RetrievalText([REDACTED])")
+    }
+}
 
 /// Retrieval eligibility of one already-authenticated decrypted record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,9 +183,9 @@ pub struct RetrievalRecordInput {
     /// Immutable revision number.
     pub revision: SafeU53,
     /// Authenticated decrypted body, held only in process memory.
-    pub body: String,
+    pub body: RetrievalText,
     /// Sorted unique lexical tags.
-    pub tags: Vec<String>,
+    pub tags: Vec<RetrievalText>,
     /// Source-backed confidence in basis points, `0..=10000`.
     pub confidence_basis_points: u16,
     /// Sorted unique body-free provenance references.
@@ -121,8 +203,8 @@ pub struct RetrievalRecord {
     pub(crate) record_id: OpaqueId,
     pub(crate) record_type: OpaqueId,
     pub(crate) revision: SafeU53,
-    pub(crate) body: String,
-    pub(crate) tags: Vec<String>,
+    pub(crate) body: RetrievalText,
+    pub(crate) tags: Vec<RetrievalText>,
     pub(crate) confidence_basis_points: u16,
     pub(crate) provenance_refs: Vec<Sha256Ref>,
     pub(crate) outgoing_edges: Vec<RetrievalEdge>,
@@ -181,6 +263,11 @@ impl RetrievalRecord {
 
     /// Borrow the plaintext only for immediate packet assembly.
     pub fn body(&self) -> &str {
+        self.body.as_str()
+    }
+
+    /// Borrow the zeroizing body owner without copying plaintext.
+    pub fn body_text(&self) -> &RetrievalText {
         &self.body
     }
 
@@ -200,7 +287,7 @@ impl RetrievalRecord {
     }
 
     /// Borrow the sorted unique lexical tags.
-    pub fn tags(&self) -> &[String] {
+    pub fn tags(&self) -> &[RetrievalText] {
         &self.tags
     }
 
@@ -247,7 +334,7 @@ pub struct RetrievalQuery {
     /// Exact retrieval authority and scope.
     pub address: NamespaceScope,
     /// Untrusted natural-language cue, bounded and sanitized before FTS5.
-    pub cue: String,
+    pub cue: RetrievalText,
     /// Optional memory-only fixed-point query vector.
     pub query_vector: Option<Vec<i16>>,
 }
@@ -426,7 +513,7 @@ impl InMemoryRetrievalIndex {
         {
             return Err(ContinuityError::InvalidRetrievalVector);
         }
-        let seeds = self.fts.lexical_seeds(&query.address, &query.cue)?;
+        let seeds = self.fts.lexical_seeds(&query.address, query.cue.as_str())?;
         let scoped: BTreeMap<_, _> = self
             .records
             .iter()
@@ -507,7 +594,9 @@ fn validate_hydration_bounds(records: &[RetrievalRecord]) -> Result<(), Continui
         return Err(ContinuityError::InvalidRetrievalRecord);
     }
     let body_bytes = checked_aggregate(records, |record| record.body.len())?;
-    let tag_bytes = checked_aggregate(records, |record| record.tags.iter().map(String::len).sum())?;
+    let tag_bytes = checked_aggregate(records, |record| {
+        record.tags.iter().map(RetrievalText::len).sum()
+    })?;
     let edge_count = checked_aggregate(records, |record| record.outgoing_edges.len())?;
     if body_bytes > MAX_HYDRATED_BODY_BYTES
         || tag_bytes > MAX_HYDRATED_TAG_BYTES
