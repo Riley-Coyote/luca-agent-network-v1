@@ -305,15 +305,19 @@ export const netV2: SceneFn = (p, t) => {
 /** sleep — the well nearly out, but settling rather than dead. */
 export const sleepV2: SceneFn = (p, t) => {
   p.fade(0.975);
-  // A very slow, very dim swell so large panels are not simply empty.
-  const phase = t / 9000;
+  // ONE broad maximum drifting across the whole panel — not a repeating grid.
+  // Spatial frequency has to stay below a single cycle per field, or the
+  // "swell" reads as a texture of blobs instead of a well going out.
+  const phase = t / 11000;
+  const cx = p.W * (0.5 + 0.32 * Math.sin(phase));
+  const cy = p.H * (0.5 + 0.32 * Math.cos(phase * 0.61));
+  const reach = Math.max(p.W, p.H) * 0.6;
   for (let y = 0; y < p.H; y++) {
     for (let x = 0; x < p.W; x++) {
-      const v =
-        0.012 *
-        (0.5 + 0.5 * Math.sin(x * 0.29 + phase)) *
-        (0.5 + 0.5 * Math.cos(y * 0.31 - phase * 0.7));
-      if (v > 0.004) p.add(x, y, v);
+      const d = Math.hypot(x - cx, y - cy) / reach;
+      if (d >= 1) continue;
+      const v = 0.009 * (1 - d) * (1 - d);
+      if (v > 0.003) p.add(x, y, v);
     }
   }
   if (Math.random() < 0.07) {
@@ -533,57 +537,104 @@ interface DlaState {
   stuck: Uint8Array;
   walkers: Array<{ x: number; y: number }>;
   age: Float32Array;
+  /** Current aggregate extent, used to release walkers just outside it. */
+  radius: number;
+  count: number;
 }
 export const dla: SceneFn = (p) => {
-  const st = p.useSim<DlaState>("dla", () => {
-    const stuck = new Uint8Array(p.W * p.H);
-    const age = new Float32Array(p.W * p.H);
-    stuck[(p.H >> 1) * p.W + (p.W >> 1)] = 1;
-    const walkers = [];
-    for (let i = 0; i < 14; i++) {
-      walkers.push({
-        x: Math.floor(Math.random() * p.W),
-        y: Math.floor(Math.random() * p.H),
-      });
-    }
-    return { stuck, walkers, age };
-  });
+  const st = p.useSim<DlaState>("dla", () => makeDla(p));
   p.fade(0.9);
 
+  const cx = (p.W - 1) / 2;
+  const cy = (p.H - 1) / 2;
+  const bound = Math.min(p.W, p.H) * 0.46;
+
   const neighbourStuck = (x: number, y: number) => {
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const nx = x + dx;
-        const ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= p.W || ny >= p.H) continue;
-        if (st.stuck[ny * p.W + nx]) return true;
-      }
-    }
+    // 4-neighbourhood: 8 lets walkers slip diagonally past a branch and fills
+    // the interior, which destroys the dendrite.
+    if (x > 0 && st.stuck[y * p.W + x - 1]) return true;
+    if (x < p.W - 1 && st.stuck[y * p.W + x + 1]) return true;
+    if (y > 0 && st.stuck[(y - 1) * p.W + x]) return true;
+    if (y < p.H - 1 && st.stuck[(y + 1) * p.W + x]) return true;
     return false;
   };
 
-  for (const w of st.walkers) {
-    w.x = Math.max(0, Math.min(p.W - 1, w.x + (Math.random() < 0.5 ? -1 : 1)));
-    w.y = Math.max(0, Math.min(p.H - 1, w.y + (Math.random() < 0.5 ? -1 : 1)));
-    p.add(w.x, w.y, 0.3);
-    if (neighbourStuck(w.x, w.y)) {
-      const i = w.y * p.W + w.x;
-      st.stuck[i] = 1;
-      st.age[i] = 1;
-      w.x = Math.floor(Math.random() * p.W);
-      w.y = Math.floor(Math.random() * p.H);
+  /** Release on a ring just outside the aggregate — the standard trick, and
+   *  what makes growth read as radial rather than as scattered clumps. */
+  const release = (w: { x: number; y: number }) => {
+    const a = Math.random() * Math.PI * 2;
+    const r = Math.min(bound, st.radius + 2.5);
+    w.x = cx + Math.cos(a) * r;
+    w.y = cy + Math.sin(a) * r;
+  };
+
+  // Several steps per frame: one step per frame grows far too slowly to watch.
+  for (let step = 0; step < 5; step++) {
+    for (const w of st.walkers) {
+      // Proper 4-direction walk. Moving both axes every step biases the whole
+      // aggregate along the diagonals.
+      const d = (Math.random() * 4) | 0;
+      if (d === 0) w.x += 1;
+      else if (d === 1) w.x -= 1;
+      else if (d === 2) w.y += 1;
+      else w.y -= 1;
+
+      const rr = Math.hypot(w.x - cx, w.y - cy);
+      if (rr > bound + 4) {
+        release(w);
+        continue;
+      }
+      const ix = Math.round(w.x);
+      const iy = Math.round(w.y);
+      if (ix < 0 || iy < 0 || ix >= p.W || iy >= p.H) {
+        release(w);
+        continue;
+      }
+      if (step === 4) p.add(ix, iy, 0.22);
+      if (neighbourStuck(ix, iy)) {
+        const i = iy * p.W + ix;
+        st.stuck[i] = 1;
+        st.age[i] = 1;
+        st.radius = Math.max(st.radius, rr);
+        st.count++;
+        release(w);
+      }
     }
   }
-  // The aggregate: freshly-stuck cells are bright and cool into the structure.
+
+  // Regrow once it reaches the edge, so the mark keeps evolving.
+  if (st.radius >= bound - 1 || st.count > p.W * p.H * 0.3) {
+    Object.assign(st, makeDla(p));
+  }
+
+  // Fresh tips burn bright and cool into the structure, so the growing edge is
+  // always the brightest thing and the trunk reads as older.
   for (let i = 0; i < st.stuck.length; i++) {
     if (!st.stuck[i]) continue;
     const a = st.age[i];
-    const v = 0.34 + 0.62 * a;
+    const v = 0.3 + 0.68 * a;
     if (v > p.buf[i]) p.buf[i] = v;
-    if (p.magnitude) p.magnitude[i] = 0.25 + 0.65 * a;
-    if (a > 0) st.age[i] = a * 0.96;
+    if (p.magnitude) p.magnitude[i] = 0.2 + 0.7 * a;
+    if (a > 0.001) st.age[i] = a * 0.985;
   }
 };
+
+function makeDla(p: DotPanel): DlaState {
+  const stuck = new Uint8Array(p.W * p.H);
+  const age = new Float32Array(p.W * p.H);
+  stuck[(p.H >> 1) * p.W + (p.W >> 1)] = 1;
+  age[(p.H >> 1) * p.W + (p.W >> 1)] = 1;
+  const walkers = [];
+  const n = Math.max(6, Math.round(Math.min(p.W, p.H) * 0.7));
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    walkers.push({
+      x: (p.W - 1) / 2 + Math.cos(a) * 3,
+      y: (p.H - 1) / 2 + Math.sin(a) * 3,
+    });
+  }
+  return { stuck, walkers, age, radius: 1, count: 1 };
+}
 
 /**
  * net (wave interference) — each participant is a source; when residents talk
@@ -641,14 +692,15 @@ export const flow: SceneFn = (p, t) => {
   p.fade(0.9);
   const time = t / 3400;
   for (const q of st.parts) {
-    // Streamfunction psi; velocity is its curl, so the flow never diverges.
+    // Streamfunction psi = sin(xs + t) · cos(ys − 0.7t); velocity is its curl,
+    // u = ∂psi/∂y and v = −∂psi/∂x, which is divergence-free by construction.
+    // (Getting these two swapped makes the field a gradient instead, and every
+    // particle drains into a sink — which is why this scene rendered empty.)
     const s = 0.42;
-    const dpsiDy =
-      Math.cos(q.x * s + time) * Math.cos(q.y * s - time * 0.7) * 0.55;
-    const dpsiDx =
-      -Math.sin(q.x * s + time) * Math.sin(q.y * s - time * 0.7) * 0.55;
-    q.x += dpsiDy;
-    q.y += -dpsiDx;
+    const u = -s * Math.sin(q.x * s + time) * Math.sin(q.y * s - time * 0.7);
+    const v = -s * Math.cos(q.x * s + time) * Math.cos(q.y * s - time * 0.7);
+    q.x += u * 3.4;
+    q.y += v * 3.4;
     if (q.x < 0) q.x += p.W;
     if (q.x >= p.W) q.x -= p.W;
     if (q.y < 0) q.y += p.H;
