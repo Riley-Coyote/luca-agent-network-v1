@@ -217,6 +217,28 @@ impl fmt::Debug for ContinuityStore {
 }
 
 impl ContinuityStore {
+    /// Return whether a continuity database already exists without opening it
+    /// or creating any directory, database, WAL, or SHM state.
+    ///
+    /// Startup may mint the first master key only when this returns `false`.
+    /// Any existing database bytes require an existing keychain root and fail
+    /// closed if that root has been lost.
+    pub(crate) fn encrypted_database_exists(
+        app_data_dir: &Path,
+    ) -> Result<bool, ContinuityStoreError> {
+        let directory = app_data_dir.join(STORE_DIRECTORY);
+        let path = directory.join(STORE_FILENAME);
+        reject_symlink(&directory)?;
+        reject_symlink(&path)?;
+        let wal = path.with_extension("sqlite3-wal");
+        let shm = path.with_extension("sqlite3-shm");
+        reject_symlink(&wal)?;
+        reject_symlink(&shm)?;
+        Ok([&path, &wal, &shm]
+            .iter()
+            .any(|candidate| candidate.exists()))
+    }
+
     /// Open the dedicated app-data continuity database only while key custody
     /// is ready. This performs no key acquisition and no record decryption.
     pub(crate) fn open(
@@ -2634,6 +2656,30 @@ mod tests {
             ContinuityStoreOpen::Degraded(ContinuityStoreDegradedReason::KeyLocked)
         ));
         assert!(!temp.path().join(STORE_DIRECTORY).exists());
+    }
+
+    #[test]
+    fn key_bootstrap_probe_is_read_only_and_existing_bytes_require_existing_custody() {
+        let temp = TempDir::new().unwrap();
+        assert!(!ContinuityStore::encrypted_database_exists(temp.path()).unwrap());
+        assert!(!temp.path().join(STORE_DIRECTORY).exists());
+
+        let store = open(&temp);
+        let path = store.path_for_test().to_owned();
+        drop(store);
+        let before = fs::read(&path).unwrap();
+        assert!(ContinuityStore::encrypted_database_exists(temp.path()).unwrap());
+        assert_eq!(fs::read(path).unwrap(), before);
+
+        let sidecar_only = TempDir::new().unwrap();
+        let directory = sidecar_only.path().join(STORE_DIRECTORY);
+        fs::create_dir(&directory).unwrap();
+        fs::write(
+            directory.join(STORE_FILENAME).with_extension("sqlite3-wal"),
+            b"orphaned-store-state",
+        )
+        .unwrap();
+        assert!(ContinuityStore::encrypted_database_exists(sidecar_only.path()).unwrap());
     }
 
     #[test]

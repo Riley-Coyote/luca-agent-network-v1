@@ -14,6 +14,10 @@ use tauri::{AppHandle, Manager};
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::huddle::HuddleState;
+use crate::luca::continuity_runtime::{
+    ContinuityReadLeaseOutcomeV1, ContinuityReadLeaseRequestV1, ContinuityReadLeaseViewV1,
+    ContinuityRuntimeState,
+};
 use crate::managed_agents::config_bridge::SessionConfigCache;
 use crate::managed_agents::ManagedAgentProcess;
 
@@ -24,18 +28,35 @@ use crate::managed_agents::ManagedAgentProcess;
 /// AppState-owned instance rather than manufacture independent locks.
 pub(crate) struct ContinuityLifecycleLock(Mutex<()>);
 
+/// Typed proof that the one AppState-owned continuity lifecycle lock is held.
+///
+/// The inner guard is deliberately inaccessible. Trusted continuity code may
+/// borrow this proof for locked variants, but cannot manufacture one or unlock
+/// it early while retaining apparent authority.
+pub(crate) struct ContinuityLifecycleGuard<'a> {
+    _guard: MutexGuard<'a, ()>,
+}
+
 impl ContinuityLifecycleLock {
     fn new() -> Self {
         Self(Mutex::new(()))
     }
 
-    pub(crate) fn lock(&self) -> Result<MutexGuard<'_, ()>, ()> {
-        self.0.lock().map_err(|_| ())
+    pub(crate) fn lock(&self) -> Result<ContinuityLifecycleGuard<'_>, ()> {
+        self.0
+            .lock()
+            .map(|guard| ContinuityLifecycleGuard { _guard: guard })
+            .map_err(|_| ())
     }
 
     #[cfg(test)]
     pub(crate) fn new_for_test() -> Self {
         Self::new()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_locked_for_test(&self) -> bool {
+        matches!(self.0.try_lock(), Err(std::sync::TryLockError::WouldBlock))
     }
 }
 
@@ -77,6 +98,10 @@ pub struct AppState {
     pub channel_templates_store_lock: Mutex<()>,
     /// Single lifecycle lock shared by every trusted continuity entrypoint.
     continuity_lifecycle: ContinuityLifecycleLock,
+    /// The one process-owned encrypted continuity store and its body-free
+    /// readiness state. Callers use typed AppState methods; the raw mutex and
+    /// SQLite connection are never exposed.
+    continuity_runtime: Mutex<ContinuityRuntimeState>,
     pub managed_agent_processes: Mutex<HashMap<String, ManagedAgentProcess>>,
     pub huddle_state: Mutex<HuddleState>,
     /// Tauri app handle — stored after setup so huddle commands can emit
@@ -239,6 +264,7 @@ pub fn build_app_state() -> AppState {
         managed_agents_store_lock: Mutex::new(()),
         channel_templates_store_lock: Mutex::new(()),
         continuity_lifecycle: ContinuityLifecycleLock::new(),
+        continuity_runtime: Mutex::new(ContinuityRuntimeState::Uninitialized),
         managed_agent_processes: Mutex::new(HashMap::new()),
         session_config_cache: Mutex::new(HashMap::new()),
         huddle_state: Mutex::new(HuddleState::default()),
@@ -263,6 +289,42 @@ impl AppState {
     /// Borrow the sole continuity lifecycle authority owned by this app.
     pub(crate) fn continuity_lifecycle(&self) -> &ContinuityLifecycleLock {
         &self.continuity_lifecycle
+    }
+
+    /// Initialize the process-owned continuity runtime once after owner
+    /// identity resolution. Failure remains body-free and never blocks chat.
+    pub(crate) fn initialize_continuity_runtime(
+        &self,
+        app_data_dir: &std::path::Path,
+        owner_pubkey: luca_protocol::Hex64,
+        identity_recovery_active: bool,
+    ) {
+        crate::luca::continuity_runtime::initialize_desktop_runtime(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            app_data_dir,
+            owner_pubkey,
+            identity_recovery_active,
+        );
+    }
+
+    /// Execute one fixed-output, read-only continuity lease. This method keeps
+    /// the runtime mutex private and prevents callers from extracting the
+    /// store or returning arbitrary plaintext owners.
+    pub(crate) fn read_continuity_lease<F>(
+        &self,
+        request: ContinuityReadLeaseRequestV1,
+        consumer: F,
+    ) -> ContinuityReadLeaseOutcomeV1
+    where
+        F: for<'lease> FnOnce(ContinuityReadLeaseViewV1<'lease>),
+    {
+        crate::luca::continuity_runtime::read_desktop_continuity_lease(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            request,
+            consumer,
+        )
     }
 
     /// Lock the huddle state mutex, converting a poisoned-lock error to a String.

@@ -7,19 +7,20 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use luca_continuity::{
-    ArtifactRegistrationReceipt, EnvelopeReplacementV1, PurgeExecutionStateV1,
+    ArtifactRegistrationReceipt, EnvelopeReplacementV1, NamespaceScope, PurgeExecutionStateV1,
     PurgeExecutionStatusV1, PurgedArtifactTombstoneV1, PurgedRecordTombstoneV1, RevisionLedger,
     RevisionLedgerSnapshotV1, RevisionLifecycle, RevisionReceipt, RevisionRequest,
     MAX_ARTIFACT_IDEMPOTENCY_ENTRIES, MAX_DERIVED_ARTIFACTS_PER_LEDGER,
     MAX_DERIVED_ARTIFACTS_PER_LINEAGE, MAX_ENVELOPE_REPLACEMENTS_PER_LEDGER,
-    MAX_REPLAY_BINDING_CANONICAL_BYTES_PER_LEDGER, MAX_REVISION_AUTHORITY_HEADS,
-    MAX_REVISION_IDEMPOTENCY_ENTRIES, MAX_REVISION_MEMBERS_PER_LEDGER,
-    MAX_REVISION_MEMBERS_PER_LINEAGE, MAX_REVISION_SNAPSHOT_CANONICAL_BYTES,
-    MAX_REVISION_SNAPSHOT_ENCODED_CIPHERTEXT_BYTES, MAX_REVISION_SNAPSHOT_RECORDS,
+    MAX_HYDRATED_BODY_BYTES, MAX_HYDRATED_RECORDS, MAX_REPLAY_BINDING_CANONICAL_BYTES_PER_LEDGER,
+    MAX_REVISION_AUTHORITY_HEADS, MAX_REVISION_IDEMPOTENCY_ENTRIES,
+    MAX_REVISION_MEMBERS_PER_LEDGER, MAX_REVISION_MEMBERS_PER_LINEAGE,
+    MAX_REVISION_SNAPSHOT_CANONICAL_BYTES, MAX_REVISION_SNAPSHOT_ENCODED_CIPHERTEXT_BYTES,
+    MAX_REVISION_SNAPSHOT_RECORDS, MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES,
 };
 use luca_protocol::{
-    canonicalize, ContinuityNamespaceV1, ContinuityRecordV1, ContinuityScopeV1, Hex64, OpaqueId,
-    SafeU53, Sha256Ref,
+    canonicalize, ContinuityNamespaceKindV1, ContinuityNamespaceV1, ContinuityRecordV1,
+    ContinuityScopeV1, Hex64, OpaqueId, SafeU53, Sha256Ref,
 };
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{de::DeserializeOwned, Serialize};
@@ -291,6 +292,18 @@ pub(crate) struct StoredRevisionGenerationV1 {
     pub(crate) snapshot: RevisionLedgerSnapshotV1,
 }
 
+/// One immutable, ciphertext-only exact-scope view bound to the complete
+/// owner-global revision authority token that selected it.
+///
+/// `active_heads` is ordered by lineage root. It contains only the explicit
+/// active head of each exact matching lineage; archived and forgotten
+/// lineages never contribute an envelope.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ImmutableScopeCaptureV1 {
+    pub(crate) token: RevisionAuthorityTokenV1,
+    pub(crate) active_heads: Vec<ContinuityRecordV1>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RevisionTransitionResultV1 {
     pub(crate) token: RevisionAuthorityTokenV1,
@@ -391,6 +404,74 @@ impl ContinuityStore {
         owner_pubkey: &Hex64,
     ) -> Result<Option<StoredRevisionGenerationV1>, ContinuityStoreError> {
         load_generation(&self.connection, owner_pubkey)
+    }
+
+    /// Capture one exact-scope active-head set and its complete owner authority
+    /// token from a single immutable SQLite read transaction.
+    ///
+    /// The returned envelopes remain structural ciphertext. Callers must later
+    /// authenticate them with the exact namespace key before using any body.
+    pub(crate) fn capture_immutable_active_scope(
+        &self,
+        owner_pubkey: &Hex64,
+        requested: &NamespaceScope,
+    ) -> Result<Option<ImmutableScopeCaptureV1>, ContinuityStoreError> {
+        if requested.namespace().as_protocol().owner_pubkey != *owner_pubkey {
+            return Err(ContinuityStoreError::InvalidRecord);
+        }
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        reject_rotation(&transaction, owner_pubkey)?;
+        let Some(generation) = load_generation_in_snapshot(&transaction, owner_pubkey)? else {
+            transaction
+                .commit()
+                .map_err(|_| ContinuityStoreError::Unavailable)?;
+            return Ok(None);
+        };
+        let active_heads = load_exact_active_heads(
+            &transaction,
+            requested,
+            &generation.token,
+            &generation.snapshot,
+        )?;
+        reject_rotation(&transaction, owner_pubkey)?;
+        let reread = load_generation_in_snapshot(&transaction, owner_pubkey)?
+            .ok_or(ContinuityStoreError::CompareAndSwapConflict)?;
+        if reread.token != generation.token {
+            return Err(ContinuityStoreError::CompareAndSwapConflict);
+        }
+        transaction
+            .commit()
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        Ok(Some(ImmutableScopeCaptureV1 {
+            token: generation.token,
+            active_heads,
+        }))
+    }
+
+    /// Revalidate a previously captured owner authority token while rejecting
+    /// any nonterminal rotation. A normal intervening generation change is
+    /// reported as `false`; malformed authority still fails closed.
+    pub(crate) fn revalidate_immutable_capture(
+        &self,
+        expected: &RevisionAuthorityTokenV1,
+    ) -> Result<bool, ContinuityStoreError> {
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        reject_rotation(&transaction, &expected.owner_pubkey)?;
+        let current = load_generation_in_snapshot(&transaction, &expected.owner_pubkey)?;
+        reject_rotation(&transaction, &expected.owner_pubkey)?;
+        let matches = current
+            .as_ref()
+            .is_some_and(|generation| generation.token == *expected);
+        transaction
+            .commit()
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        Ok(matches)
     }
 
     /// Apply one revision operation through owner-global SQLite CAS.
@@ -612,6 +693,178 @@ impl ContinuityStore {
             .map_err(|_| ContinuityStoreError::Unavailable)?;
         Ok(token)
     }
+
+    /// Freeze one exact authority generation behind an authenticated rotation
+    /// journal. No ciphertext or authority row changes in this transaction.
+    pub(crate) fn prepare_authority_rotation_cas(
+        &mut self,
+        expected: &RevisionAuthorityTokenV1,
+        rotation_id: &str,
+        from_version: SafeU53,
+        journal: &ContinuityRecordV1,
+    ) -> Result<(), ContinuityStoreError> {
+        OpaqueId::parse(rotation_id.to_owned()).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+        let encoded = canonical_rotation_envelope(journal, &expected.owner_pubkey)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        reject_rotation(&transaction, &expected.owner_pubkey)?;
+        let current = load_generation_in_snapshot(&transaction, &expected.owner_pubkey)?
+            .ok_or(ContinuityStoreError::AuthorityMigrationRequired)?;
+        require_expectation(
+            &AuthorityExpectationV1::Existing(expected.clone()),
+            Some(&current),
+        )?;
+        if expected.active_root_key_version != from_version {
+            return Err(ContinuityStoreError::CompareAndSwapConflict);
+        }
+        let receipt_exists: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM continuity_rotation_receipts
+                 WHERE owner_pubkey=?1 AND rotation_id=?2)",
+                params![expected.owner_pubkey.as_str(), rotation_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if receipt_exists {
+            return Err(ContinuityStoreError::ReplayConflict);
+        }
+        let changed = transaction
+            .execute(
+                "INSERT INTO continuity_rotation_journals(owner_pubkey,rotation_id,envelope_json)
+                 VALUES (?1,?2,?3)",
+                params![expected.owner_pubkey.as_str(), rotation_id, encoded],
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if changed != 1 {
+            return Err(ContinuityStoreError::CompareAndSwapConflict);
+        }
+        transaction
+            .commit()
+            .map_err(|_| ContinuityStoreError::Unavailable)
+    }
+
+    /// Atomically replace retained ciphertext and its complete revision
+    /// authority generation, retain the exact terminal receipt, and remove the
+    /// exact prepared journal. Readers observe either the old generation plus
+    /// its journal or the complete new generation plus its receipt.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn commit_authority_rotation_atomically(
+        &mut self,
+        expected: &RevisionAuthorityTokenV1,
+        from_version: SafeU53,
+        to_version: SafeU53,
+        candidate: &RevisionLedgerSnapshotV1,
+        rotation_id: &str,
+        request_sha256: &Hex64,
+        expected_journal: &ContinuityRecordV1,
+        terminal_receipt: &ContinuityRecordV1,
+    ) -> Result<RevisionAuthorityTokenV1, ContinuityStoreError> {
+        OpaqueId::parse(rotation_id.to_owned()).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+        if expected.active_root_key_version != from_version
+            || to_version.get() != from_version.get().saturating_add(1)
+        {
+            return Err(ContinuityStoreError::CompareAndSwapConflict);
+        }
+        validate_snapshot_owner(candidate, &expected.owner_pubkey)?;
+        let expected_journal =
+            canonical_rotation_envelope(expected_journal, &expected.owner_pubkey)?;
+        let terminal_receipt =
+            canonical_rotation_envelope(terminal_receipt, &expected.owner_pubkey)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        let current = load_generation_in_snapshot(&transaction, &expected.owner_pubkey)?
+            .ok_or(ContinuityStoreError::AuthorityMigrationRequired)?;
+        let expectation = AuthorityExpectationV1::Existing(expected.clone());
+        require_expectation(&expectation, Some(&current))?;
+
+        let journal: Option<(String, Vec<u8>)> = transaction
+            .query_row(
+                "SELECT rotation_id,envelope_json FROM continuity_rotation_journals
+                 WHERE owner_pubkey=?1",
+                [expected.owner_pubkey.as_str()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if journal.as_ref().map(|value| value.0.as_str()) != Some(rotation_id)
+            || journal.as_ref().map(|value| value.1.as_slice()) != Some(expected_journal.as_slice())
+        {
+            return Err(ContinuityStoreError::CompareAndSwapConflict);
+        }
+        let receipt_exists: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM continuity_rotation_receipts
+                 WHERE owner_pubkey=?1 AND rotation_id=?2)",
+                params![expected.owner_pubkey.as_str(), rotation_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if receipt_exists {
+            return Err(ContinuityStoreError::ReplayConflict);
+        }
+
+        let token = persist_transition(
+            &transaction,
+            &expectation,
+            Some(&current),
+            to_version,
+            candidate,
+            true,
+            false,
+        )?;
+        let receipt_changed = transaction
+            .execute(
+                "INSERT INTO continuity_rotation_receipts(
+                    owner_pubkey,rotation_id,request_sha256,envelope_json
+                 ) VALUES (?1,?2,?3,?4)",
+                params![
+                    expected.owner_pubkey.as_str(),
+                    rotation_id,
+                    request_sha256.as_str(),
+                    terminal_receipt,
+                ],
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        let journal_changed = transaction
+            .execute(
+                "DELETE FROM continuity_rotation_journals
+                 WHERE owner_pubkey=?1 AND rotation_id=?2 AND envelope_json=?3",
+                params![
+                    expected.owner_pubkey.as_str(),
+                    rotation_id,
+                    expected_journal,
+                ],
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if receipt_changed != 1 || journal_changed != 1 {
+            return Err(ContinuityStoreError::CompareAndSwapConflict);
+        }
+        transaction
+            .commit()
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        Ok(token)
+    }
+}
+
+fn canonical_rotation_envelope(
+    record: &ContinuityRecordV1,
+    owner: &Hex64,
+) -> Result<Vec<u8>, ContinuityStoreError> {
+    record
+        .validate()
+        .map_err(|_| ContinuityStoreError::InvalidRecord)?;
+    if record.namespace.owner_pubkey != *owner {
+        return Err(ContinuityStoreError::InvalidRecord);
+    }
+    let encoded = canonicalize(record).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+    if encoded.len() > MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES {
+        return Err(ContinuityStoreError::InvalidRecord);
+    }
+    Ok(encoded)
 }
 
 fn map_continuity_error(error: luca_continuity::ContinuityError) -> ContinuityStoreError {
@@ -653,6 +906,244 @@ fn reject_rotation(connection: &Connection, owner: &Hex64) -> Result<(), Continu
     } else {
         Ok(())
     }
+}
+
+fn authority_namespace_kind(kind: &ContinuityNamespaceKindV1) -> &'static str {
+    match kind {
+        ContinuityNamespaceKindV1::OwnerBrain => "owner_brain",
+        ContinuityNamespaceKindV1::ResidentPrivate => "resident_private",
+    }
+}
+
+fn expected_exact_active_heads(
+    snapshot: &RevisionLedgerSnapshotV1,
+    requested: &NamespaceScope,
+) -> Result<BTreeMap<String, ContinuityRecordV1>, ContinuityStoreError> {
+    let mut records = BTreeMap::new();
+    for record in &snapshot.records {
+        if records
+            .insert(record.record_id.as_str().to_owned(), record)
+            .is_some()
+        {
+            return Err(ContinuityStoreError::InvalidRecord);
+        }
+    }
+
+    let mut heads = BTreeMap::new();
+    for lineage in &snapshot.lineages {
+        if lineage.lifecycle != RevisionLifecycle::Active
+            || lineage.namespace != *requested.namespace().as_protocol()
+            || lineage.scope != *requested.as_protocol()
+        {
+            continue;
+        }
+        let head_id = lineage
+            .active_head_record_id
+            .as_ref()
+            .ok_or(ContinuityStoreError::InvalidRecord)?;
+        let record = records
+            .get(head_id.as_str())
+            .copied()
+            .ok_or(ContinuityStoreError::InvalidRecord)?;
+        if record.record_id != *head_id
+            || record.namespace != lineage.namespace
+            || record.scope != lineage.scope
+            || record.record_type != lineage.record_type
+            || record.key_version != lineage.lineage_envelope_key_version
+        {
+            return Err(ContinuityStoreError::InvalidRecord);
+        }
+        if heads
+            .insert(lineage.lineage_root_id.as_str().to_owned(), record.clone())
+            .is_some()
+        {
+            return Err(ContinuityStoreError::InvalidRecord);
+        }
+    }
+    Ok(heads)
+}
+
+fn load_exact_active_heads(
+    connection: &Connection,
+    requested: &NamespaceScope,
+    token: &RevisionAuthorityTokenV1,
+    snapshot: &RevisionLedgerSnapshotV1,
+) -> Result<Vec<ContinuityRecordV1>, ContinuityStoreError> {
+    let namespace = requested.namespace().as_protocol();
+    let scope = requested.as_protocol();
+    if token.owner_pubkey != namespace.owner_pubkey
+        || token.active_root_key_version != namespace.key_version
+    {
+        return Err(ContinuityStoreError::CompareAndSwapConflict);
+    }
+    let expected = expected_exact_active_heads(snapshot, requested)?;
+    if expected.len() > MAX_HYDRATED_RECORDS {
+        return Err(ContinuityStoreError::SnapshotBoundExceeded);
+    }
+    let kind = authority_namespace_kind(&namespace.kind);
+    let resident = namespace.resident_pubkey.as_ref().map(Hex64::as_str);
+    let source = scope.source_id.as_ref().map(OpaqueId::as_str);
+    let project = scope.project_id.as_ref().map(OpaqueId::as_str);
+    let room = scope.room_id.as_ref().map(OpaqueId::as_str);
+    let conversation = scope.conversation_id.as_ref().map(OpaqueId::as_str);
+
+    let (count, malformed, encrypted_bytes): (i64, i64, i64) = connection
+        .query_row(
+            "SELECT COUNT(*),
+                    COALESCE(SUM(CASE
+                        WHEN typeof(l.lineage_root_id)='text'
+                         AND length(CAST(l.lineage_root_id AS BLOB)) BETWEEN 1 AND 128
+                         AND typeof(l.active_head_record_id)='text'
+                         AND length(CAST(l.active_head_record_id AS BLOB)) BETWEEN 1 AND 128
+                         AND typeof(l.record_type)='text'
+                         AND length(CAST(l.record_type AS BLOB)) BETWEEN 1 AND 128
+                         AND typeof(l.lineage_envelope_key_version)='integer'
+                         AND l.lineage_envelope_key_version BETWEEN 1 AND 9007199254740991
+                         AND typeof(r.envelope_json)='blob'
+                         AND length(r.envelope_json) BETWEEN 1 AND ?13
+                        THEN 0 ELSE 1 END),0),
+                    COALESCE(SUM(CASE WHEN typeof(r.envelope_json)='blob'
+                                      THEN length(r.envelope_json) ELSE 0 END),0)
+             FROM continuity_revision_lineages AS l
+                  INDEXED BY continuity_revision_active_scope
+             LEFT JOIN continuity_records AS r ON r.record_id=l.active_head_record_id
+             WHERE l.owner_pubkey=?1 AND l.authority_generation=?2
+               AND l.namespace_protocol=?3 AND l.namespace_kind=?4
+               AND l.resident_pubkey IS ?5 AND l.namespace_ref=?6
+               AND l.lineage_envelope_key_version=?7
+               AND l.scope_ref=?8 AND l.source_id IS ?9 AND l.project_id IS ?10
+               AND l.room_id IS ?11 AND l.conversation_id IS ?12
+               AND l.lifecycle='active' AND l.active_head_record_id IS NOT NULL
+               AND l.scope_json IS NOT NULL AND l.namespace_json IS NOT NULL",
+            params![
+                token.owner_pubkey.as_str(),
+                token.generation.get() as i64,
+                namespace.protocol.as_str(),
+                kind,
+                resident,
+                namespace.namespace_ref.as_str(),
+                namespace.key_version.get() as i64,
+                scope.scope_ref.as_str(),
+                source,
+                project,
+                room,
+                conversation,
+                MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES as i64,
+            ],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|_| ContinuityStoreError::Unavailable)?;
+    let count = usize::try_from(count).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+    let encrypted_bytes =
+        usize::try_from(encrypted_bytes).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+    if malformed != 0 {
+        return Err(ContinuityStoreError::InvalidRecord);
+    }
+    if count != expected.len() {
+        return Err(ContinuityStoreError::CompareAndSwapConflict);
+    }
+    if count > MAX_HYDRATED_RECORDS || encrypted_bytes > MAX_HYDRATED_BODY_BYTES {
+        return Err(ContinuityStoreError::SnapshotBoundExceeded);
+    }
+
+    let mut statement = connection
+        .prepare(
+            "SELECT l.lineage_root_id,l.active_head_record_id,l.record_type,
+                    l.lineage_envelope_key_version,r.envelope_json
+             FROM continuity_revision_lineages AS l
+                  INDEXED BY continuity_revision_active_scope
+             JOIN continuity_records AS r ON r.record_id=l.active_head_record_id
+             WHERE l.owner_pubkey=?1 AND l.authority_generation=?2
+               AND l.namespace_protocol=?3 AND l.namespace_kind=?4
+               AND l.resident_pubkey IS ?5 AND l.namespace_ref=?6
+               AND l.lineage_envelope_key_version=?7
+               AND l.scope_ref=?8 AND l.source_id IS ?9 AND l.project_id IS ?10
+               AND l.room_id IS ?11 AND l.conversation_id IS ?12
+               AND l.lifecycle='active' AND l.active_head_record_id IS NOT NULL
+               AND typeof(l.lineage_root_id)='text'
+               AND length(CAST(l.lineage_root_id AS BLOB)) BETWEEN 1 AND 128
+               AND typeof(l.active_head_record_id)='text'
+               AND length(CAST(l.active_head_record_id AS BLOB)) BETWEEN 1 AND 128
+               AND typeof(l.record_type)='text'
+               AND length(CAST(l.record_type AS BLOB)) BETWEEN 1 AND 128
+               AND typeof(l.lineage_envelope_key_version)='integer'
+               AND l.lineage_envelope_key_version BETWEEN 1 AND 9007199254740991
+               AND typeof(r.envelope_json)='blob'
+               AND length(r.envelope_json) BETWEEN 1 AND ?13
+             ORDER BY l.lineage_root_id",
+        )
+        .map_err(|_| ContinuityStoreError::Unavailable)?;
+    let rows = statement
+        .query_map(
+            params![
+                token.owner_pubkey.as_str(),
+                token.generation.get() as i64,
+                namespace.protocol.as_str(),
+                kind,
+                resident,
+                namespace.namespace_ref.as_str(),
+                namespace.key_version.get() as i64,
+                scope.scope_ref.as_str(),
+                source,
+                project,
+                room,
+                conversation,
+                MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES as i64,
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Vec<u8>>(4)?,
+                ))
+            },
+        )
+        .map_err(|_| ContinuityStoreError::Unavailable)?;
+
+    let mut active_heads = Vec::with_capacity(count);
+    let mut actual_bytes = 0usize;
+    let mut previous_root: Option<String> = None;
+    for row in rows {
+        let (root, head_id, record_type, envelope_key_version, raw) =
+            row.map_err(|_| ContinuityStoreError::InvalidRecord)?;
+        if previous_root
+            .as_ref()
+            .is_some_and(|previous| previous >= &root)
+        {
+            return Err(ContinuityStoreError::InvalidRecord);
+        }
+        let expected_record = expected
+            .get(&root)
+            .ok_or(ContinuityStoreError::InvalidRecord)?;
+        let head_id = OpaqueId::parse(head_id).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+        let record_type =
+            OpaqueId::parse(record_type).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+        let envelope_key_version = parse_safe(envelope_key_version)?;
+        actual_bytes = actual_bytes
+            .checked_add(raw.len())
+            .ok_or(ContinuityStoreError::SnapshotBoundExceeded)?;
+        let record: ContinuityRecordV1 =
+            serde_json::from_slice(&raw).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+        if canonicalize(&record).map_err(|_| ContinuityStoreError::InvalidRecord)? != raw
+            || record != *expected_record
+            || record.record_id != head_id
+            || record.record_type != record_type
+            || record.namespace != *namespace
+            || record.scope != *scope
+            || record.key_version != envelope_key_version
+            || envelope_key_version != namespace.key_version
+        {
+            return Err(ContinuityStoreError::InvalidRecord);
+        }
+        previous_root = Some(root);
+        active_heads.push(record);
+    }
+    if active_heads.len() != count || actual_bytes != encrypted_bytes {
+        return Err(ContinuityStoreError::CompareAndSwapConflict);
+    }
+    Ok(active_heads)
 }
 
 fn canonical_blob<T: Serialize>(value: &T) -> Result<Vec<u8>, ContinuityStoreError> {
@@ -2615,10 +3106,20 @@ mod tests {
         successor: Option<ContinuityRecordV1>,
         expected: Option<&str>,
     ) -> RevisionRequest {
+        request_for_lineage("record-0", operation, key_seed, successor, expected)
+    }
+
+    fn request_for_lineage(
+        lineage_root_id: &str,
+        operation: RevisionOperation,
+        key_seed: char,
+        successor: Option<ContinuityRecordV1>,
+        expected: Option<&str>,
+    ) -> RevisionRequest {
         let mut value = RevisionRequest {
             idempotency_key: sha('0'),
             operation,
-            lineage_root_id: id("record-0"),
+            lineage_root_id: id(lineage_root_id),
             expected_head_record_id: expected.map(id),
             actor: if matches!(operation, RevisionOperation::Revise) {
                 RevisionActor::Resident
@@ -2644,6 +3145,14 @@ mod tests {
         )
         .unwrap();
         value
+    }
+
+    fn namespace_scope(record: &ContinuityRecordV1) -> NamespaceScope {
+        NamespaceScope::new(
+            record.namespace.clone().try_into().unwrap(),
+            record.scope.clone(),
+        )
+        .unwrap()
     }
 
     fn open(temp: &TempDir) -> ContinuityStore {
@@ -2697,6 +3206,179 @@ mod tests {
         assert!(matches!(
             receiver.recv_timeout(Duration::from_millis(200)),
             Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+    }
+
+    #[test]
+    fn immutable_scope_capture_orders_exact_active_heads_and_revalidates_full_token() {
+        let temp = TempDir::new().unwrap();
+        let owner = hex('1');
+        let mut store = open(&temp);
+        let first_record = record("lineage-b", 0, None);
+        let requested = namespace_scope(&first_record);
+        let created_b = store
+            .apply_revision_transition_cas(
+                &AuthorityExpectationV1::UninitializedOwner {
+                    owner_pubkey: owner.clone(),
+                    active_root_key_version: SafeU53::new(1).unwrap(),
+                },
+                request_for_lineage(
+                    "lineage-b",
+                    RevisionOperation::Create,
+                    '6',
+                    Some(first_record),
+                    None,
+                ),
+            )
+            .unwrap();
+        let created_a = store
+            .apply_revision_transition_cas(
+                &AuthorityExpectationV1::Existing(created_b.token),
+                request_for_lineage(
+                    "lineage-a",
+                    RevisionOperation::Create,
+                    '7',
+                    Some(record("lineage-a", 0, None)),
+                    None,
+                ),
+            )
+            .unwrap();
+
+        let captured = store
+            .capture_immutable_active_scope(&owner, &requested)
+            .unwrap()
+            .unwrap();
+        assert_eq!(captured.token, created_a.token);
+        assert_eq!(
+            captured
+                .active_heads
+                .iter()
+                .map(|record| record.record_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["lineage-a", "lineage-b"]
+        );
+        assert!(store.revalidate_immutable_capture(&captured.token).unwrap());
+
+        let revised = store
+            .apply_revision_transition_cas(
+                &AuthorityExpectationV1::Existing(created_a.token),
+                request_for_lineage(
+                    "lineage-b",
+                    RevisionOperation::Revise,
+                    '8',
+                    Some(record("lineage-b-1", 1, Some("lineage-b"))),
+                    Some("lineage-b"),
+                ),
+            )
+            .unwrap();
+        assert!(!store.revalidate_immutable_capture(&captured.token).unwrap());
+        let current = store
+            .capture_immutable_active_scope(&owner, &requested)
+            .unwrap()
+            .unwrap();
+        assert_eq!(current.token, revised.token);
+        assert_eq!(
+            current
+                .active_heads
+                .iter()
+                .map(|record| record.record_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["lineage-a", "lineage-b-1"]
+        );
+    }
+
+    #[test]
+    fn immutable_scope_capture_isolates_every_scope_field_and_owner() {
+        let temp = TempDir::new().unwrap();
+        let owner = hex('1');
+        let mut store = open(&temp);
+        let stored = record("record-0", 0, None);
+        let created = store
+            .apply_revision_transition_cas(
+                &AuthorityExpectationV1::UninitializedOwner {
+                    owner_pubkey: owner.clone(),
+                    active_root_key_version: SafeU53::new(1).unwrap(),
+                },
+                request(RevisionOperation::Create, '6', Some(stored.clone()), None),
+            )
+            .unwrap();
+
+        let mut other_scope = stored.scope.clone();
+        other_scope.conversation_id = Some(id("other-conversation"));
+        let other_scope =
+            NamespaceScope::new(stored.namespace.clone().try_into().unwrap(), other_scope).unwrap();
+        let empty = store
+            .capture_immutable_active_scope(&owner, &other_scope)
+            .unwrap()
+            .unwrap();
+        assert_eq!(empty.token, created.token);
+        assert!(empty.active_heads.is_empty());
+
+        let mut other_namespace = stored.namespace.clone();
+        other_namespace.owner_pubkey = hex('9');
+        let other_owner =
+            NamespaceScope::new(other_namespace.try_into().unwrap(), stored.scope.clone()).unwrap();
+        assert_eq!(
+            store.capture_immutable_active_scope(&owner, &other_owner),
+            Err(ContinuityStoreError::InvalidRecord)
+        );
+    }
+
+    #[test]
+    fn immutable_scope_capture_rejects_rotation_and_authority_tamper() {
+        let temp = TempDir::new().unwrap();
+        let owner = hex('1');
+        let mut store = open(&temp);
+        let stored = record("record-0", 0, None);
+        let requested = namespace_scope(&stored);
+        let created = store
+            .apply_revision_transition_cas(
+                &AuthorityExpectationV1::UninitializedOwner {
+                    owner_pubkey: owner.clone(),
+                    active_root_key_version: SafeU53::new(1).unwrap(),
+                },
+                request(RevisionOperation::Create, '6', Some(stored), None),
+            )
+            .unwrap();
+        store
+            .connection
+            .execute(
+                "INSERT INTO continuity_rotation_journals(owner_pubkey,rotation_id,envelope_json)
+                 VALUES(?1,?2,?3)",
+                params![owner.as_str(), "capture-test", vec![0_u8]],
+            )
+            .unwrap();
+        assert_eq!(
+            store.capture_immutable_active_scope(&owner, &requested),
+            Err(ContinuityStoreError::LifecycleConflict)
+        );
+        assert_eq!(
+            store.revalidate_immutable_capture(&created.token),
+            Err(ContinuityStoreError::LifecycleConflict)
+        );
+        store
+            .connection
+            .execute(
+                "DELETE FROM continuity_rotation_journals WHERE owner_pubkey=?1",
+                [owner.as_str()],
+            )
+            .unwrap();
+        store
+            .connection
+            .execute(
+                "UPDATE continuity_records SET envelope_json=?2 WHERE record_id=?1",
+                params!["record-0", b"{}".as_slice()],
+            )
+            .unwrap();
+        assert!(matches!(
+            store.capture_immutable_active_scope(&owner, &requested),
+            Err(ContinuityStoreError::InvalidRecord)
+                | Err(ContinuityStoreError::CompareAndSwapConflict)
+        ));
+        assert!(matches!(
+            store.revalidate_immutable_capture(&created.token),
+            Err(ContinuityStoreError::InvalidRecord)
+                | Err(ContinuityStoreError::CompareAndSwapConflict)
         ));
     }
 

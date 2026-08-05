@@ -424,6 +424,20 @@ pub fn run() {
                 }
             };
 
+            // Establish the one process-owned encrypted continuity runtime
+            // before persona backfill, event sync, or resident restoration.
+            // Recovery, keychain, restore-journal, or store failures remain a
+            // body-free degraded state and never block normal messaging.
+            match (
+                app_handle.path().app_data_dir(),
+                luca_protocol::Hex64::parse(owner_keys.public_key().to_hex()),
+            ) {
+                (Ok(app_data_dir), Ok(owner_pubkey)) => {
+                    state.initialize_continuity_runtime(&app_data_dir, owner_pubkey, recovery_mode)
+                }
+                _ => eprintln!("buzz-desktop: continuity runtime unavailable this launch"),
+            }
+
             // Backfill the pinned persona snapshot for any pre-existing agent
             // that predates the record-authoritative-spawn cutover (persona_id
             // set but no source_version). Must run before

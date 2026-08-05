@@ -132,6 +132,12 @@ impl ContinuityMasterKey {
         Zeroizing::new(BASE64_STANDARD.encode(self.as_bytes()))
     }
 
+    /// Compare two process-local roots without introducing a timing-dependent
+    /// key-authority branch.
+    pub(super) fn matches(&self, candidate: &Self) -> bool {
+        bool::from(self.as_bytes().ct_eq(candidate.as_bytes()))
+    }
+
     #[cfg(test)]
     pub(super) fn new_for_test(bytes: [u8; MASTER_KEY_BYTES]) -> Self {
         Self(Zeroizing::new(bytes))
@@ -347,6 +353,12 @@ pub(crate) fn finalize_candidate_master_key<S: ContinuityKeyStore>(
 pub(crate) fn acquire_desktop_master_key() -> ContinuityMasterKeyState {
     let store = SecretStore::keyring(keyring_service());
     acquire_master_key(&store, &mut OsContinuityEntropy)
+}
+
+/// Read the desktop continuity root without ever minting or replacing it.
+/// Immutable retrieval leases use only this entrypoint.
+pub(crate) fn load_existing_desktop_master_key() -> ContinuityMasterKeyState {
+    load_existing_master_key(&SecretStore::keyring(keyring_service()))
 }
 
 #[cfg(test)]

@@ -5,10 +5,14 @@
 //! carries its exact physical key version, while an authenticated body-free
 //! journal advances in the same SQLite transaction as each bounded batch.
 
-use std::fmt;
+use std::{collections::BTreeMap, fmt};
 
 use hkdf::Hkdf;
-use luca_continuity::{decrypt_record, encrypt_record, NamespaceKey, RecordMetadata};
+use luca_continuity::{
+    decrypt_record, derive_envelope_replacement_digest, encrypt_record, encrypted_record_reference,
+    EnvelopeReplacementV1, NamespaceKey, PurgeExecutionStatusV1, RecordMetadata, RevisionLedger,
+    RevisionLedgerSnapshotV1, MAX_ENVELOPE_REPLACEMENTS_PER_LEDGER,
+};
 use luca_protocol::{
     canonicalize, parse_and_canonicalize_strict, CanonicalTimestamp, ContinuityNamespaceKindV1,
     ContinuityNamespaceV1, ContinuityRecordV1, ContinuityScopeV1, Hex64, OpaqueId, SafeU53,
@@ -21,7 +25,8 @@ use zeroize::Zeroizing;
 use super::{
     continuity_key_custody::ContinuityMasterKey,
     continuity_key_derivation::derive_namespace_key,
-    continuity_store::{ContinuityRotationReplacement, ContinuityStore, ContinuityStoreError},
+    continuity_revision_authority::StoredRevisionGenerationV1,
+    continuity_store::{ContinuityStore, ContinuityStoreError},
 };
 use crate::app_state::ContinuityLifecycleLock;
 
@@ -29,7 +34,6 @@ const ROTATION_JOURNAL_KEY_DOMAIN: &[u8] = b"luca.continuity.rotation-journal.ke
 const ROTATION_JOURNAL_NAMESPACE_DOMAIN: &[u8] = b"luca.continuity.rotation-journal.namespace.v1";
 const ROTATION_JOURNAL_SCOPE_DOMAIN: &[u8] = b"luca.continuity.rotation-journal.scope.v1";
 const MAX_JOURNAL_BYTES: usize = 64 * 1024;
-const ROTATION_BATCH_SIZE: usize = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -307,20 +311,133 @@ fn record_metadata_for_version(record: &ContinuityRecordV1, version: SafeU53) ->
     }
 }
 
-fn replace_phase(
-    store: &mut ContinuityStore,
+fn build_rotated_authority_candidate(
     root: &ContinuityMasterKey,
-    current_envelope: &mut ContinuityRecordV1,
-    journal: &mut RotationJournalV1,
-    phase: RotationPhase,
-) -> Result<(), RotationError> {
-    let mut next = journal.clone();
-    next.phase = phase;
-    let protected = protect_journal(root, &next)?;
-    store.cas_rotation_journal(&journal.owner_pubkey, current_envelope, &protected)?;
-    *journal = next;
-    *current_envelope = protected;
-    Ok(())
+    generation: &StoredRevisionGenerationV1,
+    to_version: SafeU53,
+) -> Result<RevisionLedgerSnapshotV1, RotationError> {
+    let from_version = generation.token.active_root_key_version;
+    let existing_replacements = generation
+        .snapshot
+        .lineages
+        .iter()
+        .try_fold(0usize, |total, lineage| {
+            total.checked_add(lineage.envelope_replacements.len())
+        })
+        .ok_or(RotationError::InvalidRequest)?;
+    if existing_replacements
+        .checked_add(generation.snapshot.records.len())
+        .is_none_or(|total| total > MAX_ENVELOPE_REPLACEMENTS_PER_LEDGER)
+    {
+        return Err(RotationError::InvalidRequest);
+    }
+
+    let mut candidate = generation.snapshot.clone();
+    let mut replacements = BTreeMap::<String, EnvelopeReplacementV1>::new();
+    for record in &mut candidate.records {
+        if record.namespace.owner_pubkey != generation.token.owner_pubkey
+            || record.namespace.key_version != from_version
+            || record.key_version != from_version
+        {
+            return Err(RotationError::InvalidRequest);
+        }
+        let original = record.clone();
+        let old_namespace = NamespaceKey::new(original.namespace.clone())
+            .map_err(|_| RotationError::RecordAuthentication)?;
+        let old_key = derive_namespace_key(root, &old_namespace)
+            .map_err(|_| RotationError::RecordAuthentication)?;
+        let body = decrypt_record(&original, old_key.as_bytes())
+            .map_err(|_| RotationError::RecordAuthentication)?;
+
+        let mut new_namespace = original.namespace.clone();
+        new_namespace.key_version = to_version;
+        let new_key = derive_namespace_key(
+            root,
+            &NamespaceKey::new(new_namespace).map_err(|_| RotationError::RecordAuthentication)?,
+        )
+        .map_err(|_| RotationError::RecordAuthentication)?;
+        let replacement = encrypt_record(
+            record_metadata_for_version(&original, to_version),
+            new_key.as_bytes(),
+            body.as_bytes(),
+        )
+        .map_err(|_| RotationError::RecordAuthentication)?;
+        let verified = decrypt_record(&replacement, new_key.as_bytes())
+            .map_err(|_| RotationError::RecordAuthentication)?;
+        if verified.as_bytes() != body.as_bytes() {
+            return Err(RotationError::RecordAuthentication);
+        }
+
+        let original_ref = encrypted_record_reference(&original)
+            .map_err(|_| RotationError::RecordAuthentication)?;
+        let replacement_ref = encrypted_record_reference(&replacement)
+            .map_err(|_| RotationError::RecordAuthentication)?;
+        let mut authority = EnvelopeReplacementV1 {
+            record_id: original.record_id.clone(),
+            original_key_version: original.key_version,
+            original_nonce_b64: original.nonce_b64.clone(),
+            original_encrypted_record_ref: original_ref.clone(),
+            replacement_key_version: replacement.key_version,
+            replacement_nonce_b64: replacement.nonce_b64.clone(),
+            replacement_encrypted_record_ref: replacement_ref,
+            replacement_digest: original_ref,
+        };
+        authority.replacement_digest = derive_envelope_replacement_digest(&authority)
+            .map_err(|_| RotationError::InvalidRequest)?;
+        if replacements
+            .insert(original.record_id.as_str().to_owned(), authority)
+            .is_some()
+        {
+            return Err(RotationError::InvalidRequest);
+        }
+        *record = replacement;
+    }
+
+    for lineage in &mut candidate.lineages {
+        let retained = lineage
+            .record_ids
+            .iter()
+            .filter(|record_id| replacements.contains_key(record_id.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        if retained.is_empty() {
+            if lineage
+                .purge_execution
+                .as_ref()
+                .is_none_or(|purge| purge.status != PurgeExecutionStatusV1::Completed)
+            {
+                return Err(RotationError::InvalidRequest);
+            }
+            continue;
+        }
+        if retained.len() != lineage.record_ids.len()
+            || lineage.namespace.key_version != from_version
+            || lineage.lineage_envelope_key_version != from_version
+        {
+            return Err(RotationError::InvalidRequest);
+        }
+        lineage.namespace.key_version = to_version;
+        lineage.lineage_envelope_key_version = to_version;
+        for record_id in retained {
+            lineage.envelope_replacements.push(
+                replacements
+                    .remove(record_id.as_str())
+                    .ok_or(RotationError::InvalidRequest)?,
+            );
+        }
+        lineage.envelope_replacements.sort_by(|left, right| {
+            (left.record_id.as_str(), left.original_key_version.get())
+                .cmp(&(right.record_id.as_str(), right.original_key_version.get()))
+        });
+    }
+    if !replacements.is_empty() {
+        return Err(RotationError::InvalidRequest);
+    }
+    RevisionLedger::from_snapshot(candidate.clone()).map_err(|_| RotationError::InvalidRequest)?;
+    candidate
+        .fingerprint()
+        .map_err(|_| RotationError::InvalidRequest)?;
+    Ok(candidate)
 }
 
 /// Start or resume one authenticated owner-wide key-version rotation.
@@ -353,6 +470,19 @@ pub(crate) fn rotate_continuity_keys(
         {
             return Err(RotationError::InvalidRequest);
         }
+        let completed = store
+            .load_revision_generation(&request.owner_pubkey)?
+            .ok_or(RotationError::Store(
+                ContinuityStoreError::AuthorityMigrationRequired,
+            ))?;
+        if completed.token.active_root_key_version != request.to_version
+            || completed.snapshot.records.len() as u64 != journal.target_count
+            || store
+                .load_rotation_journal(&request.owner_pubkey)?
+                .is_some()
+        {
+            return Err(RotationError::InvalidRequest);
+        }
         return Ok(RotationReceipt {
             rotation_id: journal.rotation_id,
             owner_pubkey: journal.owner_pubkey,
@@ -361,28 +491,35 @@ pub(crate) fn rotate_continuity_keys(
         });
     }
 
-    let existing = store.load_rotation_journal(&request.owner_pubkey)?;
-    if existing.is_none()
-        && store.active_owner_key_version(&request.owner_pubkey)? == request.to_version
-    {
+    let generation = store
+        .load_revision_generation(&request.owner_pubkey)?
+        .ok_or(RotationError::Store(
+            ContinuityStoreError::AuthorityMigrationRequired,
+        ))?;
+    if generation.token.active_root_key_version != request.from_version {
         return Err(RotationError::InvalidRequest);
     }
-
-    let (mut current_envelope, mut journal) = if let Some(envelope) = existing {
+    let existing = store.load_rotation_journal(&request.owner_pubkey)?;
+    let (prepared_envelope, journal) = if let Some(envelope) = existing {
         let journal = authenticate_journal(root, &request.owner_pubkey, &envelope)?;
         if journal.rotation_id != request.rotation_id
             || journal.from_version != request.from_version
             || journal.to_version != request.to_version
             || journal.prepared_at != request.prepared_at
             || journal.request_sha256 != request_sha256
+            || journal.phase != RotationPhase::Prepared
+            || journal.cursor != 0
+            || journal.snapshot_boundary != journal.target_count as i64
+            || journal.target_count != generation.snapshot.records.len() as u64
         {
             return Err(RotationError::InvalidRequest);
         }
         (envelope, journal)
     } else {
         crash.checkpoint(RotationCrashPoint::BeforePrepared)?;
-        let (snapshot_boundary, target_count) =
-            store.rotation_boundary(&request.owner_pubkey, request.from_version)?;
+        let target_count = generation.snapshot.records.len();
+        let snapshot_boundary =
+            i64::try_from(target_count).map_err(|_| RotationError::InvalidRequest)?;
         let journal = RotationJournalV1 {
             protocol: CONTINUITY_PROTOCOL.to_owned(),
             rotation_id: request.rotation_id.clone(),
@@ -397,177 +534,64 @@ pub(crate) fn rotate_continuity_keys(
             request_sha256: request_sha256.clone(),
         };
         let envelope = protect_journal(root, &journal)?;
-        store.prepare_rotation(
-            &request.owner_pubkey,
+        store.prepare_authority_rotation_cas(
+            &generation.token,
             request.rotation_id.as_str(),
             request.from_version,
-            snapshot_boundary,
-            target_count,
             &envelope,
         )?;
         crash.checkpoint(RotationCrashPoint::AfterPrepared)?;
         (envelope, journal)
     };
 
-    if journal.phase == RotationPhase::Prepared {
-        replace_phase(
-            store,
-            root,
-            &mut current_envelope,
-            &mut journal,
-            RotationPhase::Reencrypting,
-        )?;
-    }
-
-    if journal.phase == RotationPhase::Reencrypting {
-        loop {
-            let batch = store.rotation_batch(
-                &journal.owner_pubkey,
-                journal.from_version,
-                journal.snapshot_boundary,
-                journal.cursor,
-                ROTATION_BATCH_SIZE,
-            )?;
-            if batch.is_empty() {
-                break;
-            }
-            crash.checkpoint(RotationCrashPoint::BeforeBatch)?;
-            let mut replacements = Vec::with_capacity(batch.len());
-            for stored in batch {
-                let old_namespace = NamespaceKey::new(stored.record.namespace.clone())
-                    .map_err(|_| RotationError::RecordAuthentication)?;
-                let old_key = derive_namespace_key(root, &old_namespace)
-                    .map_err(|_| RotationError::RecordAuthentication)?;
-                let body = decrypt_record(&stored.record, old_key.as_bytes())
-                    .map_err(|_| RotationError::RecordAuthentication)?;
-                let mut new_namespace_protocol = stored.record.namespace.clone();
-                new_namespace_protocol.key_version = journal.to_version;
-                let new_namespace = NamespaceKey::new(new_namespace_protocol)
-                    .map_err(|_| RotationError::RecordAuthentication)?;
-                let new_key = derive_namespace_key(root, &new_namespace)
-                    .map_err(|_| RotationError::RecordAuthentication)?;
-                let replacement = encrypt_record(
-                    record_metadata_for_version(&stored.record, journal.to_version),
-                    new_key.as_bytes(),
-                    body.as_bytes(),
-                )
-                .map_err(|_| RotationError::RecordAuthentication)?;
-                journal.cursor = stored.rowid;
-                replacements.push(ContinuityRotationReplacement {
-                    rowid: stored.rowid,
-                    expected_envelope_sha256: stored.envelope_sha256,
-                    expected: stored.record,
-                    replacement,
-                });
-            }
-            let next_envelope = protect_journal(root, &journal)?;
-            store.cas_rotation_batch(
-                &journal.owner_pubkey,
-                &current_envelope,
-                &next_envelope,
-                &replacements,
-            )?;
-            current_envelope = next_envelope;
-            crash.checkpoint(RotationCrashPoint::AfterBatch)?;
-        }
-        replace_phase(
-            store,
-            root,
-            &mut current_envelope,
-            &mut journal,
-            RotationPhase::Verifying,
-        )?;
-    }
-
-    if journal.phase == RotationPhase::Verifying {
-        crash.checkpoint(RotationCrashPoint::BeforeVerification)?;
-        store.verify_rotation_layout(
-            &journal.owner_pubkey,
-            journal.snapshot_boundary,
-            journal.to_version,
-            journal.target_count as usize,
-        )?;
-        let mut cursor = 0;
-        let mut verified = 0u64;
-        loop {
-            let batch = store.rotation_batch(
-                &journal.owner_pubkey,
-                journal.to_version,
-                journal.snapshot_boundary,
-                cursor,
-                ROTATION_BATCH_SIZE,
-            )?;
-            if batch.is_empty() {
-                break;
-            }
-            for stored in &batch {
-                let namespace = NamespaceKey::new(stored.record.namespace.clone())
-                    .map_err(|_| RotationError::RecordAuthentication)?;
-                let key = derive_namespace_key(root, &namespace)
-                    .map_err(|_| RotationError::RecordAuthentication)?;
-                decrypt_record(&stored.record, key.as_bytes())
-                    .map_err(|_| RotationError::RecordAuthentication)?;
-                cursor = stored.rowid;
-                verified = verified.saturating_add(1);
-            }
-        }
-        if verified != journal.target_count {
-            return Err(RotationError::RecordAuthentication);
-        }
-        crash.checkpoint(RotationCrashPoint::AfterVerification)?;
-        crash.checkpoint(RotationCrashPoint::BeforeActivation)?;
-        let mut activated = journal.clone();
-        activated.phase = RotationPhase::Activated;
-        let activated_envelope = protect_journal(root, &activated)?;
-        store.activate_rotation(
-            &journal.owner_pubkey,
-            journal.from_version,
-            journal.to_version,
-            &current_envelope,
-            &activated_envelope,
-        )?;
-        journal = activated;
-        current_envelope = activated_envelope;
-        crash.checkpoint(RotationCrashPoint::AfterActivation)?;
-    }
-
-    if journal.phase == RotationPhase::Activated {
-        crash.checkpoint(RotationCrashPoint::BeforeCompletion)?;
-        replace_phase(
-            store,
-            root,
-            &mut current_envelope,
-            &mut journal,
-            RotationPhase::Complete,
-        )?;
-        crash.checkpoint(RotationCrashPoint::AfterCompletion)?;
-    }
-    if journal.phase == RotationPhase::Complete {
-        crash.checkpoint(RotationCrashPoint::BeforeCleanup)?;
-        store.complete_rotation(
-            &journal.owner_pubkey,
-            journal.rotation_id.as_str(),
-            &journal.request_sha256,
-            &current_envelope,
-        )?;
-        crash.checkpoint(RotationCrashPoint::AfterCleanup)?;
-    }
+    crash.checkpoint(RotationCrashPoint::BeforeBatch)?;
+    let candidate = build_rotated_authority_candidate(root, &generation, request.to_version)?;
+    crash.checkpoint(RotationCrashPoint::AfterBatch)?;
+    crash.checkpoint(RotationCrashPoint::BeforeVerification)?;
+    RevisionLedger::from_snapshot(candidate.clone()).map_err(|_| RotationError::InvalidRequest)?;
+    crash.checkpoint(RotationCrashPoint::AfterVerification)?;
+    crash.checkpoint(RotationCrashPoint::BeforeActivation)?;
+    let mut completed = journal.clone();
+    completed.phase = RotationPhase::Complete;
+    completed.cursor = completed.snapshot_boundary;
+    let terminal_receipt = protect_journal(root, &completed)?;
+    store.commit_authority_rotation_atomically(
+        &generation.token,
+        request.from_version,
+        request.to_version,
+        &candidate,
+        request.rotation_id.as_str(),
+        &request_sha256,
+        &prepared_envelope,
+        &terminal_receipt,
+    )?;
+    crash.checkpoint(RotationCrashPoint::AfterActivation)?;
+    crash.checkpoint(RotationCrashPoint::BeforeCompletion)?;
+    crash.checkpoint(RotationCrashPoint::AfterCompletion)?;
+    crash.checkpoint(RotationCrashPoint::BeforeCleanup)?;
+    crash.checkpoint(RotationCrashPoint::AfterCleanup)?;
     Ok(RotationReceipt {
-        rotation_id: journal.rotation_id,
-        owner_pubkey: journal.owner_pubkey,
-        active_key_version: journal.to_version,
-        rotated_records: journal.target_count,
+        rotation_id: completed.rotation_id,
+        owner_pubkey: completed.owner_pubkey,
+        active_key_version: completed.to_version,
+        rotated_records: completed.target_count,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use luca_continuity::encrypt_record;
+    use luca_continuity::{
+        derive_revision_idempotency_key, encrypt_record, RevisionActor, RevisionLedger,
+        RevisionOperation, RevisionRequest,
+    };
     use luca_protocol::{ContinuityScopeV1, CONTINUITY_PROTOCOL};
     use tempfile::TempDir;
 
-    use crate::luca::continuity_store::{ContinuityStoreCustody, ContinuityStoreOpen};
+    use crate::luca::{
+        continuity_revision_authority::AuthorityExpectationV1,
+        continuity_store::{ContinuityStoreCustody, ContinuityStoreOpen},
+    };
 
     fn hex(byte: u8) -> Hex64 {
         Hex64::parse(hex::encode([byte; 32])).unwrap()
@@ -593,24 +617,27 @@ mod tests {
             _ => panic!("store must be ready"),
         }
     }
-    fn seed(store: &mut ContinuityStore, root: &ContinuityMasterKey, owner: Hex64) {
-        for (index, body) in [b"owner-private-a".as_slice(), b"owner-private-b"]
-            .iter()
-            .enumerate()
-        {
-            let namespace = ContinuityNamespaceV1 {
+    fn encrypted_seed_record(
+        root: &ContinuityMasterKey,
+        owner: &Hex64,
+        record_id: &str,
+        body: &[u8],
+        source_seed: u8,
+    ) -> ContinuityRecordV1 {
+        let namespace = ContinuityNamespaceV1 {
+            protocol: CONTINUITY_PROTOCOL.to_owned(),
+            owner_pubkey: owner.clone(),
+            kind: ContinuityNamespaceKindV1::ResidentPrivate,
+            resident_pubkey: Some(hex(2)),
+            namespace_ref: sha(3),
+            key_version: SafeU53::new(1).unwrap(),
+        };
+        let key =
+            derive_namespace_key(root, &NamespaceKey::new(namespace.clone()).unwrap()).unwrap();
+        encrypt_record(
+            RecordMetadata {
                 protocol: CONTINUITY_PROTOCOL.to_owned(),
-                owner_pubkey: owner.clone(),
-                kind: ContinuityNamespaceKindV1::ResidentPrivate,
-                resident_pubkey: Some(hex(2)),
-                namespace_ref: sha(3),
-                key_version: SafeU53::new(1).unwrap(),
-            };
-            let namespace_key = NamespaceKey::new(namespace.clone()).unwrap();
-            let key = derive_namespace_key(root, &namespace_key).unwrap();
-            let metadata = RecordMetadata {
-                protocol: CONTINUITY_PROTOCOL.to_owned(),
-                record_id: OpaqueId::parse(format!("record-{index}")).unwrap(),
+                record_id: OpaqueId::parse(record_id).unwrap(),
                 namespace: namespace.clone(),
                 scope: ContinuityScopeV1 {
                     protocol: CONTINUITY_PROTOCOL.to_owned(),
@@ -622,19 +649,123 @@ mod tests {
                     conversation_id: None,
                 },
                 record_type: OpaqueId::parse("hypomnema").unwrap(),
-                revision: SafeU53::new(index as u64).unwrap(),
-                predecessor_record_id: (index > 0)
-                    .then(|| OpaqueId::parse(format!("record-{}", index - 1)).unwrap()),
-                created_at: CanonicalTimestamp::parse(format!("2026-08-05T00:00:0{index}Z"))
-                    .unwrap(),
-                author_kind: OpaqueId::parse("resident").unwrap(),
-                provenance_refs: vec![sha(5 + index as u8)],
+                revision: SafeU53::new(0).unwrap(),
+                predecessor_record_id: None,
+                created_at: CanonicalTimestamp::parse("2026-08-05T00:00:00Z").unwrap(),
+                author_kind: OpaqueId::parse("owner").unwrap(),
+                provenance_refs: vec![sha(source_seed)],
                 key_version: SafeU53::new(1).unwrap(),
-            };
-            store
-                .put_encrypted(&encrypt_record(metadata, key.as_bytes(), body).unwrap())
-                .unwrap();
-        }
+            },
+            key.as_bytes(),
+            body,
+        )
+        .unwrap()
+    }
+
+    fn create_request(record: ContinuityRecordV1, source_seed: u8) -> RevisionRequest {
+        let mut request = RevisionRequest {
+            idempotency_key: sha(0),
+            operation: RevisionOperation::Create,
+            lineage_root_id: record.record_id.clone(),
+            expected_head_record_id: None,
+            actor: RevisionActor::Owner,
+            signed_source_event_refs: vec![sha(source_seed)],
+            request_ref: sha(source_seed),
+            successor_ciphertext_ref: Some(encrypted_record_reference(&record).unwrap()),
+            successor: Some(record.clone()),
+            rollback_source_record_id: None,
+            derived_artifact_refs: Vec::new(),
+        };
+        request.idempotency_key = derive_revision_idempotency_key(
+            &record.namespace,
+            &record.scope,
+            &record.record_type,
+            record.key_version,
+            &request,
+        )
+        .unwrap();
+        request
+    }
+
+    fn seed_authority(
+        store: &mut ContinuityStore,
+        root: &ContinuityMasterKey,
+        owner: Hex64,
+    ) -> (StoredRevisionGenerationV1, RevisionRequest) {
+        let mut ledger = RevisionLedger::default();
+        let first = create_request(
+            encrypted_seed_record(root, &owner, "record-a", b"owner-private-a", 5),
+            5,
+        );
+        ledger.apply(first.clone()).unwrap();
+        ledger
+            .apply(create_request(
+                encrypted_seed_record(root, &owner, "record-b", b"owner-private-b", 6),
+                6,
+            ))
+            .unwrap();
+
+        let purge_create = create_request(
+            encrypted_seed_record(root, &owner, "record-purged", b"purged-private", 7),
+            7,
+        );
+        ledger.apply(purge_create).unwrap();
+        let snapshot = ledger.export_snapshot().unwrap();
+        let lineage = snapshot
+            .lineages
+            .iter()
+            .find(|lineage| lineage.lineage_root_id.as_str() == "record-purged")
+            .unwrap();
+        let mut forget = RevisionRequest {
+            idempotency_key: sha(0),
+            operation: RevisionOperation::Forget,
+            lineage_root_id: OpaqueId::parse("record-purged").unwrap(),
+            expected_head_record_id: Some(OpaqueId::parse("record-purged").unwrap()),
+            actor: RevisionActor::Owner,
+            signed_source_event_refs: vec![sha(8)],
+            request_ref: sha(8),
+            successor: None,
+            successor_ciphertext_ref: None,
+            rollback_source_record_id: None,
+            derived_artifact_refs: Vec::new(),
+        };
+        forget.idempotency_key = derive_revision_idempotency_key(
+            &lineage.namespace,
+            &lineage.scope,
+            &lineage.record_type,
+            lineage.lineage_envelope_key_version,
+            &forget,
+        )
+        .unwrap();
+        ledger.apply(forget).unwrap();
+        ledger
+            .advance_purge(
+                &OpaqueId::parse("record-purged").unwrap(),
+                PurgeExecutionStatusV1::InProgress,
+            )
+            .unwrap();
+        ledger
+            .advance_purge(
+                &OpaqueId::parse("record-purged").unwrap(),
+                PurgeExecutionStatusV1::Completed,
+            )
+            .unwrap();
+        let snapshot = ledger.export_snapshot().unwrap();
+        store
+            .replace_complete_owner_generation_atomically(
+                &AuthorityExpectationV1::UninitializedOwner {
+                    owner_pubkey: owner.clone(),
+                    active_root_key_version: SafeU53::new(1).unwrap(),
+                },
+                SafeU53::new(1).unwrap(),
+                &snapshot,
+                &[],
+            )
+            .unwrap();
+        (
+            store.load_revision_generation(&owner).unwrap().unwrap(),
+            first,
+        )
     }
 
     struct FailOnce(Option<RotationCrashPoint>);
@@ -670,7 +801,7 @@ mod tests {
             let mut store = open(&temp);
             let root = root();
             let owner = hex(1);
-            seed(&mut store, &root, owner.clone());
+            let (before, _) = seed_authority(&mut store, &root, owner.clone());
             let request = request(owner.clone());
             let first = rotate_continuity_keys(
                 &ContinuityLifecycleLock::new_for_test(),
@@ -680,6 +811,28 @@ mod tests {
                 &mut FailOnce(Some(point)),
             );
             assert_eq!(first, Err(RotationError::InjectedCrash(point)));
+            let after_crash = store.load_revision_generation(&owner).unwrap().unwrap();
+            let terminal = store
+                .load_rotation_receipt(&owner, request.rotation_id.as_str())
+                .unwrap()
+                .is_some();
+            if terminal {
+                assert_eq!(
+                    after_crash.token.generation.get(),
+                    before.token.generation.get() + 1
+                );
+                assert_eq!(
+                    after_crash.token.active_root_key_version,
+                    SafeU53::new(2).unwrap()
+                );
+                assert!(store.load_rotation_journal(&owner).unwrap().is_none());
+            } else {
+                assert_eq!(after_crash, before);
+                assert_eq!(
+                    store.load_rotation_journal(&owner).unwrap().is_some(),
+                    point != RotationCrashPoint::BeforePrepared
+                );
+            }
             let receipt = rotate_continuity_keys(
                 &ContinuityLifecycleLock::new_for_test(),
                 &mut store,
@@ -703,7 +856,7 @@ mod tests {
         let mut store = open(&temp);
         let root = root();
         let owner = hex(1);
-        seed(&mut store, &root, owner.clone());
+        let (before, _) = seed_authority(&mut store, &root, owner.clone());
         let request = request(owner.clone());
         assert_eq!(
             rotate_continuity_keys(
@@ -717,21 +870,185 @@ mod tests {
                 RotationCrashPoint::AfterPrepared
             ))
         );
-        let before = store
-            .rotation_boundary(&owner, SafeU53::new(1).unwrap())
-            .unwrap();
-        let mut journal = store.load_rotation_journal(&owner).unwrap().unwrap();
-        journal.ciphertext_b64.push('A');
+        let journal = store.load_rotation_journal(&owner).unwrap().unwrap();
+        let mut tampered = journal.clone();
+        tampered.ciphertext_b64.push('A');
         assert_eq!(
-            authenticate_journal(&root, &owner, &journal),
+            authenticate_journal(&root, &owner, &tampered),
             Err(RotationError::JournalAuthentication)
         );
+        let encoded = canonicalize(&tampered).unwrap();
+        store
+            .connection
+            .execute(
+                "UPDATE continuity_rotation_journals SET envelope_json=?2
+                 WHERE owner_pubkey=?1",
+                rusqlite::params![owner.as_str(), encoded],
+            )
+            .unwrap();
+        assert!(matches!(
+            rotate_continuity_keys(
+                &ContinuityLifecycleLock::new_for_test(),
+                &mut store,
+                &root,
+                &request,
+                &mut NoRotationCrash,
+            ),
+            Err(RotationError::JournalAuthentication)
+                | Err(RotationError::Store(ContinuityStoreError::InvalidRecord))
+        ));
         assert_eq!(
-            before,
-            store
-                .rotation_boundary(&owner, SafeU53::new(1).unwrap())
-                .unwrap()
+            store.load_revision_generation(&owner).unwrap().unwrap(),
+            before
         );
+    }
+
+    #[test]
+    fn stale_authority_and_tampered_candidate_cannot_advance_prepared_rotation() {
+        let temp = TempDir::new().unwrap();
+        let mut store = open(&temp);
+        let root = root();
+        let owner = hex(1);
+        let (before, _) = seed_authority(&mut store, &root, owner.clone());
+        let request = request(owner.clone());
+        let request_hash = request_sha256(&request).unwrap();
+
+        let mut stale = before.token.clone();
+        stale.generation = SafeU53::new(stale.generation.get() + 1).unwrap();
+        let prepared_journal = RotationJournalV1 {
+            protocol: CONTINUITY_PROTOCOL.to_owned(),
+            rotation_id: request.rotation_id.clone(),
+            owner_pubkey: owner.clone(),
+            from_version: request.from_version,
+            to_version: request.to_version,
+            phase: RotationPhase::Prepared,
+            cursor: 0,
+            snapshot_boundary: before.snapshot.records.len() as i64,
+            target_count: before.snapshot.records.len() as u64,
+            prepared_at: request.prepared_at.clone(),
+            request_sha256: request_hash.clone(),
+        };
+        let prepared_envelope = protect_journal(&root, &prepared_journal).unwrap();
+        assert_eq!(
+            store.prepare_authority_rotation_cas(
+                &stale,
+                request.rotation_id.as_str(),
+                request.from_version,
+                &prepared_envelope,
+            ),
+            Err(ContinuityStoreError::CompareAndSwapConflict)
+        );
+        assert!(store.load_rotation_journal(&owner).unwrap().is_none());
+
+        store
+            .prepare_authority_rotation_cas(
+                &before.token,
+                request.rotation_id.as_str(),
+                request.from_version,
+                &prepared_envelope,
+            )
+            .unwrap();
+        let mut candidate =
+            build_rotated_authority_candidate(&root, &before, request.to_version).unwrap();
+        candidate.lineages[0].envelope_replacements[0].replacement_digest = sha(9);
+        let mut completed = prepared_journal;
+        completed.phase = RotationPhase::Complete;
+        completed.cursor = completed.snapshot_boundary;
+        let terminal = protect_journal(&root, &completed).unwrap();
+        assert!(matches!(
+            store.commit_authority_rotation_atomically(
+                &before.token,
+                request.from_version,
+                request.to_version,
+                &candidate,
+                request.rotation_id.as_str(),
+                &request_hash,
+                &prepared_envelope,
+                &terminal,
+            ),
+            Err(ContinuityStoreError::InvalidRecord)
+                | Err(ContinuityStoreError::CompareAndSwapConflict)
+        ));
+        assert_eq!(
+            store.load_revision_generation(&owner).unwrap().unwrap(),
+            before
+        );
+        assert_eq!(
+            store.load_rotation_journal(&owner).unwrap(),
+            Some(prepared_envelope)
+        );
+        assert!(store
+            .load_rotation_receipt(&owner, request.rotation_id.as_str())
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn receipt_insert_failure_rolls_back_the_complete_authority_swap() {
+        let temp = TempDir::new().unwrap();
+        let mut store = open(&temp);
+        let root = root();
+        let owner = hex(1);
+        let (before, _) = seed_authority(&mut store, &root, owner.clone());
+        let request = request(owner.clone());
+        let request_hash = request_sha256(&request).unwrap();
+        assert_eq!(
+            rotate_continuity_keys(
+                &ContinuityLifecycleLock::new_for_test(),
+                &mut store,
+                &root,
+                &request,
+                &mut FailOnce(Some(RotationCrashPoint::AfterPrepared)),
+            ),
+            Err(RotationError::InjectedCrash(
+                RotationCrashPoint::AfterPrepared
+            ))
+        );
+        let prepared_envelope = store.load_rotation_journal(&owner).unwrap().unwrap();
+        let prepared_journal = authenticate_journal(&root, &owner, &prepared_envelope).unwrap();
+        let candidate =
+            build_rotated_authority_candidate(&root, &before, request.to_version).unwrap();
+        let mut completed = prepared_journal;
+        completed.phase = RotationPhase::Complete;
+        completed.cursor = completed.snapshot_boundary;
+        let terminal = protect_journal(&root, &completed).unwrap();
+        store
+            .connection
+            .execute_batch(
+                "CREATE TRIGGER fail_rotation_receipt
+                 BEFORE INSERT ON continuity_rotation_receipts
+                 BEGIN SELECT RAISE(ABORT, 'forced'); END;",
+            )
+            .unwrap();
+        assert_eq!(
+            store.commit_authority_rotation_atomically(
+                &before.token,
+                request.from_version,
+                request.to_version,
+                &candidate,
+                request.rotation_id.as_str(),
+                &request_hash,
+                &prepared_envelope,
+                &terminal,
+            ),
+            Err(ContinuityStoreError::Unavailable)
+        );
+        store
+            .connection
+            .execute_batch("DROP TRIGGER fail_rotation_receipt;")
+            .unwrap();
+        assert_eq!(
+            store.load_revision_generation(&owner).unwrap().unwrap(),
+            before
+        );
+        assert_eq!(
+            store.load_rotation_journal(&owner).unwrap(),
+            Some(prepared_envelope)
+        );
+        assert!(store
+            .load_rotation_receipt(&owner, request.rotation_id.as_str())
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -740,7 +1057,7 @@ mod tests {
         let mut store = open(&temp);
         let root = root();
         let owner = hex(1);
-        seed(&mut store, &root, owner.clone());
+        let (before, create_replay) = seed_authority(&mut store, &root, owner.clone());
         let request = request(owner.clone());
         let lifecycle = ContinuityLifecycleLock::new_for_test();
         let first = rotate_continuity_keys(
@@ -752,6 +1069,62 @@ mod tests {
         )
         .unwrap();
         assert_eq!(first.rotated_records, 2);
+        let after = store.load_revision_generation(&owner).unwrap().unwrap();
+        assert_eq!(after.token.store_epoch, before.token.store_epoch);
+        assert_eq!(
+            after.token.generation.get(),
+            before.token.generation.get() + 1
+        );
+        assert_ne!(
+            after.token.snapshot_fingerprint,
+            before.token.snapshot_fingerprint
+        );
+        assert_eq!(
+            after.snapshot.revision_idempotency,
+            before.snapshot.revision_idempotency
+        );
+        assert_eq!(
+            after.snapshot.artifact_idempotency,
+            before.snapshot.artifact_idempotency
+        );
+        for record in &after.snapshot.records {
+            assert_eq!(record.key_version, SafeU53::new(2).unwrap());
+            assert_eq!(record.namespace.key_version, SafeU53::new(2).unwrap());
+            let key =
+                derive_namespace_key(&root, &NamespaceKey::new(record.namespace.clone()).unwrap())
+                    .unwrap();
+            let body = decrypt_record(record, key.as_bytes()).unwrap();
+            assert_eq!(
+                body.as_bytes(),
+                match record.record_id.as_str() {
+                    "record-a" => b"owner-private-a".as_slice(),
+                    "record-b" => b"owner-private-b".as_slice(),
+                    _ => panic!("unexpected retained record"),
+                }
+            );
+        }
+        let before_purged = before
+            .snapshot
+            .lineages
+            .iter()
+            .find(|lineage| lineage.lineage_root_id.as_str() == "record-purged")
+            .unwrap();
+        let after_purged = after
+            .snapshot
+            .lineages
+            .iter()
+            .find(|lineage| lineage.lineage_root_id.as_str() == "record-purged")
+            .unwrap();
+        assert_eq!(after_purged, before_purged);
+        let mut replay_ledger = RevisionLedger::from_snapshot(after.snapshot.clone()).unwrap();
+        assert_eq!(
+            replay_ledger
+                .apply(create_replay)
+                .unwrap()
+                .lineage_root_id
+                .as_str(),
+            "record-a"
+        );
         let replay = rotate_continuity_keys(
             &lifecycle,
             &mut store,
@@ -795,6 +1168,57 @@ mod tests {
                 &mut NoRotationCrash,
             ),
             Err(RotationError::InvalidRequest)
+        );
+    }
+
+    #[test]
+    fn migration_required_and_wrong_versions_fail_before_any_journal() {
+        let temp = TempDir::new().unwrap();
+        let mut store = open(&temp);
+        let owner = hex(1);
+        let root_key = root();
+        let legacy = encrypted_seed_record(&root_key, &owner, "legacy-record", b"legacy", 9);
+        store.put_encrypted(&legacy).unwrap();
+        assert_eq!(
+            rotate_continuity_keys(
+                &ContinuityLifecycleLock::new_for_test(),
+                &mut store,
+                &root_key,
+                &request(owner.clone()),
+                &mut NoRotationCrash,
+            ),
+            Err(RotationError::Store(
+                ContinuityStoreError::AuthorityMigrationRequired
+            ))
+        );
+        assert!(store.load_rotation_journal(&owner).unwrap().is_none());
+
+        let temp = TempDir::new().unwrap();
+        let mut store = open(&temp);
+        let owner = hex(1);
+        let root_key = root();
+        let (before, _) = seed_authority(&mut store, &root_key, owner.clone());
+        let wrong = RotationRequest {
+            rotation_id: OpaqueId::parse("wrong-version").unwrap(),
+            owner_pubkey: owner.clone(),
+            from_version: SafeU53::new(2).unwrap(),
+            to_version: SafeU53::new(3).unwrap(),
+            prepared_at: CanonicalTimestamp::parse("2026-08-05T00:00:00Z").unwrap(),
+        };
+        assert_eq!(
+            rotate_continuity_keys(
+                &ContinuityLifecycleLock::new_for_test(),
+                &mut store,
+                &root_key,
+                &wrong,
+                &mut NoRotationCrash,
+            ),
+            Err(RotationError::InvalidRequest)
+        );
+        assert!(store.load_rotation_journal(&owner).unwrap().is_none());
+        assert_eq!(
+            store.load_revision_generation(&owner).unwrap().unwrap(),
+            before
         );
     }
 }
