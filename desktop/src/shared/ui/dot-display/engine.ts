@@ -100,6 +100,43 @@ export class DotPanel {
   private netNodes: Array<[number, number]> | null = null;
   private recallPoints: Array<[number, number]> | null = null;
 
+  /**
+   * Free-form per-panel simulation state, for scenes that carry a physics
+   * (sandpiles, wave fields, aggregates). Keyed by scene so switching scenes
+   * cannot read another scene's memory back as garbage.
+   */
+  sim: { key: string; state: unknown } | null = null;
+
+  /**
+   * Optional per-cell magnitude, 0..1, paired with a 256-entry RGB lookup
+   * table. When both are present `draw` colours each dot by its magnitude
+   * instead of the flat ink — "how much just moved" as a live dial. Left null,
+   * the panel stays monochrome.
+   */
+  magnitude: Float32Array | null = null;
+  lut: Uint8Array | null = null;
+
+  /** Allocate the magnitude channel and attach a LUT. Idempotent. */
+  enableMagnitude(lut: Uint8Array): void {
+    this.lut = lut;
+    if (!this.magnitude || this.magnitude.length !== this.buf.length) {
+      this.magnitude = new Float32Array(this.buf.length);
+    }
+  }
+
+  disableMagnitude(): void {
+    this.lut = null;
+    this.magnitude = null;
+  }
+
+  /** Scene-owned state, allocated once per (panel, scene) pair. */
+  useSim<T>(key: string, create: () => T): T {
+    if (!this.sim || this.sim.key !== key) {
+      this.sim = { key, state: create() };
+    }
+    return this.sim.state as T;
+  }
+
   constructor(
     canvas: HTMLCanvasElement,
     options: Partial<DotPanelOptions> = {},
@@ -149,9 +186,12 @@ export class DotPanel {
     this.originY = Math.floor((ch - H * cell) / 2);
     this.buf = new Float32Array(W * H);
     this.bloomBuf = new Float32Array(W * H);
+    if (this.magnitude) this.magnitude = new Float32Array(W * H);
+    // Every cached pattern and physics is sized to the old lattice.
     this.sigil = null;
     this.netNodes = null;
     this.recallPoints = null;
+    this.sim = null;
     return true;
   }
 
@@ -277,11 +317,20 @@ export class DotPanel {
       c.globalCompositeOperation = "source-over";
     }
 
+    const mag = this.magnitude;
+    const lut = this.lut;
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
-        const q = this.buf[y * W + x];
+        const i = y * W + x;
+        const q = this.buf[i];
         if (q <= 0.03) continue;
-        c.fillStyle = `rgba(${this.opt.dot},${Math.min(1, q)})`;
+        if (mag && lut) {
+          // Colour reads the magnitude of what happened here, not the charge.
+          const m = Math.max(0, Math.min(255, (mag[i] * 255) | 0)) * 3;
+          c.fillStyle = `rgba(${lut[m]},${lut[m + 1]},${lut[m + 2]},${Math.min(1, q)})`;
+        } else {
+          c.fillStyle = `rgba(${this.opt.dot},${Math.min(1, q)})`;
+        }
         c.fillRect(
           this.originX + x * cell + off,
           this.originY + y * cell + off,
@@ -587,8 +636,21 @@ function prefersReducedMotion(): boolean {
   );
 }
 
+/**
+ * Extra scenes registered at runtime. The exploration lab injects its
+ * experimental table here so nothing experimental has to be added to the
+ * production `scenes` record (and so nothing experimental can ship by
+ * accident).
+ */
+const extraScenes = new Map<string, SceneFn>();
+
+export function registerScene(name: string, fn: SceneFn): void {
+  extraScenes.set(name, fn);
+}
+
 function runScene(p: DotPanel, t: number): void {
-  (scenes[p.scene] ?? scenes.listen)(p, t);
+  const fn = extraScenes.get(p.scene) ?? scenes[p.scene] ?? scenes.listen;
+  fn(p, t);
 }
 
 /**
