@@ -37,6 +37,7 @@ must record date, author, reason, affected tasks, migration impact, and approval
 | D30 | Empty pre-K05D continuity stores may migrate to the revision-authority schema; a non-empty legacy store remains byte-for-byte untouched and continuity opens degraded with `authority_migration_required`. | Legacy encrypted rows do not contain enough authority to reconstruct archived, forgotten, pinned, or active lineage state without inventing history. Owner-confirmed legacy conversion is deferred. |
 | D31 | Forget removes encrypted bodies but permanently retains body-free authority, typed replay digests, purge receipts, and record/nonce/artifact tombstones. | Persisting canonical successor bytes would defeat Forget, while deleting authority would allow resurrection or identifier/nonce reuse. |
 | D32 | A continuity read revalidates epoch, generation, key version, and fingerprint under the lifecycle lock after decrypt/hydrate and before plaintext use. | Snapshot capture alone cannot prevent a concurrent Forget, restore, or rotation from making decrypted context stale. |
+| D33 | Desktop continuity reads may not use cloneable ordinary-string memory bodies; decrypted bodies, decoded material, retrieval records, and derived hits must retain zeroizing ownership through the guarded context-assembly boundary. | A two-phase lifecycle check is incomplete if stale or failed plaintext copies can remain in process memory after the lease is rejected. |
 
 ## Change template
 

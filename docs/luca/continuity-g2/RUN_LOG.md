@@ -312,6 +312,18 @@ Risks/known limits:
   desktop persistence, generation CAS, immutable reads, and K06 integration
   are implemented.
 - Evidence: `evidence/G2/G2.2/K05D/restart-snapshot-review-pass.md`.
+
+## 2026-08-05 — G2.2 control correction — zeroizing retrieval bodies
+
+- Immutable-read reconnaissance found that K04's retrieval input and hydrated
+  records still use cloneable ordinary `String` bodies.
+- Added K04D and acceptance A210 before the K05D immutable desktop lease. It
+  must provide zeroizing ownership for decrypted bodies, decoded material,
+  retrieval records, and derived hits across success, retry, error, and timeout.
+- Desktop schema/CAS implementation may continue independently, but no
+  immutable plaintext lease or A209 claim may pass until K04D does.
+- Decision: D33. Evidence:
+  `evidence/G2/G2.2/K05D/desktop-read-map.md`.
 - This closes only the pure-crate slice. Desktop snapshot persistence,
   hydration, CAS generation, immutable reads, and protected-backup integration
   remain before K05D/A209 may pass.

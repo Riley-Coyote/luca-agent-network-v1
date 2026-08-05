@@ -35,6 +35,7 @@ installed-app rows pass and `N03` records an explicit verdict.
 | A207 | Key rotation recovers from interruption without mixed-key ambiguity. | NOT RUN | |
 | A208 | Protected backup preview writes nothing; tamper/wrong passphrase fail; confirmed restore preserves mappings. | NOT RUN | |
 | A209 | Restart reconstructs authoritative active heads and lifecycle state without inferring from revision order. | NOT RUN | |
+| A210 | Decrypted retrieval bodies and derived in-memory copies zeroize on success, retry, error, and timeout before the desktop read lease may return. | NOT RUN | |
 
 ## G2.3 — Turn continuity and durable writes
 

@@ -63,7 +63,7 @@ gates:
     barrier_task: P04
   - id: G2.2
     title: Encrypted continuity kernel
-    tasks: [K01, K02, K03, K03D, K04, K05, K05D, K06]
+    tasks: [K01, K02, K03, K03D, K04, K04D, K05, K05D, K06]
     barrier_task: K06
   - id: G2.3
     title: Turn continuity and durable writes
@@ -214,6 +214,17 @@ tasks:
     outputs: [memory_fts, lexical_seeding, graph_activation, optional_memory_vectors]
     checks: [mnemos_vectors, bounds_tests, restart_rehydration, disk_plaintext_scan]
     acceptance: [A205]
+  - id: K04D
+    gate: G2.2
+    title: Harden decrypted retrieval state for zeroizing desktop leases
+    depends_on: [K03, K04]
+    lane: protocol_storage
+    risk: critical
+    owner_role: retrieval_security_implementer
+    reviewer_role: independent_security_reviewer
+    outputs: [zeroizing_body_type, consuming_decrypt_bridge, bounded_material_schema]
+    checks: [success_retry_error_timeout_zeroization, no_cloneable_plaintext, retrieval_regression]
+    acceptance: [A210]
   - id: K05
     gate: G2.2
     title: Implement revisions, correction, rollback, archive, and forget
@@ -239,7 +250,7 @@ tasks:
   - id: K05D
     gate: G2.2
     title: Persist authoritative revision heads and lifecycle state
-    depends_on: [K03D, K05]
+    depends_on: [K03D, K04D, K05]
     lane: runtime_cognition
     risk: critical
     owner_role: desktop_storage_implementer
