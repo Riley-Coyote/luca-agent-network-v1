@@ -1,8 +1,13 @@
 // Fixed px on purpose: the top chrome strip hosts the fixed-size macOS
 // traffic lights and the px-pinned nav buttons (see `AppTopChrome`), so its
 // height must not follow the Cmd +/- rem text scale either. Deliberate
-// exception to the rem-first rule. 40px == the old 2.5rem at default zoom.
-export const TOP_CHROME_HEIGHT_DEFAULT = "40px";
+// exception to the rem-first rule.
+//
+// 32px is the tightest height that still centres the native traffic lights:
+// they are 12px tall, so `trafficLightPosition.y` in `tauri.conf.json` is 10
+// ((32 - 12) / 2). These two values are a pair — changing one without the
+// other makes the lights overflow the strip onto the content below.
+export const TOP_CHROME_HEIGHT_DEFAULT = "32px";
 export const CHANNEL_CONTENT_TOP_PADDING_DEFAULT = "5.75rem";
 
 export const chromeCssVars = {
@@ -42,9 +47,9 @@ export const topChromeInset = {
 /** Tailwind class fragments for the global top chrome backdrop strip. */
 export const topChromeBackdrop = {
   /** Height matching the global top chrome search/drag strip. */
-  height: "h-(--buzz-top-chrome-height,40px)",
+  height: "h-(--buzz-top-chrome-height,32px)",
   /** `after:` pseudo-element offset aligned to the bottom of top chrome. */
-  dividerTop: "after:top-(--buzz-top-chrome-height,40px)",
+  dividerTop: "after:top-(--buzz-top-chrome-height,32px)",
 } as const;
 
 /** Tailwind class fragments for measured channel header chrome. */

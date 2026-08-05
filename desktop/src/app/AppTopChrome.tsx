@@ -26,9 +26,9 @@ type AppTopChromeProps = {
 // the row must not grow or shrink with the rem scale. Deliberate exception
 // to the rem-first rule.
 const TOP_CHROME_ICON_BUTTON_CLASS =
-  "h-[28px] w-[28px] rounded-[4px] text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg]:size-[16px]";
+  "h-[24px] w-[24px] rounded-[4px] text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg]:size-[15px]";
 const HISTORY_ICON_BUTTON_CLASS =
-  "h-[28px] w-[24px] rounded-[4px] text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg]:size-[16px]";
+  "h-[24px] w-[22px] rounded-[4px] text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg]:size-[15px]";
 
 function preventTopChromeWheel(event: WheelEvent) {
   event.preventDefault();
@@ -80,7 +80,10 @@ export function AppTopChrome({
       ? "pl-[32px]"
       : "pl-[80px]"
     : "pl-3";
-  const navRowAlignmentClass = macChrome ? "translate-y-[3px]" : null;
+  // No vertical nudge: the traffic lights are centred in the strip
+  // (`trafficLightPosition.y` = 10 against a 32px strip), so the flex row's own
+  // `items-center` already lines the nav buttons up with them.
+  const navRowAlignmentClass = null;
 
   React.useEffect(() => {
     const topChrome = topChromeRef.current;

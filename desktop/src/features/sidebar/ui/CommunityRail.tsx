@@ -199,7 +199,7 @@ export function CommunityRail({
   // macOS traffic lights overlay the top-left, so start buttons below them (they hide in fullscreen).
   const topPaddingClass =
     isMacPlatform() && !isFullscreen
-      ? "pt-(--buzz-top-chrome-height,40px)"
+      ? "pt-(--buzz-top-chrome-height,32px)"
       : "pt-3";
 
   return (
