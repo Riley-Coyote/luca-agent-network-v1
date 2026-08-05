@@ -235,3 +235,16 @@ Risks/known limits:
 - One bounded repair is active. K06, A207, A208, and G2.2 remain unclaimed, and
   K06 must also incorporate K05D revision authority before final review.
 - Evidence: `evidence/G2/G2.2/K06/security-review-block.md`.
+
+## 2026-08-05 — K05D — pure authority projection stopped at review gate
+
+- Added a deterministic body-free projection of active, archived, and
+  forgotten lineages, including pinned corrections and artifact inventory.
+- Focused tests, all 56 continuity tests, strict Clippy, formatting, and diff
+  checks passed.
+- Independent review found that public Create could exceed the projection cap,
+  artifact authority was unbounded and lacked its own idempotency binding, and
+  the projected key-version contract needed an explicit rotation/hydration
+  boundary.
+- One bounded repair is active. K05D, A209, K06, and G2.2 remain unclaimed.
+- Evidence: `evidence/G2/G2.2/K05D/review-block.md`.
