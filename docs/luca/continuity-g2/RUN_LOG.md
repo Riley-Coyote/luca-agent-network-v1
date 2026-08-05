@@ -278,3 +278,14 @@ Risks/known limits:
   checkpoint and no K06/A207/A208/G2.2 pass is claimed without additional
   repair authority.
 - Evidence: `evidence/G2/G2.2/K06/repair-review-block.md`.
+
+## 2026-08-05 — K05D — fail-closed legacy-store migration decision
+
+- Existing v1-v3 encrypted rows cannot prove authoritative lineage heads,
+  archive/forget state, pinned corrections, or historical replay receipts.
+- Empty stores may migrate to the new authority schema. Any non-empty legacy
+  store remains byte-for-byte untouched and continuity degrades with the
+  body-free reason `authority_migration_required`.
+- No revision-order inference or automatic data rewrite is allowed.
+  Owner-confirmed legacy conversion/import is deferred.
+- Decision: D30.
