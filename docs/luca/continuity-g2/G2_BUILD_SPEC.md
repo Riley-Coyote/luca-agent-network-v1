@@ -100,6 +100,10 @@ relay-accepted and the local outbox is terminal.
 5. Persist ciphertext and minimized body-free metadata only. Titles, tags,
    memory bodies, journal text, context packets, and decrypted index terms do
    not enter SQLite, WAL/SHM, logs, crash reports, or evidence.
+   Authoritative body-free lineage head, lifecycle, pinned-correction,
+   idempotency, and derived-artifact state is persisted atomically with each
+   encrypted revision transition; active heads are never inferred from revision
+   numbers or predecessor ordering after restart.
 6. Hydrate a process-memory FTS5 database after unlock. Lexical seeds feed a
    bounded graph walk; optional vectors remain memory-only and remote embeddings
    are off by default.

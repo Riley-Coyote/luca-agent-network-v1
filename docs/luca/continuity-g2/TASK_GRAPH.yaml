@@ -63,7 +63,7 @@ gates:
     barrier_task: P04
   - id: G2.2
     title: Encrypted continuity kernel
-    tasks: [K01, K02, K03, K03D, K04, K05, K06]
+    tasks: [K01, K02, K03, K03D, K04, K05, K05D, K06]
     barrier_task: K06
   - id: G2.3
     title: Turn continuity and durable writes
@@ -228,7 +228,7 @@ tasks:
   - id: K06
     gate: G2.2
     title: Implement crash-safe rotation and protected backup/restore
-    depends_on: [K03D, K05]
+    depends_on: [K03D, K05D]
     lane: runtime_cognition
     risk: critical
     owner_role: security_implementer
@@ -236,6 +236,17 @@ tasks:
     outputs: [rotation_journal, age_backup_with_wrapped_continuity_key, zero_write_preview, confirmed_keychain_install, restore_validation, g2_2_verdict]
     checks: [rotation_crash_matrix, wrong_passphrase, backup_tamper, fresh_keychain_decrypt_restore, identity_mapping_restore]
     acceptance: [A207, A208]
+  - id: K05D
+    gate: G2.2
+    title: Persist authoritative revision heads and lifecycle state
+    depends_on: [K03D, K05]
+    lane: runtime_cognition
+    risk: critical
+    owner_role: desktop_storage_implementer
+    reviewer_role: independent_data_integrity_reviewer
+    outputs: [revision_authority_schema, atomic_revision_transition, immutable_active_generation]
+    checks: [restart_head_recovery, archive_forget_nonresurrection, transition_cas, zero_write_snapshot]
+    acceptance: [A209]
   - id: T01
     gate: G2.3
     title: Assemble bounded read-only continuity packets

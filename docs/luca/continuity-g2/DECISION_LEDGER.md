@@ -33,6 +33,7 @@ must record date, author, reason, affected tasks, migration impact, and approval
 | D26 | Automatic identity/relationship/conviction updates require explicit owner evidence or two signed sources across conversations/24 hours, are limited to one per category per seven days, and suppress equivalent topics for 30 days. | Make anti-rumination and bounded-frequency behavior deterministic and testable. |
 | D27 | New ordinary-room replay is limited to `stream` rooms and a fixed 16 KiB rendered UTF-8 block, retaining newest whole messages. | Bound fresh-session context without changing established DM/thread/forum/workflow behavior or consuming the whole 48 KiB continuity budget. |
 | D28 | Ordinary-room replay deduplicates signed event IDs and excludes the current triggering batch. | The fresh-history block must not repeat the same user content already supplied as the active event batch. |
+| D29 | Encrypted record rows are not revision authority; the desktop persists body-free lineage head/lifecycle state and updates it atomically with encrypted revision transitions. | Archive and forget create no successor envelope, so inferring the active record from revision order could resurrect excluded or forgotten continuity after restart. |
 
 ## Change template
 

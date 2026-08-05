@@ -208,3 +208,14 @@ Risks/known limits:
 - Final independent review: PASS. All 53 continuity tests, 17 focused retrieval
   vectors, strict Clippy, formatting, diff, source-boundary, and disk-artifact
   checks pass.
+
+## 2026-08-05 — G2.2 control correction — durable revision authority
+
+- T01 dependency reconnaissance found that K05 revision semantics were only
+  process-local and SQLite stored encrypted rows without authoritative lineage
+  head/lifecycle state.
+- Added K05D before K06/T01. It must persist body-free revision authority and
+  atomically bind transitions to encrypted records so archive/forget cannot be
+  resurrected by revision-order inference after restart.
+- Added acceptance A209 and decision D29. K06 remains unclaimed until protected
+  backup/restore includes the resulting authority state.

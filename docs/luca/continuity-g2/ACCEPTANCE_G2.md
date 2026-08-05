@@ -34,6 +34,7 @@ installed-app rows pass and `N03` records an explicit verdict.
 | A206 | Revisions preserve history; correction, rollback, archive, and forget are deterministic. | PASS | `receipts/K05.md` |
 | A207 | Key rotation recovers from interruption without mixed-key ambiguity. | NOT RUN | |
 | A208 | Protected backup preview writes nothing; tamper/wrong passphrase fail; confirmed restore preserves mappings. | NOT RUN | |
+| A209 | Restart reconstructs authoritative active heads and lifecycle state without inferring from revision order. | NOT RUN | |
 
 ## G2.3 — Turn continuity and durable writes
 
