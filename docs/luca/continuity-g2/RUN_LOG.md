@@ -297,6 +297,21 @@ Risks/known limits:
   incorporate the accepted K05D authority state before A207/A208 or G2.2 can
   pass.
 - Evidence: `evidence/G2/G2.2/K06/second-repair-review-pass.md`.
+
+## 2026-08-05 — K05D — authorized pure restart repair passed
+
+- Added authenticated retained-envelope replacement chains, global one-lineage
+  artifact authority, bounded serialized decoding and aggregate limits, exact
+  ordered artifact history, and opposite-domain live idempotency rejection.
+- Completed Forget remains ciphertext-free and exact historical replay remains
+  zero-write with the original typed receipt.
+- Root and independent review each passed all 70 continuity tests, strict
+  Clippy, exact-file formatting, and scoped diff checks; no scoped findings
+  remain.
+- The pure interface is frozen. K05D and A209 remain in progress while trusted
+  desktop persistence, generation CAS, immutable reads, and K06 integration
+  are implemented.
+- Evidence: `evidence/G2/G2.2/K05D/restart-snapshot-review-pass.md`.
 - This closes only the pure-crate slice. Desktop snapshot persistence,
   hydration, CAS generation, immutable reads, and protected-backup integration
   remain before K05D/A209 may pass.

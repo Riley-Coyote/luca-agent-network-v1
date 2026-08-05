@@ -1,8 +1,11 @@
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use luca_continuity::{
-    derive_revision_idempotency_key, encrypt_record, encrypted_record_reference, ContinuityError,
-    DurableContinuityRecordKind, PurgePlan, RecordMetadata, RevisionActor, RevisionLedger,
-    RevisionLifecycle, RevisionOperation, RevisionRequest,
+    derive_envelope_replacement_digest, derive_revision_idempotency_key, encrypt_record,
+    encrypted_record_reference, ContinuityError, DurableContinuityRecordKind,
+    EnvelopeReplacementV1, PurgeExecutionStatusV1, PurgePlan, RecordMetadata, RevisionActor,
+    RevisionLedger, RevisionLedgerSnapshotV1, RevisionLifecycle, RevisionOperation,
+    RevisionRequest, MAX_REVISION_MEMBERS_PER_LEDGER, MAX_REVISION_MEMBERS_PER_LINEAGE,
+    MAX_REVISION_SNAPSHOT_CANONICAL_BYTES,
 };
 use luca_protocol::{
     CanonicalTimestamp, ContinuityNamespaceKindV1, ContinuityNamespaceV1, ContinuityScopeV1, Hex64,
@@ -88,6 +91,56 @@ fn record_with(
         b"encrypted private body",
     )
     .unwrap()
+}
+
+fn rotate_record(
+    original: &luca_protocol::ContinuityRecordV1,
+) -> luca_protocol::ContinuityRecordV1 {
+    let mut rotated_namespace = original.namespace.clone();
+    rotated_namespace.key_version = SafeU53::new(2).unwrap();
+    encrypt_record(
+        RecordMetadata {
+            protocol: original.protocol.clone(),
+            record_id: original.record_id.clone(),
+            namespace: rotated_namespace,
+            scope: original.scope.clone(),
+            record_type: original.record_type.clone(),
+            revision: original.revision,
+            predecessor_record_id: original.predecessor_record_id.clone(),
+            created_at: original.created_at.clone(),
+            author_kind: original.author_kind.clone(),
+            provenance_refs: original.provenance_refs.clone(),
+            key_version: SafeU53::new(2).unwrap(),
+        },
+        &[9; 32],
+        b"rotated encrypted private body",
+    )
+    .unwrap()
+}
+
+fn add_rotation_mapping(snapshot: &mut RevisionLedgerSnapshotV1) {
+    let original_binding = snapshot
+        .revision_idempotency
+        .iter()
+        .find_map(|entry| entry.replay_binding.successor.as_ref())
+        .unwrap()
+        .clone();
+    let rotated = rotate_record(&snapshot.records[0]);
+    let mut replacement = EnvelopeReplacementV1 {
+        record_id: rotated.record_id.clone(),
+        original_key_version: SafeU53::new(1).unwrap(),
+        original_nonce_b64: original_binding.nonce_b64,
+        original_encrypted_record_ref: original_binding.encrypted_record_ref,
+        replacement_key_version: SafeU53::new(2).unwrap(),
+        replacement_nonce_b64: rotated.nonce_b64.clone(),
+        replacement_encrypted_record_ref: encrypted_record_reference(&rotated).unwrap(),
+        replacement_digest: sha('0'),
+    };
+    replacement.replacement_digest = derive_envelope_replacement_digest(&replacement).unwrap();
+    snapshot.records[0] = rotated;
+    snapshot.lineages[0].namespace.key_version = SafeU53::new(2).unwrap();
+    snapshot.lineages[0].lineage_envelope_key_version = SafeU53::new(2).unwrap();
+    snapshot.lineages[0].envelope_replacements = vec![replacement];
 }
 
 struct RequestArgs<'a> {
@@ -729,7 +782,7 @@ fn idempotency_and_purge_order_have_stable_vectors() {
     .unwrap();
     assert_eq!(
         idempotency.as_str(),
-        "sha256:cdc64a9959435b247537e052a96efe92ddda45035c5a6b4b321703e4117b1158"
+        "sha256:0637eeef108203022b504cfe0c4ac34f417033c50860360045b96841f8555869"
     );
 }
 
@@ -803,6 +856,408 @@ fn nonce_is_unique_across_heads_older_revisions_and_lineages() {
         Err(ContinuityError::NonceCollision)
     );
     assert_eq!(ledger.lifecycle(&id("other-root")), None);
+}
+
+#[test]
+fn restart_snapshot_round_trips_and_replays_historical_receipts_without_writes() {
+    let mut ledger = RevisionLedger::default();
+    let initial = owner_record("record-0", 0, None);
+    let create_request = request!(
+        "create-snapshot",
+        RevisionOperation::Create,
+        "record-0",
+        None,
+        RevisionActor::Owner,
+        Some(initial),
+        None,
+        vec![],
+    );
+    let create_receipt = ledger.apply(create_request.clone()).unwrap();
+    let revise_request = revise(
+        &mut ledger,
+        "revise-snapshot",
+        "record-0",
+        "record-1",
+        RevisionActor::Resident,
+    );
+    register_artifacts(&mut ledger, "record-1", vec![sha('8')]);
+    let archive = request!(
+        "archive-snapshot",
+        RevisionOperation::Archive,
+        "record-0",
+        Some("record-1"),
+        RevisionActor::Owner,
+        None,
+        None,
+        vec![],
+    );
+    ledger.apply(archive).unwrap();
+
+    let snapshot = ledger.export_snapshot().unwrap();
+    let fingerprint = snapshot.fingerprint().unwrap();
+    let mut hydrated = RevisionLedger::from_snapshot(snapshot.clone()).unwrap();
+    assert_eq!(hydrated.export_snapshot().unwrap(), snapshot);
+    assert_eq!(
+        hydrated.export_snapshot().unwrap().fingerprint().unwrap(),
+        fingerprint
+    );
+
+    let before_replay = hydrated.export_snapshot().unwrap();
+    assert_eq!(hydrated.apply(create_request).unwrap(), create_receipt);
+    let original_revise = snapshot
+        .revision_idempotency
+        .iter()
+        .find(|entry| entry.replay_binding.operation == RevisionOperation::Revise)
+        .unwrap()
+        .receipt
+        .clone();
+    assert_eq!(hydrated.apply(revise_request).unwrap(), original_revise);
+    assert_eq!(hydrated.export_snapshot().unwrap(), before_replay);
+}
+
+#[test]
+fn retained_active_and_archived_rotation_hydrate_only_with_exact_replacement_authority() {
+    for archived in [false, true] {
+        let mut ledger = RevisionLedger::default();
+        create(&mut ledger);
+        if archived {
+            ledger
+                .apply(request!(
+                    "archive-before-rotation",
+                    RevisionOperation::Archive,
+                    "record-0",
+                    Some("record-0"),
+                    RevisionActor::Owner,
+                    None,
+                    None,
+                    vec![],
+                ))
+                .unwrap();
+        }
+        let mut rotated = ledger.export_snapshot().unwrap();
+        add_rotation_mapping(&mut rotated);
+        let hydrated = RevisionLedger::from_snapshot(rotated.clone()).unwrap();
+        assert_eq!(hydrated.export_snapshot().unwrap(), rotated);
+
+        let mut missing = rotated.clone();
+        missing.lineages[0].envelope_replacements.clear();
+        assert_eq!(
+            RevisionLedger::from_snapshot(missing).unwrap_err(),
+            ContinuityError::RevisionConflict
+        );
+
+        let mut tampered = rotated;
+        tampered.lineages[0].envelope_replacements[0].replacement_nonce_b64 =
+            BASE64_STANDARD.encode([8_u8; 24]);
+        assert_eq!(
+            RevisionLedger::from_snapshot(tampered).unwrap_err(),
+            ContinuityError::RevisionConflict
+        );
+    }
+}
+
+#[test]
+fn artifact_references_have_one_global_live_lineage_authority() {
+    let mut ledger = RevisionLedger::default();
+    create(&mut ledger);
+    let second = owner_record("second-0", 0, None);
+    ledger
+        .apply(request!(
+            "create-second-artifact-owner",
+            RevisionOperation::Create,
+            "second-0",
+            None,
+            RevisionActor::Owner,
+            Some(second),
+            None,
+            vec![],
+        ))
+        .unwrap();
+    register_artifacts(&mut ledger, "record-0", vec![sha('8')]);
+
+    let request_ref = sha('c');
+    let duplicate = vec![sha('8')];
+    let key = ledger
+        .derive_artifact_registration_idempotency_key(
+            &id("second-0"),
+            &id("second-0"),
+            &request_ref,
+            &duplicate,
+        )
+        .unwrap();
+    assert_eq!(
+        ledger.register_derived_artifacts(
+            key,
+            request_ref,
+            &id("second-0"),
+            &id("second-0"),
+            duplicate,
+        ),
+        Err(ContinuityError::RevisionConflict)
+    );
+
+    let mut crossed = ledger.export_snapshot().unwrap();
+    crossed.lineages[1].derived_artifact_refs = vec![sha('8')];
+    assert_eq!(
+        RevisionLedger::from_snapshot(crossed).unwrap_err(),
+        ContinuityError::RevisionConflict
+    );
+}
+
+#[test]
+fn artifact_history_requires_exact_ordered_inventory_transitions() {
+    let mut ledger = RevisionLedger::default();
+    create(&mut ledger);
+    register_artifacts(&mut ledger, "record-0", vec![sha('8')]);
+    register_artifacts(&mut ledger, "record-0", vec![sha('9')]);
+    let good = ledger.export_snapshot().unwrap();
+    assert!(RevisionLedger::from_snapshot(good.clone()).is_ok());
+
+    let mut future_claim = good.clone();
+    let first = future_claim
+        .artifact_idempotency
+        .iter_mut()
+        .find(|entry| entry.replay_binding.artifact_sequence.get() == 0)
+        .unwrap();
+    first.receipt.complete_inventory = vec![sha('8'), sha('9')];
+    assert_eq!(
+        RevisionLedger::from_snapshot(future_claim).unwrap_err(),
+        ContinuityError::RevisionConflict
+    );
+
+    let mut duplicate_sequence = good;
+    duplicate_sequence
+        .artifact_idempotency
+        .iter_mut()
+        .find(|entry| entry.replay_binding.artifact_sequence.get() == 1)
+        .unwrap()
+        .replay_binding
+        .artifact_sequence = SafeU53::new(0).unwrap();
+    assert!(RevisionLedger::from_snapshot(duplicate_sequence).is_err());
+}
+
+#[test]
+fn snapshot_decode_and_aggregate_membership_are_bounded_before_hydration() {
+    let mut ledger = RevisionLedger::default();
+    create(&mut ledger);
+    let good = ledger.export_snapshot().unwrap();
+    let serialized = serde_json::to_vec(&good).unwrap();
+    assert_eq!(
+        RevisionLedgerSnapshotV1::decode_bounded(&serialized).unwrap(),
+        good
+    );
+    assert_eq!(
+        RevisionLedgerSnapshotV1::decode_bounded(&vec![
+            b' ';
+            MAX_REVISION_SNAPSHOT_CANONICAL_BYTES + 1
+        ])
+        .unwrap_err(),
+        ContinuityError::InvalidRevisionRequest
+    );
+
+    let mut aggregate = good.clone();
+    aggregate.lineages.clear();
+    let lineage_template = good.lineages[0].clone();
+    let lineage_count = MAX_REVISION_MEMBERS_PER_LEDGER / MAX_REVISION_MEMBERS_PER_LINEAGE + 1;
+    for lineage_index in 0..lineage_count {
+        let mut lineage = lineage_template.clone();
+        lineage.lineage_root_id = id(&format!("aggregate-{lineage_index:04}-0000"));
+        lineage.record_ids = (0..MAX_REVISION_MEMBERS_PER_LINEAGE)
+            .map(|member| id(&format!("aggregate-{lineage_index:04}-{member:04}")))
+            .collect();
+        lineage.lineage_head_record_id = lineage.record_ids.last().unwrap().clone();
+        lineage.active_head_record_id = Some(lineage.lineage_head_record_id.clone());
+        aggregate.lineages.push(lineage);
+    }
+    assert_eq!(
+        RevisionLedger::from_snapshot(aggregate).unwrap_err(),
+        ContinuityError::InvalidRevisionRequest
+    );
+}
+
+#[test]
+fn completed_forget_purges_ciphertext_and_survives_restart_without_resurrection() {
+    let mut ledger = RevisionLedger::default();
+    let initial = create(&mut ledger);
+    let revise_request = revise(
+        &mut ledger,
+        "revise-before-purge",
+        "record-0",
+        "record-1",
+        RevisionActor::Resident,
+    );
+    let successor_ciphertext = revise_request
+        .successor
+        .as_ref()
+        .unwrap()
+        .ciphertext_b64
+        .clone();
+    register_artifacts(&mut ledger, "record-1", vec![sha('8')]);
+    let forget = request!(
+        "forget-for-purge",
+        RevisionOperation::Forget,
+        "record-0",
+        Some("record-1"),
+        RevisionActor::Owner,
+        None,
+        None,
+        vec![sha('8')],
+    );
+    ledger.apply(forget).unwrap();
+    assert_eq!(ledger.export_snapshot().unwrap().records.len(), 2);
+    ledger
+        .advance_purge(&id("record-0"), PurgeExecutionStatusV1::InProgress)
+        .unwrap();
+    ledger
+        .advance_purge(&id("record-0"), PurgeExecutionStatusV1::Completed)
+        .unwrap();
+
+    let snapshot = ledger.export_snapshot().unwrap();
+    assert!(snapshot.records.is_empty());
+    let serialized = serde_json::to_string(&snapshot).unwrap();
+    assert!(!serialized.contains(&initial.ciphertext_b64));
+    assert!(!serialized.contains(&successor_ciphertext));
+    assert!(!serialized.contains("ciphertext_b64"));
+
+    let mut hydrated = RevisionLedger::from_snapshot(snapshot.clone()).unwrap();
+    assert_eq!(
+        hydrated.lifecycle(&id("record-0")),
+        Some(RevisionLifecycle::Forgotten)
+    );
+    assert!(hydrated.active_head(&id("record-0")).is_none());
+    assert!(hydrated.history(&id("record-0")).is_empty());
+    let replay_receipt = snapshot
+        .revision_idempotency
+        .iter()
+        .find(|entry| entry.replay_binding.operation == RevisionOperation::Revise)
+        .unwrap()
+        .receipt
+        .clone();
+    assert_eq!(hydrated.apply(revise_request).unwrap(), replay_receipt);
+    assert_eq!(hydrated.export_snapshot().unwrap(), snapshot);
+}
+
+#[test]
+fn hydration_rejects_missing_extra_cross_lineage_and_partial_purge_authority() {
+    let mut ledger = RevisionLedger::default();
+    create(&mut ledger);
+    revise(
+        &mut ledger,
+        "revise-malformed",
+        "record-0",
+        "record-1",
+        RevisionActor::Resident,
+    );
+    let good = ledger.export_snapshot().unwrap();
+
+    let mut missing = good.clone();
+    missing.records.pop();
+    assert!(RevisionLedger::from_snapshot(missing).is_err());
+
+    let mut extra = good.clone();
+    extra.lineages.clear();
+    assert!(RevisionLedger::from_snapshot(extra).is_err());
+
+    let mut wrong_head = good.clone();
+    wrong_head.lineages[0].active_head_record_id = Some(id("record-0"));
+    assert!(RevisionLedger::from_snapshot(wrong_head).is_err());
+
+    let second = owner_record("second-0", 0, None);
+    ledger
+        .apply(request!(
+            "create-second",
+            RevisionOperation::Create,
+            "second-0",
+            None,
+            RevisionActor::Owner,
+            Some(second),
+            None,
+            vec![],
+        ))
+        .unwrap();
+    let mut crossed = ledger.export_snapshot().unwrap();
+    crossed.lineages[1].record_ids.push(id("record-1"));
+    crossed.lineages[1].lineage_head_record_id = id("record-1");
+    crossed.lineages[1].active_head_record_id = Some(id("record-1"));
+    assert!(RevisionLedger::from_snapshot(crossed).is_err());
+
+    let mut purge_ledger = RevisionLedger::default();
+    create(&mut purge_ledger);
+    let forget = request!(
+        "forget-partial",
+        RevisionOperation::Forget,
+        "record-0",
+        Some("record-0"),
+        RevisionActor::Owner,
+        None,
+        None,
+        vec![],
+    );
+    purge_ledger.apply(forget).unwrap();
+    purge_ledger
+        .advance_purge(&id("record-0"), PurgeExecutionStatusV1::InProgress)
+        .unwrap();
+    let mut partial = purge_ledger.export_snapshot().unwrap();
+    partial.records.clear();
+    assert!(RevisionLedger::from_snapshot(partial).is_err());
+
+    let mut unknown = serde_json::to_value(good).unwrap();
+    unknown
+        .as_object_mut()
+        .unwrap()
+        .insert("unexpected".into(), serde_json::json!(true));
+    assert!(serde_json::from_value::<luca_continuity::RevisionLedgerSnapshotV1>(unknown).is_err());
+}
+
+#[test]
+fn historical_replay_keeps_original_version_after_completed_purge_reconciliation() {
+    let mut ledger = RevisionLedger::default();
+    let initial = owner_record("record-0", 0, None);
+    let create_request = request!(
+        "create-version-one",
+        RevisionOperation::Create,
+        "record-0",
+        None,
+        RevisionActor::Owner,
+        Some(initial),
+        None,
+        vec![],
+    );
+    let original_receipt = ledger.apply(create_request.clone()).unwrap();
+    let forget = request!(
+        "forget-version-one",
+        RevisionOperation::Forget,
+        "record-0",
+        Some("record-0"),
+        RevisionActor::Owner,
+        None,
+        None,
+        vec![],
+    );
+    ledger.apply(forget).unwrap();
+    ledger
+        .advance_purge(&id("record-0"), PurgeExecutionStatusV1::InProgress)
+        .unwrap();
+    ledger
+        .advance_purge(&id("record-0"), PurgeExecutionStatusV1::Completed)
+        .unwrap();
+    let mut reconciled = ledger.export_snapshot().unwrap();
+    reconciled.lineages[0].namespace.key_version = SafeU53::new(2).unwrap();
+    reconciled.lineages[0].lineage_envelope_key_version = SafeU53::new(2).unwrap();
+
+    let mut hydrated = RevisionLedger::from_snapshot(reconciled).unwrap();
+    assert_eq!(hydrated.apply(create_request).unwrap(), original_receipt);
+}
+
+#[test]
+fn snapshot_collection_bounds_fail_closed() {
+    let mut ledger = RevisionLedger::default();
+    create(&mut ledger);
+    let good = ledger.export_snapshot().unwrap();
+    let mut oversized = good.clone();
+    oversized.lineages =
+        vec![good.lineages[0].clone(); luca_continuity::MAX_REVISION_AUTHORITY_HEADS + 1];
+    assert!(RevisionLedger::from_snapshot(oversized).is_err());
 }
 
 #[test]

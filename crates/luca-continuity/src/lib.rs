@@ -38,10 +38,20 @@ pub use retrieval::{
     MAX_VECTOR_ENTRIES,
 };
 pub use revision::{
-    derive_revision_idempotency_key, encrypted_record_reference, ActiveRevisionHead,
-    ArtifactRegistrationReceipt, DurableContinuityRecordKind, PurgePlan, RevisionActor,
-    RevisionLedger, RevisionLifecycle, RevisionOperation, RevisionReceipt, RevisionRequest,
+    derive_envelope_replacement_digest, derive_revision_idempotency_key,
+    encrypted_record_reference, ActiveRevisionHead, ArtifactIdempotencySnapshotV1,
+    ArtifactRegistrationReceipt, ArtifactReplayBindingV1, DurableContinuityRecordKind,
+    EnvelopeReplacementV1, PurgeExecutionStateV1, PurgeExecutionStatusV1, PurgePlan,
+    PurgeProgressReceiptV1, PurgedArtifactTombstoneV1, PurgedRecordTombstoneV1, RevisionActor,
+    RevisionIdempotencySnapshotV1, RevisionLedger, RevisionLedgerSnapshotV1, RevisionLifecycle,
+    RevisionLineageSnapshotV1, RevisionOperation, RevisionReceipt, RevisionReplayBindingV1,
+    RevisionRequest, RevisionSuccessorBindingV1, MAX_ARTIFACT_IDEMPOTENCY_ENTRIES,
     MAX_DERIVED_ARTIFACTS_PER_LEDGER, MAX_DERIVED_ARTIFACTS_PER_LINEAGE,
-    MAX_REVISION_AUTHORITY_HEADS, REVISION_AUTHORITY_SCHEMA_V1,
+    MAX_ENVELOPE_REPLACEMENTS_PER_LEDGER, MAX_REPLAY_BINDING_CANONICAL_BYTES_PER_LEDGER,
+    MAX_REPLAY_NESTED_REFS_PER_LEDGER, MAX_REVISION_AUTHORITY_HEADS,
+    MAX_REVISION_IDEMPOTENCY_ENTRIES, MAX_REVISION_MEMBERS_PER_LEDGER,
+    MAX_REVISION_MEMBERS_PER_LINEAGE, MAX_REVISION_SNAPSHOT_CANONICAL_BYTES,
+    MAX_REVISION_SNAPSHOT_ENCODED_CIPHERTEXT_BYTES, MAX_REVISION_SNAPSHOT_RECORDS,
+    REVISION_AUTHORITY_SCHEMA_V1, REVISION_LEDGER_SNAPSHOT_SCHEMA_V1,
 };
 pub use scope::NamespaceScope;
