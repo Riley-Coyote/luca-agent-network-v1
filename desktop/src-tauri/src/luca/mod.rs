@@ -3,6 +3,7 @@
 pub(crate) mod continuity_backup;
 pub(crate) mod continuity_key_custody;
 pub(crate) mod continuity_key_derivation;
+pub(crate) mod continuity_revision_authority;
 pub(crate) mod continuity_rotation;
 pub(crate) mod continuity_store;
 pub(crate) mod local_broker_session;

@@ -7,6 +7,7 @@
 
 use std::{
     fmt, fs,
+    io::Read,
     path::{Path, PathBuf},
 };
 
@@ -15,7 +16,8 @@ use luca_continuity::{
     MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES,
 };
 use luca_protocol::{
-    canonicalize, ContinuityNamespaceKindV1, ContinuityRecordV1, Hex64, SafeU53, Sha256Ref,
+    canonicalize, ContinuityNamespaceKindV1, ContinuityRecordV1, Hex64, OpaqueId, SafeU53,
+    Sha256Ref,
 };
 use rusqlite::{params, Connection, ErrorCode, OpenFlags, OptionalExtension, TransactionBehavior};
 use sha2::{Digest, Sha256};
@@ -25,8 +27,9 @@ use super::continuity_key_custody::ContinuityKeyCustodyStatus;
 const STORE_DIRECTORY: &str = "continuity";
 const STORE_FILENAME: &str = "continuity-v1.sqlite3";
 const APPLICATION_ID: i64 = 0x4c55_4341; // "LUCA"
-const SCHEMA_VERSION: i64 = 3;
-const PREVIOUS_SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 4;
+const PREVIOUS_SCHEMA_VERSION: i64 = 3;
+const LEGACY_SCHEMA_VERSION_V2: i64 = 2;
 const LEGACY_SCHEMA_VERSION: i64 = 1;
 pub(crate) const MAX_CONTINUITY_SNAPSHOT_RECORDS: usize = 100_000;
 pub(crate) const MAX_CONTINUITY_SNAPSHOT_BYTES: usize = 128 * 1024 * 1024;
@@ -111,6 +114,9 @@ pub(crate) enum ContinuityStoreDegradedReason {
     KeyLocked,
     KeyUnavailable,
     KeyCorrupt,
+    /// Legacy encrypted rows lack the body-free authority needed for safe
+    /// restart hydration. D30 forbids inferring that missing history.
+    AuthorityMigrationRequired,
 }
 
 /// Store opening never changes messaging availability. A non-ready key custody
@@ -145,6 +151,7 @@ pub(crate) enum ContinuityStoreError {
     LifecycleConflict,
     CompareAndSwapConflict,
     SnapshotBoundExceeded,
+    AuthorityMigrationRequired,
 }
 
 /// One bounded encrypted row selected from a stable SQLite snapshot.
@@ -198,7 +205,7 @@ pub(crate) enum ContinuityStoreDiagnostic {
 /// An encrypted SQLite continuity store. All returned records are structural
 /// only and must be authenticated before any record can participate in recall.
 pub(crate) struct ContinuityStore {
-    connection: Connection,
+    pub(super) connection: Connection,
     path: PathBuf,
     diagnostics: Vec<ContinuityStoreDiagnostic>,
 }
@@ -237,14 +244,28 @@ impl ContinuityStore {
         // Existing bytes are preflighted through a read-only connection before
         // WAL, a checkpoint, permissions, or schema setup can mutate a foreign,
         // newer, or inconsistent database.
-        if path.exists() {
-            preflight_existing_schema(&path)?;
+        let preflight = path
+            .exists()
+            .then(|| preflight_existing_schema(&path))
+            .transpose()?;
+        if preflight == Some(ExistingSchemaPreflight::DegradedLegacy) {
+            return Ok(ContinuityStoreOpen::Degraded(
+                ContinuityStoreDegradedReason::AuthorityMigrationRequired,
+            ));
         }
         ensure_private_directory(&directory)?;
         let connection = Connection::open(&path).map_err(|_| ContinuityStoreError::Unavailable)?;
         ensure_private_file(&path)?;
-        configure_connection(&connection)?;
+        // New databases and empty legacy upgrades establish their complete
+        // identity and schema in rollback-journal mode. WAL is enabled only
+        // after that transaction commits, so a legitimate store never relies
+        // on classifying an ambiguous header-zero main file plus sidecars.
+        configure_connection_base(&connection)?;
+        if preflight == Some(ExistingSchemaPreflight::UpgradeEmptyLegacy) {
+            force_rollback_journal(&connection)?;
+        }
         initialize_schema(&connection)?;
+        enable_wal(&connection)?;
         Ok(ContinuityStoreOpen::Ready(Self {
             connection,
             path,
@@ -551,25 +572,35 @@ impl ContinuityStore {
         &self,
         expected_owner: &Hex64,
     ) -> Result<ContinuityRestoreDestination, ContinuityStoreError> {
-        let mut statement = self
+        let (count, malformed, unexpected): (i64, i64, i64) = self
             .connection
-            .prepare(
-                "SELECT owner_pubkey FROM continuity_records
-                 UNION SELECT owner_pubkey FROM continuity_owner_versions
-                 UNION SELECT owner_pubkey FROM continuity_rotation_journals
-                 UNION SELECT owner_pubkey FROM continuity_rotation_receipts
-                 UNION SELECT owner_pubkey FROM continuity_source_mappings",
+            .query_row(
+                "WITH owners(owner_pubkey) AS (
+                     SELECT owner_pubkey FROM continuity_records
+                     UNION SELECT owner_pubkey FROM continuity_owner_versions
+                     UNION SELECT owner_pubkey FROM continuity_rotation_journals
+                     UNION SELECT owner_pubkey FROM continuity_rotation_receipts
+                     UNION SELECT owner_pubkey FROM continuity_source_mappings
+                     UNION SELECT owner_pubkey FROM continuity_authority_meta
+                 )
+                 SELECT COUNT(*),
+                        COALESCE(SUM(CASE WHEN typeof(owner_pubkey)='text'
+                                              AND length(CAST(owner_pubkey AS BLOB))=64
+                                              AND owner_pubkey NOT GLOB '*[^0-9a-f]*'
+                                         THEN 0 ELSE 1 END),0),
+                        COALESCE(SUM(CASE WHEN owner_pubkey=?1 THEN 0 ELSE 1 END),0)
+                 FROM owners",
+                [expected_owner.as_str()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .map_err(|_| ContinuityStoreError::Unavailable)?;
-        let owners = statement
-            .query_map([], |row| row.get::<_, String>(0))
-            .map_err(|_| ContinuityStoreError::Unavailable)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| ContinuityStoreError::Unavailable)?;
-        if owners.is_empty() {
+        if malformed != 0 {
+            return Err(ContinuityStoreError::InvalidRecord);
+        }
+        if count == 0 {
             return Ok(ContinuityRestoreDestination::Empty);
         }
-        if owners.len() == 1 && owners[0] == expected_owner.as_str() {
+        if count == 1 && unexpected == 0 {
             return Ok(ContinuityRestoreDestination::ExactOwner);
         }
         Err(ContinuityStoreError::LifecycleConflict)
@@ -587,11 +618,41 @@ impl ContinuityStore {
         &self,
         owner_pubkey: &Hex64,
     ) -> Result<Option<ContinuityRecordV1>, ContinuityStoreError> {
+        let (count, malformed): (i64, i64) = self
+            .connection
+            .query_row(
+                "SELECT COUNT(*),
+                        COALESCE(SUM(CASE WHEN typeof(owner_pubkey)='text'
+                                              AND length(CAST(owner_pubkey AS BLOB))=64
+                                              AND owner_pubkey NOT GLOB '*[^0-9a-f]*'
+                                              AND typeof(rotation_id)='text'
+                                              AND length(CAST(rotation_id AS BLOB)) BETWEEN 1 AND 128
+                                              AND rotation_id NOT GLOB '*[^A-Za-z0-9._:-]*'
+                                              AND typeof(envelope_json)='blob'
+                                              AND length(envelope_json) BETWEEN 0 AND ?2
+                                         THEN 0 ELSE 1 END),0)
+                 FROM continuity_rotation_journals WHERE owner_pubkey=?1",
+                params![
+                    owner_pubkey.as_str(),
+                    MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES as i64
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if count > 1 || malformed != 0 {
+            return Err(ContinuityStoreError::InvalidRecord);
+        }
         let raw: Option<Vec<u8>> = self
             .connection
             .query_row(
                 "SELECT envelope_json FROM continuity_rotation_journals
                  WHERE owner_pubkey = ?1
+                   AND typeof(owner_pubkey)='text'
+                   AND length(CAST(owner_pubkey AS BLOB))=64
+                   AND owner_pubkey NOT GLOB '*[^0-9a-f]*'
+                   AND typeof(rotation_id)='text'
+                   AND length(CAST(rotation_id AS BLOB)) BETWEEN 1 AND 128
+                   AND rotation_id NOT GLOB '*[^A-Za-z0-9._:-]*'
                    AND typeof(envelope_json) = 'blob'
                    AND length(envelope_json) BETWEEN 0 AND ?2",
                 params![
@@ -602,6 +663,9 @@ impl ContinuityStore {
             )
             .optional()
             .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if raw.is_some() != (count == 1) {
+            return Err(ContinuityStoreError::CompareAndSwapConflict);
+        }
         raw.map(|raw| {
             serde_json::from_slice::<ContinuityRecordV1>(&raw)
                 .map_err(|_| ContinuityStoreError::InvalidRecord)
@@ -619,11 +683,50 @@ impl ContinuityStore {
         owner_pubkey: &Hex64,
         rotation_id: &str,
     ) -> Result<Option<(Hex64, ContinuityRecordV1)>, ContinuityStoreError> {
+        OpaqueId::parse(rotation_id.to_owned()).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+        let (count, malformed): (i64, i64) = self
+            .connection
+            .query_row(
+                "SELECT COUNT(*),
+                        COALESCE(SUM(CASE WHEN typeof(owner_pubkey)='text'
+                                              AND length(CAST(owner_pubkey AS BLOB))=64
+                                              AND owner_pubkey NOT GLOB '*[^0-9a-f]*'
+                                              AND typeof(rotation_id)='text'
+                                              AND length(CAST(rotation_id AS BLOB)) BETWEEN 1 AND 128
+                                              AND rotation_id NOT GLOB '*[^A-Za-z0-9._:-]*'
+                                              AND typeof(request_sha256)='text'
+                                              AND length(CAST(request_sha256 AS BLOB))=64
+                                              AND request_sha256 NOT GLOB '*[^0-9a-f]*'
+                                              AND typeof(envelope_json)='blob'
+                                              AND length(envelope_json) BETWEEN 0 AND ?3
+                                         THEN 0 ELSE 1 END),0)
+                 FROM continuity_rotation_receipts
+                 WHERE owner_pubkey=?1 AND rotation_id=?2",
+                params![
+                    owner_pubkey.as_str(),
+                    rotation_id,
+                    MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES as i64
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if count > 1 || malformed != 0 {
+            return Err(ContinuityStoreError::InvalidRecord);
+        }
         let row: Option<(String, Vec<u8>)> = self
             .connection
             .query_row(
                 "SELECT request_sha256, envelope_json FROM continuity_rotation_receipts
                  WHERE owner_pubkey = ?1 AND rotation_id = ?2
+                   AND typeof(owner_pubkey)='text'
+                   AND length(CAST(owner_pubkey AS BLOB))=64
+                   AND owner_pubkey NOT GLOB '*[^0-9a-f]*'
+                   AND typeof(rotation_id)='text'
+                   AND length(CAST(rotation_id AS BLOB)) BETWEEN 1 AND 128
+                   AND rotation_id NOT GLOB '*[^A-Za-z0-9._:-]*'
+                   AND typeof(request_sha256)='text'
+                   AND length(CAST(request_sha256 AS BLOB))=64
+                   AND request_sha256 NOT GLOB '*[^0-9a-f]*'
                    AND typeof(envelope_json) = 'blob'
                    AND length(envelope_json) BETWEEN 0 AND ?3",
                 params![
@@ -635,6 +738,9 @@ impl ContinuityStore {
             )
             .optional()
             .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if row.is_some() != (count == 1) {
+            return Err(ContinuityStoreError::CompareAndSwapConflict);
+        }
         row.map(|(request_sha256, raw)| {
             let request_sha256 =
                 Hex64::parse(request_sha256).map_err(|_| ContinuityStoreError::InvalidRecord)?;
@@ -656,6 +762,7 @@ impl ContinuityStore {
         expected_count: usize,
         journal: &ContinuityRecordV1,
     ) -> Result<(), ContinuityStoreError> {
+        OpaqueId::parse(rotation_id.to_owned()).map_err(|_| ContinuityStoreError::InvalidRecord)?;
         validate_record(journal)?;
         let encoded = canonicalize(journal).map_err(|_| ContinuityStoreError::InvalidRecord)?;
         if encoded.len() > MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES {
@@ -925,6 +1032,7 @@ impl ContinuityStore {
         request_sha256: &Hex64,
         completed_journal: &ContinuityRecordV1,
     ) -> Result<(), ContinuityStoreError> {
+        OpaqueId::parse(rotation_id.to_owned()).map_err(|_| ContinuityStoreError::InvalidRecord)?;
         validate_record(completed_journal)?;
         let encoded =
             canonicalize(completed_journal).map_err(|_| ContinuityStoreError::InvalidRecord)?;
@@ -949,14 +1057,33 @@ impl ContinuityStore {
                 ],
             )
             .map_err(|_| ContinuityStoreError::Unavailable)?;
-        let stored: (String, Vec<u8>) = transaction
+        let stored: Option<(String, Vec<u8>)> = transaction
             .query_row(
                 "SELECT request_sha256, envelope_json FROM continuity_rotation_receipts
-                 WHERE owner_pubkey = ?1 AND rotation_id = ?2",
-                params![owner_pubkey.as_str(), rotation_id],
+                 WHERE owner_pubkey = ?1 AND rotation_id = ?2
+                   AND typeof(owner_pubkey)='text'
+                   AND length(CAST(owner_pubkey AS BLOB))=64
+                   AND owner_pubkey NOT GLOB '*[^0-9a-f]*'
+                   AND typeof(rotation_id)='text'
+                   AND length(CAST(rotation_id AS BLOB)) BETWEEN 1 AND 128
+                   AND rotation_id NOT GLOB '*[^A-Za-z0-9._:-]*'
+                   AND typeof(request_sha256)='text'
+                   AND length(CAST(request_sha256 AS BLOB))=64
+                   AND request_sha256 NOT GLOB '*[^0-9a-f]*'
+                   AND typeof(envelope_json)='blob'
+                   AND length(envelope_json) BETWEEN 0 AND ?3",
+                params![
+                    owner_pubkey.as_str(),
+                    rotation_id,
+                    MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES as i64
+                ],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
+            .optional()
             .map_err(|_| ContinuityStoreError::Unavailable)?;
+        let Some(stored) = stored else {
+            return Err(ContinuityStoreError::ReplayConflict);
+        };
         if stored.0 != request_sha256.as_str() || stored.1 != encoded {
             return Err(ContinuityStoreError::ReplayConflict);
         }
@@ -1007,12 +1134,7 @@ impl ContinuityStore {
         if mappings.len() > MAX_CONTINUITY_SNAPSHOT_RECORDS {
             return Err(ContinuityStoreError::SnapshotBoundExceeded);
         }
-        let mut mapping_refs = std::collections::BTreeSet::new();
-        for mapping in mappings {
-            if !mapping_refs.insert(mapping.mapping_ref.as_str()) {
-                return Err(ContinuityStoreError::InvalidRecord);
-            }
-        }
+        validate_source_mappings(mappings)?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -1027,35 +1149,29 @@ impl ContinuityStore {
         if lifecycle_busy {
             return Err(ContinuityStoreError::LifecycleConflict);
         }
+        let authority_exists: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM continuity_authority_meta
+                 WHERE owner_pubkey=?1)",
+                [owner_pubkey.as_str()],
+                |row| row.get(0),
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if authority_exists {
+            // The legacy seam has no revision snapshot parameter. Refuse an
+            // authority-bearing owner rather than silently orphaning or
+            // mismatching its complete v4 generation.
+            return Err(ContinuityStoreError::LifecycleConflict);
+        }
         transaction
             .execute(
                 "DELETE FROM continuity_records WHERE owner_pubkey = ?1",
                 [owner_pubkey.as_str()],
             )
             .map_err(|_| ContinuityStoreError::Unavailable)?;
-        transaction
-            .execute(
-                "DELETE FROM continuity_source_mappings WHERE owner_pubkey = ?1",
-                [owner_pubkey.as_str()],
-            )
-            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        replace_source_mappings(&transaction, owner_pubkey, mappings)?;
         for (record, bytes) in encoded {
             insert_record(&transaction, record, &bytes)?;
-        }
-        for mapping in mappings {
-            transaction
-                .execute(
-                    "INSERT INTO continuity_source_mappings(
-                         owner_pubkey, mapping_ref, source_ref, resident_pubkey
-                     ) VALUES (?1, ?2, ?3, ?4)",
-                    params![
-                        owner_pubkey.as_str(),
-                        mapping.mapping_ref.as_str(),
-                        mapping.source_ref.as_str(),
-                        mapping.resident_pubkey.as_ref().map(|value| value.as_str()),
-                    ],
-                )
-                .map_err(|_| ContinuityStoreError::Unavailable)?;
         }
         transaction
             .execute(
@@ -1313,21 +1429,41 @@ fn load_source_mappings(
     connection: &Connection,
     owner_pubkey: &Hex64,
 ) -> Result<Vec<ContinuitySourceMapping>, ContinuityStoreError> {
-    let count: i64 = connection
+    let (count, bytes, malformed): (i64, i64, i64) = connection
         .query_row(
-            "SELECT COUNT(*) FROM continuity_source_mappings WHERE owner_pubkey = ?1",
+            "SELECT COUNT(*),
+                    COALESCE(SUM(length(CAST(mapping_ref AS BLOB))
+                               +length(CAST(source_ref AS BLOB))
+                               +COALESCE(length(CAST(resident_pubkey AS BLOB)),0)),0),
+                    COALESCE(SUM(CASE WHEN typeof(mapping_ref)='text'
+                                           AND length(CAST(mapping_ref AS BLOB))=71
+                                           AND typeof(source_ref)='text'
+                                           AND length(CAST(source_ref AS BLOB))=71
+                                           AND (resident_pubkey IS NULL OR
+                                                (typeof(resident_pubkey)='text' AND
+                                                 length(CAST(resident_pubkey AS BLOB))=64))
+                                      THEN 0 ELSE 1 END),0)
+             FROM continuity_source_mappings WHERE owner_pubkey = ?1",
             [owner_pubkey.as_str()],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .map_err(|_| ContinuityStoreError::Unavailable)?;
     let count = usize::try_from(count).map_err(|_| ContinuityStoreError::SnapshotBoundExceeded)?;
-    if count > MAX_CONTINUITY_SNAPSHOT_RECORDS {
+    if bytes < 0 || malformed != 0 {
+        return Err(ContinuityStoreError::InvalidRecord);
+    }
+    if count > MAX_CONTINUITY_SNAPSHOT_RECORDS || bytes as usize > MAX_CONTINUITY_SNAPSHOT_BYTES {
         return Err(ContinuityStoreError::SnapshotBoundExceeded);
     }
     let mut statement = connection
         .prepare(
             "SELECT mapping_ref, source_ref, resident_pubkey
              FROM continuity_source_mappings WHERE owner_pubkey = ?1
+               AND typeof(mapping_ref)='text' AND length(CAST(mapping_ref AS BLOB))=71
+               AND typeof(source_ref)='text' AND length(CAST(source_ref AS BLOB))=71
+               AND (resident_pubkey IS NULL OR
+                    (typeof(resident_pubkey)='text' AND
+                     length(CAST(resident_pubkey AS BLOB))=64))
              ORDER BY mapping_ref LIMIT ?2",
         )
         .map_err(|_| ContinuityStoreError::Unavailable)?;
@@ -1361,6 +1497,51 @@ fn load_source_mappings(
     Ok(result)
 }
 
+pub(super) fn validate_source_mappings(
+    mappings: &[ContinuitySourceMapping],
+) -> Result<(), ContinuityStoreError> {
+    if mappings.len() > MAX_CONTINUITY_SNAPSHOT_RECORDS {
+        return Err(ContinuityStoreError::SnapshotBoundExceeded);
+    }
+    let mut mapping_refs = std::collections::BTreeSet::new();
+    for mapping in mappings {
+        if !mapping_refs.insert(mapping.mapping_ref.as_str()) {
+            return Err(ContinuityStoreError::InvalidRecord);
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn replace_source_mappings(
+    transaction: &rusqlite::Transaction<'_>,
+    owner_pubkey: &Hex64,
+    mappings: &[ContinuitySourceMapping],
+) -> Result<(), ContinuityStoreError> {
+    validate_source_mappings(mappings)?;
+    transaction
+        .execute(
+            "DELETE FROM continuity_source_mappings WHERE owner_pubkey = ?1",
+            [owner_pubkey.as_str()],
+        )
+        .map_err(|_| ContinuityStoreError::Unavailable)?;
+    for mapping in mappings {
+        transaction
+            .execute(
+                "INSERT INTO continuity_source_mappings(
+                     owner_pubkey, mapping_ref, source_ref, resident_pubkey
+                 ) VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    owner_pubkey.as_str(),
+                    mapping.mapping_ref.as_str(),
+                    mapping.source_ref.as_str(),
+                    mapping.resident_pubkey.as_ref().map(|value| value.as_str()),
+                ],
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+    }
+    Ok(())
+}
+
 impl Drop for ContinuityStore {
     fn drop(&mut self) {
         // Best effort only: close must never affect application shutdown or chat.
@@ -1370,17 +1551,28 @@ impl Drop for ContinuityStore {
     }
 }
 
-fn configure_connection(connection: &Connection) -> Result<(), ContinuityStoreError> {
+fn configure_connection_base(connection: &Connection) -> Result<(), ContinuityStoreError> {
     connection
         .execute_batch(
-            "PRAGMA journal_mode = WAL;
-         PRAGMA busy_timeout = 5000;
+            "PRAGMA busy_timeout = 5000;
          PRAGMA foreign_keys = ON;
          PRAGMA trusted_schema = OFF;
          PRAGMA temp_store = MEMORY;
          PRAGMA secure_delete = ON;
          PRAGMA synchronous = FULL;",
         )
+        .map_err(|_| ContinuityStoreError::Unavailable)
+}
+
+fn enable_wal(connection: &Connection) -> Result<(), ContinuityStoreError> {
+    connection
+        .execute_batch("PRAGMA journal_mode = WAL;")
+        .map_err(|_| ContinuityStoreError::Unavailable)
+}
+
+fn force_rollback_journal(connection: &Connection) -> Result<(), ContinuityStoreError> {
+    connection
+        .execute_batch("PRAGMA journal_mode = DELETE;")
         .map_err(|_| ContinuityStoreError::Unavailable)
 }
 
@@ -1413,14 +1605,15 @@ fn initialize_schema(connection: &Connection) -> Result<(), ContinuityStoreError
                  {CREATE_ROTATION_JOURNAL_TABLE_SQL};
                  {CREATE_ROTATION_RECEIPT_TABLE_SQL};
                  {CREATE_SOURCE_MAPPING_TABLE_SQL};
+                 {};
                  PRAGMA application_id = {APPLICATION_ID};
                  PRAGMA user_version = {SCHEMA_VERSION};
-                 COMMIT;"
+                 COMMIT;",
+                super::continuity_revision_authority::CREATE_AUTHORITY_SCHEMA_SQL,
             ))
             .map_err(|_| ContinuityStoreError::Unavailable)?;
     } else if user_version == LEGACY_SCHEMA_VERSION {
-        // K03D's exact v1 schema is the only accepted migration source. The
-        // preflight has already validated it without writes.
+        require_empty_legacy(connection, LEGACY_SCHEMA_VERSION)?;
         connection
             .execute_batch(&format!(
                 "BEGIN IMMEDIATE;
@@ -1428,18 +1621,34 @@ fn initialize_schema(connection: &Connection) -> Result<(), ContinuityStoreError
                  {CREATE_ROTATION_JOURNAL_TABLE_SQL};
                  {CREATE_ROTATION_RECEIPT_TABLE_SQL};
                  {CREATE_SOURCE_MAPPING_TABLE_SQL};
+                 {};
                  PRAGMA user_version = {SCHEMA_VERSION};
-                 COMMIT;"
+                 COMMIT;",
+                super::continuity_revision_authority::CREATE_AUTHORITY_SCHEMA_SQL,
             ))
             .map_err(|_| ContinuityStoreError::Unavailable)?;
-    } else if user_version == PREVIOUS_SCHEMA_VERSION {
+    } else if user_version == LEGACY_SCHEMA_VERSION_V2 {
+        require_empty_legacy(connection, LEGACY_SCHEMA_VERSION_V2)?;
         connection
             .execute_batch(&format!(
                 "BEGIN IMMEDIATE;
                  {CREATE_ROTATION_RECEIPT_TABLE_SQL};
                  {CREATE_SOURCE_MAPPING_TABLE_SQL};
+                 {};
                  PRAGMA user_version = {SCHEMA_VERSION};
-                 COMMIT;"
+                 COMMIT;",
+                super::continuity_revision_authority::CREATE_AUTHORITY_SCHEMA_SQL,
+            ))
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+    } else if user_version == PREVIOUS_SCHEMA_VERSION {
+        require_empty_legacy(connection, PREVIOUS_SCHEMA_VERSION)?;
+        connection
+            .execute_batch(&format!(
+                "BEGIN IMMEDIATE;
+                 {};
+                 PRAGMA user_version = {SCHEMA_VERSION};
+                 COMMIT;",
+                super::continuity_revision_authority::CREATE_AUTHORITY_SCHEMA_SQL,
             ))
             .map_err(|_| ContinuityStoreError::Unavailable)?;
     }
@@ -1448,29 +1657,104 @@ fn initialize_schema(connection: &Connection) -> Result<(), ContinuityStoreError
 
 /// Check an existing database without a write-capable connection. Any unknown,
 /// newer, corrupted, or inconsistent store is refused before initialization.
-fn preflight_existing_schema(path: &Path) -> Result<(), ContinuityStoreError> {
-    // A normal read-only SQLite open intentionally participates in WAL
-    // recovery. Immutable mode would ignore committed crash-residue in `-wal`
-    // and could validate a stale main file. The path and sidecars are checked
-    // for symlinks before SQLite is allowed to inspect them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ExistingSchemaPreflight {
+    Current,
+    UpgradeEmptyLegacy,
+    DegradedLegacy,
+}
+
+fn preflight_existing_schema(path: &Path) -> Result<ExistingSchemaPreflight, ContinuityStoreError> {
     reject_symlink(path)?;
-    reject_symlink(&path.with_extension("sqlite3-wal"))?;
-    reject_symlink(&path.with_extension("sqlite3-shm"))?;
-    let connection = Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
+    let wal = path.with_extension("sqlite3-wal");
+    let shm = path.with_extension("sqlite3-shm");
+    reject_symlink(&wal)?;
+    reject_symlink(&shm)?;
+    let (header_application_id, header_version) = read_sqlite_identity(path)?;
+    let sidecar_present = [&wal, &shm].iter().any(|sidecar| {
+        fs::metadata(sidecar)
+            .map(|metadata| metadata.len() > 0)
+            .unwrap_or(false)
+    });
+    let recognized_header = header_application_id == APPLICATION_ID
+        && matches!(
+            header_version,
+            LEGACY_SCHEMA_VERSION
+                | LEGACY_SCHEMA_VERSION_V2
+                | PREVIOUS_SCHEMA_VERSION
+                | SCHEMA_VERSION
+        );
+    if !recognized_header {
+        // Header-zero plus sidecars is intrinsically ambiguous. Fail closed
+        // without entropy, temporary files, SQLite recovery, or source writes.
+        return Err(ContinuityStoreError::SchemaIncompatible);
+    }
+    let legacy = header_version < SCHEMA_VERSION;
+    let legacy_sidecar_present = legacy && sidecar_present;
+    // Legacy inspection must not create or mutate SHM/WAL. Immutable mode
+    // validates the checkpointed main file; any legacy sidecar then forces the
+    // body-free degraded path without attempting recovery or migration.
+    let connection = if legacy {
+        let escaped = path
+            .to_string_lossy()
+            .replace('%', "%25")
+            .replace('?', "%3F")
+            .replace('#', "%23");
+        Connection::open_with_flags(
+            format!("file:{escaped}?immutable=1"),
+            OpenFlags::SQLITE_OPEN_READ_ONLY
+                | OpenFlags::SQLITE_OPEN_NO_MUTEX
+                | OpenFlags::SQLITE_OPEN_URI,
+        )
+    } else {
+        // V4 participates in normal SQLite WAL recovery so an already-committed
+        // current generation is never ignored after a crash.
+        Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+    }
     .map_err(|_| ContinuityStoreError::SchemaIncompatible)?;
+    classify_existing_connection(&connection, legacy_sidecar_present)
+}
+
+fn classify_existing_connection(
+    connection: &Connection,
+    legacy_sidecar_present: bool,
+) -> Result<ExistingSchemaPreflight, ContinuityStoreError> {
     let user_version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|_| ContinuityStoreError::SchemaIncompatible)?;
     match user_version {
-        LEGACY_SCHEMA_VERSION => validate_legacy_schema(&connection),
-        PREVIOUS_SCHEMA_VERSION => validate_previous_schema(&connection),
-        SCHEMA_VERSION => validate_schema(&connection),
-        _ => Err(ContinuityStoreError::SchemaIncompatible),
+        LEGACY_SCHEMA_VERSION => validate_legacy_schema(&connection)?,
+        LEGACY_SCHEMA_VERSION_V2 => validate_v2_schema(&connection)?,
+        PREVIOUS_SCHEMA_VERSION => validate_previous_schema(&connection)?,
+        SCHEMA_VERSION => {
+            validate_schema(&connection)?;
+            return Ok(ExistingSchemaPreflight::Current);
+        }
+        _ => return Err(ContinuityStoreError::SchemaIncompatible),
     }
-    .map_err(|_| ContinuityStoreError::SchemaIncompatible)
+    if legacy_sidecar_present {
+        Ok(ExistingSchemaPreflight::DegradedLegacy)
+    } else if legacy_store_is_empty(&connection, user_version)? {
+        Ok(ExistingSchemaPreflight::UpgradeEmptyLegacy)
+    } else {
+        Ok(ExistingSchemaPreflight::DegradedLegacy)
+    }
+}
+
+fn read_sqlite_identity(path: &Path) -> Result<(i64, i64), ContinuityStoreError> {
+    let mut header = [0u8; 100];
+    fs::File::open(path)
+        .and_then(|mut file| file.read_exact(&mut header))
+        .map_err(|_| ContinuityStoreError::SchemaIncompatible)?;
+    if &header[..16] != b"SQLite format 3\0" {
+        return Err(ContinuityStoreError::SchemaIncompatible);
+    }
+    let version = u32::from_be_bytes(header[60..64].try_into().unwrap()) as i64;
+    let application_id = u32::from_be_bytes(header[68..72].try_into().unwrap()) as i64;
+    Ok((application_id, version))
 }
 
 fn validate_schema(connection: &Connection) -> Result<(), ContinuityStoreError> {
@@ -1524,7 +1808,9 @@ fn validate_schema(connection: &Connection) -> Result<(), ContinuityStoreError> 
             ("source_ref", "TEXT", true, 0),
             ("resident_pubkey", "TEXT", false, 0),
         ],
-    )
+    )?;
+    super::continuity_revision_authority::validate_authority_schema(connection)?;
+    validate_exact_schema_inventory(connection, SCHEMA_VERSION)
 }
 
 fn validate_previous_schema(connection: &Connection) -> Result<(), ContinuityStoreError> {
@@ -1556,7 +1842,94 @@ fn validate_previous_schema(connection: &Connection) -> Result<(), ContinuitySto
             ("rotation_id", "TEXT", true, 0),
             ("envelope_json", "BLOB", true, 0),
         ],
-    )
+    )?;
+    validate_exact_table(
+        connection,
+        "continuity_rotation_receipts",
+        CREATE_ROTATION_RECEIPT_TABLE_SQL,
+        &[
+            ("owner_pubkey", "TEXT", true, 1),
+            ("rotation_id", "TEXT", true, 2),
+            ("request_sha256", "TEXT", true, 0),
+            ("envelope_json", "BLOB", true, 0),
+        ],
+    )?;
+    validate_exact_table(
+        connection,
+        "continuity_source_mappings",
+        CREATE_SOURCE_MAPPING_TABLE_SQL,
+        &[
+            ("owner_pubkey", "TEXT", true, 1),
+            ("mapping_ref", "TEXT", true, 2),
+            ("source_ref", "TEXT", true, 0),
+            ("resident_pubkey", "TEXT", false, 0),
+        ],
+    )?;
+    validate_exact_schema_inventory(connection, PREVIOUS_SCHEMA_VERSION)
+}
+
+fn validate_v2_schema(connection: &Connection) -> Result<(), ContinuityStoreError> {
+    let application_id: i64 = connection
+        .pragma_query_value(None, "application_id", |row| row.get(0))
+        .map_err(|_| ContinuityStoreError::Unavailable)?;
+    let user_version: i64 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|_| ContinuityStoreError::Unavailable)?;
+    if application_id != APPLICATION_ID || user_version != LEGACY_SCHEMA_VERSION_V2 {
+        return Err(ContinuityStoreError::SchemaIncompatible);
+    }
+    validate_record_schema(connection)?;
+    validate_exact_table(
+        connection,
+        "continuity_owner_versions",
+        CREATE_OWNER_VERSION_TABLE_SQL,
+        &[
+            ("owner_pubkey", "TEXT", true, 1),
+            ("active_key_version", "INTEGER", true, 0),
+        ],
+    )?;
+    validate_exact_table(
+        connection,
+        "continuity_rotation_journals",
+        CREATE_ROTATION_JOURNAL_TABLE_SQL,
+        &[
+            ("owner_pubkey", "TEXT", true, 1),
+            ("rotation_id", "TEXT", true, 0),
+            ("envelope_json", "BLOB", true, 0),
+        ],
+    )?;
+    validate_exact_schema_inventory(connection, LEGACY_SCHEMA_VERSION_V2)
+}
+
+fn legacy_store_is_empty(
+    connection: &Connection,
+    version: i64,
+) -> Result<bool, ContinuityStoreError> {
+    let mut tables = vec!["continuity_records"];
+    if version >= LEGACY_SCHEMA_VERSION_V2 {
+        tables.extend(["continuity_owner_versions", "continuity_rotation_journals"]);
+    }
+    if version >= PREVIOUS_SCHEMA_VERSION {
+        tables.extend(["continuity_rotation_receipts", "continuity_source_mappings"]);
+    }
+    for table in tables {
+        let sql = format!("SELECT EXISTS(SELECT 1 FROM {table} LIMIT 1)");
+        let populated: bool = connection
+            .query_row(&sql, [], |row| row.get(0))
+            .map_err(|_| ContinuityStoreError::SchemaIncompatible)?;
+        if populated {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn require_empty_legacy(connection: &Connection, version: i64) -> Result<(), ContinuityStoreError> {
+    if legacy_store_is_empty(connection, version)? {
+        Ok(())
+    } else {
+        Err(ContinuityStoreError::AuthorityMigrationRequired)
+    }
 }
 
 fn validate_legacy_schema(connection: &Connection) -> Result<(), ContinuityStoreError> {
@@ -1569,7 +1942,56 @@ fn validate_legacy_schema(connection: &Connection) -> Result<(), ContinuityStore
     if application_id != APPLICATION_ID || user_version != LEGACY_SCHEMA_VERSION {
         return Err(ContinuityStoreError::SchemaIncompatible);
     }
-    validate_record_schema(connection)
+    validate_record_schema(connection)?;
+    validate_exact_schema_inventory(connection, LEGACY_SCHEMA_VERSION)
+}
+
+fn validate_exact_schema_inventory(
+    connection: &Connection,
+    version: i64,
+) -> Result<(), ContinuityStoreError> {
+    let mut expected = vec!["continuity_records", "continuity_records_exact_scope"];
+    if version >= LEGACY_SCHEMA_VERSION_V2 {
+        expected.extend(["continuity_owner_versions", "continuity_rotation_journals"]);
+    }
+    if version >= PREVIOUS_SCHEMA_VERSION {
+        expected.extend(["continuity_rotation_receipts", "continuity_source_mappings"]);
+    }
+    if version >= SCHEMA_VERSION {
+        expected.extend_from_slice(super::continuity_revision_authority::AUTHORITY_TABLES);
+        expected.extend_from_slice(super::continuity_revision_authority::AUTHORITY_INDEXES);
+    }
+    let placeholders = std::iter::repeat_n("?", expected.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT COUNT(*) FROM sqlite_master
+         WHERE name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+           AND (type NOT IN ('table','index') OR name NOT IN ({placeholders}))"
+    );
+    let mut statement = connection
+        .prepare(&sql)
+        .map_err(|_| ContinuityStoreError::SchemaIncompatible)?;
+    let extras: i64 = statement
+        .query_row(rusqlite::params_from_iter(expected.iter()), |row| {
+            row.get(0)
+        })
+        .map_err(|_| ContinuityStoreError::SchemaIncompatible)?;
+    if extras != 0 {
+        return Err(ContinuityStoreError::SchemaIncompatible);
+    }
+    let visible_count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE name NOT LIKE 'sqlite\\_%' ESCAPE '\\'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|_| ContinuityStoreError::SchemaIncompatible)?;
+    if visible_count != expected.len() as i64 {
+        return Err(ContinuityStoreError::SchemaIncompatible);
+    }
+    Ok(())
 }
 
 fn validate_record_schema(connection: &Connection) -> Result<(), ContinuityStoreError> {
@@ -1808,7 +2230,7 @@ fn validate_record(record: &ContinuityRecordV1) -> Result<(), ContinuityStoreErr
     Ok(())
 }
 
-fn insert_record(
+pub(super) fn insert_record(
     transaction: &rusqlite::Transaction<'_>,
     record: &ContinuityRecordV1,
     encoded: &[u8],
@@ -1979,6 +2401,42 @@ mod tests {
         drop(connection);
         path
     }
+    fn create_exact_legacy_store(temp: &TempDir, version: i64, with_record: bool) -> PathBuf {
+        let directory = temp.path().join(STORE_DIRECTORY);
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join(STORE_FILENAME);
+        let mut connection = Connection::open(&path).unwrap();
+        let mut schema = format!(
+            "PRAGMA journal_mode=DELETE;
+             {CREATE_TABLE_SQL};
+             {CREATE_SCOPE_INDEX_SQL};"
+        );
+        if version >= LEGACY_SCHEMA_VERSION_V2 {
+            schema.push_str(CREATE_OWNER_VERSION_TABLE_SQL);
+            schema.push(';');
+            schema.push_str(CREATE_ROTATION_JOURNAL_TABLE_SQL);
+            schema.push(';');
+        }
+        if version >= PREVIOUS_SCHEMA_VERSION {
+            schema.push_str(CREATE_ROTATION_RECEIPT_TABLE_SQL);
+            schema.push(';');
+            schema.push_str(CREATE_SOURCE_MAPPING_TABLE_SQL);
+            schema.push(';');
+        }
+        schema.push_str(&format!(
+            "PRAGMA application_id={APPLICATION_ID}; PRAGMA user_version={version};"
+        ));
+        connection.execute_batch(&schema).unwrap();
+        if with_record {
+            let record = encrypt_record(metadata("legacy-record"), &[0x44; 32], b"legacy").unwrap();
+            let encoded = canonicalize(&record).unwrap();
+            let transaction = connection.transaction().unwrap();
+            insert_record(&transaction, &record, &encoded).unwrap();
+            transaction.commit().unwrap();
+        }
+        drop(connection);
+        path
+    }
     fn assert_schema_rejected_without_mutation(temp: &TempDir, path: &Path) {
         let before = sidecar_snapshot(path);
         assert!(matches!(
@@ -2064,6 +2522,111 @@ mod tests {
     }
 
     #[test]
+    fn exact_empty_v1_v2_v3_upgrade_to_v4_without_owner_authority() {
+        for version in [
+            LEGACY_SCHEMA_VERSION,
+            LEGACY_SCHEMA_VERSION_V2,
+            PREVIOUS_SCHEMA_VERSION,
+        ] {
+            let temp = TempDir::new().unwrap();
+            create_exact_legacy_store(&temp, version, false);
+            let store = open(&temp);
+            let user_version: i64 = store
+                .connection
+                .pragma_query_value(None, "user_version", |row| row.get(0))
+                .unwrap();
+            let owners: i64 = store
+                .connection
+                .query_row(
+                    "SELECT COUNT(*) FROM continuity_authority_meta",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(user_version, SCHEMA_VERSION);
+            assert_eq!(owners, 0);
+        }
+    }
+
+    #[test]
+    fn checkpointed_wal_legacy_is_forced_to_rollback_mode_before_upgrade() {
+        let temp = TempDir::new().unwrap();
+        let path = create_exact_legacy_store(&temp, PREVIOUS_SCHEMA_VERSION, false);
+        let connection = Connection::open(&path).unwrap();
+        let mode: String = connection
+            .pragma_query_value(None, "journal_mode", |row| row.get(0))
+            .unwrap();
+        assert_eq!(mode, "delete");
+        connection
+            .execute_batch("PRAGMA journal_mode=WAL;")
+            .unwrap();
+        connection
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .unwrap();
+        drop(connection);
+        assert!(fs::metadata(path.with_extension("sqlite3-wal"))
+            .map(|metadata| metadata.len() == 0)
+            .unwrap_or(true));
+
+        let store = open(&temp);
+        let version: i64 = store
+            .connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        let mode: String = store
+            .connection
+            .pragma_query_value(None, "journal_mode", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        assert_eq!(mode, "wal");
+    }
+
+    #[test]
+    fn nonempty_v1_v2_v3_degrade_without_changing_database_or_sidecars() {
+        for version in [
+            LEGACY_SCHEMA_VERSION,
+            LEGACY_SCHEMA_VERSION_V2,
+            PREVIOUS_SCHEMA_VERSION,
+        ] {
+            let temp = TempDir::new().unwrap();
+            let path = create_exact_legacy_store(&temp, version, true);
+            let before = sidecar_snapshot(&path);
+            assert!(matches!(
+                ContinuityStore::open(temp.path(), ContinuityStoreCustody::Ready),
+                Ok(ContinuityStoreOpen::Degraded(
+                    ContinuityStoreDegradedReason::AuthorityMigrationRequired
+                ))
+            ));
+            assert_eq!(before, sidecar_snapshot(&path));
+        }
+    }
+
+    #[test]
+    fn legacy_wal_state_degrades_without_recovery_or_sidecar_mutation() {
+        let temp = TempDir::new().unwrap();
+        let path = create_exact_legacy_store(&temp, PREVIOUS_SCHEMA_VERSION, false);
+        let mut writer = Connection::open(&path).unwrap();
+        writer
+            .execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;")
+            .unwrap();
+        let record = encrypt_record(metadata("legacy-wal-record"), &[0x45; 32], b"legacy").unwrap();
+        let encoded = canonicalize(&record).unwrap();
+        let transaction = writer.transaction().unwrap();
+        insert_record(&transaction, &record, &encoded).unwrap();
+        transaction.commit().unwrap();
+        let before = sidecar_snapshot(&path);
+        assert!(before[1].0 && before[2].0);
+        assert!(matches!(
+            ContinuityStore::open(temp.path(), ContinuityStoreCustody::Ready),
+            Ok(ContinuityStoreOpen::Degraded(
+                ContinuityStoreDegradedReason::AuthorityMigrationRequired
+            ))
+        ));
+        assert_eq!(before, sidecar_snapshot(&path));
+        drop(writer);
+    }
+
+    #[test]
     fn locked_key_degrades_without_creating_database() {
         let temp = TempDir::new().unwrap();
         assert!(matches!(
@@ -2144,6 +2707,64 @@ mod tests {
         assert_eq!(before, after);
         assert!(!path.with_extension("sqlite3-wal").exists());
         assert!(!path.with_extension("sqlite3-shm").exists());
+    }
+
+    #[test]
+    fn ambiguous_header_zero_with_sidecars_fails_without_any_side_effect() {
+        let temp = TempDir::new().unwrap();
+        let directory = temp.path().join(STORE_DIRECTORY);
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join(STORE_FILENAME);
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute_batch("CREATE TABLE ambiguous_sentinel(value INTEGER);")
+            .unwrap();
+        drop(connection);
+        assert_eq!(read_sqlite_identity(&path).unwrap(), (0, 0));
+        fs::write(path.with_extension("sqlite3-wal"), b"AMBIGUOUS_WAL").unwrap();
+        fs::write(path.with_extension("sqlite3-shm"), b"AMBIGUOUS_SHM").unwrap();
+        let before = sidecar_snapshot(&path);
+        let entries_before = fs::read_dir(&directory).unwrap().count();
+
+        assert_eq!(
+            ContinuityStore::open(temp.path(), ContinuityStoreCustody::Ready).unwrap_err(),
+            ContinuityStoreError::SchemaIncompatible
+        );
+        assert_eq!(before, sidecar_snapshot(&path));
+        assert_eq!(entries_before, fs::read_dir(&directory).unwrap().count());
+    }
+
+    #[test]
+    fn every_schema_version_rejects_extra_application_objects_without_mutation() {
+        for version in [
+            LEGACY_SCHEMA_VERSION,
+            LEGACY_SCHEMA_VERSION_V2,
+            PREVIOUS_SCHEMA_VERSION,
+            SCHEMA_VERSION,
+        ] {
+            let temp = TempDir::new().unwrap();
+            let path = if version == SCHEMA_VERSION {
+                let store = open(&temp);
+                let path = store.path_for_test().to_owned();
+                drop(store);
+                path
+            } else {
+                create_exact_legacy_store(&temp, version, false)
+            };
+            let connection = Connection::open(&path).unwrap();
+            connection
+                .execute_batch(
+                    "PRAGMA journal_mode=DELETE;
+                     CREATE TABLE rogue_table(value INTEGER);
+                     CREATE INDEX rogue_index ON continuity_records(record_type);
+                     CREATE VIEW rogue_view AS SELECT record_id FROM continuity_records;
+                     CREATE TRIGGER rogue_trigger AFTER INSERT ON continuity_records
+                     BEGIN SELECT 1; END;",
+                )
+                .unwrap();
+            drop(connection);
+            assert_schema_rejected_without_mutation(&temp, &path);
+        }
     }
 
     #[test]
@@ -2267,6 +2888,65 @@ mod tests {
         assert_eq!(
             ensure_snapshot_complete(2, 1),
             Err(ContinuityStoreError::CompareAndSwapConflict)
+        );
+    }
+
+    #[test]
+    fn restore_and_rotation_reads_reject_malformed_scalars_before_allocation() {
+        let temp = TempDir::new().unwrap();
+        let store = open(&temp);
+        let owner = hex('1');
+
+        store
+            .connection
+            .execute(
+                "INSERT INTO continuity_owner_versions(owner_pubkey, active_key_version)
+                 VALUES (zeroblob(129), 1)",
+                [],
+            )
+            .unwrap();
+        assert_eq!(
+            store.restore_destination(&owner),
+            Err(ContinuityStoreError::InvalidRecord)
+        );
+        store
+            .connection
+            .execute("DELETE FROM continuity_owner_versions", [])
+            .unwrap();
+
+        store
+            .connection
+            .execute(
+                "INSERT INTO continuity_rotation_journals(owner_pubkey, rotation_id, envelope_json)
+                 VALUES (?1, zeroblob(129), x'00')",
+                [owner.as_str()],
+            )
+            .unwrap();
+        assert_eq!(
+            store.load_rotation_journal(&owner),
+            Err(ContinuityStoreError::InvalidRecord)
+        );
+        store
+            .connection
+            .execute("DELETE FROM continuity_rotation_journals", [])
+            .unwrap();
+
+        store
+            .connection
+            .execute(
+                "INSERT INTO continuity_rotation_receipts(
+                     owner_pubkey, rotation_id, request_sha256, envelope_json
+                 ) VALUES (?1, 'rotation-1', zeroblob(65), x'00')",
+                [owner.as_str()],
+            )
+            .unwrap();
+        assert_eq!(
+            store.load_rotation_receipt(&owner, "rotation-1"),
+            Err(ContinuityStoreError::InvalidRecord)
+        );
+        assert_eq!(
+            store.load_rotation_receipt(&owner, &"r".repeat(129)),
+            Err(ContinuityStoreError::InvalidRecord)
         );
     }
 
