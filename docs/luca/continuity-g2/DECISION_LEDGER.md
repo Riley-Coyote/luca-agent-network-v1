@@ -35,6 +35,8 @@ must record date, author, reason, affected tasks, migration impact, and approval
 | D28 | Ordinary-room replay deduplicates signed event IDs and excludes the current triggering batch. | The fresh-history block must not repeat the same user content already supplied as the active event batch. |
 | D29 | Encrypted record rows are not revision authority; the desktop persists body-free lineage head/lifecycle state and updates it atomically with encrypted revision transitions. | Archive and forget create no successor envelope, so inferring the active record from revision order could resurrect excluded or forgotten continuity after restart. |
 | D30 | Empty pre-K05D continuity stores may migrate to the revision-authority schema; a non-empty legacy store remains byte-for-byte untouched and continuity opens degraded with `authority_migration_required`. | Legacy encrypted rows do not contain enough authority to reconstruct archived, forgotten, pinned, or active lineage state without inventing history. Owner-confirmed legacy conversion is deferred. |
+| D31 | Forget removes encrypted bodies but permanently retains body-free authority, typed replay digests, purge receipts, and record/nonce/artifact tombstones. | Persisting canonical successor bytes would defeat Forget, while deleting authority would allow resurrection or identifier/nonce reuse. |
+| D32 | A continuity read revalidates epoch, generation, key version, and fingerprint under the lifecycle lock after decrypt/hydrate and before plaintext use. | Snapshot capture alone cannot prevent a concurrent Forget, restore, or rotation from making decrypted context stale. |
 
 ## Change template
 

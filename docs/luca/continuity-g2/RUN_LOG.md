@@ -289,3 +289,17 @@ Risks/known limits:
 - No revision-order inference or automatic data rewrite is allowed.
   Owner-confirmed legacy conversion/import is deferred.
 - Decision: D30.
+
+## 2026-08-05 — K05D — pre-implementation integrity correction
+
+- Security review found that persisting exact canonical replay requests would
+  retain successor ciphertext after Forget, and that historical replay tied to
+  the current lineage version would break after rotation.
+- The restart contract now persists only domain-separated request digests,
+  typed body-free original bindings, and typed receipts in separate revision
+  and artifact domains.
+- Added explicit purge progress, permanent body-free record/nonce/artifact
+  tombstones, post-decrypt generation revalidation, full CAS comparisons, and
+  exact pre-allocation bounds.
+- Decisions: D31 and D32. Implementation remains in progress; no A209 pass is
+  claimed.
