@@ -68,6 +68,18 @@ source content. Detailed artifacts live under `evidence/G2/<gate>/<task>/`.
 - Protocol tests, all-target clippy, and rustdoc generation pass. Final
   independent security recheck: PASS.
 
+## 2026-08-05 — P03 — fail-soft continuity provider
+
+- Added a read-only provider trait and deterministic scripted fake at the ACP
+  boundary without integrating it into messaging yet.
+- Resolver preserves all eight valid layer states, maps provider failure to
+  `unavailable`, maps elapsed/absolute deadlines to `timeout`, and maps invalid
+  request/result/budget states to `invalid`.
+- Enforces the lesser of the caller budget and the 48 KiB canonical packet
+  ceiling without truncating or slicing reference text.
+- Focused provider tests 5/5, full ACP library 603/603, no-deps clippy and format
+  checks PASS. Independent protocol review: PASS with no findings.
+
 ## Entry template
 
 ```text
