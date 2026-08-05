@@ -9,9 +9,10 @@ cargo metadata --manifest-path desktop/src-tauri/Cargo.toml --locked --no-deps
 git diff --check
 ```
 
-Results at stop:
+Results after Riley-authorized surgical repair:
 
-- 11 focused store tests passed.
+- 14 focused store tests passed.
 - Targeted formatting, locked metadata, and diff checks passed.
-- Independent security review remained BLOCKED on fail-soft allocation safety.
-- No product-source commit was created for K03D.
+- G2 control validation passed.
+- Independent final security review passed with no P0/P1/P2 findings.
+- Product-source commit: `2ea59d8d`.

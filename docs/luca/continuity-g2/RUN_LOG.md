@@ -181,3 +181,15 @@ Risks/known limits:
 - Final review still found unbounded allocation paths through corrupt persisted
   `record_id` and replay envelope reads. This repeats the same fail-soft class,
   so K03D is BLOCKED under the one-repair rule; K04/K06 did not start.
+
+## 2026-08-05 — K03D — user-authorized surgical repair and final pass
+
+- Riley explicitly authorized one additional repair after the recorded stop.
+- Structural loads now use bounded integer `rowid` handles, replay reads use a
+  length-only pass before guarded fetch, and stored IDs are compared inside
+  SQLite to the bounded parsed envelope ID without loading corrupt strings.
+- Both passes require SQLite storage class BLOB through lazy CASE expressions;
+  a NUL-prefixed oversized TEXT value is rejected before materialization.
+- SQLite EXPLAIN inspection confirmed guard execution before the output Column.
+  Focused tests pass 14/14; formatting, locked metadata, diff checks, and control
+  validation pass. Independent final security re-review: PASS.

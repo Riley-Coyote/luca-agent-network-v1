@@ -29,7 +29,7 @@ installed-app rows pass and `N03` records an explicit verdict.
 | A201 | Master key is keychain-only; unavailable/locked custody leaves chat operational. | PASS | `receipts/K02.md` |
 | A202 | Owner and resident keys are domain-separated; resident records cannot decrypt across namespaces. | PASS | `receipts/K02.md`, `receipts/K03.md` |
 | A203 | Tamper, nonce, AAD substitution, wrong-key, corruption, and replay tests fail safely. | PASS | `receipts/K03.md` |
-| A204 | Disk, SQLite, WAL/SHM, logs, screenshots, evidence, and child environments contain no continuity plaintext or keys. | BLOCKED | `receipts/K03D.md` |
+| A204 | Disk, SQLite, WAL/SHM, logs, screenshots, evidence, and child environments contain no continuity plaintext or keys. | PASS | `receipts/K03D.md` |
 | A205 | In-memory lexical/graph retrieval is bounded and source-backed. | NOT RUN | |
 | A206 | Revisions preserve history; correction, rollback, archive, and forget are deterministic. | PASS | `receipts/K05.md` |
 | A207 | Key rotation recovers from interruption without mixed-key ambiguity. | NOT RUN | |
