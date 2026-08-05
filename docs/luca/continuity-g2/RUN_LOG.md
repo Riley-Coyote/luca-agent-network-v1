@@ -95,6 +95,18 @@ source content. Detailed artifacts live under `evidence/G2/<gate>/<task>/`.
   and diff checks pass. G2.1 is PASS as a source/conformance gate only; installed
   native runtime proof remains G2.6.
 
+## 2026-08-05 — K01 — exact namespace kernel
+
+- Added the pure `luca-continuity` Rust crate with validated protocol-backed
+  namespace/scope wrappers and a deterministic read-only fixture index.
+- Authorization requires equality of every namespace and explicit scope field;
+  references never override owner, resident, namespace kind, key version,
+  source, project, room, or conversation boundaries.
+- The crate depends only on `luca-protocol` and contains no platform, keychain,
+  storage, runtime, network, scheduler, NIP-AE, or cryptographic behavior.
+- Focused tests, clippy, rustdoc, locked check, formatting, dependency audit,
+  and control validation pass. Independent architecture review: PASS.
+
 ## Entry template
 
 ```text
