@@ -107,6 +107,23 @@ source content. Detailed artifacts live under `evidence/G2/<gate>/<task>/`.
 - Focused tests, clippy, rustdoc, locked check, formatting, dependency audit,
   and control validation pass. Independent architecture review: PASS.
 
+## 2026-08-05 — K02 — keychain custody and namespace derivation
+
+- Added a keychain-only 256-bit continuity master-key lifecycle using the
+  existing scoped desktop keyring service and raw no-cache secret-store APIs.
+- Absence is the only write path. Locked, unavailable, corrupt, denied, failed
+  read-back, and mismatched read-back states fail closed without replacing the
+  extant identity or introducing a filesystem/environment fallback.
+- Added direct HKDF-SHA256 owner/resident namespace derivation with frozen,
+  length-prefixed domain information and stable vectors. There is no scope-key
+  or chained-derivation API.
+- Initial independent review found Debug-printable derived keys and unmanaged
+  temporary key buffers. One bounded repair closed both; final independent
+  security re-review: PASS.
+- Focused custody/derivation tests 14/14, locked metadata, formatting, source
+  scans, and diff checks pass. Installed keychain and chat fail-soft proof stay
+  assigned to G2.6.
+
 ## Entry template
 
 ```text

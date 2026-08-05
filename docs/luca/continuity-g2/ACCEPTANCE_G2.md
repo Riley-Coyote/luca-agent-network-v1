@@ -26,7 +26,7 @@ installed-app rows pass and `N03` records an explicit verdict.
 
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
-| A201 | Master key is keychain-only; unavailable/locked custody leaves chat operational. | NOT RUN | |
+| A201 | Master key is keychain-only; unavailable/locked custody leaves chat operational. | PASS | `receipts/K02.md` |
 | A202 | Owner and resident keys are domain-separated; resident records cannot decrypt across namespaces. | NOT RUN | |
 | A203 | Tamper, nonce, AAD substitution, wrong-key, corruption, and replay tests fail safely. | NOT RUN | |
 | A204 | Disk, SQLite, WAL/SHM, logs, screenshots, evidence, and child environments contain no continuity plaintext or keys. | NOT RUN | |
