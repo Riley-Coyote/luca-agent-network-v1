@@ -428,3 +428,32 @@ Risks/known limits:
 - K06 and G2.2 remain open only for A207's atomic authority-aware rotation and
   the remaining K05D immutable-lease review.
 - Evidence: `evidence/G2/G2.2/K06/a208-security-review-pass.md`.
+
+## 2026-08-05 — K05D/A209/A210 — immutable desktop lease passed
+
+- Commit `226a91c5` adds the AppState-owned continuity lifecycle/runtime state,
+  existing-custody-only boot recovery, exact scoped authority capture, and the
+  bounded two-attempt desktop read lease.
+- The borrowed plaintext consumer runs exactly once only after second-phase
+  restore/key/root/epoch/generation/version/fingerprint validation while the
+  lifecycle guard is held. Failure and stale paths expose no body and invoke no
+  consumer.
+- Focused verification passed 7 runtime tests, 12 authority tests, the
+  read-only/no-mint bootstrap probe, exact formatting, and scoped diff checks.
+- Independent security review found no blocker and accepted A209 plus the
+  desktop integration required for A210.
+- Evidence:
+  `evidence/G2/G2.2/K05D/immutable-lease-security-review-pass.md`.
+
+## 2026-08-05 — K06/A207 — atomic authority-aware rotation passed
+
+- Commit `226a91c5` replaces the legacy batch seam with exact-generation
+  journal preparation, complete retained-envelope re-encryption, authenticated
+  replacement chains, and one atomic full-authority activation transaction.
+- Crash recovery observes a complete old generation plus its prepared journal
+  or the complete new generation; purge/tombstone, historical replay, source
+  mapping, artifact, and nonce-reservation authority remain coherent.
+- Focused verification passed 6 rotation tests, the atomic complete-owner
+  replacement and historical replay tests, exact formatting, and diff checks.
+- Independent security review found no blocker and accepted A207/K06.
+- Evidence: `evidence/G2/G2.2/K06/a207-security-review-pass.md`.

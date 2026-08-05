@@ -32,10 +32,10 @@ installed-app rows pass and `N03` records an explicit verdict.
 | A204 | Disk, SQLite, WAL/SHM, logs, screenshots, evidence, and child environments contain no continuity plaintext or keys. | PASS | `receipts/K03D.md` |
 | A205 | In-memory lexical/graph retrieval is bounded and source-backed. | PASS | `receipts/K04.md` |
 | A206 | Revisions preserve history; correction, rollback, archive, and forget are deterministic. | PASS | `receipts/K05.md` |
-| A207 | Key rotation recovers from interruption without mixed-key ambiguity. | NOT RUN | |
+| A207 | Key rotation recovers from interruption without mixed-key ambiguity. | PASS | `receipts/K06.md`, `../../../evidence/G2/G2.2/K06/a207-security-review-pass.md` |
 | A208 | Protected backup preview writes nothing; tamper/wrong passphrase fail; confirmed restore preserves mappings. | PASS | `receipts/K06.md`, `../../../evidence/G2/G2.2/K06/a208-security-review-pass.md` |
-| A209 | Restart reconstructs authoritative active heads and lifecycle state without inferring from revision order. | NOT RUN | |
-| A210 | Decrypted retrieval bodies and derived in-memory copies zeroize on success, retry, error, and timeout before the desktop read lease may return. | NOT RUN | |
+| A209 | Restart reconstructs authoritative active heads and lifecycle state without inferring from revision order. | PASS | `receipts/K05D.md`, `../../../evidence/G2/G2.2/K05D/immutable-lease-security-review-pass.md` |
+| A210 | Decrypted retrieval bodies and derived in-memory copies zeroize on success, retry, error, and timeout before the desktop read lease may return. | PASS | `receipts/K04D.md`, `../../../evidence/G2/G2.2/K05D/immutable-lease-security-review-pass.md` |
 
 ## G2.3 — Turn continuity and durable writes
 
