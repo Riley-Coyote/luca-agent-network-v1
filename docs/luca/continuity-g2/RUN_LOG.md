@@ -159,3 +159,25 @@ Evidence:
 Risks/known limits:
 - item or none
 ```
+
+## 2026-08-05 — K05 — revision lifecycle and rollback authority
+
+- Added an append-only encrypted-body-blind revision ledger for create, revise,
+  explicit owner correction, rollback, archive, and terminal forget.
+- Exact actor/authorship, namespace/scope/type/key-version, predecessor,
+  revision, envelope, and domain-derived idempotency bindings fail closed.
+- A bounded repair closed namespace-wide nonce reuse, incomplete caller-asserted
+  purge inventories, and bypassable durable record-type filtering.
+- Independent data-integrity re-review: PASS. Full `luca-continuity` tests
+  35/35, clippy with warnings denied, formatting, and diff checks pass.
+
+## 2026-08-05 — K03D — encrypted SQLite persistence stopped at review gate
+
+- Implemented a dedicated encrypted-only SQLite store with private permissions,
+  exact scope predicates, replay/nonce handling, fail-closed custody, WAL
+  controls, body-free diagnostics, and exact schema validation.
+- Focused tests pass 11/11. The authorized repair closed read-only WAL mutation,
+  spoofable schema checks, and normal-path full-blob selection.
+- Final review still found unbounded allocation paths through corrupt persisted
+  `record_id` and replay envelope reads. This repeats the same fail-soft class,
+  so K03D is BLOCKED under the one-repair rule; K04/K06 did not start.
