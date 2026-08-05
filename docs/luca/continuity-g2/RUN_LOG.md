@@ -124,6 +124,23 @@ source content. Detailed artifacts live under `evidence/G2/<gate>/<task>/`.
   scans, and diff checks pass. Installed keychain and chat fail-soft proof stay
   assigned to G2.6.
 
+## 2026-08-05 — K03 — authenticated encrypted record kernel
+
+- Added pure XChaCha20-Poly1305 record encryption with a fresh 192-bit nonce,
+  exact protocol ciphertext ceilings, and zeroizing, redacted decrypted bodies.
+- RFC 8785 authenticated data binds the local record domain, every top-level
+  record field, the complete owner/resident namespace, and every exact scope
+  field. The same bytes feed the public digest and AEAD operation.
+- Added exact replay/idempotency, same-namespace/key-version nonce collision
+  rejection, bounded serialized ingress, structural versus authenticated read
+  separation, and body-free corruption diagnostics.
+- Initial independent security review found four adversarial-evidence gaps. One
+  bounded repair added recomputed-digest AEAD attacks, nonce/hash and exact-size
+  vectors, pre-Serde input bounds, and authenticated corrupt-record isolation.
+- Final independent security review: PASS with no P0/P1/P2. Focused tests
+  20/20, clippy with warnings denied, rustdoc, locked metadata, formatting,
+  dependency/API scans, and diff checks pass.
+
 ## Entry template
 
 ```text
