@@ -397,3 +397,20 @@ Risks/known limits:
   exact pre-allocation bounds.
 - Decisions: D31 and D32. Implementation remains in progress; no A209 pass is
   claimed.
+
+## 2026-08-05 — K05D desktop slice A — authorized repair passed
+
+- Commit `00ffef50` persists the complete normalized revision-authority
+  generation and freezes its owner-global CAS/restart boundary.
+- The repair added SQL-before-allocation bounds, exact v1-v4 object inventory,
+  one-snapshot hydration with count and round-trip proofs, fail-closed
+  header-zero legacy handling, and one atomic complete-owner replacement seam
+  spanning ciphertext, mappings, version, fresh epoch, and authority.
+- Root verification passed 9 authority, 24 store, 11 backup, and 3 rotation
+  tests plus desktop check, exact formatting, and scoped diff checks.
+- Independent adversarial re-review cleared all five prior findings and found
+  no new defect in replay/CAS, purge/tombstone, migration, WAL, or rotation
+  exclusion behavior.
+- K05D and A209 remain open for the AppState-owned immutable read lease. K06
+  remains open until backup and rotation consume this accepted authority seam.
+- Evidence: `evidence/G2/G2.2/K05D/desktop-slice-a-review-pass.md`.
