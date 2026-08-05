@@ -1,9 +1,10 @@
 use std::{
     collections::HashMap,
+    fmt,
     io::Write,
     sync::{
         atomic::{AtomicBool, AtomicU16},
-        Arc, Mutex,
+        Arc, Mutex, MutexGuard,
     },
 };
 
@@ -15,6 +16,35 @@ use tokio::sync::Mutex as AsyncMutex;
 use crate::huddle::HuddleState;
 use crate::managed_agents::config_bridge::SessionConfigCache;
 use crate::managed_agents::ManagedAgentProcess;
+
+/// The one process-wide serialization authority for continuity lifecycle work.
+///
+/// Construction is intentionally private to [`build_app_state`]. Rotation,
+/// backup, restore, and continuity read generations must all borrow this exact
+/// AppState-owned instance rather than manufacture independent locks.
+pub(crate) struct ContinuityLifecycleLock(Mutex<()>);
+
+impl ContinuityLifecycleLock {
+    fn new() -> Self {
+        Self(Mutex::new(()))
+    }
+
+    pub(crate) fn lock(&self) -> Result<MutexGuard<'_, ()>, ()> {
+        self.0.lock().map_err(|_| ())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Debug for ContinuityLifecycleLock {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("ContinuityLifecycleLock([REDACTED])")
+    }
+}
+
 pub struct AppState {
     pub keys: Mutex<Keys>,
     pub http_client: reqwest::Client,
@@ -45,6 +75,8 @@ pub struct AppState {
     pub managed_agent_restore_transition: Mutex<()>,
     pub managed_agents_store_lock: Mutex<()>,
     pub channel_templates_store_lock: Mutex<()>,
+    /// Single lifecycle lock shared by every trusted continuity entrypoint.
+    continuity_lifecycle: ContinuityLifecycleLock,
     pub managed_agent_processes: Mutex<HashMap<String, ManagedAgentProcess>>,
     pub huddle_state: Mutex<HuddleState>,
     /// Tauri app handle — stored after setup so huddle commands can emit
@@ -206,6 +238,7 @@ pub fn build_app_state() -> AppState {
         identity_mutation: Mutex::new(()),
         managed_agents_store_lock: Mutex::new(()),
         channel_templates_store_lock: Mutex::new(()),
+        continuity_lifecycle: ContinuityLifecycleLock::new(),
         managed_agent_processes: Mutex::new(HashMap::new()),
         session_config_cache: Mutex::new(HashMap::new()),
         huddle_state: Mutex::new(HuddleState::default()),
@@ -227,6 +260,11 @@ pub fn build_app_state() -> AppState {
 }
 
 impl AppState {
+    /// Borrow the sole continuity lifecycle authority owned by this app.
+    pub(crate) fn continuity_lifecycle(&self) -> &ContinuityLifecycleLock {
+        &self.continuity_lifecycle
+    }
+
     /// Lock the huddle state mutex, converting a poisoned-lock error to a String.
     ///
     /// Convenience wrapper — replaces 15+ instances of

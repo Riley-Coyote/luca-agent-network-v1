@@ -14,6 +14,9 @@ use crate::{app_state::keyring_service, secret_store::SecretStore};
 
 /// Internal entry in the existing single-blob desktop keychain store.
 pub(crate) const CONTINUITY_MASTER_KEY_NAME: &str = "luca.continuity.master-key.v1";
+pub(crate) const CONTINUITY_MASTER_KEY_ROLLBACK_NAME: &str =
+    "luca.continuity.master-key.rollback.v1";
+pub(super) const ABSENT_ROLLBACK_MARKER: &str = "luca.continuity.rollback.absent.v1";
 const MASTER_KEY_BYTES: usize = 32;
 
 /// The only keychain failures meaningful to the continuity lifecycle.
@@ -38,6 +41,9 @@ pub(crate) trait ContinuityKeyStore {
 
     /// Store one raw value in the keychain blob without creating a plaintext cache.
     fn store_raw(&self, name: &str, value: &str) -> Result<(), ContinuityKeyStoreError>;
+
+    /// Delete one raw value without creating a plaintext cache.
+    fn delete_raw(&self, name: &str) -> Result<(), ContinuityKeyStoreError>;
 }
 
 fn classify_keychain_error(error: &str) -> ContinuityKeyStoreError {
@@ -73,6 +79,11 @@ impl ContinuityKeyStore for SecretStore {
         self.store_raw_zeroizing(name, value)
             .map_err(|error| classify_keychain_error(&error))
     }
+
+    fn delete_raw(&self, name: &str) -> Result<(), ContinuityKeyStoreError> {
+        self.delete_raw_zeroizing(name)
+            .map_err(|error| classify_keychain_error(&error))
+    }
 }
 
 /// Entropy source used only to create a first-run master key.
@@ -94,7 +105,7 @@ impl ContinuityEntropy for OsContinuityEntropy {
 pub(crate) struct ContinuityMasterKey(Zeroizing<[u8; MASTER_KEY_BYTES]>);
 
 impl ContinuityMasterKey {
-    fn from_base64(encoded: &str) -> Option<Self> {
+    pub(super) fn from_base64(encoded: &str) -> Option<Self> {
         let decoded = Zeroizing::new(BASE64_STANDARD.decode(encoded).ok()?);
         let canonical = Zeroizing::new(BASE64_STANDARD.encode(&decoded));
         if !bool::from(canonical.as_bytes().ct_eq(encoded.as_bytes())) {
@@ -115,6 +126,10 @@ impl ContinuityMasterKey {
     /// Borrow key material only inside trusted desktop custody/crypto code.
     pub(super) fn as_bytes(&self) -> &[u8; MASTER_KEY_BYTES] {
         &self.0
+    }
+
+    pub(super) fn to_base64(&self) -> Zeroizing<String> {
+        Zeroizing::new(BASE64_STANDARD.encode(self.as_bytes()))
     }
 
     #[cfg(test)]
@@ -224,6 +239,104 @@ pub(crate) fn acquire_master_key<S: ContinuityKeyStore, E: ContinuityEntropy>(
     }
 }
 
+/// Load an existing key without ever minting a replacement.
+pub(crate) fn load_existing_master_key<S: ContinuityKeyStore>(
+    store: &S,
+) -> ContinuityMasterKeyState {
+    match store.load_raw(CONTINUITY_MASTER_KEY_NAME) {
+        Ok(Some(existing)) => ContinuityMasterKey::from_base64(&existing)
+            .map(ContinuityMasterKeyState::Ready)
+            .unwrap_or(ContinuityMasterKeyState::Corrupt),
+        Ok(None) => ContinuityMasterKeyState::Unavailable,
+        Err(error) => failed_store(error),
+    }
+}
+
+fn verify_exact_slot<S: ContinuityKeyStore>(
+    store: &S,
+    name: &str,
+    expected: &str,
+) -> Result<(), ContinuityKeyStoreError> {
+    let actual = store
+        .load_raw(name)?
+        .ok_or(ContinuityKeyStoreError::Corrupt)?;
+    if bool::from(actual.as_bytes().ct_eq(expected.as_bytes())) {
+        Ok(())
+    } else {
+        Err(ContinuityKeyStoreError::Corrupt)
+    }
+}
+
+/// Install a confirmed restore candidate while retaining the prior active key
+/// only in a separately named keychain rollback slot.
+pub(crate) fn install_candidate_master_key<S: ContinuityKeyStore>(
+    store: &S,
+    candidate: &ContinuityMasterKey,
+) -> Result<(), ContinuityKeyStoreError> {
+    if store
+        .load_raw(CONTINUITY_MASTER_KEY_ROLLBACK_NAME)?
+        .is_some()
+    {
+        return Err(ContinuityKeyStoreError::Corrupt);
+    }
+    let prior = store.load_raw(CONTINUITY_MASTER_KEY_NAME)?;
+    if prior
+        .as_ref()
+        .is_some_and(|encoded| ContinuityMasterKey::from_base64(encoded).is_none())
+    {
+        return Err(ContinuityKeyStoreError::Corrupt);
+    }
+    let rollback = prior
+        .as_ref()
+        .map(|value| value.as_str())
+        .unwrap_or(ABSENT_ROLLBACK_MARKER);
+    store.store_raw(CONTINUITY_MASTER_KEY_ROLLBACK_NAME, rollback)?;
+    if let Err(error) = verify_exact_slot(store, CONTINUITY_MASTER_KEY_ROLLBACK_NAME, rollback) {
+        let _ = store.delete_raw(CONTINUITY_MASTER_KEY_ROLLBACK_NAME);
+        return Err(error);
+    }
+    let encoded = candidate.to_base64();
+    if let Err(error) = store.store_raw(CONTINUITY_MASTER_KEY_NAME, &encoded) {
+        let _ = store.delete_raw(CONTINUITY_MASTER_KEY_ROLLBACK_NAME);
+        return Err(error);
+    }
+    if let Err(error) = verify_exact_slot(store, CONTINUITY_MASTER_KEY_NAME, &encoded) {
+        let _ = rollback_candidate_master_key(store);
+        return Err(error);
+    }
+    Ok(())
+}
+
+/// Restore the prior keychain state after a failed restore activation.
+pub(crate) fn rollback_candidate_master_key<S: ContinuityKeyStore>(
+    store: &S,
+) -> Result<(), ContinuityKeyStoreError> {
+    let rollback = store
+        .load_raw(CONTINUITY_MASTER_KEY_ROLLBACK_NAME)?
+        .ok_or(ContinuityKeyStoreError::Corrupt)?;
+    if rollback.as_str() == ABSENT_ROLLBACK_MARKER {
+        store.delete_raw(CONTINUITY_MASTER_KEY_NAME)?;
+        if store.load_raw(CONTINUITY_MASTER_KEY_NAME)?.is_some() {
+            return Err(ContinuityKeyStoreError::Corrupt);
+        }
+    } else {
+        if ContinuityMasterKey::from_base64(&rollback).is_none() {
+            return Err(ContinuityKeyStoreError::Corrupt);
+        }
+        store.store_raw(CONTINUITY_MASTER_KEY_NAME, &rollback)?;
+        verify_exact_slot(store, CONTINUITY_MASTER_KEY_NAME, &rollback)?;
+    }
+    store.delete_raw(CONTINUITY_MASTER_KEY_ROLLBACK_NAME)?;
+    Ok(())
+}
+
+/// Remove the rollback slot only after active-store verification succeeds.
+pub(crate) fn finalize_candidate_master_key<S: ContinuityKeyStore>(
+    store: &S,
+) -> Result<(), ContinuityKeyStoreError> {
+    store.delete_raw(CONTINUITY_MASTER_KEY_ROLLBACK_NAME)
+}
+
 /// Acquire using the existing desktop service (`buzz-desktop` in release and
 /// the scoped `buzz-desktop-dev.*` service in debug builds).
 pub(crate) fn acquire_desktop_master_key() -> ContinuityMasterKeyState {
@@ -278,6 +391,11 @@ mod tests {
                 .clone()
                 .unwrap_or_else(|| value.to_owned());
             self.values.borrow_mut().insert(name.to_owned(), value);
+            Ok(())
+        }
+
+        fn delete_raw(&self, name: &str) -> Result<(), ContinuityKeyStoreError> {
+            self.values.borrow_mut().remove(name);
             Ok(())
         }
     }
@@ -404,6 +522,57 @@ mod tests {
         let key = ContinuityMasterKey::from_base64(&secret).unwrap();
         assert!(!format!("{key:?}").contains(&secret));
         assert!(!format!("{:?}", ContinuityMasterKeyState::Ready(key)).contains(&secret));
+    }
+
+    #[test]
+    fn candidate_install_is_verified_and_can_rollback_or_finalize() {
+        let store = FakeStore::default();
+        store
+            .values
+            .borrow_mut()
+            .insert(CONTINUITY_MASTER_KEY_NAME.to_owned(), encoded_key(1));
+        let candidate = ContinuityMasterKey::new_for_test([2; MASTER_KEY_BYTES]);
+        install_candidate_master_key(&store, &candidate).unwrap();
+        assert_eq!(
+            store.values.borrow().get(CONTINUITY_MASTER_KEY_NAME),
+            Some(&encoded_key(2))
+        );
+        assert_eq!(
+            store
+                .values
+                .borrow()
+                .get(CONTINUITY_MASTER_KEY_ROLLBACK_NAME),
+            Some(&encoded_key(1))
+        );
+        rollback_candidate_master_key(&store).unwrap();
+        assert_eq!(
+            store.values.borrow().get(CONTINUITY_MASTER_KEY_NAME),
+            Some(&encoded_key(1))
+        );
+        assert!(!store
+            .values
+            .borrow()
+            .contains_key(CONTINUITY_MASTER_KEY_ROLLBACK_NAME));
+
+        install_candidate_master_key(&store, &candidate).unwrap();
+        finalize_candidate_master_key(&store).unwrap();
+        assert_eq!(
+            store.values.borrow().get(CONTINUITY_MASTER_KEY_NAME),
+            Some(&encoded_key(2))
+        );
+        assert!(!store
+            .values
+            .borrow()
+            .contains_key(CONTINUITY_MASTER_KEY_ROLLBACK_NAME));
+    }
+
+    #[test]
+    fn fresh_keychain_candidate_rollback_restores_absence() {
+        let store = FakeStore::default();
+        let candidate = ContinuityMasterKey::new_for_test([3; MASTER_KEY_BYTES]);
+        install_candidate_master_key(&store, &candidate).unwrap();
+        rollback_candidate_master_key(&store).unwrap();
+        assert!(store.values.borrow().is_empty());
     }
 
     #[test]

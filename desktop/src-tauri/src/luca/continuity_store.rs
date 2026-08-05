@@ -14,7 +14,9 @@ use luca_continuity::{
     canonical_record_aad, NamespaceKey, NamespaceScope, RecordWriteOutcome,
     MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES,
 };
-use luca_protocol::{canonicalize, ContinuityNamespaceKindV1, ContinuityRecordV1};
+use luca_protocol::{
+    canonicalize, ContinuityNamespaceKindV1, ContinuityRecordV1, Hex64, SafeU53, Sha256Ref,
+};
 use rusqlite::{params, Connection, ErrorCode, OpenFlags, OptionalExtension, TransactionBehavior};
 use sha2::{Digest, Sha256};
 
@@ -23,7 +25,11 @@ use super::continuity_key_custody::ContinuityKeyCustodyStatus;
 const STORE_DIRECTORY: &str = "continuity";
 const STORE_FILENAME: &str = "continuity-v1.sqlite3";
 const APPLICATION_ID: i64 = 0x4c55_4341; // "LUCA"
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 3;
+const PREVIOUS_SCHEMA_VERSION: i64 = 2;
+const LEGACY_SCHEMA_VERSION: i64 = 1;
+pub(crate) const MAX_CONTINUITY_SNAPSHOT_RECORDS: usize = 100_000;
+pub(crate) const MAX_CONTINUITY_SNAPSHOT_BYTES: usize = 128 * 1024 * 1024;
 const CREATE_TABLE_SQL: &str = "CREATE TABLE continuity_records (
     record_id TEXT PRIMARY KEY NOT NULL,
     namespace_protocol TEXT NOT NULL,
@@ -54,6 +60,29 @@ const CREATE_SCOPE_INDEX_SQL: &str =
     namespace_protocol, owner_pubkey, namespace_kind, resident_pubkey,
     namespace_ref, namespace_key_version, scope_protocol, scope_namespace_ref,
     scope_ref, source_id, project_id, room_id, conversation_id, created_at, record_id
+)";
+const CREATE_OWNER_VERSION_TABLE_SQL: &str = "CREATE TABLE continuity_owner_versions (
+    owner_pubkey TEXT PRIMARY KEY NOT NULL,
+    active_key_version INTEGER NOT NULL CHECK(active_key_version > 0)
+)";
+const CREATE_ROTATION_JOURNAL_TABLE_SQL: &str = "CREATE TABLE continuity_rotation_journals (
+    owner_pubkey TEXT PRIMARY KEY NOT NULL,
+    rotation_id TEXT NOT NULL,
+    envelope_json BLOB NOT NULL
+)";
+const CREATE_ROTATION_RECEIPT_TABLE_SQL: &str = "CREATE TABLE continuity_rotation_receipts (
+    owner_pubkey TEXT NOT NULL,
+    rotation_id TEXT NOT NULL,
+    request_sha256 TEXT NOT NULL,
+    envelope_json BLOB NOT NULL,
+    PRIMARY KEY(owner_pubkey, rotation_id)
+)";
+const CREATE_SOURCE_MAPPING_TABLE_SQL: &str = "CREATE TABLE continuity_source_mappings (
+    owner_pubkey TEXT NOT NULL,
+    mapping_ref TEXT NOT NULL,
+    source_ref TEXT NOT NULL,
+    resident_pubkey TEXT,
+    PRIMARY KEY(owner_pubkey, mapping_ref)
 )";
 
 /// Whether continuity key custody permits opening the encrypted local store.
@@ -113,6 +142,50 @@ pub(crate) enum ContinuityStoreError {
     InvalidRecord,
     ReplayConflict,
     NonceCollision,
+    LifecycleConflict,
+    CompareAndSwapConflict,
+    SnapshotBoundExceeded,
+}
+
+/// One bounded encrypted row selected from a stable SQLite snapshot.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ContinuityStoredEnvelope {
+    pub(crate) rowid: i64,
+    pub(crate) envelope_sha256: Hex64,
+    pub(crate) record: ContinuityRecordV1,
+}
+
+/// Consistent ciphertext-only owner snapshot used by rotation and protected backup.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ContinuityEncryptedSnapshot {
+    pub(crate) owner_pubkey: Hex64,
+    pub(crate) active_key_version: SafeU53,
+    pub(crate) snapshot_boundary: i64,
+    pub(crate) records: Vec<ContinuityStoredEnvelope>,
+    pub(crate) source_mappings: Vec<ContinuitySourceMapping>,
+}
+
+/// Exact encrypted-row replacement used only by authenticated key rotation.
+pub(crate) struct ContinuityRotationReplacement {
+    pub(crate) rowid: i64,
+    pub(crate) expected_envelope_sha256: Hex64,
+    pub(crate) expected: ContinuityRecordV1,
+    pub(crate) replacement: ContinuityRecordV1,
+}
+
+/// One validated body-free import/source mapping persisted with restore.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ContinuitySourceMapping {
+    pub(crate) mapping_ref: Sha256Ref,
+    pub(crate) source_ref: Sha256Ref,
+    pub(crate) resident_pubkey: Option<Hex64>,
+}
+
+/// Store-side destination classification used before any restore state write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ContinuityRestoreDestination {
+    Empty,
+    ExactOwner,
 }
 
 /// Body-free diagnostic for a malformed persisted envelope that was skipped.
@@ -157,6 +230,10 @@ impl ContinuityStore {
 
         let directory = app_data_dir.join(STORE_DIRECTORY);
         let path = directory.join(STORE_FILENAME);
+        reject_symlink(&directory)?;
+        reject_symlink(&path)?;
+        reject_symlink(&path.with_extension("sqlite3-wal"))?;
+        reject_symlink(&path.with_extension("sqlite3-shm"))?;
         // Existing bytes are preflighted through a read-only connection before
         // WAL, a checkpoint, permissions, or schema setup can mutate a foreign,
         // newer, or inconsistent database.
@@ -195,6 +272,17 @@ impl ContinuityStore {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| ContinuityStoreError::Unavailable)?;
+
+        let lifecycle_busy: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM continuity_rotation_journals WHERE owner_pubkey = ?1)",
+                [record.namespace.owner_pubkey.as_str()],
+                |row| row.get(0),
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if lifecycle_busy {
+            return Err(ContinuityStoreError::LifecycleConflict);
+        }
 
         let existing: Option<(i64, i64)> = transaction
             .query_row(
@@ -254,9 +342,6 @@ impl ContinuityStore {
         insert_record(&transaction, record, &encoded)?;
         transaction
             .commit()
-            .map_err(|_| ContinuityStoreError::Unavailable)?;
-        self.connection
-            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
             .map_err(|_| ContinuityStoreError::Unavailable)?;
         Ok(RecordWriteOutcome::Inserted)
     }
@@ -383,6 +468,616 @@ impl ContinuityStore {
         Ok(records)
     }
 
+    /// Capture a consistent, bounded ciphertext-only owner snapshot.
+    ///
+    /// A nonterminal rotation rejects backup/restore snapshots. No record body
+    /// is decrypted and no path or plaintext enters the returned structure.
+    pub(crate) fn snapshot_owner_encrypted(
+        &mut self,
+        owner_pubkey: &Hex64,
+    ) -> Result<ContinuityEncryptedSnapshot, ContinuityStoreError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Deferred)
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        let lifecycle_busy: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM continuity_rotation_journals WHERE owner_pubkey = ?1)",
+                [owner_pubkey.as_str()],
+                |row| row.get(0),
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if lifecycle_busy {
+            return Err(ContinuityStoreError::LifecycleConflict);
+        }
+        let active_key_version = active_or_inferred_version(&transaction, owner_pubkey)?;
+        let snapshot_boundary: i64 = transaction
+            .query_row(
+                "SELECT COALESCE(MAX(rowid), 0) FROM continuity_records WHERE owner_pubkey = ?1",
+                [owner_pubkey.as_str()],
+                |row| row.get(0),
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        let expected_count =
+            preflight_snapshot_bounds(&transaction, owner_pubkey, snapshot_boundary, None)?;
+        let records = snapshot_rows(
+            &transaction,
+            owner_pubkey,
+            snapshot_boundary,
+            None,
+            0,
+            expected_count,
+        )?;
+        ensure_snapshot_complete(expected_count, records.len())?;
+        let source_mappings = load_source_mappings(&transaction, owner_pubkey)?;
+        transaction
+            .commit()
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        Ok(ContinuityEncryptedSnapshot {
+            owner_pubkey: owner_pubkey.clone(),
+            active_key_version,
+            snapshot_boundary,
+            records,
+            source_mappings,
+        })
+    }
+
+    /// Return the frozen owner boundary and count for a proposed rotation.
+    pub(crate) fn rotation_boundary(
+        &self,
+        owner_pubkey: &Hex64,
+        from_version: SafeU53,
+    ) -> Result<(i64, usize), ContinuityStoreError> {
+        let boundary: i64 = self
+            .connection
+            .query_row(
+                "SELECT COALESCE(MAX(rowid), 0) FROM continuity_records
+                 WHERE owner_pubkey = ?1 AND key_version = ?2",
+                params![owner_pubkey.as_str(), from_version.get() as i64],
+                |row| row.get(0),
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        let count = preflight_snapshot_bounds(
+            &self.connection,
+            owner_pubkey,
+            boundary,
+            Some(from_version),
+        )?;
+        Ok((boundary, count))
+    }
+
+    /// Classify the complete persisted destination without loading any body.
+    pub(crate) fn restore_destination(
+        &self,
+        expected_owner: &Hex64,
+    ) -> Result<ContinuityRestoreDestination, ContinuityStoreError> {
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT owner_pubkey FROM continuity_records
+                 UNION SELECT owner_pubkey FROM continuity_owner_versions
+                 UNION SELECT owner_pubkey FROM continuity_rotation_journals
+                 UNION SELECT owner_pubkey FROM continuity_rotation_receipts
+                 UNION SELECT owner_pubkey FROM continuity_source_mappings",
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        let owners = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|_| ContinuityStoreError::Unavailable)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if owners.is_empty() {
+            return Ok(ContinuityRestoreDestination::Empty);
+        }
+        if owners.len() == 1 && owners[0] == expected_owner.as_str() {
+            return Ok(ContinuityRestoreDestination::ExactOwner);
+        }
+        Err(ContinuityStoreError::LifecycleConflict)
+    }
+
+    pub(crate) fn active_owner_key_version(
+        &self,
+        owner_pubkey: &Hex64,
+    ) -> Result<SafeU53, ContinuityStoreError> {
+        active_or_inferred_version(&self.connection, owner_pubkey)
+    }
+
+    /// Load the one authenticated rotation-journal envelope for an owner.
+    pub(crate) fn load_rotation_journal(
+        &self,
+        owner_pubkey: &Hex64,
+    ) -> Result<Option<ContinuityRecordV1>, ContinuityStoreError> {
+        let raw: Option<Vec<u8>> = self
+            .connection
+            .query_row(
+                "SELECT envelope_json FROM continuity_rotation_journals
+                 WHERE owner_pubkey = ?1
+                   AND typeof(envelope_json) = 'blob'
+                   AND length(envelope_json) BETWEEN 0 AND ?2",
+                params![
+                    owner_pubkey.as_str(),
+                    MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES as i64
+                ],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        raw.map(|raw| {
+            serde_json::from_slice::<ContinuityRecordV1>(&raw)
+                .map_err(|_| ContinuityStoreError::InvalidRecord)
+                .and_then(|record| {
+                    validate_record(&record)?;
+                    Ok(record)
+                })
+        })
+        .transpose()
+    }
+
+    /// Load one exact durable authenticated terminal rotation envelope.
+    pub(crate) fn load_rotation_receipt(
+        &self,
+        owner_pubkey: &Hex64,
+        rotation_id: &str,
+    ) -> Result<Option<(Hex64, ContinuityRecordV1)>, ContinuityStoreError> {
+        let row: Option<(String, Vec<u8>)> = self
+            .connection
+            .query_row(
+                "SELECT request_sha256, envelope_json FROM continuity_rotation_receipts
+                 WHERE owner_pubkey = ?1 AND rotation_id = ?2
+                   AND typeof(envelope_json) = 'blob'
+                   AND length(envelope_json) BETWEEN 0 AND ?3",
+                params![
+                    owner_pubkey.as_str(),
+                    rotation_id,
+                    MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES as i64
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        row.map(|(request_sha256, raw)| {
+            let request_sha256 =
+                Hex64::parse(request_sha256).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+            let record = serde_json::from_slice::<ContinuityRecordV1>(&raw)
+                .map_err(|_| ContinuityStoreError::InvalidRecord)?;
+            validate_record(&record)?;
+            Ok((request_sha256, record))
+        })
+        .transpose()
+    }
+
+    /// Persist `Prepared` and the frozen boundary before changing any row.
+    pub(crate) fn prepare_rotation(
+        &mut self,
+        owner_pubkey: &Hex64,
+        rotation_id: &str,
+        from_version: SafeU53,
+        expected_boundary: i64,
+        expected_count: usize,
+        journal: &ContinuityRecordV1,
+    ) -> Result<(), ContinuityStoreError> {
+        validate_record(journal)?;
+        let encoded = canonicalize(journal).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+        if encoded.len() > MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES {
+            return Err(ContinuityStoreError::InvalidRecord);
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        let existing: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM continuity_rotation_journals WHERE owner_pubkey = ?1)",
+                [owner_pubkey.as_str()],
+                |row| row.get(0),
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if existing {
+            return Err(ContinuityStoreError::LifecycleConflict);
+        }
+        let active = active_or_inferred_version(&transaction, owner_pubkey)?;
+        if active != from_version {
+            return Err(ContinuityStoreError::LifecycleConflict);
+        }
+        let (actual_boundary, actual_count): (i64, i64) = transaction
+            .query_row(
+                "SELECT COALESCE(MAX(rowid), 0), COUNT(*) FROM continuity_records
+                 WHERE owner_pubkey = ?1 AND key_version = ?2",
+                params![owner_pubkey.as_str(), from_version.get() as i64],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if actual_boundary != expected_boundary
+            || usize::try_from(actual_count).ok() != Some(expected_count)
+        {
+            return Err(ContinuityStoreError::CompareAndSwapConflict);
+        }
+        transaction
+            .execute(
+                "INSERT INTO continuity_owner_versions(owner_pubkey, active_key_version)
+                 VALUES (?1, ?2)
+                 ON CONFLICT(owner_pubkey) DO NOTHING",
+                params![owner_pubkey.as_str(), from_version.get() as i64],
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        transaction
+            .execute(
+                "INSERT INTO continuity_rotation_journals(owner_pubkey, rotation_id, envelope_json)
+                 VALUES (?1, ?2, ?3)",
+                params![owner_pubkey.as_str(), rotation_id, encoded],
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        transaction
+            .commit()
+            .map_err(|_| ContinuityStoreError::Unavailable)
+    }
+
+    /// Load one deterministic bounded rotation batch after the journal cursor.
+    pub(crate) fn rotation_batch(
+        &self,
+        owner_pubkey: &Hex64,
+        from_version: SafeU53,
+        snapshot_boundary: i64,
+        cursor: i64,
+        limit: usize,
+    ) -> Result<Vec<ContinuityStoredEnvelope>, ContinuityStoreError> {
+        if limit == 0 || limit > 256 {
+            return Err(ContinuityStoreError::SnapshotBoundExceeded);
+        }
+        snapshot_rows(
+            &self.connection,
+            owner_pubkey,
+            snapshot_boundary,
+            Some(from_version),
+            cursor,
+            limit,
+        )
+    }
+
+    /// Verify the frozen rotation population has one exact physical version.
+    pub(crate) fn verify_rotation_layout(
+        &self,
+        owner_pubkey: &Hex64,
+        snapshot_boundary: i64,
+        expected_version: SafeU53,
+        expected_count: usize,
+    ) -> Result<(), ContinuityStoreError> {
+        let (total, matching): (i64, i64) = self
+            .connection
+            .query_row(
+                "SELECT COUNT(*),
+                        SUM(CASE WHEN key_version = ?1 AND namespace_key_version = ?1
+                                 THEN 1 ELSE 0 END)
+                 FROM continuity_records WHERE owner_pubkey = ?2 AND rowid <= ?3",
+                params![
+                    expected_version.get() as i64,
+                    owner_pubkey.as_str(),
+                    snapshot_boundary
+                ],
+                |row| Ok((row.get(0)?, row.get::<_, Option<i64>>(1)?.unwrap_or(0))),
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if usize::try_from(total).ok() != Some(expected_count)
+            || usize::try_from(matching).ok() != Some(expected_count)
+        {
+            return Err(ContinuityStoreError::CompareAndSwapConflict);
+        }
+        Ok(())
+    }
+
+    /// Atomically replace a bounded batch and advance the authenticated cursor.
+    pub(crate) fn cas_rotation_batch(
+        &mut self,
+        owner_pubkey: &Hex64,
+        expected_journal: &ContinuityRecordV1,
+        replacement_journal: &ContinuityRecordV1,
+        replacements: &[ContinuityRotationReplacement],
+    ) -> Result<(), ContinuityStoreError> {
+        if replacements.is_empty() || replacements.len() > 256 {
+            return Err(ContinuityStoreError::SnapshotBoundExceeded);
+        }
+        validate_record(expected_journal)?;
+        validate_record(replacement_journal)?;
+        let expected_journal =
+            canonicalize(expected_journal).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+        let replacement_journal =
+            canonicalize(replacement_journal).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        for replacement in replacements {
+            validate_record(&replacement.expected)?;
+            validate_record(&replacement.replacement)?;
+            if replacement.expected.namespace.owner_pubkey != *owner_pubkey
+                || replacement.replacement.namespace.owner_pubkey != *owner_pubkey
+                || replacement.expected.record_id != replacement.replacement.record_id
+            {
+                return Err(ContinuityStoreError::InvalidRecord);
+            }
+            let expected_encoded = canonicalize(&replacement.expected)
+                .map_err(|_| ContinuityStoreError::InvalidRecord)?;
+            if hex::encode(Sha256::digest(&expected_encoded))
+                != replacement.expected_envelope_sha256.as_str()
+            {
+                return Err(ContinuityStoreError::InvalidRecord);
+            }
+            let encoded = canonicalize(&replacement.replacement)
+                .map_err(|_| ContinuityStoreError::InvalidRecord)?;
+            if encoded.len() > MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES {
+                return Err(ContinuityStoreError::InvalidRecord);
+            }
+            let changed = transaction
+                .execute(
+                    "UPDATE continuity_records SET
+                         namespace_key_version = ?1, key_version = ?2, nonce_b64 = ?3,
+                         envelope_json = ?4
+                     WHERE rowid = ?5 AND owner_pubkey = ?6 AND record_id = ?7
+                       AND envelope_json = ?8",
+                    params![
+                        replacement.replacement.namespace.key_version.get() as i64,
+                        replacement.replacement.key_version.get() as i64,
+                        replacement.replacement.nonce_b64,
+                        encoded,
+                        replacement.rowid,
+                        owner_pubkey.as_str(),
+                        replacement.replacement.record_id.as_str(),
+                        expected_encoded,
+                    ],
+                )
+                .map_err(|_| ContinuityStoreError::Unavailable)?;
+            if changed != 1 {
+                return Err(ContinuityStoreError::CompareAndSwapConflict);
+            }
+        }
+        let journal_changed = transaction
+            .execute(
+                "UPDATE continuity_rotation_journals SET envelope_json = ?1
+                 WHERE owner_pubkey = ?2 AND envelope_json = ?3",
+                params![replacement_journal, owner_pubkey.as_str(), expected_journal],
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if journal_changed != 1 {
+            return Err(ContinuityStoreError::CompareAndSwapConflict);
+        }
+        transaction
+            .commit()
+            .map_err(|_| ContinuityStoreError::Unavailable)
+    }
+
+    /// Compare-and-swap only the authenticated body-free journal phase.
+    pub(crate) fn cas_rotation_journal(
+        &mut self,
+        owner_pubkey: &Hex64,
+        expected: &ContinuityRecordV1,
+        replacement: &ContinuityRecordV1,
+    ) -> Result<(), ContinuityStoreError> {
+        validate_record(expected)?;
+        validate_record(replacement)?;
+        let expected = canonicalize(expected).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+        let replacement =
+            canonicalize(replacement).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+        let changed = self
+            .connection
+            .execute(
+                "UPDATE continuity_rotation_journals SET envelope_json = ?1
+                 WHERE owner_pubkey = ?2 AND envelope_json = ?3",
+                params![replacement, owner_pubkey.as_str(), expected],
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if changed != 1 {
+            return Err(ContinuityStoreError::CompareAndSwapConflict);
+        }
+        Ok(())
+    }
+
+    /// Atomically activate the new owner key version with journal advancement.
+    pub(crate) fn activate_rotation(
+        &mut self,
+        owner_pubkey: &Hex64,
+        from_version: SafeU53,
+        to_version: SafeU53,
+        expected_journal: &ContinuityRecordV1,
+        activated_journal: &ContinuityRecordV1,
+    ) -> Result<(), ContinuityStoreError> {
+        validate_record(expected_journal)?;
+        validate_record(activated_journal)?;
+        let expected =
+            canonicalize(expected_journal).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+        let activated =
+            canonicalize(activated_journal).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        let version_changed = transaction
+            .execute(
+                "UPDATE continuity_owner_versions SET active_key_version = ?1
+                 WHERE owner_pubkey = ?2 AND active_key_version = ?3",
+                params![
+                    to_version.get() as i64,
+                    owner_pubkey.as_str(),
+                    from_version.get() as i64
+                ],
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        let journal_changed = transaction
+            .execute(
+                "UPDATE continuity_rotation_journals SET envelope_json = ?1
+                 WHERE owner_pubkey = ?2 AND envelope_json = ?3",
+                params![activated, owner_pubkey.as_str(), expected],
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if version_changed != 1 || journal_changed != 1 {
+            return Err(ContinuityStoreError::CompareAndSwapConflict);
+        }
+        transaction
+            .commit()
+            .map_err(|_| ContinuityStoreError::Unavailable)
+    }
+
+    /// Atomically retain an authenticated request-bound terminal receipt and
+    /// remove only the exact completed journal.
+    pub(crate) fn complete_rotation(
+        &mut self,
+        owner_pubkey: &Hex64,
+        rotation_id: &str,
+        request_sha256: &Hex64,
+        completed_journal: &ContinuityRecordV1,
+    ) -> Result<(), ContinuityStoreError> {
+        validate_record(completed_journal)?;
+        let encoded =
+            canonicalize(completed_journal).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+        if encoded.len() > MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES {
+            return Err(ContinuityStoreError::InvalidRecord);
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        transaction
+            .execute(
+                "INSERT INTO continuity_rotation_receipts(
+                     owner_pubkey, rotation_id, request_sha256, envelope_json
+                 ) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(owner_pubkey, rotation_id) DO NOTHING",
+                params![
+                    owner_pubkey.as_str(),
+                    rotation_id,
+                    request_sha256.as_str(),
+                    &encoded
+                ],
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        let stored: (String, Vec<u8>) = transaction
+            .query_row(
+                "SELECT request_sha256, envelope_json FROM continuity_rotation_receipts
+                 WHERE owner_pubkey = ?1 AND rotation_id = ?2",
+                params![owner_pubkey.as_str(), rotation_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if stored.0 != request_sha256.as_str() || stored.1 != encoded {
+            return Err(ContinuityStoreError::ReplayConflict);
+        }
+        let changed = transaction
+            .execute(
+                "DELETE FROM continuity_rotation_journals
+                 WHERE owner_pubkey = ?1 AND rotation_id = ?2 AND envelope_json = ?3",
+                params![owner_pubkey.as_str(), rotation_id, encoded],
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if changed != 1 {
+            return Err(ContinuityStoreError::CompareAndSwapConflict);
+        }
+        transaction
+            .commit()
+            .map_err(|_| ContinuityStoreError::Unavailable)
+    }
+
+    /// Atomically replace only one owner's visible encrypted snapshot.
+    pub(crate) fn replace_owner_snapshot_atomically(
+        &mut self,
+        owner_pubkey: &Hex64,
+        records: &[ContinuityRecordV1],
+        mappings: &[ContinuitySourceMapping],
+        active_key_version: SafeU53,
+    ) -> Result<(), ContinuityStoreError> {
+        if records.len() > MAX_CONTINUITY_SNAPSHOT_RECORDS {
+            return Err(ContinuityStoreError::SnapshotBoundExceeded);
+        }
+        let mut encoded = Vec::with_capacity(records.len());
+        let mut total = 0usize;
+        for record in records {
+            validate_record(record)?;
+            if record.namespace.owner_pubkey != *owner_pubkey {
+                return Err(ContinuityStoreError::InvalidRecord);
+            }
+            let bytes = canonicalize(record).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+            total = total
+                .checked_add(bytes.len())
+                .ok_or(ContinuityStoreError::SnapshotBoundExceeded)?;
+            if bytes.len() > MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES
+                || total > MAX_CONTINUITY_SNAPSHOT_BYTES
+            {
+                return Err(ContinuityStoreError::SnapshotBoundExceeded);
+            }
+            encoded.push((record, bytes));
+        }
+        if mappings.len() > MAX_CONTINUITY_SNAPSHOT_RECORDS {
+            return Err(ContinuityStoreError::SnapshotBoundExceeded);
+        }
+        let mut mapping_refs = std::collections::BTreeSet::new();
+        for mapping in mappings {
+            if !mapping_refs.insert(mapping.mapping_ref.as_str()) {
+                return Err(ContinuityStoreError::InvalidRecord);
+            }
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        let lifecycle_busy: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM continuity_rotation_journals WHERE owner_pubkey = ?1)",
+                [owner_pubkey.as_str()],
+                |row| row.get(0),
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        if lifecycle_busy {
+            return Err(ContinuityStoreError::LifecycleConflict);
+        }
+        transaction
+            .execute(
+                "DELETE FROM continuity_records WHERE owner_pubkey = ?1",
+                [owner_pubkey.as_str()],
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        transaction
+            .execute(
+                "DELETE FROM continuity_source_mappings WHERE owner_pubkey = ?1",
+                [owner_pubkey.as_str()],
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        for (record, bytes) in encoded {
+            insert_record(&transaction, record, &bytes)?;
+        }
+        for mapping in mappings {
+            transaction
+                .execute(
+                    "INSERT INTO continuity_source_mappings(
+                         owner_pubkey, mapping_ref, source_ref, resident_pubkey
+                     ) VALUES (?1, ?2, ?3, ?4)",
+                    params![
+                        owner_pubkey.as_str(),
+                        mapping.mapping_ref.as_str(),
+                        mapping.source_ref.as_str(),
+                        mapping.resident_pubkey.as_ref().map(|value| value.as_str()),
+                    ],
+                )
+                .map_err(|_| ContinuityStoreError::Unavailable)?;
+        }
+        transaction
+            .execute(
+                "INSERT INTO continuity_owner_versions(owner_pubkey, active_key_version)
+                 VALUES (?1, ?2)
+                 ON CONFLICT(owner_pubkey) DO UPDATE SET active_key_version = excluded.active_key_version",
+                params![owner_pubkey.as_str(), active_key_version.get() as i64],
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        transaction
+            .commit()
+            .map_err(|_| ContinuityStoreError::Unavailable)
+    }
+
+    #[cfg(test)]
+    pub(super) fn source_mappings_for_test(
+        &self,
+        owner_pubkey: &Hex64,
+    ) -> Result<Vec<ContinuitySourceMapping>, ContinuityStoreError> {
+        load_source_mappings(&self.connection, owner_pubkey)
+    }
+
     /// Return body-free corruption diagnostics. They never include record text,
     /// titles, tags, journal data, ciphertext, or key material.
     pub(crate) fn diagnostics(&self) -> &[ContinuityStoreDiagnostic] {
@@ -402,6 +1097,268 @@ fn fetch_record_id_matches(
             |row| row.get(0),
         )
         .map_err(|_| ContinuityStoreError::Unavailable)
+}
+
+fn active_or_inferred_version(
+    connection: &Connection,
+    owner_pubkey: &Hex64,
+) -> Result<SafeU53, ContinuityStoreError> {
+    let persisted: Option<i64> = connection
+        .query_row(
+            "SELECT active_key_version FROM continuity_owner_versions WHERE owner_pubkey = ?1",
+            [owner_pubkey.as_str()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|_| ContinuityStoreError::Unavailable)?;
+    let version = match persisted {
+        Some(version) => version,
+        None => connection
+            .query_row(
+                "SELECT COALESCE(MAX(key_version), 1) FROM continuity_records WHERE owner_pubkey = ?1",
+                [owner_pubkey.as_str()],
+                |row| row.get(0),
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?,
+    };
+    let version = u64::try_from(version).map_err(|_| ContinuityStoreError::SchemaIncompatible)?;
+    SafeU53::new(version).map_err(|_| ContinuityStoreError::SchemaIncompatible)
+}
+
+fn snapshot_rows(
+    connection: &Connection,
+    owner_pubkey: &Hex64,
+    snapshot_boundary: i64,
+    key_version: Option<SafeU53>,
+    cursor: i64,
+    limit: usize,
+) -> Result<Vec<ContinuityStoredEnvelope>, ContinuityStoreError> {
+    if limit > MAX_CONTINUITY_SNAPSHOT_RECORDS {
+        return Err(ContinuityStoreError::SnapshotBoundExceeded);
+    }
+    let sql = if key_version.is_some() {
+        "SELECT rowid,
+                CASE WHEN typeof(envelope_json) = 'blob' THEN length(envelope_json) ELSE -1 END
+         FROM continuity_records
+         WHERE owner_pubkey = ?1 AND rowid > ?2 AND rowid <= ?3 AND key_version = ?4
+         ORDER BY rowid ASC LIMIT ?5"
+    } else {
+        "SELECT rowid,
+                CASE WHEN typeof(envelope_json) = 'blob' THEN length(envelope_json) ELSE -1 END
+         FROM continuity_records
+         WHERE owner_pubkey = ?1 AND rowid > ?2 AND rowid <= ?3
+         ORDER BY rowid ASC LIMIT ?4"
+    };
+    let mut statement = connection
+        .prepare(sql)
+        .map_err(|_| ContinuityStoreError::Unavailable)?;
+    let rows = if let Some(version) = key_version {
+        statement
+            .query_map(
+                params![
+                    owner_pubkey.as_str(),
+                    cursor,
+                    snapshot_boundary,
+                    version.get() as i64,
+                    limit as i64
+                ],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| ContinuityStoreError::Unavailable)?
+    } else {
+        statement
+            .query_map(
+                params![
+                    owner_pubkey.as_str(),
+                    cursor,
+                    snapshot_boundary,
+                    limit as i64
+                ],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| ContinuityStoreError::Unavailable)?
+    };
+    drop(statement);
+
+    let mut fetch = connection
+        .prepare(
+            "SELECT envelope_json FROM continuity_records
+             WHERE rowid = ?1 AND owner_pubkey = ?2
+               AND CASE WHEN typeof(envelope_json) = 'blob'
+                        THEN length(envelope_json) BETWEEN 0 AND ?3 ELSE 0 END",
+        )
+        .map_err(|_| ContinuityStoreError::Unavailable)?;
+    let mut total = 0usize;
+    let mut records = Vec::with_capacity(rows.len());
+    for (rowid, length) in rows {
+        if !(0..=MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES as i64).contains(&length) {
+            return Err(ContinuityStoreError::InvalidRecord);
+        }
+        total = total
+            .checked_add(length as usize)
+            .ok_or(ContinuityStoreError::SnapshotBoundExceeded)?;
+        if total > MAX_CONTINUITY_SNAPSHOT_BYTES {
+            return Err(ContinuityStoreError::SnapshotBoundExceeded);
+        }
+        let raw: Vec<u8> = fetch
+            .query_row(
+                params![
+                    rowid,
+                    owner_pubkey.as_str(),
+                    MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES as i64
+                ],
+                |row| row.get(0),
+            )
+            .map_err(|_| ContinuityStoreError::InvalidRecord)?;
+        let record: ContinuityRecordV1 =
+            serde_json::from_slice(&raw).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+        validate_record(&record)?;
+        if record.namespace.owner_pubkey != *owner_pubkey
+            || !fetch_record_id_matches(connection, rowid, &record)?
+        {
+            return Err(ContinuityStoreError::InvalidRecord);
+        }
+        let digest = Hex64::parse(hex::encode(Sha256::digest(&raw)))
+            .map_err(|_| ContinuityStoreError::InvalidRecord)?;
+        records.push(ContinuityStoredEnvelope {
+            rowid,
+            envelope_sha256: digest,
+            record,
+        });
+    }
+    Ok(records)
+}
+
+fn preflight_snapshot_bounds(
+    connection: &Connection,
+    owner_pubkey: &Hex64,
+    snapshot_boundary: i64,
+    key_version: Option<SafeU53>,
+) -> Result<usize, ContinuityStoreError> {
+    let (count, bytes, malformed): (i64, i64, i64) = if let Some(version) = key_version {
+        connection
+            .query_row(
+                "SELECT COUNT(*),
+                        COALESCE(SUM(CASE WHEN typeof(envelope_json) = 'blob'
+                                              THEN length(envelope_json) ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN typeof(envelope_json) = 'blob'
+                                              AND length(envelope_json) BETWEEN 0 AND ?1
+                                         THEN 0 ELSE 1 END), 0)
+                 FROM continuity_records
+                 WHERE owner_pubkey = ?2 AND rowid <= ?3 AND key_version = ?4",
+                params![
+                    MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES as i64,
+                    owner_pubkey.as_str(),
+                    snapshot_boundary,
+                    version.get() as i64
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?
+    } else {
+        connection
+            .query_row(
+                "SELECT COUNT(*),
+                        COALESCE(SUM(CASE WHEN typeof(envelope_json) = 'blob'
+                                              THEN length(envelope_json) ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN typeof(envelope_json) = 'blob'
+                                              AND length(envelope_json) BETWEEN 0 AND ?1
+                                         THEN 0 ELSE 1 END), 0)
+                 FROM continuity_records
+                 WHERE owner_pubkey = ?2 AND rowid <= ?3",
+                params![
+                    MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES as i64,
+                    owner_pubkey.as_str(),
+                    snapshot_boundary
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .map_err(|_| ContinuityStoreError::Unavailable)?
+    };
+    validate_snapshot_totals(count, bytes, malformed)
+}
+
+fn validate_snapshot_totals(
+    count: i64,
+    bytes: i64,
+    malformed: i64,
+) -> Result<usize, ContinuityStoreError> {
+    if malformed != 0 || count < 0 || bytes < 0 {
+        return Err(ContinuityStoreError::InvalidRecord);
+    }
+    let count = usize::try_from(count).map_err(|_| ContinuityStoreError::SnapshotBoundExceeded)?;
+    let bytes = usize::try_from(bytes).map_err(|_| ContinuityStoreError::SnapshotBoundExceeded)?;
+    if count > MAX_CONTINUITY_SNAPSHOT_RECORDS || bytes > MAX_CONTINUITY_SNAPSHOT_BYTES {
+        return Err(ContinuityStoreError::SnapshotBoundExceeded);
+    }
+    Ok(count)
+}
+
+fn ensure_snapshot_complete(
+    expected_count: usize,
+    loaded_count: usize,
+) -> Result<(), ContinuityStoreError> {
+    if expected_count == loaded_count {
+        Ok(())
+    } else {
+        Err(ContinuityStoreError::CompareAndSwapConflict)
+    }
+}
+
+fn load_source_mappings(
+    connection: &Connection,
+    owner_pubkey: &Hex64,
+) -> Result<Vec<ContinuitySourceMapping>, ContinuityStoreError> {
+    let count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM continuity_source_mappings WHERE owner_pubkey = ?1",
+            [owner_pubkey.as_str()],
+            |row| row.get(0),
+        )
+        .map_err(|_| ContinuityStoreError::Unavailable)?;
+    let count = usize::try_from(count).map_err(|_| ContinuityStoreError::SnapshotBoundExceeded)?;
+    if count > MAX_CONTINUITY_SNAPSHOT_RECORDS {
+        return Err(ContinuityStoreError::SnapshotBoundExceeded);
+    }
+    let mut statement = connection
+        .prepare(
+            "SELECT mapping_ref, source_ref, resident_pubkey
+             FROM continuity_source_mappings WHERE owner_pubkey = ?1
+             ORDER BY mapping_ref LIMIT ?2",
+        )
+        .map_err(|_| ContinuityStoreError::Unavailable)?;
+    let result = statement
+        .query_map(params![owner_pubkey.as_str(), count as i64], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .map_err(|_| ContinuityStoreError::Unavailable)?
+        .map(|row| {
+            let (mapping_ref, source_ref, resident_pubkey) =
+                row.map_err(|_| ContinuityStoreError::Unavailable)?;
+            Ok(ContinuitySourceMapping {
+                mapping_ref: Sha256Ref::parse(mapping_ref)
+                    .map_err(|_| ContinuityStoreError::InvalidRecord)?,
+                source_ref: Sha256Ref::parse(source_ref)
+                    .map_err(|_| ContinuityStoreError::InvalidRecord)?,
+                resident_pubkey: resident_pubkey
+                    .map(Hex64::parse)
+                    .transpose()
+                    .map_err(|_| ContinuityStoreError::InvalidRecord)?,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if result.len() != count {
+        return Err(ContinuityStoreError::CompareAndSwapConflict);
+    }
+    Ok(result)
 }
 
 impl Drop for ContinuityStore {
@@ -452,7 +1409,35 @@ fn initialize_schema(connection: &Connection) -> Result<(), ContinuityStoreError
                 "BEGIN IMMEDIATE;
                  {CREATE_TABLE_SQL};
                  {CREATE_SCOPE_INDEX_SQL};
+                 {CREATE_OWNER_VERSION_TABLE_SQL};
+                 {CREATE_ROTATION_JOURNAL_TABLE_SQL};
+                 {CREATE_ROTATION_RECEIPT_TABLE_SQL};
+                 {CREATE_SOURCE_MAPPING_TABLE_SQL};
                  PRAGMA application_id = {APPLICATION_ID};
+                 PRAGMA user_version = {SCHEMA_VERSION};
+                 COMMIT;"
+            ))
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+    } else if user_version == LEGACY_SCHEMA_VERSION {
+        // K03D's exact v1 schema is the only accepted migration source. The
+        // preflight has already validated it without writes.
+        connection
+            .execute_batch(&format!(
+                "BEGIN IMMEDIATE;
+                 {CREATE_OWNER_VERSION_TABLE_SQL};
+                 {CREATE_ROTATION_JOURNAL_TABLE_SQL};
+                 {CREATE_ROTATION_RECEIPT_TABLE_SQL};
+                 {CREATE_SOURCE_MAPPING_TABLE_SQL};
+                 PRAGMA user_version = {SCHEMA_VERSION};
+                 COMMIT;"
+            ))
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+    } else if user_version == PREVIOUS_SCHEMA_VERSION {
+        connection
+            .execute_batch(&format!(
+                "BEGIN IMMEDIATE;
+                 {CREATE_ROTATION_RECEIPT_TABLE_SQL};
+                 {CREATE_SOURCE_MAPPING_TABLE_SQL};
                  PRAGMA user_version = {SCHEMA_VERSION};
                  COMMIT;"
             ))
@@ -464,22 +1449,28 @@ fn initialize_schema(connection: &Connection) -> Result<(), ContinuityStoreError
 /// Check an existing database without a write-capable connection. Any unknown,
 /// newer, corrupted, or inconsistent store is refused before initialization.
 fn preflight_existing_schema(path: &Path) -> Result<(), ContinuityStoreError> {
-    // Opening a WAL database read-only can create or update its shared-memory
-    // sidecar. Immutable mode avoids that write but intentionally ignores WAL,
-    // so a sidecar is an uninspectable freshness ambiguity. G2 is single-writer
-    // and fail-soft: reject it without touching any continuity bytes.
-    if path.with_extension("sqlite3-wal").exists() || path.with_extension("sqlite3-shm").exists() {
-        return Err(ContinuityStoreError::SchemaIncompatible);
-    }
-    let mut uri =
-        url::Url::from_file_path(path).map_err(|_| ContinuityStoreError::SchemaIncompatible)?;
-    uri.query_pairs_mut().append_pair("immutable", "1");
+    // A normal read-only SQLite open intentionally participates in WAL
+    // recovery. Immutable mode would ignore committed crash-residue in `-wal`
+    // and could validate a stale main file. The path and sidecars are checked
+    // for symlinks before SQLite is allowed to inspect them.
+    reject_symlink(path)?;
+    reject_symlink(&path.with_extension("sqlite3-wal"))?;
+    reject_symlink(&path.with_extension("sqlite3-shm"))?;
     let connection = Connection::open_with_flags(
-        uri.as_str(),
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .map_err(|_| ContinuityStoreError::SchemaIncompatible)?;
-    validate_schema(&connection).map_err(|_| ContinuityStoreError::SchemaIncompatible)
+    let user_version: i64 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|_| ContinuityStoreError::SchemaIncompatible)?;
+    match user_version {
+        LEGACY_SCHEMA_VERSION => validate_legacy_schema(&connection),
+        PREVIOUS_SCHEMA_VERSION => validate_previous_schema(&connection),
+        SCHEMA_VERSION => validate_schema(&connection),
+        _ => Err(ContinuityStoreError::SchemaIncompatible),
+    }
+    .map_err(|_| ContinuityStoreError::SchemaIncompatible)
 }
 
 fn validate_schema(connection: &Connection) -> Result<(), ContinuityStoreError> {
@@ -492,6 +1483,96 @@ fn validate_schema(connection: &Connection) -> Result<(), ContinuityStoreError> 
     if application_id != APPLICATION_ID || user_version != SCHEMA_VERSION {
         return Err(ContinuityStoreError::SchemaIncompatible);
     }
+    validate_record_schema(connection)?;
+    validate_exact_table(
+        connection,
+        "continuity_owner_versions",
+        CREATE_OWNER_VERSION_TABLE_SQL,
+        &[
+            ("owner_pubkey", "TEXT", true, 1),
+            ("active_key_version", "INTEGER", true, 0),
+        ],
+    )?;
+    validate_exact_table(
+        connection,
+        "continuity_rotation_journals",
+        CREATE_ROTATION_JOURNAL_TABLE_SQL,
+        &[
+            ("owner_pubkey", "TEXT", true, 1),
+            ("rotation_id", "TEXT", true, 0),
+            ("envelope_json", "BLOB", true, 0),
+        ],
+    )?;
+    validate_exact_table(
+        connection,
+        "continuity_rotation_receipts",
+        CREATE_ROTATION_RECEIPT_TABLE_SQL,
+        &[
+            ("owner_pubkey", "TEXT", true, 1),
+            ("rotation_id", "TEXT", true, 2),
+            ("request_sha256", "TEXT", true, 0),
+            ("envelope_json", "BLOB", true, 0),
+        ],
+    )?;
+    validate_exact_table(
+        connection,
+        "continuity_source_mappings",
+        CREATE_SOURCE_MAPPING_TABLE_SQL,
+        &[
+            ("owner_pubkey", "TEXT", true, 1),
+            ("mapping_ref", "TEXT", true, 2),
+            ("source_ref", "TEXT", true, 0),
+            ("resident_pubkey", "TEXT", false, 0),
+        ],
+    )
+}
+
+fn validate_previous_schema(connection: &Connection) -> Result<(), ContinuityStoreError> {
+    let application_id: i64 = connection
+        .pragma_query_value(None, "application_id", |row| row.get(0))
+        .map_err(|_| ContinuityStoreError::Unavailable)?;
+    let user_version: i64 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|_| ContinuityStoreError::Unavailable)?;
+    if application_id != APPLICATION_ID || user_version != PREVIOUS_SCHEMA_VERSION {
+        return Err(ContinuityStoreError::SchemaIncompatible);
+    }
+    validate_record_schema(connection)?;
+    validate_exact_table(
+        connection,
+        "continuity_owner_versions",
+        CREATE_OWNER_VERSION_TABLE_SQL,
+        &[
+            ("owner_pubkey", "TEXT", true, 1),
+            ("active_key_version", "INTEGER", true, 0),
+        ],
+    )?;
+    validate_exact_table(
+        connection,
+        "continuity_rotation_journals",
+        CREATE_ROTATION_JOURNAL_TABLE_SQL,
+        &[
+            ("owner_pubkey", "TEXT", true, 1),
+            ("rotation_id", "TEXT", true, 0),
+            ("envelope_json", "BLOB", true, 0),
+        ],
+    )
+}
+
+fn validate_legacy_schema(connection: &Connection) -> Result<(), ContinuityStoreError> {
+    let application_id: i64 = connection
+        .pragma_query_value(None, "application_id", |row| row.get(0))
+        .map_err(|_| ContinuityStoreError::Unavailable)?;
+    let user_version: i64 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|_| ContinuityStoreError::Unavailable)?;
+    if application_id != APPLICATION_ID || user_version != LEGACY_SCHEMA_VERSION {
+        return Err(ContinuityStoreError::SchemaIncompatible);
+    }
+    validate_record_schema(connection)
+}
+
+fn validate_record_schema(connection: &Connection) -> Result<(), ContinuityStoreError> {
     let (object_type, sql): (String, Option<String>) = connection
         .query_row(
             "SELECT type, sql FROM sqlite_master WHERE name = 'continuity_records'",
@@ -592,6 +1673,54 @@ fn validate_schema(connection: &Connection) -> Result<(), ContinuityStoreError> 
                 && index.origin == "pk"
                 && !index.partial
                 && index.columns.iter().map(String::as_str).eq(["record_id"])
+        })
+    {
+        return Err(ContinuityStoreError::SchemaIncompatible);
+    }
+    Ok(())
+}
+
+fn validate_exact_table(
+    connection: &Connection,
+    name: &str,
+    expected_sql: &str,
+    required: &[(&str, &str, bool, i64)],
+) -> Result<(), ContinuityStoreError> {
+    let (object_type, sql): (String, Option<String>) = connection
+        .query_row(
+            "SELECT type, sql FROM sqlite_master WHERE name = ?1",
+            [name],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|_| ContinuityStoreError::SchemaIncompatible)?;
+    if object_type != "table"
+        || normalize_schema_sql(sql.as_deref().unwrap_or_default())
+            != normalize_schema_sql(expected_sql)
+    {
+        return Err(ContinuityStoreError::SchemaIncompatible);
+    }
+    let pragma = format!("PRAGMA table_info({name})");
+    let mut statement = connection
+        .prepare(&pragma)
+        .map_err(|_| ContinuityStoreError::SchemaIncompatible)?;
+    let actual = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)? != 0,
+                row.get::<_, i64>(5)?,
+            ))
+        })
+        .map_err(|_| ContinuityStoreError::SchemaIncompatible)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| ContinuityStoreError::SchemaIncompatible)?;
+    if actual.len() != required.len()
+        || actual.iter().zip(required).any(|(actual, required)| {
+            actual.0 != required.0
+                || actual.1.to_ascii_uppercase() != required.1
+                || actual.2 != required.2
+                || actual.3 != required.3
         })
     {
         return Err(ContinuityStoreError::SchemaIncompatible);
@@ -729,6 +1858,17 @@ fn ensure_private_directory(path: &Path) -> Result<(), ContinuityStoreError> {
     Ok(())
 }
 
+fn reject_symlink(path: &Path) -> Result<(), ContinuityStoreError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            Err(ContinuityStoreError::SchemaIncompatible)
+        }
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(ContinuityStoreError::Unavailable),
+    }
+}
+
 fn ensure_private_file(path: &Path) -> Result<(), ContinuityStoreError> {
     #[cfg(unix)]
     {
@@ -741,6 +1881,12 @@ fn ensure_private_file(path: &Path) -> Result<(), ContinuityStoreError> {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        process::Command,
+        thread,
+        time::{Duration, Instant},
+    };
+
     use super::*;
     use base64::Engine as _;
     use luca_continuity::{encrypt_record, RecordMetadata};
@@ -969,7 +2115,9 @@ mod tests {
         let path = store.path_for_test().to_owned();
         drop(store);
         let connection = Connection::open(&path).unwrap();
-        connection.pragma_update(None, "user_version", 2).unwrap();
+        connection
+            .pragma_update(None, "user_version", SCHEMA_VERSION + 1)
+            .unwrap();
         connection
             .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
             .unwrap();
@@ -999,34 +2147,127 @@ mod tests {
     }
 
     #[test]
-    fn wal_mode_rejection_does_not_touch_any_existing_sidecar() {
+    fn subprocess_crash_writer_helper() {
+        let Ok(root) = std::env::var("LUCA_CONTINUITY_CRASH_TEST_ROOT") else {
+            return;
+        };
+        let ready_path = std::env::var("LUCA_CONTINUITY_CRASH_TEST_READY")
+            .expect("parent must provide a readiness path");
+        let mut store =
+            match ContinuityStore::open(Path::new(&root), ContinuityStoreCustody::Ready).unwrap() {
+                ContinuityStoreOpen::Ready(store) => store,
+                ContinuityStoreOpen::Degraded(_) => panic!("expected ready"),
+            };
+        store
+            .connection
+            .execute_batch("PRAGMA wal_autocheckpoint = 0;")
+            .unwrap();
+        let record =
+            encrypt_record(metadata("subprocess-crash-record"), &[0x42; 32], b"body").unwrap();
+        store.put_encrypted(&record).unwrap();
+        assert!(store.path_for_test().with_extension("sqlite3-wal").exists());
+        fs::write(ready_path, b"ready").unwrap();
+        loop {
+            thread::park();
+        }
+    }
+
+    #[test]
+    fn normal_wal_shm_crash_state_reopens_and_recovers() {
         let temp = TempDir::new().unwrap();
-        let store = open(&temp);
+        let ready_path = temp.path().join("writer-ready");
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("luca::continuity_store::tests::subprocess_crash_writer_helper")
+            .arg("--nocapture")
+            .env("LUCA_CONTINUITY_CRASH_TEST_ROOT", temp.path())
+            .env("LUCA_CONTINUITY_CRASH_TEST_READY", &ready_path)
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !ready_path.exists() {
+            assert!(
+                child.try_wait().unwrap().is_none(),
+                "crash writer exited before publishing its WAL readiness marker"
+            );
+            assert!(
+                Instant::now() < deadline,
+                "crash writer did not publish its readiness marker"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+        child.kill().unwrap();
+        let status = child.wait().unwrap();
+        assert!(!status.success());
+        let path = temp.path().join(STORE_DIRECTORY).join(STORE_FILENAME);
+        assert!(path.with_extension("sqlite3-wal").exists());
+        let mut store = open(&temp);
+        let record_metadata = metadata("subprocess-crash-record");
+        assert_eq!(
+            store
+                .load_encrypted_exact(&address(&record_metadata))
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_store_directory_file_and_sidecar_are_rejected() {
+        use std::os::unix::fs::symlink;
+
+        let directory_link = TempDir::new().unwrap();
+        let elsewhere = TempDir::new().unwrap();
+        symlink(
+            elsewhere.path(),
+            directory_link.path().join(STORE_DIRECTORY),
+        )
+        .unwrap();
+        assert_eq!(
+            ContinuityStore::open(directory_link.path(), ContinuityStoreCustody::Ready)
+                .unwrap_err(),
+            ContinuityStoreError::SchemaIncompatible
+        );
+
+        let file_link = TempDir::new().unwrap();
+        let directory = file_link.path().join(STORE_DIRECTORY);
+        fs::create_dir_all(&directory).unwrap();
+        let target = file_link.path().join("target.sqlite3");
+        fs::write(&target, []).unwrap();
+        symlink(&target, directory.join(STORE_FILENAME)).unwrap();
+        assert_eq!(
+            ContinuityStore::open(file_link.path(), ContinuityStoreCustody::Ready).unwrap_err(),
+            ContinuityStoreError::SchemaIncompatible
+        );
+
+        let sidecar_link = TempDir::new().unwrap();
+        let store = open(&sidecar_link);
         let path = store.path_for_test().to_owned();
         drop(store);
-        let writer = Connection::open(&path).unwrap();
-        writer
-            .execute_batch(
-                "PRAGMA journal_mode = WAL;
-                 PRAGMA wal_autocheckpoint = 0;
-                 PRAGMA user_version = 2;",
-            )
-            .unwrap();
-        let sidecars = [
-            path.clone(),
-            path.with_extension("sqlite3-wal"),
-            path.with_extension("sqlite3-shm"),
-        ];
-        assert!(sidecars[1].exists());
-        assert!(sidecars[2].exists());
-        let before: Vec<Vec<u8>> = sidecars.iter().map(|path| read(path)).collect();
-        assert!(matches!(
-            ContinuityStore::open(temp.path(), ContinuityStoreCustody::Ready),
-            Err(ContinuityStoreError::SchemaIncompatible)
-        ));
-        let after: Vec<Vec<u8>> = sidecars.iter().map(|path| read(path)).collect();
-        assert_eq!(before, after);
-        drop(writer);
+        let sidecar_target = sidecar_link.path().join("sidecar-target");
+        fs::write(&sidecar_target, []).unwrap();
+        symlink(&sidecar_target, path.with_extension("sqlite3-wal")).unwrap();
+        assert_eq!(
+            ContinuityStore::open(sidecar_link.path(), ContinuityStoreCustody::Ready).unwrap_err(),
+            ContinuityStoreError::SchemaIncompatible
+        );
+    }
+
+    #[test]
+    fn snapshot_overflow_and_truncation_guards_fail_closed() {
+        assert_eq!(
+            validate_snapshot_totals(MAX_CONTINUITY_SNAPSHOT_RECORDS as i64 + 1, 0, 0),
+            Err(ContinuityStoreError::SnapshotBoundExceeded)
+        );
+        assert_eq!(
+            validate_snapshot_totals(1, MAX_CONTINUITY_SNAPSHOT_BYTES as i64 + 1, 0),
+            Err(ContinuityStoreError::SnapshotBoundExceeded)
+        );
+        assert_eq!(
+            ensure_snapshot_complete(2, 1),
+            Err(ContinuityStoreError::CompareAndSwapConflict)
+        );
     }
 
     #[test]

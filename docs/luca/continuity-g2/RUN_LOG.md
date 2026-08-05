@@ -263,3 +263,18 @@ Risks/known limits:
   remain before K05D/A209 may pass.
 - Evidence: `evidence/G2/G2.2/K05D/projection-review-pass.md` and
   `evidence/G2/G2.2/K05D/restart-contract.md`.
+
+## 2026-08-05 — K06 — bounded repair stopped at re-review gate
+
+- The repair closed real WAL/SHM crash recovery, lifecycle-lock ownership,
+  partial slot reconciliation, destination authority, transactional mappings,
+  authenticated rotation replay, symlink/truncation checks, tamper tests, and
+  fresh-keychain restore.
+- All 39 focused tests pass.
+- Re-review still found a commit-ambiguous Keychain error path that can delete
+  rollback authority and archive collection caps that execute after full
+  parse/canonicalization.
+- The planned repair count is exhausted. K06 is preserved as a blocked source
+  checkpoint and no K06/A207/A208/G2.2 pass is claimed without additional
+  repair authority.
+- Evidence: `evidence/G2/G2.2/K06/repair-review-block.md`.
