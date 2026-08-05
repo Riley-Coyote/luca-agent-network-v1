@@ -45,6 +45,14 @@ pub enum ContinuityError {
     UnsupportedRecordType,
     /// One idempotency key was reused for a different canonical operation.
     IdempotencyConflict,
+    /// A decrypted record was not safe to admit to the retrieval index.
+    InvalidRetrievalRecord,
+    /// An untrusted retrieval cue exceeded the fixed process-memory bound.
+    RetrievalCueTooLarge,
+    /// The process-memory-only lexical index could not complete an operation.
+    RetrievalIndex,
+    /// A caller-supplied memory-only vector was empty, duplicate, or oversized.
+    InvalidRetrievalVector,
 }
 
 impl fmt::Display for ContinuityError {
@@ -72,6 +80,10 @@ impl fmt::Display for ContinuityError {
             }
             Self::UnsupportedRecordType => "record type is not allowed for durable continuity",
             Self::IdempotencyConflict => "continuity idempotency key conflicts with prior request",
+            Self::InvalidRetrievalRecord => "invalid continuity retrieval record",
+            Self::RetrievalCueTooLarge => "continuity retrieval cue exceeds the fixed bound",
+            Self::RetrievalIndex => "continuity memory-only retrieval index failed",
+            Self::InvalidRetrievalVector => "invalid memory-only continuity retrieval vector",
         };
         formatter.write_str(message)
     }
