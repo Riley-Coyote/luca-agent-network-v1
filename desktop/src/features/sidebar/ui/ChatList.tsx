@@ -1,5 +1,7 @@
+import { ChevronDown } from "lucide-react";
 import * as React from "react";
 
+import type { RoomProject } from "@/features/channels/lib/roomProjects";
 import type { Channel } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { conversationMarkSeeds } from "@/features/channels/lib/conversationMarks";
@@ -45,6 +47,57 @@ function relativeTime(iso: string | null): string {
   return days < 7 ? `${days}d` : `${Math.floor(days / 7)}w`;
 }
 
+export type ChatGroup = {
+  /** null = no project. These are your own rooms — resident chats, loose work. */
+  project: RoomProject | null;
+  items: ChatListItem[];
+  /** Newest activity anywhere in the group, which is what orders the groups. */
+  mostRecent: number;
+};
+
+/**
+ * Group rooms by project, and order the GROUPS by recency too.
+ *
+ * That second half is the whole difference between this and a Slack sidebar.
+ * Slack's sections are a filing cabinet: fixed order, alphabetical, dead. When
+ * the groups move, whatever you are actually working in floats to the top and
+ * the project you have not touched in a month sinks — the rail shows your
+ * current work first without being told what that is.
+ *
+ * Ungrouped rooms always come FIRST and carry no label. Your one-to-one chats
+ * with residents have no project, so they land there — correct without needing
+ * a special case, because a resident belongs to you, not to a project.
+ */
+export function groupChats(
+  items: readonly ChatListItem[],
+  projectByChannelId: ReadonlyMap<string, RoomProject>,
+): ChatGroup[] {
+  const lastActive = (item: ChatListItem) =>
+    item.channel.lastMessageAt ? Date.parse(item.channel.lastMessageAt) : 0;
+
+  const groups = new Map<string, ChatGroup>();
+  for (const item of items) {
+    const project = projectByChannelId.get(item.channel.id) ?? null;
+    const key = project?.id ?? "";
+    let group = groups.get(key);
+    if (!group) {
+      group = { project, items: [], mostRecent: 0 };
+      groups.set(key, group);
+    }
+    group.items.push(item);
+    group.mostRecent = Math.max(group.mostRecent, lastActive(item));
+  }
+
+  for (const group of groups.values()) group.items = sortChats(group.items);
+
+  return [...groups.values()].sort((a, b) => {
+    if (!a.project) return -1;
+    if (!b.project) return 1;
+    if (a.mostRecent !== b.mostRecent) return b.mostRecent - a.mostRecent;
+    return a.project.label.localeCompare(b.project.label);
+  });
+}
+
 /** Recency first; never-messaged residents fall to the bottom, alphabetically,
  *  so the list has a stable tail rather than an arbitrary one. */
 export function sortChats(items: readonly ChatListItem[]): ChatListItem[] {
@@ -60,14 +113,117 @@ export function sortChats(items: readonly ChatListItem[]): ChatListItem[] {
   });
 }
 
+type RowProps = {
+  item: ChatListItem;
+  selectedChannelId: string | null;
+  unreadChannelIds: ReadonlySet<string>;
+  workingByChannelId?: ReadonlyMap<string, { agentCount: number }>;
+  onSelectChannel: (channelId: string) => void;
+};
+
+function ChatRow({
+  item,
+  selectedChannelId,
+  unreadChannelIds,
+  workingByChannelId,
+  onSelectChannel,
+}: RowProps) {
+  const { channel, label, markPubkeys } = item;
+  const isActive = channel.id === selectedChannelId;
+  const isUnread = unreadChannelIds.has(channel.id);
+  const working = workingByChannelId?.get(channel.id);
+  const liveLabel = working
+    ? working.agentCount > 1
+      ? `${working.agentCount} working`
+      : "working"
+    : null;
+
+  return (
+    <button
+      aria-label={isUnread ? `${label}, unread` : label}
+      // Wearing the app's own menu-button identity rather than hand-rolling
+      // active/hover colours: conversation-shell.css already owns those states.
+      className={cn(
+        "group flex w-full items-center gap-2.5 rounded-md px-2 text-left outline-none",
+        // Hover resolves fast enough to feel attached to the pointer without
+        // flickering as the cursor crosses the list; active is instant, because
+        // a press that animates feels laggy no matter how brief.
+        "min-h-8 transition-colors duration-100 data-[active=true]:duration-0",
+      )}
+      data-active={isActive ? "true" : undefined}
+      data-sidebar="menu-button"
+      data-testid={`chat-row-${channel.id}`}
+      onClick={() => onSelectChannel(channel.id)}
+      type="button"
+    >
+      {/* The stack IS the multi-agent indicator — no badge, no count. Each mark
+          rings in the rail's own colour so overlapping marks read as layered
+          objects instead of merging into one shape. */}
+      <span className="flex shrink-0 -space-x-1.5">
+        {markPubkeys.map((seed) => (
+          <AgentIdentitySpecimen
+            accessibleName={label}
+            className="ring-2 ring-sidebar"
+            key={seed}
+            publicKey={seed}
+            size={20}
+            state="present"
+          />
+        ))}
+      </span>
+
+      <span
+        className={cn(
+          "min-w-0 flex-1 truncate text-sm",
+          isUnread && !isActive && "font-medium text-sidebar-foreground",
+        )}
+        data-sidebar-row-label
+      >
+        {label}
+      </span>
+
+      {/* ONE trailing slot, never two, and no fixed width — a reserved column
+          looks tidier in a mock and then eats the NAME on a narrow rail. */}
+      <span className="flex shrink-0 justify-end">
+        {isUnread && !isActive ? (
+          <span
+            aria-hidden
+            className="size-1.5 self-center rounded-full bg-sidebar-foreground/70"
+          />
+        ) : liveLabel ? (
+          <span className="truncate text-2xs text-sidebar-foreground/55">
+            {liveLabel}…
+          </span>
+        ) : (
+          <span className="text-2xs tabular-nums text-sidebar-foreground/35">
+            {relativeTime(channel.lastMessageAt)}
+          </span>
+        )}
+      </span>
+    </button>
+  );
+}
+
+const COLLAPSED_KEY = "luca.collapsedProjects.v1";
+
+function readCollapsed(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
 export function ChatList({
   items,
+  projectByChannelId,
   selectedChannelId,
   unreadChannelIds,
   workingByChannelId,
   onSelectChannel,
 }: {
   items: readonly ChatListItem[];
+  projectByChannelId: ReadonlyMap<string, RoomProject>;
   selectedChannelId: string | null;
   unreadChannelIds: ReadonlySet<string>;
   /** Channels with a resident mid-turn. Replaces the timestamp while running —
@@ -75,102 +231,75 @@ export function ChatList({
   workingByChannelId?: ReadonlyMap<string, { agentCount: number }>;
   onSelectChannel: (channelId: string) => void;
 }) {
-  const sorted = React.useMemo(() => sortChats(items), [items]);
+  const groups = React.useMemo(
+    () => groupChats(items, projectByChannelId),
+    [items, projectByChannelId],
+  );
+  const [collapsed, setCollapsed] = React.useState<Set<string>>(readCollapsed);
+
+  const toggle = React.useCallback((projectId: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(projectId)) next.add(projectId);
+      try {
+        localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]));
+      } catch {
+        /* a rail that forgets its collapse state is not worth throwing over */
+      }
+      return next;
+    });
+  }, []);
+
+  const rowProps = {
+    selectedChannelId,
+    unreadChannelIds,
+    workingByChannelId,
+    onSelectChannel,
+  };
 
   return (
     <div className="flex flex-col px-2" data-testid="chat-list">
-      {/* The section's only label. Quiet enough to read as a signpost rather
-          than a header — it names the content without competing with it. */}
-      <p className="select-none px-2 pb-1 pt-3 text-2xs font-medium uppercase tracking-[0.1em] text-sidebar-foreground/35">
-        Rooms
-      </p>
-      {sorted.map(({ channel, label, markPubkeys }) => {
-        const isActive = channel.id === selectedChannelId;
-        const isUnread = unreadChannelIds.has(channel.id);
-        const working = workingByChannelId?.get(channel.id);
-        const liveLabel = working
-          ? working.agentCount > 1
-            ? `${working.agentCount} working`
-            : "working"
-          : null;
-
+      {groups.map((group) => {
+        const isCollapsed = group.project
+          ? collapsed.has(group.project.id)
+          : false;
         return (
-          <button
-            // Wearing the app's own menu-button identity rather than
-            // hand-rolling active/hover colours: conversation-shell.css already
-            // owns those states, and my first pass reinvented them at 10%
-            // opacity, which rendered dark text on a near-dark pill.
-            className={cn(
-              "group flex w-full items-center gap-2.5 rounded-md px-2 text-left outline-none",
-              // 32px rows on a 4px rhythm. Hover resolves fast enough to feel
-              // attached to the pointer but not so fast it flickers while the
-              // cursor crosses the list; the active state is instant, because
-              // a press that animates feels laggy no matter how brief.
-              "min-h-8 transition-colors duration-100 data-[active=true]:duration-0",
-            )}
-            data-active={isActive ? "true" : undefined}
-            data-sidebar="menu-button"
-            aria-label={isUnread ? `${label}, unread` : label}
-            data-testid={`chat-row-${channel.id}`}
-            key={channel.id}
-            onClick={() => onSelectChannel(channel.id)}
-            type="button"
+          <div
+            className="flex flex-col"
+            data-testid={`chat-group-${group.project?.id ?? "ungrouped"}`}
+            key={group.project?.id ?? "ungrouped"}
           >
-            {/* EVERY row carries a mark, so the list has one text baseline
-                instead of two. A group with no residents in it is seeded from
-                its own id — the sigil engine only needs a stable string, so a
-                room gets a deterministic identity the same way a person does. */}
-            <span className="flex shrink-0 -space-x-1.5">
-              {(markPubkeys.length
-                ? markPubkeys.slice(0, 2)
-                : [channel.id]
-              ).map((seed) => (
-                <AgentIdentitySpecimen
-                  accessibleName={label}
-                  key={seed}
-                  publicKey={seed}
-                  size={20}
-                  state="present"
-                />
-              ))}
-            </span>
-
-            <span
-              className={cn(
-                "min-w-0 flex-1 truncate text-sm",
-                isUnread && !isActive && "font-medium text-sidebar-foreground",
-              )}
-              data-sidebar-row-label
-            >
-              {label}
-            </span>
-
-            {/* ONE trailing slot, never two. Live state displaces the
-                timestamp (what is happening beats when it last happened), and
-                the unread dot displaces both — an unread room does not also
-                need to tell you the hour. Tabular figures so the column does
-                not jitter as minutes tick over. */}
-            {/* No fixed width. A reserved column looks tidier in a mock and
-                then eats the NAME on a narrow rail — which is exactly how the
-                hex fingerprint used to clip these same rows. The slot sizes to
-                its content and disappears when there is none. */}
-            <span className="flex shrink-0 justify-end">
-              {isUnread && !isActive ? (
-                <span
+            {/* Ungrouped rooms carry NO label — they are just your rooms, and a
+                header over them would name a category that does not exist. */}
+            {group.project ? (
+              <button
+                aria-expanded={!isCollapsed}
+                // The label IS the toggle. A permanent chevron is chrome at two
+                // projects and only earns its place at ten, so it appears on
+                // hover; the section reads as a signpost the rest of the time.
+                className="group/section mt-3 flex w-full items-center gap-1 px-2 pb-1 text-left outline-none"
+                onClick={() => toggle(group.project?.id ?? "")}
+                type="button"
+              >
+                <span className="truncate text-2xs font-medium uppercase tracking-[0.1em] text-sidebar-foreground/35 transition-colors group-hover/section:text-sidebar-foreground/60">
+                  {group.project.label}
+                </span>
+                <ChevronDown
                   aria-hidden
-                  className="size-1.5 self-center rounded-full bg-sidebar-foreground/70"
+                  className={cn(
+                    "h-3 w-3 shrink-0 text-sidebar-foreground/40 opacity-0 transition-[opacity,transform] group-hover/section:opacity-100 group-focus-visible/section:opacity-100",
+                    isCollapsed && "-rotate-90 opacity-100",
+                  )}
                 />
-              ) : liveLabel ? (
-                <span className="truncate text-2xs text-sidebar-foreground/55">
-                  {liveLabel}…
-                </span>
-              ) : (
-                <span className="text-2xs tabular-nums text-sidebar-foreground/35">
-                  {relativeTime(channel.lastMessageAt)}
-                </span>
-              )}
-            </span>
-          </button>
+              </button>
+            ) : null}
+
+            {isCollapsed
+              ? null
+              : group.items.map((item) => (
+                  <ChatRow item={item} key={item.channel.id} {...rowProps} />
+                ))}
+          </div>
         );
       })}
     </div>
