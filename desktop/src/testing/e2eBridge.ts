@@ -1004,7 +1004,12 @@ declare global {
       agentPubkey: string;
       channelId: string;
       turnId: string;
-      kind?: "turn_started" | "turn_completed";
+      kind?: "turn_started" | "turn_completed" | "acp_read" | "acp_write";
+      /** Raw JSON-RPC body, for driving ACP activity phases (session/update
+       *  with agent_thought_chunk / tool_call / agent_message_chunk). Without
+       *  this there is no way to test the live-reply indicator, because the
+       *  observer→turn bridge only syncs registered agents. */
+      payload?: unknown;
     }) => void;
     __BUZZ_E2E_SEED_OBSERVER_EVENTS__?: (input: {
       agentPubkey: string;
@@ -9145,6 +9150,7 @@ export function maybeInstallE2eTauriMocks() {
     channelId,
     turnId,
     kind = "turn_started",
+    payload = null,
   }) => {
     seedTurnSeq += 1;
     const event = {
@@ -9155,7 +9161,7 @@ export function maybeInstallE2eTauriMocks() {
       channelId,
       sessionId: null,
       turnId,
-      payload: null,
+      payload,
     };
     syncAgentTurnsFromEvents(agentPubkey, [event]);
     syncAgentObserverEvents(agentPubkey, [event]);
