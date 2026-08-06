@@ -1,8 +1,10 @@
 # Luca V1.1-V1.3 roadmap control
 
-Status: V1.1 backend implementation active
+Status: V1.1 backend gate passed; H18 frontend integration pending
 
 Implementation branch: `agent/v1.1-resident-notebook`
+
+Backend checkpoint: `cab8e28f`
 
 Product baseline: `36472636af120cb3213dcae84b3ff5827a7c8e93`
 

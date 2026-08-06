@@ -83,7 +83,9 @@ enable in a production build unless the existing test bridge is active.
 
 ## V1.1 frontend contract
 
-Backend checkpoint status: implemented on `agent/v1.1-resident-notebook`.
+Backend checkpoint status: H17 passed on `agent/v1.1-resident-notebook` at
+`cab8e28f`. Start the frontend lane from that exact commit or selectively apply
+the owned React/CSS changes onto it; do not rebuild the notebook backend.
 Claude should import the frozen TypeScript contract directly from
 `desktop/src/shared/api/tauriNotebook.ts` and use
 `getResidentNotebookFixtures()` while building the surface. The fixture bundle
