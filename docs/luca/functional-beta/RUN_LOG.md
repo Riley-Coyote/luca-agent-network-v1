@@ -45,3 +45,54 @@ continuity records.
 - Live native-memory, tool, DM/restart, and mixed-room observations remain in
   R01, where the installed app and real runtimes can prove them honestly.
 - N01, N02, A101, A102, and A105: PASS.
+
+## 2026-08-05 — V1B.2 compact private handoff
+
+- Added strict bounded handoff, cognition-request, and result contracts with
+  body-redacted debug behavior.
+- Added a conservative deterministic salience gate: obvious trivial traffic
+  ends as `no_change`; only explicit unresolved work, commitments, carry
+  requests, or preferences enter resident cognition.
+- Reused the accepted encrypted resident namespace, revision authority,
+  provenance, pre-turn packet, and Capsule projection. No parallel memory store
+  or plaintext index was introduced.
+- Added an inherited local cognition channel to the resident's existing managed
+  ACP process. It opens a fresh, tool-free session and rejects runtime/model,
+  resident, source-event, binding, deadline, and result mismatches.
+- Added a body-free durable job ledger. Work is scheduled only after exact relay
+  publication, dispatch finalization, and encrypted outbox finalization; startup
+  recovery preserves the retry ceiling and source-event idempotency.
+- Added user-turn preemption, one automatic retry, and fail-soft disabled,
+  missing, locked, corrupt, timeout, and runtime-unavailable behavior.
+- Focused Rust contract, cognition, job, encryption, replay, resident-isolation,
+  pinned-correction, and fail-soft tests passed. Existing dead-code warnings in
+  deferred continuity modules remain non-blocking.
+- Checkpoints: `4425006c`, `9734870d`.
+- H01-H04, A201, A203-A207, A209, and A210: PASS. A208 remains an installed
+  Hermes/OpenClaw demonstration in R01.
+
+## 2026-08-05 — V1B.3 owner control and status surfaces
+
+- Added trusted owner-only read, correction, forget, enable/disable, and one-time
+  retry commands for managed residents.
+- Corrections are new pinned owner revisions. Item removal uses that same
+  revision path rather than mutating ciphertext in place.
+- Forget first preempts matching pending/running work, then physically purges
+  every encrypted handoff revision while retaining only body-free lifecycle
+  metadata.
+- Added default-on import disclosure and a per-candidate continuity toggle.
+- Added a restrained resident Continuity inspector with source-event links,
+  correction, individual item removal, forget confirmation, and failed-job
+  retry.
+- Added body-free Activity status and recent-only compact chat indicators. The
+  Activity command never serializes handoff text.
+- Verification: three continuity-job tests, encrypted create/revise/replay,
+  resident isolation and pinned correction, physical purge, nine profile-tab
+  tests, three activity-presentation tests, TypeScript typecheck, focused Biome,
+  Rust formatting/check, production frontend build, and `git diff --check` all
+  passed.
+- The broad inherited frontend suite still has five pre-existing stale Luca
+  branding/order expectations. They are recorded for R02 rather than changed in
+  the continuity checkpoint.
+- Checkpoint: `0cdeedae`.
+- U01, U02, A202, and A301-A304: PASS.
