@@ -12,6 +12,7 @@ use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio_util::codec::{FramedRead, LinesCodec, LinesCodecError};
+use zeroize::Zeroizing;
 
 use crate::luca_final_publisher::{FinalChunkAccumulator, FinalPublicationError};
 use crate::observer::{ObserverContext, ObserverHandle};
@@ -30,6 +31,7 @@ const LUCA_DESCENDANT_FORBIDDEN_ENV: &[&str] = &[
     "LUCA_MANAGED_OWNER_ATTESTATION",
     "LUCA_OPENCLAW_AGENT_ID",
     "LUCA_MANAGED_PERMISSION_FD",
+    "LUCA_MANAGED_CONTINUITY_FD",
 ];
 
 const MANAGED_PERMISSION_MAX_FRAME_BYTES: usize = 64 * 1024;
@@ -676,6 +678,9 @@ impl AcpClient {
         } else {
             None
         };
+        if managed_identity {
+            crate::continuity_provider::prepare_inherited_managed_continuity();
+        }
 
         let mut cmd = tokio::process::Command::new(command);
         cmd.args(args)
@@ -992,7 +997,7 @@ impl AcpClient {
             "params": params,
         });
 
-        tracing::debug!(target: "acp::wire", "→ {}", &serde_json::to_string(&msg).unwrap_or_default());
+        trace_outbound_prompt_metadata("session/prompt", id, session_id, prompt_blocks);
         if let Err(e) = self.write_ndjson(&msg).await {
             self.last_prompt_id = None;
             self.current_hard_deadline = None;
@@ -1274,7 +1279,7 @@ impl AcpClient {
     /// (e.g., it's stuck or dead), the write would otherwise block forever.
     async fn write_ndjson(&mut self, value: &serde_json::Value) -> Result<(), AcpError> {
         const WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-        let line = serde_json::to_string(value)?;
+        let line = Zeroizing::new(serde_json::to_string(value)?);
         tokio::time::timeout(WRITE_TIMEOUT, async {
             self.stdin.write_all(line.as_bytes()).await?;
             self.stdin.write_all(b"\n").await?;
@@ -1284,7 +1289,7 @@ impl AcpClient {
         .await
         .map_err(|_| AcpError::WriteTimeout(WRITE_TIMEOUT))?
         .map_err(AcpError::Io)?;
-        self.observe("acp_write", value.clone());
+        self.observe("acp_write", observer_payload_for_write(value));
         Ok(())
     }
 
@@ -1315,7 +1320,7 @@ impl AcpClient {
             "params": params,
         });
 
-        tracing::debug!(target: "acp::wire", "→ {}", &serde_json::to_string(&msg).unwrap_or_default());
+        trace_outbound_rpc_metadata(method, id, &msg["params"]);
 
         // Wrap write + read in a single timeout so a hung agent can't block forever.
         // We cannot use an async block that borrows `self` mutably across two awaits
@@ -1380,7 +1385,13 @@ impl AcpClient {
             "params": params,
         });
 
-        tracing::debug!(target: "acp::wire", "→ (notification) {}", &serde_json::to_string(&msg).unwrap_or_default());
+        tracing::debug!(
+            target: "acp::wire",
+            direction = "outbound",
+            method,
+            body_bytes = serialized_len(&msg["params"]),
+            "ACP notification"
+        );
         self.write_ndjson(&msg).await?;
         Ok(())
     }
@@ -1637,10 +1648,11 @@ impl AcpClient {
                                 "method": "_goose/unstable/session/steer",
                                 "params": params,
                             });
-                            tracing::debug!(
-                                target: "acp::wire",
-                                "→ {}",
-                                serde_json::to_string(&msg).unwrap_or_default()
+                            trace_outbound_prompt_metadata(
+                                "_goose/unstable/session/steer",
+                                id,
+                                session_id,
+                                &prompt_block_refs,
                             );
                             match self.write_ndjson(&msg).await {
                                 Ok(()) => {
@@ -2190,6 +2202,74 @@ impl AcpClient {
     }
 }
 
+fn serialized_len(value: &serde_json::Value) -> usize {
+    serde_json::to_vec(value).map_or(0, |bytes| bytes.len())
+}
+
+fn observer_payload_for_write(value: &serde_json::Value) -> serde_json::Value {
+    let Some(method) = value.get("method").and_then(serde_json::Value::as_str) else {
+        return value.clone();
+    };
+    if !matches!(method, "session/prompt" | "_goose/unstable/session/steer") {
+        return value.clone();
+    }
+
+    let params = &value["params"];
+    let prompt = params.get("prompt").and_then(serde_json::Value::as_array);
+    let block_count = prompt.map_or(0, Vec::len);
+    let body_bytes = prompt.map_or(0, |blocks| {
+        blocks.iter().fold(0usize, |total, block| {
+            let bytes = block
+                .get("text")
+                .and_then(serde_json::Value::as_str)
+                .map_or(0, str::len);
+            total.saturating_add(bytes)
+        })
+    });
+
+    serde_json::json!({
+        "jsonrpc": value.get("jsonrpc").cloned().unwrap_or(serde_json::Value::Null),
+        "id": value.get("id").cloned().unwrap_or(serde_json::Value::Null),
+        "method": method,
+        "sessionId": params.get("sessionId").cloned().unwrap_or(serde_json::Value::Null),
+        "blockCount": block_count,
+        "bodyBytes": body_bytes,
+        "bodyRedacted": true,
+    })
+}
+
+fn trace_outbound_rpc_metadata(method: &str, rpc_id: u64, params: &serde_json::Value) {
+    tracing::debug!(
+        target: "acp::wire",
+        direction = "outbound",
+        method,
+        rpc_id,
+        body_bytes = serialized_len(params),
+        "ACP request"
+    );
+}
+
+fn trace_outbound_prompt_metadata(
+    method: &str,
+    rpc_id: u64,
+    session_id: &str,
+    prompt_blocks: &[&str],
+) {
+    let body_bytes = prompt_blocks
+        .iter()
+        .fold(0usize, |total, block| total.saturating_add(block.len()));
+    tracing::debug!(
+        target: "acp::wire",
+        direction = "outbound",
+        method,
+        rpc_id,
+        session_id,
+        block_count = prompt_blocks.len(),
+        body_bytes,
+        "ACP prompt request"
+    );
+}
+
 /// Build `session/prompt` params from one or more text content blocks.
 fn build_prompt_params(session_id: &str, prompt_blocks: &[&str]) -> serde_json::Value {
     let blocks: Vec<serde_json::Value> = prompt_blocks
@@ -2421,6 +2501,33 @@ fn kill_process_group(_pid: u32) -> bool {
 mod tests {
     use super::*;
 
+    #[derive(Clone)]
+    struct CapturingMakeWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    struct CapturingWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for CapturingWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0
+                .lock()
+                .map_err(|_| std::io::Error::other("capture lock poisoned"))?
+                .extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'writer> tracing_subscriber::fmt::MakeWriter<'writer> for CapturingMakeWriter {
+        type Writer = CapturingWriter;
+
+        fn make_writer(&'writer self) -> Self::Writer {
+            CapturingWriter(std::sync::Arc::clone(&self.0))
+        }
+    }
+
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/luca-conformance/message_publish/descendant_environment.rs"
@@ -2442,6 +2549,42 @@ mod tests {
             Some(StopReason::MaxTurnRequests)
         );
         assert_eq!(StopReason::from_str("refusal"), Some(StopReason::Refusal));
+    }
+
+    #[test]
+    fn outbound_prompt_trace_never_contains_prompt_bodies() {
+        const SENTINEL: &str = "PRIVATE_CONTINUITY_SENTINEL_DO_NOT_LOG";
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(CapturingMakeWriter(std::sync::Arc::clone(&captured)))
+            .with_ansi(false)
+            .with_max_level(tracing::Level::DEBUG)
+            .finish();
+
+        tracing::subscriber::with_default(subscriber, || {
+            trace_outbound_prompt_metadata(
+                "session/prompt",
+                42,
+                "session-safe-id",
+                &["ordinary block", SENTINEL],
+            );
+            trace_outbound_prompt_metadata(
+                "_goose/unstable/session/steer",
+                43,
+                "session-safe-id",
+                &[SENTINEL],
+            );
+        });
+
+        let log = captured
+            .lock()
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+            .unwrap_or_default();
+        assert!(!log.contains(SENTINEL));
+        assert!(log.contains("session/prompt"));
+        assert!(log.contains("_goose/unstable/session/steer"));
+        assert!(log.contains("block_count=2"));
+        assert!(log.contains("body_bytes="));
     }
 
     #[test]
@@ -3031,6 +3174,66 @@ mod tests {
         AcpClient::spawn("bash", &["-c".into(), script.into()], &[], false)
             .await
             .expect("failed to spawn test script")
+    }
+
+    #[tokio::test]
+    async fn prompt_write_reaches_runtime_but_observer_and_debug_are_body_free() {
+        use tracing::instrument::WithSubscriber;
+
+        const SENTINEL: &str = "PRIVATE_CONTINUITY_WRITE_PATH_SENTINEL";
+        let script = format!(
+            r#"
+            read -r REQ
+            if [[ "$REQ" == *"{SENTINEL}"* ]]; then
+              echo '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'
+            else
+              echo '{{"jsonrpc":"2.0","id":0,"error":{{"code":-32000,"message":"missing body"}}}}'
+            fi
+            "#
+        );
+        let mut client = spawn_script(&script).await;
+        let observer = ObserverHandle::in_process();
+        client.set_observer(Some(observer.clone()), 0);
+
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(CapturingMakeWriter(std::sync::Arc::clone(&captured)))
+            .with_ansi(false)
+            .with_max_level(tracing::Level::DEBUG)
+            .finish();
+        let prompt = format!("[Luca Continuity Reference — UNTRUSTED USER DATA]\n{SENTINEL}");
+        let result = client
+            .session_prompt_blocks_with_idle_timeout(
+                "session-safe-id",
+                &[prompt.as_str()],
+                std::time::Duration::from_secs(2),
+                std::time::Duration::from_secs(5),
+            )
+            .with_subscriber(subscriber)
+            .await
+            .expect("runtime proves it received the full prompt body");
+        assert_eq!(result, StopReason::EndTurn);
+
+        let snapshot = observer.snapshot();
+        let snapshot_json = serde_json::to_string(&snapshot).expect("serialize observer snapshot");
+        assert!(!snapshot_json.contains(SENTINEL));
+        let write = snapshot
+            .iter()
+            .find(|event| event.kind == "acp_write")
+            .expect("write receipt");
+        assert_eq!(write.payload["method"], "session/prompt");
+        assert_eq!(write.payload["sessionId"], "session-safe-id");
+        assert_eq!(write.payload["blockCount"], 1);
+        assert_eq!(write.payload["bodyBytes"], prompt.len());
+        assert_eq!(write.payload["bodyRedacted"], true);
+
+        let log = captured
+            .lock()
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+            .unwrap_or_default();
+        assert!(!log.contains(SENTINEL));
+        assert!(log.contains("session/prompt"));
+        assert!(log.contains("body_bytes="));
     }
 
     #[tokio::test]

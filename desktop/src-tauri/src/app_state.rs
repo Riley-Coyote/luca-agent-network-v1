@@ -327,6 +327,19 @@ impl AppState {
         )
     }
 
+    /// Return only the active continuity key version for the exact owner.
+    /// This never creates custody and never exposes a key or memory body.
+    pub(crate) fn continuity_owner_key_version(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+    ) -> Option<luca_protocol::SafeU53> {
+        crate::luca::continuity_runtime::current_owner_key_version(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+        )
+    }
+
     /// Lock the huddle state mutex, converting a poisoned-lock error to a String.
     ///
     /// Convenience wrapper — replaces 15+ instances of

@@ -9,6 +9,7 @@ pub(crate) mod continuity_rotation;
 pub(crate) mod continuity_runtime;
 pub(crate) mod continuity_store;
 pub(crate) mod local_broker_session;
+pub(crate) mod managed_continuity;
 pub(crate) mod managed_dispatch_store;
 pub(crate) mod managed_message_outbox;
 pub(crate) mod managed_message_publisher;

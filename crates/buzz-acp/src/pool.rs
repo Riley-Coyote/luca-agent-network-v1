@@ -21,7 +21,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::mpsc;
 use tokio::task::{JoinHandle, JoinSet};
@@ -1315,6 +1315,112 @@ fn last_eligible_managed_trigger<'a>(
     })
 }
 
+fn continuity_history_event_ids(
+    conversation_context: Option<&ConversationContext>,
+    batch: &FlushBatch,
+) -> Vec<luca_protocol::Hex64> {
+    let messages = match conversation_context {
+        Some(ConversationContext::Thread { messages, .. })
+        | Some(ConversationContext::Dm { messages, .. })
+        | Some(ConversationContext::Room { messages, .. }) => messages,
+        None => return Vec::new(),
+    };
+    let triggering: HashSet<String> = batch
+        .events
+        .iter()
+        .map(|batch_event| batch_event.event.id.to_hex())
+        .collect();
+    let mut seen = HashSet::new();
+    messages
+        .iter()
+        .filter(|message| !triggering.contains(&message.event_id))
+        .filter_map(|message| luca_protocol::Hex64::parse(&message.event_id).ok())
+        .filter(|event_id| seen.insert(event_id.as_str().to_owned()))
+        .collect()
+}
+
+fn push_utf8_within(output: &mut String, value: &str, maximum_bytes: usize) {
+    for character in value.chars() {
+        if output.len().saturating_add(character.len_utf8()) > maximum_bytes {
+            break;
+        }
+        output.push(character);
+    }
+}
+
+fn continuity_retrieval_cue(
+    trigger: &nostr::Event,
+    conversation_context: Option<&ConversationContext>,
+    batch: &FlushBatch,
+) -> String {
+    const CURRENT_MESSAGE_BUDGET: usize = 2 * 1024;
+    let maximum = crate::continuity_provider::MAX_MANAGED_RETRIEVAL_CUE_BYTES;
+    let mut cue = String::with_capacity(maximum);
+    cue.push_str("CURRENT OWNER MESSAGE (UNTRUSTED RETRIEVAL INPUT)\n");
+    push_utf8_within(&mut cue, &trigger.content, CURRENT_MESSAGE_BUDGET);
+
+    let messages = match conversation_context {
+        Some(ConversationContext::Thread { messages, .. })
+        | Some(ConversationContext::Dm { messages, .. })
+        | Some(ConversationContext::Room { messages, .. }) => messages,
+        None => return cue,
+    };
+    let triggering: HashSet<String> = batch
+        .events
+        .iter()
+        .map(|batch_event| batch_event.event.id.to_hex())
+        .collect();
+    push_utf8_within(
+        &mut cue,
+        "\nSIGNED CONVERSATION HISTORY (UNTRUSTED RETRIEVAL INPUT)\n",
+        maximum,
+    );
+    for message in messages {
+        if triggering.contains(&message.event_id) {
+            continue;
+        }
+        if cue.len() >= maximum {
+            break;
+        }
+        push_utf8_within(&mut cue, "\n---\n", maximum);
+        push_utf8_within(&mut cue, &message.content, maximum);
+    }
+    cue
+}
+
+async fn managed_continuity_prompt_block(
+    ctx: &PromptContext,
+    batch: &FlushBatch,
+    conversation_context: Option<&ConversationContext>,
+    turn_id: &str,
+) -> Option<String> {
+    let managed = ctx.managed_final_publisher.as_ref()?;
+    let trigger = last_eligible_managed_trigger(batch, &managed.owner_pubkey)?;
+    let now_unix_ms: u64 = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_millis()
+        .try_into()
+        .ok()?;
+    let deadline_unix_ms = now_unix_ms.checked_add(
+        crate::continuity_provider::CONTINUITY_RESOLUTION_TIMEOUT.as_millis() as u64,
+    )?;
+    let intent = crate::continuity_provider::ManagedContinuityTurnIntentV1::new(
+        luca_protocol::OpaqueId::parse(Uuid::new_v4().to_string()).ok()?,
+        managed.resident_pubkey.clone(),
+        managed.session_epoch,
+        luca_protocol::OpaqueId::parse(turn_id).ok()?,
+        luca_protocol::OpaqueId::parse(batch.channel_id.to_string()).ok()?,
+        luca_protocol::Hex64::parse(trigger.id.to_hex()).ok()?,
+        continuity_history_event_ids(conversation_context, batch),
+        continuity_retrieval_cue(trigger, conversation_context, batch),
+        luca_protocol::SafeU53::new(deadline_unix_ms).ok()?,
+        luca_protocol::SafeU53::new(luca_protocol::MAX_CONTINUITY_PACKET_BYTES as u64).ok()?,
+    )?;
+    let result = crate::continuity_provider::resolve_inherited_managed_continuity(&intent).await?;
+    crate::continuity_provider::continuity_prompt_block(result)
+}
+
 /// Core async function spawned for each prompt.
 ///
 /// Lifecycle:
@@ -1828,6 +1934,12 @@ pub async fn run_prompt_task(
             None
         };
 
+        // Managed owner turns get at most one bounded, fail-soft read from the
+        // dedicated desktop continuity channel. Legacy, heartbeat, invalid,
+        // sibling, and otherwise ineligible work never invokes the provider.
+        let continuity_context =
+            managed_continuity_prompt_block(&ctx, b, conversation_context.as_ref(), &turn_id).await;
+
         let profile_lookup =
             fetch_prompt_profile_lookup(b, conversation_context.as_ref(), &ctx.rest_client).await;
 
@@ -1853,6 +1965,7 @@ pub async fn run_prompt_task(
                 agent_core: agent_core.as_deref(),
                 channel_info: channel_info.as_ref(),
                 conversation_context: conversation_context.as_ref(),
+                continuity_context: continuity_context.as_deref(),
                 profile_lookup: profile_lookup.as_ref(),
                 managed_publication: ctx.agent_keys.is_none(),
                 has_system_prompt_support: agent.has_system_prompt_support(),
@@ -2880,7 +2993,7 @@ async fn fetch_thread_context(
         )
         .await
         {
-            Ok(Ok(json)) => parse_nostr_thread_response(json, root_event_id),
+            Ok(Ok(json)) => parse_nostr_thread_response(json, channel_id, root_event_id),
             Ok(Err(e)) => {
                 tracing::warn!(
                     channel_id = %channel_id,
@@ -2927,7 +3040,7 @@ async fn fetch_dm_context(
         )
         .await
         {
-            Ok(Ok(json)) => parse_nostr_dm_response(json, limit),
+            Ok(Ok(json)) => parse_nostr_dm_response(json, channel_id, limit),
             Ok(Err(e)) => {
                 tracing::warn!(
                     channel_id = %channel_id,
@@ -3073,7 +3186,13 @@ fn parse_dm_response(json: serde_json::Value, limit: u32) -> Option<Conversation
 /// Extract a `ContextMessage` from a JSON message object.
 ///
 /// Works with both thread reply objects and channel message objects.
+#[cfg(test)]
 fn json_to_context_message(obj: &serde_json::Value) -> Option<ContextMessage> {
+    let event_id = obj
+        .get("id")
+        .or_else(|| obj.get("event_id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let content = obj.get("content").and_then(|v| v.as_str())?;
     let pubkey = obj
         .get("pubkey")
@@ -3094,10 +3213,37 @@ fn json_to_context_message(obj: &serde_json::Value) -> Option<ContextMessage> {
         .unwrap_or_else(|| "unknown".to_string());
 
     Some(ContextMessage {
+        event_id: event_id.to_string(),
         pubkey: pubkey.to_string(),
         timestamp,
         content: content.to_string(),
     })
+}
+
+fn is_verified_conversation_event(event: &nostr::Event, channel_id: Uuid) -> bool {
+    let accepted_kind = event.kind
+        == nostr::Kind::Custom(buzz_core::kind::KIND_STREAM_MESSAGE as u16)
+        || event.kind == nostr::Kind::Custom(buzz_core::kind::KIND_STREAM_MESSAGE_V2 as u16);
+    let exact_channel = event.tags.iter().any(|tag| {
+        let parts = tag.as_slice();
+        parts.len() >= 2 && parts[0] == "h" && parts[1] == channel_id.to_string()
+    });
+    accepted_kind && exact_channel && event.verify_id() && event.verify_signature()
+}
+
+fn event_to_context_message(event: nostr::Event) -> ContextMessage {
+    let timestamp_secs = event.created_at.as_secs();
+    let timestamp = i64::try_from(timestamp_secs)
+        .ok()
+        .and_then(|seconds| chrono::DateTime::from_timestamp(seconds, 0))
+        .map(|dt| dt.to_rfc3339())
+        .unwrap_or_else(|| timestamp_secs.to_string());
+    ContextMessage {
+        event_id: event.id.to_hex(),
+        pubkey: event.pubkey.to_hex(),
+        timestamp,
+        content: event.content,
+    }
 }
 
 /// Parse a Nostr query response (array of events) into thread context.
@@ -3106,34 +3252,47 @@ fn json_to_context_message(obj: &serde_json::Value) -> Option<ContextMessage> {
 /// chronologically by `created_at`.
 fn parse_nostr_thread_response(
     json: serde_json::Value,
+    channel_id: Uuid,
     root_event_id: &str,
 ) -> Option<ConversationContext> {
     let events = json.as_array()?;
     let mut root_msg = None;
     let mut reply_msgs = Vec::new();
+    let mut seen_event_ids = HashSet::new();
 
-    for ev in events {
-        let ev_id = ev.get("id").and_then(|v| v.as_str()).unwrap_or("");
-        if let Some(msg) = json_to_context_message(ev) {
-            if ev_id == root_event_id {
-                root_msg = Some(msg);
-            } else {
-                reply_msgs.push((
-                    ev.get("created_at").and_then(|v| v.as_u64()).unwrap_or(0),
-                    msg,
-                ));
-            }
+    for value in events {
+        let Ok(event) = serde_json::from_value::<nostr::Event>(value.clone()) else {
+            continue;
+        };
+        if !is_verified_conversation_event(&event, channel_id) {
+            continue;
+        }
+        let event_id = event.id.to_hex();
+        if !seen_event_ids.insert(event_id.clone()) {
+            continue;
+        }
+        if event_id == root_event_id {
+            root_msg = Some(event_to_context_message(event));
+            continue;
+        }
+        let exact_root = event.tags.iter().any(|tag| {
+            let parts = tag.as_slice();
+            parts.len() >= 2 && parts[0] == "e" && parts[1] == root_event_id
+        });
+        if exact_root {
+            let timestamp = event.created_at.as_secs();
+            reply_msgs.push((timestamp, event_id, event_to_context_message(event)));
         }
     }
 
-    // Sort replies chronologically.
-    reply_msgs.sort_by_key(|(ts, _)| *ts);
+    // Sort replies deterministically by chronology and signed event ID.
+    reply_msgs.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
 
     let mut messages = Vec::new();
     if let Some(root) = root_msg {
         messages.push(root);
     }
-    messages.extend(reply_msgs.into_iter().map(|(_, msg)| msg));
+    messages.extend(reply_msgs.into_iter().map(|(_, _, msg)| msg));
 
     let total = messages.len();
     if messages.is_empty() {
@@ -3150,22 +3309,40 @@ fn parse_nostr_thread_response(
 /// Parse a Nostr query response (array of events) into DM context.
 ///
 /// Events arrive in relay order (newest first); reversed to chronological.
-fn parse_nostr_dm_response(json: serde_json::Value, limit: u32) -> Option<ConversationContext> {
+fn parse_nostr_dm_response(
+    json: serde_json::Value,
+    channel_id: Uuid,
+    limit: u32,
+) -> Option<ConversationContext> {
     let events = json.as_array()?;
-
-    let mut messages: Vec<(u64, ContextMessage)> = events
+    let mut seen_event_ids = HashSet::new();
+    let mut messages: Vec<(u64, String, ContextMessage)> = events
         .iter()
-        .filter_map(|ev| {
-            let ts = ev.get("created_at").and_then(|v| v.as_u64()).unwrap_or(0);
-            json_to_context_message(ev).map(|msg| (ts, msg))
+        .filter_map(|value| serde_json::from_value::<nostr::Event>(value.clone()).ok())
+        .filter(|event| is_verified_conversation_event(event, channel_id))
+        .filter_map(|event| {
+            let event_id = event.id.to_hex();
+            seen_event_ids.insert(event_id.clone()).then(|| {
+                (
+                    event.created_at.as_secs(),
+                    event_id,
+                    event_to_context_message(event),
+                )
+            })
         })
         .collect();
 
-    // Sort chronologically (oldest first).
-    messages.sort_by_key(|(ts, _)| *ts);
-
-    let messages: Vec<ContextMessage> = messages.into_iter().map(|(_, msg)| msg).collect();
-    let truncated = messages.len() >= limit as usize;
+    messages.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+    let over_limit = messages.len() > limit as usize;
+    if over_limit {
+        let first_kept = messages.len() - limit as usize;
+        messages.drain(..first_kept);
+    }
+    let messages: Vec<ContextMessage> = messages
+        .into_iter()
+        .map(|(_, _, message)| message)
+        .collect();
+    let truncated = over_limit || messages.len() >= limit as usize;
     let total = if truncated {
         messages.len() + 1
     } else {
@@ -3235,8 +3412,9 @@ fn parse_nostr_room_response(
             .unwrap_or_else(|| timestamp_secs.to_string());
         messages.push((
             timestamp_secs,
-            event_id,
+            event_id.clone(),
             ContextMessage {
+                event_id,
                 pubkey: event.pubkey.to_hex(),
                 timestamp,
                 content: event.content,
@@ -4418,6 +4596,27 @@ mod tests {
         .expect("signed room event")
     }
 
+    fn signed_thread_reply(
+        keys: &Keys,
+        channel_id: Uuid,
+        root_event_id: &str,
+        content: &str,
+        created_at: u64,
+    ) -> nostr::Event {
+        let channel = channel_id.to_string();
+        EventBuilder::new(
+            Kind::Custom(buzz_core::kind::KIND_STREAM_MESSAGE as u16),
+            content,
+        )
+        .tags([
+            Tag::parse(["h", channel.as_str()]).expect("valid room tag"),
+            Tag::parse(["e", root_event_id, "", "root"]).expect("valid root tag"),
+        ])
+        .custom_created_at(Timestamp::from(created_at))
+        .sign_with_keys(keys)
+        .expect("signed thread reply")
+    }
+
     fn room_event_batch(event: nostr::Event, channel_id: Uuid) -> FlushBatch {
         FlushBatch {
             channel_id,
@@ -4429,6 +4628,71 @@ mod tests {
             cancelled_events: vec![],
             cancel_reason: None,
         }
+    }
+
+    #[test]
+    fn signed_thread_history_rejects_tampering_and_orders_verified_ids() {
+        let keys = Keys::generate();
+        let room = Uuid::new_v4();
+        let other_room = Uuid::new_v4();
+        let root = signed_room_event(&keys, room, "root", 10);
+        let root_id = root.id.to_hex();
+        let reply_a = signed_thread_reply(&keys, room, &root_id, "reply a", 20);
+        let reply_b = signed_thread_reply(&keys, room, &root_id, "reply b", 20);
+        let wrong_room = signed_thread_reply(&keys, other_room, &root_id, "wrong room", 30);
+        let wrong_root = signed_thread_reply(&keys, room, &"f".repeat(64), "wrong root", 30);
+        let mut tampered =
+            serde_json::to_value(signed_thread_reply(&keys, room, &root_id, "tamper me", 40))
+                .expect("serialize event");
+        tampered["content"] = json!("tampered");
+
+        let context = parse_nostr_thread_response(
+            json!([
+                reply_b.clone(),
+                wrong_room,
+                root.clone(),
+                reply_a.clone(),
+                reply_a.clone(),
+                wrong_root,
+                tampered
+            ]),
+            room,
+            &root_id,
+        )
+        .expect("verified thread history");
+        let ConversationContext::Thread { messages, .. } = context else {
+            panic!("expected thread history")
+        };
+        let mut reply_ids = [reply_a.id.to_hex(), reply_b.id.to_hex()];
+        reply_ids.sort();
+        assert_eq!(messages[0].event_id, root.id.to_hex());
+        assert_eq!(messages[1].event_id, reply_ids[0]);
+        assert_eq!(messages[2].event_id, reply_ids[1]);
+        assert_eq!(messages.len(), 3);
+    }
+
+    #[test]
+    fn signed_dm_history_rejects_wrong_scope_and_deduplicates() {
+        let keys = Keys::generate();
+        let dm = Uuid::new_v4();
+        let first = signed_room_event(&keys, dm, "first", 10);
+        let second = signed_room_event(&keys, dm, "second", 20);
+        let wrong_room = signed_room_event(&keys, Uuid::new_v4(), "wrong", 30);
+        let mut tampered = serde_json::to_value(signed_room_event(&keys, dm, "signed", 40))
+            .expect("serialize event");
+        tampered["content"] = json!("tampered");
+        let context = parse_nostr_dm_response(
+            json!([second.clone(), first.clone(), first, wrong_room, tampered]),
+            dm,
+            12,
+        )
+        .expect("verified DM history");
+        let ConversationContext::Dm { messages, .. } = context else {
+            panic!("expected DM history")
+        };
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].event_id, first.id.to_hex());
+        assert_eq!(messages[1].event_id, second.id.to_hex());
     }
 
     #[test]
@@ -4671,6 +4935,7 @@ mod tests {
         };
         let context = ConversationContext::Thread {
             messages: vec![ContextMessage {
+                event_id: "1".repeat(64),
                 pubkey: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
                 timestamp: "2026-03-25T05:51:25Z".into(),
                 content: "follow up".into(),
@@ -5046,6 +5311,72 @@ mod tests {
             last_eligible_managed_trigger(&batch, &owner_pubkey).map(|event| event.id),
             Some(expected_id)
         );
+    }
+
+    #[test]
+    fn continuity_cue_is_utf8_bounded_and_debug_free_input() {
+        let owner = Keys::generate();
+        let trigger = EventBuilder::new(Kind::Custom(9), "current owner question")
+            .sign_with_keys(&owner)
+            .expect("owner trigger");
+        let context = ConversationContext::Dm {
+            messages: vec![
+                ContextMessage {
+                    event_id: trigger.id.to_hex(),
+                    pubkey: owner.public_key().to_hex(),
+                    timestamp: "2026-08-05T00:00:01Z".into(),
+                    content: "current owner question".into(),
+                },
+                ContextMessage {
+                    event_id: "1".repeat(64),
+                    pubkey: owner.public_key().to_hex(),
+                    timestamp: "2026-08-05T00:00:00Z".into(),
+                    content: format!("historical phrase {}", "🦊".repeat(2_000)),
+                },
+            ],
+            total: 2,
+            truncated: false,
+        };
+        let batch = room_event_batch(trigger.clone(), Uuid::new_v4());
+        let cue = continuity_retrieval_cue(&trigger, Some(&context), &batch);
+        assert!(cue.len() <= crate::continuity_provider::MAX_MANAGED_RETRIEVAL_CUE_BYTES);
+        assert!(cue.is_char_boundary(cue.len()));
+        assert!(cue.contains("current owner question"));
+        assert_eq!(cue.matches("current owner question").count(), 1);
+        assert!(cue.contains("historical phrase"));
+        assert!(cue.contains("UNTRUSTED RETRIEVAL INPUT"));
+    }
+
+    #[test]
+    fn continuity_trigger_eligibility_rejects_sibling_and_invalid_events() {
+        let owner = Keys::generate();
+        let sibling = Keys::generate();
+        let sibling_event = EventBuilder::new(Kind::Custom(9), "sibling")
+            .sign_with_keys(&sibling)
+            .expect("sibling event");
+        let invalid_kind = EventBuilder::new(Kind::TextNote, "owner wrong kind")
+            .sign_with_keys(&owner)
+            .expect("owner event");
+        let batch = FlushBatch {
+            channel_id: Uuid::new_v4(),
+            events: vec![
+                crate::queue::BatchEvent {
+                    event: sibling_event,
+                    prompt_tag: "sibling".into(),
+                    received_at: std::time::Instant::now(),
+                },
+                crate::queue::BatchEvent {
+                    event: invalid_kind,
+                    prompt_tag: "wrong-kind".into(),
+                    received_at: std::time::Instant::now(),
+                },
+            ],
+            cancelled_events: vec![],
+            cancel_reason: None,
+        };
+        let owner_pubkey =
+            luca_protocol::Hex64::parse(owner.public_key().to_hex()).expect("owner pubkey");
+        assert!(last_eligible_managed_trigger(&batch, &owner_pubkey).is_none());
     }
 
     #[test]

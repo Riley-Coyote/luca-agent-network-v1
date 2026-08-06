@@ -1788,6 +1788,20 @@ pub fn spawn_agent_child(
         &global,
     );
     let runtime_configuration_sha256 = managed_runtime_configuration_sha256(spawn_config_hash)?;
+    #[cfg(unix)]
+    let managed_continuity_fd = crate::luca::managed_continuity::create_endpoint(
+        app.clone(),
+        resident_pubkey.clone(),
+        session_epoch,
+        luca_protocol::Sha256Ref::parse(format!(
+            "sha256:{}",
+            runtime_configuration_sha256.as_str()
+        ))
+        .map_err(|error| format!("invalid managed continuity binding: {error}"))?,
+        // Native provider egress is classified by the later persisted-grant
+        // slice. Unknown deliberately fails closed as remote in G2.
+        luca_protocol::ProviderEgressV1::Unknown,
+    )?;
     let resident_keys = nostr::Keys::parse(&record.private_key_nsec)
         .map_err(|error| format!("failed to load desktop-held resident key: {error}"))?;
     if resident_keys.public_key().to_hex() != resident_pubkey.as_str() {
@@ -1828,6 +1842,8 @@ pub fn spawn_agent_child(
     );
     #[cfg(unix)]
     command.env("LUCA_MANAGED_PERMISSION_FD", "3");
+    #[cfg(unix)]
+    command.env("LUCA_MANAGED_CONTINUITY_FD", "4");
     if let Some((_, attestation_json)) = &owner_attestation {
         command.env("LUCA_MANAGED_OWNER_ATTESTATION", attestation_json);
     } else {
@@ -2135,14 +2151,33 @@ pub fn spawn_agent_child(
         use std::os::unix::process::CommandExt;
         command.process_group(0);
         let permission_fd = managed_permission_fd.raw_fd();
+        let continuity_fd = managed_continuity_fd.raw_fd();
         unsafe {
             command.pre_exec(move || {
-                if libc::dup2(permission_fd, 3) == -1 {
+                // Duplicate both sources above the reserved target range before
+                // replacing FD 3/4, so an allocator collision cannot clobber
+                // either private channel.
+                let permission_copy = libc::fcntl(permission_fd, libc::F_DUPFD_CLOEXEC, 10);
+                if permission_copy == -1 {
                     return Err(std::io::Error::last_os_error());
                 }
-                if libc::fcntl(3, libc::F_SETFD, 0) == -1 {
+                let continuity_copy = libc::fcntl(continuity_fd, libc::F_DUPFD_CLOEXEC, 10);
+                if continuity_copy == -1 {
+                    libc::close(permission_copy);
                     return Err(std::io::Error::last_os_error());
                 }
+                let result = if libc::dup2(permission_copy, 3) == -1
+                    || libc::dup2(continuity_copy, 4) == -1
+                    || libc::fcntl(3, libc::F_SETFD, 0) == -1
+                    || libc::fcntl(4, libc::F_SETFD, 0) == -1
+                {
+                    Err(std::io::Error::last_os_error())
+                } else {
+                    Ok(())
+                };
+                libc::close(permission_copy);
+                libc::close(continuity_copy);
+                result?;
                 Ok(())
             });
         }

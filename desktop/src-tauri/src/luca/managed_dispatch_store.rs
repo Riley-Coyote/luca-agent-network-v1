@@ -13,7 +13,7 @@ use std::{
 };
 
 use atomic_write_file::AtomicWriteFile;
-use luca_protocol::{Hex64, ManagedMessagePublishRequestV1};
+use luca_protocol::{canonical_sha256, Hex64, ManagedMessagePublishRequestV1, OpaqueId, Sha256Ref};
 use nostr::{Event, EventId};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
@@ -22,6 +22,7 @@ const STORE_SCHEMA_V1: &str = "luca.managed-dispatch-store.v1";
 const STORE_SCHEMA: &str = "luca.managed-dispatch-store.v2";
 const MAX_DISPATCHES: usize = 512;
 const DISPATCH_TTL_SECONDS: u64 = 30 * 60;
+const CONTINUITY_DISPATCH_DOMAIN: &str = "luca.continuity.dispatch-set.v1";
 
 static GLOBAL_STORE: OnceLock<Arc<Mutex<ManagedDispatchStore>>> = OnceLock::new();
 
@@ -155,6 +156,16 @@ pub(crate) struct CancellableManagedDispatch {
     pub session_epoch: u64,
 }
 
+/// Body-free canonical dispatch authority for one exact resident pre-turn.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ContinuityDispatchAuthority {
+    pub(crate) owner_pubkey: Hex64,
+    pub(crate) resident_pubkey: Hex64,
+    pub(crate) conversation_id: OpaqueId,
+    pub(crate) trigger_event_id: Hex64,
+    pub(crate) canonical_dispatch_ref: Sha256Ref,
+}
+
 /// Result of an exact cancellation attempt, so callers never need to infer a
 /// relay-control decision from a broad conversation cancellation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -220,6 +231,113 @@ impl ManagedDispatchStore {
         self.active_sessions
             .insert(resident_pubkey.to_ascii_lowercase(), session_epoch);
         Ok(())
+    }
+
+    /// Resolve one immutable pre-turn authority and the complete resident set
+    /// originally staged by its signed owner event. Terminal progress of a
+    /// sibling never changes the canonical set digest.
+    pub(crate) fn authorize_continuity_turn(
+        &self,
+        trigger_event_id: &str,
+        resident_pubkey: &str,
+        conversation_id: &str,
+        session_epoch: u64,
+        now_unix_secs: u64,
+    ) -> Result<ContinuityDispatchAuthority, DispatchAuthorizationError> {
+        let normalized_resident = resident_pubkey.to_ascii_lowercase();
+        let row = self
+            .dispatches
+            .get(&(
+                trigger_event_id.to_ascii_lowercase(),
+                normalized_resident.clone(),
+            ))
+            .ok_or_else(|| {
+                if self
+                    .dispatches
+                    .keys()
+                    .any(|(trigger, _)| trigger == trigger_event_id)
+                {
+                    DispatchAuthorizationError::WrongResident
+                } else {
+                    DispatchAuthorizationError::Unknown
+                }
+            })?;
+        if now_unix_secs > row.expires_at {
+            return Err(DispatchAuthorizationError::Expired);
+        }
+        match row.state {
+            ManagedDispatchState::Cancelled => return Err(DispatchAuthorizationError::Cancelled),
+            ManagedDispatchState::Rejected
+            | ManagedDispatchState::Published
+            | ManagedDispatchState::Interrupted => {
+                return Err(DispatchAuthorizationError::Terminal)
+            }
+            ManagedDispatchState::Pending | ManagedDispatchState::Active => {}
+        }
+        if row.conversation_id != conversation_id {
+            return Err(DispatchAuthorizationError::WrongConversation);
+        }
+        if self.active_sessions.get(&normalized_resident).copied() != Some(session_epoch)
+            || row
+                .session_epoch
+                .is_some_and(|epoch| epoch != session_epoch)
+        {
+            return Err(DispatchAuthorizationError::WrongSession);
+        }
+
+        let mut residents = Vec::new();
+        for candidate in self
+            .dispatches
+            .values()
+            .filter(|candidate| candidate.trigger_event_id == row.trigger_event_id)
+        {
+            if candidate.owner_pubkey != row.owner_pubkey
+                || candidate.conversation_id != row.conversation_id
+                || candidate.thread_id != row.thread_id
+                || candidate.root_event_id != row.root_event_id
+                || candidate.reply_event_id != row.reply_event_id
+            {
+                return Err(DispatchAuthorizationError::Ambiguous);
+            }
+            residents.push(
+                Hex64::parse(candidate.resident_pubkey.clone())
+                    .map_err(|_| DispatchAuthorizationError::Persistence)?,
+            );
+        }
+        residents.sort_by(|left, right| left.as_str().cmp(right.as_str()));
+        residents.dedup();
+        if residents.is_empty()
+            || !residents
+                .iter()
+                .any(|value| value.as_str() == normalized_resident)
+        {
+            return Err(DispatchAuthorizationError::Ambiguous);
+        }
+        let digest = canonical_sha256(&serde_json::json!({
+            "domain": CONTINUITY_DISPATCH_DOMAIN,
+            "schema_version": 1,
+            "trigger_event_id": row.trigger_event_id,
+            "owner_pubkey": row.owner_pubkey,
+            "conversation_id": row.conversation_id,
+            "thread_id": row.thread_id,
+            "root_event_id": row.root_event_id,
+            "reply_event_id": row.reply_event_id,
+            "resident_pubkeys": residents,
+        }))
+        .map_err(|_| DispatchAuthorizationError::Persistence)?;
+
+        Ok(ContinuityDispatchAuthority {
+            owner_pubkey: Hex64::parse(row.owner_pubkey.clone())
+                .map_err(|_| DispatchAuthorizationError::Persistence)?,
+            resident_pubkey: Hex64::parse(row.resident_pubkey.clone())
+                .map_err(|_| DispatchAuthorizationError::Persistence)?,
+            conversation_id: OpaqueId::parse(row.conversation_id.clone())
+                .map_err(|_| DispatchAuthorizationError::Persistence)?,
+            trigger_event_id: Hex64::parse(row.trigger_event_id.clone())
+                .map_err(|_| DispatchAuthorizationError::Persistence)?,
+            canonical_dispatch_ref: Sha256Ref::parse(format!("sha256:{digest}"))
+                .map_err(|_| DispatchAuthorizationError::Persistence)?,
+        })
     }
 
     /// Atomically stage rows for all managed residents named by one exact owner event.
@@ -2357,6 +2475,110 @@ mod tests {
                 &resident.public_key().to_hex(),
             ),
             Err(DispatchAuthorizationError::Ambiguous)
+        );
+    }
+
+    #[test]
+    fn continuity_dispatch_digest_keeps_the_original_group_after_sibling_completion() {
+        let owner = Keys::parse(&"a1".repeat(32)).expect("owner");
+        let first = Keys::parse(&"a2".repeat(32)).expect("first");
+        let second = Keys::parse(&"a3".repeat(32)).expect("second");
+        let trigger = EventBuilder::new(Kind::Custom(9), "group prompt")
+            .tags(vec![
+                Tag::parse(["h", CHANNEL_ONE]).expect("h tag"),
+                Tag::public_key(owner.public_key()),
+                Tag::public_key(first.public_key()),
+                Tag::public_key(second.public_key()),
+            ])
+            .custom_created_at(Timestamp::from(100))
+            .sign_with_keys(&owner)
+            .expect("sign owner event");
+        let temp = tempfile::tempdir().expect("temp");
+        let mut store =
+            ManagedDispatchStore::load(temp.path().join("dispatches.json")).expect("store");
+        store
+            .stage_owner_event(
+                &trigger,
+                &[first.public_key().to_hex(), second.public_key().to_hex()],
+                100,
+            )
+            .expect("stage group");
+        store
+            .activate_session(&first.public_key().to_hex(), 31)
+            .expect("first session");
+        let before = store
+            .authorize_continuity_turn(
+                &trigger.id.to_hex(),
+                &first.public_key().to_hex(),
+                CHANNEL_ONE,
+                31,
+                101,
+            )
+            .expect("continuity authority");
+        store
+            .dispatches
+            .get_mut(&(trigger.id.to_hex(), second.public_key().to_hex()))
+            .expect("second row")
+            .state = ManagedDispatchState::Published;
+        let after = store
+            .authorize_continuity_turn(
+                &trigger.id.to_hex(),
+                &first.public_key().to_hex(),
+                CHANNEL_ONE,
+                31,
+                102,
+            )
+            .expect("stable authority");
+        assert_eq!(before.canonical_dispatch_ref, after.canonical_dispatch_ref);
+        assert_eq!(before.owner_pubkey.as_str(), owner.public_key().to_hex());
+        assert_eq!(before.resident_pubkey.as_str(), first.public_key().to_hex());
+        assert_eq!(before.trigger_event_id.as_str(), trigger.id.to_hex());
+    }
+
+    #[test]
+    fn continuity_dispatch_authority_rejects_wrong_session_conversation_and_resident() {
+        let owner = Keys::parse(&"b1".repeat(32)).expect("owner");
+        let resident = Keys::parse(&"b2".repeat(32)).expect("resident");
+        let outsider = Keys::parse(&"b3".repeat(32)).expect("outsider");
+        let trigger = event(&owner, &resident, CHANNEL_ONE, "prompt");
+        let temp = tempfile::tempdir().expect("temp");
+        let mut store =
+            ManagedDispatchStore::load(temp.path().join("dispatches.json")).expect("store");
+        store
+            .stage_owner_event(&trigger, &[resident.public_key().to_hex()], 100)
+            .expect("stage");
+        store
+            .activate_session(&resident.public_key().to_hex(), 37)
+            .expect("session");
+        assert_eq!(
+            store.authorize_continuity_turn(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_ONE,
+                38,
+                101,
+            ),
+            Err(DispatchAuthorizationError::WrongSession)
+        );
+        assert_eq!(
+            store.authorize_continuity_turn(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_TWO,
+                37,
+                101,
+            ),
+            Err(DispatchAuthorizationError::WrongConversation)
+        );
+        assert_eq!(
+            store.authorize_continuity_turn(
+                &trigger.id.to_hex(),
+                &outsider.public_key().to_hex(),
+                CHANNEL_ONE,
+                37,
+                101,
+            ),
+            Err(DispatchAuthorizationError::WrongResident)
         );
     }
 }

@@ -16,8 +16,9 @@ use luca_continuity::{
     RetrievalText,
 };
 use luca_protocol::{
-    ContinuityContextRequestV1, ContinuityLayerStatusV1, ContinuityNamespaceKindV1, Hex64,
-    OpaqueId, Sha256Ref,
+    canonical_sha256, ContinuityContextRequestV1, ContinuityLayerStatusV1,
+    ContinuityNamespaceKindV1, ContinuityNamespaceV1, ContinuityScopeV1, Hex64, OpaqueId, SafeU53,
+    Sha256Ref, CONTINUITY_PROTOCOL,
 };
 
 use crate::app_state::AppState;
@@ -27,6 +28,57 @@ use super::continuity_runtime::{
 };
 
 const FIXED_LAYER_COUNT: usize = 5;
+const RESIDENT_NAMESPACE_DOMAIN: &str = "luca.continuity.resident-private.namespace.v1";
+const RESIDENT_NOTEBOOK_SCOPE_DOMAIN: &str = "luca.continuity.resident-private.notebook.v1";
+const RESIDENT_NOTEBOOK_SOURCE_ID: &str = "resident-notebook";
+
+/// Derive the one stable resident-private notebook address used by pre-turn
+/// retrieval and post-turn metabolism. Key rotation changes only the explicit
+/// key version; the namespace and scope references remain stable.
+pub(crate) fn resident_notebook_address(
+    owner_pubkey: &Hex64,
+    resident_pubkey: &Hex64,
+    key_version: SafeU53,
+) -> Result<NamespaceScope, luca_continuity::ContinuityError> {
+    let namespace_ref = canonical_sha256(&serde_json::json!({
+        "domain": RESIDENT_NAMESPACE_DOMAIN,
+        "owner_pubkey": owner_pubkey,
+        "resident_pubkey": resident_pubkey,
+    }))
+    .ok()
+    .and_then(|digest| Sha256Ref::parse(format!("sha256:{digest}")).ok())
+    .ok_or(luca_continuity::ContinuityError::InvalidNamespace)?;
+    let source_id = OpaqueId::parse(RESIDENT_NOTEBOOK_SOURCE_ID)
+        .map_err(|_| luca_continuity::ContinuityError::InvalidScope)?;
+    let scope_ref = canonical_sha256(&serde_json::json!({
+        "domain": RESIDENT_NOTEBOOK_SCOPE_DOMAIN,
+        "namespace_ref": namespace_ref,
+        "source_id": source_id,
+    }))
+    .ok()
+    .and_then(|digest| Sha256Ref::parse(format!("sha256:{digest}")).ok())
+    .ok_or(luca_continuity::ContinuityError::InvalidScope)?;
+    let namespace = ContinuityNamespaceV1 {
+        protocol: CONTINUITY_PROTOCOL.into(),
+        owner_pubkey: owner_pubkey.clone(),
+        kind: ContinuityNamespaceKindV1::ResidentPrivate,
+        resident_pubkey: Some(resident_pubkey.clone()),
+        namespace_ref: namespace_ref.clone(),
+        key_version,
+    };
+    NamespaceScope::new(
+        namespace.try_into()?,
+        ContinuityScopeV1 {
+            protocol: CONTINUITY_PROTOCOL.into(),
+            namespace_ref,
+            scope_ref,
+            source_id: Some(source_id),
+            project_id: None,
+            room_id: None,
+            conversation_id: None,
+        },
+    )
+}
 
 /// Whether canonical context wire reached the caller-owned sink.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -452,6 +504,34 @@ mod tests {
 
     fn resident_address() -> NamespaceScope {
         address(ContinuityNamespaceKindV1::ResidentPrivate, Some(hex('2')))
+    }
+
+    #[test]
+    fn resident_notebook_address_is_stable_across_rotation_and_isolated_by_identity() {
+        let first = resident_notebook_address(&hex('1'), &hex('2'), SafeU53::new(1).unwrap())
+            .expect("first address");
+        let rotated = resident_notebook_address(&hex('1'), &hex('2'), SafeU53::new(2).unwrap())
+            .expect("rotated address");
+        let other = resident_notebook_address(&hex('1'), &hex('3'), SafeU53::new(1).unwrap())
+            .expect("other resident");
+
+        assert_eq!(
+            first.namespace().as_protocol().namespace_ref,
+            rotated.namespace().as_protocol().namespace_ref
+        );
+        assert_eq!(
+            first.as_protocol().scope_ref,
+            rotated.as_protocol().scope_ref
+        );
+        assert_ne!(
+            first.namespace().as_protocol().namespace_ref,
+            other.namespace().as_protocol().namespace_ref
+        );
+        assert_ne!(first.as_protocol().scope_ref, other.as_protocol().scope_ref);
+        assert_eq!(
+            first.as_protocol().source_id.as_ref().map(OpaqueId::as_str),
+            Some(RESIDENT_NOTEBOOK_SOURCE_ID)
+        );
     }
 
     fn request(max_packet_bytes: usize) -> ContinuityContextRequestV1 {

@@ -156,6 +156,27 @@ pub(crate) fn initialize_desktop_runtime(
     );
 }
 
+/// Read the current body-free owner key version without opening, creating, or
+/// rotating custody. `None` is deliberately fail-soft for an unavailable or
+/// mismatched runtime; callers still run the normal read lease so its typed
+/// locked/unavailable status remains authoritative.
+pub(crate) fn current_owner_key_version(
+    lifecycle: &ContinuityLifecycleLock,
+    runtime_state: &Mutex<ContinuityRuntimeState>,
+    owner_pubkey: &Hex64,
+) -> Option<SafeU53> {
+    let _lifecycle_guard = lifecycle.lock().ok()?;
+    let state = runtime_state.lock().ok()?;
+    match &*state {
+        ContinuityRuntimeState::Ready(runtime) if &runtime.owner_pubkey == owner_pubkey => {
+            runtime.store.active_owner_key_version(owner_pubkey).ok()
+        }
+        ContinuityRuntimeState::Uninitialized
+        | ContinuityRuntimeState::Degraded(_)
+        | ContinuityRuntimeState::Ready(_) => None,
+    }
+}
+
 trait ContinuityBootCustody {
     fn restore_status(&self) -> Result<RestoreReadStatusV1, ContinuityBackupError>;
     fn encrypted_database_exists(&self, app_data_dir: &Path) -> Result<bool, ContinuityStoreError>;
