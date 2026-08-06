@@ -800,8 +800,8 @@
  */
 :root[data-buzz-sidebar],
 :root[data-buzz-sidebar].dark {
-  --luca-shell-canvas: hsl(var(--mn-canvas));
-  --luca-shell-sidebar: hsl(var(--mn-sidebar));
+  --luca-shell-canvas: hsl(var(--mn-floor));
+  --luca-shell-sidebar: hsl(var(--mn-floor));
   --luca-shell-surface: hsl(var(--mn-surface));
   --luca-shell-elevated: hsl(var(--mn-surface-raised));
   --luca-shell-border: hsl(var(--mn-border));
@@ -821,8 +821,8 @@
   --border: var(--mn-border);
   --input: var(--mn-border-strong);
   --ring: var(--mn-focus);
-  --sidebar: var(--mn-sidebar);
-  --sidebar-background: var(--mn-sidebar);
+  --sidebar: var(--mn-floor);
+  --sidebar-background: var(--mn-floor);
   --sidebar-foreground: var(--mn-ink);
   --sidebar-accent: var(--mn-surface-raised);
   --sidebar-accent-foreground: var(--mn-ink);
@@ -841,7 +841,7 @@
      the inherited ink and the active item renders its glyph in the same value
      as its own fill — a blank plate. It must also CONTRAST with
      --buzz-active-fill above (near-white ink), hence the canvas, not the ink. */
-  --buzz-active-foreground: var(--mn-canvas);
+  --buzz-active-foreground: var(--mn-floor);
   --buzz-channel-fg: hsl(var(--mn-ink-muted));
   --buzz-dm-fg: hsl(var(--mn-ink-muted));
   --buzz-nav-fg: hsl(var(--mn-ink));

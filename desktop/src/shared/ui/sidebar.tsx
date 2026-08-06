@@ -302,6 +302,47 @@ const Sidebar = React.forwardRef<
     const { isMobile, isResizing, state, openMobile, setOpenMobile } =
       useSidebar();
 
+    /**
+     * Hover-peek. When the rail is fully collapsed there is nothing on screen
+     * to aim at, so hovering the left edge slides it back in as an overlay —
+     * the behaviour Claude/Linear use, and the reason an icon-only rail is not
+     * needed to keep the sidebar reachable.
+     *
+     * The hit zone already exists: `SidebarRail` pokes out at the screen edge
+     * in offcanvas mode. Hovering it enters this wrapper's subtree, and native
+     * mouseenter fires on an ancestor for descendants outside its own box, so
+     * no extra element is required.
+     *
+     * Peeking is an overlay, never a layout change — the conversation must not
+     * reflow under the pointer. Leaving is delayed so a pointer clipping the
+     * edge on its way somewhere else does not make the rail flick in and out.
+     */
+    const [peek, setPeek] = React.useState(false);
+    const peekLeaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(
+      null,
+    );
+    const canPeek =
+      !isMobile && !isResizing && collapsible === "offcanvas" && state === "collapsed";
+
+    React.useEffect(() => {
+      if (!canPeek) setPeek(false);
+    }, [canPeek]);
+    React.useEffect(
+      () => () => {
+        if (peekLeaveTimer.current) clearTimeout(peekLeaveTimer.current);
+      },
+      [],
+    );
+
+    const openPeek = React.useCallback(() => {
+      if (peekLeaveTimer.current) clearTimeout(peekLeaveTimer.current);
+      setPeek(true);
+    }, []);
+    const closePeek = React.useCallback(() => {
+      if (peekLeaveTimer.current) clearTimeout(peekLeaveTimer.current);
+      peekLeaveTimer.current = setTimeout(() => setPeek(false), 220);
+    }, []);
+
     if (collapsible === "none") {
       return (
         <div
@@ -342,12 +383,21 @@ const Sidebar = React.forwardRef<
     }
 
     return (
+      // Hover-peek is a pointer-only enhancement, not an interaction. It
+      // exposes nothing that is not already reachable: the "Toggle Sidebar"
+      // button is the keyboard and screen-reader path, which is exactly why
+      // both affordances exist. Giving this wrapper a role would announce a
+      // control that is not one.
+      // biome-ignore lint/a11y/noStaticElementInteractions: see above
       <div
         ref={ref}
         className="group peer relative hidden text-sidebar-foreground md:block"
         data-state={state}
         data-collapsible={state === "collapsed" ? collapsible : ""}
+        data-peek={canPeek && peek ? "true" : undefined}
         data-resizing={isResizing}
+        onMouseEnter={canPeek ? openPeek : undefined}
+        onMouseLeave={canPeek ? closePeek : undefined}
         data-variant={variant}
         data-side={side}
       >
@@ -368,8 +418,12 @@ const Sidebar = React.forwardRef<
             "absolute inset-y-0 z-10 hidden h-full w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear md:flex",
             "group-data-[resizing=true]:transition-none",
             side === "left"
-              ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
-              : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
+              ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] group-data-[peek=true]:left-0"
+              : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] group-data-[peek=true]:right-0",
+            // A peeked rail is the one thing in this shell that genuinely
+            // floats over content, so it is the one place a shadow is correct:
+            // wide blur, low opacity. z-30 clears the composer overlay.
+            "group-data-[peek=true]:z-30 group-data-[peek=true]:shadow-[0_0_40px_-4px_rgb(0_0_0_/_0.55)]",
             variant === "floating" || variant === "inset"
               ? "p-[8px] group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_18px)]"
               : "group-data-[collapsible=icon]:w-(--sidebar-width-icon)",

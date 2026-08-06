@@ -53,8 +53,17 @@ export interface DotPanelOptions {
   glow: number;
   /** Neighbour bleed, 0 disables the (expensive) bloom pass. */
   bloom: number;
-  /** Backing glass colour. Stays near-black in every theme so one identity mark
-   *  reads the same everywhere. */
+  /**
+   * Backing colour painted under the lattice, or `"transparent"` to let
+   * whatever is behind the canvas show through.
+   *
+   * Defaults to transparent, and that default matters. This used to be a
+   * hardcoded near-black, on the reasoning that a mark should read the same on
+   * every surface. That held only while every surface WAS near-black — under
+   * the charcoal scale a near-black backing turns every resident avatar into a
+   * dark disc punched into the card. Surface-tracking wins: the chip's own CSS
+   * background owns the backing, so a mark composites onto whatever it sits on.
+   */
   glass: string;
   /** Dot colour as a bare "r,g,b" triple; alpha comes from the charge. */
   dot: string;
@@ -201,7 +210,7 @@ export class DotPanel {
     this.opt = {
       glow: 0.88,
       bloom: 0,
-      glass: "#0a0b0a",
+      glass: "transparent",
       dot: "239,239,237",
       cell: DEFAULT_CELL,
       level: 0.5,
@@ -320,8 +329,14 @@ export class DotPanel {
     const { W, H } = this;
     const cell = this.cellPx;
     c.setTransform(1, 0, 0, 1, 0, 0);
-    c.fillStyle = this.opt.glass;
-    c.fillRect(0, 0, this.canvasW, this.canvasH);
+    // Clearing rather than filling is what makes a transparent backing work.
+    // Safe for the phosphor: the charge buffer is a separate Float32Array, so
+    // the canvas is repainted from it every frame and never accumulates here.
+    c.clearRect(0, 0, this.canvasW, this.canvasH);
+    if (this.opt.glass !== "transparent") {
+      c.fillStyle = this.opt.glass;
+      c.fillRect(0, 0, this.canvasW, this.canvasH);
+    }
 
     // Integer dot with an integer gutter, so the lattice stays visible and every
     // edge lands on a device pixel.
