@@ -134,6 +134,23 @@
   margin: 8px 8px 8px 1px;
 }
 
+/* With the rail collapsed there is no seam to hug, so the left lip matches the
+   other three and the card is evenly inset on all four sides of the window.
+   The sidebar wrapper is a direct sibling of <main>, which is what makes this
+   reachable without a JS-set class. */
+:root[data-buzz-sidebar]
+  [data-collapsible="offcanvas"]
+  ~ * [data-luca-conversation-surface] {
+  margin-left: 8px;
+}
+
+/* The chrome floats now, so it no longer PUSHES the rail's own header down —
+   the search field has to yield the strip itself or the controls land on top
+   of it. Height is the chrome's, so the two stay paired. */
+:root[data-buzz-sidebar] [data-testid="sidebar-pinned-header"] {
+  padding-top: calc(var(--buzz-top-chrome-height, 32px) + 8px);
+}
+
 :root[data-buzz-sidebar] [data-sidebar="group"] {
   padding-block: 4px;
 }
@@ -194,6 +211,17 @@
   border-color: hsl(var(--mn-border));
   min-height: 52px;
   padding: 7px 22px;
+}
+
+/* The top chrome floats over the card, and with the rail open its controls sit
+   over the rail. Collapsed, they land on the card's own header — so the header
+   yields exactly enough room for them rather than being overlapped. Paired with
+   the control cluster's width in AppTopChrome; if that gains a button, this
+   grows with it. */
+:root[data-buzz-sidebar]
+  [data-collapsible="offcanvas"]
+  ~ * [data-testid="chat-header"] {
+  padding-left: 140px;
 }
 
 :root[data-buzz-sidebar] [data-testid="chat-title"] {

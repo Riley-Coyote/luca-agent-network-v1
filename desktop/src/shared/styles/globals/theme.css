@@ -864,7 +864,12 @@
 }
 
 :root[data-buzz-sidebar].dark [data-buzz-content-surface] {
-  --background: 222 16% 10%;
+  /* Was a hardcoded `222 16% 10%` — off-family and bluer than every token in
+     the scale. Because it re-scopes --background for the whole conversation
+     subtree, every `bg-background` inside (the composer overlay's 48px band,
+     the corner masks) painted a visibly different colour than the card. It
+     must track the card, not diverge from it. */
+  --background: var(--mn-surface);
   background-color: var(--luca-shell-surface);
   border: 1px solid var(--luca-shell-border);
   box-shadow: none;
