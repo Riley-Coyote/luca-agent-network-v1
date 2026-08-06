@@ -903,7 +903,7 @@ function MessageRowItem({
   unfollowThreadById,
   videoReviewContext,
 }: MessageRowItemProps) {
-  const { message, summary } = entry;
+  const { message, quotedParent, summary } = entry;
   const canManage = canManageMessageForCurrentUser(
     message,
     currentPubkey,
@@ -947,6 +947,7 @@ function MessageRowItem({
           onMarkUnread={onMarkUnread}
           onToggleReaction={onToggleReaction}
           onReply={onReply}
+          quotedParent={quotedParent}
           onUnfollowThread={
             unfollowThreadById
               ? () => unfollowThreadById(message.id)
@@ -1002,6 +1003,7 @@ function MessageRowItem({
         onToggleReaction={onToggleReaction}
         onReply={onReply}
         profiles={profiles}
+        quotedParent={quotedParent}
         searchQuery={isSearchMatch ? searchQuery : undefined}
         showDepthGuides={false}
         videoReviewContext={videoReviewContext}

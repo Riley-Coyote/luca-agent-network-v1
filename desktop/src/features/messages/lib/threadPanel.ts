@@ -27,6 +27,23 @@ export type TimelineThreadSummary = {
 export type MainTimelineEntry = {
   message: TimelineMessage;
   summary: TimelineThreadSummary | null;
+  /**
+   * The message this one is replying to, resolved for display. Set only in the
+   * quote-reply presentation, where a reply sits at its own chronological
+   * position in the main flow and has to CARRY its context — the parent may be
+   * far above, or not rendered at all.
+   *
+   * This is the iMessage/WhatsApp/Telegram model, and the reason it beats a
+   * nested or docked presentation: nothing needs protecting from group traffic,
+   * because a reply is self-contained.
+   */
+  quotedParent?: {
+    id: string;
+    author: string;
+    body: string;
+    /** False when the parent has scrolled out of the loaded window. */
+    resolved: boolean;
+  } | null;
 };
 
 export type ThreadDescendantStats = {
@@ -433,8 +450,9 @@ export function buildMainTimelineEntries(
   unreadReplyIds: ReadonlySet<string> = new Set(),
   relaySummaries: ReadonlyMap<string, ChannelWindowThreadSummary> = new Map(),
   profiles?: UserProfileLookup,
+  quoteReplies = false,
 ): MainTimelineEntry[] {
-  const { descendantStatsByMessageId } = buildThreadPanelIndex(
+  const { descendantStatsByMessageId, messageById } = buildThreadPanelIndex(
     messages,
     unreadReplyIds,
   );
@@ -442,12 +460,29 @@ export function buildMainTimelineEntries(
   return messages
     .filter(
       (message) =>
-        message.parentId == null || isBroadcastReply(message.tags ?? []),
+        // Replies now stay in the main chronological flow rather than being
+        // hidden until their thread is opened. They are distinguished by the
+        // quoted parent attached to them, not by being pulled out of the room.
+        quoteReplies ||
+        message.parentId == null ||
+        isBroadcastReply(message.tags ?? []),
     )
     .map((message) => {
       const relaySummary = relaySummaries.get(message.id);
+      const parent = message.parentId
+        ? messageById.get(message.parentId)
+        : null;
       return {
         message,
+        quotedParent:
+          quoteReplies && message.parentId
+            ? {
+                id: message.parentId,
+                author: parent?.author ?? "",
+                body: parent?.body ?? "",
+                resolved: parent != null,
+              }
+            : null,
         summary:
           message.kind === KIND_HUDDLE_STARTED
             ? null
@@ -491,6 +526,44 @@ export function buildInlineConversationEntries(
     }
   }
   return entries;
+}
+
+/**
+ * Narrow the timeline to one exchange: a message and everything descended from
+ * it. This is the "focused view" — the iMessage behaviour where tapping a reply
+ * count shows just that sub-conversation and takes the rest of the room out of
+ * the way.
+ *
+ * It replaces nothing in the data model and adds no second surface: the same
+ * timeline simply shows fewer rows, which is why it costs the reader nothing to
+ * enter or leave.
+ *
+ * Membership is resolved by walking each message UP to a root rather than
+ * seeding down from the head, so it does not depend on replies being ordered
+ * after their parents — a reply that arrives out of order still lands in the
+ * right exchange.
+ */
+export function buildFocusedThreadEntries(
+  entries: readonly MainTimelineEntry[],
+  focusedHeadId: string | null,
+): MainTimelineEntry[] {
+  if (!focusedHeadId) return [...entries];
+
+  const parentById = new Map(
+    entries.map((entry) => [entry.message.id, entry.message.parentId ?? null]),
+  );
+
+  const belongsToFocus = (id: string): boolean => {
+    let cursor: string | null = id;
+    // Bounded: a malformed parent chain must never hang the timeline.
+    for (let hops = 0; cursor && hops < 64; hops += 1) {
+      if (cursor === focusedHeadId) return true;
+      cursor = parentById.get(cursor) ?? null;
+    }
+    return false;
+  };
+
+  return entries.filter((entry) => belongsToFocus(entry.message.id));
 }
 
 /**
