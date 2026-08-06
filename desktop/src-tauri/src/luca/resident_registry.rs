@@ -22,9 +22,9 @@ use crate::{
     app_state::AppState,
     commands::create_managed_agent,
     managed_agents::{
-        CreateManagedAgentRequest, ManagedAgentRecord, ManagedAgentSummary, RuntimeBinding,
         build_managed_agent_summary, load_managed_agents, load_personas,
         native_runtime_semantic_key, revalidate_native_runtime_binding, save_managed_agents,
+        CreateManagedAgentRequest, ManagedAgentRecord, ManagedAgentSummary, RuntimeBinding,
     },
 };
 
@@ -551,12 +551,10 @@ mod tests {
         assert_eq!(registry.schema, REGISTRY_SCHEMA);
         assert_eq!(registry.residents.len(), 3);
         assert!(registry.residents.iter().all(|resident| resident.active));
-        assert!(
-            registry
-                .residents
-                .iter()
-                .all(|resident| resident.runtime.runtime_id.as_deref() == Some("fixture-noop"))
-        );
+        assert!(registry
+            .residents
+            .iter()
+            .all(|resident| resident.runtime.runtime_id.as_deref() == Some("fixture-noop")));
 
         let serialized = serde_json::to_string(&registry).expect("registry must serialize");
         for forbidden in [
@@ -580,19 +578,15 @@ mod tests {
             record(&key, "Second", "persona:second"),
         ];
         let statuses = HashMap::from([(key.clone(), "stopped".to_string())]);
-        assert!(
-            registry_from_records(&duplicate, &statuses)
-                .expect_err("duplicate must fail")
-                .contains("duplicate")
-        );
+        assert!(registry_from_records(&duplicate, &statuses)
+            .expect_err("duplicate must fail")
+            .contains("duplicate"));
 
         let invalid = vec![record(&"A".repeat(64), "Invalid", "persona:invalid")];
         let invalid_statuses = HashMap::from([("A".repeat(64), "stopped".to_string())]);
-        assert!(
-            registry_from_records(&invalid, &invalid_statuses)
-                .expect_err("uppercase key must fail")
-                .contains("invalid public key")
-        );
+        assert!(registry_from_records(&invalid, &invalid_statuses)
+            .expect_err("uppercase key must fail")
+            .contains("invalid public key"));
     }
 
     #[test]
@@ -607,11 +601,9 @@ mod tests {
             record(&"f".repeat(64), "Luca A", "persona:luca"),
             record(&"1".repeat(64), "Luca B", "persona:luca"),
         ];
-        assert!(
-            unique_record_for_persona(&duplicates, "persona:luca")
-                .expect_err("two links must fail closed")
-                .contains("multiple residents")
-        );
+        assert!(unique_record_for_persona(&duplicates, "persona:luca")
+            .expect_err("two links must fail closed")
+            .contains("multiple residents"));
     }
 
     #[test]

@@ -2,6 +2,7 @@ import * as React from "react";
 import { Check, Cpu, Plus, ShieldCheck } from "lucide-react";
 
 import type { AgentPersona } from "@/shared/api/types";
+import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import type { ResidentRegistryEntry } from "./api";
 
@@ -14,10 +15,6 @@ type ResidentSetupProps = {
   onAddResident: (persona: AgentPersona) => void;
   onCreateResident: () => void;
 };
-
-function fingerprint(pubkey: string) {
-  return `${pubkey.slice(0, 8)}…${pubkey.slice(-6)}`;
-}
 
 function bindingLabel(persona: AgentPersona, resident?: ResidentRegistryEntry) {
   const runtime =
@@ -75,7 +72,7 @@ export function ResidentSetup({
     >
       <div className="flex flex-col gap-5 border-b border-border/60 px-5 py-5 sm:flex-row sm:items-start sm:justify-between sm:px-6">
         <div className="max-w-2xl space-y-2">
-          <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+          <div className="flex items-center gap-2 font-mono text-2xs uppercase tracking-[0.16em] text-muted-foreground">
             <ShieldCheck aria-hidden="true" className="size-3.5" />
             Personal agent network
           </div>
@@ -153,7 +150,7 @@ export function ResidentSetup({
                         </p>
                         {resident ? (
                           <span
-                            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${
+                            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs ${
                               ready
                                 ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                                 : "border-border/70 bg-muted/35 text-muted-foreground"
@@ -168,14 +165,14 @@ export function ResidentSetup({
                           </span>
                         ) : null}
                       </div>
-                      <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground">
+                      <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 font-mono text-2xs text-muted-foreground">
                         <span className="inline-flex items-center gap-1.5">
                           <Cpu aria-hidden="true" className="size-3" />
                           {bindingLabel(persona, resident)}
                         </span>
                         {resident ? (
                           <span data-testid={`resident-identity-${persona.id}`}>
-                            {fingerprint(resident.residentPubkey)}
+                            {truncatePubkey(resident.residentPubkey)}
                           </span>
                         ) : (
                           <span>Identity created on add</span>
@@ -214,9 +211,9 @@ export function ResidentSetup({
                   <p className="truncate text-sm font-medium text-foreground">
                     {resident.displayName}
                   </p>
-                  <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                  <p className="mt-1 font-mono text-2xs text-muted-foreground">
                     {resident.runtime.runtimeCommand} ·{" "}
-                    {fingerprint(resident.residentPubkey)}
+                    {truncatePubkey(resident.residentPubkey)}
                   </p>
                 </div>
               </div>

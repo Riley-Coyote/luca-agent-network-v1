@@ -147,7 +147,9 @@ function ProtectedOwnerBackupRow() {
         </div>
         <button
           aria-expanded={isOpen}
-          aria-label={isOpen ? "Cancel protected backup" : "Create protected backup"}
+          aria-label={
+            isOpen ? "Cancel protected backup" : "Create protected backup"
+          }
           className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           data-testid="profile-protected-backup-toggle"
           onClick={() => {
@@ -163,7 +165,8 @@ function ProtectedOwnerBackupRow() {
       {isOpen ? (
         <div className="mt-4 space-y-3 rounded-lg border border-border/60 bg-muted/20 p-3">
           <p className="text-xs leading-5 text-muted-foreground">
-            Choose a unique passphrase. Luca never displays or copies the private key.
+            Choose a unique passphrase. Luca never displays or copies the
+            private key.
           </p>
           <Input
             aria-label="Backup passphrase"
@@ -182,7 +185,9 @@ function ProtectedOwnerBackupRow() {
             value={confirmation}
           />
           {confirmation && passphrase !== confirmation ? (
-            <p className="text-xs text-destructive">Passphrases do not match.</p>
+            <p className="text-xs text-destructive">
+              Passphrases do not match.
+            </p>
           ) : null}
           {passphrase && !isValidOwnerBackupPassphrase(passphrase) ? (
             <p className="text-xs text-destructive">
@@ -1018,8 +1023,8 @@ export function ProfileSettingsCard({
               <AlertDialogDescription>
                 This will delete your identity key, all agent settings, and
                 cached data from this device, then relaunch Luca into first-run
-                setup. Create a protected owner backup before continuing —
-                this cannot be undone.
+                setup. Create a protected owner backup before continuing — this
+                cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

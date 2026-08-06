@@ -615,18 +615,14 @@ fn native_runtime_env_policy_withholds_luca_env_and_scrubs_ambient_secrets() {
         assert!(policy.scrub_ambient.iter().any(|key| key == forbidden));
     }
     assert!(!policy.scrub_ambient.iter().any(|key| key == "PATH"));
-    assert!(
-        !policy
-            .scrub_ambient
-            .iter()
-            .any(|key| key == "HERMES_API_KEY")
-    );
-    assert!(
-        !policy
-            .scrub_ambient
-            .iter()
-            .any(|key| key == "OPENCLAW_GATEWAY_TOKEN")
-    );
+    assert!(!policy
+        .scrub_ambient
+        .iter()
+        .any(|key| key == "HERMES_API_KEY"));
+    assert!(!policy
+        .scrub_ambient
+        .iter()
+        .any(|key| key == "OPENCLAW_GATEWAY_TOKEN"));
 }
 
 #[test]
@@ -733,22 +729,18 @@ fn claude_spawn_uses_the_probed_cli_executable() {
     } else {
         std::env::remove_var("PATH");
     }
-    assert!(
-        command.get_envs().any(|(key, value)| {
-            key == "CLAUDE_CODE_EXECUTABLE" && value == Some(cli.as_os_str())
-        })
-    );
+    assert!(command
+        .get_envs()
+        .any(|(key, value)| { key == "CLAUDE_CODE_EXECUTABLE" && value == Some(cli.as_os_str()) }));
 }
 
 #[test]
 fn codex_spawn_does_not_set_a_claude_executable() {
     let mut command = std::process::Command::new("buzz-acp");
     super::configure_runtime_cli(&mut command, super::known_acp_runtime("codex-acp"));
-    assert!(
-        !command
-            .get_envs()
-            .any(|(key, _)| key == "CLAUDE_CODE_EXECUTABLE")
-    );
+    assert!(!command
+        .get_envs()
+        .any(|(key, _)| key == "CLAUDE_CODE_EXECUTABLE"));
 }
 
 // ── PGID-based orphan sweep tests ───────────────────────────────────────

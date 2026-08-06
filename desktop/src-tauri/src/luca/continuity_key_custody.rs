@@ -302,19 +302,14 @@ pub(crate) fn install_candidate_master_key<S: ContinuityKeyStore>(
         return Err(error);
     }
     let encoded = candidate.to_base64();
-    if let Err(error) = store.store_raw(CONTINUITY_MASTER_KEY_NAME, &encoded) {
-        // A SecretStore write error is commit-ambiguous: the keychain blob may
-        // already contain the candidate even though the backend reported an
-        // error. Keep the verified rollback slot so the restore journal can
-        // read back active authority and deterministically reconcile old/new.
-        return Err(error);
-    }
-    if let Err(error) = verify_exact_slot(store, CONTINUITY_MASTER_KEY_NAME, &encoded) {
-        // Read-back failure is likewise not authority to discard rollback.
-        // The outer restore journal owns reconciliation once a candidate write
-        // has been attempted.
-        return Err(error);
-    }
+    // A SecretStore write error is commit-ambiguous: the keychain blob may
+    // already contain the candidate even though the backend reported an
+    // error. Keep the verified rollback slot so the restore journal can
+    // read back active authority and deterministically reconcile old/new.
+    store.store_raw(CONTINUITY_MASTER_KEY_NAME, &encoded)?;
+    // Read-back failure is likewise not authority to discard rollback. The
+    // outer restore journal owns reconciliation after a candidate write.
+    verify_exact_slot(store, CONTINUITY_MASTER_KEY_NAME, &encoded)?;
     Ok(())
 }
 

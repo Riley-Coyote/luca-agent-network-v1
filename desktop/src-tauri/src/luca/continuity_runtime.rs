@@ -14,8 +14,7 @@ use luca_continuity::{
     RetrievalText, RevisionActor, RevisionLifecycle, RevisionOperation, RevisionRequest,
 };
 use luca_protocol::{
-    canonical_sha256, Hex64, OpaqueId, ResidentHandoffV1, SafeU53, Sha256Ref,
-    CONTINUITY_PROTOCOL,
+    canonical_sha256, Hex64, OpaqueId, ResidentHandoffV1, SafeU53, Sha256Ref, CONTINUITY_PROTOCOL,
 };
 
 use crate::app_state::ContinuityLifecycleLock;
@@ -190,6 +189,7 @@ pub(crate) struct ResidentHandoffViewV1 {
     pub(crate) pinned_owner_correction: bool,
 }
 
+#[allow(clippy::large_enum_variant)] // Owner command returns this only across an explicit boundary.
 pub(crate) enum ResidentHandoffReadOutcomeV1 {
     Ready(ResidentHandoffViewV1),
     Empty,
@@ -449,10 +449,10 @@ fn forget_resident_handoff_locked(
     };
     let lineage_root_id = lineage.lineage_root_id.clone();
     let purged_revision_count = lineage.record_ids.len();
-    let transition = match runtime.store.apply_revision_transition_cas(
-        &AuthorityExpectationV1::Existing(generation.token),
-        request,
-    ) {
+    let transition = match runtime
+        .store
+        .apply_revision_transition_cas(&AuthorityExpectationV1::Existing(generation.token), request)
+    {
         Ok(value) => value,
         Err(ContinuityStoreError::CompareAndSwapConflict)
         | Err(ContinuityStoreError::LifecycleConflict) => {
@@ -560,14 +560,15 @@ fn commit_resident_handoff_locked(
         Ok(address) => address,
         Err(_) => return ResidentHandoffCommitOutcomeV1::Invalid,
     };
-    let generation = match runtime.store.load_revision_generation(&request.owner_pubkey) {
+    let generation = match runtime
+        .store
+        .load_revision_generation(&request.owner_pubkey)
+    {
         Ok(generation) => generation,
         Err(_) => return ResidentHandoffCommitOutcomeV1::Unavailable,
     };
-    let source_ref = match Sha256Ref::parse(format!(
-        "sha256:{}",
-        request.source_event_id.as_str()
-    )) {
+    let source_ref = match Sha256Ref::parse(format!("sha256:{}", request.source_event_id.as_str()))
+    {
         Ok(reference) => reference,
         Err(_) => return ResidentHandoffCommitOutcomeV1::Invalid,
     };
@@ -683,13 +684,11 @@ fn commit_resident_handoff_locked(
                 ResidentHandoffCommitKindV1::ResidentAutomatic => RevisionActor::Resident,
                 ResidentHandoffCommitKindV1::OwnerCorrection => RevisionActor::Owner,
             };
-            let root_id = match handoff_record_id(
-                &request.resident_pubkey,
-                &request.source_event_id,
-            ) {
-                Ok(value) => value,
-                Err(_) => return ResidentHandoffCommitOutcomeV1::Invalid,
-            };
+            let root_id =
+                match handoff_record_id(&request.resident_pubkey, &request.source_event_id) {
+                    Ok(value) => value,
+                    Err(_) => return ResidentHandoffCommitOutcomeV1::Invalid,
+                };
             (
                 RevisionOperation::Create,
                 actor,
@@ -707,8 +706,7 @@ fn commit_resident_handoff_locked(
     } else {
         match match request.kind {
             ResidentHandoffCommitKindV1::ResidentAutomatic => {
-                handoff_record_id(&request.resident_pubkey, &request.source_event_id)
-                    .ok()
+                handoff_record_id(&request.resident_pubkey, &request.source_event_id).ok()
             }
             ResidentHandoffCommitKindV1::OwnerCorrection => handoff_revision_record_id(
                 &request.resident_pubkey,
@@ -1095,6 +1093,7 @@ fn receipt(
     }
 }
 
+#[allow(clippy::result_large_err)] // The typed fail-soft receipt is deliberately returned intact.
 fn key_outcome(
     request: &ContinuityReadLeaseRequestV1,
     attempt_count: u8,
@@ -2052,7 +2051,10 @@ mod tests {
             panic!("expected revised handoff");
         };
         assert_eq!(second_receipt.revision.get(), 1);
-        assert_eq!(second_receipt.lineage_root_id, first_receipt.lineage_root_id);
+        assert_eq!(
+            second_receipt.lineage_root_id,
+            first_receipt.lineage_root_id
+        );
 
         let durable = durable_database_bytes(&temp);
         assert!(durable.iter().all(|(_, bytes)| {

@@ -203,7 +203,7 @@ function DmChannelIcon({
             />
           ) : (
             <ProfileAvatarWithStatus
-              avatarClassName="bg-sidebar-accent text-[9px] text-sidebar-foreground shadow-none"
+              avatarClassName="bg-sidebar-accent text-3xs text-sidebar-foreground shadow-none"
               avatarUrl={participant.avatarUrl}
               className={cn("h-5 w-5", index > 0 && "-ml-1.5")}
               geometry={scaleProfileAvatarStatusGeometry(
@@ -222,9 +222,7 @@ function DmChannelIcon({
   }
 
   if (isPair || !participants || participants.length <= 1) {
-    if (
-      knownAgentPubkeys.has(normalizePubkey(primaryParticipant.pubkey))
-    ) {
+    if (knownAgentPubkeys.has(normalizePubkey(primaryParticipant.pubkey))) {
       return (
         <AgentIdentitySpecimen
           accessibleName={primaryParticipant.label}
@@ -354,7 +352,7 @@ export function ChannelMenuButton({
       </span>
       {agentFingerprint ? (
         <span
-          className="hidden shrink-0 font-mono text-[8px] tracking-[0.08em] text-sidebar-foreground/35 group-data-[collapsible=icon]:hidden xl:inline"
+          className="hidden shrink-0 font-mono text-3xs tracking-[0.08em] text-sidebar-foreground/35 group-data-[collapsible=icon]:hidden xl:inline"
           data-sidebar-row-meta
         >
           {agentFingerprint}

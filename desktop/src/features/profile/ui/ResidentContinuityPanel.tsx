@@ -294,7 +294,7 @@ function ContinuityStatus({
   const job = data?.job;
   const active = job?.state === "pending" || job?.state === "running";
   return (
-    <div className="flex items-center justify-between gap-3 font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
+    <div className="flex items-center justify-between gap-3 font-mono text-2xs uppercase tracking-[0.08em] text-muted-foreground">
       <span>{data?.enabled ? data.availability : "disabled"}</span>
       <span className="flex items-center gap-1.5">
         {active ? <LoaderCircle className="size-3 animate-spin" /> : null}
@@ -325,7 +325,7 @@ function HandoffView({
       <div className="flex items-center justify-between gap-3 border-b border-border/50 px-4 py-3">
         <div>
           <p className="text-sm font-medium">Current handoff</p>
-          <p className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+          <p className="mt-0.5 font-mono text-badge uppercase tracking-[0.08em] text-muted-foreground">
             {relativeDate(handoff.updatedAt)} · revision {handoff.revision}
             {handoff.pinnedOwnerCorrection ? " · owner corrected" : ""}
           </p>
@@ -371,7 +371,7 @@ function HandoffView({
           <div className="mt-2 flex flex-wrap gap-2">
             {handoff.sourceEventIds.map((eventId) => (
               <button
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 px-2 py-1 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 px-2 py-1 font-mono text-badge text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
                 key={eventId}
                 onClick={() => onOpenSource(eventId)}
                 type="button"
@@ -545,7 +545,7 @@ function ContinuityEmptyState({ availability }: { availability: string }) {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+    <p className="font-mono text-badge uppercase tracking-[0.12em] text-muted-foreground">
       {children}
     </p>
   );

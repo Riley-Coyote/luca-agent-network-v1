@@ -31,58 +31,70 @@ tasks:
     title: Create isolated beta checkpoint and control package
     depends_on: []
     acceptance: [A001, A002]
+    status: PASS
   - id: C01
     gate: V1B.0
     title: Review G1 evidence and freeze the smaller beta contract
     depends_on: [C00]
     acceptance: [A003, A004]
+    status: PASS
   - id: N01
     gate: V1B.1
     title: Audit exact native capability and binding paths
     depends_on: [C01]
     acceptance: [A101, A102]
+    status: PASS
   - id: N02
     gate: V1B.1
     title: Add native parity fixtures and honest readiness states
     depends_on: [N01]
     acceptance: [A105]
+    status: PASS
   - id: H01
     gate: V1B.2
     title: Add compact handoff contracts and encrypted lifecycle
     depends_on: [N02]
     acceptance: [A201, A202]
+    status: PASS
   - id: H02
     gate: V1B.2
     title: Add private same-resident cognition path
     depends_on: [H01]
     acceptance: [A203, A204]
+    status: PASS
   - id: H03
     gate: V1B.2
     title: Run idempotent post-publication handoff jobs
     depends_on: [H02]
     acceptance: [A205, A206, A207]
+    status: PASS
   - id: H04
     gate: V1B.2
     title: Inject effective handoff and prove isolation/fail-soft behavior
     depends_on: [H03]
     acceptance: [A208, A209, A210]
+    status: PASS
   - id: U01
     gate: V1B.3
     title: Add resident continuity commands and inspector controls
     depends_on: [H04]
     acceptance: [A301, A302]
+    status: PASS
   - id: U02
     gate: V1B.3
     title: Add import disclosure and compact chat/activity states
     depends_on: [U01]
     acceptance: [A303, A304]
+    status: PASS
   - id: R01
     gate: V1B.4
     title: Run installed Hermes/OpenClaw beta matrix
     depends_on: [U02]
     acceptance: [A103, A104, A401, A402, A403]
+    status: PASS
   - id: R02
     gate: V1B.4
     title: Run final gates and publish beta verdict/handoff
     depends_on: [R01]
     acceptance: [A404, A405]
+    status: PASS

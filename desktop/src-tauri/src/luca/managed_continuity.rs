@@ -237,12 +237,8 @@ fn serve(
                 continue;
             }
             Err(_) => {
-                if write_fallback(
-                    &mut writer,
-                    &intent,
-                    ContinuityLayerStatusV1::Unavailable,
-                )
-                .is_err()
+                if write_fallback(&mut writer, &intent, ContinuityLayerStatusV1::Unavailable)
+                    .is_err()
                 {
                     break;
                 }
@@ -292,7 +288,7 @@ fn serve(
             &state,
             &request.owner_pubkey,
             &request.resident_pubkey,
-            remaining.min(MAX_CAPSULE_LOAD_MILLIS).max(1),
+            remaining.clamp(1, MAX_CAPSULE_LOAD_MILLIS),
         );
         let delivery_trigger = intent.trigger_event_id.clone();
         let delivery_resident = intent.resident_pubkey.clone();
@@ -435,8 +431,7 @@ fn write_authorized_packet(
 
     let remaining = deadline_unix_ms
         .saturating_sub(now_unix_ms)
-        .min(MAX_RESOLUTION_MILLIS)
-        .max(1);
+        .clamp(1, MAX_RESOLUTION_MILLIS);
     writer.set_write_timeout(Some(Duration::from_millis(remaining)))?;
     let result = writer
         .write_all(wire)

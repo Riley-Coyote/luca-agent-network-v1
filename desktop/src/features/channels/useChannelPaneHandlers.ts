@@ -200,7 +200,11 @@ export function useChannelPaneHandlers({
   );
 
   const handleSelectThreadReplyTarget = React.useCallback(
-    (message: { id: string; parentId?: string | null; rootId?: string | null }) => {
+    (message: {
+      id: string;
+      parentId?: string | null;
+      rootId?: string | null;
+    }) => {
       const threadHeadId = message.rootId ?? message.parentId ?? message.id;
       if (openThreadHeadIdRef.current !== threadHeadId) {
         onOptimisticOpenThreadHeadIdChange(threadHeadId);

@@ -9,19 +9,18 @@ import {
   type OwnerRecoveryPreview,
 } from "@/shared/api/tauriIdentity";
 import { useSystemColorScheme } from "@/shared/theme/useSystemColorScheme";
+import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
-
-function compactPubkey(pubkey: string) {
-  return `${pubkey.slice(0, 12)}…${pubkey.slice(-8)}`;
-}
 
 export function KeyringLockedScreen() {
   const systemColorScheme = useSystemColorScheme();
   const [showRecovery, setShowRecovery] = React.useState(false);
   const [passphrase, setPassphrase] = React.useState("");
-  const [preview, setPreview] = React.useState<OwnerRecoveryPreview | null>(null);
+  const [preview, setPreview] = React.useState<OwnerRecoveryPreview | null>(
+    null,
+  );
   const [confirmed, setConfirmed] = React.useState(false);
   const [isPreviewing, setIsPreviewing] = React.useState(false);
   const [isRecovering, setIsRecovering] = React.useState(false);
@@ -99,10 +98,13 @@ export function KeyringLockedScreen() {
             <div className="flex items-start gap-3">
               <FileKey2 className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
               <div>
-                <h2 className="text-sm font-medium">Recover from protected backup</h2>
+                <h2 className="text-sm font-medium">
+                  Recover from protected backup
+                </h2>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
                   Preview validates the file without changing Luca or the system
-                  keychain. Recovery happens only after your explicit confirmation.
+                  keychain. Recovery happens only after your explicit
+                  confirmation.
                 </p>
               </div>
             </div>
@@ -149,8 +151,11 @@ export function KeyringLockedScreen() {
                   </div>
                   <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
                     <dt className="text-muted-foreground">Owner</dt>
-                    <dd className="truncate font-mono" title={preview.ownerPubkey}>
-                      {compactPubkey(preview.ownerPubkey)}
+                    <dd
+                      className="truncate font-mono"
+                      title={preview.ownerPubkey}
+                    >
+                      {truncatePubkey(preview.ownerPubkey)}
                     </dd>
                     <dt className="text-muted-foreground">Created</dt>
                     <dd>{preview.exportedAt}</dd>

@@ -1,13 +1,10 @@
 //! Explicit owner controls for the compact encrypted resident handoff.
 
-use luca_protocol::{CanonicalTimestamp, Hex64, OpaqueId, ResidentContinuityModeV1, ResidentHandoffV1};
+use luca_protocol::{Hex64, OpaqueId, ResidentContinuityModeV1, ResidentHandoffV1};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
-use crate::{
-    app_state::AppState,
-    managed_agents::load_managed_agents,
-};
+use crate::{app_state::AppState, managed_agents::load_managed_agents};
 
 use crate::luca::{
     continuity_jobs,
@@ -133,8 +130,7 @@ pub fn correct_resident_handoff(
     let Some(source_event_id) = current.handoff.source_event_ids.last().cloned() else {
         return Err("resident handoff has no source event".into());
     };
-    let updated_at = CanonicalTimestamp::parse(chrono::Utc::now().to_rfc3339())
-        .map_err(|_| "create correction timestamp".to_owned())?;
+    let updated_at = continuity_jobs::current_canonical_timestamp()?;
     let handoff = ResidentHandoffV1 {
         summary: input.summary,
         unresolved_threads: input.unresolved_threads,
@@ -256,15 +252,14 @@ fn inspector_projection(
         ResidentHandoffReadOutcomeV1::Unavailable => ("unavailable", None),
         ResidentHandoffReadOutcomeV1::Invalid => ("invalid", None),
     };
-    let job = continuity_jobs::latest_job_status(app, owner, resident)?.map(|job| {
-        ResidentHandoffJobV1 {
+    let job =
+        continuity_jobs::latest_job_status(app, owner, resident)?.map(|job| ResidentHandoffJobV1 {
             job_id: job.job_id.as_str().to_owned(),
             state: job.state,
             last_error_code: job.last_error_code,
             updated_at: job.updated_at,
             can_retry: job.can_retry,
-        }
-    });
+        });
     Ok(ResidentHandoffInspectorV1 {
         enabled: mode == ResidentContinuityModeV1::Enabled,
         availability,

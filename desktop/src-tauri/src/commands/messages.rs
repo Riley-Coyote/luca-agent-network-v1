@@ -758,11 +758,7 @@ pub async fn cancel_managed_turn(
             }
             (None, None) => {
                 let exact = store
-                    .resolve_unique_cancellable(
-                        &owner_pubkey,
-                        &conversation_id,
-                        &resident_pubkey,
-                    )
+                    .resolve_unique_cancellable(&owner_pubkey, &conversation_id, &resident_pubkey)
                     .map_err(|error| format!("managed cancellation denied: {error:?}"))?;
                 (exact.dispatch_receipt_id, exact.session_epoch)
             }
@@ -807,7 +803,7 @@ pub async fn cancel_managed_turn(
         channel_id,
         "!cancel",
         None,
-        &[resident_pubkey.clone()],
+        std::slice::from_ref(&resident_pubkey),
         &[],
     )
     .and_then(|builder| {

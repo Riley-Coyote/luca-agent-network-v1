@@ -286,11 +286,6 @@ pub fn build_app_state() -> AppState {
 }
 
 impl AppState {
-    /// Borrow the sole continuity lifecycle authority owned by this app.
-    pub(crate) fn continuity_lifecycle(&self) -> &ContinuityLifecycleLock {
-        &self.continuity_lifecycle
-    }
-
     /// Initialize the process-owned continuity runtime once after owner
     /// identity resolution. Failure remains body-free and never blocks chat.
     pub(crate) fn initialize_continuity_runtime(

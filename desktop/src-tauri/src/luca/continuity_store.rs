@@ -1748,18 +1748,18 @@ fn classify_existing_connection(
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|_| ContinuityStoreError::SchemaIncompatible)?;
     match user_version {
-        LEGACY_SCHEMA_VERSION => validate_legacy_schema(&connection)?,
-        LEGACY_SCHEMA_VERSION_V2 => validate_v2_schema(&connection)?,
-        PREVIOUS_SCHEMA_VERSION => validate_previous_schema(&connection)?,
+        LEGACY_SCHEMA_VERSION => validate_legacy_schema(connection)?,
+        LEGACY_SCHEMA_VERSION_V2 => validate_v2_schema(connection)?,
+        PREVIOUS_SCHEMA_VERSION => validate_previous_schema(connection)?,
         SCHEMA_VERSION => {
-            validate_schema(&connection)?;
+            validate_schema(connection)?;
             return Ok(ExistingSchemaPreflight::Current);
         }
         _ => return Err(ContinuityStoreError::SchemaIncompatible),
     }
     if legacy_sidecar_present {
         Ok(ExistingSchemaPreflight::DegradedLegacy)
-    } else if legacy_store_is_empty(&connection, user_version)? {
+    } else if legacy_store_is_empty(connection, user_version)? {
         Ok(ExistingSchemaPreflight::UpgradeEmptyLegacy)
     } else {
         Ok(ExistingSchemaPreflight::DegradedLegacy)

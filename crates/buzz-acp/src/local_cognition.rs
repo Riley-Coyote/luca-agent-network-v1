@@ -23,7 +23,7 @@ pub(crate) struct CognitionEnvelope {
 
 #[derive(Debug)]
 pub(crate) enum CognitionReply {
-    Completed(LocalContinuityCognitionResultV1),
+    Completed(Box<LocalContinuityCognitionResultV1>),
     Unavailable(&'static str),
 }
 
@@ -31,7 +31,7 @@ pub(crate) enum CognitionReply {
 #[serde(tag = "status", rename_all = "snake_case")]
 enum WireReply {
     Completed {
-        result: LocalContinuityCognitionResultV1,
+        result: Box<LocalContinuityCognitionResultV1>,
     },
     Unavailable {
         code: &'static str,

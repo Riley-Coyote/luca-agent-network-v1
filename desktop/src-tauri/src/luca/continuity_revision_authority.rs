@@ -1440,12 +1440,13 @@ fn preflight_authority_bounds(
     generation: SafeU53,
 ) -> Result<AuthorityPreflightManifest, ContinuityStoreError> {
     let protocol_len = luca_protocol::CONTINUITY_PROTOCOL.len();
-    let specs: Vec<(
+    type SnapshotTableSpec = (
         &'static str,
         usize,
         Vec<(&'static str, SqlFieldBound)>,
         bool,
-    )> = vec![
+    );
+    let specs: Vec<SnapshotTableSpec> = vec![
         (
             "continuity_records",
             MAX_REVISION_SNAPSHOT_RECORDS,
@@ -2524,10 +2525,9 @@ fn persist_transition(
     }
     .and_then(|value| SafeU53::new(value).ok())
     .ok_or(ContinuityStoreError::CompareAndSwapConflict)?;
-    let epoch = if fresh_epoch || current.is_none() {
-        Uuid::new_v4().to_string()
-    } else {
-        current.unwrap().token.store_epoch.clone()
+    let epoch = match (fresh_epoch, current) {
+        (false, Some(current)) => current.token.store_epoch.clone(),
+        _ => Uuid::new_v4().to_string(),
     };
 
     reconcile_records(transaction, owner, snapshot, replace_records)?;

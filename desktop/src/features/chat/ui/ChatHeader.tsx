@@ -136,7 +136,7 @@ export function ChatHeader({
             </div>
             <h1
               className={cn(
-                "min-w-0 truncate text-[0.9375rem] font-medium leading-6 tracking-[-0.01em]",
+                "min-w-0 truncate text-chat font-medium leading-6 tracking-[-0.01em]",
                 channelType !== "dm" && "translate-y-px",
               )}
               data-testid="chat-title"

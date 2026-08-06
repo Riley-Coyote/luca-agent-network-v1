@@ -1,7 +1,9 @@
 # Luca V1 Functional Beta build control
 
-Status: V1B.0 in progress  
-Branch: `agent/v1-functional-beta`  
+Status: V1B.4 complete — functional beta candidate passed
+
+Branch: `agent/v1-functional-beta`
+
 Baseline: `dc1c2e63891ab0a53b2c4c948e0e7eed801d6f89`
 
 This directory is the active implementation authority for the functional beta.
@@ -17,6 +19,8 @@ active beta task graph.
 4. `ACCEPTANCE_V1B.md`
 5. `DECISION_LEDGER.md`
 6. `RUN_LOG.md`
+7. `V1B_VERDICT.md`
+8. `HANDOFF.md`
 
 ## Product boundary
 
@@ -38,4 +42,3 @@ locked, absent, corrupt, slow, or unavailable.
 - Never claim native memory, tool, or session parity that the runtime does not
   expose and the installed app has not demonstrated.
 - Receipts contain body-free commands and results only.
-

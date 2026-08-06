@@ -437,7 +437,6 @@ mod tests {
                 let _transaction = lock.lock().await;
                 head.compare_exchange(0, candidate, Ordering::SeqCst, Ordering::SeqCst)
                     .map(|_| candidate)
-                    .map_err(|current| current)
             }));
         }
         start.wait().await;

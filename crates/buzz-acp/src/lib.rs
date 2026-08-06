@@ -3630,7 +3630,7 @@ fn resolve_private_cognition_result(
                     && luca_protocol::canonicalize(parsed)
                         .is_ok_and(|bytes| bytes.len() <= request.max_result_bytes.get() as usize)
             })
-            .map(local_cognition::CognitionReply::Completed)
+            .map(|result| local_cognition::CognitionReply::Completed(Box::new(result)))
             .unwrap_or(local_cognition::CognitionReply::Unavailable(
                 "invalid_result",
             ))

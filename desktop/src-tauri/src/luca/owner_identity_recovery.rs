@@ -70,7 +70,7 @@ fn public_error(message: &'static str) -> String {
 }
 
 fn validate_passphrase(passphrase: &str) -> Result<(), String> {
-    if !(MIN_PASSPHRASE_BYTES..=MAX_PASSPHRASE_BYTES).contains(&passphrase.as_bytes().len()) {
+    if !(MIN_PASSPHRASE_BYTES..=MAX_PASSPHRASE_BYTES).contains(&passphrase.len()) {
         return Err(public_error(
             "passphrase must be between 12 and 1024 UTF-8 bytes",
         ));

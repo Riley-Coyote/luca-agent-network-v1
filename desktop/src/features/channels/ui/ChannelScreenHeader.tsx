@@ -130,7 +130,9 @@ export function ChannelScreenHeader({
             <>
               {shortAgentFingerprint(primaryDmParticipant.pubkey)}
               <span className="ml-3" data-luca-agent-state>
-                {activeDmPresenceStatus === "offline" ? "unavailable" : "present"}
+                {activeDmPresenceStatus === "offline"
+                  ? "unavailable"
+                  : "present"}
               </span>
             </>
           ) : null
@@ -150,9 +152,7 @@ export function ChannelScreenHeader({
               publicKey={primaryDmParticipant.pubkey}
               size={26}
               state={
-                activeDmPresenceStatus === "offline"
-                  ? "unavailable"
-                  : "present"
+                activeDmPresenceStatus === "offline" ? "unavailable" : "present"
               }
             />
           ) : (
@@ -224,7 +224,7 @@ function DmHeaderParticipantStack({
           ) : (
             <UserAvatar
               avatarUrl={participant.avatarUrl}
-              className="h-[26px] w-[26px] text-[10px]"
+              className="h-[26px] w-[26px] text-badge"
               displayName={participant.displayName}
               size="sm"
             />

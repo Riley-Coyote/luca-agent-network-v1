@@ -15,6 +15,20 @@ APP_NAME="Luca Agent Network Dev"
 DEFAULT_KEYRING_SERVICE="buzz-desktop-dev.luca-v1"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
+# A stable signing identity keeps macOS Keychain and Accessibility grants tied
+# to the application identity across rebuilds. Developers can choose an exact
+# certificate; otherwise prefer the first locally available Developer ID and
+# fall back to ad-hoc signing on machines without one.
+CODESIGN_IDENTITY="${LUCA_DEV_CODESIGN_IDENTITY:-}"
+if [[ -z "$CODESIGN_IDENTITY" ]]; then
+    CODESIGN_IDENTITY=$(/usr/bin/security find-identity -v -p codesigning 2>/dev/null \
+        | /usr/bin/sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' \
+        | /usr/bin/head -1)
+fi
+if [[ -z "$CODESIGN_IDENTITY" ]]; then
+    CODESIGN_IDENTITY="-"
+fi
+
 case "$INSTALL_APP" in
     */Applications/Luca\ Agent\ Network\ Dev.app) ;;
     *)
@@ -60,7 +74,7 @@ else
     /usr/libexec/PlistBuddy -c "Add :LSEnvironment:BUZZ_DEV_KEYRING_SERVICE string $KEYRING_SERVICE" "$PLIST"
 fi
 
-codesign --force --deep --sign - \
+codesign --force --deep --timestamp=none --sign "$CODESIGN_IDENTITY" \
     --entitlements "$REPO_ROOT/desktop/src-tauri/Entitlements.plist" \
     "$BUILD_APP"
 codesign --verify --deep --strict "$BUILD_APP"
@@ -144,4 +158,5 @@ fi
 trap - ERR
 echo "Installed and running: $INSTALL_APP"
 echo "Bundle ID: $APP_ID"
+echo "Signing identity: $CODESIGN_IDENTITY"
 echo "Previous bundle backup: $OLD_APP"

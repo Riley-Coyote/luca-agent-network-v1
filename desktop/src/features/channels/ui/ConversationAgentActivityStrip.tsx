@@ -159,7 +159,7 @@ export function ConversationAgentActivityStrip({
       {exactCancellableTurns.length > 0 ? (
         <button
           aria-label="Stop all active residents in this conversation"
-          className="ml-auto flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+          className="ml-auto flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2 py-1 font-mono text-badge uppercase tracking-[0.12em] text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
           disabled={stopping || !channelId}
           onClick={() => void stopConversationWork()}
           type="button"

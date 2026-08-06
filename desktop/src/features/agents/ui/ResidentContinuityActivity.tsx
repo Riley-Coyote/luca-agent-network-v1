@@ -112,7 +112,7 @@ export function ResidentContinuityActivity({
     </>
   );
   const classes = cn(
-    "inline-flex min-w-0 items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground",
+    "inline-flex min-w-0 items-center gap-1.5 font-mono text-badge uppercase tracking-[0.08em] text-muted-foreground",
     presentation.tone === "fault" && "text-destructive",
     className,
   );

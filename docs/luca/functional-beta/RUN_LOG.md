@@ -91,8 +91,69 @@ continuity records.
   tests, three activity-presentation tests, TypeScript typecheck, focused Biome,
   Rust formatting/check, production frontend build, and `git diff --check` all
   passed.
-- The broad inherited frontend suite still has five pre-existing stale Luca
-  branding/order expectations. They are recorded for R02 rather than changed in
-  the continuity checkpoint.
+- Five stale Luca branding/order expectations found by the broad frontend suite
+  were updated to the current Luca/Vektor/Anima contract. The complete suite
+  subsequently passed with 3,377 tests.
 - Checkpoint: `0cdeedae`.
 - U01, U02, A202, and A301-A304: PASS.
+
+## 2026-08-06 — R01 installed Hermes/OpenClaw beta matrix
+
+- Rebuilt, signed, installed, and relaunched `Luca Agent Network Dev` from the
+  functional-beta source. Bundle identity and Developer ID signature verified.
+- A meaningful Hermes turn produced one encrypted, source-backed handoff. A
+  fresh Hermes runtime then recovered the opaque test marker and unresolved
+  next step from the Luca handoff while explicitly avoiding a native-session
+  restoration claim.
+- A meaningful OpenClaw turn produced one encrypted, source-backed handoff. A
+  fresh OpenClaw runtime recovered its distinct opaque marker and unresolved
+  next step under the same limitation.
+- The existing mixed room produced one correctly attributed Hermes response and
+  one correctly attributed OpenClaw response under the same owner turn. Each
+  responding resident completed only its own handoff job.
+- Fresh native discovery resolved OpenClaw `main` back to one existing imported
+  resident and one stable resident key. No duplicate was created.
+- Owner correction produced a pinned revision. Per-item removal produced a new
+  revision. Disabling Hermes continuity prevented both generation and injection
+  while messaging continued normally; continuity was re-enabled afterward.
+- The one pre-fix failed handoff job accepted exactly one manual retry and then
+  completed. The defect was a fractional timestamp in the private cognition
+  instruction; the protocol requires whole-second canonical `Z` timestamps.
+  The prompt and regression fixture were corrected before the final rebuild.
+- The installed forget action displayed a permanent-purge confirmation that
+  clearly excludes native memory. The confirmation was cancelled to preserve
+  the live profile. Focused encrypted-store tests proved physical purge and
+  replay behavior using disposable fixtures.
+- The local support tree, SQLite/WAL/SHM files, crash logs, repository, and nine
+  managed-runtime process environments contained zero matches for the private
+  test canary. No Luca signing-key variables were present in those child
+  environments. The handoff job ledger remained body-free.
+- R01, A103, A104, A208, and A401-A403: PASS.
+
+## 2026-08-06 — R02 final gate
+
+- `just ci`: PASS.
+  - desktop frontend: 3,377 passed;
+  - desktop Rust library: 1,748 passed, 13 ignored by documented platform or
+    external-service preconditions;
+  - mobile: 525 passed, one ignored;
+  - typecheck, formatting, clippy, production builds, and remaining workspace
+    suites passed.
+- Post-gate focused regressions passed for encrypted forget, resident isolation,
+  pinned correction, locked/restore/timeout fail-soft behavior, native import
+  idempotency, one-time manual retry, canonical cognition timestamps, and the
+  publication-to-handoff crash boundary.
+- Independent final review found one crash window after accepted publication
+  authority finalized but before its handoff job was durably recorded. The
+  encrypted publication outbox now retains and protects accepted rows until an
+  idempotent handoff transfer marker is persisted. Startup reconciliation
+  repairs that exact boundary. A persisted crash/reload regression, all 12
+  outbox tests, all 14 publisher tests, and a desktop Rust check passed. The
+  reviewer re-examined the seam and returned PASS with no remaining P0/P1.
+- The installed binary hash is
+  `d633ba22eb929ecabb8fcd80053ec1c9699b3cbc7b4e2b687accc53b2966ab20`.
+- The rebuilt app passed strict deep code-sign verification, retained bundle ID
+  `com.luca.agent-network.dev`, relaunched successfully, and exposed the real
+  native shell and existing workspace state through the accessibility tree.
+- `git diff --check` and the V1B control validator passed.
+- R02 and A404-A405: PASS. Final verdict: functional beta candidate accepted.

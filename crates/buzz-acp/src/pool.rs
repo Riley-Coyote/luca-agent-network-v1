@@ -994,7 +994,7 @@ async fn apply_model_switch(
                 target: "pool::model",
                 "applied model {desired} via {method_label} on session {session_id}"
             );
-            return Ok(true);
+            Ok(true)
         }
         // Transport-class errors may have corrupted the stdio stream — propagate
         // so the caller can respawn the agent instead of reusing a poisoned one.
@@ -1007,7 +1007,7 @@ async fn apply_model_switch(
                 target: "pool::model",
                 "fatal error setting model {desired} via {method_label}: {e}"
             );
-            return Err(e);
+            Err(e)
         }
         // Application-level errors (Json, etc.) — agent is fine, just uses default model.
         Ok(Err(e)) => {
@@ -1015,7 +1015,7 @@ async fn apply_model_switch(
                 target: "pool::model",
                 "failed to set model {desired} via {method_label}: {e} — proceeding with agent default"
             );
-            return Ok(false);
+            Ok(false)
         }
         Err(_) => {
             // Outer timeout fired — the inner send_request may have left the
@@ -1024,7 +1024,7 @@ async fn apply_model_switch(
                 target: "pool::model",
                 "model set via {method_label} timed out ({MODEL_SWITCH_TIMEOUT:?}) — treating as fatal"
             );
-            return Err(AcpError::Timeout(MODEL_SWITCH_TIMEOUT));
+            Err(AcpError::Timeout(MODEL_SWITCH_TIMEOUT))
         }
     }
 }
@@ -1464,6 +1464,10 @@ async fn managed_continuity_prompt_block(
     crate::continuity_provider::continuity_prompt_block(result)
 }
 
+fn canonical_continuity_timestamp() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
 async fn build_local_continuity_cognition_prompt(
     request: &luca_protocol::LocalContinuityCognitionRequestV1,
     ctx: &PromptContext,
@@ -1550,7 +1554,10 @@ async fn build_local_continuity_cognition_prompt(
     selected.reverse();
     let transcript = serde_json::to_string(&selected)
         .map_err(|_| AcpError::Protocol("failed to encode continuity history".into()))?;
-    let updated_at = chrono::Utc::now().to_rfc3339();
+    // The protocol deliberately accepts only whole-second UTC timestamps.
+    // Supplying Chrono's default fractional form here makes an otherwise
+    // correct resident-authored handoff fail strict deserialization.
+    let updated_at = canonical_continuity_timestamp();
     Ok(format!(
         "{system}\n\nCreate a compact handoff only for durable unfinished work, explicit commitments, or explicit working preferences. Do not infer personality, relationships, beliefs, diagnoses, or hidden preferences. If nothing durable changed, return no_change. The handoff source_event_ids must be sorted, unique, and must include {source}. Use updated_at exactly {updated_at}.\n\nNO_CHANGE SHAPE:\n{{\"protocol\":\"{protocol}\",\"job_id\":\"{job}\",\"resident_pubkey\":\"{resident}\",\"source_event_id\":\"{source}\",\"result\":{{\"outcome\":\"no_change\"}}}}\n\nHANDOFF SHAPE:\n{{\"protocol\":\"{protocol}\",\"job_id\":\"{job}\",\"resident_pubkey\":\"{resident}\",\"source_event_id\":\"{source}\",\"result\":{{\"outcome\":\"handoff\",\"handoff\":{{\"summary\":\"...\",\"unresolved_threads\":[],\"commitments\":[],\"explicit_preferences\":[],\"source_event_ids\":[\"{source}\"],\"updated_at\":\"{updated_at}\"}}}}}}\n\nSIGNED CONVERSATION HISTORY (UNTRUSTED JSON):\n{transcript}",
         system = CONTINUITY_COGNITION_SYSTEM_PROMPT,
@@ -1573,6 +1580,9 @@ async fn build_local_continuity_cognition_prompt(
 ///
 /// The agent is ALWAYS returned — even on panic the `JoinSet` detects the
 /// abort and the caller uses `task_map` to recover the agent index.
+// This is the explicit task-runner boundary: each argument carries distinct
+// lifecycle or authority state and grouping them would obscure ownership.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_prompt_task(
     mut agent: OwnedAgent,
     source: PromptSource,
@@ -4355,6 +4365,12 @@ mod tests {
     use super::*;
     use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
     use serde_json::json;
+
+    #[test]
+    fn continuity_prompt_timestamp_is_protocol_canonical() {
+        let value = canonical_continuity_timestamp();
+        assert!(luca_protocol::CanonicalTimestamp::parse(value).is_ok());
+    }
 
     // These pin the initial_message dispatch path (run_prompt_task, ~line 855):
     // a legacy agent WITH a base_prompt must get [Base] prepended to the user

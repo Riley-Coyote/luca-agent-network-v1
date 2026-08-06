@@ -733,7 +733,8 @@ fn built_in_persona_version_update(
 }
 
 fn replace_builtin_avatar(record: &mut serde_json::Value, persona_id: &str, now: &str) -> bool {
-    let Some(replacement) = crate::managed_agents::built_in_persona_avatar_url(persona_id) else {
+    let Some(definition) = crate::managed_agents::built_in_persona_definition(persona_id, now)
+    else {
         return false;
     };
     let Some(record) = record.as_object_mut() else {
@@ -741,7 +742,10 @@ fn replace_builtin_avatar(record: &mut serde_json::Value, persona_id: &str, now:
     };
     record.insert(
         "avatar_url".to_string(),
-        serde_json::Value::String(replacement.to_string()),
+        definition
+            .avatar_url
+            .map(serde_json::Value::String)
+            .unwrap_or(serde_json::Value::Null),
     );
     record.insert(
         "updated_at".to_string(),

@@ -24,6 +24,11 @@ const IDLE_DELAY: Duration = Duration::from_secs(2);
 const RETRY_DELAY: Duration = Duration::from_secs(3);
 const COGNITION_DEADLINE: Duration = Duration::from_secs(90);
 
+pub(crate) fn current_canonical_timestamp() -> Result<CanonicalTimestamp, String> {
+    CanonicalTimestamp::parse(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+        .map_err(|_| "create canonical continuity timestamp".to_owned())
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct FinalizedHandoffJob {
     pub(crate) job: ContinuityJobV1,
@@ -49,8 +54,11 @@ pub(crate) fn enqueue_finalized(
     source_event_id: &luca_protocol::Hex64,
     binding_ref: &Sha256Ref,
 ) -> Result<Option<OpaqueId>, String> {
-    if continuity_mode(app, &publish_request.owner_pubkey, &publish_request.resident_pubkey)?
-        == ResidentContinuityModeV1::Disabled
+    if continuity_mode(
+        app,
+        &publish_request.owner_pubkey,
+        &publish_request.resident_pubkey,
+    )? == ResidentContinuityModeV1::Disabled
     {
         return Ok(None);
     }
@@ -63,8 +71,7 @@ pub(crate) fn enqueue_finalized(
     .map_err(|_| "derive handoff job identity".to_owned())?;
     let job_id = OpaqueId::parse(idempotency_key.as_str().to_owned())
         .map_err(|_| "derive handoff job identifier".to_owned())?;
-    let created_at = CanonicalTimestamp::parse(chrono::Utc::now().to_rfc3339())
-        .map_err(|_| "create handoff job timestamp".to_owned())?;
+    let created_at = current_canonical_timestamp()?;
     let job = ContinuityJobV1 {
         protocol: CONTINUITY_PROTOCOL.to_owned(),
         job_id: job_id.clone(),
@@ -205,16 +212,18 @@ pub(crate) fn latest_job_status(
         )
         .optional()
         .map_err(|_| "load resident handoff job status".to_owned())?
-        .map(|(job_id, state, last_error_code, updated_at, manual_retry_count)| {
-            Ok(ResidentHandoffJobStatusV1 {
-                job_id: OpaqueId::parse(job_id)
-                    .map_err(|_| "invalid resident handoff job status".to_owned())?,
-                can_retry: state == "failed" && manual_retry_count == 0,
-                state,
-                last_error_code,
-                updated_at,
-            })
-        })
+        .map(
+            |(job_id, state, last_error_code, updated_at, manual_retry_count)| {
+                Ok(ResidentHandoffJobStatusV1 {
+                    job_id: OpaqueId::parse(job_id)
+                        .map_err(|_| "invalid resident handoff job status".to_owned())?,
+                    can_retry: state == "failed" && manual_retry_count == 0,
+                    state,
+                    last_error_code,
+                    updated_at,
+                })
+            },
+        )
         .transpose()
 }
 
@@ -225,9 +234,7 @@ pub(crate) fn retry_latest_failed(
     owner_pubkey: &luca_protocol::Hex64,
     resident_pubkey: &luca_protocol::Hex64,
 ) -> Result<Option<OpaqueId>, String> {
-    if continuity_mode(app, owner_pubkey, resident_pubkey)?
-        != ResidentContinuityModeV1::Enabled
-    {
+    if continuity_mode(app, owner_pubkey, resident_pubkey)? != ResidentContinuityModeV1::Enabled {
         return Err("continuity is disabled for this resident".to_owned());
     }
     let mut connection = open_store(&job_store_path(app)?)?;
@@ -499,7 +506,8 @@ fn claim_job(app: &AppHandle, job_id: &OpaqueId) -> Result<Option<FinalizedHando
         )
         .optional()
         .map_err(|_| "load handoff job".to_owned())?;
-    let Some((idempotency, owner, resident, source, conversation, binding, attempts, created)) = row
+    let Some((idempotency, owner, resident, source, conversation, binding, attempts, created)) =
+        row
     else {
         return Ok(None);
     };
@@ -699,6 +707,7 @@ fn mode_name(mode: ResidentContinuityModeV1) -> &'static str {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)] // Small filesystem helpers below are shared by production paths.
 mod tests {
     use super::*;
 
@@ -893,6 +902,13 @@ mod tests {
                 "manual_retry_requested".to_owned(),
             )
         );
+    }
+
+    #[test]
+    fn current_timestamp_matches_the_frozen_protocol_shape() {
+        let timestamp = current_canonical_timestamp().expect("canonical timestamp");
+        assert_eq!(timestamp.as_str().len(), 20);
+        assert!(timestamp.as_str().ends_with('Z'));
     }
 }
 

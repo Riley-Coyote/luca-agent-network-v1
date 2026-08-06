@@ -50,7 +50,7 @@ export function ManagedPermissionCard({
               {request.title || "An agent is waiting for your decision."}
             </p>
             {request.toolCallId ? (
-              <p className="mt-2 truncate font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70">
+              <p className="mt-2 truncate font-mono text-badge uppercase tracking-[0.14em] text-muted-foreground/70">
                 {request.toolCallId}
               </p>
             ) : null}

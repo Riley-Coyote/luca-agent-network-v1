@@ -325,10 +325,10 @@ fn welcome_team_is_seeded_and_idempotent() {
     assert_eq!(records.len(), 1);
     let welcome = &records[0];
     assert_eq!(welcome.id, "builtin-team:welcome");
-    assert_eq!(welcome.name, "Welcome Team");
+    assert_eq!(welcome.name, "Starter Residents");
     assert_eq!(
         welcome.description.as_deref(),
-        Some("A friendly starter trio ready to help you plan, create, and ship.")
+        Some("Luca, Vektor, and Anima — an optional starting network.")
     );
     assert_eq!(
         welcome.persona_ids,

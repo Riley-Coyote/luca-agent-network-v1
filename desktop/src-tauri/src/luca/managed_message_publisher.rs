@@ -325,21 +325,35 @@ impl ManagedMessagePublisher {
             .mark_authority_finalized(&entry.idempotency_key)
             .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
         // Continuity begins only after every publication authority has reached
-        // its durable terminal state. Scheduling is best-effort and body-free:
-        // it must never change the already-accepted chat result.
+        // its durable terminal state. Scheduling must never change the
+        // already-accepted chat result, but an unsuccessful handoff transfer
+        // leaves this encrypted outbox row recoverable until a later broker
+        // slice records the idempotent job.
+        if let Err(error) = self.record_handoff_job(entry, outbox) {
+            eprintln!("luca-continuity: handoff job scheduling unavailable: {error:?}");
+        }
+        Ok(())
+    }
+
+    fn record_handoff_job(
+        &self,
+        entry: &ManagedOutboxReconcileEntry,
+        outbox: &mut ManagedMessageOutbox,
+    ) -> Result<(), ManagedPublicationAuthorityError> {
         if let Some(scheduler) = &self.handoff_scheduler {
-            if super::continuity_jobs::enqueue_finalized(
+            super::continuity_jobs::enqueue_finalized(
                 &scheduler.app,
                 &entry.request,
                 &entry.event_id,
                 &scheduler.binding_ref,
             )
-            .is_err()
-            {
-                eprintln!("luca-continuity: handoff job scheduling unavailable");
-            }
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
         }
-        Ok(())
+        // Tests and legacy publishers have no continuity scheduler. Marking the
+        // transfer complete preserves their pre-V1B terminal semantics.
+        outbox
+            .mark_handoff_recorded(&entry.idempotency_key)
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)
     }
 
     fn reject(
@@ -580,6 +594,7 @@ impl ManagedMessagePublisher {
             outbox
                 .mark_authority_finalized(&entry.idempotency_key)
                 .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+            self.record_handoff_job(&entry, outbox)?;
             return Ok(());
         }
         if matches!(

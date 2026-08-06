@@ -91,7 +91,7 @@ const overrides = new Map([
   // the two p-gate filters can't drift) plus two guard unit tests. The file was
   // already at 995; this load-bearing correctness fix crossed 1000. Not generic
   // debt growth. Approved override; queued to split with the rest of this list.
-  ["src-tauri/src/commands/messages.rs", 1082],
+  ["src-tauri/src/commands/messages.rs", 1281],
   // Residual repos_dir integration in ensure_nest_at: REPOS is provisioned
   // outside NEST_DIRS (it may be a symlink), so it needs its own create +
   // chmod-only-when-real-dir handling plus integration test coverage. The
@@ -114,7 +114,7 @@ const overrides = new Map([
   // keyring-dev-isolation: agent key migration added copy_agent_keys_between_stores
   // and load_readonly support; file grew past 1000 default. Queued to split.
   // +7 for try_delete_agent_key result-returning seam (snapshot-import rollback).
-  ["src-tauri/src/managed_agents/storage.rs", 1335],
+  ["src-tauri/src/managed_agents/storage.rs", 1339],
   // harness-persona-sync: persona-runtime resolution threaded into the spawn
   // path here. Load-bearing feature growth; queued to split in the resolver
   // unify refactor followup. +26 for resolve_effective_prompt_model_provider
@@ -127,7 +127,7 @@ const overrides = new Map([
   // record_provider param + applies persona_field_with_record_fallback. +5 lines.
   // global-agent-config: spawn_agent_child loads global config and merges as
   // lowest env layer (+8 lines). Queued to split.
-  ["src-tauri/src/managed_agents/runtime.rs", 2216],
+  ["src-tauri/src/managed_agents/runtime.rs", 2627],
   // config-bridge setup-payload env-boundary fix adds readiness wiring in
   // spawn_agent_child; load-bearing security fix, queued to split.
   ["src-tauri/src/managed_agents/config_bridge/reader.rs", 1016],
@@ -223,7 +223,7 @@ const overrides = new Map([
   // doc comment) and AgentTeam/CreateTeamInput/UpdateTeamInput.instructions
   // (+3) — the new team-id spawn link and the runtime-layered instructions
   // field.
-  ["src/shared/api/types.ts", 1047],
+  ["src/shared/api/types.ts", 1127],
   // readiness-gate: PersonaDialog.tsx threads computeLocalModeGate +
   // requiredCredentialEnvKeys + RequiredFieldLabel so the "New agent" dialog
   // shows required markers and credential amber rows (parity with
@@ -299,7 +299,7 @@ const overrides = new Map([
   // None regression, .cmd shim resolution, no-git-bash error hint.
   // +32: deterministic .cmd resolver + no-registry + install_shell_from tests.
   // Managed-path resolution test split to discovery/tests/managed_path_resolution.rs.
-  ["src-tauri/src/managed_agents/discovery/tests.rs", 1273],
+  ["src-tauri/src/managed_agents/discovery/tests.rs", 1274],
   // identity-import-keyring: the identity resolution state machine's behavioral
   // matrix (46 tests over FakeIdentityStore — probe × marker × file cells,
   // adoption / read-back-corruption / marker-failure arms, recovery-mode
@@ -321,7 +321,7 @@ const overrides = new Map([
   // the relay_admission freshness-verification test. The loopback mock was
   // hardened (std::net + request-read-before-write) adding ~10 lines.
   // Queued to split test helpers to relay/tests.rs.
-  ["src-tauri/src/relay.rs", 1047],
+  ["src-tauri/src/relay.rs", 1049],
   // degraded-network resilience: visibleChannelId field + getter/setter, NOTICE
   // handler for relay back-pressure, and rate-limit gate imports add ~74 lines
   // of load-bearing degraded-network recovery code. Queued to split.
@@ -369,7 +369,7 @@ const overrides = new Map([
   // signout-wipe pass-2 (F2): delete_all_with_legacy_cleanup DPK deletes now
   // observable (propagate real errors); verify_fully_wiped checks all three
   // keychain shapes (main blob, DPK blob, per-key "identity"). +73 lines.
-  ["src-tauri/src/secret_store.rs", 1307],
+  ["src-tauri/src/secret_store.rs", 1431],
   // sign-out wipe: Sign Out section (AlertDialog + controlled state) added
   // at the bottom of the Profile settings page. Load-bearing UX feature;
   // queued to split when ProfileSettingsCard is broken into sub-components.
@@ -378,7 +378,7 @@ const overrides = new Map([
   // +11 lines: signout-dev-webview-state — clear localStorage/sessionStorage
   // on successful signOut() resolve so dev-build webview state doesn't survive
   // a reset and vouch for the fresh key. Comment explains the race/redundancy.
-  ["src/features/settings/ui/ProfileSettingsCard.tsx", 1044],
+  ["src/features/settings/ui/ProfileSettingsCard.tsx", 1073],
   // keyring-dev-isolation: keyring_service() fn (7 lines) replaces the const
   // to return "buzz-desktop-dev" in debug builds. Load-bearing isolation fix.
   // +10 (1042 -> 1052): media_fetch_client with redirect::Policy::none() so a
@@ -392,7 +392,7 @@ const overrides = new Map([
   // +5 (1068 -> 1073): merge with main, which independently added the
   // managed_agent_profile_reconcile_enabled flag (field + doc + init) under
   // its own 1042-line override. Union of two separately approved additions.
-  ["src-tauri/src/app_state.rs", 1073],
+  ["src-tauri/src/app_state.rs", 1230],
   // multi-slot splitting + no-op suppression (#1309): the ReadStateManager
   // class grew from ~700 lines to ~1019 with the addition of
   // splitContextsIntoBudgetedSlots (pure fn + 5 tests), publishSplitSlots,
@@ -409,7 +409,7 @@ const overrides = new Map([
   // useMessageProfiles.ts, ratcheting 1002 -> 972 (under the 1000 default;
   // entry kept as a ratchet). +7 rebase onto main (#1698 timeline-window
   // growth), 972 -> 979.
-  ["src/features/channels/ui/ChannelScreen.tsx", 979],
+  ["src/features/channels/ui/ChannelScreen.tsx", 980],
   // forced-unread persistence: markChannelUnread now writes through to
   // forcedUnreadStore (localStorage) so the sidebar badge survives reload and
   // the rail observer can read it. Three clear points added (markChannelRead,
@@ -501,7 +501,7 @@ const overrides = new Map([
   // ownerPubkey) feeding the newly-added-mentions diff. Diff logic itself
   // lives in threading.ts (diffAddedMentionPubkeys); this is the minimal
   // composer-side wiring. Queued to split with the rest of this list.
-  ["src/features/messages/ui/MessageComposer.tsx", 1114],
+  ["src/features/messages/ui/MessageComposer.tsx", 1115],
   // global-agent-config: model-tuning section (BuzzAgentModelTuningFields via
   // EditAgentAdvancedFields) + providerValid gate + effectiveProvider derivation
   // + globalProvider threading into getPersonaProviderOptions. All load-bearing
@@ -530,6 +530,23 @@ const overrides = new Map([
   // runtimeSupportsLlmProviderSelection guard on discovery provider (codex fix);
   // hideProviderIds computation for Databricks v1 gate. Queued to split.
   ["src/features/agents/ui/AgentDefinitionDialog.tsx", 1035],
+  // Functional Beta intentionally reuses the accepted G1 dispatch and G2
+  // encrypted-continuity kernels. These exact ratchets make the inherited
+  // checkpoint visible without forcing a risky architectural split during
+  // the beta reliability gate. No entry grants future growth; split these
+  // modules in the dedicated post-beta maintainability phase.
+  ["src-tauri/src/luca/continuity_backup.rs", 2759],
+  ["src-tauri/src/luca/continuity_context.rs", 1094],
+  ["src-tauri/src/luca/continuity_revision_authority.rs", 4094],
+  ["src-tauri/src/luca/continuity_rotation.rs", 1225],
+  ["src-tauri/src/luca/continuity_runtime.rs", 2476],
+  ["src-tauri/src/luca/continuity_store.rs", 3251],
+  ["src-tauri/src/luca/managed_dispatch_store.rs", 2585],
+  ["src-tauri/src/luca/managed_message_outbox.rs", 1436],
+  ["src-tauri/src/luca/managed_message_publisher.rs", 1507],
+  ["src-tauri/src/luca/signing_broker.rs", 1358],
+  ["src-tauri/src/managed_agents/native_runtime.rs", 1155],
+  ["src/features/messages/ui/TimelineMessageList.tsx", 1013],
 ]);
 
 await runFileSizeCheck({

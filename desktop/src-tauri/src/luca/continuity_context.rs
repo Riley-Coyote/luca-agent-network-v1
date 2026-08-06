@@ -138,6 +138,7 @@ impl fmt::Debug for DesktopContinuityContextOutcomeV1 {
 }
 
 /// Resolve and deliver at most one body-bearing context wire inside the lease.
+#[allow(clippy::too_many_arguments)] // Frozen boundary mirrors the versioned request contract.
 pub(crate) fn resolve_desktop_continuity_context<F>(
     state: &AppState,
     request: ContinuityContextRequestV1,
@@ -186,6 +187,7 @@ impl ContinuityLeaseReader for AppState {
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Keeps test and desktop readers on one frozen boundary.
 fn resolve_with_lease_reader<R, F>(
     reader: &R,
     request: ContinuityContextRequestV1,

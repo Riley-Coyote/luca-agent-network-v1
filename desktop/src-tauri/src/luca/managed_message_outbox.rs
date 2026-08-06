@@ -221,6 +221,15 @@ struct ManagedOutboxEntry {
     publication_receipt_id: Option<OpaqueId>,
     initial_result_delivered: bool,
     authority_finalized: bool,
+    /// New V1B rows remain recoverable until the idempotent continuity job is
+    /// durably present. Older outboxes predate handoffs and default to true so
+    /// an upgrade never backfills arbitrary historical conversations.
+    #[serde(default = "legacy_handoff_recorded")]
+    handoff_recorded: bool,
+}
+
+const fn legacy_handoff_recorded() -> bool {
+    true
 }
 
 #[derive(Serialize, Deserialize)]
@@ -486,7 +495,8 @@ impl ManagedMessageOutbox {
                     ManagedOutboxState::Accepted
                         | ManagedOutboxState::Cancelled
                         | ManagedOutboxState::Rejected
-                ) && !entry.authority_finalized)
+                ) && (!entry.authority_finalized
+                    || (entry.state == ManagedOutboxState::Accepted && !entry.handoff_recorded)))
             })
             .filter_map(|(key, entry)| {
                 Some(ManagedOutboxReconcileEntry {
@@ -619,6 +629,7 @@ impl ManagedMessageOutbox {
             publication_receipt_id: None,
             initial_result_delivered: false,
             authority_finalized: false,
+            handoff_recorded: false,
         };
         let receipt = receipt_for(&request.idempotency_key, &entry);
         self.next_order = next_order;
@@ -852,6 +863,32 @@ impl ManagedMessageOutbox {
         Ok(())
     }
 
+    /// Record that the accepted event has a durable, idempotent continuity
+    /// outcome. A crash before this transition intentionally leaves the
+    /// encrypted outbox row eligible for startup reconciliation.
+    pub(crate) fn mark_handoff_recorded(
+        &mut self,
+        idempotency_key: &Hex64,
+    ) -> Result<(), ManagedMessageOutboxError> {
+        let previous = self.entries.clone();
+        let entry = self
+            .entries
+            .get_mut(idempotency_key.as_str())
+            .ok_or(ManagedMessageOutboxError::NotFound)?;
+        if entry.state != ManagedOutboxState::Accepted || !entry.authority_finalized {
+            return Err(ManagedMessageOutboxError::InvalidTransition);
+        }
+        if entry.handoff_recorded {
+            return Ok(());
+        }
+        entry.handoff_recorded = true;
+        if let Err(error) = self.persist() {
+            self.entries = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
     fn persist(&self) -> Result<(), ManagedMessageOutboxError> {
         let (Some(path), Some(passphrase)) = (&self.persistence_path, &self.passphrase) else {
             return Ok(());
@@ -900,6 +937,7 @@ impl ManagedMessageOutbox {
                         | ManagedOutboxState::Cancelled
                         | ManagedOutboxState::Rejected
                 ) && entry.authority_finalized
+                    && (entry.state != ManagedOutboxState::Accepted || entry.handoff_recorded)
             })
             .map(|(key, entry)| (entry.created_order, key.clone()))
             .collect();
@@ -1188,6 +1226,53 @@ mod tests {
     }
 
     #[test]
+    fn accepted_outbox_remains_recoverable_until_handoff_is_durable() {
+        let keys = Keys::parse(&"0c".repeat(32)).expect("valid fixture key");
+        let request = request(&keys);
+        let event = frozen_event(&keys, &request);
+        let session =
+            OpaqueId::parse("installation-handoff-transfer").expect("valid installation ID");
+        let passphrase = SecretString::from("handoff-transfer-passphrase".to_owned());
+        let temp = tempfile::tempdir().expect("temp");
+        let path = temp.path().join("managed-outbox.age");
+        let mut outbox =
+            ManagedMessageOutbox::load_encrypted(session.clone(), path.clone(), passphrase.clone())
+                .expect("new encrypted outbox");
+        outbox
+            .prepare(&request, event, &session, 3, false)
+            .expect("prepare");
+        outbox
+            .mark_submitted(&request.idempotency_key, &session, false)
+            .expect("submitted");
+        outbox
+            .mark_accepted(
+                &request.idempotency_key,
+                OpaqueId::parse("handoff-transfer-receipt").expect("receipt"),
+            )
+            .expect("accepted");
+        outbox
+            .mark_authority_finalized(&request.idempotency_key)
+            .expect("authority finalized");
+
+        // Simulate an application crash after publication authority commits but
+        // before the continuity scheduler records its idempotent job.
+        let mut reloaded =
+            ManagedMessageOutbox::load_encrypted(session.clone(), path.clone(), passphrase.clone())
+                .expect("reload crash window");
+        let pending = reloaded.reconciliation_entries();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].state, ManagedOutboxState::Accepted);
+        assert_eq!(pending[0].idempotency_key, request.idempotency_key);
+
+        reloaded
+            .mark_handoff_recorded(&request.idempotency_key)
+            .expect("handoff recorded");
+        let completed = ManagedMessageOutbox::load_encrypted(session, path, passphrase)
+            .expect("reload completed transfer");
+        assert!(completed.reconciliation_entries().is_empty());
+    }
+
+    #[test]
     fn luca_signing_outbox_persistence_failure_rolls_back_for_retry() {
         let keys = Keys::parse(&"06".repeat(32)).expect("valid fixture key");
         let request = request(&keys);
@@ -1273,6 +1358,7 @@ mod tests {
                 entry.publication_receipt_id =
                     Some(OpaqueId::parse("accepted-receipt").expect("receipt"));
                 entry.authority_finalized = true;
+                entry.handoff_recorded = true;
             } else {
                 unresolved_keys.push(key.clone());
             }

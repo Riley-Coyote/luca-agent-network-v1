@@ -203,7 +203,8 @@ export const MessageRow = React.memo(
       (message.pubkey && isKnownAgentPubkey(message.pubkey))
         ? "bot"
         : message.role;
-    const isAgentAuthor = profilePopoverRole === "bot" && Boolean(message.pubkey);
+    const isAgentAuthor =
+      profilePopoverRole === "bot" && Boolean(message.pubkey);
     const agentMentionPubkeysByName = React.useMemo(() => {
       if (!mentionPubkeysByName) {
         return undefined;
@@ -354,7 +355,7 @@ export const MessageRow = React.memo(
             <Markdown
               channelNames={channelNames}
               className={cn(
-                "max-w-full text-[15px] leading-[1.68] text-foreground/90",
+                "max-w-full text-chat leading-[1.68] text-foreground/90",
                 emojiOnly &&
                   "text-4xl leading-tight [&_p]:leading-tight [&_img[data-custom-emoji]]:h-[1.45em] [&_img[data-custom-emoji]]:align-middle [&_button:has(img[data-custom-emoji])]:align-middle",
               )}
@@ -382,7 +383,9 @@ export const MessageRow = React.memo(
 
     const isThreadReplyLayout = layoutVariant === "thread-reply";
     const guideBleedRem = isThreadReplyLayout ? 0.25 : 0;
-    const avatarButtonRadiusClass = isAgentAuthor ? "rounded-lg" : "rounded-full";
+    const avatarButtonRadiusClass = isAgentAuthor
+      ? "rounded-lg"
+      : "rounded-full";
 
     const respondToDotColor =
       message.respondTo === "anyone"

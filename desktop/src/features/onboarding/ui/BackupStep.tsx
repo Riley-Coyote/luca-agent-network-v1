@@ -117,7 +117,9 @@ export function BackupStep({ direction, onBack, onNext }: BackupStepProps) {
                     value={confirmation}
                   />
                   {confirmation && passphrase !== confirmation ? (
-                    <p className="text-xs text-destructive">Passphrases do not match.</p>
+                    <p className="text-xs text-destructive">
+                      Passphrases do not match.
+                    </p>
                   ) : null}
                   {passphrase && !isValidOwnerBackupPassphrase(passphrase) ? (
                     <p className="text-xs text-destructive">

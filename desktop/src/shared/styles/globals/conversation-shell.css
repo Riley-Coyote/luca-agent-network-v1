@@ -1,9 +1,12 @@
 /* Luca conversation-first shell. Kept last so this production-intent layer
    can refine legacy Buzz surfaces without forking their data components. */
 :root[data-buzz-sidebar] {
-  --font-ui: "Instrument Sans", "Inter Variable", "Avenir Next", "Segoe UI", sans-serif;
+  --font-ui:
+    "Instrument Sans", "Inter Variable", "Avenir Next", "Segoe UI", sans-serif;
   --font-mono: "Fragment Mono", "SFMono-Regular", "SF Mono", monospace;
   --font-instrument: "Doto", "Fragment Mono", "SFMono-Regular", monospace;
+  --mn-text-chat: 0.9375rem;
+  --mn-text-micro: 0.5625rem;
   /* ------------------------------------------------------------------
    * THE SHELL SCALE — single source of truth.
    *
@@ -103,7 +106,7 @@
 :root[data-buzz-sidebar] [data-sidebar="group-label"] {
   color: hsl(var(--mn-ink-faint));
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--mn-text-micro);
   font-weight: 500;
   letter-spacing: 0.16em;
   line-height: 24px;
@@ -159,7 +162,7 @@
 }
 
 :root[data-buzz-sidebar] [data-testid="chat-title"] {
-  font-size: 15px;
+  font-size: var(--mn-text-chat);
   font-weight: 600;
   letter-spacing: -0.012em;
 }
@@ -168,7 +171,7 @@
 :root[data-buzz-sidebar] [data-luca-agent-state] {
   color: hsl(var(--mn-ink-faint));
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--mn-text-micro);
   font-weight: 500;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -204,14 +207,14 @@
 
 :root[data-buzz-sidebar] [data-message-content] {
   color: hsl(var(--mn-ink) / 0.88);
-  font-size: 15px;
+  font-size: var(--mn-text-chat);
   line-height: 1.68;
 }
 
 :root[data-buzz-sidebar] [data-testid="message-thread-summary"] {
   color: hsl(var(--mn-ink-faint));
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--mn-text-micro);
   letter-spacing: 0.08em;
 }
 
@@ -267,6 +270,7 @@
 @media (prefers-reduced-motion: reduce) {
   :root[data-buzz-sidebar] [data-sidebar="menu-button"],
   :root[data-buzz-sidebar] [data-testid="chat-header"] {
+    /* biome-ignore lint/complexity/noImportantStyles: reduced motion must override state-specific transitions */
     transition: none !important;
   }
 }

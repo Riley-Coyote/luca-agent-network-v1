@@ -114,6 +114,7 @@
 @media (prefers-reduced-motion: reduce) {
   .agent-identity-specimen__cell,
   .agent-identity-specimen__lamp {
+    /* biome-ignore lint/complexity/noImportantStyles: reduced motion must override every operational animation state */
     animation: none !important;
   }
 }

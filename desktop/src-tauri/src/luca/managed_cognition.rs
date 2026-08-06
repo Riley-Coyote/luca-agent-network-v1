@@ -59,7 +59,7 @@ impl std::fmt::Debug for ManagedCognitionClient {
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 enum WireReply {
     Completed {
-        result: LocalContinuityCognitionResultV1,
+        result: Box<LocalContinuityCognitionResultV1>,
     },
     Unavailable {
         code: String,
@@ -201,7 +201,7 @@ impl ManagedCognitionClient {
                 result
                     .validate_against(request)
                     .map_err(|_| ManagedCognitionError::Invalid)?;
-                Ok(result)
+                Ok(*result)
             }
             WireReply::Unavailable { code } if code == "deadline_expired" => {
                 Err(ManagedCognitionError::Timeout)

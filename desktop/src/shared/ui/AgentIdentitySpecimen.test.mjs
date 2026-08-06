@@ -9,7 +9,10 @@ test("agent identity specimens are stable, mirrored 7 by 7 matrices", () => {
 
   assert.deepEqual(first, second);
   assert.equal(first.length, 7);
-  assert.equal(first.every((row) => row.length === 7), true);
+  assert.equal(
+    first.every((row) => row.length === 7),
+    true,
+  );
   assert.equal(
     first.every((row) => row.every((cell, index) => cell === row[6 - index])),
     true,

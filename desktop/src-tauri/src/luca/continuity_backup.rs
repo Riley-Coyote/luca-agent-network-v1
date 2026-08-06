@@ -236,6 +236,7 @@ impl From<ContinuityKeyStoreError> for ContinuityBackupError {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)] // Named crash checkpoints are serialized in test evidence.
 pub(crate) enum RestoreCrashPoint {
     AfterStage,
     AfterJournal,
@@ -257,7 +258,7 @@ impl RestoreCrashInjector for NoRestoreCrash {
 }
 
 fn validate_passphrase(passphrase: &str) -> Result<(), ContinuityBackupError> {
-    if (MIN_PASSPHRASE_BYTES..=MAX_PASSPHRASE_BYTES).contains(&passphrase.as_bytes().len()) {
+    if (MIN_PASSPHRASE_BYTES..=MAX_PASSPHRASE_BYTES).contains(&passphrase.len()) {
         Ok(())
     } else {
         Err(ContinuityBackupError::InvalidPassphrase)
@@ -970,6 +971,7 @@ fn preview_from(
 
 /// Export one immutable, protected owner snapshot. The caller supplies an
 /// already-loaded root; this function never mints or fetches a key.
+#[allow(clippy::too_many_arguments)] // Explicit authority inputs keep backup boundaries auditable.
 pub(crate) fn export_continuity_backup(
     lifecycle: &ContinuityLifecycleLock,
     store: &mut ContinuityStore,
@@ -1228,10 +1230,10 @@ fn reconcile_master_to_old<S: ContinuityKeyStore>(
 ) -> Result<(), ContinuityBackupError> {
     let active = active_master_verifier(key_store)?;
     let rollback = verify_master_rollback(key_store, &state.old_master_key_sha256)?;
-    if active != state.old_master_key_sha256 {
-        if active.as_ref() != Some(&state.new_master_key_sha256) || !rollback {
-            return Err(ContinuityBackupError::Integrity);
-        }
+    if active != state.old_master_key_sha256
+        && (active.as_ref() != Some(&state.new_master_key_sha256) || !rollback)
+    {
+        return Err(ContinuityBackupError::Integrity);
     }
     if rollback {
         rollback_candidate_master_key(key_store)?;
@@ -1252,10 +1254,10 @@ fn reconcile_identity_to_old<S: ContinuityKeyStore>(
 ) -> Result<(), ContinuityBackupError> {
     let active = active_identity_verifier(key_store)?;
     let rollback = verify_identity_rollback(key_store, &state.old_identity_pubkey)?;
-    if active != state.old_identity_pubkey {
-        if active.as_ref() != Some(&state.new_identity_pubkey) || !rollback {
-            return Err(ContinuityBackupError::Integrity);
-        }
+    if active != state.old_identity_pubkey
+        && (active.as_ref() != Some(&state.new_identity_pubkey) || !rollback)
+    {
+        return Err(ContinuityBackupError::Integrity);
     }
     if rollback {
         rollback_candidate_identity(key_store)?;
@@ -1417,6 +1419,7 @@ fn recover_pending_restore_locked<S: ContinuityKeyStore>(
 /// Confirmed restore with exact preview binding. The source is re-read and
 /// revalidated before any write. An inactive 0600 staging copy contains only
 /// age ciphertext and is removed on every normal return path.
+#[allow(clippy::too_many_arguments)] // Explicit authority inputs keep restore boundaries auditable.
 pub(crate) fn restore_continuity_backup<S: ContinuityKeyStore>(
     lifecycle: &ContinuityLifecycleLock,
     store: &mut ContinuityStore,

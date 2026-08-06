@@ -39,6 +39,7 @@ pub struct SecretRef {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
+#[allow(clippy::large_enum_variant)] // Wire-compatible persisted shape; changing it would migrate resident bindings.
 pub enum RuntimeBinding {
     Hermes {
         #[serde(rename = "schemaVersion")]
@@ -1075,7 +1076,13 @@ mod tests {
         assert_eq!(resolved.args, ["acp"]);
         assert_eq!(
             resolved.environment.get("HERMES_HOME"),
-            Some(&profile_home.canonicalize().expect("canonical profile").display().to_string())
+            Some(
+                &profile_home
+                    .canonicalize()
+                    .expect("canonical profile")
+                    .display()
+                    .to_string()
+            )
         );
         assert_eq!(
             resolved.default_workspace,

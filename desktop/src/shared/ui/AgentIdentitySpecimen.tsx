@@ -42,9 +42,10 @@ export function agentIdentityMatrix(publicKey: string): boolean[][] {
       row * SOURCE_COLUMNS,
       row * SOURCE_COLUMNS + SOURCE_COLUMNS,
     );
-    return [...half, ...half.slice(0, GRID_SIZE - SOURCE_COLUMNS).reverse()].map(
-      Boolean,
-    );
+    return [
+      ...half,
+      ...half.slice(0, GRID_SIZE - SOURCE_COLUMNS).reverse(),
+    ].map(Boolean);
   });
 }
 
@@ -67,8 +68,22 @@ export function AgentIdentitySpecimen({
   size?: number;
   state?: AgentVisualState;
 }) {
-  const matrix = React.useMemo(
-    () => agentIdentityMatrix(publicKey),
+  const activeCells = React.useMemo(
+    () =>
+      agentIdentityMatrix(publicKey).flatMap((row, rowIndex) =>
+        row.flatMap((active, columnIndex) =>
+          active
+            ? [
+                {
+                  column: columnIndex,
+                  id: `cell-${rowIndex}-${columnIndex}`,
+                  index: rowIndex * GRID_SIZE + columnIndex,
+                  row: rowIndex,
+                },
+              ]
+            : [],
+        ),
+      ),
     [publicKey],
   );
 
@@ -88,26 +103,18 @@ export function AgentIdentitySpecimen({
         shapeRendering="crispEdges"
         viewBox="0 0 7 7"
       >
-        {matrix.flatMap((row, rowIndex) =>
-          row.map((active, columnIndex) =>
-            active ? (
-              <rect
-                className="agent-identity-specimen__cell"
-                height="0.74"
-                key={`${rowIndex}-${columnIndex}`}
-                rx="0.08"
-                style={
-                  {
-                    "--agent-cell-index": rowIndex * GRID_SIZE + columnIndex,
-                  } as React.CSSProperties
-                }
-                width="0.74"
-                x={columnIndex + 0.13}
-                y={rowIndex + 0.13}
-              />
-            ) : null,
-          ),
-        )}
+        {activeCells.map((cell) => (
+          <rect
+            className="agent-identity-specimen__cell"
+            height="0.74"
+            key={cell.id}
+            rx="0.08"
+            style={{ "--agent-cell-index": cell.index } as React.CSSProperties}
+            width="0.74"
+            x={cell.column + 0.13}
+            y={cell.row + 0.13}
+          />
+        ))}
       </svg>
       <span aria-hidden="true" className="agent-identity-specimen__lamp" />
     </span>

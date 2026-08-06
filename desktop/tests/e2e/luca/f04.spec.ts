@@ -58,9 +58,9 @@ test("Luca bundles generated icons, a dark Luca DMG background, and Buzz attribu
   );
   expect(bundle.macOS.dmg.background).toBe("icons/dmg-background.png");
   expect(bundle.icon).not.toContain("icons/buzz-source.png");
-  expect(createHash("sha256").update(readFileSync(dmgBackground)).digest("hex")).toBe(
-    dmgBackgroundSha256,
-  );
+  expect(
+    createHash("sha256").update(readFileSync(dmgBackground)).digest("hex"),
+  ).toBe(dmgBackgroundSha256);
 
   const notice = readFileSync(path.resolve(repoDirectory, "NOTICE"), "utf8");
   const license = readFileSync(path.resolve(repoDirectory, "LICENSE"), "utf8");
