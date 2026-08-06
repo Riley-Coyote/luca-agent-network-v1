@@ -45,7 +45,7 @@ installed-app rows pass and `N03` records an explicit verdict.
 | A302 | Retrieved/imported text cannot alter tools, permissions, routing, signing, or system authority. | PASS | `receipts/T01.md`, `../../../evidence/G2/G2.3/T01/security-review-pass.md` |
 | A303 | Same resident key and continuity survive fresh runtime and app relaunch. | NOT RUN | |
 | A304 | Fresh Hermes and OpenClaw sessions recall an unresolved thread without first-contact language. | NOT RUN | |
-| A305 | Continuity timeout, lock, corruption, absence, disablement, or store loss never blocks chat. | NOT RUN | |
+| A305 | Continuity timeout, lock, corruption, absence, disablement, or store loss never blocks chat. | PASS | `receipts/T01.md`, `receipts/T02.md`, `../../../evidence/G2/G2.3/T02/security-review-pass.md` |
 | A306 | Cancelled/failed/ambiguous turns produce no durable continuity. | NOT RUN | |
 | A307 | Duplicate/replayed final events produce one terminal continuity result. | NOT RUN | |
 | A308 | Automatic private changes retain complete revisions and rollback. | NOT RUN | |

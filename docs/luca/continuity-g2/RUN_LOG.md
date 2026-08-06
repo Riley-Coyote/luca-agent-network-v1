@@ -489,3 +489,22 @@ Risks/known limits:
 - A301 and A302 pass. A305 remains unclaimed until T02 proves fail-soft behavior
   at the real ACP/chat seam.
 - Evidence: `evidence/G2/G2.3/T01/security-review-pass.md`.
+
+## 2026-08-05 — T02/A305 — guarded ACP pre-turn integration passed
+
+- Commit `f3b9d5c7` connects one bounded continuity request to the real managed
+  ACP pre-turn seam through a dedicated inherited FD4 channel.
+- Requests are bound to exact signed history, owner dispatch, resident,
+  conversation, session epoch, turn, trigger, runtime binding, and deadline.
+- The desktop performs a final authority check under a bounded delivery lease;
+  cancellation or terminal state produces no packet bytes.
+- Prompt and steer bodies reach runtime stdin unchanged while observer snapshots,
+  debug tracing, receipts, and diagnostics remain body-free. A real subprocess
+  sentinel regression proves both sides of that boundary.
+- Focused verification passed 14 ACP continuity tests, the actual write-path
+  privacy regression, and 5 desktop managed-continuity tests. G2 control and
+  diff validation passed. Independent adversarial re-review found no blocker.
+- A305 passes at the integrated fail-soft seam. A303 and A304 remain `NOT RUN`
+  until portable state, durable metabolism, and the later real Hermes/OpenClaw
+  fresh-session gate exist.
+- Evidence: `evidence/G2/G2.3/T02/security-review-pass.md`.
