@@ -1,0 +1,89 @@
+project: luca-agent-network-v1-functional-beta
+baseline_commit: dc1c2e63891ab0a53b2c4c948e0e7eed801d6f89
+active_branch: agent/v1-functional-beta
+max_parallel_write_lanes: 1
+
+gates:
+  - id: V1B.0
+    title: Control and checkpoint
+    tasks: [C00, C01]
+    barrier_task: C01
+  - id: V1B.1
+    title: Native parity
+    tasks: [N01, N02]
+    barrier_task: N02
+  - id: V1B.2
+    title: Private handoff
+    tasks: [H01, H02, H03, H04]
+    barrier_task: H04
+  - id: V1B.3
+    title: User control
+    tasks: [U01, U02]
+    barrier_task: U02
+  - id: V1B.4
+    title: Installed beta gate
+    tasks: [R01, R02]
+    barrier_task: R02
+
+tasks:
+  - id: C00
+    gate: V1B.0
+    title: Create isolated beta checkpoint and control package
+    depends_on: []
+    acceptance: [A001, A002]
+  - id: C01
+    gate: V1B.0
+    title: Review G1 evidence and freeze the smaller beta contract
+    depends_on: [C00]
+    acceptance: [A003, A004]
+  - id: N01
+    gate: V1B.1
+    title: Audit exact native capability and binding paths
+    depends_on: [C01]
+    acceptance: [A101, A102]
+  - id: N02
+    gate: V1B.1
+    title: Add native parity fixtures and honest readiness states
+    depends_on: [N01]
+    acceptance: [A103, A104]
+  - id: H01
+    gate: V1B.2
+    title: Add compact handoff contracts and encrypted lifecycle
+    depends_on: [N02]
+    acceptance: [A201, A202]
+  - id: H02
+    gate: V1B.2
+    title: Add private same-resident cognition path
+    depends_on: [H01]
+    acceptance: [A203, A204]
+  - id: H03
+    gate: V1B.2
+    title: Run idempotent post-publication handoff jobs
+    depends_on: [H02]
+    acceptance: [A205, A206, A207]
+  - id: H04
+    gate: V1B.2
+    title: Inject effective handoff and prove isolation/fail-soft behavior
+    depends_on: [H03]
+    acceptance: [A208, A209, A210]
+  - id: U01
+    gate: V1B.3
+    title: Add resident continuity commands and inspector controls
+    depends_on: [H04]
+    acceptance: [A301, A302]
+  - id: U02
+    gate: V1B.3
+    title: Add import disclosure and compact chat/activity states
+    depends_on: [U01]
+    acceptance: [A303, A304]
+  - id: R01
+    gate: V1B.4
+    title: Run installed Hermes/OpenClaw beta matrix
+    depends_on: [U02]
+    acceptance: [A401, A402, A403]
+  - id: R02
+    gate: V1B.4
+    title: Run final gates and publish beta verdict/handoff
+    depends_on: [R01]
+    acceptance: [A404, A405]
+
