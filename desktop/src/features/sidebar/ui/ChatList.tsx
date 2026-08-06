@@ -260,29 +260,34 @@ export function ChatList({
   return (
     <div className="flex flex-col px-2" data-testid="chat-list">
       {groups.map((group) => {
-        const isCollapsed = group.project
-          ? collapsed.has(group.project.id)
-          : false;
+        const isCollapsed = collapsed.has(group.project?.id ?? "__rooms");
         return (
           <div
             className="flex flex-col"
             data-testid={`chat-group-${group.project?.id ?? "ungrouped"}`}
             key={group.project?.id ?? "ungrouped"}
           >
-            {/* Ungrouped rooms carry NO label — they are just your rooms, and a
-                header over them would name a category that does not exist. */}
-            {group.project ? (
-              <button
+            {/* Every section is labelled, including the ungrouped one. It is
+                "Rooms": chats that belong to no project are still rooms, and an
+                unlabelled block above labelled ones reads as an accident rather
+                than a decision. Same treatment for all of them — an affordance
+                that exists on some sections and not others feels arbitrary. */}
+            <button
                 aria-expanded={!isCollapsed}
                 // The label IS the toggle. A permanent chevron is chrome at two
                 // projects and only earns its place at ten, so it appears on
                 // hover; the section reads as a signpost the rest of the time.
-                className="group/section mt-3 flex w-full items-center gap-1 px-2 pb-1 text-left outline-none"
-                onClick={() => toggle(group.project?.id ?? "")}
+                className={cn(
+                  "group/section flex w-full items-center gap-1 px-2 pb-1 text-left outline-none",
+                  // The first section sits under the pinned nav, which already
+                  // supplies the separation; later ones need their own air.
+                  group.project ? "mt-3" : "mt-2",
+                )}
+                onClick={() => toggle(group.project?.id ?? "__rooms")}
                 type="button"
               >
                 <span className="truncate text-2xs font-medium uppercase tracking-[0.1em] text-sidebar-foreground/35 transition-colors group-hover/section:text-sidebar-foreground/60">
-                  {group.project.label}
+                  {group.project?.label ?? "Rooms"}
                 </span>
                 <ChevronDown
                   aria-hidden
@@ -291,8 +296,7 @@ export function ChatList({
                     isCollapsed && "-rotate-90 opacity-100",
                   )}
                 />
-              </button>
-            ) : null}
+            </button>
 
             {isCollapsed
               ? null
