@@ -102,14 +102,28 @@ export function AppTopChrome({
     <div
       ref={topChromeRef}
       className={cn(
-        "relative z-45 flex shrink-0 cursor-default select-none items-center bg-sidebar pr-3 text-sidebar-foreground",
+        // OVERLAY, not a band. In flow this strip ate 32px across the whole
+        // window, which is why the card could never reach the top and its lip
+        // was 40px on top against 8px elsewhere. Floating it lets the content
+        // row start at y=0 so all four lips are equal.
+        //
+        // pointer-events-none so it cannot swallow the card header's controls
+        // underneath it; the control cluster re-enables them for itself. The
+        // window-drag region moves to the channel header, which now sits under
+        // this strip — see ChannelScreenHeader.
+        "pointer-events-none absolute inset-x-0 top-0 z-45 flex cursor-default select-none items-center bg-transparent pr-3 text-sidebar-foreground",
         topChromeBackdrop.height,
         navRowPaddingClass,
       )}
-      data-tauri-drag-region
       data-testid="app-top-chrome"
     >
-      <div className={cn("flex items-center gap-0.5", navRowAlignmentClass)}>
+      <div
+        className={cn(
+          "pointer-events-auto flex items-center gap-0.5",
+          navRowAlignmentClass,
+        )}
+        data-tauri-drag-region
+      >
         <TopChromeSidebarTrigger />
         <Button
           aria-label="Go back"
