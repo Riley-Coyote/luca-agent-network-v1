@@ -53,6 +53,14 @@ pub enum ContinuityError {
     RetrievalIndex,
     /// A caller-supplied memory-only vector was empty, duplicate, or oversized.
     InvalidRetrievalVector,
+    /// A pre-turn context request failed the frozen protocol contract.
+    InvalidContextRequest,
+    /// One of the five fixed context layers had an invalid status/material shape.
+    InvalidContextLayer,
+    /// The caller's packet budget could not contain the fixed safe envelope.
+    ContextPacketBudgetTooSmall,
+    /// Canonical packet or receipt construction failed without exposing content.
+    ContextPacketEncoding,
 }
 
 impl fmt::Display for ContinuityError {
@@ -84,6 +92,12 @@ impl fmt::Display for ContinuityError {
             Self::RetrievalCueTooLarge => "continuity retrieval cue exceeds the fixed bound",
             Self::RetrievalIndex => "continuity memory-only retrieval index failed",
             Self::InvalidRetrievalVector => "invalid memory-only continuity retrieval vector",
+            Self::InvalidContextRequest => "invalid continuity context request",
+            Self::InvalidContextLayer => "invalid continuity context layer",
+            Self::ContextPacketBudgetTooSmall => {
+                "continuity packet budget cannot contain the fixed safe envelope"
+            }
+            Self::ContextPacketEncoding => "unable to construct bounded continuity context packet",
         };
         formatter.write_str(message)
     }

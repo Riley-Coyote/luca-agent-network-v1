@@ -7,6 +7,7 @@
 
 #![forbid(unsafe_code)]
 
+mod context;
 mod envelope;
 mod error;
 mod fixtures;
@@ -19,6 +20,10 @@ mod retrieval_material;
 mod revision;
 mod scope;
 
+pub use context::{
+    ContinuityContextOutput, ContinuityContextResolver, ContinuityLayerMaterial,
+    ContinuityReadSnapshot, ContinuityReferenceItem,
+};
 pub use envelope::{
     canonical_record_aad, decrypt_record, encrypt_record, DecryptedRecordBody, RecordMetadata,
     RECORD_AAD_DOMAIN_V1,
