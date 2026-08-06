@@ -1,7 +1,8 @@
 /* Luca conversation-first shell. Kept last so this production-intent layer
    can refine legacy Buzz surfaces without forking their data components. */
 :root[data-buzz-sidebar] {
-  --font-ui: "Instrument Sans", "Inter Variable", "Avenir Next", "Segoe UI", sans-serif;
+  --font-ui:
+    "Instrument Sans", "Inter Variable", "Avenir Next", "Segoe UI", sans-serif;
   --font-mono: "Fragment Mono", "SFMono-Regular", "SF Mono", monospace;
   --font-instrument: "Doto", "Fragment Mono", "SFMono-Regular", monospace;
   /* ------------------------------------------------------------------
@@ -15,7 +16,14 @@
    *
    * DERIVED, NOT PICKED. Every value below is one OKLCH ramp with hue and
    * chroma LOCKED (H 265, C 0.0045 surfaces / 0.004 ink), varying only L from
-   * a 0.205 floor in even 0.030 steps. OKLCH's L is perceptually uniform, so
+   * a 0.168 floor.
+   *
+   * The steps are deliberately UNEVEN in one place: `raised` sits only 0.012 L
+   * above `surface`, where every other gap is 0.028+. The composer must read as
+   * a distinct object without being noticeably brighter than the card it rests
+   * on — Riley's explicit constraint. That closes the card/composer luminance
+   * gap from 56.3 to 14.7 (x1e-4). The 1px lit edge does the rest of the work
+   * that lightness used to. OKLCH's L is perceptually uniform, so
    * equal steps look equal; locking C and H makes the scale provably
    * monochromatic rather than approximately so. The previous scale drifted
    * 220 -> 210 in hue between surfaces and ink, and its luminance steps ran
@@ -38,26 +46,26 @@
    *   hover   — transient row states
    *
    * ACCESSIBILITY IS A CONSTRAINT ON THIS TABLE, not a review afterthought.
-   * ink-faint is solved, not chosen: 4.5:1 against `hover` (the lightest
-   * backdrop any ink can land on) requires OKLCH L >= 0.667, so it sits at
-   * 0.672 for margin. Every ink clears WCAG AA on every surface — the worst
-   * case is ink-faint on a hovered row at 4.59:1. The old ink-faint was
-   * 3.28:1 and failed. If you change a surface, re-run the audit.
+   * ink-faint is solved, not chosen — and RE-solved whenever the floor moves.
+   * At this floor, 4.5:1 against `hover` (the lightest backdrop any ink can
+   * land on) needs OKLCH L >= 0.618, so it sits at 0.623 for margin. Every ink
+   * clears WCAG AA on every surface; the worst case is ink-faint on a hovered
+   * row at 4.60:1. If you change a surface, re-run the audit.
    * ------------------------------------------------------------------ */
-  --mn-floor: 220 6.7% 9.3%;
-  --mn-surface: 220 5.3% 12%;
-  --mn-raised: 220 4.5% 14.8%;
-  --mn-hover: 220 3.7% 18.2%;
+  --mn-floor: 220 9.7% 6.1%;
+  --mn-surface: 220 7.2% 8.5%;
+  --mn-raised: 220 6.5% 9.6%;
+  --mn-hover: 220 5.2% 12.3%;
   /* Below the floor. Used only where a surface must read as a recess. */
-  --mn-glass: 220 7% 6.5%;
+  --mn-glass: 220 10% 4.4%;
   /* Aliases consumed by the semantic mappings in theme.css. */
-  --mn-surface-raised: 220 4.5% 14.8%;
-  --mn-surface-hover: 220 3.7% 18.2%;
-  --mn-border: 220 3.1% 22.7%;
-  --mn-border-strong: 220 2.5% 28.9%;
+  --mn-surface-raised: 220 6.5% 9.6%;
+  --mn-surface-hover: 220 5.2% 12.3%;
+  --mn-border: 220 4.1% 16.5%;
+  --mn-border-strong: 220 3.1% 22.5%;
   --mn-ink: 220 11.8% 93.1%;
-  --mn-ink-muted: 220 2.9% 73.4%;
-  --mn-ink-faint: 220 1.8% 59%;
+  --mn-ink-muted: 220 2.7% 71.5%;
+  --mn-ink-faint: 220 1.6% 53.2%;
   --mn-focus: 213 94% 68%;
 
   /* The one light effect this system uses: a 1px lit top edge on raised
@@ -65,6 +73,16 @@
    * makes a flat object read as physical without a gradient or a drop shadow,
    * both of which fight a lightness-based elevation model. */
   --mn-lit-edge: inset 0 1px 0 rgb(255 255 255 / 0.04);
+
+  /* Shell geometry, derived once so the pieces cannot drift apart.
+   * The floating chrome must occupy exactly the card's header ROW — otherwise
+   * its controls sit in a strip of their own above the header and read as
+   * pinned to the window rather than belonging to the page.
+   * PAIRED WITH `trafficLightPosition.y` in tauri.conf.json: the lights are
+   * 12px tall, so aligning them on this row means y = lip + (header - 12) / 2.
+   * Change one, change the other. */
+  --mn-card-lip: 8px;
+  --mn-header-height: 52px;
 
   --background: var(--mn-surface);
   --foreground: var(--mn-ink);
@@ -140,15 +158,23 @@
    reachable without a JS-set class. */
 :root[data-buzz-sidebar]
   [data-collapsible="offcanvas"]
-  ~ * [data-luca-conversation-surface] {
+  ~ *
+  [data-luca-conversation-surface] {
   margin-left: 8px;
 }
 
+/* The floating chrome sits on the card's header row, so its controls line up
+   with the channel title instead of hovering in a band above it. */
+:root[data-buzz-sidebar] [data-testid="app-top-chrome"] {
+  top: var(--mn-card-lip);
+  height: var(--mn-header-height);
+}
+
 /* The chrome floats now, so it no longer PUSHES the rail's own header down —
-   the search field has to yield the strip itself or the controls land on top
-   of it. Height is the chrome's, so the two stay paired. */
+   the search field has to yield the whole row or the controls land on top of
+   it. Derived from the same two values, so it tracks automatically. */
 :root[data-buzz-sidebar] [data-testid="sidebar-pinned-header"] {
-  padding-top: calc(var(--buzz-top-chrome-height, 32px) + 8px);
+  padding-top: calc(var(--mn-card-lip) + var(--mn-header-height));
 }
 
 :root[data-buzz-sidebar] [data-sidebar="group"] {
@@ -220,7 +246,8 @@
    grows with it. */
 :root[data-buzz-sidebar]
   [data-collapsible="offcanvas"]
-  ~ * [data-testid="chat-header"] {
+  ~ *
+  [data-testid="chat-header"] {
   padding-left: 140px;
 }
 

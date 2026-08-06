@@ -901,12 +901,10 @@
 
 :root[data-buzz-sidebar] body {
   font-family:
-    "Instrument Sans", "Inter Variable", "Avenir Next", "Segoe UI",
-    sans-serif;
+    "Instrument Sans", "Inter Variable", "Avenir Next", "Segoe UI", sans-serif;
 }
 
-:root[data-buzz-sidebar]
-  :is(time, code, kbd, [data-font="mono"], .font-mono) {
+:root[data-buzz-sidebar] :is(time, code, kbd, [data-font="mono"], .font-mono) {
   font-family: "Fragment Mono", "SFMono-Regular", "SF Mono", monospace;
 }
 
