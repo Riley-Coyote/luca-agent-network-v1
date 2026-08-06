@@ -10,6 +10,7 @@ import {
   isWelcomeExperienceChannel,
 } from "@/features/onboarding/welcome";
 import type { Channel } from "@/shared/api/types";
+import { conversationMarkSeeds } from "@/features/channels/lib/conversationMarks";
 import { HashSearch } from "@/shared/ui/icons";
 
 type ChannelIntroAction = {
@@ -28,6 +29,7 @@ type ChannelIntroAction = {
  */
 export function useChannelIntro({
   activeChannel,
+  currentPubkey,
   onAddAgent,
   onBrowseChannels,
   onCreateChannel,
@@ -35,6 +37,7 @@ export function useChannelIntro({
   onWelcomeAddAgent,
 }: {
   activeChannel: Channel | null;
+  currentPubkey?: string | null;
   onAddAgent?: (options?: { beforeSend?: () => void }) => void;
   onBrowseChannels?: () => void;
   onCreateChannel?: () => void;
@@ -115,9 +118,13 @@ export function useChannelIntro({
       channelKindLabel: getChannelIntroKind(activeChannel),
       channelName: activeChannel.name,
       description: getChannelIntroDescription(activeChannel),
+      // Who you are about to talk to. Everyone but you; a room with no other
+      // participants falls back to its own id so it still has a mark.
+      markSeeds: conversationMarkSeeds(activeChannel, currentPubkey, 3),
     };
   }, [
     activeChannel,
+    currentPubkey,
     onAddAgent,
     onBrowseChannels,
     onCreateChannel,

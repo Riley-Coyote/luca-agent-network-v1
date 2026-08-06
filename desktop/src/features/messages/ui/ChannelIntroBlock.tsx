@@ -1,7 +1,13 @@
 import type * as React from "react";
 import { Hash } from "lucide-react";
 
+import { ConversationIntro } from "@/features/messages/ui/ConversationIntro";
 import { cn } from "@/shared/lib/cn";
+
+/** PROTOTYPE SWITCH. true = the chat-app conversation opener (marks + name).
+ *  false = the original room intro (# glyph, "beginning of the channel", admin
+ *  tiles). Kept so the two can be compared before anything is deleted. */
+const USE_CONVERSATION_INTRO = true;
 
 export type ChannelIntroAction = {
   description?: string;
@@ -17,6 +23,8 @@ export type ChannelIntro = {
   channelName: string;
   description?: string | null;
   icon?: React.ReactNode;
+  /** Participant keys for the conversation opener; falls back to the name. */
+  markSeeds?: readonly string[];
 };
 
 /**
@@ -33,6 +41,19 @@ export function ChannelIntroBlock({
   className?: string;
   intro: ChannelIntro;
 }) {
+  if (USE_CONVERSATION_INTRO) {
+    return (
+      <ConversationIntro
+        className={className}
+        markSeeds={
+          intro.markSeeds?.length ? intro.markSeeds : [intro.channelName]
+        }
+        subtitle={intro.description}
+        title={intro.channelName}
+      />
+    );
+  }
+
   return (
     <div
       className={cn(

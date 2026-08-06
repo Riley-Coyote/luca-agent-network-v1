@@ -415,6 +415,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   }, [onAddAgent]);
   const channelIntro = useChannelIntro({
     activeChannel,
+    currentPubkey,
     onAddAgent,
     onBrowseChannels,
     onCreateChannel,
@@ -755,7 +756,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                               ? activeChannel.channelType === "dm" &&
                                 directMessageIntro
                                 ? `Message ${directMessageIntro.displayName}`
-                                : `Message #${activeChannel.name}`
+                                : `Message ${activeChannel.name}`
                               : "Select a channel"
                   }
                   showTopBorder={false}
