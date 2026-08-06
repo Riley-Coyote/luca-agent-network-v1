@@ -311,6 +311,14 @@ pub(crate) struct RevisionTransitionResultV1 {
     pub(crate) replayed: bool,
 }
 
+/// One owner-global atomic group of revision transitions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RevisionBatchTransitionResultV1 {
+    pub(crate) token: RevisionAuthorityTokenV1,
+    pub(crate) receipts: Vec<RevisionReceipt>,
+    pub(crate) replayed: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ArtifactTransitionResultV1 {
     pub(crate) token: RevisionAuthorityTokenV1,
@@ -522,6 +530,66 @@ impl ContinuityStore {
         Ok(RevisionTransitionResultV1 {
             token,
             receipt,
+            replayed: false,
+        })
+    }
+
+    /// Apply a bounded group of independent revision operations in one SQLite
+    /// transaction. This is used by V1.1 metabolism so a handoff and its memory
+    /// notes become visible together or not at all.
+    pub(crate) fn apply_revision_batch_cas(
+        &mut self,
+        expectation: &AuthorityExpectationV1,
+        requests: Vec<RevisionRequest>,
+    ) -> Result<RevisionBatchTransitionResultV1, ContinuityStoreError> {
+        if requests.is_empty() || requests.len() > 4 {
+            return Err(ContinuityStoreError::InvalidRecord);
+        }
+        let owner = expectation.owner().clone();
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        reject_rotation(&transaction, &owner)?;
+        let current = load_generation_in_snapshot(&transaction, &owner)?;
+        let mut ledger = match &current {
+            Some(current) => RevisionLedger::from_snapshot(current.snapshot.clone())
+                .map_err(map_continuity_error)?,
+            None => RevisionLedger::default(),
+        };
+        let before = ledger.export_snapshot().map_err(map_continuity_error)?;
+        let mut receipts = Vec::with_capacity(requests.len());
+        for request in requests {
+            receipts.push(ledger.apply(request).map_err(map_continuity_error)?);
+        }
+        let candidate = ledger.export_snapshot().map_err(map_continuity_error)?;
+        if candidate == before {
+            let current = current.ok_or(ContinuityStoreError::CompareAndSwapConflict)?;
+            transaction
+                .rollback()
+                .map_err(|_| ContinuityStoreError::Unavailable)?;
+            return Ok(RevisionBatchTransitionResultV1 {
+                token: current.token,
+                receipts,
+                replayed: true,
+            });
+        }
+        require_expectation(expectation, current.as_ref())?;
+        let token = persist_transition(
+            &transaction,
+            expectation,
+            current.as_ref(),
+            expectation.active_key_version(),
+            &candidate,
+            false,
+            false,
+        )?;
+        transaction
+            .commit()
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        Ok(RevisionBatchTransitionResultV1 {
+            token,
+            receipts,
             replayed: false,
         })
     }

@@ -22,8 +22,10 @@ pub(crate) mod continuity_rotation;
 pub(crate) mod continuity_runtime;
 #[allow(dead_code)]
 pub(crate) mod continuity_store;
+pub(crate) mod journal_jobs;
 pub(crate) mod local_broker_session;
 pub(crate) mod managed_cognition;
+pub(crate) mod resident_notebook;
 pub(crate) mod managed_continuity;
 pub(crate) mod managed_dispatch_store;
 pub(crate) mod managed_message_outbox;

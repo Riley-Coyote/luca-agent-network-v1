@@ -220,6 +220,9 @@ pub async fn apply_workspace(
                 if crate::luca::continuity_jobs::recover_pending(&app).is_err() {
                     eprintln!("luca-continuity: pending handoff recovery unavailable");
                 }
+                if crate::luca::journal_jobs::recover_interrupted(&app).is_err() {
+                    eprintln!("luca-continuity: journal job recovery unavailable");
+                }
             }
         });
     }
@@ -236,6 +239,9 @@ pub async fn apply_workspace(
             }
             if crate::luca::continuity_jobs::recover_pending(&app).is_err() {
                 eprintln!("luca-continuity: pending handoff recovery unavailable");
+            }
+            if crate::luca::journal_jobs::recover_interrupted(&app).is_err() {
+                eprintln!("luca-continuity: journal job recovery unavailable");
             }
         });
     }

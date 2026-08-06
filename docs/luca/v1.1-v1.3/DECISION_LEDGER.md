@@ -123,6 +123,53 @@ Claude's accepted frontend is integrated after the backend gate.
 Reason: frontend design is still in progress and should neither block nor be
 overwritten by continuity implementation.
 
+### D015 — Journal scheduler metadata is body-free
+
+Decision: the durable journal-job database stores only identity, binding,
+conversation, target-lineage, state, attempt, error-code, and timestamp fields.
+The owner prompt and selected page bodies remain in process memory.
+
+Reason: persisting a manually requested private page prompt in a second SQLite
+store would violate the encrypted notebook boundary. After restart an unfinished
+job fails honestly and must be resubmitted.
+
+### D016 — Cancellation and commit use one durable claim
+
+Decision: a journal job atomically sets `commit_claimed` before writing a page.
+Owner cancellation can win only before that claim; after it wins, no late page
+can commit.
+
+Reason: a UI-only cancellation flag leaves a race between the resident result
+and encrypted revision commit. The body-free claim makes the winner observable
+without storing page text.
+
+### D017 — Journal and annotations never hydrate the recall index
+
+Decision: `journal` and `journal-annotation` record types are excluded both
+while hydrating in-memory retrieval material and while assembling an ordinary
+turn packet.
+
+Reason: defense in depth keeps expressive pages out of normal conversation even
+if ranking or record ordering changes later.
+
+### D018 — Stable lineage identifiers are accepted at the UI boundary
+
+Decision: item detail and mutation commands accept either the current encrypted
+record ID or its stable lineage root, then resolve to the same resident-isolated
+lineage before acting.
+
+Reason: the frontend can retain one durable link while revisions change record
+IDs, without weakening namespace isolation.
+
+### D019 — One private cognition transport carries typed work
+
+Decision: the inherited local cognition channel now carries a versioned union
+of metabolism and journal requests/results. It remains bound to the exact
+resident and runtime fingerprint.
+
+Reason: using the existing tool-free channel preserves preemption, runtime
+authorship, and credential isolation without adding a parallel agent runtime.
+
 ## Decisions to freeze in C01
 
 These are implementation parameters, not unresolved product direction:

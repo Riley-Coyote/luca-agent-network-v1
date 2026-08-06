@@ -83,14 +83,28 @@ enable in a production build unless the existing test bridge is active.
 
 ## V1.1 frontend contract
 
+Backend checkpoint status: implemented on `agent/v1.1-resident-notebook`.
+Claude should import the frozen TypeScript contract directly from
+`desktop/src/shared/api/tauriNotebook.ts` and use
+`getResidentNotebookFixtures()` while building the surface. The fixture bundle
+covers ready, empty, locked, unavailable, two journal revisions, an owner
+annotation, and pending/running/completed/cancelled/failed jobs. Fixture mode
+does not write notebook state.
+
+The backend commands accept stable lineage IDs as well as current revision IDs.
+Pagination defaults to 25 and is capped at 50. Journal activity is body-free.
+No frontend code may persist or log the `body`, owner prompt, or selected page
+content.
+
 Representative surfaces to approve before expansion:
 
 1. A resident inspector with distinct **Handoff** and **Notebook** sections.
-2. One active notebook note with kind, resident authorship, source link, and
+2. One active continuity note with category, resident authorship, source link, and
    revision affordance.
-3. One owner-pinned correction and its before/after history.
-4. Empty, disabled, locked, and failed states.
-5. Compact conversation/activity evidence without private bodies.
+3. One resident-authored Journal Page with explicit disclosure and annotation.
+4. One owner-pinned note correction and its before/after history.
+5. Empty, disabled, locked, unavailable, cancelled, and failed states.
+6. Compact conversation/activity evidence without private bodies.
 
 Required behavior:
 

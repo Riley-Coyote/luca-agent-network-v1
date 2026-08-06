@@ -18,7 +18,7 @@ use luca_continuity::{
 use luca_protocol::{
     canonical_sha256, ContinuityContextRequestV1, ContinuityLayerStatusV1,
     ContinuityNamespaceKindV1, ContinuityNamespaceV1, ContinuityScopeV1, Hex64, OpaqueId, SafeU53,
-    Sha256Ref, CONTINUITY_PROTOCOL,
+    Sha256Ref, CONTINUITY_PROTOCOL, MAX_RECALLED_MEMORY_NOTES,
 };
 
 use crate::app_state::AppState;
@@ -380,20 +380,36 @@ fn assemble_ready_snapshot(
     let mut handoff = Vec::new();
     let mut hypomnema = Vec::new();
     let mut associative_recall = Vec::new();
+    let mut memory_note_count = 0_usize;
     for hit in &retrieval.hits {
         let record = hit.record();
+        let kind = DurableContinuityRecordKind::parse(record.record_type())?;
+        if matches!(
+            kind,
+            DurableContinuityRecordKind::Journal
+                | DurableContinuityRecordKind::JournalAnnotation
+        ) {
+            continue;
+        }
         let item = ContinuityReferenceItem::new(
             record.record_id().clone(),
             record.body().to_owned(),
             record.provenance_refs().to_vec(),
         )?;
-        match DurableContinuityRecordKind::parse(record.record_type())? {
+        match kind {
             DurableContinuityRecordKind::Handoff | DurableContinuityRecordKind::OpenThread => {
                 handoff.push(item);
             }
-            DurableContinuityRecordKind::Hypomnema
-            | DurableContinuityRecordKind::Journal
-            | DurableContinuityRecordKind::Reflection => hypomnema.push(item),
+            DurableContinuityRecordKind::MemoryNote
+                if memory_note_count < MAX_RECALLED_MEMORY_NOTES =>
+            {
+                memory_note_count += 1;
+                hypomnema.push(item);
+            }
+            DurableContinuityRecordKind::MemoryNote => {}
+            DurableContinuityRecordKind::Hypomnema | DurableContinuityRecordKind::Reflection => {
+                hypomnema.push(item);
+            }
             DurableContinuityRecordKind::Commitment
             | DurableContinuityRecordKind::Preference
             | DurableContinuityRecordKind::AssociativeEngram
@@ -401,6 +417,10 @@ fn assemble_ready_snapshot(
             | DurableContinuityRecordKind::Identity
             | DurableContinuityRecordKind::Relationship
             | DurableContinuityRecordKind::Conviction => associative_recall.push(item),
+            DurableContinuityRecordKind::Journal
+            | DurableContinuityRecordKind::JournalAnnotation => unreachable!(
+                "explicit-disclosure-only records are excluded before materialization"
+            ),
         }
     }
     Ok(ContinuityReadSnapshot {
@@ -631,11 +651,14 @@ mod tests {
     fn retrieval(address: &NamespaceScope) -> RetrievalResult {
         let specs = [
             ("01-handoff", "handoff", "handoff-private-body"),
-            ("02-open", "open-thread", "open-thread-private-body"),
-            ("03-hypomnema", "hypomnema", "hypomnema-private-body"),
             ("04-journal", "journal", "journal-private-body"),
-            ("05-reflection", "reflection", "reflection-private-body"),
             ("06-commitment", "commitment", "associative-private-body"),
+            ("07-note", "memory-note", "memory-note-private-1"),
+            ("08-note", "memory-note", "memory-note-private-2"),
+            ("09-note", "memory-note", "memory-note-private-3"),
+            ("10-note", "memory-note", "memory-note-private-4"),
+            ("11-note", "memory-note", "memory-note-private-5"),
+            ("12-note", "memory-note", "memory-note-private-6"),
         ];
         let records = specs
             .into_iter()
@@ -863,11 +886,11 @@ mod tests {
                     let result: ContinuityContextResultV1 = serde_json::from_slice(wire).unwrap();
                     let packet = result.packet.unwrap();
                     assert!(packet.content.contains("handoff-private-body"));
-                    assert!(packet.content.contains("open-thread-private-body"));
-                    assert!(packet.content.contains("hypomnema-private-body"));
-                    assert!(packet.content.contains("journal-private-body"));
-                    assert!(packet.content.contains("reflection-private-body"));
+                    assert!(!packet.content.contains("journal-private-body"));
                     assert!(packet.content.contains("associative-private-body"));
+                    assert!(packet.content.contains("memory-note-private-1"));
+                    assert!(packet.content.contains("memory-note-private-5"));
+                    assert!(!packet.content.contains("memory-note-private-6"));
                 },
             );
             let digest = *wire_digest.borrow();

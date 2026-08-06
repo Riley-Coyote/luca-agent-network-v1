@@ -13,8 +13,8 @@ use tauri::{AppHandle, Manager};
 
 use crate::app_state::AppState;
 
-use super::continuity_runtime::{
-    ResidentHandoffCommitKindV1, ResidentHandoffCommitOutcomeV1, ResidentHandoffCommitRequestV1,
+use super::resident_notebook::{
+    ResidentMetabolismCommitOutcomeV1, ResidentMetabolismCommitRequestV1,
 };
 
 const JOB_FILENAME: &str = "handoff-jobs-v1.sqlite3";
@@ -422,29 +422,64 @@ fn execute_job(app: &AppHandle, job_id: &OpaqueId) {
                 return;
             }
             let state = app.state::<AppState>();
-            let commit = state.commit_resident_handoff(ResidentHandoffCommitRequestV1 {
+            let commit = state.commit_resident_metabolism(ResidentMetabolismCommitRequestV1 {
                 owner_pubkey: job.job.owner_pubkey.clone(),
                 resident_pubkey: job.job.resident_pubkey.clone(),
                 source_event_id: job.job.source_event_id.clone(),
                 request_id: job.job.job_id.clone(),
-                kind: ResidentHandoffCommitKindV1::ResidentAutomatic,
-                handoff,
+                handoff: Some(handoff),
+                memory_note_mutations: Vec::new(),
             });
             match commit {
-                ResidentHandoffCommitOutcomeV1::Committed(_) => {
+                ResidentMetabolismCommitOutcomeV1::Committed(_) => {
                     let _ = complete_job(app, &job, "handoff_committed");
                 }
                 // A pinned owner correction intentionally wins. The automatic
                 // job is terminal without changing the effective handoff.
-                ResidentHandoffCommitOutcomeV1::Stale => {
+                ResidentMetabolismCommitOutcomeV1::Stale => {
                     let _ = complete_job(app, &job, "owner_correction_preserved");
                 }
-                ResidentHandoffCommitOutcomeV1::Locked
-                | ResidentHandoffCommitOutcomeV1::Unavailable => {
+                ResidentMetabolismCommitOutcomeV1::Locked
+                | ResidentMetabolismCommitOutcomeV1::Unavailable => {
                     retry_or_fail(app, &job, "continuity_unavailable");
                 }
-                ResidentHandoffCommitOutcomeV1::Invalid => {
+                ResidentMetabolismCommitOutcomeV1::Invalid => {
                     let _ = fail_job(app, &job, "invalid_handoff", false);
+                }
+            }
+        }
+        LocalContinuityCognitionOutcomeV1::Changes {
+            handoff,
+            memory_note_mutations,
+        } => {
+            if continuity_mode(app, &job.job.owner_pubkey, &job.job.resident_pubkey)
+                != Ok(ResidentContinuityModeV1::Enabled)
+                || !job_is_running(app, &job)
+            {
+                let _ = transition_terminal(app, &job, "cancelled", "continuity_preempted");
+                return;
+            }
+            let state = app.state::<AppState>();
+            match state.commit_resident_metabolism(ResidentMetabolismCommitRequestV1 {
+                owner_pubkey: job.job.owner_pubkey.clone(),
+                resident_pubkey: job.job.resident_pubkey.clone(),
+                source_event_id: job.job.source_event_id.clone(),
+                request_id: job.job.job_id.clone(),
+                handoff,
+                memory_note_mutations,
+            }) {
+                ResidentMetabolismCommitOutcomeV1::Committed(_) => {
+                    let _ = complete_job(app, &job, "metabolism_committed");
+                }
+                ResidentMetabolismCommitOutcomeV1::Stale => {
+                    let _ = complete_job(app, &job, "owner_correction_preserved");
+                }
+                ResidentMetabolismCommitOutcomeV1::Locked
+                | ResidentMetabolismCommitOutcomeV1::Unavailable => {
+                    retry_or_fail(app, &job, "continuity_unavailable");
+                }
+                ResidentMetabolismCommitOutcomeV1::Invalid => {
+                    let _ = fail_job(app, &job, "invalid_metabolism", false);
                 }
             }
         }

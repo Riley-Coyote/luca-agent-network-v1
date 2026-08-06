@@ -1215,6 +1215,13 @@ mod tests {
                 .map_err(|_| ManagedPublicationAuthorityError::Invalid)?;
             outbox
                 .mark_authority_finalized(&entry.idempotency_key)
+                .map_err(|_| ManagedPublicationAuthorityError::Invalid)?;
+            // A terminal accepted row also requires the post-publication
+            // continuity handoff to be durably accounted for. Production
+            // reconciliation performs this step; keep the startup-pass test
+            // authority faithful to that complete lifecycle.
+            outbox
+                .mark_handoff_recorded(&entry.idempotency_key)
                 .map_err(|_| ManagedPublicationAuthorityError::Invalid)
         }
     }

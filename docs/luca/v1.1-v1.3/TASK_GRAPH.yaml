@@ -93,49 +93,49 @@ tasks:
     title: Implement notebook and metabolism contracts vectors and frontend fixtures
     depends_on: [C01]
     acceptance: [A101]
-    status: NOT_STARTED
+    status: PASS
   - id: H12
     gate: V1.1-A
     lane: backend
     title: Implement encrypted resident notebook revisions provenance and lifecycle
     depends_on: [H11]
     acceptance: [A102, A107]
-    status: NOT_STARTED
+    status: PASS
   - id: H13
     gate: V1.1-B
     lane: backend
     title: Upgrade handoff job to atomic same-resident metabolism
     depends_on: [H12]
     acceptance: [A103, A104, A105]
-    status: NOT_STARTED
+    status: PASS
   - id: H14
     gate: V1.1-B
     lane: backend
     title: Add bounded read-only resident notebook retrieval and injection
     depends_on: [H13]
     acceptance: [A106, A107]
-    status: NOT_STARTED
+    status: PASS
   - id: H15
     gate: V1.1-C
     lane: backend
     title: Implement manual same-resident journal cognition and authorship
     depends_on: [H14]
     acceptance: [A113, A114, A117, A118]
-    status: NOT_STARTED
+    status: PASS
   - id: H16
     gate: V1.1-C
     lane: backend
     title: Add notebook commands renderer view models and deterministic fixtures
     depends_on: [H15]
     acceptance: [A108, A115, A116, A119]
-    status: NOT_STARTED
+    status: PASS
   - id: H17
     gate: V1.1-C
     lane: integration
     title: Run V1.1 real-runtime backend and security gates
     depends_on: [H16]
     acceptance: [A110, A111, A112, A120, A401, A403, A404]
-    status: NOT_STARTED
+    status: IN_PROGRESS
   - id: H18
     gate: V1.1-D
     lane: frontend

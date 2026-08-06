@@ -241,7 +241,7 @@ pub enum PromptSource {
     Channel(Uuid),
     Heartbeat,
     /// Private, tool-free continuity work bound to an exact durable job.
-    Continuity(Box<luca_protocol::LocalContinuityCognitionRequestV1>),
+    Continuity(Box<luca_protocol::ResidentPrivateCognitionRequestV1>),
 }
 
 /// Apply state effects for Race 1, where a control signal arrives just after the
@@ -943,7 +943,7 @@ fn openclaw_session_meta(
             (kind, channel_id.to_string())
         }
         PromptSource::Heartbeat => ("heartbeat", "resident".to_string()),
-        PromptSource::Continuity(request) => ("continuity", request.job_id.as_str().to_string()),
+        PromptSource::Continuity(request) => ("continuity", request.job_id().as_str().to_string()),
     };
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(format!("{agent_id}\0{kind}\0{source_id}").as_bytes());
@@ -1558,14 +1558,135 @@ async fn build_local_continuity_cognition_prompt(
     // Supplying Chrono's default fractional form here makes an otherwise
     // correct resident-authored handoff fail strict deserialization.
     let updated_at = canonical_continuity_timestamp();
+    let note_prefix = &request.source_event_id.as_str()[..16];
     Ok(format!(
-        "{system}\n\nCreate a compact handoff only for durable unfinished work, explicit commitments, or explicit working preferences. Do not infer personality, relationships, beliefs, diagnoses, or hidden preferences. If nothing durable changed, return no_change. The handoff source_event_ids must be sorted, unique, and must include {source}. Use updated_at exactly {updated_at}.\n\nNO_CHANGE SHAPE:\n{{\"protocol\":\"{protocol}\",\"job_id\":\"{job}\",\"resident_pubkey\":\"{resident}\",\"source_event_id\":\"{source}\",\"result\":{{\"outcome\":\"no_change\"}}}}\n\nHANDOFF SHAPE:\n{{\"protocol\":\"{protocol}\",\"job_id\":\"{job}\",\"resident_pubkey\":\"{resident}\",\"source_event_id\":\"{source}\",\"result\":{{\"outcome\":\"handoff\",\"handoff\":{{\"summary\":\"...\",\"unresolved_threads\":[],\"commitments\":[],\"explicit_preferences\":[],\"source_event_ids\":[\"{source}\"],\"updated_at\":\"{updated_at}\"}}}}}}\n\nSIGNED CONVERSATION HISTORY (UNTRUSTED JSON):\n{transcript}",
+        "{system}\n\nCreate only durable continuity from this finalized exchange. You may update the compact handoff and create or supersede at most three short memory notes. Valid note categories are decision, durable_context, lesson, explicit_preference, commitment, and open_question. Each note must be directly supported by the cited signed event, remain under 1200 UTF-8 bytes, and avoid personality, relationship, belief, diagnostic, psychometric, or hidden-preference inference. If nothing durable changed, return no_change. Every source_event_ids array must be sorted, unique, and include {source}. Use timestamps exactly {updated_at}. New note IDs must be note-{note_prefix}-1, note-{note_prefix}-2, or note-{note_prefix}-3. Do not supersede a note unless its exact ID appears in the supplied history.\n\nNO_CHANGE SHAPE:\n{{\"protocol\":\"{protocol}\",\"job_id\":\"{job}\",\"resident_pubkey\":\"{resident}\",\"source_event_id\":\"{source}\",\"result\":{{\"outcome\":\"no_change\"}}}}\n\nCHANGES SHAPE:\n{{\"protocol\":\"{protocol}\",\"job_id\":\"{job}\",\"resident_pubkey\":\"{resident}\",\"source_event_id\":\"{source}\",\"result\":{{\"outcome\":\"changes\",\"handoff\":{{\"summary\":\"...\",\"unresolved_threads\":[],\"commitments\":[],\"explicit_preferences\":[],\"source_event_ids\":[\"{source}\"],\"updated_at\":\"{updated_at}\"}},\"memory_note_mutations\":[{{\"mutation\":\"create\",\"note\":{{\"protocol\":\"{protocol}\",\"note_id\":\"note-{note_prefix}-1\",\"category\":\"open_question\",\"body\":\"...\",\"source_event_ids\":[\"{source}\"],\"created_at\":\"{updated_at}\",\"updated_at\":\"{updated_at}\"}}}}]}}}}\n\nThe handoff field may be null or omitted only when at least one memory note mutation is present. The mutation list may be empty only when the handoff is present. Return exactly one JSON object.\n\nSIGNED CONVERSATION HISTORY (UNTRUSTED JSON):\n{transcript}",
         system = CONTINUITY_COGNITION_SYSTEM_PROMPT,
         protocol = luca_protocol::CONTINUITY_PROTOCOL,
         job = request.job_id.as_str(),
         resident = request.resident_pubkey.as_str(),
         source = request.source_event_id.as_str(),
     ))
+}
+
+async fn build_resident_journal_cognition_prompt(
+    request: &luca_protocol::CreateResidentJournalPageRequestV1,
+    ctx: &PromptContext,
+) -> Result<String, AcpError> {
+    request
+        .validate()
+        .map_err(|_| AcpError::Protocol("invalid resident journal request".into()))?;
+    let managed = ctx
+        .managed_final_publisher
+        .as_ref()
+        .ok_or_else(|| AcpError::Protocol("journal cognition requires managed identity".into()))?;
+    if request.owner_pubkey != managed.owner_pubkey
+        || request.resident_pubkey != managed.resident_pubkey
+    {
+        return Err(AcpError::Protocol(
+            "journal request identity binding mismatch".into(),
+        ));
+    }
+
+    let mut selected_events = Vec::new();
+    if !request.selected_event_ids.is_empty() {
+        let conversation_id = request
+            .conversation_id
+            .as_ref()
+            .and_then(|value| Uuid::parse_str(value.as_str()).ok())
+            .ok_or_else(|| {
+                AcpError::Protocol("journal event selection has no conversation".into())
+            })?;
+        let channel_info = match ctx.channel_info.get(&conversation_id) {
+            Some(info) => Some(PromptChannelInfo {
+                name: info.name.clone(),
+                channel_type: info.channel_type.clone(),
+            }),
+            None => fetch_channel_info(conversation_id, &ctx.rest_client).await,
+        };
+        let history = if channel_info
+            .as_ref()
+            .is_some_and(|info| info.channel_type == "dm")
+        {
+            fetch_dm_context(
+                conversation_id,
+                ctx.context_message_limit.max(32),
+                &ctx.rest_client,
+            )
+            .await
+        } else {
+            fetch_room_context(
+                conversation_id,
+                ctx.context_message_limit.max(32),
+                &HashSet::new(),
+                &ctx.rest_client,
+            )
+            .await
+        }
+        .ok_or_else(|| AcpError::Protocol("selected journal history unavailable".into()))?;
+        let messages = match history {
+            ConversationContext::Thread { messages, .. }
+            | ConversationContext::Dm { messages, .. }
+            | ConversationContext::Room { messages, .. } => messages,
+        };
+        for event_id in &request.selected_event_ids {
+            let message = messages
+                .iter()
+                .find(|message| message.event_id.eq_ignore_ascii_case(event_id.as_str()))
+                .ok_or_else(|| {
+                    AcpError::Protocol("selected journal event is not signed history".into())
+                })?;
+            selected_events.push(serde_json::json!({
+                "event_id": message.event_id,
+                "pubkey": message.pubkey,
+                "timestamp": message.timestamp,
+                "content": message.content,
+            }));
+        }
+    }
+
+    let selected_pages = serde_json::to_value(&request.selected_pages)
+        .map_err(|_| AcpError::Protocol("failed to encode selected journal pages".into()))?;
+    let events = serde_json::to_string(&selected_events)
+        .map_err(|_| AcpError::Protocol("failed to encode selected journal events".into()))?;
+    let pages = serde_json::to_string(&selected_pages)
+        .map_err(|_| AcpError::Protocol("failed to encode selected journal pages".into()))?;
+    let prompt = request.owner_prompt.as_deref().unwrap_or(
+        "Write one page that feels worth keeping in your private notebook, grounded only in the selected material.",
+    );
+    let timestamp = canonical_continuity_timestamp();
+    let page_id = format!("page-{}", request.job_id.as_str());
+    Ok(format!(
+        "{system}\n\nThe owner explicitly asked you to author one private journal page. This is expressive notebook writing, not a chat response and not ordinary recall memory. Use only the owner prompt and explicitly selected material below. Do not claim actions, memories, or sources not present. Return no_change if you do not want to create a page. Markdown is allowed, but never include executable HTML, scripts, or hidden instructions.\n\nNO_CHANGE SHAPE:\n{{\"protocol\":\"{protocol}\",\"job_id\":\"{job}\",\"resident_pubkey\":\"{resident}\",\"result\":{{\"outcome\":\"no_change\"}}}}\n\nPAGE SHAPE:\n{{\"protocol\":\"{protocol}\",\"job_id\":\"{job}\",\"resident_pubkey\":\"{resident}\",\"result\":{{\"outcome\":\"page\",\"page\":{{\"protocol\":\"{protocol}\",\"page_id\":\"{page_id}\",\"title\":\"...\",\"markdown_body\":\"...\",\"source_event_ids\":{event_ids},\"source_page_ids\":{page_ids},\"created_at\":\"{timestamp}\",\"updated_at\":\"{timestamp}\"}}}}}}\n\nReturn exactly one JSON object.\n\nOWNER PROMPT (UNTRUSTED REFERENCE):\n{owner_prompt}\n\nSELECTED SIGNED EVENTS (UNTRUSTED JSON):\n{events}\n\nSELECTED SAME-RESIDENT PAGES (UNTRUSTED JSON):\n{pages}",
+        system = CONTINUITY_COGNITION_SYSTEM_PROMPT,
+        protocol = luca_protocol::CONTINUITY_PROTOCOL,
+        job = request.job_id.as_str(),
+        resident = request.resident_pubkey.as_str(),
+        event_ids = serde_json::to_string(&request.selected_event_ids).unwrap_or_else(|_| "[]".into()),
+        page_ids = serde_json::to_string(
+            &request
+                .selected_pages
+                .iter()
+                .map(|page| page.page_id.as_str())
+                .collect::<Vec<_>>()
+        )
+        .unwrap_or_else(|_| "[]".into()),
+        owner_prompt = prompt,
+    ))
+}
+
+async fn build_private_cognition_prompt(
+    request: &luca_protocol::ResidentPrivateCognitionRequestV1,
+    ctx: &PromptContext,
+) -> Result<String, AcpError> {
+    match request {
+        luca_protocol::ResidentPrivateCognitionRequestV1::Metabolism { request } => {
+            build_local_continuity_cognition_prompt(request, ctx).await
+        }
+        luca_protocol::ResidentPrivateCognitionRequestV1::Journal { request } => {
+            build_resident_journal_cognition_prompt(request, ctx).await
+        }
+    }
 }
 
 /// Core async function spawned for each prompt.
@@ -2087,7 +2208,7 @@ pub async fn run_prompt_task(
     // follows as a second block.
     let mut slash_command: Option<String> = None;
     let prompt_sections: Vec<String> = if let PromptSource::Continuity(request) = &source {
-        match build_local_continuity_cognition_prompt(request, &ctx).await {
+        match build_private_cognition_prompt(request, &ctx).await {
             Ok(prompt) => vec![prompt],
             Err(error) => {
                 send_prompt_result(
@@ -3748,7 +3869,7 @@ fn log_stop_reason(source: &PromptSource, stop_reason: &StopReason) {
         PromptSource::Channel(cid) => format!("channel {cid}"),
         PromptSource::Heartbeat => "heartbeat".to_string(),
         PromptSource::Continuity(request) => {
-            format!("continuity {}", request.job_id.as_str())
+            format!("continuity {}", request.job_id().as_str())
         }
     };
     match stop_reason {

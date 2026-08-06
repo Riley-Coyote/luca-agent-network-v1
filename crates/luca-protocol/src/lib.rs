@@ -16,6 +16,7 @@ mod frame;
 mod ids;
 mod managed_permission;
 mod message_publish;
+mod notebook;
 mod owner_identity;
 mod relay_auth;
 
@@ -45,6 +46,7 @@ pub use message_publish::{
     ManagedMessagePublishResultV1, MessagePublishError, MAX_FINAL_DRAFT_BYTES, MAX_RESOLVED_P_TAGS,
     MESSAGE_PUBLISH_PROTOCOL,
 };
+pub use notebook::*;
 pub use owner_identity::{
     OwnerIdentityBundleV1, OwnerIdentityError, SecretNsec, OWNER_IDENTITY_CANONICALIZATION,
     OWNER_IDENTITY_FORMAT, OWNER_IDENTITY_VERSION,

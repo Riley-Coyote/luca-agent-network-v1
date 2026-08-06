@@ -7,7 +7,9 @@ use std::{
 };
 
 use luca_protocol::{
-    LocalContinuityCognitionRequestV1, LocalContinuityCognitionResultV1, SafeU53, Sha256Ref,
+    CreateResidentJournalPageRequestV1, CreateResidentJournalPageResultV1,
+    LocalContinuityCognitionRequestV1, LocalContinuityCognitionResultV1,
+    ResidentPrivateCognitionRequestV1, ResidentPrivateCognitionResultV1, SafeU53, Sha256Ref,
 };
 use serde::Deserialize;
 
@@ -59,7 +61,7 @@ impl std::fmt::Debug for ManagedCognitionClient {
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 enum WireReply {
     Completed {
-        result: Box<LocalContinuityCognitionResultV1>,
+        result: Box<ResidentPrivateCognitionResultV1>,
     },
     Unavailable {
         code: String,
@@ -127,16 +129,53 @@ pub(crate) fn unregister(resident_pubkey: &str) {
     }
 }
 
+pub(crate) fn active_binding_ref(
+    resident_pubkey: &luca_protocol::Hex64,
+) -> Result<Sha256Ref, ManagedCognitionError> {
+    clients()
+        .lock()
+        .map_err(|_| ManagedCognitionError::Unavailable)?
+        .get(resident_pubkey.as_str())
+        .map(|client| client.binding_ref.clone())
+        .ok_or(ManagedCognitionError::Unavailable)
+}
+
 pub(crate) fn request(
     request: &LocalContinuityCognitionRequestV1,
 ) -> Result<LocalContinuityCognitionResultV1, ManagedCognitionError> {
+    let envelope = ResidentPrivateCognitionRequestV1::Metabolism {
+        request: request.clone(),
+    };
+    match request_private(&envelope)? {
+        ResidentPrivateCognitionResultV1::Metabolism { result } => Ok(result),
+        ResidentPrivateCognitionResultV1::Journal { .. } => Err(ManagedCognitionError::Invalid),
+    }
+}
+
+pub(crate) fn request_journal(
+    request: &CreateResidentJournalPageRequestV1,
+) -> Result<CreateResidentJournalPageResultV1, ManagedCognitionError> {
+    let envelope = ResidentPrivateCognitionRequestV1::Journal {
+        request: request.clone(),
+    };
+    match request_private(&envelope)? {
+        ResidentPrivateCognitionResultV1::Journal { result } => Ok(result),
+        ResidentPrivateCognitionResultV1::Metabolism { .. } => {
+            Err(ManagedCognitionError::Invalid)
+        }
+    }
+}
+
+fn request_private(
+    request: &ResidentPrivateCognitionRequestV1,
+) -> Result<ResidentPrivateCognitionResultV1, ManagedCognitionError> {
     request
         .validate()
         .map_err(|_| ManagedCognitionError::Invalid)?;
     let client = clients()
         .lock()
         .map_err(|_| ManagedCognitionError::Unavailable)?
-        .get(request.resident_pubkey.as_str())
+        .get(request.resident_pubkey().as_str())
         .cloned()
         .ok_or(ManagedCognitionError::Unavailable)?;
     client.request(request)
@@ -145,16 +184,16 @@ pub(crate) fn request(
 impl ManagedCognitionClient {
     fn request(
         &self,
-        request: &LocalContinuityCognitionRequestV1,
-    ) -> Result<LocalContinuityCognitionResultV1, ManagedCognitionError> {
-        if request.resident_pubkey != self.resident_pubkey
-            || request.binding_ref != self.binding_ref
+        request: &ResidentPrivateCognitionRequestV1,
+    ) -> Result<ResidentPrivateCognitionResultV1, ManagedCognitionError> {
+        if request.resident_pubkey() != &self.resident_pubkey
+            || request.binding_ref() != &self.binding_ref
             || self.session_epoch.get() == 0
         {
             return Err(ManagedCognitionError::Invalid);
         }
         let remaining = request
-            .deadline_unix_ms
+            .deadline_unix_ms()
             .get()
             .saturating_sub(unix_time_millis());
         if remaining == 0 {

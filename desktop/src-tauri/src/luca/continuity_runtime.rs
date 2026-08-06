@@ -54,8 +54,8 @@ pub(crate) enum ContinuityRuntimeDegradedReason {
 
 /// The one encrypted store opened for the resolved owner this process epoch.
 pub(crate) struct ContinuityRuntime {
-    owner_pubkey: Hex64,
-    store: ContinuityStore,
+    pub(super) owner_pubkey: Hex64,
+    pub(super) store: ContinuityStore,
 }
 
 impl fmt::Debug for ContinuityRuntime {
@@ -1330,6 +1330,14 @@ where
     };
     let mut records = Vec::with_capacity(capture.active_heads.len());
     for encrypted in &capture.active_heads {
+        // Journal bodies and owner annotations are explicit-disclosure-only.
+        // They must never enter the ordinary pre-turn retrieval index.
+        if matches!(
+            encrypted.record_type.as_str(),
+            "journal" | "journal-annotation"
+        ) {
+            continue;
+        }
         if Instant::now() >= request.deadline {
             return AttemptResult::Final(ContinuityReadLeaseOutcomeV1::Timeout(receipt(
                 request,

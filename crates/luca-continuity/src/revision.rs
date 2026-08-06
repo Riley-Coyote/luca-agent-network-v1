@@ -131,8 +131,12 @@ pub enum DurableContinuityRecordKind {
     Preference,
     /// Resident-private notebook material.
     Hypomnema,
+    /// Compact source-backed resident memory note eligible for bounded recall.
+    MemoryNote,
     /// Resident-private journal material.
     Journal,
+    /// Visibly owner-authored annotation attached to a journal lineage.
+    JournalAnnotation,
     /// Resident-authored bounded reflection.
     Reflection,
     /// Associative resident-private memory.
@@ -156,7 +160,9 @@ impl DurableContinuityRecordKind {
             "commitment" => Ok(Self::Commitment),
             "preference" => Ok(Self::Preference),
             "hypomnema" => Ok(Self::Hypomnema),
+            "memory-note" => Ok(Self::MemoryNote),
             "journal" => Ok(Self::Journal),
+            "journal-annotation" => Ok(Self::JournalAnnotation),
             "reflection" => Ok(Self::Reflection),
             "associative-engram" => Ok(Self::AssociativeEngram),
             "typed-connection" => Ok(Self::TypedConnection),

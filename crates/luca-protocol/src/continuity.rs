@@ -28,6 +28,26 @@ pub const MAX_HANDOFF_SUMMARY_BYTES: usize = 4 * 1024;
 pub const MAX_HANDOFF_ITEM_BYTES: usize = 2 * 1024;
 /// Maximum items in each compact handoff category.
 pub const MAX_HANDOFF_ITEMS: usize = 32;
+/// Maximum UTF-8 bytes in one automatically recalled resident memory note.
+pub const MAX_MEMORY_NOTE_BYTES: usize = 1_200;
+/// Maximum note mutations accepted from one resident metabolism turn.
+pub const MAX_MEMORY_NOTE_MUTATIONS: usize = 3;
+/// Maximum exact signed events cited by one memory note.
+pub const MAX_MEMORY_NOTE_SOURCE_EVENTS: usize = 8;
+/// Maximum active memory notes included in one ordinary resident turn.
+pub const MAX_RECALLED_MEMORY_NOTES: usize = 5;
+/// Maximum UTF-8 bytes in a resident journal page title.
+pub const MAX_JOURNAL_TITLE_BYTES: usize = 120;
+/// Maximum UTF-8 bytes in a resident journal Markdown body.
+pub const MAX_JOURNAL_BODY_BYTES: usize = 16 * 1024;
+/// Maximum UTF-8 bytes in an owner journal-creation prompt.
+pub const MAX_JOURNAL_PROMPT_BYTES: usize = 4 * 1024;
+/// Maximum exact signed events explicitly selected for one journal request.
+pub const MAX_JOURNAL_SOURCE_EVENTS: usize = 16;
+/// Maximum prior same-resident pages explicitly selected for one journal request.
+pub const MAX_SELECTED_JOURNAL_PAGES: usize = 5;
+/// Maximum UTF-8 bytes in an owner-authored journal annotation.
+pub const MAX_JOURNAL_ANNOTATION_BYTES: usize = 4 * 1024;
 
 /// Semantic validation error for continuity V1 contracts.
 #[derive(Debug, thiserror::Error)]
@@ -919,6 +939,14 @@ pub enum LocalContinuityCognitionOutcomeV1 {
     NoChange,
     /// The resident authored one bounded handoff candidate.
     Handoff { handoff: ResidentHandoffV1 },
+    /// One atomic handoff-plus-memory-note proposal.
+    Changes {
+        /// Optional compact current working state.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        handoff: Option<ResidentHandoffV1>,
+        /// At most three exact-source-backed memory note changes.
+        memory_note_mutations: Vec<crate::ResidentMemoryNoteMutationV1>,
+    },
 }
 
 impl std::fmt::Debug for LocalContinuityCognitionOutcomeV1 {
@@ -926,6 +954,14 @@ impl std::fmt::Debug for LocalContinuityCognitionOutcomeV1 {
         match self {
             Self::NoChange => formatter.write_str("NoChange"),
             Self::Handoff { handoff } => formatter.debug_tuple("Handoff").field(handoff).finish(),
+            Self::Changes {
+                handoff,
+                memory_note_mutations,
+            } => formatter
+                .debug_struct("Changes")
+                .field("handoff", handoff)
+                .field("memory_note_mutations", memory_note_mutations)
+                .finish(),
         }
     }
 }
@@ -971,14 +1007,37 @@ impl LocalContinuityCognitionResultV1 {
     /// Validate the outcome, including source provenance for a handoff.
     pub fn validate(&self) -> Result<(), ContinuityError> {
         require_protocol(&self.protocol)?;
-        if let LocalContinuityCognitionOutcomeV1::Handoff { handoff } = &self.result {
-            handoff.validate()?;
-            if handoff
-                .source_event_ids
-                .binary_search(&self.source_event_id)
-                .is_err()
-            {
-                return Err(ContinuityError::Binding);
+        match &self.result {
+            LocalContinuityCognitionOutcomeV1::NoChange => {}
+            LocalContinuityCognitionOutcomeV1::Handoff { handoff } => {
+                validate_cognition_handoff(handoff, &self.source_event_id)?;
+            }
+            LocalContinuityCognitionOutcomeV1::Changes {
+                handoff,
+                memory_note_mutations,
+            } => {
+                if handoff.is_none() && memory_note_mutations.is_empty()
+                    || memory_note_mutations.len() > MAX_MEMORY_NOTE_MUTATIONS
+                {
+                    return Err(ContinuityError::Sequence);
+                }
+                if let Some(handoff) = handoff {
+                    validate_cognition_handoff(handoff, &self.source_event_id)?;
+                }
+                for mutation in memory_note_mutations {
+                    mutation.validate()?;
+                    let note = match mutation {
+                        crate::ResidentMemoryNoteMutationV1::Create { note }
+                        | crate::ResidentMemoryNoteMutationV1::Supersede { note, .. } => note,
+                    };
+                    if note
+                        .source_event_ids
+                        .binary_search(&self.source_event_id)
+                        .is_err()
+                    {
+                        return Err(ContinuityError::Binding);
+                    }
+                }
             }
         }
         Ok(())
@@ -999,6 +1058,22 @@ impl LocalContinuityCognitionResultV1 {
         } else {
             Ok(())
         }
+    }
+}
+
+fn validate_cognition_handoff(
+    handoff: &ResidentHandoffV1,
+    source_event_id: &Hex64,
+) -> Result<(), ContinuityError> {
+    handoff.validate()?;
+    if handoff
+        .source_event_ids
+        .binary_search(source_event_id)
+        .is_err()
+    {
+        Err(ContinuityError::Binding)
+    } else {
+        Ok(())
     }
 }
 

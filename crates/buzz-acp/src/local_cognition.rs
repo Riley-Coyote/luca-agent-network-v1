@@ -8,7 +8,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use luca_protocol::{
-    LocalContinuityCognitionRequestV1, LocalContinuityCognitionResultV1, Sha256Ref,
+    ResidentPrivateCognitionRequestV1, ResidentPrivateCognitionResultV1, Sha256Ref,
 };
 use serde::Serialize;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
@@ -17,13 +17,13 @@ const INHERITED_FD: i32 = 5;
 const MAX_FRAME_BYTES: usize = 64 * 1024;
 
 pub(crate) struct CognitionEnvelope {
-    pub request: LocalContinuityCognitionRequestV1,
+    pub request: ResidentPrivateCognitionRequestV1,
     pub reply_tx: tokio::sync::oneshot::Sender<CognitionReply>,
 }
 
 #[derive(Debug)]
 pub(crate) enum CognitionReply {
-    Completed(Box<LocalContinuityCognitionResultV1>),
+    Completed(Box<ResidentPrivateCognitionResultV1>),
     Unavailable(&'static str),
 }
 
@@ -31,7 +31,7 @@ pub(crate) enum CognitionReply {
 #[serde(tag = "status", rename_all = "snake_case")]
 enum WireReply {
     Completed {
-        result: Box<LocalContinuityCognitionResultV1>,
+        result: Box<ResidentPrivateCognitionResultV1>,
     },
     Unavailable {
         code: &'static str,
@@ -101,19 +101,19 @@ pub(crate) fn inherited_receiver(
             if read == 0 || frame.len() > MAX_FRAME_BYTES || frame.last() != Some(&b'\n') {
                 break;
             }
-            let request = match serde_json::from_slice::<LocalContinuityCognitionRequestV1>(&frame)
+            let request = match serde_json::from_slice::<ResidentPrivateCognitionRequestV1>(&frame)
             {
                 Ok(request)
                     if request.validate().is_ok()
-                        && request.resident_pubkey == resident_pubkey
-                        && request.binding_ref == binding_ref =>
+                        && request.resident_pubkey() == &resident_pubkey
+                        && request.binding_ref() == &binding_ref =>
                 {
                     request
                 }
                 _ => break,
             };
             let now = unix_time_millis();
-            let remaining = request.deadline_unix_ms.get().saturating_sub(now);
+            let remaining = request.deadline_unix_ms().get().saturating_sub(now);
             if remaining == 0 {
                 if write_reply(
                     &mut write_half,

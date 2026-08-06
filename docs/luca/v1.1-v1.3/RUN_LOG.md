@@ -60,3 +60,45 @@ Repair count:
 Status: PASS | FAIL | BLOCKED
 Safe notes:
 ```
+
+## 2026-08-06 — V1.1 backend implementation checkpoint
+
+- Branch: `agent/v1.1-resident-notebook`
+- Base: `b3e5a88f`
+- Tasks: H11-H16
+- Product changes:
+  - strict notebook and private-cognition protocol contracts;
+  - encrypted resident-isolated memory notes, journal pages, annotations, and
+    complete revisions;
+  - one atomic handoff-plus-note metabolism commit;
+  - a maximum of five memory notes in ordinary bounded recall;
+  - journal pages and annotations excluded from automatic recall;
+  - manual exact-resident journal cognition with body-free job state;
+  - list/detail/history/lifecycle/journal commands and deterministic frontend
+    fixtures;
+  - renderer contract in `desktop/src/shared/api/tauriNotebook.ts`.
+- Focused checks:
+  - `cargo test -p luca-protocol --lib`: 8 passed;
+  - `cargo test -p luca-continuity --lib`: 52 passed;
+  - `cargo test -p buzz-acp --lib`: 617 passed;
+  - focused signing startup regression: 2 passed;
+  - `cargo clippy -p luca-protocol -p luca-continuity -p buzz-acp --all-targets -- -D warnings`: passed;
+  - desktop clippy with warnings denied: passed;
+  - desktop TypeScript typecheck and focused Biome check: passed.
+- Full desktop suite first pass: 1752 passed, 13 ignored, 2 stale signing
+  startup fixtures failed. Production source was byte-identical to the
+  functional-beta baseline. The fixture was repaired to account for the
+  already-required handoff-recorded terminal state; its two focused tests pass.
+- Full desktop suite after that repair: 1753 passed, 13 ignored, with one
+  unrelated macOS process-spawn test reporting a transient `ENOENT`. The exact
+  isolated test passed immediately; no product source change was made for the
+  environment-only failure.
+- Production renderer build: passed (`tsc && vite build`).
+- Privacy evidence:
+  - journal scheduler schema contains no prompt, title, Markdown, body, or
+    content columns;
+  - unknown protocol fields and excessive bodies/counts fail closed;
+  - ordinary context tests exclude journals and cap notes at five;
+  - private body-bearing request/view types have no diagnostic `Debug` path.
+- Real Hermes/OpenClaw proof: pending H17.
+- Frontend and installed-app gates: intentionally deferred to H18/H19.

@@ -18,6 +18,11 @@ use crate::luca::continuity_runtime::{
     ContinuityReadLeaseOutcomeV1, ContinuityReadLeaseRequestV1, ContinuityReadLeaseViewV1,
     ContinuityRuntimeState, ResidentHandoffCommitOutcomeV1, ResidentHandoffCommitRequestV1,
 };
+use crate::luca::resident_notebook::{
+    ResidentJournalCommitRequestV1, ResidentMetabolismCommitOutcomeV1,
+    ResidentMetabolismCommitRequestV1, ResidentNotebookMutationOutcomeV1,
+    ResidentNotebookReadOutcomeV1,
+};
 use crate::managed_agents::config_bridge::SessionConfigCache;
 use crate::managed_agents::ManagedAgentProcess;
 
@@ -345,6 +350,100 @@ impl AppState {
             &self.continuity_lifecycle,
             &self.continuity_runtime,
             request,
+        )
+    }
+
+    /// Atomically commit the V1.1 handoff and memory-note proposal.
+    pub(crate) fn commit_resident_metabolism(
+        &self,
+        request: ResidentMetabolismCommitRequestV1,
+    ) -> ResidentMetabolismCommitOutcomeV1 {
+        crate::luca::resident_notebook::commit_resident_metabolism(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            request,
+        )
+    }
+
+    /// Commit one same-resident journal page after private cognition.
+    pub(crate) fn commit_resident_journal_page(
+        &self,
+        request: ResidentJournalCommitRequestV1,
+    ) -> ResidentNotebookMutationOutcomeV1 {
+        crate::luca::resident_notebook::commit_resident_journal_page(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            request,
+        )
+    }
+
+    /// Explicitly disclose notebook items to an owner-facing command.
+    pub(crate) fn read_resident_notebook(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+        resident_pubkey: &luca_protocol::Hex64,
+        include_history: bool,
+    ) -> ResidentNotebookReadOutcomeV1 {
+        crate::luca::resident_notebook::read_resident_notebook(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            resident_pubkey,
+            include_history,
+        )
+    }
+
+    /// Append a pinned owner correction to one resident memory-note lineage.
+    pub(crate) fn correct_resident_memory_note(
+        &self,
+        owner_pubkey: luca_protocol::Hex64,
+        resident_pubkey: luca_protocol::Hex64,
+        target_note_id: luca_protocol::OpaqueId,
+        request_id: luca_protocol::OpaqueId,
+        note: luca_protocol::ResidentMemoryNoteV1,
+    ) -> ResidentNotebookMutationOutcomeV1 {
+        crate::luca::resident_notebook::correct_resident_memory_note(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            resident_pubkey,
+            target_note_id,
+            request_id,
+            note,
+        )
+    }
+
+    /// Attach a separate, visibly owner-authored annotation to a journal page.
+    pub(crate) fn annotate_resident_journal_page(
+        &self,
+        request_id: luca_protocol::OpaqueId,
+        annotation: luca_protocol::ResidentJournalAnnotationV1,
+    ) -> ResidentNotebookMutationOutcomeV1 {
+        crate::luca::resident_notebook::annotate_resident_journal_page(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            request_id,
+            annotation,
+        )
+    }
+
+    /// Archive or forget one exact resident notebook lineage.
+    pub(crate) fn change_resident_notebook_lifecycle(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+        resident_pubkey: &luca_protocol::Hex64,
+        lineage_root_id: &luca_protocol::OpaqueId,
+        request_id: &luca_protocol::OpaqueId,
+        forget: bool,
+    ) -> ResidentNotebookMutationOutcomeV1 {
+        crate::luca::resident_notebook::change_resident_notebook_lifecycle(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            resident_pubkey,
+            lineage_root_id,
+            request_id,
+            forget,
         )
     }
 

@@ -3542,10 +3542,10 @@ fn dispatch_private_cognition(
     pending: &mut HashMap<String, tokio::sync::oneshot::Sender<local_cognition::CognitionReply>>,
 ) {
     let request = envelope.request;
-    let job_id = request.job_id.as_str().to_owned();
+    let job_id = request.job_id().as_str().to_owned();
     let authorized = ctx.managed_final_publisher.as_ref().is_some_and(|managed| {
-        request.owner_pubkey == managed.owner_pubkey
-            && request.resident_pubkey == managed.resident_pubkey
+        request.owner_pubkey() == &managed.owner_pubkey
+            && request.resident_pubkey() == &managed.resident_pubkey
     });
     if !authorized || pending.contains_key(&job_id) {
         let _ = envelope
@@ -3613,22 +3613,38 @@ fn resolve_private_cognition_result(
     let PromptSource::Continuity(request) = &result.source else {
         return;
     };
-    let Some(reply_tx) = pending.remove(request.job_id.as_str()) else {
+    let Some(reply_tx) = pending.remove(request.job_id().as_str()) else {
         return;
     };
     let reply = if matches!(result.outcome, PromptOutcome::Ok(_)) {
         result
             .private_output
             .take()
-            .filter(|output| output.len() <= request.max_result_bytes.get() as usize)
-            .and_then(|output| {
-                serde_json::from_str::<luca_protocol::LocalContinuityCognitionResultV1>(&output)
+            .filter(|output| output.len() <= request.max_result_bytes().get() as usize)
+            .and_then(|output| match request.as_ref() {
+                luca_protocol::ResidentPrivateCognitionRequestV1::Metabolism { request: _ } => {
+                    serde_json::from_str::<luca_protocol::LocalContinuityCognitionResultV1>(&output)
+                        .ok()
+                        .map(
+                            |result| luca_protocol::ResidentPrivateCognitionResultV1::Metabolism {
+                                result,
+                            },
+                        )
+                }
+                luca_protocol::ResidentPrivateCognitionRequestV1::Journal { request: _ } => {
+                    serde_json::from_str::<luca_protocol::CreateResidentJournalPageResultV1>(
+                        &output,
+                    )
                     .ok()
+                    .map(|result| {
+                        luca_protocol::ResidentPrivateCognitionResultV1::Journal { result }
+                    })
+                }
             })
             .filter(|parsed| {
                 parsed.validate_against(request).is_ok()
                     && luca_protocol::canonicalize(parsed)
-                        .is_ok_and(|bytes| bytes.len() <= request.max_result_bytes.get() as usize)
+                        .is_ok_and(|bytes| bytes.len() <= request.max_result_bytes().get() as usize)
             })
             .map(|result| local_cognition::CognitionReply::Completed(Box::new(result)))
             .unwrap_or(local_cognition::CognitionReply::Unavailable(
