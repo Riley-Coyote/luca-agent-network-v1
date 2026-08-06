@@ -9,9 +9,9 @@ use std::{fmt, path::Path, sync::Mutex, time::Instant};
 
 use luca_continuity::{
     decrypt_record, derive_revision_idempotency_key, encrypt_record, encrypted_record_reference,
-    InMemoryRetrievalIndex, NamespaceScope, RecordMetadata, RetrievalMaterialV1, RetrievalQuery,
-    RetrievalRecord, RetrievalRecordState, RetrievalResult, RetrievalText, RevisionActor,
-    RevisionLifecycle, RevisionOperation, RevisionRequest,
+    InMemoryRetrievalIndex, NamespaceScope, PurgeExecutionStatusV1, RecordMetadata,
+    RetrievalMaterialV1, RetrievalQuery, RetrievalRecord, RetrievalRecordState, RetrievalResult,
+    RetrievalText, RevisionActor, RevisionLifecycle, RevisionOperation, RevisionRequest,
 };
 use luca_protocol::{
     canonical_sha256, Hex64, OpaqueId, ResidentHandoffV1, SafeU53, Sha256Ref,
@@ -180,6 +180,315 @@ pub(crate) enum ResidentHandoffCommitOutcomeV1 {
     Invalid,
 }
 
+/// Plaintext is returned only to the explicit owner-facing inspector command.
+/// This type intentionally has no `Debug` implementation.
+pub(crate) struct ResidentHandoffViewV1 {
+    pub(crate) handoff: ResidentHandoffV1,
+    pub(crate) lineage_root_id: OpaqueId,
+    pub(crate) record_id: OpaqueId,
+    pub(crate) revision: SafeU53,
+    pub(crate) pinned_owner_correction: bool,
+}
+
+pub(crate) enum ResidentHandoffReadOutcomeV1 {
+    Ready(ResidentHandoffViewV1),
+    Empty,
+    Locked,
+    Unavailable,
+    Invalid,
+}
+
+/// Body-free proof that the effective handoff lineage was forgotten and its
+/// encrypted revisions were physically purged.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ResidentHandoffForgetReceiptV1 {
+    pub(crate) resident_pubkey: Hex64,
+    pub(crate) lineage_root_id: OpaqueId,
+    pub(crate) purged_revision_count: usize,
+    pub(crate) replayed: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ResidentHandoffForgetOutcomeV1 {
+    Forgotten(ResidentHandoffForgetReceiptV1),
+    Empty,
+    Locked,
+    Unavailable,
+    Stale,
+    Invalid,
+}
+
+/// Read the one effective handoff for an intentional owner disclosure. Normal
+/// pre-turn retrieval continues to use immutable leases and never calls this.
+pub(crate) fn read_resident_handoff(
+    lifecycle: &ContinuityLifecycleLock,
+    runtime_state: &Mutex<ContinuityRuntimeState>,
+    owner_pubkey: &Hex64,
+    resident_pubkey: &Hex64,
+) -> ResidentHandoffReadOutcomeV1 {
+    if owner_pubkey == resident_pubkey {
+        return ResidentHandoffReadOutcomeV1::Invalid;
+    }
+    let _lifecycle_guard = match lifecycle.lock() {
+        Ok(guard) => guard,
+        Err(_) => return ResidentHandoffReadOutcomeV1::Unavailable,
+    };
+    let root = match load_existing_desktop_master_key() {
+        ContinuityMasterKeyState::Ready(root) => root,
+        ContinuityMasterKeyState::Locked => return ResidentHandoffReadOutcomeV1::Locked,
+        ContinuityMasterKeyState::Unavailable => {
+            return ResidentHandoffReadOutcomeV1::Unavailable;
+        }
+        ContinuityMasterKeyState::Corrupt => return ResidentHandoffReadOutcomeV1::Invalid,
+    };
+    let state = match runtime_state.lock() {
+        Ok(state) => state,
+        Err(_) => return ResidentHandoffReadOutcomeV1::Unavailable,
+    };
+    let runtime = match &*state {
+        ContinuityRuntimeState::Ready(runtime) if &runtime.owner_pubkey == owner_pubkey => runtime,
+        ContinuityRuntimeState::Ready(_) => return ResidentHandoffReadOutcomeV1::Invalid,
+        ContinuityRuntimeState::Degraded(ContinuityRuntimeDegradedReason::KeyLocked) => {
+            return ResidentHandoffReadOutcomeV1::Locked;
+        }
+        ContinuityRuntimeState::Degraded(_) | ContinuityRuntimeState::Uninitialized => {
+            return ResidentHandoffReadOutcomeV1::Unavailable;
+        }
+    };
+    let key_version = match runtime.store.active_owner_key_version(owner_pubkey) {
+        Ok(value) => value,
+        Err(_) => return ResidentHandoffReadOutcomeV1::Unavailable,
+    };
+    let address = match resident_notebook_address(owner_pubkey, resident_pubkey, key_version) {
+        Ok(value) => value,
+        Err(_) => return ResidentHandoffReadOutcomeV1::Invalid,
+    };
+    let generation = match runtime.store.load_revision_generation(owner_pubkey) {
+        Ok(Some(value)) => value,
+        Ok(None) => return ResidentHandoffReadOutcomeV1::Empty,
+        Err(_) => return ResidentHandoffReadOutcomeV1::Unavailable,
+    };
+    let matching = generation
+        .snapshot
+        .lineages
+        .iter()
+        .filter(|lineage| {
+            lineage.lifecycle == RevisionLifecycle::Active
+                && lineage.record_type.as_str() == "handoff"
+                && lineage.namespace == *address.namespace().as_protocol()
+                && lineage.scope == *address.as_protocol()
+        })
+        .collect::<Vec<_>>();
+    let [lineage] = matching.as_slice() else {
+        return if matching.is_empty() {
+            ResidentHandoffReadOutcomeV1::Empty
+        } else {
+            ResidentHandoffReadOutcomeV1::Invalid
+        };
+    };
+    let Some(head_id) = lineage.active_head_record_id.as_ref() else {
+        return ResidentHandoffReadOutcomeV1::Invalid;
+    };
+    let Some(encrypted) = generation
+        .snapshot
+        .records
+        .iter()
+        .find(|record| &record.record_id == head_id)
+    else {
+        return ResidentHandoffReadOutcomeV1::Invalid;
+    };
+    let namespace_key = match derive_namespace_key(&root, address.namespace()) {
+        Ok(value) => value,
+        Err(_) => return ResidentHandoffReadOutcomeV1::Invalid,
+    };
+    let material = match decrypt_record(encrypted, namespace_key.as_bytes())
+        .and_then(RetrievalMaterialV1::decode)
+    {
+        Ok(value) => value,
+        Err(_) => return ResidentHandoffReadOutcomeV1::Invalid,
+    };
+    if material.provenance_refs() != encrypted.provenance_refs.as_slice()
+        || material.tags().len() != 1
+        || material.tags()[0].as_str() != "handoff"
+    {
+        return ResidentHandoffReadOutcomeV1::Invalid;
+    }
+    let handoff = match serde_json::from_str::<ResidentHandoffV1>(material.body()) {
+        Ok(value) if value.validate().is_ok() => value,
+        _ => return ResidentHandoffReadOutcomeV1::Invalid,
+    };
+    ResidentHandoffReadOutcomeV1::Ready(ResidentHandoffViewV1 {
+        handoff,
+        lineage_root_id: lineage.lineage_root_id.clone(),
+        record_id: encrypted.record_id.clone(),
+        revision: encrypted.revision,
+        pinned_owner_correction: lineage.pinned_owner_correction,
+    })
+}
+
+/// Forget the one effective handoff and physically purge every encrypted
+/// revision. Only body-free tombstones and lifecycle metadata remain.
+pub(crate) fn forget_resident_handoff(
+    lifecycle: &ContinuityLifecycleLock,
+    runtime_state: &Mutex<ContinuityRuntimeState>,
+    owner_pubkey: &Hex64,
+    resident_pubkey: &Hex64,
+    request_id: &OpaqueId,
+) -> ResidentHandoffForgetOutcomeV1 {
+    if owner_pubkey == resident_pubkey {
+        return ResidentHandoffForgetOutcomeV1::Invalid;
+    }
+    let _lifecycle_guard = match lifecycle.lock() {
+        Ok(guard) => guard,
+        Err(_) => return ResidentHandoffForgetOutcomeV1::Unavailable,
+    };
+    match load_existing_desktop_master_key() {
+        ContinuityMasterKeyState::Ready(_) => {}
+        ContinuityMasterKeyState::Locked => return ResidentHandoffForgetOutcomeV1::Locked,
+        ContinuityMasterKeyState::Unavailable => {
+            return ResidentHandoffForgetOutcomeV1::Unavailable;
+        }
+        ContinuityMasterKeyState::Corrupt => return ResidentHandoffForgetOutcomeV1::Invalid,
+    }
+    forget_resident_handoff_locked(runtime_state, owner_pubkey, resident_pubkey, request_id)
+}
+
+fn forget_resident_handoff_locked(
+    runtime_state: &Mutex<ContinuityRuntimeState>,
+    owner_pubkey: &Hex64,
+    resident_pubkey: &Hex64,
+    request_id: &OpaqueId,
+) -> ResidentHandoffForgetOutcomeV1 {
+    let mut state = match runtime_state.lock() {
+        Ok(state) => state,
+        Err(_) => return ResidentHandoffForgetOutcomeV1::Unavailable,
+    };
+    let runtime = match &mut *state {
+        ContinuityRuntimeState::Ready(runtime) if &runtime.owner_pubkey == owner_pubkey => runtime,
+        ContinuityRuntimeState::Ready(_) => return ResidentHandoffForgetOutcomeV1::Invalid,
+        ContinuityRuntimeState::Degraded(ContinuityRuntimeDegradedReason::KeyLocked) => {
+            return ResidentHandoffForgetOutcomeV1::Locked;
+        }
+        ContinuityRuntimeState::Degraded(ContinuityRuntimeDegradedReason::RestorePending) => {
+            return ResidentHandoffForgetOutcomeV1::Stale;
+        }
+        ContinuityRuntimeState::Degraded(_) | ContinuityRuntimeState::Uninitialized => {
+            return ResidentHandoffForgetOutcomeV1::Unavailable;
+        }
+    };
+    let generation = match runtime.store.load_revision_generation(owner_pubkey) {
+        Ok(Some(value)) => value,
+        Ok(None) => return ResidentHandoffForgetOutcomeV1::Empty,
+        Err(_) => return ResidentHandoffForgetOutcomeV1::Unavailable,
+    };
+    let key_version = match runtime.store.active_owner_key_version(owner_pubkey) {
+        Ok(value) => value,
+        Err(_) => return ResidentHandoffForgetOutcomeV1::Unavailable,
+    };
+    let address = match resident_notebook_address(owner_pubkey, resident_pubkey, key_version) {
+        Ok(value) => value,
+        Err(_) => return ResidentHandoffForgetOutcomeV1::Invalid,
+    };
+    let matching = generation
+        .snapshot
+        .lineages
+        .iter()
+        .filter(|lineage| {
+            lineage.lifecycle == RevisionLifecycle::Active
+                && lineage.record_type.as_str() == "handoff"
+                && lineage.namespace == *address.namespace().as_protocol()
+                && lineage.scope == *address.as_protocol()
+        })
+        .collect::<Vec<_>>();
+    let [lineage] = matching.as_slice() else {
+        return if matching.is_empty() {
+            ResidentHandoffForgetOutcomeV1::Empty
+        } else {
+            ResidentHandoffForgetOutcomeV1::Invalid
+        };
+    };
+    let Some(head_id) = lineage.active_head_record_id.clone() else {
+        return ResidentHandoffForgetOutcomeV1::Invalid;
+    };
+    let request_ref = match canonical_sha256(&serde_json::json!({
+        "domain": "luca.resident-handoff.forget.v1",
+        "request_id": request_id,
+        "owner_pubkey": owner_pubkey,
+        "resident_pubkey": resident_pubkey,
+        "lineage_root_id": lineage.lineage_root_id,
+        "head_record_id": head_id,
+    }))
+    .ok()
+    .and_then(|digest| Sha256Ref::parse(format!("sha256:{digest}")).ok())
+    {
+        Some(value) => value,
+        None => return ResidentHandoffForgetOutcomeV1::Invalid,
+    };
+    let mut request = RevisionRequest {
+        idempotency_key: request_ref.clone(),
+        operation: RevisionOperation::Forget,
+        lineage_root_id: lineage.lineage_root_id.clone(),
+        expected_head_record_id: Some(head_id),
+        actor: RevisionActor::Owner,
+        signed_source_event_refs: Vec::new(),
+        request_ref,
+        successor: None,
+        successor_ciphertext_ref: None,
+        rollback_source_record_id: None,
+        derived_artifact_refs: lineage.derived_artifact_refs.clone(),
+    };
+    request.idempotency_key = match derive_revision_idempotency_key(
+        &lineage.namespace,
+        &lineage.scope,
+        &lineage.record_type,
+        lineage.lineage_envelope_key_version,
+        &request,
+    ) {
+        Ok(value) => value,
+        Err(_) => return ResidentHandoffForgetOutcomeV1::Invalid,
+    };
+    let lineage_root_id = lineage.lineage_root_id.clone();
+    let purged_revision_count = lineage.record_ids.len();
+    let transition = match runtime.store.apply_revision_transition_cas(
+        &AuthorityExpectationV1::Existing(generation.token),
+        request,
+    ) {
+        Ok(value) => value,
+        Err(ContinuityStoreError::CompareAndSwapConflict)
+        | Err(ContinuityStoreError::LifecycleConflict) => {
+            return ResidentHandoffForgetOutcomeV1::Stale;
+        }
+        Err(_) => return ResidentHandoffForgetOutcomeV1::Invalid,
+    };
+    let in_progress = match runtime.store.advance_purge_transition_cas(
+        &AuthorityExpectationV1::Existing(transition.token),
+        &lineage_root_id,
+        PurgeExecutionStatusV1::InProgress,
+    ) {
+        Ok(value) => value,
+        Err(ContinuityStoreError::CompareAndSwapConflict)
+        | Err(ContinuityStoreError::LifecycleConflict) => {
+            return ResidentHandoffForgetOutcomeV1::Stale;
+        }
+        Err(_) => return ResidentHandoffForgetOutcomeV1::Invalid,
+    };
+    match runtime.store.advance_purge_transition_cas(
+        &AuthorityExpectationV1::Existing(in_progress),
+        &lineage_root_id,
+        PurgeExecutionStatusV1::Completed,
+    ) {
+        Ok(_) => ResidentHandoffForgetOutcomeV1::Forgotten(ResidentHandoffForgetReceiptV1 {
+            resident_pubkey: resident_pubkey.clone(),
+            lineage_root_id,
+            purged_revision_count,
+            replayed: transition.replayed,
+        }),
+        Err(ContinuityStoreError::CompareAndSwapConflict)
+        | Err(ContinuityStoreError::LifecycleConflict) => ResidentHandoffForgetOutcomeV1::Stale,
+        Err(_) => ResidentHandoffForgetOutcomeV1::Invalid,
+    }
+}
+
 /// Commit one compact resident handoff under the existing lifecycle/key/store
 /// authority. Chat never depends on this result.
 pub(crate) fn commit_resident_handoff(
@@ -263,12 +572,28 @@ fn commit_resident_handoff_locked(
         Err(_) => return ResidentHandoffCommitOutcomeV1::Invalid,
     };
 
+    let correction_record_id = (request.kind == ResidentHandoffCommitKindV1::OwnerCorrection)
+        .then(|| {
+            handoff_revision_record_id(
+                &request.resident_pubkey,
+                &request.source_event_id,
+                &request.request_id,
+            )
+        })
+        .flatten();
     if let Some(existing) = generation.as_ref().and_then(|generation| {
         generation.snapshot.records.iter().find(|record| {
             record.record_type.as_str() == "handoff"
                 && record.namespace == *address.namespace().as_protocol()
                 && record.scope == *address.as_protocol()
-                && record.provenance_refs.binary_search(&source_ref).is_ok()
+                && match request.kind {
+                    ResidentHandoffCommitKindV1::ResidentAutomatic => {
+                        record.provenance_refs.binary_search(&source_ref).is_ok()
+                    }
+                    ResidentHandoffCommitKindV1::OwnerCorrection => {
+                        correction_record_id.as_ref() == Some(&record.record_id)
+                    }
+                }
         })
     }) {
         let lineage = generation.as_ref().and_then(|generation| {
@@ -380,8 +705,18 @@ fn commit_resident_handoff_locked(
     let record_id = if revision.get() == 0 {
         lineage_root_id.clone()
     } else {
-        match handoff_record_id(&request.resident_pubkey, &request.source_event_id) {
-            Ok(value) if value != lineage_root_id => value,
+        match match request.kind {
+            ResidentHandoffCommitKindV1::ResidentAutomatic => {
+                handoff_record_id(&request.resident_pubkey, &request.source_event_id)
+                    .ok()
+            }
+            ResidentHandoffCommitKindV1::OwnerCorrection => handoff_revision_record_id(
+                &request.resident_pubkey,
+                &request.source_event_id,
+                &request.request_id,
+            ),
+        } {
+            Some(value) if value != lineage_root_id => value,
             _ => return ResidentHandoffCommitOutcomeV1::Invalid,
         }
     };
@@ -529,6 +864,21 @@ fn handoff_record_id(
         &resident_pubkey.as_str()[..12],
         &source_event_id.as_str()[..16]
     ))
+}
+
+fn handoff_revision_record_id(
+    resident_pubkey: &Hex64,
+    source_event_id: &Hex64,
+    request_id: &OpaqueId,
+) -> Option<OpaqueId> {
+    let digest = canonical_sha256(&serde_json::json!({
+        "domain": "luca.resident-handoff.revision-record.v1",
+        "resident_pubkey": resident_pubkey,
+        "source_event_id": source_event_id,
+        "request_id": request_id,
+    }))
+    .ok()?;
+    OpaqueId::parse(format!("handoff-revision-{}", &digest.as_str()[..24])).ok()
 }
 
 /// Initialize the one runtime after owner identity and recovery state resolve.
@@ -1759,7 +2109,7 @@ mod tests {
             &runtime,
             handoff_request(
                 '2',
-                '8',
+                '6',
                 "Owner-corrected handoff.",
                 ResidentHandoffCommitKindV1::OwnerCorrection,
             ),
@@ -1769,6 +2119,22 @@ mod tests {
             panic!("expected owner correction");
         };
         assert!(correction.pinned_owner_correction);
+        assert_eq!(correction.revision.get(), 1);
+        let correction_replay = commit_resident_handoff_locked(
+            &runtime,
+            handoff_request(
+                '2',
+                '6',
+                "A replay cannot change the pinned correction.",
+                ResidentHandoffCommitKindV1::OwnerCorrection,
+            ),
+            ContinuityMasterKey::new_for_test(ROOT_BYTES),
+        );
+        let ResidentHandoffCommitOutcomeV1::Committed(correction_replay) = correction_replay else {
+            panic!("expected owner correction replay");
+        };
+        assert!(correction_replay.replayed);
+        assert_eq!(correction_replay.record_id, correction.record_id);
         let later_automatic = commit_resident_handoff_locked(
             &runtime,
             handoff_request(
@@ -1780,6 +2146,64 @@ mod tests {
             ContinuityMasterKey::new_for_test(ROOT_BYTES),
         );
         assert_eq!(later_automatic, ResidentHandoffCommitOutcomeV1::Stale);
+    }
+
+    #[test]
+    fn owner_forget_physically_purges_every_encrypted_handoff_revision() {
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = empty_runtime(&temp);
+        for source in ['6', '7'] {
+            let outcome = commit_resident_handoff_locked(
+                &runtime,
+                handoff_request(
+                    '2',
+                    source,
+                    "Resident-private continuity.",
+                    ResidentHandoffCommitKindV1::ResidentAutomatic,
+                ),
+                ContinuityMasterKey::new_for_test(ROOT_BYTES),
+            );
+            assert!(matches!(
+                outcome,
+                ResidentHandoffCommitOutcomeV1::Committed(_)
+            ));
+        }
+
+        let outcome = forget_resident_handoff_locked(
+            &runtime,
+            &hex('1'),
+            &hex('2'),
+            &id("owner-forget-test"),
+        );
+        let ResidentHandoffForgetOutcomeV1::Forgotten(receipt) = outcome else {
+            panic!("expected forgotten handoff");
+        };
+        assert_eq!(receipt.purged_revision_count, 2);
+
+        let generation = {
+            let state = runtime.lock().unwrap();
+            let ContinuityRuntimeState::Ready(runtime) = &*state else {
+                panic!("ready runtime");
+            };
+            runtime
+                .store
+                .load_revision_generation(&hex('1'))
+                .unwrap()
+                .unwrap()
+        };
+        assert!(generation.snapshot.records.is_empty());
+        assert_eq!(generation.snapshot.lineages.len(), 1);
+        assert_eq!(
+            generation.snapshot.lineages[0].lifecycle,
+            RevisionLifecycle::Forgotten
+        );
+        assert_eq!(
+            generation.snapshot.lineages[0]
+                .purge_execution
+                .as_ref()
+                .map(|purge| purge.status),
+            Some(PurgeExecutionStatusV1::Completed)
+        );
     }
 
     #[test]

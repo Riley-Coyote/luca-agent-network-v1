@@ -353,6 +353,37 @@ impl AppState {
         )
     }
 
+    /// Intentionally disclose the effective handoff to an owner-facing local
+    /// inspector command. This path never serves normal runtime prompts.
+    pub(crate) fn read_resident_handoff(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+        resident_pubkey: &luca_protocol::Hex64,
+    ) -> crate::luca::continuity_runtime::ResidentHandoffReadOutcomeV1 {
+        crate::luca::continuity_runtime::read_resident_handoff(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            resident_pubkey,
+        )
+    }
+
+    /// Forget and physically purge the effective encrypted handoff lineage.
+    pub(crate) fn forget_resident_handoff(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+        resident_pubkey: &luca_protocol::Hex64,
+        request_id: &luca_protocol::OpaqueId,
+    ) -> crate::luca::continuity_runtime::ResidentHandoffForgetOutcomeV1 {
+        crate::luca::continuity_runtime::forget_resident_handoff(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            resident_pubkey,
+            request_id,
+        )
+    }
+
     /// Lock the huddle state mutex, converting a poisoned-lock error to a String.
     ///
     /// Convenience wrapper — replaces 15+ instances of

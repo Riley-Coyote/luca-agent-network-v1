@@ -19,6 +19,7 @@ import {
   type AgentSessionTranscriptEmptyState,
 } from "./AgentSessionTranscriptList";
 import { RawEventRail } from "./RawEventRail";
+import { ResidentContinuityActivity } from "./ResidentContinuityActivity";
 import type {
   ConnectionState,
   ObserverEvent,
@@ -138,12 +139,18 @@ export function ManagedAgentSessionPanel({
       )}
     >
       {showHeader ? (
-        <SessionHeader
-          connectionState={connectionState}
-          eventCount={displayEvents.length}
-          hasObserver={hasObserver}
-          latestSessionId={latestSessionId}
-        />
+        <>
+          <SessionHeader
+            connectionState={connectionState}
+            eventCount={displayEvents.length}
+            hasObserver={hasObserver}
+            latestSessionId={latestSessionId}
+          />
+          <ResidentContinuityActivity
+            className="mt-2"
+            residentPubkey={agent.pubkey}
+          />
+        </>
       ) : null}
 
       <SessionBody

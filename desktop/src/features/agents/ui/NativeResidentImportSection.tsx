@@ -3,6 +3,7 @@ import { Download, LoaderCircle, RefreshCw, TriangleAlert } from "lucide-react";
 
 import { useCreateManagedAgentMutation } from "@/features/agents/hooks";
 import { discoverNativeResidents } from "@/shared/api/tauri";
+import { setResidentContinuityEnabled } from "@/shared/api/tauriContinuity";
 import type {
   DiscoveredResidentCandidate,
   ManagedAgent,
@@ -10,6 +11,7 @@ import type {
   RuntimeBinding,
 } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
+import { Switch } from "@/shared/ui/switch";
 
 function bindingIdentity(binding: RuntimeBinding): string {
   return binding.kind === "hermes"
@@ -34,6 +36,9 @@ export function NativeResidentImportSection({
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [importing, setImporting] = React.useState<string | null>(null);
+  const [continuityChoices, setContinuityChoices] = React.useState<
+    Record<string, boolean>
+  >({});
   const createMutation = useCreateManagedAgentMutation();
 
   const imported = React.useMemo(
@@ -84,6 +89,18 @@ export function NativeResidentImportSection({
         spawnAfterCreate: true,
         startOnAppLaunch: true,
       });
+      const continuityEnabled = continuityChoices[identity] ?? true;
+      try {
+        await setResidentContinuityEnabled(
+          result.agent.pubkey,
+          continuityEnabled,
+        );
+      } catch (cause) {
+        setError(
+          `${candidate.displayName} was imported, but its continuity preference could not be saved: ${cause instanceof Error ? cause.message : String(cause)}`,
+        );
+        return;
+      }
       if (result.spawnError) {
         setError(
           `${candidate.displayName} was imported but could not start: ${result.spawnError}`,
@@ -136,6 +153,10 @@ export function NativeResidentImportSection({
           <p className="mt-1 text-sm text-muted-foreground">
             Import their existing identity and configuration. Luca does not copy
             their credentials.
+          </p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Continuity keeps a small encrypted handoff in Luca, separate from
+            each agent&apos;s native memory. It can be disabled per resident.
           </p>
         </div>
         <Button
@@ -190,6 +211,22 @@ export function NativeResidentImportSection({
                       {warning.message}
                     </p>
                   ))}
+                  {!isImported ? (
+                    <div className="mt-2 flex w-fit items-center gap-2 text-xs text-muted-foreground">
+                      <Switch
+                        aria-label={`Enable Luca continuity for ${candidate.displayName}`}
+                        checked={continuityChoices[identity] ?? true}
+                        disabled={importing !== null}
+                        onCheckedChange={(enabled) =>
+                          setContinuityChoices((current) => ({
+                            ...current,
+                            [identity]: enabled,
+                          }))
+                        }
+                      />
+                      Encrypted Luca handoff
+                    </div>
+                  ) : null}
                 </div>
                 <Button
                   disabled={isImported || unavailable || importing !== null}

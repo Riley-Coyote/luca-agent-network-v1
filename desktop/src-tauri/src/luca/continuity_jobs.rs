@@ -32,6 +32,17 @@ pub(crate) struct FinalizedHandoffJob {
     pub(crate) attempt_count: u64,
 }
 
+/// Body-free resident inspector projection. Private handoff text is never
+/// stored in or returned by the job database.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ResidentHandoffJobStatusV1 {
+    pub(crate) job_id: OpaqueId,
+    pub(crate) state: String,
+    pub(crate) last_error_code: Option<String>,
+    pub(crate) updated_at: String,
+    pub(crate) can_retry: bool,
+}
+
 pub(crate) fn enqueue_finalized(
     app: &AppHandle,
     publish_request: &luca_protocol::ManagedMessagePublishRequestV1,
@@ -164,6 +175,135 @@ pub(crate) fn set_continuity_mode(
         .map_err(|_| "commit resident continuity mode".to_owned())
 }
 
+pub(crate) fn latest_job_status(
+    app: &AppHandle,
+    owner_pubkey: &luca_protocol::Hex64,
+    resident_pubkey: &luca_protocol::Hex64,
+) -> Result<Option<ResidentHandoffJobStatusV1>, String> {
+    let connection = open_store(&job_store_path(app)?)?;
+    connection
+        .query_row(
+            "SELECT job_id, state, last_error_code, updated_at, manual_retry_count
+             FROM handoff_jobs
+             WHERE owner_pubkey = ?1 AND resident_pubkey = ?2
+             ORDER BY updated_at DESC, created_at DESC LIMIT 1",
+            params![owner_pubkey.as_str(), resident_pubkey.as_str()],
+            |row| {
+                let job_id = row.get::<_, String>(0)?;
+                let state = row.get::<_, String>(1)?;
+                let last_error_code = row.get::<_, Option<String>>(2)?;
+                let updated_at = row.get::<_, String>(3)?;
+                let manual_retry_count = row.get::<_, u64>(4)?;
+                Ok((
+                    job_id,
+                    state,
+                    last_error_code,
+                    updated_at,
+                    manual_retry_count,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|_| "load resident handoff job status".to_owned())?
+        .map(|(job_id, state, last_error_code, updated_at, manual_retry_count)| {
+            Ok(ResidentHandoffJobStatusV1 {
+                job_id: OpaqueId::parse(job_id)
+                    .map_err(|_| "invalid resident handoff job status".to_owned())?,
+                can_retry: state == "failed" && manual_retry_count == 0,
+                state,
+                last_error_code,
+                updated_at,
+            })
+        })
+        .transpose()
+}
+
+/// Allow exactly one explicit owner retry for the latest failed job. Runtime
+/// retry ceilings remain independent and cannot be reset repeatedly.
+pub(crate) fn retry_latest_failed(
+    app: &AppHandle,
+    owner_pubkey: &luca_protocol::Hex64,
+    resident_pubkey: &luca_protocol::Hex64,
+) -> Result<Option<OpaqueId>, String> {
+    if continuity_mode(app, owner_pubkey, resident_pubkey)?
+        != ResidentContinuityModeV1::Enabled
+    {
+        return Err("continuity is disabled for this resident".to_owned());
+    }
+    let mut connection = open_store(&job_store_path(app)?)?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|_| "retry resident handoff job".to_owned())?;
+    let job_id = retry_latest_failed_in_store(&transaction, owner_pubkey, resident_pubkey)?;
+    transaction
+        .commit()
+        .map_err(|_| "commit resident handoff retry".to_owned())?;
+    let Some(job_id) = job_id else {
+        return Ok(None);
+    };
+    spawn_job(app.clone(), job_id.clone(), RETRY_DELAY);
+    Ok(Some(job_id))
+}
+
+fn retry_latest_failed_in_store(
+    transaction: &rusqlite::Transaction<'_>,
+    owner_pubkey: &luca_protocol::Hex64,
+    resident_pubkey: &luca_protocol::Hex64,
+) -> Result<Option<OpaqueId>, String> {
+    let job_id = transaction
+        .query_row(
+            "SELECT job_id FROM handoff_jobs
+             WHERE owner_pubkey = ?1 AND resident_pubkey = ?2
+               AND state = 'failed' AND manual_retry_count = 0
+             ORDER BY updated_at DESC, created_at DESC LIMIT 1",
+            params![owner_pubkey.as_str(), resident_pubkey.as_str()],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|_| "load failed resident handoff job".to_owned())?;
+    let Some(job_id) = job_id else {
+        return Ok(None);
+    };
+    let changed = transaction
+        .execute(
+            "UPDATE handoff_jobs
+             SET state = 'pending', attempt_count = 0, manual_retry_count = 1,
+                 last_error_code = 'manual_retry_requested', updated_at = ?2
+             WHERE job_id = ?1 AND state = 'failed' AND manual_retry_count = 0",
+            params![job_id, chrono::Utc::now().to_rfc3339()],
+        )
+        .map_err(|_| "schedule resident handoff retry".to_owned())?;
+    if changed != 1 {
+        return Err("resident handoff retry conflict".to_owned());
+    }
+    let job_id = OpaqueId::parse(job_id)
+        .map_err(|_| "invalid resident handoff job identifier".to_owned())?;
+    Ok(Some(job_id))
+}
+
+/// Cancel work anchored before an explicit owner forget. Future finalized
+/// responses may create a new handoff because the resident mode is unchanged.
+pub(crate) fn cancel_active_for_forget(
+    app: &AppHandle,
+    owner_pubkey: &luca_protocol::Hex64,
+    resident_pubkey: &luca_protocol::Hex64,
+) -> Result<usize, String> {
+    let connection = open_store(&job_store_path(app)?)?;
+    connection
+        .execute(
+            "UPDATE handoff_jobs
+             SET state = 'cancelled', last_error_code = 'owner_forgot_handoff', updated_at = ?3
+             WHERE owner_pubkey = ?1 AND resident_pubkey = ?2
+               AND state IN ('pending','running')",
+            params![
+                owner_pubkey.as_str(),
+                resident_pubkey.as_str(),
+                chrono::Utc::now().to_rfc3339(),
+            ],
+        )
+        .map_err(|_| "cancel resident handoff jobs for forget".to_owned())
+}
+
 fn set_mode_in_store(
     transaction: &rusqlite::Transaction<'_>,
     owner_pubkey: &luca_protocol::Hex64,
@@ -269,8 +409,9 @@ fn execute_job(app: &AppHandle, job_id: &OpaqueId) {
         LocalContinuityCognitionOutcomeV1::Handoff { handoff } => {
             if continuity_mode(app, &job.job.owner_pubkey, &job.job.resident_pubkey)
                 != Ok(ResidentContinuityModeV1::Enabled)
+                || !job_is_running(app, &job)
             {
-                let _ = transition_terminal(app, &job, "cancelled", "continuity_disabled");
+                let _ = transition_terminal(app, &job, "cancelled", "continuity_preempted");
                 return;
             }
             let state = app.state::<AppState>();
@@ -301,6 +442,26 @@ fn execute_job(app: &AppHandle, job_id: &OpaqueId) {
             }
         }
     }
+}
+
+fn job_is_running(app: &AppHandle, job: &FinalizedHandoffJob) -> bool {
+    let Ok(path) = job_store_path(app) else {
+        return false;
+    };
+    let Ok(connection) = open_store(&path) else {
+        return false;
+    };
+    connection
+        .query_row(
+            "SELECT 1 FROM handoff_jobs
+             WHERE job_id = ?1 AND state = 'running' AND attempt_count = ?2",
+            params![job.job.job_id.as_str(), job.attempt_count],
+            |_| Ok(()),
+        )
+        .optional()
+        .ok()
+        .flatten()
+        .is_some()
 }
 
 fn retry_or_fail(app: &AppHandle, job: &FinalizedHandoffJob, code: &'static str) {
@@ -470,6 +631,7 @@ fn open_store(path: &Path) -> Result<Connection, String> {
                 binding_ref TEXT NOT NULL,
                 state TEXT NOT NULL CHECK(state IN ('pending','running','completed','cancelled','failed')),
                 attempt_count INTEGER NOT NULL CHECK(attempt_count >= 0),
+                manual_retry_count INTEGER NOT NULL DEFAULT 0 CHECK(manual_retry_count IN (0, 1)),
                 last_error_code TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -483,7 +645,29 @@ fn open_store(path: &Path) -> Result<Connection, String> {
              );",
         )
         .map_err(|_| "initialize continuity job store".to_owned())?;
+    ensure_manual_retry_column(&connection)?;
     Ok(connection)
+}
+
+fn ensure_manual_retry_column(connection: &Connection) -> Result<(), String> {
+    let mut statement = connection
+        .prepare("PRAGMA table_info(handoff_jobs)")
+        .map_err(|_| "inspect continuity job store".to_owned())?;
+    let has_column = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|_| "inspect continuity job store".to_owned())?
+        .filter_map(Result::ok)
+        .any(|name| name == "manual_retry_count");
+    drop(statement);
+    if !has_column {
+        connection
+            .execute(
+                "ALTER TABLE handoff_jobs ADD COLUMN manual_retry_count INTEGER NOT NULL DEFAULT 0 CHECK(manual_retry_count IN (0, 1))",
+                [],
+            )
+            .map_err(|_| "migrate continuity job store".to_owned())?;
+    }
+    Ok(())
 }
 
 fn mode_from_store(
@@ -541,8 +725,12 @@ mod tests {
         for (job_id, target) in [("job-one", &resident), ("job-two", &other)] {
             store
                 .execute(
-                    "INSERT INTO handoff_jobs VALUES
-                     (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', 0, NULL, ?8, ?8)",
+                    "INSERT INTO handoff_jobs (
+                        job_id, idempotency_key, owner_pubkey, resident_pubkey,
+                        source_event_id, conversation_id, binding_ref, state,
+                        attempt_count, manual_retry_count, last_error_code, created_at, updated_at
+                     ) VALUES
+                     (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', 0, 0, NULL, ?8, ?8)",
                     params![
                         job_id,
                         key(if job_id == "job-one" { 'd' } else { 'e' }).as_str(),
@@ -597,8 +785,12 @@ mod tests {
         for (job_id, attempts) in [("recoverable", 1_u64), ("exhausted", 2_u64)] {
             store
                 .execute(
-                    "INSERT INTO handoff_jobs VALUES
-                     (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'running', ?8, NULL, ?9, ?9)",
+                    "INSERT INTO handoff_jobs (
+                        job_id, idempotency_key, owner_pubkey, resident_pubkey,
+                        source_event_id, conversation_id, binding_ref, state,
+                        attempt_count, manual_retry_count, last_error_code, created_at, updated_at
+                     ) VALUES
+                     (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'running', ?8, 0, NULL, ?9, ?9)",
                     params![
                         job_id,
                         key(if attempts == 1 { '2' } else { '3' }).as_str(),
@@ -636,6 +828,71 @@ mod tests {
         );
         let bytes = std::fs::read(path).unwrap();
         assert!(!String::from_utf8_lossy(&bytes).contains("private handoff text"));
+    }
+
+    #[test]
+    fn owner_can_retry_latest_failed_job_exactly_once() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("jobs.sqlite3");
+        let mut store = open_store(&path).unwrap();
+        let owner = key('a');
+        let resident = key('b');
+        store
+            .execute(
+                "INSERT INTO handoff_jobs (
+                    job_id, idempotency_key, owner_pubkey, resident_pubkey,
+                    source_event_id, conversation_id, binding_ref, state,
+                    attempt_count, manual_retry_count, last_error_code, created_at, updated_at
+                 ) VALUES
+                 (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'failed', 2, 0, 'runtime_failed', ?8, ?8)",
+                params![
+                    "retry-once",
+                    key('c').as_str(),
+                    owner.as_str(),
+                    resident.as_str(),
+                    key('d').as_str(),
+                    "conversation",
+                    format!("sha256:{}", key('e').as_str()),
+                    "2026-08-05T00:00:00Z",
+                ],
+            )
+            .unwrap();
+
+        let transaction = store
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        assert_eq!(
+            retry_latest_failed_in_store(&transaction, &owner, &resident).unwrap(),
+            Some(id("retry-once"))
+        );
+        transaction.commit().unwrap();
+
+        let transaction = store
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
+        assert_eq!(
+            retry_latest_failed_in_store(&transaction, &owner, &resident).unwrap(),
+            None
+        );
+        transaction.commit().unwrap();
+
+        let state: (String, u64, u64, String) = store
+            .query_row(
+                "SELECT state, attempt_count, manual_retry_count, last_error_code
+                 FROM handoff_jobs WHERE job_id = 'retry-once'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            state,
+            (
+                "pending".to_owned(),
+                0,
+                1,
+                "manual_retry_requested".to_owned(),
+            )
+        );
     }
 }
 

@@ -46,6 +46,7 @@ import {
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import { StatusEmoji } from "@/features/user-status/ui/StatusEmoji";
 import { BotIdenticon } from "@/features/messages/ui/BotIdenticon";
+import { ResidentContinuityPanel } from "@/features/profile/ui/ResidentContinuityPanel";
 import type { ManagedAgent, RelayAgent } from "@/shared/api/types";
 import { Spinner } from "@/shared/ui/spinner";
 import type {
@@ -229,6 +230,7 @@ export function ProfileSummaryView({
   const activeTurns = useAgentWorking(isBot ? pubkey : null).channels;
 
   const showMemoriesTab = isOwner === true && Boolean(pubkey);
+  const showContinuityTab = isOwner === true && managedAgent !== undefined;
   const showInstructionBlock =
     isOwner === true &&
     (agentInstruction !== null || handleEditPersona !== undefined);
@@ -305,6 +307,9 @@ export function ProfileSummaryView({
             : undefined,
       });
     }
+    if (showContinuityTab) {
+      items.push({ id: "continuity", label: "Continuity" });
+    }
     if (showMemoriesTab) {
       items.push({
         id: "memories",
@@ -324,6 +329,7 @@ export function ProfileSummaryView({
     memoryCount,
     runtimeTabStatus,
     showChannelsTab,
+    showContinuityTab,
     showInfoTab,
     showMemoriesTab,
     showRuntimeTab,
@@ -449,6 +455,9 @@ export function ProfileSummaryView({
               onOpenChannel={onOpenChannel}
               variant="embedded"
             />
+          ) : null}
+          {activeTab === "continuity" && managedAgent ? (
+            <ResidentContinuityPanel residentPubkey={managedAgent.pubkey} />
           ) : null}
           {activeTab === "memories" && pubkey ? (
             <MemoryFocusedView

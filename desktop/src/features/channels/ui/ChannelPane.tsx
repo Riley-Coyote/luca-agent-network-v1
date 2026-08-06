@@ -27,6 +27,7 @@ import { RightAuxiliaryPane } from "@/features/channels/ui/RightAuxiliaryPane";
 import { useChannelWorkingAgentPubkeys } from "@/features/agents/agentWorkingSignal";
 import { BotActivityComposerAction } from "@/features/channels/ui/BotActivityBar";
 import { ConversationAgentActivityStrip } from "@/features/channels/ui/ConversationAgentActivityStrip";
+import { ConversationContinuityActivity } from "@/features/agents/ui/ResidentContinuityActivity";
 import { useManagedPermissions } from "@/features/agents/useManagedPermissions";
 import { ManagedPermissionCard } from "@/features/agents/ui/ManagedPermissionCard";
 import {
@@ -513,6 +514,11 @@ export const ChannelPane = React.memo(function ChannelPane({
             onOpenAgentSession={onOpenAgentSession}
             sessionAgents={agentSessionAgents}
             workingPubkeys={composerWorkingBotPubkeys}
+          />
+          <ConversationContinuityActivity
+            agents={agentSessionAgents}
+            channelId={activeChannel?.id ?? null}
+            onOpenAgentSession={onOpenAgentSession}
           />
           {channelFind.isOpen ? (
             <div className={cn("absolute inset-x-0 z-40", channelChrome.top)}>
