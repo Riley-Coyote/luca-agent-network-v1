@@ -1,13 +1,13 @@
 # Luca V1.1-V1.3 roadmap control
 
-Status: planning complete; implementation not started
+Status: V1.1 backend implementation active
 
-Planning branch: `agent/v1.1-v1.3-roadmap`
+Implementation branch: `agent/v1.1-resident-notebook`
 
-Planning baseline: `36472636af120cb3213dcae84b3ff5827a7c8e93`
+Product baseline: `36472636af120cb3213dcae84b3ff5827a7c8e93`
 
-Product baseline: Luca V1 Functional Beta, whose accepted implementation and
-evidence live under `docs/luca/functional-beta/`.
+The accepted functional-beta implementation and evidence live under
+`docs/luca/functional-beta/`.
 
 This directory is the implementation authority for the next three incremental
 continuity releases. It deliberately replaces the breadth of the original G2
@@ -19,20 +19,22 @@ archive; it is not the active task graph for V1.1-V1.3.
 
 1. `00_START_HERE.md`
 2. `PRODUCT_CONTRACT.md`
-3. `ROADMAP.md`
-4. `ARCHITECTURE_CONTRACTS.md`
-5. `TASK_GRAPH.yaml`
-6. `ACCEPTANCE.md`
-7. `FRONTEND_INTEGRATION_HANDOFF.md`
-8. `DEMO_SCENARIOS.md`
-9. `DECISION_LEDGER.md`
-10. `RUN_LOG.md`
+3. `V1_1_BUILD_SPEC.md`
+4. `V1_1_FROZEN_INTERFACES.md`
+5. `ROADMAP.md`
+6. `ARCHITECTURE_CONTRACTS.md`
+7. `TASK_GRAPH.yaml`
+8. `ACCEPTANCE.md`
+9. `FRONTEND_INTEGRATION_HANDOFF.md`
+10. `DEMO_SCENARIOS.md`
+11. `DECISION_LEDGER.md`
+12. `RUN_LOG.md`
 
 ## Three-release promise
 
-- **V1.1 — Resident Notebook:** turn the current handoff into a selective,
-  source-backed hypomnema that can retain, revise, supersede, archive, and
-  recall a small number of meaningful notes.
+- **V1.1 — Resident Notebook and Living Journal:** retain selective,
+  source-backed continuity notes and add manually requested Markdown pages
+  authored by the resident. Journal pages never become automatic chat context.
 - **V1.2 — Scoped Brain Sources:** let the owner add a narrow local corpus and
   grant read-only recall to specific residents with visible provenance.
 - **V1.3 — Resident Reflection:** let a resident intentionally review and
@@ -41,17 +43,12 @@ archive; it is not the active task graph for V1.1-V1.3.
 These releases do not add a conductor, scheduled inner life, proactive outreach,
 automatic personality evolution, broad imports, or background agent society.
 
-## Implementation-start rule
+## Backend-first sequence
 
-This planning branch does not become the product branch. Before implementation:
-
-1. integrate the accepted frontend/design work with the functional-beta branch;
-2. run an overlap review against the continuity surfaces named in
-   `FRONTEND_INTEGRATION_HANDOFF.md`;
-3. create a clean implementation branch and worktree from that accepted
-   integration checkpoint;
-4. record the exact checkpoint in `DECISION_LEDGER.md` and `RUN_LOG.md`;
-5. complete task C01 before any product-code task begins.
+Riley explicitly chose to continue the V1.1 backend while Claude's frontend
+work remains isolated. Protocols, view models, and deterministic fixtures are
+frozen first. Accepted frontend work is integrated only after the backend gate;
+the installed release gate remains pending until that integration is complete.
 
 ## Non-negotiable invariants
 

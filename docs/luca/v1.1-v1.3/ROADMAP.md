@@ -1,5 +1,9 @@
 # Luca V1.1-V1.3 delivery roadmap
 
+V1.1 implementation is governed by `V1_1_BUILD_SPEC.md` and
+`V1_1_FROZEN_INTERFACES.md`. Those documents supersede the narrower planning-
+only V1.1 text below where the living-journal scope differs.
+
 ## Baseline
 
 The roadmap starts from the accepted functional-beta foundation:
@@ -21,7 +25,7 @@ The releases extend this foundation; they do not replace it.
 
 | Release | User value | New durable data | Retrieval | Cognition |
 |---|---|---|---|---|
-| V1.1 | Resident remembers selected durable lessons beyond the latest handoff | Resident-private notebook entries and revisions | Local lexical/FTS selection from own notebook | Same-resident post-publication note selection |
+| V1.1 | Resident remembers durable lessons and may author private Markdown pages | Resident-private memory notes, journal pages, annotations, and revisions | Local lexical/FTS selection of memory notes only | Same-resident metabolism plus manual journal cognition |
 | V1.2 | Resident may use explicitly granted owner sources | Owner-brain source documents, chunks, grants, receipts | Local lexical/FTS selection from granted corpus | None required for ingestion or recall |
 | V1.3 | Resident can intentionally review what it carries forward | Private reflection plus notebook revision proposals/results | Handoff, active notebook, bounded signed history | Manual same-resident reflection/consolidation |
 

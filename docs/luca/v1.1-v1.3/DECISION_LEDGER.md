@@ -89,6 +89,40 @@ part of V1.1-V1.3.
 Reason: usage of the notebook, shared-source, and reflection loops should inform
 which richer behavior is genuinely valuable.
 
+### D011 — V1.1 includes a living text journal
+
+Decision: V1.1 contains two encrypted resident-owned item types: automatic
+source-backed memory notes and manually requested resident-authored Markdown
+journal pages.
+
+Reason: this makes the notebook an authored personal space without delaying the
+functional product for multimedia tools or autonomous scheduling.
+
+### D012 — Journal authorship is preserved
+
+Decision: the owner may annotate, archive, forget, or request a resident
+revision, but cannot directly rewrite a resident-authored page body.
+
+Reason: owner custody and control should not erase honest authorship. Memory
+notes remain owner-correctable because they affect automatic recall.
+
+### D013 — Journal pages are not automatic memory
+
+Decision: journal pages are excluded from ordinary pre-turn retrieval. They may
+enter cognition only when explicitly selected for another journal request or a
+later V1.3 review.
+
+Reason: expressive writing must not silently become behavioral context.
+
+### D014 — Backend proceeds before frontend integration
+
+Decision: V1.1 starts from functional-beta commit `36472636` on
+`agent/v1.1-resident-notebook`. Codex freezes renderer view models and fixtures;
+Claude's accepted frontend is integrated after the backend gate.
+
+Reason: frontend design is still in progress and should neither block nor be
+overwritten by continuity implementation.
+
 ## Decisions to freeze in C01
 
 These are implementation parameters, not unresolved product direction:

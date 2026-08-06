@@ -1,8 +1,8 @@
 project: luca-agent-network-v1-1-v1-3
 planning_branch: agent/v1.1-v1.3-roadmap
 planning_baseline: 36472636af120cb3213dcae84b3ff5827a7c8e93
-implementation_branch: pending_frontend_integration_checkpoint
-status: PLANNED
+implementation_branch: agent/v1.1-resident-notebook
+status: V1_1_ACTIVE
 max_parallel_write_lanes: 2
 
 ownership_lanes:
@@ -18,7 +18,7 @@ ownership_lanes:
 
 gates:
   - id: C0
-    title: Integration checkpoint and contract freeze
+    title: Backend checkpoint and contract freeze
     tasks: [C00, C01]
     barrier_task: C01
   - id: V1.1-A
@@ -30,9 +30,13 @@ gates:
     tasks: [H13, H14]
     barrier_task: H14
   - id: V1.1-C
-    title: Notebook product surface and installed gate
+    title: Living journal and backend product contract
     tasks: [H15, H16, H17]
     barrier_task: H17
+  - id: V1.1-D
+    title: Frontend integration and installed gate
+    tasks: [H18, H19]
+    barrier_task: H19
   - id: V1.2-A
     title: Owner-source contracts and transaction
     tasks: [B21, B22, B23]
@@ -62,18 +66,18 @@ tasks:
   - id: C00
     gate: C0
     lane: integration
-    title: Integrate accepted frontend checkpoint without broad branch merge
+    title: Create isolated backend checkpoint from the functional beta
     depends_on: []
     acceptance: [A001, A002, A004]
     outputs:
       - exact implementation branch and commit
-      - overlap audit
+      - frontend deferral record
       - baseline smoke receipt
-    status: NOT_STARTED
+    status: PASS
   - id: C01
     gate: C0
     lane: integration
-    title: Freeze contracts bounds commands fixtures migrations and ownership
+    title: Freeze notebook journal contracts bounds commands and ownership
     depends_on: [C00]
     acceptance: [A003]
     outputs:
@@ -81,7 +85,7 @@ tasks:
       - fixture convention and initial V1.1 view models
       - migration and threat-model decision
       - file ownership map
-    status: NOT_STARTED
+    status: PASS
 
   - id: H11
     gate: V1.1-A
@@ -114,30 +118,44 @@ tasks:
   - id: H15
     gate: V1.1-C
     lane: backend
-    title: Add notebook inspector commands view models fixtures and controls
+    title: Implement manual same-resident journal cognition and authorship
     depends_on: [H14]
-    acceptance: [A108]
+    acceptance: [A113, A114, A117, A118]
     status: NOT_STARTED
   - id: H16
     gate: V1.1-C
-    lane: frontend
-    title: Build polished Notebook inspector and compact activity states
-    depends_on: [H11]
-    acceptance: [A108, A109]
+    lane: backend
+    title: Add notebook commands renderer view models and deterministic fixtures
+    depends_on: [H15]
+    acceptance: [A108, A115, A116, A119]
     status: NOT_STARTED
   - id: H17
     gate: V1.1-C
     lane: integration
-    title: Run V1.1 real-runtime installed and release gates
-    depends_on: [H15, H16]
-    acceptance: [A110, A111, A112, A401, A402, A403, A404, A405]
+    title: Run V1.1 real-runtime backend and security gates
+    depends_on: [H16]
+    acceptance: [A110, A111, A112, A120, A401, A403, A404]
     status: NOT_STARTED
+  - id: H18
+    gate: V1.1-D
+    lane: frontend
+    title: Integrate approved Notebook and Living Journal frontend
+    depends_on: [H17]
+    acceptance: [A108, A109, A115, A119]
+    status: DEFERRED_FRONTEND
+  - id: H19
+    gate: V1.1-D
+    lane: integration
+    title: Run rebuilt installed V1.1 release gate
+    depends_on: [H18]
+    acceptance: [A112, A120, A401, A402, A403, A404, A405]
+    status: DEFERRED_FRONTEND
 
   - id: B21
     gate: V1.2-A
     lane: backend
     title: Implement owner-source import grant receipt contracts and frontend fixtures
-    depends_on: [H17]
+    depends_on: [H19]
     acceptance: [A201]
     status: NOT_STARTED
   - id: B22

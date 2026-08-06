@@ -29,6 +29,18 @@ must remain body-free and secret-free.
 - Implementation branch/worktree: pending
 - Functional-beta baseline smoke: pending
 
+## 2026-08-06 — V1.1 implementation authorized
+
+- Branch: `agent/v1.1-resident-notebook`
+- Product baseline: `36472636af120cb3213dcae84b3ff5827a7c8e93`
+- Roadmap control commit cherry-picked: `d72207d8`
+- Sequence: backend-first; frontend integration deferred
+- Added scope: manually requested resident-authored Markdown journal pages
+- Journal authorship: resident body cannot be directly owner-edited; owner
+  annotations and revision requests remain separate
+- Journal recall: never automatic in ordinary chat
+- Product implementation at this entry: not yet started
+
 ## Receipt template
 
 For every task append:

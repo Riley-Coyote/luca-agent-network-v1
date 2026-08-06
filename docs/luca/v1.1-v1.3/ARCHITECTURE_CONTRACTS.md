@@ -2,6 +2,10 @@
 
 Status: proposed freeze for implementation task C01
 
+The concrete V1.1 memory-note and living-journal contract is frozen in
+`V1_1_FROZEN_INTERFACES.md` and supersedes the earlier single-entry abstraction
+below. V1.2 and V1.3 contracts remain unchanged.
+
 These contracts narrow the accepted G2 protocol and encrypted kernel to the
 three product releases in this package. Changes after C01 require a decision-
 ledger entry, migration analysis, updated vectors, and security review.

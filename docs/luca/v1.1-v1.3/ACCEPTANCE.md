@@ -4,14 +4,14 @@ Status: proposed; IDs are referenced by `TASK_GRAPH.yaml`
 
 ## Control and integration checkpoint
 
-- **A001** — The implementation branch is created from an accepted checkpoint
-  containing the functional beta and intentionally selected frontend commits.
+- **A001** — The implementation branch is created from the accepted functional-
+  beta checkpoint; frontend integration is explicitly deferred and recoverable.
 - **A002** — The functional-beta, G2, design, and roadmap branches remain
   recoverable and unmodified.
 - **A003** — Protocol names, field bounds, command/view models, migrations,
   threat model, fixtures, and file ownership are frozen before parallel writing.
-- **A004** — Baseline focused regressions and the existing functional-beta
-  installed smoke remain passing after frontend integration.
+- **A004** — Baseline focused regressions pass and the existing functional-beta
+  installed evidence remains traceable before frontend integration.
 
 ## V1.1 — Resident Notebook
 
@@ -47,6 +47,24 @@ Status: proposed; IDs are referenced by `TASK_GRAPH.yaml`
 - **A112** — Installed-app security scans find no notebook plaintext or keys in
   logs, evidence, relay events, child environments, SQLite metadata, WAL/SHM, or
   crash output.
+- **A113** — Manual journal creation uses the exact resident runtime/model,
+  accepts `no_change` or one bounded Markdown page, and cannot use tools,
+  permissions, signing, or message publication.
+- **A114** — Journal pages and owner annotations are encrypted in the exact
+  resident namespace and are excluded from ordinary conversational retrieval.
+- **A115** — The owner can annotate, archive, forget, or request a revision but
+  cannot directly replace resident-authored journal text.
+- **A116** — A resident revision preserves prior page bodies and owner
+  annotations with complete authorship and lineage.
+- **A117** — Selected prior pages belong to the same resident and are available
+  only to the explicit journal cognition request.
+- **A118** — Journal cancellation, user-turn preemption, retry, restart, stale
+  epoch, invalid output, or unavailable runtime produces no late or duplicate
+  page commit.
+- **A119** — Renderer fixtures cover notes, pages, annotations, revision history,
+  pagination, body-free jobs, and all empty/degraded states.
+- **A120** — Real Hermes and OpenClaw residents each author one private page with
+  stable identity and no ordinary-chat publication.
 
 ## V1.2 — Scoped Brain Sources
 
