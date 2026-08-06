@@ -7,6 +7,7 @@
 
 #![forbid(unsafe_code)]
 
+mod capsule;
 mod context;
 mod envelope;
 mod error;
@@ -20,6 +21,14 @@ mod retrieval_material;
 mod revision;
 mod scope;
 
+pub use capsule::{
+    classify_capsule_successor, derive_portable_capsule_id, parse_portable_capsule_envelope,
+    project_portable_capsule, CapsuleSuccessorDisposition, PortableCapsuleBodyValue,
+    PortableCapsuleCurrentStateV1, PortableCapsuleEnvelopeV1, MAX_PORTABLE_CAPSULE_BODY_JSON_BYTES,
+    MAX_PORTABLE_CAPSULE_ENVELOPE_BYTES, MAX_PORTABLE_CAPSULE_SEGMENT_BYTES,
+    MAX_PORTABLE_CAPSULE_STATE_BYTES, PORTABLE_CAPSULE_ENVELOPE_SCHEMA_V1,
+    PORTABLE_CAPSULE_NIP_AE_SLUG,
+};
 pub use context::{
     ContinuityContextOutput, ContinuityContextResolver, ContinuityLayerMaterial,
     ContinuityReadSnapshot, ContinuityReferenceItem,

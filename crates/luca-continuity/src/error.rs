@@ -61,6 +61,9 @@ pub enum ContinuityError {
     ContextPacketBudgetTooSmall,
     /// Canonical packet or receipt construction failed without exposing content.
     ContextPacketEncoding,
+    /// A portable Capsule projection was malformed, oversized, or failed a
+    /// body-free schema, binding, revision, or integrity check.
+    InvalidCapsule,
 }
 
 impl fmt::Display for ContinuityError {
@@ -98,6 +101,7 @@ impl fmt::Display for ContinuityError {
                 "continuity packet budget cannot contain the fixed safe envelope"
             }
             Self::ContextPacketEncoding => "unable to construct bounded continuity context packet",
+            Self::InvalidCapsule => "invalid portable continuity capsule",
         };
         formatter.write_str(message)
     }

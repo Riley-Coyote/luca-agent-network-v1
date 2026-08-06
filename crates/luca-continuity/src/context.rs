@@ -916,7 +916,7 @@ mod tests {
             1,
         )
         .unwrap();
-        assert!(packet_len(&lower) <= exact - 1);
+        assert!(packet_len(&lower) < exact);
         let payload = envelope_payload(&lower.result.packet.as_ref().unwrap().content);
         let bodies = payload["references"]
             .as_array()
