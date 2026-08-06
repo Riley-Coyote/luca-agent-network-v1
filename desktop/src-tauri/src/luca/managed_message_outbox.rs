@@ -21,6 +21,39 @@ const MAX_OUTBOX_ENTRIES: usize = 256;
 const MAX_CIPHERTEXT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_PLAINTEXT_BYTES: usize = 4 * 1024 * 1024;
 
+/// Body-free checkpoint for diagnosing an encrypted outbox compatibility
+/// failure without logging ciphertext, plaintext, event IDs, or resident keys.
+#[derive(Debug, Clone, Copy)]
+enum ManagedOutboxLoadStage {
+    ReadCiphertext,
+    CiphertextBounds,
+    ParseEnvelope,
+    DecryptEnvelope,
+    ReadPlaintext,
+    PlaintextBounds,
+    DecodeState,
+    CanonicalState,
+    ValidateHeader,
+    ValidateEntry,
+}
+
+impl ManagedOutboxLoadStage {
+    const fn code(self) -> &'static str {
+        match self {
+            Self::ReadCiphertext => "read-ciphertext",
+            Self::CiphertextBounds => "ciphertext-bounds",
+            Self::ParseEnvelope => "parse-envelope",
+            Self::DecryptEnvelope => "decrypt-envelope",
+            Self::ReadPlaintext => "read-plaintext",
+            Self::PlaintextBounds => "plaintext-bounds",
+            Self::DecodeState => "decode-state",
+            Self::CanonicalState => "canonical-state",
+            Self::ValidateHeader => "validate-header",
+            Self::ValidateEntry => "validate-entry",
+        }
+    }
+}
+
 /// Validation or lifecycle failure for one managed final-message record.
 #[derive(Debug)]
 pub(crate) enum ManagedMessageOutboxError {
@@ -383,6 +416,20 @@ impl ManagedMessageOutbox {
         path: PathBuf,
         passphrase: SecretString,
     ) -> Result<Self, ManagedMessageOutboxError> {
+        Self::load_encrypted_inner(installation_session_id, path, passphrase).map_err(|stage| {
+            eprintln!(
+                "luca-signing: managed outbox load failed at {}",
+                stage.code()
+            );
+            ManagedMessageOutboxError::Persistence
+        })
+    }
+
+    fn load_encrypted_inner(
+        installation_session_id: OpaqueId,
+        path: PathBuf,
+        passphrase: SecretString,
+    ) -> Result<Self, ManagedOutboxLoadStage> {
         if !path.exists() {
             return Ok(Self {
                 installation_session_id,
@@ -394,40 +441,46 @@ impl ManagedMessageOutbox {
             });
         }
         let ciphertext =
-            std::fs::read(&path).map_err(|_| ManagedMessageOutboxError::Persistence)?;
+            std::fs::read(&path).map_err(|_| ManagedOutboxLoadStage::ReadCiphertext)?;
         if ciphertext.len() > MAX_CIPHERTEXT_BYTES {
-            return Err(ManagedMessageOutboxError::Persistence);
+            return Err(ManagedOutboxLoadStage::CiphertextBounds);
         }
         let decryptor = age::Decryptor::new_buffered(ciphertext.as_slice())
-            .map_err(|_| ManagedMessageOutboxError::Persistence)?;
+            .map_err(|_| ManagedOutboxLoadStage::ParseEnvelope)?;
         let identity = age::scrypt::Identity::new(passphrase.clone());
         let mut reader = decryptor
             .decrypt(std::iter::once(&identity as &dyn age::Identity))
-            .map_err(|_| ManagedMessageOutboxError::Persistence)?;
+            .map_err(|_| ManagedOutboxLoadStage::DecryptEnvelope)?;
         let mut plaintext = Vec::new();
         reader
             .by_ref()
             .take((MAX_PLAINTEXT_BYTES + 1) as u64)
             .read_to_end(&mut plaintext)
-            .map_err(|_| ManagedMessageOutboxError::Persistence)?;
+            .map_err(|_| ManagedOutboxLoadStage::ReadPlaintext)?;
         if plaintext.len() > MAX_PLAINTEXT_BYTES {
-            return Err(ManagedMessageOutboxError::Persistence);
+            return Err(ManagedOutboxLoadStage::PlaintextBounds);
         }
-        let persisted: PersistedManagedOutbox = serde_json::from_slice(&plaintext)
-            .map_err(|_| ManagedMessageOutboxError::Persistence)?;
-        if canonicalize(&persisted)
+        // Check canonicality against the representation that was actually
+        // stored before applying serde defaults. Re-serializing the typed
+        // value first would add newly defaulted fields and incorrectly reject
+        // an older, otherwise canonical encrypted outbox during an upgrade.
+        let persisted_json: serde_json::Value = serde_json::from_slice(&plaintext)
+            .map_err(|_| ManagedOutboxLoadStage::DecodeState)?;
+        if canonicalize(&persisted_json)
             .map(|canonical| canonical != plaintext)
             .unwrap_or(true)
         {
-            return Err(ManagedMessageOutboxError::Persistence);
+            return Err(ManagedOutboxLoadStage::CanonicalState);
         }
+        let persisted: PersistedManagedOutbox = serde_json::from_value(persisted_json)
+            .map_err(|_| ManagedOutboxLoadStage::DecodeState)?;
         if persisted.schema != OUTBOX_SCHEMA
             || persisted.installation_session_id != installation_session_id
             || persisted.next_order == 0
             || persisted.reconcile_cursor >= persisted.next_order
             || persisted.entries.len() > MAX_OUTBOX_ENTRIES
         {
-            return Err(ManagedMessageOutboxError::Persistence);
+            return Err(ManagedOutboxLoadStage::ValidateHeader);
         }
         for (key, entry) in &persisted.entries {
             let receipt_state_valid = match entry.state {
@@ -468,7 +521,7 @@ impl ManagedMessageOutbox {
                 || entry.created_order == 0
                 || entry.created_order >= persisted.next_order
             {
-                return Err(ManagedMessageOutboxError::Persistence);
+                return Err(ManagedOutboxLoadStage::ValidateEntry);
             }
         }
         Ok(Self {
@@ -1164,6 +1217,62 @@ mod tests {
         assert_eq!(entries[0].signed_event_json, exact_event);
         assert_eq!(entries[0].request, request);
         assert_eq!(entries[0].state, ManagedOutboxState::Prepared);
+    }
+
+    #[test]
+    fn luca_signing_outbox_loads_canonical_legacy_state_before_defaulted_fields() {
+        let keys = Keys::parse(&"0d".repeat(32)).expect("valid fixture key");
+        let request = request(&keys);
+        let event = frozen_event(&keys, &request);
+        let session = OpaqueId::parse("installation-legacy-default")
+            .expect("valid installation ID");
+        let passphrase = SecretString::from("legacy-default-passphrase".to_owned());
+        let temp = tempfile::tempdir().expect("temp");
+        let path = temp.path().join("managed-outbox.age");
+        let mut outbox =
+            ManagedMessageOutbox::load_encrypted(session.clone(), path.clone(), passphrase.clone())
+                .expect("new encrypted outbox");
+        outbox
+            .prepare(&request, event, &session, 3, false)
+            .expect("prepare");
+
+        let mut legacy = serde_json::to_value(PersistedManagedOutbox {
+            schema: OUTBOX_SCHEMA.to_owned(),
+            installation_session_id: session.clone(),
+            next_order: outbox.next_order,
+            reconcile_cursor: outbox.reconcile_cursor,
+            entries: outbox.entries.clone(),
+        })
+        .expect("serialize fixture");
+        for entry in legacy["entries"]
+            .as_object_mut()
+            .expect("entries object")
+            .values_mut()
+        {
+            entry
+                .as_object_mut()
+                .expect("entry object")
+                .remove("handoff_recorded");
+        }
+        let legacy_plaintext = canonicalize(&legacy).expect("canonical legacy fixture");
+        let encryptor = age::Encryptor::with_user_passphrase(passphrase.clone());
+        let mut ciphertext = Vec::new();
+        {
+            let mut writer = encryptor.wrap_output(&mut ciphertext).expect("encrypt fixture");
+            writer
+                .write_all(&legacy_plaintext)
+                .expect("write legacy fixture");
+            writer.finish().expect("finish legacy fixture");
+        }
+        atomic_write_ciphertext(&path, &ciphertext).expect("write encrypted legacy fixture");
+
+        let reloaded = ManagedMessageOutbox::load_encrypted(session, path, passphrase)
+            .expect("load canonical legacy outbox");
+        assert_eq!(reloaded.reconciliation_entries().len(), 1);
+        assert!(reloaded
+            .entries
+            .values()
+            .all(|entry| entry.handoff_recorded));
     }
 
     #[test]
