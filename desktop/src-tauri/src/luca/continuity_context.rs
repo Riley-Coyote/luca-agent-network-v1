@@ -1,0 +1,841 @@
+//! Trusted desktop adapter for one bounded, read-only continuity context turn.
+//!
+//! All decrypted bodies remain inside the synchronous immutable-lease callback.
+//! The adapter returns only body-free status and receipt metadata; canonical
+//! packet wire is lent once to a consuming sink and can never be returned.
+
+use std::{
+    fmt,
+    panic::{catch_unwind, AssertUnwindSafe},
+    time::Instant,
+};
+
+use luca_continuity::{
+    ContinuityContextResolver, ContinuityLayerMaterial, ContinuityReadSnapshot,
+    ContinuityReferenceItem, DurableContinuityRecordKind, NamespaceScope, RetrievalResult,
+    RetrievalText,
+};
+use luca_protocol::{
+    ContinuityContextRequestV1, ContinuityLayerStatusV1, ContinuityNamespaceKindV1, Hex64,
+    OpaqueId, Sha256Ref,
+};
+
+use crate::app_state::AppState;
+
+use super::continuity_runtime::{
+    ContinuityReadLeaseOutcomeV1, ContinuityReadLeaseReceiptV1, ContinuityReadLeaseRequestV1,
+};
+
+const FIXED_LAYER_COUNT: usize = 5;
+
+/// Whether canonical context wire reached the caller-owned sink.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DesktopContinuityContextDispositionV1 {
+    Delivered,
+    Skipped,
+}
+
+/// Body-free proof of one desktop continuity context attempt.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct DesktopContinuityContextReceiptV1 {
+    pub(crate) request_id: OpaqueId,
+    pub(crate) resident_pubkey: Hex64,
+    pub(crate) status: ContinuityLayerStatusV1,
+    pub(crate) layer_statuses: [ContinuityLayerStatusV1; FIXED_LAYER_COUNT],
+    pub(crate) continuity_receipt_ref: Option<Sha256Ref>,
+    pub(crate) lease_snapshot_ref: Option<Sha256Ref>,
+    pub(crate) disposition: DesktopContinuityContextDispositionV1,
+}
+
+impl fmt::Debug for DesktopContinuityContextReceiptV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DesktopContinuityContextReceiptV1")
+            .field("request_id", &self.request_id)
+            .field("resident_pubkey", &self.resident_pubkey)
+            .field("status", &self.status)
+            .field("layer_statuses", &self.layer_statuses)
+            .field("continuity_receipt_ref", &self.continuity_receipt_ref)
+            .field("lease_snapshot_ref", &self.lease_snapshot_ref)
+            .field("disposition", &self.disposition)
+            .finish()
+    }
+}
+
+/// Body-free terminal outcome. Neither variant can carry packet content.
+pub(crate) enum DesktopContinuityContextOutcomeV1 {
+    Delivered(DesktopContinuityContextReceiptV1),
+    Skipped(DesktopContinuityContextReceiptV1),
+}
+
+impl DesktopContinuityContextOutcomeV1 {
+    pub(crate) fn receipt(&self) -> &DesktopContinuityContextReceiptV1 {
+        match self {
+            Self::Delivered(receipt) | Self::Skipped(receipt) => receipt,
+        }
+    }
+}
+
+impl fmt::Debug for DesktopContinuityContextOutcomeV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Delivered(receipt) => formatter.debug_tuple("Delivered").field(receipt).finish(),
+            Self::Skipped(receipt) => formatter.debug_tuple("Skipped").field(receipt).finish(),
+        }
+    }
+}
+
+/// Resolve and deliver at most one body-bearing context wire inside the lease.
+pub(crate) fn resolve_desktop_continuity_context<F>(
+    state: &AppState,
+    request: ContinuityContextRequestV1,
+    address: NamespaceScope,
+    cue: RetrievalText,
+    deadline: Instant,
+    now_unix_ms: u64,
+    sink: F,
+) -> DesktopContinuityContextOutcomeV1
+where
+    F: FnOnce(&[u8]),
+{
+    resolve_with_lease_reader(state, request, address, cue, deadline, now_unix_ms, sink)
+}
+
+trait ContinuityLeaseReader {
+    fn read<F>(
+        &self,
+        request: ContinuityReadLeaseRequestV1,
+        consumer: F,
+    ) -> ContinuityReadLeaseOutcomeV1
+    where
+        F: for<'lease> FnOnce(&'lease RetrievalResult);
+}
+
+impl ContinuityLeaseReader for AppState {
+    fn read<F>(
+        &self,
+        request: ContinuityReadLeaseRequestV1,
+        consumer: F,
+    ) -> ContinuityReadLeaseOutcomeV1
+    where
+        F: for<'lease> FnOnce(&'lease RetrievalResult),
+    {
+        self.read_continuity_lease(request, |view| consumer(view.retrieval))
+    }
+}
+
+fn resolve_with_lease_reader<R, F>(
+    reader: &R,
+    request: ContinuityContextRequestV1,
+    address: NamespaceScope,
+    cue: RetrievalText,
+    deadline: Instant,
+    now_unix_ms: u64,
+    sink: F,
+) -> DesktopContinuityContextOutcomeV1
+where
+    R: ContinuityLeaseReader,
+    F: FnOnce(&[u8]),
+{
+    if request.validate().is_err() {
+        return skipped_receipt(&request, ContinuityLayerStatusV1::Invalid, None);
+    }
+    if !exact_resident_authority(&request, &address) {
+        return skipped_receipt(&request, ContinuityLayerStatusV1::Denied, None);
+    }
+
+    let lease_request = ContinuityReadLeaseRequestV1 {
+        owner_pubkey: request.owner_pubkey.clone(),
+        address,
+        cue,
+        query_vector: None,
+        deadline,
+    };
+    let mut callback_receipt = None;
+    let mut sink = Some(sink);
+    let lease_outcome = reader.read(lease_request, |retrieval| {
+        let assembled = assemble_ready_snapshot(retrieval).and_then(|snapshot| {
+            ContinuityContextResolver::resolve(&request, snapshot, now_unix_ms)
+        });
+        let (output, status) = match assembled {
+            Ok(output) => {
+                let status = if output.has_packet() {
+                    ContinuityLayerStatusV1::Ready
+                } else if output
+                    .layers()
+                    .iter()
+                    .all(|layer| layer.status == ContinuityLayerStatusV1::Timeout)
+                {
+                    ContinuityLayerStatusV1::Timeout
+                } else {
+                    ContinuityLayerStatusV1::Invalid
+                };
+                (output, status)
+            }
+            Err(_) => match invalid_status_snapshot().and_then(|snapshot| {
+                ContinuityContextResolver::resolve(&request, snapshot, now_unix_ms)
+            }) {
+                Ok(output) => (output, ContinuityLayerStatusV1::Invalid),
+                Err(_) => {
+                    callback_receipt = Some(receipt(
+                        &request,
+                        ContinuityLayerStatusV1::Invalid,
+                        skipped_layer_statuses(ContinuityLayerStatusV1::Invalid),
+                        None,
+                        None,
+                        DesktopContinuityContextDispositionV1::Skipped,
+                    ));
+                    return;
+                }
+            },
+        };
+
+        let layer_statuses = fixed_statuses(output.layers());
+        let continuity_receipt_ref = Some(output.receipt_ref().clone());
+        let Some(sink) = sink.take() else {
+            callback_receipt = Some(receipt(
+                &request,
+                ContinuityLayerStatusV1::Invalid,
+                skipped_layer_statuses(ContinuityLayerStatusV1::Invalid),
+                None,
+                None,
+                DesktopContinuityContextDispositionV1::Skipped,
+            ));
+            return;
+        };
+        if catch_unwind(AssertUnwindSafe(|| output.consume_wire(sink))).is_err() {
+            callback_receipt = Some(receipt(
+                &request,
+                ContinuityLayerStatusV1::Invalid,
+                layer_statuses,
+                continuity_receipt_ref,
+                None,
+                DesktopContinuityContextDispositionV1::Skipped,
+            ));
+            return;
+        }
+        callback_receipt = Some(receipt(
+            &request,
+            status,
+            layer_statuses,
+            continuity_receipt_ref,
+            None,
+            DesktopContinuityContextDispositionV1::Delivered,
+        ));
+    });
+
+    match lease_outcome {
+        ContinuityReadLeaseOutcomeV1::Ready(lease_receipt) => {
+            if let Some(mut receipt) = callback_receipt {
+                receipt.lease_snapshot_ref = lease_receipt.snapshot_fingerprint;
+                match receipt.disposition {
+                    DesktopContinuityContextDispositionV1::Delivered => {
+                        DesktopContinuityContextOutcomeV1::Delivered(receipt)
+                    }
+                    DesktopContinuityContextDispositionV1::Skipped => {
+                        DesktopContinuityContextOutcomeV1::Skipped(receipt)
+                    }
+                }
+            } else {
+                skipped_receipt(&request, ContinuityLayerStatusV1::Invalid, None)
+            }
+        }
+        outcome => {
+            let (status, lease_receipt) = lease_status(outcome);
+            skipped_receipt(&request, status, lease_receipt.snapshot_fingerprint)
+        }
+    }
+}
+
+fn exact_resident_authority(
+    request: &ContinuityContextRequestV1,
+    address: &NamespaceScope,
+) -> bool {
+    let namespace = address.namespace().as_protocol();
+    namespace.owner_pubkey == request.owner_pubkey
+        && namespace.kind == ContinuityNamespaceKindV1::ResidentPrivate
+        && namespace.resident_pubkey.as_ref() == Some(&request.resident_pubkey)
+}
+
+fn assemble_ready_snapshot(
+    retrieval: &RetrievalResult,
+) -> Result<ContinuityReadSnapshot, luca_continuity::ContinuityError> {
+    let mut handoff = Vec::new();
+    let mut hypomnema = Vec::new();
+    let mut associative_recall = Vec::new();
+    for hit in &retrieval.hits {
+        let record = hit.record();
+        let item = ContinuityReferenceItem::new(
+            record.record_id().clone(),
+            record.body().to_owned(),
+            record.provenance_refs().to_vec(),
+        )?;
+        match DurableContinuityRecordKind::parse(record.record_type())? {
+            DurableContinuityRecordKind::Handoff | DurableContinuityRecordKind::OpenThread => {
+                handoff.push(item);
+            }
+            DurableContinuityRecordKind::Hypomnema
+            | DurableContinuityRecordKind::Journal
+            | DurableContinuityRecordKind::Reflection => hypomnema.push(item),
+            DurableContinuityRecordKind::Commitment
+            | DurableContinuityRecordKind::Preference
+            | DurableContinuityRecordKind::AssociativeEngram
+            | DurableContinuityRecordKind::TypedConnection
+            | DurableContinuityRecordKind::Identity
+            | DurableContinuityRecordKind::Relationship
+            | DurableContinuityRecordKind::Conviction => associative_recall.push(item),
+        }
+    }
+    Ok(ContinuityReadSnapshot {
+        capsule: empty_layer()?,
+        handoff: layer_from_items(handoff)?,
+        hypomnema: layer_from_items(hypomnema)?,
+        associative_recall: layer_from_items(associative_recall)?,
+        owner_brain: denied_layer()?,
+    })
+}
+
+fn layer_from_items(
+    items: Vec<ContinuityReferenceItem>,
+) -> Result<ContinuityLayerMaterial, luca_continuity::ContinuityError> {
+    if items.is_empty() {
+        empty_layer()
+    } else {
+        ContinuityLayerMaterial::ready(items)
+    }
+}
+
+fn empty_layer() -> Result<ContinuityLayerMaterial, luca_continuity::ContinuityError> {
+    ContinuityLayerMaterial::status(ContinuityLayerStatusV1::Empty, None)
+}
+
+fn denied_layer() -> Result<ContinuityLayerMaterial, luca_continuity::ContinuityError> {
+    ContinuityLayerMaterial::status(ContinuityLayerStatusV1::Denied, None)
+}
+
+fn invalid_status_snapshot() -> Result<ContinuityReadSnapshot, luca_continuity::ContinuityError> {
+    Ok(ContinuityReadSnapshot {
+        capsule: ContinuityLayerMaterial::status(ContinuityLayerStatusV1::Empty, None)?,
+        handoff: ContinuityLayerMaterial::status(ContinuityLayerStatusV1::Invalid, None)?,
+        hypomnema: ContinuityLayerMaterial::status(ContinuityLayerStatusV1::Invalid, None)?,
+        associative_recall: ContinuityLayerMaterial::status(
+            ContinuityLayerStatusV1::Invalid,
+            None,
+        )?,
+        owner_brain: ContinuityLayerMaterial::status(ContinuityLayerStatusV1::Denied, None)?,
+    })
+}
+
+fn fixed_statuses(
+    layers: &[luca_protocol::ContinuityLayerResultV1],
+) -> [ContinuityLayerStatusV1; FIXED_LAYER_COUNT] {
+    let mut statuses = [ContinuityLayerStatusV1::Invalid; FIXED_LAYER_COUNT];
+    for (target, layer) in statuses.iter_mut().zip(layers.iter()) {
+        *target = layer.status;
+    }
+    statuses
+}
+
+fn skipped_layer_statuses(
+    status: ContinuityLayerStatusV1,
+) -> [ContinuityLayerStatusV1; FIXED_LAYER_COUNT] {
+    [
+        ContinuityLayerStatusV1::Empty,
+        status,
+        status,
+        status,
+        ContinuityLayerStatusV1::Denied,
+    ]
+}
+
+fn lease_status(
+    outcome: ContinuityReadLeaseOutcomeV1,
+) -> (ContinuityLayerStatusV1, ContinuityReadLeaseReceiptV1) {
+    match outcome {
+        ContinuityReadLeaseOutcomeV1::Empty(receipt) => (ContinuityLayerStatusV1::Empty, receipt),
+        ContinuityReadLeaseOutcomeV1::Denied(receipt) => (ContinuityLayerStatusV1::Denied, receipt),
+        ContinuityReadLeaseOutcomeV1::Stale(receipt) => (ContinuityLayerStatusV1::Stale, receipt),
+        ContinuityReadLeaseOutcomeV1::Locked(receipt) => (ContinuityLayerStatusV1::Locked, receipt),
+        ContinuityReadLeaseOutcomeV1::Unavailable(receipt) => {
+            (ContinuityLayerStatusV1::Unavailable, receipt)
+        }
+        ContinuityReadLeaseOutcomeV1::Timeout(receipt) => {
+            (ContinuityLayerStatusV1::Timeout, receipt)
+        }
+        ContinuityReadLeaseOutcomeV1::Invalid(receipt)
+        | ContinuityReadLeaseOutcomeV1::Ready(receipt) => {
+            (ContinuityLayerStatusV1::Invalid, receipt)
+        }
+    }
+}
+
+fn skipped_receipt(
+    request: &ContinuityContextRequestV1,
+    status: ContinuityLayerStatusV1,
+    lease_snapshot_ref: Option<Sha256Ref>,
+) -> DesktopContinuityContextOutcomeV1 {
+    DesktopContinuityContextOutcomeV1::Skipped(receipt(
+        request,
+        status,
+        skipped_layer_statuses(status),
+        None,
+        lease_snapshot_ref,
+        DesktopContinuityContextDispositionV1::Skipped,
+    ))
+}
+
+fn receipt(
+    request: &ContinuityContextRequestV1,
+    status: ContinuityLayerStatusV1,
+    layer_statuses: [ContinuityLayerStatusV1; FIXED_LAYER_COUNT],
+    continuity_receipt_ref: Option<Sha256Ref>,
+    lease_snapshot_ref: Option<Sha256Ref>,
+    disposition: DesktopContinuityContextDispositionV1,
+) -> DesktopContinuityContextReceiptV1 {
+    DesktopContinuityContextReceiptV1 {
+        request_id: request.request_id.clone(),
+        resident_pubkey: request.resident_pubkey.clone(),
+        status,
+        layer_statuses,
+        continuity_receipt_ref,
+        lease_snapshot_ref,
+        disposition,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{cell::Cell, cell::RefCell, sync::Mutex, time::Duration};
+
+    use luca_continuity::{
+        InMemoryRetrievalIndex, RetrievalQuery, RetrievalRecord, RetrievalRecordInput,
+        RetrievalRecordState,
+    };
+    use luca_protocol::{
+        ContinuityContextResultV1, ContinuityNamespaceV1, ContinuityScopeV1, ProviderEgressV1,
+        SafeU53, CONTINUITY_PROTOCOL, MAX_CONTINUITY_PACKET_BYTES,
+    };
+    use sha2::{Digest, Sha256};
+
+    fn hex(digit: char) -> Hex64 {
+        Hex64::parse(digit.to_string().repeat(64)).unwrap()
+    }
+
+    fn sha(digit: char) -> Sha256Ref {
+        Sha256Ref::parse(format!("sha256:{}", digit.to_string().repeat(64))).unwrap()
+    }
+
+    fn address(kind: ContinuityNamespaceKindV1, resident: Option<Hex64>) -> NamespaceScope {
+        let namespace = ContinuityNamespaceV1 {
+            protocol: CONTINUITY_PROTOCOL.into(),
+            owner_pubkey: hex('1'),
+            kind,
+            resident_pubkey: resident,
+            namespace_ref: sha('3'),
+            key_version: SafeU53::new(1).unwrap(),
+        };
+        NamespaceScope::new(
+            namespace.clone().try_into().unwrap(),
+            ContinuityScopeV1 {
+                protocol: CONTINUITY_PROTOCOL.into(),
+                namespace_ref: namespace.namespace_ref,
+                scope_ref: sha('4'),
+                source_id: None,
+                project_id: None,
+                room_id: None,
+                conversation_id: Some(OpaqueId::parse("conversation-1").unwrap()),
+            },
+        )
+        .unwrap()
+    }
+
+    fn resident_address() -> NamespaceScope {
+        address(ContinuityNamespaceKindV1::ResidentPrivate, Some(hex('2')))
+    }
+
+    fn request(max_packet_bytes: usize) -> ContinuityContextRequestV1 {
+        ContinuityContextRequestV1 {
+            protocol: CONTINUITY_PROTOCOL.into(),
+            request_id: OpaqueId::parse("desktop-context-1").unwrap(),
+            owner_pubkey: hex('1'),
+            resident_pubkey: hex('2'),
+            conversation_id: OpaqueId::parse("conversation-1").unwrap(),
+            binding_ref: sha('5'),
+            canonical_dispatch_ref: sha('6'),
+            provider_egress: ProviderEgressV1::Local,
+            deadline_unix_ms: SafeU53::new(10_000).unwrap(),
+            max_packet_bytes: SafeU53::new(max_packet_bytes as u64).unwrap(),
+            history_event_ids: vec![hex('7')],
+        }
+    }
+
+    fn retrieval(address: &NamespaceScope) -> RetrievalResult {
+        let specs = [
+            ("01-handoff", "handoff", "handoff-private-body"),
+            ("02-open", "open-thread", "open-thread-private-body"),
+            ("03-hypomnema", "hypomnema", "hypomnema-private-body"),
+            ("04-journal", "journal", "journal-private-body"),
+            ("05-reflection", "reflection", "reflection-private-body"),
+            ("06-commitment", "commitment", "associative-private-body"),
+        ];
+        let records = specs
+            .into_iter()
+            .enumerate()
+            .map(|(index, (record_id, record_type, body))| {
+                RetrievalRecord::new(RetrievalRecordInput {
+                    address: address.clone(),
+                    record_id: OpaqueId::parse(record_id).unwrap(),
+                    record_type: OpaqueId::parse(record_type).unwrap(),
+                    revision: SafeU53::new(0).unwrap(),
+                    body: RetrievalText::from(body),
+                    tags: vec![RetrievalText::from("continuity")],
+                    confidence_basis_points: 8_000,
+                    provenance_refs: vec![
+                        Sha256Ref::parse(format!("sha256:{:064x}", index + 10)).unwrap()
+                    ],
+                    outgoing_edges: Vec::new(),
+                    state: RetrievalRecordState::Active,
+                })
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        InMemoryRetrievalIndex::hydrate(&records)
+            .unwrap()
+            .retrieve(
+                &RetrievalQuery {
+                    address: address.clone(),
+                    cue: RetrievalText::from("continuity"),
+                    query_vector: None,
+                },
+                None,
+            )
+            .unwrap()
+    }
+
+    struct FakeLeaseReader {
+        status: ContinuityLayerStatusV1,
+        retrieval: Option<RetrievalResult>,
+        calls: Cell<usize>,
+        lifecycle: Mutex<()>,
+    }
+
+    impl FakeLeaseReader {
+        fn ready(retrieval: RetrievalResult) -> Self {
+            Self {
+                status: ContinuityLayerStatusV1::Ready,
+                retrieval: Some(retrieval),
+                calls: Cell::new(0),
+                lifecycle: Mutex::new(()),
+            }
+        }
+
+        fn status(status: ContinuityLayerStatusV1) -> Self {
+            Self {
+                status,
+                retrieval: None,
+                calls: Cell::new(0),
+                lifecycle: Mutex::new(()),
+            }
+        }
+    }
+
+    impl ContinuityLeaseReader for FakeLeaseReader {
+        fn read<F>(
+            &self,
+            request: ContinuityReadLeaseRequestV1,
+            consumer: F,
+        ) -> ContinuityReadLeaseOutcomeV1
+        where
+            F: for<'lease> FnOnce(&'lease RetrievalResult),
+        {
+            let _lifecycle_guard = self.lifecycle.lock().unwrap();
+            self.calls.set(self.calls.get() + 1);
+            let receipt = ContinuityReadLeaseReceiptV1 {
+                owner_pubkey: request.owner_pubkey,
+                namespace_ref: request
+                    .address
+                    .namespace()
+                    .as_protocol()
+                    .namespace_ref
+                    .clone(),
+                scope_ref: request.address.as_protocol().scope_ref.clone(),
+                authority_generation: Some(SafeU53::new(1).unwrap()),
+                snapshot_fingerprint: Some(sha('8')),
+                attempt_count: 1,
+                hit_count: self
+                    .retrieval
+                    .as_ref()
+                    .map_or(0, |retrieval| retrieval.hits.len()),
+            };
+            match self.status {
+                ContinuityLayerStatusV1::Ready => {
+                    consumer(self.retrieval.as_ref().unwrap());
+                    ContinuityReadLeaseOutcomeV1::Ready(receipt)
+                }
+                ContinuityLayerStatusV1::Empty => ContinuityReadLeaseOutcomeV1::Empty(receipt),
+                ContinuityLayerStatusV1::Denied => ContinuityReadLeaseOutcomeV1::Denied(receipt),
+                ContinuityLayerStatusV1::Stale => ContinuityReadLeaseOutcomeV1::Stale(receipt),
+                ContinuityLayerStatusV1::Locked => ContinuityReadLeaseOutcomeV1::Locked(receipt),
+                ContinuityLayerStatusV1::Unavailable => {
+                    ContinuityReadLeaseOutcomeV1::Unavailable(receipt)
+                }
+                ContinuityLayerStatusV1::Timeout => ContinuityReadLeaseOutcomeV1::Timeout(receipt),
+                ContinuityLayerStatusV1::Invalid => ContinuityReadLeaseOutcomeV1::Invalid(receipt),
+            }
+        }
+    }
+
+    fn run<R, F>(
+        reader: &R,
+        request: ContinuityContextRequestV1,
+        address: NamespaceScope,
+        sink: F,
+    ) -> DesktopContinuityContextOutcomeV1
+    where
+        R: ContinuityLeaseReader,
+        F: FnOnce(&[u8]),
+    {
+        resolve_with_lease_reader(
+            reader,
+            request,
+            address,
+            RetrievalText::from("continuity"),
+            Instant::now() + Duration::from_secs(1),
+            1,
+            sink,
+        )
+    }
+
+    #[test]
+    fn exact_owner_and_resident_private_identity_deny_before_lease() {
+        let mut wrong_owner = request(MAX_CONTINUITY_PACKET_BYTES);
+        wrong_owner.owner_pubkey = hex('9');
+        let mut wrong_resident = request(MAX_CONTINUITY_PACKET_BYTES);
+        wrong_resident.resident_pubkey = hex('a');
+        let owner_brain = address(ContinuityNamespaceKindV1::OwnerBrain, None);
+        for (request, address) in [
+            (wrong_owner, resident_address()),
+            (wrong_resident, resident_address()),
+            (request(MAX_CONTINUITY_PACKET_BYTES), owner_brain),
+        ] {
+            let reader = FakeLeaseReader::status(ContinuityLayerStatusV1::Unavailable);
+            let sink_count = Cell::new(0);
+            let outcome = run(&reader, request, address, |_| {
+                sink_count.set(sink_count.get() + 1)
+            });
+            assert_eq!(reader.calls.get(), 0);
+            assert_eq!(sink_count.get(), 0);
+            assert_eq!(outcome.receipt().status, ContinuityLayerStatusV1::Denied);
+            assert_eq!(
+                outcome.receipt().disposition,
+                DesktopContinuityContextDispositionV1::Skipped
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_request_is_not_misreported_as_authorization_denial() {
+        let mut invalid = request(MAX_CONTINUITY_PACKET_BYTES);
+        invalid.protocol = "not-luca-continuity".into();
+        let reader = FakeLeaseReader::status(ContinuityLayerStatusV1::Unavailable);
+        let sink_count = Cell::new(0);
+        let outcome = run(&reader, invalid, resident_address(), |_| {
+            sink_count.set(sink_count.get() + 1)
+        });
+        assert_eq!(reader.calls.get(), 0);
+        assert_eq!(sink_count.get(), 0);
+        assert_eq!(outcome.receipt().status, ContinuityLayerStatusV1::Invalid);
+        assert_eq!(
+            outcome.receipt().disposition,
+            DesktopContinuityContextDispositionV1::Skipped
+        );
+    }
+
+    #[test]
+    fn ready_records_are_categorized_and_delivered_once_deterministically() {
+        fn once() -> ([u8; 32], DesktopContinuityContextOutcomeV1, usize, usize) {
+            let address = resident_address();
+            let reader = FakeLeaseReader::ready(retrieval(&address));
+            let sink_count = Cell::new(0);
+            let wire_digest = RefCell::new([0_u8; 32]);
+            let outcome = run(
+                &reader,
+                request(MAX_CONTINUITY_PACKET_BYTES),
+                address,
+                |wire| {
+                    sink_count.set(sink_count.get() + 1);
+                    wire_digest
+                        .borrow_mut()
+                        .copy_from_slice(&Sha256::digest(wire));
+                    let result: ContinuityContextResultV1 = serde_json::from_slice(wire).unwrap();
+                    let packet = result.packet.unwrap();
+                    assert!(packet.content.contains("handoff-private-body"));
+                    assert!(packet.content.contains("open-thread-private-body"));
+                    assert!(packet.content.contains("hypomnema-private-body"));
+                    assert!(packet.content.contains("journal-private-body"));
+                    assert!(packet.content.contains("reflection-private-body"));
+                    assert!(packet.content.contains("associative-private-body"));
+                },
+            );
+            let digest = *wire_digest.borrow();
+            (digest, outcome, reader.calls.get(), sink_count.get())
+        }
+
+        let (left_digest, left, lease_calls, sink_calls) = once();
+        let (right_digest, right, _, _) = once();
+        assert_eq!(left_digest, right_digest);
+        assert_eq!(lease_calls, 1);
+        assert_eq!(sink_calls, 1);
+        assert_eq!(left.receipt(), right.receipt());
+        assert_eq!(left.receipt().status, ContinuityLayerStatusV1::Ready);
+        assert_eq!(
+            left.receipt().layer_statuses,
+            [
+                ContinuityLayerStatusV1::Empty,
+                ContinuityLayerStatusV1::Ready,
+                ContinuityLayerStatusV1::Ready,
+                ContinuityLayerStatusV1::Ready,
+                ContinuityLayerStatusV1::Denied,
+            ]
+        );
+        assert_eq!(
+            left.receipt().disposition,
+            DesktopContinuityContextDispositionV1::Delivered
+        );
+    }
+
+    #[test]
+    fn every_nonready_lease_status_skips_without_sink() {
+        for status in [
+            ContinuityLayerStatusV1::Empty,
+            ContinuityLayerStatusV1::Denied,
+            ContinuityLayerStatusV1::Stale,
+            ContinuityLayerStatusV1::Locked,
+            ContinuityLayerStatusV1::Unavailable,
+            ContinuityLayerStatusV1::Timeout,
+            ContinuityLayerStatusV1::Invalid,
+        ] {
+            let reader = FakeLeaseReader::status(status);
+            let sink_count = Cell::new(0);
+            let outcome = run(
+                &reader,
+                request(MAX_CONTINUITY_PACKET_BYTES),
+                resident_address(),
+                |_| sink_count.set(sink_count.get() + 1),
+            );
+            assert_eq!(reader.calls.get(), 1);
+            assert_eq!(sink_count.get(), 0);
+            assert_eq!(outcome.receipt().status, status);
+            assert_eq!(
+                outcome.receipt().layer_statuses,
+                skipped_layer_statuses(status)
+            );
+            assert_eq!(
+                outcome.receipt().disposition,
+                DesktopContinuityContextDispositionV1::Skipped
+            );
+        }
+    }
+
+    #[test]
+    fn pure_budget_failure_delivers_one_honest_status_only_invalid_result() {
+        let address = resident_address();
+        let reader = FakeLeaseReader::ready(retrieval(&address));
+        let sink_count = Cell::new(0);
+        let outcome = run(&reader, request(1), address, |wire| {
+            sink_count.set(sink_count.get() + 1);
+            let result: ContinuityContextResultV1 = serde_json::from_slice(wire).unwrap();
+            assert!(result.packet.is_none());
+            assert_eq!(
+                result
+                    .layers
+                    .iter()
+                    .map(|layer| layer.status)
+                    .collect::<Vec<_>>(),
+                skipped_layer_statuses(ContinuityLayerStatusV1::Invalid)
+            );
+        });
+        assert_eq!(reader.calls.get(), 1);
+        assert_eq!(sink_count.get(), 1);
+        assert_eq!(outcome.receipt().status, ContinuityLayerStatusV1::Invalid);
+        assert_eq!(
+            outcome.receipt().disposition,
+            DesktopContinuityContextDispositionV1::Delivered
+        );
+    }
+
+    #[test]
+    fn sink_panic_fails_soft_without_poisoning_the_lifecycle_or_retrying() {
+        let address = resident_address();
+        let reader = FakeLeaseReader::ready(retrieval(&address));
+        let first_sink_count = Cell::new(0);
+        let first = run(
+            &reader,
+            request(MAX_CONTINUITY_PACKET_BYTES),
+            address.clone(),
+            |_| {
+                first_sink_count.set(first_sink_count.get() + 1);
+                panic!("synthetic sink failure");
+            },
+        );
+        assert_eq!(first_sink_count.get(), 1);
+        assert_eq!(reader.calls.get(), 1);
+        assert_eq!(first.receipt().status, ContinuityLayerStatusV1::Invalid);
+        assert_eq!(
+            first.receipt().disposition,
+            DesktopContinuityContextDispositionV1::Skipped
+        );
+        assert!(reader.lifecycle.lock().is_ok());
+
+        let second_sink_count = Cell::new(0);
+        let second = run(
+            &reader,
+            request(MAX_CONTINUITY_PACKET_BYTES),
+            address,
+            |_| second_sink_count.set(second_sink_count.get() + 1),
+        );
+        assert_eq!(second_sink_count.get(), 1);
+        assert_eq!(reader.calls.get(), 2);
+        assert_eq!(second.receipt().status, ContinuityLayerStatusV1::Ready);
+        assert_eq!(
+            second.receipt().disposition,
+            DesktopContinuityContextDispositionV1::Delivered
+        );
+    }
+
+    #[test]
+    fn adapter_source_is_read_only_and_debug_is_body_free() {
+        let source = include_str!("continuity_context.rs");
+        for forbidden in [
+            ["apply", "_revision"].concat(),
+            ["write", "_record"].concat(),
+            ["rotate", "_key"].concat(),
+            ["persist", "_receipt"].concat(),
+            ["std::", "fs"].concat(),
+        ] {
+            assert!(
+                !source.contains(&forbidden),
+                "forbidden source API: {forbidden}"
+            );
+        }
+
+        let address = resident_address();
+        let reader = FakeLeaseReader::ready(retrieval(&address));
+        let outcome = run(
+            &reader,
+            request(MAX_CONTINUITY_PACKET_BYTES),
+            address,
+            |_| {},
+        );
+        let debug = format!("{outcome:?}");
+        for private in [
+            "handoff-private-body",
+            "hypomnema-private-body",
+            "associative-private-body",
+        ] {
+            assert!(!debug.contains(private));
+        }
+        assert!(!debug.contains("packet"));
+    }
+}
