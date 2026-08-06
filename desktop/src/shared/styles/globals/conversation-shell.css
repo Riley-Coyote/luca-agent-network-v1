@@ -84,7 +84,13 @@
    * 12px tall, so aligning them on this row means y = lip + (header - 12) / 2.
    * Change one, change the other. */
   --mn-card-lip: 8px;
-  --mn-header-height: 52px;
+  /* The header is TWO lines now — name, then the live-state line. */
+  --mn-header-height: 56px;
+  /* ...but the window controls align to the FIRST line, not the header's
+   * centre. Centring them on a two-line block drops them between the name and
+   * the subtitle, which reads as floating rather than as belonging to the
+   * title. This is the band the title occupies. */
+  --mn-header-title-row: 42px;
 
   --background: var(--mn-surface);
   --foreground: var(--mn-ink);
@@ -169,7 +175,7 @@
    with the channel title instead of hovering in a band above it. */
 :root[data-buzz-sidebar] [data-testid="app-top-chrome"] {
   top: var(--mn-card-lip);
-  height: var(--mn-header-height);
+  height: var(--mn-header-title-row);
 }
 
 /* The chrome floats now, so it no longer PUSHES the rail's own header down —
@@ -237,7 +243,7 @@
 :root[data-buzz-sidebar] [data-testid="chat-header"] {
   background: hsl(var(--mn-surface));
   border-color: hsl(var(--mn-border));
-  min-height: 52px;
+  min-height: var(--mn-header-height);
   padding: 7px 22px;
 }
 

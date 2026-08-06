@@ -34,6 +34,13 @@ type ChatHeaderProps = {
   mode?: "home" | "channel" | "agents" | "workflows" | "pulse" | "projects";
   overlaysContent?: boolean;
   statusBadge?: React.ReactNode;
+  /** Second line. Live resident state when something is happening, the room's
+   *  own description otherwise. Its height is ALWAYS reserved, so a resident
+   *  starting to think never nudges the title — layout that shifts under you is
+   *  the fastest way to feel cheap. */
+  subtitle?: React.ReactNode;
+  /** Conversation mode: drops the workspace furniture (copy-name button). */
+  conversation?: boolean;
   /** Render the chrome wrapper without an individual backdrop when a parent supplies shared blur. */
   transparentChrome?: boolean;
 };
@@ -97,6 +104,8 @@ export function ChatHeader({
   mode = "channel",
   overlaysContent = false,
   statusBadge,
+  subtitle,
+  conversation = false,
   transparentChrome = false,
 }: ChatHeaderProps) {
   const trimmedDescription = description?.trim() ?? "";
@@ -122,7 +131,7 @@ export function ChatHeader({
       data-testid="chat-header"
       data-tauri-drag-region
     >
-      <div className="flex h-9 min-w-0 items-center gap-2.5">
+      <div className="flex min-h-9 min-w-0 items-center gap-2.5">
         <div className="min-w-0 flex-1">
           <div className="group/title flex min-w-0 items-center gap-[4px] overflow-hidden">
             <div className="flex shrink-0 items-center">
@@ -149,23 +158,40 @@ export function ChatHeader({
                 {identityMeta}
               </div>
             ) : null}
-            <Button
-              aria-label={`Copy channel name: ${title}`}
-              className="h-6 w-6 shrink-0 opacity-0 text-muted-foreground transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/title:opacity-100"
-              onClick={() => void handleCopyTitle()}
-              size="icon-xs"
-              title="Copy channel name"
-              type="button"
-              variant="ghost"
-            >
-              <Copy className="h-3.5 w-3.5" />
-            </Button>
+            {/* Copying a conversation's name is a workspace habit, not a chat
+                one. Kept for non-conversation surfaces that still want it. */}
+            {conversation ? null : (
+              <Button
+                aria-label={`Copy channel name: ${title}`}
+                className="h-6 w-6 shrink-0 opacity-0 text-muted-foreground transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/title:opacity-100"
+                onClick={() => void handleCopyTitle()}
+                size="icon-xs"
+                title="Copy channel name"
+                type="button"
+                variant="ghost"
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </Button>
+            )}
             {statusBadge ? (
               <div className="flex shrink-0 flex-wrap items-center gap-1">
                 {statusBadge}
               </div>
             ) : null}
           </div>
+
+          {/* The line every messenger puts under the name — "online", "last
+              seen", "typing". Ours can say far more, because we know whether a
+              resident is thinking, running a tool or writing. Height is
+              reserved unconditionally so it never shifts the title. */}
+          {conversation ? (
+            <p
+              className="min-h-4 truncate text-xs leading-4 text-muted-foreground"
+              data-testid="chat-subtitle"
+            >
+              {subtitle}
+            </p>
+          ) : null}
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
