@@ -2,6 +2,11 @@ import * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
+import {
+  sigilPattern,
+  type DotScene,
+} from "@/shared/ui/dot-display/engine";
+import { DotSigil } from "@/shared/ui/dot-display/DotSigil";
 
 export type AgentVisualState =
   | "present"
@@ -14,45 +19,50 @@ export type AgentVisualState =
 
 export type AgentIdentityCustody = "managed" | "guest" | "owner";
 
-const GRID_SIZE = 7;
-const SOURCE_COLUMNS = 4;
+/**
+ * The doctrine: a resident's identity mark is REPLACED by its state, and comes
+ * back when the state ends. No corner lamp, no "typing…", no badge sitting
+ * beside the avatar — at rest you see who, and while they are busy you see what.
+ *
+ * `present` is therefore the static sigil (breathing, but never re-lighting
+ * individual cells: a mark that twinkles is a mark you cannot recognise), and
+ * every other state is a live scene.
+ */
+const SCENE_FOR_STATE: Record<AgentVisualState, DotScene> = {
+  present: "sigil",
+  idle: "listen",
+  thinking: "think",
+  working: "work",
+  responding: "pulse",
+  unavailable: "sleep",
+  fault: "fault",
+};
 
-function keyBytes(publicKey: string): number[] {
-  const normalized = normalizePubkey(publicKey).replace(/[^a-f0-9]/g, "");
-  const source = normalized || publicKey.toLowerCase();
-  let seed = 0x811c9dc5;
-
-  for (let index = 0; index < source.length; index += 1) {
-    seed ^= source.charCodeAt(index);
-    seed = Math.imul(seed, 0x01000193) >>> 0;
-  }
-
-  return Array.from({ length: GRID_SIZE * SOURCE_COLUMNS }, (_, index) => {
-    seed ^= index + 0x9e3779b9;
-    seed = Math.imul(seed ^ (seed >>> 16), 0x21f0aaad) >>> 0;
-    seed = Math.imul(seed ^ (seed >>> 15), 0x735a2d97) >>> 0;
-    return (seed ^ (seed >>> 15)) & 1;
-  });
-}
-
+/**
+ * Compatibility projection for callers and fixtures that need the canonical
+ * static 7×7 identity matrix without mounting a canvas.
+ */
 export function agentIdentityMatrix(publicKey: string): boolean[][] {
-  const bits = keyBytes(publicKey);
-  return Array.from({ length: GRID_SIZE }, (_, row) => {
-    const half = bits.slice(
-      row * SOURCE_COLUMNS,
-      row * SOURCE_COLUMNS + SOURCE_COLUMNS,
-    );
-    return [
-      ...half,
-      ...half.slice(0, GRID_SIZE - SOURCE_COLUMNS).reverse(),
-    ].map(Boolean);
-  });
+  const { grid } = sigilPattern(normalizePubkey(publicKey));
+  return grid.map((row) => [
+    ...row,
+    ...row.slice(0, row.length - 1).reverse(),
+  ].map(Boolean));
 }
 
 export function shortAgentFingerprint(publicKey: string): string {
   return truncatePubkey(normalizePubkey(publicKey));
 }
 
+/**
+ * A resident's avatar: a live dot-matrix panel seeded by their public key.
+ *
+ * The panel is driven by the shared engine host — one animation frame for every
+ * mark on screen, panels paused while off-screen, and a settled first frame so
+ * one never paints as blank glass. Under `prefers-reduced-motion: reduce` the
+ * loop never starts and the settled frame is all you get: the mark stays
+ * legible, the motion stops.
+ */
 export function AgentIdentitySpecimen({
   accessibleName,
   className,
@@ -68,24 +78,7 @@ export function AgentIdentitySpecimen({
   size?: number;
   state?: AgentVisualState;
 }) {
-  const activeCells = React.useMemo(
-    () =>
-      agentIdentityMatrix(publicKey).flatMap((row, rowIndex) =>
-        row.flatMap((active, columnIndex) =>
-          active
-            ? [
-                {
-                  column: columnIndex,
-                  id: `cell-${rowIndex}-${columnIndex}`,
-                  index: rowIndex * GRID_SIZE + columnIndex,
-                  row: rowIndex,
-                },
-              ]
-            : [],
-        ),
-      ),
-    [publicKey],
-  );
+  const seed = React.useMemo(() => normalizePubkey(publicKey), [publicKey]);
 
   return (
     <span
@@ -97,26 +90,17 @@ export function AgentIdentitySpecimen({
       style={{ "--agent-specimen-size": `${size}px` } as React.CSSProperties}
       title={`${accessibleName} · ${shortAgentFingerprint(publicKey)}`}
     >
-      <svg
-        aria-hidden="true"
-        className="agent-identity-specimen__matrix"
-        shapeRendering="crispEdges"
-        viewBox="0 0 7 7"
-      >
-        {activeCells.map((cell) => (
-          <rect
-            className="agent-identity-specimen__cell"
-            height="0.74"
-            key={cell.id}
-            rx="0.08"
-            style={{ "--agent-cell-index": cell.index } as React.CSSProperties}
-            width="0.74"
-            x={cell.column + 0.13}
-            y={cell.row + 0.13}
-          />
-        ))}
-      </svg>
-      <span aria-hidden="true" className="agent-identity-specimen__lamp" />
+      <DotSigil
+        // A 2px pitch is what the system is tuned for at avatar scale. The chip
+        // is border-box with a 1px border, so the panel is inset by 2 — which
+        // still leaves a 9-cell lattice in the smallest (20px) placement, the
+        // minimum the mirrored 7-wide emblem needs plus its quiet zone.
+        breath={state === "present"}
+        cell={2}
+        scene={SCENE_FOR_STATE[state]}
+        seed={seed}
+        size={size - 2}
+      />
     </span>
   );
 }
