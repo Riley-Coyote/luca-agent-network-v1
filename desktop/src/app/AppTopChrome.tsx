@@ -1,4 +1,5 @@
 import * as React from "react";
+import { isTauri } from "@tauri-apps/api/core";
 import {
   ChevronLeft,
   ChevronRight,
@@ -74,15 +75,20 @@ export function AppTopChrome({
   // Fixed px on purpose: the native traffic lights do not scale with the app's
   // Cmd +/- text zoom (rem), so rem-based clearance shrinks under them when
   // zoomed out. This is a deliberate exception to the rem-first rule.
-  const macChrome = isMacPlatform() && !isFullscreen;
+  // Reserve room for the macOS traffic lights — but only where they EXIST.
+  // This used to gate on isMacPlatform(), which is a platform check, not a
+  // native-window one: a browser on a Mac reserved 80px for lights that were
+  // never drawn, leaving the controls stranded in the middle of the rail's top
+  // area with an empty hole beside them. `isTauri()` is the real question.
+  const macChrome = isMacPlatform() && isTauri() && !isFullscreen;
   const navRowPaddingClass = macChrome
     ? hasCommunityRail
       ? "pl-[32px]"
       : "pl-[80px]"
     : "pl-3";
-  // No vertical nudge: the traffic lights are centred in the strip
-  // (`trafficLightPosition.y` = 10 against a 32px strip), so the flex row's own
-  // `items-center` already lines the nav buttons up with them.
+  // No vertical nudge: this strip is pinned to the card's header row and the
+  // lights are centred on that same row (`trafficLightPosition.y` = 28 =
+  // lip 8 + (header 52 - lights 12) / 2), so `items-center` lines them up.
   const navRowAlignmentClass = null;
 
   React.useEffect(() => {
