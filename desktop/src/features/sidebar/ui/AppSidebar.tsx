@@ -34,6 +34,7 @@ import {
   AppSidebarPrimaryMenu,
 } from "@/features/sidebar/ui/AppSidebarPinnedHeader";
 import { MoreUnreadButton } from "@/features/sidebar/ui/MoreUnreadButton";
+import { useRoomProjects } from "@/features/channels/lib/roomProjects";
 import { cn } from "@/shared/lib/cn";
 import { SidebarSection } from "@/features/sidebar/ui/SidebarSection";
 import { buildChatListItems, ChatList } from "@/features/sidebar/ui/ChatList";
@@ -251,6 +252,7 @@ export function AppSidebar({
   const [dmActionsMenuOpen, setDmActionsMenuOpen] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const [isRoomListScrolled, setIsRoomListScrolled] = React.useState(false);
+  const roomProjects = useRoomProjects(channels);
   React.useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -643,6 +645,7 @@ export function AppSidebar({
                         currentPubkey,
                       })}
                       onSelectChannel={onSelectChannel}
+                      projectByChannelId={roomProjects}
                       selectedChannelId={selectedChannelId}
                       unreadChannelIds={unreadChannelIds}
                       workingByChannelId={activeWorkingByChannelId}
