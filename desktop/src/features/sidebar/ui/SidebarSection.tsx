@@ -30,10 +30,7 @@ import type { Channel, PresenceStatus } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { useNow } from "@/shared/lib/useNow";
-import {
-  AgentIdentitySpecimen,
-  shortAgentFingerprint,
-} from "@/shared/ui/AgentIdentitySpecimen";
+import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -312,18 +309,8 @@ export function ChannelMenuButton({
   presenceStatus?: PresenceStatus;
   onSelectChannel: (channelId: string) => void;
 }) {
-  const knownAgentPubkeys = useKnownAgentPubkeys();
   const resolvedLabel = label ?? channel.name;
   const ephemeralDisplay = getEphemeralChannelDisplay(channel);
-  const primaryDmParticipant = dmParticipants?.[0] ?? null;
-  const agentFingerprint =
-    channel.channelType === "dm" &&
-    channel.participantPubkeys.length === 2 &&
-    primaryDmParticipant &&
-    knownAgentPubkeys.has(normalizePubkey(primaryDmParticipant.pubkey))
-      ? shortAgentFingerprint(primaryDmParticipant.pubkey)
-      : null;
-
   return (
     <SidebarMenuButton
       className={cn(
@@ -350,14 +337,13 @@ export function ChannelMenuButton({
       <span className="min-w-0 flex-1 truncate" data-sidebar-row-label>
         {resolvedLabel}
       </span>
-      {agentFingerprint ? (
-        <span
-          className="hidden shrink-0 font-mono text-3xs tracking-[0.08em] text-sidebar-foreground/35 group-data-[collapsible=icon]:hidden xl:inline"
-          data-sidebar-row-meta
-        >
-          {agentFingerprint}
-        </span>
-      ) : null}
+      {/* The fingerprint is deliberately gone from this row. It keyed off the
+          WINDOW width (`xl:inline`), not the rail's, so on a wide window it
+          appeared inside a 220px rail and truncated the resident's NAME to make
+          room for a hex string — exactly the wrong priority. It is also
+          redundant now: the mark to the left IS the fingerprint, derived from
+          the same key and stable forever. The full value still lives on the
+          specimen's title attribute and the profile panel. */}
       {ephemeralDisplay ? (
         <EphemeralChannelBadge
           display={ephemeralDisplay}
