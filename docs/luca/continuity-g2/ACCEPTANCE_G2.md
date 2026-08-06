@@ -41,8 +41,8 @@ installed-app rows pass and `N03` records an explicit verdict.
 
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
-| A301 | Pre-turn retrieval performs zero persistent mutations and never exceeds 48 KiB. | NOT RUN | |
-| A302 | Retrieved/imported text cannot alter tools, permissions, routing, signing, or system authority. | NOT RUN | |
+| A301 | Pre-turn retrieval performs zero persistent mutations and never exceeds 48 KiB. | PASS | `receipts/T01.md`, `../../../evidence/G2/G2.3/T01/security-review-pass.md` |
+| A302 | Retrieved/imported text cannot alter tools, permissions, routing, signing, or system authority. | PASS | `receipts/T01.md`, `../../../evidence/G2/G2.3/T01/security-review-pass.md` |
 | A303 | Same resident key and continuity survive fresh runtime and app relaunch. | NOT RUN | |
 | A304 | Fresh Hermes and OpenClaw sessions recall an unresolved thread without first-contact language. | NOT RUN | |
 | A305 | Continuity timeout, lock, corruption, absence, disablement, or store loss never blocks chat. | NOT RUN | |

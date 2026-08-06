@@ -472,3 +472,20 @@ Risks/known limits:
 - The remaining dead-code warnings identify G2.3 read-lease consumers and
   legacy rotation helpers; they do not represent a G2.2 correctness failure.
 - Verdict: `docs/luca/continuity-g2/G2_2_VERDICT.md`.
+
+## 2026-08-05 — T01/A301/A302 — bounded pre-turn packet assembly passed
+
+- Commit `5b873278` adds the pure 48 KiB canonical packet builder, fixed
+  untrusted-reference envelope, deterministic layer ordering, body-free
+  receipts, bounded inputs, and consuming zeroizing plaintext output.
+- Commit `7ed219bf` adds the trusted desktop adapter over one immutable
+  owner/resident-private read lease. Invalid, denied, locked, unavailable,
+  stale, timeout, corruption, budget, and sink-panic paths fail soft without
+  invoking continuity writes.
+- Focused verification passed 91 pure-kernel tests and 7 trusted-adapter tests,
+  plus exact formatting and scoped diff checks.
+- Independent security review accepted both boundaries after one bounded
+  repair each.
+- A301 and A302 pass. A305 remains unclaimed until T02 proves fail-soft behavior
+  at the real ACP/chat seam.
+- Evidence: `evidence/G2/G2.3/T01/security-review-pass.md`.
