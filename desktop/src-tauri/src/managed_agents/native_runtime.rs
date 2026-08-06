@@ -132,6 +132,22 @@ fn checked_executable(path: &Path) -> Result<PathBuf, String> {
     Ok(canonical)
 }
 
+fn checked_workspace(path: &Path) -> Result<PathBuf, String> {
+    let canonical = path.canonicalize().map_err(|error| {
+        format!(
+            "native runtime workspace {} is unavailable: {error}",
+            path.display()
+        )
+    })?;
+    if !canonical.is_dir() {
+        return Err(format!(
+            "native runtime workspace is not a directory: {}",
+            canonical.display()
+        ));
+    }
+    Ok(canonical)
+}
+
 /// Resolve a previously validated binding without rediscovering or mutating
 /// the native system. This is the sole binding-to-process descriptor path.
 pub(crate) fn resolve_native_runtime_binding(
@@ -159,6 +175,10 @@ pub(crate) fn resolve_native_runtime_binding(
             if canonical_home != *hermes_home || !canonical_home.is_dir() {
                 return Err("Hermes profile home changed since import".into());
             }
+            let default_workspace = default_workspace
+                .as_deref()
+                .map(checked_workspace)
+                .transpose()?;
             Ok(ResolvedNativeRuntime {
                 command,
                 args: vec!["acp".into()],
@@ -167,7 +187,7 @@ pub(crate) fn resolve_native_runtime_binding(
                     canonical_home.display().to_string(),
                 )]),
                 harness_environment: BTreeMap::new(),
-                default_workspace: default_workspace.clone(),
+                default_workspace,
             })
         }
         RuntimeBinding::Openclaw {
@@ -189,6 +209,10 @@ pub(crate) fn resolve_native_runtime_binding(
                 return Err("OpenClaw Gateway identity reference is invalid".into());
             }
             let command = checked_executable(executable_path)?;
+            let default_workspace = default_workspace
+                .as_deref()
+                .map(checked_workspace)
+                .transpose()?;
             Ok(ResolvedNativeRuntime {
                 command,
                 args: vec!["acp".into()],
@@ -197,7 +221,7 @@ pub(crate) fn resolve_native_runtime_binding(
                     "LUCA_OPENCLAW_AGENT_ID".into(),
                     agent_id.clone(),
                 )]),
-                default_workspace: default_workspace.clone(),
+                default_workspace,
             })
         }
     }
@@ -737,10 +761,22 @@ fn discover_openclaw() -> NativeRuntimeDiscoveryOutcome {
     let candidates = agents
         .into_iter()
         .map(|agent| {
+            let (default_workspace, workspace_error) = match agent.workspace.as_deref() {
+                Some(path) => match checked_workspace(path) {
+                    Ok(canonical) => (Some(canonical), None),
+                    Err(error) => (Some(path.to_path_buf()), Some(error)),
+                },
+                None => (None, None),
+            };
             let readiness = if gateway_locator.is_none() {
                 ResidentReadiness::Unavailable {
                     code: "OPENCLAW_GATEWAY_IDENTITY_UNAVAILABLE".into(),
                     message: "OpenClaw has no stable configured Gateway locator; this agent cannot be imported safely.".into(),
+                }
+            } else if let Some(message) = workspace_error {
+                ResidentReadiness::Degraded {
+                    code: "OPENCLAW_WORKSPACE_UNAVAILABLE".into(),
+                    message,
                 }
             } else if gateway_status.rpc.ok {
                 ResidentReadiness::Discovered {
@@ -775,7 +811,7 @@ fn discover_openclaw() -> NativeRuntimeDiscoveryOutcome {
                 gateway_password_file_ref: None,
                 open_claw_profile: None,
                 state_directory: state_directory.clone(),
-                default_workspace: agent.workspace.clone(),
+                default_workspace: default_workspace.clone(),
             };
             DiscoveredResidentCandidate {
                 native_type: NativeRuntimeKind::Openclaw,
@@ -784,7 +820,7 @@ fn discover_openclaw() -> NativeRuntimeDiscoveryOutcome {
                 binding_fingerprint: native_runtime_binding_fingerprint(&binding_preview),
                 display_name,
                 canonical_location: agent.agent_dir,
-                workspace: agent.workspace.clone(),
+                workspace: default_workspace,
                 model_summary: agent.model,
                 runtime_version: Some(runtime_version.clone()),
                 readiness,
@@ -793,7 +829,14 @@ fn discover_openclaw() -> NativeRuntimeDiscoveryOutcome {
             }
         })
         .collect::<Vec<_>>();
-    let degraded = gateway_locator.is_none() || !gateway_status.rpc.ok;
+    let degraded = gateway_locator.is_none()
+        || !gateway_status.rpc.ok
+        || candidates.iter().any(|candidate| {
+            matches!(
+                candidate.readiness,
+                ResidentReadiness::Degraded { .. } | ResidentReadiness::Unavailable { .. }
+            )
+        });
     NativeRuntimeDiscoveryOutcome {
         native_type: NativeRuntimeKind::Openclaw,
         status: if degraded {
@@ -835,6 +878,17 @@ pub fn discover_native_resident_outcome() -> NativeResidentDiscoveryOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    fn executable_fixture(directory: &Path, name: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = directory.join(name);
+        std::fs::write(&path, "#!/bin/sh\nexit 0\n").expect("write executable fixture");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
+            .expect("mark fixture executable");
+        path.canonicalize().expect("canonical executable fixture")
+    }
 
     #[test]
     fn parses_hermes_profile_table_without_treating_headers_as_profiles() {
@@ -996,5 +1050,98 @@ mod tests {
             native_runtime_semantic_key(&binding("/tmp/hermes-a")),
             native_runtime_semantic_key(&binding("/tmp/hermes-b"))
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hermes_resolution_preserves_exact_profile_home_and_workspace() {
+        let fixture = tempfile::tempdir().expect("tempdir");
+        let profile_home = fixture.path().join("profiles/default");
+        let workspace = fixture.path().join("workspace");
+        std::fs::create_dir_all(&profile_home).expect("profile home");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        let executable = executable_fixture(fixture.path(), "hermes");
+        let binding = RuntimeBinding::Hermes {
+            schema_version: 1,
+            profile_name: "default".into(),
+            hermes_home: profile_home.canonicalize().expect("canonical profile"),
+            executable_path: executable.clone(),
+            runtime_version: "fixture".into(),
+            default_workspace: Some(workspace.clone()),
+        };
+
+        let resolved = resolve_native_runtime_binding(&binding).expect("resolved Hermes binding");
+        assert_eq!(resolved.command, executable);
+        assert_eq!(resolved.args, ["acp"]);
+        assert_eq!(
+            resolved.environment.get("HERMES_HOME"),
+            Some(&profile_home.canonicalize().expect("canonical profile").display().to_string())
+        );
+        assert_eq!(
+            resolved.default_workspace,
+            Some(workspace.canonicalize().expect("canonical workspace"))
+        );
+        assert!(resolved.harness_environment.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn openclaw_resolution_preserves_exact_agent_and_workspace_without_secrets() {
+        let fixture = tempfile::tempdir().expect("tempdir");
+        let workspace = fixture.path().join("workspace");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        let executable = executable_fixture(fixture.path(), "openclaw");
+        let gateway_identity = "gateway:fixture".to_string();
+        let binding = RuntimeBinding::Openclaw {
+            schema_version: 1,
+            agent_id: "main".into(),
+            executable_path: executable.clone(),
+            runtime_version: "fixture".into(),
+            gateway_identity: gateway_identity.clone(),
+            gateway_url_ref: SecretRef {
+                provider: SecretRefProvider::NativeStore,
+                locator: "openclaw:gateway:url".into(),
+                identity_hash: Some(gateway_identity),
+            },
+            gateway_token_file_ref: None,
+            gateway_password_file_ref: None,
+            open_claw_profile: None,
+            state_directory: None,
+            default_workspace: Some(workspace.clone()),
+        };
+
+        let resolved = resolve_native_runtime_binding(&binding).expect("resolved OpenClaw binding");
+        assert_eq!(resolved.command, executable);
+        assert_eq!(resolved.args, ["acp"]);
+        assert!(resolved.environment.is_empty());
+        assert_eq!(
+            resolved.harness_environment.get("LUCA_OPENCLAW_AGENT_ID"),
+            Some(&"main".to_string())
+        );
+        assert_eq!(
+            resolved.default_workspace,
+            Some(workspace.canonicalize().expect("canonical workspace"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn missing_native_workspace_fails_with_an_honest_error() {
+        let fixture = tempfile::tempdir().expect("tempdir");
+        let profile_home = fixture.path().join("profiles/default");
+        std::fs::create_dir_all(&profile_home).expect("profile home");
+        let executable = executable_fixture(fixture.path(), "hermes");
+        let binding = RuntimeBinding::Hermes {
+            schema_version: 1,
+            profile_name: "default".into(),
+            hermes_home: profile_home.canonicalize().expect("canonical profile"),
+            executable_path: executable,
+            runtime_version: "fixture".into(),
+            default_workspace: Some(fixture.path().join("missing")),
+        };
+
+        let error = resolve_native_runtime_binding(&binding).expect_err("missing workspace");
+        assert!(error.contains("workspace"));
+        assert!(error.contains("unavailable"));
     }
 }

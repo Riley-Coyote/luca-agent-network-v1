@@ -45,7 +45,7 @@ tasks:
     gate: V1B.1
     title: Add native parity fixtures and honest readiness states
     depends_on: [N01]
-    acceptance: [A103, A104]
+    acceptance: [A105]
   - id: H01
     gate: V1B.2
     title: Add compact handoff contracts and encrypted lifecycle
@@ -80,10 +80,9 @@ tasks:
     gate: V1B.4
     title: Run installed Hermes/OpenClaw beta matrix
     depends_on: [U02]
-    acceptance: [A401, A402, A403]
+    acceptance: [A103, A104, A401, A402, A403]
   - id: R02
     gate: V1B.4
     title: Run final gates and publish beta verdict/handoff
     depends_on: [R01]
     acceptance: [A404, A405]
-

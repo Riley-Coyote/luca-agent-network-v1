@@ -8,10 +8,11 @@ Status values: `NOT RUN`, `PASS`, `FAIL`, `BLOCKED`, `DEFERRED`.
 | A002 | Active build controls validate and preserve G2 as long-range roadmap. | PASS | `receipts/C00.md` |
 | A003 | Historical G1 evidence receives independent review without unsupported claims. | PASS | `G1_EVIDENCE_REVIEW.md`, `receipts/C01.md` |
 | A004 | Native memory plus compact handoff is the frozen beta memory promise. | PASS | `V1B_BUILD_SPEC.md`, `receipts/C01.md` |
-| A101 | Hermes/OpenClaw semantic identity remains stable across binding changes. | NOT RUN | |
-| A102 | Native configuration, credentials, memory, and schedules remain unchanged. | NOT RUN | |
+| A101 | Hermes/OpenClaw semantic identity remains stable across binding changes. | PASS | `NATIVE_PARITY_CONTRACT.md`, `receipts/N01.md` |
+| A102 | Native configuration, credentials, memory, and schedules remain unchanged. | PASS | `NATIVE_PARITY_CONTRACT.md`, `receipts/N01.md`, `../../../../evidence/G1/RUN_LOG.md` |
 | A103 | Real profile memory, workspace, and permission-gated tool checks pass or report honest unsupported states. | NOT RUN | |
 | A104 | Hermes/OpenClaw DMs, restart, and mixed-room attribution remain correct. | NOT RUN | |
+| A105 | Exact imported profile/agent and workspace bindings are validated at launch and unavailable bindings fail honestly. | PASS | `NATIVE_PARITY_CONTRACT.md`, `receipts/N02.md` |
 | A201 | `ResidentHandoffV1` is bounded, validated, encrypted, revisioned, and source-backed. | NOT RUN | |
 | A202 | Owner corrections pin authority; item removal, forget, and disable are deterministic. | NOT RUN | |
 | A203 | Handoff cognition uses only the same resident runtime/model with no substitution. | NOT RUN | |

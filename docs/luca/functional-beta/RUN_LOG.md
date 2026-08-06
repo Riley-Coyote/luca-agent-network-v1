@@ -29,3 +29,19 @@ continuity records.
 - Frozen beta memory promise: native runtime memory remains authoritative; Luca
   adds only a compact encrypted resident handoff and bounded signed history.
 - C01, A003, and A004: PASS.
+
+## 2026-08-05 — V1B.1 native binding hardening
+
+- Audited the sole native binding-to-process path for Hermes and OpenClaw.
+- Confirmed Hermes launches the exact canonical profile home and OpenClaw the
+  exact agent ID and gateway identity; user environment cannot redirect either.
+- Added canonical workspace validation at discovery and launch. Missing or
+  changed workspaces now report degraded/failed readiness instead of silently
+  running in a different directory.
+- Added deterministic fixtures for exact profile, agent, workspace, binding
+  refresh, secret exclusion, and unavailable workspace behavior.
+- Focused test command: `cargo test --manifest-path desktop/src-tauri/Cargo.toml
+  native_runtime --lib`: PASS (13 tests).
+- Live native-memory, tool, DM/restart, and mixed-room observations remain in
+  R01, where the installed app and real runtimes can prove them honestly.
+- N01, N02, A101, A102, and A105: PASS.
