@@ -136,6 +136,7 @@ pub(crate) fn managed_capsule_broker_handle(
 }
 
 fn join_managed_signing_broker(resident_pubkey: &str) -> Result<(), String> {
+    crate::luca::managed_cognition::unregister(resident_pubkey);
     managed_capsule_brokers()
         .lock()
         .map_err(|_| "managed Capsule broker registry is unavailable".to_owned())?
@@ -1825,20 +1826,28 @@ pub fn spawn_agent_child(
         &global,
     );
     let runtime_configuration_sha256 = managed_runtime_configuration_sha256(spawn_config_hash)?;
+    let runtime_binding_ref = luca_protocol::Sha256Ref::parse(format!(
+        "sha256:{}",
+        runtime_configuration_sha256.as_str()
+    ))
+    .map_err(|error| format!("invalid managed runtime binding: {error}"))?;
     #[cfg(unix)]
     let managed_continuity_fd = crate::luca::managed_continuity::create_endpoint(
         app.clone(),
         resident_pubkey.clone(),
         session_epoch,
-        luca_protocol::Sha256Ref::parse(format!(
-            "sha256:{}",
-            runtime_configuration_sha256.as_str()
-        ))
-        .map_err(|error| format!("invalid managed continuity binding: {error}"))?,
+        runtime_binding_ref.clone(),
         // Native provider egress is classified by the later persisted-grant
         // slice. Unknown deliberately fails closed as remote in G2.
         luca_protocol::ProviderEgressV1::Unknown,
     )?;
+    #[cfg(unix)]
+    let (managed_cognition_fd, managed_cognition_client) =
+        crate::luca::managed_cognition::create_endpoint(
+            resident_pubkey.clone(),
+            session_epoch,
+            runtime_binding_ref.clone(),
+        )?;
     let resident_keys = nostr::Keys::parse(&record.private_key_nsec)
         .map_err(|error| format!("failed to load desktop-held resident key: {error}"))?;
     if resident_keys.public_key().to_hex() != resident_pubkey.as_str() {
@@ -1881,6 +1890,9 @@ pub fn spawn_agent_child(
     command.env("LUCA_MANAGED_PERMISSION_FD", "3");
     #[cfg(unix)]
     command.env("LUCA_MANAGED_CONTINUITY_FD", "4");
+    #[cfg(unix)]
+    command.env("LUCA_MANAGED_COGNITION_FD", "5");
+    command.env("LUCA_MANAGED_BINDING_REF", runtime_binding_ref.as_str());
     if let Some((_, attestation_json)) = &owner_attestation {
         command.env("LUCA_MANAGED_OWNER_ATTESTATION", attestation_json);
     } else {
@@ -2189,6 +2201,7 @@ pub fn spawn_agent_child(
         command.process_group(0);
         let permission_fd = managed_permission_fd.raw_fd();
         let continuity_fd = managed_continuity_fd.raw_fd();
+        let cognition_fd = managed_cognition_fd.raw_fd();
         unsafe {
             command.pre_exec(move || {
                 // Duplicate both sources above the reserved target range before
@@ -2203,10 +2216,18 @@ pub fn spawn_agent_child(
                     libc::close(permission_copy);
                     return Err(std::io::Error::last_os_error());
                 }
+                let cognition_copy = libc::fcntl(cognition_fd, libc::F_DUPFD_CLOEXEC, 10);
+                if cognition_copy == -1 {
+                    libc::close(permission_copy);
+                    libc::close(continuity_copy);
+                    return Err(std::io::Error::last_os_error());
+                }
                 let result = if libc::dup2(permission_copy, 3) == -1
                     || libc::dup2(continuity_copy, 4) == -1
+                    || libc::dup2(cognition_copy, 5) == -1
                     || libc::fcntl(3, libc::F_SETFD, 0) == -1
                     || libc::fcntl(4, libc::F_SETFD, 0) == -1
+                    || libc::fcntl(5, libc::F_SETFD, 0) == -1
                 {
                     Err(std::io::Error::last_os_error())
                 } else {
@@ -2214,6 +2235,7 @@ pub fn spawn_agent_child(
                 };
                 libc::close(permission_copy);
                 libc::close(continuity_copy);
+                libc::close(cognition_copy);
                 result?;
                 Ok(())
             });
@@ -2268,6 +2290,8 @@ pub fn spawn_agent_child(
             &effective_relay_url,
             record.auth_tag.clone(),
             std::sync::Arc::clone(&dispatch_store),
+            app.clone(),
+            runtime_binding_ref.clone(),
         )
         .map_err(|error| format!("failed to bind managed message publisher: {error}"))?;
         Ok((outbox_path, publisher, dispatch_store))
@@ -2370,6 +2394,12 @@ pub fn spawn_agent_child(
         let _ = child.wait();
         let _ = join_managed_signing_broker(&record.pubkey);
         return Err("managed Capsule broker owner already exists".into());
+    }
+    if crate::luca::managed_cognition::register(managed_cognition_client).is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = join_managed_signing_broker(&record.pubkey);
+        return Err("managed cognition broker owner already exists".into());
     }
 
     // Stamp the adapter availability for runtimes with a version gate (codex

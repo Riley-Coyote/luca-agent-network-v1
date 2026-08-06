@@ -221,6 +221,35 @@ fn serve(
             continue;
         };
 
+        // The lightweight handoff overlay is independently controllable per
+        // resident. Disabled (or unreadable) mode is fail-soft and returns no
+        // Luca continuity content; native runtime memory remains untouched.
+        match super::continuity_jobs::continuity_mode(
+            &app,
+            &authority.owner_pubkey,
+            &authority.resident_pubkey,
+        ) {
+            Ok(luca_protocol::ResidentContinuityModeV1::Enabled) => {}
+            Ok(luca_protocol::ResidentContinuityModeV1::Disabled) => {
+                if write_fallback(&mut writer, &intent, ContinuityLayerStatusV1::Empty).is_err() {
+                    break;
+                }
+                continue;
+            }
+            Err(_) => {
+                if write_fallback(
+                    &mut writer,
+                    &intent,
+                    ContinuityLayerStatusV1::Unavailable,
+                )
+                .is_err()
+                {
+                    break;
+                }
+                continue;
+            }
+        }
+
         let state = app.state::<AppState>();
         let Some(key_version) = state.continuity_owner_key_version(&authority.owner_pubkey) else {
             if write_fallback(&mut writer, &intent, ContinuityLayerStatusV1::Unavailable).is_err() {

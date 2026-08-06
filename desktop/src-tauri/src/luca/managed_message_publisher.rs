@@ -10,9 +10,10 @@ use std::{
     time::Duration,
 };
 
-use luca_protocol::{ManagedMessagePublishRequestV1, OpaqueId};
+use luca_protocol::{ManagedMessagePublishRequestV1, OpaqueId, Sha256Ref};
 use nostr::{Event, JsonUtil, Keys, Kind};
 use reqwest::Method;
+use tauri::AppHandle;
 
 use super::{
     managed_dispatch_store::{
@@ -204,6 +205,13 @@ pub(crate) struct ManagedMessagePublisher {
     resident_pubkey: String,
     dispatch_store: Arc<Mutex<ManagedDispatchStore>>,
     transport: Box<dyn ManagedRelayTransport>,
+    handoff_scheduler: Option<HandoffScheduler>,
+}
+
+#[derive(Clone)]
+struct HandoffScheduler {
+    app: AppHandle,
+    binding_ref: Sha256Ref,
 }
 
 impl ManagedMessagePublisher {
@@ -213,6 +221,8 @@ impl ManagedMessagePublisher {
         relay_url: &str,
         auth_tag: Option<String>,
         dispatch_store: Arc<Mutex<ManagedDispatchStore>>,
+        app: AppHandle,
+        binding_ref: Sha256Ref,
     ) -> Result<Self, String> {
         let resident_pubkey = resident_keys.public_key().to_hex();
         let transport = HttpManagedRelayTransport::new(resident_keys, relay_url, auth_tag)?;
@@ -220,6 +230,7 @@ impl ManagedMessagePublisher {
             resident_pubkey,
             dispatch_store,
             transport: Box::new(transport),
+            handoff_scheduler: Some(HandoffScheduler { app, binding_ref }),
         })
     }
 
@@ -233,6 +244,7 @@ impl ManagedMessagePublisher {
             resident_pubkey,
             dispatch_store,
             transport,
+            handoff_scheduler: None,
         }
     }
 
@@ -312,6 +324,21 @@ impl ManagedMessagePublisher {
         outbox
             .mark_authority_finalized(&entry.idempotency_key)
             .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+        // Continuity begins only after every publication authority has reached
+        // its durable terminal state. Scheduling is best-effort and body-free:
+        // it must never change the already-accepted chat result.
+        if let Some(scheduler) = &self.handoff_scheduler {
+            if super::continuity_jobs::enqueue_finalized(
+                &scheduler.app,
+                &entry.request,
+                &entry.event_id,
+                &scheduler.binding_ref,
+            )
+            .is_err()
+            {
+                eprintln!("luca-continuity: handoff job scheduling unavailable");
+            }
+        }
         Ok(())
     }
 

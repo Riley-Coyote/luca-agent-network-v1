@@ -5,6 +5,7 @@ mod config;
 pub mod continuity_provider;
 mod engram_fetch;
 mod filter;
+mod local_cognition;
 pub mod luca_final_publisher;
 mod observer;
 mod pool;
@@ -1641,6 +1642,13 @@ async fn tokio_main() -> Result<()> {
         managed_final_publisher,
     });
 
+    let mut local_cognition_rx =
+        local_cognition::inherited_receiver().map_err(anyhow::Error::msg)?;
+    let mut pending_cognition: HashMap<
+        String,
+        tokio::sync::oneshot::Sender<local_cognition::CognitionReply>,
+    > = HashMap::new();
+
     if !config.memory_enabled {
         tracing::info!(
             target: "engram::core",
@@ -1778,6 +1786,7 @@ async fn tokio_main() -> Result<()> {
         Result(Box<PromptResult>),
         Panic(tokio::task::JoinError),
         SteerAck(SteerAckEvent),
+        Cognition(local_cognition::CognitionEnvelope),
     }
 
     loop {
@@ -1886,6 +1895,15 @@ async fn tokio_main() -> Result<()> {
                 Some(ack_event) = steer_ack_rx.recv() => {
                     Some(PoolEvent::SteerAck(ack_event))
                 }
+                Some(request) = async {
+                    match local_cognition_rx.as_mut() {
+                        Some(rx) => rx.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    let _ = result_rx;
+                    Some(PoolEvent::Cognition(request))
+                }
                 control_event = async {
                     match relay_observer_control_rx.as_mut() {
                         Some(rx) => rx.recv().await,
@@ -1918,6 +1936,10 @@ async fn tokio_main() -> Result<()> {
                     match buzz_event {
                         Some(buzz_event) => {
                             let kind_u32 = buzz_event.event.kind.as_u16() as u32;
+
+                            if kind_u32 == KIND_STREAM_MESSAGE {
+                                preempt_private_cognition(&mut pool);
+                            }
 
                             if kind_u32 == KIND_MEMBER_ADDED_NOTIFICATION
                                 || kind_u32 == KIND_MEMBER_REMOVED_NOTIFICATION
@@ -2348,15 +2370,17 @@ async fn tokio_main() -> Result<()> {
 
         match pool_event {
             Some(PoolEvent::Result(result)) => {
+                let mut result = *result;
                 // Stop typing indicator for the completed channel.
                 if let PromptSource::Channel(ch) = &result.source {
                     typing_channels.remove(ch);
                 }
+                resolve_private_cognition_result(&mut pending_cognition, &mut result);
                 if handle_prompt_result(
                     &mut pool,
                     &mut queue,
                     &config,
-                    *result,
+                    result,
                     &mut heartbeat_in_flight,
                     &removed_channels,
                     &mut crash_history,
@@ -2529,6 +2553,15 @@ async fn tokio_main() -> Result<()> {
                 for (channel_id, thread_tags) in dispatch_pending(&mut pool, &mut queue, &ctx) {
                     typing_channels.insert(channel_id, thread_tags);
                 }
+            }
+            Some(PoolEvent::Cognition(envelope)) => {
+                dispatch_private_cognition(
+                    envelope,
+                    &mut pool,
+                    &queue,
+                    &ctx,
+                    &mut pending_cognition,
+                );
             }
             None => {} // relay/heartbeat/shutdown branches handled inline above
         }
@@ -2882,6 +2915,7 @@ fn dispatch_pending(
         let abort_handle = pool.join_set.spawn(async move {
             pool::run_prompt_task(
                 agent,
+                PromptSource::Channel(channel_id),
                 Some(batch),
                 None,
                 ctx_clone,
@@ -3061,6 +3095,7 @@ fn handle_prompt_result(
     match &result.source {
         PromptSource::Channel(ch) => queue.mark_complete(*ch),
         PromptSource::Heartbeat => *heartbeat_in_flight = false,
+        PromptSource::Continuity(_) => {}
     }
 
     // Strip sessions for channels the agent was removed from while this
@@ -3096,7 +3131,7 @@ fn handle_prompt_result(
 
     let channel_id = match &result.source {
         PromptSource::Channel(ch) => Some(*ch),
-        PromptSource::Heartbeat => None,
+        PromptSource::Heartbeat | PromptSource::Continuity(_) => None,
     };
     let turn_id = result.turn_id.clone();
     let emit_turn_error = |error_msg: &str, error_code: Option<i64>| {
@@ -3452,6 +3487,7 @@ fn dispatch_heartbeat(
     let abort_handle = pool.join_set.spawn(async move {
         pool::run_prompt_task(
             agent,
+            PromptSource::Heartbeat,
             None,
             Some(prompt_text),
             ctx_clone,
@@ -3495,6 +3531,122 @@ mod agent_draft_prompt_tests {
         assert!(prompt.contains("pass real newline bytes through stdin"));
         assert!(prompt.contains("single-quoted shell strings preserve `\\n` literally"));
         assert!(prompt.contains("buzz messages send ... --content -"));
+    }
+}
+
+fn dispatch_private_cognition(
+    envelope: local_cognition::CognitionEnvelope,
+    pool: &mut AgentPool,
+    queue: &EventQueue,
+    ctx: &Arc<PromptContext>,
+    pending: &mut HashMap<String, tokio::sync::oneshot::Sender<local_cognition::CognitionReply>>,
+) {
+    let request = envelope.request;
+    let job_id = request.job_id.as_str().to_owned();
+    let authorized = ctx.managed_final_publisher.as_ref().is_some_and(|managed| {
+        request.owner_pubkey == managed.owner_pubkey
+            && request.resident_pubkey == managed.resident_pubkey
+    });
+    if !authorized || pending.contains_key(&job_id) {
+        let _ = envelope
+            .reply_tx
+            .send(local_cognition::CognitionReply::Unavailable(
+                "invalid_or_duplicate",
+            ));
+        return;
+    }
+    // User-visible work always wins. The desktop job remains durable and may
+    // retry after the conversation becomes idle.
+    if queue.pending_channels() > 0 {
+        let _ = envelope
+            .reply_tx
+            .send(local_cognition::CognitionReply::Unavailable(
+                "user_work_pending",
+            ));
+        return;
+    }
+    let Some(mut agent) = pool.try_claim(None) else {
+        let _ = envelope
+            .reply_tx
+            .send(local_cognition::CognitionReply::Unavailable("runtime_busy"));
+        return;
+    };
+    let (control_tx, control_rx) = tokio::sync::oneshot::channel::<ControlSignal>();
+    let source = PromptSource::Continuity(Box::new(request));
+    let turn_id = Uuid::new_v4().to_string();
+    let task_turn_id = turn_id.clone();
+    agent.acp.clear_steer_rx();
+    let result_tx = pool.result_tx();
+    let ctx = Arc::clone(ctx);
+    let agent_index = agent.index;
+    let abort_handle = pool.join_set.spawn(async move {
+        pool::run_prompt_task(
+            agent,
+            source,
+            None,
+            None,
+            ctx,
+            result_tx,
+            Some(control_rx),
+            task_turn_id,
+        )
+        .await;
+    });
+    pool.task_map_mut().insert(
+        abort_handle.id(),
+        pool::TaskMeta {
+            agent_index,
+            channel_id: None,
+            turn_id,
+            recoverable_batch: None,
+            control_tx: Some(control_tx),
+            steer_tx: None,
+        },
+    );
+    pending.insert(job_id, envelope.reply_tx);
+}
+
+fn resolve_private_cognition_result(
+    pending: &mut HashMap<String, tokio::sync::oneshot::Sender<local_cognition::CognitionReply>>,
+    result: &mut PromptResult,
+) {
+    let PromptSource::Continuity(request) = &result.source else {
+        return;
+    };
+    let Some(reply_tx) = pending.remove(request.job_id.as_str()) else {
+        return;
+    };
+    let reply = if matches!(result.outcome, PromptOutcome::Ok(_)) {
+        result
+            .private_output
+            .take()
+            .filter(|output| output.len() <= request.max_result_bytes.get() as usize)
+            .and_then(|output| {
+                serde_json::from_str::<luca_protocol::LocalContinuityCognitionResultV1>(&output)
+                    .ok()
+            })
+            .filter(|parsed| {
+                parsed.validate_against(request).is_ok()
+                    && luca_protocol::canonicalize(parsed)
+                        .is_ok_and(|bytes| bytes.len() <= request.max_result_bytes.get() as usize)
+            })
+            .map(local_cognition::CognitionReply::Completed)
+            .unwrap_or(local_cognition::CognitionReply::Unavailable(
+                "invalid_result",
+            ))
+    } else {
+        local_cognition::CognitionReply::Unavailable("runtime_failed")
+    };
+    let _ = reply_tx.send(reply);
+}
+
+fn preempt_private_cognition(pool: &mut AgentPool) {
+    for task in pool.task_map_mut().values_mut() {
+        if task.channel_id.is_none() {
+            if let Some(control_tx) = task.control_tx.take() {
+                let _ = control_tx.send(ControlSignal::Cancel);
+            }
+        }
     }
 }
 
@@ -4749,6 +4901,7 @@ mod error_outcome_emission_tests {
             source: PromptSource::Channel(Uuid::new_v4()),
             turn_id: "test-turn-id".to_string(),
             outcome,
+            private_output: None,
             batch: None,
         };
 
@@ -4915,6 +5068,7 @@ mod error_outcome_emission_tests {
                 source: PromptSource::Channel(Uuid::new_v4()),
                 turn_id: "test-turn-id".to_string(),
                 outcome,
+                private_output: None,
                 batch: None,
             };
             handle_prompt_result(
@@ -5005,6 +5159,7 @@ mod error_outcome_emission_tests {
                 source: PromptSource::Channel(channel_id),
                 turn_id: "test-turn-id".to_string(),
                 outcome,
+                private_output: None,
                 batch: Some(batch),
             };
             handle_prompt_result(
@@ -5110,6 +5265,7 @@ mod error_outcome_emission_tests {
                 source: PromptSource::Channel(channel_id),
                 turn_id: "test-turn-id".to_string(),
                 outcome,
+                private_output: None,
                 batch: Some(batch),
             };
             handle_prompt_result(
@@ -5201,6 +5357,7 @@ mod error_outcome_emission_tests {
             outcome: PromptOutcome::Timeout(TimeoutKind::Hard {
                 recently_active: true,
             }),
+            private_output: None,
             batch: Some(batch),
         };
         handle_prompt_result(
@@ -5294,6 +5451,7 @@ mod error_outcome_emission_tests {
             outcome: PromptOutcome::Timeout(TimeoutKind::Hard {
                 recently_active: true,
             }),
+            private_output: None,
             batch: Some(batch),
         };
         handle_prompt_result(
@@ -5408,6 +5566,7 @@ mod error_outcome_emission_tests {
             source: PromptSource::Channel(channel_id),
             turn_id: "test-turn-id".to_string(),
             outcome: PromptOutcome::CancelDrainTimeout(grace),
+            private_output: None,
             batch: Some(batch),
         };
 
@@ -5537,6 +5696,7 @@ mod error_outcome_emission_tests {
             source: PromptSource::Channel(Uuid::new_v4()),
             turn_id: "test-turn-id".to_string(),
             outcome: PromptOutcome::CancelDrainTimeout(grace),
+            private_output: None,
             // Explicit Stop already dropped the batch upstream in
             // `classify_control_cancel_failure` — `handle_prompt_result`
             // never sees one to requeue.

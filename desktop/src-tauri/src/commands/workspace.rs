@@ -217,6 +217,9 @@ pub async fn apply_workspace(
                 {
                     eprintln!("buzz-desktop: failed to restore managed agents: {error}");
                 }
+                if crate::luca::continuity_jobs::recover_pending(&app).is_err() {
+                    eprintln!("luca-continuity: pending handoff recovery unavailable");
+                }
             }
         });
     }
@@ -230,6 +233,9 @@ pub async fn apply_workspace(
                 restore_managed_agents_on_launch(&app, &state.shutdown_started).await
             {
                 eprintln!("buzz-desktop: failed to restore managed agents: {error}");
+            }
+            if crate::luca::continuity_jobs::recover_pending(&app).is_err() {
+                eprintln!("luca-continuity: pending handoff recovery unavailable");
             }
         });
     }
