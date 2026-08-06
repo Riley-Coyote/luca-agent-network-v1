@@ -143,6 +143,7 @@ pub(crate) fn resolve_desktop_continuity_context<F>(
     request: ContinuityContextRequestV1,
     address: NamespaceScope,
     cue: RetrievalText,
+    capsule: ContinuityLayerMaterial,
     deadline: Instant,
     now_unix_ms: u64,
     sink: F,
@@ -150,7 +151,16 @@ pub(crate) fn resolve_desktop_continuity_context<F>(
 where
     F: FnOnce(&[u8]),
 {
-    resolve_with_lease_reader(state, request, address, cue, deadline, now_unix_ms, sink)
+    resolve_with_lease_reader(
+        state,
+        request,
+        address,
+        cue,
+        capsule,
+        deadline,
+        now_unix_ms,
+        sink,
+    )
 }
 
 trait ContinuityLeaseReader {
@@ -181,6 +191,7 @@ fn resolve_with_lease_reader<R, F>(
     request: ContinuityContextRequestV1,
     address: NamespaceScope,
     cue: RetrievalText,
+    capsule: ContinuityLayerMaterial,
     deadline: Instant,
     now_unix_ms: u64,
     sink: F,
@@ -205,74 +216,19 @@ where
     };
     let mut callback_receipt = None;
     let mut sink = Some(sink);
+    let mut capsule = Some(capsule);
     let lease_outcome = reader.read(lease_request, |retrieval| {
-        let assembled = assemble_ready_snapshot(retrieval).and_then(|snapshot| {
-            ContinuityContextResolver::resolve(&request, snapshot, now_unix_ms)
-        });
-        let (output, status) = match assembled {
-            Ok(output) => {
-                let status = if output.has_packet() {
-                    ContinuityLayerStatusV1::Ready
-                } else if output
-                    .layers()
-                    .iter()
-                    .all(|layer| layer.status == ContinuityLayerStatusV1::Timeout)
-                {
-                    ContinuityLayerStatusV1::Timeout
-                } else {
-                    ContinuityLayerStatusV1::Invalid
-                };
-                (output, status)
-            }
-            Err(_) => match invalid_status_snapshot().and_then(|snapshot| {
-                ContinuityContextResolver::resolve(&request, snapshot, now_unix_ms)
-            }) {
-                Ok(output) => (output, ContinuityLayerStatusV1::Invalid),
-                Err(_) => {
-                    callback_receipt = Some(receipt(
-                        &request,
-                        ContinuityLayerStatusV1::Invalid,
-                        skipped_layer_statuses(ContinuityLayerStatusV1::Invalid),
-                        None,
-                        None,
-                        DesktopContinuityContextDispositionV1::Skipped,
-                    ));
-                    return;
-                }
-            },
-        };
-
-        let layer_statuses = fixed_statuses(output.layers());
-        let continuity_receipt_ref = Some(output.receipt_ref().clone());
-        let Some(sink) = sink.take() else {
-            callback_receipt = Some(receipt(
-                &request,
-                ContinuityLayerStatusV1::Invalid,
-                skipped_layer_statuses(ContinuityLayerStatusV1::Invalid),
-                None,
-                None,
-                DesktopContinuityContextDispositionV1::Skipped,
-            ));
-            return;
-        };
-        if catch_unwind(AssertUnwindSafe(|| output.consume_wire(sink))).is_err() {
-            callback_receipt = Some(receipt(
-                &request,
-                ContinuityLayerStatusV1::Invalid,
-                layer_statuses,
-                continuity_receipt_ref,
-                None,
-                DesktopContinuityContextDispositionV1::Skipped,
-            ));
-            return;
-        }
-        callback_receipt = Some(receipt(
+        let snapshot = capsule
+            .take()
+            .ok_or(luca_continuity::ContinuityError::InvalidContextLayer)
+            .and_then(|capsule| assemble_ready_snapshot(retrieval, capsule));
+        callback_receipt = Some(resolve_snapshot_to_receipt(
             &request,
-            status,
-            layer_statuses,
-            continuity_receipt_ref,
+            snapshot,
+            now_unix_ms,
+            &mut sink,
+            false,
             None,
-            DesktopContinuityContextDispositionV1::Delivered,
         ));
     });
 
@@ -293,10 +249,116 @@ where
             }
         }
         outcome => {
-            let (status, lease_receipt) = lease_status(outcome);
-            skipped_receipt(&request, status, lease_receipt.snapshot_fingerprint)
+            let (lease_status, lease_receipt) = lease_status(outcome);
+            let snapshot = capsule
+                .take()
+                .ok_or(luca_continuity::ContinuityError::InvalidContextLayer)
+                .and_then(|capsule| degraded_notebook_snapshot(capsule, lease_status));
+            let mut resolved = resolve_snapshot_to_receipt(
+                &request,
+                snapshot,
+                now_unix_ms,
+                &mut sink,
+                true,
+                Some(lease_status),
+            );
+            resolved.lease_snapshot_ref = lease_receipt.snapshot_fingerprint;
+            match resolved.disposition {
+                DesktopContinuityContextDispositionV1::Delivered => {
+                    DesktopContinuityContextOutcomeV1::Delivered(resolved)
+                }
+                DesktopContinuityContextDispositionV1::Skipped => {
+                    DesktopContinuityContextOutcomeV1::Skipped(resolved)
+                }
+            }
         }
     }
+}
+
+fn resolve_snapshot_to_receipt<F>(
+    request: &ContinuityContextRequestV1,
+    snapshot: Result<ContinuityReadSnapshot, luca_continuity::ContinuityError>,
+    now_unix_ms: u64,
+    sink: &mut Option<F>,
+    require_packet: bool,
+    no_packet_status: Option<ContinuityLayerStatusV1>,
+) -> DesktopContinuityContextReceiptV1
+where
+    F: FnOnce(&[u8]),
+{
+    let resolved = snapshot
+        .and_then(|snapshot| ContinuityContextResolver::resolve(request, snapshot, now_unix_ms));
+    let (output, forced_status) = match resolved {
+        Ok(output) => (output, None),
+        Err(_) => match invalid_status_snapshot()
+            .and_then(|snapshot| ContinuityContextResolver::resolve(request, snapshot, now_unix_ms))
+        {
+            Ok(output) => (output, Some(ContinuityLayerStatusV1::Invalid)),
+            Err(_) => {
+                return receipt(
+                    request,
+                    ContinuityLayerStatusV1::Invalid,
+                    skipped_layer_statuses(ContinuityLayerStatusV1::Invalid),
+                    None,
+                    None,
+                    DesktopContinuityContextDispositionV1::Skipped,
+                )
+            }
+        },
+    };
+    let layer_statuses = fixed_statuses(output.layers());
+    let status = if let Some(status) = forced_status {
+        status
+    } else if output.has_packet() {
+        ContinuityLayerStatusV1::Ready
+    } else if output
+        .layers()
+        .iter()
+        .all(|layer| layer.status == ContinuityLayerStatusV1::Timeout)
+    {
+        ContinuityLayerStatusV1::Timeout
+    } else {
+        no_packet_status.unwrap_or(ContinuityLayerStatusV1::Invalid)
+    };
+    let continuity_receipt_ref = Some(output.receipt_ref().clone());
+    if require_packet && !output.has_packet() {
+        return receipt(
+            request,
+            status,
+            layer_statuses,
+            continuity_receipt_ref,
+            None,
+            DesktopContinuityContextDispositionV1::Skipped,
+        );
+    }
+    let Some(sink) = sink.take() else {
+        return receipt(
+            request,
+            ContinuityLayerStatusV1::Invalid,
+            skipped_layer_statuses(ContinuityLayerStatusV1::Invalid),
+            None,
+            None,
+            DesktopContinuityContextDispositionV1::Skipped,
+        );
+    };
+    if catch_unwind(AssertUnwindSafe(|| output.consume_wire(sink))).is_err() {
+        return receipt(
+            request,
+            ContinuityLayerStatusV1::Invalid,
+            layer_statuses,
+            continuity_receipt_ref,
+            None,
+            DesktopContinuityContextDispositionV1::Skipped,
+        );
+    }
+    receipt(
+        request,
+        status,
+        layer_statuses,
+        continuity_receipt_ref,
+        None,
+        DesktopContinuityContextDispositionV1::Delivered,
+    )
 }
 
 fn exact_resident_authority(
@@ -311,6 +373,7 @@ fn exact_resident_authority(
 
 fn assemble_ready_snapshot(
     retrieval: &RetrievalResult,
+    capsule: ContinuityLayerMaterial,
 ) -> Result<ContinuityReadSnapshot, luca_continuity::ContinuityError> {
     let mut handoff = Vec::new();
     let mut hypomnema = Vec::new();
@@ -339,7 +402,7 @@ fn assemble_ready_snapshot(
         }
     }
     Ok(ContinuityReadSnapshot {
-        capsule: empty_layer()?,
+        capsule,
         handoff: layer_from_items(handoff)?,
         hypomnema: layer_from_items(hypomnema)?,
         associative_recall: layer_from_items(associative_recall)?,
@@ -363,6 +426,19 @@ fn empty_layer() -> Result<ContinuityLayerMaterial, luca_continuity::ContinuityE
 
 fn denied_layer() -> Result<ContinuityLayerMaterial, luca_continuity::ContinuityError> {
     ContinuityLayerMaterial::status(ContinuityLayerStatusV1::Denied, None)
+}
+
+fn degraded_notebook_snapshot(
+    capsule: ContinuityLayerMaterial,
+    status: ContinuityLayerStatusV1,
+) -> Result<ContinuityReadSnapshot, luca_continuity::ContinuityError> {
+    Ok(ContinuityReadSnapshot {
+        capsule,
+        handoff: ContinuityLayerMaterial::status(status, None)?,
+        hypomnema: ContinuityLayerMaterial::status(status, None)?,
+        associative_recall: ContinuityLayerMaterial::status(status, None)?,
+        owner_brain: ContinuityLayerMaterial::status(ContinuityLayerStatusV1::Denied, None)?,
+    })
 }
 
 fn invalid_status_snapshot() -> Result<ContinuityReadSnapshot, luca_continuity::ContinuityError> {
@@ -681,10 +757,44 @@ mod tests {
             request,
             address,
             RetrievalText::from("continuity"),
+            empty_layer().unwrap(),
             Instant::now() + Duration::from_secs(1),
             1,
             sink,
         )
+    }
+
+    fn run_with_capsule<R, F>(
+        reader: &R,
+        request: ContinuityContextRequestV1,
+        address: NamespaceScope,
+        capsule: ContinuityLayerMaterial,
+        sink: F,
+    ) -> DesktopContinuityContextOutcomeV1
+    where
+        R: ContinuityLeaseReader,
+        F: FnOnce(&[u8]),
+    {
+        resolve_with_lease_reader(
+            reader,
+            request,
+            address,
+            RetrievalText::from("continuity"),
+            capsule,
+            Instant::now() + Duration::from_secs(1),
+            1,
+            sink,
+        )
+    }
+
+    fn ready_capsule() -> ContinuityLayerMaterial {
+        ContinuityLayerMaterial::ready(vec![ContinuityReferenceItem::new(
+            OpaqueId::parse("portable-capsule").unwrap(),
+            "portable-capsule-private-body".to_owned(),
+            vec![sha('9')],
+        )
+        .unwrap()])
+        .unwrap()
     }
 
     #[test]
@@ -783,6 +893,66 @@ mod tests {
             left.receipt().disposition,
             DesktopContinuityContextDispositionV1::Delivered
         );
+    }
+
+    #[test]
+    fn verified_capsule_is_independent_of_every_notebook_lease_failure() {
+        let address = resident_address();
+        let reader = FakeLeaseReader::ready(retrieval(&address));
+        let ready = run_with_capsule(
+            &reader,
+            request(MAX_CONTINUITY_PACKET_BYTES),
+            address.clone(),
+            ready_capsule(),
+            |wire| {
+                let result: ContinuityContextResultV1 = serde_json::from_slice(wire).unwrap();
+                assert!(result
+                    .packet
+                    .unwrap()
+                    .content
+                    .contains("portable-capsule-private-body"));
+            },
+        );
+        assert_eq!(
+            ready.receipt().layer_statuses[0],
+            ContinuityLayerStatusV1::Ready
+        );
+
+        for status in [
+            ContinuityLayerStatusV1::Empty,
+            ContinuityLayerStatusV1::Denied,
+            ContinuityLayerStatusV1::Stale,
+            ContinuityLayerStatusV1::Locked,
+            ContinuityLayerStatusV1::Unavailable,
+            ContinuityLayerStatusV1::Timeout,
+            ContinuityLayerStatusV1::Invalid,
+        ] {
+            let reader = FakeLeaseReader::status(status);
+            let outcome = run_with_capsule(
+                &reader,
+                request(MAX_CONTINUITY_PACKET_BYTES),
+                address.clone(),
+                ready_capsule(),
+                |wire| {
+                    let result: ContinuityContextResultV1 = serde_json::from_slice(wire).unwrap();
+                    assert!(result
+                        .packet
+                        .unwrap()
+                        .content
+                        .contains("portable-capsule-private-body"));
+                },
+            );
+            assert_eq!(outcome.receipt().status, ContinuityLayerStatusV1::Ready);
+            assert_eq!(
+                outcome.receipt().layer_statuses[0],
+                ContinuityLayerStatusV1::Ready
+            );
+            assert_eq!(outcome.receipt().layer_statuses[1], status);
+            assert_eq!(
+                outcome.receipt().disposition,
+                DesktopContinuityContextDispositionV1::Delivered
+            );
+        }
     }
 
     #[test]

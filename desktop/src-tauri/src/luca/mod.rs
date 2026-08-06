@@ -1,6 +1,8 @@
 //! Luca-owned desktop authority components layered onto the Buzz application.
 
 pub(crate) mod continuity_backup;
+pub(crate) mod continuity_capsule;
+pub(crate) mod continuity_capsule_relay;
 pub(crate) mod continuity_context;
 pub(crate) mod continuity_key_custody;
 pub(crate) mod continuity_key_derivation;

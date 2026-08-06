@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use luca_continuity::RetrievalText;
+use luca_continuity::{ContinuityLayerMaterial, RetrievalText};
 use luca_protocol::{
     canonical_sha256, canonicalize, ContinuityContextRequestV1, ContinuityContextResultV1,
     ContinuityLayerResultV1, ContinuityLayerStatusV1, Hex64, OpaqueId, ProviderEgressV1, SafeU53,
@@ -24,6 +24,8 @@ use zeroize::Zeroizing;
 use crate::app_state::AppState;
 
 use super::{
+    continuity_capsule::{capsule_context_layer, ContinuityCapsuleDesktopError},
+    continuity_capsule_relay::load_current_capsule,
     continuity_context::{resident_notebook_address, resolve_desktop_continuity_context},
     managed_dispatch_store::{global_dispatch_store, ManagedDispatchStore},
 };
@@ -32,6 +34,7 @@ const INTENT_PROTOCOL: &str = "luca.managed.continuity-intent.v1";
 const MAX_FRAME_BYTES: usize = 384 * 1024;
 const MAX_CUE_BYTES: usize = 4 * 1024;
 const MAX_RESOLUTION_MILLIS: u64 = 3_000;
+const MAX_CAPSULE_LOAD_MILLIS: u64 = 750;
 const LAYERS: [&str; 5] = [
     "capsule",
     "handoff",
@@ -256,6 +259,12 @@ fn serve(
             .saturating_sub(now_unix_ms)
             .min(MAX_RESOLUTION_MILLIS);
         let deadline = Instant::now() + Duration::from_millis(remaining);
+        let capsule = load_capsule_context_layer(
+            &state,
+            &request.owner_pubkey,
+            &request.resident_pubkey,
+            remaining.min(MAX_CAPSULE_LOAD_MILLIS).max(1),
+        );
         let delivery_trigger = intent.trigger_event_id.clone();
         let delivery_resident = intent.resident_pubkey.clone();
         let delivery_conversation = intent.conversation_id.clone();
@@ -267,6 +276,7 @@ fn serve(
             request,
             address,
             cue,
+            capsule,
             deadline,
             now_unix_ms,
             |wire| {
@@ -298,6 +308,60 @@ fn serve(
                 }
             }
         }
+    }
+}
+
+fn load_capsule_context_layer(
+    state: &AppState,
+    expected_owner: &Hex64,
+    expected_resident: &Hex64,
+    timeout_millis: u64,
+) -> ContinuityLayerMaterial {
+    let fallback = |status| {
+        ContinuityLayerMaterial::status(status, None).unwrap_or_else(|_| {
+            ContinuityLayerMaterial::status(ContinuityLayerStatusV1::Invalid, None)
+                .expect("fixed invalid layer status")
+        })
+    };
+    let handle =
+        match crate::managed_agents::managed_capsule_broker_handle(expected_resident.as_str()) {
+            Ok(handle)
+                if handle.owner_pubkey() == expected_owner
+                    && handle.resident_pubkey() == expected_resident =>
+            {
+                handle
+            }
+            Ok(_) => return fallback(ContinuityLayerStatusV1::Denied),
+            Err(_) => return fallback(ContinuityLayerStatusV1::Unavailable),
+        };
+    let result = tauri::async_runtime::block_on(async {
+        tokio::time::timeout(
+            Duration::from_millis(timeout_millis),
+            load_current_capsule(state, &handle),
+        )
+        .await
+    });
+    match result {
+        Ok(Ok(state)) => capsule_context_layer(state)
+            .unwrap_or_else(|_| fallback(ContinuityLayerStatusV1::Invalid)),
+        Err(_) | Ok(Err(ContinuityCapsuleDesktopError::Timeout)) => {
+            fallback(ContinuityLayerStatusV1::Timeout)
+        }
+        Ok(Err(ContinuityCapsuleDesktopError::OwnerLocked)) => {
+            fallback(ContinuityLayerStatusV1::Locked)
+        }
+        Ok(Err(ContinuityCapsuleDesktopError::WrongOwner)) => {
+            fallback(ContinuityLayerStatusV1::Denied)
+        }
+        Ok(Err(ContinuityCapsuleDesktopError::StaleBinding)) => {
+            fallback(ContinuityLayerStatusV1::Stale)
+        }
+        Ok(Err(
+            ContinuityCapsuleDesktopError::RelayUnavailable
+            | ContinuityCapsuleDesktopError::BrokerBusy
+            | ContinuityCapsuleDesktopError::BrokerUnavailable,
+        )) => fallback(ContinuityLayerStatusV1::Unavailable),
+        Ok(Err(_)) => fallback(ContinuityLayerStatusV1::Invalid),
     }
 }
 

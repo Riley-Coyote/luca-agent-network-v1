@@ -10,10 +10,10 @@ use super::agent_env::build_buzz_agent_provider_defaults;
 
 use crate::{
     managed_agents::{
-        KnownAcpRuntime, ManagedAgentProcess, ManagedAgentRecord, ManagedAgentSummary,
         append_log_marker, known_acp_runtime, login_shell_path, managed_agent_log_path,
         missing_command_message, normalize_agent_args, open_log_file, resolve_command,
-        spawn_key_refusal,
+        spawn_key_refusal, KnownAcpRuntime, ManagedAgentProcess, ManagedAgentRecord,
+        ManagedAgentSummary,
     },
     util::now_iso,
 };
@@ -88,6 +88,26 @@ fn managed_signing_brokers() -> &'static Mutex<HashMap<String, ManagedSigningBro
     BROKERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+fn managed_capsule_brokers(
+) -> &'static Mutex<HashMap<String, crate::luca::continuity_capsule::CapsuleBrokerHandle>> {
+    static BROKERS: OnceLock<
+        Mutex<HashMap<String, crate::luca::continuity_capsule::CapsuleBrokerHandle>>,
+    > = OnceLock::new();
+    BROKERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn register_managed_capsule_broker(
+    resident_pubkey: &str,
+    handle: crate::luca::continuity_capsule::CapsuleBrokerHandle,
+) -> Result<(), ()> {
+    let mut brokers = managed_capsule_brokers().lock().map_err(|_| ())?;
+    if brokers.contains_key(resident_pubkey) {
+        return Err(());
+    }
+    brokers.insert(resident_pubkey.to_owned(), handle);
+    Ok(())
+}
+
 fn register_managed_signing_broker(
     resident_pubkey: &str,
     owner: ManagedSigningBrokerOwner,
@@ -102,7 +122,24 @@ fn register_managed_signing_broker(
     Ok(())
 }
 
+/// Clone one bounded, non-signing Capsule handle without retaining the broker
+/// registry lock while the caller waits for resident authority.
+pub(crate) fn managed_capsule_broker_handle(
+    resident_pubkey: &str,
+) -> Result<crate::luca::continuity_capsule::CapsuleBrokerHandle, String> {
+    managed_capsule_brokers()
+        .lock()
+        .map_err(|_| "managed Capsule broker registry is unavailable".to_owned())?
+        .get(resident_pubkey)
+        .cloned()
+        .ok_or_else(|| "managed resident signing broker is unavailable".to_owned())
+}
+
 fn join_managed_signing_broker(resident_pubkey: &str) -> Result<(), String> {
+    managed_capsule_brokers()
+        .lock()
+        .map_err(|_| "managed Capsule broker registry is unavailable".to_owned())?
+        .remove(resident_pubkey);
     let owner = managed_signing_brokers()
         .lock()
         .map_err(|_| "managed signing broker registry is unavailable".to_owned())?
@@ -1889,7 +1926,7 @@ pub fn spawn_agent_child(
     let spawned_setup_mode;
     {
         use crate::managed_agents::{
-            AgentReadiness, Requirement, agent_readiness, resolve_effective_agent_env,
+            agent_readiness, resolve_effective_agent_env, AgentReadiness, Requirement,
         };
 
         let effective = resolve_effective_agent_env(record, &personas, runtime_meta, &global);
@@ -2255,11 +2292,12 @@ pub fn spawn_agent_child(
                 return Err(format!("failed to bind managed signing broker: {error}"));
             }
         };
+    let capsule_handle = broker.capsule_handle();
     let (mut broker_stream, broker_shutdown) = desktop_broker_endpoint
         .split_for_serve()
         .map_err(|error| format!("failed to split managed signing broker endpoint: {error}"))?;
     for result in [
-        broker_stream.set_read_timeout(Some(std::time::Duration::from_secs(5))),
+        broker_stream.set_read_timeout(Some(std::time::Duration::from_millis(250))),
         broker_stream.set_write_timeout(Some(std::time::Duration::from_secs(5))),
     ] {
         if let Err(error) = result {
@@ -2326,6 +2364,12 @@ pub fn spawn_agent_child(
         let _ = owner.shutdown.shutdown();
         let _ = owner.handle.join();
         return Err("managed signing broker owner already exists".into());
+    }
+    if register_managed_capsule_broker(&record.pubkey, capsule_handle).is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = join_managed_signing_broker(&record.pubkey);
+        return Err("managed Capsule broker owner already exists".into());
     }
 
     // Stamp the adapter availability for runtimes with a version gate (codex

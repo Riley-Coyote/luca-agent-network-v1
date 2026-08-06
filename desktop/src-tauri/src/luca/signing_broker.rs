@@ -15,6 +15,10 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
+use super::continuity_capsule::{
+    capsule_broker_channel, service_capsule_broker_slice, CapsuleBrokerHandle,
+    CapsuleBrokerReceiver,
+};
 use super::local_broker_session::{
     LocalBrokerCaller, LocalBrokerSession, LocalBrokerSessionBinding, LocalBrokerSessionError,
     MessagePublishAuthorization, RelayAuthAuthorization,
@@ -120,6 +124,8 @@ impl From<ManagedMessageOutboxError> for SigningBrokerError {
 pub(crate) struct ResidentSigningBroker {
     resident_keys: Keys,
     session: LocalBrokerSession,
+    capsule_handle: CapsuleBrokerHandle,
+    capsule_receiver: CapsuleBrokerReceiver,
     message_outbox: ManagedMessageOutbox,
     publication_authority: Box<dyn ManagedMessagePublicationAuthority>,
 }
@@ -153,9 +159,13 @@ impl ResidentSigningBroker {
             return Err(SigningBrokerError::ResidentKeyMismatch);
         }
         let message_outbox = ManagedMessageOutbox::new(binding.installation_session_id.clone());
+        let (capsule_handle, capsule_receiver) =
+            capsule_broker_channel(&binding).map_err(|_| SigningBrokerError::EventConstruction)?;
         Ok(Self {
             resident_keys,
             session: LocalBrokerSession::new(binding)?,
+            capsule_handle,
+            capsule_receiver,
             message_outbox,
             publication_authority,
         })
@@ -177,12 +187,29 @@ impl ResidentSigningBroker {
             outbox_path,
             passphrase,
         )?;
+        let (capsule_handle, capsule_receiver) =
+            capsule_broker_channel(&binding).map_err(|_| SigningBrokerError::EventConstruction)?;
         Ok(Self {
             resident_keys,
             session: LocalBrokerSession::new(binding)?,
+            capsule_handle,
+            capsule_receiver,
             message_outbox,
             publication_authority,
         })
+    }
+
+    /// Clone the non-signing, bounded internal Capsule request handle.
+    pub(crate) fn capsule_handle(&self) -> CapsuleBrokerHandle {
+        self.capsule_handle.clone()
+    }
+
+    fn service_capsule_requests(&self) {
+        service_capsule_broker_slice(
+            &self.capsule_receiver,
+            &self.resident_keys,
+            self.session.binding(),
+        );
     }
 
     /// Reconcile one hard-bounded slice on the sole broker/outbox owner thread.
@@ -368,10 +395,12 @@ impl ResidentSigningBroker {
     ) -> Result<(), SigningBrokerError> {
         let mut frame_reader = SigningFrameReader::new();
         loop {
+            self.service_capsule_requests();
             let frame = match frame_reader.read_next_frame(stream) {
                 Ok(Some(frame)) => frame,
                 Ok(None) => return Ok(()),
                 Err(SigningTransportError::IdleTimeout) => {
+                    self.service_capsule_requests();
                     if let Err(error) = self.reconcile_publication_outbox_slice() {
                         eprintln!(
                             "luca-signing: managed publication reconciliation deferred: {error}"
@@ -384,6 +413,7 @@ impl ResidentSigningBroker {
             let now_unix_ms = system_now_unix_ms()?;
             let result = self.handle_frame(&frame, caller, now_unix_ms)?;
             write_frame(stream, &result)?;
+            self.service_capsule_requests();
             if let Err(error) = self.reconcile_publication_outbox_slice() {
                 eprintln!("luca-signing: managed publication reconciliation deferred: {error}");
             }
