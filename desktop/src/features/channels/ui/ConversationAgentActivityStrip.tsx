@@ -15,6 +15,8 @@ import {
   type AgentVisualState,
   shortAgentFingerprint,
 } from "@/shared/ui/AgentIdentitySpecimen";
+import type { AgentActivity } from "@/features/agents/lib/activityPhase";
+import { visualStateForActivity } from "@/features/agents/lib/activityPhase";
 
 type ConversationAgentActivityStripProps = {
   agents: BotActivityAgent[];
@@ -22,12 +24,20 @@ type ConversationAgentActivityStripProps = {
   onOpenAgentSession: (pubkey: string, channelId?: string | null) => void;
   sessionAgents: ChannelAgentSessionAgent[];
   workingPubkeys: string[];
+  /** What each working resident is doing, keyed by normalized pubkey. */
+  activityByPubkey?: ReadonlyMap<string, AgentActivity | null>;
 };
 
 function resolveVisualState(
   agent: ChannelAgentSessionAgent | undefined,
   working: boolean,
+  activity: AgentActivity | null,
 ): AgentVisualState {
+  // A working resident shows WHAT they are doing, not merely that they are
+  // busy: thinking, tool use and writing are three different scenes on the
+  // mark. `working` alone is the fallback for a turn whose first ACP frame has
+  // not landed yet.
+  if (activity) return visualStateForActivity(activity);
   if (working) return "working";
   if (!agent || agent.status === "running" || agent.status === "deployed") {
     return "present";
@@ -41,6 +51,7 @@ export function ConversationAgentActivityStrip({
   onOpenAgentSession,
   sessionAgents,
   workingPubkeys,
+  activityByPubkey,
 }: ConversationAgentActivityStripProps) {
   const [stopping, setStopping] = React.useState(false);
   const [cancellableTurns, setCancellableTurns] = React.useState<
@@ -131,7 +142,11 @@ export function ConversationAgentActivityStrip({
     <section aria-label="Resident agent state" data-luca-agent-strip>
       {agents.map((agent) => {
         const key = normalizePubkey(agent.pubkey);
-        const state = resolveVisualState(sessions.get(key), working.has(key));
+        const state = resolveVisualState(
+          sessions.get(key),
+          working.has(key),
+          activityByPubkey?.get(key) ?? null,
+        );
         return (
           <button
             className="group flex min-w-0 items-center gap-2 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring"

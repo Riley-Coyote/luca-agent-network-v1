@@ -5,6 +5,10 @@ import {
   getAgentObserverSnapshot,
   compareObserverEvents,
 } from "@/features/agents/observerRelayStore";
+import {
+  type AgentActivity,
+  deriveActivity,
+} from "@/features/agents/lib/activityPhase";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import type { ObserverEvent } from "./ui/agentSessionTypes";
 
@@ -38,6 +42,10 @@ type ActiveTurn = {
   channelId: string;
   startedAt: number;
   lastActivityAt: number;
+  /** What the resident is doing right now, derived from the same observer
+   *  frames this store already consumes. Null until the first ACP frame of the
+   *  turn arrives — a turn can be live for a beat before it says anything. */
+  activity: AgentActivity | null;
 };
 
 /** One working channel surfaced to the UI, anchored to the desktop clock. */
@@ -80,6 +88,7 @@ const clockOffsetByAgent = new Map<string, number>();
 // Only regenerated when the underlying turn map for an agent actually changes.
 const cachedTurnSummaries = new Map<string, ActiveTurnSummary[]>();
 let cachedChannelTurnSummaries: ActiveChannelTurnSummary[] | null = null;
+const cachedChannelActivity = new Map<string, ChannelAgentActivity[]>();
 
 // Composite watermark per agent: the newest observer event processed, by
 // (timestamp, seq) ordering. An event is processed only if it is strictly
@@ -100,6 +109,7 @@ let pruneInterval: ReturnType<typeof setInterval> | null = null;
 function invalidateCache(agentKey: string) {
   cachedTurnSummaries.delete(agentKey);
   cachedChannelTurnSummaries = null;
+  cachedChannelActivity.clear();
 }
 
 function notifyListeners() {
@@ -164,21 +174,47 @@ function startTurn(
     channelId,
     startedAt,
     lastActivityAt: Date.now(),
+    // No phase until the turn's first ACP frame — a turn is live for a beat
+    // before it says what it is doing.
+    activity: null,
   });
   invalidateCache(key);
 }
 
-function recordActivity(agentPubkey: string, turnId: string | null): boolean {
-  if (!turnId) return false;
+/** `"none"` — no such turn. `"refreshed"` — liveness only, nothing surfaced
+ *  changed. `"changed"` — the phase moved and the UI must re-read. */
+type ActivityRecordResult = "none" | "refreshed" | "changed";
+
+function recordActivity(
+  agentPubkey: string,
+  turnId: string | null,
+  activity: AgentActivity | null = null,
+): ActivityRecordResult {
+  if (!turnId) return "none";
   const key = normalizePubkey(agentPubkey);
   const agentTurns = activeTurnsByAgent.get(key);
-  if (!agentTurns) return false;
+  if (!agentTurns) return "none";
   const turn = agentTurns.get(turnId);
-  if (turn) {
-    turn.lastActivityAt = Date.now();
-    return true;
+  if (!turn) return "none";
+
+  turn.lastActivityAt = Date.now();
+  // A frame that carries no phase (liveness, writes) refreshes the turn without
+  // clearing what the resident was last seen doing — otherwise the label would
+  // flicker to nothing between chunks.
+  if (!activity) return "refreshed";
+
+  const previous = turn.activity;
+  turn.activity = activity;
+  if (
+    previous?.phase === activity.phase &&
+    previous?.toolKind === activity.toolKind
+  ) {
+    // Same phase as the last frame — a stream of thought chunks must not
+    // re-render the timeline on every chunk.
+    return "refreshed";
   }
-  return false;
+  invalidateCache(key);
+  return "changed";
 }
 
 /**
@@ -373,8 +409,18 @@ function processEvent(agentPubkey: string, event: ObserverEvent) {
     // turn was pruned out from under a still-running host (a transient drop
     // raced the pause, or the lone-crash residual self-healed), resurrect it.
     case "turn_liveness": {
-      const refreshed = recordActivity(agentPubkey, event.turnId ?? null);
-      if (!refreshed && resurrectTurn(agentPubkey, event)) {
+      const result = recordActivity(
+        agentPubkey,
+        event.turnId ?? null,
+        deriveActivity(event),
+      );
+      // A phase change is a surfaced change and must reach the UI on its own —
+      // the fall-through below only notifies when the clock offset moved.
+      if (result === "changed") {
+        notifyListeners();
+        return;
+      }
+      if (result === "none" && resurrectTurn(agentPubkey, event)) {
         notifyListeners();
         return;
       }
@@ -453,7 +499,83 @@ export function getActiveTurnsForAgent(
 }
 
 const EMPTY_TURNS: ActiveTurnSummary[] = [];
+const EMPTY_ACTIVITY: ChannelAgentActivity[] = [];
 const EMPTY_CHANNEL_TURNS: ActiveChannelTurnSummary[] = [];
+
+/**
+ * One resident working in one channel, with what they are doing and since when.
+ * This is what the conversation surface needs; `ActiveChannelTurnSummary` only
+ * answers "is anyone busy here", which is the flattening this replaces.
+ */
+export type ChannelAgentActivity = {
+  agentPubkey: string;
+  turnId: string;
+  /** Desktop-clock start, already corrected for the agent's clock offset, so an
+   *  elapsed counter reads true even when the agent's clock drifts. */
+  anchorAt: number;
+  activity: AgentActivity | null;
+};
+
+/**
+ * Every resident currently working in one channel. Cached per channel because
+ * `useSyncExternalStore` compares snapshots by identity — rebuilding the array
+ * on every read would re-render the timeline on every frame.
+ */
+export function getChannelAgentActivity(
+  channelId: string | null | undefined,
+): ChannelAgentActivity[] {
+  if (!channelId) return EMPTY_ACTIVITY;
+  const cached = cachedChannelActivity.get(channelId);
+  if (cached) return cached;
+  if (activeTurnsByAgent.size === 0) return EMPTY_ACTIVITY;
+
+  // One row per RESIDENT, not per turn. An agent may run several concurrent
+  // turns in a channel (up to MAX_TURNS_PER_AGENT), but a resident is one
+  // person — listing them twice reads as two residents. Keep the turn that
+  // started earliest so the elapsed counter reports how long the wait has
+  // really been, and carry the most recent phase, which is what they are doing
+  // now.
+  const byAgent = new Map<string, ChannelAgentActivity>();
+  for (const [agentKey, agentTurns] of activeTurnsByAgent) {
+    const offset = clockOffsetByAgent.get(agentKey) ?? 0;
+    for (const turn of agentTurns.values()) {
+      if (turn.channelId !== channelId) continue;
+      const anchorAt = turn.startedAt + offset;
+      const existing = byAgent.get(agentKey);
+      if (!existing) {
+        byAgent.set(agentKey, {
+          agentPubkey: agentKey,
+          turnId: turn.turnId,
+          anchorAt,
+          activity: turn.activity,
+        });
+        continue;
+      }
+      existing.anchorAt = Math.min(existing.anchorAt, anchorAt);
+      if (turn.activity) existing.activity = turn.activity;
+    }
+  }
+  const rows = [...byAgent.values()];
+  if (rows.length === 0) return EMPTY_ACTIVITY;
+
+  // Oldest first: the resident who has been waiting on longest reads first.
+  rows.sort(
+    (a, b) => a.anchorAt - b.anchorAt || a.turnId.localeCompare(b.turnId),
+  );
+  cachedChannelActivity.set(channelId, rows);
+  return rows;
+}
+
+/** Hook form. Re-renders when the working set or any phase changes. */
+export function useChannelAgentActivity(
+  channelId: string | null | undefined,
+): ChannelAgentActivity[] {
+  const getSnapshot = React.useCallback(
+    () => getChannelAgentActivity(channelId),
+    [channelId],
+  );
+  return React.useSyncExternalStore(subscribeActiveAgentTurns, getSnapshot);
+}
 
 /**
  * Returns active working channels across all tracked agents, sorted by
@@ -585,6 +707,9 @@ export function resetActiveAgentTurnsStore() {
   clockOffsetByAgent.clear();
   cachedTurnSummaries.clear();
   cachedChannelTurnSummaries = null;
+  // Community-scoped: channel ids do not survive a community switch, so a
+  // retained entry would surface another community's residents as working.
+  cachedChannelActivity.clear();
   terminalAtByAgent.clear();
   notifyListeners();
 }
