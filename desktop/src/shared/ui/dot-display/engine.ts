@@ -73,11 +73,55 @@ const DEFAULT_CELL = 4;
  *  plain ink rather than sampled from the colour ramp. See `draw`. */
 const MAGNITUDE_EPSILON = 0.02;
 
-interface SigilCache {
+export interface SigilCache {
   grid: number[][];
   patternWidth: number;
   patternHeight: number;
   phase: number;
+}
+
+/**
+ * Derive a resident's emblem from their public key. Pure and deterministic —
+ * the same key yields the same mark forever, which is the whole point of an
+ * identity mark. Split out from the panel so it is testable without a canvas.
+ *
+ * The pattern is half-width and mirrored, so a mark reads as an emblem rather
+ * than as noise.
+ */
+export function sigilPattern(seed: string): SigilCache {
+  const rnd = seeded(seed);
+  const PW = 4;
+  const PH = 7;
+  let grid: number[][] = [];
+  let lit = 0;
+  let tries = 0;
+  // Density is held between 40% and 60% so no key yields an empty or clogged
+  // emblem, and every row carries at least one dot so a mark never breaks into
+  // stripes.
+  do {
+    grid = [];
+    lit = 0;
+    for (let y = 0; y < PH; y++) {
+      const row: number[] = [];
+      let rowLit = 0;
+      for (let x = 0; x < PW; x++) {
+        const on = rnd() < 0.5 ? 1 : 0;
+        row.push(on);
+        if (on) rowLit++;
+      }
+      if (!rowLit) {
+        row[Math.floor(rnd() * PW)] = 1;
+        rowLit = 1;
+      }
+      for (let k = 0; k < PW; k++) if (row[k]) lit += k === PW - 1 ? 1 : 2;
+      grid.push(row);
+    }
+    tries++;
+  } while (
+    (lit / (PH * (PW * 2 - 1)) < 0.4 || lit / (PH * (PW * 2 - 1)) > 0.6) &&
+    tries < 24
+  );
+  return { grid, patternWidth: PW, patternHeight: PH, phase: rnd() * 6.28 };
 }
 
 export class DotPanel {
@@ -354,45 +398,7 @@ export class DotPanel {
   // ---- scene state accessors (used by the scene table) --------------------
 
   getSigil(): SigilCache {
-    if (this.sigil) return this.sigil;
-    const rnd = seeded(this.opt.seed);
-    const PW = 4;
-    const PH = 7;
-    let grid: number[][] = [];
-    let lit = 0;
-    let tries = 0;
-    // Density is held between 40% and 60% so no key yields an empty or clogged
-    // emblem, and every row carries at least one dot so a mark never breaks into
-    // stripes.
-    do {
-      grid = [];
-      lit = 0;
-      for (let y = 0; y < PH; y++) {
-        const row: number[] = [];
-        let rowLit = 0;
-        for (let x = 0; x < PW; x++) {
-          const on = rnd() < 0.5 ? 1 : 0;
-          row.push(on);
-          if (on) rowLit++;
-        }
-        if (!rowLit) {
-          row[Math.floor(rnd() * PW)] = 1;
-          rowLit = 1;
-        }
-        for (let k = 0; k < PW; k++) if (row[k]) lit += k === PW - 1 ? 1 : 2;
-        grid.push(row);
-      }
-      tries++;
-    } while (
-      (lit / (PH * (PW * 2 - 1)) < 0.4 || lit / (PH * (PW * 2 - 1)) > 0.6) &&
-      tries < 24
-    );
-    this.sigil = {
-      grid,
-      patternWidth: PW,
-      patternHeight: PH,
-      phase: rnd() * 6.28,
-    };
+    this.sigil ??= sigilPattern(this.opt.seed);
     return this.sigil;
   }
 
@@ -437,7 +443,13 @@ export const scenes: Record<DotScene, SceneFn> = {
     p.reseatOrigin(FW, s.patternHeight, scale, x0, y0);
     let v = p.opt.glow;
     if (p.opt.breath) {
-      v *= 0.62 + 0.38 * (0.5 + 0.5 * Math.sin(t / 2100 + s.phase));
+      // Deliberately shallow. The phase is per-seed so a column of residents
+      // never pulses in lockstep — but that means at any instant they sit at
+      // different points in the cycle, and a deep swing would read as one
+      // resident being MORE PRESENT than another when both are merely idle.
+      // Breath should be perceptible over seconds, never as a difference
+      // between two marks seen side by side.
+      v *= 0.86 + 0.14 * (0.5 + 0.5 * Math.sin(t / 2100 + s.phase));
     }
     p.buf.fill(0);
     for (let y = 0; y < s.patternHeight; y++) {
