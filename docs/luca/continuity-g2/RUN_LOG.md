@@ -508,3 +508,19 @@ Risks/known limits:
   until portable state, durable metabolism, and the later real Hermes/OpenClaw
   fresh-session gate exist.
 - Evidence: `evidence/G2/G2.3/T02/security-review-pass.md`.
+
+## 2026-08-05 — T03 — portable Capsule projection passed
+
+- Commit `c13e5f97` adds one fixed, bounded, deterministic portable continuity
+  projection without adding a second store or weakening local notebook
+  authority.
+- Canonical state and integrity hashes bind the exact owner, resident, runtime
+  binding, revision, required nullable fields, and source references. Invalid,
+  duplicate, missing, stale, tampered, oversized, and overflowing projections
+  fail closed.
+- Focused verification passed 8 Capsule tests; the complete continuity package
+  passed 99 tests, strict Clippy, formatting, and diff validation.
+- Independent security review found no blocker. A313 remains unclaimed until
+  trusted desktop key custody, encryption, relay storage, and loading land in
+  T03D.
+- Evidence: `evidence/G2/G2.3/T03/security-review-pass.md`.
