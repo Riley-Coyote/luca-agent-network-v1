@@ -524,3 +524,24 @@ Risks/known limits:
   trusted desktop key custody, encryption, relay storage, and loading land in
   T03D.
 - Evidence: `evidence/G2/G2.3/T03/security-review-pass.md`.
+
+## 2026-08-05 — T03D/A313 — trusted portable Capsule integration passed
+
+- Commit `77db75e6` integrates the fixed Capsule operation with the existing
+  resident signing broker; resident keys never leave that authority thread and
+  owner keys are dropped before relay awaits.
+- The relay coordinate is exact and bounded, current-head validation is
+  fail-closed, and per-resident async serialization covers the complete
+  load, prepare, publish, and reverify transaction under one deadline.
+- A healthy Capsule now remains usable when the independently encrypted local
+  notebook is empty, stale, locked, unavailable, timed out, denied, or invalid.
+- Hostile relay content length, chunk growth, returned event count, and stalled
+  bodies are bounded. Non-success response bodies are never read.
+- Focused verification passed 11 Capsule/transport tests, 9 context tests,
+  5 managed-continuity tests, 10 signing-broker tests, the child-environment
+  secret regression, 34 upstream engram tests, desktop library check, exact
+  diff validation, and G2 control validation.
+- Initial security review found three P1 gaps. One bounded repair addressed all
+  three; independent adversarial re-review passed with no remaining finding.
+- A313 passes. Durable post-publication Capsule writes remain T04.
+- Evidence: `evidence/G2/G2.3/T03D/security-review-pass.md`.

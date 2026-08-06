@@ -53,7 +53,7 @@ installed-app rows pass and `N03` records an explicit verdict.
 | A310 | Shared-brain changes are proposals and never auto-commit. | NOT RUN | |
 | A311 | Group primary/observer rules use the canonical dispatch set. | NOT RUN | |
 | A312 | Resident-private records and packets never cross residents. | NOT RUN | |
-| A313 | Capsule is compact, versioned, tamper-evident, and never treated as full notebook authority. | NOT RUN | |
+| A313 | Capsule is compact, versioned, tamper-evident, and never treated as full notebook authority. | PASS | `receipts/T03.md`, `receipts/T03D.md`, `../../../evidence/G2/G2.3/T03D/security-review-pass.md` |
 | A314 | Restart during an active continuity job produces exactly one terminal outcome and no duplicate mutation. | NOT RUN | |
 
 ## G2.4 — Universal brain and imports
