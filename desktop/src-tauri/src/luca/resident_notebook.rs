@@ -210,7 +210,19 @@ pub(crate) fn commit_resident_metabolism(
         Err(_) => return ResidentMetabolismCommitOutcomeV1::Invalid,
     };
     let mut prepared = Vec::new();
-    if let Some(handoff) = &request.handoff {
+    let preserve_pinned_handoff = if request.handoff.is_some() {
+        match active_lineage(generation.as_ref(), &address, "handoff", None) {
+            Ok(Some(lineage)) => lineage.pinned_owner_correction,
+            Ok(None) => false,
+            Err(outcome) => return outcome,
+        }
+    } else {
+        false
+    };
+    if preserve_pinned_handoff && request.memory_note_mutations.is_empty() {
+        return ResidentMetabolismCommitOutcomeV1::Stale;
+    }
+    if let Some(handoff) = request.handoff.as_ref().filter(|_| !preserve_pinned_handoff) {
         let revision = match prepare_handoff_revision(
             generation.as_ref(),
             &address,

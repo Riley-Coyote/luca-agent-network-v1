@@ -764,7 +764,9 @@ fn create_journal_job(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis()
-        .saturating_add(90_000)
+        // Match automatic notebook cognition: real native runtimes can require
+        // a provider cold start before returning a private, tool-free result.
+        .saturating_add(180_000)
         .try_into()
         .ok()
         .and_then(|value| SafeU53::new(value).ok())

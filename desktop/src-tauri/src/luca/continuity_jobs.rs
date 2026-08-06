@@ -22,7 +22,10 @@ const JOB_KIND: &str = "resident_handoff";
 const MAX_ATTEMPTS: u64 = 2;
 const IDLE_DELAY: Duration = Duration::from_secs(2);
 const RETRY_DELAY: Duration = Duration::from_secs(3);
-const COGNITION_DEADLINE: Duration = Duration::from_secs(90);
+// Native runtimes such as OpenClaw may need to initialize a provider process
+// before they can perform the private, tool-free notebook turn. Keep the job
+// bounded, but allow enough time for that real cold-start path.
+const COGNITION_DEADLINE: Duration = Duration::from_secs(180);
 
 pub(crate) fn current_canonical_timestamp() -> Result<CanonicalTimestamp, String> {
     CanonicalTimestamp::parse(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true))

@@ -102,3 +102,51 @@ Safe notes:
   - private body-bearing request/view types have no diagnostic `Debug` path.
 - Real Hermes/OpenClaw proof: pending H17.
 - Frontend and installed-app gates: intentionally deferred to H18/H19.
+
+## 2026-08-06 — H17 real-runtime backend and security gate
+
+- Status: PASS
+- Installed app: `Luca Agent Network Dev.app`
+- Bundle identifier: `com.luca.agent-network.dev`
+- Signing: stable Developer ID signature verified
+- Real residents:
+  - Hermes `default` (`35653885…c899`)
+  - OpenClaw `main` (`09c26e21…5201`)
+- DM proof:
+  - each resident committed source-backed memory notes through its exact native
+    runtime;
+  - each resident was restarted under the same public key;
+  - each fresh runtime received and correctly used Luca's private continuity
+    reference while explicitly avoiding a native-session-resume claim.
+- Group proof:
+  - both residents responded in the same signed room chronology;
+  - separate body-free jobs were bound to the same conversation and their own
+    resident keys;
+  - Hermes honestly returned `no_change` while OpenClaw committed only to its
+    own namespace; no third-resident notebook mutation appeared.
+- Living-journal proof:
+  - an explicit owner request was submitted to each exact resident through the
+    installed app's Tauri command boundary;
+  - Hermes completed on attempt one and OpenClaw completed through the single
+    bounded automatic retry;
+  - one encrypted journal record exists in each resident namespace;
+  - no journal chat event was published.
+- Evidence-based repairs:
+  - legacy managed-outbox canonicality now validates the original raw JSON
+    before typed defaults are introduced;
+  - owner-pinned handoff corrections no longer suppress independent valid
+    memory-note commits;
+  - private native cognition remains bounded but now allows a 180-second
+    provider cold start.
+- Security/privacy:
+  - continuity and journal databases passed SQLite integrity checks;
+  - the journal-job schema contains no prompt, title, Markdown, or body column;
+  - private journal prompt fragments were absent from continuity files and the
+    application log;
+  - private journal prompt/job canaries were absent from stored relay events;
+  - installed continuity tables expose ciphertext envelopes and minimized
+    metadata only.
+- Focused Rust, clippy, formatting, renderer typecheck/build, compatibility,
+  and prior full desktop checks are recorded in H17's receipt.
+- Production notebook UI: still intentionally deferred to Claude/H18.
+- Installed release UX gate: still intentionally deferred to H19 after H18.

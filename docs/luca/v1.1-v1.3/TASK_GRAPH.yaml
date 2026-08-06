@@ -135,7 +135,7 @@ tasks:
     title: Run V1.1 real-runtime backend and security gates
     depends_on: [H16]
     acceptance: [A110, A111, A112, A120, A401, A403, A404]
-    status: IN_PROGRESS
+    status: PASS
   - id: H18
     gate: V1.1-D
     lane: frontend

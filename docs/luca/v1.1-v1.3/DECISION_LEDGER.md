@@ -170,6 +170,26 @@ resident and runtime fingerprint.
 Reason: using the existing tool-free channel preserves preemption, runtime
 authorship, and credential isolation without adding a parallel agent runtime.
 
+### D020 — Pinned owner handoffs do not suppress independent memory notes
+
+Decision: when metabolism proposes both a handoff update and memory notes while
+the active handoff is an owner-pinned correction, Luca preserves the pinned
+handoff and still atomically commits the valid resident-authored notes. A
+handoff-only proposal remains stale.
+
+Reason: owner authority over the effective handoff must not accidentally block
+the resident's separate, source-backed notebook layer.
+
+### D021 — Private native cognition has a 180-second hard deadline
+
+Decision: automatic notebook metabolism and manually requested journal
+cognition each have a 180-second absolute deadline. Their existing bounded
+retry, preemption, cancellation, and no-late-commit rules remain unchanged.
+
+Reason: the installed OpenClaw runtime demonstrated a legitimate provider cold
+start that exceeded 90 seconds. The longer bound permits the real native path
+without making jobs unbounded or weakening fail-soft chat behavior.
+
 ## Decisions to freeze in C01
 
 These are implementation parameters, not unresolved product direction:
