@@ -9,7 +9,7 @@
 .agent-identity-specimen {
   --agent-specimen-size: 32px;
   align-items: center;
-  background: hsl(var(--mn-glass, var(--mn-canvas)));
+  background: hsl(var(--mn-glass, var(--mn-floor)));
   border: 1px solid hsl(var(--mn-border-strong));
   /* Circular, matching the human avatars (Avatar is `rounded-full`). A mixed
    * shape language across identity marks reads as two different systems bolted

@@ -539,7 +539,13 @@ export function AppSidebar({
   return (
     <Sidebar
       className="!border-r-0"
-      collapsible="icon"
+      // Full rail or nothing — the industry standard, and what Claude, ChatGPT,
+      // Linear and Notion all do. An icon-only rail earns its place in apps with
+      // many top-level destinations (Slack workspaces, VS Code activity bar,
+      // Discord servers); Luca has five nav items and a resident list. And a
+      // resident's sigil at 20px WITHOUT ITS NAME is not identifiable, which
+      // defeats the point of an identity mark.
+      collapsible="offcanvas"
       data-testid="app-sidebar"
       variant="sidebar"
     >
@@ -827,7 +833,7 @@ export function AppSidebar({
               />
             ) : null}
             {showSidebarUpdateCard ? (
-              <div className="mb-2 group-data-[collapsible=icon]:hidden">
+              <div className="mb-2">
                 <SidebarUpdateCard
                   onDismiss={() => setIsSidebarUpdateCardDismissed(true)}
                 />

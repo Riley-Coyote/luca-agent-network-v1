@@ -16,27 +16,58 @@
    * styles from JS: inline styles outrank all stylesheets and silently
    * repaint the app in a different palette.
    *
-   * Depth is three steps, not shadows:
-   *   canvas  — the floor everything else rests on (deepest)
-   *   sidebar — the rail, a hair above the floor
-   *   surface — the cards (conversation, inspector) that sit on top
-   * Cool near-black throughout; never pure black.
+   * DERIVED, NOT PICKED. Every value below is one OKLCH ramp with hue and
+   * chroma LOCKED (H 265, C 0.0045 surfaces / 0.004 ink), varying only L from
+   * a 0.205 floor in even 0.030 steps. OKLCH's L is perceptually uniform, so
+   * equal steps look equal; locking C and H makes the scale provably
+   * monochromatic rather than approximately so. The previous scale drifted
+   * 220 -> 210 in hue between surfaces and ink, and its luminance steps ran
+   * 6.8 / 18.7 / 22.3 / 40.5 (x1e-4) — badly back-loaded, so the dark end
+   * collapsed into mush.
+   *
+   * Stored as HSL because that is what the codebase consumes. The saturation
+   * column varies per step ON PURPOSE: constant OKLCH chroma maps to different
+   * HSL saturation at different lightness. That variance IS the perceptual
+   * correction, not drift. Do not "tidy" it to a single S value.
+   *
+   * Chroma is tiny but never zero. Pure neutral grey reads dead on OLED; a
+   * whisper of cool keeps it charcoal.
+   *
+   * Depth is lightness, never shadow — shadows are near-invisible on dark
+   * surfaces, so each step up the ladder is a lighter surface:
+   *   floor   — rail, canvas and top chrome: one continuous ground
+   *   surface — the cards (conversation, inspector) resting on it
+   *   raised  — composer, menus, popovers
+   *   hover   — transient row states
+   *
+   * ACCESSIBILITY IS A CONSTRAINT ON THIS TABLE, not a review afterthought.
+   * ink-faint is solved, not chosen: 4.5:1 against `hover` (the lightest
+   * backdrop any ink can land on) requires OKLCH L >= 0.667, so it sits at
+   * 0.672 for margin. Every ink clears WCAG AA on every surface — the worst
+   * case is ink-faint on a hovered row at 4.59:1. The old ink-faint was
+   * 3.28:1 and failed. If you change a surface, re-run the audit.
    * ------------------------------------------------------------------ */
-  --mn-canvas: 220 7% 3.5%;
-  --mn-sidebar: 220 7% 4.5%;
-  --mn-surface: 220 6% 6.5%;
-  --mn-raised: 220 6% 8.5%;
-  --mn-hover: 220 5% 11%;
-  --mn-glass: 220 8% 2.4%;
+  --mn-floor: 220 6.7% 9.3%;
+  --mn-surface: 220 5.3% 12%;
+  --mn-raised: 220 4.5% 14.8%;
+  --mn-hover: 220 3.7% 18.2%;
+  /* Below the floor. Used only where a surface must read as a recess. */
+  --mn-glass: 220 7% 6.5%;
   /* Aliases consumed by the semantic mappings in theme.css. */
-  --mn-surface-raised: 220 6% 8.5%;
-  --mn-surface-hover: 220 5% 11%;
-  --mn-border: 210 5% 17%;
-  --mn-border-strong: 210 5% 23%;
-  --mn-ink: 210 8% 91%;
-  --mn-ink-muted: 210 5% 62%;
-  --mn-ink-faint: 210 4% 40%;
+  --mn-surface-raised: 220 4.5% 14.8%;
+  --mn-surface-hover: 220 3.7% 18.2%;
+  --mn-border: 220 3.1% 22.7%;
+  --mn-border-strong: 220 2.5% 28.9%;
+  --mn-ink: 220 11.8% 93.1%;
+  --mn-ink-muted: 220 2.9% 73.4%;
+  --mn-ink-faint: 220 1.8% 59%;
   --mn-focus: 213 94% 68%;
+
+  /* The one light effect this system uses: a 1px lit top edge on raised
+   * objects, simulating light from above catching the bevel. This is what
+   * makes a flat object read as physical without a gradient or a drop shadow,
+   * both of which fight a lightness-based elevation model. */
+  --mn-lit-edge: inset 0 1px 0 rgb(255 255 255 / 0.04);
 
   --background: var(--mn-surface);
   --foreground: var(--mn-ink);
@@ -53,40 +84,44 @@
   --border: var(--mn-border);
   --input: var(--mn-border-strong);
   --ring: var(--mn-focus);
-  --primary: 210 7% 87%;
-  --primary-foreground: 220 10% 8%;
+  /* The light end of the SAME ramp — hue 220, same chroma. These were hue 210,
+     off-family from every surface, which is precisely the drift this scale
+     exists to remove. Their foregrounds are the floor, so a light pill and the
+     ground it sits on are the same two ends of one ladder. */
+  --primary: 220 6.6% 87.9%;
+  --primary-foreground: var(--mn-floor);
 
-  --sidebar: var(--mn-sidebar);
+  --sidebar: var(--mn-floor);
   --sidebar-foreground: var(--mn-ink);
-  --sidebar-primary: 210 7% 87%;
-  --sidebar-primary-foreground: 220 10% 8%;
+  --sidebar-primary: 220 6.6% 87.9%;
+  --sidebar-primary-foreground: var(--mn-floor);
   --sidebar-accent: var(--mn-hover);
   --sidebar-accent-foreground: var(--mn-ink);
   --sidebar-border: var(--mn-border);
   --sidebar-ring: var(--mn-focus);
-  --sidebar-active: 210 7% 82%;
-  --sidebar-active-foreground: 220 10% 8%;
+  --sidebar-active: 220 5% 84.1%;
+  --sidebar-active-foreground: var(--mn-floor);
   /* --buzz-active-surface is used directly as a colour; --buzz-active-foreground
      feeds --sidebar-active-foreground and is re-wrapped by Tailwind, so it stays
      a bare triplet. See the note in theme.css. */
-  --buzz-active-surface: hsl(210 7% 82%);
-  --buzz-active-foreground: 220 10% 8%;
+  --buzz-active-surface: hsl(220 5% 84.1%);
+  --buzz-active-foreground: var(--mn-floor);
   color-scheme: dark;
 }
 
 :root[data-buzz-sidebar] .luca-theme-shell-layer {
-  background: hsl(var(--mn-canvas));
+  background: hsl(var(--mn-floor));
   background-image: none;
 }
 
 :root[data-buzz-sidebar] [data-app-top-chrome] {
-  background: hsl(var(--mn-canvas));
+  background: hsl(var(--mn-floor));
   border-color: hsl(var(--mn-border));
   min-height: 40px;
 }
 
 :root[data-buzz-sidebar] [data-sidebar="sidebar"] {
-  background: hsl(var(--mn-sidebar));
+  background: hsl(var(--mn-floor));
   border-color: hsl(var(--mn-border));
 }
 
@@ -134,7 +169,7 @@
 
 :root[data-buzz-sidebar] [data-sidebar="menu-button"][data-active="true"] {
   background: hsl(var(--sidebar-active));
-  border-color: hsl(210 5% 88% / 0.1);
+  border-color: hsl(220 5% 88% / 0.1);
   color: hsl(var(--sidebar-active-foreground));
   font-weight: 520;
 }
@@ -149,7 +184,7 @@
   background: hsl(var(--mn-raised));
   border: 1px solid hsl(var(--mn-border));
   border-radius: 6px;
-  box-shadow: none;
+  box-shadow: var(--mn-lit-edge);
   min-height: 32px;
 }
 
@@ -225,7 +260,10 @@
   background: hsl(var(--mn-raised));
   border-color: hsl(var(--mn-border-strong));
   border-radius: 8px;
-  box-shadow: none;
+  /* Lit edge, not a drop shadow. The composer is DOCKED, not floating — a
+     shadow would imply it hovers over the conversation. The bevel highlight
+     lifts it off the card without lying about its position. */
+  box-shadow: var(--mn-lit-edge);
 }
 
 :root[data-buzz-sidebar] [data-testid="channel-composer-activity-row"] {
