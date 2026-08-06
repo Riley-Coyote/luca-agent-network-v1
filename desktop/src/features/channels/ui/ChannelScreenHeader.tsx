@@ -1,10 +1,18 @@
 import { LogIn } from "lucide-react";
-import type * as React from "react";
+import * as React from "react";
+
+import { useChannelAgentActivity } from "@/features/agents/activeAgentTurnsStore";
+import { activityLabel } from "@/features/agents/lib/activityPhase";
+import { conversationMarkSeeds } from "@/features/channels/lib/conversationMarks";
 
 import { ChatHeader } from "@/features/chat/ui/ChatHeader";
 import type { EphemeralChannelDisplay } from "@/features/channels/lib/ephemeralChannel";
 import type { ActiveDmHeaderParticipant } from "@/features/channels/useActiveChannelHeader";
 import { getChannelDescription } from "@/features/channels/lib/channelDescription";
+import {
+  resolveUserLabel,
+  type UserProfileLookup,
+} from "@/features/profile/lib/identity";
 import { getDmParticipantPreview } from "@/features/channels/lib/dmParticipantDisplay";
 import { ChannelHeaderStatusBadge } from "@/features/channels/ui/ChannelHeaderStatusBadge";
 import { ChannelMembersBar } from "@/features/channels/ui/ChannelMembersBar";
@@ -37,6 +45,9 @@ type ChannelScreenHeaderProps = {
   activeDmHeaderParticipants: ActiveDmHeaderParticipant[];
   activeDmPresenceStatus: PresenceStatus | null;
   agentPubkeys: ReadonlySet<string>;
+  /** Names for the live-state line; without it the subtitle can only say
+   *  "a resident", which is true but impersonal. */
+  profiles?: UserProfileLookup;
   chromeWrapperRef?: React.Ref<HTMLDivElement>;
   currentPubkey?: string;
   isAddBotOpen?: boolean;
@@ -49,6 +60,11 @@ type ChannelScreenHeaderProps = {
   onToggleMembers: () => void;
 };
 
+/** PROTOTYPE SWITCH. true = the chat-app conversation header (mark stack +
+ *  live subtitle). false = the original room header (channel icon, fingerprint
+ *  meta, member count). */
+const CONVERSATION_HEADER = true;
+
 export function ChannelScreenHeader({
   activeChannel,
   activeChannelEphemeralDisplay,
@@ -58,6 +74,7 @@ export function ChannelScreenHeader({
   activeDmHeaderParticipants,
   activeDmPresenceStatus,
   agentPubkeys,
+  profiles,
   chromeWrapperRef,
   currentPubkey,
   isAddBotOpen,
@@ -98,7 +115,9 @@ export function ChannelScreenHeader({
         <LogIn className="mr-1.5 h-4 w-4" />
         {isJoining ? "Joining…" : "Join"}
       </Button>
-    ) : (
+    ) : CONVERSATION_HEADER ? null : (
+      // The mark stack beside the title already says who is here, more legibly
+      // than a number does. A count is org-speak; a chat app shows faces.
       <ChannelMembersBar
         channel={activeChannel}
         currentPubkey={currentPubkey}
@@ -110,6 +129,42 @@ export function ChannelScreenHeader({
       />
     )
   ) : null;
+
+  // Everyone in the room but you. A room with no other participants falls back
+  // to its own id so it still carries a mark — same rule as the rail.
+  const headerMarkSeeds = React.useMemo(
+    () => conversationMarkSeeds(activeChannel, currentPubkey),
+    [activeChannel, currentPubkey],
+  );
+
+  // Live state beats a static description. Every messenger puts presence on
+  // this line; ours can say what the resident is actually doing.
+  const headerActivity = useChannelAgentActivity(activeChannel?.id ?? null);
+  const workingSeeds = React.useMemo(
+    () =>
+      new Set(
+        headerActivity.map((row: { agentPubkey: string }) => row.agentPubkey),
+      ),
+    [headerActivity],
+  );
+  const conversationSubtitle = React.useMemo(() => {
+    if (headerActivity.length > 1) {
+      return `${headerActivity.length} residents are working…`;
+    }
+    const one = headerActivity[0];
+    if (one) {
+      const name =
+        resolveUserLabel({ profiles, pubkey: one.agentPubkey }) ||
+        activeDmHeaderParticipants?.find(
+          (participant) =>
+            normalizePubkey(participant.pubkey) ===
+            normalizePubkey(one.agentPubkey),
+        )?.displayName ||
+        "A resident";
+      return `${name} is ${activityLabel(one.activity) || "working"}…`;
+    }
+    return getChannelDescription(activeChannel) ?? "";
+  }, [activeChannel, activeDmHeaderParticipants, headerActivity, profiles]);
 
   if (!showHeaderContent) {
     return null;
@@ -123,21 +178,38 @@ export function ChannelScreenHeader({
       channelType={activeChannel?.channelType}
       description={getChannelDescription(activeChannel)}
       identityMeta={
-        activeChannel?.channelType === "dm" ? (
+        CONVERSATION_HEADER ? null : activeChannel?.channelType === "dm" ? (
           isGroupDm ? (
             `${groupAgentCount} ${groupAgentCount === 1 ? "agent" : "agents"}`
           ) : primaryDmIsAgent && primaryDmParticipant ? (
             <>
               {shortAgentFingerprint(primaryDmParticipant.pubkey)}
               <span className="ml-3" data-luca-agent-state>
-                {activeDmPresenceStatus === "offline" ? "unavailable" : "present"}
+                {activeDmPresenceStatus === "offline"
+                  ? "unavailable"
+                  : "present"}
               </span>
             </>
           ) : null
         ) : null
       }
+      conversation
+      subtitle={conversationSubtitle}
       leadingContent={
-        activeChannel?.channelType === "dm" ? (
+        CONVERSATION_HEADER ? (
+          <span className="mr-1.5 flex shrink-0 -space-x-1.5">
+            {headerMarkSeeds.map((seed) => (
+              <AgentIdentitySpecimen
+                accessibleName={activeChannelTitle ?? "conversation"}
+                className="ring-2 ring-background"
+                key={seed}
+                publicKey={seed}
+                size={20}
+                state={workingSeeds.has(seed) ? "working" : "present"}
+              />
+            ))}
+          </span>
+        ) : activeChannel?.channelType === "dm" ? (
           isGroupDm ? (
             <DmHeaderParticipantStack
               agentPubkeys={agentPubkeys}
@@ -150,9 +222,7 @@ export function ChannelScreenHeader({
               publicKey={primaryDmParticipant.pubkey}
               size={26}
               state={
-                activeDmPresenceStatus === "offline"
-                  ? "unavailable"
-                  : "present"
+                activeDmPresenceStatus === "offline" ? "unavailable" : "present"
               }
             />
           ) : (

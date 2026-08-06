@@ -756,6 +756,7 @@ export function ChannelScreen({
         activeDmHeaderParticipants={activeDmHeaderParticipants}
         activeDmPresenceStatus={activeDmPresenceStatus}
         agentPubkeys={agentPubkeys}
+        profiles={messageProfiles}
         chromeWrapperRef={channelHeaderChromeRef}
         currentPubkey={currentPubkey}
         isAddBotOpen={isAddBotOpen}
@@ -769,6 +770,7 @@ export function ChannelScreen({
       />
     ),
     [
+      messageProfiles,
       activeChannel,
       activeChannelEphemeralDisplay,
       activeChannelTitle,
