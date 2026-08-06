@@ -25,6 +25,9 @@ import { AgentSessionThreadPanel } from "@/features/channels/ui/AgentSessionThre
 import { ChannelManagementAuxiliaryPanel } from "@/features/channels/ui/ChannelManagementAuxiliaryPanel";
 import { RightAuxiliaryPane } from "@/features/channels/ui/RightAuxiliaryPane";
 import { useChannelWorkingAgentPubkeys } from "@/features/agents/agentWorkingSignal";
+import { useChannelAgentActivity } from "@/features/agents/activeAgentTurnsStore";
+import { PendingReplyRow } from "@/features/messages/ui/PendingReplyRow";
+import { cancelManagedAgentTurn } from "@/shared/api/agentControl";
 import { BotActivityComposerAction } from "@/features/channels/ui/BotActivityBar";
 import { ConversationAgentActivityStrip } from "@/features/channels/ui/ConversationAgentActivityStrip";
 import { ConversationContinuityActivity } from "@/features/agents/ui/ResidentContinuityActivity";
@@ -49,9 +52,10 @@ import * as agentSessionSelection from "@/features/channels/ui/agentSessionSelec
 import { usePrepareDmSendChannel } from "@/features/channels/ui/usePrepareDmSendChannel";
 import { Button } from "@/shared/ui/button";
 import {
-  buildInlineConversationEntries,
+  buildFocusedThreadEntries,
   buildMainTimelineEntries,
 } from "@/features/messages/lib/threadPanel";
+import { FocusedThreadBar } from "@/features/messages/ui/FocusedThreadBar";
 import { useRenderScopedReactionHydration } from "@/features/messages/lib/useRenderScopedReactionHydration";
 import type { TimelineMessage } from "@/features/messages/types";
 import { isWelcomeExperienceChannel as isWelcomeExperience } from "@/features/onboarding/welcome";
@@ -380,6 +384,20 @@ export const ChannelPane = React.memo(function ChannelPane({
     activeChannel?.id ?? null,
   );
   const hasComposerBotActivity = composerWorkingBotPubkeys.length > 0;
+  // What each working resident is actually doing, for the live reply indicator.
+  const pendingReplyRows = useChannelAgentActivity(activeChannel?.id ?? null);
+  const pendingActivityByPubkey = React.useMemo(
+    () =>
+      new Map(pendingReplyRows.map((row) => [row.agentPubkey, row.activity])),
+    [pendingReplyRows],
+  );
+  const handleCancelPendingReply = React.useCallback(
+    (agentPubkey: string) => {
+      if (!activeChannelId) return;
+      void cancelManagedAgentTurn(agentPubkey, activeChannelId);
+    },
+    [activeChannelId],
+  );
   const directMessageIntro = React.useMemo(
     () =>
       buildDirectMessageIntro({
@@ -412,24 +430,35 @@ export const ChannelPane = React.memo(function ChannelPane({
     return messages.filter((message) => !isWelcomeSetupSystemMessage(message));
   }, [activeChannel, messages]);
   const mainTimelineEntries = React.useMemo(() => {
-    const roots = buildMainTimelineEntries(
+    // Quote-reply presentation: replies stay in the main chronological flow
+    // carrying the message they answer, rather than being hidden until their
+    // thread is opened.
+    //
+    // This makes the inline-nesting pass redundant BY CONSTRUCTION — it exists
+    // to splice an opened thread's replies in under their head, but those
+    // replies are already in the flow, so running it would render every reply
+    // twice the moment a thread was opened.
+    const entries = buildMainTimelineEntries(
       visibleMessages,
       new Set(),
       threadSummaries,
       profiles,
+      true,
     );
-    return buildInlineConversationEntries(
-      roots,
-      openThreadHeadId,
-      threadMessages,
-    );
-  }, [
-    openThreadHeadId,
-    profiles,
-    threadMessages,
-    threadSummaries,
-    visibleMessages,
-  ]);
+    // The focused view: opening a thread narrows the SAME timeline to that one
+    // exchange rather than opening a second surface. This is what the reply
+    // count does now that replies live in the main flow — without it the count
+    // is a control that changes the URL and nothing else.
+    return buildFocusedThreadEntries(entries, openThreadHeadId);
+  }, [openThreadHeadId, profiles, threadSummaries, visibleMessages]);
+
+  const focusedThreadHead = React.useMemo(
+    () =>
+      openThreadHeadId
+        ? (visibleMessages.find((m) => m.id === openThreadHeadId) ?? null)
+        : null,
+    [openThreadHeadId, visibleMessages],
+  );
   useRenderScopedReactionHydration({
     activeChannel,
     mainTimelineEntries,
@@ -513,6 +542,7 @@ export const ChannelPane = React.memo(function ChannelPane({
             channelId={activeChannel?.id ?? null}
             onOpenAgentSession={onOpenAgentSession}
             sessionAgents={agentSessionAgents}
+            activityByPubkey={pendingActivityByPubkey}
             workingPubkeys={composerWorkingBotPubkeys}
           />
           <ConversationContinuityActivity
@@ -533,11 +563,21 @@ export const ChannelPane = React.memo(function ChannelPane({
               />
             </div>
           ) : null}
+          {focusedThreadHead ? (
+            <FocusedThreadBar
+              authorName={focusedThreadHead.author}
+              onExit={() => onOpenThread(focusedThreadHead)}
+              replyCount={Math.max(0, mainTimelineEntries.length - 1)}
+            />
+          ) : null}
           <MessageTimeline
             ref={messageTimelineRef}
             channelId={activeChannel?.id}
-            channelIntro={channelIntro}
-            directMessageIntro={directMessageIntro}
+            // The channel intro is the top of the ROOM. In the focused view you
+            // are looking at one exchange, so showing "this is the beginning of
+            // #general" above it is simply false.
+            channelIntro={focusedThreadHead ? null : channelIntro}
+            directMessageIntro={focusedThreadHead ? null : directMessageIntro}
             scrollContainerRef={timelineScrollRef}
             currentPubkey={currentPubkey}
             fetchOlder={fetchOlder}
@@ -657,6 +697,22 @@ export const ChannelPane = React.memo(function ChannelPane({
                     />
                   </div>
                 ) : null}
+                {/* Directly above the composer, at the END of the conversation
+                    — which is exactly where the reply will land, because
+                    replies are chronological. Below the composer it would read
+                    as a status bar rather than as part of the room. */}
+                {pendingReplyRows.length > 0 ? (
+                  <div className="mx-auto w-full max-w-[48rem] px-0">
+                    <PendingReplyRow
+                      onCancel={handleCancelPendingReply}
+                      onOpenAgentSession={(pubkey) =>
+                        onOpenAgentSession(pubkey, activeChannelId)
+                      }
+                      profiles={profiles}
+                      rows={pendingReplyRows}
+                    />
+                  </div>
+                ) : null}
                 <MessageComposer
                   channelId={activeChannel?.id ?? null}
                   channelName={activeChannel?.name ?? "channel"}
@@ -720,7 +776,12 @@ export const ChannelPane = React.memo(function ChannelPane({
                   data-testid="channel-composer-activity-row"
                 >
                   <div className="flex h-full w-full items-center gap-2 overflow-visible">
-                    {hasComposerBotActivity ? (
+                    {/* Fallback only. The pending row says the same thing with
+                        more detail and a live mark, so showing both puts two
+                        different sentences about one resident in one strip. The
+                        pill still covers the case where an agent reads as busy
+                        from the typing signal with no turn tracked. */}
+                    {hasComposerBotActivity && pendingReplyRows.length === 0 ? (
                       <div className="flex min-w-0 flex-1 overflow-visible">
                         <BotActivityComposerAction
                           agents={activityAgents}

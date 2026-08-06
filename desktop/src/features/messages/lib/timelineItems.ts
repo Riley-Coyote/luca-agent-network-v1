@@ -234,6 +234,12 @@ export function buildTimelineItems(
 
     const isContinuation =
       previousGroupEntry !== null &&
+      // A quoted reply is never a continuation, even from the same author a
+      // second apart. Grouping it under the previous message glues the quote to
+      // a message it has nothing to do with, and the reader parses the quote as
+      // belonging to the wrong body. A reply changes subject by definition, so
+      // it always starts its own group.
+      entry.quotedParent == null &&
       hasSameMessageAuthor(previousGroupEntry.message, message) &&
       isWithinGroupingWindow(
         previousGroupEntry.message.createdAt,

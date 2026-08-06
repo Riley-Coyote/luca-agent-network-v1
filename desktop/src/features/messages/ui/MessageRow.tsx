@@ -42,6 +42,9 @@ import { Markdown } from "@/shared/ui/markdown";
 import type { VideoReviewContext } from "@/shared/ui/VideoPlayer";
 import { MessageActionBar } from "./MessageActionBar";
 import { MessageAuthorText, MessageHeaderRow } from "./MessageHeader";
+import { CollapsibleMessageBody } from "./CollapsibleMessageBody";
+import { jumpToMessage } from "@/features/messages/lib/jumpToMessage";
+import { QuotedParent } from "./QuotedParent";
 import { MessageTimestamp } from "./MessageTimestamp";
 import { WaveMessageAttachment } from "./WaveMessageAttachment";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
@@ -92,6 +95,7 @@ export const MessageRow = React.memo(
     onUnfollowThread,
     profiles,
     searchQuery,
+    quotedParent = null,
     showDepthGuides = true,
     videoReviewContext,
   }: {
@@ -139,6 +143,14 @@ export const MessageRow = React.memo(
     playEntrance?: boolean;
     profiles?: UserProfileLookup;
     searchQuery?: string;
+    /** The message this one replies to, shown as a quote above the body.
+     *  Present only in the quote-reply presentation. */
+    quotedParent?: {
+      id: string;
+      author: string;
+      body: string;
+      resolved: boolean;
+    } | null;
     showDepthGuides?: boolean;
     videoReviewContext?: VideoReviewContext;
   }) {
@@ -572,7 +584,15 @@ export const MessageRow = React.memo(
 
     const messageBodyNode = (
       <>
-        {renderBody()}
+        {quotedParent ? (
+          <QuotedParent
+            author={quotedParent.author}
+            body={quotedParent.body}
+            onJump={() => jumpToMessage(quotedParent.id)}
+            resolved={quotedParent.resolved}
+          />
+        ) : null}
+        <CollapsibleMessageBody>{renderBody()}</CollapsibleMessageBody>
         {continuationMetadataNode}
         <MessageReactions
           messageId={message.id}
