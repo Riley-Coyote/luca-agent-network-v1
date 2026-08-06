@@ -35,6 +35,9 @@ Then read, in order:
 8. [`docs/luca/REPLY_ADDRESSING.md`](docs/luca/REPLY_ADDRESSING.md) before changing
    who a message wakes up. The rule is decided and unimplemented; it carries an
    agent-to-agent loop risk that needs settling before it ships.
+9. [`docs/luca/PROJECTS.md`](docs/luca/PROJECTS.md) before building project
+   grouping. Design is settled and the UI is prototyped; the data model is not
+   built. Note the hard constraint: a local repo path must never go on the relay.
 
 The `.codex/luca-v1` directory contains the complete planning kit, contracts,
 task graph, protocol maps, and historical decisions. `HANDOFF.md` records the
