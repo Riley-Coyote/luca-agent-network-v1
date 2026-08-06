@@ -1,0 +1,228 @@
+project: luca-agent-network-v1-1-v1-3
+planning_branch: agent/v1.1-v1.3-roadmap
+planning_baseline: 36472636af120cb3213dcae84b3ff5827a7c8e93
+implementation_branch: pending_frontend_integration_checkpoint
+status: PLANNED
+max_parallel_write_lanes: 2
+
+ownership_lanes:
+  - id: backend
+    owner: Codex
+    scope: protocol_encryption_storage_runtime_tauri_native_verification
+  - id: frontend
+    owner: Claude_or_design_agent
+    scope: react_css_visual_fixtures_focused_frontend_tests
+  - id: integration
+    owner: Codex
+    scope: shared_contract_freeze_binding_merge_review_release_gate
+
+gates:
+  - id: C0
+    title: Integration checkpoint and contract freeze
+    tasks: [C00, C01]
+    barrier_task: C01
+  - id: V1.1-A
+    title: Notebook contracts and encrypted lifecycle
+    tasks: [H11, H12]
+    barrier_task: H12
+  - id: V1.1-B
+    title: Notebook cognition and retrieval
+    tasks: [H13, H14]
+    barrier_task: H14
+  - id: V1.1-C
+    title: Notebook product surface and installed gate
+    tasks: [H15, H16, H17]
+    barrier_task: H17
+  - id: V1.2-A
+    title: Owner-source contracts and transaction
+    tasks: [B21, B22, B23]
+    barrier_task: B23
+  - id: V1.2-B
+    title: Grants and authorized retrieval
+    tasks: [B24, B25]
+    barrier_task: B25
+  - id: V1.2-C
+    title: Brain Setup product surface and installed gate
+    tasks: [B26, B27]
+    barrier_task: B27
+  - id: V1.3-A
+    title: Reflection contracts and cognition
+    tasks: [R31, R32, R33]
+    barrier_task: R33
+  - id: V1.3-B
+    title: Reflection product surface and installed gate
+    tasks: [R34, R35]
+    barrier_task: R35
+  - id: Z0
+    title: Integrated handoff
+    tasks: [Z01]
+    barrier_task: Z01
+
+tasks:
+  - id: C00
+    gate: C0
+    lane: integration
+    title: Integrate accepted frontend checkpoint without broad branch merge
+    depends_on: []
+    acceptance: [A001, A002, A004]
+    outputs:
+      - exact implementation branch and commit
+      - overlap audit
+      - baseline smoke receipt
+    status: NOT_STARTED
+  - id: C01
+    gate: C0
+    lane: integration
+    title: Freeze contracts bounds commands fixtures migrations and ownership
+    depends_on: [C00]
+    acceptance: [A003]
+    outputs:
+      - frozen protocol and command map
+      - fixture convention and initial V1.1 view models
+      - migration and threat-model decision
+      - file ownership map
+    status: NOT_STARTED
+
+  - id: H11
+    gate: V1.1-A
+    lane: backend
+    title: Implement notebook and metabolism contracts vectors and frontend fixtures
+    depends_on: [C01]
+    acceptance: [A101]
+    status: NOT_STARTED
+  - id: H12
+    gate: V1.1-A
+    lane: backend
+    title: Implement encrypted resident notebook revisions provenance and lifecycle
+    depends_on: [H11]
+    acceptance: [A102, A107]
+    status: NOT_STARTED
+  - id: H13
+    gate: V1.1-B
+    lane: backend
+    title: Upgrade handoff job to atomic same-resident metabolism
+    depends_on: [H12]
+    acceptance: [A103, A104, A105]
+    status: NOT_STARTED
+  - id: H14
+    gate: V1.1-B
+    lane: backend
+    title: Add bounded read-only resident notebook retrieval and injection
+    depends_on: [H13]
+    acceptance: [A106, A107]
+    status: NOT_STARTED
+  - id: H15
+    gate: V1.1-C
+    lane: backend
+    title: Add notebook inspector commands view models fixtures and controls
+    depends_on: [H14]
+    acceptance: [A108]
+    status: NOT_STARTED
+  - id: H16
+    gate: V1.1-C
+    lane: frontend
+    title: Build polished Notebook inspector and compact activity states
+    depends_on: [H11]
+    acceptance: [A108, A109]
+    status: NOT_STARTED
+  - id: H17
+    gate: V1.1-C
+    lane: integration
+    title: Run V1.1 real-runtime installed and release gates
+    depends_on: [H15, H16]
+    acceptance: [A110, A111, A112, A401, A402, A403, A404, A405]
+    status: NOT_STARTED
+
+  - id: B21
+    gate: V1.2-A
+    lane: backend
+    title: Implement owner-source import grant receipt contracts and frontend fixtures
+    depends_on: [H17]
+    acceptance: [A201]
+    status: NOT_STARTED
+  - id: B22
+    gate: V1.2-A
+    lane: backend
+    title: Implement zero-write local Markdown and text preview
+    depends_on: [B21]
+    acceptance: [A202]
+    status: NOT_STARTED
+  - id: B23
+    gate: V1.2-A
+    lane: backend
+    title: Implement atomic encrypted owner-source ingestion dedupe and diff
+    depends_on: [B22]
+    acceptance: [A203, A204, A205, A212]
+    status: NOT_STARTED
+  - id: B24
+    gate: V1.2-B
+    lane: backend
+    title: Implement explicit resident grants revocation and egress staleness
+    depends_on: [B23]
+    acceptance: [A206, A207]
+    status: NOT_STARTED
+  - id: B25
+    gate: V1.2-B
+    lane: backend
+    title: Add authorized bounded owner-source retrieval and receipts
+    depends_on: [B24]
+    acceptance: [A208, A209, A212]
+    status: NOT_STARTED
+  - id: B26
+    gate: V1.2-C
+    lane: frontend
+    title: Build narrow Brain Setup import grants and provenance surfaces
+    depends_on: [B21]
+    acceptance: [A210]
+    status: NOT_STARTED
+  - id: B27
+    gate: V1.2-C
+    lane: integration
+    title: Run V1.2 import authorization installed and release gates
+    depends_on: [B25, B26]
+    acceptance: [A203, A209, A211, A212, A401, A402, A403, A404, A405]
+    status: NOT_STARTED
+
+  - id: R31
+    gate: V1.3-A
+    lane: backend
+    title: Freeze reflection contracts policy vectors and frontend fixtures
+    depends_on: [B27]
+    acceptance: [A301, A302, A306, A310]
+    status: NOT_STARTED
+  - id: R32
+    gate: V1.3-A
+    lane: backend
+    title: Implement manual exact-resident reflection cognition job
+    depends_on: [R31]
+    acceptance: [A303, A304, A307]
+    status: NOT_STARTED
+  - id: R33
+    gate: V1.3-A
+    lane: backend
+    title: Implement atomic reflection storage and notebook consolidation rules
+    depends_on: [R32]
+    acceptance: [A305, A306, A307]
+    status: NOT_STARTED
+  - id: R34
+    gate: V1.3-B
+    lane: frontend
+    title: Build deliberate reflection disclosure review diff and rollback surfaces
+    depends_on: [R31]
+    acceptance: [A308]
+    status: NOT_STARTED
+  - id: R35
+    gate: V1.3-B
+    lane: integration
+    title: Run V1.3 real-runtime installed and release gates
+    depends_on: [R33, R34]
+    acceptance: [A309, A310, A401, A402, A403, A404, A405]
+    status: NOT_STARTED
+
+  - id: Z01
+    gate: Z0
+    lane: integration
+    title: Publish integrated V1.1-V1.3 verdict roadmap delta and continuation handoff
+    depends_on: [R35]
+    acceptance: [A401, A402, A403, A404, A405]
+    status: NOT_STARTED
