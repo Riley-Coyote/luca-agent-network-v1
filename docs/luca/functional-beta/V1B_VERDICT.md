@@ -30,7 +30,8 @@ physical purge and replay semantics passed on disposable encrypted fixtures.
 
 The final installed application is Developer ID signed as
 `com.luca.agent-network.dev`. Its executable SHA-256 is
-`d633ba22eb929ecabb8fcd80053ec1c9699b3cbc7b4e2b687accc53b2966ab20`.
+`76bb7fdcacae8ce5d933eb405a640779b56d210c70ac92f970b3e39e7d591dc2`,
+built from product commit `10fa2f3f`.
 
 ## Verification
 

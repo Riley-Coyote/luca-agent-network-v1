@@ -151,7 +151,9 @@ continuity records.
   outbox tests, all 14 publisher tests, and a desktop Rust check passed. The
   reviewer re-examined the seam and returned PASS with no remaining P0/P1.
 - The installed binary hash is
-  `d633ba22eb929ecabb8fcd80053ec1c9699b3cbc7b4e2b687accc53b2966ab20`.
+  `76bb7fdcacae8ce5d933eb405a640779b56d210c70ac92f970b3e39e7d591dc2`.
+- The installed candidate was rebuilt from product commit `10fa2f3f`; the
+  following evidence-only commit does not change executable source.
 - The rebuilt app passed strict deep code-sign verification, retained bundle ID
   `com.luca.agent-network.dev`, relaunched successfully, and exposed the real
   native shell and existing workspace state through the accessibility tree.
