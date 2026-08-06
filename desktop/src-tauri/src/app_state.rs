@@ -16,7 +16,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use crate::huddle::HuddleState;
 use crate::luca::continuity_runtime::{
     ContinuityReadLeaseOutcomeV1, ContinuityReadLeaseRequestV1, ContinuityReadLeaseViewV1,
-    ContinuityRuntimeState,
+    ContinuityRuntimeState, ResidentHandoffCommitOutcomeV1, ResidentHandoffCommitRequestV1,
 };
 use crate::managed_agents::config_bridge::SessionConfigCache;
 use crate::managed_agents::ManagedAgentProcess;
@@ -337,6 +337,19 @@ impl AppState {
             &self.continuity_lifecycle,
             &self.continuity_runtime,
             owner_pubkey,
+        )
+    }
+
+    /// Commit one compact encrypted resident handoff. Every failure is
+    /// fail-soft and body-free so messaging remains independent.
+    pub(crate) fn commit_resident_handoff(
+        &self,
+        request: ResidentHandoffCommitRequestV1,
+    ) -> ResidentHandoffCommitOutcomeV1 {
+        crate::luca::continuity_runtime::commit_resident_handoff(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            request,
         )
     }
 

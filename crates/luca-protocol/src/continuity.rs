@@ -22,6 +22,12 @@ pub const MAX_CONTINUITY_PACKET_BYTES: usize = 48 * 1024;
 pub const MAX_CONTINUITY_CIPHERTEXT_BYTES: usize = 1_048_576;
 /// Maximum source/provenance references carried by one contract.
 pub const MAX_CONTINUITY_REFS: usize = 256;
+/// Maximum UTF-8 bytes in the compact resident handoff summary.
+pub const MAX_HANDOFF_SUMMARY_BYTES: usize = 4 * 1024;
+/// Maximum UTF-8 bytes in one handoff list item.
+pub const MAX_HANDOFF_ITEM_BYTES: usize = 2 * 1024;
+/// Maximum items in each compact handoff category.
+pub const MAX_HANDOFF_ITEMS: usize = 32;
 
 /// Semantic validation error for continuity V1 contracts.
 #[derive(Debug, thiserror::Error)]
@@ -70,6 +76,34 @@ fn bounded_refs<T: Ord>(values: &[T], require_nonempty: bool) -> Result<(), Cont
     } else {
         Ok(())
     }
+}
+
+fn bounded_handoff_text(
+    value: &str,
+    allow_empty: bool,
+    max_bytes: usize,
+) -> Result<(), ContinuityError> {
+    let trimmed = value.trim();
+    if (!allow_empty && trimmed.is_empty())
+        || trimmed.len() != value.len()
+        || value.len() > max_bytes
+        || value.chars().any(|character| {
+            character == '\0' || (character.is_control() && character != '\n' && character != '\t')
+        })
+    {
+        Err(ContinuityError::BodySafety)
+    } else {
+        Ok(())
+    }
+}
+
+fn bounded_handoff_items(values: &[String]) -> Result<(), ContinuityError> {
+    if values.len() > MAX_HANDOFF_ITEMS {
+        return Err(ContinuityError::Sequence);
+    }
+    values
+        .iter()
+        .try_for_each(|value| bounded_handoff_text(value, false, MAX_HANDOFF_ITEM_BYTES))
 }
 
 macro_rules! validated_deserialize {
@@ -713,6 +747,278 @@ impl ContinuityMutationV1 {
 }
 
 validated_deserialize!(ContinuityMutationV1, RawContinuityMutationV1);
+
+/// Per-resident control for the lightweight Luca continuity overlay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResidentContinuityModeV1 {
+    /// Generate and inject compact encrypted handoffs.
+    Enabled,
+    /// Neither generate nor inject a handoff; native memory remains untouched.
+    Disabled,
+}
+
+/// One compact resident-authored handoff, encrypted before durable storage.
+#[derive(Clone, PartialEq, Eq, Serialize)]
+pub struct ResidentHandoffV1 {
+    /// Short working-state summary.
+    pub summary: String,
+    /// Work that remains unresolved.
+    pub unresolved_threads: Vec<String>,
+    /// Explicit commitments made in the cited conversation.
+    pub commitments: Vec<String>,
+    /// Explicit, non-inferred working preferences.
+    pub explicit_preferences: Vec<String>,
+    /// Sorted unique exact signed source events.
+    pub source_event_ids: Vec<Hex64>,
+    /// Canonical time this revision was authored.
+    pub updated_at: CanonicalTimestamp,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawResidentHandoffV1 {
+    summary: String,
+    unresolved_threads: Vec<String>,
+    commitments: Vec<String>,
+    explicit_preferences: Vec<String>,
+    source_event_ids: Vec<Hex64>,
+    updated_at: CanonicalTimestamp,
+}
+
+impl From<RawResidentHandoffV1> for ResidentHandoffV1 {
+    fn from(raw: RawResidentHandoffV1) -> Self {
+        Self {
+            summary: raw.summary,
+            unresolved_threads: raw.unresolved_threads,
+            commitments: raw.commitments,
+            explicit_preferences: raw.explicit_preferences,
+            source_event_ids: raw.source_event_ids,
+            updated_at: raw.updated_at,
+        }
+    }
+}
+
+impl ResidentHandoffV1 {
+    /// Enforce the deliberately small V1 handoff and exact signed provenance.
+    pub fn validate(&self) -> Result<(), ContinuityError> {
+        bounded_handoff_text(&self.summary, true, MAX_HANDOFF_SUMMARY_BYTES)?;
+        bounded_handoff_items(&self.unresolved_threads)?;
+        bounded_handoff_items(&self.commitments)?;
+        bounded_handoff_items(&self.explicit_preferences)?;
+        bounded_refs(&self.source_event_ids, true)?;
+        if self.summary.is_empty()
+            && self.unresolved_threads.is_empty()
+            && self.commitments.is_empty()
+            && self.explicit_preferences.is_empty()
+        {
+            return Err(ContinuityError::BodySafety);
+        }
+        Ok(())
+    }
+}
+
+impl std::fmt::Debug for ResidentHandoffV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ResidentHandoffV1")
+            .field("summary", &"[REDACTED]")
+            .field("unresolved_thread_count", &self.unresolved_threads.len())
+            .field("commitment_count", &self.commitments.len())
+            .field(
+                "explicit_preference_count",
+                &self.explicit_preferences.len(),
+            )
+            .field("source_event_ids", &self.source_event_ids)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
+}
+
+validated_deserialize!(ResidentHandoffV1, RawResidentHandoffV1);
+
+/// Body-free, authority-minimized request for one private handoff cognition turn.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LocalContinuityCognitionRequestV1 {
+    /// Frozen continuity protocol discriminator.
+    pub protocol: String,
+    /// Exact durable continuity job.
+    pub job_id: OpaqueId,
+    /// Canonical owner identity.
+    pub owner_pubkey: Hex64,
+    /// Exact resident that must author the result.
+    pub resident_pubkey: Hex64,
+    /// Exact conversation containing the final.
+    pub conversation_id: OpaqueId,
+    /// Exact accepted and finalized resident response.
+    pub source_event_id: Hex64,
+    /// Exact runtime/model binding that may execute the turn.
+    pub binding_ref: Sha256Ref,
+    /// Absolute local deadline.
+    pub deadline_unix_ms: SafeU53,
+    /// Maximum canonical result size.
+    pub max_result_bytes: SafeU53,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawLocalContinuityCognitionRequestV1 {
+    protocol: String,
+    job_id: OpaqueId,
+    owner_pubkey: Hex64,
+    resident_pubkey: Hex64,
+    conversation_id: OpaqueId,
+    source_event_id: Hex64,
+    binding_ref: Sha256Ref,
+    deadline_unix_ms: SafeU53,
+    max_result_bytes: SafeU53,
+}
+
+impl From<RawLocalContinuityCognitionRequestV1> for LocalContinuityCognitionRequestV1 {
+    fn from(raw: RawLocalContinuityCognitionRequestV1) -> Self {
+        Self {
+            protocol: raw.protocol,
+            job_id: raw.job_id,
+            owner_pubkey: raw.owner_pubkey,
+            resident_pubkey: raw.resident_pubkey,
+            conversation_id: raw.conversation_id,
+            source_event_id: raw.source_event_id,
+            binding_ref: raw.binding_ref,
+            deadline_unix_ms: raw.deadline_unix_ms,
+            max_result_bytes: raw.max_result_bytes,
+        }
+    }
+}
+
+impl LocalContinuityCognitionRequestV1 {
+    /// Require separated authority and a bounded nonzero result budget.
+    pub fn validate(&self) -> Result<(), ContinuityError> {
+        require_protocol(&self.protocol)?;
+        if self.owner_pubkey == self.resident_pubkey
+            || self.deadline_unix_ms.get() == 0
+            || self.max_result_bytes.get() == 0
+            || self.max_result_bytes.get() as usize > MAX_CONTINUITY_PACKET_BYTES
+        {
+            Err(ContinuityError::Binding)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+validated_deserialize!(
+    LocalContinuityCognitionRequestV1,
+    RawLocalContinuityCognitionRequestV1
+);
+
+/// Private handoff cognition terminal outcome.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
+pub enum LocalContinuityCognitionOutcomeV1 {
+    /// The resident found no durable working state to carry forward.
+    NoChange,
+    /// The resident authored one bounded handoff candidate.
+    Handoff { handoff: ResidentHandoffV1 },
+}
+
+impl std::fmt::Debug for LocalContinuityCognitionOutcomeV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoChange => formatter.write_str("NoChange"),
+            Self::Handoff { handoff } => formatter.debug_tuple("Handoff").field(handoff).finish(),
+        }
+    }
+}
+
+/// Result from the same resident/runtime binding requested for private cognition.
+#[derive(Clone, PartialEq, Eq, Serialize)]
+pub struct LocalContinuityCognitionResultV1 {
+    /// Frozen continuity protocol discriminator.
+    pub protocol: String,
+    /// Exact job being answered.
+    pub job_id: OpaqueId,
+    /// Exact resident author.
+    pub resident_pubkey: Hex64,
+    /// Exact finalized source event.
+    pub source_event_id: Hex64,
+    /// Either explicit no-change or one bounded handoff.
+    pub result: LocalContinuityCognitionOutcomeV1,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawLocalContinuityCognitionResultV1 {
+    protocol: String,
+    job_id: OpaqueId,
+    resident_pubkey: Hex64,
+    source_event_id: Hex64,
+    result: LocalContinuityCognitionOutcomeV1,
+}
+
+impl From<RawLocalContinuityCognitionResultV1> for LocalContinuityCognitionResultV1 {
+    fn from(raw: RawLocalContinuityCognitionResultV1) -> Self {
+        Self {
+            protocol: raw.protocol,
+            job_id: raw.job_id,
+            resident_pubkey: raw.resident_pubkey,
+            source_event_id: raw.source_event_id,
+            result: raw.result,
+        }
+    }
+}
+
+impl LocalContinuityCognitionResultV1 {
+    /// Validate the outcome, including source provenance for a handoff.
+    pub fn validate(&self) -> Result<(), ContinuityError> {
+        require_protocol(&self.protocol)?;
+        if let LocalContinuityCognitionOutcomeV1::Handoff { handoff } = &self.result {
+            handoff.validate()?;
+            if handoff
+                .source_event_ids
+                .binary_search(&self.source_event_id)
+                .is_err()
+            {
+                return Err(ContinuityError::Binding);
+            }
+        }
+        Ok(())
+    }
+
+    /// Bind this result to the exact local request before it can be committed.
+    pub fn validate_against(
+        &self,
+        request: &LocalContinuityCognitionRequestV1,
+    ) -> Result<(), ContinuityError> {
+        self.validate()?;
+        request.validate()?;
+        if self.job_id != request.job_id
+            || self.resident_pubkey != request.resident_pubkey
+            || self.source_event_id != request.source_event_id
+        {
+            Err(ContinuityError::Binding)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl std::fmt::Debug for LocalContinuityCognitionResultV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LocalContinuityCognitionResultV1")
+            .field("protocol", &self.protocol)
+            .field("job_id", &self.job_id)
+            .field("resident_pubkey", &self.resident_pubkey)
+            .field("source_event_id", &self.source_event_id)
+            .field("result", &self.result)
+            .finish()
+    }
+}
+
+validated_deserialize!(
+    LocalContinuityCognitionResultV1,
+    RawLocalContinuityCognitionResultV1
+);
 
 /// Resident's role in a durable post-publication job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

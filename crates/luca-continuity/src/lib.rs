@@ -12,6 +12,7 @@ mod context;
 mod envelope;
 mod error;
 mod fixtures;
+mod handoff;
 mod namespace;
 mod repository;
 mod retrieval;
@@ -39,6 +40,7 @@ pub use envelope::{
 };
 pub use error::ContinuityError;
 pub use fixtures::{synthetic_fixture_index, FixtureIndex, SyntheticFixture};
+pub use handoff::{evaluate_handoff_salience, HandoffSalienceDecision, HandoffSalienceSignals};
 pub use namespace::NamespaceKey;
 pub use repository::{
     AuthenticatedRecord, CorruptRecordDiagnostic, EncryptedRecordRepository,
