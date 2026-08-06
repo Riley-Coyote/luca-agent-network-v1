@@ -14,3 +14,18 @@ continuity records.
 - Verified the G2 worktree still contains the same eight modified files and one
   untracked `metabolism.rs`; none were touched from this worktree.
 - C00, A001, and A002: PASS.
+
+## 2026-08-05 — C01 independent G1 review
+
+- Independently reviewed candidate `e7aad47f5d0debc6681ceef55b7c74fff42b7f6c`
+  and runtime-control commit `99410d36d0971bbedcc6cf0b532582f484b5b847`.
+- Confirmed that the recorded cancellation, permission, isolation, and security
+  fixtures are substantive; no unresolved product P0/P1 was found.
+- Did not overstate the historical record as formally closed. Four narrow
+  evidence gaps remain: repeated OpenClaw import, OpenClaw post-relaunch recall,
+  binding-change key stability, and a complete body-free evidence scan.
+- Moved those targeted checks into V1B native-parity and installed-beta work.
+  The full historical G1 matrix does not need to be repeated.
+- Frozen beta memory promise: native runtime memory remains authoritative; Luca
+  adds only a compact encrypted resident handoff and bounded signed history.
+- C01, A003, and A004: PASS.
