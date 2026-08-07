@@ -3,6 +3,9 @@ import ReactDOM from "react-dom/client";
 import { App } from "@/app/App";
 import { NostrBindConsentDialog } from "@/features/profile/ui/NostrBindConsentDialog";
 import "@fontsource-variable/inter/wght.css";
+import "@fontsource-variable/instrument-sans";
+import "@fontsource/fragment-mono/400.css";
+import "@fontsource/doto/400.css";
 import "@/shared/styles/globals.css";
 import { UpdaterProvider } from "@/features/settings/hooks/UpdaterProvider";
 import { migrateLegacyCommunityStorageBeforeRender } from "@/features/communities/legacyCommunityStorage";
@@ -53,7 +56,23 @@ function configureDevE2eBridgeFromUrl() {
   }
 
   const e2eWindow = window as E2eWindow;
-  e2eWindow.__BUZZ_E2E__ ??= { mode: "mock" };
+  const notebookDemo = url.searchParams.get("notebookDemo") === "1";
+  e2eWindow.__BUZZ_E2E__ ??= {
+    mode: "mock",
+    ...(notebookDemo
+      ? {
+          mock: {
+            managedAgents: [
+              {
+                name: "Luca",
+                pubkey: "11".repeat(32),
+                status: "running",
+              },
+            ],
+          },
+        }
+      : {}),
+  };
 
   const community = {
     addedAt: new Date().toISOString(),
@@ -70,6 +89,9 @@ function configureDevE2eBridgeFromUrl() {
 }
 
 function renderApp() {
+  // The conversation-first Luca shell is permanent product structure. Theme
+  // selection changes its palette, never which application shell is mounted.
+  document.documentElement.setAttribute("data-luca-shell", "");
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       <CommunitiesProvider>

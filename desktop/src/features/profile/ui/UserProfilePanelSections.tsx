@@ -45,7 +45,6 @@ import {
 } from "@/features/profile/ui/MaskedAvatarBadgeFrame";
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import { StatusEmoji } from "@/features/user-status/ui/StatusEmoji";
-import { BotIdenticon } from "@/features/messages/ui/BotIdenticon";
 import { ResidentContinuityPanel } from "@/features/profile/ui/ResidentContinuityPanel";
 import type { ManagedAgent, RelayAgent } from "@/shared/api/types";
 import { Spinner } from "@/shared/ui/spinner";
@@ -58,6 +57,8 @@ import { cn } from "@/shared/lib/cn";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/ui/alert";
 import { Badge } from "@/shared/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
+import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
+import type { AgentVisualState } from "@/shared/ui/AgentIdentitySpecimen";
 
 export { AgentInstructionsFocusedView } from "@/features/profile/ui/UserProfilePanelAgentDetails";
 
@@ -344,10 +345,21 @@ export function ProfileSummaryView({
   return (
     <div className="flex flex-col gap-6 pt-4">
       <ProfileHero
+        agentVisualState={
+          managedAgent
+            ? managedAgent.lastError
+              ? "fault"
+              : managedAgent.status === "running" ||
+                  managedAgent.status === "deployed"
+                ? "present"
+                : "unavailable"
+            : undefined
+        }
         displayName={displayName}
         isBot={isBot}
         presenceStatus={presenceStatus}
         profile={profile}
+        pubkey={pubkey}
         userStatus={userStatus}
       />
 
@@ -475,67 +487,79 @@ export function ProfileSummaryView({
 // ── Hero & metadata ──────────────────────────────────────────────────────────
 
 function ProfileHero({
+  agentVisualState,
   displayName,
   isBot,
   presenceStatus,
   profile,
+  pubkey,
   userStatus,
 }: {
+  agentVisualState: AgentVisualState | undefined;
   displayName: string;
   isBot: boolean;
   presenceStatus: "online" | "away" | "offline" | undefined;
   profile: ProfileSummaryViewProps["profile"];
+  pubkey: string | null | undefined;
   userStatus: ProfileSummaryViewProps["userStatus"];
 }) {
   const presenceDotClassName = isBot ? "h-4.5 w-4.5" : "h-3.5 w-3.5";
 
   return (
     <div className="flex flex-col items-center gap-3 text-center">
-      <MaskedAvatarBadgeFrame
-        badge={
-          presenceStatus ? (
-            <span
-              aria-label={getPresenceLabel(presenceStatus)}
-              className="flex h-6 w-6 items-center justify-center rounded-full"
-              data-testid="user-profile-presence-badge"
-              role="img"
-            >
-              <PresenceDot
-                className={presenceDotClassName}
-                status={presenceStatus}
-              />
-            </span>
-          ) : null
-        }
-        badgeBox={PROFILE_HERO_PRESENCE_BADGE.shell}
-        className="h-20 w-20"
-        curve={STATUS_DOT_MASK_CURVE}
-        cutout={PROFILE_HERO_PRESENCE_BADGE.cutout}
-        size={80}
-      >
-        <ProfileAvatar
-          avatarUrl={profile?.avatarUrl ?? null}
-          className="h-full w-full text-xl"
-          iconClassName="h-8 w-8"
-          label={displayName}
-          plain
-          testId="user-profile-avatar"
+      {isBot && pubkey ? (
+        <AgentIdentitySpecimen
+          accessibleName={displayName}
+          publicKey={pubkey}
+          size={80}
+          state={
+            agentVisualState ??
+            (presenceStatus === "offline"
+              ? "unavailable"
+              : presenceStatus === "away"
+                ? "idle"
+                : "present")
+          }
         />
-      </MaskedAvatarBadgeFrame>
+      ) : (
+        <MaskedAvatarBadgeFrame
+          badge={
+            presenceStatus ? (
+              <span
+                aria-label={getPresenceLabel(presenceStatus)}
+                className="flex h-6 w-6 items-center justify-center rounded-full"
+                data-testid="user-profile-presence-badge"
+                role="img"
+              >
+                <PresenceDot
+                  className={presenceDotClassName}
+                  status={presenceStatus}
+                />
+              </span>
+            ) : null
+          }
+          badgeBox={PROFILE_HERO_PRESENCE_BADGE.shell}
+          className="h-20 w-20"
+          curve={STATUS_DOT_MASK_CURVE}
+          cutout={PROFILE_HERO_PRESENCE_BADGE.cutout}
+          size={80}
+        >
+          <ProfileAvatar
+            avatarUrl={profile?.avatarUrl ?? null}
+            className="h-full w-full text-xl"
+            iconClassName="h-8 w-8"
+            label={displayName}
+            plain
+            testId="user-profile-avatar"
+          />
+        </MaskedAvatarBadgeFrame>
+      )}
 
       <div className="flex flex-col items-center gap-1">
         <div className="flex items-center justify-center gap-2">
           <h3 className="text-xl font-semibold tracking-tight">
             {displayName}
           </h3>
-          {isBot ? (
-            <BotIdenticon
-              className="shrink-0 rounded"
-              data-testid="profile-bot-indicator"
-              size={20}
-              value={displayName}
-            />
-          ) : null}
         </div>
 
         {profile?.about?.trim() ? (

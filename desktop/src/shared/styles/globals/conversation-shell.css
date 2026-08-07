@@ -1,8 +1,9 @@
 /* Luca conversation-first shell. Kept last so this production-intent layer
    can refine legacy Buzz surfaces without forking their data components. */
-:root[data-buzz-sidebar] {
+:root[data-luca-shell] {
   --font-ui:
-    "Instrument Sans", "Inter Variable", "Avenir Next", "Segoe UI", sans-serif;
+    "Instrument Sans Variable", "Instrument Sans", "Inter Variable",
+    "Avenir Next", "Segoe UI", sans-serif;
   --font-mono: "Fragment Mono", "SFMono-Regular", "SF Mono", monospace;
   --font-instrument: "Doto", "Fragment Mono", "SFMono-Regular", monospace;
   --mn-text-chat: 0.9375rem;
@@ -129,21 +130,28 @@
      a bare triplet. See the note in theme.css. */
   --buzz-active-surface: hsl(220 5% 84.1%);
   --buzz-active-foreground: var(--mn-floor);
+}
+
+:root[data-luca-shell].dark {
   color-scheme: dark;
 }
 
-:root[data-buzz-sidebar] .luca-theme-shell-layer {
+:root[data-luca-shell]:not(.dark) {
+  color-scheme: light;
+}
+
+:root[data-luca-shell] .luca-theme-shell-layer {
   background: hsl(var(--mn-floor));
   background-image: none;
 }
 
-:root[data-buzz-sidebar] [data-app-top-chrome] {
+:root[data-luca-shell] [data-app-top-chrome] {
   background: hsl(var(--mn-floor));
   border-color: hsl(var(--mn-border));
   min-height: 40px;
 }
 
-:root[data-buzz-sidebar] [data-sidebar="sidebar"] {
+:root[data-luca-shell] [data-sidebar="sidebar"] {
   background: hsl(var(--mn-floor));
   border-color: hsl(var(--mn-border));
 }
@@ -152,7 +160,7 @@
    edge keeps a 1px seam against the rail (paired with the sidebar's `pr-px`),
    so the card reads as a panel resting on the floor rather than a boxed-in
    region. Radius comes from `--radius` — do not hardcode a second value. */
-:root[data-buzz-sidebar] [data-luca-conversation-surface] {
+:root[data-luca-shell] [data-luca-conversation-surface] {
   background: hsl(var(--mn-surface));
   border: 1px solid hsl(var(--mn-border));
   border-radius: var(--radius);
@@ -164,7 +172,7 @@
    other three and the card is evenly inset on all four sides of the window.
    The sidebar wrapper is a direct sibling of <main>, which is what makes this
    reachable without a JS-set class. */
-:root[data-buzz-sidebar]
+:root[data-luca-shell]
   [data-collapsible="offcanvas"]
   ~ *
   [data-luca-conversation-surface] {
@@ -173,7 +181,7 @@
 
 /* The floating chrome sits on the card's header row, so its controls line up
    with the channel title instead of hovering in a band above it. */
-:root[data-buzz-sidebar] [data-testid="app-top-chrome"] {
+:root[data-luca-shell] [data-testid="app-top-chrome"] {
   top: var(--mn-card-lip);
   height: var(--mn-header-title-row);
 }
@@ -181,15 +189,15 @@
 /* The chrome floats now, so it no longer PUSHES the rail's own header down —
    the search field has to yield the whole row or the controls land on top of
    it. Derived from the same two values, so it tracks automatically. */
-:root[data-buzz-sidebar] [data-testid="sidebar-pinned-header"] {
+:root[data-luca-shell] [data-testid="sidebar-pinned-header"] {
   padding-top: calc(var(--mn-card-lip) + var(--mn-header-height));
 }
 
-:root[data-buzz-sidebar] [data-sidebar="group"] {
+:root[data-luca-shell] [data-sidebar="group"] {
   padding-block: 4px;
 }
 
-:root[data-buzz-sidebar] [data-sidebar="group-label"] {
+:root[data-luca-shell] [data-sidebar="group-label"] {
   color: hsl(var(--mn-ink-faint));
   font-family: var(--font-mono);
   font-size: var(--mn-text-micro);
@@ -199,36 +207,36 @@
   text-transform: uppercase;
 }
 
-:root[data-buzz-sidebar] [data-sidebar="menu"] {
+:root[data-luca-shell] [data-sidebar="menu"] {
   gap: 1px;
 }
 
-:root[data-buzz-sidebar] [data-sidebar="menu-button"] {
+:root[data-luca-shell] [data-sidebar="menu-button"] {
   border: 1px solid transparent;
   color: hsl(var(--mn-ink-muted));
   min-height: 30px;
 }
 
-:root[data-buzz-sidebar]
+:root[data-luca-shell]
   [data-sidebar="menu-button"]:not([data-active="true"]):hover {
   background: hsl(var(--mn-hover));
   color: hsl(var(--mn-ink));
 }
 
-:root[data-buzz-sidebar] [data-sidebar="menu-button"][data-active="true"] {
+:root[data-luca-shell] [data-sidebar="menu-button"][data-active="true"] {
   background: hsl(var(--sidebar-active));
   border-color: hsl(220 5% 88% / 0.1);
   color: hsl(var(--sidebar-active-foreground));
   font-weight: 520;
 }
 
-:root[data-buzz-sidebar]
+:root[data-luca-shell]
   [data-sidebar="menu-button"][data-active="true"]
   :is(svg, [data-sidebar-row-meta]) {
   color: hsl(var(--sidebar-active-foreground) / 0.72);
 }
 
-:root[data-buzz-sidebar] [data-testid="sidebar-search-trigger"] {
+:root[data-luca-shell] [data-testid="sidebar-search-trigger"] {
   background: hsl(var(--mn-raised));
   border: 1px solid hsl(var(--mn-border));
   border-radius: 6px;
@@ -236,11 +244,11 @@
   min-height: 32px;
 }
 
-:root[data-buzz-sidebar] [data-testid="sidebar-profile-card"] {
+:root[data-luca-shell] [data-testid="sidebar-profile-card"] {
   border-radius: 7px;
 }
 
-:root[data-buzz-sidebar] [data-testid="chat-header"] {
+:root[data-luca-shell] [data-testid="chat-header"] {
   background: hsl(var(--mn-surface));
   border-color: hsl(var(--mn-border));
   min-height: var(--mn-header-height);
@@ -252,21 +260,21 @@
    yields exactly enough room for them rather than being overlapped. Paired with
    the control cluster's width in AppTopChrome; if that gains a button, this
    grows with it. */
-:root[data-buzz-sidebar]
+:root[data-luca-shell]
   [data-collapsible="offcanvas"]
   ~ *
   [data-testid="chat-header"] {
   padding-left: 140px;
 }
 
-:root[data-buzz-sidebar] [data-testid="chat-title"] {
+:root[data-luca-shell] [data-testid="chat-title"] {
   font-size: var(--mn-text-chat);
   font-weight: 600;
   letter-spacing: -0.012em;
 }
 
-:root[data-buzz-sidebar] [data-luca-header-meta],
-:root[data-buzz-sidebar] [data-luca-agent-state] {
+:root[data-luca-shell] [data-luca-header-meta],
+:root[data-luca-shell] [data-luca-agent-state] {
   color: hsl(var(--mn-ink-faint));
   font-family: var(--font-mono);
   font-size: var(--mn-text-micro);
@@ -275,11 +283,11 @@
   text-transform: uppercase;
 }
 
-:root[data-buzz-sidebar] [data-luca-agent-state] {
+:root[data-luca-shell] [data-luca-agent-state] {
   font-family: var(--font-instrument, var(--font-mono));
 }
 
-:root[data-buzz-sidebar] [data-luca-agent-strip] {
+:root[data-luca-shell] [data-luca-agent-strip] {
   align-items: center;
   background: hsl(var(--mn-glass));
   border-bottom: 1px solid hsl(var(--mn-border));
@@ -289,34 +297,34 @@
   padding: 0 22px;
 }
 
-:root[data-buzz-sidebar] [data-luca-reading-plane] {
+:root[data-luca-shell] [data-luca-reading-plane] {
   margin-inline: auto;
   max-width: 48rem;
   width: 100%;
 }
 
-:root[data-buzz-sidebar] [data-testid="message-row"] {
+:root[data-luca-shell] [data-testid="message-row"] {
   border-radius: 6px;
 }
 
-:root[data-buzz-sidebar] [data-testid="message-row"]:hover {
+:root[data-luca-shell] [data-testid="message-row"]:hover {
   background: hsl(var(--mn-raised) / 0.55);
 }
 
-:root[data-buzz-sidebar] [data-message-content] {
+:root[data-luca-shell] [data-message-content] {
   color: hsl(var(--mn-ink) / 0.88);
   font-size: var(--mn-text-chat);
   line-height: 1.68;
 }
 
-:root[data-buzz-sidebar] [data-testid="message-thread-summary"] {
+:root[data-luca-shell] [data-testid="message-thread-summary"] {
   color: hsl(var(--mn-ink-faint));
   font-family: var(--font-mono);
   font-size: var(--mn-text-micro);
   letter-spacing: 0.08em;
 }
 
-:root[data-buzz-sidebar] [data-testid="message-composer"] {
+:root[data-luca-shell] [data-testid="message-composer"] {
   background: hsl(var(--mn-raised));
   border-color: hsl(var(--mn-border-strong));
   border-radius: 8px;
@@ -326,24 +334,24 @@
   box-shadow: var(--mn-lit-edge);
 }
 
-:root[data-buzz-sidebar] [data-testid="channel-composer-activity-row"] {
+:root[data-luca-shell] [data-testid="channel-composer-activity-row"] {
   background: transparent;
 }
 
-:root[data-buzz-sidebar] [data-luca-inspector] {
+:root[data-luca-shell] [data-luca-inspector] {
   background: hsl(var(--mn-glass));
   border-color: hsl(var(--mn-border));
 }
 
-:root[data-buzz-sidebar] * {
+:root[data-luca-shell] * {
   scrollbar-color: hsl(var(--mn-border-strong)) transparent;
 }
 
-:root[data-buzz-sidebar] *::-webkit-scrollbar-track {
+:root[data-luca-shell] *::-webkit-scrollbar-track {
   background: transparent;
 }
 
-:root[data-buzz-sidebar] *::-webkit-scrollbar-thumb {
+:root[data-luca-shell] *::-webkit-scrollbar-thumb {
   background: hsl(var(--mn-border-strong));
   border: 3px solid transparent;
   background-clip: content-box;
@@ -351,26 +359,26 @@
 }
 
 @media (max-width: 1024px) {
-  :root[data-buzz-sidebar] [data-luca-reading-plane] {
+  :root[data-luca-shell] [data-luca-reading-plane] {
     max-width: calc(100% - 40px);
   }
 }
 
 @media (max-width: 640px) {
-  :root[data-buzz-sidebar] [data-luca-conversation-surface] {
+  :root[data-luca-shell] [data-luca-conversation-surface] {
     border-radius: 0;
     border-width: 0;
     margin: 0;
   }
 
-  :root[data-buzz-sidebar] [data-testid="chat-header"] {
+  :root[data-luca-shell] [data-testid="chat-header"] {
     padding-inline: 14px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root[data-buzz-sidebar] [data-sidebar="menu-button"],
-  :root[data-buzz-sidebar] [data-testid="chat-header"] {
+  :root[data-luca-shell] [data-sidebar="menu-button"],
+  :root[data-luca-shell] [data-testid="chat-header"] {
     /* biome-ignore lint/complexity/noImportantStyles: reduced motion must override state-specific transitions */
     transition: none !important;
   }

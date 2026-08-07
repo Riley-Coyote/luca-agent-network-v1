@@ -252,6 +252,12 @@ function resolveEffectiveAccent(
  */
 function applyBuzzSidebar(themeName: string) {
   const root = document.documentElement;
+  // The Luca shell is product structure, not a theme. Keep its layout,
+  // typography, rail, conversation card, and interaction refinements mounted
+  // while the user changes palettes. The legacy Buzz marker below now controls
+  // only the first-party palette/vibrancy compatibility path.
+  root.setAttribute("data-luca-shell", "");
+  root.setAttribute("data-luca-theme", themeName);
   if (isBuzzTheme(themeName)) {
     root.setAttribute("data-buzz-sidebar", "");
     // Keep the concrete Buzz variant on the root as well as the generic
@@ -434,6 +440,22 @@ function applyCachedVars(): string | null {
 /** The latest theme load is the only one allowed to write document styles. */
 let themeApplyRequest = 0;
 
+const LUCA_SHELL_THEME_VARIABLES = [
+  "--mn-floor",
+  "--mn-surface",
+  "--mn-raised",
+  "--mn-hover",
+  "--mn-glass",
+  "--mn-surface-raised",
+  "--mn-surface-hover",
+  "--mn-border",
+  "--mn-border-strong",
+  "--mn-ink",
+  "--mn-ink-muted",
+  "--mn-ink-faint",
+  "--mn-focus",
+] as const;
+
 /** Apply a theme: load data, derive CSS vars, set them on :root. */
 async function applyTheme(
   name: SyntaxThemeName,
@@ -452,6 +474,14 @@ async function applyTheme(
       });
 
   const root = document.documentElement;
+  // A non-default palette supplies `--mn-*` values so the permanent Luca shell
+  // can inherit its tonal ladder. Remove the previous palette's inline values
+  // first; when returning to the first-party theme, the audited CSS defaults
+  // must become authoritative again instead of being shadowed by stale inline
+  // variables from the prior theme.
+  for (const key of LUCA_SHELL_THEME_VARIABLES) {
+    root.style.removeProperty(key);
+  }
   for (const [key, value] of Object.entries(vars)) {
     root.style.setProperty(key, value);
   }

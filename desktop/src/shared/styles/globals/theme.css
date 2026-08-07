@@ -793,13 +793,13 @@
  * (imported last). This block only maps that scale onto semantic tokens.
  *
  * It previously declared its own, lighter copy of the scale here. Because this
- * selector list includes the compound `:root[data-buzz-sidebar].dark`, it
+ * selector list includes the compound `:root[data-luca-shell].dark`, it
  * outranked the production values on specificity no matter the import order —
  * so the shell silently painted from this copy while the intended palette sat
  * dead. Add values here again and that regression returns.
  */
-:root[data-buzz-sidebar],
-:root[data-buzz-sidebar].dark {
+:root[data-luca-shell],
+:root[data-luca-shell].dark {
   --luca-shell-canvas: hsl(var(--mn-floor));
   --luca-shell-sidebar: hsl(var(--mn-floor));
   --luca-shell-surface: hsl(var(--mn-surface));
@@ -845,25 +845,32 @@
   --buzz-channel-fg: hsl(var(--mn-ink-muted));
   --buzz-dm-fg: hsl(var(--mn-ink-muted));
   --buzz-nav-fg: hsl(var(--mn-ink));
+}
+
+:root[data-luca-shell].dark {
   color-scheme: dark;
 }
 
-:root[data-buzz-sidebar] .luca-theme-shell-layer {
+:root[data-luca-shell]:not(.dark) {
+  color-scheme: light;
+}
+
+:root[data-luca-shell] .luca-theme-shell-layer {
   background-color: var(--luca-shell-canvas);
   background-image: none;
 }
 
-:root[data-buzz-sidebar] .buzz-huddle-app-surface,
-:root[data-buzz-sidebar] .group\/sidebar-wrapper,
-:root[data-buzz-sidebar] [data-testid="app-sidebar"],
-:root[data-buzz-sidebar] [data-buzz-glass-inset],
-:root[data-buzz-sidebar] [data-buzz-glass-footer-wrap],
-:root[data-buzz-sidebar] [data-testid="community-rail"].bg-sidebar {
+:root[data-luca-shell] .buzz-huddle-app-surface,
+:root[data-luca-shell] .group\/sidebar-wrapper,
+:root[data-luca-shell] [data-testid="app-sidebar"],
+:root[data-luca-shell] [data-buzz-glass-inset],
+:root[data-luca-shell] [data-buzz-glass-footer-wrap],
+:root[data-luca-shell] [data-testid="community-rail"].bg-sidebar {
   background-color: var(--luca-shell-sidebar);
   background-image: none;
 }
 
-:root[data-buzz-sidebar].dark [data-buzz-content-surface] {
+:root[data-luca-shell].dark [data-buzz-content-surface] {
   /* Was a hardcoded `222 16% 10%` — off-family and bluer than every token in
      the scale. Because it re-scopes --background for the whole conversation
      subtree, every `bg-background` inside (the composer overlay's 48px band,
@@ -875,40 +882,41 @@
   box-shadow: none;
 }
 
-:root[data-buzz-sidebar] [data-testid="app-sidebar"] [data-active="true"],
-:root[data-buzz-sidebar] [data-testid="settings-sidebar"] [data-active="true"] {
+:root[data-luca-shell] [data-testid="app-sidebar"] [data-active="true"],
+:root[data-luca-shell] [data-testid="settings-sidebar"] [data-active="true"] {
   background-color: var(--buzz-active-surface);
   box-shadow: inset 0 0 0 1px hsl(var(--mn-ink) / 0.08);
 }
 
-:root[data-buzz-sidebar].dark
+:root[data-luca-shell].dark
   [data-sidebar="sidebar"][data-mobile="true"].bg-sidebar {
   background-color: var(--luca-shell-sidebar);
   background-image: none;
 }
 
-:root[data-buzz-sidebar] :focus-visible {
+:root[data-luca-shell] :focus-visible {
   outline: 2px solid var(--luca-shell-focus);
   outline-offset: 2px;
 }
 
-:root[data-buzz-sidebar] :is(button, a, [role="button"], [role="tab"]) {
+:root[data-luca-shell] :is(button, a, [role="button"], [role="tab"]) {
   transition:
     background-color 150ms ease,
     border-color 150ms ease,
     color 150ms ease;
 }
 
-:root[data-buzz-sidebar] body {
+:root[data-luca-shell] body {
   font-family:
-    "Instrument Sans", "Inter Variable", "Avenir Next", "Segoe UI", sans-serif;
+    "Instrument Sans Variable", "Instrument Sans", "Inter Variable",
+    "Avenir Next", "Segoe UI", sans-serif;
 }
 
-:root[data-buzz-sidebar] :is(time, code, kbd, [data-font="mono"], .font-mono) {
+:root[data-luca-shell] :is(time, code, kbd, [data-font="mono"], .font-mono) {
   font-family: "Fragment Mono", "SFMono-Regular", "SF Mono", monospace;
 }
 
-:root[data-buzz-sidebar] [data-font="instrument"] {
+:root[data-luca-shell] [data-font="instrument"] {
   font-family: "Doto", "Fragment Mono", "SFMono-Regular", monospace;
 }
 

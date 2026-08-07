@@ -282,6 +282,29 @@ export function createThemeVars(
   return {
     isDark,
     vars: {
+      // Luca shell palette. The shell itself is permanent; these values let a
+      // user-selected syntax theme recolor the same rail/card hierarchy rather
+      // than swapping back to the legacy application structure.
+      "--mn-floor": hexToHsl(chromeColor),
+      "--mn-surface": hexToHsl(primaryBg),
+      "--mn-raised": hexToHsl(elevate(0.025)),
+      "--mn-hover": hexToHsl(hoverBg),
+      "--mn-glass": hexToHsl(
+        isDark ? adjust(chromeColor, -0.08) : adjust(chromeColor, 0.04),
+      ),
+      "--mn-surface-raised": hexToHsl(elevate(0.025)),
+      "--mn-surface-hover": hexToHsl(hoverBg),
+      "--mn-border": hexToHsl(borderColor),
+      "--mn-border-strong": hexToHsl(
+        mix(borderColor, syntaxFg, isDark ? 0.22 : 0.16),
+      ),
+      "--mn-ink": textFg,
+      "--mn-ink-muted": hexToHsl(syntaxComment),
+      "--mn-ink-faint": hexToHsl(
+        mix(syntaxComment, primaryBg, isDark ? 0.18 : 0.1),
+      ),
+      "--mn-focus": textFg,
+
       // Backgrounds
       "--background": hexToHsl(primaryBg),
       "--card": hexToHsl(primaryBg),

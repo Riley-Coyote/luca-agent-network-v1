@@ -10,6 +10,7 @@ import {
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import { cn } from "@/shared/lib/cn";
 import { Spinner } from "@/shared/ui/spinner";
+import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import { IdentityInitialsAvatar } from "./IdentityInitialsAvatar";
 
 type AgentRuntimeAvatarControlProps = {
@@ -23,6 +24,7 @@ type AgentRuntimeAvatarControlProps = {
   startTestId: string;
   onOpenError?: () => void;
   onStart: () => void;
+  pubkey?: string;
 };
 
 const TAILWIND_SPACING = {
@@ -106,6 +108,7 @@ export function AgentRuntimeAvatarControl({
   startTestId,
   onOpenError,
   onStart,
+  pubkey,
 }: AgentRuntimeAvatarControlProps) {
   const shouldReduceMotion = useReducedMotion();
   const trimmedAvatarUrl = avatarUrl?.trim() || null;
@@ -174,7 +177,23 @@ export function AgentRuntimeAvatarControl({
       maskTransition={transition}
       size={AGENT_AVATAR_SIZE}
     >
-      {trimmedAvatarUrl ? (
+      {pubkey ? (
+        <AgentIdentitySpecimen
+          accessibleName={label}
+          className="border-0"
+          publicKey={pubkey}
+          size={AGENT_AVATAR_SIZE}
+          state={
+            hasError
+              ? "fault"
+              : isStarting
+                ? "thinking"
+                : isActive
+                  ? "present"
+                  : "unavailable"
+          }
+        />
+      ) : trimmedAvatarUrl ? (
         <ProfileAvatar
           avatarUrl={trimmedAvatarUrl}
           className="h-full w-full bg-muted shadow-none"

@@ -294,6 +294,7 @@ function AgentPersonaCard({
               onOpenAgentProfile(agent.pubkey, { tab: "runtime" });
             }}
             onStart={() => onStartAgent(agent.pubkey)}
+            pubkey={agent.pubkey}
           />
         ) : (
           <AgentRuntimeAvatarControl
@@ -375,6 +376,7 @@ function StandaloneAgentCard({
             onOpenAgentProfile(agent.pubkey, { tab: "runtime" });
           }}
           onStart={() => onStartAgent(agent.pubkey)}
+          pubkey={agent.pubkey}
         />
       }
       avatarUrl={profileQuery.data?.avatarUrl}

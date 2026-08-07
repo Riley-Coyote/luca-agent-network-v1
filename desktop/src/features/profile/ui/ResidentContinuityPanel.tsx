@@ -1,6 +1,7 @@
 import * as React from "react";
 import {
   AlertCircle,
+  BookOpen,
   Check,
   ExternalLink,
   FileClock,
@@ -40,6 +41,8 @@ import {
 import { Button } from "@/shared/ui/button";
 import { Switch } from "@/shared/ui/switch";
 import { Textarea } from "@/shared/ui/textarea";
+import { cn } from "@/shared/lib/cn";
+import { ResidentNotebookPanel } from "@/features/profile/ui/notebook/ResidentNotebookPanel";
 
 type HandoffDraft = {
   summary: string;
@@ -60,6 +63,73 @@ export function ResidentContinuityPanel({
 }: {
   residentPubkey: string;
 }) {
+  const [surface, setSurface] = React.useState<"handoff" | "notebook">(
+    "handoff",
+  );
+
+  return (
+    <div className="space-y-4" data-testid="resident-continuity-surface">
+      <div
+        aria-label="Resident continuity surfaces"
+        className="grid grid-cols-2 border-b border-border/60"
+        role="tablist"
+      >
+        <ContinuitySurfaceTab
+          active={surface === "handoff"}
+          icon={FileClock}
+          label="Handoff"
+          onClick={() => setSurface("handoff")}
+        />
+        <ContinuitySurfaceTab
+          active={surface === "notebook"}
+          icon={BookOpen}
+          label="Notebook"
+          onClick={() => setSurface("notebook")}
+        />
+      </div>
+      {surface === "handoff" ? (
+        <ResidentHandoffPanel residentPubkey={residentPubkey} />
+      ) : (
+        <ResidentNotebookPanel residentPubkey={residentPubkey} />
+      )}
+    </div>
+  );
+}
+
+function ContinuitySurfaceTab({
+  active,
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      aria-selected={active}
+      className={cn(
+        "relative flex min-h-11 items-center justify-center gap-2 px-3 text-sm transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
+        active
+          ? "text-foreground"
+          : "text-muted-foreground hover:text-foreground",
+      )}
+      onClick={onClick}
+      role="tab"
+      type="button"
+    >
+      <Icon className="size-3.5" />
+      {label}
+      {active ? (
+        <span className="absolute inset-x-5 bottom-0 h-px bg-foreground" />
+      ) : null}
+    </button>
+  );
+}
+
+function ResidentHandoffPanel({ residentPubkey }: { residentPubkey: string }) {
   const { goChannel } = useAppNavigation();
   const [data, setData] = React.useState<ResidentContinuityInspector | null>(
     null,

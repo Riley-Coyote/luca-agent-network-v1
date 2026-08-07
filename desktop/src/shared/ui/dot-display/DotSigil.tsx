@@ -25,6 +25,8 @@ export interface DotSigilProps {
   level?: number;
   /** Neighbour bleed. Off by default — it is the expensive pass. */
   bloom?: number;
+  /** RGB triplet used for monochrome structural dots. */
+  dot?: string;
   className?: string;
   /** Accessible name; omit only when a parent already labels this. */
   accessibleName?: string;
@@ -47,6 +49,7 @@ export function DotSigil({
   breath = false,
   level = 0.5,
   bloom = 0,
+  dot,
   className,
   accessibleName,
 }: DotSigilProps) {
@@ -64,12 +67,13 @@ export function DotSigil({
       breath,
       level,
       bloom,
+      ...(dot ? { dot } : {}),
     };
     registerPanel(canvas, options);
     return () => {
       unregisterPanel(canvas);
     };
-  }, [seed, cell, breath, level, bloom]);
+  }, [seed, cell, breath, level, bloom, dot]);
 
   // Scene changes must not remount: the charge buffer is the animation's memory,
   // and tearing it down would make every state change flash.
@@ -77,7 +81,14 @@ export function DotSigil({
     const canvas = canvasRef.current;
     if (!canvas) return;
     canvas.dataset.scene = scene;
-    const panel = registerPanel(canvas, { seed, cell, breath, level, bloom });
+    const panel = registerPanel(canvas, {
+      seed,
+      cell,
+      breath,
+      level,
+      bloom,
+      ...(dot ? { dot } : {}),
+    });
     if (panel.scene !== scene) {
       panel.scene = scene;
       // Colour follows the scene: only scenes that write magnitude get the ramp.
@@ -87,7 +98,7 @@ export function DotSigil({
       // reduced motion where there is no next frame.
       settle(panel);
     }
-  }, [scene, seed, cell, breath, level, bloom]);
+  }, [scene, seed, cell, breath, level, bloom, dot]);
 
   return (
     <canvas

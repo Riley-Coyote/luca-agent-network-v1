@@ -9185,6 +9185,84 @@ export function maybeInstallE2eTauriMocks() {
     deviceId: state === "running" ? "mock-endpoint-id" : null,
     deviceName: state === "running" ? "Mock desktop" : null,
   });
+  const notebookFixtureItems = [
+    {
+      itemId: "note-launch-language",
+      lineageRootId: "note-launch-language-root",
+      kind: "memory_note",
+      status: "active",
+      authorship: "resident",
+      revision: 2,
+      pinnedOwnerCorrection: false,
+      title: null,
+      body: "The launch language should make persistent identity concrete before explaining the wider continuity system.",
+      category: "decision",
+      sourceEventIds: ["mock-general-alice"],
+      sourcePageIds: [],
+      createdAt: "2026-08-04T15:30:00Z",
+      updatedAt: "2026-08-06T19:12:00Z",
+    },
+    {
+      itemId: "note-open-thread",
+      lineageRootId: "note-open-thread-root",
+      kind: "memory_note",
+      status: "active",
+      authorship: "owner",
+      revision: 3,
+      pinnedOwnerCorrection: true,
+      title: null,
+      body: "Return to the beta invitation after the installed-app continuity proof is captured.",
+      category: "open_question",
+      sourceEventIds: ["mock-general-welcome"],
+      sourcePageIds: [],
+      createdAt: "2026-08-05T12:00:00Z",
+      updatedAt: "2026-08-06T20:02:00Z",
+    },
+    {
+      itemId: "page-field-notes",
+      lineageRootId: "page-field-notes-root",
+      kind: "journal_page",
+      status: "active",
+      authorship: "resident",
+      revision: 1,
+      pinnedOwnerCorrection: false,
+      title: "What should remain when the session closes",
+      body: "## Working note\n\nContinuity should feel less like retrieval and more like returning to a desk where the unfinished work is still arranged.\n\n- preserve the unresolved question\n- keep authorship visible\n- let the owner correct without impersonating",
+      category: null,
+      sourceEventIds: ["mock-general-alice"],
+      sourcePageIds: [],
+      createdAt: "2026-08-06T18:15:00Z",
+      updatedAt: "2026-08-06T18:15:00Z",
+    },
+  ];
+  const notebookDetail = (itemId: string) => {
+    const item =
+      notebookFixtureItems.find((candidate) => candidate.itemId === itemId) ??
+      notebookFixtureItems[0];
+    return {
+      availability: "ready",
+      item,
+      revisions: [item],
+      annotations:
+        item.kind === "journal_page"
+          ? [
+              {
+                ...item,
+                itemId: "annotation-field-notes",
+                lineageRootId: "annotation-field-notes-root",
+                kind: "journal_annotation",
+                authorship: "owner",
+                title: null,
+                body: "Keep this framing for the public identity explainer.",
+                sourceEventIds: [],
+                sourcePageIds: [item.itemId],
+                createdAt: "2026-08-06T18:40:00Z",
+                updatedAt: "2026-08-06T18:40:00Z",
+              },
+            ]
+          : [],
+    };
+  };
   const handleMockCommand = async (command: string, payload: unknown) => {
     const activeConfig = getConfig();
     const identity = getActiveIdentity(activeConfig);
@@ -9203,6 +9281,89 @@ export function maybeInstallE2eTauriMocks() {
     window.__BUZZ_E2E_COMMAND_LOG__?.push({ command, payload });
 
     switch (command) {
+      case "get_resident_continuity":
+      case "set_resident_continuity_enabled":
+      case "correct_resident_handoff":
+      case "retry_resident_handoff":
+        return {
+          enabled: true,
+          availability: "ready",
+          handoff: {
+            summary: "The launch explanation is the active work.",
+            unresolvedThreads: ["Choose the final beta invitation."],
+            commitments: ["Return with a concise identity proof."],
+            explicitPreferences: ["Keep public language concrete."],
+            sourceEventIds: ["mock-general-alice"],
+            updatedAt: "2026-08-06T20:02:00Z",
+            recordId: "handoff-luca",
+            lineageRootId: "handoff-luca-root",
+            revision: 4,
+            pinnedOwnerCorrection: false,
+          },
+          job: null,
+        };
+      case "forget_resident_handoff":
+        return {
+          enabled: true,
+          availability: "empty",
+          handoff: null,
+          job: null,
+        };
+      case "list_resident_notebook_items":
+        return {
+          availability: "ready",
+          items: notebookFixtureItems,
+          nextCursor: null,
+        };
+      case "get_resident_notebook_item":
+      case "get_resident_notebook_revision_history":
+        return notebookDetail(
+          (payload as { itemId?: string } | null)?.itemId ??
+            "note-launch-language",
+        );
+      case "get_resident_journal_activity":
+        return null;
+      case "create_resident_journal_page":
+      case "request_resident_journal_page_revision":
+        return {
+          jobId: "journal-fixture-job",
+          state: "running",
+          lastErrorCode: null,
+          updatedAt: new Date().toISOString(),
+          canCancel: true,
+          canRetry: false,
+        };
+      case "cancel_resident_journal_page":
+      case "retry_resident_journal_page":
+        return true;
+      case "correct_resident_memory_note":
+      case "pin_resident_memory_note":
+      case "annotate_resident_journal_page":
+        return notebookDetail(
+          (
+            payload as {
+              noteId?: string;
+              pageId?: string;
+              input?: { targetNoteId?: string; pageId?: string };
+            } | null
+          )?.noteId ??
+            (payload as { pageId?: string } | null)?.pageId ??
+            (
+              payload as {
+                input?: { targetNoteId?: string; pageId?: string };
+              } | null
+            )?.input?.targetNoteId ??
+            (payload as { input?: { pageId?: string } } | null)?.input
+              ?.pageId ??
+            "note-launch-language",
+        );
+      case "archive_resident_notebook_item":
+      case "forget_resident_notebook_item":
+        return {
+          availability: "ready",
+          items: notebookFixtureItems,
+          nextCursor: null,
+        };
       case "get_builderlab_auth":
         return activeConfig?.mock?.builderlabAuth ?? null;
       case "start_builderlab_login": {

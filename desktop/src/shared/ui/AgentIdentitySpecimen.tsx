@@ -2,11 +2,9 @@ import * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
-import {
-  sigilPattern,
-  type DotScene,
-} from "@/shared/ui/dot-display/engine";
+import { sigilPattern, type DotScene } from "@/shared/ui/dot-display/engine";
 import { DotSigil } from "@/shared/ui/dot-display/DotSigil";
+import { useTheme } from "@/shared/theme/ThemeProvider";
 
 export type AgentVisualState =
   | "present"
@@ -44,10 +42,9 @@ const SCENE_FOR_STATE: Record<AgentVisualState, DotScene> = {
  */
 export function agentIdentityMatrix(publicKey: string): boolean[][] {
   const { grid } = sigilPattern(normalizePubkey(publicKey));
-  return grid.map((row) => [
-    ...row,
-    ...row.slice(0, row.length - 1).reverse(),
-  ].map(Boolean));
+  return grid.map((row) =>
+    [...row, ...row.slice(0, row.length - 1).reverse()].map(Boolean),
+  );
 }
 
 export function shortAgentFingerprint(publicKey: string): string {
@@ -78,6 +75,7 @@ export function AgentIdentitySpecimen({
   size?: number;
   state?: AgentVisualState;
 }) {
+  const { isDark } = useTheme();
   const seed = React.useMemo(() => normalizePubkey(publicKey), [publicKey]);
 
   return (
@@ -97,6 +95,7 @@ export function AgentIdentitySpecimen({
         // minimum the mirrored 7-wide emblem needs plus its quiet zone.
         breath={state === "present"}
         cell={2}
+        dot={isDark ? "239,239,237" : "22,23,22"}
         scene={SCENE_FOR_STATE[state]}
         seed={seed}
         size={size - 2}
