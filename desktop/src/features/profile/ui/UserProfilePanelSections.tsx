@@ -469,7 +469,10 @@ export function ProfileSummaryView({
             />
           ) : null}
           {activeTab === "continuity" && managedAgent ? (
-            <ResidentContinuityPanel residentPubkey={managedAgent.pubkey} />
+            <ResidentContinuityPanel
+              residentName={displayName}
+              residentPubkey={managedAgent.pubkey}
+            />
           ) : null}
           {activeTab === "memories" && pubkey ? (
             <MemoryFocusedView

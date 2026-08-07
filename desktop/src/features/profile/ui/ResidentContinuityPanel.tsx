@@ -59,8 +59,10 @@ const EMPTY_DRAFT: HandoffDraft = {
 };
 
 export function ResidentContinuityPanel({
+  residentName,
   residentPubkey,
 }: {
+  residentName: string;
   residentPubkey: string;
 }) {
   const [surface, setSurface] = React.useState<"handoff" | "notebook">(
@@ -90,7 +92,10 @@ export function ResidentContinuityPanel({
       {surface === "handoff" ? (
         <ResidentHandoffPanel residentPubkey={residentPubkey} />
       ) : (
-        <ResidentNotebookPanel residentPubkey={residentPubkey} />
+        <ResidentNotebookPanel
+          residentName={residentName}
+          residentPubkey={residentPubkey}
+        />
       )}
     </div>
   );

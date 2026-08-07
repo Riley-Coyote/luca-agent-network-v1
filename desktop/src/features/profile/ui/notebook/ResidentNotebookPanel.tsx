@@ -3,7 +3,6 @@ import {
   AlertCircle,
   BookOpen,
   ChevronLeft,
-  ChevronRight,
   FileText,
   LoaderCircle,
   Plus,
@@ -29,19 +28,22 @@ import { Textarea } from "@/shared/ui/textarea";
 import { cn } from "@/shared/lib/cn";
 
 import { ResidentNotebookDetailView } from "./ResidentNotebookDetailView";
+import { ResidentNotebookGrowthField } from "./ResidentNotebookGrowthField";
+import { ResidentNotebookLedgerRow } from "./ResidentNotebookLedgerRow";
 import {
   notebookAvailabilityCopy,
-  notebookCategoryLabel,
-  notebookExcerpt,
+  notebookCountWhenComplete,
   notebookItemMatchesView,
-  notebookTimestamp,
+  mergeNotebookItemsById,
 } from "./notebookPresentation";
 
 type NotebookView = "notes" | "pages";
 
 export function ResidentNotebookPanel({
+  residentName,
   residentPubkey,
 }: {
+  residentName: string;
   residentPubkey: string;
 }) {
   const [view, setView] = React.useState<NotebookView>("notes");
@@ -104,7 +106,7 @@ export function ResidentNotebookPanel({
       );
       setList({
         ...next,
-        items: [...list.items, ...next.items],
+        items: mergeNotebookItemsById(list.items, next.items),
       });
     } catch (cause) {
       setError(errorMessage(cause));
@@ -155,6 +157,13 @@ export function ResidentNotebookPanel({
             </Button>
           ) : null}
         </div>
+        {list ? (
+          <ResidentNotebookGrowthField
+            availability={list.availability}
+            residentName={residentName}
+            residentPubkey={residentPubkey}
+          />
+        ) : null}
         <div
           aria-label="Notebook sections"
           className="grid grid-cols-2 border-b border-border/60"
@@ -162,7 +171,7 @@ export function ResidentNotebookPanel({
         >
           <NotebookTab
             active={view === "notes"}
-            count={countKind(list, "memory_note")}
+            count={countKindWhenComplete(list, "memory_note")}
             icon={FileText}
             label="Continuity Notes"
             onClick={() => {
@@ -172,7 +181,7 @@ export function ResidentNotebookPanel({
           />
           <NotebookTab
             active={view === "pages"}
-            count={countKind(list, "journal_page")}
+            count={countKindWhenComplete(list, "journal_page")}
             icon={BookOpen}
             label="Journal Pages"
             onClick={() => setView("pages")}
@@ -241,7 +250,7 @@ export function ResidentNotebookPanel({
       ) : (
         <div className="divide-y divide-border/50 border-y border-border/50">
           {items.map((item) => (
-            <NotebookRow
+            <ResidentNotebookLedgerRow
               item={item}
               key={item.itemId}
               onClick={() => void openItem(item.itemId)}
@@ -301,62 +310,6 @@ function NotebookTab({
       {active ? (
         <span className="absolute inset-x-3 bottom-0 h-px bg-foreground" />
       ) : null}
-    </button>
-  );
-}
-
-function NotebookRow({
-  item,
-  onClick,
-}: {
-  item: ResidentNotebookItem;
-  onClick: () => void;
-}) {
-  const page = item.kind === "journal_page";
-  return (
-    <button
-      className="group flex w-full items-start gap-3 px-1 py-3 text-left transition-colors hover:bg-muted/20 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-      onClick={onClick}
-      type="button"
-    >
-      <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center border border-border/70 bg-muted/20 text-muted-foreground">
-        {page ? (
-          <BookOpen className="size-3.5" />
-        ) : (
-          <FileText className="size-3.5" />
-        )}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center justify-between gap-3">
-          <span className="truncate font-mono text-2xs uppercase tracking-[0.09em] text-muted-foreground">
-            {page ? "Journal page" : notebookCategoryLabel(item.category)}
-            {item.pinnedOwnerCorrection ? " · pinned correction" : ""}
-          </span>
-          <span className="shrink-0 font-mono text-2xs text-muted-foreground">
-            {notebookTimestamp(item.updatedAt)}
-          </span>
-        </span>
-        <span className="mt-1 block text-sm font-medium leading-5 text-foreground">
-          {page
-            ? item.title || "Untitled page"
-            : notebookExcerpt(item.body, 110)}
-        </span>
-        {page && item.body ? (
-          <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-            {notebookExcerpt(item.body, 120)}
-          </span>
-        ) : null}
-        <span className="mt-1.5 flex items-center gap-2 font-mono text-2xs uppercase tracking-[0.07em] text-muted-foreground">
-          <span>
-            {item.authorship === "resident"
-              ? "resident authored"
-              : "owner authored"}
-          </span>
-          <span>rev {item.revision}</span>
-          {item.status !== "active" ? <span>{item.status}</span> : null}
-        </span>
-      </span>
-      <ChevronRight className="mt-2 size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
     </button>
   );
 }
@@ -539,12 +492,16 @@ function ReferenceField({
   );
 }
 
-function countKind(
+function countKindWhenComplete(
   list: ResidentNotebookList | null,
   kind: ResidentNotebookItem["kind"],
 ): number | null {
   if (!list) return null;
-  return list.items.filter((item) => item.kind === kind).length;
+  return notebookCountWhenComplete(
+    list.items,
+    list.nextCursor,
+    (item) => item.kind === kind,
+  );
 }
 
 function lines(value: string): string[] {

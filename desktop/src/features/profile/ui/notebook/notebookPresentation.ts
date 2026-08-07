@@ -71,3 +71,72 @@ export function notebookItemMatchesView(
     ? item.kind === "memory_note"
     : item.kind === "journal_page";
 }
+
+/**
+ * Merge overlapping cursor pages without repeating rows when a notebook is
+ * refreshed while an earlier page is already visible. Existing row positions
+ * remain stable; a newer copy of the same item replaces its stale data.
+ */
+export function mergeNotebookItemsById<
+  T extends {
+    itemId: string;
+    revision?: number;
+    updatedAt?: string;
+  },
+>(current: readonly T[], incoming: readonly T[]): T[] {
+  const positions = new Map<string, number>();
+  const merged: T[] = [];
+
+  for (const item of current) {
+    const position = positions.get(item.itemId);
+    if (position === undefined) {
+      positions.set(item.itemId, merged.length);
+      merged.push(item);
+    } else {
+      merged[position] = newerNotebookItem(merged[position], item);
+    }
+  }
+
+  for (const item of incoming) {
+    const position = positions.get(item.itemId);
+    if (position === undefined) {
+      positions.set(item.itemId, merged.length);
+      merged.push(item);
+    } else {
+      merged[position] = newerNotebookItem(merged[position], item);
+    }
+  }
+
+  return merged;
+}
+
+function newerNotebookItem<T extends { revision?: number; updatedAt?: string }>(
+  current: T,
+  candidate: T,
+): T {
+  const currentRevision = current.revision ?? 0;
+  const candidateRevision = candidate.revision ?? 0;
+  if (candidateRevision !== currentRevision) {
+    return candidateRevision > currentRevision ? candidate : current;
+  }
+
+  const currentUpdatedAt = Date.parse(current.updatedAt ?? "");
+  const candidateUpdatedAt = Date.parse(candidate.updatedAt ?? "");
+  if (!Number.isNaN(candidateUpdatedAt) && !Number.isNaN(currentUpdatedAt)) {
+    return candidateUpdatedAt >= currentUpdatedAt ? candidate : current;
+  }
+  return candidate;
+}
+
+/**
+ * A partial cursor page cannot truthfully represent a complete tab total.
+ * Return null until pagination is exhausted so callers can omit the count.
+ */
+export function notebookCountWhenComplete<T>(
+  items: readonly T[],
+  nextCursor: number | null | undefined,
+  matches: (item: T) => boolean,
+): number | null {
+  if (nextCursor !== null) return null;
+  return items.reduce((count, item) => count + Number(matches(item)), 0);
+}
