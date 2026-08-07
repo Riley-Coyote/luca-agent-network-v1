@@ -599,8 +599,8 @@ export function AppSidebar({
         >
           <AppSidebarPrimaryMenu
             homeBadgeCount={homeBadgeCount}
+            onNewMessage={onNewMessage}
             onSelectAgents={onSelectAgents}
-            onSelectHome={onSelectHome}
             onSelectPulse={onSelectPulse}
             onSelectSettings={onSelectSettings}
             selectedView={selectedView}

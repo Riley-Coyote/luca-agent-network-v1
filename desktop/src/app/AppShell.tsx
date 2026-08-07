@@ -622,6 +622,12 @@ export function AppShell() {
         return;
       }
 
+      if (key === "n" && !event.shiftKey) {
+        event.preventDefault();
+        handleOpenNewDm();
+        return;
+      }
+
       if (key === "o" && event.shiftKey) {
         event.preventDefault();
         handleOpenBrowseChannels();

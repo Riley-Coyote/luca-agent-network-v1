@@ -10,6 +10,8 @@ import { cacheSearchHitEvent } from "@/app/navigation/searchHitEventCache";
 import { resolveSearchHitDestination } from "@/app/navigation/resolveSearchHitDestination";
 import type { SearchHit } from "@/shared/api/types";
 
+import { rememberLastConversation } from "./lastConversation";
+
 type NavigationBehavior = {
   replace?: boolean;
   resetScroll?: boolean;
@@ -161,8 +163,9 @@ export function useAppNavigation() {
         replace?: boolean;
         threadRootId?: string | null;
       },
-    ) =>
-      commitNavigation(
+    ) => {
+      rememberLastConversation(channelId);
+      return commitNavigation(
         {
           to: "/channels/$channelId",
           params: {
@@ -185,7 +188,8 @@ export function useAppNavigation() {
           replace: options?.replace,
           resetScroll: options?.messageId ? true : undefined,
         },
-      ),
+      );
+    },
     [commitNavigation],
   );
 

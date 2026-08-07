@@ -2,13 +2,13 @@ import * as React from "react";
 import { createFileRoute } from "@tanstack/react-router";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { readLastConversation } from "@/app/navigation/lastConversation";
 import { useChannelsQuery } from "@/features/channels/hooks";
-import { HomeScreen } from "@/features/home/ui/HomeScreen";
 import {
   consumePendingWelcomeChannel,
   WELCOME_CHANNEL_READY_EVENT,
 } from "@/features/onboarding/welcome";
-import { useIdentityQuery } from "@/shared/api/hooks";
+import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
 type HomeRouteSearch = {
   item?: string;
@@ -44,9 +44,8 @@ export const Route = createFileRoute("/")({
 });
 
 function HomeRouteComponent() {
-  const { goChannel } = useAppNavigation();
+  const { goChannel, goNewMessage } = useAppNavigation();
   const channelsQuery = useChannelsQuery();
-  const identityQuery = useIdentityQuery();
   const channels = channelsQuery.data ?? [];
   const availableChannelIds = React.useMemo(
     () => new Set(channels.map((channel) => channel.id)),
@@ -87,16 +86,31 @@ function HomeRouteComponent() {
   }, [openPendingWelcomeChannel]);
 
   React.useEffect(() => {
-    openPendingWelcomeChannel(availableChannelIds);
-  }, [availableChannelIds, openPendingWelcomeChannel]);
+    if (channelsQuery.isLoading || channelsQuery.isFetching) {
+      return;
+    }
 
-  return (
-    <HomeScreen
-      availableChannelIds={availableChannelIds}
-      currentPubkey={identityQuery.data?.pubkey}
-      onOpenContext={(channelId, messageId, threadRootId) => {
-        void goChannel(channelId, { messageId, threadRootId });
-      }}
-    />
-  );
+    const pendingWelcomeChannelId =
+      consumePendingWelcomeChannel(availableChannelIds);
+    if (pendingWelcomeChannelId) {
+      void goChannel(pendingWelcomeChannelId, { replace: true });
+      return;
+    }
+
+    const lastConversationId = readLastConversation(availableChannelIds);
+    if (lastConversationId) {
+      void goChannel(lastConversationId, { replace: true });
+      return;
+    }
+
+    void goNewMessage({ replace: true });
+  }, [
+    availableChannelIds,
+    channelsQuery.isFetching,
+    channelsQuery.isLoading,
+    goChannel,
+    goNewMessage,
+  ]);
+
+  return <ViewLoadingFallback includeHeader kind="channel" />;
 }

@@ -20,7 +20,7 @@ test("Luca navigation retains the personal conversation plane and hides deferred
 
   const menu = page.getByTestId("sidebar-primary-menu");
   await expect(menu).toBeVisible();
-  await expect(menu.getByTestId("open-chat-view")).toBeVisible();
+  await expect(menu.getByTestId("open-new-conversation")).toBeVisible();
   await expect(menu.getByTestId("open-agents-view")).toBeVisible();
   await expect(menu.getByTestId("open-activity-view")).toBeVisible();
   await expect(menu.getByTestId("open-brain-setup")).toBeDisabled();
@@ -34,12 +34,15 @@ test("Luca navigation retains the personal conversation plane and hides deferred
     await expect(menu.getByText(deferredLabel, { exact: true })).toHaveCount(0);
   }
 
-  await expect(menu.getByTestId("open-chat-view")).toHaveAttribute(
-    "data-active",
-    "true",
+  await expect(menu.getByTestId("open-new-conversation")).toContainText(
+    "New conversation",
   );
   await expect(page.getByTestId("channel-general")).toBeVisible();
   await expect(page.getByTestId("dm-list")).toBeVisible();
+
+  await menu.getByTestId("open-new-conversation").click();
+  await expect(page).toHaveURL(/\/messages\/new$/);
+  await expect(page.getByTestId("new-message-page")).toBeVisible();
 
   await menu.getByTestId("open-agents-view").focus();
   await expect(menu.getByTestId("open-agents-view")).toBeFocused();

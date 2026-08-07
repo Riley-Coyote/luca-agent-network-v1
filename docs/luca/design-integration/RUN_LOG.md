@@ -35,3 +35,12 @@
 - Focused identity, activity, room grouping, Notebook presentation, and theme tests: 30 pass.
 - Pixel-text and pubkey-truncation policy checks: pass.
 - File-size gate: remains red on pre-existing V1.1/backend and selectively ported large files; no exception was added. Exact output is recorded in the task transcript and must be addressed before a full-repository release gate.
+
+## 2026-08-06 — Conversation entry correction
+
+- Replaced the inherited Chat/Inbox destination with a `New conversation` action backed by the existing `/messages/new` recipient and compose surface.
+- Moved the former home-feed attention count to Activity, where mentions and actionable updates now belong.
+- Added `Command+N` for a new conversation while preserving `Command+Shift+N` for channel creation.
+- The root route now restores the last conversation when it remains available; otherwise it opens the new-conversation surface. Welcome-channel onboarding navigation retains priority.
+- The previous Inbox implementation remains in the source tree for compatibility and future extraction, but it is no longer part of primary Luca navigation.
+- Browser-verified action navigation, keyboard navigation, last-conversation restoration, compact layout overflow, and a clean console in the deterministic mock app.

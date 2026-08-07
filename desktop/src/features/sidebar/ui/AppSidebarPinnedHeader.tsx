@@ -1,4 +1,4 @@
-import { Activity, Bot, Brain, MessageCircle, Settings } from "lucide-react";
+import { Activity, Bot, Brain, Plus, Settings } from "lucide-react";
 
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
 import type { Channel, SearchHit } from "@/shared/api/types";
@@ -36,8 +36,8 @@ type AppSidebarPinnedHeaderProps = {
 
 type AppSidebarPrimaryMenuProps = {
   homeBadgeCount: number;
+  onNewMessage: () => void;
   onSelectAgents: () => void;
-  onSelectHome: () => void;
   onSelectPulse: () => void;
   onSelectSettings: () => void;
   selectedView: SidebarSelectedView;
@@ -80,8 +80,8 @@ export function AppSidebarPinnedHeader({
 
 export function AppSidebarPrimaryMenu({
   homeBadgeCount,
+  onNewMessage,
   onSelectAgents,
-  onSelectHome,
   onSelectPulse,
   onSelectSettings,
   selectedView,
@@ -95,23 +95,15 @@ export function AppSidebarPrimaryMenu({
       <SidebarMenu className="pb-2">
         <SidebarMenuItem>
           <SidebarMenuButton
-            data-testid="open-chat-view"
-            isActive={selectedView === "home"}
-            onClick={onSelectHome}
-            tooltip="Chat"
+            data-luca-primary-action="new-conversation"
+            data-testid="open-new-conversation"
+            onClick={onNewMessage}
+            tooltip="New conversation (⌘N)"
             type="button"
           >
-            <MessageCircle className="h-4 w-4" />
-            <SidebarMenuLabel>Chat</SidebarMenuLabel>
+            <Plus className="h-4 w-4" />
+            <SidebarMenuLabel>New conversation</SidebarMenuLabel>
           </SidebarMenuButton>
-          {homeBadgeCount > 0 ? (
-            <SidebarMenuBadge
-              className="right-2 rounded-full bg-primary/15 px-1.5 text-2xs text-primary peer-data-[active=true]/menu-button:bg-sidebar-active-foreground/20 peer-data-[active=true]/menu-button:text-sidebar-active-foreground"
-              data-testid="sidebar-home-count"
-            >
-              {Math.min(homeBadgeCount, 99)}
-            </SidebarMenuBadge>
-          ) : null}
         </SidebarMenuItem>
         <SidebarMenuItem>
           <SidebarMenuButton
@@ -137,6 +129,14 @@ export function AppSidebarPrimaryMenu({
             <Activity className="h-4 w-4" />
             <SidebarMenuLabel>Activity</SidebarMenuLabel>
           </SidebarMenuButton>
+          {homeBadgeCount > 0 ? (
+            <SidebarMenuBadge
+              className="right-2 rounded-full bg-primary/15 px-1.5 text-2xs text-primary peer-data-[active=true]/menu-button:bg-sidebar-active-foreground/20 peer-data-[active=true]/menu-button:text-sidebar-active-foreground"
+              data-testid="sidebar-home-count"
+            >
+              {Math.min(homeBadgeCount, 99)}
+            </SidebarMenuBadge>
+          ) : null}
         </SidebarMenuItem>
         <SidebarMenuItem>
           <SidebarMenuButton
