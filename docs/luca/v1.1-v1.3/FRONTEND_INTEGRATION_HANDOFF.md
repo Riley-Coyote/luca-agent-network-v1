@@ -93,6 +93,12 @@ covers ready, empty, locked, unavailable, two journal revisions, an owner
 annotation, and pending/running/completed/cancelled/failed jobs. Fixture mode
 does not write notebook state.
 
+The complete product-facing hierarchy, display requirements, action behavior,
+state matrix, privacy rules, copy guidance, responsive expectations, and frozen
+command mapping are specified in `NOTEBOOK_INTERFACE_SPEC.md`. Treat that file
+as the H18 design authority and this file as the collaboration/ownership
+authority.
+
 The backend commands accept stable lineage IDs as well as current revision IDs.
 Pagination defaults to 25 and is capped at 50. Journal activity is body-free.
 No frontend code may persist or log the `body`, owner prompt, or selected page

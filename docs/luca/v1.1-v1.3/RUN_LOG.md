@@ -150,3 +150,13 @@ Safe notes:
   and prior full desktop checks are recorded in H17's receipt.
 - Production notebook UI: still intentionally deferred to Claude/H18.
 - Installed release UX gate: still intentionally deferred to H19 after H18.
+
+## 2026-08-06 — H18 notebook interface specification
+
+- Status: specification complete; frontend implementation remains pending.
+- Added `NOTEBOOK_INTERFACE_SPEC.md` as the product-facing H18 design authority.
+- Reconciled the V1.1 product contract, frozen renderer API, deterministic
+  fixtures, current resizable resident inspector, and Luca/Mnemos design
+  language into one implementation brief for Claude.
+- No product source, backend contract, migration, manifest, lockfile, or fixture
+  behavior changed.
