@@ -121,6 +121,7 @@ export function AppShell() {
     goHome,
     goInbox,
     goNewMessage,
+    goProject,
     goProjects,
     goPulse,
     goSettings,
@@ -154,6 +155,11 @@ export function AppShell() {
     () => deriveShellRoute(location.pathname),
     [location.pathname],
   );
+  const selectedProjectId = React.useMemo(() => {
+    if (!location.pathname.startsWith("/projects/")) return null;
+    const [, , rawProjectId] = location.pathname.split("/");
+    return rawProjectId ? decodeURIComponent(rawProjectId) : null;
+  }, [location.pathname]);
   // Settings lives in history so back returns to the previous app entry.
   const settingsOpen = location.pathname === "/settings";
   const locationSearchSection = (location.search as { section?: unknown })
@@ -834,6 +840,13 @@ export function AppShell() {
                           onSelectChannel={(channelId) =>
                             void goChannel(channelId)
                           }
+                          onSelectProject={(projectId, preferredRoomId) => {
+                            if (preferredRoomId) {
+                              void goChannel(preferredRoomId);
+                              return;
+                            }
+                            void goProject(projectId);
+                          }}
                           onOpenSearchResult={handleOpenSearchResult}
                           searchChannels={channels}
                           searchFocusRequest={searchFocusRequest}
@@ -864,6 +877,7 @@ export function AppShell() {
                               : undefined
                           }
                           selectedChannelId={selectedChannelId}
+                          selectedProjectId={selectedProjectId}
                           selectedView={selectedView}
                           unreadChannelIds={unreadChannelIds}
                           unreadChannelCounts={unreadChannelCounts}

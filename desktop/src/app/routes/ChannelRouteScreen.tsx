@@ -3,12 +3,19 @@ import * as React from "react";
 import { getCachedSearchHitEvent } from "@/app/navigation/searchHitEventCache";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useChannelsQuery } from "@/features/channels/hooks";
+import {
+  rememberLastProjectRoom,
+  useRoomProjectCatalog,
+  useRoomProjects,
+} from "@/features/channels/lib/roomProjects";
 import { ChannelScreen } from "@/features/channels/ui/ChannelScreen";
 import {
   getThreadReference,
   isBroadcastReply,
 } from "@/features/messages/lib/threading";
 import { useProfileQuery } from "@/features/profile/hooks";
+import { buildProjectNavigatorViewModel } from "@/features/projects/lib/projectNavigator";
+import { ProjectRoomWorkspace } from "@/features/projects/ui/ProjectRoomWorkspace";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { getEventById } from "@/shared/api/tauri";
 import type { RelayEvent } from "@/shared/api/types";
@@ -102,13 +109,36 @@ export function ChannelRouteScreen({
   targetReplyId,
   targetThreadRootId,
 }: ChannelRouteScreenProps) {
-  const { closeForumPost, goForumPost } = useAppNavigation();
+  const { closeForumPost, goChannel, goForumPost } = useAppNavigation();
   const channelsQuery = useChannelsQuery();
   const identityQuery = useIdentityQuery();
   const profileQuery = useProfileQuery();
   const channels = channelsQuery.data ?? [];
   const activeChannel =
     channels.find((channel) => channel.id === channelId) ?? null;
+  const projectByChannelId = useRoomProjects(channels);
+  const projectCatalog = useRoomProjectCatalog(channels);
+  const activeProject = activeChannel
+    ? (projectByChannelId.get(activeChannel.id) ?? null)
+    : null;
+  const projectViewModel = React.useMemo(() => {
+    if (!activeProject) return null;
+    const canonicalProject =
+      projectCatalog.find((project) => project.id === activeProject.id) ??
+      activeProject;
+    return buildProjectNavigatorViewModel({
+      channels,
+      project: canonicalProject,
+      projectByChannelId,
+      selectedRoomId: activeChannel?.id,
+    });
+  }, [
+    activeChannel?.id,
+    activeProject,
+    channels,
+    projectByChannelId,
+    projectCatalog,
+  ]);
   const [targetMessageEvents, setTargetMessageEvents] = React.useState<
     RelayEvent[]
   >(() => {
@@ -185,6 +215,12 @@ export function ChannelRouteScreen({
     };
   }, [selectedPostId, targetMessageId, targetThreadRootId]);
 
+  React.useEffect(() => {
+    if (activeProject && activeChannel) {
+      rememberLastProjectRoom(activeProject.id, activeChannel.id);
+    }
+  }, [activeChannel, activeProject]);
+
   if (channelsQuery.isPending && !activeChannel) {
     return (
       <ViewLoadingFallback
@@ -194,7 +230,7 @@ export function ChannelRouteScreen({
     );
   }
 
-  return (
+  const conversation = (
     <ChannelScreen
       activeChannel={activeChannel}
       autoSendDraftKey={autoSendDraftKey}
@@ -211,5 +247,17 @@ export function ChannelRouteScreen({
       targetMessageEvents={targetMessageEvents}
       targetMessageId={targetMessageId}
     />
+  );
+
+  if (!projectViewModel) return conversation;
+
+  return (
+    <ProjectRoomWorkspace
+      currentPubkey={identityQuery.data?.pubkey}
+      onSelectRoom={(nextChannelId) => void goChannel(nextChannelId)}
+      viewModel={projectViewModel}
+    >
+      {conversation}
+    </ProjectRoomWorkspace>
   );
 }

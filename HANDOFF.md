@@ -183,6 +183,7 @@ Authority rules:
 | `agent/runtime-reliability` | Historical G1/runtime checkpoint | Preserved for archaeology; not the release branch |
 | `luca/v1.1` | **Current integrated release branch** | Functional beta, encrypted handoff, resident Notebook, unified Agent Library, installed verification |
 | `agent/vision-demo` | High-fidelity simulated design exploration | Reference only; do not merge wholesale |
+| `agent/project-room-blackout-shell` | Approved Project → Room navigation and production handoff | Branch from `luca/v1.1`; merge intentionally after review |
 | `main` | Untouched Buzz baseline | Tracks upstream baseline, not Luca continuation |
 
 New work should branch from `luca/v1.1`:
@@ -214,6 +215,7 @@ merge `agent/vision-demo` wholesale.
 | Permission UI | `desktop/src/features/agents/ui/ManagedPermissionCard.tsx`, `desktop/src/features/agents/useManagedPermissions.ts` |
 | Native import UI | `desktop/src/features/agents/ui/NativeResidentImportSection.tsx` |
 | Planning/contracts | `.codex/luca-v1/` |
+| Project → Room navigation | `desktop/src/features/projects/`, `desktop/src/features/channels/lib/roomProjects.ts`, `docs/luca/project-navigation/` |
 
 ## Local development
 

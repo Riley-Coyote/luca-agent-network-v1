@@ -1,6 +1,19 @@
 import * as React from "react";
 import { createFileRoute } from "@tanstack/react-router";
 
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { useChannelsQuery } from "@/features/channels/hooks";
+import {
+  readLastProjectRoom,
+  useRoomProjectCatalog,
+  useRoomProjects,
+} from "@/features/channels/lib/roomProjects";
+import { buildProjectNavigatorViewModel } from "@/features/projects/lib/projectNavigator";
+import {
+  EmptyProjectConversation,
+  ProjectRoomWorkspace,
+} from "@/features/projects/ui/ProjectRoomWorkspace";
+import { useIdentityQuery } from "@/shared/api/hooks";
 import { usePreviewFeatureWarning } from "@/shared/features";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
@@ -23,10 +36,71 @@ export const Route = createFileRoute("/projects/$projectId")({
 });
 
 function ProjectDetailRouteComponent() {
-  usePreviewFeatureWarning("projects");
   const { projectId } = Route.useParams();
-  const { commitHash, pullRequestId, issueId } = Route.useSearch();
+  const projectSearch = Route.useSearch();
+  const { goChannel } = useAppNavigation();
+  const channelsQuery = useChannelsQuery();
+  const identityQuery = useIdentityQuery();
+  const channels = channelsQuery.data ?? [];
+  const projectCatalog = useRoomProjectCatalog(channels);
+  const projectByChannelId = useRoomProjects(channels);
+  const project = projectCatalog.find(
+    (candidate) => candidate.id === projectId,
+  );
+  const viewModel = React.useMemo(
+    () =>
+      project
+        ? buildProjectNavigatorViewModel({
+            channels,
+            project,
+            projectByChannelId,
+          })
+        : null,
+    [channels, project, projectByChannelId],
+  );
 
+  React.useEffect(() => {
+    if (!viewModel?.rooms.length) return;
+    const remembered = readLastProjectRoom(projectId);
+    const selected = viewModel.rooms.find(
+      ({ channel }) => channel.id === remembered,
+    );
+    void goChannel(selected?.channel.id ?? viewModel.rooms[0].channel.id, {
+      replace: true,
+    });
+  }, [goChannel, projectId, viewModel]);
+
+  if (channelsQuery.isPending) {
+    return <ViewLoadingFallback kind="projects" />;
+  }
+
+  if (!project || !viewModel) {
+    return <LegacyProjectDetail projectId={projectId} {...projectSearch} />;
+  }
+
+  return (
+    <ProjectRoomWorkspace
+      currentPubkey={identityQuery.data?.pubkey}
+      onSelectRoom={(channelId) => void goChannel(channelId)}
+      viewModel={viewModel}
+    >
+      <EmptyProjectConversation projectName={project.label} />
+    </ProjectRoomWorkspace>
+  );
+}
+
+function LegacyProjectDetail({
+  commitHash,
+  issueId,
+  projectId,
+  pullRequestId,
+}: {
+  commitHash?: string;
+  issueId?: string;
+  projectId: string;
+  pullRequestId?: string;
+}) {
+  usePreviewFeatureWarning("projects");
   return (
     <React.Suspense fallback={<ViewLoadingFallback kind="projects" />}>
       <ProjectDetailScreen

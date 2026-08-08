@@ -34,7 +34,10 @@ import {
   AppSidebarPrimaryMenu,
 } from "@/features/sidebar/ui/AppSidebarPinnedHeader";
 import { MoreUnreadButton } from "@/features/sidebar/ui/MoreUnreadButton";
-import { useRoomProjects } from "@/features/channels/lib/roomProjects";
+import {
+  useRoomProjectCatalog,
+  useRoomProjects,
+} from "@/features/channels/lib/roomProjects";
 import { cn } from "@/shared/lib/cn";
 import { SidebarSection } from "@/features/sidebar/ui/SidebarSection";
 import { buildChatListItems, ChatList } from "@/features/sidebar/ui/ChatList";
@@ -103,6 +106,7 @@ type AppSidebarProps = {
   selfPresenceStatus: PresenceStatus;
   errorMessage?: string;
   selectedChannelId: string | null;
+  selectedProjectId?: string | null;
   selectedView:
     | "home"
     | "inbox"
@@ -155,6 +159,7 @@ type AppSidebarProps = {
   onSelectWorkflows: () => void;
   onSelectHome: () => void;
   onSelectChannel: (channelId: string) => void;
+  onSelectProject: (projectId: string, preferredRoomId: string | null) => void;
   onOpenSearchResult: (hit: SearchHit) => void;
   /**
    * Full channel set used for global search. Unlike `channels` (which is
@@ -197,6 +202,7 @@ export function AppSidebar({
   selfPresenceStatus,
   errorMessage,
   selectedChannelId,
+  selectedProjectId,
   selectedView,
   unreadChannelCounts,
   unreadChannelIds,
@@ -222,6 +228,7 @@ export function AppSidebar({
   onSelectWorkflows: _onSelectWorkflows,
   onSelectHome,
   onSelectChannel,
+  onSelectProject,
   onOpenSearchResult,
   searchChannels,
   searchFocusRequest,
@@ -245,7 +252,7 @@ export function AppSidebar({
   const activeWorkingByChannelId = useActiveWorkingChannelsById();
   const { status: updateStatus } = useUpdaterContext();
   const canShowSidebarUpdateCard = shouldShowSidebarUpdateCard(updateStatus);
-  const { open: sidebarOpen, openMobile } = useSidebar();
+  const { open: sidebarOpen, openMobile, setOpenMobile } = useSidebar();
   const isMobile = useIsMobile();
   const [isSidebarUpdateCardDismissed, setIsSidebarUpdateCardDismissed] =
     React.useState(false);
@@ -254,7 +261,16 @@ export function AppSidebar({
   const [dmActionsMenuOpen, setDmActionsMenuOpen] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const [isRoomListScrolled, setIsRoomListScrolled] = React.useState(false);
-  const roomProjects = useRoomProjects(channels);
+  const roomProjects = useRoomProjects(
+    channels,
+    currentPubkey,
+    activeCommunity?.relayUrl,
+  );
+  const projectCatalog = useRoomProjectCatalog(
+    channels,
+    currentPubkey,
+    activeCommunity?.relayUrl,
+  );
   React.useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -636,9 +652,9 @@ export function AppSidebar({
 
               {!isLoading ? (
                 <>
-                  {/* PROTOTYPE — one list, no taxonomy. Flip USE_CHAT_LIST to
-                      compare against the CHANNELS / DIRECT MESSAGES sections
-                      this replaces; both render from the same data. */}
+                  {/* Luca navigation: loose conversations remain immediately
+                      available under Rooms while projects open their contextual
+                      room navigator in the main application card. */}
                   {USE_CHAT_LIST ? (
                     <ChatList
                       items={buildChatListItems({
@@ -646,9 +662,18 @@ export function AppSidebar({
                         labels: dmChannelLabels,
                         currentPubkey,
                       })}
-                      onSelectChannel={onSelectChannel}
+                      onSelectChannel={(channelId) => {
+                        if (isMobile) setOpenMobile(false);
+                        onSelectChannel(channelId);
+                      }}
+                      onSelectProject={(projectId, preferredRoomId) => {
+                        if (isMobile) setOpenMobile(false);
+                        onSelectProject(projectId, preferredRoomId);
+                      }}
                       projectByChannelId={roomProjects}
+                      projects={projectCatalog}
                       selectedChannelId={selectedChannelId}
+                      selectedProjectId={selectedProjectId}
                       unreadChannelIds={unreadChannelIds}
                       workingByChannelId={activeWorkingByChannelId}
                     />

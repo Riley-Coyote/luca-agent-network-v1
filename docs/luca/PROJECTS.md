@@ -1,145 +1,80 @@
 # Projects — grouping rooms by the work they belong to
 
-**Status:** design settled, UI prototyped, data model **not built**.
-**Owner:** Codex (event kind, relay handling, local path binding).
-**Prototype:** shipped behind the rail's grouping, reading a local map — see
-"What already exists" below.
+**Status:** navigation and device-local projection implemented; project/source
+creation belongs to the Brain Setup slice.
 
----
+**Visual authority:**
+[`project-navigation/VISUAL_FIDELITY_CONTRACT.md`](project-navigation/VISUAL_FIDELITY_CONTRACT.md).
 
-## What a project is
+## Product model
 
-**A project is an attribute of a room, not a mode you are in.**
+- A project is a navigable container for rooms.
+- A room remains the canonical conversation unit.
+- One room belongs to at most one project.
+- DMs and rooms without a project remain directly available under `Rooms`.
+- Selecting a project opens its remembered or most recently active room; it is
+  never a second-click inbox.
+- A project changes navigation only. It does not grant filesystem, memory,
+  tool, resident, or runtime authority.
 
-A room bound to `~/Repositories/luca-agent-network-v1` already carries its own
-working context. Residents in that room get that working directory *because the
-room says so* — not because the owner navigated into a project first. There is
-no "current project" state, nothing to enter or leave, and nothing to get lost
-in.
+The persistent global rail stays unchanged. Project rooms appear in the
+contextual navigator inside the main application card rather than nested below
+the project row. This is the approved master-detail pattern shared with the
+Agent Library.
 
-This was a deliberate choice over the alternative (a Discord/Slack-style
-workspace switcher, where you are *in* a project and the rail shows only its
-rooms). Modality would have fragmented the conversation list and added a state
-the owner has to track. Rejected.
+## Current implementation
 
-**One project per room.** A repo-backed project cannot sensibly be many-to-many,
-and the rail groups rooms — grouping requires a single home in a way that filter
-chips would not. This is a constraint we are choosing, not an accident.
-
----
-
-## Why grouping and not filtering
-
-The rail originally had a `CHANNELS` / `DIRECT MESSAGES` taxonomy, which was
-removed: it grouped by **object type**, which is meaningless and system-imposed.
-The first replacement proposal was Telegram-style filter chips over one flat
-list. Riley rejected that with a concrete reason — *you cannot tell at a glance
-which sessions belong to which project* — and he was right. The flat-list rule
-came from consumer messengers, and **those apps have no project dimension**.
-
-Grouping was never what made the old sidebar feel like Slack. Three other things
-were, and the spec preserves the fixes:
-
-1. it grouped by object type → now grouped by the work, which the owner thinks in
-2. heavy section chrome → the label *is* the toggle, chevron only on hover, no
-   per-section action menus
-3. **fixed order** → groups are ordered by their most recent room, so whatever
-   is being worked on floats up and last month's project sinks
-
-Point 3 is the one that keeps this alive rather than filed. Do not "stabilise"
-the group order.
-
----
-
-## What already exists (desktop, prototype)
-
-| file | what it does |
+| File | Responsibility |
 |---|---|
-| `features/sidebar/ui/ChatList.tsx` | `groupChats()` — grouping + the recency-ordered rule. Pure, 7 tests in `chatListGrouping.test.mjs`. |
-| `features/channels/lib/roomProjects.ts` | `useRoomProjects()` — **the piece to replace.** Reads a local assignment map; seeds a demo assignment under the mock only. |
+| `features/channels/lib/roomProjects.ts` | Owner/relay-scoped local project catalog, one-project-per-room assignments, migration from the old prototype keys, and the reviewed mutation seam for Brain Setup. |
+| `features/projects/lib/projectNavigator.ts` | Pure project-room view model and room filtering. |
+| `features/projects/ui/ProjectRoomWorkspace.tsx` | Contextual room navigator, empty state, responsive transition, and composition around the real conversation surface. |
+| `features/sidebar/ui/ChatList.tsx` | Loose rooms plus one global-rail row per project. |
+| `app/routes/ChannelRouteScreen.tsx` | Derives project context while keeping `/channels/:channelId` canonical. |
+| `app/routes/projects.$projectId.tsx` | Empty-project and project-entry route; preserves the older repository-project route for unrelated IDs. |
 
-Behaviour with no assignments is exactly today's flat list, with everything under
-a `Rooms` section. That is the degrade path and there is a test for it.
+The local projection is versioned and scoped by owner public key and relay, so
+one identity or home cannot inherit another's project organization. Existing
+unscoped prototype data migrates once. Writes are reactive in the current
+window and across storage events.
 
-**Codex replaces `useRoomProjects` with the real source. Nothing else in the rail
-should need to change.**
+## Filesystem privacy boundary
 
----
+A local filesystem path must never appear in a relay event, room metadata,
+message, evidence log, or public project identifier. It discloses the owner's
+username and directory layout and is different on every device.
 
-## Data model
+Brain Setup may later bind a reviewed project ID to an absolute local path.
+That binding must remain device-local. A moved or missing path changes only the
+working-context status; it never deletes or hides the project or its rooms.
 
-### The project entity — new addressable kind
+## Brain Setup handoff
 
-`30178` is the next free slot in the `3017x` block. `KIND_TEAM` (30176) is the
-closest existing analogue: a named grouping, parameterized-replaceable, keyed by
-`(pubkey, kind, d_tag)` with the project id as the `d_tag`.
+Brain Setup should use the existing frontend seam rather than inventing a
+second project store:
 
-Content carries the project's **identity**: a stable id and a display label.
+- `replaceRoomProjects(ownerPubkey, relayUrl, projects)` commits the reviewed
+  catalog.
+- `assignRoomProject(ownerPubkey, relayUrl, channelId, projectId)` assigns or
+  unassigns exactly one room.
+- `workingContextStatus` is presentation metadata only until trusted native
+  path commands are added.
 
-### The room binding — a tag on channel metadata
+The next slice still needs to design and implement:
 
-A room references its project by id. Prefer a tag on the existing channel
-metadata event over a new endpoint, per the repo's Nostr-first rule.
-
-### ⚠ The repo path must NOT go on the relay
-
-**This is the constraint most likely to be missed.** Relay events are
-world-readable — `KIND_MANAGED_AGENT`'s own doc comment says so explicitly and
-lists what must never appear in one. A local filesystem path discloses the
-owner's directory layout, their username, and often the names of unrelated
-private projects sitting beside it.
-
-So the project splits in two:
-
-- **On the relay:** project id + display label. Safe, syncs across devices,
-  survives a reinstall, and is what the rail groups by.
-- **Local only:** the `id → absolute path` binding. Never published, never in
-  event content, never in a tag. A path is machine-specific anyway — the same
-  project legitimately lives at different paths on different machines, so
-  syncing it would be wrong even if it were safe.
-
-That split also answers "what happens on a second device": the project appears
-with its rooms and its label, and simply has no path until the owner points it
-at one locally.
-
----
-
-## What Codex builds
-
-1. **Kind `30178`** in `buzz-core/src/kind.rs` with a doc comment, plus relay
-   handling. Follow `KIND_TEAM` / `KIND_MANAGED_AGENT` for shape.
-2. **A project tag on channel metadata**, and expose the resolved project id on
-   the `Channel` type the desktop already consumes.
-3. **A local-only path store** for `projectId → absolutePath`, alongside the
-   existing local archive/state mechanisms. Must never be published.
-4. **Replace `useRoomProjects`** to read (2) instead of localStorage. The rail,
-   grouping, ordering and tests stay as they are.
-5. **Wire the path into agent working directory** — this is the payoff. A
-   resident answering in a project-bound room should be working in that repo.
-   Coordinate with the ACP/harness side; see `REPLY_ADDRESSING.md` for the
-   adjacent question of *who* answers.
-
----
-
-## Open questions
-
-- **Creating a project.** Proposal: point at a directory, and that is a project;
-  the label defaults to the directory name. Needs a picker and a name field.
-- **Assigning a room.** From the room's own header/info panel is the obvious
-  place, since project is a room attribute. Not designed yet.
-- **What happens when the path is gone** — repo moved or deleted. The project
-  should not break; it should surface as "no working directory" and the rooms
-  should still open. Do not delete rooms on a missing path.
-- **Does a project imply an agent roster?** Plausible — "these residents work in
-  this repo" — but not decided, and it interacts with reply addressing. Do not
-  assume it.
-
----
+1. discovery and preview of repositories, folders, and other intelligence;
+2. explicit project creation/import confirmation;
+3. a trusted native path binding that never crosses the renderer/relay privacy
+   boundary;
+4. room creation/assignment UX using the approved project navigator;
+5. source grants that remain separate from project membership.
 
 ## Do not
 
-- Do not make a project a mode, a switcher, or a "current project" state.
-- Do not sort groups alphabetically or pin them to a fixed order.
-- Do not put a filesystem path in a relay event, a tag, or event content.
-- Do not allow a room in two projects without redesigning the rail first.
-- Do not delete or hide rooms when their project's path is missing.
+- Do not create a global "current project" runtime mode.
+- Do not put local paths on the relay.
+- Do not give every resident in a room automatic source or memory access.
+- Do not make a room belong to multiple projects without redesigning the
+  navigation and authority model.
+- Do not restore the old Slack-style inbox or nest project rooms in the global
+  rail.

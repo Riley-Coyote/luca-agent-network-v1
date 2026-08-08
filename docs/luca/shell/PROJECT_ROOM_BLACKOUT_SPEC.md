@@ -1,11 +1,16 @@
 # Project-room blackout shell
 
+> Superseded for navigation behavior by
+> [`../project-navigation/VISUAL_FIDELITY_CONTRACT.md`](../project-navigation/VISUAL_FIDELITY_CONTRACT.md).
+> This document remains authoritative only for the blackout material and
+> composer decisions that are not replaced there.
+
 ## Product model
 
 - Luca keeps one familiar persistent rail. It contains search, New conversation, Agents, Activity, Brain Setup, Settings, conversations, and owner identity.
 - There is no global icon dock, second navigator, workspace switcher, or current-project mode.
-- Direct conversations and loose rooms remain in the leading `Rooms` group. Project-bound rooms appear in lightweight collapsible groups inside the same rail.
-- Project groups are ordered by recent room activity. They are organization, not navigation modes.
+- Direct conversations and loose rooms remain in the leading `Rooms` group. Project-bound rooms appear behind one navigable project row and use the contextual room navigator inside the application card.
+- Projects are organizational containers. Selecting one restores its last-selected or most-recent room without introducing runtime authority.
 - A direct message is never owned by a project. A room may have one project home.
 - Selecting any room or direct conversation opens its timeline immediately. Buzz/Luca event, unread, search, attachment, thread, and runtime semantics remain canonical.
 - Replies expand inline. The right rail remains optional inspection space rather than a second required messaging surface.

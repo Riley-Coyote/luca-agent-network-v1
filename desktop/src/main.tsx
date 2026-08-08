@@ -51,6 +51,16 @@ function configureDevE2eBridgeFromUrl() {
   }
 
   const url = new URL(window.location.href);
+  const isNativeTauriWebview = "__TAURI_INTERNALS__" in window;
+  if (!isNativeTauriWebview && !url.searchParams.has("e2e")) {
+    // A bare Vite URL is a browser preview, not the native desktop runtime.
+    // Give it a deterministic local bridge instead of letting Tauri invoke()
+    // fail during bootstrap. Native `tauri dev` remains untouched because its
+    // webview exposes __TAURI_INTERNALS__ before this module runs.
+    url.searchParams.set("e2e", "mock");
+    url.searchParams.set("projectDemo", "1");
+    window.history.replaceState(window.history.state, "", url);
+  }
   if (url.searchParams.get("e2e") !== "mock") {
     return;
   }

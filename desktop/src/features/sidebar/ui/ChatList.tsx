@@ -1,29 +1,22 @@
-import { ChevronDown } from "lucide-react";
 import * as React from "react";
+import { FolderClosed } from "lucide-react";
 
-import type { RoomProject } from "@/features/channels/lib/roomProjects";
+import {
+  readLastProjectRoom,
+  type RoomProject,
+} from "@/features/channels/lib/roomProjects";
 import type { Channel } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { conversationMarkSeeds } from "@/features/channels/lib/conversationMarks";
 import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 
 /**
- * PROTOTYPE — one conversation list, the way a chat app does it.
+ * Luca's persistent conversation rail.
  *
- * The single most Slack-shaped thing in this app was the sidebar TAXONOMY: a
- * `CHANNELS` section over a `DIRECT MESSAGES` section. Every consumer messenger
- * — iMessage, WhatsApp, Telegram, Signal — has exactly one list, sorted by
- * recency, with no headers and no `#`. Groups sit in the same list as one-to-one
- * chats, because a group is just "the people in it", not a different kind of
- * object.
- *
- * The one place Luca deliberately differs: a resident you have NEVER messaged
- * still appears. Your household is permanent rather than assembled out of your
- * history, so those sort to the bottom instead of being absent.
- *
- * The underlying model is untouched — channelType, visibility and roles all
- * still exist, which is what keeps the community-capable path open. This only
- * collapses what a single owner sees.
+ * Direct messages and loose rooms remain immediately selectable under Rooms.
+ * Project-bound rooms are represented by one project row and become legible in
+ * the contextual room navigator after selection. The underlying channel model
+ * and canonical room routes remain unchanged.
  */
 
 export type ChatListItem = {
@@ -55,19 +48,7 @@ export type ChatGroup = {
   mostRecent: number;
 };
 
-/**
- * Group rooms by project, and order the GROUPS by recency too.
- *
- * That second half is the whole difference between this and a Slack sidebar.
- * Slack's sections are a filing cabinet: fixed order, alphabetical, dead. When
- * the groups move, whatever you are actually working in floats to the top and
- * the project you have not touched in a month sinks — the rail shows your
- * current work first without being told what that is.
- *
- * Ungrouped rooms always come FIRST and carry no label. Your one-to-one chats
- * with residents have no project, so they land there — correct without needing
- * a special case, because a resident belongs to you, not to a project.
- */
+/** Group rooms by project for global-rail projection and project selection. */
 export function groupChats(
   items: readonly ChatListItem[],
   projectByChannelId: ReadonlyMap<string, RoomProject>,
@@ -152,7 +133,8 @@ function ChatRow({
       )}
       data-active={isActive ? "true" : undefined}
       data-sidebar="menu-button"
-      data-testid={`chat-row-${channel.id}`}
+      data-channel-id={channel.id}
+      data-testid={`channel-${channel.name}`}
       onClick={() => onSelectChannel(channel.id)}
       type="button"
     >
@@ -204,14 +186,102 @@ function ChatRow({
   );
 }
 
-const COLLAPSED_KEY = "luca.collapsedProjects.v1";
+type ProjectRowProps = {
+  group: ChatGroup;
+  isActive: boolean;
+  unreadChannelIds: ReadonlySet<string>;
+  workingByChannelId?: ReadonlyMap<string, { agentCount: number }>;
+  onSelectProject: (projectId: string, preferredRoomId: string | null) => void;
+};
 
-function readCollapsed(): Set<string> {
-  try {
-    return new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "[]"));
-  } catch {
-    return new Set();
-  }
+function ProjectRow({
+  group,
+  isActive,
+  unreadChannelIds,
+  workingByChannelId,
+  onSelectProject,
+}: ProjectRowProps) {
+  const project = group.project;
+  if (!project) return null;
+
+  const marks = [
+    ...new Set(group.items.flatMap((item) => item.markPubkeys)),
+  ].slice(0, 3);
+  const isUnread = group.items.some((item) =>
+    unreadChannelIds.has(item.channel.id),
+  );
+  const workingCount = group.items.reduce(
+    (count, item) =>
+      count + (workingByChannelId?.get(item.channel.id)?.agentCount ?? 0),
+    0,
+  );
+  const remembered = readLastProjectRoom(project.id);
+  const preferredRoomId = group.items.some(
+    (item) => item.channel.id === remembered,
+  )
+    ? remembered
+    : (group.items[0]?.channel.id ?? null);
+
+  return (
+    <button
+      aria-label={isUnread ? `${project.label}, unread` : project.label}
+      className={cn(
+        "group flex min-h-8 w-full items-center gap-2.5 rounded-md px-2 text-left outline-none",
+        "transition-colors duration-100 data-[active=true]:duration-0",
+      )}
+      data-active={isActive ? "true" : undefined}
+      data-sidebar="menu-button"
+      data-testid={`project-row-${project.id}`}
+      onClick={() => onSelectProject(project.id, preferredRoomId)}
+      type="button"
+    >
+      <span className="flex shrink-0 -space-x-1.5">
+        {marks.length ? (
+          marks.map((seed) => (
+            <AgentIdentitySpecimen
+              accessibleName={project.label}
+              className="ring-2 ring-sidebar"
+              key={seed}
+              publicKey={seed}
+              size={20}
+              state="present"
+            />
+          ))
+        ) : (
+          <span className="flex size-5 items-center justify-center text-sidebar-foreground/45">
+            <FolderClosed aria-hidden className="size-3.5" />
+          </span>
+        )}
+      </span>
+      <span
+        className={cn(
+          "min-w-0 flex-1 truncate text-sm",
+          isUnread && !isActive && "font-medium text-sidebar-foreground",
+        )}
+      >
+        {project.label}
+      </span>
+      <span className="flex shrink-0 justify-end">
+        {isUnread && !isActive ? (
+          <span
+            aria-hidden
+            className="size-1.5 self-center rounded-full bg-sidebar-foreground/70"
+          />
+        ) : workingCount > 0 ? (
+          <span className="truncate text-2xs text-sidebar-foreground/55">
+            {workingCount > 1 ? `${workingCount} working` : "working"}…
+          </span>
+        ) : (
+          <span className="text-2xs tabular-nums text-sidebar-foreground/35">
+            {relativeTime(
+              group.items.find((item) => item.channel.lastMessageAt)?.channel
+                .lastMessageAt ?? null,
+            )}
+          </span>
+        )}
+      </span>
+    </button>
+  );
 }
 
 export function ChatList({
@@ -221,91 +291,84 @@ export function ChatList({
   unreadChannelIds,
   workingByChannelId,
   onSelectChannel,
+  onSelectProject,
+  projects,
+  selectedProjectId,
 }: {
   items: readonly ChatListItem[];
   projectByChannelId: ReadonlyMap<string, RoomProject>;
+  projects: readonly RoomProject[];
   selectedChannelId: string | null;
+  selectedProjectId?: string | null;
   unreadChannelIds: ReadonlySet<string>;
   /** Channels with a resident mid-turn. Replaces the timestamp while running —
    *  "what is happening" beats "when it last happened". */
   workingByChannelId?: ReadonlyMap<string, { agentCount: number }>;
   onSelectChannel: (channelId: string) => void;
+  onSelectProject: (projectId: string, preferredRoomId: string | null) => void;
 }) {
   const groups = React.useMemo(
     () => groupChats(items, projectByChannelId),
     [items, projectByChannelId],
   );
-  const [collapsed, setCollapsed] = React.useState<Set<string>>(readCollapsed);
-
-  const toggle = React.useCallback((projectId: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (!next.delete(projectId)) next.add(projectId);
-      try {
-        localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]));
-      } catch {
-        /* a rail that forgets its collapse state is not worth throwing over */
-      }
-      return next;
-    });
-  }, []);
-
   const rowProps = {
     selectedChannelId,
     unreadChannelIds,
     workingByChannelId,
     onSelectChannel,
   };
+  const looseRooms = groups.find((group) => group.project === null);
+  const groupsByProjectId = new Map(
+    groups.flatMap((group) =>
+      group.project ? [[group.project.id, group] as const] : [],
+    ),
+  );
+  const orderedProjects = [...projects].sort((a, b) => {
+    const aRecent = groupsByProjectId.get(a.id)?.mostRecent ?? 0;
+    const bRecent = groupsByProjectId.get(b.id)?.mostRecent ?? 0;
+    return bRecent !== aRecent
+      ? bRecent - aRecent
+      : a.label.localeCompare(b.label);
+  });
+  const effectiveProjectId =
+    selectedProjectId ??
+    (selectedChannelId
+      ? (projectByChannelId.get(selectedChannelId)?.id ?? null)
+      : null);
 
   return (
     <div className="flex flex-col px-2" data-testid="chat-list">
-      {groups.map((group) => {
-        const isCollapsed = collapsed.has(group.project?.id ?? "__rooms");
-        return (
-          <div
-            className="flex flex-col"
-            data-testid={`chat-group-${group.project?.id ?? "ungrouped"}`}
-            key={group.project?.id ?? "ungrouped"}
-          >
-            {/* Every section is labelled, including the ungrouped one. It is
-                "Rooms": chats that belong to no project are still rooms, and an
-                unlabelled block above labelled ones reads as an accident rather
-                than a decision. Same treatment for all of them — an affordance
-                that exists on some sections and not others feels arbitrary. */}
-            <button
-                aria-expanded={!isCollapsed}
-                // The label IS the toggle. A permanent chevron is chrome at two
-                // projects and only earns its place at ten, so it appears on
-                // hover; the section reads as a signpost the rest of the time.
-                className={cn(
-                  "group/section flex w-full items-center gap-1 px-2 pb-1 text-left outline-none",
-                  // The first section sits under the pinned nav, which already
-                  // supplies the separation; later ones need their own air.
-                  group.project ? "mt-3" : "mt-2",
-                )}
-                onClick={() => toggle(group.project?.id ?? "__rooms")}
-                type="button"
-              >
-                <span className="truncate text-2xs font-medium uppercase tracking-[0.1em] text-sidebar-foreground/35 transition-colors group-hover/section:text-sidebar-foreground/60">
-                  {group.project?.label ?? "Rooms"}
-                </span>
-                <ChevronDown
-                  aria-hidden
-                  className={cn(
-                    "h-3 w-3 shrink-0 text-sidebar-foreground/40 opacity-0 transition-[opacity,transform] group-hover/section:opacity-100 group-focus-visible/section:opacity-100",
-                    isCollapsed && "-rotate-90 opacity-100",
-                  )}
-                />
-            </button>
+      <div className="mt-2 flex flex-col" data-testid="chat-group-ungrouped">
+        <div className="px-2 pb-1 text-2xs font-medium uppercase tracking-[0.1em] text-sidebar-foreground/35">
+          Rooms
+        </div>
+        {looseRooms?.items.map((item) => (
+          <ChatRow item={item} key={item.channel.id} {...rowProps} />
+        ))}
+      </div>
 
-            {isCollapsed
-              ? null
-              : group.items.map((item) => (
-                  <ChatRow item={item} key={item.channel.id} {...rowProps} />
-                ))}
+      {orderedProjects.length > 0 ? (
+        <div className="mt-3 flex flex-col" data-testid="chat-projects">
+          <div className="px-2 pb-1 text-2xs font-medium uppercase tracking-[0.1em] text-sidebar-foreground/35">
+            Projects
           </div>
-        );
-      })}
+          {orderedProjects.map((project) => {
+            const group =
+              groupsByProjectId.get(project.id) ??
+              ({ project, items: [], mostRecent: 0 } satisfies ChatGroup);
+            return (
+              <ProjectRow
+                group={group}
+                isActive={effectiveProjectId === project.id}
+                key={project.id}
+                onSelectProject={onSelectProject}
+                unreadChannelIds={unreadChannelIds}
+                workingByChannelId={workingByChannelId}
+              />
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -246,6 +246,256 @@
   letter-spacing: -0.012em;
 }
 
+/* Project room navigation is contextual furniture inside the approved Luca
+   card. It borrows the Agent Library's master-detail proportion while leaving
+   both the global rail and real conversation component untouched. */
+:root[data-luca-shell] .luca-project-room-workspace {
+  display: grid;
+  grid-template-columns: 304px minmax(0, 1fr);
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+:root[data-luca-shell] .luca-project-room-navigator {
+  background: hsl(var(--mn-navigator));
+  border-right: 1px solid hsl(var(--mn-border));
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+:root[data-luca-shell] .luca-project-room-navigator__header {
+  align-items: flex-start;
+  border-bottom: 1px solid hsl(var(--mn-border));
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 20px 20px 18px;
+}
+
+:root[data-luca-shell] .luca-project-icon-button {
+  align-items: center;
+  background: hsl(var(--mn-raised));
+  border: 1px solid hsl(var(--mn-border));
+  border-radius: 7px;
+  color: hsl(var(--mn-ink-muted));
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+  width: 34px;
+}
+
+:root[data-luca-shell] .luca-project-icon-button:hover {
+  background: hsl(var(--mn-hover));
+  color: hsl(var(--mn-ink));
+}
+
+:root[data-luca-shell]
+  :is(
+    .luca-project-icon-button,
+    .luca-project-room-row,
+    .luca-project-mobile-back
+  ):focus-visible {
+  outline: 2px solid hsl(var(--mn-focus));
+  outline-offset: -2px;
+}
+
+:root[data-luca-shell] .luca-project-room-search {
+  align-items: center;
+  background: hsl(var(--mn-raised));
+  border: 1px solid hsl(var(--mn-border));
+  border-radius: 7px;
+  color: hsl(var(--mn-ink-faint));
+  display: flex;
+  gap: 9px;
+  margin: 14px 12px 10px;
+  min-height: 36px;
+  padding: 0 11px;
+}
+
+:root[data-luca-shell] .luca-project-room-search:focus-within {
+  border-color: hsl(var(--mn-ink-faint));
+  color: hsl(var(--mn-ink-muted));
+}
+
+:root[data-luca-shell] .luca-project-room-search input {
+  background: transparent;
+  color: hsl(var(--mn-ink));
+  font-size: var(--mn-text-ui);
+  min-width: 0;
+  outline: none;
+  width: 100%;
+}
+
+:root[data-luca-shell] .luca-project-room-search input::placeholder {
+  color: hsl(var(--mn-ink-faint));
+}
+
+:root[data-luca-shell] .luca-project-room-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0 8px 12px;
+  scrollbar-color: hsl(var(--mn-ink-faint)) transparent;
+  scrollbar-width: thin;
+}
+
+:root[data-luca-shell] .luca-project-room-row {
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: hsl(var(--mn-ink-muted));
+  display: flex;
+  gap: 11px;
+  min-height: 60px;
+  padding: 8px 10px;
+  text-align: left;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+  width: 100%;
+}
+
+:root[data-luca-shell] .luca-project-room-row:hover {
+  background: hsl(var(--mn-hover));
+  color: hsl(var(--mn-ink));
+}
+
+:root[data-luca-shell] .luca-project-room-row[data-active="true"] {
+  background: hsl(var(--mn-raised));
+  border-color: hsl(var(--mn-border));
+  color: hsl(var(--mn-ink));
+}
+
+:root[data-luca-shell] .luca-project-room-list__empty {
+  color: hsl(var(--mn-ink-faint));
+  font-size: var(--mn-text-ui);
+  padding: 24px 12px;
+  text-align: center;
+}
+
+:root[data-luca-shell] .luca-project-room-navigator__footer {
+  border-top: 1px solid hsl(var(--mn-border));
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+}
+
+:root[data-luca-shell] .luca-project-room-navigator__footer button {
+  align-items: center;
+  border-radius: 6px;
+  color: hsl(var(--mn-ink-muted));
+  display: flex;
+  font-size: var(--mn-text-ui);
+  gap: 9px;
+  min-height: 34px;
+  padding: 0 10px;
+  text-align: left;
+}
+
+:root[data-luca-shell] .luca-project-room-navigator__footer button:disabled {
+  color: hsl(var(--mn-ink-faint));
+  cursor: not-allowed;
+}
+
+:root[data-luca-shell] .luca-project-empty-conversation {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  min-height: 0;
+  padding: 32px;
+  text-align: center;
+}
+
+:root[data-luca-shell] .luca-project-empty-conversation > div {
+  max-width: 430px;
+}
+
+:root[data-luca-shell] .luca-project-empty-conversation h2 {
+  color: hsl(var(--mn-ink));
+  font-size: 1.375rem;
+  font-weight: 560;
+  letter-spacing: -0.025em;
+  margin-top: 10px;
+}
+
+:root[data-luca-shell] .luca-project-empty-conversation p {
+  color: hsl(var(--mn-ink-muted));
+  font-size: var(--mn-text-chat);
+  line-height: 1.55;
+  margin-top: 8px;
+}
+
+:root[data-luca-shell] .luca-project-empty-conversation button {
+  align-items: center;
+  background: hsl(var(--mn-ink));
+  border-radius: 7px;
+  color: hsl(var(--mn-floor));
+  display: inline-flex;
+  font-size: var(--mn-text-ui);
+  gap: 8px;
+  margin-top: 22px;
+  min-height: 36px;
+  padding: 0 14px;
+}
+
+:root[data-luca-shell] .luca-project-mobile-back {
+  align-items: center;
+  background: hsl(var(--mn-navigator));
+  border-bottom: 1px solid hsl(var(--mn-border));
+  color: hsl(var(--mn-ink-muted));
+  display: flex;
+  flex: 0 0 36px;
+  font-size: var(--mn-text-ui);
+  gap: 8px;
+  padding: 0 12px;
+}
+
+@media (max-width: 1180px) and (min-width: 768px) {
+  :root[data-luca-shell] .luca-project-room-workspace {
+    grid-template-columns: 274px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  :root[data-luca-shell] .luca-project-room-navigator {
+    border-right: 0;
+    width: 100%;
+  }
+
+  /* The production off-canvas toggle remains fixed in the shell's upper-left
+     corner. Contextual project chrome yields that same control clearance
+     rather than introducing another mobile title bar. */
+  :root[data-luca-shell] .luca-project-room-navigator__header {
+    padding-left: 48px;
+  }
+
+  :root[data-luca-shell] .luca-project-mobile-back {
+    padding-left: 46px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-luca-shell]
+    :is(.luca-project-icon-button, .luca-project-room-row) {
+    transition: none;
+  }
+}
+
 :root[data-luca-shell] [data-luca-header-meta],
 :root[data-luca-shell] [data-luca-agent-state] {
   color: hsl(var(--mn-ink-faint));
