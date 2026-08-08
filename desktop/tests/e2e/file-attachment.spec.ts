@@ -29,8 +29,9 @@ test("upload a file and see a FileCard in the timeline", async ({ page }) => {
   await page.getByTestId("channel-general").click();
   await expect(page.getByTestId("chat-title")).toHaveText("general");
 
-  // Paperclip → mocked pick_and_upload_media returns the PDF descriptor.
-  await page.getByRole("button", { name: "Attach image" }).click();
+  // The compact composer keeps attachments inside its add menu.
+  await page.getByTestId("message-composer-add").click();
+  await page.getByRole("menuitem", { name: "Attach files" }).click();
 
   // The composer shows a chip with the original filename.
   await expect(page.getByTestId("message-composer")).toContainText(
@@ -107,8 +108,9 @@ test("forum posts emit a FileCard for generic attachments, not a broken image", 
   // Open the new-post composer ("Start a new post...").
   await page.getByRole("button", { name: "Start a new post..." }).click();
 
-  // Paperclip → mocked pick_and_upload_media returns the PDF descriptor.
-  await page.getByRole("button", { name: "Attach image" }).click();
+  // The compact composer keeps attachments inside its add menu.
+  await page.getByTestId("message-composer-add").click();
+  await page.getByRole("menuitem", { name: "Attach files" }).click();
 
   // Submit the (attachment-only) forum post.
   await page.getByTestId("send-message").click();

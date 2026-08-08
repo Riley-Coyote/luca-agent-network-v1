@@ -13,8 +13,9 @@ test.beforeEach(async ({ page }) => {
 });
 
 async function navigateToWorkflows(page: import("@playwright/test").Page) {
-  await page.goto("/");
-  await page.getByTestId("open-workflows-view").click();
+  // Workflows are intentionally absent from Luca's primary rail, but their
+  // legacy deep-link surface remains supported for existing saved URLs.
+  await page.goto("/#/workflows");
   await expect(page).toHaveURL(/#\/workflows$/);
   await expect(page.getByTestId("workflows-view")).toBeVisible();
 }

@@ -670,7 +670,38 @@ test("shows your avatar on your own message when profile avatar is set", async (
   );
 });
 
-test("opens a single-level thread panel with inline expansion", async ({
+test("focuses one exchange in the main timeline and sends an inline reply", async ({
+  page,
+}) => {
+  const reply = `Focused timeline reply ${Date.now()}`;
+
+  await page.goto("/");
+  await page.getByTestId("channel-general").click();
+  await expect(page.getByTestId("chat-title")).toHaveText("general");
+
+  const timeline = page.getByTestId("message-timeline");
+  const rootMessage = timeline.getByTestId("message-row").first();
+
+  await rootMessage.hover();
+  await rootMessage.getByRole("button", { name: "Reply" }).click();
+
+  await expect(page.getByTestId("focused-thread-bar")).toBeVisible();
+  await expect(page.getByTestId("message-thread-panel")).toHaveCount(0);
+  await expect(page.getByTestId("reply-target")).toBeVisible();
+
+  await page.getByTestId("message-input").fill(reply);
+  await page.getByTestId("send-message").click();
+  await expect(timeline).toContainText(reply);
+
+  await page.getByRole("button", { name: "Show all messages" }).click();
+  await expect(page.getByTestId("focused-thread-bar")).toHaveCount(0);
+  await expect(timeline).toContainText(reply);
+});
+
+// Historical Buzz coverage retained for reference. Luca's conversation-first
+// shell intentionally replaced the mandatory split drawer with the focused
+// main-timeline behavior covered above.
+test.skip("legacy split thread panel with inline expansion", async ({
   page,
 }) => {
   const timestamp = Date.now();
