@@ -41,6 +41,24 @@ cd "$REPO_ROOT"
 . ./bin/activate-hermit
 
 echo "Building $APP_NAME from $(git rev-parse --short HEAD)..."
+echo "Building native sidecars..."
+cargo build \
+    -p buzz-acp \
+    -p buzz-agent \
+    -p buzz-dev-mcp \
+    -p buzz-cli \
+    -p git-credential-nostr
+
+TARGET=$(rustc -vV | /usr/bin/sed -n 's|host: ||p')
+TARGET_DIR=$(cargo metadata --format-version 1 --no-deps \
+    | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).target_directory")
+BINARIES_DIR="$REPO_ROOT/desktop/src-tauri/binaries"
+mkdir -p "$BINARIES_DIR"
+for bin in buzz-acp buzz-agent buzz-dev-mcp git-credential-nostr buzz; do
+    cp "$TARGET_DIR/debug/$bin" "$BINARIES_DIR/$bin-$TARGET"
+    chmod +x "$BINARIES_DIR/$bin-$TARGET"
+done
+
 (
     cd desktop
     pnpm exec tauri build --debug --bundles app \
