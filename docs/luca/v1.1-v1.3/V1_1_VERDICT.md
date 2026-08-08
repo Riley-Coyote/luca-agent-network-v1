@@ -8,6 +8,8 @@ Canonical branch: `luca/v1.1`
 
 Integrated implementation checkpoint: `80890a85`
 
+Canonical packaged source checkpoint: `0d14308d`
+
 ## What passed
 
 - G1 messaging/runtime behavior remains intact for real Hermes and OpenClaw
@@ -35,6 +37,8 @@ Integrated implementation checkpoint: `80890a85`
 - E2E production build: PASS
 - Focused Agent Library Playwright smoke: 2/2 PASS
 - Installed bundle signing and runtime evidence: PASS
+- Final installed executable SHA-256:
+  `2aa1b085bc6cece0bd9fd64c7c1345274048a96f16f8a8dc9d86c4d59d221fb2`
 
 ## Evidence
 
