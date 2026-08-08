@@ -52,6 +52,26 @@ See [`RUN_LOG.md`](RUN_LOG.md) for command results and
 `evidence/project-room-navigation/visual/` for the approved desktop, compact,
 mobile, empty, DM, and inspector states.
 
+The immutable implementation checkpoint is `1d3e6b13a30a20e4b5177b1c8b0d49783d3adf3c`
+on `agent/project-room-blackout-shell`. That branch is pushed to `origin`.
+
+The installed development application was rebuilt from that checkpoint and
+smoke-tested without resetting its profile:
+
+- bundle: `~/Applications/Luca Agent Network Dev.app`
+- bundle ID: `com.luca.agent-network.dev`
+- signing identity: `Developer ID Application: Riley Ralmuto (WQUY4M5HYR)`
+- keyring service: `buzz-desktop-dev.luca-v1`
+- executable SHA-256:
+  `fc3f3dd38130d797df863f69bbf8112f0c423d16b89ad3c40e6d0aed0f01691c`
+- pre-install profile backup:
+  `~/Library/Application Support/com.luca.agent-network.dev.project-nav-preinstall-20260808-172412`
+
+The native smoke confirmed the preserved owner profile, rooms, conversation
+history, global rail, conversation surface, and composer. A native profile with
+no confirmed project catalog correctly keeps its conversations under `Rooms`;
+Brain Setup is responsible for creating the first real project catalog.
+
 ## Next slice
 
 Brain Setup should begin with a read-only source audit and an import-preview

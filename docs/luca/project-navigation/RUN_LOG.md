@@ -1,8 +1,12 @@
 # Project–Room Navigation Run Log
 
-Date: 2026-08-08  
-Branch: `agent/project-room-blackout-shell`  
+Date: 2026-08-08
+
+Branch: `agent/project-room-blackout-shell`
+
 Starting commit: `1353a68`
+
+Implementation checkpoint: `1d3e6b13a30a20e4b5177b1c8b0d49783d3adf3c`
 
 ## Implemented
 
@@ -60,6 +64,28 @@ Additional captures cover the mobile project room list and inspector coexistence
 All reviewed states had zero horizontal overflow and no actual console errors.
 
 Evidence: `evidence/project-room-navigation/visual/`
+
+## Installed native gate
+
+- Rebuild source: `1d3e6b13a30a20e4b5177b1c8b0d49783d3adf3c`
+- `scripts/rebuild-luca-dev-app.sh`: PASS
+- Installed path: `~/Applications/Luca Agent Network Dev.app`
+- Bundle ID: `com.luca.agent-network.dev`
+- Developer ID signature verification: PASS
+- Stable keyring service: `buzz-desktop-dev.luca-v1`
+- Exact installed process remained running: PASS
+- Preserved owner profile, rooms, and conversation history: visually confirmed
+- Existing global rail, timeline, inline replies, and composer: visually
+  confirmed
+- Executable SHA-256:
+  `fc3f3dd38130d797df863f69bbf8112f0c423d16b89ad3c40e6d0aed0f01691c`
+- Recoverable pre-install profile backup:
+  `~/Library/Application Support/com.luca.agent-network.dev.project-nav-preinstall-20260808-172412`
+
+The native profile did not contain a confirmed project catalog, so the app
+correctly displayed its existing conversations under `Rooms`. The production
+project write seam is ready for Brain Setup; no demo catalog was copied into
+the native profile.
 
 ## Existing repository baseline findings
 
