@@ -39,16 +39,28 @@ This proves that the approved interface is embedded in the installed bundle and
 is reading the real persisted profile and Notebook state rather than browser
 fixtures.
 
-## Live messaging blocker
+## Live relay and native-runtime smoke
 
-The final live relay/runtime smoke is not a product-code failure. The existing
-local Docker/Postgres development service is currently unresponsive and the
-machine has effectively exhausted its writable disk space. The stale relay was
-returning `404 relay: no community is configured for this host`; after a clean
-stop, the supported relay bootstrap blocked while waiting for Docker services.
+After disk headroom was restored, Docker/Postgres recovered without resetting
+the existing database, identity, room, resident, or continuity data. The
+supported relay bootstrap completed its migrations, restored the loopback
+community mappings, and the installed application reconnected with successful
+NIP-42 authentication.
 
-No database, identity, room, resident, or continuity data was reset. The
-installed application and its local profile remain intact. Resume the live
-messaging smoke only after restoring disk headroom and Docker/Postgres health;
-then run the normal local relay bootstrap, which idempotently restores the
-loopback community mapping.
+The final smoke was then completed in the installed application against the
+real local profile:
+
+- `default` launched through the imported Hermes runtime and reached `READY`;
+- `main` launched through the imported OpenClaw runtime and reached `READY`;
+- both residents were present in the existing `g1-mixed` room;
+- one owner message explicitly mentioned both residents and requested a
+  tool-free reply;
+- Hermes replied once as `default`: `Hermes ready.`;
+- OpenClaw replied once as `main`: `Vektor — ready.`;
+- the two responses appeared as correctly attributed inline replies to the
+  exact owner message;
+- the installed application remained connected and usable after the run.
+
+This closes the previous environment blocker and proves the packaged interface,
+relay, resident identity, Hermes adapter, OpenClaw adapter, group dispatch, and
+signed reply publication together in the installed macOS application.

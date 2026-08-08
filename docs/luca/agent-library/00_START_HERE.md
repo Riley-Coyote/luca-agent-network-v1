@@ -1,6 +1,6 @@
 # Agent Library and unified resident profile
 
-Status: implemented and installed-app verified; live relay smoke is environment-blocked
+Status: implemented and installed-app verified
 
 Branch at specification time: `agent/v1.1-notebook-drawer`
 
@@ -10,7 +10,7 @@ Branch at specification time: `agent/v1.1-notebook-drawer`
 2. `FIXTURE_CONTRACT.md`
 3. `IMPLEMENTATION_CHECKLIST.md`
 4. `../v1.1-v1.3/NOTEBOOK_INTERFACE_SPEC.md` for Notebook authority
-5. `INSTALLED_VERIFICATION.md` for the packaged-app result and current environment blocker
+5. `INSTALLED_VERIFICATION.md` for the packaged-app and live runtime result
 
 ## Product decision
 
