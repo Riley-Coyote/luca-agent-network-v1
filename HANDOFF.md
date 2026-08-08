@@ -6,7 +6,7 @@ Repository: `Riley-Coyote/luca-agent-network-v1`
 
 Authoritative continuation branch: `luca/v1.1`
 
-Release implementation checkpoint: `80890a85` (`Complete installed Agent Library smoke verification`)
+Release implementation checkpoint: `b1e045a5` (`Align UI regressions with the Luca shell`)
 
 This document is the repository-native source of truth for continuing Luca V1.
 It supersedes older product assumptions in the upstream Buzz README and older
@@ -181,9 +181,9 @@ Authority rules:
 | `luca/v1` | Older integrated usable baseline | Remote default; commit `265c3543` |
 | `agent/conversation-first-shell` | Conversation-first UI checkpoint | Commit `d75d731b`, based on `luca/v1` |
 | `agent/runtime-reliability` | Historical G1/runtime checkpoint | Preserved for archaeology; not the release branch |
-| `luca/v1.1` | **Current integrated release branch** | Functional beta, encrypted handoff, resident Notebook, unified Agent Library, installed verification |
+| `luca/v1.1` | **Current integrated release branch** | Functional beta, encrypted handoff, resident Notebook, unified Agent Library, Project → Room navigation, installed verification |
 | `agent/vision-demo` | High-fidelity simulated design exploration | Reference only; do not merge wholesale |
-| `agent/project-room-blackout-shell` | Approved Project → Room navigation and production handoff | Pushed checkpoint `1d3e6b1`; installed native smoke passed; merge intentionally after review |
+| `agent/project-room-blackout-shell` | Approved Project → Room navigation and production handoff | Finalized at `b1e045a5`; fast-forwarded into `luca/v1.1` after visual and native approval |
 | `main` | Untouched Buzz baseline | Tracks upstream baseline, not Luca continuation |
 
 New work should branch from `luca/v1.1`:

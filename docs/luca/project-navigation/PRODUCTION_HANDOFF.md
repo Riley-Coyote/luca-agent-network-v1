@@ -52,8 +52,11 @@ See [`RUN_LOG.md`](RUN_LOG.md) for command results and
 `evidence/project-room-navigation/visual/` for the approved desktop, compact,
 mobile, empty, DM, and inspector states.
 
-The immutable implementation checkpoint is `1d3e6b13a30a20e4b5177b1c8b0d49783d3adf3c`
-on `agent/project-room-blackout-shell`. That branch is pushed to `origin`.
+The immutable product implementation checkpoint is
+`1d3e6b13a30a20e4b5177b1c8b0d49783d3adf3c`. The finalized regression and
+release checkpoint is `b1e045a5f04a41a1824048fd05c485a1641534bc`.
+The approved branch was fast-forwarded into the canonical `luca/v1.1` release
+branch after visual and native approval.
 
 The installed development application was rebuilt from that checkpoint and
 smoke-tested without resetting its profile:
@@ -71,6 +74,9 @@ The native smoke confirmed the preserved owner profile, rooms, conversation
 history, global rail, conversation surface, and composer. A native profile with
 no confirmed project catalog correctly keeps its conversations under `Rooms`;
 Brain Setup is responsible for creating the first real project catalog.
+
+No second native rebuild was needed for the release checkpoint: commits after
+`1d3e6b1` contain only evidence, documentation, and test-contract alignment.
 
 ## Next slice
 

@@ -2,11 +2,15 @@
 
 Date: 2026-08-08
 
-Branch: `agent/project-room-blackout-shell`
+Delivery branch: `agent/project-room-blackout-shell`
+
+Canonical branch: `luca/v1.1`
 
 Starting commit: `1353a68`
 
-Implementation checkpoint: `1d3e6b13a30a20e4b5177b1c8b0d49783d3adf3c`
+Product implementation checkpoint: `1d3e6b13a30a20e4b5177b1c8b0d49783d3adf3c`
+
+Final regression checkpoint: `b1e045a5f04a41a1824048fd05c485a1641534bc`
 
 ## Implemented
 
@@ -41,15 +45,18 @@ Implementation checkpoint: `1d3e6b13a30a20e4b5177b1c8b0d49783d3adf3c`
   - send message: PASS
   - unread pill: PASS
 
-Two older focused assertions remain stale against already-approved production
-behavior and are not caused by this slice:
+The three stale Buzz-era assertions were aligned with approved Luca behavior
+before release integration:
 
-- the legacy attachment test searches for the removed `Attach image` label;
-- the legacy thread test expects the removed thread drawer instead of inline
-  replies.
+- attachments now exercise `Add to message` → `Attach files`: PASS;
+- focused inline replies now exercise the main timeline and composer instead of
+  requiring the removed split thread drawer: PASS;
+- the retained Workflows compatibility surface is exercised through its direct
+  deep link rather than a removed primary-rail entry: PASS.
 
-The broader navigation test also stops on the previously removed Workflows
-entry point. These failures were not repaired by restoring obsolete UI.
+The historical split-thread test remains skipped and labeled as archival
+coverage. The current focused-timeline test is the operative conversation-first
+contract.
 
 ## Visual evidence
 
