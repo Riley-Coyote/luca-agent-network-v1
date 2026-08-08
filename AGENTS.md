@@ -12,9 +12,9 @@ Buzz product assumptions in the upstream guide below. In particular:
 - Resident cryptographic identity is stable across runtime/model changes.
 - Native Hermes/OpenClaw configuration is read-only and credentials are never
   copied into Luca.
-- `agent/runtime-reliability` is the integrated continuation branch. The
-  `agent/vision-demo` branch is a visual reference and must not be merged
-  wholesale.
+- `luca/v1.1` is the integrated release branch. Historical feature branches,
+  including `agent/runtime-reliability` and `agent/vision-demo`, are reference
+  coordinates and must not be merged wholesale.
 - Do not claim G1 from unit tests alone. Use the repository checklist.
 
 # AGENTS.md — Upstream AI Agent Contributor Guide

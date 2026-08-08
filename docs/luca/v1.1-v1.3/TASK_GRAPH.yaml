@@ -1,8 +1,8 @@
 project: luca-agent-network-v1-1-v1-3
 planning_branch: agent/v1.1-v1.3-roadmap
 planning_baseline: 36472636af120cb3213dcae84b3ff5827a7c8e93
-implementation_branch: agent/v1.1-resident-notebook
-status: V1_1_ACTIVE
+implementation_branch: luca/v1.1
+status: V1_1_PASS
 max_parallel_write_lanes: 2
 
 ownership_lanes:
@@ -142,14 +142,14 @@ tasks:
     title: Integrate approved Notebook and Living Journal frontend
     depends_on: [H17]
     acceptance: [A108, A109, A115, A119]
-    status: DEFERRED_FRONTEND
+    status: PASS
   - id: H19
     gate: V1.1-D
     lane: integration
     title: Run rebuilt installed V1.1 release gate
     depends_on: [H18]
     acceptance: [A112, A120, A401, A402, A403, A404, A405]
-    status: DEFERRED_FRONTEND
+    status: PASS
 
   - id: B21
     gate: V1.2-A

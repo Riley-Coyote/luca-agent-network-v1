@@ -2,7 +2,9 @@
 
 Date: 2026-08-08
 
-Branch: `agent/v1.1-notebook-drawer`
+Implementation branch: `agent/v1.1-notebook-drawer`
+
+Canonical release branch: `luca/v1.1`
 
 Source commits:
 

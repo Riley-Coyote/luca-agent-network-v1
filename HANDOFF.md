@@ -1,12 +1,12 @@
 # Luca V1 continuation handoff
 
-Updated: 2026-08-04
+Updated: 2026-08-08
 
 Repository: `Riley-Coyote/luca-agent-network-v1`
 
-Authoritative continuation branch: `agent/runtime-reliability`
+Authoritative continuation branch: `luca/v1.1`
 
-Current commit: `fa1c5194` (`Harden native resident runtime reliability`)
+Release implementation checkpoint: `80890a85` (`Complete installed Agent Library smoke verification`)
 
 This document is the repository-native source of truth for continuing Luca V1.
 It supersedes older product assumptions in the upstream Buzz README and older
@@ -19,7 +19,7 @@ For a new agent or developer:
 ```bash
 git clone https://github.com/Riley-Coyote/luca-agent-network-v1.git
 cd luca-agent-network-v1
-git switch agent/runtime-reliability
+git switch luca/v1.1
 . ./bin/activate-hermit
 ```
 
@@ -180,14 +180,15 @@ Authority rules:
 |---|---|---|
 | `luca/v1` | Older integrated usable baseline | Remote default; commit `265c3543` |
 | `agent/conversation-first-shell` | Conversation-first UI checkpoint | Commit `d75d731b`, based on `luca/v1` |
-| `agent/runtime-reliability` | **Current integrated continuation branch** | Commit `fa1c5194`, includes conversation-first shell |
+| `agent/runtime-reliability` | Historical G1/runtime checkpoint | Preserved for archaeology; not the release branch |
+| `luca/v1.1` | **Current integrated release branch** | Functional beta, encrypted handoff, resident Notebook, unified Agent Library, installed verification |
 | `agent/vision-demo` | High-fidelity simulated design exploration | Reference only; do not merge wholesale |
 | `main` | Untouched Buzz baseline | Tracks upstream baseline, not Luca continuation |
 
-New work should branch from `agent/runtime-reliability`:
+New work should branch from `luca/v1.1`:
 
 ```bash
-git switch agent/runtime-reliability
+git switch luca/v1.1
 git pull --ff-only
 git switch -c agent/<short-task-name>
 ```

@@ -1,15 +1,18 @@
 # Luca V1.1-V1.3 roadmap control
 
-Status: V1.1 backend gate passed; H18 frontend integration pending
+Status: V1.1 PASS; H18 frontend integration and H19 installed-app gate complete
 
-Implementation branch: `agent/v1.1-resident-notebook`
+Canonical release branch: `luca/v1.1`
 
-Backend checkpoint: `cab8e28f`
+Integrated implementation checkpoint: `80890a85`
 
 Product baseline: `36472636af120cb3213dcae84b3ff5827a7c8e93`
 
 The accepted functional-beta implementation and evidence live under
 `docs/luca/functional-beta/`.
+
+The V1.1 release verdict is recorded in `V1_1_VERDICT.md`. The unified Agent
+Library and installed-app evidence live under `docs/luca/agent-library/`.
 
 This directory is the implementation authority for the next three incremental
 continuity releases. It deliberately replaces the breadth of the original G2
@@ -46,12 +49,12 @@ archive; it is not the active task graph for V1.1-V1.3.
 These releases do not add a conductor, scheduled inner life, proactive outreach,
 automatic personality evolution, broad imports, or background agent society.
 
-## Backend-first sequence
+## Backend-first sequence (completed)
 
-Riley explicitly chose to continue the V1.1 backend while Claude's frontend
-work remains isolated. Protocols, view models, and deterministic fixtures are
-frozen first. Accepted frontend work is integrated only after the backend gate;
-the installed release gate remains pending until that integration is complete.
+Riley explicitly chose to complete the V1.1 backend before integrating the
+frontend. Protocols, view models, and deterministic fixtures were frozen first.
+The accepted frontend was then integrated after the backend gate, followed by
+the installed release gate recorded in `V1_1_VERDICT.md`.
 
 ## Non-negotiable invariants
 

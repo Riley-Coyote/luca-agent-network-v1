@@ -1,8 +1,14 @@
 # Agent Library implementation checklist
 
-Status: ready for implementation after Riley approval
+Status: COMPLETE on the integrated V1.1 lineage
 
 Scope: frontend-first restructuring and visible-product cleanup
+
+Completion record: implementation commit `fb3c581f`, packaged-sidecar fix
+`8445445f`, installed evidence `c23e95cd`, and final installed smoke record
+`80890a85`. The original checklist below is retained as the historical build
+plan; authoritative completion evidence is in `INSTALLED_VERIFICATION.md` and
+`../v1.1-v1.3/V1_1_VERDICT.md`.
 
 ## A. Safety and checkpoint
 

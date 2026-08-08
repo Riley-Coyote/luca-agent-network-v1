@@ -22,12 +22,12 @@ must remain body-free and secret-free.
 - Product code changed: no
 - Native app rebuilt: no
 
-## Pending C00
+## Historical C00 snapshot (resolved)
 
-- Exact accepted frontend/design commits: pending Riley/Claude handoff
-- Overlap audit: pending
-- Implementation branch/worktree: pending
-- Functional-beta baseline smoke: pending
+- These were the original preimplementation questions. The accepted design
+  lineage, clean implementation worktrees, overlap audit, and functional-beta
+  baseline were resolved during H11-H19. The final coordinates are recorded in
+  `V1_1_VERDICT.md`.
 
 ## 2026-08-06 — V1.1 implementation authorized
 
@@ -160,3 +160,22 @@ Safe notes:
   language into one implementation brief for Claude.
 - No product source, backend contract, migration, manifest, lockfile, or fixture
   behavior changed.
+
+## 2026-08-08 — H18/H19 integrated completion and release promotion
+
+- Status: PASS
+- Canonical release branch: `luca/v1.1`
+- Integrated implementation checkpoint: `80890a85`
+- The production Notebook drawer, deterministic Notebook Field, and unified
+  Luca Agent Library were integrated without changing the encrypted Notebook
+  command authority.
+- The installed application loaded real resident and Notebook state, opened the
+  compact conversation resident projection, and completed live Hermes and
+  OpenClaw mixed-room reply verification.
+- Closeout rerun: frontend typecheck passed; focused Notebook and Agent Library
+  unit tests passed 9/9; E2E production build passed; focused Playwright smoke
+  passed 2/2.
+- The accepted lineage was promoted from the implementation branch to the clean
+  `luca/v1.1` release coordinate. The older dirty runtime/design checkout was
+  preserved untouched.
+- Release verdict: `V1_1_VERDICT.md`.
