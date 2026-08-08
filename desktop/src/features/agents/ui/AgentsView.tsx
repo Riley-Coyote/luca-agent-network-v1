@@ -1,9 +1,10 @@
 import * as React from "react";
-import { OctagonX } from "lucide-react";
 import {
   consumePendingSnapshotImport,
   subscribeSnapshotImport,
 } from "@/features/agents/openSnapshotImportFromUrlEvent";
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { useOpenDmMutation } from "@/features/channels/hooks";
 import { AddAgentToChannelDialog } from "./AddAgentToChannelDialog";
 import { AddTeamToChannelDialog } from "./AddTeamToChannelDialog";
 import { AgentDefaultsDialog } from "./AgentDefaultsDialog";
@@ -16,36 +17,71 @@ import { AgentSnapshotImportDialog } from "./AgentSnapshotImportDialog";
 import { TeamSnapshotExportDialog } from "./TeamSnapshotExportDialog";
 import { TeamSnapshotImportDialog } from "./TeamSnapshotImportDialog";
 import { TeamShareDialog } from "./TeamShareDialog";
-import { RelayDirectorySection } from "./RelayDirectorySection";
 import { TeamDeleteDialog } from "./TeamDeleteDialog";
 import { TeamDialog } from "./TeamDialog";
 import { TeamsSection } from "./TeamsSection";
-import { UnifiedAgentsSection } from "./UnifiedAgentsSection";
 import { useManagedAgentActions } from "./useManagedAgentActions";
 import { usePersonaActions } from "./usePersonaActions";
 import { useTeamActions } from "./useTeamActions";
-import { useProfilePanel } from "@/shared/context/ProfilePanelContext";
-import { useBakedBuildEnvQuery } from "@/features/agents/hooks";
-import { isManagedAgentActive } from "@/features/agents/lib/managedAgentControlActions";
-import { useGlobalAgentConfig } from "@/features/agents/useGlobalAgentConfig";
 import { Button } from "@/shared/ui/button";
-import { PageHeader } from "@/shared/ui/PageHeader";
-import { getInheritedAgentDefaults } from "./bakedEnvHelpers";
 import { ResidentSetup } from "@/features/luca/residents/ResidentSetup";
 import { useLucaResidentsQuery } from "@/features/luca/residents/hooks";
 import { NativeResidentImportSection } from "./NativeResidentImportSection";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/ui/dialog";
+import type { ManagedAgent } from "@/shared/api/types";
+import { normalizePubkey } from "@/shared/lib/pubkey";
+import {
+  AgentLibraryRoster,
+  type AgentLibraryFilter,
+} from "./AgentLibraryRoster";
+import {
+  AgentLibraryWorkspace,
+  type AgentLibrarySection,
+} from "./AgentLibraryWorkspace";
+import {
+  buildResidentLibrary,
+  type ResidentSummaryViewModel,
+} from "./agentLibraryViewModel";
 
-export function AgentsView() {
-  const { openPersonaProfilePanel, openProfilePanel } = useProfilePanel();
-  const { globalConfig } = useGlobalAgentConfig();
-  const { data: bakedEnv } = useBakedBuildEnvQuery({ enabled: true });
-  const inheritedDefaults = getInheritedAgentDefaults(globalConfig, bakedEnv);
+export function AgentsView({
+  onClearSelection,
+  onSectionChange,
+  onSelectPersona,
+  onSelectResident,
+  section,
+  selectedPersonaId,
+  selectedPubkey,
+}: {
+  onClearSelection: () => void;
+  onSectionChange: (section: AgentLibrarySection) => void;
+  onSelectPersona: (personaId: string) => void;
+  onSelectResident: (pubkey: string) => void;
+  section: AgentLibrarySection;
+  selectedPersonaId: string | null;
+  selectedPubkey: string | null;
+}) {
   const agents = useManagedAgentActions();
   const personas = usePersonaActions();
   const residentsQuery = useLucaResidentsQuery();
+  const openDmMutation = useOpenDmMutation();
+  const { goChannel } = useAppNavigation();
   const teamImportInputRef = React.useRef<HTMLInputElement | null>(null);
   const aiDefaultsTriggerRef = React.useRef<HTMLButtonElement>(null);
   const [isAiDefaultsOpen, setIsAiDefaultsOpen] = React.useState(false);
+  const [isAddOpen, setIsAddOpen] = React.useState(false);
+  const [isGroupsOpen, setIsGroupsOpen] = React.useState(false);
+  const [query, setQuery] = React.useState("");
+  const [filter, setFilter] = React.useState<AgentLibraryFilter>("all");
+  const [showMobileRoster, setShowMobileRoster] = React.useState(
+    !selectedPubkey && !selectedPersonaId,
+  );
+  const [instanceToEdit, setInstanceToEdit] =
+    React.useState<ManagedAgent | null>(null);
   // Exclusivity: create never sets `personaDialogState` (edit/dup/import do),
   // so the create-mode and definition-edit AgentDialog mounts never coexist.
   const [isCreateDialogOpen, setIsCreateDialogOpen] = React.useState(false);
@@ -75,13 +111,63 @@ export function AgentsView() {
     teamActions.createTeamMutation.isPending ||
     teamActions.updateTeamMutation.isPending ||
     teamActions.deleteTeamMutation.isPending;
-  const runningAgentCount = agents.managedAgents.filter((agent) =>
-    isManagedAgentActive(agent),
-  ).length;
-  // Show the resolved effective model, not just the structured `model` field:
-  // most providers persist the model as a provider env var (e.g. DATABRICKS_MODEL)
-  // or inherit a baked build default, leaving `globalConfig.model` null.
-  const configuredGlobalModel = inheritedDefaults.model.value;
+  const library = React.useMemo(
+    () => buildResidentLibrary(agents.managedAgents, personas.libraryPersonas),
+    [agents.managedAgents, personas.libraryPersonas],
+  );
+  const selectedResident = React.useMemo(() => {
+    if (selectedPubkey) {
+      const normalized = normalizePubkey(selectedPubkey);
+      return (
+        library.find(
+          (resident) =>
+            resident.pubkey && normalizePubkey(resident.pubkey) === normalized,
+        ) ?? null
+      );
+    }
+    if (selectedPersonaId) {
+      return (
+        library.find((resident) => resident.personaId === selectedPersonaId) ??
+        null
+      );
+    }
+    return library[0] ?? null;
+  }, [library, selectedPersonaId, selectedPubkey]);
+  const selectedManagedAgent = React.useMemo(
+    () =>
+      selectedResident?.pubkey
+        ? (agents.managedAgents.find(
+            (agent) =>
+              normalizePubkey(agent.pubkey) ===
+              normalizePubkey(selectedResident.pubkey ?? ""),
+          ) ?? null)
+        : null,
+    [agents.managedAgents, selectedResident],
+  );
+  const selectedPersona = React.useMemo(
+    () =>
+      selectedResident?.personaId
+        ? (personas.libraryPersonas.find(
+            (persona) => persona.id === selectedResident.personaId,
+          ) ?? null)
+        : null,
+    [personas.libraryPersonas, selectedResident],
+  );
+
+  React.useEffect(() => {
+    if (selectedPubkey || selectedPersonaId || !selectedResident) return;
+    if (selectedResident.pubkey) {
+      onSelectResident(selectedResident.pubkey);
+    } else if (selectedResident.personaId) {
+      onSelectPersona(selectedResident.personaId);
+    }
+  }, [
+    onSelectPersona,
+    onSelectResident,
+    selectedPersonaId,
+    selectedPubkey,
+    selectedResident,
+  ]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only; personas.handleImportSnapshotFile and teamActions.handleImportTeamSnapshotFile are stable
   React.useEffect(() => {
@@ -113,40 +199,116 @@ export function AgentsView() {
 
   return (
     <>
-      <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-7 sm:px-6 sm:py-8">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
-          <PageHeader
-            action={
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button
-                  onClick={() => setIsAiDefaultsOpen(true)}
-                  ref={aiDefaultsTriggerRef}
-                  size="sm"
-                  variant="outline"
-                >
-                  {configuredGlobalModel
-                    ? `Default model: ${configuredGlobalModel}`
-                    : "Set agent defaults"}
-                </Button>
-                {runningAgentCount > 0 ? (
-                  <Button
-                    disabled={isActionPending}
-                    onClick={() => {
-                      void agents.handleBulkStopRunning();
-                    }}
-                    size="sm"
-                    variant="outline"
-                  >
-                    <OctagonX />
-                    Stop running agents
-                  </Button>
-                ) : null}
-              </div>
-            }
-            description="Set up and manage your agents."
-            title="Agents"
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-[inherit] bg-card/40">
+        <div
+          className={
+            showMobileRoster
+              ? "flex min-h-0 w-full md:w-auto"
+              : "hidden min-h-0 md:flex"
+          }
+        >
+          <AgentLibraryRoster
+            filter={filter}
+            onAdd={() => setIsAddOpen(true)}
+            onFilterChange={setFilter}
+            onGroups={() => setIsGroupsOpen(true)}
+            onOpenDefaults={() => setIsAiDefaultsOpen(true)}
+            onQueryChange={setQuery}
+            onSelect={(resident: ResidentSummaryViewModel) => {
+              setShowMobileRoster(false);
+              if (resident.pubkey) onSelectResident(resident.pubkey);
+              else if (resident.personaId) onSelectPersona(resident.personaId);
+            }}
+            query={query}
+            residents={library}
+            selectedId={selectedResident?.residentId ?? null}
           />
-          <div className="flex flex-col gap-8">
+        </div>
+        {selectedResident ? (
+          <div
+            className={
+              showMobileRoster
+                ? "hidden min-h-0 min-w-0 flex-1 md:flex"
+                : "flex min-h-0 min-w-0 flex-1"
+            }
+          >
+            <AgentLibraryWorkspace
+              channels={
+                selectedResident.pubkey
+                  ? (agents.channelsByPubkey[
+                      normalizePubkey(selectedResident.pubkey)
+                    ] ?? [])
+                  : []
+              }
+              isActionPending={isActionPending}
+              managedAgent={selectedManagedAgent}
+              onBack={() => {
+                setShowMobileRoster(true);
+                onClearSelection();
+              }}
+              onEdit={() => {
+                if (selectedManagedAgent) {
+                  setInstanceToEdit(selectedManagedAgent);
+                } else if (selectedPersona) {
+                  personas.openEdit(selectedPersona);
+                }
+              }}
+              onMessage={() => {
+                if (!selectedManagedAgent) return;
+                void openDmMutation
+                  .mutateAsync({ pubkeys: [selectedManagedAgent.pubkey] })
+                  .then((dm) => goChannel(dm.id));
+              }}
+              onOpenChannel={(channelId) => {
+                void goChannel(channelId);
+              }}
+              onSectionChange={onSectionChange}
+              onStart={() => {
+                if (selectedManagedAgent) {
+                  void agents.handleStart(selectedManagedAgent.pubkey);
+                } else if (selectedPersona) {
+                  void agents.handleStartPersona(selectedPersona);
+                }
+              }}
+              onStop={() => {
+                if (selectedManagedAgent) {
+                  void agents.handleStop(selectedManagedAgent.pubkey);
+                }
+              }}
+              onToggleStartOnLaunch={(enabled) => {
+                if (selectedManagedAgent) {
+                  void agents.handleToggleStartOnAppLaunch(
+                    selectedManagedAgent.pubkey,
+                    enabled,
+                  );
+                }
+              }}
+              persona={selectedPersona}
+              resident={selectedResident}
+              section={section}
+            />
+          </div>
+        ) : (
+          <div className="hidden min-h-0 min-w-0 flex-1 items-center justify-center px-8 text-center md:flex">
+            <div className="max-w-sm">
+              <h2 className="text-lg font-medium">No residents yet</h2>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                Import an agent already on this Mac or create a new resident.
+              </p>
+              <Button className="mt-5" onClick={() => setIsAddOpen(true)}>
+                Add agent
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <Dialog onOpenChange={setIsAddOpen} open={isAddOpen}>
+        <DialogContent className="max-h-[86vh] max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add an agent</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6 py-2">
             <NativeResidentImportSection residents={agents.managedAgents} />
             <ResidentSetup
               isLoading={
@@ -154,113 +316,63 @@ export function AgentsView() {
               }
               isPending={isActionPending}
               onAddResident={(persona) => {
-                void agents.handleAddResident(persona);
+                void agents.handleAddResident(persona).then(() => {
+                  setIsAddOpen(false);
+                });
               }}
-              onCreateResident={openResidentCreate}
+              onCreateResident={() => {
+                setIsAddOpen(false);
+                openResidentCreate();
+              }}
               personas={personas.libraryPersonas}
               residents={residentsQuery.data?.residents ?? []}
               startingPersonaIds={agents.startingPersonaIds}
             />
-            <UnifiedAgentsSection
-              defaultModel={inheritedDefaults.model.value}
-              actionErrorMessage={agents.actionErrorMessage}
-              actionNoticeMessage={agents.actionNoticeMessage}
-              agents={agents.managedAgents}
-              agentsError={
-                agents.managedAgentsQuery.error instanceof Error
-                  ? agents.managedAgentsQuery.error
-                  : null
-              }
-              isActionPending={isActionPending}
-              isAgentsLoading={agents.managedAgentsQuery.isLoading}
-              startingAgentPubkey={agents.startingAgentPubkey}
-              startingPersonaIds={agents.startingPersonaIds}
-              onOpenAgentProfile={(pubkey, options) => {
-                openProfilePanel?.(pubkey, options);
-              }}
-              onOpenPersonaProfile={(persona) => {
-                openPersonaProfilePanel?.(persona);
-              }}
-              onStartAgent={(pubkey) => {
-                void agents.handleStart(pubkey);
-              }}
-              onStartPersona={(persona) => {
-                void agents.handleStartPersona(persona);
-              }}
-              // Persona props
-              canChooseCatalog={personas.catalogPersonas.length > 0}
-              personas={personas.libraryPersonas}
-              personasError={
-                personas.personasQuery.error instanceof Error
-                  ? personas.personasQuery.error
-                  : null
-              }
-              personaFeedbackErrorMessage={
-                personas.personaFeedbackSurface === "library"
-                  ? personas.personaErrorMessage
-                  : null
-              }
-              personaFeedbackNoticeMessage={
-                personas.personaFeedbackSurface === "library"
-                  ? personas.personaNoticeMessage
-                  : null
-              }
-              isPersonasLoading={personas.personasQuery.isLoading}
-              isPersonasPending={personas.isPending}
-              onCreatePersona={() => {
-                openUnifiedCreate();
-              }}
-              onChooseCatalog={personas.openCatalog}
-              onDuplicatePersona={personas.openDuplicate}
-              onEditPersona={personas.openEdit}
-              onSharePersona={personas.openShare}
-              onDeactivatePersona={(persona) => {
-                void personas.handleSetActive(persona, false, "library");
-              }}
-              onDeletePersona={personas.openDelete}
-              onImportSnapshotFile={(fileBytes, fileName) => {
-                void personas.handleImportSnapshotFile(fileBytes, fileName);
-              }}
-            />
-
-            <TeamsSection
-              error={
-                teamActions.teamsQuery.error instanceof Error
-                  ? teamActions.teamsQuery.error
-                  : null
-              }
-              isLoading={teamActions.teamsQuery.isLoading}
-              isPending={
-                teamActions.createTeamMutation.isPending ||
-                teamActions.updateTeamMutation.isPending ||
-                teamActions.deleteTeamMutation.isPending
-              }
-              onCreate={teamActions.openCreateDialog}
-              onDelete={teamActions.setTeamToDelete}
-              onDuplicate={teamActions.openDuplicateDialog}
-              onEdit={teamActions.openEditDialog}
-              onAddToChannel={teamActions.setTeamToAddToChannel}
-              onShare={teamActions.openShare}
-              onImport={() => {
-                teamImportInputRef.current?.click();
-              }}
-              personas={personas.libraryPersonas}
-              teams={teamActions.teams}
-            />
-
-            <RelayDirectorySection
-              error={
-                agents.relayAgentsQuery.error instanceof Error
-                  ? agents.relayAgentsQuery.error
-                  : null
-              }
-              isLoading={agents.relayAgentsQuery.isLoading}
-              managedPubkeys={agents.managedPubkeys}
-              relayAgents={agents.relayAgentsQuery.data ?? []}
-            />
           </div>
-        </div>
-      </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog onOpenChange={setIsGroupsOpen} open={isGroupsOpen}>
+        <DialogContent className="max-h-[86vh] max-w-5xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Agent groups</DialogTitle>
+          </DialogHeader>
+          <TeamsSection
+            error={
+              teamActions.teamsQuery.error instanceof Error
+                ? teamActions.teamsQuery.error
+                : null
+            }
+            isLoading={teamActions.teamsQuery.isLoading}
+            isPending={
+              teamActions.createTeamMutation.isPending ||
+              teamActions.updateTeamMutation.isPending ||
+              teamActions.deleteTeamMutation.isPending
+            }
+            onAddToChannel={teamActions.setTeamToAddToChannel}
+            onCreate={teamActions.openCreateDialog}
+            onDelete={teamActions.setTeamToDelete}
+            onDuplicate={teamActions.openDuplicateDialog}
+            onEdit={teamActions.openEditDialog}
+            onImport={() => teamImportInputRef.current?.click()}
+            onShare={teamActions.openShare}
+            personas={personas.libraryPersonas}
+            teams={teamActions.teams}
+          />
+        </DialogContent>
+      </Dialog>
+
+      {instanceToEdit ? (
+        <AgentDialog
+          agent={instanceToEdit}
+          mode="instance-edit"
+          onOpenChange={(open) => {
+            if (!open) setInstanceToEdit(null);
+          }}
+          onUpdated={() => agents.refetchManagedAgents()}
+          open={instanceToEdit !== null}
+        />
+      ) : null}
 
       <AgentDefaultsDialog
         onOpenChange={setIsAiDefaultsOpen}

@@ -233,7 +233,7 @@ export function ProfileTabBar({
     >
       <div
         aria-label="Profile sections"
-        className="flex w-max min-w-full justify-center gap-1.5"
+        className="flex w-max min-w-full justify-center gap-0"
         role="tablist"
       >
         {tabs.map((tab) => {
@@ -242,7 +242,7 @@ export function ProfileTabBar({
           return (
             <Button
               aria-selected={isActive}
-              className="shrink-0 rounded-full"
+              className="shrink-0 rounded-full px-1.5"
               data-testid={`user-profile-tab-${tab.id}`}
               key={tab.id}
               onClick={() => {

@@ -137,6 +137,8 @@ export function ChannelScreen({
     widthPx: threadPanelWidthPx,
   } = useThreadPanelWidth();
   const [isMembersSidebarOpen, setIsMembersSidebarOpen] = React.useState(false);
+  const [isConversationContextOpen, setIsConversationContextOpen] =
+    React.useState(false);
   const [isAddBotOpen, setIsAddBotOpen] = React.useState(false);
   const [channelContentRef, channelContentWidthPx] =
     useElementWidth<HTMLDivElement>();
@@ -601,9 +603,11 @@ export function ChannelScreen({
     useChannelProfilePanel({
       closeAgentSession: handleCloseAgentSession,
       setChannelManagementOpen,
+      setConversationContextOpen: setIsConversationContextOpen,
       setExpandedThreadReplyIds,
       setOpenThreadHeadId,
       setProfilePanelPubkey,
+      setProfilePanelTab,
       setThreadReplyTargetId,
       setThreadScrollTargetId,
     });
@@ -684,7 +688,10 @@ export function ChannelScreen({
   });
 
   const hasAuxiliaryPanel = Boolean(
-    openAgentSessionPubkey || profilePanelPubkey || channelManagementOpen,
+    openAgentSessionPubkey ||
+      profilePanelPubkey ||
+      channelManagementOpen ||
+      isConversationContextOpen,
   );
   const displayedThreadHeadMessage = threadPanelData.threadHead;
   const displayedThreadMessages = threadPanelData.visibleReplies;
@@ -730,6 +737,7 @@ export function ChannelScreen({
     setThreadReplyTargetId(null);
     handleCloseAgentSession();
     setProfilePanelPubkey(null);
+    setIsConversationContextOpen(false);
     setChannelManagementOpen(true);
   }, [
     activeChannel?.channelType,
@@ -740,10 +748,32 @@ export function ChannelScreen({
     handleCloseAgentSession,
     setProfilePanelPubkey,
   ]);
-  const handleToggleMembers = React.useCallback(
-    () => setIsMembersSidebarOpen((prev) => !prev),
-    [],
-  );
+  const handleToggleMembers = React.useCallback(() => {
+    if (isConversationContextOpen) {
+      setIsConversationContextOpen(false);
+      return;
+    }
+
+    setOpenThreadHeadId(null);
+    setExpandedThreadReplyIds(new Set());
+    setThreadScrollTargetId(null);
+    setThreadReplyTargetId(null);
+    handleCloseAgentSession();
+    setProfilePanelPubkey(null);
+    setChannelManagementOpen(false);
+    setIsConversationContextOpen(true);
+  }, [
+    handleCloseAgentSession,
+    isConversationContextOpen,
+    setChannelManagementOpen,
+    setOpenThreadHeadId,
+    setProfilePanelPubkey,
+  ]);
+
+  const handleBackToConversation = React.useCallback(() => {
+    setProfilePanelPubkey(null);
+    setIsConversationContextOpen(true);
+  }, [setProfilePanelPubkey]);
 
   const channelHeader = React.useMemo(
     () => (
@@ -844,6 +874,7 @@ export function ChannelScreen({
                   botTypingEntries={botTypingEntries}
                   channelFind={channelFind}
                   channelManagementOpen={channelManagementOpen}
+                  conversationContextOpen={isConversationContextOpen}
                   currentPubkey={currentPubkey}
                   canResetThreadPanelWidth={canResetThreadPanelWidth}
                   fetchOlder={fetchOlder}
@@ -903,6 +934,9 @@ export function ChannelScreen({
                       : undefined
                   }
                   onCloseChannelManagement={handleCloseChannelManagement}
+                  onCloseConversationContext={() =>
+                    setIsConversationContextOpen(false)
+                  }
                   onCloseThread={handleCloseThread}
                   onDelete={
                     activeChannel?.archivedAt ? undefined : handleDelete
@@ -917,6 +951,7 @@ export function ChannelScreen({
                   onOpenAgentSession={handleOpenAgentSession}
                   onOpenDm={handleOpenDm}
                   onOpenProfilePanel={handleOpenProfilePanel}
+                  onBackToConversation={handleBackToConversation}
                   onResetThreadPanelWidth={handleThreadPanelWidthReset}
                   onCloseProfilePanel={handleCloseProfilePanel}
                   onOpenThread={handleOpenThreadAndCloseAgentSession}

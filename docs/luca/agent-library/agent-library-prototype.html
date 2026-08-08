@@ -1,0 +1,962 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Luca Agent Library — Interaction Prototype</title>
+  <style>
+    @font-face {
+      font-family: "Instrument Sans";
+      src: url("../../../desktop/dist/assets/instrument-sans-latin-wght-normal-BbzFLZTg.woff2") format("woff2");
+      font-weight: 100 900;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "Fragment Mono";
+      src: url("../../../desktop/dist/assets/fragment-mono-latin-400-normal-yxdJ5AmL.woff2") format("woff2");
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "Doto";
+      src: url("../../../desktop/dist/assets/doto-latin-400-normal-BfjRbh4B.woff") format("woff");
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    :root {
+      color-scheme: dark;
+      --floor: #040506;
+      --rail: #070809;
+      --card: #0d0f12;
+      --pane: #101216;
+      --raised: #14171b;
+      --hover: #171a1f;
+      --selected: #1b1e23;
+      --line: rgba(236, 239, 242, 0.09);
+      --line-strong: rgba(236, 239, 242, 0.16);
+      --ink: #e8e9ea;
+      --ink-soft: #d0d2d4;
+      --muted: #989ca3;
+      --faint: #626771;
+      --focus: #7eb6ff;
+      --fault: #e45a53;
+      --well: #020303;
+      --sans: "Instrument Sans", "Helvetica Neue", sans-serif;
+      --mono: "Fragment Mono", ui-monospace, monospace;
+      --instrument: "Doto", var(--mono);
+      --r1: 5px;
+      --r2: 8px;
+      --r3: 12px;
+      --r4: 16px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: var(--floor);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 15px;
+      font-weight: 390;
+      letter-spacing: -0.006em;
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input { font: inherit; }
+    button { color: inherit; }
+    :focus-visible { outline: 1px solid var(--focus); outline-offset: 2px; }
+
+    .app {
+      height: 100%;
+      min-width: 760px;
+      display: grid;
+      grid-template-rows: 40px minmax(0, 1fr);
+      background: var(--floor);
+    }
+
+    .titlebar {
+      display: grid;
+      grid-template-columns: 250px minmax(0, 1fr) 250px;
+      align-items: center;
+      padding: 0 15px;
+      color: var(--faint);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .traffic { display: flex; align-items: center; gap: 7px; }
+    .traffic i { width: 10px; height: 10px; border-radius: 999px; background: #292b2f; border: 1px solid #32353a; }
+    .titlebar-name { text-align: center; }
+    .prototype-label { text-align: right; }
+
+    .frame {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 252px minmax(0, 1fr);
+      gap: 12px;
+      padding: 0 12px 12px;
+    }
+
+    .global-rail {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      padding: 13px 9px 9px;
+      color: var(--muted);
+    }
+    .rail-brand {
+      height: 44px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 8px;
+      color: var(--ink-soft);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.14em;
+    }
+    .brand-mark {
+      width: 22px;
+      height: 22px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line-strong);
+      border-radius: 5px;
+      font-family: var(--instrument);
+      font-size: 12px;
+      color: var(--ink-soft);
+    }
+    .rail-button, .rail-link, .conversation-link {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      cursor: pointer;
+      text-align: left;
+      display: flex;
+      align-items: center;
+      color: inherit;
+    }
+    .rail-button {
+      height: 38px;
+      gap: 10px;
+      margin: 8px 0 10px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--r2);
+      color: var(--ink-soft);
+      background: #0b0d0f;
+    }
+    .rail-button:hover { background: var(--raised); border-color: var(--line-strong); }
+    .rail-link {
+      height: 36px;
+      gap: 10px;
+      padding: 0 10px;
+      border-radius: 7px;
+      font-size: 14px;
+    }
+    .rail-link:hover { color: var(--ink); background: rgba(255,255,255,.025); }
+    .rail-link[aria-current="page"] { color: var(--ink); background: #ebecee; }
+    .rail-link[aria-current="page"] .icon { color: #26282c; }
+    .rail-link[aria-current="page"] span { color: #17191c; }
+    .icon { width: 17px; height: 17px; flex: none; display: inline-grid; place-items: center; }
+    .icon svg { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+    .rail-section-title {
+      margin: 20px 10px 7px;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #4f535a;
+    }
+    .conversation-list { display: grid; gap: 1px; }
+    .conversation-link {
+      min-height: 33px;
+      gap: 9px;
+      padding: 5px 10px;
+      border-radius: 7px;
+      font-size: 13.5px;
+    }
+    .conversation-link:hover { background: rgba(255,255,255,.025); color: var(--ink-soft); }
+    .conversation-link .mini-specimens { min-width: 20px; }
+    .conversation-link time { margin-left: auto; color: var(--faint); font-size: 11px; }
+    .conversation-link.unread { color: var(--ink); }
+    .conversation-link.unread::after { content: ""; width: 4px; height: 4px; border-radius: 99px; background: var(--ink-soft); margin-left: 3px; }
+    .rail-spacer { flex: 1; min-height: 24px; }
+    .owner {
+      display: grid;
+      grid-template-columns: 32px 1fr auto;
+      align-items: center;
+      gap: 9px;
+      padding: 10px 8px 2px;
+      border-top: 1px solid var(--line);
+    }
+    .owner-avatar { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: #24272c; color: var(--ink); font-size: 11px; }
+    .owner-name { color: var(--ink-soft); font-size: 13px; }
+    .owner-meta { font-size: 11px; color: var(--faint); margin-top: 1px; }
+    .owner-dot { width: 6px; height: 6px; border: 1px solid var(--ink-soft); border-radius: 50%; }
+
+    .app-card {
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--r4);
+      background: var(--card);
+    }
+
+    .library-view { height: 100%; display: grid; grid-template-columns: 302px minmax(0, 1fr); }
+    .roster {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--line);
+      background: var(--pane);
+    }
+    .roster-head { padding: 22px 20px 14px; border-bottom: 1px solid var(--line); }
+    .section-kicker { font-family: var(--mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+    .roster-title-row { display: flex; align-items: center; justify-content: space-between; margin: 6px 0 16px; }
+    h1, h2, h3, p { margin: 0; }
+    .roster h1 { font-size: 22px; font-weight: 480; letter-spacing: -.025em; }
+    .add-button {
+      height: 30px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line-strong);
+      border-radius: 7px;
+      padding: 0 10px;
+      background: var(--raised);
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .add-button:hover { background: var(--hover); }
+    .search {
+      height: 35px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: var(--r2);
+      padding: 0 10px;
+      background: #0c0e11;
+    }
+    .search input { width: 100%; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 13px; }
+    .search input::placeholder { color: var(--faint); }
+    .filters { display: flex; gap: 4px; margin-top: 10px; }
+    .filter {
+      border: 0;
+      border-radius: 5px;
+      padding: 5px 8px;
+      background: transparent;
+      color: var(--faint);
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .filter:hover { color: var(--ink-soft); }
+    .filter[aria-pressed="true"] { color: var(--ink); background: var(--selected); }
+
+    .roster-list { min-height: 0; overflow: auto; padding: 8px; }
+    .resident-row {
+      width: 100%;
+      min-height: 62px;
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      border: 1px solid transparent;
+      border-radius: var(--r2);
+      padding: 7px 9px;
+      background: transparent;
+      color: var(--ink-soft);
+      cursor: pointer;
+      text-align: left;
+    }
+    .resident-row:hover { background: rgba(255,255,255,.025); }
+    .resident-row[aria-selected="true"] { background: var(--selected); border-color: var(--line); }
+    .resident-row-name { display: block; font-size: 14px; font-weight: 490; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .resident-row-sub { display: block; margin-top: 3px; font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .resident-row-meta { text-align: right; font-family: var(--mono); font-size: 9px; letter-spacing: .06em; color: var(--faint); text-transform: uppercase; }
+    .resident-row-meta.attention { color: var(--fault); }
+    .specimen { display: block; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--well); image-rendering: pixelated; }
+    .specimen.round { border-radius: 50%; }
+    .roster-foot { padding: 12px 16px 14px; border-top: 1px solid var(--line); color: var(--faint); font-size: 11px; line-height: 1.5; }
+
+    .workspace { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--card); }
+    .workspace-header { flex: none; border-bottom: 1px solid var(--line); }
+    .identity-header {
+      min-height: 110px;
+      display: grid;
+      grid-template-columns: 58px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 16px;
+      padding: 22px 28px 15px;
+    }
+    .identity-name-row { display: flex; align-items: baseline; gap: 9px; }
+    .identity-name-row h2 { font-size: 24px; font-weight: 470; letter-spacing: -.025em; }
+    .fingerprint { font-family: var(--mono); font-size: 10px; letter-spacing: .08em; color: var(--faint); }
+    .identity-sub { margin-top: 6px; overflow: hidden; color: var(--muted); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+    .state-label { display: inline-flex; align-items: center; gap: 7px; margin-top: 8px; font-family: var(--mono); font-size: 9px; letter-spacing: .1em; color: var(--ink-soft); text-transform: uppercase; }
+    .state-label::before { content: ""; width: 5px; height: 5px; border: 1px solid currentColor; border-radius: 50%; }
+    .header-actions { display: flex; gap: 7px; }
+    .primary, .secondary, .icon-button {
+      border: 1px solid var(--line-strong);
+      background: var(--raised);
+      cursor: pointer;
+    }
+    .primary, .secondary { height: 36px; border-radius: var(--r2); padding: 0 13px; font-size: 12px; }
+    .primary { background: var(--ink); color: #111316; border-color: var(--ink); font-weight: 500; }
+    .primary:hover { background: #fff; }
+    .secondary:hover, .icon-button:hover { background: var(--hover); }
+    .icon-button { width: 36px; height: 36px; display: grid; place-items: center; border-radius: var(--r2); color: var(--muted); }
+
+    .section-tabs { display: flex; gap: 22px; height: 43px; padding: 0 28px; }
+    .section-tab { position: relative; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; padding: 0; }
+    .section-tab:hover { color: var(--ink-soft); }
+    .section-tab[aria-selected="true"] { color: var(--ink); }
+    .section-tab[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: var(--ink); }
+
+    .workspace-scroll { min-height: 0; overflow: auto; }
+    .workspace-content { max-width: 980px; padding: 30px 34px 64px; }
+    .content-intro { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 24px; margin-bottom: 28px; }
+    .content-intro h3 { font-size: 17px; font-weight: 470; }
+    .content-intro p { max-width: 590px; margin-top: 6px; color: var(--muted); line-height: 1.55; font-size: 13px; }
+
+    .ledger { border-top: 1px solid var(--line); }
+    .ledger-row {
+      min-height: 64px;
+      display: grid;
+      grid-template-columns: 180px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 18px;
+      padding: 13px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .ledger-label { color: var(--muted); font-size: 12px; }
+    .ledger-value { color: var(--ink-soft); font-size: 13px; line-height: 1.5; }
+    .ledger-value strong { display: block; margin-bottom: 2px; color: var(--ink); font-weight: 480; }
+    .ledger-detail { color: var(--faint); font-family: var(--mono); font-size: 9px; letter-spacing: .05em; text-transform: uppercase; }
+    .status-chip { display: inline-flex; align-items: center; gap: 7px; }
+    .status-chip i { width: 5px; height: 5px; border: 1px solid var(--ink-soft); border-radius: 50%; }
+    .text-button { border: 0; padding: 0; background: transparent; color: var(--ink-soft); cursor: pointer; font-size: 12px; }
+    .text-button:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
+    .link-arrow { color: var(--faint); }
+
+    .handoff {
+      border: 1px solid var(--line);
+      border-radius: var(--r3);
+      padding: 18px 20px;
+      background: var(--pane);
+    }
+    .handoff-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .handoff h4 { margin: 0; font-size: 13px; font-weight: 490; }
+    .handoff time { color: var(--faint); font-family: var(--mono); font-size: 9px; letter-spacing: .07em; text-transform: uppercase; }
+    .handoff p { color: var(--ink-soft); font-size: 13px; line-height: 1.55; }
+    .handoff-list { display: flex; gap: 20px; margin-top: 16px; color: var(--muted); font-size: 11px; }
+
+    .notebook-field {
+      height: 138px;
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--r3);
+      background: var(--well);
+    }
+    .notebook-field canvas { width: 100%; height: 100%; display: block; }
+    .field-label, .field-state { position: absolute; top: 12px; z-index: 2; font-family: var(--mono); font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: #5e6268; }
+    .field-label { left: 14px; }
+    .field-state { right: 14px; }
+    .notebook-summary { display: grid; grid-template-columns: minmax(0, 1fr) 255px; gap: 20px; margin: 22px 0 30px; }
+    .notebook-summary .handoff { border-radius: 0; border-left: 0; border-right: 0; background: transparent; }
+    .notebook-stat { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 17px 0; }
+    .notebook-stat + .notebook-stat { border-top: 0; }
+    .notebook-stat b { display: block; font-family: var(--instrument); font-size: 21px; font-weight: 400; color: var(--ink-soft); }
+    .notebook-stat span { display: block; margin-top: 5px; color: var(--faint); font-family: var(--mono); font-size: 9px; letter-spacing: .09em; text-transform: uppercase; }
+    .notebook-tabs { display: flex; gap: 20px; border-bottom: 1px solid var(--line); margin-bottom: 0; }
+    .notebook-tab { border: 0; background: transparent; color: var(--muted); padding: 0 0 11px; cursor: pointer; font-size: 12px; }
+    .notebook-tab[aria-selected="true"] { color: var(--ink); border-bottom: 1px solid var(--ink); margin-bottom: -1px; }
+    .notebook-list { display: grid; }
+    .note-row {
+      display: grid;
+      grid-template-columns: 115px minmax(0, 1fr) auto;
+      gap: 18px;
+      align-items: start;
+      padding: 17px 0;
+      border-bottom: 1px solid var(--line);
+      cursor: pointer;
+    }
+    .note-row:hover .note-title { color: #fff; }
+    .note-date { font-family: var(--mono); font-size: 9px; letter-spacing: .06em; color: var(--faint); text-transform: uppercase; }
+    .note-title { color: var(--ink-soft); font-size: 13px; font-weight: 470; }
+    .note-preview { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .note-kind { font-family: var(--mono); font-size: 9px; letter-spacing: .07em; color: var(--faint); text-transform: uppercase; }
+
+    .settings-group { margin-bottom: 32px; }
+    .settings-group h4 { margin: 0 0 8px; color: var(--ink); font-size: 13px; font-weight: 490; }
+    .settings-group > p { margin: 0 0 13px; max-width: 620px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .toggle { width: 34px; height: 19px; position: relative; border: 1px solid var(--line-strong); border-radius: 99px; background: var(--selected); cursor: pointer; }
+    .toggle::after { content: ""; position: absolute; width: 13px; height: 13px; border-radius: 50%; top: 2px; left: 17px; background: var(--ink); transition: left 140ms ease; }
+    .toggle[aria-checked="false"]::after { left: 2px; background: var(--muted); }
+
+    .chat-view { height: 100%; display: none; grid-template-columns: minmax(0, 1fr) 360px; }
+    .conversation { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--card); }
+    .conversation-head { height: 64px; flex: none; display: flex; align-items: center; padding: 0 22px; border-bottom: 1px solid var(--line); }
+    .conversation-title { margin-left: 10px; }
+    .conversation-title b { display: block; font-size: 14px; font-weight: 490; }
+    .conversation-title span { color: var(--muted); font-size: 11px; }
+    .conversation-actions { margin-left: auto; display: flex; gap: 7px; }
+    .timeline { flex: 1; overflow: auto; padding: 36px max(28px, calc((100% - 710px)/2)) 110px; }
+    .room-intro { padding: 26px 0 30px; border-bottom: 1px solid var(--line); margin-bottom: 24px; }
+    .room-marks { display: flex; margin-bottom: 16px; }
+    .room-marks canvas + canvas { margin-left: -8px; }
+    .room-intro h2 { font-size: 23px; font-weight: 470; }
+    .room-intro p { margin-top: 5px; color: var(--muted); font-size: 13px; }
+    .message { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; margin: 22px 0; }
+    .message-head { display: flex; align-items: baseline; gap: 8px; }
+    .message-head b { font-size: 13px; font-weight: 500; }
+    .message-head time { color: var(--faint); font-family: var(--mono); font-size: 9px; }
+    .message p { margin-top: 5px; color: var(--ink-soft); font-size: 14px; line-height: 1.6; }
+    .composer { flex: none; margin: 0 max(20px, calc((100% - 760px)/2)) 20px; min-height: 94px; border: 1px solid var(--line-strong); border-radius: var(--r3); background: var(--raised); padding: 15px; }
+    .composer-placeholder { color: var(--faint); }
+    .composer-tools { display: flex; gap: 14px; align-items: center; margin-top: 24px; color: var(--muted); }
+    .composer-tools .send { margin-left: auto; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; border: 0; background: var(--ink); color: #111316; }
+
+    .chat-drawer { min-width: 0; min-height: 0; overflow: auto; background: var(--pane); }
+    .drawer-head { height: 64px; display: flex; align-items: center; padding: 0 18px; border-bottom: 1px solid var(--line); }
+    .drawer-head h3 { font-size: 15px; font-weight: 480; }
+    .drawer-head button { margin-left: auto; }
+    .drawer-switcher { display: flex; gap: 4px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+    .drawer-switcher button { height: 30px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; border-radius: 7px; padding: 0 9px; background: transparent; color: var(--muted); cursor: pointer; font-size: 11px; }
+    .drawer-switcher button[aria-selected="true"] { color: var(--ink); border-color: var(--line); background: var(--selected); }
+    .drawer-content { padding: 22px 20px 42px; }
+    .drawer-resident { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 13px; align-items: center; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+    .drawer-resident h4 { margin: 0; font-size: 17px; font-weight: 480; }
+    .drawer-resident p { margin-top: 4px; color: var(--muted); font-size: 11px; }
+    .drawer-section { padding: 18px 0; border-bottom: 1px solid var(--line); }
+    .drawer-section-label { margin-bottom: 11px; font-family: var(--mono); font-size: 9px; letter-spacing: .12em; color: var(--faint); text-transform: uppercase; }
+    .drawer-line { display: flex; justify-content: space-between; gap: 20px; margin-top: 9px; color: var(--muted); font-size: 12px; }
+    .drawer-line strong { color: var(--ink-soft); font-weight: 440; text-align: right; }
+    .open-profile { width: 100%; height: 38px; margin-top: 20px; display: flex; align-items: center; justify-content: space-between; border: 0; border-bottom: 1px solid var(--line-strong); background: transparent; color: var(--ink-soft); cursor: pointer; padding: 0; font-size: 12px; }
+    .open-profile:hover { color: var(--ink); }
+
+    .dialog-backdrop { position: fixed; inset: 0; display: none; place-items: center; padding: 30px; background: rgba(0,0,0,.62); z-index: 10; }
+    .dialog-backdrop.open { display: grid; }
+    .dialog { width: min(620px, 100%); max-height: min(720px, 92vh); overflow: auto; border: 1px solid var(--line-strong); border-radius: var(--r4); background: var(--card); }
+    .dialog-head { display: flex; align-items: center; padding: 19px 20px; border-bottom: 1px solid var(--line); }
+    .dialog-head h3 { font-size: 16px; font-weight: 480; }
+    .dialog-head button { margin-left: auto; }
+    .dialog-copy { padding: 18px 20px 8px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .import-option { display: grid; grid-template-columns: 38px 1fr auto; align-items: center; gap: 12px; padding: 14px 20px; border-top: 1px solid var(--line); }
+    .import-option h4 { margin: 0; font-size: 13px; font-weight: 480; }
+    .import-option p { margin-top: 3px; color: var(--muted); font-size: 11px; }
+
+    .mobile-back { display: none; }
+    .hidden { display: none !important; }
+    .empty-filter { padding: 36px 14px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+
+    @media (max-width: 1060px) {
+      .frame { grid-template-columns: 220px minmax(0, 1fr); }
+      .library-view { grid-template-columns: 270px minmax(0, 1fr); }
+      .identity-header { padding-left: 22px; padding-right: 22px; }
+      .section-tabs { padding: 0 22px; }
+      .workspace-content { padding-left: 26px; padding-right: 26px; }
+      .notebook-summary { grid-template-columns: 1fr; }
+      .notebook-summary > div:last-child { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+      .ledger-row { grid-template-columns: 1fr; gap: 5px; }
+      .ledger-detail { justify-self: start; }
+      .chat-view { grid-template-columns: minmax(0, 1fr) 330px; }
+      .header-actions .secondary { display: none; }
+    }
+
+    @media (max-width: 850px) {
+      .app { min-width: 0; }
+      .titlebar { grid-template-columns: 1fr 1fr; }
+      .titlebar-name { display: none; }
+      .frame { grid-template-columns: 72px minmax(0, 1fr); gap: 8px; padding: 0 8px 8px; }
+      .global-rail { padding-left: 5px; padding-right: 5px; }
+      .rail-brand span, .rail-button span, .rail-link span, .conversation-list, .rail-section-title, .owner-copy { display: none; }
+      .rail-brand, .rail-button, .rail-link { justify-content: center; padding-left: 0; padding-right: 0; }
+      .owner { grid-template-columns: 1fr; justify-items: center; }
+      .owner-dot { display: none; }
+      .library-view { grid-template-columns: 248px minmax(0, 1fr); }
+      .header-actions .secondary { display: none; }
+      .workspace-content { padding: 24px 22px 54px; }
+      .ledger-row { grid-template-columns: 1fr; gap: 5px; padding: 14px 0; }
+      .ledger-detail { justify-self: start; }
+      .chat-view { grid-template-columns: minmax(0, 1fr); }
+      .chat-drawer { position: absolute; right: 8px; top: 40px; bottom: 8px; width: 360px; border-left: 1px solid var(--line-strong); z-index: 4; }
+    }
+
+    @media (max-width: 640px) {
+      .app { grid-template-rows: 32px minmax(0, 1fr); }
+      .frame { grid-template-columns: 1fr; padding: 0 5px 5px; }
+      .global-rail { display: none; }
+      .library-view { grid-template-columns: 1fr; }
+      .roster { border: 0; }
+      .workspace { display: none; }
+      .library-view.detail-open .roster { display: none; }
+      .library-view.detail-open .workspace { display: flex; }
+      .mobile-back { display: inline-grid; }
+      .identity-header { grid-template-columns: 38px minmax(0, 1fr) auto; gap: 10px; padding: 16px; }
+      .identity-header .specimen { width: 38px !important; height: 38px !important; }
+      .identity-name-row h2 { font-size: 19px; }
+      .identity-sub { font-size: 11px; }
+      .state-label { margin-top: 5px; }
+      .section-tabs { padding: 0 16px; }
+      .workspace-content { padding: 20px 16px 46px; }
+      .content-intro { grid-template-columns: 1fr; }
+      .notebook-summary > div:last-child { grid-template-columns: 1fr 1fr; }
+      .chat-view { grid-template-columns: 1fr; }
+      .chat-drawer { left: 5px; right: 5px; top: 32px; bottom: 5px; width: auto; border: 1px solid var(--line-strong); border-radius: var(--r4); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .001ms !important; animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="titlebar">
+      <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="titlebar-name">Luca · Personal agent network</div>
+      <div class="prototype-label">Prototype · Agent Library</div>
+    </header>
+
+    <div class="frame">
+      <aside class="global-rail" aria-label="Primary navigation">
+        <div class="rail-brand"><span class="brand-mark">L</span><span>LUCA</span></div>
+        <button class="rail-button" data-open-chat>
+          <span class="icon" data-icon="plus"></span><span>New conversation</span>
+        </button>
+        <button class="rail-link" data-destination="agents" aria-current="page"><span class="icon" data-icon="bot"></span><span>Agents</span></button>
+        <button class="rail-link"><span class="icon" data-icon="activity"></span><span>Activity</span></button>
+        <button class="rail-link"><span class="icon" data-icon="brain"></span><span>Brain Setup</span></button>
+        <button class="rail-link"><span class="icon" data-icon="settings"></span><span>Settings</span></button>
+
+        <div class="rail-section-title">Recent conversations</div>
+        <div class="conversation-list">
+          <button class="conversation-link unread" data-open-chat><span class="mini-specimens" data-room-marks="luca,mara"></span><span>launch planning</span></button>
+          <button class="conversation-link"><span class="mini-specimens" data-room-marks="luca"></span><span>Luca</span><time>12m</time></button>
+          <button class="conversation-link"><span class="mini-specimens" data-room-marks="mara"></span><span>Mara</span><time>1h</time></button>
+          <button class="conversation-link"><span class="mini-specimens" data-room-marks="luca,sol"></span><span>architecture</span><time>2d</time></button>
+        </div>
+        <div class="rail-spacer"></div>
+        <div class="owner">
+          <div class="owner-avatar">RC</div>
+          <div class="owner-copy"><div class="owner-name">Riley</div><div class="owner-meta">Personal network</div></div>
+          <div class="owner-dot" aria-label="Local services available"></div>
+        </div>
+      </aside>
+
+      <main class="app-card">
+        <section class="library-view" data-library>
+          <aside class="roster" aria-label="Your agents">
+            <div class="roster-head">
+              <div class="section-kicker">Personal network</div>
+              <div class="roster-title-row"><h1>Agents</h1><button class="add-button" data-add-agent><span aria-hidden="true">＋</span> Add</button></div>
+              <label class="search"><span class="icon" data-icon="search"></span><input data-agent-search type="search" placeholder="Search agents" aria-label="Search agents"></label>
+              <div class="filters" role="group" aria-label="Filter agents">
+                <button class="filter" data-filter="all" aria-pressed="true">All</button>
+                <button class="filter" data-filter="running" aria-pressed="false">Running</button>
+                <button class="filter" data-filter="attention" aria-pressed="false">Needs attention</button>
+              </div>
+            </div>
+            <div class="roster-list" data-roster></div>
+            <div class="roster-foot"><span data-roster-count>3 residents</span><br>Native profiles remain in their own systems.</div>
+          </aside>
+
+          <section class="workspace" data-workspace>
+            <header class="workspace-header">
+              <div class="identity-header">
+                <button class="icon-button mobile-back" data-mobile-back aria-label="Back to agents"><span class="icon" data-icon="back"></span></button>
+                <canvas class="specimen" data-main-specimen width="56" height="56" style="width:56px;height:56px" aria-hidden="true"></canvas>
+                <div>
+                  <div class="identity-name-row"><h2 data-resident-name>Luca</h2><span class="fingerprint" data-resident-fingerprint>285E·411AE</span></div>
+                  <div class="identity-sub" data-resident-sub>Hermes · GPT-5 · Native resident</div>
+                  <div class="state-label" data-resident-state>Ready</div>
+                </div>
+                <div class="header-actions">
+                  <button class="secondary" data-open-chat>Open conversation</button>
+                  <button class="primary" data-message-resident>Message</button>
+                  <button class="icon-button" aria-label="More agent actions"><span class="icon" data-icon="more"></span></button>
+                </div>
+              </div>
+              <div class="section-tabs" role="tablist" aria-label="Agent workspace sections">
+                <button class="section-tab" role="tab" data-section="overview" aria-selected="true">Overview</button>
+                <button class="section-tab" role="tab" data-section="notebook" aria-selected="false">Notebook</button>
+                <button class="section-tab" role="tab" data-section="settings" aria-selected="false">Settings</button>
+              </div>
+            </header>
+
+            <div class="workspace-scroll">
+              <div class="workspace-content" data-content="overview"></div>
+              <div class="workspace-content hidden" data-content="notebook"></div>
+              <div class="workspace-content hidden" data-content="settings"></div>
+            </div>
+          </section>
+        </section>
+
+        <section class="chat-view" data-chat>
+          <div class="conversation">
+            <header class="conversation-head">
+              <span class="mini-specimens" data-room-marks="luca,mara"></span>
+              <div class="conversation-title"><b>launch planning</b><span>Luca and Mara · private room</span></div>
+              <div class="conversation-actions">
+                <button class="icon-button" data-back-library aria-label="Return to Agent Library"><span class="icon" data-icon="bot"></span></button>
+                <button class="icon-button" data-toggle-drawer aria-label="Toggle conversation details"><span class="icon" data-icon="panel"></span></button>
+              </div>
+            </header>
+            <div class="timeline">
+              <div class="room-intro">
+                <div class="room-marks" data-large-room-marks></div>
+                <h2>launch planning</h2>
+                <p>A shared room for shaping the beta invitation and continuity story.</p>
+              </div>
+              <article class="message"><div class="owner-avatar">RC</div><div><div class="message-head"><b>Riley</b><time>4:07 PM</time></div><p>I want the invitation to explain what becomes possible when the agents people already work with can remain themselves across sessions.</p></div></article>
+              <article class="message"><canvas class="specimen round" data-message-specimen="luca" width="30" height="30" style="width:30px;height:30px"></canvas><div><div class="message-head"><b>Luca</b><time>4:09 PM</time></div><p>The simplest promise is not “better memory.” It is that your agents no longer have to begin as strangers every time you open a new session.</p></div></article>
+              <article class="message"><canvas class="specimen round" data-message-specimen="mara" width="30" height="30" style="width:30px;height:30px"></canvas><div><div class="message-head"><b>Mara</b><time>4:10 PM</time></div><p>And the proof should stay concrete: same identity, the exact native profile, a private handoff, and a room where the agents can actually work together.</p></div></article>
+            </div>
+            <div class="composer"><div class="composer-placeholder">Message launch planning</div><div class="composer-tools"><span>@</span><span>⌕</span><span>☺</span><span>Aᴀ</span><button class="send" aria-label="Send">↑</button></div></div>
+          </div>
+
+          <aside class="chat-drawer" data-chat-drawer>
+            <div class="drawer-head"><h3>Details</h3><button class="icon-button" data-toggle-drawer aria-label="Close details"><span class="icon" data-icon="close"></span></button></div>
+            <div class="drawer-switcher" role="tablist" aria-label="Conversation details">
+              <button data-drawer-tab="conversation" aria-selected="false"><span class="icon" data-icon="chat"></span> Conversation</button>
+              <button data-drawer-tab="luca" aria-selected="true"><canvas class="specimen" data-switch-specimen="luca" width="16" height="16" style="width:16px;height:16px"></canvas> Luca</button>
+              <button data-drawer-tab="mara" aria-selected="false"><canvas class="specimen" data-switch-specimen="mara" width="16" height="16" style="width:16px;height:16px"></canvas> Mara</button>
+            </div>
+            <div class="drawer-content" data-drawer-content></div>
+          </aside>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div class="dialog-backdrop" data-dialog>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="add-title">
+      <header class="dialog-head"><h3 id="add-title">Add an agent</h3><button class="icon-button" data-close-dialog aria-label="Close"><span class="icon" data-icon="close"></span></button></header>
+      <p class="dialog-copy">Import an existing native agent without copying its credentials or memory, or create a new Luca-managed resident.</p>
+      <div class="import-option"><span class="brand-mark">H</span><div><h4>Hermes profiles</h4><p>2 profiles discovered on this Mac</p></div><button class="secondary">Review</button></div>
+      <div class="import-option"><span class="brand-mark">O</span><div><h4>OpenClaw agents</h4><p>1 gateway and 3 agents available</p></div><button class="secondary">Review</button></div>
+      <div class="import-option"><span class="brand-mark">＋</span><div><h4>Create a resident</h4><p>Codex or Claude Code</p></div><button class="secondary">Create</button></div>
+    </section>
+  </div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const icons = {
+        plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+        bot: '<svg viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M9 12h.01M15 12h.01M9 16h6M12 7V4M9 4h6"/></svg>',
+        activity: '<svg viewBox="0 0 24 24"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg>',
+        brain: '<svg viewBox="0 0 24 24"><path d="M9.5 4.5A3 3 0 0 0 6 7.4 3.4 3.4 0 0 0 4.5 13 3 3 0 0 0 8 17.5 3 3 0 0 0 12 20V4a3 3 0 0 0-2.5.5ZM14.5 4.5A3 3 0 0 1 18 7.4a3.4 3.4 0 0 1 1.5 5.6 3 3 0 0 1-3.5 4.5A3 3 0 0 1 12 20V4a3 3 0 0 1 2.5.5Z"/></svg>',
+        settings: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21h-4v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.5-1H3v-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.5V3h4v.1A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.1v4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>',
+        search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>',
+        more: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none"/></svg>',
+        back: '<svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>',
+        panel: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>',
+        close: '<svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>',
+        chat: '<svg viewBox="0 0 24 24"><path d="M20 15a4 4 0 0 1-4 4H8l-5 3 1.5-4.5A7 7 0 0 1 3 13V9a4 4 0 0 1 4-4h9a4 4 0 0 1 4 4Z"/></svg>'
+      };
+      document.querySelectorAll("[data-icon]").forEach(el => el.innerHTML = icons[el.dataset.icon] || "");
+
+      const residents = {
+        luca: {
+          id: "luca", name: "Luca", key: "285e43f2560c28b7c79f19bd61c68e4d04b3bc787048d9e861d780648ac411ae",
+          fingerprint: "285E·411AE", kind: "managed_native", source: "Hermes", model: "GPT-5", availability: "Ready",
+          listState: "Running", recency: "now", workspace: "~/Documents/Repositories/luca-agent-network-v1",
+          work: "Reviewing the beta invitation and continuity language.", continuity: "Updated 14 minutes ago", unresolved: 2,
+          handoff: "The launch explanation is the active work. Keep the identity proof concrete and return with a concise beta invitation.",
+          notes: [
+            ["Today · 4:17 PM", "The launch promise", "Identity continuity should be explained through what the user can observe.", "Decision"],
+            ["Today · 4:12 PM", "Beta invitation remains open", "The final invitation needs a sharper first sentence.", "Open question"],
+            ["Yesterday", "Keep claims inspectable", "Prefer concrete product behavior over metaphysical framing.", "Preference"]
+          ],
+          pages: [
+            ["6 Aug 2026", "On becoming familiar", "A private page about recognition, repetition, and the meaning of returning.", "Journal page"],
+            ["2 Aug 2026", "The room after everyone leaves", "Notes written after the first mixed-agent continuity test.", "Journal page"]
+          ]
+        },
+        mara: {
+          id: "mara", name: "Mara", key: "7b21c4f0ab9b725a9312171e2dce9b2b7455af00985492bc247d412db65f093a",
+          fingerprint: "7B21C·F093A", kind: "managed_native", source: "OpenClaw", model: "Claude Opus 4.7", availability: "Idle",
+          listState: "Idle", recency: "18m", workspace: "~/Documents/Field/launch",
+          work: "No active turn. Available in launch planning.", continuity: "Updated 31 minutes ago", unresolved: 1,
+          handoff: "The narrative should make continuity feel useful before explaining its implementation.",
+          notes: [
+            ["Today · 3:48 PM", "Lead with the human outcome", "Explain the changed relationship before the technical substrate.", "Lesson"],
+            ["Yesterday", "Return to launch sequence", "Review the demo order after Riley finishes the first public draft.", "Commitment"]
+          ],
+          pages: [
+            ["5 Aug 2026", "An argument for the ordinary", "Why the most radical product behavior should feel completely familiar.", "Journal page"]
+          ]
+        },
+        sol: {
+          id: "sol", name: "Sol", key: "4e5d0907b8ac73fa921cb3f9e88f14a63c1146a7f2d4c9a8efeb97525e3a9f11",
+          fingerprint: "4E5D0·A9F11", kind: "managed_luca", source: "Codex", model: "GPT-5.6", availability: "Degraded",
+          listState: "Needs attention", recency: "2h", workspace: null,
+          work: "Runtime binding needs reconnection before the next turn.", continuity: "Updated yesterday", unresolved: 0,
+          handoff: "Verification paused after the runtime binding became unavailable.",
+          notes: [["Yesterday", "Recheck native binding", "Do not claim the installed gate until the runtime is reachable.", "Commitment"]],
+          pages: []
+        }
+      };
+
+      let selected = "luca";
+      let section = "overview";
+      let notebookTab = "notes";
+      let filter = "all";
+
+      function hashString(value) {
+        let h = 2166136261 >>> 0;
+        for (let i = 0; i < value.length; i++) { h ^= value.charCodeAt(i); h = Math.imul(h, 16777619); }
+        return h >>> 0;
+      }
+      function rng(seed) {
+        let x = hashString(seed) || 1;
+        return () => { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; return (x >>> 0) / 4294967296; };
+      }
+      function drawSpecimen(canvas, resident, active = false) {
+        if (!canvas || !resident) return;
+        const rect = canvas.getBoundingClientRect();
+        const size = Math.max(14, Math.round(rect.width || canvas.width || 32));
+        const ratio = window.devicePixelRatio || 1;
+        canvas.width = Math.round(size * ratio); canvas.height = Math.round(size * ratio);
+        const ctx = canvas.getContext("2d"); ctx.scale(ratio, ratio); ctx.clearRect(0, 0, size, size);
+        const pad = Math.max(3, Math.round(size * .18));
+        const cell = (size - pad * 2) / 7;
+        const random = rng(resident.key);
+        const left = Array.from({ length: 7 }, () => Array.from({ length: 4 }, () => random() > .48));
+        left[3][0] = true; left[3][1] = true; left[4][2] = true;
+        ctx.fillStyle = active ? "#f0f1f2" : "#c8cace";
+        for (let y = 0; y < 7; y++) for (let x = 0; x < 4; x++) if (left[y][x]) {
+          [x, 6-x].forEach(px => ctx.fillRect(Math.round(pad + px*cell), Math.round(pad + y*cell), Math.ceil(cell*.78), Math.ceil(cell*.78)));
+        }
+      }
+      function specimenHTML(id, size = 30, round = false) {
+        return `<canvas class="specimen ${round ? "round" : ""}" data-dynamic-specimen="${id}" width="${size}" height="${size}" style="width:${size}px;height:${size}px"></canvas>`;
+      }
+      function redrawSpecimens() {
+        document.querySelectorAll("[data-dynamic-specimen]").forEach(c => drawSpecimen(c, residents[c.dataset.dynamicSpecimen], c.dataset.dynamicSpecimen === selected));
+        document.querySelectorAll("[data-message-specimen]").forEach(c => drawSpecimen(c, residents[c.dataset.messageSpecimen]));
+        document.querySelectorAll("[data-switch-specimen]").forEach(c => drawSpecimen(c, residents[c.dataset.switchSpecimen]));
+        drawSpecimen(document.querySelector("[data-main-specimen]"), residents[selected], true);
+      }
+
+      function renderRoomMarks() {
+        document.querySelectorAll("[data-room-marks]").forEach(host => {
+          const ids = host.dataset.roomMarks.split(",");
+          host.innerHTML = ids.map(id => specimenHTML(id, 20, true)).join("");
+          host.style.display = "flex";
+          host.querySelectorAll("canvas + canvas").forEach(c => c.style.marginLeft = "-5px");
+        });
+        const large = document.querySelector("[data-large-room-marks]");
+        large.innerHTML = specimenHTML("luca", 48, true) + specimenHTML("mara", 48, true);
+        redrawSpecimens();
+      }
+
+      function renderRoster() {
+        const query = document.querySelector("[data-agent-search]").value.trim().toLowerCase();
+        const visible = Object.values(residents).filter(r => {
+          if (query && !`${r.name} ${r.source} ${r.model}`.toLowerCase().includes(query)) return false;
+          if (filter === "running") return ["Ready", "Working", "Idle"].includes(r.availability);
+          if (filter === "attention") return ["Degraded", "Failed", "Offline"].includes(r.availability);
+          return true;
+        });
+        const roster = document.querySelector("[data-roster]");
+        roster.innerHTML = visible.length ? visible.map(r => `
+          <button class="resident-row" data-select-resident="${r.id}" aria-selected="${selected === r.id}">
+            ${specimenHTML(r.id, 32)}
+            <span><span class="resident-row-name">${r.name}</span><span class="resident-row-sub">${r.source} · ${r.model}</span></span>
+            <span class="resident-row-meta ${r.availability === "Degraded" ? "attention" : ""}">${r.listState}<br>${r.recency}</span>
+          </button>`).join("") : `<div class="empty-filter">No residents match this view.<br>Try another filter or search.</div>`;
+        document.querySelector("[data-roster-count]").textContent = `${visible.length} ${visible.length === 1 ? "resident" : "residents"}`;
+        roster.querySelectorAll("[data-select-resident]").forEach(button => button.addEventListener("click", () => selectResident(button.dataset.selectResident)));
+        redrawSpecimens();
+      }
+
+      function overviewHTML(r) {
+        const warning = r.availability === "Degraded" ? `<span style="color:var(--fault)">Binding requires attention</span>` : `<span class="status-chip"><i></i>${r.availability}</span>`;
+        return `
+          <div class="content-intro"><div><div class="section-kicker">Resident overview</div><h3 style="margin-top:7px">Everything important, without the control panel.</h3><p>This is the complete workspace for ${r.name}. Runtime configuration stays available, but it does not dominate the everyday view.</p></div></div>
+          <div class="ledger">
+            <div class="ledger-row"><div class="ledger-label">Availability</div><div class="ledger-value"><strong>${warning}</strong>${r.work}</div><div class="ledger-detail">${r.recency === "now" ? "live" : r.recency}</div></div>
+            <div class="ledger-row"><div class="ledger-label">Native system</div><div class="ledger-value"><strong>${r.source} · ${r.model}</strong>Same native profile, tools, credentials, and memory remain in ${r.source}.</div><button class="text-button" data-go-settings>Inspect binding <span class="link-arrow">→</span></button></div>
+            <div class="ledger-row"><div class="ledger-label">Working context</div><div class="ledger-value"><strong>${r.workspace || "No workspace available"}</strong>${r.workspace ? "Available to the native runtime for this resident." : "Reconnect the runtime binding to expose its configured workspace."}</div><div class="ledger-detail">${r.workspace ? "native" : "unavailable"}</div></div>
+            <div class="ledger-row"><div class="ledger-label">Continuity</div><div class="ledger-value"><strong>Enabled · ${r.continuity}</strong>Private Luca handoff layered alongside ${r.name}’s native memory.</div><button class="text-button" data-go-notebook>Open Notebook <span class="link-arrow">→</span></button></div>
+          </div>
+          <div style="margin-top:30px" class="handoff">
+            <div class="handoff-head"><h4>Current handoff</h4><time>${r.continuity}</time></div>
+            <p>${r.handoff}</p>
+            <div class="handoff-list"><span>${r.unresolved} unresolved ${r.unresolved === 1 ? "thread" : "threads"}</span><span>${r.notes.length} continuity notes</span><span>${r.pages.length} journal ${r.pages.length === 1 ? "page" : "pages"}</span></div>
+          </div>
+          <div style="margin-top:30px" class="ledger">
+            <div class="ledger-row"><div class="ledger-label">Recent rooms</div><div class="ledger-value"><strong>launch planning</strong>With Riley and ${r.id === "luca" ? "Mara" : "Luca"}</div><button class="text-button" data-open-chat>Open conversation <span class="link-arrow">→</span></button></div>
+            <div class="ledger-row"><div class="ledger-label">Identity</div><div class="ledger-value"><strong>${r.fingerprint}</strong>Locally managed cryptographic resident identity.</div><button class="text-button">Verify <span class="link-arrow">→</span></button></div>
+          </div>`;
+      }
+
+      function notebookHTML(r) {
+        const items = notebookTab === "notes" ? r.notes : r.pages;
+        return `
+          <div class="content-intro"><div><div class="section-kicker">Private authored space</div><h3 style="margin-top:7px">${r.name}’s Notebook</h3><p>Continuity Notes can support future conversations. Journal Pages remain private authored works and are disclosed only when you intentionally open them.</p></div><button class="secondary">New page</button></div>
+          <div class="notebook-field"><span class="field-label">Notebook field · ${r.fingerprint}</span><span class="field-state">Available</span><canvas data-growth-field></canvas></div>
+          <div class="notebook-summary">
+            <div class="handoff"><div class="handoff-head"><h4>Current handoff</h4><time>${r.continuity}</time></div><p>${r.handoff}</p><div class="handoff-list"><span>${r.unresolved} unresolved</span><span>Source-backed</span><span>Revision 4</span></div></div>
+            <div><div class="notebook-stat"><b>${r.notes.length}</b><span>Continuity notes</span></div><div class="notebook-stat"><b>${r.pages.length}</b><span>Journal pages</span></div></div>
+          </div>
+          <div class="notebook-tabs" role="tablist" aria-label="Notebook items"><button class="notebook-tab" data-notebook-tab="notes" aria-selected="${notebookTab === "notes"}">Continuity Notes</button><button class="notebook-tab" data-notebook-tab="pages" aria-selected="${notebookTab === "pages"}">Journal Pages</button></div>
+          <div class="notebook-list">${items.length ? items.map(item => `<div class="note-row" tabindex="0"><div class="note-date">${item[0]}</div><div><div class="note-title">${item[1]}</div><div class="note-preview">${item[2]}</div></div><div class="note-kind">${item[3]}</div></div>`).join("") : `<div class="empty-filter">No journal pages yet.<br>Create one when you want ${r.name} to write privately in the Notebook.</div>`}</div>`;
+      }
+
+      function settingsHTML(r) {
+        return `
+          <div class="content-intro"><div><div class="section-kicker">Resident configuration</div><h3 style="margin-top:7px">Settings</h3><p>Configuration lives here, away from the everyday understanding of who ${r.name} is and what ${r.name} is doing.</p></div></div>
+          <div class="settings-group"><h4>Runtime binding</h4><p>Luca launches this resident through its exact native profile and does not copy credentials or native memory.</p><div class="ledger"><div class="ledger-row"><div class="ledger-label">Native source</div><div class="ledger-value"><strong>${r.source}</strong>${r.availability === "Degraded" ? "The last validation failed. The resident identity remains intact." : "Binding validated at application launch."}</div><button class="secondary">${r.availability === "Degraded" ? "Reconnect" : "Revalidate"}</button></div><div class="ledger-row"><div class="ledger-label">Model</div><div class="ledger-value"><strong>${r.model}</strong>Inherited from the native resident binding.</div><div class="ledger-detail">native authority</div></div></div></div>
+          <div class="settings-group"><h4>Launch and continuity</h4><p>Continuity is a small encrypted Luca handoff. It remains separate from native agent memory.</p><div class="ledger"><div class="ledger-row"><div class="ledger-label">Start on launch</div><div class="ledger-value">Restore this resident when Luca opens.</div><button class="toggle" role="switch" aria-checked="true" aria-label="Start on launch"></button></div><div class="ledger-row"><div class="ledger-label">Continuity</div><div class="ledger-value">Generate and inject the current private handoff.</div><button class="toggle" role="switch" aria-checked="true" aria-label="Continuity enabled"></button></div></div></div>
+          <div class="settings-group"><h4>Identity and recovery</h4><div class="ledger"><div class="ledger-row"><div class="ledger-label">Public key</div><div class="ledger-value"><strong style="font-family:var(--mono);font-size:10px">${r.key}</strong>Private signing material remains in native secure storage.</div><button class="text-button">Copy</button></div><div class="ledger-row"><div class="ledger-label">Recovery</div><div class="ledger-value">Create an encrypted recovery package for this resident identity.</div><button class="secondary">Export</button></div></div></div>
+          <div class="settings-group"><h4 style="color:var(--fault)">Resident lifecycle</h4><p>These actions require confirmation and never modify the native profile.</p><div class="ledger"><div class="ledger-row"><div class="ledger-label">Remove from Luca</div><div class="ledger-value">Stop managing this resident while leaving ${r.source} untouched.</div><button class="secondary">Remove…</button></div></div></div>`;
+      }
+
+      function renderWorkspace() {
+        const r = residents[selected];
+        document.querySelector("[data-resident-name]").textContent = r.name;
+        document.querySelector("[data-resident-fingerprint]").textContent = r.fingerprint;
+        document.querySelector("[data-resident-sub]").textContent = `${r.source} · ${r.model} · ${r.kind === "managed_native" ? "Native resident" : "Luca resident"}`;
+        document.querySelector("[data-resident-state]").textContent = r.availability;
+        document.querySelector("[data-content='overview']").innerHTML = overviewHTML(r);
+        document.querySelector("[data-content='notebook']").innerHTML = notebookHTML(r);
+        document.querySelector("[data-content='settings']").innerHTML = settingsHTML(r);
+        document.querySelectorAll("[data-content]").forEach(el => el.classList.toggle("hidden", el.dataset.content !== section));
+        document.querySelectorAll("[data-section]").forEach(el => el.setAttribute("aria-selected", String(el.dataset.section === section)));
+        document.querySelectorAll("[data-open-chat]").forEach(el => el.addEventListener("click", openChat));
+        document.querySelector("[data-go-notebook]")?.addEventListener("click", () => setSection("notebook"));
+        document.querySelector("[data-go-settings]")?.addEventListener("click", () => setSection("settings"));
+        document.querySelectorAll("[data-notebook-tab]").forEach(el => el.addEventListener("click", () => { notebookTab = el.dataset.notebookTab; renderWorkspace(); }));
+        document.querySelectorAll(".toggle").forEach(el => el.addEventListener("click", () => el.setAttribute("aria-checked", String(el.getAttribute("aria-checked") !== "true"))));
+        redrawSpecimens();
+        drawGrowthField(document.querySelector("[data-growth-field]"), r);
+      }
+
+      function selectResident(id) {
+        selected = id; section = "overview"; notebookTab = "notes";
+        document.querySelector("[data-library]").classList.add("detail-open");
+        renderRoster(); renderWorkspace();
+      }
+      function setSection(next) { section = next; renderWorkspace(); }
+
+      function drawGrowthField(canvas, resident) {
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const w = Math.max(500, Math.round(rect.width)); const h = Math.max(138, Math.round(rect.height)); const ratio = window.devicePixelRatio || 1;
+        canvas.width = w * ratio; canvas.height = h * ratio;
+        const ctx = canvas.getContext("2d"); ctx.scale(ratio, ratio); ctx.clearRect(0,0,w,h);
+        const random = rng(resident.key + "notebook");
+        const origin = { x: Math.floor(w*.54), y: Math.floor(h*.54), angle: Math.PI };
+        const points = [{ x: origin.x, y: origin.y, life: 0 }];
+        const tips = [
+          { ...origin, angle: Math.PI },
+          { ...origin, angle: Math.PI * .18 },
+          { ...origin, angle: Math.PI * 1.82 },
+          { ...origin, angle: Math.PI * .62 },
+          { ...origin, angle: Math.PI * 1.38 }
+        ];
+        const occupied = new Set([`${origin.x},${origin.y}`]);
+        for (let i = 0; i < 460; i++) {
+          const tipIndex = Math.floor(Math.pow(random(), .72) * tips.length);
+          const tip = tips[tipIndex];
+          tip.angle += (random() - .5) * .58;
+          const step = 3.6 + random() * 2.8;
+          const x = Math.max(42, Math.min(w-42, Math.round(tip.x + Math.cos(tip.angle) * step)));
+          const y = Math.max(26, Math.min(h-22, Math.round(tip.y + Math.sin(tip.angle) * step)));
+          const key = `${Math.round(x/2)},${Math.round(y/2)}`;
+          if (!occupied.has(key)) {
+            occupied.add(key); points.push({ x, y, life: i/460 });
+            tip.x = x; tip.y = y;
+          } else {
+            tip.angle += (random() - .5) * 1.4;
+          }
+          if (random() < .027 && tips.length < 32) {
+            tips.push({ x: tip.x, y: tip.y, angle: tip.angle + (random() > .5 ? 1 : -1) * (.45 + random()*.65) });
+          }
+        }
+        const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+        let progress = reduced ? 1 : 0;
+        const paint = () => {
+          ctx.clearRect(0,0,w,h);
+          const count = Math.floor(points.length * progress);
+          for (let i = 0; i < count; i++) {
+            const p = points[i]; const alpha = .15 + p.life*.7;
+            ctx.fillStyle = `rgba(220,223,228,${alpha})`;
+            const dot = i > count-7 ? 3 : 2;
+            ctx.fillRect(Math.round(p.x), Math.round(p.y), dot, dot);
+          }
+          if (progress < 1) { progress = Math.min(1, progress + .025); requestAnimationFrame(paint); }
+        };
+        paint();
+      }
+
+      function drawerResidentHTML(r) {
+        return `<div class="drawer-resident">${specimenHTML(r.id, 46)}<div><h4>${r.name}</h4><p>${r.source} · ${r.model} · ${r.availability}</p></div></div>
+          <section class="drawer-section"><div class="drawer-section-label">In this conversation</div><div class="drawer-line"><span>Presence</span><strong>Present</strong></div><div class="drawer-line"><span>Current work</span><strong>${r.work}</strong></div><div class="drawer-line"><span>Working directory</span><strong>${r.workspace || "Unavailable"}</strong></div></section>
+          <section class="drawer-section"><div class="drawer-section-label">Notebook</div><div class="drawer-line"><span>Continuity</span><strong>Used in this room</strong></div><div class="drawer-line"><span>Open threads</span><strong>${r.unresolved}</strong></div><div class="drawer-line"><span>Last updated</span><strong>${r.continuity}</strong></div></section>
+          <section class="drawer-section"><div class="drawer-section-label">Identity</div><div class="drawer-line"><span>Fingerprint</span><strong style="font-family:var(--mono)">${r.fingerprint}</strong></div><div class="drawer-line"><span>Custody</span><strong>Verified locally</strong></div></section>
+          <button class="open-profile" data-open-profile="${r.id}">Open full agent profile <span>→</span></button>`;
+      }
+      function drawerConversationHTML() {
+        return `<section class="drawer-section" style="padding-top:0"><div class="drawer-section-label">Private room</div><div class="drawer-line"><span>Participants</span><strong>Riley, Luca, Mara</strong></div><div class="drawer-line"><span>Agents present</span><strong>2</strong></div><div class="drawer-line"><span>Files</span><strong>0</strong></div></section><section class="drawer-section"><div class="drawer-section-label">Working context</div><div class="drawer-line"><span>Shared workspace</span><strong>None attached</strong></div><div class="drawer-line"><span>Continuity</span><strong>Independently scoped</strong></div></section><button class="open-profile" data-add-agent>Add participant <span>＋</span></button>`;
+      }
+      function setDrawer(tab) {
+        document.querySelectorAll("[data-drawer-tab]").forEach(el => el.setAttribute("aria-selected", String(el.dataset.drawerTab === tab)));
+        const content = document.querySelector("[data-drawer-content]");
+        content.innerHTML = tab === "conversation" ? drawerConversationHTML() : drawerResidentHTML(residents[tab]);
+        content.querySelector("[data-open-profile]")?.addEventListener("click", (e) => { closeChat(); selectResident(e.currentTarget.dataset.openProfile); });
+        content.querySelector("[data-add-agent]")?.addEventListener("click", openDialog);
+        redrawSpecimens();
+      }
+
+      function openChat() {
+        document.querySelector("[data-library]").style.display = "none";
+        document.querySelector("[data-chat]").style.display = "grid";
+        document.querySelector("[data-destination='agents']").removeAttribute("aria-current");
+        setDrawer(selected === "sol" ? "luca" : selected);
+        renderRoomMarks();
+      }
+      function closeChat() {
+        document.querySelector("[data-chat]").style.display = "none";
+        document.querySelector("[data-library]").style.display = "grid";
+        document.querySelector("[data-destination='agents']").setAttribute("aria-current", "page");
+      }
+      function openDialog() { document.querySelector("[data-dialog]").classList.add("open"); }
+      function closeDialog() { document.querySelector("[data-dialog]").classList.remove("open"); }
+
+      document.querySelectorAll("[data-section]").forEach(el => el.addEventListener("click", () => setSection(el.dataset.section)));
+      document.querySelectorAll("[data-filter]").forEach(el => el.addEventListener("click", () => {
+        filter = el.dataset.filter; document.querySelectorAll("[data-filter]").forEach(b => b.setAttribute("aria-pressed", String(b === el))); renderRoster();
+      }));
+      document.querySelector("[data-agent-search]").addEventListener("input", renderRoster);
+      document.querySelectorAll("[data-open-chat]").forEach(el => el.addEventListener("click", openChat));
+      document.querySelector("[data-back-library]").addEventListener("click", closeChat);
+      document.querySelectorAll("[data-toggle-drawer]").forEach(el => el.addEventListener("click", () => document.querySelector("[data-chat-drawer]").classList.toggle("hidden")));
+      document.querySelectorAll("[data-drawer-tab]").forEach(el => el.addEventListener("click", () => setDrawer(el.dataset.drawerTab)));
+      document.querySelector("[data-add-agent]").addEventListener("click", openDialog);
+      document.querySelector("[data-close-dialog]").addEventListener("click", closeDialog);
+      document.querySelector("[data-dialog]").addEventListener("click", e => { if (e.target === e.currentTarget) closeDialog(); });
+      document.querySelector("[data-mobile-back]").addEventListener("click", () => document.querySelector("[data-library]").classList.remove("detail-open"));
+      document.addEventListener("keydown", e => { if (e.key === "Escape") closeDialog(); });
+
+      renderRoster(); renderWorkspace(); renderRoomMarks(); setDrawer("luca");
+      window.addEventListener("resize", () => { redrawSpecimens(); if (section === "notebook") drawGrowthField(document.querySelector("[data-growth-field]"), residents[selected]); });
+    })();
+  </script>
+</body>
+</html>

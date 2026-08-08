@@ -67,6 +67,7 @@ export { AgentInstructionsFocusedView } from "@/features/profile/ui/UserProfileP
 export type ProfileSummaryViewProps = {
   activityAgent: ProfileActivityAgent | null;
   callerChannelId: string | null;
+  defaultContinuitySurface?: "handoff" | "notebook";
   canAddToChannel: boolean;
   canEditAgent: boolean;
   canOpenAgentLogs: boolean;
@@ -180,6 +181,7 @@ function RuntimeTabStatusDot({ status }: { status: RuntimeTabStatus }) {
 export function ProfileSummaryView({
   activityAgent,
   callerChannelId,
+  defaultContinuitySurface,
   canAddToChannel,
   canEditAgent,
   canOpenAgentLogs,
@@ -470,6 +472,7 @@ export function ProfileSummaryView({
           ) : null}
           {activeTab === "continuity" && managedAgent ? (
             <ResidentContinuityPanel
+              defaultSurface={defaultContinuitySurface}
               residentName={displayName}
               residentPubkey={managedAgent.pubkey}
             />

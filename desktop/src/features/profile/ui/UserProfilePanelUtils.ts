@@ -101,6 +101,7 @@ export type UserProfilePanelProps = {
   isSinglePanelView?: boolean;
   layout?: "standalone" | "split";
   onClose: () => void;
+  onBackToConversation?: () => void;
   onOpenDm?: (pubkeys: string[]) => Promise<void> | void;
   onOpenProfile?: (pubkey: string) => void;
   onResetWidth?: () => void;

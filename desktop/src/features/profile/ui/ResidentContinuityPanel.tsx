@@ -59,14 +59,16 @@ const EMPTY_DRAFT: HandoffDraft = {
 };
 
 export function ResidentContinuityPanel({
+  defaultSurface = "handoff",
   residentName,
   residentPubkey,
 }: {
+  defaultSurface?: "handoff" | "notebook";
   residentName: string;
   residentPubkey: string;
 }) {
   const [surface, setSurface] = React.useState<"handoff" | "notebook">(
-    "handoff",
+    defaultSurface,
   );
 
   return (
@@ -134,7 +136,11 @@ function ContinuitySurfaceTab({
   );
 }
 
-function ResidentHandoffPanel({ residentPubkey }: { residentPubkey: string }) {
+export function ResidentHandoffPanel({
+  residentPubkey,
+}: {
+  residentPubkey: string;
+}) {
   const { goChannel } = useAppNavigation();
   const [data, setData] = React.useState<ResidentContinuityInspector | null>(
     null,

@@ -48,6 +48,35 @@ test("global back and forward move across channel routes", async ({ page }) => {
   await expect(page.getByTestId("chat-title")).toHaveText("random");
 });
 
+test("conversation details and resident profile share one drawer", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "general", exact: true }).click();
+
+  await page.getByRole("button", { name: "Open conversation details" }).click();
+  const conversationPanel = page.getByTestId("conversation-context-panel");
+  await expect(conversationPanel).toBeVisible();
+  await expect(
+    conversationPanel.getByRole("heading", { name: "Agents" }),
+  ).toBeVisible();
+  await expect(
+    conversationPanel.getByRole("tab", { name: "Conversation" }),
+  ).toHaveAttribute("aria-selected", "true");
+
+  await conversationPanel
+    .getByRole("button", { name: /alice identity, present alice Agent/ })
+    .click();
+  await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();
+  const profilePanel = page.getByTestId("user-profile-panel");
+  await expect(
+    profilePanel.locator('[data-testid^="drawer-context-agent-"]'),
+  ).toHaveAttribute("aria-selected", "true");
+  await profilePanel.getByRole("tab", { name: "Conversation" }).click();
+
+  await expect(conversationPanel).toBeVisible();
+});
+
 // FIXME: the forum post "Back to posts" header renders under the fixed top
 // chrome drag region, which intercepts the click. Pre-existing breakage —
 // this spec file was never registered in playwright.config.ts until now.

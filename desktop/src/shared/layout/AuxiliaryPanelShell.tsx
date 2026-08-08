@@ -131,7 +131,10 @@ export function AuxiliaryPanel({
   if (isSplitLayout) {
     return (
       <AuxiliaryPanelContext.Provider value={contextValue}>
-        <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
+        <div
+          className={cn("flex min-h-0 flex-1 flex-col", className)}
+          data-testid={testId}
+        >
           {header}
           {children}
           {footer}

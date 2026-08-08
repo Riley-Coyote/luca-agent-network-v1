@@ -1,4 +1,4 @@
-import { LogIn } from "lucide-react";
+import { LogIn, PanelRight } from "lucide-react";
 import * as React from "react";
 
 import { useChannelAgentActivity } from "@/features/agents/activeAgentTurnsStore";
@@ -115,7 +115,18 @@ export function ChannelScreenHeader({
         <LogIn className="mr-1.5 h-4 w-4" />
         {isJoining ? "Joining…" : "Join"}
       </Button>
-    ) : CONVERSATION_HEADER ? null : (
+    ) : CONVERSATION_HEADER ? (
+      <Button
+        aria-label="Open conversation details"
+        onClick={onToggleMembers}
+        size="icon"
+        title="Conversation details"
+        type="button"
+        variant="ghost"
+      >
+        <PanelRight />
+      </Button>
+    ) : (
       // The mark stack beside the title already says who is here, more legibly
       // than a number does. A count is org-speak; a chat app shows faces.
       <ChannelMembersBar

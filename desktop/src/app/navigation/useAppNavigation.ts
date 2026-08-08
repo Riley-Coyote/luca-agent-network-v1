@@ -70,6 +70,28 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  const goAgent = React.useCallback(
+    (
+      pubkey: string,
+      options?: NavigationBehavior & {
+        section?: "overview" | "notebook" | "settings";
+      },
+    ) =>
+      commitNavigation(
+        {
+          to: "/agents",
+          search: {
+            profile: pubkey,
+            ...(options?.section && options.section !== "overview"
+              ? { section: options.section }
+              : {}),
+          },
+        },
+        options,
+      ),
+    [commitNavigation],
+  );
+
   const goPulse = React.useCallback(
     (behavior?: NavigationBehavior) =>
       commitNavigation(
@@ -299,6 +321,7 @@ export function useAppNavigation() {
     closeForumPost,
     closeSettings,
     closeWorkflowDetail,
+    goAgent,
     goAgents,
     goChannel,
     goForumPost,

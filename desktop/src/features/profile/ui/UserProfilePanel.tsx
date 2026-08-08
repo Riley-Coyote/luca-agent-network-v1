@@ -99,6 +99,8 @@ import type {
 } from "@/shared/api/types";
 import { UserProfilePanelFrame } from "@/features/profile/ui/UserProfilePanelFrame";
 import { getUserProfilePanelHeaderContent } from "@/features/profile/ui/UserProfilePanelHeaderContent";
+import { ConversationDrawerNavigation } from "@/shared/ui/ConversationDrawerNavigation";
+import { ChatResidentPreview } from "@/features/profile/ui/ChatResidentPreview";
 export type { ProfilePanelTab, ProfilePanelView };
 
 export function UserProfilePanel({
@@ -108,6 +110,7 @@ export function UserProfilePanel({
   isSinglePanelView = false,
   layout = "standalone",
   onClose,
+  onBackToConversation,
   onOpenDm,
   onOpenProfile,
   onResetWidth,
@@ -265,7 +268,7 @@ export function UserProfilePanel({
   const followMutation = useFollowMutation(currentPubkey);
   const unfollowMutation = useUnfollowMutation(currentPubkey);
   const { canOpenAgentActivity, openAgentActivity } = useOpenAgentActivity();
-  const { goChannel } = useAppNavigation();
+  const { goAgent, goChannel } = useAppNavigation();
   const profile = resolvePanelProfile({
     managedAgent,
     persona: resolvedPersona,
@@ -766,6 +769,7 @@ export function UserProfilePanel({
       logCopyValue: isDiagnosticsLikeView ? managedAgentLogContent : null,
       logSubtitle: logHeaderSubtitle,
       onBack: () => setView("summary"),
+      onSummaryBack: undefined,
       view,
       viewerIsOwner,
     },
@@ -780,7 +784,39 @@ export function UserProfilePanel({
           : "overflow-y-auto",
       )}
     >
-      {view === "summary" ? (
+      {view === "summary" && onBackToConversation ? (
+        <ConversationDrawerNavigation
+          activePubkey={effectivePubkey}
+          agents={
+            effectivePubkey
+              ? [
+                  {
+                    name: displayName,
+                    pubkey: effectivePubkey,
+                    state: managedAgent?.lastError
+                      ? "fault"
+                      : managedAgent?.status === "running" ||
+                          managedAgent?.status === "deployed"
+                        ? "present"
+                        : "idle",
+                  },
+                ]
+              : []
+          }
+          onOpenConversation={onBackToConversation}
+        />
+      ) : null}
+      {view === "summary" && callerChannelId && effectivePubkey ? (
+        <ChatResidentPreview
+          displayName={displayName}
+          managedAgent={managedAgent}
+          onOpenFullProfile={(section) => {
+            void goAgent(effectivePubkey, { section });
+          }}
+          pubkey={effectivePubkey}
+        />
+      ) : null}
+      {view === "summary" && (!callerChannelId || !effectivePubkey) ? (
         <ProfileSummaryView
           canAddToChannel={managedAgent !== undefined && isOwner === true}
           canEditAgent={canEditAgent}
@@ -788,6 +824,7 @@ export function UserProfilePanel({
           canOpenAgentLogs={canOpenAgentLogs}
           canViewActivity={canViewActivity}
           callerChannelId={callerChannelId}
+          defaultContinuitySurface={callerChannelId ? "notebook" : "handoff"}
           channelCount={profileChannels.length}
           channelIdToName={channelIdToName}
           channels={profileChannels}

@@ -21,7 +21,7 @@ import { visualStateForActivity } from "@/features/agents/lib/activityPhase";
 type ConversationAgentActivityStripProps = {
   agents: BotActivityAgent[];
   channelId: string | null;
-  onOpenAgentSession: (pubkey: string, channelId?: string | null) => void;
+  onOpenResident: (pubkey: string) => void;
   sessionAgents: ChannelAgentSessionAgent[];
   workingPubkeys: string[];
   /** What each working resident is doing, keyed by normalized pubkey. */
@@ -48,7 +48,7 @@ function resolveVisualState(
 export function ConversationAgentActivityStrip({
   agents,
   channelId,
-  onOpenAgentSession,
+  onOpenResident,
   sessionAgents,
   workingPubkeys,
   activityByPubkey,
@@ -151,7 +151,7 @@ export function ConversationAgentActivityStrip({
           <button
             className="group flex min-w-0 items-center gap-2 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring"
             key={key}
-            onClick={() => onOpenAgentSession(agent.pubkey, channelId)}
+            onClick={() => onOpenResident(agent.pubkey)}
             type="button"
           >
             <AgentIdentitySpecimen

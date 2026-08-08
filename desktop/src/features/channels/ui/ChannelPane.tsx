@@ -23,6 +23,7 @@ import { UserProfilePanel } from "@/features/profile/ui/UserProfilePanel";
 import { ChannelFindBar } from "@/features/search/ui/ChannelFindBar";
 import { AgentSessionThreadPanel } from "@/features/channels/ui/AgentSessionThreadPanel";
 import { ChannelManagementAuxiliaryPanel } from "@/features/channels/ui/ChannelManagementAuxiliaryPanel";
+import { ConversationContextPanel } from "@/features/channels/ui/ConversationContextPanel";
 import { RightAuxiliaryPane } from "@/features/channels/ui/RightAuxiliaryPane";
 import { useChannelWorkingAgentPubkeys } from "@/features/agents/agentWorkingSignal";
 import { useChannelAgentActivity } from "@/features/agents/activeAgentTurnsStore";
@@ -73,6 +74,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   onAutoSendComplete = null,
   channelFind,
   channelManagementOpen = false,
+  conversationContextOpen = false,
   currentPubkey,
   editTarget = null,
   fetchOlder,
@@ -101,6 +103,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   onBackFromAgentSession,
   onCloseAgentSession,
   onCloseChannelManagement,
+  onCloseConversationContext,
   onChannelManagementDeleted,
   onCloseProfilePanel,
   onAddAgent,
@@ -117,6 +120,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   onOpenDm,
   onOpenMembers,
   onOpenProfilePanel,
+  onBackToConversation,
   onOpenThread,
   onResetThreadPanelWidth,
   onSelectThreadReplyTarget,
@@ -481,6 +485,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   const hasSplitAuxiliaryPane =
     useSplitAuxiliaryPane &&
     (channelManagementOpen ||
+      conversationContextOpen ||
       Boolean(activeChannel && selectedAgent) ||
       Boolean(profilePanelPubkey));
   const wrapAux = (
@@ -541,7 +546,9 @@ export const ChannelPane = React.memo(function ChannelPane({
           <ConversationAgentActivityStrip
             agents={activityAgents}
             channelId={activeChannel?.id ?? null}
-            onOpenAgentSession={onOpenAgentSession}
+            onOpenResident={(pubkey) =>
+              onOpenProfilePanel(pubkey, { tab: "continuity" })
+            }
             sessionAgents={agentSessionAgents}
             activityByPubkey={pendingActivityByPubkey}
             workingPubkeys={composerWorkingBotPubkeys}
@@ -830,6 +837,33 @@ export const ChannelPane = React.memo(function ChannelPane({
           useSplitAuxiliaryPane={useSplitAuxiliaryPane}
           transparentChrome={hasSplitAuxiliaryPane}
         />
+      ) : conversationContextOpen && activeChannel ? (
+        (() => {
+          const panel = (
+            <ConversationContextPanel
+              agents={agentSessionAgents}
+              canResetWidth={canResetThreadPanelWidth}
+              channel={activeChannel}
+              currentPubkey={currentPubkey}
+              isSinglePanelView={
+                useSplitAuxiliaryPane ? false : isSinglePanelView
+              }
+              layout={useSplitAuxiliaryPane ? "split" : "standalone"}
+              messages={visibleMessages}
+              onClose={onCloseConversationContext ?? (() => undefined)}
+              onManageParticipants={onOpenMembers ?? (() => undefined)}
+              onOpenResident={(pubkey) =>
+                onOpenProfilePanel(pubkey, { tab: "continuity" })
+              }
+              onResetWidth={onResetThreadPanelWidth}
+              onResizeStart={onThreadPanelResizeStart}
+              profiles={profiles}
+              transparentChrome={useSplitAuxiliaryPane}
+              widthPx={threadPanelWidthPx}
+            />
+          );
+          return wrapAux(panel, "conversation-context-panel-shell");
+        })()
       ) : activeChannel && selectedAgent ? (
         (() => {
           // When the panel was opened from a different channel than the
@@ -883,6 +917,7 @@ export const ChannelPane = React.memo(function ChannelPane({
               layout={useSplitAuxiliaryPane ? "split" : "standalone"}
               transparentChrome={useSplitAuxiliaryPane}
               onClose={onCloseProfilePanel}
+              onBackToConversation={onBackToConversation}
               onOpenDm={onOpenDm}
               onOpenProfile={onOpenProfilePanel}
               onTabChange={onProfilePanelTabChange}

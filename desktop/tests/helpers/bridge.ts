@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import type { RuntimeBinding } from "../../src/shared/api/types";
 import { FEATURE_OVERRIDES_STORAGE_KEY, PREVIEW_FEATURE_IDS } from "./features";
 
 export const TEST_IDENTITIES = {
@@ -58,6 +59,10 @@ type MockManagedAgentSeed = {
   autoRestartOnConfigChange?: boolean;
   respondTo?: "owner-only" | "allowlist" | "anyone";
   respondToAllowlist?: string[];
+  agentCommand?: string;
+  model?: string | null;
+  provider?: string | null;
+  nativeRuntimeBinding?: RuntimeBinding | null;
 };
 
 type MockSearchProfileSeed = {

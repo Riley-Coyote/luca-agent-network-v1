@@ -339,7 +339,10 @@
 }
 
 :root[data-luca-shell] [data-luca-inspector] {
-  background: hsl(var(--mn-glass));
+  /* Inspectors are part of the application card, not a display recess. Keep
+     pure black on the floor/rail and reserve --mn-glass for intentional
+     instrument wells such as the Notebook Field. */
+  background: hsl(var(--mn-surface));
   border-color: hsl(var(--mn-border));
 }
 

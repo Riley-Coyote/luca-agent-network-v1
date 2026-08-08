@@ -6,7 +6,7 @@ import { parse as yamlParse } from "yaml";
 
 import { relayClient } from "@/shared/api/relayClient";
 import type { ConnectionState } from "@/shared/api/relayClientShared";
-import type { RelayEvent } from "@/shared/api/types";
+import type { RelayEvent, RuntimeBinding } from "@/shared/api/types";
 import { getMarkdownParseCount } from "@/shared/ui/markdown/nodeCache";
 import { syncAgentTurnsFromEvents } from "@/features/agents/activeAgentTurnsStore";
 import { recordTimeoutFromRejection } from "@/features/moderation/lib/timeoutStore";
@@ -79,6 +79,10 @@ type MockManagedAgentSeed = {
   autoRestartOnConfigChange?: boolean;
   respondTo?: RawManagedAgent["respond_to"];
   respondToAllowlist?: string[];
+  agentCommand?: string;
+  model?: string | null;
+  provider?: string | null;
+  nativeRuntimeBinding?: RuntimeBinding | null;
 };
 
 type MockRelayAgentSeed = {
@@ -685,6 +689,7 @@ type RawManagedAgent = {
   backend_agent_id: string | null;
   respond_to: "owner-only" | "allowlist" | "anyone";
   respond_to_allowlist: string[];
+  native_runtime_binding?: RuntimeBinding | null;
 };
 
 type RawCreateManagedAgentResponse = {
@@ -1403,6 +1408,7 @@ function cloneManagedAgent(agent: MockManagedAgent): RawManagedAgent {
     auto_restart_on_config_change: agent.auto_restart_on_config_change ?? true,
     backend: agent.backend ?? { type: "local" as const },
     backend_agent_id: agent.backend_agent_id ?? null,
+    native_runtime_binding: agent.native_runtime_binding ?? null,
     respond_to: agent.respond_to ?? "owner-only",
     respond_to_allowlist: agent.respond_to_allowlist
       ? [...agent.respond_to_allowlist]
@@ -1909,7 +1915,7 @@ function buildSeededManagedAgent(seed: MockManagedAgentSeed): MockManagedAgent {
     persona_id: seed.personaId ?? null,
     relay_url: DEFAULT_RELAY_WS_URL,
     acp_command: "buzz-acp",
-    agent_command: "goose",
+    agent_command: seed.agentCommand ?? "codex",
     agent_args: ["acp"],
     mcp_command: "",
     turn_timeout_seconds: 320,
@@ -1918,7 +1924,8 @@ function buildSeededManagedAgent(seed: MockManagedAgentSeed): MockManagedAgent {
     parallelism: 1,
     system_prompt: null,
     avatar_url: seed.avatarUrl ?? null,
-    model: null,
+    model: seed.model ?? null,
+    provider: seed.provider ?? null,
     env_vars: {},
     status,
     pid: status === "running" ? 42000 + mockManagedAgents.length : null,
@@ -1937,6 +1944,7 @@ function buildSeededManagedAgent(seed: MockManagedAgentSeed): MockManagedAgent {
     backend_agent_id: null,
     respond_to: seed.respondTo ?? "owner-only",
     respond_to_allowlist: seed.respondToAllowlist ?? [],
+    native_runtime_binding: seed.nativeRuntimeBinding ?? null,
     private_key_nsec: `nsec1mock${seed.pubkey.slice(0, 20)}`,
     log_lines: [
       `buzz-acp starting: relay=${DEFAULT_RELAY_WS_URL} agent_pubkey=${seed.pubkey} parallelism=1`,
@@ -10033,6 +10041,23 @@ export function maybeInstallE2eTauriMocks() {
         return activeConfig?.mock?.relayRequiresMembership ?? false;
       case "discover_acp_providers":
         return handleDiscoverAcpRuntimes(activeConfig);
+      case "discover_native_residents":
+        return {
+          runtimes: [
+            {
+              nativeType: "hermes",
+              status: "absent",
+              message: "No additional Hermes profiles found in this preview.",
+              candidates: [],
+            },
+            {
+              nativeType: "openclaw",
+              status: "absent",
+              message: "No additional OpenClaw agents found in this preview.",
+              candidates: [],
+            },
+          ],
+        };
       case "discover_acp_auth_methods":
         return handleDiscoverAcpAuthMethods(
           payload as { runtimeId?: string },
@@ -10300,6 +10325,8 @@ export function maybeInstallE2eTauriMocks() {
       }
       case "list_managed_agents":
         return handleListManagedAgents(activeConfig);
+      case "is_shared_identity":
+        return false;
       case "get_agent_memory":
         return handleGetAgentMemory(
           (payload as Parameters<typeof handleGetAgentMemory>[0]) ?? {},

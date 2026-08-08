@@ -18,6 +18,7 @@ export function getUserProfilePanelHeaderContent({
   logCopyValue,
   logSubtitle,
   onBack,
+  onSummaryBack,
   view,
   viewerIsOwner,
 }: {
@@ -26,6 +27,7 @@ export function getUserProfilePanelHeaderContent({
   logCopyValue?: string | null;
   logSubtitle?: string | null;
   onBack: () => void;
+  onSummaryBack?: () => void;
   view: ProfilePanelView;
   viewerIsOwner: boolean;
 }) {
@@ -35,9 +37,11 @@ export function getUserProfilePanelHeaderContent({
   const headerLeftContent = (
     <AuxiliaryPanelHeaderGroup
       align={shouldShowLogDetails ? "start" : "center"}
-      backButtonAriaLabel="Back to profile"
+      backButtonAriaLabel={
+        view === "summary" ? "Back to conversation" : "Back to profile"
+      }
       backButtonTestId="user-profile-panel-back"
-      onBack={view !== "summary" ? onBack : undefined}
+      onBack={view !== "summary" ? onBack : onSummaryBack}
     >
       <AuxiliaryPanelHeaderTitleBlock
         subtitle={shouldShowLogDetails ? logSubtitle : null}

@@ -1,25 +1,7 @@
 import * as React from "react";
 
-import { useAppNavigation } from "@/app/navigation/useAppNavigation";
-import { usePersonasQuery } from "@/features/agents/hooks";
-import { useOpenDmMutation } from "@/features/channels/hooks";
-import {
-  type ProfilePanelTab,
-  type ProfilePanelView,
-  UserProfilePanel,
-} from "@/features/profile/ui/UserProfilePanel";
-import {
-  profilePanelTabFromSearch,
-  profilePanelViewFromSearch,
-} from "@/features/profile/ui/UserProfilePanelUtils";
-import { useIdentityQuery } from "@/shared/api/hooks";
-import type { AgentPersona } from "@/shared/api/types";
-import {
-  type ProfilePanelOpenOptions,
-  ProfilePanelProvider,
-} from "@/shared/context/ProfilePanelContext";
+import type { AgentLibrarySection } from "@/features/agents/ui/AgentLibraryWorkspace";
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
-import { useThreadPanelWidth } from "@/shared/hooks/useThreadPanelWidth";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
 const AgentsView = React.lazy(async () => {
@@ -27,133 +9,89 @@ const AgentsView = React.lazy(async () => {
   return { default: module.AgentsView };
 });
 
-type ProfilePanelTarget =
-  | { kind: "pubkey"; pubkey: string }
-  | { kind: "persona"; persona: AgentPersona };
-
-const AGENTS_PROFILE_SEARCH_KEYS = [
+const AGENT_LIBRARY_SEARCH_KEYS = [
   "profile",
   "profilePersona",
   "profileTab",
   "profileView",
+  "section",
 ] as const;
 
+function sectionFromSearch(
+  value: string | null,
+  legacyTab: string | null,
+): AgentLibrarySection {
+  if (value === "notebook" || value === "settings") return value;
+  if (legacyTab === "continuity" || legacyTab === "memories") {
+    return "notebook";
+  }
+  if (legacyTab === "runtime") return "settings";
+  return "overview";
+}
+
 export function AgentsScreen() {
-  const identityQuery = useIdentityQuery();
-  const personasQuery = usePersonasQuery();
   const { applyPatch, values } = useHistorySearchState(
-    AGENTS_PROFILE_SEARCH_KEYS,
+    AGENT_LIBRARY_SEARCH_KEYS,
   );
-  const profilePanelTab = profilePanelTabFromSearch(values.profileTab);
-  const profilePanelView = profilePanelViewFromSearch(values.profileView);
-  const profilePanelTarget = React.useMemo<ProfilePanelTarget | null>(() => {
-    if (values.profile) {
-      return { kind: "pubkey", pubkey: values.profile };
-    }
+  const section = sectionFromSearch(values.section, values.profileTab);
 
-    if (values.profilePersona) {
-      const persona = personasQuery.data?.find(
-        (candidate) => candidate.id === values.profilePersona,
-      );
-      if (persona) {
-        return { kind: "persona", persona };
-      }
-    }
-
-    return null;
-  }, [personasQuery.data, values.profile, values.profilePersona]);
-  const threadPanelWidth = useThreadPanelWidth();
-  const openDmMutation = useOpenDmMutation();
-  const { goChannel } = useAppNavigation();
-
-  const handleOpenProfilePanel = React.useCallback(
-    (pubkey: string, options?: ProfilePanelOpenOptions) => {
+  const selectResident = React.useCallback(
+    (pubkey: string) => {
       applyPatch({
         profile: pubkey,
         profilePersona: null,
-        profileTab: options?.tab === "info" ? null : (options?.tab ?? null),
-        profileView: null,
-      });
-    },
-    [applyPatch],
-  );
-
-  const handleOpenPersonaProfilePanel = React.useCallback(
-    (persona: AgentPersona) => {
-      applyPatch({
-        profile: null,
-        profilePersona: persona.id,
         profileTab: null,
         profileView: null,
+        section: "overview",
       });
     },
     [applyPatch],
   );
-  const handleCloseProfilePanel = React.useCallback(() => {
+  const selectPersona = React.useCallback(
+    (personaId: string) => {
+      applyPatch({
+        profile: null,
+        profilePersona: personaId,
+        profileTab: null,
+        profileView: null,
+        section: "overview",
+      });
+    },
+    [applyPatch],
+  );
+  const clearSelection = React.useCallback(() => {
     applyPatch({
       profile: null,
       profilePersona: null,
       profileTab: null,
       profileView: null,
+      section: null,
     });
   }, [applyPatch]);
-  const handleProfilePanelViewChange = React.useCallback(
-    (view: ProfilePanelView, options?: { replace?: boolean }) =>
-      applyPatch({ profileView: view === "summary" ? null : view }, options),
-    [applyPatch],
-  );
-  const handleProfilePanelTabChange = React.useCallback(
-    (tab: ProfilePanelTab, options?: { replace?: boolean }) =>
-      applyPatch({ profileTab: tab === "info" ? null : tab }, options),
-    [applyPatch],
-  );
-
-  const handleOpenDm = React.useCallback(
-    async (pubkeys: string[]) => {
-      const dm = await openDmMutation.mutateAsync({ pubkeys });
-      await goChannel(dm.id);
+  const changeSection = React.useCallback(
+    (next: AgentLibrarySection) => {
+      applyPatch({
+        profileTab: null,
+        profileView: null,
+        section: next === "overview" ? null : next,
+      });
     },
-    [goChannel, openDmMutation],
+    [applyPatch],
   );
 
   return (
-    <ProfilePanelProvider
-      onOpenPersonaProfilePanel={handleOpenPersonaProfilePanel}
-      onOpenProfilePanel={handleOpenProfilePanel}
-    >
-      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
-          <React.Suspense fallback={<ViewLoadingFallback kind="agents" />}>
-            <AgentsView />
-          </React.Suspense>
-          {profilePanelTarget ? (
-            <UserProfilePanel
-              canResetWidth={threadPanelWidth.canReset}
-              currentPubkey={identityQuery.data?.pubkey}
-              onClose={handleCloseProfilePanel}
-              onOpenDm={handleOpenDm}
-              onOpenProfile={handleOpenProfilePanel}
-              onResetWidth={threadPanelWidth.onResetWidth}
-              onResizeStart={threadPanelWidth.onResizeStart}
-              onTabChange={handleProfilePanelTabChange}
-              onViewChange={handleProfilePanelViewChange}
-              persona={
-                profilePanelTarget.kind === "persona"
-                  ? profilePanelTarget.persona
-                  : undefined
-              }
-              pubkey={
-                profilePanelTarget.kind === "pubkey"
-                  ? profilePanelTarget.pubkey
-                  : undefined
-              }
-              tab={profilePanelTab}
-              view={profilePanelView}
-              widthPx={threadPanelWidth.widthPx}
-            />
-          ) : null}
-        </div>
-      </div>
-    </ProfilePanelProvider>
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <React.Suspense fallback={<ViewLoadingFallback kind="agents" />}>
+        <AgentsView
+          onClearSelection={clearSelection}
+          onSectionChange={changeSection}
+          onSelectPersona={selectPersona}
+          onSelectResident={selectResident}
+          section={section}
+          selectedPersonaId={values.profilePersona}
+          selectedPubkey={values.profile}
+        />
+      </React.Suspense>
+    </div>
   );
 }

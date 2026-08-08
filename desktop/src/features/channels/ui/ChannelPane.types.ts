@@ -12,6 +12,7 @@ import type {
   ProfilePanelTab,
   ProfilePanelView,
 } from "@/features/profile/ui/UserProfilePanel";
+import type { ProfilePanelOpenOptions } from "@/shared/context/ProfilePanelContext";
 import type { Channel } from "@/shared/api/types";
 export type ChannelPaneProps = {
   activeChannel: Channel | null;
@@ -36,6 +37,7 @@ export type ChannelPaneProps = {
   botTypingEntries: TypingIndicatorEntry[];
   channelFind: ReturnType<typeof useChannelFind>;
   channelManagementOpen?: boolean;
+  conversationContextOpen?: boolean;
   currentPubkey?: string;
   editTarget?: {
     author: string;
@@ -75,6 +77,7 @@ export type ChannelPaneProps = {
   onBackFromAgentSession?: () => void;
   onCloseAgentSession: () => void;
   onCloseChannelManagement?: () => void;
+  onCloseConversationContext?: () => void;
   onChannelManagementDeleted?: () => void;
   onCloseProfilePanel: () => void;
   onAddAgent?: (options?: { beforeSend?: () => void }) => void;
@@ -95,7 +98,11 @@ export type ChannelPaneProps = {
   onOpenAgentSession: (pubkey: string, channelId?: string | null) => void;
   onOpenDm?: (pubkeys: string[]) => Promise<void> | void;
   onOpenMembers?: () => void;
-  onOpenProfilePanel: (pubkey: string) => void;
+  onOpenProfilePanel: (
+    pubkey: string,
+    options?: ProfilePanelOpenOptions,
+  ) => void;
+  onBackToConversation?: () => void;
   onOpenThread: (message: TimelineMessage) => void;
   onResetThreadPanelWidth: () => void;
   onSelectThreadReplyTarget: (message: TimelineMessage) => void;

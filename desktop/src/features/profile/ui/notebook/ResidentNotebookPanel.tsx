@@ -40,9 +40,11 @@ import {
 type NotebookView = "notes" | "pages";
 
 export function ResidentNotebookPanel({
+  handoffSlot,
   residentName,
   residentPubkey,
 }: {
+  handoffSlot?: React.ReactNode;
   residentName: string;
   residentPubkey: string;
 }) {
@@ -164,6 +166,7 @@ export function ResidentNotebookPanel({
             residentPubkey={residentPubkey}
           />
         ) : null}
+        {handoffSlot}
         <div
           aria-label="Notebook sections"
           className="grid grid-cols-2 border-b border-border/60"
