@@ -119,6 +119,7 @@ export function AppShell() {
     goAgents,
     goChannel,
     goHome,
+    goInbox,
     goNewMessage,
     goProjects,
     goPulse,
@@ -837,6 +838,7 @@ export function AppShell() {
                           searchChannels={channels}
                           searchFocusRequest={searchFocusRequest}
                           onSelectHome={() => void goHome()}
+                          onSelectInbox={() => void goInbox()}
                           onSelectProjects={() => void goProjects()}
                           onSelectPulse={() => void goPulse()}
                           onSelectSettings={handleOpenSettings}

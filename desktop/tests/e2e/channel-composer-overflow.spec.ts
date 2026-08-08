@@ -96,6 +96,7 @@ test.describe("composer overlays mask scrolled content", () => {
   }) => {
     await installMockBridge(page);
     await page.goto("/");
+    await page.getByTestId("project-luca").click();
     await page.getByTestId(`channel-${CHANNEL}`).click();
     await expect(page.getByTestId("message-timeline")).toBeVisible();
     await waitForMockLiveSubscription(page, CHANNEL);

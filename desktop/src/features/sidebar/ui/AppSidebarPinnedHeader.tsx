@@ -13,6 +13,7 @@ import { SidebarMenuLabel } from "@/shared/ui/sidebar-menu-label";
 
 type SidebarSelectedView =
   | "home"
+  | "inbox"
   | "channel"
   | "messages"
   | "agents"

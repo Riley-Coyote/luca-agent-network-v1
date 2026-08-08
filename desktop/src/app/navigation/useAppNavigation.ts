@@ -70,6 +70,17 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  const goInbox = React.useCallback(
+    (behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/inbox",
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
   const goAgent = React.useCallback(
     (
       pubkey: string,
@@ -326,6 +337,7 @@ export function useAppNavigation() {
     goChannel,
     goForumPost,
     goHome,
+    goInbox,
     goNewMessage,
     goProject,
     goProjects,

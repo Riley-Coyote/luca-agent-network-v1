@@ -17,55 +17,28 @@
    * styles from JS: inline styles outrank all stylesheets and silently
    * repaint the app in a different palette.
    *
-   * DERIVED, NOT PICKED. Every value below is one OKLCH ramp with hue and
-   * chroma LOCKED (H 265, C 0.0045 surfaces / 0.004 ink), varying only L from
-   * a 0.168 floor.
-   *
-   * The steps are deliberately UNEVEN in one place: `raised` sits only 0.012 L
-   * above `surface`, where every other gap is 0.028+. The composer must read as
-   * a distinct object without being noticeably brighter than the card it rests
-   * on — Riley's explicit constraint. That closes the card/composer luminance
-   * gap from 56.3 to 14.7 (x1e-4). The 1px lit edge does the rest of the work
-   * that lightness used to. OKLCH's L is perceptually uniform, so
-   * equal steps look equal; locking C and H makes the scale provably
-   * monochromatic rather than approximately so. The previous scale drifted
-   * 220 -> 210 in hue between surfaces and ink, and its luminance steps ran
-   * 6.8 / 18.7 / 22.3 / 40.5 (x1e-4) — badly back-loaded, so the dark end
-   * collapsed into mush.
-   *
-   * Stored as HSL because that is what the codebase consumes. The saturation
-   * column varies per step ON PURPOSE: constant OKLCH chroma maps to different
-   * HSL saturation at different lightness. That variance IS the perceptual
-   * correction, not drift. Do not "tidy" it to a single S value.
-   *
-   * Chroma is tiny but never zero. Pure neutral grey reads dead on OLED; a
-   * whisper of cool keeps it charcoal.
-   *
-   * Depth is lightness, never shadow — shadows are near-invisible on dark
-   * surfaces, so each step up the ladder is a lighter surface:
-   *   floor   — rail, canvas and top chrome: one continuous ground
-   *   surface — the cards (conversation, inspector) resting on it
-   *   raised  — composer, menus, popovers
-   *   hover   — transient row states
+   * The blackout theme uses an intentionally narrow, cool-neutral ladder. Pure
+   * black belongs to the floor and global rail; the navigator, conversation
+   * plane, composer and transient states rise only a few values at a time.
+   * This makes boundaries legible without turning the product into a stack of
+   * grey cards. The composer is the one surface allowed a short, soft shadow
+   * and a directional 1px edge because it is the primary tactile control.
    *
    * ACCESSIBILITY IS A CONSTRAINT ON THIS TABLE, not a review afterthought.
-   * ink-faint is solved, not chosen — and RE-solved whenever the floor moves.
-   * At this floor, 4.5:1 against `hover` (the lightest backdrop any ink can
-   * land on) needs OKLCH L >= 0.618, so it sits at 0.623 for margin. Every ink
-   * clears WCAG AA on every surface; the worst case is ink-faint on a hovered
-   * row at 4.60:1. If you change a surface, re-run the audit.
+   * Re-run the contrast audit whenever a surface or ink value changes.
    * ------------------------------------------------------------------ */
-  --mn-floor: 220 9.7% 6.1%;
-  --mn-surface: 220 7.2% 8.5%;
-  --mn-raised: 220 6.5% 9.6%;
-  --mn-hover: 220 5.2% 12.3%;
+  --mn-floor: 0 0% 0%;
+  --mn-navigator: 220 8% 1.2%;
+  --mn-surface: 220 8% 2.1%;
+  --mn-raised: 220 7% 2.8%;
+  --mn-hover: 220 6% 4.2%;
   /* Below the floor. Used only where a surface must read as a recess. */
-  --mn-glass: 220 10% 4.4%;
+  --mn-glass: 0 0% 0%;
   /* Aliases consumed by the semantic mappings in theme.css. */
-  --mn-surface-raised: 220 6.5% 9.6%;
-  --mn-surface-hover: 220 5.2% 12.3%;
-  --mn-border: 220 4.1% 16.5%;
-  --mn-border-strong: 220 3.1% 22.5%;
+  --mn-surface-raised: 220 7% 2.8%;
+  --mn-surface-hover: 220 6% 4.2%;
+  --mn-border: 220 5% 10.5%;
+  --mn-border-strong: 220 4% 15.5%;
   --mn-ink: 220 11.8% 93.1%;
   --mn-ink-muted: 220 2.7% 71.5%;
   --mn-ink-faint: 220 1.6% 53.2%;
@@ -75,7 +48,7 @@
    * objects, simulating light from above catching the bevel. This is what
    * makes a flat object read as physical without a gradient or a drop shadow,
    * both of which fight a lightness-based elevation model. */
-  --mn-lit-edge: inset 0 1px 0 rgb(255 255 255 / 0.04);
+  --mn-lit-edge: inset 0 1px 0 rgb(255 255 255 / 0.035);
 
   /* Shell geometry, derived once so the pieces cannot drift apart.
    * The floating chrome must occupy exactly the card's header ROW — otherwise
@@ -123,13 +96,13 @@
   --sidebar-accent-foreground: var(--mn-ink);
   --sidebar-border: var(--mn-border);
   --sidebar-ring: var(--mn-focus);
-  --sidebar-active: 220 5% 84.1%;
-  --sidebar-active-foreground: var(--mn-floor);
+  --sidebar-active: var(--mn-hover);
+  --sidebar-active-foreground: var(--mn-ink);
   /* --buzz-active-surface is used directly as a colour; --buzz-active-foreground
      feeds --sidebar-active-foreground and is re-wrapped by Tailwind, so it stays
      a bare triplet. See the note in theme.css. */
-  --buzz-active-surface: hsl(220 5% 84.1%);
-  --buzz-active-foreground: var(--mn-floor);
+  --buzz-active-surface: hsl(var(--mn-hover));
+  --buzz-active-foreground: var(--mn-ink);
 }
 
 :root[data-luca-shell].dark {
@@ -154,6 +127,10 @@
 :root[data-luca-shell] [data-sidebar="sidebar"] {
   background: hsl(var(--mn-floor));
   border-color: hsl(var(--mn-border));
+}
+
+:root[data-luca-shell] [data-luca-workspace-navigation] > div {
+  background: hsl(var(--mn-navigator));
 }
 
 /* The conversation card. The lip is equal on top, right and bottom; the left
@@ -326,12 +303,46 @@
 
 :root[data-luca-shell] [data-testid="message-composer"] {
   background: hsl(var(--mn-raised));
-  border-color: hsl(var(--mn-border-strong));
+  border-color: hsl(var(--mn-border) / 0.86);
   border-radius: 8px;
-  /* Lit edge, not a drop shadow. The composer is DOCKED, not floating — a
-     shadow would imply it hovers over the conversation. The bevel highlight
-     lifts it off the card without lying about its position. */
-  box-shadow: var(--mn-lit-edge);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.028),
+    0 6px 14px rgb(0 0 0 / 0.2),
+    0 1px 2px rgb(0 0 0 / 0.18);
+  min-height: 46px;
+}
+
+:root[data-luca-shell] [data-testid="message-composer"]:focus-within {
+  border-color: hsl(var(--mn-border-strong) / 0.72);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.038),
+    0 6px 14px rgb(0 0 0 / 0.22),
+    0 0 0 1px hsl(var(--mn-border) / 0.18);
+}
+
+/* The legacy masks were inset for a full-width composer. Luca's compact
+   reading-plane composer is centered, so anchor the masks to that same 48rem
+   width or timeline text can remain visible beside its lower corners. */
+:root[data-luca-shell]
+  [data-testid="channel-composer-overlay"]
+  .composer-overlay-corner-masks::before {
+  left: max(0px, calc((100% - 48rem) / 2));
+}
+
+:root[data-luca-shell]
+  [data-testid="channel-composer-overlay"]
+  .composer-overlay-corner-masks::after {
+  right: max(0px, calc((100% - 48rem) / 2));
+}
+
+:root[data-luca-shell] [data-testid="message-composer-toolbar"] {
+  width: 100%;
+}
+
+:root[data-luca-shell]
+  [data-testid="message-composer-toolbar"]
+  [data-size="icon"] {
+  color: hsl(var(--mn-ink-muted) / 0.72);
 }
 
 :root[data-luca-shell] [data-testid="channel-composer-activity-row"] {

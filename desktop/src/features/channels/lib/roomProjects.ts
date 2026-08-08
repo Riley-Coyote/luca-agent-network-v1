@@ -21,6 +21,8 @@ import * as React from "react";
 export type RoomProject = {
   id: string;
   label: string;
+  /** Optional local working directory shown as context, never inferred. */
+  path?: string;
 };
 
 const PROJECTS_KEY = "luca.projects.v1";
@@ -28,8 +30,16 @@ const ASSIGNMENTS_KEY = "luca.roomProjects.v1";
 
 /** Demo assignment, mock only — never seeded into a real profile. */
 const DEMO_PROJECTS: RoomProject[] = [
-  { id: "luca", label: "Luca" },
-  { id: "polyphonic", label: "Polyphonic" },
+  {
+    id: "luca",
+    label: "Luca",
+    path: "~/Documents/Repositories/luca-agent-network-v1",
+  },
+  {
+    id: "polyphonic",
+    label: "Polyphonic",
+    path: "~/Documents/Repositories/polyphonic",
+  },
 ];
 const DEMO_ASSIGNMENT: Record<string, string> = {
   general: "luca",
@@ -59,15 +69,24 @@ function isMockRuntime(): boolean {
  * Resolve each room's project. Keyed by channel id, with the demo map falling
  * back to channel NAME so it survives the mock's regenerated ids.
  */
-export function useRoomProjects(
+export function useRoomProjectCatalog(
   channels: readonly { id: string; name: string }[],
-): ReadonlyMap<string, RoomProject> {
+): {
+  projectByChannelId: ReadonlyMap<string, RoomProject>;
+  projects: readonly RoomProject[];
+} {
   return React.useMemo(() => {
+    const storedProjects = readJson<RoomProject[]>(PROJECTS_KEY, []);
+    const projectList = [
+      ...storedProjects,
+      ...(isMockRuntime()
+        ? DEMO_PROJECTS.filter(
+            (demo) => !storedProjects.some((project) => project.id === demo.id),
+          )
+        : []),
+    ];
     const projects = new Map(
-      [
-        ...readJson<RoomProject[]>(PROJECTS_KEY, []),
-        ...(isMockRuntime() ? DEMO_PROJECTS : []),
-      ].map((project) => [project.id, project]),
+      projectList.map((project) => [project.id, project]),
     );
     const assignments = readJson<Record<string, string>>(ASSIGNMENTS_KEY, {});
 
@@ -79,6 +98,12 @@ export function useRoomProjects(
       const project = projectId ? projects.get(projectId) : undefined;
       if (project) resolved.set(channel.id, project);
     }
-    return resolved;
+    return { projectByChannelId: resolved, projects: projectList };
   }, [channels]);
+}
+
+export function useRoomProjects(
+  channels: readonly { id: string; name: string }[],
+): ReadonlyMap<string, RoomProject> {
+  return useRoomProjectCatalog(channels).projectByChannelId;
 }

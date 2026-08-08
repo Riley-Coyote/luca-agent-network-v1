@@ -991,7 +991,7 @@ function MessageComposerImpl({
             onCancelReply={onCancelReply}
           />
           <form
-            className="relative z-10 isolate rounded-lg border border-border bg-card px-3 pb-2 pt-3 shadow-none sm:px-4"
+            className="relative z-10 isolate rounded-lg border border-border bg-card px-2 py-1.5 shadow-none"
             data-testid="message-composer"
             onDragEnter={ownsDropZone ? media.handleDragEnter : undefined}
             onDragLeave={ownsDropZone ? media.handleDragLeave : undefined}
@@ -1063,16 +1063,6 @@ function MessageComposerImpl({
               </div>
             )}
 
-            {/* biome-ignore lint/a11y/noStaticElementInteractions: keydown handler bridges Tiptap editor to autocomplete and submit */}
-            <div
-              className="rich-text-composer relative max-h-32 overflow-y-auto"
-              data-testid="message-input-scroll"
-              ref={composerScrollRef}
-              onKeyDown={handleEditorKeyDown}
-            >
-              <EditorContent editor={richText.editor} />
-            </div>
-
             <MessageComposerToolbar
               composerDisabled={disabled}
               editor={richText.editor}
@@ -1090,7 +1080,17 @@ function MessageComposerImpl({
               onOpenMentionPicker={openMentionPicker}
               onPaperclip={handlePaperclipClick}
               sendDisabled={sendDisabled}
-            />
+            >
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: keydown handler bridges Tiptap editor to autocomplete and submit */}
+              <div
+                className="rich-text-composer relative max-h-32 min-w-0 flex-1 overflow-y-auto"
+                data-testid="message-input-scroll"
+                ref={composerScrollRef}
+                onKeyDown={handleEditorKeyDown}
+              >
+                <EditorContent editor={richText.editor} />
+              </div>
+            </MessageComposerToolbar>
           </form>
         </div>
       </footer>

@@ -27,14 +27,14 @@ import {
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
-const SIDEBAR_WIDTH_STORAGE_KEY = "luca-conversation-sidebar-width";
-const SIDEBAR_WIDTH_DEFAULT = 264;
+const SIDEBAR_WIDTH_STORAGE_KEY = "luca-workspace-sidebar-width.v2";
+const SIDEBAR_WIDTH_DEFAULT = 300;
 const SIDEBAR_WIDTH_DEFAULT_HAPTIC_THRESHOLD = 2;
 const SIDEBAR_WIDTH_DEFAULT_SNAP_DISTANCE = 8;
 const SIDEBAR_WIDTH_DEFAULT_MAGNET_DISTANCE = 28;
-const SIDEBAR_WIDTH_MIN = 220;
-const SIDEBAR_WIDTH_MAX = 420;
-const SIDEBAR_WIDTH_MOBILE = "288px";
+const SIDEBAR_WIDTH_MIN = 272;
+const SIDEBAR_WIDTH_MAX = 440;
+const SIDEBAR_WIDTH_MOBILE = "300px";
 const SIDEBAR_WIDTH_ICON = "48px";
 const SIDEBAR_KEYBOARD_SHORTCUT = "s";
 
@@ -322,7 +322,10 @@ const Sidebar = React.forwardRef<
       null,
     );
     const canPeek =
-      !isMobile && !isResizing && collapsible === "offcanvas" && state === "collapsed";
+      !isMobile &&
+      !isResizing &&
+      collapsible === "offcanvas" &&
+      state === "collapsed";
 
     React.useEffect(() => {
       if (!canPeek) setPeek(false);
