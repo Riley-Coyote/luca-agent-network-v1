@@ -129,10 +129,6 @@
   border-color: hsl(var(--mn-border));
 }
 
-:root[data-luca-shell] [data-luca-workspace-navigation] > div {
-  background: hsl(var(--mn-navigator));
-}
-
 /* The conversation card. The lip is equal on top, right and bottom; the left
    edge keeps a 1px seam against the rail (paired with the sidebar's `pr-px`),
    so the card reads as a panel resting on the floor rather than a boxed-in

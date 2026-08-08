@@ -2,16 +2,18 @@
 
 ## Product model
 
-- The left edge is a stable global dock: Home, Inbox, Agents, Activity, projects, Settings, and owner identity.
-- The adjacent navigator is contextual. Home shows direct conversations and loose rooms. A project shows only the rooms and working context attached to that project.
+- Luca keeps one familiar persistent rail. It contains search, New conversation, Agents, Activity, Brain Setup, Settings, conversations, and owner identity.
+- There is no global icon dock, second navigator, workspace switcher, or current-project mode.
+- Direct conversations and loose rooms remain in the leading `Rooms` group. Project-bound rooms appear in lightweight collapsible groups inside the same rail.
+- Project groups are ordered by recent room activity. They are organization, not navigation modes.
 - A direct message is never owned by a project. A room may have one project home.
 - Selecting any room or direct conversation opens its timeline immediately. Buzz/Luca event, unread, search, attachment, thread, and runtime semantics remain canonical.
 - Replies expand inline. The right rail remains optional inspection space rather than a second required messaging surface.
 
 ## Material hierarchy
 
-- Pure black is reserved for the application floor and global dock.
-- Navigator, conversation, inspector, raised controls, and hover states use narrow neutral steps above black.
+- Pure black is reserved for the application floor and persistent rail.
+- Conversation, inspector, raised controls, and hover states use narrow neutral steps above black.
 - Depth comes from tonal separation, hairlines, and one restrained directional edge. No gradients or ambient glow.
 - The composer is compact, nearly the same value as the conversation plane, and uses a subtle top edge plus a short shadow.
 
@@ -24,7 +26,7 @@
 
 ## Responsive behavior
 
-- Desktop uses dock + contextual navigator + one dominant conversation card.
+- Desktop uses one persistent rail plus one dominant conversation card.
 - The existing off-canvas sidebar behavior remains the mobile navigation mechanism.
 - The right inspector remains optional and responsive.
 
