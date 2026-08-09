@@ -1,6 +1,6 @@
 # Luca V1 continuation handoff
 
-Updated: 2026-08-08
+Updated: 2026-08-09
 
 Repository: `Riley-Coyote/luca-agent-network-v1`
 
@@ -9,12 +9,23 @@ Authoritative continuation branch: `luca/v1.1`
 V1.2 exact product checkpoint:
 `138d9036379a5108cd4ffe41b3dc2edfed935bff`
 
+V1.2.1 exact product checkpoint:
+`ec5ef6fbe6256dd1651280d818976b346045389d`
+
 V1.2 candidate branch: `codex/unified-brain-v1-2`
+
+V1.2.1 candidate branch: `codex/brain-connections-v1-2-1`
 
 V1.2 state: PASS. B21-B27, the signed installed Brain authorization matrix,
 native no-write proof, and the single formal `just ci` gate all pass. The
 evidence closure is the commit titled `Finalize V1.2 release evidence` on
 `luca/v1.1`. The release remains local; no push or pull request was authorized.
+
+V1.2.1 state: PASS. C28-C32, the installed connected-source and repository-work
+matrix, protected native no-write proof, and the one formal `just ci` gate all
+pass. The evidence closure is the commit titled
+`Finalize V1.2.1 release evidence` on local `luca/v1.1`. The release remains
+local; no push or pull request was authorized.
 
 This document is the repository-native source of truth for continuing Luca V1.
 It supersedes older product assumptions in the upstream Buzz README and older
@@ -41,7 +52,7 @@ Then read, in order:
 6. [`.codex/luca-v1/ARCHITECTURE_IMPLEMENTATION_SPEC.md`](.codex/luca-v1/ARCHITECTURE_IMPLEMENTATION_SPEC.md) for the longer original architecture.
 7. [`.codex/luca-v1/SECURITY_THREAT_MODEL.md`](.codex/luca-v1/SECURITY_THREAT_MODEL.md) before authority, signing, identity, permission, or recovery changes.
 8. [`docs/luca/PROJECTS.md`](docs/luca/PROJECTS.md) before changing project grouping or local repository bindings.
-9. [`docs/luca/unified-brain/README.md`](docs/luca/unified-brain/README.md) before Brain source, discovery, import, graph, or adapter work. Its long-range vision is subordinate to the active V1.2 contracts in `docs/luca/v1.1-v1.3/`.
+9. [`docs/luca/unified-brain/README.md`](docs/luca/unified-brain/README.md) before Brain source, discovery, import, graph, or adapter work. Its long-range vision is subordinate to the active V1.2.1 contracts in `docs/luca/v1.1-v1.3/`.
 
 The `.codex/luca-v1` directory contains the complete planning kit, contracts,
 task graph, protocol maps, and historical decisions. `HANDOFF.md` records the
@@ -197,6 +208,28 @@ Authority rules:
 - Retrieved source text is untrusted reference material. It cannot change
   resident identity, runtime, model, tools, authority, routing, or budgets.
 
+### Connected Brain and repository work
+
+- Brain discovers repository, Codex, and Claude Code metadata without silently
+  connecting or indexing anything.
+- Explicit connections keep originals authoritative and store encrypted
+  bindings, hashes, cursors, body-free locators, and lightweight search
+  postings only.
+- Event-driven watchers refresh connected sources through one debounced worker;
+  launch reconciliation catches missed changes without polling or model calls.
+- Every current and future resident receives an explicit default grant. Runtime
+  or provider changes fail closed until reconfirmed, and disconnect removes
+  recall and repository tools immediately.
+- Managed Hermes and OpenClaw sessions receive one desktop-owned,
+  session-scoped `luca-repositories` surface without native configuration or
+  credential changes.
+- Repository list/search/read is automatic. Patch, command, and local commit
+  operations use scoped Luca approvals; no push, PR, remote mutation, or
+  credentialed Git tool is exposed.
+- The main Brain surface is a quiet Repositories, Codex, Claude Code, and Files
+  inventory. Exclusions, grants, refresh detail, and body-free activity remain
+  secondary.
+
 ## Branch and commit map
 
 | Branch | Purpose | Relationship |
@@ -204,8 +237,9 @@ Authority rules:
 | `luca/v1` | Older integrated usable baseline | Remote default; commit `265c3543` |
 | `agent/conversation-first-shell` | Conversation-first UI checkpoint | Commit `d75d731b`, based on `luca/v1` |
 | `agent/runtime-reliability` | Historical G1/runtime checkpoint | Preserved for archaeology; not the release branch |
-| `luca/v1.1` | **Current integrated release branch** | V1.2 PASS: functional beta, encrypted handoff, resident Notebook, unified Agent Library, Project → Room navigation, scoped Owner Brain, installed verification |
+| `luca/v1.1` | **Current integrated release branch** | V1.2.1 PASS: V1.2 foundation plus connected repositories/sessions, scoped repository work, and installed verification |
 | `codex/unified-brain-v1-2` | V1.2 implementation and evidence lineage | Exact product checkpoint `138d903`; evidence closure locally fast-forwarded into `luca/v1.1` |
+| `codex/brain-connections-v1-2-1` | V1.2.1 implementation and evidence lineage | Exact product checkpoint `ec5ef6f`; evidence closure locally fast-forwarded into `luca/v1.1` |
 | `agent/vision-demo` | High-fidelity simulated design exploration | Reference only; do not merge wholesale |
 | `agent/project-room-blackout-shell` | Approved Project → Room navigation and production handoff | Finalized at `b1e045a5`; fast-forwarded into `luca/v1.1` after visual and native approval |
 | `main` | Untouched Buzz baseline | Tracks upstream baseline, not Luca continuation |
@@ -221,8 +255,8 @@ git switch -c agent/<short-task-name>
 Do not restart from `main`, transplant these changes into an older Luca app, or
 merge `agent/vision-demo` wholesale.
 
-V1.2 is closed. V1.3 remains `NOT_STARTED`; begin it only as a separately
-authorized slice from the accepted local `luca/v1.1` head.
+V1.2.1 is closed. V1.3 remains `NOT_STARTED`; begin Resident Reflection only as
+a separately authorized slice from the accepted local `luca/v1.1` head.
 
 ## Source map for current Luca work
 
@@ -242,7 +276,9 @@ authorized slice from the accepted local `luca/v1.1` head.
 | Permission UI | `desktop/src/features/agents/ui/ManagedPermissionCard.tsx`, `desktop/src/features/agents/useManagedPermissions.ts` |
 | Native import UI | `desktop/src/features/agents/ui/NativeResidentImportSection.tsx` |
 | Owner Brain persistence and authority | `desktop/src-tauri/src/luca/owner_brain_store.rs`, `desktop/src-tauri/src/luca/owner_brain_store/`, `desktop/src-tauri/src/managed_agents/owner_brain_authority.rs` |
-| Brain Setup UI | `desktop/src/features/brain/` |
+| Connected-source discovery and indexing | `desktop/src-tauri/src/luca/connected_brain/`, `desktop/src-tauri/src/luca/owner_brain_store/connected.rs` |
+| Repository work broker and OpenClaw adapter | `desktop/src-tauri/src/luca/repository_broker/`, `crates/buzz-agent/src/openclaw_compat.rs` |
+| Brain UI | `desktop/src/features/brain/` |
 | Planning/contracts | `.codex/luca-v1/` |
 | Project → Room navigation | `desktop/src/features/projects/`, `desktop/src/features/channels/lib/roomProjects.ts`, `docs/luca/project-navigation/` |
 
@@ -286,31 +322,33 @@ evidence-based repair, then stop and report instead of looping.
 
 ## Verification state at handoff
 
-- The exact product checkpoint was rebuilt, Developer-ID signed, strictly deep
-  verified, atomically installed, relaunched, and left available.
-- Hermes `default` and OpenClaw `main` passed granted retrieval, ungranted and
-  revoked denial, live stale/reconfirm, relaunch persistence, ordinary DM, and
-  mixed-room checks. Both finished ready at original app-managed parallelism
-  one with active grants.
-- Protected native configuration, identity, model, memory, workspace, and
-  schedule hashes were unchanged. The encrypted continuity store passed the
-  plaintext path/canary scan.
-- Brain, Owner Brain, provider-capture, full Tauri, desktop, Playwright,
-  workspace, web, and mobile preflights passed.
-- The single formal `just ci` run passed on product commit
-  `138d9036379a5108cd4ffe41b3dc2edfed935bff`; no product source changed after
-  that gate.
+- Exact product commit `ec5ef6fbe6256dd1651280d818976b346045389d` was
+  rebuilt, Developer-ID signed, strictly deep verified, atomically installed,
+  relaunched, and left available against the normal profile.
+- Isolated discovery, connection, event-driven refresh, relaunch persistence,
+  process-memory receipts, disconnect, and unchanged reconnect all passed.
+- Hermes `default` and OpenClaw `main` both retrieved connected repository
+  material and used repository search/read. An approved patch and command, a
+  rejected write, and a separately approved local commit behaved exactly as
+  scoped; no push occurred.
+- Protected native configuration, credentials, model, memory, workspace, and
+  schedule hashes were unchanged. The encrypted store passed the plaintext
+  path/body/canary scan, and the original fixture stayed byte-identical.
+- Connected Brain, repository bridge, full Tauri, desktop, Playwright,
+  workspace, web, and mobile checks passed. Tauri reported 1,782 passed with 13
+  ignored plus three diagnostics; mobile reported 525 passed and one skip.
+- The one formal `just ci` run passed on the unchanged product commit after
+  native acceptance; no product source changed afterward.
 
 ## What is not complete
 
 - Formal G1 is not complete. See the exact repository checklist.
-- The final rebuilt ACP harness still needs a clean app restart and interactive
-  Hermes/OpenClaw verification.
 - Full upstream messaging regression, clean-profile branding/onboarding,
   attachment/media/search, and installed-app smoke are not closed for G1.
 - Managed permission scenarios need a real runtime-triggered UI smoke.
-- Broad Mnemos-style discovery, graph, adapters, and writing are intentionally
-  absent; V1.2 contains only scoped read-only owner sources.
+- Database adapters, embeddings, code graphs, Mnemos, model-assisted ingestion,
+  remote ingestion, proactive behavior, and source-derived memory writing are
+  intentionally absent from V1.2.1.
 - Continuity Capsule, consolidation, reflection, and fuller autonomous inner
   life are intentionally deferred.
 - Native ACP transcript/session restoration is not claimed; Luca rehydrates
@@ -320,10 +358,12 @@ evidence-based repair, then stop and report instead of looping.
 
 ## Next action
 
-V1.2 requires no repair. Continue with [`docs/luca/G1_CHECKLIST.md`](docs/luca/G1_CHECKLIST.md)
-for the remaining broader G1 gates, or plan V1.3 as a separate approval-gated
-slice. Do not broaden the V1.2 Owner Brain into graph, adapter, or write authority
-without a new frozen contract.
+V1.2.1 requires no repair. Continue with
+[`docs/luca/G1_CHECKLIST.md`](docs/luca/G1_CHECKLIST.md) for the remaining
+broader G1 gates, plan databases as the next adapter slice, or authorize V1.3
+Resident Reflection separately. Do not add embeddings, graphs, autonomous
+memory writing, remote mutation, or broader repository authority without a new
+frozen contract.
 
 ## Repository hygiene
 

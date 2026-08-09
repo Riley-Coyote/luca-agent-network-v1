@@ -2,7 +2,7 @@ project: luca-agent-network-v1-1-v1-3
 planning_branch: agent/v1.1-v1.3-roadmap
 planning_baseline: 36472636af120cb3213dcae84b3ff5827a7c8e93
 implementation_branch: luca/v1.1
-status: V1_2_1_ACTIVE
+status: V1_2_1_PASS
 max_parallel_write_lanes: 2
 
 ownership_lanes:
@@ -226,28 +226,28 @@ tasks:
     title: Add repository Codex and Claude connected-source adapters
     depends_on: [C28]
     acceptance: [A223, A224, A225, A226, A227]
-    status: IN_PROGRESS
+    status: PASS
   - id: C30
     gate: V1.2.1-B
     lane: backend
     title: Add desktop-owned scoped repository work bridge
     depends_on: [C29]
     acceptance: [A228, A229, A230]
-    status: NOT_STARTED
+    status: PASS
   - id: C31
     gate: V1.2.1-B
     lane: frontend
     title: Replace Brain Setup console with the Brain connection inventory
     depends_on: [C28]
     acceptance: [A231]
-    status: NOT_STARTED
+    status: PASS
   - id: C32
     gate: V1.2.1-B
     lane: integration
     title: Run V1.2.1 connected-source repository-work and release gates
     depends_on: [C29, C30, C31]
     acceptance: [A223, A227, A230, A232, A401, A402, A403, A404, A405]
-    status: NOT_STARTED
+    status: PASS
 
   - id: R31
     gate: V1.3-A

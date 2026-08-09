@@ -307,3 +307,74 @@ Safe notes:
 - Formal gate: the single `just ci` run passed on the unchanged product
   checkpoint after native acceptance. No product source changed afterward.
 - Promotion: local only. No push and no pull request.
+
+## 2026-08-09 — V1.2.1 Connect Your Work release
+
+- Status: C28-C32 PASS; V1.2.1 PASS; V1.3 remains NOT_STARTED.
+- Branch: `codex/brain-connections-v1-2-1`, based on `fbdd50b` and promoted by
+  local fast-forward to `luca/v1.1` after this evidence closure.
+- Contract commit: `546c5dd`.
+- Connected-source adapter commit: `4441869`.
+- Repository bridge commit: `61ad808`.
+- Exact signed product checkpoint:
+  `ec5ef6fbe6256dd1651280d818976b346045389d`.
+- Evidence closure: the commit containing this entry, titled
+  `Finalize V1.2.1 release evidence`.
+- Product result:
+  - Brain now presents Repositories, Codex, Claude Code, and Files as explicit
+    connection cards with one plain-language consent and default grants;
+  - discovery is metadata-only and bounded; originals stay authoritative;
+  - encrypted bindings, hashes, cursors, safe metadata, and lightweight search
+    postings contain no source bodies or plaintext absolute local paths;
+  - event-driven refresh, launch reconciliation, disconnect, stale/reconfirm,
+    new-resident defaults, and V1.2 imported-file compatibility are complete;
+  - managed Hermes/OpenClaw sessions receive scoped repository read/search and
+    separately approved patch, command, and local-commit tools without native
+    configuration or credential changes;
+  - no push, remote mutation, pull-request, or credentialed Git tool exists.
+- Focused and preflight result:
+  - strict protocol/workspace/Tauri Clippy, exact formatting, diff, and all
+    file-size checks passed;
+  - connected-source discovery, filtering, parser redaction, watcher,
+    encryption, ranking, authorization, reconnect, and changed-source coverage
+    passed;
+  - repository capability containment, descendant isolation, approval expiry,
+    approved/rejected operations, local commit, and no-push coverage passed;
+  - full Tauri suite passed 1,782 tests with 13 ignored, plus three diagnostics;
+  - desktop checks, 3,420 unit tests, typecheck, production build, and focused
+    B26/F03/F07 Playwright coverage passed 9/9;
+  - mobile reported 525 passed and one intentional skip.
+- Installed artifact:
+  - bundle `com.luca.agent-network.dev`, Developer ID Application
+    `Riley Ralmuto (WQUY4M5HYR)`, strict deep verification passed;
+  - executable SHA-256
+    `601c182ba2678f671a1356256041801f692792c62b9e80a3c81a9720e0596254`;
+  - exact app atomically replaced, relaunched, and used for acceptance.
+- Native matrix:
+  - isolated discovery found one repository and one history for each supported
+    session application, then connected all three through production consent;
+  - real Hermes and OpenClaw residents retrieved repository-only material and
+    searched/read through the shared repository bridge;
+  - one patch and one command were approved, another patch was rejected, and
+    one local commit received its separate approval; no push occurred;
+  - disconnect removed recall and tools on the next turns; unchanged reconnect
+    restored both with fresh domain-separated page lineages;
+  - watcher refresh, relaunch persistence, ephemeral receipts, ordinary DMs,
+    and mixed-room health passed.
+- Privacy/no-write:
+  - original fixture commit, tree, tracked-file hash, and clean status remained
+    unchanged; the isolated working copy ended clean at its approved commit;
+  - protected Hermes/OpenClaw configuration, credentials, model, memory,
+    workspace, and schedule hashes were byte-identical;
+  - encrypted store files contained no plaintext acceptance root, source name,
+    repository/session body, or fixture canary.
+- Closure:
+  - additive synthetic histories were removed;
+  - acceptance-only discovery override was cleared;
+  - exact installed app was relaunched against the normal profile;
+  - the relay and installed app remain running.
+- Formal gate: the one `just ci` run passed on unchanged product checkpoint
+  `ec5ef6fbe6256dd1651280d818976b346045389d` after native acceptance. No
+  product source changed afterward.
+- Release verdict: `V1_2_1_VERDICT.md`.
+- Promotion: local only. No push and no pull request.
