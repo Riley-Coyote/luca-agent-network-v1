@@ -449,13 +449,17 @@ test("appearance picker — system tab (Buzz follows OS)", async ({ page }) => {
   await seedTheme(page, "buzz");
   await installMockBridge(page);
   const panel = await openAppearance(page, "system");
+  const voidTile = panel.getByTestId("theme-option-buzz-dark");
+  await expect(voidTile).toBeVisible();
+  await expect(voidTile.getByText("Void", { exact: true })).toBeVisible();
   await panel.screenshot({ path: `${SHOTS}/03-picker-system.png` });
 });
 
-test("appearance picker — light tab (Buzz)", async ({ page }) => {
+test("appearance picker — light tab keeps Void dark-only", async ({ page }) => {
   await seedTheme(page, "buzz");
   await installMockBridge(page);
   const panel = await openAppearance(page, "light");
+  await expect(panel.getByText("Void", { exact: true })).toHaveCount(0);
   await panel.screenshot({ path: `${SHOTS}/04-picker-light.png` });
 });
 
@@ -463,7 +467,47 @@ test("appearance picker — dark tab (Buzz Dark)", async ({ page }) => {
   await seedTheme(page, "buzz-dark");
   await installMockBridge(page);
   const panel = await openAppearance(page, "dark");
+  await expect(
+    panel
+      .getByTestId("theme-option-buzz-dark")
+      .getByText("Void", { exact: true }),
+  ).toBeVisible();
   await panel.screenshot({ path: `${SHOTS}/05-picker-dark.png` });
+});
+
+test("Void selects the first-party blackout palette from System mode", async ({
+  page,
+}) => {
+  await seedTheme(page, "github-light-high-contrast");
+  await installMockBridge(page);
+  const panel = await openAppearance(page, "system");
+
+  await panel.getByTestId("theme-option-buzz-dark").click();
+
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem("buzz-theme")))
+    .toBe("buzz-dark");
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        getComputedStyle(document.documentElement)
+          .getPropertyValue("--mn-floor")
+          .trim(),
+      ),
+    )
+    .toBe("0 0% 0%");
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        document.documentElement.getAttribute("data-luca-theme"),
+      ),
+    )
+    .toMatch(/^buzz(?:-dark)?$/);
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.documentElement.classList.contains("dark")),
+    )
+    .toBe(true);
 });
 
 test("settings nav uses Buzz active pill + hover (light)", async ({ page }) => {
@@ -581,17 +625,17 @@ test("accent picker reveals/hides when toggling Buzz", async ({ page }) => {
   // Buzz tile — the picker should animate out and unmount. Reselecting a
   // non-Buzz tile brings it back. Asserts the presence toggle (the motion
   // wrapper) works end to end.
-  await seedTheme(page, "github-light");
+  await seedTheme(page, "github-dark");
   await installMockBridge(page);
-  await openAppearance(page, "light");
+  await openAppearance(page, "dark");
   await expect(page.getByTestId("accent-color-neutral")).toBeVisible();
 
   // Switch to Buzz — picker should leave (allow the exit animation to settle).
-  await page.getByTestId("theme-option-buzz").click();
+  await page.getByTestId("theme-option-buzz-dark").click();
   await expect(page.getByTestId("accent-color-neutral")).toHaveCount(0);
 
   // Back to a non-Buzz theme — picker returns.
-  await page.getByTestId("theme-option-github-light").click();
+  await page.getByTestId("theme-option-github-dark").click();
   await expect(page.getByTestId("accent-color-neutral")).toBeVisible();
 });
 

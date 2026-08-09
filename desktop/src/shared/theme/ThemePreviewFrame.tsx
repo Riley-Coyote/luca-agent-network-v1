@@ -33,6 +33,23 @@ export const DARK_PREVIEW_VARS: ThemePreviewVars = {
   "--sidebar-foreground": "0 0% 98%",
 };
 
+/**
+ * Appearance-tile snapshot of Luca's first-party blackout palette. Runtime
+ * authority remains `conversation-shell.css`; this small semantic subset is
+ * duplicated only so Void can be previewed while another theme is active.
+ */
+export const VOID_PREVIEW_VARS: ThemePreviewVars = {
+  "--background": "220 8% 2.1%",
+  "--border": "220 5% 10.5%",
+  "--foreground": "220 11.8% 93.1%",
+  "--muted": "220 6% 4.2%",
+  "--muted-foreground": "220 2.7% 71.5%",
+  "--primary": "220 6.6% 87.9%",
+  "--primary-foreground": "0 0% 0%",
+  "--sidebar-background": "0 0% 0%",
+  "--sidebar-foreground": "220 11.8% 93.1%",
+};
+
 function hsl(vars: ThemePreviewVars | null, key: string) {
   return `hsl(${vars?.[key] ?? LIGHT_PREVIEW_VARS[key]})`;
 }

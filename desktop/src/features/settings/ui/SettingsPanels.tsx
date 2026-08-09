@@ -52,6 +52,7 @@ import {
   useTheme,
 } from "@/shared/theme/ThemeProvider";
 import {
+  BUZZ_DARK_THEME_NAME,
   LIGHT_THEMES,
   SYNTAX_THEMES,
   type SyntaxThemeName,
@@ -233,6 +234,8 @@ export const settingsSections: SettingsSectionDescriptor[] = [
 ];
 
 function formatThemeLabel(name: string): string {
+  if (isBuzzTheme(name)) return "Void";
+
   return name
     .split("-")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
@@ -279,6 +282,7 @@ function useThemeCategories() {
     // Track which themes are the "dark side" of a pair so we skip them
     const darkPairMembers = new Set<string>();
     for (const name of SYNTAX_THEMES) {
+      if (isBuzzTheme(name)) continue;
       if (LIGHT_THEMES.has(name)) {
         const pair = getThemePair(name);
         if (pair) {
@@ -288,6 +292,7 @@ function useThemeCategories() {
     }
 
     for (const name of SYNTAX_THEMES) {
+      if (isBuzzTheme(name)) continue;
       // Skip dark members of pairs — they'll be shown alongside their light counterpart
       if (darkPairMembers.has(name)) continue;
 
@@ -451,11 +456,11 @@ function ThemeSettingsCard() {
   );
 
   // All dark themes (paired dark + dark-only)
-  const allDarkThemes = useMemo(() => {
+  const allDarkThemes = useMemo<SyntaxThemeName[]>(() => {
     const pairedDark = pairedLight
       .map((l) => getThemePair(l))
       .filter(Boolean) as SyntaxThemeName[];
-    return [...pairedDark, ...darkOnly];
+    return [BUZZ_DARK_THEME_NAME, ...pairedDark, ...darkOnly];
   }, [pairedLight, darkOnly]);
 
   const handleModeSelect = (mode: AppearanceMode) => {
@@ -574,6 +579,14 @@ function ThemeSettingsCard() {
         ) : null}
         <div className="max-h-[430px] overflow-y-auto rounded-lg pt-2">
           <div className="flex flex-wrap gap-4 p-1">
+            {selectedMode === "system" ? (
+              <SingleThemeTile
+                isActive={isBuzzTheme(selectedThemeName)}
+                name={BUZZ_DARK_THEME_NAME}
+                onSelect={() => handleSelectTheme(BUZZ_DARK_THEME_NAME)}
+                vars={getVars(BUZZ_DARK_THEME_NAME)}
+              />
+            ) : null}
             {selectedMode === "system" &&
               pairedLight.map((lightName) => {
                 const darkName = getThemePair(lightName);

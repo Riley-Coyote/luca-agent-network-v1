@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createLucaThemeVars, createThemeVars } from "./adaptive-theme";
+import { createThemeVars } from "./adaptive-theme";
 import {
   SYNTAX_THEMES,
   type SyntaxThemeName,
@@ -13,6 +13,7 @@ import {
   DARK_PREVIEW_VARS,
   LIGHT_PREVIEW_VARS,
   type ThemePreviewVars,
+  VOID_PREVIEW_VARS,
 } from "./ThemePreviewFrame";
 import { NEUTRAL_ACCENT } from "./ThemeProvider";
 import { hexToHsl } from "./adaptive-theme";
@@ -26,7 +27,7 @@ let themePreviewVarsPromise: Promise<ThemePreviewVarsByTheme> | null = null;
 
 async function loadThemePreviewVars(name: SyntaxThemeName) {
   if (name === BUZZ_THEME_NAME || name === BUZZ_DARK_THEME_NAME) {
-    return [name, createLucaThemeVars().vars] as const;
+    return [name, VOID_PREVIEW_VARS] as const;
   }
   const themeData = await loadThemeData(name);
   const info = extractThemeInfo(name, themeData);
