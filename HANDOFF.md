@@ -8,6 +8,11 @@ Authoritative continuation branch: `luca/v1.1`
 
 Release implementation checkpoint: `b1e045a5` (`Align UI regressions with the Luca shell`)
 
+V1.2 candidate branch: `codex/unified-brain-v1-2`
+
+V1.2 candidate state: B21-B26 complete; B27 native demonstration and final
+repository gate pending because the Mac locked during installed verification.
+
 This document is the repository-native source of truth for continuing Luca V1.
 It supersedes older product assumptions in the upstream Buzz README and older
 planning documents when they conflict with the current implemented product.
@@ -198,6 +203,11 @@ git switch -c agent/<short-task-name>
 
 Do not restart from `main`, transplant these changes into an older Luca app, or
 merge `agent/vision-demo` wholesale.
+
+Do not start V1.3 from the V1.2 candidate yet. Resume B27 from
+`codex/unified-brain-v1-2`, unlock the Mac, run the installed Hermes/OpenClaw
+authorization matrix, compare the native no-write snapshots, and only then run
+the one final `just ci` gate and promote the release.
 
 ## Source map for current Luca work
 

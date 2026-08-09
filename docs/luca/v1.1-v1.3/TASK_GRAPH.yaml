@@ -157,49 +157,49 @@ tasks:
     title: Implement owner-source import grant receipt contracts and frontend fixtures
     depends_on: [H19]
     acceptance: [A201]
-    status: NOT_STARTED
+    status: PASS
   - id: B22
     gate: V1.2-A
     lane: backend
     title: Implement zero-write local Markdown and text preview
     depends_on: [B21]
     acceptance: [A202]
-    status: NOT_STARTED
+    status: PASS
   - id: B23
     gate: V1.2-A
     lane: backend
     title: Implement atomic encrypted owner-source ingestion dedupe and diff
     depends_on: [B22]
     acceptance: [A203, A204, A205, A212]
-    status: NOT_STARTED
+    status: PASS
   - id: B24
     gate: V1.2-B
     lane: backend
     title: Implement explicit resident grants revocation and egress staleness
     depends_on: [B23]
     acceptance: [A206, A207]
-    status: NOT_STARTED
+    status: PASS
   - id: B25
     gate: V1.2-B
     lane: backend
     title: Add authorized bounded owner-source retrieval and receipts
     depends_on: [B24]
     acceptance: [A208, A209, A212]
-    status: NOT_STARTED
+    status: PASS
   - id: B26
     gate: V1.2-C
     lane: frontend
     title: Build narrow Brain Setup import grants and provenance surfaces
     depends_on: [B21]
     acceptance: [A210]
-    status: NOT_STARTED
+    status: PASS
   - id: B27
     gate: V1.2-C
     lane: integration
     title: Run V1.2 import authorization installed and release gates
     depends_on: [B25, B26]
     acceptance: [A203, A209, A211, A212, A401, A402, A403, A404, A405]
-    status: NOT_STARTED
+    status: BLOCKED
 
   - id: R31
     gate: V1.3-A

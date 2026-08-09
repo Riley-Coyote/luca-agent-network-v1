@@ -179,3 +179,48 @@ Safe notes:
   `luca/v1.1` release coordinate. The older dirty runtime/design checkout was
   preserved untouched.
 - Release verdict: `V1_1_VERDICT.md`.
+
+## 2026-08-08 — V1.2 scoped Brain implementation candidate
+
+- Status: B21-B26 PASS; B27 BLOCKED on an unlocked native UI session.
+- Branch: `codex/unified-brain-v1-2`
+- Baseline: `34989f9` (`luca/v1.1`)
+- Product checkpoint: `d633e92`
+- Provider-capture regression checkpoint: `9f69b6c` (test-only; no executable
+  source change after the installed product checkpoint)
+- Implemented:
+  - strict source, import, grant, receipt, and renderer contracts;
+  - zero-write local preview for selected Markdown/text files and folders;
+  - atomic encrypted import, rollback, deduplication, and changed-source diff;
+  - explicit per-source resident grants, revocation, stale binding/egress
+    behavior, and reconfirmation;
+  - grant-first bounded retrieval with body-free receipts and a terminal
+    dispatch recheck;
+  - narrow Brain Setup import, source, grant, provenance, degraded, and mobile
+    surfaces.
+- Focused evidence:
+  - protocol Brain vectors: 2 passed;
+  - desktop Owner Brain suite: 15 passed;
+  - managed continuity transport: 5 passed;
+  - continuity-absent Hermes/OpenClaw DM and mixed-room regression: 1 passed;
+  - desktop clippy with warnings denied: passed;
+  - renderer typecheck and production build: passed;
+  - affected Brain/Luca Playwright smoke: 8 passed;
+  - provider capture contains the authorized selected chunk and excludes source
+    paths, grant/source identifiers, rejected/private sentinels, and every
+    non-ready Owner Brain layer.
+- Installed evidence:
+  - the product checkpoint was rebuilt, atomically installed, Developer-ID
+    signed, registered, relaunched, and remained running;
+  - bundle ID is `com.luca.agent-network.dev`;
+  - installed executable SHA-256 is
+    `7b426cfc7f1be53c016cd08df7def057f7ed399339588d5da479d8554a1b3ede`;
+  - selected Hermes and OpenClaw config, identity, memory, and schedule hashes
+    were byte-identical before and after rebuild/relaunch.
+- Environment blocker:
+  - macOS locked before the installed Brain screen and real Hermes/OpenClaw
+    authorization matrix could be exercised;
+  - A211 and A402 therefore remain unclaimed;
+  - the final `just ci` invocation required by A405 was intentionally not spent
+    before native completion.
+- Release verdict: `V1_2_VERDICT.md`.
