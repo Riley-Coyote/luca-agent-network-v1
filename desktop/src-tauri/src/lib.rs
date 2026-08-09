@@ -771,6 +771,7 @@ pub fn run() {
             archive_resident_notebook_item,
             forget_resident_notebook_item,
             get_resident_notebook_fixtures,
+            get_owner_brain_fixtures,
             send_managed_agent_channel_message,
             has_managed_agent_channel_message_marker,
             get_forum_posts,

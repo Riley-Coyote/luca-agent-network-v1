@@ -190,6 +190,25 @@ Reason: the installed OpenClaw runtime demonstrated a legitimate provider cold
 start that exceeded 90 seconds. The longer bound permits the real native path
 without making jobs unbounded or weakening fail-soft chat behavior.
 
+### D022 — V1.2 source bounds and renderer contract
+
+Decision: one V1.2 preview contains at most 512 rows, accepts at most 1 MiB per
+file and 16 MiB per transaction, produces chunks of at most 4 KiB, and expires
+after 15 minutes. One retrieval returns at most eight chunks and 24 KiB of
+owner-brain text. Source display names are at most 240 bytes; encrypted relative
+locators are at most 1024 bytes; encrypted canonical paths are at most 4096
+bytes.
+
+The frozen renderer vocabulary lives in
+`desktop/src/shared/api/tauriBrain.ts`; deterministic fixture payloads come from
+`get_owner_brain_fixtures`. The fixture path contains no source bodies or
+absolute paths and is not evidence of a real import.
+
+Reason: these bounds fit the existing 48 KiB continuity packet, make preview
+and retrieval deterministic, and prevent one selected folder from becoming an
+unbounded filesystem scan. They can be widened only through a recorded contract
+and security review.
+
 ## Decisions to freeze in C01
 
 These are implementation parameters, not unresolved product direction:

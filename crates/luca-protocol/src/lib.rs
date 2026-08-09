@@ -9,6 +9,7 @@
 
 #![forbid(unsafe_code)]
 
+mod brain;
 mod canonical;
 mod continuity;
 mod diagnostic;
@@ -20,6 +21,7 @@ mod notebook;
 mod owner_identity;
 mod relay_auth;
 
+pub use brain::*;
 pub use canonical::{
     canonical_sha256, canonicalize, parse_and_canonicalize_strict, parse_strict_json,
     CanonicalError,
