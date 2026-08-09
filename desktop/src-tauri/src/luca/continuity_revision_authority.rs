@@ -8,15 +8,16 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use luca_continuity::{
     ArtifactRegistrationReceipt, EnvelopeReplacementV1, NamespaceScope, PurgeExecutionStateV1,
-    PurgeExecutionStatusV1, PurgedArtifactTombstoneV1, PurgedRecordTombstoneV1, RevisionLedger,
-    RevisionLedgerSnapshotV1, RevisionLifecycle, RevisionReceipt, RevisionRequest,
-    MAX_ARTIFACT_IDEMPOTENCY_ENTRIES, MAX_DERIVED_ARTIFACTS_PER_LEDGER,
-    MAX_DERIVED_ARTIFACTS_PER_LINEAGE, MAX_ENVELOPE_REPLACEMENTS_PER_LEDGER,
-    MAX_HYDRATED_BODY_BYTES, MAX_HYDRATED_RECORDS, MAX_REPLAY_BINDING_CANONICAL_BYTES_PER_LEDGER,
-    MAX_REVISION_AUTHORITY_HEADS, MAX_REVISION_IDEMPOTENCY_ENTRIES,
-    MAX_REVISION_MEMBERS_PER_LEDGER, MAX_REVISION_MEMBERS_PER_LINEAGE,
-    MAX_REVISION_SNAPSHOT_CANONICAL_BYTES, MAX_REVISION_SNAPSHOT_ENCODED_CIPHERTEXT_BYTES,
-    MAX_REVISION_SNAPSHOT_RECORDS, MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES,
+    PurgeExecutionStatusV1, PurgedArtifactTombstoneV1, PurgedRecordTombstoneV1, RevisionActor,
+    RevisionLedger, RevisionLedgerSnapshotV1, RevisionLifecycle, RevisionOperation,
+    RevisionReceipt, RevisionRequest, MAX_ARTIFACT_IDEMPOTENCY_ENTRIES,
+    MAX_DERIVED_ARTIFACTS_PER_LEDGER, MAX_DERIVED_ARTIFACTS_PER_LINEAGE,
+    MAX_ENVELOPE_REPLACEMENTS_PER_LEDGER, MAX_HYDRATED_BODY_BYTES, MAX_HYDRATED_RECORDS,
+    MAX_REPLAY_BINDING_CANONICAL_BYTES_PER_LEDGER, MAX_REVISION_AUTHORITY_HEADS,
+    MAX_REVISION_IDEMPOTENCY_ENTRIES, MAX_REVISION_MEMBERS_PER_LEDGER,
+    MAX_REVISION_MEMBERS_PER_LINEAGE, MAX_REVISION_SNAPSHOT_CANONICAL_BYTES,
+    MAX_REVISION_SNAPSHOT_ENCODED_CIPHERTEXT_BYTES, MAX_REVISION_SNAPSHOT_RECORDS,
+    MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES,
 };
 use luca_protocol::{
     canonicalize, ContinuityNamespaceKindV1, ContinuityNamespaceV1, ContinuityRecordV1,
@@ -33,6 +34,7 @@ use super::continuity_store::{
 
 const AUTHORITY_SCHEMA_V1: i64 = 1;
 const MAX_TYPED_BLOB_BYTES: usize = 4 * 1024 * 1024;
+pub(crate) const MAX_OWNER_BRAIN_IMPORT_TRANSITIONS: usize = 40;
 
 /// Complete v4 body-free authority schema. Encrypted bodies remain exclusively
 /// in `continuity_records`; replay rows never duplicate successor ciphertext.
@@ -542,7 +544,55 @@ impl ContinuityStore {
         expectation: &AuthorityExpectationV1,
         requests: Vec<RevisionRequest>,
     ) -> Result<RevisionBatchTransitionResultV1, ContinuityStoreError> {
-        if requests.is_empty() || requests.len() > 4 {
+        self.apply_revision_batch_cas_bounded(expectation, requests, 4)
+    }
+
+    /// Apply one bounded Owner Brain import through the existing owner-global
+    /// revision transaction. Every successor must stay in the owner-brain
+    /// namespace and use the closed import record vocabulary.
+    pub(crate) fn apply_owner_brain_import_cas(
+        &mut self,
+        expectation: &AuthorityExpectationV1,
+        requests: Vec<RevisionRequest>,
+    ) -> Result<RevisionBatchTransitionResultV1, ContinuityStoreError> {
+        let owner = expectation.owner();
+        let expected_scope = requests
+            .first()
+            .and_then(|request| request.successor.as_ref())
+            .map(|record| record.scope.clone());
+        let valid = requests.iter().all(|request| {
+            matches!(
+                request.operation,
+                RevisionOperation::Create | RevisionOperation::Revise
+            ) && request.actor == RevisionActor::Owner
+                && request.successor.as_ref().is_some_and(|record| {
+                    record.namespace.owner_pubkey == *owner
+                        && record.namespace.kind == ContinuityNamespaceKindV1::OwnerBrain
+                        && record.namespace.resident_pubkey.is_none()
+                        && expected_scope.as_ref() == Some(&record.scope)
+                        && matches!(
+                            record.record_type.as_str(),
+                            "owner-brain-source" | "owner-brain-binding" | "owner-brain-chunk-page"
+                        )
+                })
+        });
+        if !valid {
+            return Err(ContinuityStoreError::InvalidRecord);
+        }
+        self.apply_revision_batch_cas_bounded(
+            expectation,
+            requests,
+            MAX_OWNER_BRAIN_IMPORT_TRANSITIONS,
+        )
+    }
+
+    fn apply_revision_batch_cas_bounded(
+        &mut self,
+        expectation: &AuthorityExpectationV1,
+        requests: Vec<RevisionRequest>,
+        maximum: usize,
+    ) -> Result<RevisionBatchTransitionResultV1, ContinuityStoreError> {
+        if requests.is_empty() || requests.len() > maximum {
             return Err(ContinuityStoreError::InvalidRecord);
         }
         let owner = expectation.owner().clone();

@@ -386,10 +386,19 @@ fn assemble_ready_snapshot(
         let kind = DurableContinuityRecordKind::parse(record.record_type())?;
         if matches!(
             kind,
-            DurableContinuityRecordKind::Journal
-                | DurableContinuityRecordKind::JournalAnnotation
+            DurableContinuityRecordKind::Journal | DurableContinuityRecordKind::JournalAnnotation
         ) {
             continue;
+        }
+        if matches!(
+            kind,
+            DurableContinuityRecordKind::OwnerBrainSource
+                | DurableContinuityRecordKind::OwnerBrainBinding
+                | DurableContinuityRecordKind::OwnerBrainChunkPage
+                | DurableContinuityRecordKind::OwnerBrainGrant
+                | DurableContinuityRecordKind::OwnerBrainReceipt
+        ) {
+            return Err(luca_continuity::ContinuityError::InvalidRetrievalRecord);
         }
         let item = ContinuityReferenceItem::new(
             record.record_id().clone(),
@@ -418,9 +427,16 @@ fn assemble_ready_snapshot(
             | DurableContinuityRecordKind::Relationship
             | DurableContinuityRecordKind::Conviction => associative_recall.push(item),
             DurableContinuityRecordKind::Journal
-            | DurableContinuityRecordKind::JournalAnnotation => unreachable!(
-                "explicit-disclosure-only records are excluded before materialization"
-            ),
+            | DurableContinuityRecordKind::JournalAnnotation => {
+                unreachable!("explicit-disclosure-only records are excluded before materialization")
+            }
+            DurableContinuityRecordKind::OwnerBrainSource
+            | DurableContinuityRecordKind::OwnerBrainBinding
+            | DurableContinuityRecordKind::OwnerBrainChunkPage
+            | DurableContinuityRecordKind::OwnerBrainGrant
+            | DurableContinuityRecordKind::OwnerBrainReceipt => {
+                return Err(luca_continuity::ContinuityError::InvalidRetrievalRecord)
+            }
         }
     }
     Ok(ContinuityReadSnapshot {

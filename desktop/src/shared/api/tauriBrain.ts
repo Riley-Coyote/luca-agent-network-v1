@@ -117,10 +117,39 @@ export type PreviewOwnerBrainSourceInput = {
   selectedPath: string;
 };
 
+export type CommitOwnerBrainImportInput = {
+  previewId: string;
+  previewToken: string;
+};
+
+export type OwnerBrainImportCommit = {
+  importTransactionId: string;
+  previewId: string;
+  sourceId: string;
+  rootSnapshotHash: string;
+  state: "committed";
+  importedFileCount: number;
+  importedChunkCount: number;
+  completedAt: string;
+  replayed: boolean;
+};
+
 export function previewOwnerBrainSource(
   input: PreviewOwnerBrainSourceInput,
 ): Promise<OwnerBrainPreview> {
   return invoke("preview_owner_brain_source", { input });
+}
+
+export function commitOwnerBrainImport(
+  input: CommitOwnerBrainImportInput,
+): Promise<OwnerBrainImportCommit> {
+  return invoke("commit_owner_brain_import", { input });
+}
+
+export function cancelOwnerBrainImport(
+  input: CommitOwnerBrainImportInput,
+): Promise<boolean> {
+  return invoke("cancel_owner_brain_import", { input });
 }
 
 export function getOwnerBrainFixtures(): Promise<OwnerBrainFixtures> {

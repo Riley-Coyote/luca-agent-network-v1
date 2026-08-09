@@ -4,15 +4,24 @@
 //! preview token is a short-lived commit capability and is never logged.
 
 use crate::{app_state::AppState, luca::owner_brain};
-use luca_protocol::{Hex64, OwnerBrainPreviewRowStatusV1, OwnerBrainSourceKindV1};
+use luca_protocol::{
+    Hex64, OpaqueId, OwnerBrainImportCommitV1, OwnerBrainPreviewRowStatusV1, OwnerBrainSourceKindV1,
+};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use tauri::State;
+use tauri::{AppHandle, Manager};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreviewOwnerBrainSourceInputV1 {
     selected_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CommitOwnerBrainImportInputV1 {
+    preview_id: String,
+    preview_token: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -48,6 +57,20 @@ pub struct OwnerBrainImportViewV1 {
     error_code: Option<&'static str>,
     can_cancel: bool,
     can_retry: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnerBrainImportCommitViewV1 {
+    import_transaction_id: String,
+    preview_id: String,
+    source_id: String,
+    root_snapshot_hash: String,
+    state: &'static str,
+    imported_file_count: u64,
+    imported_chunk_count: u64,
+    completed_at: String,
+    replayed: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -170,18 +193,78 @@ fn preview_view(handle: owner_brain::OwnerBrainPreviewHandleV1) -> OwnerBrainPre
 
 #[tauri::command]
 /// Performs a bounded, read-only preview of one owner-selected local source.
-pub fn preview_owner_brain_source(
+pub async fn preview_owner_brain_source(
     input: PreviewOwnerBrainSourceInputV1,
-    state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<OwnerBrainPreviewViewV1, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let owner_pubkey = Hex64::parse(state.signing_keys()?.public_key().to_hex())
+            .map_err(|_| "active owner identity is invalid".to_owned())?;
+        state
+            .preview_owner_brain_source(owner_pubkey, Path::new(&input.selected_path))
+            .map(preview_view)
+            .map_err(|error| error.code().to_owned())
+    })
+    .await
+    .map_err(|_| "owner-brain-unavailable".to_owned())?
+}
+
+fn import_commit_view(
+    commit: OwnerBrainImportCommitV1,
+    replayed: bool,
+) -> Result<OwnerBrainImportCommitViewV1, String> {
+    let source_id = commit
+        .source_id
+        .ok_or_else(|| "committed Brain import has no source".to_owned())?;
+    Ok(OwnerBrainImportCommitViewV1 {
+        import_transaction_id: commit.import_transaction_id.as_str().to_owned(),
+        preview_id: commit.preview_id.as_str().to_owned(),
+        source_id: source_id.as_str().to_owned(),
+        root_snapshot_hash: commit.root_snapshot_hash.as_str().to_owned(),
+        state: "committed",
+        imported_file_count: commit.imported_file_count.get(),
+        imported_chunk_count: commit.imported_chunk_count.get(),
+        completed_at: commit.completed_at.as_str().to_owned(),
+        replayed,
+    })
+}
+
+#[tauri::command]
+/// Atomically consumes one exact unexpired preview and persists encrypted rows.
+pub async fn commit_owner_brain_import(
+    input: CommitOwnerBrainImportInputV1,
+    app: AppHandle,
+) -> Result<OwnerBrainImportCommitViewV1, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let owner_pubkey = Hex64::parse(state.signing_keys()?.public_key().to_hex())
+            .map_err(|_| "active owner identity is invalid".to_owned())?;
+        let preview_id =
+            OpaqueId::parse(input.preview_id).map_err(|_| "owner-brain-invalid".to_owned())?;
+        state
+            .commit_owner_brain_import(owner_pubkey, &preview_id, &input.preview_token)
+            .map_err(|error| error.code().to_owned())
+            .and_then(|(commit, replayed)| import_commit_view(commit, replayed))
+    })
+    .await
+    .map_err(|_| "owner-brain-unavailable".to_owned())?
+}
+
+#[tauri::command]
+/// Cancels source staging unless the atomic persistence claim has begun.
+pub fn cancel_owner_brain_import(
+    input: CommitOwnerBrainImportInputV1,
+    app: AppHandle,
+) -> Result<bool, String> {
+    let state = app.state::<AppState>();
     let owner_pubkey = Hex64::parse(state.signing_keys()?.public_key().to_hex())
         .map_err(|_| "active owner identity is invalid".to_owned())?;
-    owner_brain::create_preview(
-        &state.owner_brain_previews,
-        owner_pubkey,
-        Path::new(&input.selected_path),
-    )
-    .map(preview_view)
+    let preview_id =
+        OpaqueId::parse(input.preview_id).map_err(|_| "owner-brain-invalid".to_owned())?;
+    state
+        .cancel_owner_brain_import(&owner_pubkey, &preview_id, &input.preview_token)
+        .map_err(|error| error.code().to_owned())
 }
 
 #[tauri::command]

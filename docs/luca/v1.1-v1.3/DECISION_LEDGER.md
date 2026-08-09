@@ -209,6 +209,23 @@ and retrieval deterministic, and prevent one selected folder from becoming an
 unbounded filesystem scan. They can be widened only through a recorded contract
 and security review.
 
+### D023 — Owner-brain storage reuses continuity revision authority
+
+Decision: V1.2 introduces no new database schema. Source manifests, encrypted
+device bindings, and chunks use the existing owner-brain namespace, continuity
+envelopes, key rotation/backup path, and owner-global revision authority. Up to
+128 individually validated 4 KiB chunks are packed into one encrypted chunk
+page. One import stages at most 38 chunk pages plus its source manifest and
+binding, then applies all records through one bounded 40-operation SQLite CAS
+transaction. The source manifest is the only authority that names the active
+chunk pages; superseded or surplus page lineages are not recalled.
+
+Reason: a 16 MiB import stays below the existing 1 MiB encrypted-record and
+64 MiB revision-snapshot bounds without creating thousands of active lineages.
+Reusing the accepted encrypted store preserves crash rollback, identity-bound
+key custody, rotation, backup, nonce uniqueness, and restart validation while
+avoiding a second persistence or migration system.
+
 ## Decisions to freeze in C01
 
 These are implementation parameters, not unresolved product direction:

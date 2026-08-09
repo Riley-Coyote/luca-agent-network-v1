@@ -773,6 +773,8 @@ pub fn run() {
             get_resident_notebook_fixtures,
             get_owner_brain_fixtures,
             preview_owner_brain_source,
+            commit_owner_brain_import,
+            cancel_owner_brain_import,
             send_managed_agent_channel_message,
             has_managed_agent_channel_message_marker,
             get_forum_posts,

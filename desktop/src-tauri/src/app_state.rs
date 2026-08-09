@@ -19,6 +19,7 @@ use crate::luca::continuity_runtime::{
     ContinuityRuntimeState, ResidentHandoffCommitOutcomeV1, ResidentHandoffCommitRequestV1,
 };
 use crate::luca::owner_brain::OwnerBrainPreviewCache;
+use crate::luca::owner_brain_store::OwnerBrainStoreError;
 use crate::luca::resident_notebook::{
     ResidentJournalCommitRequestV1, ResidentMetabolismCommitOutcomeV1,
     ResidentMetabolismCommitRequestV1, ResidentNotebookMutationOutcomeV1,
@@ -342,6 +343,59 @@ impl AppState {
             &self.continuity_lifecycle,
             &self.continuity_runtime,
             owner_pubkey,
+        )
+    }
+
+    /// Preview one selected owner source with encrypted prior-snapshot diffing.
+    pub(crate) fn preview_owner_brain_source(
+        &self,
+        owner_pubkey: luca_protocol::Hex64,
+        selected_path: &std::path::Path,
+    ) -> Result<crate::luca::owner_brain::OwnerBrainPreviewHandleV1, OwnerBrainStoreError> {
+        let prior = crate::luca::owner_brain_store::read_prior_snapshot(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            &owner_pubkey,
+            selected_path,
+        )?;
+        crate::luca::owner_brain::create_preview_with_prior(
+            &self.owner_brain_previews,
+            owner_pubkey,
+            selected_path,
+            prior.as_ref(),
+        )
+        .map_err(|_| OwnerBrainStoreError::Invalid)
+    }
+
+    /// Atomically persist one exact, unexpired Owner Brain preview.
+    pub(crate) fn commit_owner_brain_import(
+        &self,
+        owner_pubkey: luca_protocol::Hex64,
+        preview_id: &luca_protocol::OpaqueId,
+        preview_token: &str,
+    ) -> Result<(luca_protocol::OwnerBrainImportCommitV1, bool), OwnerBrainStoreError> {
+        crate::luca::owner_brain_store::commit_preview(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            &self.owner_brain_previews,
+            owner_pubkey,
+            preview_id,
+            preview_token,
+        )
+    }
+
+    /// Cancel one preview/import before its atomic persistence claim.
+    pub(crate) fn cancel_owner_brain_import(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+        preview_id: &luca_protocol::OpaqueId,
+        preview_token: &str,
+    ) -> Result<bool, OwnerBrainStoreError> {
+        crate::luca::owner_brain_store::cancel_preview(
+            &self.owner_brain_previews,
+            owner_pubkey,
+            preview_id,
+            preview_token,
         )
     }
 

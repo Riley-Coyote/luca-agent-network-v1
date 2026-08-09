@@ -16,13 +16,15 @@ use std::{
     collections::{BTreeMap, HashMap},
     fs,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{atomic::AtomicBool, Arc, Mutex},
 };
 
 #[derive(Clone)]
 pub(crate) struct PendingOwnerBrainPreviewV1 {
     pub(crate) preview: OwnerBrainImportPreviewV1,
     pub(crate) canonical_path: PathBuf,
+    pub(crate) cancelled: Arc<AtomicBool>,
+    pub(crate) commit_claimed: Arc<AtomicBool>,
 }
 
 impl std::fmt::Debug for PendingOwnerBrainPreviewV1 {
@@ -57,15 +59,17 @@ impl std::fmt::Debug for OwnerBrainPreviewHandleV1 {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct PriorOwnerBrainSnapshotV1 {
-    hashes_by_path: BTreeMap<String, Sha256Ref>,
+    pub(crate) hashes_by_path: BTreeMap<String, Sha256Ref>,
 }
 
 impl PriorOwnerBrainSnapshotV1 {
+    pub(crate) fn from_hashes(hashes_by_path: BTreeMap<String, Sha256Ref>) -> Self {
+        Self { hashes_by_path }
+    }
+
     #[cfg(test)]
     fn from_pairs(pairs: impl IntoIterator<Item = (String, Sha256Ref)>) -> Self {
-        Self {
-            hashes_by_path: pairs.into_iter().collect(),
-        }
+        Self::from_hashes(pairs.into_iter().collect())
     }
 }
 
@@ -74,11 +78,20 @@ pub(crate) fn create_preview(
     owner_pubkey: Hex64,
     selected_path: &Path,
 ) -> Result<OwnerBrainPreviewHandleV1, String> {
+    create_preview_with_prior(cache, owner_pubkey, selected_path, None)
+}
+
+pub(crate) fn create_preview_with_prior(
+    cache: &OwnerBrainPreviewCache,
+    owner_pubkey: Hex64,
+    selected_path: &Path,
+    prior: Option<&PriorOwnerBrainSnapshotV1>,
+) -> Result<OwnerBrainPreviewHandleV1, String> {
     let canonical_path = fs::canonicalize(selected_path)
         .map_err(|_| "selected Brain source is unavailable".to_owned())?;
     let token = uuid::Uuid::new_v4().simple().to_string();
     let token_hash = sha256_ref(token.as_bytes())?;
-    let preview = preview_source_at_path(&canonical_path, owner_pubkey, token_hash.clone(), None)?;
+    let preview = preview_source_at_path(&canonical_path, owner_pubkey, token_hash.clone(), prior)?;
     let now = Utc::now().timestamp();
     let mut guard = cache
         .lock()
@@ -103,12 +116,14 @@ pub(crate) fn create_preview(
         PendingOwnerBrainPreviewV1 {
             preview: preview.clone(),
             canonical_path,
+            cancelled: Arc::new(AtomicBool::new(false)),
+            commit_claimed: Arc::new(AtomicBool::new(false)),
         },
     );
     Ok(OwnerBrainPreviewHandleV1 { token, preview })
 }
 
-fn preview_source_at_path(
+pub(crate) fn preview_source_at_path(
     canonical_path: &Path,
     owner_pubkey: Hex64,
     preview_token_hash: Sha256Ref,
@@ -324,6 +339,15 @@ fn scan_file(
         )?);
         return Ok(());
     }
+    if text.trim().is_empty() {
+        rows.push(excluded_row(
+            relative,
+            OwnerBrainPreviewRowStatusV1::Skipped,
+            byte_count,
+            "empty-file",
+        )?);
+        return Ok(());
+    }
     let content_hash = sha256_ref(&bytes)?;
     let status = match prior.and_then(|snapshot| snapshot.hashes_by_path.get(&relative)) {
         Some(previous) if previous == &content_hash => OwnerBrainPreviewRowStatusV1::Duplicate,
@@ -439,7 +463,18 @@ fn snapshot_hash(rows: &[OwnerBrainPreviewRowV1]) -> Result<Sha256Ref, String> {
     for row in rows {
         hasher.update((row.relative_path.len() as u64).to_be_bytes());
         hasher.update(row.relative_path.as_bytes());
-        hasher.update(format!("{:?}", row.status).as_bytes());
+        let status = match row.status {
+            OwnerBrainPreviewRowStatusV1::Accepted
+            | OwnerBrainPreviewRowStatusV1::Duplicate
+            | OwnerBrainPreviewRowStatusV1::Changed => "eligible",
+            OwnerBrainPreviewRowStatusV1::Skipped => "skipped",
+            OwnerBrainPreviewRowStatusV1::Unsupported => "unsupported",
+            OwnerBrainPreviewRowStatusV1::Oversized => "oversized",
+            OwnerBrainPreviewRowStatusV1::Binary => "binary",
+            OwnerBrainPreviewRowStatusV1::CredentialLike => "credential-like",
+            OwnerBrainPreviewRowStatusV1::UnsafePath => "unsafe-path",
+        };
+        hasher.update(status.as_bytes());
         hasher.update(row.byte_count.get().to_be_bytes());
         if let Some(hash) = &row.content_hash {
             hasher.update(hash.as_str().as_bytes());
@@ -452,17 +487,19 @@ fn snapshot_hash(rows: &[OwnerBrainPreviewRowV1]) -> Result<Sha256Ref, String> {
         .map_err(|_| "Brain preview snapshot hash is invalid".to_owned())
 }
 
-fn sha256_ref(bytes: &[u8]) -> Result<Sha256Ref, String> {
+pub(crate) fn sha256_ref(bytes: &[u8]) -> Result<Sha256Ref, String> {
     Sha256Ref::parse(format!("sha256:{}", hex::encode(Sha256::digest(bytes))))
         .map_err(|_| "Brain preview hash is invalid".to_owned())
 }
 
-fn opaque_id(prefix: &str) -> Result<OpaqueId, String> {
+pub(crate) fn opaque_id(prefix: &str) -> Result<OpaqueId, String> {
     OpaqueId::parse(format!("{prefix}-{}", uuid::Uuid::new_v4().simple()))
         .map_err(|_| "Brain preview identifier is invalid".to_owned())
 }
 
-fn canonical_timestamp(timestamp: chrono::DateTime<Utc>) -> Result<CanonicalTimestamp, String> {
+pub(crate) fn canonical_timestamp(
+    timestamp: chrono::DateTime<Utc>,
+) -> Result<CanonicalTimestamp, String> {
     CanonicalTimestamp::parse(timestamp.to_rfc3339_opts(SecondsFormat::Secs, true))
         .map_err(|_| "Brain preview timestamp is invalid".to_owned())
 }

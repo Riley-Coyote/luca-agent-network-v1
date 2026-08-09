@@ -139,6 +139,16 @@ pub enum DurableContinuityRecordKind {
     JournalAnnotation,
     /// Resident-authored bounded reflection.
     Reflection,
+    /// Encrypted owner-brain source manifest and diff inventory.
+    OwnerBrainSource,
+    /// Encrypted device-local source path binding.
+    OwnerBrainBinding,
+    /// Encrypted bounded page of normalized owner-brain chunks.
+    OwnerBrainChunkPage,
+    /// Explicit per-resident owner-brain authorization.
+    OwnerBrainGrant,
+    /// Body-free owner-brain retrieval decision receipt.
+    OwnerBrainReceipt,
     /// Associative resident-private memory.
     AssociativeEngram,
     /// Typed source-backed connection between records.
@@ -164,6 +174,11 @@ impl DurableContinuityRecordKind {
             "journal" => Ok(Self::Journal),
             "journal-annotation" => Ok(Self::JournalAnnotation),
             "reflection" => Ok(Self::Reflection),
+            "owner-brain-source" => Ok(Self::OwnerBrainSource),
+            "owner-brain-binding" => Ok(Self::OwnerBrainBinding),
+            "owner-brain-chunk-page" => Ok(Self::OwnerBrainChunkPage),
+            "owner-brain-grant" => Ok(Self::OwnerBrainGrant),
+            "owner-brain-receipt" => Ok(Self::OwnerBrainReceipt),
             "associative-engram" => Ok(Self::AssociativeEngram),
             "typed-connection" => Ok(Self::TypedConnection),
             "identity" => Ok(Self::Identity),

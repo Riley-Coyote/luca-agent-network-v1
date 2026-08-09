@@ -32,6 +32,7 @@ pub(crate) mod managed_message_outbox;
 pub(crate) mod managed_message_publisher;
 pub(crate) mod managed_permission;
 pub(crate) mod owner_brain;
+pub(crate) mod owner_brain_store;
 pub(crate) mod owner_identity_recovery;
 #[cfg(test)]
 mod reliability_f10;
