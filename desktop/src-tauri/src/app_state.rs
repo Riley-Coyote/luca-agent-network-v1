@@ -604,6 +604,44 @@ impl AppState {
         )
     }
 
+    /// Revoke one resident's connected recall and repository work access.
+    pub(crate) fn revoke_connected_brain_resident(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+        source_id: &luca_protocol::OpaqueId,
+        resident_pubkey: luca_protocol::Hex64,
+    ) -> Result<(), OwnerBrainStoreError> {
+        let _work_guard = self
+            .repository_work_lock
+            .lock()
+            .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+        crate::luca::owner_brain_store::revoke_connected_resident(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            source_id,
+            resident_pubkey,
+        )
+    }
+
+    /// Return newest-first body-free repository activity for visible sources.
+    pub(crate) fn repository_tool_receipts(
+        &self,
+        source_ids: &std::collections::BTreeSet<luca_protocol::OpaqueId>,
+    ) -> Vec<luca_protocol::RepositoryToolReceiptV1> {
+        self.repository_tool_receipts
+            .lock()
+            .map(|receipts| {
+                receipts
+                    .iter()
+                    .rev()
+                    .filter(|receipt| source_ids.contains(&receipt.source_id))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// List repository sources authorized for one exact resident binding.
     pub(crate) fn authorized_repositories(
         &self,

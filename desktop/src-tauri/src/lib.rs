@@ -796,6 +796,7 @@ pub fn run() {
             refresh_connected_brain_source,
             disconnect_connected_brain_source,
             reconfirm_connected_brain_source,
+            revoke_connected_brain_resident,
             send_managed_agent_channel_message,
             has_managed_agent_channel_message_marker,
             get_forum_posts,

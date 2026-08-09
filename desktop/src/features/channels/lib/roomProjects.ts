@@ -216,7 +216,7 @@ export function writeRoomProjectStore(
   }
 }
 
-/** Brain Setup uses this seam to commit its reviewed local project catalog. */
+/** Brain uses this seam to commit its reviewed local project catalog. */
 export function replaceRoomProjects(
   ownerPubkey: string | undefined,
   relayUrl: string | undefined,

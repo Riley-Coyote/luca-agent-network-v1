@@ -146,12 +146,7 @@ pub(crate) fn create_broker_lease(
     session_epoch: SafeU53,
     binding_ref: Sha256Ref,
 ) -> Result<RepositoryBrokerLease, String> {
-    let directory = app
-        .path()
-        .app_cache_dir()
-        .map_err(|_| "repository broker cache is unavailable".to_owned())?
-        .join("luca")
-        .join("repository-broker");
+    let directory = repository_broker_directory();
     fs::create_dir_all(&directory)
         .map_err(|_| "repository broker cache could not be prepared".to_owned())?;
     #[cfg(unix)]
@@ -160,11 +155,7 @@ pub(crate) fn create_broker_lease(
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))
             .map_err(|_| "repository broker cache could not be secured".to_owned())?;
     }
-    let socket_path = directory.join(format!(
-        "{}-{}.sock",
-        session_epoch.get(),
-        uuid::Uuid::new_v4().simple()
-    ));
+    let socket_path = repository_broker_socket_path(&directory, session_epoch.get());
     let listener = UnixListener::bind(&socket_path)
         .map_err(|_| "repository broker endpoint could not be created".to_owned())?;
     listener
@@ -206,6 +197,24 @@ pub(crate) fn create_broker_lease(
         }),
         bootstrap_json,
     })
+}
+
+fn repository_broker_directory() -> PathBuf {
+    static DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
+    DIRECTORY
+        .get_or_init(|| {
+            // Darwin limits Unix-domain socket paths to 103 visible bytes. App
+            // cache paths can already exceed that before the unique endpoint
+            // name is appended, so keep only the capability-bearing transport
+            // in a private, process-owned short directory.
+            PathBuf::from("/tmp").join(format!("luca-rb-{}", uuid::Uuid::new_v4().simple()))
+        })
+        .clone()
+}
+
+fn repository_broker_socket_path(directory: &std::path::Path, session_epoch: u64) -> PathBuf {
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    directory.join(format!("e{session_epoch}-{}.sock", &nonce[..16]))
 }
 
 pub(crate) fn stop_repository_broker(resident_pubkey: &str) -> Result<(), String> {

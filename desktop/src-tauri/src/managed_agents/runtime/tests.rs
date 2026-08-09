@@ -761,12 +761,13 @@ fn grandchild_inherits_pgid_of_process_group_leader() {
     // spawns an intermediate child which in turn spawns a grandchild.
     // This mirrors the real tree: buzz-acp → goose → buzz-dev-mcp.
     //
-    // The intermediate `sh` uses exec to replace itself with another sh
-    // that backgrounds the grandchild, so the grandchild's ppid is the
-    // intermediate (not the harness).
+    // The intermediate `sh` backgrounds the grandchild and waits for it, so
+    // the grandchild's ppid is the intermediate (not the harness). Absolute
+    // shell paths keep this test isolated from other tests that temporarily
+    // replace the process-wide PATH.
     let mut harness = {
-        let mut cmd = Command::new("sh");
-        cmd.args(["-c", "sh -c 'sleep 10 & echo $!' & wait $!"])
+        let mut cmd = Command::new("/bin/sh");
+        cmd.args(["-c", "/bin/sh -c 'sleep 10 & echo $!; wait $!' & wait $!"])
             .stdout(std::process::Stdio::piped())
             .process_group(0);
         cmd.spawn().expect("spawn harness")

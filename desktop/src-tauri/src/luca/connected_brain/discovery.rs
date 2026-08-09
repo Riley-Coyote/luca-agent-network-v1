@@ -14,6 +14,8 @@ use super::{sessions, ConnectedBrainDiscoveryCandidateV1};
 
 const MAX_DISCOVERY_DEPTH: usize = 6;
 const MAX_DISCOVERY_ENTRIES: usize = 50_000;
+#[cfg(debug_assertions)]
+const ACCEPTANCE_HOME_ENV: &str = "LUCA_CONNECTED_BRAIN_ACCEPTANCE_HOME";
 const COMMON_REPOSITORY_DIRS: &[&str] = &[
     "Developer",
     "Development",
@@ -59,7 +61,7 @@ fn source_kind_value(kind: ConnectedBrainSourceKindV1) -> &'static str {
 }
 
 pub(crate) fn discover() -> Result<Vec<ConnectedBrainDiscoveryCandidateV1>, String> {
-    let home = dirs::home_dir().ok_or_else(|| "home directory is unavailable".to_owned())?;
+    let home = discovery_home()?;
     let mut roots = Vec::new();
     if let Some(nest) = crate::managed_agents::nest_dir() {
         roots.push(nest.join("REPOS"));
@@ -107,7 +109,8 @@ pub(crate) fn discover_in_added_root(
     if !canonical.is_dir() {
         return Err("selected folder is not a directory".to_owned());
     }
-    if dirs::home_dir()
+    if discovery_home()
+        .ok()
         .and_then(|home| home.canonicalize().ok())
         .as_ref()
         == Some(&canonical)
@@ -115,6 +118,25 @@ pub(crate) fn discover_in_added_root(
         return Err("choose a specific development folder, not the home directory".to_owned());
     }
     discover_repositories(&[canonical])
+}
+
+fn discovery_home() -> Result<PathBuf, String> {
+    #[cfg(debug_assertions)]
+    if let Some(configured) = std::env::var_os(ACCEPTANCE_HOME_ENV) {
+        let configured = PathBuf::from(configured);
+        if !configured.is_absolute() {
+            return Err("acceptance discovery home must be absolute".to_owned());
+        }
+        let canonical = configured
+            .canonicalize()
+            .map_err(|_| "acceptance discovery home is unavailable".to_owned())?;
+        if !canonical.is_dir() {
+            return Err("acceptance discovery home is not a directory".to_owned());
+        }
+        return Ok(canonical);
+    }
+
+    dirs::home_dir().ok_or_else(|| "home directory is unavailable".to_owned())
 }
 
 fn discover_repositories(

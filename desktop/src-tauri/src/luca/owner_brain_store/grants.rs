@@ -38,6 +38,11 @@ pub(super) fn read_catalog_from_generation(
         .iter()
         .map(|source| source.source.source_id.clone())
         .collect::<BTreeSet<_>>();
+    let connected_source_ids = super::connected::connected_source_ids_from_generation(
+        generation,
+        namespace,
+        namespace_key,
+    )?;
 
     let mut grants = Vec::new();
     for lineage in generation.snapshot.lineages.iter().filter(|lineage| {
@@ -50,6 +55,9 @@ pub(super) fn read_catalog_from_generation(
             .source_id
             .clone()
             .ok_or(OwnerBrainStoreError::Invalid)?;
+        if connected_source_ids.contains(&source_id) {
+            continue;
+        }
         let address = owner_brain_source_address(namespace.clone(), source_id.clone())?;
         if lineage.scope != *address.as_protocol() || !source_ids.contains(&source_id) {
             return Err(OwnerBrainStoreError::Invalid);

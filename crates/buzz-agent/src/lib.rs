@@ -8,6 +8,7 @@ mod handoff;
 mod hints;
 mod llm;
 mod mcp;
+mod openclaw_compat;
 pub mod types;
 mod wire;
 
@@ -109,6 +110,9 @@ fn die(msg: String) -> ! {
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
+    if matches!(args.get(1).map(String::as_str), Some("openclaw-compat")) {
+        return openclaw_compat::run(args.get(2).map(String::as_str));
+    }
     if matches!(args.get(1).map(String::as_str), Some("auth")) {
         return tokio::runtime::Builder::new_multi_thread()
             .enable_all()

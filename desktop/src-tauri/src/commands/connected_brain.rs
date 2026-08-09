@@ -8,8 +8,8 @@ use crate::{
     luca::{connected_brain, owner_brain_store, resident_registry},
 };
 use luca_protocol::{
-    ConnectedBrainSourceKindV1, ConnectedBrainSourceStatusV1, Hex64, OpaqueId,
-    RepositoryWorkGrantStateV1,
+    BrainGrantStateV1, ConnectedBrainSourceKindV1, ConnectedBrainSourceStatusV1, Hex64, OpaqueId,
+    RepositoryToolOperationV1, RepositoryToolReceiptStatusV1, RepositoryWorkGrantStateV1,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
@@ -23,7 +23,9 @@ pub struct ConnectedBrainInventoryV1 {
     consent_copy: &'static str,
     discoveries: Vec<connected_brain::ConnectedBrainDiscoveryViewV1>,
     sources: Vec<ConnectedBrainSourceViewV1>,
+    recall_grants: Vec<ConnectedBrainGrantViewV1>,
     repository_grants: Vec<RepositoryWorkGrantViewV1>,
+    repository_receipts: Vec<RepositoryToolReceiptViewV1>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -45,6 +47,28 @@ pub struct RepositoryWorkGrantViewV1 {
     source_id: String,
     resident_pubkey: String,
     state: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectedBrainGrantViewV1 {
+    grant_id: String,
+    source_id: String,
+    resident_pubkey: String,
+    state: &'static str,
+    can_reconfirm: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryToolReceiptViewV1 {
+    receipt_id: String,
+    source_id: String,
+    resident_pubkey: String,
+    operation: &'static str,
+    status: &'static str,
+    changed_path_count: u64,
+    created_at: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -105,6 +129,38 @@ fn grant_state_value(state: RepositoryWorkGrantStateV1) -> &'static str {
     }
 }
 
+fn recall_state_value(state: BrainGrantStateV1) -> &'static str {
+    match state {
+        BrainGrantStateV1::Active => "active",
+        BrainGrantStateV1::Revoked => "revoked",
+        BrainGrantStateV1::Stale => "stale",
+    }
+}
+
+fn operation_value(operation: RepositoryToolOperationV1) -> &'static str {
+    match operation {
+        RepositoryToolOperationV1::List => "repositories",
+        RepositoryToolOperationV1::Tree => "repo_tree",
+        RepositoryToolOperationV1::Search => "repo_search",
+        RepositoryToolOperationV1::Read => "repo_read",
+        RepositoryToolOperationV1::ApplyPatch => "repo_apply_patch",
+        RepositoryToolOperationV1::Run => "repo_run",
+        RepositoryToolOperationV1::Status => "repo_status",
+        RepositoryToolOperationV1::Diff => "repo_diff",
+        RepositoryToolOperationV1::Commit => "repo_commit",
+    }
+}
+
+fn receipt_status_value(status: RepositoryToolReceiptStatusV1) -> &'static str {
+    match status {
+        RepositoryToolReceiptStatusV1::Completed => "completed",
+        RepositoryToolReceiptStatusV1::Denied => "denied",
+        RepositoryToolReceiptStatusV1::Failed => "failed",
+        RepositoryToolReceiptStatusV1::Cancelled => "cancelled",
+        RepositoryToolReceiptStatusV1::Stale => "stale",
+    }
+}
+
 fn source_view(
     summary: owner_brain_store::ConnectedBrainSourceSummaryV1,
 ) -> ConnectedBrainSourceViewV1 {
@@ -123,13 +179,43 @@ fn source_view(
 }
 
 fn inventory(
+    app: &AppHandle,
+    state: &AppState,
     discoveries: Vec<connected_brain::ConnectedBrainDiscoveryViewV1>,
     catalog: owner_brain_store::ConnectedBrainCatalogV1,
 ) -> ConnectedBrainInventoryV1 {
+    let source_ids = catalog
+        .sources
+        .iter()
+        .map(|summary| summary.source.source_id.clone())
+        .collect();
     ConnectedBrainInventoryV1 {
         consent_copy: CONNECTION_CONSENT,
         discoveries,
         sources: catalog.sources.into_iter().map(source_view).collect(),
+        recall_grants: catalog
+            .recall_grants
+            .into_iter()
+            .map(|stored| {
+                let authority = crate::managed_agents::current_owner_brain_runtime_authority(
+                    app,
+                    &stored.grant.resident_pubkey,
+                )
+                .ok();
+                let effective = owner_brain_store::effective_grant_state(
+                    &stored.grant,
+                    authority.as_ref().map(|(binding, _)| binding),
+                    authority.as_ref().map(|(_, egress)| *egress),
+                );
+                ConnectedBrainGrantViewV1 {
+                    grant_id: stored.grant.grant_id.as_str().to_owned(),
+                    source_id: stored.source_id.as_str().to_owned(),
+                    resident_pubkey: stored.grant.resident_pubkey.as_str().to_owned(),
+                    state: recall_state_value(effective),
+                    can_reconfirm: effective == BrainGrantStateV1::Stale,
+                }
+            })
+            .collect(),
         repository_grants: catalog
             .repository_grants
             .into_iter()
@@ -137,7 +223,34 @@ fn inventory(
                 grant_id: grant.grant_id.as_str().to_owned(),
                 source_id: grant.source_id.as_str().to_owned(),
                 resident_pubkey: grant.resident_pubkey.as_str().to_owned(),
-                state: grant_state_value(grant.state),
+                state: grant_state_value(
+                    if grant.state == RepositoryWorkGrantStateV1::Active
+                        && crate::managed_agents::current_owner_brain_runtime_authority(
+                            app,
+                            &grant.resident_pubkey,
+                        )
+                        .is_ok_and(|(binding, _)| binding == grant.binding_ref)
+                    {
+                        RepositoryWorkGrantStateV1::Active
+                    } else if grant.state == RepositoryWorkGrantStateV1::Revoked {
+                        RepositoryWorkGrantStateV1::Revoked
+                    } else {
+                        RepositoryWorkGrantStateV1::Stale
+                    },
+                ),
+            })
+            .collect(),
+        repository_receipts: state
+            .repository_tool_receipts(&source_ids)
+            .into_iter()
+            .map(|receipt| RepositoryToolReceiptViewV1 {
+                receipt_id: receipt.receipt_id.as_str().to_owned(),
+                source_id: receipt.source_id.as_str().to_owned(),
+                resident_pubkey: receipt.resident_pubkey.as_str().to_owned(),
+                operation: operation_value(receipt.operation),
+                status: receipt_status_value(receipt.status),
+                changed_path_count: receipt.changed_path_count.get(),
+                created_at: receipt.created_at.as_str().to_owned(),
             })
             .collect(),
     }
@@ -166,13 +279,14 @@ fn resident_authorities(
 }
 
 fn load_inventory(
+    app: &AppHandle,
     state: &AppState,
     owner: &Hex64,
     discoveries: Vec<connected_brain::ConnectedBrainDiscoveryViewV1>,
 ) -> Result<ConnectedBrainInventoryV1, String> {
     state
         .read_connected_brain_catalog(owner)
-        .map(|catalog| inventory(discoveries, catalog))
+        .map(|catalog| inventory(app, state, discoveries, catalog))
         .map_err(|error| error.code().to_owned())
 }
 
@@ -186,7 +300,7 @@ pub async fn discover_connected_brain_sources(
         let candidates = connected_brain::discover()?;
         let discoveries =
             connected_brain::cache_candidates(&state.connected_brain_discovery, candidates)?;
-        load_inventory(&state, &owner, discoveries)
+        load_inventory(&app, &state, &owner, discoveries)
     })
     .await
     .map_err(|_| "connected Brain discovery worker failed".to_owned())?
@@ -213,7 +327,7 @@ pub async fn add_connected_brain_root(
         let candidates = connected_brain::discover_in_added_root(&path)?;
         let discoveries =
             connected_brain::cache_candidates(&state.connected_brain_discovery, candidates)?;
-        load_inventory(&state, &owner, discoveries).map(Some)
+        load_inventory(&app, &state, &owner, discoveries).map(Some)
     })
     .await
     .map_err(|_| "connected Brain discovery worker failed".to_owned())?
@@ -226,7 +340,7 @@ pub async fn list_connected_brain_sources(
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let owner = owner_pubkey(&state)?;
-        load_inventory(&state, &owner, Vec::new())
+        load_inventory(&app, &state, &owner, Vec::new())
     })
     .await
     .map_err(|_| "connected Brain inventory worker failed".to_owned())?
@@ -323,7 +437,7 @@ pub async fn disconnect_connected_brain_source(
             .disconnect_connected_brain_source(&owner, &source_id)
             .map_err(|error| error.code().to_owned())?;
         let _ = connected_brain::unregister_connected_source(&state, &source_id);
-        load_inventory(&state, &owner, Vec::new())
+        load_inventory(&app, &state, &owner, Vec::new())
     })
     .await
     .map_err(|_| "connected Brain disconnect worker failed".to_owned())?
@@ -354,8 +468,29 @@ pub async fn reconfirm_connected_brain_source(
                 },
             )
             .map_err(|error| error.code().to_owned())?;
-        load_inventory(&state, &owner, Vec::new())
+        load_inventory(&app, &state, &owner, Vec::new())
     })
     .await
     .map_err(|_| "connected Brain reconfirm worker failed".to_owned())?
+}
+
+#[tauri::command]
+pub async fn revoke_connected_brain_resident(
+    input: ReconfirmConnectedBrainSourceInputV1,
+    app: AppHandle,
+) -> Result<ConnectedBrainInventoryV1, String> {
+    let source_id = OpaqueId::parse(input.source_id)
+        .map_err(|_| "connected Brain source ID is invalid".to_owned())?;
+    let resident_pubkey = Hex64::parse(input.resident_pubkey)
+        .map_err(|_| "connected Brain resident identity is invalid".to_owned())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let owner = owner_pubkey(&state)?;
+        state
+            .revoke_connected_brain_resident(&owner, &source_id, resident_pubkey)
+            .map_err(|error| error.code().to_owned())?;
+        load_inventory(&app, &state, &owner, Vec::new())
+    })
+    .await
+    .map_err(|_| "connected Brain revoke worker failed".to_owned())?
 }

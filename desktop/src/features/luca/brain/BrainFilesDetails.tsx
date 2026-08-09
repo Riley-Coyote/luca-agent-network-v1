@@ -1,6 +1,5 @@
 import {
   AlertCircle,
-  KeyRound,
   LoaderCircle,
   LockKeyhole,
   ShieldCheck,
@@ -18,7 +17,6 @@ import type {
   OwnerBrainPreview,
 } from "@/shared/api/tauriBrain";
 import { Button } from "@/shared/ui/button";
-import { PageHeader } from "@/shared/ui/PageHeader";
 
 type GrantAction = "grant" | "revoke" | "reconfirm";
 
@@ -37,7 +35,7 @@ function readableBrainError(error: unknown): string {
   return labels[message] ?? message.replaceAll("-", " ");
 }
 
-export function BrainSetupView() {
+export function BrainFilesDetails() {
   const stateQuery = useOwnerBrainStateQuery();
   const residentsQuery = useLucaResidentsQuery();
   const actions = useOwnerBrainActions();
@@ -178,7 +176,7 @@ export function BrainSetupView() {
         description="Luca could not read the private Brain catalog. Messaging remains available."
         icon={AlertCircle}
         onRetry={() => void stateQuery.refetch()}
-        title="Brain Setup is unavailable"
+        title="Files are unavailable"
       />
     );
   }
@@ -204,81 +202,68 @@ export function BrainSetupView() {
   }
 
   return (
-    <div className="h-full overflow-y-auto" data-testid="brain-setup-view">
-      <main className="mx-auto w-full max-w-7xl px-5 pb-12 pt-14 sm:px-7 sm:pt-7 lg:px-9">
-        <PageHeader
-          action={
-            <div className="hidden items-center gap-2 rounded-full border border-border/60 bg-card/40 px-3 py-1.5 text-xs text-muted-foreground sm:flex">
-              <KeyRound className="h-3.5 w-3.5" />
-              Encrypted on this device
-            </div>
-          }
-          description="Import private sources, then decide exactly which residents may retrieve from each one."
-          title="Brain Setup"
-        />
-
-        {operationError ? (
-          <div
-            className="mt-5 flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
-            role="alert"
-          >
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            <p>{operationError}</p>
-          </div>
-        ) : null}
-
-        <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(15rem,0.72fr)_minmax(0,1.7fr)]">
-          <aside className="space-y-5">
-            <BrainImportPanel
-              activity={activity}
-              errorMessage={null}
-              isCommitting={actions.commitImport.isPending}
-              isPicking={actions.pickSource.isPending}
-              onCancel={() => void cancelImport()}
-              onCommit={() => void commitPreview()}
-              onDismissPreview={() => void dismissPreview()}
-              onPick={(kind) => void pickSource(kind)}
-              preview={preview}
-            />
-            {state.sources.length > 0 ? (
-              <BrainSourceList
-                onSelect={setSelectedSourceId}
-                selectedSourceId={selectedSourceId}
-                sources={state.sources}
-              />
-            ) : null}
-          </aside>
-
-          <div className="min-w-0 space-y-5">
-            {selectedSource ? (
-              <>
-                <BrainSourceSummary
-                  onChooseUpdate={() =>
-                    void pickSource(
-                      selectedSource.sourceKind === "text_folder"
-                        ? "folder"
-                        : "file",
-                    )
-                  }
-                  receipts={state.receipts}
-                  source={selectedSource}
-                />
-                <BrainAccessPanel
-                  grants={state.grants}
-                  isMutating={isGrantMutating}
-                  onAction={(action, resident) =>
-                    void changeGrant(action, resident)
-                  }
-                  residents={residentsQuery.data?.residents ?? []}
-                  source={selectedSource}
-                />
-              </>
-            ) : (
-              <BrainEmptyState />
-            )}
-          </div>
+    <div data-testid="brain-files-details">
+      {operationError ? (
+        <div
+          className="mt-5 flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
+          role="alert"
+        >
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>{operationError}</p>
         </div>
-      </main>
+      ) : null}
+
+      <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(15rem,0.72fr)_minmax(0,1.7fr)]">
+        <aside className="space-y-5">
+          <BrainImportPanel
+            activity={activity}
+            errorMessage={null}
+            isCommitting={actions.commitImport.isPending}
+            isPicking={actions.pickSource.isPending}
+            onCancel={() => void cancelImport()}
+            onCommit={() => void commitPreview()}
+            onDismissPreview={() => void dismissPreview()}
+            onPick={(kind) => void pickSource(kind)}
+            preview={preview}
+          />
+          {state.sources.length > 0 ? (
+            <BrainSourceList
+              onSelect={setSelectedSourceId}
+              selectedSourceId={selectedSourceId}
+              sources={state.sources}
+            />
+          ) : null}
+        </aside>
+
+        <div className="min-w-0 space-y-5">
+          {selectedSource ? (
+            <>
+              <BrainSourceSummary
+                onChooseUpdate={() =>
+                  void pickSource(
+                    selectedSource.sourceKind === "text_folder"
+                      ? "folder"
+                      : "file",
+                  )
+                }
+                receipts={state.receipts}
+                source={selectedSource}
+              />
+              <BrainAccessPanel
+                grants={state.grants}
+                isMutating={isGrantMutating}
+                onAction={(action, resident) =>
+                  void changeGrant(action, resident)
+                }
+                residents={residentsQuery.data?.residents ?? []}
+                source={selectedSource}
+              />
+            </>
+          ) : (
+            <BrainEmptyState />
+          )}
+        </div>
+      </div>
     </div>
   );
 }

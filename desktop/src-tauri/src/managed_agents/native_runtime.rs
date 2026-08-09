@@ -15,6 +15,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod openclaw;
+
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_CAPTURE_BYTES: usize = 2 * 1024 * 1024;
 
@@ -191,40 +193,7 @@ pub(crate) fn resolve_native_runtime_binding(
                 default_workspace,
             })
         }
-        RuntimeBinding::Openclaw {
-            schema_version,
-            agent_id,
-            executable_path,
-            gateway_identity,
-            gateway_url_ref,
-            default_workspace,
-            ..
-        } => {
-            if *schema_version != 1 || agent_id.trim().is_empty() {
-                return Err("unsupported or incomplete OpenClaw identity binding".into());
-            }
-            if gateway_identity.trim().is_empty()
-                || gateway_url_ref.locator != "openclaw:gateway:url"
-                || gateway_url_ref.identity_hash.as_deref() != Some(gateway_identity.as_str())
-            {
-                return Err("OpenClaw Gateway identity reference is invalid".into());
-            }
-            let command = checked_executable(executable_path)?;
-            let default_workspace = default_workspace
-                .as_deref()
-                .map(checked_workspace)
-                .transpose()?;
-            Ok(ResolvedNativeRuntime {
-                command,
-                args: vec!["acp".into()],
-                environment: BTreeMap::new(),
-                harness_environment: BTreeMap::from([(
-                    "LUCA_OPENCLAW_AGENT_ID".into(),
-                    agent_id.clone(),
-                )]),
-                default_workspace,
-            })
-        }
+        binding @ RuntimeBinding::Openclaw { .. } => openclaw::resolve(binding),
     }
 }
 
@@ -1089,46 +1058,6 @@ mod tests {
             Some(workspace.canonicalize().expect("canonical workspace"))
         );
         assert!(resolved.harness_environment.is_empty());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn openclaw_resolution_preserves_exact_agent_and_workspace_without_secrets() {
-        let fixture = tempfile::tempdir().expect("tempdir");
-        let workspace = fixture.path().join("workspace");
-        std::fs::create_dir_all(&workspace).expect("workspace");
-        let executable = executable_fixture(fixture.path(), "openclaw");
-        let gateway_identity = "gateway:fixture".to_string();
-        let binding = RuntimeBinding::Openclaw {
-            schema_version: 1,
-            agent_id: "main".into(),
-            executable_path: executable.clone(),
-            runtime_version: "fixture".into(),
-            gateway_identity: gateway_identity.clone(),
-            gateway_url_ref: SecretRef {
-                provider: SecretRefProvider::NativeStore,
-                locator: "openclaw:gateway:url".into(),
-                identity_hash: Some(gateway_identity),
-            },
-            gateway_token_file_ref: None,
-            gateway_password_file_ref: None,
-            open_claw_profile: None,
-            state_directory: None,
-            default_workspace: Some(workspace.clone()),
-        };
-
-        let resolved = resolve_native_runtime_binding(&binding).expect("resolved OpenClaw binding");
-        assert_eq!(resolved.command, executable);
-        assert_eq!(resolved.args, ["acp"]);
-        assert!(resolved.environment.is_empty());
-        assert_eq!(
-            resolved.harness_environment.get("LUCA_OPENCLAW_AGENT_ID"),
-            Some(&"main".to_string())
-        );
-        assert_eq!(
-            resolved.default_workspace,
-            Some(workspace.canonicalize().expect("canonical workspace"))
-        );
     }
 
     #[cfg(unix)]

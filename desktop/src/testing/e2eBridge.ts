@@ -9395,6 +9395,104 @@ export function maybeInstallE2eTauriMocks() {
     locked: brainState("locked"),
     unavailable: brainState("unavailable"),
   });
+  const connectedDiscoveries = [
+    {
+      discoveryId: "discovery-repository-luca",
+      sourceKind: "repository",
+      displayName: "luca-agent-network",
+      itemCount: 842,
+      earliestAt: null,
+      latestAt: "2026-08-09T03:12:00Z",
+    },
+    {
+      discoveryId: "discovery-codex",
+      sourceKind: "codex_history",
+      displayName: "Codex",
+      itemCount: 128,
+      earliestAt: "2026-05-02T10:00:00Z",
+      latestAt: "2026-08-09T03:18:00Z",
+    },
+    {
+      discoveryId: "discovery-claude",
+      sourceKind: "claude_history",
+      displayName: "Claude Code",
+      itemCount: 94,
+      earliestAt: "2026-04-14T08:00:00Z",
+      latestAt: "2026-08-08T22:40:00Z",
+    },
+  ];
+  let connectedSources = [
+    {
+      sourceId: "connected-repository-luca",
+      sourceKind: "repository",
+      displayName: "luca-agent-network",
+      status: "current",
+      itemCount: 842,
+      entryCount: 2_418,
+      lastRefreshedAt: "2026-08-09T03:12:00Z",
+    },
+  ];
+  let connectedRecallGrants = [
+    {
+      grantId: "connected-recall-luca",
+      sourceId: "connected-repository-luca",
+      residentPubkey: primaryBrainResident.pubkey,
+      state: "active",
+      canReconfirm: false,
+    },
+    {
+      grantId: "connected-recall-mara",
+      sourceId: "connected-repository-luca",
+      residentPubkey: secondaryBrainResident.pubkey,
+      state: "stale",
+      canReconfirm: true,
+    },
+  ];
+  let connectedRepositoryGrants = connectedRecallGrants.map((grant) => ({
+    grantId: `work-${grant.grantId}`,
+    sourceId: grant.sourceId,
+    residentPubkey: grant.residentPubkey,
+    state: grant.state,
+  }));
+  const connectedRepositoryReceipts = [
+    {
+      receiptId: "repository-receipt-fixture",
+      sourceId: "connected-repository-luca",
+      residentPubkey: primaryBrainResident.pubkey,
+      operation: "repo_read",
+      status: "completed",
+      changedPathCount: 0,
+      createdAt: "2026-08-09T03:14:00Z",
+    },
+  ];
+  let connectedModeInitialized = false;
+  const connectedBrainFixtureMode = () => {
+    const query = window.location.hash.split("?", 2)[1] ?? "";
+    return new URLSearchParams(query).get("brainConnections") ?? "ready";
+  };
+  const initializeConnectedMode = () => {
+    if (connectedModeInitialized) return;
+    connectedModeInitialized = true;
+    if (connectedBrainFixtureMode() === "empty") {
+      connectedSources = [];
+      connectedRecallGrants = [];
+      connectedRepositoryGrants = [];
+    }
+  };
+  const connectedBrainInventory = () => {
+    initializeConnectedMode();
+    return {
+      consentCopy:
+        "Luca keeps a private local index while your originals stay where they are. Your agents may send only relevant excerpts to their configured models. Repository edits and commands always ask first.",
+      discoveries: connectedDiscoveries,
+      sources: connectedSources,
+      recallGrants: connectedRecallGrants,
+      repositoryGrants: connectedRepositoryGrants,
+      repositoryReceipts: connectedRepositoryReceipts.filter((receipt) =>
+        connectedSources.some((source) => source.sourceId === receipt.sourceId),
+      ),
+    };
+  };
   const brainFixtureMode = () => {
     const query = window.location.hash.split("?", 2)[1] ?? "";
     return new URLSearchParams(query).get("brainFixture") ?? "ready";
@@ -9451,6 +9549,114 @@ export function maybeInstallE2eTauriMocks() {
     window.__BUZZ_E2E_COMMAND_LOG__?.push({ command, payload });
 
     switch (command) {
+      case "discover_connected_brain_sources":
+      case "list_connected_brain_sources":
+        return connectedBrainInventory();
+      case "add_connected_brain_root":
+        return connectedBrainInventory();
+      case "connect_connected_brain_source": {
+        initializeConnectedMode();
+        const input = (payload ?? {}) as {
+          input?: { discoveryIds?: string[] };
+        };
+        const selected = connectedDiscoveries.filter((discovery) =>
+          input.input?.discoveryIds?.includes(discovery.discoveryId),
+        );
+        const created = selected.map((discovery) => ({
+          sourceId: `connected-${discovery.discoveryId}`,
+          sourceKind: discovery.sourceKind,
+          displayName: discovery.displayName,
+          status: "current",
+          itemCount: discovery.itemCount,
+          entryCount: Math.max(discovery.itemCount * 2, 1),
+          lastRefreshedAt: "2026-08-09T03:20:00Z",
+        }));
+        connectedSources = [
+          ...connectedSources.filter(
+            (source) =>
+              !created.some(
+                (candidate) => candidate.sourceId === source.sourceId,
+              ),
+          ),
+          ...created,
+        ];
+        for (const source of created) {
+          for (const resident of mockManagedAgents) {
+            const grant = {
+              grantId: `recall-${source.sourceId}-${resident.pubkey.slice(0, 8)}`,
+              sourceId: source.sourceId,
+              residentPubkey: resident.pubkey,
+              state: "active",
+              canReconfirm: false,
+            };
+            connectedRecallGrants.push(grant);
+            if (source.sourceKind === "repository") {
+              connectedRepositoryGrants.push({
+                grantId: `work-${grant.grantId}`,
+                sourceId: source.sourceId,
+                residentPubkey: resident.pubkey,
+                state: "active",
+              });
+            }
+          }
+        }
+        return { sources: created, replayed: false };
+      }
+      case "refresh_connected_brain_source": {
+        const sourceId = ((payload ?? {}) as { input?: { sourceId?: string } })
+          .input?.sourceId;
+        const sources = connectedSources
+          .filter((source) => source.sourceId === sourceId)
+          .map((source) => ({
+            ...source,
+            status: "current",
+            lastRefreshedAt: "2026-08-09T03:22:00Z",
+          }));
+        connectedSources = connectedSources.map(
+          (source) =>
+            sources.find((next) => next.sourceId === source.sourceId) ?? source,
+        );
+        return { sources, replayed: false };
+      }
+      case "disconnect_connected_brain_source": {
+        const sourceId = ((payload ?? {}) as { input?: { sourceId?: string } })
+          .input?.sourceId;
+        connectedSources = connectedSources.filter(
+          (source) => source.sourceId !== sourceId,
+        );
+        connectedRecallGrants = connectedRecallGrants.filter(
+          (grant) => grant.sourceId !== sourceId,
+        );
+        connectedRepositoryGrants = connectedRepositoryGrants.filter(
+          (grant) => grant.sourceId !== sourceId,
+        );
+        return connectedBrainInventory();
+      }
+      case "reconfirm_connected_brain_source":
+      case "revoke_connected_brain_resident": {
+        const input = (payload ?? {}) as {
+          input?: { sourceId?: string; residentPubkey?: string };
+        };
+        const nextState =
+          command === "revoke_connected_brain_resident" ? "revoked" : "active";
+        connectedRecallGrants = connectedRecallGrants.map((grant) =>
+          grant.sourceId === input.input?.sourceId &&
+          grant.residentPubkey === input.input?.residentPubkey
+            ? {
+                ...grant,
+                state: nextState,
+                canReconfirm: false,
+              }
+            : grant,
+        );
+        connectedRepositoryGrants = connectedRepositoryGrants.map((grant) =>
+          grant.sourceId === input.input?.sourceId &&
+          grant.residentPubkey === input.input?.residentPubkey
+            ? { ...grant, state: nextState }
+            : grant,
+        );
+        return connectedBrainInventory();
+      }
       case "get_owner_brain_fixtures":
         return brainFixtures();
       case "get_owner_brain_state": {

@@ -148,6 +148,77 @@ export type OwnerBrainImportCommit = {
   replayed: boolean;
 };
 
+export type ConnectedBrainSourceKind =
+  | "repository"
+  | "codex_history"
+  | "claude_history";
+
+export type ConnectedBrainDiscovery = {
+  discoveryId: string;
+  sourceKind: ConnectedBrainSourceKind;
+  displayName: string;
+  itemCount: number;
+  earliestAt: string | null;
+  latestAt: string | null;
+};
+
+export type ConnectedBrainSource = {
+  sourceId: string;
+  sourceKind: ConnectedBrainSourceKind;
+  displayName: string;
+  status:
+    | "connecting"
+    | "current"
+    | "needs_attention"
+    | "unavailable"
+    | "disconnected";
+  itemCount: number;
+  entryCount: number;
+  lastRefreshedAt: string | null;
+};
+
+export type ConnectedBrainGrant = {
+  grantId: string;
+  sourceId: string;
+  residentPubkey: string;
+  state: "active" | "revoked" | "stale";
+  canReconfirm: boolean;
+};
+
+export type RepositoryWorkGrant = Omit<ConnectedBrainGrant, "canReconfirm">;
+
+export type RepositoryToolReceipt = {
+  receiptId: string;
+  sourceId: string;
+  residentPubkey: string;
+  operation: string;
+  status: "completed" | "denied" | "failed" | "cancelled" | "stale";
+  changedPathCount: number;
+  createdAt: string;
+};
+
+export type ConnectedBrainInventory = {
+  consentCopy: string;
+  discoveries: ConnectedBrainDiscovery[];
+  sources: ConnectedBrainSource[];
+  recallGrants: ConnectedBrainGrant[];
+  repositoryGrants: RepositoryWorkGrant[];
+  repositoryReceipts: RepositoryToolReceipt[];
+};
+
+export type ConnectConnectedBrainSourceInput = {
+  discoveryIds: string[];
+  consentAccepted: boolean;
+};
+
+export type ConnectedBrainSourceInput = {
+  sourceId: string;
+};
+
+export type ConnectedBrainResidentInput = ConnectedBrainSourceInput & {
+  residentPubkey: string;
+};
+
 export function previewOwnerBrainSource(
   input: PreviewOwnerBrainSourceInput,
 ): Promise<OwnerBrainPreview> {
@@ -196,4 +267,46 @@ export function reconfirmOwnerBrainSource(
 
 export function getOwnerBrainFixtures(): Promise<OwnerBrainFixtures> {
   return invoke("get_owner_brain_fixtures");
+}
+
+export function discoverConnectedBrainSources(): Promise<ConnectedBrainInventory> {
+  return invoke("discover_connected_brain_sources");
+}
+
+export function listConnectedBrainSources(): Promise<ConnectedBrainInventory> {
+  return invoke("list_connected_brain_sources");
+}
+
+export function addConnectedBrainRoot(): Promise<ConnectedBrainInventory | null> {
+  return invoke("add_connected_brain_root");
+}
+
+export function connectConnectedBrainSource(
+  input: ConnectConnectedBrainSourceInput,
+): Promise<{ sources: ConnectedBrainSource[]; replayed: boolean }> {
+  return invoke("connect_connected_brain_source", { input });
+}
+
+export function refreshConnectedBrainSource(
+  input: ConnectedBrainSourceInput,
+): Promise<{ sources: ConnectedBrainSource[]; replayed: boolean }> {
+  return invoke("refresh_connected_brain_source", { input });
+}
+
+export function disconnectConnectedBrainSource(
+  input: ConnectedBrainSourceInput,
+): Promise<ConnectedBrainInventory> {
+  return invoke("disconnect_connected_brain_source", { input });
+}
+
+export function reconfirmConnectedBrainSource(
+  input: ConnectedBrainResidentInput,
+): Promise<ConnectedBrainInventory> {
+  return invoke("reconfirm_connected_brain_source", { input });
+}
+
+export function revokeConnectedBrainResident(
+  input: ConnectedBrainResidentInput,
+): Promise<ConnectedBrainInventory> {
+  return invoke("revoke_connected_brain_resident", { input });
 }

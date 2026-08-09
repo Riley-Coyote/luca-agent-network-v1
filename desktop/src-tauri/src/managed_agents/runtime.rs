@@ -23,6 +23,8 @@ use crate::{
 mod path;
 pub(in crate::managed_agents) use path::build_augmented_path;
 
+mod openclaw_compat;
+
 mod sweep;
 pub(crate) use sweep::sweep_untracked_bundle_harnesses;
 
@@ -1706,14 +1708,13 @@ pub fn spawn_agent_child(
         .as_ref()
         .map(super::resolve_native_runtime_binding)
         .transpose()?;
-    let effective_command = native_runtime
-        .as_ref()
-        .map(|runtime| runtime.command.display().to_string())
-        .unwrap_or_else(|| super::record_agent_command(record, &personas));
-    let agent_args = native_runtime
-        .as_ref()
-        .map(|runtime| runtime.args.clone())
-        .unwrap_or_else(|| normalize_agent_args(&effective_command, record.agent_args.clone()));
+    let fallback_command = super::record_agent_command(record, &personas);
+    let (effective_command, resolved_agent_command, agent_args) =
+        openclaw_compat::resolve_agent_command(
+            native_runtime.as_ref(),
+            fallback_command,
+            record.agent_args.clone(),
+        )?;
     let resolved_acp_command = resolve_command(&record.acp_command)
         .ok_or_else(|| missing_command_message(&record.acp_command, "ACP harness command"))?;
     let effective_mcp_command = known_acp_runtime(&effective_command)
@@ -1735,11 +1736,6 @@ pub fn spawn_agent_child(
     #[cfg(unix)]
     let repository_mcp_command = resolve_command("buzz-dev-mcp")
         .ok_or_else(|| missing_command_message("buzz-dev-mcp", "repository MCP sidecar"))?;
-    // Resolve agent command to a full path (DMG launches have minimal PATH).
-    let resolved_agent_command = resolve_command(&effective_command)
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| effective_command.clone());
-
     // The agent's effective relay drives both the child's relay connection
     // (BUZZ_RELAY_URL) and git credential-helper URL: an explicit per-agent
     // relay wins; an empty one falls back to the active workspace relay.

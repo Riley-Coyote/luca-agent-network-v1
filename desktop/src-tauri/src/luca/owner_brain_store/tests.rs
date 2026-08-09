@@ -208,6 +208,10 @@ fn connected_refresh_reconfirm_future_resident_and_disconnect_are_fail_closed() 
     )
     .unwrap();
 
+    assert!(super::connected::owner_catalog_accepts_connected(
+        &root, &runtime
+    ));
+
     let before_replay = runtime
         .store
         .load_revision_generation(&owner())
@@ -277,6 +281,39 @@ fn connected_refresh_reconfirm_future_resident_and_disconnect_are_fail_closed() 
         binding_ref: binding('3'),
         provider_egress: ProviderEgressV1::Local,
     };
+    super::connected::ensure_connected_grants(
+        &root,
+        &mut runtime,
+        &replay.source.source,
+        &future_authority,
+    )
+    .unwrap();
+
+    super::connected_lifecycle::revoke_connected_resident_with_runtime(
+        &root,
+        &mut runtime,
+        &source_id,
+        future_authority.resident_pubkey.clone(),
+    )
+    .unwrap();
+    let (revoked_generation, revoked_namespace, revoked_namespace_key) =
+        super::connected::connected_generation(&root, &runtime)
+            .unwrap()
+            .unwrap();
+    let revoked_catalog = super::connected::catalog_from_generation(
+        &revoked_generation,
+        &revoked_namespace,
+        revoked_namespace_key.as_bytes(),
+    )
+    .unwrap();
+    assert!(revoked_catalog.recall_grants.iter().any(|stored| {
+        stored.grant.resident_pubkey == future_authority.resident_pubkey
+            && stored.grant.state == BrainGrantStateV1::Revoked
+    }));
+    assert!(revoked_catalog.repository_grants.iter().any(|grant| {
+        grant.resident_pubkey == future_authority.resident_pubkey
+            && grant.state == luca_protocol::RepositoryWorkGrantStateV1::Revoked
+    }));
     super::connected::ensure_connected_grants(
         &root,
         &mut runtime,

@@ -1,4 +1,4 @@
-//! V1.2 Brain Setup renderer commands and frozen development fixtures.
+//! V1.2 Brain renderer commands and frozen development fixtures.
 //!
 //! Renderer responses contain no source bodies or absolute paths. The raw
 //! preview token is a short-lived commit capability and is never logged.
@@ -463,7 +463,7 @@ fn catalog_view(
 }
 
 #[tauri::command]
-/// Lists body-free owner source and effective grant state for Brain Setup.
+/// Lists body-free owner source and effective grant state for Brain.
 pub async fn get_owner_brain_state(app: AppHandle) -> Result<OwnerBrainFixtureStateV1, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let app_state = app.state::<AppState>();
@@ -569,7 +569,7 @@ pub async fn reconfirm_owner_brain_source(
 }
 
 #[tauri::command]
-/// Returns deterministic body-free fixtures for V1.2 Brain Setup development.
+/// Returns deterministic body-free fixtures for V1.2 Brain development.
 pub fn get_owner_brain_fixtures() -> OwnerBrainFixturesV1 {
     let resident = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     OwnerBrainFixturesV1 {

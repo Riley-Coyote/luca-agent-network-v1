@@ -194,7 +194,7 @@ export function ProjectRoomNavigator({
       <footer className="luca-project-room-navigator__footer">
         <button
           disabled
-          title="Source grants are configured in Brain Setup"
+          title="Source access is configured in Brain"
           type="button"
         >
           <BookOpen aria-hidden className="size-4" />

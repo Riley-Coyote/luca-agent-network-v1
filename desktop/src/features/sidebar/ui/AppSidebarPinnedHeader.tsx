@@ -147,11 +147,11 @@ export function AppSidebarPrimaryMenu({
             data-testid="open-brain-setup"
             isActive={selectedView === "brain"}
             onClick={onSelectBrain}
-            tooltip="Brain Setup"
+            tooltip="Brain"
             type="button"
           >
             <Brain className="h-4 w-4" />
-            <SidebarMenuLabel>Brain Setup</SidebarMenuLabel>
+            <SidebarMenuLabel>Brain</SidebarMenuLabel>
           </SidebarMenuButton>
         </SidebarMenuItem>
         <SidebarMenuItem>

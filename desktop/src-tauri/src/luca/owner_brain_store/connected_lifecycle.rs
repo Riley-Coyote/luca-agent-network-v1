@@ -94,6 +94,42 @@ pub(crate) fn reconfirm_connected_source(
     ensure_connected_grants(&root, runtime, &manifest.source, &authority)
 }
 
+pub(crate) fn revoke_connected_resident(
+    lifecycle: &ContinuityLifecycleLock,
+    runtime_state: &Mutex<ContinuityRuntimeState>,
+    owner_pubkey: &Hex64,
+    source_id: &OpaqueId,
+    resident_pubkey: Hex64,
+) -> Result<(), OwnerBrainStoreError> {
+    let _guard = lifecycle
+        .lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+    let root = load_root_key()?;
+    let mut state = runtime_state
+        .lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+    let runtime = ready_runtime_mut(&mut state, owner_pubkey)?;
+    revoke_connected_resident_with_runtime(&root, runtime, source_id, resident_pubkey)
+}
+
+pub(super) fn revoke_connected_resident_with_runtime(
+    root: &ContinuityMasterKey,
+    runtime: &mut ContinuityRuntime,
+    source_id: &OpaqueId,
+    resident_pubkey: Hex64,
+) -> Result<(), OwnerBrainStoreError> {
+    let manifest =
+        connected_source_by_id(root, runtime, source_id)?.ok_or(OwnerBrainStoreError::Invalid)?;
+    if manifest.source.status == ConnectedBrainSourceStatusV1::Disconnected {
+        return Err(OwnerBrainStoreError::Invalid);
+    }
+    revoke_recall_grant(root, runtime, &manifest.source, resident_pubkey.clone())?;
+    if manifest.source.source_kind == luca_protocol::ConnectedBrainSourceKindV1::Repository {
+        revoke_repository_grant(root, runtime, &manifest.source, resident_pubkey)?;
+    }
+    Ok(())
+}
+
 pub(crate) fn provision_connected_resident(
     lifecycle: &ContinuityLifecycleLock,
     runtime_state: &Mutex<ContinuityRuntimeState>,

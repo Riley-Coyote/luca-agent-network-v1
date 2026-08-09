@@ -19,6 +19,16 @@ fn conversation_capabilities_are_scoped_and_deterministic() {
     assert_ne!(first, master);
 }
 
+#[cfg(unix)]
+#[test]
+fn repository_broker_socket_path_fits_darwin_limit() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let directory = repository_broker_directory();
+    let path = repository_broker_socket_path(&directory, u64::MAX);
+    assert!(path.as_os_str().as_bytes().len() <= 103);
+}
+
 #[test]
 fn unsafe_paths_and_credential_arguments_are_rejected() {
     let source_id = "source-1";

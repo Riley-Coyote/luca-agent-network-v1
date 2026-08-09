@@ -99,6 +99,7 @@ pub(crate) struct ConnectedBrainSourceSummaryV1 {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ConnectedBrainCatalogV1 {
     pub sources: Vec<ConnectedBrainSourceSummaryV1>,
+    pub recall_grants: Vec<OwnerBrainStoredGrantV1>,
     pub repository_grants: Vec<RepositoryWorkGrantV1>,
 }
 
@@ -302,17 +303,52 @@ fn persist_connected_index(
     {
         return Err(OwnerBrainStoreError::Invalid);
     }
+    let reconnect_generation = if existing.is_some_and(|manifest| {
+        manifest.source.status == ConnectedBrainSourceStatusV1::Disconnected
+    }) {
+        Some(
+            &generation
+                .ok_or(OwnerBrainStoreError::Invalid)?
+                .token
+                .snapshot_fingerprint,
+        )
+    } else {
+        None
+    };
+    let persistence_revision = reconnect_generation
+        .map(|fingerprint| {
+            sha_ref_for(&serde_json::json!({
+                "domain": "connected-index-reconnect",
+                "index_revision": build.index_revision,
+                "reconnect_generation": fingerprint,
+            }))
+        })
+        .transpose()?
+        .unwrap_or_else(|| build.index_revision.clone());
     let page_lineages = pages
         .iter()
         .map(|page| {
-            digest_id(
-                "connected-index-page",
-                &[
-                    source_id.as_str(),
-                    build.index_revision.as_str(),
-                    &page.page_index.get().to_string(),
-                ],
-            )
+            let page_index = page.page_index.get().to_string();
+            if let Some(reconnect_generation) = reconnect_generation {
+                digest_id(
+                    "connected-index-page-reconnect",
+                    &[
+                        source_id.as_str(),
+                        build.index_revision.as_str(),
+                        reconnect_generation.as_str(),
+                        &page_index,
+                    ],
+                )
+            } else {
+                digest_id(
+                    "connected-index-page",
+                    &[
+                        source_id.as_str(),
+                        build.index_revision.as_str(),
+                        &page_index,
+                    ],
+                )
+            }
         })
         .collect::<Result<Vec<_>, _>>()?;
     let capabilities = if candidate.source_kind == ConnectedBrainSourceKindV1::Repository {
@@ -369,7 +405,7 @@ fn persist_connected_index(
         .map_err(|_| OwnerBrainStoreError::Invalid)?;
     let operation_id = digest_id(
         "connected-index-operation",
-        &[source_id.as_str(), manifest.source.index_revision.as_str()],
+        &[source_id.as_str(), persistence_revision.as_str()],
     )?;
     let mut requests = pages
         .iter()
@@ -382,7 +418,7 @@ fn persist_connected_index(
                 namespace_key,
                 CONNECTED_INDEX_PAGE_RECORD,
                 lineage,
-                &manifest.source.index_revision,
+                &persistence_revision,
                 &operation_id,
                 now.clone(),
                 page,
@@ -396,7 +432,7 @@ fn persist_connected_index(
         namespace_key,
         CONNECTED_BINDING_RECORD,
         digest_id("connected-binding", &[source_id.as_str()])?,
-        &manifest.source.index_revision,
+        &persistence_revision,
         &operation_id,
         now.clone(),
         &binding,
@@ -408,7 +444,7 @@ fn persist_connected_index(
         namespace_key,
         CONNECTED_SOURCE_RECORD,
         source_id,
-        &manifest.source.index_revision,
+        &persistence_revision,
         &operation_id,
         now,
         &manifest,
@@ -665,6 +701,48 @@ pub(super) fn catalog_from_generation(
         });
     }
     sources.sort_by(|left, right| left.source.source_id.cmp(&right.source.source_id));
+    let mut recall_grants = Vec::new();
+    for lineage in generation.snapshot.lineages.iter().filter(|lineage| {
+        lineage.namespace == *namespace.as_protocol()
+            && lineage.record_type.as_str() == OWNER_BRAIN_GRANT_RECORD
+            && lineage.lifecycle == RevisionLifecycle::Active
+            && lineage
+                .scope
+                .source_id
+                .as_ref()
+                .is_some_and(|source_id| source_ids.contains(source_id))
+    }) {
+        let source_id = lineage
+            .scope
+            .source_id
+            .clone()
+            .ok_or(OwnerBrainStoreError::Invalid)?;
+        let grant: BrainGrantV1 = decrypt_active_body(
+            generation,
+            lineage
+                .active_head_record_id
+                .as_ref()
+                .ok_or(OwnerBrainStoreError::Invalid)?,
+            namespace_key,
+        )?;
+        grant
+            .validate()
+            .map_err(|_| OwnerBrainStoreError::Invalid)?;
+        let address = owner_brain_source_address(namespace.clone(), source_id.clone())?;
+        if lineage.scope != *address.as_protocol()
+            || grant.owner_pubkey != generation.token.owner_pubkey
+            || grant.source_scope_ref != address.as_protocol().scope_ref
+            || grant.grant_id != lineage.lineage_root_id
+        {
+            return Err(OwnerBrainStoreError::Invalid);
+        }
+        recall_grants.push(OwnerBrainStoredGrantV1 { source_id, grant });
+    }
+    recall_grants.sort_by(|left, right| {
+        left.source_id
+            .cmp(&right.source_id)
+            .then_with(|| left.grant.resident_pubkey.cmp(&right.grant.resident_pubkey))
+    });
     let mut repository_grants = Vec::new();
     for lineage in generation.snapshot.lineages.iter().filter(|lineage| {
         lineage.namespace == *namespace.as_protocol()
@@ -694,8 +772,35 @@ pub(super) fn catalog_from_generation(
     });
     Ok(ConnectedBrainCatalogV1 {
         sources,
+        recall_grants,
         repository_grants,
     })
+}
+
+pub(super) fn connected_source_ids_from_generation(
+    generation: &StoredRevisionGenerationV1,
+    namespace: &NamespaceKey,
+    namespace_key: &[u8; 32],
+) -> Result<BTreeSet<OpaqueId>, OwnerBrainStoreError> {
+    let catalog = catalog_from_generation(generation, namespace, namespace_key)?;
+    Ok(catalog
+        .sources
+        .into_iter()
+        .map(|source| source.source.source_id)
+        .collect())
+}
+
+#[cfg(test)]
+pub(super) fn owner_catalog_accepts_connected(
+    root: &ContinuityMasterKey,
+    runtime: &ContinuityRuntime,
+) -> bool {
+    let Ok(Some((generation, namespace, namespace_key))) = connected_generation(root, runtime)
+    else {
+        return false;
+    };
+    super::grants::read_catalog_from_generation(&generation, &namespace, namespace_key.as_bytes())
+        .is_ok()
 }
 
 fn connected_by_root(

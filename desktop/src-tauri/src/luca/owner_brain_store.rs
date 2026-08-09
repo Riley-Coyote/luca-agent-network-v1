@@ -629,4 +629,6 @@ pub(crate) use repository_bridge::*;
 use retrieval::*;
 
 #[cfg(test)]
+mod connected_reconnect_tests;
+#[cfg(test)]
 mod tests;

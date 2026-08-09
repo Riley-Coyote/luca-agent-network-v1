@@ -382,16 +382,18 @@ fn profile_target_dirs(root: &Path) -> [PathBuf; 2] {
 }
 
 fn command_search_dirs() -> Vec<PathBuf> {
-    let mut dirs = profile_target_dirs(&workspace_root_dir()).to_vec();
+    // The running app owns its bundled sidecars. In `just dev` this is already
+    // `target/debug`; in an installed debug-channel bundle this prevents the
+    // compile-time workspace from outranking the signed bundle.
+    let mut dirs = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf))
+        .into_iter()
+        .collect::<Vec<_>>();
+    dirs.extend(profile_target_dirs(&workspace_root_dir()));
     if let Ok(current_dir) = std::env::current_dir() {
         dirs.extend(profile_target_dirs(&current_dir));
     }
-
-    dirs.extend(
-        std::env::current_exe()
-            .ok()
-            .and_then(|path| path.parent().map(Path::to_path_buf)),
-    );
     dirs.into_iter().fold(Vec::new(), |mut unique, dir| {
         if !unique.contains(&dir) {
             unique.push(dir);
