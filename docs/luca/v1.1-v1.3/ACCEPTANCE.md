@@ -1,6 +1,6 @@
 # Acceptance matrix
 
-Status: proposed; IDs are referenced by `TASK_GRAPH.yaml`
+Status: active; IDs are referenced by `TASK_GRAPH.yaml`
 
 ## Control and integration checkpoint
 
@@ -96,6 +96,55 @@ Status: proposed; IDs are referenced by `TASK_GRAPH.yaml`
   fact with separate receipts while a denied resident cannot surface it.
 - **A212** — Locked, corrupt, missing, cancelled, interrupted, or failed owner-
   brain operations do not expose partial data or block messaging.
+
+## V1.2.1 — Connect Your Work
+
+- **A221** — Strict connected-source, encrypted-binding, body-free index,
+  default-policy, repository-grant, tool-request, decision, and receipt vectors
+  accept canonical values and reject unknown fields, unsafe paths, wrong
+  protocols, unbounded values, and mismatched authority.
+- **A222** — V1.2 imported snapshots remain compatible and V1.3 reflection
+  remains closed; connected sources add no migration, model call, autonomous
+  memory write, or native-session restoration claim.
+- **A223** — Discovery reads metadata only, searches only configured and common
+  bounded roots plus owner-selected parents, never follows an escaping symlink,
+  never scans the whole home directory, and never connects or indexes silently.
+- **A224** — Repository indexing respects Git tracking and ignore rules while
+  excluding binaries, dependencies, build outputs, oversized or credential-like
+  files, unsafe paths, and direct Git metadata.
+- **A225** — Codex and Claude history adapters index only user-visible user and
+  assistant text and exclude system/developer instructions, hidden reasoning,
+  thinking, tools, results, environment payloads, subagent transcripts, and
+  credentials. Repository association is local metadata only.
+- **A226** — Originals remain authoritative. The encrypted owner-brain namespace
+  stores only hashes, cursors, token postings, safe metadata, and relative
+  locators. Retrieval rereads a bounded excerpt and rejects a changed or
+  unverifiable hash before provider egress.
+- **A227** — Launch reconciliation and one debounced event-driven worker refresh
+  connected sources without polling or model use. Watch failure marks a source
+  `Needs attention` while conversation remains usable.
+- **A228** — Connecting materializes exact current-resident grants and the same
+  default applies to future residents. Grant, provider egress, runtime binding,
+  and source state are checked before index decryption or original reads;
+  revocation, staleness, reconfirmation, and disconnect take effect next turn.
+- **A229** — The `luca-repositories` bridge exposes only the frozen nine tools,
+  accepts source IDs and relative paths, rejects traversal, symlink escape,
+  direct `.git` mutation, disconnected sources, and stale grants, and exposes no
+  push, remote mutation, PR, or credentialed Git operation.
+- **A230** — Reads are automatic. Patch, command, and local commit authority use
+  desktop-owned session capabilities and exact permission scopes. Decisions,
+  capabilities, and payloads never enter relay events, source indexes, provider
+  context, descendants, or logs, and native resident configuration is unchanged.
+- **A231** — The Brain surface presents Repositories, Codex, Claude Code, and
+  Files as a quiet connection inventory with one-action primary flows, one
+  plain-language consent, and complete loading, empty, error, keyboard, focus,
+  reduced-motion, and screen-reader states. Detailed grants, imports, refresh,
+  exclusions, and provenance remain available without dominating the page.
+- **A232** — The exact signed checkpoint discovers and connects disposable
+  repository and synthetic session fixtures, refreshes incrementally, proves
+  recall and scoped repository work with real Hermes and OpenClaw residents,
+  disconnects immediately, persists across relaunch, and leaves protected
+  native files unchanged.
 
 ## V1.3 — Resident Reflection
 

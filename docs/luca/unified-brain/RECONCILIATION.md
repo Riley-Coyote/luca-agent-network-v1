@@ -1,15 +1,15 @@
 # Unified Brain reconciliation with current Luca
 
-Date: 2026-08-08
+Date: 2026-08-09
 
-Baseline: `luca/v1.1` at `34989f9`
+Baseline: V1.2.1 branch from `fbdd50b`
 
-Status: M0 complete; V1.2-B21 authorized by the active task graph.
+Status: V1.2 PASS; V1.2.1-C28 active in the authoritative task graph.
 
 ## Authority order
 
 1. `HANDOFF.md` and project instructions.
-2. `docs/luca/v1.1-v1.3/` for the active V1.2 build.
+2. `docs/luca/v1.1-v1.3/` for the active V1.2.1 build.
 3. `docs/luca/PROJECTS.md` for Project to Room and device-local path behavior.
 4. This packet for the long-range Unified Brain destination.
 5. `.codex/luca-v1/` as the historical G2 architecture and evidence archive.
@@ -31,7 +31,7 @@ The historical vendored kit contains unrelated tasks named `B21` through
 
 These are dependencies, not Unified Brain milestones to rebuild.
 
-## Active V1.2 boundary
+## Completed V1.2 boundary
 
 V1.2 proves one complete, narrow source loop:
 
@@ -44,26 +44,37 @@ V1.2 proves one complete, narrow source loop:
 7. revoke or stale access before the next request;
 8. leave messaging usable through every failure state.
 
-Automatic discovery, imported chat histories, folder watching, model-assisted
-organization, semantic indexes and graphs remain later adapters.
+## Active V1.2.1 boundary
+
+V1.2.1 adds explicit live connections for bounded repository discovery and
+primary Codex/Claude histories, a body-free encrypted lexical index, event-
+driven refresh, all-current-and-future resident defaults, and a desktop-owned
+repository work bridge. It does not copy original bodies, restore native
+sessions, write durable memories, call models during ingestion, or modify native
+resident configuration.
+
+Databases are the next adapter slice. Model-assisted organization, embeddings,
+semantic/code graphs, Mnemos, proactive behavior, and reflection remain later.
 
 ## Product flow separation
 
 - Project creation does not import a repository.
-- Source import does not grant a resident.
+- V1.2 snapshot import still does not grant a resident; V1.2.1 connection uses
+  the separately consented all-current-and-future default.
 - Room assignment does not grant source access.
 - A source grant does not mutate runtime, provider, tools or permissions.
 - Absolute local paths remain encrypted, device-local metadata and never enter
   relay events, provider requests, receipts, logs or evidence.
 
-The three conceptual entry routes belong inside reopenable Brain Setup after
-owner onboarding. `Start empty` is always complete and carries no penalty.
+The durable reopenable destination is Brain. Its default connection inventory
+keeps detailed imports, grants, refresh, exclusions, and provenance available
+without making them the primary experience.
 
 ## Naming
 
 - **Unified Brain:** internal program and long-range product charter.
 - **Owner Brain:** governed source-backed authority namespace.
-- **Brain Setup:** user-facing source, project and access control surface.
+- **Brain:** user-facing connection, source, project and access control surface.
 
 ## Branch discipline
 

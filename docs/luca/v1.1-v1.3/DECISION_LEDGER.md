@@ -274,6 +274,81 @@ Reason: the authorization check must remain observable ahead of source access,
 provider capture must have a mechanically narrow input, and activity should be
 inspectable without turning ordinary context reads into continuity writes.
 
+### D026 — V1.2.1 precedes resident reflection
+
+Decision: insert **Connect Your Work** as V1.2.1 between completed V1.2 and
+V1.3. Repository, Codex, and Claude Code connections ship now; databases are
+the immediately following adapter slice. Embeddings, graphs, Mnemos,
+model-assisted ingestion, proactive behavior, and source-derived durable memory
+remain deferred.
+
+Reason: familiar connected knowledge and practical repository access produce
+the next concrete user value without expanding into an invisible memory system.
+
+### D027 — Connected sources stay live-linked and body-free at rest
+
+Decision: originals remain authoritative. Luca stores encrypted device-local
+bindings, relative locators, hashes, refresh cursors, safe metadata, and hashed
+lexical postings, but no repository or session body. Retrieval rereads only a
+selected bounded excerpt and verifies its hash before use.
+
+Reason: the app should feel current without copying whole repositories or
+histories into a second knowledge store.
+
+### D028 — Discovery is automatic but connection is explicit
+
+Decision: Luca checks the configured repository directory, common bounded
+development folders, and standard Codex/Claude history locations using metadata
+only. The owner may add bounded parent folders with the native picker. Luca
+never recursively scans the whole home directory, follows escaping symlinks,
+connects, or indexes without the owner action and first-use consent.
+
+Reason: discovery should remove setup work without silently ingesting a
+person's machine.
+
+### D029 — One consent defaults access to all residents
+
+Decision: the first connection grants relevant-excerpt egress, repository read,
+and permission-gated repository work to all current residents and materializes
+the same policy for future residents. Runtime or provider drift still fails
+closed as `Review needed`; exclusions and revocation remain available in
+Details.
+
+Reason: the default product promise is that connected knowledge simply works
+for the owner's agents while preserving visible fail-closed boundaries.
+
+### D030 — Refresh is event-driven and single-worker
+
+Decision: connected adapters reconcile at launch and use a debounced filesystem
+watcher feeding one incremental worker. There is no busy polling, model call,
+token-consuming background process, or hidden autonomous memory write. Watch
+failure leaves the connection present and marks it `Needs attention`.
+
+Reason: sources should stay current with predictable local resource use and
+honest degraded state.
+
+### D031 — Repository work is a desktop-owned capability
+
+Decision: managed residents receive a session-scoped `luca-repositories` MCP
+surface without modifying Hermes/OpenClaw configuration, credentials, memory,
+workspace, schedule, or model. Reads are automatic. Patch, executable-plus-args
+commands, and local commits require exact Luca permissions; commits require a
+separate approval and hooks. V1.2.1 exposes no push, remote mutation, PR, or
+credentialed Git operation.
+
+Reason: every resident should have one uniform, auditable repository interface
+whose authority stays with the desktop rather than the model process or native
+resident configuration.
+
+### D032 — The product destination is named Brain
+
+Decision: rename `Brain Setup` to `Brain`. Its default page is a quiet inventory
+for Repositories, Codex, Claude Code, and Files. Existing import preview, grant,
+refresh, exclusion, and provenance controls move under Details or Activity.
+
+Reason: setup is an action; Brain is the lasting place users return to manage
+connected work.
+
 ## Decisions to freeze in C01
 
 These are implementation parameters, not unresolved product direction:
@@ -296,8 +371,7 @@ Each choice must be recorded here before its dependent task begins.
 
 - embeddings provider or local embedding model;
 - graph edge types and spreading-activation weights;
-- broad source discovery and import format matrix;
-- folder watching and incremental background indexing;
+- database and broad source adapter matrix after repositories and sessions;
 - scheduled reflection cadence and budgets;
 - proactive outreach policy;
 - concurrent multi-device writer coordination;

@@ -1,6 +1,6 @@
 # Luca V1.1-V1.3 roadmap control
 
-Status: V1.1 PASS; V1.2 PASS; V1.3 NOT STARTED
+Status: V1.1 PASS; V1.2 PASS; V1.2.1 ACTIVE; V1.3 NOT STARTED
 
 Canonical release branch: `luca/v1.1`
 
@@ -18,8 +18,10 @@ Library and installed-app evidence live under `docs/luca/agent-library/`.
 V1.2 B21-B27 are complete. `V1_2_VERDICT.md` records the modular Owner Brain
 store, strict file-size cleanup, exact installed-artifact authorization matrix,
 native no-write comparison, and green final repository gate. The release is
-closed locally; no remote push or pull request was authorized. V1.3 remains
-`NOT_STARTED` pending a separate explicit implementation decision.
+closed locally; no remote push or pull request was authorized. Riley inserted
+V1.2.1 **Connect Your Work** to add live-linked repository, Codex, and Claude
+Code adapters plus a scoped repository bridge. V1.3 remains `NOT_STARTED` and
+cannot begin until the V1.2.1 C32 release barrier passes.
 
 This directory is the implementation authority for the next three incremental
 continuity releases. It deliberately replaces the breadth of the original G2
@@ -42,6 +44,7 @@ archive; it is not the active task graph for V1.1-V1.3.
 11. `DEMO_SCENARIOS.md`
 12. `DECISION_LEDGER.md`
 13. `RUN_LOG.md`
+14. `V1_2_1_FROZEN_INTERFACES.md`
 
 ## Three-release promise
 
@@ -50,6 +53,9 @@ archive; it is not the active task graph for V1.1-V1.3.
   authored by the resident. Journal pages never become automatic chat context.
 - **V1.2 — Scoped Brain Sources:** let the owner add a narrow local corpus and
   grant read-only recall to specific residents with visible provenance.
+- **V1.2.1 — Connect Your Work:** discover and explicitly connect repositories,
+  Codex sessions, and Claude Code sessions while keeping originals authoritative;
+  give residents one desktop-scoped repository work surface.
 - **V1.3 — Resident Reflection:** let a resident intentionally review and
   consolidate its own notebook through its exact configured runtime and model.
 

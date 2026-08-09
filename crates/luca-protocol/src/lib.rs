@@ -11,6 +11,7 @@
 
 mod brain;
 mod canonical;
+mod connected_brain;
 mod continuity;
 mod diagnostic;
 mod frame;
@@ -26,6 +27,7 @@ pub use canonical::{
     canonical_sha256, canonicalize, parse_and_canonicalize_strict, parse_strict_json,
     CanonicalError,
 };
+pub use connected_brain::*;
 pub use continuity::*;
 pub use diagnostic::{SafeDiagnosticV1, SAFE_DIAGNOSTIC_PROTOCOL};
 pub use frame::{

@@ -25,6 +25,24 @@
 | Resident identity updates | candidate + review unless a narrowly approved fast policy applies |
 | First release portability | single-installation truth claim unless a stronger model is proven |
 
+## Settled for V1.2.1
+
+1. The durable product destination is named **Brain**, not Brain Setup.
+2. Automatic metadata-only discovery covers bounded repositories and primary
+   Codex and Claude Code histories; connection and indexing remain explicit.
+3. The first consent defaults relevant-excerpt egress and repository access to
+   all current and future residents, with per-resident exclusions and fail-closed
+   runtime/provider staleness.
+4. Originals remain authoritative. The encrypted store keeps a body-free
+   lexical index, hashes, relative locators, safe metadata, and refresh cursors.
+5. Refresh is launch reconciliation plus a debounced event-driven single worker,
+   with no model use, polling, or autonomous memory write.
+6. Managed residents receive a desktop-owned, session-scoped repository MCP
+   surface. Read is automatic; patch, commands, and local commits use Luca
+   permission UI. Push, remote mutation, PRs, and credentialed Git are absent.
+7. Databases follow this adapter slice. Embeddings, graphs, Mnemos,
+   model-assisted ingestion, and Resident Reflection remain later work.
+
 ## Settled by current Luca
 
 1. The first supported product is the macOS Tauri desktop app.
@@ -42,7 +60,7 @@
 ## Open decisions — require Riley before later expansion
 
 1. Default provider-egress policy for future model-assisted extraction and
-   embeddings.
+   embeddings beyond V1.2.1 bounded relevant excerpts.
 2. Whether repository code graphs ship as an in-app capability, a
    Graphify-compatible adapter, or both after evaluation.
 3. Multi-device writer coordination after the single-writer release.
