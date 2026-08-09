@@ -6,14 +6,15 @@ Repository: `Riley-Coyote/luca-agent-network-v1`
 
 Authoritative continuation branch: `luca/v1.1`
 
-Release implementation checkpoint: `b1e045a5` (`Align UI regressions with the Luca shell`)
+V1.2 exact product checkpoint:
+`138d9036379a5108cd4ffe41b3dc2edfed935bff`
 
 V1.2 candidate branch: `codex/unified-brain-v1-2`
 
-V1.2 candidate state: B21-B26 complete; installed Brain demonstration passes;
-B27 is blocked by the repository file-size gate. The V1.2-owned
-`owner_brain_store.rs` must be split before the exact final checkpoint is rebuilt
-and promoted.
+V1.2 state: PASS. B21-B27, the signed installed Brain authorization matrix,
+native no-write proof, and the single formal `just ci` gate all pass. The
+evidence closure is the commit titled `Finalize V1.2 release evidence` on
+`luca/v1.1`. The release remains local; no push or pull request was authorized.
 
 This document is the repository-native source of truth for continuing Luca V1.
 It supersedes older product assumptions in the upstream Buzz README and older
@@ -183,6 +184,19 @@ Authority rules:
   production-path regression test proves direct and nested descendants do not
   inherit the socket.
 
+### Scoped Owner Brain sources
+
+- The owner can preview and atomically import narrow local Markdown/text sources
+  into an encrypted owner namespace without changing the source bytes.
+- Read-only access requires an explicit source grant for one stable resident
+  identity. Revocation applies on the next turn; changed runtime bindings make
+  the grant stale until explicit reconfirmation.
+- Retrieval checks authorization before decryption, ranks and deduplicates
+  within frozen bounds, rechecks terminal authority, and exposes body-free
+  process-memory receipts.
+- Retrieved source text is untrusted reference material. It cannot change
+  resident identity, runtime, model, tools, authority, routing, or budgets.
+
 ## Branch and commit map
 
 | Branch | Purpose | Relationship |
@@ -190,7 +204,8 @@ Authority rules:
 | `luca/v1` | Older integrated usable baseline | Remote default; commit `265c3543` |
 | `agent/conversation-first-shell` | Conversation-first UI checkpoint | Commit `d75d731b`, based on `luca/v1` |
 | `agent/runtime-reliability` | Historical G1/runtime checkpoint | Preserved for archaeology; not the release branch |
-| `luca/v1.1` | **Current integrated release branch** | Functional beta, encrypted handoff, resident Notebook, unified Agent Library, Project → Room navigation, installed verification |
+| `luca/v1.1` | **Current integrated release branch** | V1.2 PASS: functional beta, encrypted handoff, resident Notebook, unified Agent Library, Project → Room navigation, scoped Owner Brain, installed verification |
+| `codex/unified-brain-v1-2` | V1.2 implementation and evidence lineage | Exact product checkpoint `138d903`; evidence closure locally fast-forwarded into `luca/v1.1` |
 | `agent/vision-demo` | High-fidelity simulated design exploration | Reference only; do not merge wholesale |
 | `agent/project-room-blackout-shell` | Approved Project → Room navigation and production handoff | Finalized at `b1e045a5`; fast-forwarded into `luca/v1.1` after visual and native approval |
 | `main` | Untouched Buzz baseline | Tracks upstream baseline, not Luca continuation |
@@ -206,10 +221,8 @@ git switch -c agent/<short-task-name>
 Do not restart from `main`, transplant these changes into an older Luca app, or
 merge `agent/vision-demo` wholesale.
 
-Do not start V1.3 from the V1.2 candidate yet. Resume B27 from
-`codex/unified-brain-v1-2`, unlock the Mac, run the installed Hermes/OpenClaw
-authorization matrix, compare the native no-write snapshots, and only then run
-the one final `just ci` gate and promote the release.
+V1.2 is closed. V1.3 remains `NOT_STARTED`; begin it only as a separately
+authorized slice from the accepted local `luca/v1.1` head.
 
 ## Source map for current Luca work
 
@@ -228,6 +241,8 @@ the one final `just ci` gate and promote the release.
 | Cancellation command | `desktop/src-tauri/src/commands/messages.rs` |
 | Permission UI | `desktop/src/features/agents/ui/ManagedPermissionCard.tsx`, `desktop/src/features/agents/useManagedPermissions.ts` |
 | Native import UI | `desktop/src/features/agents/ui/NativeResidentImportSection.tsx` |
+| Owner Brain persistence and authority | `desktop/src-tauri/src/luca/owner_brain_store.rs`, `desktop/src-tauri/src/luca/owner_brain_store/`, `desktop/src-tauri/src/managed_agents/owner_brain_authority.rs` |
+| Brain Setup UI | `desktop/src/features/brain/` |
 | Planning/contracts | `.codex/luca-v1/` |
 | Project → Room navigation | `desktop/src/features/projects/`, `desktop/src/features/channels/lib/roomProjects.ts`, `docs/luca/project-navigation/` |
 
@@ -271,24 +286,20 @@ evidence-based repair, then stop and report instead of looping.
 
 ## Verification state at handoff
 
-Passed on the current reliability commit:
-
-- Rust formatting and diff checks.
-- `luca-protocol` tests, including managed permission binding/stale decisions.
-- Focused `buzz-acp` permission tests.
-- Native discovery/semantic identity/binding tests.
-- Resident idempotency tests.
-- Managed dispatch and exact restart-recovery tests.
-- Cancellation truthfulness tests.
-- Native environment/credential isolation tests.
-- Direct and nested permission-socket inheritance regression test.
-- Desktop Rust check.
-- Frontend TypeScript check, focused Biome check, and production build.
-- Independent security review with no remaining P0/P1 in this slice.
-
-The actual Luca dev process was running with two managed ACP residents at the
-end of the session. GUI automation could not attach to the custom development
-bundle, so the final post-change interactive matrix was not claimed.
+- The exact product checkpoint was rebuilt, Developer-ID signed, strictly deep
+  verified, atomically installed, relaunched, and left available.
+- Hermes `default` and OpenClaw `main` passed granted retrieval, ungranted and
+  revoked denial, live stale/reconfirm, relaunch persistence, ordinary DM, and
+  mixed-room checks. Both finished ready at original app-managed parallelism
+  one with active grants.
+- Protected native configuration, identity, model, memory, workspace, and
+  schedule hashes were unchanged. The encrypted continuity store passed the
+  plaintext path/canary scan.
+- Brain, Owner Brain, provider-capture, full Tauri, desktop, Playwright,
+  workspace, web, and mobile preflights passed.
+- The single formal `just ci` run passed on product commit
+  `138d9036379a5108cd4ffe41b3dc2edfed935bff`; no product source changed after
+  that gate.
 
 ## What is not complete
 
@@ -298,7 +309,8 @@ bundle, so the final post-change interactive matrix was not claimed.
 - Full upstream messaging regression, clean-profile branding/onboarding,
   attachment/media/search, and installed-app smoke are not closed for G1.
 - Managed permission scenarios need a real runtime-triggered UI smoke.
-- Mnemos universal-brain retrieval and writing are intentionally absent.
+- Broad Mnemos-style discovery, graph, adapters, and writing are intentionally
+  absent; V1.2 contains only scoped read-only owner sources.
 - Continuity Capsule, consolidation, reflection, and fuller autonomous inner
   life are intentionally deferred.
 - Native ACP transcript/session restoration is not claimed; Luca rehydrates
@@ -308,11 +320,10 @@ bundle, so the final post-change interactive matrix was not claimed.
 
 ## Next action
 
-Continue with [`docs/luca/G1_CHECKLIST.md`](docs/luca/G1_CHECKLIST.md). First
-restart the app from the current branch so the final `buzz-acp` binary is active,
-then run the native interactive matrix once. Repair only concrete failures. Do
-not begin Mnemos integration until the messaging/runtime gate is stable or Riley
-explicitly changes priority.
+V1.2 requires no repair. Continue with [`docs/luca/G1_CHECKLIST.md`](docs/luca/G1_CHECKLIST.md)
+for the remaining broader G1 gates, or plan V1.3 as a separate approval-gated
+slice. Do not broaden the V1.2 Owner Brain into graph, adapter, or write authority
+without a new frozen contract.
 
 ## Repository hygiene
 

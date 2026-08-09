@@ -257,3 +257,53 @@ Safe notes:
 - No guard limit or exception was changed. B27 and A405 remain blocked pending a
   real Brain store split and reconciliation of inherited guard debt.
 - Release verdict: `V1_2_VERDICT.md`.
+
+## 2026-08-08 — V1.2 strict-green completion and local release
+
+- Status: B27 PASS; V1.2 PASS; V1.3 remains NOT_STARTED.
+- Branch: `codex/unified-brain-v1-2`, promoted by local fast-forward to
+  `luca/v1.1` after this evidence closure.
+- Owner Brain split commit:
+  `e472ba81b59336c3e5fb475e58038041b3a3c531`.
+- Exact signed product checkpoint:
+  `138d9036379a5108cd4ffe41b3dc2edfed935bff`.
+- Evidence closure: the commit containing this entry, titled
+  `Finalize V1.2 release evidence`.
+- Structural result:
+  - Owner Brain records, imports, grants, retrieval, and tests are bounded
+    modules behind the unchanged internal facade;
+  - all fourteen inherited desktop file-size failures were resolved through
+    extraction;
+  - no schema, protocol, migration, dependency, lockfile, size-ceiling, or new
+    exception change was made.
+- Focused and preflight result:
+  - strict protocol and Tauri Clippy passed;
+  - Brain protocol vectors passed 5/5;
+  - Owner Brain security/failure coverage and provider capture passed;
+  - full Tauri suite passed 1,770 tests with 13 ignored, plus three diagnostics;
+  - desktop checks, 3,420 unit tests, typecheck, production build, and B26/F03/F07
+    Playwright smoke passed;
+  - workspace, web, and mobile preflights passed; mobile reported 525 passed and
+    one intentional skip.
+- Installed artifact:
+  - bundle `com.luca.agent-network.dev`, Developer ID Application
+    `Riley Ralmuto (WQUY4M5HYR)`, strict deep verification passed;
+  - executable SHA-256
+    `80322f7a1ce4f99b1d998332e40b50a1439a79af229a28ef6714ec1037b60fb2`;
+  - source SHA-256 remained
+    `86f3d22fb2853515f24768a4478b9d9b173c6652a59e2a799641383d2e842747`.
+- Native matrix:
+  - Hermes and OpenClaw retrieved the granted corpus-only fact; Luca was denied;
+  - revocation excluded OpenClaw on the next turn;
+  - OpenClaw parallelism one to two, resident restart, stale/no-source,
+    reconfirm/retrieve, restoration to one, restart, and reconfirm all passed;
+  - relaunch preserved source/grants, cleared ephemeral receipts, and ordinary
+    Hermes/OpenClaw DMs plus their mixed-room reply completed.
+- Privacy/no-write:
+  - protected native config, identity, model, memory, workspace, and schedule
+    hashes were byte-identical before and after acceptance;
+  - the encrypted store contained no plaintext fixture path, filename, or
+    canary values.
+- Formal gate: the single `just ci` run passed on the unchanged product
+  checkpoint after native acceptance. No product source changed afterward.
+- Promotion: local only. No push and no pull request.
