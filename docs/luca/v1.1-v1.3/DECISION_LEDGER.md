@@ -248,6 +248,32 @@ resident's former provider configuration. Persisting the authorized
 fingerprint and deriving staleness at the boundary preserves explicit consent,
 restart behavior, revision history, and the no-mutation retrieval contract.
 
+### D025 — Brain retrieval is grant-first and process-memory-only
+
+Decision: one owner-brain context attempt enumerates only encrypted source
+scope metadata, derives the expected resident/source grant lineage, and
+decrypts that grant before any source manifest or chunk page. Absent and
+revoked grants return `denied`; binding or egress drift returns `stale`. Only an
+exact active grant permits source decryption and the accepted process-memory
+lexical/FTS path.
+
+Candidates from all authorized sources share one global limit of eight chunks
+and 24 KiB. Duplicate content hashes are admitted once. The managed continuity
+adapter maps only selected chunk body, opaque chunk ID, and content hash into
+the owner-brain layer; source locators, canonical paths, denied material,
+resident-private material, and grant bodies are never added. Resident notebook
+disablement affects only resident-private layers and cannot suppress a
+separately authorized owner-brain layer.
+
+Each evaluated source emits a validated body-free
+`OwnerBrainContextReceiptV1`. The most recent 128 receipts are retained only in
+process memory for Brain Setup activity; retrieval never advances the durable
+revision authority or writes a receipt record.
+
+Reason: the authorization check must remain observable ahead of source access,
+provider capture must have a mechanically narrow input, and activity should be
+inspectable without turning ordinary context reads into continuity writes.
+
 ## Decisions to freeze in C01
 
 These are implementation parameters, not unresolved product direction:

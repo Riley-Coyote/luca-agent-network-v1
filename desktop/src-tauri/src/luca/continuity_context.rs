@@ -145,6 +145,8 @@ pub(crate) fn resolve_desktop_continuity_context<F>(
     address: NamespaceScope,
     cue: RetrievalText,
     capsule: ContinuityLayerMaterial,
+    owner_brain: ContinuityLayerMaterial,
+    resident_override_status: Option<ContinuityLayerStatusV1>,
     deadline: Instant,
     now_unix_ms: u64,
     sink: F,
@@ -158,6 +160,8 @@ where
         address,
         cue,
         capsule,
+        owner_brain,
+        resident_override_status,
         deadline,
         now_unix_ms,
         sink,
@@ -194,6 +198,8 @@ fn resolve_with_lease_reader<R, F>(
     address: NamespaceScope,
     cue: RetrievalText,
     capsule: ContinuityLayerMaterial,
+    owner_brain: ContinuityLayerMaterial,
+    resident_override_status: Option<ContinuityLayerStatusV1>,
     deadline: Instant,
     now_unix_ms: u64,
     sink: F,
@@ -209,6 +215,26 @@ where
         return skipped_receipt(&request, ContinuityLayerStatusV1::Denied, None);
     }
 
+    if let Some(status) = resident_override_status {
+        let mut sink = Some(sink);
+        let resolved = resolve_snapshot_to_receipt(
+            &request,
+            degraded_notebook_snapshot(capsule, owner_brain, status),
+            now_unix_ms,
+            &mut sink,
+            false,
+            Some(status),
+        );
+        return match resolved.disposition {
+            DesktopContinuityContextDispositionV1::Delivered => {
+                DesktopContinuityContextOutcomeV1::Delivered(resolved)
+            }
+            DesktopContinuityContextDispositionV1::Skipped => {
+                DesktopContinuityContextOutcomeV1::Skipped(resolved)
+            }
+        };
+    }
+
     let lease_request = ContinuityReadLeaseRequestV1 {
         owner_pubkey: request.owner_pubkey.clone(),
         address,
@@ -219,11 +245,19 @@ where
     let mut callback_receipt = None;
     let mut sink = Some(sink);
     let mut capsule = Some(capsule);
+    let mut owner_brain = Some(owner_brain);
     let lease_outcome = reader.read(lease_request, |retrieval| {
         let snapshot = capsule
             .take()
             .ok_or(luca_continuity::ContinuityError::InvalidContextLayer)
-            .and_then(|capsule| assemble_ready_snapshot(retrieval, capsule));
+            .and_then(|capsule| {
+                owner_brain
+                    .take()
+                    .ok_or(luca_continuity::ContinuityError::InvalidContextLayer)
+                    .and_then(|owner_brain| {
+                        assemble_ready_snapshot(retrieval, capsule, owner_brain)
+                    })
+            });
         callback_receipt = Some(resolve_snapshot_to_receipt(
             &request,
             snapshot,
@@ -255,7 +289,14 @@ where
             let snapshot = capsule
                 .take()
                 .ok_or(luca_continuity::ContinuityError::InvalidContextLayer)
-                .and_then(|capsule| degraded_notebook_snapshot(capsule, lease_status));
+                .and_then(|capsule| {
+                    owner_brain
+                        .take()
+                        .ok_or(luca_continuity::ContinuityError::InvalidContextLayer)
+                        .and_then(|owner_brain| {
+                            degraded_notebook_snapshot(capsule, owner_brain, lease_status)
+                        })
+                });
             let mut resolved = resolve_snapshot_to_receipt(
                 &request,
                 snapshot,
@@ -376,6 +417,7 @@ fn exact_resident_authority(
 fn assemble_ready_snapshot(
     retrieval: &RetrievalResult,
     capsule: ContinuityLayerMaterial,
+    owner_brain: ContinuityLayerMaterial,
 ) -> Result<ContinuityReadSnapshot, luca_continuity::ContinuityError> {
     let mut handoff = Vec::new();
     let mut hypomnema = Vec::new();
@@ -444,7 +486,7 @@ fn assemble_ready_snapshot(
         handoff: layer_from_items(handoff)?,
         hypomnema: layer_from_items(hypomnema)?,
         associative_recall: layer_from_items(associative_recall)?,
-        owner_brain: denied_layer()?,
+        owner_brain,
     })
 }
 
@@ -462,12 +504,14 @@ fn empty_layer() -> Result<ContinuityLayerMaterial, luca_continuity::ContinuityE
     ContinuityLayerMaterial::status(ContinuityLayerStatusV1::Empty, None)
 }
 
+#[cfg(test)]
 fn denied_layer() -> Result<ContinuityLayerMaterial, luca_continuity::ContinuityError> {
     ContinuityLayerMaterial::status(ContinuityLayerStatusV1::Denied, None)
 }
 
 fn degraded_notebook_snapshot(
     capsule: ContinuityLayerMaterial,
+    owner_brain: ContinuityLayerMaterial,
     status: ContinuityLayerStatusV1,
 ) -> Result<ContinuityReadSnapshot, luca_continuity::ContinuityError> {
     Ok(ContinuityReadSnapshot {
@@ -475,7 +519,7 @@ fn degraded_notebook_snapshot(
         handoff: ContinuityLayerMaterial::status(status, None)?,
         hypomnema: ContinuityLayerMaterial::status(status, None)?,
         associative_recall: ContinuityLayerMaterial::status(status, None)?,
-        owner_brain: ContinuityLayerMaterial::status(ContinuityLayerStatusV1::Denied, None)?,
+        owner_brain,
     })
 }
 
@@ -799,6 +843,8 @@ mod tests {
             address,
             RetrievalText::from("continuity"),
             empty_layer().unwrap(),
+            denied_layer().unwrap(),
+            None,
             Instant::now() + Duration::from_secs(1),
             1,
             sink,
@@ -822,6 +868,8 @@ mod tests {
             address,
             RetrievalText::from("continuity"),
             capsule,
+            denied_layer().unwrap(),
+            None,
             Instant::now() + Duration::from_secs(1),
             1,
             sink,
@@ -836,6 +884,41 @@ mod tests {
         )
         .unwrap()])
         .unwrap()
+    }
+
+    #[test]
+    fn granted_owner_brain_remains_independent_when_resident_notebook_is_disabled() {
+        let reader = FakeLeaseReader::status(ContinuityLayerStatusV1::Unavailable);
+        let owner_brain = ContinuityLayerMaterial::ready(vec![ContinuityReferenceItem::new(
+            OpaqueId::parse("brain-chunk-1").unwrap(),
+            "authorized-owner-brain-body".to_owned(),
+            vec![sha('a')],
+        )
+        .unwrap()])
+        .unwrap();
+        let sink_count = Cell::new(0);
+        let outcome = resolve_with_lease_reader(
+            &reader,
+            request(MAX_CONTINUITY_PACKET_BYTES),
+            resident_address(),
+            RetrievalText::from("continuity"),
+            empty_layer().unwrap(),
+            owner_brain,
+            Some(ContinuityLayerStatusV1::Empty),
+            Instant::now() + Duration::from_secs(1),
+            1,
+            |wire| {
+                sink_count.set(sink_count.get() + 1);
+                let result: ContinuityContextResultV1 = serde_json::from_slice(wire).unwrap();
+                let packet = result.packet.unwrap();
+                assert!(packet.content.contains("authorized-owner-brain-body"));
+                assert_eq!(result.layers[1].status, ContinuityLayerStatusV1::Empty);
+                assert_eq!(result.layers[4].status, ContinuityLayerStatusV1::Ready);
+            },
+        );
+        assert_eq!(reader.calls.get(), 0);
+        assert_eq!(sink_count.get(), 1);
+        assert_eq!(outcome.receipt().status, ContinuityLayerStatusV1::Ready);
     }
 
     #[test]

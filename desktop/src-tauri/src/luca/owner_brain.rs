@@ -73,6 +73,7 @@ impl PriorOwnerBrainSnapshotV1 {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn create_preview(
     cache: &OwnerBrainPreviewCache,
     owner_pubkey: Hex64,

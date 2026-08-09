@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use luca_continuity::{ContinuityLayerMaterial, RetrievalText};
+use luca_continuity::{ContinuityLayerMaterial, ContinuityReferenceItem, RetrievalText};
 use luca_protocol::{
     canonical_sha256, canonicalize, ContinuityContextRequestV1, ContinuityContextResultV1,
     ContinuityLayerResultV1, ContinuityLayerStatusV1, Hex64, OpaqueId, ProviderEgressV1, SafeU53,
@@ -28,6 +28,7 @@ use super::{
     continuity_capsule_relay::load_current_capsule,
     continuity_context::{resident_notebook_address, resolve_desktop_continuity_context},
     managed_dispatch_store::{global_dispatch_store, ManagedDispatchStore},
+    owner_brain_store::{OwnerBrainRetrievalRequestV1, OwnerBrainStoreError},
 };
 
 const INTENT_PROTOCOL: &str = "luca.managed.continuity-intent.v1";
@@ -221,30 +222,20 @@ fn serve(
             continue;
         };
 
-        // The lightweight handoff overlay is independently controllable per
-        // resident. Disabled (or unreadable) mode is fail-soft and returns no
-        // Luca continuity content; native runtime memory remains untouched.
-        match super::continuity_jobs::continuity_mode(
+        // The resident-private overlay is independently controllable. Its
+        // disabled/unavailable state must not suppress separately granted
+        // owner-brain material.
+        let resident_override_status = match super::continuity_jobs::continuity_mode(
             &app,
             &authority.owner_pubkey,
             &authority.resident_pubkey,
         ) {
-            Ok(luca_protocol::ResidentContinuityModeV1::Enabled) => {}
+            Ok(luca_protocol::ResidentContinuityModeV1::Enabled) => None,
             Ok(luca_protocol::ResidentContinuityModeV1::Disabled) => {
-                if write_fallback(&mut writer, &intent, ContinuityLayerStatusV1::Empty).is_err() {
-                    break;
-                }
-                continue;
+                Some(ContinuityLayerStatusV1::Empty)
             }
-            Err(_) => {
-                if write_fallback(&mut writer, &intent, ContinuityLayerStatusV1::Unavailable)
-                    .is_err()
-                {
-                    break;
-                }
-                continue;
-            }
-        }
+            Err(_) => Some(ContinuityLayerStatusV1::Unavailable),
+        };
 
         let state = app.state::<AppState>();
         let Some(key_version) = state.continuity_owner_key_version(&authority.owner_pubkey) else {
@@ -284,6 +275,18 @@ fn serve(
             .saturating_sub(now_unix_ms)
             .min(MAX_RESOLUTION_MILLIS);
         let deadline = Instant::now() + Duration::from_millis(remaining);
+        let owner_brain = load_owner_brain_context_layer(
+            &state,
+            OwnerBrainRetrievalRequestV1 {
+                request_id: request.request_id.clone(),
+                owner_pubkey: request.owner_pubkey.clone(),
+                resident_pubkey: request.resident_pubkey.clone(),
+                binding_ref: request.binding_ref.clone(),
+                provider_egress: request.provider_egress,
+                cue: cue.clone(),
+                deadline,
+            },
+        );
         let capsule = load_capsule_context_layer(
             &state,
             &request.owner_pubkey,
@@ -302,6 +305,8 @@ fn serve(
             address,
             cue,
             capsule,
+            owner_brain,
+            resident_override_status,
             deadline,
             now_unix_ms,
             |wire| {
@@ -332,6 +337,45 @@ fn serve(
                     break;
                 }
             }
+        }
+    }
+}
+
+fn load_owner_brain_context_layer(
+    state: &AppState,
+    request: OwnerBrainRetrievalRequestV1,
+) -> ContinuityLayerMaterial {
+    let status = |status| {
+        ContinuityLayerMaterial::status(status, None).unwrap_or_else(|_| {
+            ContinuityLayerMaterial::status(ContinuityLayerStatusV1::Invalid, None)
+                .expect("fixed invalid owner-brain layer status")
+        })
+    };
+    match state.retrieve_owner_brain(request) {
+        Ok(result) if result.status == ContinuityLayerStatusV1::Ready => {
+            let items = result
+                .selected
+                .into_iter()
+                .map(|chunk| {
+                    ContinuityReferenceItem::new(
+                        chunk.chunk_id,
+                        chunk.body.as_str().to_owned(),
+                        vec![chunk.content_hash],
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>();
+            match items.and_then(ContinuityLayerMaterial::ready) {
+                Ok(material) => material,
+                Err(_) => status(ContinuityLayerStatusV1::Invalid),
+            }
+        }
+        Ok(result) => status(result.status),
+        Err(OwnerBrainStoreError::Locked) => status(ContinuityLayerStatusV1::Locked),
+        Err(OwnerBrainStoreError::Timeout) => status(ContinuityLayerStatusV1::Timeout),
+        Err(OwnerBrainStoreError::Stale) => status(ContinuityLayerStatusV1::Stale),
+        Err(OwnerBrainStoreError::Unavailable) => status(ContinuityLayerStatusV1::Unavailable),
+        Err(OwnerBrainStoreError::Cancelled | OwnerBrainStoreError::Invalid) => {
+            status(ContinuityLayerStatusV1::Invalid)
         }
     }
 }

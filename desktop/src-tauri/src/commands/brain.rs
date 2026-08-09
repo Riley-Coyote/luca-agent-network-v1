@@ -309,6 +309,19 @@ fn source_status_value(status: OwnerBrainSourceStatusV1) -> &'static str {
     }
 }
 
+fn layer_status_value(status: luca_protocol::ContinuityLayerStatusV1) -> &'static str {
+    match status {
+        luca_protocol::ContinuityLayerStatusV1::Ready => "ready",
+        luca_protocol::ContinuityLayerStatusV1::Empty => "empty",
+        luca_protocol::ContinuityLayerStatusV1::Denied => "denied",
+        luca_protocol::ContinuityLayerStatusV1::Stale => "stale",
+        luca_protocol::ContinuityLayerStatusV1::Locked => "locked",
+        luca_protocol::ContinuityLayerStatusV1::Unavailable => "unavailable",
+        luca_protocol::ContinuityLayerStatusV1::Timeout => "timeout",
+        luca_protocol::ContinuityLayerStatusV1::Invalid => "invalid",
+    }
+}
+
 fn grant_view(
     source_id: &OpaqueId,
     grant: &luca_protocol::BrainGrantV1,
@@ -337,6 +350,7 @@ fn resident_names(app: &AppHandle) -> std::collections::HashMap<String, String> 
 fn catalog_view(
     app: &AppHandle,
     catalog: owner_brain_store::OwnerBrainCatalogV1,
+    receipts: Vec<luca_protocol::OwnerBrainContextReceiptV1>,
 ) -> OwnerBrainFixtureStateV1 {
     let names = resident_names(app);
     let sources = catalog
@@ -379,11 +393,23 @@ fn catalog_view(
             )
         })
         .collect();
+    let receipts = receipts
+        .into_iter()
+        .map(|receipt| OwnerBrainReceiptViewV1 {
+            receipt_id: receipt.receipt_id.as_str().to_owned(),
+            source_id: receipt.source_id.as_str().to_owned(),
+            resident_pubkey: receipt.resident_pubkey.as_str().to_owned(),
+            status: layer_status_value(receipt.status).to_owned(),
+            selected_chunk_count: receipt.selected_chunk_hashes.len() as u64,
+            truncated: receipt.truncated,
+            created_at: receipt.created_at.as_str().to_owned(),
+        })
+        .collect();
     OwnerBrainFixtureStateV1 {
         availability: if sources.is_empty() { "empty" } else { "ready" },
         sources,
         grants,
-        receipts: Vec::new(),
+        receipts,
     }
 }
 
@@ -395,7 +421,11 @@ pub async fn get_owner_brain_state(app: AppHandle) -> Result<OwnerBrainFixtureSt
         let owner_pubkey = Hex64::parse(app_state.signing_keys()?.public_key().to_hex())
             .map_err(|_| "active owner identity is invalid".to_owned())?;
         match app_state.read_owner_brain_catalog(&owner_pubkey) {
-            Ok(catalog) => Ok(catalog_view(&app, catalog)),
+            Ok(catalog) => Ok(catalog_view(
+                &app,
+                catalog,
+                app_state.owner_brain_receipts(&owner_pubkey),
+            )),
             Err(owner_brain_store::OwnerBrainStoreError::Locked) => Ok(state("locked")),
             Err(_) => Ok(state("unavailable")),
         }

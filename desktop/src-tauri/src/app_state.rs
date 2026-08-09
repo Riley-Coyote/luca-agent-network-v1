@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     fmt,
     io::Write,
     sync::{
@@ -112,6 +112,8 @@ pub struct AppState {
     /// Expiring, process-memory-only V1.2 source previews. The cache contains
     /// sensitive relative paths but no source bodies and is never persisted.
     pub(crate) owner_brain_previews: OwnerBrainPreviewCache,
+    /// Bounded, process-memory-only body-free Brain retrieval activity.
+    pub(crate) owner_brain_receipts: Mutex<VecDeque<luca_protocol::OwnerBrainContextReceiptV1>>,
     pub managed_agent_processes: Mutex<HashMap<String, ManagedAgentProcess>>,
     pub huddle_state: Mutex<HuddleState>,
     /// Tauri app handle — stored after setup so huddle commands can emit
@@ -293,6 +295,7 @@ pub fn build_app_state() -> AppState {
         mesh_coordinator: AsyncMutex::new(None),
         pending_owned_channels: Mutex::new(std::collections::HashSet::new()),
         owner_brain_previews: Mutex::new(HashMap::new()),
+        owner_brain_receipts: Mutex::new(VecDeque::new()),
     }
 }
 
@@ -433,6 +436,45 @@ impl AppState {
             provider_egress,
             action,
         )
+    }
+
+    /// Perform one grant-first, bounded, read-only Brain retrieval and retain
+    /// only its body-free receipts in a small process-memory activity ring.
+    pub(crate) fn retrieve_owner_brain(
+        &self,
+        request: crate::luca::owner_brain_store::OwnerBrainRetrievalRequestV1,
+    ) -> Result<crate::luca::owner_brain_store::OwnerBrainRetrievalResultV1, OwnerBrainStoreError>
+    {
+        let result = crate::luca::owner_brain_store::retrieve(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            request,
+        )?;
+        if let Ok(mut receipts) = self.owner_brain_receipts.lock() {
+            receipts.extend(result.receipts.iter().cloned());
+            while receipts.len() > 128 {
+                receipts.pop_front();
+            }
+        }
+        Ok(result)
+    }
+
+    /// Return newest-first body-free Brain activity for the exact owner.
+    pub(crate) fn owner_brain_receipts(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+    ) -> Vec<luca_protocol::OwnerBrainContextReceiptV1> {
+        self.owner_brain_receipts
+            .lock()
+            .map(|receipts| {
+                receipts
+                    .iter()
+                    .rev()
+                    .filter(|receipt| &receipt.owner_pubkey == owner_pubkey)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Commit one compact encrypted resident handoff. Every failure is

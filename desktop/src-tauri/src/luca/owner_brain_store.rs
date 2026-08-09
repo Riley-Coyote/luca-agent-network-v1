@@ -9,22 +9,25 @@ use std::{
     fs,
     path::{Component, Path, PathBuf},
     sync::{atomic::Ordering, Mutex},
+    time::Instant,
 };
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use chrono::Utc;
 use luca_continuity::{
     decrypt_record, derive_revision_idempotency_key, encrypt_record, encrypted_record_reference,
-    NamespaceKey, NamespaceScope, RevisionActor, RevisionLifecycle, RevisionOperation,
-    RevisionRequest,
+    InMemoryRetrievalIndex, NamespaceKey, NamespaceScope, RetrievalQuery, RetrievalRecord,
+    RetrievalRecordInput, RetrievalRecordState, RetrievalText, RevisionActor, RevisionLifecycle,
+    RevisionOperation, RevisionRequest, MAX_HYDRATED_RECORDS,
 };
 use luca_protocol::{
     canonical_sha256, canonicalize, BrainGrantStateV1, BrainGrantV1, CanonicalTimestamp,
-    ContinuityNamespaceKindV1, ContinuityNamespaceV1, ContinuityScopeV1, Hex64, OpaqueId,
-    OwnerBrainChunkV1, OwnerBrainImportCommitV1, OwnerBrainImportStateV1,
-    OwnerBrainPreviewRowStatusV1, OwnerBrainSourceBindingV1, OwnerBrainSourceStatusV1,
-    OwnerBrainSourceV1, ProviderEgressV1, SafeU53, Sha256Ref, CONTINUITY_PROTOCOL,
-    MAX_OWNER_BRAIN_CHUNK_BYTES,
+    ContinuityLayerStatusV1, ContinuityNamespaceKindV1, ContinuityNamespaceV1, ContinuityScopeV1,
+    Hex64, OpaqueId, OwnerBrainChunkV1, OwnerBrainContextReceiptV1, OwnerBrainImportCommitV1,
+    OwnerBrainImportStateV1, OwnerBrainPreviewRowStatusV1, OwnerBrainSourceBindingV1,
+    OwnerBrainSourceStatusV1, OwnerBrainSourceV1, ProviderEgressV1, SafeU53, Sha256Ref,
+    CONTINUITY_PROTOCOL, MAX_OWNER_BRAIN_CHUNK_BYTES, MAX_OWNER_BRAIN_RETRIEVAL_BYTES,
+    MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -62,6 +65,7 @@ const MAX_OWNER_BRAIN_CHUNK_PAGES: usize = 38;
 pub(crate) enum OwnerBrainStoreError {
     Cancelled,
     Locked,
+    Timeout,
     Unavailable,
     Stale,
     Invalid,
@@ -114,6 +118,7 @@ impl OwnerBrainStoreError {
         match self {
             Self::Cancelled => "owner-brain-cancelled",
             Self::Locked => "owner-brain-locked",
+            Self::Timeout => "owner-brain-timeout",
             Self::Unavailable => "owner-brain-unavailable",
             Self::Stale => "owner-brain-stale",
             Self::Invalid => "owner-brain-invalid",
@@ -254,6 +259,74 @@ pub(crate) struct OwnerBrainGrantMutationResultV1 {
     pub source_id: OpaqueId,
     pub grant: BrainGrantV1,
     pub replayed: bool,
+}
+
+/// Trusted, bounded retrieval request. The cue is zeroizing and never enters
+/// receipts, diagnostics, persistence, or renderer state.
+pub(crate) struct OwnerBrainRetrievalRequestV1 {
+    pub request_id: OpaqueId,
+    pub owner_pubkey: Hex64,
+    pub resident_pubkey: Hex64,
+    pub binding_ref: Sha256Ref,
+    pub provider_egress: ProviderEgressV1,
+    pub cue: RetrievalText,
+    pub deadline: Instant,
+}
+
+impl std::fmt::Debug for OwnerBrainRetrievalRequestV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("OwnerBrainRetrievalRequestV1")
+            .field("request_id", &self.request_id)
+            .field("owner_pubkey", &self.owner_pubkey)
+            .field("resident_pubkey", &self.resident_pubkey)
+            .field("binding_ref", &self.binding_ref)
+            .field("provider_egress", &self.provider_egress)
+            .field("cue", &"[REDACTED]")
+            .finish()
+    }
+}
+
+/// One selected source chunk. Its body remains zeroizing until the immediate
+/// continuity packet assembly boundary consumes it.
+pub(crate) struct OwnerBrainSelectedChunkV1 {
+    pub source_id: OpaqueId,
+    pub grant_id: OpaqueId,
+    pub chunk_id: OpaqueId,
+    pub body: RetrievalText,
+    pub content_hash: Sha256Ref,
+}
+
+impl std::fmt::Debug for OwnerBrainSelectedChunkV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("OwnerBrainSelectedChunkV1")
+            .field("source_id", &self.source_id)
+            .field("grant_id", &self.grant_id)
+            .field("chunk_id", &self.chunk_id)
+            .field("body", &"[REDACTED]")
+            .field("content_hash", &self.content_hash)
+            .finish()
+    }
+}
+
+/// Body-safe retrieval result. Only `selected` contains plaintext, and every
+/// item remains within the frozen eight-chunk / 24 KiB bound.
+pub(crate) struct OwnerBrainRetrievalResultV1 {
+    pub status: ContinuityLayerStatusV1,
+    pub selected: Vec<OwnerBrainSelectedChunkV1>,
+    pub receipts: Vec<OwnerBrainContextReceiptV1>,
+}
+
+impl std::fmt::Debug for OwnerBrainRetrievalResultV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("OwnerBrainRetrievalResultV1")
+            .field("status", &self.status)
+            .field("selected_count", &self.selected.len())
+            .field("receipts", &self.receipts)
+            .finish()
+    }
 }
 
 /// Read the encrypted committed file-hash inventory for a selected path.
@@ -417,6 +490,47 @@ pub(crate) fn mutate_grant(
         provider_egress,
         action,
     )
+}
+
+/// Resolve all exact-source grants for one resident, then decrypt and rank
+/// only authorized source chunks. This function is read-only and holds the
+/// continuity lifecycle boundary for one immutable owner generation.
+pub(crate) fn retrieve(
+    lifecycle: &ContinuityLifecycleLock,
+    runtime_state: &Mutex<ContinuityRuntimeState>,
+    request: OwnerBrainRetrievalRequestV1,
+) -> Result<OwnerBrainRetrievalResultV1, OwnerBrainStoreError> {
+    if request.owner_pubkey == request.resident_pubkey {
+        return Err(OwnerBrainStoreError::Invalid);
+    }
+    require_before_deadline(request.deadline)?;
+    let _guard = lifecycle
+        .lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+    let root = load_root_key()?;
+    let state = runtime_state
+        .lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+    let runtime = ready_runtime(&state, &request.owner_pubkey)?;
+    let key_version = runtime
+        .store
+        .active_owner_key_version(&request.owner_pubkey)
+        .map_err(map_store_read_error)?;
+    let namespace = owner_brain_namespace(&request.owner_pubkey, key_version)?;
+    let namespace_key =
+        derive_namespace_key(&root, &namespace).map_err(|_| OwnerBrainStoreError::Invalid)?;
+    let Some(generation) = runtime
+        .store
+        .load_revision_generation(&request.owner_pubkey)
+        .map_err(map_store_read_error)?
+    else {
+        return Ok(OwnerBrainRetrievalResultV1 {
+            status: ContinuityLayerStatusV1::Empty,
+            selected: Vec::new(),
+            receipts: Vec::new(),
+        });
+    };
+    retrieve_from_generation(&generation, &namespace, namespace_key.as_bytes(), request)
 }
 
 /// Interpret unknown egress as remote and fail a missing or changed runtime
@@ -719,6 +833,358 @@ fn mutate_grant_with_runtime(
         grant,
         replayed: result.replayed,
     })
+}
+
+struct RankedOwnerBrainChunkV1 {
+    source_id: OpaqueId,
+    grant_id: OpaqueId,
+    chunk_id: OpaqueId,
+    body: RetrievalText,
+    content_hash: Sha256Ref,
+    score: i64,
+}
+
+struct OwnerBrainSourceDecisionV1 {
+    source_id: OpaqueId,
+    grant_id: OpaqueId,
+    status: ContinuityLayerStatusV1,
+    candidate_count: usize,
+}
+
+fn retrieve_from_generation(
+    generation: &StoredRevisionGenerationV1,
+    namespace: &NamespaceKey,
+    namespace_key: &[u8; 32],
+    request: OwnerBrainRetrievalRequestV1,
+) -> Result<OwnerBrainRetrievalResultV1, OwnerBrainStoreError> {
+    let started = Instant::now();
+    require_before_deadline(request.deadline)?;
+    let source_ids = active_source_ids(generation, namespace)?;
+    if source_ids.is_empty() {
+        return Ok(OwnerBrainRetrievalResultV1 {
+            status: ContinuityLayerStatusV1::Empty,
+            selected: Vec::new(),
+            receipts: Vec::new(),
+        });
+    }
+
+    let provider_egress = effective_provider_egress(request.provider_egress);
+    let mut decisions = Vec::with_capacity(source_ids.len());
+    let mut candidates = Vec::new();
+    for source_id in source_ids {
+        require_before_deadline(request.deadline)?;
+        let address = owner_brain_source_address(namespace.clone(), source_id.clone())?;
+        let grant_id = grant_lineage_id(&source_id, &request.resident_pubkey)?;
+        let Some(grant) = find_grant(
+            generation,
+            &address,
+            namespace_key,
+            &grant_id,
+            &request.resident_pubkey,
+        )?
+        else {
+            decisions.push(OwnerBrainSourceDecisionV1 {
+                source_id,
+                grant_id,
+                status: ContinuityLayerStatusV1::Denied,
+                candidate_count: 0,
+            });
+            continue;
+        };
+        match effective_grant_state(&grant, Some(&request.binding_ref), Some(provider_egress)) {
+            BrainGrantStateV1::Revoked => {
+                decisions.push(OwnerBrainSourceDecisionV1 {
+                    source_id,
+                    grant_id,
+                    status: ContinuityLayerStatusV1::Denied,
+                    candidate_count: 0,
+                });
+                continue;
+            }
+            BrainGrantStateV1::Stale => {
+                decisions.push(OwnerBrainSourceDecisionV1 {
+                    source_id,
+                    grant_id,
+                    status: ContinuityLayerStatusV1::Stale,
+                    candidate_count: 0,
+                });
+                continue;
+            }
+            BrainGrantStateV1::Active => {}
+        }
+
+        // Source manifests and chunk pages are decrypted only after the exact
+        // resident grant has passed binding and egress validation above.
+        let manifest = find_source_by_id(generation, namespace, namespace_key, &source_id)?
+            .ok_or(OwnerBrainStoreError::Invalid)?;
+        let chunks = load_active_source_chunks(
+            generation,
+            &address,
+            namespace_key,
+            &manifest,
+            request.deadline,
+        )?;
+        let mut source_candidate_count = 0_usize;
+        let records = chunks
+            .into_iter()
+            .map(|chunk| {
+                RetrievalRecord::new(RetrievalRecordInput {
+                    address: address.clone(),
+                    record_id: chunk.chunk_id,
+                    record_type: OpaqueId::parse("owner-brain-chunk")
+                        .map_err(|_| OwnerBrainStoreError::Invalid)?,
+                    revision: SafeU53::new(0).map_err(|_| OwnerBrainStoreError::Invalid)?,
+                    body: RetrievalText::from(chunk.body),
+                    tags: Vec::new(),
+                    confidence_basis_points: 10_000,
+                    provenance_refs: vec![chunk.content_hash],
+                    outgoing_edges: Vec::new(),
+                    state: RetrievalRecordState::Active,
+                })
+                .map_err(|_| OwnerBrainStoreError::Invalid)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        for batch in records.chunks(MAX_HYDRATED_RECORDS) {
+            require_before_deadline(request.deadline)?;
+            let index = InMemoryRetrievalIndex::hydrate(batch)
+                .map_err(|_| OwnerBrainStoreError::Invalid)?;
+            let retrieval = index
+                .retrieve(
+                    &RetrievalQuery {
+                        address: address.clone(),
+                        cue: request.cue.clone(),
+                        query_vector: None,
+                    },
+                    None,
+                )
+                .map_err(|_| OwnerBrainStoreError::Invalid)?;
+            source_candidate_count = source_candidate_count
+                .checked_add(retrieval.hits.len())
+                .ok_or(OwnerBrainStoreError::Invalid)?;
+            for hit in retrieval.hits {
+                let record = hit.record();
+                let [content_hash] = record.provenance_refs() else {
+                    return Err(OwnerBrainStoreError::Invalid);
+                };
+                candidates.push(RankedOwnerBrainChunkV1 {
+                    source_id: source_id.clone(),
+                    grant_id: grant_id.clone(),
+                    chunk_id: record.record_id().clone(),
+                    body: RetrievalText::from(record.body()),
+                    content_hash: content_hash.clone(),
+                    score: hit.score(),
+                });
+            }
+        }
+        decisions.push(OwnerBrainSourceDecisionV1 {
+            source_id,
+            grant_id,
+            status: ContinuityLayerStatusV1::Empty,
+            candidate_count: source_candidate_count,
+        });
+    }
+    require_before_deadline(request.deadline)?;
+    candidates.sort_by(|left, right| {
+        right
+            .score
+            .cmp(&left.score)
+            .then_with(|| left.chunk_id.cmp(&right.chunk_id))
+            .then_with(|| left.source_id.cmp(&right.source_id))
+    });
+
+    let mut selected = Vec::new();
+    let mut selected_hashes = BTreeSet::new();
+    let mut selected_bytes = 0_usize;
+    for candidate in candidates {
+        if selected.len() >= MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS {
+            break;
+        }
+        let body_bytes = candidate.body.as_str().len();
+        if selected_hashes.contains(&candidate.content_hash)
+            || selected_bytes.saturating_add(body_bytes) > MAX_OWNER_BRAIN_RETRIEVAL_BYTES
+        {
+            continue;
+        }
+        selected_bytes += body_bytes;
+        selected_hashes.insert(candidate.content_hash.clone());
+        selected.push(OwnerBrainSelectedChunkV1 {
+            source_id: candidate.source_id,
+            grant_id: candidate.grant_id,
+            chunk_id: candidate.chunk_id,
+            body: candidate.body,
+            content_hash: candidate.content_hash,
+        });
+    }
+
+    let elapsed_ms = u64::try_from(started.elapsed().as_millis())
+        .ok()
+        .and_then(|value| SafeU53::new(value).ok())
+        .ok_or(OwnerBrainStoreError::Invalid)?;
+    let created_at = canonical_timestamp(Utc::now()).map_err(|_| OwnerBrainStoreError::Invalid)?;
+    let mut receipts = Vec::with_capacity(decisions.len());
+    for decision in &decisions {
+        let mut hashes = selected
+            .iter()
+            .filter(|chunk| chunk.source_id == decision.source_id)
+            .map(|chunk| chunk.content_hash.clone())
+            .collect::<Vec<_>>();
+        hashes.sort();
+        hashes.dedup();
+        let byte_count = selected
+            .iter()
+            .filter(|chunk| chunk.source_id == decision.source_id)
+            .try_fold(0_usize, |total, chunk| {
+                total.checked_add(chunk.body.as_str().len())
+            })
+            .ok_or(OwnerBrainStoreError::Invalid)?;
+        let status = if hashes.is_empty() {
+            decision.status
+        } else {
+            ContinuityLayerStatusV1::Ready
+        };
+        let receipt = OwnerBrainContextReceiptV1 {
+            protocol: CONTINUITY_PROTOCOL.to_owned(),
+            receipt_id: opaque_id("brain-receipt").map_err(|_| OwnerBrainStoreError::Invalid)?,
+            request_id: request.request_id.clone(),
+            owner_pubkey: request.owner_pubkey.clone(),
+            resident_pubkey: request.resident_pubkey.clone(),
+            source_id: decision.source_id.clone(),
+            grant_id: decision.grant_id.clone(),
+            status,
+            selected_chunk_hashes: hashes,
+            selected_byte_count: SafeU53::new(byte_count as u64)
+                .map_err(|_| OwnerBrainStoreError::Invalid)?,
+            truncated: decision.candidate_count
+                > selected
+                    .iter()
+                    .filter(|chunk| chunk.source_id == decision.source_id)
+                    .count(),
+            duration_ms: elapsed_ms,
+            created_at: created_at.clone(),
+        };
+        receipt
+            .validate()
+            .map_err(|_| OwnerBrainStoreError::Invalid)?;
+        receipts.push(receipt);
+    }
+    let status = if !selected.is_empty() {
+        ContinuityLayerStatusV1::Ready
+    } else if decisions
+        .iter()
+        .any(|decision| decision.status == ContinuityLayerStatusV1::Empty)
+    {
+        ContinuityLayerStatusV1::Empty
+    } else if decisions
+        .iter()
+        .any(|decision| decision.status == ContinuityLayerStatusV1::Stale)
+    {
+        ContinuityLayerStatusV1::Stale
+    } else {
+        ContinuityLayerStatusV1::Denied
+    };
+    Ok(OwnerBrainRetrievalResultV1 {
+        status,
+        selected,
+        receipts,
+    })
+}
+
+fn active_source_ids(
+    generation: &StoredRevisionGenerationV1,
+    namespace: &NamespaceKey,
+) -> Result<Vec<OpaqueId>, OwnerBrainStoreError> {
+    let mut source_ids = Vec::new();
+    for lineage in generation.snapshot.lineages.iter().filter(|lineage| {
+        lineage.namespace == *namespace.as_protocol()
+            && lineage.record_type.as_str() == OWNER_BRAIN_SOURCE_RECORD
+            && lineage.lifecycle == RevisionLifecycle::Active
+    }) {
+        let source_id = lineage
+            .scope
+            .source_id
+            .clone()
+            .ok_or(OwnerBrainStoreError::Invalid)?;
+        let address = owner_brain_source_address(namespace.clone(), source_id.clone())?;
+        if lineage.scope != *address.as_protocol() {
+            return Err(OwnerBrainStoreError::Invalid);
+        }
+        source_ids.push(source_id);
+    }
+    source_ids.sort();
+    if source_ids.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(OwnerBrainStoreError::Invalid);
+    }
+    Ok(source_ids)
+}
+
+fn load_active_source_chunks(
+    generation: &StoredRevisionGenerationV1,
+    address: &NamespaceScope,
+    namespace_key: &[u8; 32],
+    manifest: &OwnerBrainSourceManifestV1,
+    deadline: Instant,
+) -> Result<Vec<OwnerBrainChunkV1>, OwnerBrainStoreError> {
+    let mut chunks = Vec::with_capacity(manifest.chunk_count.get() as usize);
+    for (expected_index, lineage_id) in manifest.chunk_page_lineage_ids.iter().enumerate() {
+        require_before_deadline(deadline)?;
+        let matches = generation
+            .snapshot
+            .lineages
+            .iter()
+            .filter(|lineage| lineage.lineage_root_id == *lineage_id)
+            .collect::<Vec<_>>();
+        let [lineage] = matches.as_slice() else {
+            return Err(OwnerBrainStoreError::Invalid);
+        };
+        if lineage.namespace != *address.namespace().as_protocol()
+            || lineage.scope != *address.as_protocol()
+            || lineage.record_type.as_str() != OWNER_BRAIN_CHUNK_PAGE_RECORD
+            || lineage.lifecycle != RevisionLifecycle::Active
+        {
+            return Err(OwnerBrainStoreError::Invalid);
+        }
+        let page: OwnerBrainChunkPageV1 = decrypt_active_body(
+            generation,
+            lineage
+                .active_head_record_id
+                .as_ref()
+                .ok_or(OwnerBrainStoreError::Invalid)?,
+            namespace_key,
+        )?;
+        page.validate()?;
+        if page.source_id != manifest.source.source_id
+            || page.page_index.get() != expected_index as u64
+        {
+            return Err(OwnerBrainStoreError::Invalid);
+        }
+        for stored in page.chunks {
+            chunks.push(stored.decode()?);
+        }
+    }
+    chunks.sort_by_key(|chunk| chunk.ordinal);
+    if chunks.len() != manifest.chunk_count.get() as usize
+        || chunks
+            .iter()
+            .enumerate()
+            .any(|(index, chunk)| chunk.ordinal.get() != index as u64)
+        || chunks
+            .iter()
+            .map(|chunk| chunk.chunk_id.clone())
+            .collect::<BTreeSet<_>>()
+            .len()
+            != chunks.len()
+    {
+        return Err(OwnerBrainStoreError::Invalid);
+    }
+    Ok(chunks)
+}
+
+fn require_before_deadline(deadline: Instant) -> Result<(), OwnerBrainStoreError> {
+    if Instant::now() >= deadline {
+        Err(OwnerBrainStoreError::Timeout)
+    } else {
+        Ok(())
+    }
 }
 
 fn read_prior_snapshot_with_runtime(
@@ -1993,6 +2459,172 @@ mod tests {
             ),
             BrainGrantStateV1::Active
         );
+    }
+
+    fn retrieval_request(
+        resident_pubkey: Hex64,
+        binding_ref: Sha256Ref,
+        cue: &str,
+    ) -> OwnerBrainRetrievalRequestV1 {
+        OwnerBrainRetrievalRequestV1 {
+            request_id: OpaqueId::parse("brain-context-request").unwrap(),
+            owner_pubkey: owner(),
+            resident_pubkey,
+            binding_ref,
+            provider_egress: ProviderEgressV1::Unknown,
+            cue: RetrievalText::from(cue),
+            deadline: Instant::now() + std::time::Duration::from_secs(2),
+        }
+    }
+
+    fn corrupt_active_chunk_pages(generation: &mut StoredRevisionGenerationV1) {
+        for record in &mut generation.snapshot.records {
+            if record.record_type.as_str() == OWNER_BRAIN_CHUNK_PAGE_RECORD {
+                record.ciphertext_b64 = "AAAA".to_owned();
+            }
+        }
+    }
+
+    #[test]
+    fn retrieval_checks_grant_before_source_decryption_and_is_bounded() {
+        let temp = tempfile::tempdir().unwrap();
+        let source_path = temp.path().join("source.md");
+        fs::write(&source_path, "vesper ".repeat(6_000)).unwrap();
+        let root = ContinuityMasterKey::new_for_test([5_u8; 32]);
+        let mut runtime = runtime(&temp);
+        let source_id = import_test_source(&root, &mut runtime, &source_path);
+        let resident = resident('b');
+        let current_binding = binding('1');
+        let key_version = runtime.store.active_owner_key_version(&owner()).unwrap();
+        let namespace = owner_brain_namespace(&owner(), key_version).unwrap();
+        let namespace_key = derive_namespace_key(&root, &namespace).unwrap();
+
+        let mut denied_generation = runtime
+            .store
+            .load_revision_generation(&owner())
+            .unwrap()
+            .unwrap();
+        corrupt_active_chunk_pages(&mut denied_generation);
+        let denied = retrieve_from_generation(
+            &denied_generation,
+            &namespace,
+            namespace_key.as_bytes(),
+            retrieval_request(resident.clone(), current_binding.clone(), "vesper"),
+        )
+        .unwrap();
+        assert_eq!(denied.status, ContinuityLayerStatusV1::Denied);
+        assert!(denied.selected.is_empty());
+        assert_eq!(denied.receipts.len(), 1);
+        assert_eq!(denied.receipts[0].status, ContinuityLayerStatusV1::Denied);
+
+        mutate_grant_with_runtime(
+            &root,
+            &mut runtime,
+            owner(),
+            resident.clone(),
+            source_id.clone(),
+            current_binding.clone(),
+            ProviderEgressV1::Remote,
+            OwnerBrainGrantActionV1::Grant,
+        )
+        .unwrap();
+        let before = runtime
+            .store
+            .load_revision_generation(&owner())
+            .unwrap()
+            .unwrap();
+        let retrieved = retrieve_from_generation(
+            &before,
+            &namespace,
+            namespace_key.as_bytes(),
+            retrieval_request(resident.clone(), current_binding.clone(), "vesper"),
+        )
+        .unwrap();
+        assert_eq!(retrieved.status, ContinuityLayerStatusV1::Ready);
+        assert!(!retrieved.selected.is_empty());
+        assert!(retrieved.selected.len() <= MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS);
+        assert!(
+            retrieved
+                .selected
+                .iter()
+                .map(|chunk| chunk.body.as_str().len())
+                .sum::<usize>()
+                <= MAX_OWNER_BRAIN_RETRIEVAL_BYTES
+        );
+        assert!(retrieved
+            .selected
+            .iter()
+            .all(|chunk| chunk.source_id == source_id && chunk.body.as_str().contains("vesper")));
+        assert_eq!(retrieved.receipts.len(), 1);
+        assert_eq!(retrieved.receipts[0].status, ContinuityLayerStatusV1::Ready);
+        assert!(retrieved.receipts[0].truncated);
+        let receipt_json = serde_json::to_string(&retrieved.receipts).unwrap();
+        assert!(!receipt_json.contains("vesper"));
+        assert!(!receipt_json.contains(source_path.to_str().unwrap()));
+        assert_eq!(
+            before,
+            runtime
+                .store
+                .load_revision_generation(&owner())
+                .unwrap()
+                .unwrap(),
+            "retrieval must not advance persistent authority"
+        );
+
+        mutate_grant_with_runtime(
+            &root,
+            &mut runtime,
+            owner(),
+            resident.clone(),
+            source_id.clone(),
+            current_binding.clone(),
+            ProviderEgressV1::Remote,
+            OwnerBrainGrantActionV1::Revoke,
+        )
+        .unwrap();
+        let mut revoked_generation = runtime
+            .store
+            .load_revision_generation(&owner())
+            .unwrap()
+            .unwrap();
+        corrupt_active_chunk_pages(&mut revoked_generation);
+        let revoked = retrieve_from_generation(
+            &revoked_generation,
+            &namespace,
+            namespace_key.as_bytes(),
+            retrieval_request(resident.clone(), current_binding.clone(), "vesper"),
+        )
+        .unwrap();
+        assert_eq!(revoked.status, ContinuityLayerStatusV1::Denied);
+        assert!(revoked.selected.is_empty());
+
+        mutate_grant_with_runtime(
+            &root,
+            &mut runtime,
+            owner(),
+            resident.clone(),
+            source_id,
+            current_binding,
+            ProviderEgressV1::Remote,
+            OwnerBrainGrantActionV1::Grant,
+        )
+        .unwrap();
+        let mut stale_generation = runtime
+            .store
+            .load_revision_generation(&owner())
+            .unwrap()
+            .unwrap();
+        corrupt_active_chunk_pages(&mut stale_generation);
+        let stale = retrieve_from_generation(
+            &stale_generation,
+            &namespace,
+            namespace_key.as_bytes(),
+            retrieval_request(resident, binding('2'), "vesper"),
+        )
+        .unwrap();
+        assert_eq!(stale.status, ContinuityLayerStatusV1::Stale);
+        assert!(stale.selected.is_empty());
+        assert_eq!(stale.receipts[0].status, ContinuityLayerStatusV1::Stale);
     }
 
     #[test]
