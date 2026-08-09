@@ -149,6 +149,14 @@ pub enum DurableContinuityRecordKind {
     OwnerBrainGrant,
     /// Body-free owner-brain retrieval decision receipt.
     OwnerBrainReceipt,
+    /// Encrypted connected-source manifest and status.
+    ConnectedBrainSource,
+    /// Encrypted device-local connected-source binding.
+    ConnectedBrainBinding,
+    /// Encrypted page of body-free connected-source search postings.
+    ConnectedBrainIndexPage,
+    /// Explicit per-resident connected-repository work authorization.
+    RepositoryWorkGrant,
     /// Associative resident-private memory.
     AssociativeEngram,
     /// Typed source-backed connection between records.
@@ -179,6 +187,10 @@ impl DurableContinuityRecordKind {
             "owner-brain-chunk-page" => Ok(Self::OwnerBrainChunkPage),
             "owner-brain-grant" => Ok(Self::OwnerBrainGrant),
             "owner-brain-receipt" => Ok(Self::OwnerBrainReceipt),
+            "connected-brain-source" => Ok(Self::ConnectedBrainSource),
+            "connected-brain-binding" => Ok(Self::ConnectedBrainBinding),
+            "connected-brain-index-page" => Ok(Self::ConnectedBrainIndexPage),
+            "repository-work-grant" => Ok(Self::RepositoryWorkGrant),
             "associative-engram" => Ok(Self::AssociativeEngram),
             "typed-connection" => Ok(Self::TypedConnection),
             "identity" => Ok(Self::Identity),

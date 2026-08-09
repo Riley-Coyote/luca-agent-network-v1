@@ -114,6 +114,10 @@ pub struct AppState {
     pub(crate) owner_brain_previews: OwnerBrainPreviewCache,
     /// Bounded, process-memory-only body-free Brain retrieval activity.
     pub(crate) owner_brain_receipts: Mutex<VecDeque<luca_protocol::OwnerBrainContextReceiptV1>>,
+    /// Expiring metadata-only discovery capabilities for V1.2.1 connections.
+    pub(crate) connected_brain_discovery:
+        crate::luca::connected_brain::ConnectedBrainDiscoveryCache,
+    pub(crate) connected_brain_watcher: crate::luca::connected_brain::ConnectedBrainWatcherState,
     pub managed_agent_processes: Mutex<HashMap<String, ManagedAgentProcess>>,
     pub huddle_state: Mutex<HuddleState>,
     /// Tauri app handle — stored after setup so huddle commands can emit
@@ -296,6 +300,8 @@ pub fn build_app_state() -> AppState {
         pending_owned_channels: Mutex::new(std::collections::HashSet::new()),
         owner_brain_previews: Mutex::new(HashMap::new()),
         owner_brain_receipts: Mutex::new(VecDeque::new()),
+        connected_brain_discovery: Mutex::new(HashMap::new()),
+        connected_brain_watcher: Default::default(),
     }
 }
 
@@ -475,6 +481,116 @@ impl AppState {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// Atomically persist one explicitly selected live source and its default
+    /// current-resident grants. Original source bodies remain authoritative.
+    pub(crate) fn connect_brain_source(
+        &self,
+        owner_pubkey: luca_protocol::Hex64,
+        candidate: crate::luca::connected_brain::ConnectedBrainDiscoveryCandidateV1,
+        build: crate::luca::connected_brain::ConnectedBrainIndexBuildV1,
+        authorities: &[crate::luca::owner_brain_store::ConnectedBrainResidentAuthorityV1],
+    ) -> Result<crate::luca::owner_brain_store::ConnectedBrainConnectResultV1, OwnerBrainStoreError>
+    {
+        crate::luca::owner_brain_store::connect_source(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            candidate,
+            build,
+            authorities,
+        )
+    }
+
+    /// Read body-free connected source and repository-grant inventory.
+    pub(crate) fn read_connected_brain_catalog(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+    ) -> Result<crate::luca::owner_brain_store::ConnectedBrainCatalogV1, OwnerBrainStoreError> {
+        crate::luca::owner_brain_store::read_connected_catalog(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+        )
+    }
+
+    /// Resolve an encrypted binding into a process-local refresh candidate.
+    pub(crate) fn read_connected_brain_candidate(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+        source_id: &luca_protocol::OpaqueId,
+    ) -> Result<
+        crate::luca::connected_brain::ConnectedBrainDiscoveryCandidateV1,
+        OwnerBrainStoreError,
+    > {
+        crate::luca::owner_brain_store::read_connected_candidate(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            source_id,
+        )
+    }
+
+    /// Materialize default access for a newly created or imported resident.
+    pub(crate) fn provision_connected_brain_resident(
+        &self,
+        owner_pubkey: luca_protocol::Hex64,
+        authority: crate::luca::owner_brain_store::ConnectedBrainResidentAuthorityV1,
+    ) -> Result<(), OwnerBrainStoreError> {
+        crate::luca::owner_brain_store::provision_connected_resident(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            authority,
+        )
+    }
+
+    /// Set one connected source's owner-visible fail-closed status.
+    pub(crate) fn set_connected_brain_status(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+        source_id: &luca_protocol::OpaqueId,
+        status: luca_protocol::ConnectedBrainSourceStatusV1,
+    ) -> Result<(), OwnerBrainStoreError> {
+        crate::luca::owner_brain_store::set_connected_source_status(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            source_id,
+            status,
+        )
+    }
+
+    /// Disconnect immediately and physically forget current encrypted postings.
+    pub(crate) fn disconnect_connected_brain_source(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+        source_id: &luca_protocol::OpaqueId,
+    ) -> Result<(), OwnerBrainStoreError> {
+        crate::luca::owner_brain_store::disconnect_source(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            source_id,
+        )
+    }
+
+    /// Rebind one resident's connected recall and repository grants to its
+    /// current trusted runtime fingerprint after explicit owner review.
+    pub(crate) fn reconfirm_connected_brain_source(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+        source_id: &luca_protocol::OpaqueId,
+        authority: crate::luca::owner_brain_store::ConnectedBrainResidentAuthorityV1,
+    ) -> Result<(), OwnerBrainStoreError> {
+        crate::luca::owner_brain_store::reconfirm_connected_source(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            source_id,
+            authority,
+        )
     }
 
     /// Commit one compact encrypted resident handoff. Every failure is

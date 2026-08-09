@@ -439,6 +439,10 @@ fn assemble_ready_snapshot(
                 | DurableContinuityRecordKind::OwnerBrainChunkPage
                 | DurableContinuityRecordKind::OwnerBrainGrant
                 | DurableContinuityRecordKind::OwnerBrainReceipt
+                | DurableContinuityRecordKind::ConnectedBrainSource
+                | DurableContinuityRecordKind::ConnectedBrainBinding
+                | DurableContinuityRecordKind::ConnectedBrainIndexPage
+                | DurableContinuityRecordKind::RepositoryWorkGrant
         ) {
             return Err(luca_continuity::ContinuityError::InvalidRetrievalRecord);
         }
@@ -476,7 +480,11 @@ fn assemble_ready_snapshot(
             | DurableContinuityRecordKind::OwnerBrainBinding
             | DurableContinuityRecordKind::OwnerBrainChunkPage
             | DurableContinuityRecordKind::OwnerBrainGrant
-            | DurableContinuityRecordKind::OwnerBrainReceipt => {
+            | DurableContinuityRecordKind::OwnerBrainReceipt
+            | DurableContinuityRecordKind::ConnectedBrainSource
+            | DurableContinuityRecordKind::ConnectedBrainBinding
+            | DurableContinuityRecordKind::ConnectedBrainIndexPage
+            | DurableContinuityRecordKind::RepositoryWorkGrant => {
                 return Err(luca_continuity::ContinuityError::InvalidRetrievalRecord)
             }
         }

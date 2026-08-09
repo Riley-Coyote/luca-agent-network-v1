@@ -3,6 +3,7 @@
 // These accepted G2 kernel modules intentionally retain dormant export,
 // rotation, and relay APIs for the deferred long-range roadmap. Keep their
 // dead-code allowance local instead of weakening the desktop crate lint gate.
+pub(crate) mod connected_brain;
 #[allow(dead_code)]
 pub(crate) mod continuity_backup;
 #[allow(dead_code)]

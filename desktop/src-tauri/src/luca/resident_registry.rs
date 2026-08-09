@@ -74,6 +74,7 @@ pub(crate) struct CreateLucaResidentResponse {
     pub spawn_error: Option<String>,
     pub reused: bool,
     pub recovery_notice: Option<String>,
+    pub brain_access_error: Option<String>,
 }
 
 /// Structured failure lets the renderer compensate only when native storage
@@ -339,6 +340,7 @@ fn recovered_response(
         spawn_error: None,
         reused: true,
         recovery_notice,
+        brain_access_error: None,
     }
 }
 
@@ -494,7 +496,37 @@ pub(crate) async fn create_luca_resident(
         spawn_error: created.spawn_error,
         reused: false,
         recovery_notice: None,
+        brain_access_error: provision_new_resident_brain_access(
+            &app,
+            &state,
+            &created.agent.pubkey,
+        )
+        .err()
+        .map(|error| bounded_recovery_notice(&error)),
     })
+}
+
+fn provision_new_resident_brain_access(
+    app: &AppHandle,
+    state: &AppState,
+    resident_pubkey: &str,
+) -> Result<(), String> {
+    let owner_pubkey = Hex64::parse(state.signing_keys()?.public_key().to_hex())
+        .map_err(|_| "active owner identity is invalid".to_owned())?;
+    let resident_pubkey = Hex64::parse(resident_pubkey.to_owned())
+        .map_err(|_| "created resident identity is invalid".to_owned())?;
+    let (binding_ref, provider_egress) =
+        crate::managed_agents::current_owner_brain_runtime_authority(app, &resident_pubkey)?;
+    state
+        .provision_connected_brain_resident(
+            owner_pubkey,
+            crate::luca::owner_brain_store::ConnectedBrainResidentAuthorityV1 {
+                resident_pubkey,
+                binding_ref,
+                provider_egress,
+            },
+        )
+        .map_err(|error| error.code().to_owned())
 }
 
 #[cfg(test)]

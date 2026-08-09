@@ -586,6 +586,48 @@ impl ContinuityStore {
         )
     }
 
+    /// Apply one bounded connected-source snapshot or grant batch. The closed
+    /// vocabulary keeps live adapters inside the existing encrypted owner-brain
+    /// authority without widening the V1.2 snapshot record contract.
+    pub(crate) fn apply_connected_brain_cas(
+        &mut self,
+        expectation: &AuthorityExpectationV1,
+        requests: Vec<RevisionRequest>,
+    ) -> Result<RevisionBatchTransitionResultV1, ContinuityStoreError> {
+        let owner = expectation.owner();
+        let expected_scope = requests
+            .first()
+            .and_then(|request| request.successor.as_ref())
+            .map(|record| record.scope.clone());
+        let valid = requests.iter().all(|request| {
+            matches!(
+                request.operation,
+                RevisionOperation::Create | RevisionOperation::Revise
+            ) && request.actor == RevisionActor::Owner
+                && request.successor.as_ref().is_some_and(|record| {
+                    record.namespace.owner_pubkey == *owner
+                        && record.namespace.kind == ContinuityNamespaceKindV1::OwnerBrain
+                        && record.namespace.resident_pubkey.is_none()
+                        && expected_scope.as_ref() == Some(&record.scope)
+                        && matches!(
+                            record.record_type.as_str(),
+                            "connected-brain-source"
+                                | "connected-brain-binding"
+                                | "connected-brain-index-page"
+                                | "repository-work-grant"
+                        )
+                })
+        });
+        if !valid {
+            return Err(ContinuityStoreError::InvalidRecord);
+        }
+        self.apply_revision_batch_cas_bounded(
+            expectation,
+            requests,
+            MAX_OWNER_BRAIN_IMPORT_TRANSITIONS,
+        )
+    }
+
     /// Apply one owner-authorized Brain grant mutation. The narrow wrapper
     /// prevents generic revision callers from introducing a grant outside an
     /// owner-brain source scope or under a non-owner actor.

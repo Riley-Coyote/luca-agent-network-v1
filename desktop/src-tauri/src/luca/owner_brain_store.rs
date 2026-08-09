@@ -37,7 +37,7 @@ use super::{
     continuity_key_custody::{
         load_existing_desktop_master_key, ContinuityMasterKey, ContinuityMasterKeyState,
     },
-    continuity_key_derivation::derive_namespace_key,
+    continuity_key_derivation::{derive_namespace_key, ContinuityNamespaceKey},
     continuity_revision_authority::{AuthorityExpectationV1, StoredRevisionGenerationV1},
     continuity_runtime::{
         ContinuityRuntime, ContinuityRuntimeDegradedReason, ContinuityRuntimeState,
@@ -610,11 +610,17 @@ fn ready_runtime_mut<'a>(
     }
 }
 
+mod connected;
+mod connected_lifecycle;
+mod connected_retrieval;
 mod grants;
 mod imports;
 mod records;
 mod retrieval;
 
+pub(crate) use connected::*;
+pub(crate) use connected_lifecycle::*;
+use connected_retrieval::*;
 use grants::*;
 use imports::*;
 use records::*;

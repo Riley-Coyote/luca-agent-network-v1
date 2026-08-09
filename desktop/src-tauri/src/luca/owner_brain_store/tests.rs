@@ -53,6 +53,21 @@ fn import_test_source(
         .unwrap()
 }
 
+fn connected_candidate(
+    path: &Path,
+) -> crate::luca::connected_brain::ConnectedBrainDiscoveryCandidateV1 {
+    crate::luca::connected_brain::ConnectedBrainDiscoveryCandidateV1 {
+        discovery_id: OpaqueId::parse("discovery-connected-fixture").unwrap(),
+        source_kind: luca_protocol::ConnectedBrainSourceKindV1::Repository,
+        display_name: "Connected fixture".to_owned(),
+        canonical_root: path.canonicalize().unwrap(),
+        item_count: 1,
+        earliest_at: None,
+        latest_at: None,
+        discovered_at: Instant::now(),
+    }
+}
+
 #[test]
 fn normalization_is_deterministic_utf8_bounded_and_nonblank() {
     let text = format!("  alpha\r\n{} omega  ", "🦊".repeat(2_000));
@@ -62,6 +77,313 @@ fn normalization_is_deterministic_utf8_bounded_and_nonblank() {
         .iter()
         .all(|chunk| !chunk.trim().is_empty() && chunk.len() <= MAX_OWNER_BRAIN_CHUNK_BYTES));
     assert_eq!(chunks, normalized_chunks(&text));
+}
+
+#[test]
+fn connected_repository_is_body_free_at_rest_and_hash_verified_on_retrieval() {
+    let temp = tempfile::tempdir().unwrap();
+    let repository = temp.path().join("repository");
+    fs::create_dir(&repository).unwrap();
+    std::process::Command::new("git")
+        .args(["init", "--quiet"])
+        .arg(&repository)
+        .status()
+        .unwrap();
+    let canary = "The corpus-only launch color is cobalt.";
+    fs::write(repository.join("fact.md"), canary).unwrap();
+    let candidate = connected_candidate(&repository);
+    let source_id = crate::luca::connected_brain::source_id_for_candidate(&candidate).unwrap();
+    let build = crate::luca::connected_brain::build_index(&source_id, &candidate).unwrap();
+    let root = ContinuityMasterKey::new_for_test([11_u8; 32]);
+    let mut runtime = runtime(&temp);
+    let resident = resident('b');
+    let authority = ConnectedBrainResidentAuthorityV1 {
+        resident_pubkey: resident.clone(),
+        binding_ref: binding('1'),
+        provider_egress: ProviderEgressV1::Remote,
+    };
+
+    let connected_result = connect_source_with_runtime(
+        &root,
+        &mut runtime,
+        owner(),
+        candidate,
+        build,
+        std::slice::from_ref(&authority),
+    );
+    let generation_after_connect = runtime.store.load_revision_generation(&owner()).unwrap();
+    assert!(
+        connected_result.is_ok(),
+        "connect failed {:?}; generation records={:?} lineages={:?}",
+        connected_result.as_ref().err(),
+        generation_after_connect
+            .as_ref()
+            .map(|generation| generation.snapshot.records.len()),
+        generation_after_connect
+            .as_ref()
+            .map(|generation| generation.snapshot.lineages.len())
+    );
+    let connected = connected_result.unwrap();
+    assert!(!connected.replayed);
+    assert_eq!(connected.source.source.source_id, source_id);
+    let generation = runtime
+        .store
+        .load_revision_generation(&owner())
+        .unwrap()
+        .unwrap();
+    let serialized = serde_json::to_string(&generation.snapshot).unwrap();
+    assert!(!serialized.contains(canary));
+    assert!(!serialized.contains(repository.to_str().unwrap()));
+
+    let key_version = runtime.store.active_owner_key_version(&owner()).unwrap();
+    let namespace = owner_brain_namespace(&owner(), key_version).unwrap();
+    let namespace_key = derive_namespace_key(&root, &namespace).unwrap();
+    let ready = retrieve_from_generation(
+        &generation,
+        &namespace,
+        namespace_key.as_bytes(),
+        OwnerBrainRetrievalRequestV1 {
+            request_id: OpaqueId::parse("request-connected-ready").unwrap(),
+            owner_pubkey: owner(),
+            resident_pubkey: resident.clone(),
+            binding_ref: binding('1'),
+            provider_egress: ProviderEgressV1::Remote,
+            cue: RetrievalText::from("launch color cobalt"),
+            deadline: Instant::now() + std::time::Duration::from_secs(2),
+        },
+    )
+    .unwrap();
+    assert_eq!(ready.status, ContinuityLayerStatusV1::Ready);
+    assert_eq!(ready.selected.len(), 1);
+    assert_eq!(ready.selected[0].body.as_str(), canary);
+
+    fs::write(repository.join("fact.md"), "The launch color changed.").unwrap();
+    let stale = retrieve_from_generation(
+        &generation,
+        &namespace,
+        namespace_key.as_bytes(),
+        OwnerBrainRetrievalRequestV1 {
+            request_id: OpaqueId::parse("request-connected-stale").unwrap(),
+            owner_pubkey: owner(),
+            resident_pubkey: resident,
+            binding_ref: binding('1'),
+            provider_egress: ProviderEgressV1::Remote,
+            cue: RetrievalText::from("launch color cobalt"),
+            deadline: Instant::now() + std::time::Duration::from_secs(2),
+        },
+    )
+    .unwrap();
+    assert_eq!(stale.status, ContinuityLayerStatusV1::Stale);
+    assert!(stale.selected.is_empty());
+}
+
+#[test]
+fn connected_refresh_reconfirm_future_resident_and_disconnect_are_fail_closed() {
+    let temp = tempfile::tempdir().unwrap();
+    let repository = temp.path().join("repository-lifecycle");
+    fs::create_dir(&repository).unwrap();
+    std::process::Command::new("git")
+        .args(["init", "--quiet"])
+        .arg(&repository)
+        .status()
+        .unwrap();
+    fs::write(repository.join("fact.md"), "The release bird is a heron.").unwrap();
+    let root = ContinuityMasterKey::new_for_test([12_u8; 32]);
+    let mut runtime = runtime(&temp);
+    let candidate = connected_candidate(&repository);
+    let source_id = crate::luca::connected_brain::source_id_for_candidate(&candidate).unwrap();
+    let first_authority = ConnectedBrainResidentAuthorityV1 {
+        resident_pubkey: resident('b'),
+        binding_ref: binding('1'),
+        provider_egress: ProviderEgressV1::Remote,
+    };
+    connect_source_with_runtime(
+        &root,
+        &mut runtime,
+        owner(),
+        candidate,
+        crate::luca::connected_brain::build_index(&source_id, &connected_candidate(&repository))
+            .unwrap(),
+        std::slice::from_ref(&first_authority),
+    )
+    .unwrap();
+
+    let before_replay = runtime
+        .store
+        .load_revision_generation(&owner())
+        .unwrap()
+        .unwrap()
+        .token;
+    let replay = connect_source_with_runtime(
+        &root,
+        &mut runtime,
+        owner(),
+        connected_candidate(&repository),
+        crate::luca::connected_brain::build_index(&source_id, &connected_candidate(&repository))
+            .unwrap(),
+        std::slice::from_ref(&first_authority),
+    )
+    .unwrap();
+    assert!(replay.replayed);
+    assert_eq!(
+        before_replay,
+        runtime
+            .store
+            .load_revision_generation(&owner())
+            .unwrap()
+            .unwrap()
+            .token
+    );
+
+    let changed_binding = ConnectedBrainResidentAuthorityV1 {
+        resident_pubkey: first_authority.resident_pubkey.clone(),
+        binding_ref: binding('2'),
+        provider_egress: ProviderEgressV1::Remote,
+    };
+    let generation = runtime
+        .store
+        .load_revision_generation(&owner())
+        .unwrap()
+        .unwrap();
+    let key_version = runtime.store.active_owner_key_version(&owner()).unwrap();
+    let namespace = owner_brain_namespace(&owner(), key_version).unwrap();
+    let namespace_key = derive_namespace_key(&root, &namespace).unwrap();
+    let stale = retrieve_from_generation(
+        &generation,
+        &namespace,
+        namespace_key.as_bytes(),
+        OwnerBrainRetrievalRequestV1 {
+            request_id: OpaqueId::parse("request-connected-binding-stale").unwrap(),
+            owner_pubkey: owner(),
+            resident_pubkey: changed_binding.resident_pubkey.clone(),
+            binding_ref: changed_binding.binding_ref.clone(),
+            provider_egress: ProviderEgressV1::Remote,
+            cue: RetrievalText::from("release bird heron"),
+            deadline: Instant::now() + std::time::Duration::from_secs(2),
+        },
+    )
+    .unwrap();
+    assert_eq!(stale.status, ContinuityLayerStatusV1::Stale);
+    super::connected::ensure_connected_grants(
+        &root,
+        &mut runtime,
+        &replay.source.source,
+        &changed_binding,
+    )
+    .unwrap();
+
+    let future_authority = ConnectedBrainResidentAuthorityV1 {
+        resident_pubkey: resident('c'),
+        binding_ref: binding('3'),
+        provider_egress: ProviderEgressV1::Local,
+    };
+    super::connected::ensure_connected_grants(
+        &root,
+        &mut runtime,
+        &replay.source.source,
+        &future_authority,
+    )
+    .unwrap();
+
+    let before_refresh = runtime
+        .store
+        .load_revision_generation(&owner())
+        .unwrap()
+        .unwrap();
+    let old_index_lineages = before_refresh
+        .snapshot
+        .lineages
+        .iter()
+        .filter(|lineage| lineage.record_type.as_str() == CONNECTED_INDEX_PAGE_RECORD)
+        .map(|lineage| lineage.lineage_root_id.clone())
+        .collect::<Vec<_>>();
+    fs::write(
+        repository.join("fact.md"),
+        "The release bird is a heron. The release tree is cedar.",
+    )
+    .unwrap();
+    connect_source_with_runtime(
+        &root,
+        &mut runtime,
+        owner(),
+        connected_candidate(&repository),
+        crate::luca::connected_brain::build_index(&source_id, &connected_candidate(&repository))
+            .unwrap(),
+        &[changed_binding.clone(), future_authority.clone()],
+    )
+    .unwrap();
+    let refreshed = runtime
+        .store
+        .load_revision_generation(&owner())
+        .unwrap()
+        .unwrap();
+    for lineage_id in &old_index_lineages {
+        let lineage = refreshed
+            .snapshot
+            .lineages
+            .iter()
+            .find(|lineage| lineage.lineage_root_id == *lineage_id)
+            .unwrap();
+        assert_eq!(lineage.lifecycle, RevisionLifecycle::Forgotten);
+        assert_eq!(
+            lineage.purge_execution.as_ref().unwrap().status,
+            luca_continuity::PurgeExecutionStatusV1::Completed
+        );
+        assert!(lineage.record_ids.iter().all(|record_id| refreshed
+            .snapshot
+            .records
+            .iter()
+            .all(|record| record.record_id != *record_id)));
+    }
+
+    super::connected_lifecycle::disconnect_source_with_runtime(
+        &root,
+        &mut runtime,
+        &owner(),
+        &source_id,
+    )
+    .unwrap();
+    let (generation, namespace, namespace_key) =
+        super::connected::connected_generation(&root, &runtime)
+            .unwrap()
+            .unwrap();
+    let catalog = super::connected::catalog_from_generation(
+        &generation,
+        &namespace,
+        namespace_key.as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(
+        catalog.sources[0].source.status,
+        luca_protocol::ConnectedBrainSourceStatusV1::Disconnected
+    );
+    assert!(catalog
+        .repository_grants
+        .iter()
+        .all(|grant| grant.state == luca_protocol::RepositoryWorkGrantStateV1::Revoked));
+    assert!(generation.snapshot.lineages.iter().all(|lineage| {
+        lineage.record_type.as_str() != CONNECTED_INDEX_PAGE_RECORD
+            || lineage.purge_execution.as_ref().is_some_and(|purge| {
+                purge.status == luca_continuity::PurgeExecutionStatusV1::Completed
+            })
+    }));
+    let denied = retrieve_from_generation(
+        &generation,
+        &namespace,
+        namespace_key.as_bytes(),
+        OwnerBrainRetrievalRequestV1 {
+            request_id: OpaqueId::parse("request-connected-disconnected").unwrap(),
+            owner_pubkey: owner(),
+            resident_pubkey: changed_binding.resident_pubkey,
+            binding_ref: changed_binding.binding_ref,
+            provider_egress: ProviderEgressV1::Remote,
+            cue: RetrievalText::from("release bird heron"),
+            deadline: Instant::now() + std::time::Duration::from_secs(2),
+        },
+    )
+    .unwrap();
+    assert_eq!(denied.status, ContinuityLayerStatusV1::Denied);
+    assert!(denied.selected.is_empty());
 }
 
 #[test]

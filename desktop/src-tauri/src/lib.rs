@@ -455,6 +455,15 @@ pub fn run() {
                 *guard = Some(app_handle.clone());
             }
 
+            // Connected Brain uses one event-driven watcher and a debounced
+            // single worker. Startup reconciliation is fail-soft and never
+            // blocks messaging or native resident restoration.
+            if let Err(error) =
+                crate::luca::connected_brain::start_connected_source_watcher(app_handle.clone())
+            {
+                eprintln!("buzz-desktop: connected Brain watcher unavailable: {error}");
+            }
+
             // Bring up the runtime-owned shared-compute coordinator before
             // saved agents are restored. Its lifetime is tied to the app, not
             // a UI mount; it publishes discovery and reconciles membership for
@@ -780,6 +789,13 @@ pub fn run() {
             grant_owner_brain_source,
             revoke_owner_brain_source,
             reconfirm_owner_brain_source,
+            discover_connected_brain_sources,
+            add_connected_brain_root,
+            list_connected_brain_sources,
+            connect_connected_brain_source,
+            refresh_connected_brain_source,
+            disconnect_connected_brain_source,
+            reconfirm_connected_brain_source,
             send_managed_agent_channel_message,
             has_managed_agent_channel_message_marker,
             get_forum_posts,

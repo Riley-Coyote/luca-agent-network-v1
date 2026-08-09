@@ -1,19 +1,19 @@
 use super::*;
 
-struct RankedOwnerBrainChunkV1 {
-    source_id: OpaqueId,
-    grant_id: OpaqueId,
-    chunk_id: OpaqueId,
-    body: RetrievalText,
-    content_hash: Sha256Ref,
-    score: i64,
+pub(super) struct RankedOwnerBrainChunkV1 {
+    pub(super) source_id: OpaqueId,
+    pub(super) grant_id: OpaqueId,
+    pub(super) chunk_id: OpaqueId,
+    pub(super) body: RetrievalText,
+    pub(super) content_hash: Sha256Ref,
+    pub(super) score: i64,
 }
 
-struct OwnerBrainSourceDecisionV1 {
-    source_id: OpaqueId,
-    grant_id: OpaqueId,
-    status: ContinuityLayerStatusV1,
-    candidate_count: usize,
+pub(super) struct OwnerBrainSourceDecisionV1 {
+    pub(super) source_id: OpaqueId,
+    pub(super) grant_id: OpaqueId,
+    pub(super) status: ContinuityLayerStatusV1,
+    pub(super) candidate_count: usize,
 }
 
 pub(super) fn retrieve_from_generation(
@@ -25,13 +25,6 @@ pub(super) fn retrieve_from_generation(
     let started = Instant::now();
     require_before_deadline(request.deadline)?;
     let source_ids = active_source_ids(generation, namespace)?;
-    if source_ids.is_empty() {
-        return Ok(OwnerBrainRetrievalResultV1 {
-            status: ContinuityLayerStatusV1::Empty,
-            selected: Vec::new(),
-            receipts: Vec::new(),
-        });
-    }
 
     let provider_egress = effective_provider_egress(request.provider_egress);
     let mut decisions = Vec::with_capacity(source_ids.len());
@@ -148,6 +141,10 @@ pub(super) fn retrieve_from_generation(
             candidate_count: source_candidate_count,
         });
     }
+    let (connected_candidates, connected_decisions) =
+        connected_candidates(generation, namespace, namespace_key, &request)?;
+    candidates.extend(connected_candidates);
+    decisions.extend(connected_decisions);
     require_before_deadline(request.deadline)?;
     candidates.sort_by(|left, right| {
         right
