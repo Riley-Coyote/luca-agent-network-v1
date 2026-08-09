@@ -1,28 +1,39 @@
-//! Frozen V1.2 Brain Setup renderer fixtures and command vocabulary.
+//! V1.2 Brain Setup renderer commands and frozen development fixtures.
 //!
-//! The fixtures contain no source bodies or absolute paths and are suitable
-//! only for deterministic frontend development and tests.
+//! Renderer responses contain no source bodies or absolute paths. The raw
+//! preview token is a short-lived commit capability and is never logged.
 
-use serde::Serialize;
+use crate::{app_state::AppState, luca::owner_brain};
+use luca_protocol::{Hex64, OwnerBrainPreviewRowStatusV1, OwnerBrainSourceKindV1};
+use serde::{Deserialize, Serialize};
+use std::path::Path;
+use tauri::State;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreviewOwnerBrainSourceInputV1 {
+    selected_path: String,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OwnerBrainPreviewRowViewV1 {
-    relative_path: &'static str,
-    status: &'static str,
+    relative_path: String,
+    status: String,
     byte_count: u64,
-    reason_code: Option<&'static str>,
+    reason_code: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OwnerBrainPreviewViewV1 {
-    preview_id: &'static str,
-    source_kind: &'static str,
-    display_name: &'static str,
+    preview_id: String,
+    preview_token: String,
+    source_kind: String,
+    display_name: String,
     accepted_bytes: u64,
     write_count: u64,
-    expires_at: &'static str,
+    expires_at: String,
     can_commit: bool,
     rows: Vec<OwnerBrainPreviewRowViewV1>,
 }
@@ -105,37 +116,106 @@ fn state(availability: &'static str) -> OwnerBrainFixtureStateV1 {
     }
 }
 
+fn source_kind_value(source_kind: OwnerBrainSourceKindV1) -> &'static str {
+    match source_kind {
+        OwnerBrainSourceKindV1::MarkdownFile => "markdown_file",
+        OwnerBrainSourceKindV1::TextFile => "text_file",
+        OwnerBrainSourceKindV1::TextFolder => "text_folder",
+    }
+}
+
+fn row_status_value(status: OwnerBrainPreviewRowStatusV1) -> &'static str {
+    match status {
+        OwnerBrainPreviewRowStatusV1::Accepted => "accepted",
+        OwnerBrainPreviewRowStatusV1::Skipped => "skipped",
+        OwnerBrainPreviewRowStatusV1::Unsupported => "unsupported",
+        OwnerBrainPreviewRowStatusV1::Oversized => "oversized",
+        OwnerBrainPreviewRowStatusV1::Binary => "binary",
+        OwnerBrainPreviewRowStatusV1::CredentialLike => "credential_like",
+        OwnerBrainPreviewRowStatusV1::Duplicate => "duplicate",
+        OwnerBrainPreviewRowStatusV1::Changed => "changed",
+        OwnerBrainPreviewRowStatusV1::UnsafePath => "unsafe_path",
+    }
+}
+
+fn preview_view(handle: owner_brain::OwnerBrainPreviewHandleV1) -> OwnerBrainPreviewViewV1 {
+    let can_commit = handle.preview.rows.iter().any(|row| {
+        matches!(
+            row.status,
+            OwnerBrainPreviewRowStatusV1::Accepted | OwnerBrainPreviewRowStatusV1::Changed
+        )
+    });
+    OwnerBrainPreviewViewV1 {
+        preview_id: handle.preview.preview_id.as_str().to_owned(),
+        preview_token: handle.token,
+        source_kind: source_kind_value(handle.preview.source_kind).to_owned(),
+        display_name: handle.preview.display_name,
+        accepted_bytes: handle.preview.accepted_bytes.get(),
+        write_count: handle.preview.write_count.get(),
+        expires_at: handle.preview.expires_at.as_str().to_owned(),
+        can_commit,
+        rows: handle
+            .preview
+            .rows
+            .into_iter()
+            .map(|row| OwnerBrainPreviewRowViewV1 {
+                relative_path: row.relative_path,
+                status: row_status_value(row.status).to_owned(),
+                byte_count: row.byte_count.get(),
+                reason_code: row.reason_code.map(|reason| reason.as_str().to_owned()),
+            })
+            .collect(),
+    }
+}
+
+#[tauri::command]
+/// Performs a bounded, read-only preview of one owner-selected local source.
+pub fn preview_owner_brain_source(
+    input: PreviewOwnerBrainSourceInputV1,
+    state: State<'_, AppState>,
+) -> Result<OwnerBrainPreviewViewV1, String> {
+    let owner_pubkey = Hex64::parse(state.signing_keys()?.public_key().to_hex())
+        .map_err(|_| "active owner identity is invalid".to_owned())?;
+    owner_brain::create_preview(
+        &state.owner_brain_previews,
+        owner_pubkey,
+        Path::new(&input.selected_path),
+    )
+    .map(preview_view)
+}
+
 #[tauri::command]
 /// Returns deterministic body-free fixtures for V1.2 Brain Setup development.
 pub fn get_owner_brain_fixtures() -> OwnerBrainFixturesV1 {
     let resident = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     OwnerBrainFixturesV1 {
         preview: OwnerBrainPreviewViewV1 {
-            preview_id: "preview-fixture",
-            source_kind: "text_folder",
-            display_name: "Launch Notes",
+            preview_id: "preview-fixture".to_owned(),
+            preview_token: "preview-token-fixture".to_owned(),
+            source_kind: "text_folder".to_owned(),
+            display_name: "Launch Notes".to_owned(),
             accepted_bytes: 2_048,
             write_count: 0,
-            expires_at: "2026-08-08T20:15:00Z",
+            expires_at: "2026-08-08T20:15:00Z".to_owned(),
             can_commit: true,
             rows: vec![
                 OwnerBrainPreviewRowViewV1 {
-                    relative_path: "planning/launch.md",
-                    status: "accepted",
+                    relative_path: "planning/launch.md".to_owned(),
+                    status: "accepted".to_owned(),
                     byte_count: 2_048,
                     reason_code: None,
                 },
                 OwnerBrainPreviewRowViewV1 {
-                    relative_path: "private/.env",
-                    status: "credential_like",
+                    relative_path: "private/.env".to_owned(),
+                    status: "credential_like".to_owned(),
                     byte_count: 92,
-                    reason_code: Some("credential-pattern"),
+                    reason_code: Some("credential-pattern".to_owned()),
                 },
                 OwnerBrainPreviewRowViewV1 {
-                    relative_path: "archive/brief.pdf",
-                    status: "unsupported",
+                    relative_path: "archive/brief.pdf".to_owned(),
+                    status: "unsupported".to_owned(),
                     byte_count: 41_200,
-                    reason_code: Some("unsupported-extension"),
+                    reason_code: Some("unsupported-extension".to_owned()),
                 },
             ],
         },

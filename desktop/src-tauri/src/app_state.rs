@@ -18,6 +18,7 @@ use crate::luca::continuity_runtime::{
     ContinuityReadLeaseOutcomeV1, ContinuityReadLeaseRequestV1, ContinuityReadLeaseViewV1,
     ContinuityRuntimeState, ResidentHandoffCommitOutcomeV1, ResidentHandoffCommitRequestV1,
 };
+use crate::luca::owner_brain::OwnerBrainPreviewCache;
 use crate::luca::resident_notebook::{
     ResidentJournalCommitRequestV1, ResidentMetabolismCommitOutcomeV1,
     ResidentMetabolismCommitRequestV1, ResidentNotebookMutationOutcomeV1,
@@ -107,6 +108,9 @@ pub struct AppState {
     /// readiness state. Callers use typed AppState methods; the raw mutex and
     /// SQLite connection are never exposed.
     continuity_runtime: Mutex<ContinuityRuntimeState>,
+    /// Expiring, process-memory-only V1.2 source previews. The cache contains
+    /// sensitive relative paths but no source bodies and is never persisted.
+    pub(crate) owner_brain_previews: OwnerBrainPreviewCache,
     pub managed_agent_processes: Mutex<HashMap<String, ManagedAgentProcess>>,
     pub huddle_state: Mutex<HuddleState>,
     /// Tauri app handle — stored after setup so huddle commands can emit
@@ -287,6 +291,7 @@ pub fn build_app_state() -> AppState {
         #[cfg(feature = "mesh-llm")]
         mesh_coordinator: AsyncMutex::new(None),
         pending_owned_channels: Mutex::new(std::collections::HashSet::new()),
+        owner_brain_previews: Mutex::new(HashMap::new()),
     }
 }
 

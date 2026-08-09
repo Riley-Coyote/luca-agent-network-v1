@@ -31,6 +31,7 @@ export type OwnerBrainPreviewRow = {
 
 export type OwnerBrainPreview = {
   previewId: string;
+  previewToken: string;
   sourceKind: OwnerBrainSourceKind;
   displayName: string;
   acceptedBytes: number;
@@ -111,6 +112,16 @@ export type OwnerBrainFixtures = {
   locked: OwnerBrainFixtureState;
   unavailable: OwnerBrainFixtureState;
 };
+
+export type PreviewOwnerBrainSourceInput = {
+  selectedPath: string;
+};
+
+export function previewOwnerBrainSource(
+  input: PreviewOwnerBrainSourceInput,
+): Promise<OwnerBrainPreview> {
+  return invoke("preview_owner_brain_source", { input });
+}
 
 export function getOwnerBrainFixtures(): Promise<OwnerBrainFixtures> {
   return invoke("get_owner_brain_fixtures");
