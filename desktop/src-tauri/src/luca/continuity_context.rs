@@ -891,7 +891,7 @@ mod tests {
         let reader = FakeLeaseReader::status(ContinuityLayerStatusV1::Unavailable);
         let owner_brain = ContinuityLayerMaterial::ready(vec![ContinuityReferenceItem::new(
             OpaqueId::parse("brain-chunk-1").unwrap(),
-            "authorized-owner-brain-body".to_owned(),
+            "authorized-owner-brain-body corpus-only-fact".to_owned(),
             vec![sha('a')],
         )
         .unwrap()])
@@ -909,9 +909,22 @@ mod tests {
             1,
             |wire| {
                 sink_count.set(sink_count.get() + 1);
+                let wire_text = String::from_utf8(wire.to_vec()).unwrap();
                 let result: ContinuityContextResultV1 = serde_json::from_slice(wire).unwrap();
                 let packet = result.packet.unwrap();
                 assert!(packet.content.contains("authorized-owner-brain-body"));
+                assert!(packet.content.contains("corpus-only-fact"));
+                for forbidden in [
+                    "/Users/owner/private-corpus.md",
+                    "owner-brain-source-id",
+                    "owner-brain-grant-id",
+                    "denied-owner-brain-body",
+                    "revoked-owner-brain-body",
+                    "stale-owner-brain-body",
+                    "resident-private-notebook-body",
+                ] {
+                    assert!(!wire_text.contains(forbidden));
+                }
                 assert_eq!(result.layers[1].status, ContinuityLayerStatusV1::Empty);
                 assert_eq!(result.layers[4].status, ContinuityLayerStatusV1::Ready);
             },
@@ -919,6 +932,43 @@ mod tests {
         assert_eq!(reader.calls.get(), 0);
         assert_eq!(sink_count.get(), 1);
         assert_eq!(outcome.receipt().status, ContinuityLayerStatusV1::Ready);
+    }
+
+    #[test]
+    fn non_ready_owner_brain_never_reaches_the_provider_sink() {
+        for status in [
+            ContinuityLayerStatusV1::Denied,
+            ContinuityLayerStatusV1::Stale,
+            ContinuityLayerStatusV1::Locked,
+            ContinuityLayerStatusV1::Unavailable,
+            ContinuityLayerStatusV1::Invalid,
+        ] {
+            let reader = FakeLeaseReader::status(ContinuityLayerStatusV1::Unavailable);
+            let owner_brain = ContinuityLayerMaterial::status(status, None).unwrap();
+            let sink_count = Cell::new(0);
+            let outcome = resolve_with_lease_reader(
+                &reader,
+                request(MAX_CONTINUITY_PACKET_BYTES),
+                resident_address(),
+                RetrievalText::from("corpus-only-fact"),
+                empty_layer().unwrap(),
+                owner_brain,
+                None,
+                Instant::now() + Duration::from_secs(1),
+                1,
+                |_| sink_count.set(sink_count.get() + 1),
+            );
+            assert_eq!(
+                sink_count.get(),
+                0,
+                "unexpected provider wire for {status:?}"
+            );
+            assert_eq!(
+                outcome.receipt().disposition,
+                DesktopContinuityContextDispositionV1::Skipped
+            );
+            assert_eq!(outcome.receipt().layer_statuses[4], status);
+        }
     }
 
     #[test]
