@@ -10,8 +10,10 @@ Release implementation checkpoint: `b1e045a5` (`Align UI regressions with the Lu
 
 V1.2 candidate branch: `codex/unified-brain-v1-2`
 
-V1.2 candidate state: B21-B26 complete; B27 native demonstration and final
-repository gate pending because the Mac locked during installed verification.
+V1.2 candidate state: B21-B26 complete; installed Brain demonstration passes;
+B27 is blocked by the repository file-size gate. The V1.2-owned
+`owner_brain_store.rs` must be split before the exact final checkpoint is rebuilt
+and promoted.
 
 This document is the repository-native source of truth for continuing Luca V1.
 It supersedes older product assumptions in the upstream Buzz README and older

@@ -1,6 +1,6 @@
 # Luca V1.1-V1.3 roadmap control
 
-Status: V1.1 PASS; V1.2 source candidate complete through B26; B27 awaits the unlocked installed-app demonstration
+Status: V1.1 PASS; V1.2 installed demonstration PASS; B27 blocked by the repository file-size gate
 
 Canonical release branch: `luca/v1.1`
 
@@ -15,10 +15,11 @@ The V1.1 release verdict is recorded in `V1_1_VERDICT.md`. The unified Agent
 Library and installed-app evidence live under `docs/luca/agent-library/`.
 
 The V1.2 implementation candidate lives on `codex/unified-brain-v1-2`. B21-B26
-are complete. `V1_2_VERDICT.md` records the passing focused and signed-bundle
-evidence plus the one remaining environment blocker. Do not begin V1.3 or
-promote the candidate until B27 completes in the unlocked installed app and the
-single final repository gate passes.
+are complete and the installed Brain authorization demonstration passes.
+`V1_2_VERDICT.md` records the passing focused/native evidence and the remaining
+repository file-size blocker. Do not begin V1.3 or promote the candidate until
+the V1.2-owned Brain store is split, inherited guard debt is reconciled, and the
+final repository gate passes on the exact rebuilt artifact.
 
 This directory is the implementation authority for the next three incremental
 continuity releases. It deliberately replaces the breadth of the original G2

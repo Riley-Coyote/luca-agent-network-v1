@@ -224,3 +224,36 @@ Safe notes:
   - the final `just ci` invocation required by A405 was intentionally not spent
     before native completion.
 - Release verdict: `V1_2_VERDICT.md`.
+
+## 2026-08-08 — V1.2 installed authorization continuation
+
+- The installed Brain Setup surface imported a disposable Markdown source
+  through the native picker after a zero-write preview. Its SHA-256 remained
+  `86f3d22fb2853515f24768a4478b9d9b173c6652a59e2a799641383d2e842747`
+  before and after import and the complete demo.
+- Real Hermes `default` and OpenClaw `main` residents were granted independently
+  and each returned the corpus-only values `Cedar Meridian` and `4729-Aster`.
+  The ungranted Luca resident could not surface either value.
+- Brain Setup displayed separate body-free ready and denied receipts. Receipt
+  activity cleared on relaunch as specified by the frozen process-memory-only
+  retention contract.
+- Hermes revocation required explicit confirmation and excluded Owner Brain
+  content on its next turn while OpenClaw's grant remained active.
+- Relaunch preserved one indexed source plus revoked/active/absent grant state.
+  All native residents returned ready and Hermes/OpenClaw completed an ordinary
+  mixed-room reply smoke.
+- Strict deep signature verification still passes for
+  `com.luca.agent-network.dev`; executable SHA-256 is
+  `7b426cfc7f1be53c016cd08df7def057f7ed399339588d5da479d8554a1b3ede`.
+- The selected Hermes/OpenClaw config, memory, model, and schedule snapshot was
+  byte-identical before and after the complete installed flow.
+- The first repository-gate invocation found one Clippy simplification in the
+  new receipt validator. Commit `4ae6370` applies the semantics-preserving fix;
+  strict focused Clippy and all 5 Brain protocol vectors pass afterward.
+- The final-state `just ci` confirmation passes workspace formatting and strict
+  workspace Clippy, then stops at the desktop file-size guard. Fourteen reported
+  files already exceeded their configured limits at baseline `34989f9`; the new
+  V1.2 `owner_brain_store.rs` is 2,697 lines against the 1,000-line default.
+- No guard limit or exception was changed. B27 and A405 remain blocked pending a
+  real Brain store split and reconciliation of inherited guard debt.
+- Release verdict: `V1_2_VERDICT.md`.
