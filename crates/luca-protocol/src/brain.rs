@@ -719,7 +719,7 @@ impl OwnerBrainContextReceiptV1 {
                 .selected_chunk_hashes
                 .windows(2)
                 .any(|pair| pair[0] >= pair[1])
-            || ready != !self.selected_chunk_hashes.is_empty()
+            || ready == self.selected_chunk_hashes.is_empty()
             || ready != (self.selected_byte_count.get() > 0)
             || self.selected_byte_count.get() > MAX_OWNER_BRAIN_RETRIEVAL_BYTES as u64
         {
