@@ -31,12 +31,12 @@ const CREDENTIAL_NAMES: &[&str] = &[
     "id_ed25519",
 ];
 
-pub(super) struct RepositoryDocument {
+pub(crate) struct RepositoryDocument {
     pub relative_path: String,
     pub body: String,
 }
 
-pub(super) fn documents(root: &Path) -> Result<Vec<RepositoryDocument>, String> {
+pub(crate) fn documents(root: &Path) -> Result<Vec<RepositoryDocument>, String> {
     let canonical_root = root
         .canonicalize()
         .map_err(|_| "repository is unavailable".to_owned())?;
@@ -94,7 +94,7 @@ pub(super) fn documents(root: &Path) -> Result<Vec<RepositoryDocument>, String> 
     Ok(documents)
 }
 
-pub(super) fn read_document(root: &Path, relative_path: &str) -> Result<String, String> {
+pub(crate) fn read_document(root: &Path, relative_path: &str) -> Result<String, String> {
     let relative_path = valid_relative_path(relative_path)
         .ok_or_else(|| "repository locator is unsafe".to_owned())?;
     let canonical_root = root
@@ -176,7 +176,6 @@ fn credential_content(bytes: &[u8]) -> bool {
     .any(|marker| lower.contains(marker))
 }
 
-#[cfg(test)]
-pub(super) fn path_is_indexable(path: &str) -> bool {
+pub(crate) fn path_is_indexable(path: &str) -> bool {
     valid_relative_path(path).is_some()
 }

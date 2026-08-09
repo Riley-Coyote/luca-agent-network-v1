@@ -511,7 +511,7 @@ const overrides = new Map([
   // the beta reliability gate. No entry grants future growth; split these
   // modules in the dedicated post-beta maintainability phase.
   ["src-tauri/src/luca/continuity_backup.rs", 2759],
-  ["src-tauri/src/luca/continuity_revision_authority.rs", 3179],
+  ["src-tauri/src/luca/continuity_revision_authority.rs", 3084],
   ["src-tauri/src/luca/continuity_rotation.rs", 1225],
   ["src-tauri/src/luca/continuity_runtime.rs", 1611],
   ["src-tauri/src/luca/continuity_store.rs", 3251],

@@ -8,6 +8,7 @@ use tauri::AppHandle;
 
 use super::agent_env::build_buzz_agent_provider_defaults;
 use super::owner_brain_authority::managed_runtime_configuration_sha256;
+use super::runtime_authority::{managed_owner_attestation, next_managed_session_epoch};
 
 use crate::{
     managed_agents::{
@@ -137,6 +138,8 @@ pub(crate) fn managed_capsule_broker_handle(
 }
 
 fn join_managed_signing_broker(resident_pubkey: &str) -> Result<(), String> {
+    #[cfg(unix)]
+    let repository_result = crate::luca::repository_bridge::stop_repository_broker(resident_pubkey);
     crate::luca::managed_cognition::unregister(resident_pubkey);
     managed_capsule_brokers()
         .lock()
@@ -156,13 +159,9 @@ fn join_managed_signing_broker(resident_pubkey: &str) -> Result<(), String> {
         shutdown_result
             .map_err(|error| format!("failed to stop managed signing broker: {error}"))?;
     }
+    #[cfg(unix)]
+    repository_result?;
     Ok(())
-}
-
-fn next_managed_session_epoch() -> Result<luca_protocol::SafeU53, String> {
-    let random = uuid::Uuid::new_v4().as_u128() as u64;
-    let epoch = (random & luca_protocol::JSON_SAFE_INTEGER_MAX).max(1);
-    luca_protocol::SafeU53::new(epoch).map_err(|error| error.to_string())
 }
 
 fn terminalize_restart_dispatches_if_proven(
@@ -186,31 +185,6 @@ fn terminalize_restart_dispatches_if_proven(
         }
         crate::luca::managed_message_outbox::StartupOutboxReconciliation::Deferred => Ok(None),
     }
-}
-
-fn managed_owner_attestation(
-    auth_tag_json: Option<&str>,
-) -> Result<Option<(luca_protocol::NipOaOwnerAttestationV1, String)>, String> {
-    let Some(auth_tag_json) = auth_tag_json else {
-        return Ok(None);
-    };
-    let value: serde_json::Value = serde_json::from_str(auth_tag_json)
-        .map_err(|error| format!("invalid managed owner attestation JSON: {error}"))?;
-    let values = value
-        .as_array()
-        .ok_or_else(|| "managed owner attestation must be a JSON tag array".to_string())?;
-    if values.len() != 4 || values.first().and_then(serde_json::Value::as_str) != Some("auth") {
-        return Err("managed owner attestation must be an exact four-field auth tag".into());
-    }
-    let typed: luca_protocol::NipOaOwnerAttestationV1 = serde_json::from_value(serde_json::json!({
-        "owner_pubkey": values.get(1).and_then(serde_json::Value::as_str),
-        "conditions": values.get(2).and_then(serde_json::Value::as_str),
-        "signature": values.get(3).and_then(serde_json::Value::as_str),
-    }))
-    .map_err(|error| format!("invalid managed owner attestation: {error}"))?;
-    let typed_json = serde_json::to_string(&typed)
-        .map_err(|error| format!("failed to serialize managed owner attestation: {error}"))?;
-    Ok(Some((typed, typed_json)))
 }
 
 /// Binary name fragments for all known agent/harness processes that Buzz
@@ -1758,6 +1732,9 @@ pub fn spawn_agent_child(
             }
         }
     };
+    #[cfg(unix)]
+    let repository_mcp_command = resolve_command("buzz-dev-mcp")
+        .ok_or_else(|| missing_command_message("buzz-dev-mcp", "repository MCP sidecar"))?;
     // Resolve agent command to a full path (DMG launches have minimal PATH).
     let resolved_agent_command = resolve_command(&effective_command)
         .map(|p| p.display().to_string())
@@ -1824,6 +1801,14 @@ pub fn spawn_agent_child(
         runtime_configuration_sha256.as_str()
     ))
     .map_err(|error| format!("invalid managed runtime binding: {error}"))?;
+    #[cfg(unix)]
+    let repository_broker_lease = crate::luca::repository_bridge::create_broker_lease(
+        app,
+        owner_pubkey.clone(),
+        resident_pubkey.clone(),
+        session_epoch,
+        runtime_binding_ref.clone(),
+    )?;
     #[cfg(unix)]
     let managed_continuity_fd = crate::luca::managed_continuity::create_endpoint(
         app.clone(),
@@ -1901,6 +1886,14 @@ pub fn spawn_agent_child(
         None => {
             command.env("BUZZ_ACP_MCP_COMMAND", "");
         }
+    }
+    #[cfg(unix)]
+    {
+        command.env("BUZZ_ACP_REPOSITORY_MCP_COMMAND", &repository_mcp_command);
+        command.env(
+            "BUZZ_ACP_REPOSITORY_MCP_CONFIG",
+            repository_broker_lease.bootstrap_json(),
+        );
     }
     // Enable MCP hook tools (_Stop, _PostCompact) for agents that need them.
     // Uses "*" because build_mcp_servers() hard-codes the server name to "buzz-mcp".
@@ -2393,6 +2386,13 @@ pub fn spawn_agent_child(
         let _ = child.wait();
         let _ = join_managed_signing_broker(&record.pubkey);
         return Err("managed cognition broker owner already exists".into());
+    }
+    #[cfg(unix)]
+    if let Err(error) = repository_broker_lease.commit() {
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = join_managed_signing_broker(&record.pubkey);
+        return Err(format!("failed to register repository broker: {error}"));
     }
 
     // Stamp the adapter availability for runtimes with a version gate (codex

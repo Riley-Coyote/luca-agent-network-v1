@@ -10,6 +10,8 @@ use rmcp::{
 use std::path::Path;
 use std::sync::Arc;
 
+#[cfg(unix)]
+mod luca_repositories;
 mod paths;
 mod read_file;
 mod rg;
@@ -168,6 +170,19 @@ async fn async_main(cmd: String) -> Result<(), Box<dyn std::error::Error>> {
     // buzz CLI needs tokio (async HTTP client).
     if cmd == "buzz" {
         std::process::exit(buzz_cli::run_from_args(std::env::args()).await);
+    }
+
+    if std::env::var("LUCA_REPOSITORY_MODE").as_deref() == Ok("1") {
+        #[cfg(unix)]
+        {
+            let service = luca_repositories::LucaRepositoriesMcp::from_environment()?
+                .serve(stdio())
+                .await?;
+            service.waiting().await?;
+            return Ok(());
+        }
+        #[cfg(not(unix))]
+        return Err("Luca repository MCP is supported only on Unix".into());
     }
 
     // MCP server mode — safe to init tracing now.

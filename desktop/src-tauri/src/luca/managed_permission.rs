@@ -111,42 +111,7 @@ fn serve(
         {
             break;
         }
-        let id = pending_id(&request);
-        let (tx, rx) = mpsc::channel();
-        let inserted = pending().lock().ok().and_then(|mut entries| {
-            if entries.contains_key(&id) {
-                None
-            } else {
-                entries.insert(
-                    id.clone(),
-                    Pending {
-                        request: request.clone(),
-                        decision_tx: tx,
-                    },
-                );
-                Some(())
-            }
-        });
-        let decision = if inserted.is_some() {
-            let _ = app.emit(
-                PENDING_EVENT,
-                PendingManagedPermission {
-                    pending_id: id.clone(),
-                    request: request.clone(),
-                },
-            );
-            rx.recv_timeout(Duration::from_secs(MANAGED_PERMISSION_TIMEOUT_SECS))
-                .unwrap_or_else(|_| cancelled(&request))
-        } else {
-            cancelled(&request)
-        };
-        if let Ok(mut entries) = pending().lock() {
-            entries.remove(&id);
-        }
-        let _ = app.emit(
-            RESOLVED_EVENT,
-            serde_json::json!({"pendingId": id, "disposition": decision.disposition}),
-        );
+        let decision = await_local_decision(&app, request.clone());
         let Ok(bytes) = serde_json::to_vec(&decision) else {
             break;
         };
@@ -160,6 +125,55 @@ fn serve(
             break;
         }
     }
+}
+
+/// Present one desktop-owned permission request through the existing local UI.
+/// The caller supplies only display-safe metadata and receives one exact,
+/// request-bound decision; no capability or payload enters the event.
+pub(crate) fn await_local_decision(
+    app: &AppHandle,
+    request: ManagedPermissionRequestV1,
+) -> ManagedPermissionDecisionV1 {
+    if request.validate().is_err() {
+        return cancelled(&request);
+    }
+    let id = pending_id(&request);
+    let (tx, rx) = mpsc::channel();
+    let inserted = pending().lock().ok().and_then(|mut entries| {
+        if entries.contains_key(&id) {
+            None
+        } else {
+            entries.insert(
+                id.clone(),
+                Pending {
+                    request: request.clone(),
+                    decision_tx: tx,
+                },
+            );
+            Some(())
+        }
+    });
+    let decision = if inserted.is_some() {
+        let _ = app.emit(
+            PENDING_EVENT,
+            PendingManagedPermission {
+                pending_id: id.clone(),
+                request: request.clone(),
+            },
+        );
+        rx.recv_timeout(Duration::from_secs(MANAGED_PERMISSION_TIMEOUT_SECS))
+            .unwrap_or_else(|_| cancelled(&request))
+    } else {
+        cancelled(&request)
+    };
+    if let Ok(mut entries) = pending().lock() {
+        entries.remove(&id);
+    }
+    let _ = app.emit(
+        RESOLVED_EVENT,
+        serde_json::json!({"pendingId": id, "disposition": decision.disposition}),
+    );
+    decision
 }
 
 pub(crate) fn list_pending() -> Result<Vec<PendingManagedPermission>, String> {

@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 
 mod discovery;
 mod index;
-mod repository;
+pub(crate) mod repository;
 mod sessions;
 mod watcher;
 

@@ -442,6 +442,7 @@ pub enum PromptOutcome {
 /// into every task.
 pub struct PromptContext {
     pub mcp_servers: Vec<McpServer>,
+    pub(crate) repository_mcp: Option<crate::repository_mcp::RepositoryMcpConfig>,
     pub initial_message: Option<String>,
     pub idle_timeout: Duration,
     pub max_turn_duration: Duration,
@@ -794,11 +795,16 @@ async fn create_session_and_apply_model(
     };
 
     let session_meta = openclaw_session_meta(ctx, source)?;
-    let mcp_servers = if matches!(source, PromptSource::Continuity(_)) {
+    let mut mcp_servers = if matches!(source, PromptSource::Continuity(_)) {
         Vec::new()
     } else {
         ctx.mcp_servers.clone()
     };
+    if let (PromptSource::Channel(conversation_id), Some(repository_mcp)) =
+        (source, ctx.repository_mcp.as_ref())
+    {
+        mcp_servers.push(repository_mcp.server_for(*conversation_id));
+    }
     let resp = agent
         .acp
         .session_new_full_with_meta(
@@ -6533,6 +6539,7 @@ mod tests {
         use crate::relay::RestClient;
         PromptContext {
             mcp_servers: vec![],
+            repository_mcp: None,
             initial_message: None,
             idle_timeout: Duration::from_secs(60),
             max_turn_duration: Duration::from_secs(120),

@@ -114,6 +114,11 @@ pub struct AppState {
     pub(crate) owner_brain_previews: OwnerBrainPreviewCache,
     /// Bounded, process-memory-only body-free Brain retrieval activity.
     pub(crate) owner_brain_receipts: Mutex<VecDeque<luca_protocol::OwnerBrainContextReceiptV1>>,
+    /// Bounded process-memory-only repository tool audit receipts.
+    pub(crate) repository_tool_receipts: Mutex<VecDeque<luca_protocol::RepositoryToolReceiptV1>>,
+    /// Serializes repository tools with disconnect so authorization cannot be
+    /// revoked between a terminal grant check and a local operation.
+    pub(crate) repository_work_lock: Mutex<()>,
     /// Expiring metadata-only discovery capabilities for V1.2.1 connections.
     pub(crate) connected_brain_discovery:
         crate::luca::connected_brain::ConnectedBrainDiscoveryCache,
@@ -300,6 +305,8 @@ pub fn build_app_state() -> AppState {
         pending_owned_channels: Mutex::new(std::collections::HashSet::new()),
         owner_brain_previews: Mutex::new(HashMap::new()),
         owner_brain_receipts: Mutex::new(VecDeque::new()),
+        repository_tool_receipts: Mutex::new(VecDeque::new()),
+        repository_work_lock: Mutex::new(()),
         connected_brain_discovery: Mutex::new(HashMap::new()),
         connected_brain_watcher: Default::default(),
     }
@@ -568,6 +575,10 @@ impl AppState {
         owner_pubkey: &luca_protocol::Hex64,
         source_id: &luca_protocol::OpaqueId,
     ) -> Result<(), OwnerBrainStoreError> {
+        let _work_guard = self
+            .repository_work_lock
+            .lock()
+            .map_err(|_| OwnerBrainStoreError::Unavailable)?;
         crate::luca::owner_brain_store::disconnect_source(
             &self.continuity_lifecycle,
             &self.continuity_runtime,
@@ -590,6 +601,41 @@ impl AppState {
             owner_pubkey,
             source_id,
             authority,
+        )
+    }
+
+    /// List repository sources authorized for one exact resident binding.
+    pub(crate) fn authorized_repositories(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+        resident_pubkey: &luca_protocol::Hex64,
+        binding_ref: &luca_protocol::Sha256Ref,
+    ) -> Result<Vec<crate::luca::owner_brain_store::AuthorizedRepositoryV1>, OwnerBrainStoreError>
+    {
+        crate::luca::owner_brain_store::read_authorized_repositories(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            resident_pubkey,
+            binding_ref,
+        )
+    }
+
+    /// Resolve one encrypted repository binding only after its exact grant.
+    pub(crate) fn authorized_repository_root(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+        resident_pubkey: &luca_protocol::Hex64,
+        binding_ref: &luca_protocol::Sha256Ref,
+        source_id: &luca_protocol::OpaqueId,
+    ) -> Result<std::path::PathBuf, OwnerBrainStoreError> {
+        crate::luca::owner_brain_store::resolve_authorized_repository_root(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            resident_pubkey,
+            binding_ref,
+            source_id,
         )
     }
 

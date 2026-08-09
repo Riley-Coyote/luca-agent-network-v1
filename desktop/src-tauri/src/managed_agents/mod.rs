@@ -27,6 +27,7 @@ mod repos;
 mod restore;
 pub mod retention;
 mod runtime;
+mod runtime_authority;
 pub(crate) mod spawn_hash;
 pub(crate) mod storage;
 pub(crate) mod team_events;

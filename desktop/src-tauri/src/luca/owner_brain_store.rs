@@ -616,6 +616,7 @@ mod connected_retrieval;
 mod grants;
 mod imports;
 mod records;
+mod repository_bridge;
 mod retrieval;
 
 pub(crate) use connected::*;
@@ -624,6 +625,7 @@ use connected_retrieval::*;
 use grants::*;
 use imports::*;
 use records::*;
+pub(crate) use repository_bridge::*;
 use retrieval::*;
 
 #[cfg(test)]

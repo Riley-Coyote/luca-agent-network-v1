@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use clap::ValueEnum;
-use luca_protocol::{Hex64, NipOaOwnerAttestationV1, SafeU53};
+use luca_protocol::{Hex64, NipOaOwnerAttestationV1, SafeU53, Sha256Ref};
 use luca_signing_client::ManagedSigningClient;
 use nostr::{Keys, PublicKey};
 use std::sync::Arc;
@@ -380,6 +380,11 @@ pub struct CliArgs {
     #[arg(long, env = "LUCA_MANAGED_SESSION_EPOCH")]
     pub managed_session_epoch: Option<u64>,
 
+    /// Desktop-derived runtime binding used only to validate scoped local
+    /// repository and continuity capabilities.
+    #[arg(long, env = "LUCA_MANAGED_BINDING_REF")]
+    pub(crate) managed_binding_ref: Option<String>,
+
     /// Public NIP-OA owner attestation bound to this managed resident. Desktop
     /// provides the typed JSON and descendants never inherit it.
     #[arg(long, env = "LUCA_MANAGED_OWNER_ATTESTATION")]
@@ -402,6 +407,12 @@ pub struct CliArgs {
 
     #[arg(long, env = "BUZZ_ACP_MCP_COMMAND", default_value = "")]
     pub mcp_command: String,
+
+    #[arg(long, env = "BUZZ_ACP_REPOSITORY_MCP_COMMAND", default_value = "")]
+    pub(crate) repository_mcp_command: String,
+
+    #[arg(long, env = "BUZZ_ACP_REPOSITORY_MCP_CONFIG")]
+    pub(crate) repository_mcp_config: Option<crate::repository_mcp::RepositoryMcpBootstrapV1>,
 
     /// Idle timeout: max seconds of silence before killing a turn.
     /// Resets on any agent stdout activity.
@@ -627,6 +638,7 @@ pub struct Config {
     pub agent_command: String,
     pub agent_args: Vec<String>,
     pub mcp_command: String,
+    pub(crate) repository_mcp: Option<crate::repository_mcp::RepositoryMcpConfig>,
     pub idle_timeout_secs: u64,
     pub max_turn_duration_secs: u64,
     pub agents: u32,
@@ -1136,12 +1148,36 @@ impl Config {
         validate_multiple_event_handling(args.multiple_event_handling, args.dedup)?;
 
         let managed_identity = identity.is_managed();
+        let managed_binding_ref = args
+            .managed_binding_ref
+            .as_deref()
+            .map(Sha256Ref::parse)
+            .transpose()
+            .map_err(|_| ConfigError::ConfigFile("invalid managed runtime binding".into()))?;
+        let managed_repository_identity = match (&identity, managed_binding_ref.as_ref()) {
+            (
+                IdentityConfig::Managed {
+                    resident_pubkey,
+                    session_epoch,
+                    ..
+                },
+                Some(binding_ref),
+            ) => Some((resident_pubkey, *session_epoch, binding_ref)),
+            _ => None,
+        };
+        let repository_mcp = crate::repository_mcp::RepositoryMcpConfig::new(
+            args.repository_mcp_command,
+            args.repository_mcp_config,
+            managed_repository_identity,
+        )
+        .map_err(ConfigError::ConfigFile)?;
         let config = Config {
             identity,
             relay_url: args.relay_url,
             agent_command,
             agent_args,
             mcp_command: args.mcp_command,
+            repository_mcp,
             idle_timeout_secs,
             max_turn_duration_secs,
             agents: args.agents,
@@ -1558,6 +1594,7 @@ mod tests {
             agent_command: "goose".into(),
             agent_args: vec!["acp".into()],
             mcp_command: "".into(),
+            repository_mcp: None,
             idle_timeout_secs: DEFAULT_IDLE_TIMEOUT_SECS,
             max_turn_duration_secs: DEFAULT_MAX_TURN_DURATION_SECS,
             agents: 1,

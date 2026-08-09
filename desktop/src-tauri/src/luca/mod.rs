@@ -36,6 +36,8 @@ pub(crate) mod owner_brain_store;
 pub(crate) mod owner_identity_recovery;
 #[cfg(test)]
 mod reliability_f10;
+#[cfg(unix)]
+pub(crate) mod repository_bridge;
 pub(crate) mod resident_notebook;
 pub(crate) mod resident_registry;
 pub(crate) mod signing_broker;
