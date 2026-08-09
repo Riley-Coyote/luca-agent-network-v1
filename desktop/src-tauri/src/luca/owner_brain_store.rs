@@ -19,11 +19,12 @@ use luca_continuity::{
     RevisionRequest,
 };
 use luca_protocol::{
-    canonical_sha256, canonicalize, CanonicalTimestamp, ContinuityNamespaceKindV1,
-    ContinuityNamespaceV1, ContinuityScopeV1, Hex64, OpaqueId, OwnerBrainChunkV1,
-    OwnerBrainImportCommitV1, OwnerBrainImportStateV1, OwnerBrainPreviewRowStatusV1,
-    OwnerBrainSourceBindingV1, OwnerBrainSourceStatusV1, OwnerBrainSourceV1, SafeU53, Sha256Ref,
-    CONTINUITY_PROTOCOL, MAX_OWNER_BRAIN_CHUNK_BYTES,
+    canonical_sha256, canonicalize, BrainGrantStateV1, BrainGrantV1, CanonicalTimestamp,
+    ContinuityNamespaceKindV1, ContinuityNamespaceV1, ContinuityScopeV1, Hex64, OpaqueId,
+    OwnerBrainChunkV1, OwnerBrainImportCommitV1, OwnerBrainImportStateV1,
+    OwnerBrainPreviewRowStatusV1, OwnerBrainSourceBindingV1, OwnerBrainSourceStatusV1,
+    OwnerBrainSourceV1, ProviderEgressV1, SafeU53, Sha256Ref, CONTINUITY_PROTOCOL,
+    MAX_OWNER_BRAIN_CHUNK_BYTES,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -52,6 +53,7 @@ const OWNER_BRAIN_REQUEST_DOMAIN: &str = "luca.owner-brain.import-request.v1";
 const OWNER_BRAIN_SOURCE_RECORD: &str = "owner-brain-source";
 const OWNER_BRAIN_BINDING_RECORD: &str = "owner-brain-binding";
 const OWNER_BRAIN_CHUNK_PAGE_RECORD: &str = "owner-brain-chunk-page";
+const OWNER_BRAIN_GRANT_RECORD: &str = "owner-brain-grant";
 const OWNER_BRAIN_CHUNKS_PER_PAGE: usize = 128;
 const MAX_OWNER_BRAIN_CHUNK_PAGES: usize = 38;
 
@@ -215,6 +217,45 @@ struct StagedOwnerBrainSourceV1 {
     chunks: Vec<OwnerBrainChunkV1>,
 }
 
+/// Deliberate owner action for one exact resident/source authorization.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OwnerBrainGrantActionV1 {
+    Grant,
+    Revoke,
+    Reconfirm,
+}
+
+/// Decrypted owner-only source summary. It deliberately excludes paths and
+/// source bodies so it can be mapped to the renderer contract safely.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct OwnerBrainSourceSummaryV1 {
+    pub source: OwnerBrainSourceV1,
+    pub file_count: SafeU53,
+    pub chunk_count: SafeU53,
+}
+
+/// One persisted grant associated with its encrypted source scope.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct OwnerBrainStoredGrantV1 {
+    pub source_id: OpaqueId,
+    pub grant: BrainGrantV1,
+}
+
+/// Owner-only catalog data needed by the narrow Brain Setup surface.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct OwnerBrainCatalogV1 {
+    pub sources: Vec<OwnerBrainSourceSummaryV1>,
+    pub grants: Vec<OwnerBrainStoredGrantV1>,
+}
+
+/// Result of one idempotent owner grant mutation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct OwnerBrainGrantMutationResultV1 {
+    pub source_id: OpaqueId,
+    pub grant: BrainGrantV1,
+    pub replayed: bool,
+}
+
 /// Read the encrypted committed file-hash inventory for a selected path.
 pub(crate) fn read_prior_snapshot(
     lifecycle: &ContinuityLifecycleLock,
@@ -310,6 +351,104 @@ pub(crate) fn cancel_preview(
     Ok(true)
 }
 
+/// Read the owner-visible source and grant catalog. Source bodies, relative
+/// locators, and canonical device paths never leave the encrypted store.
+pub(crate) fn read_catalog(
+    lifecycle: &ContinuityLifecycleLock,
+    runtime_state: &Mutex<ContinuityRuntimeState>,
+    owner_pubkey: &Hex64,
+) -> Result<OwnerBrainCatalogV1, OwnerBrainStoreError> {
+    let _guard = lifecycle
+        .lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+    let root = load_root_key()?;
+    let state = runtime_state
+        .lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+    let runtime = ready_runtime(&state, owner_pubkey)?;
+    let key_version = runtime
+        .store
+        .active_owner_key_version(owner_pubkey)
+        .map_err(map_store_read_error)?;
+    let namespace = owner_brain_namespace(owner_pubkey, key_version)?;
+    let namespace_key =
+        derive_namespace_key(&root, &namespace).map_err(|_| OwnerBrainStoreError::Invalid)?;
+    let Some(generation) = runtime
+        .store
+        .load_revision_generation(owner_pubkey)
+        .map_err(map_store_read_error)?
+    else {
+        return Ok(OwnerBrainCatalogV1 {
+            sources: Vec::new(),
+            grants: Vec::new(),
+        });
+    };
+    read_catalog_from_generation(&generation, &namespace, namespace_key.as_bytes())
+}
+
+/// Apply one explicit grant, revoke, or reconfirm action. Runtime binding and
+/// egress are supplied only by trusted desktop code, never by the renderer.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn mutate_grant(
+    lifecycle: &ContinuityLifecycleLock,
+    runtime_state: &Mutex<ContinuityRuntimeState>,
+    owner_pubkey: Hex64,
+    resident_pubkey: Hex64,
+    source_id: OpaqueId,
+    binding_ref: Sha256Ref,
+    provider_egress: ProviderEgressV1,
+    action: OwnerBrainGrantActionV1,
+) -> Result<OwnerBrainGrantMutationResultV1, OwnerBrainStoreError> {
+    let _guard = lifecycle
+        .lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+    let root = load_root_key()?;
+    let mut state = runtime_state
+        .lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+    let runtime = ready_runtime_mut(&mut state, &owner_pubkey)?;
+    mutate_grant_with_runtime(
+        &root,
+        runtime,
+        owner_pubkey,
+        resident_pubkey,
+        source_id,
+        binding_ref,
+        provider_egress,
+        action,
+    )
+}
+
+/// Interpret unknown egress as remote and fail a missing or changed runtime
+/// binding closed as stale. Revocation always remains authoritative.
+pub(crate) fn effective_grant_state(
+    grant: &BrainGrantV1,
+    current_binding_ref: Option<&Sha256Ref>,
+    current_provider_egress: Option<ProviderEgressV1>,
+) -> BrainGrantStateV1 {
+    if grant.state == BrainGrantStateV1::Revoked {
+        return BrainGrantStateV1::Revoked;
+    }
+    if grant.state == BrainGrantStateV1::Stale {
+        return BrainGrantStateV1::Stale;
+    }
+    let current_egress = current_provider_egress.map(effective_provider_egress);
+    if current_binding_ref != Some(&grant.binding_ref)
+        || current_egress != Some(grant.provider_egress)
+    {
+        BrainGrantStateV1::Stale
+    } else {
+        BrainGrantStateV1::Active
+    }
+}
+
+fn effective_provider_egress(provider_egress: ProviderEgressV1) -> ProviderEgressV1 {
+    match provider_egress {
+        ProviderEgressV1::Local => ProviderEgressV1::Local,
+        ProviderEgressV1::Remote | ProviderEgressV1::Unknown => ProviderEgressV1::Remote,
+    }
+}
+
 fn load_root_key() -> Result<ContinuityMasterKey, OwnerBrainStoreError> {
     match load_existing_desktop_master_key() {
         ContinuityMasterKeyState::Ready(root) => Ok(root),
@@ -355,6 +494,231 @@ fn ready_runtime_mut<'a>(
             Err(OwnerBrainStoreError::Unavailable)
         }
     }
+}
+
+fn read_catalog_from_generation(
+    generation: &StoredRevisionGenerationV1,
+    namespace: &NamespaceKey,
+    namespace_key: &[u8; 32],
+) -> Result<OwnerBrainCatalogV1, OwnerBrainStoreError> {
+    let mut sources = Vec::new();
+    for lineage in generation.snapshot.lineages.iter().filter(|lineage| {
+        lineage.namespace == *namespace.as_protocol()
+            && lineage.record_type.as_str() == OWNER_BRAIN_SOURCE_RECORD
+            && lineage.lifecycle == RevisionLifecycle::Active
+    }) {
+        let manifest: OwnerBrainSourceManifestV1 = decrypt_active_body(
+            generation,
+            lineage
+                .active_head_record_id
+                .as_ref()
+                .ok_or(OwnerBrainStoreError::Invalid)?,
+            namespace_key,
+        )?;
+        manifest.validate()?;
+        let address =
+            owner_brain_source_address(namespace.clone(), manifest.source.source_id.clone())?;
+        if manifest.source.owner_pubkey != generation.token.owner_pubkey
+            || lineage.scope != *address.as_protocol()
+        {
+            return Err(OwnerBrainStoreError::Invalid);
+        }
+        sources.push(OwnerBrainSourceSummaryV1 {
+            source: manifest.source,
+            file_count: manifest.file_count,
+            chunk_count: manifest.chunk_count,
+        });
+    }
+    sources.sort_by(|left, right| left.source.source_id.cmp(&right.source.source_id));
+    let source_ids = sources
+        .iter()
+        .map(|source| source.source.source_id.clone())
+        .collect::<BTreeSet<_>>();
+
+    let mut grants = Vec::new();
+    for lineage in generation.snapshot.lineages.iter().filter(|lineage| {
+        lineage.namespace == *namespace.as_protocol()
+            && lineage.record_type.as_str() == OWNER_BRAIN_GRANT_RECORD
+            && lineage.lifecycle == RevisionLifecycle::Active
+    }) {
+        let source_id = lineage
+            .scope
+            .source_id
+            .clone()
+            .ok_or(OwnerBrainStoreError::Invalid)?;
+        let address = owner_brain_source_address(namespace.clone(), source_id.clone())?;
+        if lineage.scope != *address.as_protocol() || !source_ids.contains(&source_id) {
+            return Err(OwnerBrainStoreError::Invalid);
+        }
+        let grant: BrainGrantV1 = decrypt_active_body(
+            generation,
+            lineage
+                .active_head_record_id
+                .as_ref()
+                .ok_or(OwnerBrainStoreError::Invalid)?,
+            namespace_key,
+        )?;
+        grant
+            .validate()
+            .map_err(|_| OwnerBrainStoreError::Invalid)?;
+        if grant.owner_pubkey != generation.token.owner_pubkey
+            || grant.source_scope_ref != address.as_protocol().scope_ref
+            || grant.grant_id != lineage.lineage_root_id
+        {
+            return Err(OwnerBrainStoreError::Invalid);
+        }
+        grants.push(OwnerBrainStoredGrantV1 { source_id, grant });
+    }
+    grants.sort_by(|left, right| {
+        left.source_id
+            .cmp(&right.source_id)
+            .then_with(|| left.grant.resident_pubkey.cmp(&right.grant.resident_pubkey))
+    });
+    Ok(OwnerBrainCatalogV1 { sources, grants })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn mutate_grant_with_runtime(
+    root: &ContinuityMasterKey,
+    runtime: &mut ContinuityRuntime,
+    owner_pubkey: Hex64,
+    resident_pubkey: Hex64,
+    source_id: OpaqueId,
+    binding_ref: Sha256Ref,
+    provider_egress: ProviderEgressV1,
+    action: OwnerBrainGrantActionV1,
+) -> Result<OwnerBrainGrantMutationResultV1, OwnerBrainStoreError> {
+    if owner_pubkey == resident_pubkey {
+        return Err(OwnerBrainStoreError::Invalid);
+    }
+    let provider_egress = effective_provider_egress(provider_egress);
+    let key_version = runtime
+        .store
+        .active_owner_key_version(&owner_pubkey)
+        .map_err(map_store_read_error)?;
+    let namespace = owner_brain_namespace(&owner_pubkey, key_version)?;
+    let namespace_key =
+        derive_namespace_key(root, &namespace).map_err(|_| OwnerBrainStoreError::Invalid)?;
+    let generation = runtime
+        .store
+        .load_revision_generation(&owner_pubkey)
+        .map_err(map_store_read_error)?
+        .ok_or(OwnerBrainStoreError::Invalid)?;
+    let _manifest = find_source_by_id(
+        &generation,
+        &namespace,
+        namespace_key.as_bytes(),
+        &source_id,
+    )?
+    .ok_or(OwnerBrainStoreError::Invalid)?;
+    let address = owner_brain_source_address(namespace, source_id.clone())?;
+    let grant_id = grant_lineage_id(&source_id, &resident_pubkey)?;
+    let existing = find_grant(
+        &generation,
+        &address,
+        namespace_key.as_bytes(),
+        &grant_id,
+        &resident_pubkey,
+    )?;
+    let existing_effective = existing
+        .as_ref()
+        .map(|grant| effective_grant_state(grant, Some(&binding_ref), Some(provider_egress)));
+
+    let replay = matches!(
+        (action, existing_effective),
+        (
+            OwnerBrainGrantActionV1::Grant,
+            Some(BrainGrantStateV1::Active)
+        ) | (
+            OwnerBrainGrantActionV1::Reconfirm,
+            Some(BrainGrantStateV1::Active)
+        ) | (
+            OwnerBrainGrantActionV1::Revoke,
+            Some(BrainGrantStateV1::Revoked)
+        )
+    );
+    if replay {
+        return Ok(OwnerBrainGrantMutationResultV1 {
+            source_id,
+            grant: existing.ok_or(OwnerBrainStoreError::Invalid)?,
+            replayed: true,
+        });
+    }
+    match (action, existing_effective) {
+        (OwnerBrainGrantActionV1::Grant, None | Some(BrainGrantStateV1::Revoked))
+        | (OwnerBrainGrantActionV1::Reconfirm, Some(BrainGrantStateV1::Stale))
+        | (
+            OwnerBrainGrantActionV1::Revoke,
+            Some(BrainGrantStateV1::Active | BrainGrantStateV1::Stale),
+        ) => {}
+        (OwnerBrainGrantActionV1::Grant, Some(BrainGrantStateV1::Stale)) => {
+            return Err(OwnerBrainStoreError::Stale);
+        }
+        _ => return Err(OwnerBrainStoreError::Invalid),
+    }
+
+    let now = canonical_timestamp(Utc::now()).map_err(|_| OwnerBrainStoreError::Invalid)?;
+    let version = existing
+        .as_ref()
+        .map(|grant| grant.grant_version.get())
+        .unwrap_or(0)
+        .checked_add(1)
+        .and_then(|value| SafeU53::new(value).ok())
+        .ok_or(OwnerBrainStoreError::Invalid)?;
+    let state = if action == OwnerBrainGrantActionV1::Revoke {
+        BrainGrantStateV1::Revoked
+    } else {
+        BrainGrantStateV1::Active
+    };
+    let grant = BrainGrantV1 {
+        protocol: CONTINUITY_PROTOCOL.to_owned(),
+        grant_id: grant_id.clone(),
+        owner_pubkey: owner_pubkey.clone(),
+        resident_pubkey,
+        source_scope_ref: address.as_protocol().scope_ref.clone(),
+        provider_egress,
+        binding_ref,
+        grant_version: version,
+        state,
+        created_at: existing
+            .as_ref()
+            .map(|grant| grant.created_at.clone())
+            .unwrap_or_else(|| now.clone()),
+        revoked_at: (state == BrainGrantStateV1::Revoked).then_some(now.clone()),
+    };
+    grant
+        .validate()
+        .map_err(|_| OwnerBrainStoreError::Invalid)?;
+    let content_ref = sha_ref_for(&grant)?;
+    let grant_version = grant.grant_version.get().to_string();
+    let operation_id = digest_id(
+        "brain-grant-operation",
+        &[grant_id.as_str(), &grant_version, content_ref.as_str()],
+    )?;
+    let request = prepare_revision(
+        Some(&generation),
+        &address,
+        key_version,
+        namespace_key.as_bytes(),
+        OWNER_BRAIN_GRANT_RECORD,
+        grant_id,
+        &content_ref,
+        &operation_id,
+        now,
+        &grant,
+    )?;
+    let expectation = AuthorityExpectationV1::Existing(generation.token);
+    let result = runtime
+        .store
+        .apply_owner_brain_grant_cas(&expectation, request)
+        .map_err(map_store_write_error)?;
+    let _authority_token = result.token;
+    let _receipt = result.receipt;
+    Ok(OwnerBrainGrantMutationResultV1 {
+        source_id,
+        grant,
+        replayed: result.replayed,
+    })
 }
 
 fn read_prior_snapshot_with_runtime(
@@ -961,6 +1325,90 @@ fn find_source_by_path(
     Ok(matched)
 }
 
+fn find_source_by_id(
+    generation: &StoredRevisionGenerationV1,
+    namespace: &NamespaceKey,
+    namespace_key: &[u8; 32],
+    source_id: &OpaqueId,
+) -> Result<Option<OwnerBrainSourceManifestV1>, OwnerBrainStoreError> {
+    let address = owner_brain_source_address(namespace.clone(), source_id.clone())?;
+    let matches = generation
+        .snapshot
+        .lineages
+        .iter()
+        .filter(|lineage| {
+            lineage.namespace == *namespace.as_protocol()
+                && lineage.scope == *address.as_protocol()
+                && lineage.record_type.as_str() == OWNER_BRAIN_SOURCE_RECORD
+                && lineage.lifecycle == RevisionLifecycle::Active
+        })
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [] => Ok(None),
+        [lineage] => {
+            let manifest: OwnerBrainSourceManifestV1 = decrypt_active_body(
+                generation,
+                lineage
+                    .active_head_record_id
+                    .as_ref()
+                    .ok_or(OwnerBrainStoreError::Invalid)?,
+                namespace_key,
+            )?;
+            manifest.validate()?;
+            if manifest.source.source_id != *source_id
+                || manifest.source.owner_pubkey != generation.token.owner_pubkey
+            {
+                return Err(OwnerBrainStoreError::Invalid);
+            }
+            Ok(Some(manifest))
+        }
+        _ => Err(OwnerBrainStoreError::Invalid),
+    }
+}
+
+fn find_grant(
+    generation: &StoredRevisionGenerationV1,
+    address: &NamespaceScope,
+    namespace_key: &[u8; 32],
+    grant_id: &OpaqueId,
+    resident_pubkey: &Hex64,
+) -> Result<Option<BrainGrantV1>, OwnerBrainStoreError> {
+    let Some(lineage) = generation
+        .snapshot
+        .lineages
+        .iter()
+        .find(|lineage| lineage.lineage_root_id == *grant_id)
+    else {
+        return Ok(None);
+    };
+    if lineage.namespace != *address.namespace().as_protocol()
+        || lineage.scope != *address.as_protocol()
+        || lineage.record_type.as_str() != OWNER_BRAIN_GRANT_RECORD
+        || lineage.lifecycle != RevisionLifecycle::Active
+    {
+        return Err(OwnerBrainStoreError::Invalid);
+    }
+    let grant: BrainGrantV1 = decrypt_active_body(
+        generation,
+        lineage
+            .active_head_record_id
+            .as_ref()
+            .ok_or(OwnerBrainStoreError::Invalid)?,
+        namespace_key,
+    )?;
+    grant
+        .validate()
+        .map_err(|_| OwnerBrainStoreError::Invalid)?;
+    if grant.grant_id != *grant_id
+        || grant.owner_pubkey != generation.token.owner_pubkey
+        || grant.resident_pubkey != *resident_pubkey
+        || grant.source_scope_ref != address.as_protocol().scope_ref
+    {
+        return Err(OwnerBrainStoreError::Invalid);
+    }
+    Ok(Some(grant))
+}
+
 fn decrypt_active_body<T: DeserializeOwned + Serialize>(
     generation: &StoredRevisionGenerationV1,
     record_id: &OpaqueId,
@@ -1074,6 +1522,16 @@ fn binding_lineage_id(source_id: &OpaqueId) -> Result<OpaqueId, OwnerBrainStoreE
     digest_id("brain-binding", &[source_id.as_str()])
 }
 
+fn grant_lineage_id(
+    source_id: &OpaqueId,
+    resident_pubkey: &Hex64,
+) -> Result<OpaqueId, OwnerBrainStoreError> {
+    digest_id(
+        "brain-grant",
+        &[source_id.as_str(), resident_pubkey.as_str()],
+    )
+}
+
 fn digest_id(prefix: &str, values: &[&str]) -> Result<OpaqueId, OwnerBrainStoreError> {
     let digest = canonical_sha256(&serde_json::json!({
         "domain": OWNER_BRAIN_RECORD_DOMAIN,
@@ -1155,6 +1613,28 @@ mod tests {
             .get(handle.preview.preview_token_hash.as_str())
             .unwrap()
             .clone()
+    }
+
+    fn resident(fill: char) -> Hex64 {
+        Hex64::parse(fill.to_string().repeat(64)).unwrap()
+    }
+
+    fn binding(fill: char) -> Sha256Ref {
+        Sha256Ref::parse(format!("sha256:{}", fill.to_string().repeat(64))).unwrap()
+    }
+
+    fn import_test_source(
+        root: &ContinuityMasterKey,
+        runtime: &mut ContinuityRuntime,
+        source_path: &Path,
+    ) -> OpaqueId {
+        let cache = OwnerBrainPreviewCache::default();
+        let handle = create_preview(&cache, owner(), source_path).unwrap();
+        commit_preview_with_runtime(root, runtime, pending(&cache, &handle))
+            .unwrap()
+            .0
+            .source_id
+            .unwrap()
     }
 
     #[test]
@@ -1300,6 +1780,219 @@ mod tests {
             .load_revision_generation(&owner())
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn imports_create_no_grants_and_grant_lifecycles_are_independent() {
+        let temp = tempfile::tempdir().unwrap();
+        let first_path = temp.path().join("first.md");
+        let second_path = temp.path().join("second.md");
+        fs::write(&first_path, "First source fact.\n").unwrap();
+        fs::write(&second_path, "Second source fact.\n").unwrap();
+        let root = ContinuityMasterKey::new_for_test([3_u8; 32]);
+        let mut runtime = runtime(&temp);
+        let first_source = import_test_source(&root, &mut runtime, &first_path);
+        let second_source = import_test_source(&root, &mut runtime, &second_path);
+
+        let key_version = runtime.store.active_owner_key_version(&owner()).unwrap();
+        let namespace = owner_brain_namespace(&owner(), key_version).unwrap();
+        let namespace_key = derive_namespace_key(&root, &namespace).unwrap();
+        let initial = read_catalog_from_generation(
+            &runtime
+                .store
+                .load_revision_generation(&owner())
+                .unwrap()
+                .unwrap(),
+            &namespace,
+            namespace_key.as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(initial.sources.len(), 2);
+        assert!(initial.grants.is_empty());
+
+        let resident_b = resident('b');
+        let resident_c = resident('c');
+        let first_b = mutate_grant_with_runtime(
+            &root,
+            &mut runtime,
+            owner(),
+            resident_b.clone(),
+            first_source.clone(),
+            binding('1'),
+            ProviderEgressV1::Remote,
+            OwnerBrainGrantActionV1::Grant,
+        )
+        .unwrap();
+        assert!(!first_b.replayed);
+        let replay = mutate_grant_with_runtime(
+            &root,
+            &mut runtime,
+            owner(),
+            resident_b.clone(),
+            first_source.clone(),
+            binding('1'),
+            ProviderEgressV1::Remote,
+            OwnerBrainGrantActionV1::Grant,
+        )
+        .unwrap();
+        assert!(replay.replayed);
+        for (source, resident_key, fingerprint) in [
+            (first_source.clone(), resident_c.clone(), binding('2')),
+            (second_source.clone(), resident_b.clone(), binding('1')),
+        ] {
+            mutate_grant_with_runtime(
+                &root,
+                &mut runtime,
+                owner(),
+                resident_key,
+                source,
+                fingerprint,
+                ProviderEgressV1::Remote,
+                OwnerBrainGrantActionV1::Grant,
+            )
+            .unwrap();
+        }
+        let revoked = mutate_grant_with_runtime(
+            &root,
+            &mut runtime,
+            owner(),
+            resident_b.clone(),
+            first_source.clone(),
+            binding('1'),
+            ProviderEgressV1::Remote,
+            OwnerBrainGrantActionV1::Revoke,
+        )
+        .unwrap();
+        assert_eq!(revoked.grant.state, BrainGrantStateV1::Revoked);
+
+        let generation = runtime
+            .store
+            .load_revision_generation(&owner())
+            .unwrap()
+            .unwrap();
+        let catalog =
+            read_catalog_from_generation(&generation, &namespace, namespace_key.as_bytes())
+                .unwrap();
+        assert_eq!(catalog.grants.len(), 3);
+        assert_eq!(
+            catalog
+                .grants
+                .iter()
+                .find(|stored| {
+                    stored.source_id == first_source && stored.grant.resident_pubkey == resident_b
+                })
+                .unwrap()
+                .grant
+                .state,
+            BrainGrantStateV1::Revoked
+        );
+        assert!(
+            catalog
+                .grants
+                .iter()
+                .filter(|stored| { stored.grant.state == BrainGrantStateV1::Active })
+                .count()
+                == 2
+        );
+
+        let restored = mutate_grant_with_runtime(
+            &root,
+            &mut runtime,
+            owner(),
+            resident_b,
+            first_source,
+            binding('1'),
+            ProviderEgressV1::Remote,
+            OwnerBrainGrantActionV1::Grant,
+        )
+        .unwrap();
+        assert_eq!(restored.grant.state, BrainGrantStateV1::Active);
+        assert_eq!(restored.grant.grant_version.get(), 3);
+    }
+
+    #[test]
+    fn binding_or_egress_drift_is_stale_and_requires_reconfirmation() {
+        let temp = tempfile::tempdir().unwrap();
+        let source_path = temp.path().join("source.md");
+        fs::write(&source_path, "Scoped source fact.\n").unwrap();
+        let root = ContinuityMasterKey::new_for_test([4_u8; 32]);
+        let mut runtime = runtime(&temp);
+        let source_id = import_test_source(&root, &mut runtime, &source_path);
+        let resident = resident('b');
+        let original_binding = binding('1');
+        let changed_binding = binding('2');
+
+        let granted = mutate_grant_with_runtime(
+            &root,
+            &mut runtime,
+            owner(),
+            resident.clone(),
+            source_id.clone(),
+            original_binding.clone(),
+            ProviderEgressV1::Unknown,
+            OwnerBrainGrantActionV1::Grant,
+        )
+        .unwrap();
+        assert_eq!(granted.grant.provider_egress, ProviderEgressV1::Remote);
+        assert_eq!(
+            effective_grant_state(
+                &granted.grant,
+                Some(&original_binding),
+                Some(ProviderEgressV1::Unknown),
+            ),
+            BrainGrantStateV1::Active
+        );
+        assert_eq!(
+            effective_grant_state(
+                &granted.grant,
+                Some(&changed_binding),
+                Some(ProviderEgressV1::Remote),
+            ),
+            BrainGrantStateV1::Stale
+        );
+        assert_eq!(
+            effective_grant_state(
+                &granted.grant,
+                Some(&original_binding),
+                Some(ProviderEgressV1::Local),
+            ),
+            BrainGrantStateV1::Stale
+        );
+        assert_eq!(
+            mutate_grant_with_runtime(
+                &root,
+                &mut runtime,
+                owner(),
+                resident.clone(),
+                source_id.clone(),
+                changed_binding.clone(),
+                ProviderEgressV1::Remote,
+                OwnerBrainGrantActionV1::Grant,
+            )
+            .unwrap_err(),
+            OwnerBrainStoreError::Stale
+        );
+
+        let reconfirmed = mutate_grant_with_runtime(
+            &root,
+            &mut runtime,
+            owner(),
+            resident,
+            source_id,
+            changed_binding.clone(),
+            ProviderEgressV1::Remote,
+            OwnerBrainGrantActionV1::Reconfirm,
+        )
+        .unwrap();
+        assert_eq!(reconfirmed.grant.grant_version.get(), 2);
+        assert_eq!(
+            effective_grant_state(
+                &reconfirmed.grant,
+                Some(&changed_binding),
+                Some(ProviderEgressV1::Remote),
+            ),
+            BrainGrantStateV1::Active
+        );
     }
 
     #[test]

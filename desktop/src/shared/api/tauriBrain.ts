@@ -122,6 +122,16 @@ export type CommitOwnerBrainImportInput = {
   previewToken: string;
 };
 
+export type OwnerBrainGrantInput = {
+  sourceId: string;
+  residentPubkey: string;
+};
+
+export type OwnerBrainGrantMutation = {
+  grant: OwnerBrainGrant;
+  replayed: boolean;
+};
+
 export type OwnerBrainImportCommit = {
   importTransactionId: string;
   previewId: string;
@@ -150,6 +160,28 @@ export function cancelOwnerBrainImport(
   input: CommitOwnerBrainImportInput,
 ): Promise<boolean> {
   return invoke("cancel_owner_brain_import", { input });
+}
+
+export function getOwnerBrainState(): Promise<OwnerBrainFixtureState> {
+  return invoke("get_owner_brain_state");
+}
+
+export function grantOwnerBrainSource(
+  input: OwnerBrainGrantInput,
+): Promise<OwnerBrainGrantMutation> {
+  return invoke("grant_owner_brain_source", { input });
+}
+
+export function revokeOwnerBrainSource(
+  input: OwnerBrainGrantInput,
+): Promise<OwnerBrainGrantMutation> {
+  return invoke("revoke_owner_brain_source", { input });
+}
+
+export function reconfirmOwnerBrainSource(
+  input: OwnerBrainGrantInput,
+): Promise<OwnerBrainGrantMutation> {
+  return invoke("reconfirm_owner_brain_source", { input });
 }
 
 export function getOwnerBrainFixtures(): Promise<OwnerBrainFixtures> {

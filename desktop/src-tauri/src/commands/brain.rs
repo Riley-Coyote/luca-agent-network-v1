@@ -3,9 +3,13 @@
 //! Renderer responses contain no source bodies or absolute paths. The raw
 //! preview token is a short-lived commit capability and is never logged.
 
-use crate::{app_state::AppState, luca::owner_brain};
+use crate::{
+    app_state::AppState,
+    luca::{owner_brain, owner_brain_store},
+};
 use luca_protocol::{
-    Hex64, OpaqueId, OwnerBrainImportCommitV1, OwnerBrainPreviewRowStatusV1, OwnerBrainSourceKindV1,
+    BrainGrantStateV1, Hex64, OpaqueId, OwnerBrainImportCommitV1, OwnerBrainPreviewRowStatusV1,
+    OwnerBrainSourceKindV1, OwnerBrainSourceStatusV1, ProviderEgressV1,
 };
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -22,6 +26,13 @@ pub struct PreviewOwnerBrainSourceInputV1 {
 pub struct CommitOwnerBrainImportInputV1 {
     preview_id: String,
     preview_token: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OwnerBrainGrantInputV1 {
+    source_id: String,
+    resident_pubkey: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -76,38 +87,45 @@ pub struct OwnerBrainImportCommitViewV1 {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OwnerBrainSourceViewV1 {
-    source_id: &'static str,
-    source_kind: &'static str,
-    display_name: &'static str,
-    status: &'static str,
+    source_id: String,
+    source_kind: String,
+    display_name: String,
+    status: String,
     file_count: u64,
     chunk_count: u64,
     changed_file_count: u64,
-    indexed_at: &'static str,
+    indexed_at: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OwnerBrainGrantViewV1 {
-    grant_id: &'static str,
-    source_id: &'static str,
-    resident_pubkey: &'static str,
-    resident_name: &'static str,
-    state: &'static str,
-    provider_egress: &'static str,
+    grant_id: String,
+    source_id: String,
+    resident_pubkey: String,
+    resident_name: String,
+    state: String,
+    provider_egress: String,
     can_reconfirm: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct OwnerBrainGrantMutationViewV1 {
+    grant: OwnerBrainGrantViewV1,
+    replayed: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OwnerBrainReceiptViewV1 {
-    receipt_id: &'static str,
-    source_id: &'static str,
-    resident_pubkey: &'static str,
-    status: &'static str,
+    receipt_id: String,
+    source_id: String,
+    resident_pubkey: String,
+    status: String,
     selected_chunk_count: u64,
     truncated: bool,
-    created_at: &'static str,
+    created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -267,6 +285,210 @@ pub fn cancel_owner_brain_import(
         .map_err(|error| error.code().to_owned())
 }
 
+fn grant_state_value(state: BrainGrantStateV1) -> &'static str {
+    match state {
+        BrainGrantStateV1::Active => "active",
+        BrainGrantStateV1::Revoked => "revoked",
+        BrainGrantStateV1::Stale => "stale",
+    }
+}
+
+fn provider_egress_value(provider_egress: ProviderEgressV1) -> &'static str {
+    match provider_egress {
+        ProviderEgressV1::Local => "local",
+        ProviderEgressV1::Remote => "remote",
+        ProviderEgressV1::Unknown => "unknown",
+    }
+}
+
+fn source_status_value(status: OwnerBrainSourceStatusV1) -> &'static str {
+    match status {
+        OwnerBrainSourceStatusV1::Ready => "ready",
+        OwnerBrainSourceStatusV1::Unavailable => "unavailable",
+        OwnerBrainSourceStatusV1::Removed => "removed",
+    }
+}
+
+fn grant_view(
+    source_id: &OpaqueId,
+    grant: &luca_protocol::BrainGrantV1,
+    effective_state: BrainGrantStateV1,
+    resident_name: String,
+) -> OwnerBrainGrantViewV1 {
+    OwnerBrainGrantViewV1 {
+        grant_id: grant.grant_id.as_str().to_owned(),
+        source_id: source_id.as_str().to_owned(),
+        resident_pubkey: grant.resident_pubkey.as_str().to_owned(),
+        resident_name,
+        state: grant_state_value(effective_state).to_owned(),
+        provider_egress: provider_egress_value(grant.provider_egress).to_owned(),
+        can_reconfirm: effective_state == BrainGrantStateV1::Stale,
+    }
+}
+
+fn resident_names(app: &AppHandle) -> std::collections::HashMap<String, String> {
+    crate::managed_agents::load_managed_agents(app)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|record| (record.pubkey.to_ascii_lowercase(), record.name))
+        .collect()
+}
+
+fn catalog_view(
+    app: &AppHandle,
+    catalog: owner_brain_store::OwnerBrainCatalogV1,
+) -> OwnerBrainFixtureStateV1 {
+    let names = resident_names(app);
+    let sources = catalog
+        .sources
+        .into_iter()
+        .map(|summary| OwnerBrainSourceViewV1 {
+            source_id: summary.source.source_id.as_str().to_owned(),
+            source_kind: source_kind_value(summary.source.source_kind).to_owned(),
+            display_name: summary.source.display_name,
+            status: source_status_value(summary.source.status).to_owned(),
+            file_count: summary.file_count.get(),
+            chunk_count: summary.chunk_count.get(),
+            changed_file_count: 0,
+            indexed_at: summary.source.updated_at.as_str().to_owned(),
+        })
+        .collect::<Vec<_>>();
+    let grants = catalog
+        .grants
+        .into_iter()
+        .map(|stored| {
+            let authority = crate::managed_agents::current_owner_brain_runtime_authority(
+                app,
+                &stored.grant.resident_pubkey,
+            )
+            .ok();
+            let effective_state = owner_brain_store::effective_grant_state(
+                &stored.grant,
+                authority.as_ref().map(|(binding, _)| binding),
+                authority.as_ref().map(|(_, egress)| *egress),
+            );
+            let resident_name = names
+                .get(stored.grant.resident_pubkey.as_str())
+                .cloned()
+                .unwrap_or_else(|| stored.grant.resident_pubkey.as_str().to_owned());
+            grant_view(
+                &stored.source_id,
+                &stored.grant,
+                effective_state,
+                resident_name,
+            )
+        })
+        .collect();
+    OwnerBrainFixtureStateV1 {
+        availability: if sources.is_empty() { "empty" } else { "ready" },
+        sources,
+        grants,
+        receipts: Vec::new(),
+    }
+}
+
+#[tauri::command]
+/// Lists body-free owner source and effective grant state for Brain Setup.
+pub async fn get_owner_brain_state(app: AppHandle) -> Result<OwnerBrainFixtureStateV1, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let app_state = app.state::<AppState>();
+        let owner_pubkey = Hex64::parse(app_state.signing_keys()?.public_key().to_hex())
+            .map_err(|_| "active owner identity is invalid".to_owned())?;
+        match app_state.read_owner_brain_catalog(&owner_pubkey) {
+            Ok(catalog) => Ok(catalog_view(&app, catalog)),
+            Err(owner_brain_store::OwnerBrainStoreError::Locked) => Ok(state("locked")),
+            Err(_) => Ok(state("unavailable")),
+        }
+    })
+    .await
+    .map_err(|_| "owner-brain-unavailable".to_owned())?
+}
+
+async fn mutate_owner_brain_grant_command(
+    input: OwnerBrainGrantInputV1,
+    app: AppHandle,
+    action: owner_brain_store::OwnerBrainGrantActionV1,
+) -> Result<OwnerBrainGrantMutationViewV1, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let owner_pubkey = Hex64::parse(state.signing_keys()?.public_key().to_hex())
+            .map_err(|_| "active owner identity is invalid".to_owned())?;
+        let resident_pubkey =
+            Hex64::parse(input.resident_pubkey).map_err(|_| "owner-brain-invalid".to_owned())?;
+        let source_id =
+            OpaqueId::parse(input.source_id).map_err(|_| "owner-brain-invalid".to_owned())?;
+        let (binding_ref, provider_egress) =
+            crate::managed_agents::current_owner_brain_runtime_authority(&app, &resident_pubkey)
+                .map_err(|_| "owner-brain-runtime-unavailable".to_owned())?;
+        let result = state
+            .mutate_owner_brain_grant(
+                owner_pubkey,
+                resident_pubkey.clone(),
+                source_id,
+                binding_ref,
+                provider_egress,
+                action,
+            )
+            .map_err(|error| error.code().to_owned())?;
+        let resident_name = resident_names(&app)
+            .remove(resident_pubkey.as_str())
+            .unwrap_or_else(|| resident_pubkey.as_str().to_owned());
+        Ok(OwnerBrainGrantMutationViewV1 {
+            grant: grant_view(
+                &result.source_id,
+                &result.grant,
+                result.grant.state,
+                resident_name,
+            ),
+            replayed: result.replayed,
+        })
+    })
+    .await
+    .map_err(|_| "owner-brain-unavailable".to_owned())?
+}
+
+#[tauri::command]
+/// Creates or restores one explicit resident/source grant.
+pub async fn grant_owner_brain_source(
+    input: OwnerBrainGrantInputV1,
+    app: AppHandle,
+) -> Result<OwnerBrainGrantMutationViewV1, String> {
+    mutate_owner_brain_grant_command(
+        input,
+        app,
+        owner_brain_store::OwnerBrainGrantActionV1::Grant,
+    )
+    .await
+}
+
+#[tauri::command]
+/// Revokes one exact resident/source grant without affecting any other grant.
+pub async fn revoke_owner_brain_source(
+    input: OwnerBrainGrantInputV1,
+    app: AppHandle,
+) -> Result<OwnerBrainGrantMutationViewV1, String> {
+    mutate_owner_brain_grant_command(
+        input,
+        app,
+        owner_brain_store::OwnerBrainGrantActionV1::Revoke,
+    )
+    .await
+}
+
+#[tauri::command]
+/// Reconfirms a stale grant against the current trusted runtime binding.
+pub async fn reconfirm_owner_brain_source(
+    input: OwnerBrainGrantInputV1,
+    app: AppHandle,
+) -> Result<OwnerBrainGrantMutationViewV1, String> {
+    mutate_owner_brain_grant_command(
+        input,
+        app,
+        owner_brain_store::OwnerBrainGrantActionV1::Reconfirm,
+    )
+    .await
+}
+
 #[tauri::command]
 /// Returns deterministic body-free fixtures for V1.2 Brain Setup development.
 pub fn get_owner_brain_fixtures() -> OwnerBrainFixturesV1 {
@@ -334,52 +556,52 @@ pub fn get_owner_brain_fixtures() -> OwnerBrainFixturesV1 {
         ready: OwnerBrainFixtureStateV1 {
             availability: "ready",
             sources: vec![OwnerBrainSourceViewV1 {
-                source_id: "source-fixture",
-                source_kind: "text_folder",
-                display_name: "Launch Notes",
-                status: "ready",
+                source_id: "source-fixture".to_owned(),
+                source_kind: "text_folder".to_owned(),
+                display_name: "Launch Notes".to_owned(),
+                status: "ready".to_owned(),
                 file_count: 1,
                 chunk_count: 3,
                 changed_file_count: 1,
-                indexed_at: "2026-08-08T20:02:00Z",
+                indexed_at: "2026-08-08T20:02:00Z".to_owned(),
             }],
             grants: vec![
                 OwnerBrainGrantViewV1 {
-                    grant_id: "grant-active",
-                    source_id: "source-fixture",
-                    resident_pubkey: resident,
-                    resident_name: "Mara",
-                    state: "active",
-                    provider_egress: "local",
+                    grant_id: "grant-active".to_owned(),
+                    source_id: "source-fixture".to_owned(),
+                    resident_pubkey: resident.to_owned(),
+                    resident_name: "Mara".to_owned(),
+                    state: "active".to_owned(),
+                    provider_egress: "local".to_owned(),
                     can_reconfirm: false,
                 },
                 OwnerBrainGrantViewV1 {
-                    grant_id: "grant-stale",
-                    source_id: "source-fixture",
-                    resident_pubkey: resident,
-                    resident_name: "Mara",
-                    state: "stale",
-                    provider_egress: "remote",
+                    grant_id: "grant-stale".to_owned(),
+                    source_id: "source-fixture".to_owned(),
+                    resident_pubkey: resident.to_owned(),
+                    resident_name: "Mara".to_owned(),
+                    state: "stale".to_owned(),
+                    provider_egress: "remote".to_owned(),
                     can_reconfirm: true,
                 },
                 OwnerBrainGrantViewV1 {
-                    grant_id: "grant-revoked",
-                    source_id: "source-fixture",
-                    resident_pubkey: resident,
-                    resident_name: "Mara",
-                    state: "revoked",
-                    provider_egress: "local",
+                    grant_id: "grant-revoked".to_owned(),
+                    source_id: "source-fixture".to_owned(),
+                    resident_pubkey: resident.to_owned(),
+                    resident_name: "Mara".to_owned(),
+                    state: "revoked".to_owned(),
+                    provider_egress: "local".to_owned(),
                     can_reconfirm: false,
                 },
             ],
             receipts: vec![OwnerBrainReceiptViewV1 {
-                receipt_id: "receipt-fixture",
-                source_id: "source-fixture",
-                resident_pubkey: resident,
-                status: "ready",
+                receipt_id: "receipt-fixture".to_owned(),
+                source_id: "source-fixture".to_owned(),
+                resident_pubkey: resident.to_owned(),
+                status: "ready".to_owned(),
                 selected_chunk_count: 2,
                 truncated: false,
-                created_at: "2026-08-08T20:03:00Z",
+                created_at: "2026-08-08T20:03:00Z".to_owned(),
             }],
         },
         empty: state("empty"),

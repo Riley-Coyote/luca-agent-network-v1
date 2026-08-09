@@ -399,6 +399,42 @@ impl AppState {
         )
     }
 
+    /// Read the owner-visible Brain catalog without exposing paths or bodies.
+    pub(crate) fn read_owner_brain_catalog(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+    ) -> Result<crate::luca::owner_brain_store::OwnerBrainCatalogV1, OwnerBrainStoreError> {
+        crate::luca::owner_brain_store::read_catalog(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+        )
+    }
+
+    /// Persist one exact resident/source Brain grant lifecycle action.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn mutate_owner_brain_grant(
+        &self,
+        owner_pubkey: luca_protocol::Hex64,
+        resident_pubkey: luca_protocol::Hex64,
+        source_id: luca_protocol::OpaqueId,
+        binding_ref: luca_protocol::Sha256Ref,
+        provider_egress: luca_protocol::ProviderEgressV1,
+        action: crate::luca::owner_brain_store::OwnerBrainGrantActionV1,
+    ) -> Result<crate::luca::owner_brain_store::OwnerBrainGrantMutationResultV1, OwnerBrainStoreError>
+    {
+        crate::luca::owner_brain_store::mutate_grant(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            resident_pubkey,
+            source_id,
+            binding_ref,
+            provider_egress,
+            action,
+        )
+    }
+
     /// Commit one compact encrypted resident handoff. Every failure is
     /// fail-soft and body-free so messaging remains independent.
     pub(crate) fn commit_resident_handoff(

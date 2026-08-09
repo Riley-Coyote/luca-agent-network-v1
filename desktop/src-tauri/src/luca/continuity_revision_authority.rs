@@ -586,6 +586,33 @@ impl ContinuityStore {
         )
     }
 
+    /// Apply one owner-authorized Brain grant mutation. The narrow wrapper
+    /// prevents generic revision callers from introducing a grant outside an
+    /// owner-brain source scope or under a non-owner actor.
+    pub(crate) fn apply_owner_brain_grant_cas(
+        &mut self,
+        expectation: &AuthorityExpectationV1,
+        request: RevisionRequest,
+    ) -> Result<RevisionTransitionResultV1, ContinuityStoreError> {
+        let owner = expectation.owner();
+        let valid = matches!(
+            request.operation,
+            RevisionOperation::Create | RevisionOperation::Revise
+        ) && request.actor == RevisionActor::Owner
+            && request.successor.as_ref().is_some_and(|record| {
+                record.namespace.owner_pubkey == *owner
+                    && record.namespace.kind == ContinuityNamespaceKindV1::OwnerBrain
+                    && record.namespace.resident_pubkey.is_none()
+                    && record.scope.namespace_ref == record.namespace.namespace_ref
+                    && record.scope.source_id.is_some()
+                    && record.record_type.as_str() == "owner-brain-grant"
+            });
+        if !valid {
+            return Err(ContinuityStoreError::InvalidRecord);
+        }
+        self.apply_revision_transition_cas(expectation, request)
+    }
+
     fn apply_revision_batch_cas_bounded(
         &mut self,
         expectation: &AuthorityExpectationV1,

@@ -226,6 +226,28 @@ Reusing the accepted encrypted store preserves crash rollback, identity-bound
 key custody, rotation, backup, nonce uniqueness, and restart validation while
 avoiding a second persistence or migration system.
 
+### D024 — Brain grants bind to trusted effective runtime authority
+
+Decision: one encrypted `owner-brain-grant` lineage is stable per exact source
+and resident. Grant, revoke, and reconfirm are owner-only revision operations;
+an import never creates a grant. The renderer supplies only source and resident
+identifiers. Desktop native code derives the current runtime/model binding from
+the same effective spawn configuration used at launch and classifies any
+unproven or unknown egress as remote.
+
+The effective state of a persisted active grant is `stale` whenever its stored
+binding or egress differs from current trusted authority, including when that
+authority is unavailable. This check is deterministic and read-only, so drift
+is denied before source retrieval without making a context request mutate
+persistent state. Reconfirmation writes a new active grant revision bound to
+the new authority; a normal grant action cannot silently reconfirm stale
+access.
+
+Reason: source access must not follow room membership, renderer claims, or a
+resident's former provider configuration. Persisting the authorized
+fingerprint and deriving staleness at the boundary preserves explicit consent,
+restart behavior, revision history, and the no-mutation retrieval contract.
+
 ## Decisions to freeze in C01
 
 These are implementation parameters, not unresolved product direction:
