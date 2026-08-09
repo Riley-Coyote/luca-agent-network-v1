@@ -1,10 +1,10 @@
 //! Explicit owner controls for the compact encrypted resident handoff.
 
 use luca_protocol::{
-    CreateResidentJournalPageRequestV1, Hex64, OpaqueId,
-    ResidentContinuityModeV1, ResidentHandoffV1, ResidentJournalAnnotationV1,
-    ResidentJournalPageContextV1, ResidentMemoryNoteCategoryV1, ResidentMemoryNoteV1, SafeU53,
-    CONTINUITY_PROTOCOL, MAX_CONTINUITY_PACKET_BYTES,
+    CreateResidentJournalPageRequestV1, Hex64, OpaqueId, ResidentContinuityModeV1,
+    ResidentHandoffV1, ResidentJournalAnnotationV1, ResidentJournalPageContextV1,
+    ResidentMemoryNoteCategoryV1, ResidentMemoryNoteV1, SafeU53, CONTINUITY_PROTOCOL,
+    MAX_CONTINUITY_PACKET_BYTES,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
@@ -12,15 +12,16 @@ use tauri::{AppHandle, State};
 use crate::{app_state::AppState, managed_agents::load_managed_agents};
 
 use crate::luca::{
-    continuity_jobs, journal_jobs, managed_cognition,
+    continuity_jobs,
     continuity_runtime::{
         ResidentHandoffCommitKindV1, ResidentHandoffCommitOutcomeV1,
         ResidentHandoffCommitRequestV1, ResidentHandoffForgetOutcomeV1,
         ResidentHandoffReadOutcomeV1, ResidentHandoffViewV1,
     },
+    journal_jobs, managed_cognition,
     resident_notebook::{
-        ResidentNotebookBodyV1, ResidentNotebookMutationOutcomeV1,
-        ResidentNotebookReadOutcomeV1, ResidentNotebookRevisionViewV1,
+        ResidentNotebookBodyV1, ResidentNotebookMutationOutcomeV1, ResidentNotebookReadOutcomeV1,
+        ResidentNotebookRevisionViewV1,
     },
 };
 
@@ -400,28 +401,24 @@ pub fn request_resident_journal_page_revision(
         .filter(|item| item.kind == "journal_page")
         .map(|item| item.lineage_root_id)
         .ok_or_else(|| "resident journal page is unavailable".to_owned())?;
-    let target = OpaqueId::parse(target)
-        .map_err(|_| "invalid resident journal page lineage".to_owned())?;
+    let target =
+        OpaqueId::parse(target).map_err(|_| "invalid resident journal page lineage".to_owned())?;
     create_journal_job(&app, &state, input, Some(target))
 }
 
 #[tauri::command]
 /// Cancels a journal job unless its encrypted commit has already been claimed.
-pub fn cancel_resident_journal_page(
-    job_id: String,
-    app: AppHandle,
-) -> Result<bool, String> {
-    let job_id = OpaqueId::parse(job_id).map_err(|_| "invalid journal job identifier".to_owned())?;
+pub fn cancel_resident_journal_page(job_id: String, app: AppHandle) -> Result<bool, String> {
+    let job_id =
+        OpaqueId::parse(job_id).map_err(|_| "invalid journal job identifier".to_owned())?;
     journal_jobs::cancel(&app, &job_id)
 }
 
 #[tauri::command]
 /// Retries one eligible failed journal job with its original private input.
-pub fn retry_resident_journal_page(
-    job_id: String,
-    app: AppHandle,
-) -> Result<bool, String> {
-    let job_id = OpaqueId::parse(job_id).map_err(|_| "invalid journal job identifier".to_owned())?;
+pub fn retry_resident_journal_page(job_id: String, app: AppHandle) -> Result<bool, String> {
+    let job_id =
+        OpaqueId::parse(job_id).map_err(|_| "invalid journal job identifier".to_owned())?;
     journal_jobs::retry(&app, &job_id)
 }
 
@@ -444,12 +441,7 @@ pub fn correct_resident_memory_note(
     state: State<'_, AppState>,
 ) -> Result<ResidentNotebookDetailV1, String> {
     let (owner, resident) = resident_authority(&app, &state, &input.resident_pubkey)?;
-    let current = notebook_detail(
-        &app,
-        &state,
-        &input.resident_pubkey,
-        &input.target_note_id,
-    )?
+    let current = notebook_detail(&app, &state, &input.resident_pubkey, &input.target_note_id)?
         .item
         .filter(|item| item.kind == "memory_note")
         .ok_or_else(|| "resident memory note is unavailable".to_owned())?;
@@ -529,8 +521,8 @@ pub fn annotate_resident_journal_page(
         .filter(|item| item.kind == "journal_page")
         .map(|item| item.lineage_root_id)
         .ok_or_else(|| "resident journal page is unavailable".to_owned())?;
-    let page_id = OpaqueId::parse(page_id)
-        .map_err(|_| "invalid resident journal page lineage".to_owned())?;
+    let page_id =
+        OpaqueId::parse(page_id).map_err(|_| "invalid resident journal page lineage".to_owned())?;
     let annotation = ResidentJournalAnnotationV1 {
         protocol: CONTINUITY_PROTOCOL.to_owned(),
         annotation_id: OpaqueId::parse(format!("annotation-{}", uuid::Uuid::new_v4().simple()))
@@ -569,116 +561,6 @@ pub fn forget_resident_notebook_item(
 ) -> Result<ResidentNotebookListV1, String> {
     change_notebook_lifecycle(&app, &state, &resident_pubkey, &item_id, true)?;
     list_resident_notebook_items(resident_pubkey, None, None, app, state)
-}
-
-#[tauri::command]
-/// Returns deterministic backend-owned fixtures for deferred frontend work.
-pub fn get_resident_notebook_fixtures() -> ResidentNotebookFixturesV1 {
-    let note = fixture_note();
-    let journal = fixture_journal(1, "fixture-journal-v1");
-    let journal_revision = fixture_journal(2, "fixture-journal-v2");
-    let annotation = fixture_annotation();
-    ResidentNotebookFixturesV1 {
-        ready: ResidentNotebookListV1 {
-            availability: "ready",
-            items: vec![
-                clone_notebook_item_view(&journal_revision),
-                clone_notebook_item_view(&note),
-            ],
-            next_cursor: None,
-        },
-        empty: ResidentNotebookListV1 {
-            availability: "empty",
-            items: Vec::new(),
-            next_cursor: None,
-        },
-        locked: ResidentNotebookListV1 {
-            availability: "locked",
-            items: Vec::new(),
-            next_cursor: None,
-        },
-        unavailable: ResidentNotebookListV1 {
-            availability: "unavailable",
-            items: Vec::new(),
-            next_cursor: None,
-        },
-        detail: ResidentNotebookDetailV1 {
-            availability: "ready",
-            item: Some(clone_notebook_item_view(&journal_revision)),
-            revisions: vec![journal, journal_revision],
-            annotations: vec![annotation],
-        },
-        jobs: ["pending", "running", "completed", "cancelled", "failed"]
-            .into_iter()
-            .map(|state| ResidentJournalJobViewV1 {
-                job_id: format!("fixture-journal-{state}"),
-                state: state.to_owned(),
-                last_error_code: (state == "failed").then(|| "runtime_unavailable".to_owned()),
-                updated_at: "2026-08-06T12:10:00Z".into(),
-                can_cancel: matches!(state, "pending" | "running"),
-                can_retry: state == "failed",
-            })
-            .collect(),
-    }
-}
-
-fn fixture_note() -> ResidentNotebookItemViewV1 {
-    ResidentNotebookItemViewV1 {
-        item_id: "fixture-note".into(),
-        lineage_root_id: "fixture-note".into(),
-        kind: "memory_note",
-        status: "active",
-        authorship: "resident",
-        revision: 1,
-        pinned_owner_correction: false,
-        title: None,
-        body: "Keep the identity key stable while the runtime changes.".into(),
-        category: Some("decision"),
-        source_event_ids: vec!["a".repeat(64)],
-        source_page_ids: Vec::new(),
-        created_at: "2026-08-06T12:00:00Z".into(),
-        updated_at: "2026-08-06T12:00:00Z".into(),
-    }
-}
-
-fn fixture_journal(revision: u64, item_id: &str) -> ResidentNotebookItemViewV1 {
-    ResidentNotebookItemViewV1 {
-        item_id: item_id.into(),
-        lineage_root_id: "fixture-journal".into(),
-        kind: "journal_page",
-        status: "active",
-        authorship: "resident",
-        revision,
-        pinned_owner_correction: false,
-        title: Some("What I want to carry".into()),
-        body: format!(
-            "# What I want to carry\n\nResident-authored notebook revision {revision}."
-        ),
-        category: None,
-        source_event_ids: vec!["b".repeat(64)],
-        source_page_ids: Vec::new(),
-        created_at: "2026-08-06T12:05:00Z".into(),
-        updated_at: format!("2026-08-06T12:0{}:00Z", 4 + revision),
-    }
-}
-
-fn fixture_annotation() -> ResidentNotebookItemViewV1 {
-    ResidentNotebookItemViewV1 {
-        item_id: "fixture-annotation".into(),
-        lineage_root_id: "fixture-annotation".into(),
-        kind: "journal_annotation",
-        status: "active",
-        authorship: "owner",
-        revision: 1,
-        pinned_owner_correction: false,
-        title: None,
-        body: "Owner annotation: preserve the unresolved question.".into(),
-        category: None,
-        source_event_ids: Vec::new(),
-        source_page_ids: vec!["fixture-journal".into()],
-        created_at: "2026-08-06T12:09:00Z".into(),
-        updated_at: "2026-08-06T12:09:00Z".into(),
-    }
 }
 
 fn create_journal_job(
@@ -731,7 +613,9 @@ fn create_journal_job(
         .iter()
         .filter_map(|view| match &view.body {
             ResidentNotebookBodyV1::JournalPage(page)
-                if selected_page_ids.binary_search(&view.lineage_root_id).is_ok() =>
+                if selected_page_ids
+                    .binary_search(&view.lineage_root_id)
+                    .is_ok() =>
             {
                 Some(ResidentJournalPageContextV1 {
                     page_id: view.lineage_root_id.clone(),
@@ -804,8 +688,7 @@ fn notebook_detail(
     let mut revisions = views
         .iter()
         .filter(|view| {
-            target_root.as_ref() == Some(&view.lineage_root_id)
-                && view.kind != "journal_annotation"
+            target_root.as_ref() == Some(&view.lineage_root_id) && view.kind != "journal_annotation"
         })
         .map(clone_notebook_item_view)
         .collect::<Vec<_>>();
@@ -826,19 +709,6 @@ fn notebook_detail(
         revisions,
         annotations,
     })
-}
-
-fn notebook_target_root(
-    views: &[ResidentNotebookItemViewV1],
-    target: &str,
-) -> Option<String> {
-    views
-        .iter()
-        .find(|view| {
-            view.kind != "journal_annotation"
-                && (view.lineage_root_id == target || view.item_id == target)
-        })
-        .map(|view| view.lineage_root_id.clone())
 }
 
 fn notebook_views(
@@ -919,43 +789,22 @@ fn notebook_item_view(value: ResidentNotebookRevisionViewV1) -> ResidentNotebook
             created_at: page.created_at.as_str().to_owned(),
             updated_at: page.updated_at.as_str().to_owned(),
         },
-        ResidentNotebookBodyV1::JournalAnnotation(annotation) => {
-            ResidentNotebookItemViewV1 {
-                item_id: value.record_id.as_str().to_owned(),
-                lineage_root_id: value.lineage_root_id.as_str().to_owned(),
-                kind: "journal_annotation",
-                status,
-                authorship: "owner",
-                revision: value.revision.get(),
-                pinned_owner_correction: false,
-                title: None,
-                body: annotation.body,
-                category: None,
-                source_event_ids: provenance,
-                source_page_ids: vec![annotation.page_id.as_str().to_owned()],
-                created_at: annotation.created_at.as_str().to_owned(),
-                updated_at: annotation.created_at.as_str().to_owned(),
-            }
-        }
-    }
-}
-
-fn clone_notebook_item_view(value: &ResidentNotebookItemViewV1) -> ResidentNotebookItemViewV1 {
-    ResidentNotebookItemViewV1 {
-        item_id: value.item_id.clone(),
-        lineage_root_id: value.lineage_root_id.clone(),
-        kind: value.kind,
-        status: value.status,
-        authorship: value.authorship,
-        revision: value.revision,
-        pinned_owner_correction: value.pinned_owner_correction,
-        title: value.title.clone(),
-        body: value.body.clone(),
-        category: value.category,
-        source_event_ids: value.source_event_ids.clone(),
-        source_page_ids: value.source_page_ids.clone(),
-        created_at: value.created_at.clone(),
-        updated_at: value.updated_at.clone(),
+        ResidentNotebookBodyV1::JournalAnnotation(annotation) => ResidentNotebookItemViewV1 {
+            item_id: value.record_id.as_str().to_owned(),
+            lineage_root_id: value.lineage_root_id.as_str().to_owned(),
+            kind: "journal_annotation",
+            status,
+            authorship: "owner",
+            revision: value.revision.get(),
+            pinned_owner_correction: false,
+            title: None,
+            body: annotation.body,
+            category: None,
+            source_event_ids: provenance,
+            source_page_ids: vec![annotation.page_id.as_str().to_owned()],
+            created_at: annotation.created_at.as_str().to_owned(),
+            updated_at: annotation.created_at.as_str().to_owned(),
+        },
     }
 }
 
@@ -973,8 +822,11 @@ fn change_notebook_lifecycle(
         .ok_or_else(|| "resident notebook item is unavailable".to_owned())?;
     let item_id = OpaqueId::parse(item_id)
         .map_err(|_| "invalid resident notebook item lineage".to_owned())?;
-    let request_id = OpaqueId::parse(format!("notebook-lifecycle-{}", uuid::Uuid::new_v4().simple()))
-        .map_err(|_| "create notebook lifecycle request".to_owned())?;
+    let request_id = OpaqueId::parse(format!(
+        "notebook-lifecycle-{}",
+        uuid::Uuid::new_v4().simple()
+    ))
+    .map_err(|_| "create notebook lifecycle request".to_owned())?;
     require_notebook_commit(state.change_resident_notebook_lifecycle(
         &owner,
         &resident,
@@ -1115,33 +967,14 @@ fn handoff_projection(value: ResidentHandoffViewV1) -> ResidentHandoffBodyV1 {
     }
 }
 
+#[path = "continuity_fixtures.rs"]
+mod continuity_fixtures;
+
+pub use continuity_fixtures::get_resident_notebook_fixtures;
 #[cfg(test)]
-mod notebook_contract_tests {
-    use super::*;
+use continuity_fixtures::*;
+use continuity_fixtures::{clone_notebook_item_view, notebook_target_root};
 
-    #[test]
-    fn fixture_bundle_covers_owner_facing_terminal_states() {
-        let fixtures = get_resident_notebook_fixtures();
-        assert_eq!(fixtures.ready.availability, "ready");
-        assert_eq!(fixtures.empty.availability, "empty");
-        assert_eq!(fixtures.locked.availability, "locked");
-        assert_eq!(fixtures.unavailable.availability, "unavailable");
-        assert_eq!(fixtures.jobs.len(), 5);
-        assert!(fixtures.jobs.iter().any(|job| job.state == "failed"));
-        assert_eq!(fixtures.detail.revisions.len(), 2);
-        assert_eq!(fixtures.detail.annotations.len(), 1);
-    }
-
-    #[test]
-    fn detail_target_accepts_head_record_or_stable_lineage_id() {
-        let views = vec![fixture_journal(1, "page-v1"), fixture_journal(2, "page-v2")];
-        assert_eq!(
-            notebook_target_root(&views, "page-v2").as_deref(),
-            Some("fixture-journal")
-        );
-        assert_eq!(
-            notebook_target_root(&views, "fixture-journal").as_deref(),
-            Some("fixture-journal")
-        );
-    }
-}
+#[cfg(test)]
+#[path = "continuity_tests.rs"]
+mod continuity_tests;

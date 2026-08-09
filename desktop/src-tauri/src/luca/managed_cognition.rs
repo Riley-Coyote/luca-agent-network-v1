@@ -160,9 +160,7 @@ pub(crate) fn request_journal(
     };
     match request_private(&envelope)? {
         ResidentPrivateCognitionResultV1::Journal { result } => Ok(result),
-        ResidentPrivateCognitionResultV1::Metabolism { .. } => {
-            Err(ManagedCognitionError::Invalid)
-        }
+        ResidentPrivateCognitionResultV1::Metabolism { .. } => Err(ManagedCognitionError::Invalid),
     }
 }
 

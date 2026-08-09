@@ -21,9 +21,7 @@ use crate::app_state::AppState;
 
 use super::{
     managed_cognition,
-    resident_notebook::{
-        ResidentJournalCommitRequestV1, ResidentNotebookMutationOutcomeV1,
-    },
+    resident_notebook::{ResidentJournalCommitRequestV1, ResidentNotebookMutationOutcomeV1},
 };
 
 const JOB_FILENAME: &str = "journal-jobs-v1.sqlite3";
@@ -294,7 +292,11 @@ fn claim_job(app: &AppHandle, job_id: &OpaqueId) -> Result<Option<u64>, String> 
              SET state = 'running', attempt_count = attempt_count + 1,
                  commit_claimed = 0, last_error_code = NULL, updated_at = ?2
              WHERE job_id = ?1 AND state = 'pending' AND attempt_count < ?3",
-            params![job_id.as_str(), chrono::Utc::now().to_rfc3339(), MAX_ATTEMPTS],
+            params![
+                job_id.as_str(),
+                chrono::Utc::now().to_rfc3339(),
+                MAX_ATTEMPTS
+            ],
         )
         .map_err(|_| "claim resident journal job".to_owned())?;
     if changed != 1 {
@@ -349,7 +351,12 @@ fn update_running_state(
         .execute(
             "UPDATE journal_jobs SET state = ?2, last_error_code = ?3, updated_at = ?4
              WHERE job_id = ?1 AND state = 'running'",
-            params![job_id.as_str(), state, code, chrono::Utc::now().to_rfc3339()],
+            params![
+                job_id.as_str(),
+                state,
+                code,
+                chrono::Utc::now().to_rfc3339()
+            ],
         )
         .map_err(|_| "update resident journal job".to_owned())?;
     Ok(())
@@ -405,16 +412,18 @@ fn status_by_id(
         )
         .optional()
         .map_err(|_| "load resident journal job status".to_owned())?
-        .map(|(state, last_error_code, updated_at, manual_retry_count, commit_claimed)| {
-            ResidentJournalJobStatusV1 {
-                job_id: job_id.clone(),
-                can_cancel: state == "pending" || state == "running" && commit_claimed == 0,
-                can_retry: state == "failed" && manual_retry_count == 0,
-                state,
-                last_error_code,
-                updated_at,
-            }
-        });
+        .map(
+            |(state, last_error_code, updated_at, manual_retry_count, commit_claimed)| {
+                ResidentJournalJobStatusV1 {
+                    job_id: job_id.clone(),
+                    can_cancel: state == "pending" || state == "running" && commit_claimed == 0,
+                    can_retry: state == "failed" && manual_retry_count == 0,
+                    state,
+                    last_error_code,
+                    updated_at,
+                }
+            },
+        );
     Ok(value)
 }
 

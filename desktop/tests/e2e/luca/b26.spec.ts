@@ -140,7 +140,7 @@ test("Brain Setup fails soft across empty locked unavailable cancelled and faile
     "Preview cancelled",
   );
 
-  await page.goto("/?e2e=mock#/brain?brainFixture=failed");
+  await page.goto("/?e2e=mock&brainVisit=failed#/brain?brainFixture=failed");
   await page.getByRole("button", { name: "Preview update" }).click();
   await page.getByRole("button", { name: "Import source" }).click();
   await expect(page.getByTestId("brain-import-failed")).toBeVisible();
@@ -148,12 +148,14 @@ test("Brain Setup fails soft across empty locked unavailable cancelled and faile
     "source changed after preview",
   );
 
-  await page.goto("/?e2e=mock#/brain?brainFixture=locked");
+  await page.goto("/?e2e=mock&brainVisit=locked#/brain?brainFixture=locked");
   await expect(
     page.getByRole("heading", { name: "Brain is locked" }),
   ).toBeVisible();
 
-  await page.goto("/?e2e=mock#/brain?brainFixture=unavailable");
+  await page.goto(
+    "/?e2e=mock&brainVisit=unavailable#/brain?brainFixture=unavailable",
+  );
   await expect(
     page.getByRole("heading", { name: "Brain store unavailable" }),
   ).toBeVisible();

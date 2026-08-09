@@ -127,7 +127,7 @@ const overrides = new Map([
   // record_provider param + applies persona_field_with_record_fallback. +5 lines.
   // global-agent-config: spawn_agent_child loads global config and merges as
   // lowest env layer (+8 lines). Queued to split.
-  ["src-tauri/src/managed_agents/runtime.rs", 2627],
+  ["src-tauri/src/managed_agents/runtime.rs", 2620],
   // config-bridge setup-payload env-boundary fix adds readiness wiring in
   // spawn_agent_child; load-bearing security fix, queued to split.
   ["src-tauri/src/managed_agents/config_bridge/reader.rs", 1016],
@@ -379,20 +379,6 @@ const overrides = new Map([
   // on successful signOut() resolve so dev-build webview state doesn't survive
   // a reset and vouch for the fresh key. Comment explains the race/redundancy.
   ["src/features/settings/ui/ProfileSettingsCard.tsx", 1073],
-  // keyring-dev-isolation: keyring_service() fn (7 lines) replaces the const
-  // to return "buzz-desktop-dev" in debug builds. Load-bearing isolation fix.
-  // +10 (1042 -> 1052): media_fetch_client with redirect::Policy::none() so a
-  // relay 3xx cannot forward the minted auth header cross-origin (SSRF fix).
-  // +16 (1052 -> 1068): extracted that client into `build_media_fetch_client()`
-  // -> Result so the fail-closed invariant is testable (no silent redirect-
-  // following fallback; startup panics loudly instead). The function belongs
-  // here beside `build_app_state` and its sibling client; its doc comment
-  // carries the load-bearing SSRF rationale. Extraction would only relocate,
-  // not reduce, the security-critical code.
-  // +5 (1068 -> 1073): merge with main, which independently added the
-  // managed_agent_profile_reconcile_enabled flag (field + doc + init) under
-  // its own 1042-line override. Union of two separately approved additions.
-  ["src-tauri/src/app_state.rs", 1230],
   // multi-slot splitting + no-op suppression (#1309): the ReadStateManager
   // class grew from ~700 lines to ~1019 with the addition of
   // splitContextsIntoBudgetedSlots (pure fn + 5 tests), publishSplitSlots,
@@ -400,16 +386,6 @@ const overrides = new Map([
   // test. Load-bearing feature growth, queued to split publishSplitSlots path
   // into readStateManagerSplit.ts.
   ["src/features/channels/readState/readStateManager.ts", 1030],
-  // review feedback on #1492 restored the two-line load-bearing comment
-  // documenting why `lastMessageAt` must not be an `activeReadAt` fallback
-  // (reply-inclusive; would clear unread state early). The file was already
-  // at the 1000 ceiling; comment-only overage, not code growth. Queued to
-  // split with the rest of this list.
-  // member-agent-flags: messageProfiles merge + ref stabilisation split out to
-  // useMessageProfiles.ts, ratcheting 1002 -> 972 (under the 1000 default;
-  // entry kept as a ratchet). +7 rebase onto main (#1698 timeline-window
-  // growth), 972 -> 979.
-  ["src/features/channels/ui/ChannelScreen.tsx", 980],
   // forced-unread persistence: markChannelUnread now writes through to
   // forcedUnreadStore (localStorage) so the sidebar badge survives reload and
   // the rail observer can read it. Three clear points added (markChannelRead,
@@ -425,7 +401,6 @@ const overrides = new Map([
   // extracted to useVideoContextMenu.tsx; what remains here is the component's
   // public interface (downloadUrl/filename props) and cannot move out.
   ["src/shared/ui/VideoPlayer.tsx", 2214],
-  ["src/shared/ui/sidebar.tsx", 1042],
   // permission-outcome (fix #1381 regression): pendingPermissions state map,
   // describePermissionOutcome helper, jsonRpcId key helper (handles both
   // string and finite-number JSON-RPC ids per spec), and the acp_write
@@ -536,17 +511,13 @@ const overrides = new Map([
   // the beta reliability gate. No entry grants future growth; split these
   // modules in the dedicated post-beta maintainability phase.
   ["src-tauri/src/luca/continuity_backup.rs", 2759],
-  ["src-tauri/src/luca/continuity_context.rs", 1094],
-  ["src-tauri/src/luca/continuity_revision_authority.rs", 4094],
+  ["src-tauri/src/luca/continuity_revision_authority.rs", 3179],
   ["src-tauri/src/luca/continuity_rotation.rs", 1225],
-  ["src-tauri/src/luca/continuity_runtime.rs", 2476],
+  ["src-tauri/src/luca/continuity_runtime.rs", 1611],
   ["src-tauri/src/luca/continuity_store.rs", 3251],
   ["src-tauri/src/luca/managed_dispatch_store.rs", 2585],
-  ["src-tauri/src/luca/managed_message_outbox.rs", 1436],
-  ["src-tauri/src/luca/managed_message_publisher.rs", 1507],
-  ["src-tauri/src/luca/signing_broker.rs", 1358],
+  ["src-tauri/src/luca/managed_message_outbox.rs", 1043],
   ["src-tauri/src/managed_agents/native_runtime.rs", 1155],
-  ["src/features/messages/ui/TimelineMessageList.tsx", 1013],
 ]);
 
 await runFileSizeCheck({

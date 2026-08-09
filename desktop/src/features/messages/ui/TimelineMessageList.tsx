@@ -3,7 +3,6 @@ import { VList } from "virtua";
 import type { VListHandle } from "virtua";
 
 import { formatDayHeading } from "@/features/messages/lib/dateFormatters";
-import { timelineRowReserveStyle } from "@/features/messages/lib/rowHeightEstimate";
 import {
   buildTimelineDayGroups,
   buildTimelineItems,
@@ -34,6 +33,7 @@ import type { ChannelType } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { DayDivider } from "./DayDivider";
 import { MessageRow } from "./MessageRow";
+import { TimelineRowShell } from "./TimelineRowShell";
 import { MessageThreadSummaryRow } from "./MessageThreadSummaryRow";
 import { SystemMessageRow } from "./SystemMessageRow";
 import { UnreadDivider } from "./UnreadDivider";
@@ -768,30 +768,6 @@ function VirtualizedTimelineRows({
           }}
         </VList>
       </PreserveVirtualizedItemVisibilityContext>
-    </div>
-  );
-}
-
-function TimelineRowShell({
-  children,
-  item,
-  useContentVisibility = true,
-}: {
-  children: React.ReactNode;
-  item: TimelineNonDayItem;
-  useContentVisibility?: boolean;
-}) {
-  return (
-    <div
-      className={cn(
-        "mx-auto w-full max-w-[48rem] px-0",
-        useContentVisibility && "timeline-row-cv",
-      )}
-      data-luca-reading-plane
-      data-timeline-item-key={getTimelineItemKey(item)}
-      style={useContentVisibility ? timelineRowReserveStyle(item) : undefined}
-    >
-      {children}
     </div>
   );
 }

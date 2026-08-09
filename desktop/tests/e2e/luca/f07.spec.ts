@@ -34,7 +34,7 @@ test("Luca navigation retains the personal conversation plane and hides deferred
     "New conversation",
   );
   await expect(page.getByTestId("channel-general")).toBeVisible();
-  await expect(page.getByTestId("dm-list")).toBeVisible();
+  await expect(page.getByTestId("channel-alice-tyler")).toBeVisible();
 
   await menu.getByTestId("open-new-conversation").click();
   await expect(page).toHaveURL(/\/messages\/new$/);

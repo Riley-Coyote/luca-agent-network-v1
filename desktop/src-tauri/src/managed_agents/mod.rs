@@ -14,6 +14,7 @@ pub(crate) mod global_config;
 mod managed_node_paths;
 mod native_runtime;
 mod nest;
+mod owner_brain_authority;
 mod persona_avatars;
 pub(crate) mod persona_events;
 mod personas;
@@ -55,6 +56,7 @@ pub(crate) use global_config::{
 pub(crate) use managed_node_paths::*;
 pub use native_runtime::*;
 pub use nest::*;
+pub(crate) use owner_brain_authority::current_owner_brain_runtime_authority;
 pub use personas::*;
 #[cfg(windows)]
 pub use process_lifecycle::*;

@@ -1,6 +1,5 @@
 import * as React from "react";
 import { useAppShell } from "@/app/AppShellContext";
-import { cacheSearchHitEvent } from "@/app/navigation/searchHitEventCache";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useActiveChannelHeader } from "@/features/channels/useActiveChannelHeader";
 import { useChannelPaneHandlers } from "@/features/channels/useChannelPaneHandlers";
@@ -11,10 +10,6 @@ import {
   useChannelMembersQuery,
   useJoinChannelMutation,
 } from "@/features/channels/hooks";
-import {
-  MSG_PREFIX,
-  THREAD_PREFIX,
-} from "@/features/channels/readState/readStateFormat";
 import { ChannelScreenEmptyState } from "@/features/channels/ui/ChannelScreenEmptyState";
 import { ChannelScreenHeader } from "@/features/channels/ui/ChannelScreenHeader";
 import { ChannelPane } from "@/features/channels/ui/ChannelScreenLazyViews";
@@ -33,7 +28,6 @@ import { useWelcomeKickoffEntrance } from "@/features/onboarding/useWelcomeKicko
 import { useWelcomeKickoffStagePresence } from "@/features/onboarding/useWelcomeKickoffStagePresence";
 import { useWelcomeAgentCreate } from "@/features/channels/useWelcomeAgentCreate";
 import {
-  mergeMessages,
   useChannelMessagesQuery,
   useChannelSubscription,
   useChannelWindowQuery,
@@ -47,7 +41,6 @@ import {
   channelWindowThreadSummaries,
   type ChannelWindowThreadSummary,
 } from "@/features/messages/lib/channelWindowStore";
-import { getThreadReference } from "@/features/messages/lib/threading";
 import { imetaMediaFromTags } from "@/features/messages/lib/imetaMediaMarkdown";
 import {
   resolveTimelineLoadingLatch,
@@ -60,7 +53,7 @@ import { useChannelTyping } from "@/features/messages/useChannelTyping";
 import type { TimelineMessage } from "@/features/messages/types";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
 import { useRelaySelfQuery } from "@/features/moderation/hooks";
-import type { RelayEvent, RespondToMode, SearchHit } from "@/shared/api/types";
+import type { RelayEvent, RespondToMode } from "@/shared/api/types";
 import { useChannelFind } from "@/features/search/useChannelFind";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 import { AgentSessionProvider } from "@/shared/context/AgentSessionContext";
@@ -79,6 +72,8 @@ import { useChannelPanelHistoryState } from "./useChannelPanelHistoryState";
 import { useChannelProfilePanel } from "./useChannelProfilePanel";
 import { useChannelRouteTarget } from "./useChannelRouteTarget";
 import { useChannelUnreadState } from "./useChannelUnreadState";
+import { useActiveChannelReadSync } from "./useActiveChannelReadSync";
+import { useResolvedChannelMessages } from "./useResolvedChannelMessages";
 import type { ChannelScreenProps } from "./ChannelScreen.types";
 const HEADER_ACTIONS_COMPACT_BREAKPOINT_PX = 760,
   EMPTY_RELAY_EVENTS: RelayEvent[] = [];
@@ -193,37 +188,13 @@ export function ChannelScreen({
   useChannelSubscription(activeChannel);
   const { fetchOlder, hasOlderMessages, historyExhausted, isFetchingOlder } =
     useFetchOlderMessages(activeChannel);
-  const latestActiveMessage = React.useMemo(() => {
-    const messages = messagesQuery.data;
-    if (!messages) return null;
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      if (getThreadReference(messages[index].tags).parentId === null) {
-        return messages[index];
-      }
-    }
-    return null;
-  }, [messagesQuery.data]);
-  const activeReadAt = latestActiveMessage
-    ? new Date(latestActiveMessage.created_at * 1_000).toISOString()
-    : null;
-  React.useEffect(() => {
-    if (!activeChannelId || activeChannel?.isMember === false) {
-      return;
-    }
-    markChannelRead(activeChannelId, activeReadAt, { topLevelOnly: true });
-  }, [activeChannel?.isMember, activeChannelId, activeReadAt, markChannelRead]);
-  React.useEffect(() => {
-    if (!activeChannelId) {
-      setContextParentResolver(null);
-      return;
-    }
-    setContextParentResolver((contextId) =>
-      contextId.startsWith(THREAD_PREFIX) || contextId.startsWith(MSG_PREFIX)
-        ? activeChannelId
-        : null,
-    );
-    return () => setContextParentResolver(null);
-  }, [activeChannelId, setContextParentResolver]);
+  useActiveChannelReadSync({
+    activeChannelId,
+    isMember: activeChannel?.isMember,
+    markChannelRead,
+    messages: messagesQuery.data,
+    setContextParentResolver,
+  });
   const {
     activeChannelTitle,
     activeDmAvatarUrl,
@@ -239,19 +210,11 @@ export function ChannelScreen({
   const deleteMessageMutation = useDeleteMessageMutation(activeChannel);
   const editMessageMutation = useEditMessageMutation(activeChannel);
   const joinChannelMutation = useJoinChannelMutation(activeChannelId);
-  const [findEvents, setFindEvents] = React.useState<RelayEvent[]>([]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: clear spliced find results exactly when the active channel changes.
-  React.useEffect(() => {
-    setFindEvents([]);
-  }, [activeChannelId]);
-  const resolvedMessages = React.useMemo(() => {
-    const currentMessages = messagesQuery.data ?? [];
-    const extraEvents = [...targetMessageEvents, ...findEvents];
-    if (!activeChannel || extraEvents.length === 0) {
-      return currentMessages;
-    }
-    return extraEvents.reduce(mergeMessages, currentMessages);
-  }, [activeChannel, findEvents, messagesQuery.data, targetMessageEvents]);
+  const { handleFindSearchHit, resolvedMessages } = useResolvedChannelMessages({
+    activeChannel,
+    messages: messagesQuery.data,
+    targetMessageEvents,
+  });
   const threadReplyEvents = threadRepliesQuery.data ?? EMPTY_RELAY_EVENTS;
   const {
     entranceMessageId: welcomeEntranceMessageId,
@@ -420,14 +383,6 @@ export function ChannelScreen({
           : new Map(),
       [windowQuery.data],
     );
-  const handleFindSearchHit = React.useCallback((hit: SearchHit) => {
-    const event = cacheSearchHitEvent(hit);
-    setFindEvents((currentEvents) =>
-      currentEvents.some((currentEvent) => currentEvent.id === event.id)
-        ? currentEvents
-        : [...currentEvents, event],
-    );
-  }, []);
   const channelFind = useChannelFind({
     channelId: activeChannelId,
     messages: timelineMessages,

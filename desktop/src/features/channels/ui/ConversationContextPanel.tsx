@@ -177,7 +177,7 @@ export function ConversationContextPanel({
       <AuxiliaryPanelBody className="overflow-y-auto px-4 pb-6">
         <div className="space-y-7 pt-5">
           <section className="space-y-2 border-b border-border/55 pb-5">
-            <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+            <div className="flex items-center gap-2 text-2xs uppercase tracking-[0.14em] text-muted-foreground">
               <MessageCircle className="h-3.5 w-3.5" />
               {channel.channelType === "dm" ? "Direct message" : "Room"}
             </div>
@@ -203,7 +203,7 @@ export function ConversationContextPanel({
           <section aria-labelledby="conversation-agents">
             <div className="flex items-center justify-between gap-3">
               <SectionLabel id="conversation-agents">Agents</SectionLabel>
-              <span className="font-mono text-[10px] tracking-[0.12em] text-muted-foreground/70">
+              <span className="font-mono text-2xs tracking-[0.12em] text-muted-foreground/70">
                 {agentMembers.length || agents.length}
               </span>
             </div>
@@ -243,7 +243,7 @@ export function ConversationContextPanel({
                       <span className="block truncate text-sm font-medium text-foreground">
                         {label}
                       </span>
-                      <span className="mt-0.5 block truncate font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+                      <span className="mt-0.5 block truncate font-mono text-2xs uppercase tracking-[0.1em] text-muted-foreground">
                         {agent?.agentSource === "managed"
                           ? "Resident · Notebook available"
                           : `Agent · ${truncatePubkey(member.pubkey)}`}
@@ -286,7 +286,7 @@ export function ConversationContextPanel({
                         pubkey: member.pubkey,
                       })}
                     </span>
-                    <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground/60">
+                    <span className="font-mono text-2xs uppercase tracking-[0.1em] text-muted-foreground/60">
                       {member.role}
                     </span>
                   </div>
@@ -339,7 +339,7 @@ function SectionLabel({
 }) {
   return (
     <h3
-      className="mb-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground"
+      className="mb-2.5 font-mono text-2xs uppercase tracking-[0.14em] text-muted-foreground"
       id={id}
     >
       {children}
@@ -360,7 +360,7 @@ function Metric({
     <div className="flex min-w-0 flex-col gap-1 px-2.5 py-3 first:pl-0 last:pr-0">
       <div className="flex items-center gap-1.5 text-muted-foreground/65">
         <Icon className="h-3.5 w-3.5" />
-        <span className="truncate font-mono text-[9px] uppercase tracking-[0.12em]">
+        <span className="truncate font-mono text-3xs uppercase tracking-[0.12em]">
           {label}
         </span>
       </div>

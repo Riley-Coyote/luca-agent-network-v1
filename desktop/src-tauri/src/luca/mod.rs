@@ -25,7 +25,6 @@ pub(crate) mod continuity_store;
 pub(crate) mod journal_jobs;
 pub(crate) mod local_broker_session;
 pub(crate) mod managed_cognition;
-pub(crate) mod resident_notebook;
 pub(crate) mod managed_continuity;
 pub(crate) mod managed_dispatch_store;
 pub(crate) mod managed_message_outbox;
@@ -36,6 +35,7 @@ pub(crate) mod owner_brain_store;
 pub(crate) mod owner_identity_recovery;
 #[cfg(test)]
 mod reliability_f10;
+pub(crate) mod resident_notebook;
 pub(crate) mod resident_registry;
 pub(crate) mod signing_broker;
 pub(crate) mod signing_transport;

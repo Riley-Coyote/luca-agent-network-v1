@@ -1,13 +1,17 @@
 import * as React from "react";
+import {
+  SidebarContext,
+  type SidebarContextProps,
+  useOptionalSidebar,
+  useSidebar,
+} from "@/shared/ui/sidebarContext";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
 import { cn } from "@/shared/lib/cn";
 import { performSidebarDefaultHaptic } from "@/shared/lib/haptics";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 import { useIsMobile } from "@/shared/hooks/use-mobile";
-import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Separator } from "@/shared/ui/separator";
 import {
@@ -18,6 +22,17 @@ import {
   SheetTitle,
 } from "@/shared/ui/sheet";
 import { Skeleton } from "@/shared/ui/skeleton";
+import { SidebarTrigger } from "@/shared/ui/sidebarTrigger";
+import {
+  clampSidebarWidth,
+  hasReachedSidebarDefaultWidth,
+  isSidebarWidthNearDefault,
+  magnetizeSidebarWidth,
+  readSidebarWidth,
+  SIDEBAR_WIDTH_ICON,
+  SIDEBAR_WIDTH_MOBILE,
+  SIDEBAR_WIDTH_STORAGE_KEY,
+} from "@/shared/ui/sidebarWidth";
 import {
   Tooltip,
   TooltipContent,
@@ -27,112 +42,7 @@ import {
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
-const SIDEBAR_WIDTH_STORAGE_KEY = "luca-conversation-sidebar-width";
-const SIDEBAR_WIDTH_DEFAULT = 264;
-const SIDEBAR_WIDTH_DEFAULT_HAPTIC_THRESHOLD = 2;
-const SIDEBAR_WIDTH_DEFAULT_SNAP_DISTANCE = 8;
-const SIDEBAR_WIDTH_DEFAULT_MAGNET_DISTANCE = 28;
-const SIDEBAR_WIDTH_MIN = 220;
-const SIDEBAR_WIDTH_MAX = 420;
-const SIDEBAR_WIDTH_MOBILE = "288px";
-const SIDEBAR_WIDTH_ICON = "48px";
 const SIDEBAR_KEYBOARD_SHORTCUT = "s";
-
-type SidebarContextProps = {
-  state: "expanded" | "collapsed";
-  open: boolean;
-  setOpen: (open: boolean) => void;
-  openMobile: boolean;
-  setOpenMobile: (open: boolean) => void;
-  isMobile: boolean;
-  isRailDisabled: boolean;
-  isResizing: boolean;
-  setIsResizing: (isResizing: boolean) => void;
-  sidebarWidth: number;
-  setSidebarWidth: (width: number | ((width: number) => number)) => void;
-  toggleSidebar: () => void;
-};
-
-const SidebarContext = React.createContext<SidebarContextProps | null>(null);
-
-function useSidebar() {
-  const context = React.useContext(SidebarContext);
-  if (!context) {
-    throw new Error("useSidebar must be used within a SidebarProvider.");
-  }
-
-  return context;
-}
-
-function useOptionalSidebar() {
-  return React.useContext(SidebarContext);
-}
-
-function clampSidebarWidth(width: number) {
-  return Math.min(
-    SIDEBAR_WIDTH_MAX,
-    Math.max(SIDEBAR_WIDTH_MIN, Math.round(width)),
-  );
-}
-
-function isSidebarWidthNearDefault(width: number) {
-  return (
-    Math.abs(width - SIDEBAR_WIDTH_DEFAULT) <=
-    SIDEBAR_WIDTH_DEFAULT_HAPTIC_THRESHOLD
-  );
-}
-
-function magnetizeSidebarWidth(width: number) {
-  const offset = width - SIDEBAR_WIDTH_DEFAULT;
-  const distance = Math.abs(offset);
-
-  if (distance <= SIDEBAR_WIDTH_DEFAULT_SNAP_DISTANCE) {
-    return SIDEBAR_WIDTH_DEFAULT;
-  }
-
-  if (distance >= SIDEBAR_WIDTH_DEFAULT_MAGNET_DISTANCE) {
-    return clampSidebarWidth(width);
-  }
-
-  // Ease out of the detent so 300px feels sticky without blocking resize.
-  const progress =
-    (distance - SIDEBAR_WIDTH_DEFAULT_SNAP_DISTANCE) /
-    (SIDEBAR_WIDTH_DEFAULT_MAGNET_DISTANCE -
-      SIDEBAR_WIDTH_DEFAULT_SNAP_DISTANCE);
-  const easedDistance =
-    SIDEBAR_WIDTH_DEFAULT_MAGNET_DISTANCE * progress * progress;
-
-  return clampSidebarWidth(
-    SIDEBAR_WIDTH_DEFAULT + Math.sign(offset) * easedDistance,
-  );
-}
-
-function hasReachedSidebarDefaultWidth(
-  previousWidth: number,
-  nextWidth: number,
-) {
-  return (
-    isSidebarWidthNearDefault(nextWidth) ||
-    (previousWidth < SIDEBAR_WIDTH_DEFAULT &&
-      nextWidth > SIDEBAR_WIDTH_DEFAULT) ||
-    (previousWidth > SIDEBAR_WIDTH_DEFAULT && nextWidth < SIDEBAR_WIDTH_DEFAULT)
-  );
-}
-
-function readSidebarWidth() {
-  if (typeof window === "undefined") {
-    return SIDEBAR_WIDTH_DEFAULT;
-  }
-
-  const storedWidth = Number.parseInt(
-    window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY) ?? "",
-    10,
-  );
-
-  return Number.isFinite(storedWidth)
-    ? clampSidebarWidth(storedWidth)
-    : SIDEBAR_WIDTH_DEFAULT;
-}
 
 const SidebarProvider = React.forwardRef<
   HTMLDivElement,
@@ -446,32 +356,6 @@ const Sidebar = React.forwardRef<
   },
 );
 Sidebar.displayName = "Sidebar";
-
-const SidebarTrigger = React.forwardRef<
-  React.ElementRef<typeof Button>,
-  React.ComponentProps<typeof Button>
->(({ className, onClick, ...props }, ref) => {
-  const { toggleSidebar, open } = useSidebar();
-
-  return (
-    <Button
-      ref={ref}
-      data-sidebar="trigger"
-      variant="ghost"
-      size="icon"
-      className={className}
-      onClick={(event) => {
-        onClick?.(event);
-        toggleSidebar();
-      }}
-      {...props}
-    >
-      {open ? <PanelLeftClose /> : <PanelLeftOpen />}
-      <span className="sr-only">Toggle Sidebar</span>
-    </Button>
-  );
-});
-SidebarTrigger.displayName = "SidebarTrigger";
 
 const SidebarRail = React.forwardRef<
   HTMLButtonElement,
