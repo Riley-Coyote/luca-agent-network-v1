@@ -32,6 +32,8 @@ Then read, in order:
 5. [`.codex/luca-v1/RUNTIME_PARITY_DELTA.md`](.codex/luca-v1/RUNTIME_PARITY_DELTA.md).
 6. [`.codex/luca-v1/ARCHITECTURE_IMPLEMENTATION_SPEC.md`](.codex/luca-v1/ARCHITECTURE_IMPLEMENTATION_SPEC.md) for the longer original architecture.
 7. [`.codex/luca-v1/SECURITY_THREAT_MODEL.md`](.codex/luca-v1/SECURITY_THREAT_MODEL.md) before authority, signing, identity, permission, or recovery changes.
+8. [`docs/luca/PROJECTS.md`](docs/luca/PROJECTS.md) before changing project grouping or local repository bindings.
+9. [`docs/luca/unified-brain/README.md`](docs/luca/unified-brain/README.md) before Brain source, discovery, import, graph, or adapter work. Its long-range vision is subordinate to the active V1.2 contracts in `docs/luca/v1.1-v1.3/`.
 
 The `.codex/luca-v1` directory contains the complete planning kit, contracts,
 task graph, protocol maps, and historical decisions. `HANDOFF.md` records the
