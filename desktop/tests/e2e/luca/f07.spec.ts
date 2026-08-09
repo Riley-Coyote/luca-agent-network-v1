@@ -23,11 +23,7 @@ test("Luca navigation retains the personal conversation plane and hides deferred
   await expect(menu.getByTestId("open-new-conversation")).toBeVisible();
   await expect(menu.getByTestId("open-agents-view")).toBeVisible();
   await expect(menu.getByTestId("open-activity-view")).toBeVisible();
-  await expect(menu.getByTestId("open-brain-setup")).toBeDisabled();
-  await expect(menu.getByTestId("open-brain-setup")).toHaveAttribute(
-    "data-luca-availability",
-    "future",
-  );
+  await expect(menu.getByTestId("open-brain-setup")).toBeEnabled();
   await expect(menu.getByTestId("open-settings-view")).toBeVisible();
 
   for (const deferredLabel of ["Inbox", "Projects", "Workflows", "Pulse"]) {
@@ -56,6 +52,13 @@ test("Luca navigation retains the personal conversation plane and hides deferred
   await menu.getByTestId("open-activity-view").click();
   await expect(page).toHaveURL(/\/pulse$/);
   await expect(menu.getByTestId("open-activity-view")).toHaveAttribute(
+    "data-active",
+    "true",
+  );
+
+  await menu.getByTestId("open-brain-setup").click();
+  await expect(page).toHaveURL(/\/brain$/);
+  await expect(menu.getByTestId("open-brain-setup")).toHaveAttribute(
     "data-active",
     "true",
   );

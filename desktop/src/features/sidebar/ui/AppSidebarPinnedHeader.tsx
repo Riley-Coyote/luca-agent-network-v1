@@ -17,6 +17,7 @@ type SidebarSelectedView =
   | "channel"
   | "messages"
   | "agents"
+  | "brain"
   | "workflows"
   | "pulse"
   | "projects";
@@ -39,6 +40,7 @@ type AppSidebarPrimaryMenuProps = {
   homeBadgeCount: number;
   onNewMessage: () => void;
   onSelectAgents: () => void;
+  onSelectBrain: () => void;
   onSelectPulse: () => void;
   onSelectSettings: () => void;
   selectedView: SidebarSelectedView;
@@ -83,6 +85,7 @@ export function AppSidebarPrimaryMenu({
   homeBadgeCount,
   onNewMessage,
   onSelectAgents,
+  onSelectBrain,
   onSelectPulse,
   onSelectSettings,
   selectedView,
@@ -141,12 +144,10 @@ export function AppSidebarPrimaryMenu({
         </SidebarMenuItem>
         <SidebarMenuItem>
           <SidebarMenuButton
-            aria-label="Brain Setup — available in a later Luca milestone"
-            data-luca-availability="future"
             data-testid="open-brain-setup"
-            disabled
-            title="Brain Setup will be available in a later Luca milestone."
-            tooltip="Brain Setup — coming later"
+            isActive={selectedView === "brain"}
+            onClick={onSelectBrain}
+            tooltip="Brain Setup"
             type="button"
           >
             <Brain className="h-4 w-4" />

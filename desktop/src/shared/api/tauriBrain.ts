@@ -117,6 +117,10 @@ export type PreviewOwnerBrainSourceInput = {
   selectedPath: string;
 };
 
+export type PickOwnerBrainSourceInput = {
+  selectionKind: "file" | "folder";
+};
+
 export type CommitOwnerBrainImportInput = {
   previewId: string;
   previewToken: string;
@@ -148,6 +152,12 @@ export function previewOwnerBrainSource(
   input: PreviewOwnerBrainSourceInput,
 ): Promise<OwnerBrainPreview> {
   return invoke("preview_owner_brain_source", { input });
+}
+
+export function pickAndPreviewOwnerBrainSource(
+  input: PickOwnerBrainSourceInput,
+): Promise<OwnerBrainPreview | null> {
+  return invoke("pick_and_preview_owner_brain_source", { input });
 }
 
 export function commitOwnerBrainImport(

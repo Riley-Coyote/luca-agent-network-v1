@@ -117,6 +117,7 @@ export function AppShell() {
   const queryClient = useQueryClient();
   const {
     goAgents,
+    goBrain,
     goChannel,
     goHome,
     goInbox,
@@ -837,6 +838,7 @@ export function AppShell() {
                             await goChannel(directMessage.id);
                           }}
                           onSelectAgents={() => void goAgents()}
+                          onSelectBrain={() => void goBrain()}
                           onSelectChannel={(channelId) =>
                             void goChannel(channelId)
                           }

@@ -70,6 +70,17 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  const goBrain = React.useCallback(
+    (behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/brain",
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
   const goInbox = React.useCallback(
     (behavior?: NavigationBehavior) =>
       commitNavigation(
@@ -334,6 +345,7 @@ export function useAppNavigation() {
     closeWorkflowDetail,
     goAgent,
     goAgents,
+    goBrain,
     goChannel,
     goForumPost,
     goHome,

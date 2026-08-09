@@ -11,6 +11,7 @@ import { Route as remindersRouteImport } from "./routes/reminders";
 import { Route as pulseRouteImport } from "./routes/pulse";
 import { Route as projectsRouteImport } from "./routes/projects";
 import { Route as inboxRouteImport } from "./routes/inbox";
+import { Route as brainRouteImport } from "./routes/brain";
 import { Route as agentsRouteImport } from "./routes/agents";
 import { Route as indexRouteImport } from "./routes/index";
 import { Route as workflowsDotworkflowIdRouteImport } from "./routes/workflows.$workflowId";
@@ -47,6 +48,11 @@ const projectsRoute = projectsRouteImport.update({
 const inboxRoute = inboxRouteImport.update({
   id: "/inbox",
   path: "/inbox",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const brainRoute = brainRouteImport.update({
+  id: "/brain",
+  path: "/brain",
   getParentRoute: () => rootRouteImport,
 } as any);
 const agentsRoute = agentsRouteImport.update({
@@ -89,6 +95,7 @@ const channelsDotchannelIdDotpostsDotpostIdRoute =
 export interface FileRoutesByFullPath {
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
+  "/brain": typeof brainRoute;
   "/inbox": typeof inboxRoute;
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
@@ -104,6 +111,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
+  "/brain": typeof brainRoute;
   "/inbox": typeof inboxRoute;
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
@@ -120,6 +128,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
+  "/brain": typeof brainRoute;
   "/inbox": typeof inboxRoute;
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
@@ -137,6 +146,7 @@ export interface FileRouteTypes {
   fullPaths:
     | "/"
     | "/agents"
+    | "/brain"
     | "/inbox"
     | "/projects"
     | "/pulse"
@@ -152,6 +162,7 @@ export interface FileRouteTypes {
   to:
     | "/"
     | "/agents"
+    | "/brain"
     | "/inbox"
     | "/projects"
     | "/pulse"
@@ -167,6 +178,7 @@ export interface FileRouteTypes {
     | "__root__"
     | "/"
     | "/agents"
+    | "/brain"
     | "/inbox"
     | "/projects"
     | "/pulse"
@@ -183,6 +195,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   indexRoute: typeof indexRoute;
   agentsRoute: typeof agentsRoute;
+  brainRoute: typeof brainRoute;
   inboxRoute: typeof inboxRoute;
   projectsRoute: typeof projectsRoute;
   pulseRoute: typeof pulseRoute;
@@ -240,6 +253,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof inboxRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/brain": {
+      id: "/brain";
+      path: "/brain";
+      fullPath: "/brain";
+      preLoaderRoute: typeof brainRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/agents": {
       id: "/agents";
       path: "/agents";
@@ -295,6 +315,7 @@ declare module "@tanstack/react-router" {
 const rootRouteChildren: RootRouteChildren = {
   indexRoute: indexRoute,
   agentsRoute: agentsRoute,
+  brainRoute: brainRoute,
   inboxRoute: inboxRoute,
   projectsRoute: projectsRoute,
   pulseRoute: pulseRoute,

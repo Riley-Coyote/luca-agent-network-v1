@@ -773,6 +773,7 @@ pub fn run() {
             get_resident_notebook_fixtures,
             get_owner_brain_fixtures,
             get_owner_brain_state,
+            pick_and_preview_owner_brain_source,
             preview_owner_brain_source,
             commit_owner_brain_import,
             cancel_owner_brain_import,

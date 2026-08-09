@@ -20,6 +20,7 @@ export const LUCA_FEATURE_FLAGS = {
   attachments: { defaultEnabled: true, status: "retained" },
   search: { defaultEnabled: true, status: "retained" },
   agents: { defaultEnabled: true, status: "retained" },
+  brainSetup: { defaultEnabled: true, status: "retained" },
   brainDashboard: { defaultEnabled: false, status: "deferred" },
   atlas: { defaultEnabled: false, status: "deferred" },
   inbox: { defaultEnabled: false, status: "deferred" },

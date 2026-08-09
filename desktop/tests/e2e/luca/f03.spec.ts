@@ -19,6 +19,7 @@ test("Luca defaults retain the conversation plane and defer out-of-scope Buzz su
     "attachments",
     "search",
     "agents",
+    "brainSetup",
   ] as const) {
     expect(isLucaFeatureEnabled(feature)).toBe(true);
     expect(LUCA_FEATURE_FLAGS[feature].status).toBe("retained");

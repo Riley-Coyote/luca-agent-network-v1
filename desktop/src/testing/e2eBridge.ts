@@ -9271,6 +9271,168 @@ export function maybeInstallE2eTauriMocks() {
           : [],
     };
   };
+  const primaryBrainResident = mockManagedAgents[0] ?? {
+    pubkey: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    name: "Mara",
+  };
+  const secondaryBrainResident = mockManagedAgents[1] ?? primaryBrainResident;
+  const brainSource = {
+    sourceId: "source-fixture",
+    sourceKind: "text_folder",
+    displayName: "Launch Notes",
+    status: "ready",
+    fileCount: 4,
+    chunkCount: 8,
+    changedFileCount: 1,
+    indexedAt: "2026-08-08T20:02:00Z",
+  };
+  const brainPreview = {
+    previewId: "preview-fixture",
+    previewToken: "preview-token-fixture",
+    sourceKind: "text_folder",
+    displayName: "Launch Notes",
+    acceptedBytes: 6_144,
+    writeCount: 0,
+    expiresAt: "2026-08-08T20:15:00Z",
+    canCommit: true,
+    rows: [
+      {
+        relativePath: "planning/launch.md",
+        status: "changed",
+        byteCount: 2_048,
+        reasonCode: null,
+      },
+      {
+        relativePath: "planning/identity.md",
+        status: "duplicate",
+        byteCount: 4_096,
+        reasonCode: "content-unchanged",
+      },
+      {
+        relativePath: "private/.env",
+        status: "credential_like",
+        byteCount: 92,
+        reasonCode: "credential-pattern",
+      },
+      {
+        relativePath: "archive/brief.pdf",
+        status: "unsupported",
+        byteCount: 41_200,
+        reasonCode: "unsupported-extension",
+      },
+    ],
+  };
+  let brainGrants = [
+    {
+      grantId: "grant-active",
+      sourceId: brainSource.sourceId,
+      residentPubkey: primaryBrainResident.pubkey,
+      residentName: primaryBrainResident.name,
+      state: "active",
+      providerEgress: "local",
+      canReconfirm: false,
+    },
+    {
+      grantId: "grant-stale",
+      sourceId: brainSource.sourceId,
+      residentPubkey: secondaryBrainResident.pubkey,
+      residentName: secondaryBrainResident.name,
+      state: "stale",
+      providerEgress: "remote",
+      canReconfirm: true,
+    },
+  ];
+  const brainReceipts = [
+    {
+      receiptId: "receipt-fixture",
+      sourceId: brainSource.sourceId,
+      residentPubkey: primaryBrainResident.pubkey,
+      status: "ready",
+      selectedChunkCount: 2,
+      truncated: false,
+      createdAt: "2026-08-08T20:03:00Z",
+    },
+  ];
+  const brainState = (availability: string) => ({
+    availability,
+    sources: availability === "ready" ? [brainSource] : [],
+    grants: availability === "ready" ? brainGrants : [],
+    receipts: availability === "ready" ? brainReceipts : [],
+  });
+  const brainFixtures = () => ({
+    preview: brainPreview,
+    imports: [
+      {
+        importTransactionId: "import-running",
+        state: "running",
+        completedItems: 1,
+        totalItems: 4,
+        errorCode: null,
+        canCancel: true,
+        canRetry: false,
+      },
+      {
+        importTransactionId: "import-cancelled",
+        state: "cancelled",
+        completedItems: 0,
+        totalItems: 4,
+        errorCode: "owner-cancelled",
+        canCancel: false,
+        canRetry: true,
+      },
+      {
+        importTransactionId: "import-failed",
+        state: "failed",
+        completedItems: 0,
+        totalItems: 4,
+        errorCode: "snapshot-changed",
+        canCancel: false,
+        canRetry: true,
+      },
+    ],
+    ready: brainState("ready"),
+    empty: brainState("empty"),
+    locked: brainState("locked"),
+    unavailable: brainState("unavailable"),
+  });
+  const brainFixtureMode = () => {
+    const query = window.location.hash.split("?", 2)[1] ?? "";
+    return new URLSearchParams(query).get("brainFixture") ?? "ready";
+  };
+  const mutateBrainGrant = (
+    command: string,
+    payload: { input?: { sourceId?: string; residentPubkey?: string } },
+  ) => {
+    const sourceId = payload.input?.sourceId ?? brainSource.sourceId;
+    const residentPubkey =
+      payload.input?.residentPubkey ?? primaryBrainResident.pubkey;
+    const resident = mockManagedAgents.find(
+      (candidate) => candidate.pubkey === residentPubkey,
+    );
+    const nextState = command.startsWith("revoke") ? "revoked" : "active";
+    const current = brainGrants.find(
+      (grant) =>
+        grant.sourceId === sourceId && grant.residentPubkey === residentPubkey,
+    );
+    const grant = {
+      grantId: current?.grantId ?? `grant-${residentPubkey.slice(0, 8)}`,
+      sourceId,
+      residentPubkey,
+      residentName: resident?.name ?? residentPubkey,
+      state: nextState,
+      providerEgress: current?.providerEgress ?? "remote",
+      canReconfirm: false,
+    };
+    brainGrants = [
+      ...brainGrants.filter(
+        (candidate) =>
+          candidate.sourceId !== sourceId ||
+          candidate.residentPubkey !== residentPubkey,
+      ),
+      grant,
+    ];
+    return { grant, replayed: current?.state === nextState };
+  };
   const handleMockCommand = async (command: string, payload: unknown) => {
     const activeConfig = getConfig();
     const identity = getActiveIdentity(activeConfig);
@@ -9289,6 +9451,45 @@ export function maybeInstallE2eTauriMocks() {
     window.__BUZZ_E2E_COMMAND_LOG__?.push({ command, payload });
 
     switch (command) {
+      case "get_owner_brain_fixtures":
+        return brainFixtures();
+      case "get_owner_brain_state": {
+        const mode = brainFixtureMode();
+        if (["empty", "locked", "unavailable"].includes(mode)) {
+          return brainState(mode);
+        }
+        return brainState("ready");
+      }
+      case "pick_and_preview_owner_brain_source":
+      case "preview_owner_brain_source":
+        return brainPreview;
+      case "commit_owner_brain_import":
+        if (brainFixtureMode() === "failed") {
+          throw new Error("owner-brain-stale");
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 350));
+        return {
+          importTransactionId: "import-fixture-commit",
+          previewId: brainPreview.previewId,
+          sourceId: brainSource.sourceId,
+          rootSnapshotHash: "sha256:brain-fixture",
+          state: "committed",
+          importedFileCount: 2,
+          importedChunkCount: 4,
+          completedAt: "2026-08-08T20:16:00Z",
+          replayed: brainFixtureMode() === "duplicate",
+        };
+      case "cancel_owner_brain_import":
+        return true;
+      case "grant_owner_brain_source":
+      case "revoke_owner_brain_source":
+      case "reconfirm_owner_brain_source":
+        return mutateBrainGrant(
+          command,
+          (payload ?? {}) as {
+            input?: { sourceId?: string; residentPubkey?: string };
+          },
+        );
       case "get_resident_continuity":
       case "set_resident_continuity_enabled":
       case "correct_resident_handoff":

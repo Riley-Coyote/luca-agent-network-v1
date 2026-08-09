@@ -12,13 +12,19 @@ use luca_protocol::{
     OwnerBrainSourceKindV1, OwnerBrainSourceStatusV1, ProviderEgressV1,
 };
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreviewOwnerBrainSourceInputV1 {
     selected_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PickOwnerBrainSourceInputV1 {
+    selection_kind: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -209,23 +215,66 @@ fn preview_view(handle: owner_brain::OwnerBrainPreviewHandleV1) -> OwnerBrainPre
     }
 }
 
-#[tauri::command]
-/// Performs a bounded, read-only preview of one owner-selected local source.
-pub async fn preview_owner_brain_source(
-    input: PreviewOwnerBrainSourceInputV1,
+async fn preview_selected_path(
     app: AppHandle,
+    selected_path: PathBuf,
 ) -> Result<OwnerBrainPreviewViewV1, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let owner_pubkey = Hex64::parse(state.signing_keys()?.public_key().to_hex())
             .map_err(|_| "active owner identity is invalid".to_owned())?;
         state
-            .preview_owner_brain_source(owner_pubkey, Path::new(&input.selected_path))
+            .preview_owner_brain_source(owner_pubkey, &selected_path)
             .map(preview_view)
             .map_err(|error| error.code().to_owned())
     })
     .await
     .map_err(|_| "owner-brain-unavailable".to_owned())?
+}
+
+#[tauri::command]
+/// Opens one trusted native picker and returns a zero-write source preview.
+pub async fn pick_and_preview_owner_brain_source(
+    input: PickOwnerBrainSourceInputV1,
+    app: AppHandle,
+) -> Result<Option<OwnerBrainPreviewViewV1>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    match input.selection_kind.as_str() {
+        "file" => app
+            .dialog()
+            .file()
+            .add_filter("Markdown and text", &["md", "markdown", "txt"])
+            .pick_file(move |selection| {
+                let _ = sender.send(selection);
+            }),
+        "folder" => app.dialog().file().pick_folder(move |selection| {
+            let _ = sender.send(selection);
+        }),
+        _ => return Err("owner-brain-invalid".to_owned()),
+    }
+
+    let Some(selection) = receiver
+        .await
+        .map_err(|_| "owner-brain-dialog-unavailable".to_owned())?
+    else {
+        return Ok(None);
+    };
+    let selected_path = selection
+        .as_path()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| "owner-brain-invalid".to_owned())?;
+    preview_selected_path(app, selected_path).await.map(Some)
+}
+
+#[tauri::command]
+/// Performs a bounded, read-only preview of one owner-selected local source.
+pub async fn preview_owner_brain_source(
+    input: PreviewOwnerBrainSourceInputV1,
+    app: AppHandle,
+) -> Result<OwnerBrainPreviewViewV1, String> {
+    preview_selected_path(app, Path::new(&input.selected_path).to_path_buf()).await
 }
 
 fn import_commit_view(
@@ -536,9 +585,21 @@ pub fn get_owner_brain_fixtures() -> OwnerBrainFixturesV1 {
             rows: vec![
                 OwnerBrainPreviewRowViewV1 {
                     relative_path: "planning/launch.md".to_owned(),
-                    status: "accepted".to_owned(),
+                    status: "changed".to_owned(),
                     byte_count: 2_048,
                     reason_code: None,
+                },
+                OwnerBrainPreviewRowViewV1 {
+                    relative_path: "planning/identity.md".to_owned(),
+                    status: "duplicate".to_owned(),
+                    byte_count: 1_024,
+                    reason_code: Some("content-unchanged".to_owned()),
+                },
+                OwnerBrainPreviewRowViewV1 {
+                    relative_path: ".archive".to_owned(),
+                    status: "skipped".to_owned(),
+                    byte_count: 0,
+                    reason_code: Some("hidden-directory".to_owned()),
                 },
                 OwnerBrainPreviewRowViewV1 {
                     relative_path: "private/.env".to_owned(),
@@ -654,6 +715,9 @@ mod tests {
             );
         }
         assert!(serialized.contains("credential_like"));
+        assert!(serialized.contains("duplicate"));
+        assert!(serialized.contains("changed"));
+        assert!(serialized.contains("skipped"));
         assert!(serialized.contains("snapshot-changed"));
         assert!(serialized.contains("stale"));
         assert!(serialized.contains("revoked"));
