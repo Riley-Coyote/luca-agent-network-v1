@@ -45,3 +45,10 @@ capabilities.
 The installed bundle was rebuilt from the final visible-branding checkpoint,
 signed with the expected Developer ID, launched successfully, and verified not
 to modify any of the 22 audited native Hermes/OpenClaw configuration files.
+
+Installed interactive acceptance also proved the complete Luca-owned MCP
+lifecycle with a real Hermes resident: connection test, per-agent grant, fresh
+session registration, one successful tool result, revocation, fresh-session
+removal, and unaffected ordinary messaging. The temporary fixture and grants
+were removed after the proof. OpenClaw MCP acceptance remains unclaimed because
+post-restart native discovery reported its agent list unreadable.

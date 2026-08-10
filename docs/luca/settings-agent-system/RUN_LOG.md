@@ -11,6 +11,7 @@ Base: `a461d8a`
 | `b3778c8` | Luca Settings information architecture, shared Agents workspace, Mobile, diagnostics, updates, About, fixtures, and E2E coverage |
 | `87e0aa6` | Local stdio MCP registry, Keychain secret references, per-agent grants, trusted inherited bootstrap, and runtime integration |
 | `db37bb3` | Final visible-product branding sweep across onboarding, runtime recovery, discovery, and legacy shared-compute surfaces |
+| `a457c30` | Consolidated release evidence before installed interactive MCP acceptance |
 
 ## Frontend evidence
 
@@ -63,11 +64,41 @@ Base: `a461d8a`
 - Display name: `Luca Agent Network Dev`
 - Signing identity: Developer ID Application, team `WQUY4M5HYR`
 - Installed executable SHA-256:
-  `593a5d8049d8e31d2134c41e544d921a5f706549441265769b3113f0b2dbc810`
+  `18be55fe53e4f5a242e310638e583d3a640f1dc888c714b82270dbb093471e4d`
 - Bundle signature verification: passed.
 - Exact installed executable remained running after relaunch: passed.
-- Installed process ID at verification: `24589`.
-- Final bundle was built from source commit `db37bb3`.
+- Final bundle was rebuilt from source commit `a457c30` after another local
+  build had temporarily replaced it.
+
+## Installed interactive MCP acceptance
+
+The final acceptance used a temporary environment-free stdio fixture in the
+installed signed app. The fixture and all of its grants were removed afterward.
+
+- Installed Settings test completed MCP `initialize` and `tools/list`: passed.
+- The connection was granted to the exact default Hermes resident key: passed.
+- A fresh Hermes session registered the single Luca-managed test tool: passed.
+- The resident invoked that tool exactly once and returned `{"result":"ok"}`:
+  passed.
+- The grant was revoked and the resident was restarted into a fresh session:
+  passed.
+- The revoked Luca tool was absent from the new session while the resident
+  remained ready: passed.
+- A normal post-revocation DM returned `hermes-ordinary-ok` with zero tool
+  turns: passed.
+- Final local registry state contained zero test connections and zero grants.
+- The managed tool crossed the trusted inherited descriptor boundary; it was
+  not added to command-line arguments or native Hermes configuration.
+
+The machine restarted unexpectedly during this acceptance pass. Docker, the
+relay, and the installed app recovered without resetting product data, and the
+remaining assertions were rerun from observable state rather than inferred
+from the interrupted process.
+
+The Settings runtime-health surface correctly reported Codex and Hermes ready.
+OpenClaw had been observed ready before the machine restart, but its post-restart
+discovery returned an unreadable agent list and was honestly shown as
+unavailable; no installed OpenClaw MCP grant claim is made by this acceptance.
 
 ## Native configuration immutability
 
