@@ -52,7 +52,9 @@ export function shortAgentFingerprint(publicKey: string): string {
 }
 
 /**
- * A resident's avatar: a live dot-matrix panel seeded by their public key.
+ * A resident's identity mark: a live dot-matrix panel seeded by their public
+ * key. The canvas is intentionally frame-free. The mirrored lattice supplies
+ * the square silhouette; callers should not crop it into an avatar shape.
  *
  * The panel is driven by the shared engine host — one animation frame for every
  * mark on screen, panels paused while off-screen, and a settled first frame so
@@ -77,6 +79,7 @@ export function AgentIdentitySpecimen({
 }) {
   const { isDark } = useTheme();
   const seed = React.useMemo(() => normalizePubkey(publicKey), [publicKey]);
+  const cell = Math.max(2, Math.floor(size / 8));
 
   return (
     <span
@@ -89,16 +92,15 @@ export function AgentIdentitySpecimen({
       title={`${accessibleName} · ${shortAgentFingerprint(publicKey)}`}
     >
       <DotSigil
-        // A 2px pitch is what the system is tuned for at avatar scale. The chip
-        // is border-box with a 1px border, so the panel is inset by 2 — which
-        // still leaves a 9-cell lattice in the smallest (20px) placement, the
-        // minimum the mirrored 7-wide emblem needs plus its quiet zone.
+        // Roughly eight cells across gives the mirrored seven-cell emblem a
+        // narrow quiet zone without making it feel like a small icon inside an
+        // avatar box. Integer pitch keeps every edge crisp at every app scale.
         breath={state === "present"}
-        cell={2}
+        cell={cell}
         dot={isDark ? "239,239,237" : "22,23,22"}
         scene={SCENE_FOR_STATE[state]}
         seed={seed}
-        size={size - 2}
+        size={size}
       />
     </span>
   );

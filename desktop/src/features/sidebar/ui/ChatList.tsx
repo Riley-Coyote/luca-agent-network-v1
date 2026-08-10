@@ -1,14 +1,14 @@
 import * as React from "react";
-import { FolderClosed } from "lucide-react";
+import { MessageCircle, MessagesSquare } from "lucide-react";
 
 import {
   readLastProjectRoom,
   type RoomProject,
 } from "@/features/channels/lib/roomProjects";
+import { ProjectTypeIcon } from "@/features/channels/ui/ConversationTypeIcon";
 import type { Channel } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { conversationMarkSeeds } from "@/features/channels/lib/conversationMarks";
-import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 
 /**
  * Luca's persistent conversation rail.
@@ -23,9 +23,16 @@ export type ChatListItem = {
   channel: Channel;
   /** Display name: the resident, or the people in a group. */
   label: string;
-  /** Pubkeys whose marks represent this chat. Empty for a plain room. */
+  /** Other participants represented by this chat. */
   markPubkeys: string[];
 };
+
+/** Keep rail semantics binary: one counterpart or a group conversation. */
+export function isMultiParticipantChat(
+  item: Pick<ChatListItem, "markPubkeys">,
+): boolean {
+  return item.markPubkeys.length > 1;
+}
 
 function relativeTime(iso: string | null): string {
   if (!iso) return "";
@@ -109,9 +116,10 @@ function ChatRow({
   workingByChannelId,
   onSelectChannel,
 }: RowProps) {
-  const { channel, label, markPubkeys } = item;
+  const { channel, label } = item;
   const isActive = channel.id === selectedChannelId;
   const isUnread = unreadChannelIds.has(channel.id);
+  const isMultiParticipant = isMultiParticipantChat(item);
   const working = workingByChannelId?.get(channel.id);
   const liveLabel = working
     ? working.agentCount > 1
@@ -138,20 +146,12 @@ function ChatRow({
       onClick={() => onSelectChannel(channel.id)}
       type="button"
     >
-      {/* The stack IS the multi-agent indicator — no badge, no count. Each mark
-          rings in the rail's own colour so overlapping marks read as layered
-          objects instead of merging into one shape. */}
-      <span className="flex shrink-0 -space-x-1.5">
-        {markPubkeys.map((seed) => (
-          <AgentIdentitySpecimen
-            accessibleName={label}
-            className="ring-2 ring-sidebar"
-            key={seed}
-            publicKey={seed}
-            size={20}
-            state="present"
-          />
-        ))}
+      <span className="flex size-5 shrink-0 items-center justify-center text-sidebar-foreground/45">
+        {isMultiParticipant ? (
+          <MessagesSquare aria-hidden className="size-3.5" />
+        ) : (
+          <MessageCircle aria-hidden className="size-3.5" />
+        )}
       </span>
 
       <span
@@ -204,9 +204,6 @@ function ProjectRow({
   const project = group.project;
   if (!project) return null;
 
-  const marks = [
-    ...new Set(group.items.flatMap((item) => item.markPubkeys)),
-  ].slice(0, 3);
   const isUnread = group.items.some((item) =>
     unreadChannelIds.has(item.channel.id),
   );
@@ -235,23 +232,8 @@ function ProjectRow({
       onClick={() => onSelectProject(project.id, preferredRoomId)}
       type="button"
     >
-      <span className="flex shrink-0 -space-x-1.5">
-        {marks.length ? (
-          marks.map((seed) => (
-            <AgentIdentitySpecimen
-              accessibleName={project.label}
-              className="ring-2 ring-sidebar"
-              key={seed}
-              publicKey={seed}
-              size={20}
-              state="present"
-            />
-          ))
-        ) : (
-          <span className="flex size-5 items-center justify-center text-sidebar-foreground/45">
-            <FolderClosed aria-hidden className="size-3.5" />
-          </span>
-        )}
+      <span className="flex size-5 shrink-0 items-center justify-center text-sidebar-foreground/45">
+        <ProjectTypeIcon className="size-3.5" />
       </span>
       <span
         className={cn(
@@ -338,17 +320,8 @@ export function ChatList({
 
   return (
     <div className="flex flex-col px-2" data-testid="chat-list">
-      <div className="mt-2 flex flex-col" data-testid="chat-group-ungrouped">
-        <div className="px-2 pb-1 text-2xs font-medium uppercase tracking-[0.1em] text-sidebar-foreground/35">
-          Rooms
-        </div>
-        {looseRooms?.items.map((item) => (
-          <ChatRow item={item} key={item.channel.id} {...rowProps} />
-        ))}
-      </div>
-
       {orderedProjects.length > 0 ? (
-        <div className="mt-3 flex flex-col" data-testid="chat-projects">
+        <div className="mt-2 flex flex-col" data-testid="chat-projects">
           <div className="px-2 pb-1 text-2xs font-medium uppercase tracking-[0.1em] text-sidebar-foreground/35">
             Projects
           </div>
@@ -369,6 +342,21 @@ export function ChatList({
           })}
         </div>
       ) : null}
+
+      <div
+        className={cn(
+          "flex flex-col",
+          orderedProjects.length > 0 ? "mt-3" : "mt-2",
+        )}
+        data-testid="chat-group-ungrouped"
+      >
+        <div className="px-2 pb-1 text-2xs font-medium uppercase tracking-[0.1em] text-sidebar-foreground/35">
+          Rooms
+        </div>
+        {looseRooms?.items.map((item) => (
+          <ChatRow item={item} key={item.channel.id} {...rowProps} />
+        ))}
+      </div>
     </div>
   );
 }

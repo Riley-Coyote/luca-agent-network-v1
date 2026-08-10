@@ -4,6 +4,7 @@ import {
   mergeAllowlist,
   parsePubkeyInput,
 } from "@/features/agents/lib/respondToAllowlist";
+import { resolveIdentityDisplayName } from "@/features/profile/lib/identity";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { PubKey } from "@/shared/ui/PubKey";
 import { useIsArchivedPredicate } from "@/features/identity-archive/hooks";
@@ -34,11 +35,12 @@ import type { PersonaDropdownOption } from "./agentConfigOptions";
  */
 
 function formatSearchUserName(user: UserSearchResult) {
-  return (
-    user.displayName?.trim() ||
-    user.nip05Handle?.trim() ||
-    truncatePubkey(user.pubkey)
-  );
+  return resolveIdentityDisplayName({
+    displayName: user.displayName,
+    isAgent: user.isAgent,
+    nip05Handle: user.nip05Handle,
+    pubkey: user.pubkey,
+  });
 }
 
 function formatSearchUserSecondary(user: UserSearchResult) {

@@ -1,8 +1,7 @@
 import type * as React from "react";
-import { MessageCircle } from "lucide-react";
+import { MessageCircle, UserRound } from "lucide-react";
 
 import type { AgentVisualState } from "@/shared/ui/AgentIdentitySpecimen";
-import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import { cn } from "@/shared/lib/cn";
 
 export type ConversationDrawerAgent = {
@@ -46,14 +45,7 @@ export function ConversationDrawerNavigation({
           return (
             <DrawerContextTab
               active={active}
-              icon={
-                <AgentIdentitySpecimen
-                  accessibleName={agent.name}
-                  publicKey={agent.pubkey}
-                  size={18}
-                  state={agent.state ?? "idle"}
-                />
-              }
+              icon={<UserRound className="h-3.5 w-3.5" />}
               key={agent.pubkey}
               label={agent.name}
               onClick={

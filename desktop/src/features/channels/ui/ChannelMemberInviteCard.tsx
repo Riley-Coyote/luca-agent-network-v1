@@ -1,6 +1,7 @@
 import { Search, UserPlus, X } from "lucide-react";
 import * as React from "react";
 
+import { resolveIdentityDisplayName } from "@/features/profile/lib/identity";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { PubKey } from "@/shared/ui/PubKey";
 import { useIsArchivedPredicate } from "@/features/identity-archive/hooks";
@@ -15,11 +16,12 @@ import { Input } from "@/shared/ui/input";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 
 function formatSearchUserName(user: UserSearchResult) {
-  return (
-    user.displayName?.trim() ||
-    user.nip05Handle?.trim() ||
-    truncatePubkey(user.pubkey)
-  );
+  return resolveIdentityDisplayName({
+    displayName: user.displayName,
+    isAgent: user.isAgent,
+    nip05Handle: user.nip05Handle,
+    pubkey: user.pubkey,
+  });
 }
 
 export function ChannelMemberInviteCard({

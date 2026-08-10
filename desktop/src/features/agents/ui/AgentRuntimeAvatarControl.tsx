@@ -117,70 +117,59 @@ export function AgentRuntimeAvatarControl({
   const errorActionLabel = `${label} has a runtime error. Open runtime details.`;
   const transition = shouldReduceMotion ? { duration: 0 } : MASK_TRANSITION;
   const badge = isActive ? ACTIVE_BADGE : ACTION_BADGE;
-
-  return (
-    <MaskedAvatarBadgeFrame
-      badge={
-        <span className="grid h-full w-full place-items-center">
-          {isActive ? (
-            <span
-              aria-label={`${label} is running`}
-              className="flex h-6 w-6 items-center justify-center rounded-full"
-              data-testid={activeTestId}
-              role="img"
-              title={`${label} is running`}
-            >
-              <PresenceDot className={ACTIVE_DOT_CLASS_NAME} status="online" />
-            </span>
-          ) : (
-            <button
-              aria-label={hasError ? errorActionLabel : actionLabel}
-              className={cn(
-                "pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-90",
-                hasError
-                  ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  : "bg-primary text-primary-foreground hover:bg-primary/90",
-              )}
-              data-testid={hasError ? errorTestId : startTestId}
-              disabled={isStarting}
-              onClick={(event) => {
-                event.stopPropagation();
-                if (hasError) {
-                  onOpenError?.();
-                  return;
-                }
-                onStart();
-              }}
-              title={hasError ? errorLabel || errorActionLabel : actionLabel}
-              type="button"
-            >
-              <span className="grid h-4 w-4 place-items-center">
-                {isStarting ? (
-                  <Spinner
-                    aria-label={actionLabel}
-                    className="h-4 w-4 border-2"
-                  />
-                ) : hasError ? (
-                  <CircleAlert className="h-4 w-4" />
-                ) : (
-                  <Play className="h-4 w-4 fill-current" />
-                )}
-              </span>
-            </button>
-          )}
+  const badgeContent = (
+    <span className="grid h-full w-full place-items-center">
+      {isActive ? (
+        <span
+          aria-label={`${label} is running`}
+          className="flex h-6 w-6 items-center justify-center rounded-full"
+          data-testid={activeTestId}
+          role="img"
+          title={`${label} is running`}
+        >
+          <PresenceDot className={ACTIVE_DOT_CLASS_NAME} status="online" />
         </span>
-      }
-      badgeBox={badge.shell}
-      className="h-24 w-24"
-      curve={isActive ? STATUS_DOT_MASK_CURVE : ACTION_MASK_CURVE}
-      cutout={badge.cutout}
-      maskTransition={transition}
-      size={AGENT_AVATAR_SIZE}
-    >
-      {pubkey ? (
+      ) : (
+        <button
+          aria-label={hasError ? errorActionLabel : actionLabel}
+          className={cn(
+            "pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-90",
+            hasError
+              ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              : "bg-primary text-primary-foreground hover:bg-primary/90",
+          )}
+          data-testid={hasError ? errorTestId : startTestId}
+          disabled={isStarting}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (hasError) {
+              onOpenError?.();
+              return;
+            }
+            onStart();
+          }}
+          title={hasError ? errorLabel || errorActionLabel : actionLabel}
+          type="button"
+        >
+          <span className="grid h-4 w-4 place-items-center">
+            {isStarting ? (
+              <Spinner aria-label={actionLabel} className="h-4 w-4 border-2" />
+            ) : hasError ? (
+              <CircleAlert className="h-4 w-4" />
+            ) : (
+              <Play className="h-4 w-4 fill-current" />
+            )}
+          </span>
+        </button>
+      )}
+    </span>
+  );
+
+  if (pubkey) {
+    return (
+      <span className="relative block h-24 w-24 shrink-0">
         <AgentIdentitySpecimen
           accessibleName={label}
-          className="border-0"
           publicKey={pubkey}
           size={AGENT_AVATAR_SIZE}
           state={
@@ -193,7 +182,31 @@ export function AgentRuntimeAvatarControl({
                   : "unavailable"
           }
         />
-      ) : trimmedAvatarUrl ? (
+        <span
+          className={cn(
+            "absolute grid place-items-center",
+            isActive
+              ? "bottom-1 right-1 h-6 w-6"
+              : "-bottom-2.5 -right-2.5 h-11 w-11",
+          )}
+        >
+          {badgeContent}
+        </span>
+      </span>
+    );
+  }
+
+  return (
+    <MaskedAvatarBadgeFrame
+      badge={badgeContent}
+      badgeBox={badge.shell}
+      className="h-24 w-24"
+      curve={isActive ? STATUS_DOT_MASK_CURVE : ACTION_MASK_CURVE}
+      cutout={badge.cutout}
+      maskTransition={transition}
+      size={AGENT_AVATAR_SIZE}
+    >
+      {trimmedAvatarUrl ? (
         <ProfileAvatar
           avatarUrl={trimmedAvatarUrl}
           className="h-full w-full bg-muted shadow-none"

@@ -15,8 +15,8 @@ import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import { UserProfilePopover } from "@/features/profile/ui/UserProfilePopover";
 import { useRemindLater } from "@/features/reminders/ui/RemindMeLaterProvider";
 import {
-  getThreadReplyAvatarCenterRem,
-  getThreadReplyAvatarCenterYRem,
+  getThreadReplyAnchorCenterRem,
+  getThreadReplyAnchorCenterYRem,
   getThreadReplyDescendantRailStartYRem,
   getThreadReplyConnectorLayout,
   getThreadReplyIndentRem,
@@ -30,8 +30,6 @@ import {
 import { getConfigNudgeAuthorPubkey } from "@/features/messages/ui/configNudgeAuthPubkey";
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
-import { UserAvatar } from "@/shared/ui/UserAvatar";
-import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import { useChannelNavigation } from "@/shared/context/ChannelNavigationContext";
 import { parseImetaTags } from "@/features/messages/lib/parseImeta";
 import { useMessageEmoji } from "@/features/messages/lib/useMessageEmoji";
@@ -215,8 +213,6 @@ export const MessageRow = React.memo(
       (message.pubkey && isKnownAgentPubkey(message.pubkey))
         ? "bot"
         : message.role;
-    const isAgentAuthor =
-      profilePopoverRole === "bot" && Boolean(message.pubkey);
     const agentMentionPubkeysByName = React.useMemo(() => {
       if (!mentionPubkeysByName) {
         return undefined;
@@ -255,7 +251,7 @@ export const MessageRow = React.memo(
 
     const indentRem = getThreadReplyIndentRem(message.depth);
     const descendantGuideOffsetRem = connectDescendants
-      ? getThreadReplyAvatarCenterRem(message.depth)
+      ? getThreadReplyAnchorCenterRem(message.depth)
       : null;
     const replyConnector = React.useMemo(() => {
       return getThreadReplyConnectorLayout(message.depth);
@@ -270,7 +266,7 @@ export const MessageRow = React.memo(
 
       return depths.map((depth) => ({
         depth,
-        offset: getThreadReplyAvatarCenterRem(depth),
+        offset: getThreadReplyAnchorCenterRem(depth),
       }));
     }, [depthGuideDepths, message.depth]);
     const handleCollapseDescendants = React.useCallback(
@@ -395,92 +391,6 @@ export const MessageRow = React.memo(
 
     const isThreadReplyLayout = layoutVariant === "thread-reply";
     const guideBleedRem = isThreadReplyLayout ? 0.25 : 0;
-    const avatarButtonRadiusClass = isAgentAuthor
-      ? "rounded-lg"
-      : "rounded-full";
-
-    const respondToDotColor =
-      message.respondTo === "anyone"
-        ? "bg-foreground/70"
-        : message.respondTo === "allowlist"
-          ? "bg-foreground/35"
-          : null;
-
-    const avatarNode = (
-      <div className="relative shrink-0">
-        {isAgentAuthor && message.pubkey ? (
-          <AgentIdentitySpecimen
-            accessibleName={message.author}
-            className="shrink-0"
-            publicKey={message.pubkey}
-            size={28}
-            state="present"
-          />
-        ) : (
-          <UserAvatar
-            accent={message.accent}
-            avatarUrl={message.avatarUrl ?? null}
-            className="h-7 w-7 shrink-0 text-xs"
-            displayName={message.author}
-            testId="message-avatar"
-          />
-        )}
-        {respondToDotColor && !isThreadReplyLayout ? (
-          <span
-            className={cn(
-              "absolute -bottom-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-background",
-            )}
-            title={
-              message.respondTo === "anyone"
-                ? "Responds to anyone"
-                : "Responds to allowlist"
-            }
-          >
-            <span className={cn("h-2 w-2 rounded-full", respondToDotColor)} />
-          </span>
-        ) : null}
-      </div>
-    );
-
-    const continuationTimestampGutter = (
-      <div
-        aria-hidden="true"
-        className={cn(
-          "flex w-9 shrink-0 items-start justify-end pt-0.5",
-          isThreadReplyLayout ? "min-h-9 self-start" : "self-stretch",
-        )}
-      >
-        <MessageTimestamp
-          className="opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100"
-          createdAt={message.createdAt}
-          hideDayPeriod
-          time={message.time}
-        />
-      </div>
-    );
-
-    const avatarGutterNode = isContinuation ? (
-      continuationTimestampGutter
-    ) : message.pubkey ? (
-      <UserProfilePopover
-        pubkey={message.pubkey}
-        role={profilePopoverRole}
-        botIdenticonValue={message.author}
-      >
-        <button
-          className={cn(
-            "flex shrink-0 items-start focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
-            avatarButtonRadiusClass,
-          )}
-          type="button"
-        >
-          {avatarNode}
-        </button>
-      </UserProfilePopover>
-    ) : (
-      <div className="flex shrink-0 items-start">{avatarNode}</div>
-    );
-
     const authorNode = message.pubkey ? (
       <MessageAuthorText hoverUnderline>{message.author}</MessageAuthorText>
     ) : (
@@ -768,7 +678,7 @@ export const MessageRow = React.memo(
                 onMouseLeave={() => handleCollapseDescendantsHoverChange(false)}
                 style={{
                   left: threadReplyLength(descendantGuideOffsetRem),
-                  top: threadReplyLength(getThreadReplyAvatarCenterYRem()),
+                  top: threadReplyLength(getThreadReplyAnchorCenterYRem()),
                 }}
                 type="button"
               />
@@ -805,7 +715,8 @@ export const MessageRow = React.memo(
               : isThreadReplyLayout
                 ? "mx-1 px-2"
                 : "px-2",
-            "flex gap-2.5",
+            "flex",
+            isThreadReplyLayout && "gap-2.5",
             isContinuation ? "items-center" : "items-start",
             hasActiveReminder ? "bg-foreground/[0.045]" : "",
             highlighted
@@ -817,22 +728,12 @@ export const MessageRow = React.memo(
           onAnimationEnd={handleEntranceAnimationEnd}
         >
           {isThreadReplyLayout ? (
-            <>
-              {avatarGutterNode}
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                {headerNode}
-                <div className={bodyContainerClass}>{messageBodyNode}</div>
-              </div>
-            </>
-          ) : (
-            <>
-              {avatarGutterNode}
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                {headerNode}
-                <div className={bodyContainerClass}>{messageBodyNode}</div>
-              </div>
-            </>
-          )}
+            <span aria-hidden className="w-4 shrink-0" />
+          ) : null}
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            {headerNode}
+            <div className={bodyContainerClass}>{messageBodyNode}</div>
+          </div>
           {actionBarNode}
         </article>
       </div>

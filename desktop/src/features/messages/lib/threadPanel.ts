@@ -1,6 +1,9 @@
 import type { TimelineMessage } from "@/features/messages/types";
 import type { ChannelWindowThreadSummary } from "@/features/messages/lib/channelWindowStore";
-import type { UserProfileLookup } from "@/features/profile/lib/identity";
+import {
+  resolveUserLabel,
+  type UserProfileLookup,
+} from "@/features/profile/lib/identity";
 import { isBroadcastReply } from "@/features/messages/lib/threading";
 import { KIND_HUDDLE_STARTED } from "@/shared/constants/kinds";
 
@@ -418,7 +421,7 @@ function buildRelayThreadSummary(
       .reverse()
       .map((pubkey) => ({
         id: pubkey,
-        author: profiles?.[pubkey.toLowerCase()]?.displayName ?? pubkey,
+        author: resolveUserLabel({ profiles, pubkey }),
         avatarUrl: profiles?.[pubkey.toLowerCase()]?.avatarUrl ?? null,
       })),
   };

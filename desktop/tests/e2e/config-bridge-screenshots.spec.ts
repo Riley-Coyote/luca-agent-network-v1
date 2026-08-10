@@ -281,10 +281,9 @@ test.describe("config bridge screenshots", () => {
     );
   });
 
-  test("07 — profile side panel — Configuration section", async ({ page }) => {
+  test("07 — resident context panel — identity section", async ({ page }) => {
     // charlie (554cef…) is the well-known test pubkey that the mock bridge
-    // seeds as a bot owned by the test viewer, so isBot + isOwner + managedAgent
-    // are all true — the Configuration section renders in the profile panel.
+    // seeds as a bot owned by the test viewer.
     await installMockBridge(page, {
       managedAgents: [
         {
@@ -301,37 +300,19 @@ test.describe("config bridge screenshots", () => {
     await page.getByTestId("channel-agents").click();
     await expect(page.getByTestId("chat-title")).toHaveText("agents");
 
-    // Click an agent avatar in a full message row to open the profile side panel.
+    // Identity marks remain available in the resident state header, while the
+    // transcript itself stays avatar-free.
     await page
-      .getByTestId("message-row")
-      .filter({ has: page.locator('[data-testid^="message-avatar-"]') })
-      .last()
-      .getByRole("button")
-      .first()
-      .click();
+      .getByRole("button", { name: /^Charlie identity/ })
+      .evaluate((button: HTMLButtonElement) => button.click());
 
-    const panel = page.getByTestId("user-profile-panel");
+    const panel = page
+      .getByRole("complementary")
+      .filter({ has: page.getByTestId("user-profile-panel") });
     await expect(panel).toBeVisible({ timeout: 10_000 });
 
-    // The Configuration section lives inside the Runtime tab — click it first.
-    await panel.getByRole("tab", { name: "Runtime" }).click();
-
-    // Wait for the config section to render and scroll it into view so
-    // it is fully visible before capture.
-    const configAnchor = panel.getByText("Model").first();
-    await expect(configAnchor).toBeVisible({ timeout: 10_000 });
-    await configAnchor.scrollIntoViewIfNeeded();
-    // Scroll the panel's internal scroll container to the bottom so config
-    // fields are fully visible, not just the heading at the edge.
-    await panel.evaluate((el) => {
-      const scrollable =
-        el.querySelector("[data-radix-scroll-area-viewport]") ??
-        Array.from(el.querySelectorAll("*")).find(
-          (child) => child.scrollHeight > child.clientHeight + 10,
-        ) ??
-        el;
-      scrollable.scrollTop = scrollable.scrollHeight;
-    });
+    await expect(panel.getByRole("tab", { name: "Charlie" })).toBeVisible();
+    await expect(panel.getByText("Identity", { exact: true })).toBeVisible();
     await panel.page().waitForTimeout(200);
 
     // Settle any in-flight animations before capture.
@@ -340,7 +321,7 @@ test.describe("config bridge screenshots", () => {
     );
 
     await panel.screenshot({
-      path: `${SHOTS}/06-profile-side-panel-config.png`,
+      path: `${SHOTS}/06-resident-context-panel.png`,
     });
   });
 });

@@ -18,7 +18,7 @@ import { AnimatedCount } from "@/shared/ui/AnimatedCount";
 import { Markdown } from "@/shared/ui/markdown";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
-import { truncatePubkey } from "@/shared/lib/pubkey";
+import { resolveIdentityDisplayName } from "@/features/profile/lib/identity";
 
 export type NoteCardActions = {
   reply?: (
@@ -65,9 +65,12 @@ function ReplyParentContext({
   );
   const fetchedProfile = parentProfileQuery.data ?? null;
   const parentDisplayName = parentNote
-    ? (cachedProfile?.displayName ??
-      fetchedProfile?.displayName ??
-      truncatePubkey(parentNote.pubkey))
+    ? resolveIdentityDisplayName({
+        displayName: cachedProfile?.displayName ?? fetchedProfile?.displayName,
+        isAgent: cachedProfile?.isAgent ?? fetchedProfile?.ownerPubkey != null,
+        nip05Handle: cachedProfile?.nip05Handle ?? fetchedProfile?.nip05Handle,
+        pubkey: parentNote.pubkey,
+      })
     : null;
   const parentAvatarUrl =
     cachedProfile?.avatarUrl ?? fetchedProfile?.avatarUrl ?? null;
@@ -143,7 +146,12 @@ export function NoteCard({
   members = [],
   actions,
 }: NoteCardProps) {
-  const displayName = profile?.displayName ?? truncatePubkey(note.pubkey);
+  const displayName = resolveIdentityDisplayName({
+    displayName: profile?.displayName,
+    isAgent,
+    nip05Handle: profile?.nip05Handle,
+    pubkey: note.pubkey,
+  });
   const avatarUrl = profile?.avatarUrl ?? null;
   const [isReplyComposerOpen, setIsReplyComposerOpen] = React.useState(false);
   const actionButtonClass =

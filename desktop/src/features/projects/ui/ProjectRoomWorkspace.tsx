@@ -9,7 +9,7 @@ import {
 import * as React from "react";
 
 import { useAppShell } from "@/app/AppShellContext";
-import { conversationMarkSeeds } from "@/features/channels/lib/conversationMarks";
+import { ConversationTypeIcon } from "@/features/channels/ui/ConversationTypeIcon";
 import { useActiveWorkingChannelsById } from "@/features/sidebar/lib/useActiveWorkingChannelsById";
 import {
   filterProjectRooms,
@@ -17,7 +17,6 @@ import {
 } from "@/features/projects/lib/projectNavigator";
 import { useIsMobile } from "@/shared/hooks/use-mobile";
 import { cn } from "@/shared/lib/cn";
-import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 
 function relativeTime(iso: string | null): string {
   if (!iso) return "";
@@ -41,11 +40,9 @@ function contextStatus(
 }
 
 export function ProjectRoomNavigator({
-  currentPubkey,
   onSelectRoom,
   viewModel,
 }: {
-  currentPubkey?: string | null;
   onSelectRoom: (channelId: string) => void;
   viewModel: ProjectNavigatorViewModel;
 }) {
@@ -122,7 +119,6 @@ export function ProjectRoomNavigator({
               (readAt === null || lastMessageAt > readAt);
             const working = workingByChannelId.get(channel.id);
             const isSelected = channel.id === viewModel.selectedRoomId;
-            const marks = conversationMarkSeeds(channel, currentPubkey, 3);
             return (
               <li key={channel.id}>
                 <button
@@ -133,17 +129,11 @@ export function ProjectRoomNavigator({
                   onClick={() => onSelectRoom(channel.id)}
                   type="button"
                 >
-                  <span className="flex shrink-0 -space-x-1.5">
-                    {marks.map((seed) => (
-                      <AgentIdentitySpecimen
-                        accessibleName={channel.name}
-                        className="ring-2 ring-[hsl(var(--mn-navigator))]"
-                        key={seed}
-                        publicKey={seed}
-                        size={24}
-                        state={working ? "working" : "present"}
-                      />
-                    ))}
+                  <span className="flex size-6 shrink-0 items-center justify-center text-muted-foreground/60">
+                    <ConversationTypeIcon
+                      channel={channel}
+                      className="size-4"
+                    />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-2">
@@ -215,12 +205,10 @@ export function ProjectRoomNavigator({
 
 export function ProjectRoomWorkspace({
   children,
-  currentPubkey,
   onSelectRoom,
   viewModel,
 }: {
   children: React.ReactNode;
-  currentPubkey?: string | null;
   onSelectRoom: (channelId: string) => void;
   viewModel: ProjectNavigatorViewModel;
 }) {
@@ -241,11 +229,7 @@ export function ProjectRoomWorkspace({
 
   if (isMobile) {
     return mobileView === "rooms" ? (
-      <ProjectRoomNavigator
-        currentPubkey={currentPubkey}
-        onSelectRoom={selectRoom}
-        viewModel={viewModel}
-      />
+      <ProjectRoomNavigator onSelectRoom={selectRoom} viewModel={viewModel} />
     ) : (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <button
@@ -263,11 +247,7 @@ export function ProjectRoomWorkspace({
 
   return (
     <div className="luca-project-room-workspace">
-      <ProjectRoomNavigator
-        currentPubkey={currentPubkey}
-        onSelectRoom={selectRoom}
-        viewModel={viewModel}
-      />
+      <ProjectRoomNavigator onSelectRoom={selectRoom} viewModel={viewModel} />
       <div className="flex min-h-0 min-w-0 flex-1">{children}</div>
     </div>
   );

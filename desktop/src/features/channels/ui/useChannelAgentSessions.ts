@@ -8,7 +8,8 @@ import type {
   RelayAgent,
 } from "@/shared/api/types";
 import { usePanelReturnTarget } from "@/shared/hooks/usePanelReturnTarget";
-import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
+import { normalizePubkey } from "@/shared/lib/pubkey";
+import { resolveIdentityDisplayName } from "@/features/profile/lib/identity";
 import {
   type AgentSessionReturnTarget,
   resolveAgentSessionReturnTarget,
@@ -96,7 +97,11 @@ export function buildChannelAgentSessionCandidates({
 
     byPubkey.set(key, {
       pubkey: member.pubkey,
-      name: member.displayName ?? truncatePubkey(member.pubkey),
+      name: resolveIdentityDisplayName({
+        displayName: member.displayName,
+        isAgent: true,
+        pubkey: member.pubkey,
+      }),
       status: "deployed",
       agentSource: "member-bot",
       canInterruptTurn: false,

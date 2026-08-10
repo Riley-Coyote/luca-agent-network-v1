@@ -23,9 +23,10 @@ import {
 import type { UseMentionsResult } from "@/features/messages/lib/useMentions";
 import type { UseRichTextEditorResult } from "@/features/messages/lib/useRichTextEditor";
 import type { UseDraftsResult } from "@/features/messages/lib/useDrafts";
+import { resolveIdentityDisplayName } from "@/features/profile/lib/identity";
 import type { CustomEmoji } from "@/shared/lib/remarkCustomEmoji";
 import type { AcpRuntime, ChannelType, ManagedAgent } from "@/shared/api/types";
-import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
+import { normalizePubkey } from "@/shared/lib/pubkey";
 import { MENTION_REFERENCE_TAG } from "@/shared/lib/resolveMentionNames";
 import { buildCustomEmojiTags } from "@/shared/lib/customEmojiTags";
 
@@ -782,11 +783,18 @@ export function useMentionSendFlow({
   const pendingNonMemberNames = React.useMemo(() => {
     if (!pendingNonMemberSend) return [];
 
-    return pendingNonMemberSend.nonMemberPubkeys.map(
-      (pubkey) =>
-        mentions.getMentionDisplayName(pubkey) ?? truncatePubkey(pubkey),
+    return pendingNonMemberSend.nonMemberPubkeys.map((pubkey) =>
+      resolveIdentityDisplayName({
+        displayName: mentions.getMentionDisplayName(pubkey),
+        isAgent: mentions.isAgentPubkey(pubkey),
+        pubkey,
+      }),
     );
-  }, [mentions.getMentionDisplayName, pendingNonMemberSend]);
+  }, [
+    mentions.getMentionDisplayName,
+    mentions.isAgentPubkey,
+    pendingNonMemberSend,
+  ]);
 
   const handleSendWithoutInviting = React.useCallback(() => {
     if (!pendingNonMemberSend) return;

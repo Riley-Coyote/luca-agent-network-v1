@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { groupChats, sortChats } from "./ChatList.tsx";
+import { groupChats, isMultiParticipantChat, sortChats } from "./ChatList.tsx";
 
 const room = (id, lastMessageAt, label = id) => ({
   channel: { id, name: id, lastMessageAt },
@@ -128,4 +128,12 @@ test("no projects at all degrades to exactly one ungrouped list", () => {
   assert.equal(groups.length, 1);
   assert.equal(groups[0].project, null);
   assert.equal(groups[0].items.length, 2);
+});
+
+test("rail icons distinguish one-to-one chats from group conversations", () => {
+  assert.equal(isMultiParticipantChat({ markPubkeys: ["alice"] }), false);
+  assert.equal(
+    isMultiParticipantChat({ markPubkeys: ["alice", "charlie"] }),
+    true,
+  );
 });

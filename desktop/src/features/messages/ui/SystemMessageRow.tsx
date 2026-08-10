@@ -250,118 +250,6 @@ function ProfileName({
   );
 }
 
-function SystemMessageAvatar({
-  actorPubkey,
-  agentPubkeys,
-  currentPubkey,
-  personaLookup,
-  profiles,
-  targetPubkey,
-}: {
-  actorPubkey: string | undefined;
-  agentPubkeys?: ReadonlySet<string>;
-  currentPubkey: string | undefined;
-  personaLookup?: Map<string, string>;
-  profiles: UserProfileLookup | undefined;
-  targetPubkey: string | undefined;
-}) {
-  const hasActorAndTarget =
-    actorPubkey && targetPubkey && actorPubkey !== targetPubkey;
-  const actorLabel = actorPubkey
-    ? resolveUserLabel({
-        pubkey: actorPubkey,
-        currentPubkey,
-        profiles,
-        preferResolvedSelfLabel: true,
-      })
-    : "Someone";
-
-  const singlePubkey = actorPubkey ?? targetPubkey;
-
-  if (!hasActorAndTarget) {
-    const isSingleAgent = isKnownAgentPubkey(
-      singlePubkey,
-      profiles,
-      personaLookup,
-      agentPubkeys,
-    );
-    const avatar = (
-      <UserAvatar
-        avatarUrl={resolveAvatarUrl(singlePubkey, profiles)}
-        className="!h-9 !w-9 shrink-0 text-2xs"
-        displayName={actorLabel}
-        testId="system-message-avatar"
-      />
-    );
-
-    if (singlePubkey) {
-      return (
-        <UserProfilePopover
-          botIdenticonValue={isSingleAgent ? actorLabel : undefined}
-          pubkey={singlePubkey}
-          role={isSingleAgent ? "bot" : undefined}
-        >
-          <button
-            className="shrink-0 rounded-full focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-            data-testid="system-message-avatar"
-            type="button"
-          >
-            {avatar}
-          </button>
-        </UserProfilePopover>
-      );
-    }
-
-    return avatar;
-  }
-
-  const isActorAgent = isKnownAgentPubkey(
-    actorPubkey,
-    profiles,
-    personaLookup,
-    agentPubkeys,
-  );
-  const targetLabel = resolveUserLabel({
-    pubkey: targetPubkey,
-    currentPubkey,
-    profiles,
-    preferResolvedSelfLabel: true,
-  });
-
-  const dualAvatar = (
-    <div
-      className="relative h-9 w-9 shrink-0"
-      data-testid="system-message-avatar"
-    >
-      <UserAvatar
-        avatarUrl={resolveAvatarUrl(actorPubkey, profiles)}
-        className="!h-7 !w-7 border-2 border-background text-2xs"
-        displayName={actorLabel}
-      />
-      <UserAvatar
-        avatarUrl={resolveAvatarUrl(targetPubkey, profiles)}
-        className="!absolute !bottom-0 !right-0 !h-7 !w-7 border-2 border-background text-2xs"
-        displayName={targetLabel}
-      />
-    </div>
-  );
-
-  return (
-    <UserProfilePopover
-      botIdenticonValue={isActorAgent ? actorLabel : undefined}
-      pubkey={actorPubkey}
-      role={isActorAgent ? "bot" : undefined}
-    >
-      <button
-        className="shrink-0 rounded-full focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-        type="button"
-      >
-        {dualAvatar}
-      </button>
-    </UserProfilePopover>
-  );
-}
-
 function MembershipPersonName({
   agentPubkeys,
   currentPubkey,
@@ -764,15 +652,7 @@ export const SystemMessageRow = React.memo(function SystemMessageRow({
       className="group/message relative mx-1 rounded-2xl px-2 py-1 transition-colors hover:bg-muted/50 focus-within:bg-muted/50"
       data-testid="system-message-row"
     >
-      <div className="flex items-start gap-2.5">
-        <SystemMessageAvatar
-          actorPubkey={isMembershipArrival ? payload.target : payload.actor}
-          agentPubkeys={agentPubkeys}
-          currentPubkey={currentPubkey}
-          personaLookup={personaLookup}
-          profiles={profiles}
-          targetPubkey={isMembershipArrival ? undefined : payload.target}
-        />
+      <div className="flex items-start">
         <div
           className={cn(
             MESSAGE_MARKDOWN_CLASS,

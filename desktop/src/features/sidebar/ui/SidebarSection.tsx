@@ -1,13 +1,5 @@
 import type * as React from "react";
-import {
-  BellOff,
-  ChevronDown,
-  CircleDot,
-  FileText,
-  MessagesSquare,
-  Lock,
-  X,
-} from "lucide-react";
+import { BellOff, ChevronDown, X } from "lucide-react";
 
 import {
   ContextMenu,
@@ -17,20 +9,13 @@ import {
 
 import { ChannelContextMenuItems } from "@/features/sidebar/ui/ChannelContextMenu";
 import type { ActiveChannelTurnSummary } from "@/features/agents/activeAgentTurnsStore";
-import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
 import { formatElapsed } from "@/features/agents/ui/agentSessionUtils";
+import { ConversationTypeIcon } from "@/features/channels/ui/ConversationTypeIcon";
 import { getEphemeralChannelDisplay } from "@/features/channels/lib/ephemeralChannel";
 import { EphemeralChannelBadge } from "@/features/channels/ui/EphemeralChannelBadge";
-import {
-  DEFAULT_HOVER_PROFILE_STATUS_GEOMETRY,
-  ProfileAvatarWithStatus,
-  scaleProfileAvatarStatusGeometry,
-} from "@/features/profile/ui/ProfileAvatarWithStatus";
 import type { Channel, PresenceStatus } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
-import { normalizePubkey } from "@/shared/lib/pubkey";
 import { useNow } from "@/shared/lib/useNow";
-import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -52,12 +37,6 @@ const SIDEBAR_ROW_ACTION_REPLACED_BADGE_CLASS =
   "max-md:opacity-0 md:group-focus-within/menu-item:opacity-0 md:group-hover/menu-item:opacity-0";
 const SIDEBAR_ROW_ICON_ACTION_CLASS =
   "flex size-6 items-center justify-center p-1 text-sidebar-foreground/45 transition-colors hover:text-sidebar-foreground focus-visible:text-sidebar-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sidebar-ring peer-data-[active=true]/menu-button:text-sidebar-active-foreground/75 peer-data-[active=true]/menu-button:hover:text-sidebar-active-foreground [&>svg]:size-4 [&>svg]:shrink-0";
-const DM_AVATAR_SIZE = 24;
-const DM_AVATAR_STATUS_GEOMETRY = scaleProfileAvatarStatusGeometry(
-  DEFAULT_HOVER_PROFILE_STATUS_GEOMETRY,
-  DM_AVATAR_SIZE,
-);
-
 function formatUnreadCount(count: number): string {
   return count > 99 ? "99+" : String(count);
 }
@@ -160,132 +139,6 @@ export type SidebarDmParticipant = {
   pubkey: string;
 };
 
-function DmChannelIcon({
-  channelName,
-  isPair,
-  participants,
-  presenceStatus,
-}: {
-  channelName: string;
-  isPair: boolean;
-  participants?: SidebarDmParticipant[];
-  presenceStatus?: PresenceStatus;
-}) {
-  const knownAgentPubkeys = useKnownAgentPubkeys();
-  const primaryParticipant = participants?.[0];
-
-  if (!primaryParticipant) {
-    return <CircleDot className="h-4 w-4" />;
-  }
-
-  if (!isPair && participants && participants.length > 1) {
-    return (
-      <span
-        aria-hidden="true"
-        className="flex h-6 w-7 shrink-0 items-center"
-        data-testid={`channel-dm-count-${channelName}`}
-      >
-        {participants.slice(0, 2).map((participant, index) => {
-          const isAgent = knownAgentPubkeys.has(
-            normalizePubkey(participant.pubkey),
-          );
-          return isAgent ? (
-            <AgentIdentitySpecimen
-              accessibleName={participant.label}
-              className={cn(index > 0 && "-ml-1.5")}
-              key={participant.pubkey}
-              publicKey={participant.pubkey}
-              size={20}
-              state="present"
-            />
-          ) : (
-            <ProfileAvatarWithStatus
-              avatarClassName="bg-sidebar-accent text-3xs text-sidebar-foreground shadow-none"
-              avatarUrl={participant.avatarUrl}
-              className={cn("h-5 w-5", index > 0 && "-ml-1.5")}
-              geometry={scaleProfileAvatarStatusGeometry(
-                DEFAULT_HOVER_PROFILE_STATUS_GEOMETRY,
-                20,
-              )}
-              iconClassName="h-3 w-3"
-              key={participant.pubkey}
-              label={participant.label}
-              size={20}
-            />
-          );
-        })}
-      </span>
-    );
-  }
-
-  if (isPair || !participants || participants.length <= 1) {
-    if (knownAgentPubkeys.has(normalizePubkey(primaryParticipant.pubkey))) {
-      return (
-        <AgentIdentitySpecimen
-          accessibleName={primaryParticipant.label}
-          publicKey={primaryParticipant.pubkey}
-          size={20}
-          state={presenceStatus === "offline" ? "unavailable" : "present"}
-        />
-      );
-    }
-
-    return (
-      <span className="relative flex h-6 w-6 shrink-0 items-center justify-center">
-        <ProfileAvatarWithStatus
-          avatarClassName="bg-sidebar-accent/80 text-2xs text-sidebar-foreground shadow-none"
-          avatarUrl={primaryParticipant.avatarUrl}
-          className="h-6 w-6"
-          geometry={DM_AVATAR_STATUS_GEOMETRY}
-          iconClassName="h-3.5 w-3.5"
-          label={primaryParticipant.label}
-          size={DM_AVATAR_SIZE}
-          status={presenceStatus}
-          statusTestId={`channel-presence-${channelName}`}
-        />
-      </span>
-    );
-  }
-
-  return <CircleDot className="h-4 w-4" />;
-}
-
-function SidebarChannelIcon({
-  channel,
-  dmParticipants,
-  presenceStatus,
-}: {
-  channel: Channel;
-  dmParticipants?: SidebarDmParticipant[];
-  presenceStatus?: PresenceStatus;
-}) {
-  if (channel.channelType === "dm") {
-    return (
-      <DmChannelIcon
-        channelName={channel.name}
-        isPair={channel.participantPubkeys.length === 2}
-        participants={dmParticipants}
-        presenceStatus={
-          dmParticipants?.length === 1 ||
-          channel.participantPubkeys.length === 2
-            ? presenceStatus
-            : undefined
-        }
-      />
-    );
-  }
-
-  if (channel.visibility === "private") {
-    return <Lock className="h-4 w-4" />;
-  }
-
-  if (channel.channelType === "forum") {
-    return <FileText className="h-4 w-4" />;
-  }
-
-  return <MessagesSquare className="h-4 w-4" />;
-}
-
 export function ChannelMenuButton({
   channel,
   label,
@@ -294,8 +147,6 @@ export function ChannelMenuButton({
   unreadCount = 0,
   activeWorking,
   isMuted,
-  dmParticipants,
-  presenceStatus,
   onSelectChannel,
 }: {
   channel: Channel;
@@ -329,21 +180,13 @@ export function ChannelMenuButton({
       tooltip={resolvedLabel}
       type="button"
     >
-      <SidebarChannelIcon
+      <ConversationTypeIcon
         channel={channel}
-        dmParticipants={dmParticipants}
-        presenceStatus={presenceStatus}
+        className="text-sidebar-foreground/55"
       />
       <span className="min-w-0 flex-1 truncate" data-sidebar-row-label>
         {resolvedLabel}
       </span>
-      {/* The fingerprint is deliberately gone from this row. It keyed off the
-          WINDOW width (`xl:inline`), not the rail's, so on a wide window it
-          appeared inside a 220px rail and truncated the resident's NAME to make
-          room for a hex string — exactly the wrong priority. It is also
-          redundant now: the mark to the left IS the fingerprint, derived from
-          the same key and stable forever. The full value still lives on the
-          specimen's title attribute and the profile panel. */}
       {ephemeralDisplay ? (
         <EphemeralChannelBadge
           display={ephemeralDisplay}

@@ -11,22 +11,24 @@ import {
   getKeyboardSearchSelection,
   rankUserCandidatesBySearch,
 } from "@/features/profile/lib/userCandidateSearch";
+import { resolveIdentityDisplayName } from "@/features/profile/lib/identity";
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import { SelectedRecipientChip } from "@/features/profile/ui/SelectedRecipientChip";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import type { UserSearchResult } from "@/shared/api/types";
-import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
+import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Popover, PopoverAnchor, PopoverContent } from "@/shared/ui/popover";
 import { Skeleton } from "@/shared/ui/skeleton";
 
 const RECIPIENT_LIMIT = 8;
 
 export function formatShareRecipientName(user: UserSearchResult) {
-  return (
-    user.displayName?.trim() ||
-    user.nip05Handle?.trim() ||
-    truncatePubkey(user.pubkey)
-  );
+  return resolveIdentityDisplayName({
+    displayName: user.displayName,
+    isAgent: user.isAgent,
+    nip05Handle: user.nip05Handle,
+    pubkey: user.pubkey,
+  });
 }
 
 export function PersonaShareRecipients({

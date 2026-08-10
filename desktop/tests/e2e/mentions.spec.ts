@@ -1293,7 +1293,7 @@ test("system agent profile only exposes message action", async ({ page }) => {
   );
 });
 
-test("system agent avatar only exposes message action", async ({ page }) => {
+test("system agent name only exposes message action", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("channel-random").click();
   await expect(page.getByTestId("chat-title")).toHaveText("random");
@@ -1322,7 +1322,7 @@ test("system agent avatar only exposes message action", async ({ page }) => {
     .getByTestId("system-message-row")
     .filter({ hasText: "mira" })
     .filter({ hasText: "joined the channel" });
-  await joinedRow.getByTestId("system-message-avatar").hover();
+  await joinedRow.getByText("mira", { exact: true }).hover();
 
   const profilePopover = page.locator(
     '[data-testid="user-profile-popover"][data-state="open"]',

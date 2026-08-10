@@ -35,7 +35,7 @@ export function ConversationIntro({
       className={cn("flex w-full flex-col items-start px-3 pb-2", className)}
       data-testid="conversation-intro"
     >
-      <div className="flex -space-x-2">
+      <div className="flex gap-2">
         {markSeeds.slice(0, 3).map((seed) => (
           <AgentIdentitySpecimen
             accessibleName={title}

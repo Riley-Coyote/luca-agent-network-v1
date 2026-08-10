@@ -1,4 +1,4 @@
-import { UsersRound, X } from "lucide-react";
+import { UserRound, UsersRound, X } from "lucide-react";
 import * as React from "react";
 
 import { useUsersBatchQuery } from "@/features/profile/hooks";
@@ -6,7 +6,7 @@ import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
-import { truncatePubkey } from "@/shared/lib/pubkey";
+import { resolveIdentityDisplayName } from "@/features/profile/lib/identity";
 
 type ParticipantListProps = {
   /** Pubkey hex strings from the Rust huddle state */
@@ -76,10 +76,13 @@ export function HuddleParticipantsControl({
         <ul className="flex max-h-64 list-none flex-col gap-1 overflow-y-auto">
           {participants.map((pubkey) => {
             const profile = profiles[pubkey.toLowerCase()];
-            const displayName =
-              profile?.displayName || `Participant ${truncatePubkey(pubkey)}`;
             const isActive = activeSpeakers?.includes(pubkey);
             const isAgent = agentSet.has(pubkey);
+            const displayName = resolveIdentityDisplayName({
+              displayName: profile?.displayName,
+              isAgent,
+              pubkey,
+            });
 
             return (
               <li
@@ -89,7 +92,7 @@ export function HuddleParticipantsControl({
                 {profile?.displayName || profile?.avatarUrl ? (
                   <ProfileAvatar
                     avatarUrl={profile.avatarUrl ?? null}
-                    label={profile.displayName || pubkey.slice(0, 6)}
+                    label={displayName}
                     className={cn(
                       "h-8 w-8 rounded-full text-2xs",
                       isActive &&
@@ -130,7 +133,7 @@ export function HuddleParticipantsControl({
   );
 }
 
-/** Compact hex-prefix avatar for participants without a loaded profile. */
+/** Stable tonal avatar for participants without a loaded profile. */
 function HexAvatar({
   pubkey,
   isActive,
@@ -140,14 +143,16 @@ function HexAvatar({
   isActive?: boolean;
   size?: "md" | "lg";
 }) {
-  const shortId = pubkey.slice(0, 6).toUpperCase();
-  const parsed = parseInt(pubkey.slice(0, 4), 16);
+  const parsed = Number.parseInt(
+    pubkey.match(/^[0-9a-f]{1,4}/i)?.[0] ?? "",
+    16,
+  );
   const hue = Number.isNaN(parsed) ? 0 : parsed % 360;
   const sat = Number.isNaN(parsed) ? 0 : 60;
 
   return (
     <div
-      aria-label={`Participant ${truncatePubkey(pubkey)}`}
+      aria-label="Participant identity mark"
       role="img"
       className={cn(
         "flex items-center justify-center rounded-full font-semibold shadow-xs",
@@ -160,7 +165,7 @@ function HexAvatar({
         color: "#fff",
       }}
     >
-      {size === "lg" ? shortId : <UsersRound className="h-4 w-4" />}
+      <UserRound className={size === "lg" ? "h-4 w-4" : "h-3.5 w-3.5"} />
     </div>
   );
 }

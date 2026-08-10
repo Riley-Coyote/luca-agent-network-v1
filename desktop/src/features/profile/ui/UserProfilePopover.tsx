@@ -44,6 +44,10 @@ import type { Channel, RelayEvent } from "@/shared/api/types";
 import { KIND_STREAM_MESSAGE } from "@/shared/constants/kinds";
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
+import {
+  resolveIdentityDisplayName,
+  resolveSelfDisplayName,
+} from "@/features/profile/lib/identity";
 
 import { Popover, PopoverAnchor, PopoverContent } from "@/shared/ui/popover";
 import { BotIdenticon } from "@/features/messages/ui/BotIdenticon";
@@ -233,7 +237,12 @@ export function UserProfilePopover({
       relayAgentsQuery.isPending ||
       managedAgentsQuery.isPending ||
       usersBatchQuery.isPending);
-  const displayName = profile?.displayName ?? truncatePubkey(pubkey);
+  const displayName = resolveIdentityDisplayName({
+    displayName: profile?.displayName,
+    isAgent: isBotProfile,
+    nip05Handle: profile?.nip05Handle,
+    pubkey,
+  });
   // Owner signal mirrors UserProfilePanel: a declared NIP-OA owner whose agent
   // runs elsewhere holds no local seckey, so key custody (`isOwner`) alone
   // wrongly hides the affordance from them — and gating on bot-ness alone shows
@@ -416,10 +425,11 @@ export function UserProfilePopover({
       const dm =
         findCachedOneToOneDm(channelsQuery.data, pubkey, currentPubkey) ??
         (await openDmMutation.mutateAsync({ pubkeys: [pubkey] }));
-      const senderName =
-        selfProfileQuery.data?.displayName?.trim() ||
-        identity.displayName.trim() ||
-        truncatePubkey(identity.pubkey);
+      const senderName = resolveSelfDisplayName({
+        identityDisplayName: identity.displayName,
+        profileDisplayName: selfProfileQuery.data?.displayName,
+        pubkey: identity.pubkey,
+      });
       const content = buildWaveMessageContent(senderName);
       const queryKey = channelMessagesKey(dm.id);
 

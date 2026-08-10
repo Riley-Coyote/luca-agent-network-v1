@@ -18,7 +18,10 @@ import {
   useUserSearchFetchMoreOnScroll,
   useUsersBatchQuery,
 } from "@/features/profile/hooks";
-import { formatOwnerLabel } from "@/features/profile/lib/identity";
+import {
+  formatOwnerLabel,
+  resolveIdentityDisplayName,
+} from "@/features/profile/lib/identity";
 import { rankUserCandidatesBySearch } from "@/features/profile/lib/userCandidateSearch";
 import { usePresenceQuery } from "@/features/presence/hooks";
 import { useIdentityQuery } from "@/shared/api/hooks";
@@ -57,11 +60,12 @@ const MEMBER_ROW_INSET_DIVIDER_CLASS =
   "after:pointer-events-none after:absolute after:bottom-0 after:left-[3.75rem] after:right-0 after:h-px after:bg-border/60 after:content-[''] last:after:hidden";
 
 function formatAddCandidateName(user: UserSearchResult) {
-  return (
-    user.displayName?.trim() ||
-    user.nip05Handle?.trim() ||
-    truncatePubkey(user.pubkey)
-  );
+  return resolveIdentityDisplayName({
+    displayName: user.displayName,
+    isAgent: user.isAgent,
+    nip05Handle: user.nip05Handle,
+    pubkey: user.pubkey,
+  });
 }
 type AddMemberSearchCandidate = UserSearchResult & {
   isManagedAgent?: boolean;
@@ -572,9 +576,11 @@ export function MembersSidebar({
           }
           member={member}
           memberIsBot={memberIsBot}
-          memberAvatarLabel={
-            member.displayName ?? truncatePubkey(member.pubkey)
-          }
+          memberAvatarLabel={resolveIdentityDisplayName({
+            displayName: member.displayName,
+            isAgent: memberIsBot,
+            pubkey: member.pubkey,
+          })}
           memberLabel={formatMemberName(member, currentPubkey)}
           moderationState={moderationStateByPubkey.get(
             normalizePubkey(member.pubkey),

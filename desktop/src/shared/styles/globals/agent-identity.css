@@ -1,46 +1,21 @@
-/* A resident's avatar: the chip, and the live dot-matrix panel inside it.
+/* A resident's identity mark: a frame-free live dot-matrix panel.
  *
  * The panel does all the state work — see `SCENE_FOR_STATE` in
  * AgentIdentitySpecimen.tsx. There is deliberately no lamp, no badge and no
  * per-cell CSS animation here: the mark IS the state, and a mark that twinkles
- * is a mark you cannot recognise. What is left in this file is only the chip
- * around it. */
+ * is a mark you cannot recognise. The square lattice owns the silhouette; an
+ * avatar chip around it would crop the outer cells and weaken recognition. */
 
 .agent-identity-specimen {
   --agent-specimen-size: 32px;
   align-items: center;
-  background: hsl(var(--mn-glass, var(--mn-floor)));
-  border: 1px solid hsl(var(--mn-border-strong));
-  /* Circular, matching the human avatars (Avatar is `rounded-full`). A mixed
-   * shape language across identity marks reads as two different systems bolted
-   * together; one shape reads as one product. */
-  border-radius: 999px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   display: inline-flex;
   height: var(--agent-specimen-size);
   justify-content: center;
-  overflow: hidden;
+  overflow: visible;
   position: relative;
   width: var(--agent-specimen-size);
-}
-
-.agent-identity-specimen[data-custody="guest"] {
-  border-style: dashed;
-}
-
-.agent-identity-specimen[data-custody="owner"] {
-  box-shadow: inset 0 0 0 1px hsl(var(--mn-ink) / 0.08);
-}
-
-/* An unreachable resident: the chip recedes to a hairline outline and the
- * panel's own `sleep` scene carries the rest. */
-.agent-identity-specimen[data-agent-state="unavailable"] {
-  background: transparent;
-  border-color: hsl(var(--mn-border));
-}
-
-/* Fault is the one state that earns a signal colour, and it is spent on the
- * CHIP, never on the dots. Inside the panel colour means avalanche magnitude;
- * a second colour meaning in the same 20px would make both unreadable. */
-.agent-identity-specimen[data-agent-state="fault"] {
-  border-color: hsl(var(--destructive) / 0.55);
 }

@@ -21,10 +21,13 @@ import {
 } from "@/features/projects/hooks";
 import { projectPullRequestCommentTimelineKind } from "@/features/projects/projectPullRequests.mjs";
 import { relativeTime } from "@/features/projects/lib/projectsViewHelpers";
-import type { UserProfileLookup } from "@/features/profile/lib/identity";
+import {
+  resolveIdentityDisplayName,
+  type UserProfileLookup,
+} from "@/features/profile/lib/identity";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import type { ChannelMember } from "@/shared/api/types";
-import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
+import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Markdown } from "@/shared/ui/markdown";
 import {
   ProjectFeedRow,
@@ -54,11 +57,13 @@ function profileForPubkey(pubkey: string, profiles?: UserProfileLookup) {
 
 function labelForPubkey(pubkey: string, profiles?: UserProfileLookup) {
   const profile = profileForPubkey(pubkey, profiles);
-  return (
-    profile?.displayName?.trim() ||
-    profile?.nip05Handle?.trim() ||
-    truncatePubkey(pubkey)
-  );
+  return resolveIdentityDisplayName({
+    displayName: profile?.displayName,
+    isAgent: profile?.isAgent,
+    name: profile?.name,
+    nip05Handle: profile?.nip05Handle,
+    pubkey,
+  });
 }
 
 function relativeCreatedAt(createdAt: number) {

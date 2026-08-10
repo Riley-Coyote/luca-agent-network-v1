@@ -15,7 +15,8 @@ import {
 import { SearchPromptPlaceholder } from "@/features/search/ui/SearchPromptPlaceholder";
 import type { Channel, SearchHit, UserSearchResult } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
-import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
+import { normalizePubkey } from "@/shared/lib/pubkey";
+import { isIdentityKeyLabel } from "@/features/profile/lib/identity";
 import { Dialog, DialogContent, DialogTitle } from "@/shared/ui/dialog";
 import { useDeferredModalOpen } from "@/shared/ui/deferredModalOpen";
 import {
@@ -143,11 +144,15 @@ function getChannelPreview(channel: Channel) {
 }
 
 function getUserDisplayName(user: UserSearchResult) {
-  return (
-    user.displayName?.trim() ||
-    user.nip05Handle?.trim() ||
-    truncatePubkey(user.pubkey)
-  );
+  const displayName = user.displayName?.trim();
+  const nip05Handle = user.nip05Handle?.trim();
+  if (displayName && !isIdentityKeyLabel(displayName, user.pubkey)) {
+    return displayName;
+  }
+  if (nip05Handle && !isIdentityKeyLabel(nip05Handle, user.pubkey)) {
+    return nip05Handle;
+  }
+  return user.isAgent ? "Agent" : "Person";
 }
 
 function getUserSecondaryLabel(user: UserSearchResult) {
@@ -697,7 +702,7 @@ export function TopbarSearch({
           <UserAvatar
             avatarUrl={result.user.avatarUrl}
             className="h-7 w-7"
-            displayName={userDisplayName ?? result.user.pubkey}
+            displayName={userDisplayName ?? "Person"}
             size="sm"
           />
         ) : (

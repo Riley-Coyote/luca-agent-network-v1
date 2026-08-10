@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  getThreadReplyAvatarCenterRem,
-  getThreadReplyAvatarCenterYRem,
+  getThreadReplyAnchorCenterRem,
+  getThreadReplyAnchorCenterYRem,
   getThreadReplyConnectorLayout,
   getThreadReplyDescendantRailStartYRem,
   getThreadReplyIndentRem,
@@ -17,37 +17,37 @@ test("getThreadReplyIndentRem uses a visible Tailwind spacing step", () => {
   assert.equal(getThreadReplyIndentRem(3), 4.5);
 });
 
-test("avatar center helpers expose the rail anchor points", () => {
-  assert.equal(getThreadReplyAvatarCenterRem(0), 1.875);
-  assert.equal(getThreadReplyAvatarCenterRem(1), 1.875);
-  assert.equal(getThreadReplyAvatarCenterRem(2), 4.125);
-  assert.equal(getThreadReplyAvatarCenterYRem(), 1.375);
-  assert.equal(getThreadReplyDescendantRailStartYRem(), 2.75);
+test("anchor center helpers expose the compact rail points", () => {
+  assert.equal(getThreadReplyAnchorCenterRem(0), 1.25);
+  assert.equal(getThreadReplyAnchorCenterRem(1), 1.25);
+  assert.equal(getThreadReplyAnchorCenterRem(2), 3.5);
+  assert.equal(getThreadReplyAnchorCenterYRem(), 0.75);
+  assert.equal(getThreadReplyDescendantRailStartYRem(), 1.5);
 });
 
-test("getThreadReplyConnectorLayout stops before the child avatar edge", () => {
+test("getThreadReplyConnectorLayout stops before the child content anchor", () => {
   assert.equal(getThreadReplyConnectorLayout(0), null);
   assert.equal(getThreadReplyConnectorLayout(1), null);
   assert.deepEqual(getThreadReplyConnectorLayout(2), {
-    childOffsetRem: 4.125,
-    heightRem: 1.375,
-    parentOffsetRem: 1.875,
-    widthRem: 0.875,
+    childOffsetRem: 3.5,
+    heightRem: 0.75,
+    parentOffsetRem: 1.25,
+    widthRem: 1.5,
   });
   assert.deepEqual(getThreadReplyConnectorLayout(3), {
-    childOffsetRem: 6.375,
-    heightRem: 1.375,
-    parentOffsetRem: 4.125,
-    widthRem: 0.875,
+    childOffsetRem: 5.75,
+    heightRem: 0.75,
+    parentOffsetRem: 3.5,
+    widthRem: 1.5,
   });
 });
 
 test("getThreadReplyConnectorLayout clamps very deep replies to the visible rail", () => {
   assert.deepEqual(getThreadReplyConnectorLayout(99), {
-    childOffsetRem: 15.375,
-    heightRem: 1.375,
-    parentOffsetRem: 13.125,
-    widthRem: 0.875,
+    childOffsetRem: 14.75,
+    heightRem: 0.75,
+    parentOffsetRem: 12.5,
+    widthRem: 1.5,
   });
 });
 

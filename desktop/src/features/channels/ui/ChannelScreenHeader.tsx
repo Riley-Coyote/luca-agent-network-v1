@@ -208,11 +208,10 @@ export function ChannelScreenHeader({
       subtitle={conversationSubtitle}
       leadingContent={
         CONVERSATION_HEADER ? (
-          <span className="mr-1.5 flex shrink-0 -space-x-1.5">
+          <span className="mr-1.5 flex shrink-0 gap-0.5">
             {headerMarkSeeds.map((seed) => (
               <AgentIdentitySpecimen
                 accessibleName={activeChannelTitle ?? "conversation"}
-                className="ring-2 ring-background"
                 key={seed}
                 publicKey={seed}
                 size={20}
@@ -273,27 +272,16 @@ function DmHeaderParticipantStack({
 }) {
   const { hiddenCount, visibleParticipants } =
     getDmParticipantPreview(participants);
-  const stackItemCount = visibleParticipants.length + (hiddenCount > 0 ? 1 : 0);
-
   return (
     <div
       aria-hidden="true"
-      className="mr-1.5 flex shrink-0 items-center"
+      className="mr-1.5 flex shrink-0 items-center gap-1"
       data-testid="chat-header-dm-avatar-stack"
     >
-      {visibleParticipants.map((participant, index) => (
+      {visibleParticipants.map((participant) => (
         <div
-          className={index > 0 ? "-ml-2" : ""}
           data-testid="chat-header-dm-avatar-stack-participant"
           key={participant.pubkey}
-          style={{
-            zIndex: index + 1,
-            ...(index < stackItemCount - 1 && {
-              mask: "radial-gradient(circle 18px at calc(100% + 4px) 50%, transparent 99%, #fff 100%)",
-              WebkitMask:
-                "radial-gradient(circle 18px at calc(100% + 4px) 50%, transparent 99%, #fff 100%)",
-            }),
-          }}
         >
           {agentPubkeys.has(normalizePubkey(participant.pubkey)) ? (
             <AgentIdentitySpecimen
@@ -313,11 +301,7 @@ function DmHeaderParticipantStack({
         </div>
       ))}
       {hiddenCount > 0 ? (
-        <div
-          className={visibleParticipants.length > 0 ? "-ml-2" : ""}
-          data-testid="chat-header-dm-avatar-stack-more"
-          style={{ zIndex: stackItemCount }}
-        >
+        <div data-testid="chat-header-dm-avatar-stack-more">
           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary font-semibold text-secondary-foreground shadow-xs">
             <span className="text-2xs leading-none">+{hiddenCount}</span>
           </span>

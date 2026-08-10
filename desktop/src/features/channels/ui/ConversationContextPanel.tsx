@@ -12,7 +12,10 @@ import * as React from "react";
 import { useChannelMembersQuery } from "@/features/channels/hooks";
 import type { ChannelAgentSessionAgent } from "@/features/channels/ui/useChannelAgentSessions";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
-import { resolveUserLabel } from "@/features/profile/lib/identity";
+import {
+  resolveIdentityDisplayName,
+  resolveUserLabel,
+} from "@/features/profile/lib/identity";
 import type { TimelineMessage } from "@/features/messages/types";
 import type { Channel, ChannelMember } from "@/shared/api/types";
 import {
@@ -23,7 +26,7 @@ import {
   AuxiliaryPanelHeaderGroup,
   AuxiliaryPanelHeaderTitleBlock,
 } from "@/shared/layout/AuxiliaryPanel";
-import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
+import { normalizePubkey } from "@/shared/lib/pubkey";
 import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/cn";
@@ -246,7 +249,7 @@ export function ConversationContextPanel({
                       <span className="mt-0.5 block truncate font-mono text-2xs uppercase tracking-[0.1em] text-muted-foreground">
                         {agent?.agentSource === "managed"
                           ? "Resident · Notebook available"
-                          : `Agent · ${truncatePubkey(member.pubkey)}`}
+                          : "External agent"}
                       </span>
                     </span>
                     <ArrowUpRight className="h-4 w-4 text-muted-foreground/45 transition-colors group-hover:text-foreground" />
@@ -274,7 +277,11 @@ export function ConversationContextPanel({
                     key={normalizePubkey(member.pubkey)}
                   >
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/60 bg-muted/20 text-xs text-muted-foreground">
-                      {(member.displayName ?? truncatePubkey(member.pubkey))
+                      {resolveIdentityDisplayName({
+                        displayName: member.displayName,
+                        isAgent: member.isAgent || member.role === "bot",
+                        pubkey: member.pubkey,
+                      })
                         .slice(0, 1)
                         .toUpperCase()}
                     </span>

@@ -253,7 +253,6 @@ export function ChannelRouteScreen({
 
   return (
     <ProjectRoomWorkspace
-      currentPubkey={identityQuery.data?.pubkey}
       onSelectRoom={(nextChannelId) => void goChannel(nextChannelId)}
       viewModel={projectViewModel}
     >

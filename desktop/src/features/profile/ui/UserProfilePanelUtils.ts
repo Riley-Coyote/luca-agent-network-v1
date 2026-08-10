@@ -8,6 +8,7 @@ import type {
   RelayAgent,
   UpdateManagedAgentInput,
 } from "@/shared/api/types";
+import { resolveIdentityDisplayName } from "@/features/profile/lib/identity";
 import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
 
 export { truncatePubkey };
@@ -235,11 +236,12 @@ export function resolveProfileDisplayName({
   profile: Profile | undefined;
   pubkey: string | null;
 }) {
-  return (
-    profile?.displayName ??
-    persona?.displayName ??
-    (pubkey ? truncatePubkey(pubkey) : "Agent")
-  );
+  return resolveIdentityDisplayName({
+    displayName: profile?.displayName,
+    fallbackName: persona?.displayName,
+    isAgent: true,
+    pubkey,
+  });
 }
 
 export function resolveOwnerHandle(
@@ -250,11 +252,12 @@ export function resolveOwnerHandle(
     return null;
   }
 
-  return (
-    profile?.nip05Handle?.trim() ||
-    profile?.displayName?.trim() ||
-    truncatePubkey(currentPubkey)
-  );
+  return resolveIdentityDisplayName({
+    displayName: profile?.displayName,
+    isSelf: true,
+    nip05Handle: profile?.nip05Handle,
+    pubkey: currentPubkey,
+  });
 }
 
 export function resolveAgentInstruction(

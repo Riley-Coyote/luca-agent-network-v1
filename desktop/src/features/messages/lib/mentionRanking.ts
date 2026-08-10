@@ -1,4 +1,5 @@
-import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
+import { resolveIdentityDisplayName } from "@/features/profile/lib/identity";
+import { normalizePubkey } from "@/shared/lib/pubkey";
 
 export type MentionCandidateForRanking = {
   displayName: string | null;
@@ -63,9 +64,11 @@ export function rankMentionCandidates<T extends MentionCandidateForRanking>(
       const pubkeyLower = candidate.pubkey
         ? normalizePubkey(candidate.pubkey)
         : "";
-      const label =
-        candidate.displayName ??
-        (candidate.pubkey ? truncatePubkey(candidate.pubkey) : "agent");
+      const label = resolveIdentityDisplayName({
+        displayName: candidate.displayName,
+        isAgent: candidate.isAgent,
+        pubkey: candidate.pubkey,
+      });
       const groupRank = getMentionCandidateGroupRank(
         candidate,
         activePersonaIds,

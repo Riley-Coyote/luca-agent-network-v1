@@ -38,6 +38,10 @@ import { SettingsSectionHeader } from "./SettingsSectionHeader";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
 import { FinishPolyphonicSetupRow } from "./FinishPolyphonicSetupRow";
 import { ProtectedOwnerBackupRow } from "./ProtectedOwnerBackupRow";
+import {
+  isIdentityKeyLabel,
+  resolveSelfDisplayName,
+} from "@/features/profile/lib/identity";
 
 type ProfileSettingsCardProps = {
   currentPubkey?: string;
@@ -148,7 +152,12 @@ export function ProfileSettingsCard({
   const updateProfileMutation = useUpdateProfileMutation();
   const profile = profileQuery.data;
 
-  const currentDisplayName = profile?.displayName ?? "";
+  const currentDisplayName = isIdentityKeyLabel(
+    profile?.displayName,
+    profile?.pubkey ?? currentPubkey,
+  )
+    ? ""
+    : (profile?.displayName ?? "");
   const currentAvatarUrl = profile?.avatarUrl ?? "";
   const currentAbout = profile?.about ?? "";
   const [displayNameDraft, setDisplayNameDraft] = React.useState("");
@@ -307,11 +316,11 @@ export function ProfileSettingsCard({
       : "scale-100 opacity-100",
   );
 
-  const resolvedName =
-    nextDisplayName ||
-    profile?.displayName ||
-    fallbackDisplayName ||
-    "Your profile";
+  const resolvedName = resolveSelfDisplayName({
+    identityDisplayName: fallbackDisplayName,
+    profileDisplayName: nextDisplayName || profile?.displayName,
+    pubkey: profile?.pubkey ?? currentPubkey,
+  });
   const resolvedPubkey = profile?.pubkey ?? currentPubkey ?? "Unavailable";
   const nip05Handle = profile?.nip05Handle ?? "Not set";
   const emojiAvatarPreview = React.useMemo(

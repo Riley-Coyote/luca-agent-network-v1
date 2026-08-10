@@ -13,7 +13,6 @@ import {
   EmptyProjectConversation,
   ProjectRoomWorkspace,
 } from "@/features/projects/ui/ProjectRoomWorkspace";
-import { useIdentityQuery } from "@/shared/api/hooks";
 import { usePreviewFeatureWarning } from "@/shared/features";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
@@ -40,7 +39,6 @@ function ProjectDetailRouteComponent() {
   const projectSearch = Route.useSearch();
   const { goChannel } = useAppNavigation();
   const channelsQuery = useChannelsQuery();
-  const identityQuery = useIdentityQuery();
   const channels = channelsQuery.data ?? [];
   const projectCatalog = useRoomProjectCatalog(channels);
   const projectByChannelId = useRoomProjects(channels);
@@ -80,7 +78,6 @@ function ProjectDetailRouteComponent() {
 
   return (
     <ProjectRoomWorkspace
-      currentPubkey={identityQuery.data?.pubkey}
       onSelectRoom={(channelId) => void goChannel(channelId)}
       viewModel={viewModel}
     >

@@ -662,7 +662,7 @@ test("buildMainTimelineEntries renders a relay-only thread summary", () => {
     // Relay returns participants most-recent-first (["alice", "bob"]); the
     // facepile renders them oldest-first so the last replier lands rightmost.
     participants: [
-      { id: "bob", author: "bob", avatarUrl: null },
+      { id: "bob", author: "Person", avatarUrl: null },
       { id: "alice", author: "Alice", avatarUrl: "alice.png" },
     ],
   });

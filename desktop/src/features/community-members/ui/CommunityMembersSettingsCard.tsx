@@ -13,6 +13,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { useUsersBatchQuery } from "@/features/profile/hooks";
+import { resolveIdentityDisplayName } from "@/features/profile/lib/identity";
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import {
   useAddRelayMemberMutation,
@@ -24,7 +25,7 @@ import {
 import type { RelayMember, RelayMemberRole } from "@/shared/api/types";
 import type { UserProfileSummary } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
-import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
+import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import {
   DropdownMenu,
@@ -67,7 +68,10 @@ function isValidHexPubkey(value: string): boolean {
 }
 
 function formatDisplayName(member: RelayMember, displayName?: string | null) {
-  return displayName?.trim() || truncatePubkey(member.pubkey);
+  return resolveIdentityDisplayName({
+    displayName,
+    pubkey: member.pubkey,
+  });
 }
 
 function npubFromPubkey(pubkey: string): string | null {

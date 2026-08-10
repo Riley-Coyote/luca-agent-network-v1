@@ -642,7 +642,7 @@ test("send message to DM channel p-tags the recipient", async ({ page }) => {
     .toContainEqual(["p", TEST_IDENTITIES.alice.pubkey]);
 });
 
-test("shows your avatar on your own message when profile avatar is set", async ({
+test("keeps the transcript avatar-free when a profile avatar is set", async ({
   page,
 }) => {
   const message = `Avatar message ${Date.now()}`;
@@ -664,10 +664,8 @@ test("shows your avatar on your own message when profile avatar is set", async (
 
   const lastMessage = page.getByTestId("message-row").last();
   await expect(lastMessage).toContainText(message);
-  await expect(lastMessage.getByTestId("message-avatar-image")).toHaveAttribute(
-    "src",
-    avatarUrl,
-  );
+  await expect(lastMessage.getByTestId("message-avatar-image")).toHaveCount(0);
+  await expect(lastMessage.getByTestId("message-author")).not.toBeEmpty();
 });
 
 test("focuses one exchange in the main timeline and sends an inline reply", async ({

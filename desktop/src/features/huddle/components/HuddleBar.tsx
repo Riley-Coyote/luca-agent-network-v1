@@ -31,7 +31,7 @@ import { useHuddle } from "../HuddleContext";
 import { AddAgentDialog, type AgentAddResult } from "./AddAgentDialog";
 import { MicControls, SpeakerControls } from "./MicControls";
 import { HuddleParticipantsControl } from "./ParticipantList";
-import { truncatePubkey } from "@/shared/lib/pubkey";
+import { resolveSelfDisplayName } from "@/features/profile/lib/identity";
 
 // Mirrors HuddleState in src-tauri/src/huddle/mod.rs.
 type HuddleState = {
@@ -96,7 +96,7 @@ function clampReactionName(name: string): string {
 }
 
 function fallbackNameForPubkey(pubkey?: string | null): string {
-  return pubkey ? `Participant ${truncatePubkey(pubkey)}` : "Someone";
+  return pubkey ? "Participant" : "Someone";
 }
 
 function parseHuddleReactionEvent(event: RelayEvent) {
@@ -343,9 +343,11 @@ export function HuddleBar({
   const reactionSenderName = React.useMemo(
     () =>
       clampReactionName(
-        profileQuery.data?.displayName?.trim() ||
-          identityQuery.data?.displayName?.trim() ||
-          fallbackNameForPubkey(currentPubkey),
+        resolveSelfDisplayName({
+          identityDisplayName: identityQuery.data?.displayName,
+          profileDisplayName: profileQuery.data?.displayName,
+          pubkey: currentPubkey,
+        }),
       ),
     [
       currentPubkey,

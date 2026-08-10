@@ -56,7 +56,10 @@ import {
   useUserProfileQuery,
   useUsersBatchQuery,
 } from "@/features/profile/hooks";
-import { ownsAuthorAgent } from "@/features/profile/lib/identity";
+import {
+  ownsAuthorAgent,
+  resolveIdentityDisplayName,
+} from "@/features/profile/lib/identity";
 import { resolveProfileActivityAgent } from "@/features/profile/lib/profileActivityAgent";
 import {
   AgentInfoFocusedView,
@@ -80,7 +83,6 @@ import {
   resolveAgentInstruction,
   resolvePanelProfile,
   resolveProfileDisplayName,
-  truncatePubkey,
   type UserProfilePanelProps,
   useRetainedPersona,
 } from "@/features/profile/ui/UserProfilePanelUtils";
@@ -675,11 +677,11 @@ export function UserProfilePanel({
   const ownerHandle = React.useMemo(() => {
     if (ownerPubkey) {
       const ownerProfile = ownerProfileQuery.data;
-      return (
-        ownerProfile?.nip05Handle?.trim() ||
-        ownerProfile?.displayName?.trim() ||
-        truncatePubkey(ownerPubkey)
-      );
+      return resolveIdentityDisplayName({
+        displayName: ownerProfile?.displayName,
+        nip05Handle: ownerProfile?.nip05Handle,
+        pubkey: ownerPubkey,
+      });
     }
 
     if (currentPubkey === undefined || isOwner !== true) {
@@ -687,11 +689,12 @@ export function UserProfilePanel({
     }
 
     const currentProfile = currentProfileQuery.data;
-    return (
-      currentProfile?.nip05Handle?.trim() ||
-      currentProfile?.displayName?.trim() ||
-      truncatePubkey(currentPubkey)
-    );
+    return resolveIdentityDisplayName({
+      displayName: currentProfile?.displayName,
+      isSelf: true,
+      nip05Handle: currentProfile?.nip05Handle,
+      pubkey: currentPubkey,
+    });
   }, [
     currentProfileQuery.data,
     currentPubkey,

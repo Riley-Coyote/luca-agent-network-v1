@@ -6,6 +6,73 @@ export type UserProfileLookup = Record<string, UserProfileSummary>;
 export { truncatePubkey };
 
 /**
+ * Native identity bootstrap uses a shortened npub as transport metadata before
+ * a real profile exists. It is useful in identity details, but it is not a
+ * person's name and must not leak into ordinary conversation chrome.
+ */
+export function isIdentityKeyLabel(
+  value: string | null | undefined,
+  pubkey?: string | null,
+): boolean {
+  const label = value?.trim();
+  if (!label) return false;
+
+  const normalized = label.toLowerCase();
+  if (normalized.startsWith("npub1")) return true;
+  if (/^[0-9a-f]{64}$/i.test(label)) return true;
+  if (/^[0-9a-f]{8}…[0-9a-f]{4}$/i.test(label)) return true;
+
+  const normalizedPubkey = pubkey?.trim() ?? "";
+  const canComparePubkey =
+    /^[0-9a-f]{64}$/i.test(normalizedPubkey) ||
+    normalizedPubkey.toLowerCase().startsWith("npub1");
+  return canComparePubkey
+    ? normalized === truncatePubkey(normalizedPubkey).toLowerCase()
+    : false;
+}
+
+function readableIdentityName(
+  value: string | null | undefined,
+  pubkey?: string | null,
+): string | null {
+  const name = value?.trim();
+  return name && !isIdentityKeyLabel(name, pubkey) ? name : null;
+}
+
+/** Resolve ordinary UI copy for an identity while keeping keys in detail views. */
+export function resolveIdentityDisplayName(input: {
+  displayName?: string | null;
+  fallbackName?: string | null;
+  isAgent?: boolean;
+  isSelf?: boolean;
+  name?: string | null;
+  nip05Handle?: string | null;
+  pubkey?: string | null;
+}): string {
+  return (
+    readableIdentityName(input.displayName, input.pubkey) ??
+    readableIdentityName(input.name, input.pubkey) ??
+    readableIdentityName(input.nip05Handle, input.pubkey) ??
+    readableIdentityName(input.fallbackName, input.pubkey) ??
+    (input.isSelf ? "You" : input.isAgent ? "Agent" : "Person")
+  );
+}
+
+/** Resolve the owner's shell label without treating bootstrap key text as a name. */
+export function resolveSelfDisplayName(input: {
+  identityDisplayName?: string | null;
+  profileDisplayName?: string | null;
+  pubkey?: string | null;
+}): string {
+  return resolveIdentityDisplayName({
+    displayName: input.profileDisplayName,
+    fallbackName: input.identityDisplayName,
+    isSelf: true,
+    pubkey: input.pubkey,
+  });
+}
+
+/**
  * Deep-equal two profile lookups by value. Used to stabilise the merged
  * `messageProfiles` reference at the ChannelScreen boundary: the underlying
  * `users-batch` query re-keys on the full sorted pubkey set, so typing churn
@@ -113,22 +180,17 @@ export function resolveUserLabel(input: {
   }
 
   const profile = getResolvedProfile(pubkey, profiles);
-  const displayName = profile?.displayName?.trim();
-  if (displayName) {
-    return displayName;
-  }
-
-  const nip05Handle = profile?.nip05Handle?.trim();
-  if (nip05Handle) {
-    return nip05Handle;
-  }
-
-  const safeFallback = fallbackName?.trim();
-  if (safeFallback) {
-    return safeFallback;
-  }
-
-  return truncatePubkey(pubkey);
+  return resolveIdentityDisplayName({
+    displayName: profile?.displayName,
+    fallbackName,
+    isAgent: profile?.isAgent,
+    isSelf:
+      typeof currentPubkey === "string" &&
+      normalizePubkey(currentPubkey) === normalizePubkey(pubkey),
+    name: profile?.name,
+    nip05Handle: profile?.nip05Handle,
+    pubkey,
+  });
 }
 
 /**
@@ -153,8 +215,8 @@ export function resolveUserSecondaryLabel(input: {
   profiles?: UserProfileLookup;
 }) {
   const profile = getResolvedProfile(input.pubkey, input.profiles);
-  const displayName = profile?.displayName?.trim();
-  const nip05Handle = profile?.nip05Handle?.trim();
+  const displayName = readableIdentityName(profile?.displayName, input.pubkey);
+  const nip05Handle = readableIdentityName(profile?.nip05Handle, input.pubkey);
 
   if (displayName && nip05Handle) {
     return nip05Handle;
@@ -165,7 +227,7 @@ export function resolveUserSecondaryLabel(input: {
 
 /**
  * Label for an agent's owner: "you" when the current user owns it, otherwise
- * the owner's display name, NIP-05 handle, or truncated pubkey.
+ * the owner's display name, NIP-05 handle, or a semantic owner label.
  */
 export function formatOwnerLabel(
   ownerPubkey: string | null | undefined,
@@ -186,8 +248,9 @@ export function formatOwnerLabel(
 
   const owner = ownerProfiles?.[normalizedOwnerPubkey];
   return (
-    owner?.displayName?.trim() ||
-    owner?.nip05Handle?.trim() ||
-    truncatePubkey(ownerPubkey)
+    readableIdentityName(owner?.displayName, ownerPubkey) ||
+    readableIdentityName(owner?.name, ownerPubkey) ||
+    readableIdentityName(owner?.nip05Handle, ownerPubkey) ||
+    "Owner"
   );
 }

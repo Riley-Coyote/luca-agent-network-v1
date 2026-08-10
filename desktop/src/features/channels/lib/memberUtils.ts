@@ -1,5 +1,5 @@
 import type { ChannelMember } from "@/shared/api/types";
-import { truncatePubkey } from "@/shared/lib/pubkey";
+import { resolveIdentityDisplayName } from "@/features/profile/lib/identity";
 
 export const roleOrder: Record<ChannelMember["role"], number> = {
   owner: 0,
@@ -17,7 +17,11 @@ export function formatMemberName(
     return "You";
   }
 
-  return member.displayName ?? truncatePubkey(member.pubkey);
+  return resolveIdentityDisplayName({
+    displayName: member.displayName,
+    isAgent: member.isAgent || member.role === "bot",
+    pubkey: member.pubkey,
+  });
 }
 
 export function compareMembersByRole(

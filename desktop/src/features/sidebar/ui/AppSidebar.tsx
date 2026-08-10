@@ -59,6 +59,7 @@ import {
   useSidebarLoadingShape,
 } from "@/features/sidebar/ui/sidebarLoadingSkeleton";
 import { useDeferredModalOpen } from "@/shared/ui/deferredModalOpen";
+import { resolveSelfDisplayName } from "@/features/profile/lib/identity";
 import { SidebarUpdateCard } from "@/features/settings/SidebarUpdateCard";
 import { useUpdaterContext } from "@/features/settings/hooks/UpdaterProvider";
 import { shouldShowSidebarUpdateCard } from "@/features/settings/sidebarUpdateCardVisibility";
@@ -417,10 +418,11 @@ export function AppSidebar({
     isLoading,
     streamChannels,
   });
-  const resolvedDisplayName =
-    profile?.displayName?.trim() ||
-    fallbackDisplayName?.trim() ||
-    "Current identity";
+  const resolvedDisplayName = resolveSelfDisplayName({
+    identityDisplayName: fallbackDisplayName,
+    profileDisplayName: profile?.displayName,
+    pubkey: currentPubkey,
+  });
   const {
     scrollToNextAbove,
     scrollToNextBelow,

@@ -18,27 +18,16 @@ export function DirectMessageIntroAvatarStack({
   const knownAgentPubkeys = useKnownAgentPubkeys();
   const { hiddenCount, visibleParticipants } =
     getDmParticipantPreview(participants);
-  const stackItemCount = visibleParticipants.length + (hiddenCount > 0 ? 1 : 0);
-
   return (
     <div
       aria-hidden="true"
-      className="flex shrink-0 items-center"
+      className="flex shrink-0 items-center gap-2"
       data-testid="message-dm-intro-avatar-stack"
     >
-      {visibleParticipants.map((participant, index) => (
+      {visibleParticipants.map((participant) => (
         <div
-          className={index > 0 ? "-ml-5" : ""}
           data-testid="message-dm-intro-avatar-stack-participant"
           key={participant.pubkey}
-          style={{
-            zIndex: index + 1,
-            ...(index < stackItemCount - 1 && {
-              mask: "radial-gradient(circle 34px at calc(100% + 10px) 50%, transparent 99%, #fff 100%)",
-              WebkitMask:
-                "radial-gradient(circle 34px at calc(100% + 10px) 50%, transparent 99%, #fff 100%)",
-            }),
-          }}
         >
           {knownAgentPubkeys.has(normalizePubkey(participant.pubkey)) ? (
             <AgentIdentitySpecimen
@@ -58,11 +47,7 @@ export function DirectMessageIntroAvatarStack({
         </div>
       ))}
       {hiddenCount > 0 ? (
-        <div
-          className={visibleParticipants.length > 0 ? "-ml-5" : ""}
-          data-testid="message-dm-intro-avatar-stack-more"
-          style={{ zIndex: stackItemCount }}
-        >
+        <div data-testid="message-dm-intro-avatar-stack-more">
           <span className="flex h-[60px] w-[60px] items-center justify-center rounded-full bg-secondary font-semibold text-secondary-foreground shadow-xs">
             <span className="text-lg leading-none">+{hiddenCount}</span>
           </span>

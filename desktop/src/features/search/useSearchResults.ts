@@ -14,11 +14,20 @@ import { useSearchMessagesQuery } from "@/features/search/hooks";
 import type { SearchResult } from "@/features/search/ui/SearchResultItem";
 import type { Channel, SearchHit, UserSearchResult } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import { isIdentityKeyLabel } from "@/features/profile/lib/identity";
 
 export const MIN_SEARCH_QUERY_LENGTH = 2;
 
 function formatUserResultName(user: UserSearchResult) {
-  return user.displayName?.trim() || user.nip05Handle?.trim() || user.pubkey;
+  const displayName = user.displayName?.trim();
+  const nip05Handle = user.nip05Handle?.trim();
+  if (displayName && !isIdentityKeyLabel(displayName, user.pubkey)) {
+    return displayName;
+  }
+  if (nip05Handle && !isIdentityKeyLabel(nip05Handle, user.pubkey)) {
+    return nip05Handle;
+  }
+  return user.isAgent ? "Agent" : "Person";
 }
 
 function dedupeSearchHits(hits: SearchHit[]) {

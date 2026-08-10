@@ -276,7 +276,7 @@ test("saves profile metadata from the block Done button", async ({ page }) => {
 
   await openSettings(page, "profile");
   await expect(page.getByTestId("profile-display-name-value")).toHaveText(
-    "npub1mock...",
+    "Not set",
   );
   await expect(page.getByTestId("profile-save")).toHaveCount(0);
 

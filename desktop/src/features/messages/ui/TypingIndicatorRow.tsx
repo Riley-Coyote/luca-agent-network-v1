@@ -8,7 +8,6 @@ import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import type { Channel } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { Shimmer } from "@/shared/ui/Shimmer";
-import { truncatePubkey } from "@/shared/lib/pubkey";
 
 type TypingIndicatorRowProps = {
   channel: Channel | null;
@@ -98,7 +97,7 @@ export function TypingIndicatorRow({
           <div className="flex shrink-0 items-center">
             {typingPubkeys.map((pubkey, index) => {
               const profile = profiles?.[pubkey.toLowerCase()];
-              const label = labels[index] ?? truncatePubkey(pubkey);
+              const label = labels[index] ?? "Someone";
               return (
                 <div
                   key={pubkey}

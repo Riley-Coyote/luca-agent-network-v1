@@ -1,16 +1,11 @@
 import { Square } from "lucide-react";
 import * as React from "react";
 
-import {
-  activityLabel,
-  visualStateForActivity,
-} from "@/features/agents/lib/activityPhase";
+import { activityLabel } from "@/features/agents/lib/activityPhase";
 import type { ChannelAgentActivity } from "@/features/agents/activeAgentTurnsStore";
 import { resolveUserLabel } from "@/features/profile/lib/identity";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import { cn } from "@/shared/lib/cn";
-import { truncatePubkey } from "@/shared/lib/pubkey";
-import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import { Button } from "@/shared/ui/button";
 
 /**
@@ -21,11 +16,9 @@ import { Button } from "@/shared/ui/button";
  * replies are chronological under the quote-reply model, so a pending reply
  * always arrives at the bottom. Nothing needs anchoring to a thread.
  *
- * The mark does the work. A resident's own sigil runs the phosphor scene for
- * what they are actually doing — thinking, tool use, writing — so the wait has
- * texture rather than being a spinner with a name attached. The words stay
- * plain and never carry raw arguments; a shared room is the wrong place for
- * command lines.
+ * Activity is presented as conversation status, not as identity decoration.
+ * The words stay plain and never carry raw arguments; a shared room is the
+ * wrong place for command lines.
  */
 
 /** Below this, an elapsed counter is just noise. Above it, silence starts to
@@ -53,7 +46,7 @@ function formatElapsed(ms: number): string {
 }
 
 function nameFor(pubkey: string, profiles?: UserProfileLookup): string {
-  return resolveUserLabel({ pubkey, profiles }) || truncatePubkey(pubkey);
+  return resolveUserLabel({ pubkey, profiles });
 }
 
 export function PendingReplyRow({
@@ -85,17 +78,10 @@ export function PendingReplyRow({
     >
       {folded ? (
         <div className="flex items-center gap-2 pl-1">
-          <div className="flex -space-x-1.5">
-            {rows.slice(0, 4).map((row) => (
-              <AgentIdentitySpecimen
-                accessibleName={nameFor(row.agentPubkey, profiles)}
-                key={row.turnId}
-                publicKey={row.agentPubkey}
-                size={20}
-                state={visualStateForActivity(row.activity)}
-              />
-            ))}
-          </div>
+          <span
+            aria-hidden
+            className="size-1.5 shrink-0 rounded-full bg-foreground/55 motion-safe:animate-pulse"
+          />
           <span className="text-sm text-muted-foreground">
             {rows.length} residents are working
           </span>
@@ -112,7 +98,7 @@ export function PendingReplyRow({
             >
               <button
                 aria-label={`${name} is ${label || "working"}. Open session.`}
-                className="flex min-w-0 items-center gap-2 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="flex min-w-0 items-center gap-2 rounded-sm text-left outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 onClick={
                   onOpenAgentSession
                     ? () => onOpenAgentSession(row.agentPubkey)
@@ -120,11 +106,9 @@ export function PendingReplyRow({
                 }
                 type="button"
               >
-                <AgentIdentitySpecimen
-                  accessibleName={name}
-                  publicKey={row.agentPubkey}
-                  size={28}
-                  state={visualStateForActivity(row.activity)}
+                <span
+                  aria-hidden
+                  className="size-1.5 shrink-0 rounded-full bg-foreground/55 motion-safe:animate-pulse"
                 />
                 <span className="min-w-0 truncate text-sm text-muted-foreground">
                   <span className="font-medium text-foreground/80">{name}</span>

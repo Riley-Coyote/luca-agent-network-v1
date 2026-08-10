@@ -6,7 +6,10 @@ import { useIsArchivedPredicate } from "@/features/identity-archive/hooks";
 import type { Project, ProjectPullRequest } from "@/features/projects/hooks";
 import { useRequestProjectPullRequestReviewMutation } from "@/features/projects/pullRequestReviews";
 import { useUserSearchQuery } from "@/features/profile/hooks";
-import type { UserProfileLookup } from "@/features/profile/lib/identity";
+import {
+  resolveIdentityDisplayName,
+  type UserProfileLookup,
+} from "@/features/profile/lib/identity";
 import type { UserSearchResult } from "@/shared/api/types";
 import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
@@ -21,19 +24,22 @@ function profileForPubkey(pubkey: string, profiles?: UserProfileLookup) {
 
 function labelForPubkey(pubkey: string, profiles?: UserProfileLookup) {
   const profile = profileForPubkey(pubkey, profiles);
-  return (
-    profile?.displayName?.trim() ||
-    profile?.nip05Handle?.trim() ||
-    truncatePubkey(pubkey)
-  );
+  return resolveIdentityDisplayName({
+    displayName: profile?.displayName,
+    isAgent: profile?.isAgent,
+    name: profile?.name,
+    nip05Handle: profile?.nip05Handle,
+    pubkey,
+  });
 }
 
 function reviewerSearchLabel(user: UserSearchResult) {
-  return (
-    user.displayName?.trim() ||
-    user.nip05Handle?.trim() ||
-    truncatePubkey(user.pubkey)
-  );
+  return resolveIdentityDisplayName({
+    displayName: user.displayName,
+    isAgent: user.isAgent,
+    nip05Handle: user.nip05Handle,
+    pubkey: user.pubkey,
+  });
 }
 
 /** Reviewer status avatars and the reviewer request picker for a pull request. */

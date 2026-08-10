@@ -5,8 +5,11 @@ import type {
   ProjectPullRequestComment,
   ProjectPullRequestCommentAnchor,
 } from "@/features/projects/projectPullRequests.mjs";
-import type { UserProfileLookup } from "@/features/profile/lib/identity";
-import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
+import {
+  resolveIdentityDisplayName,
+  type UserProfileLookup,
+} from "@/features/profile/lib/identity";
+import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Markdown } from "@/shared/ui/markdown";
 
 function commentAuthor(
@@ -14,11 +17,13 @@ function commentAuthor(
   profiles: UserProfileLookup | undefined,
 ) {
   const profile = profiles?.[normalizePubkey(pubkey)];
-  return (
-    profile?.displayName?.trim() ||
-    profile?.nip05Handle?.trim() ||
-    truncatePubkey(pubkey)
-  );
+  return resolveIdentityDisplayName({
+    displayName: profile?.displayName,
+    isAgent: profile?.isAgent,
+    name: profile?.name,
+    nip05Handle: profile?.nip05Handle,
+    pubkey,
+  });
 }
 
 function commentDate(createdAt: number) {

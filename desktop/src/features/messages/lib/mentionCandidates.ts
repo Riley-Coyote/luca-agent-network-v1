@@ -1,6 +1,6 @@
 import { resolveTeamPersonas } from "@/features/agents/lib/teamPersonas";
+import { resolveIdentityDisplayName } from "@/features/profile/lib/identity";
 import type { AgentPersona, AgentTeam, ChannelRole } from "@/shared/api/types";
-import { truncatePubkey } from "@/shared/lib/pubkey";
 
 export type TeamMentionMember = {
   displayName: string;
@@ -28,10 +28,11 @@ export type MentionCandidate = {
 };
 
 export function mentionCandidateLabel(candidate: MentionCandidate) {
-  return (
-    candidate.displayName ??
-    (candidate.pubkey ? truncatePubkey(candidate.pubkey) : "agent")
-  );
+  return resolveIdentityDisplayName({
+    displayName: candidate.displayName,
+    isAgent: candidate.isAgent,
+    pubkey: candidate.pubkey,
+  });
 }
 
 export function globalSearchIdentityKey(candidate: MentionCandidate) {

@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { formatOwnerLabel, profileLookupsEqual } from "./identity.ts";
+import {
+  formatOwnerLabel,
+  isIdentityKeyLabel,
+  profileLookupsEqual,
+  resolveSelfDisplayName,
+  resolveUserLabel,
+} from "./identity.ts";
 
 const OWNER_PUBKEY =
   "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -30,6 +36,62 @@ test("formatOwnerLabel calls the viewer-owned agent's owner you", () => {
 
 test("formatOwnerLabel returns null when verified ownership is absent", () => {
   assert.equal(formatOwnerLabel(null, OWNER_PUBKEY, {}), null);
+});
+
+test("bootstrap npubs are metadata, not display names", () => {
+  assert.equal(isIdentityKeyLabel("npub1example…4f2a", OWNER_PUBKEY), true);
+  assert.equal(
+    resolveSelfDisplayName({
+      identityDisplayName: "npub1example…4f2a",
+      profileDisplayName: null,
+      pubkey: OWNER_PUBKEY,
+    }),
+    "You",
+  );
+});
+
+test("a real profile name wins over the native identity placeholder", () => {
+  assert.equal(
+    resolveSelfDisplayName({
+      identityDisplayName: "npub1example…4f2a",
+      profileDisplayName: "Riley",
+      pubkey: OWNER_PUBKEY,
+    }),
+    "Riley",
+  );
+});
+
+test("ordinary labels never fall back to raw public keys", () => {
+  assert.equal(
+    resolveUserLabel({ pubkey: OWNER_PUBKEY, profiles: {} }),
+    "Person",
+  );
+  assert.equal(
+    resolveUserLabel({
+      pubkey: OWNER_PUBKEY,
+      profiles: {
+        [OWNER_PUBKEY]: summary({
+          displayName: null,
+          isAgent: true,
+          name: null,
+          nip05Handle: null,
+        }),
+      },
+    }),
+    "Agent",
+  );
+});
+
+test("kind-0 name is used when display_name is absent", () => {
+  assert.equal(
+    resolveUserLabel({
+      pubkey: OWNER_PUBKEY,
+      profiles: {
+        [OWNER_PUBKEY]: summary({ displayName: null, name: "Ada Lovelace" }),
+      },
+    }),
+    "Ada Lovelace",
+  );
 });
 
 test("profileLookupsEqual: same reference is equal", () => {

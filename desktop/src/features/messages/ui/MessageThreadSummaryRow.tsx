@@ -1,14 +1,12 @@
 import * as React from "react";
+import { MessageSquare } from "lucide-react";
 
-import type {
-  TimelineThreadSummary,
-  TimelineThreadSummaryParticipant,
-} from "@/features/messages/lib/threadPanel";
+import type { TimelineThreadSummary } from "@/features/messages/lib/threadPanel";
 import type { TimelineMessage } from "@/features/messages/types";
 import type { ThreadDepthGuideAction } from "@/features/messages/ui/MessageRow";
 import { formatThreadSummaryLastReplyTime } from "@/features/messages/lib/dateFormatters";
 import {
-  getThreadReplyAvatarCenterRem,
+  getThreadReplyAnchorCenterRem,
   getThreadReplyIndentRem,
   threadReplyLength,
   THREAD_REPLY_BODY_OFFSET_REM,
@@ -16,43 +14,10 @@ import {
   THREAD_REPLY_ROW_MARGIN_INLINE_REM,
 } from "@/features/messages/lib/threadTreeLayout";
 import { cn } from "@/shared/lib/cn";
-import { UserAvatar } from "@/shared/ui/UserAvatar";
 
 const THREAD_SUMMARY_CONTENT_OFFSET_REM =
   THREAD_REPLY_BODY_OFFSET_REM - THREAD_REPLY_ROW_MARGIN_INLINE_REM;
-const THREAD_SUMMARY_SURFACE_AVATAR_INSET_REM = 0.25;
-
-function ParticipantAvatar({
-  participant,
-  index,
-  participantCount,
-}: {
-  participant: TimelineThreadSummaryParticipant;
-  index: number;
-  participantCount: number;
-}) {
-  return (
-    <div
-      className={index > 0 ? "-ml-1" : ""}
-      data-testid="message-thread-summary-participant"
-      style={{
-        zIndex: index + 1,
-        ...(index < participantCount - 1 && {
-          mask: "radial-gradient(circle 14px at calc(100% + 6px) 50%, transparent 99%, #fff 100%)",
-          WebkitMask:
-            "radial-gradient(circle 14px at calc(100% + 6px) 50%, transparent 99%, #fff 100%)",
-        }),
-      }}
-    >
-      <UserAvatar
-        avatarUrl={participant.avatarUrl}
-        className="h-6 w-6 text-2xs"
-        displayName={participant.author}
-        size="sm"
-      />
-    </div>
-  );
-}
+const THREAD_SUMMARY_SURFACE_ICON_INSET_REM = 0.25;
 
 export function MessageThreadSummaryRow({
   collapseDepthGuideActions,
@@ -94,7 +59,7 @@ export function MessageThreadSummaryRow({
     THREAD_SUMMARY_CONTENT_OFFSET_REM,
   );
   const surfaceInsetStart = `calc(${contentPaddingStart} - ${threadReplyLength(
-    THREAD_SUMMARY_SURFACE_AVATAR_INSET_REM,
+    THREAD_SUMMARY_SURFACE_ICON_INSET_REM,
   )})`;
   const replyLabel = summary.replyCount === 1 ? "reply" : "replies";
   const summaryAriaLabel = expanded
@@ -107,7 +72,7 @@ export function MessageThreadSummaryRow({
     : Array.from({ length: Math.max(0, depth - 1) }, (_, index) => index + 1);
   const depthGuideItems = guideDepths.map((guideDepth) => ({
     depth: guideDepth,
-    offset: getThreadReplyAvatarCenterRem(guideDepth),
+    offset: getThreadReplyAnchorCenterRem(guideDepth),
   }));
   const collapseDepthGuideActionsByDepth = new Map(
     collapseDepthGuideActions?.map((action) => [action.depth, action]) ?? [],
@@ -234,16 +199,10 @@ export function MessageThreadSummaryRow({
             right: 0,
           }}
         />
-        <div className="relative z-10 flex shrink-0 items-center">
-          {summary.participants.map((participant, index) => (
-            <ParticipantAvatar
-              index={index}
-              key={participant.id}
-              participant={participant}
-              participantCount={summary.participants.length}
-            />
-          ))}
-        </div>
+        <MessageSquare
+          aria-hidden
+          className="relative z-10 size-3.5 shrink-0 text-muted-foreground/65"
+        />
         <div className="relative z-10 min-w-0">
           <div>
             <span className="font-medium transition-colors group-hover:text-foreground">

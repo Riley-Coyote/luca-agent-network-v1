@@ -12,6 +12,7 @@ import {
 } from "@/features/moderation/hooks";
 import { useMyRelayMembershipQuery } from "@/features/community-members/hooks";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
+import { resolveIdentityDisplayName } from "@/features/profile/lib/identity";
 import {
   deleteMessage,
   getEventById,
@@ -210,7 +211,10 @@ function ReporterLine({
   report: ModerationReport;
   displayName?: string | null;
 }) {
-  const who = displayName?.trim() || truncatePubkey(report.reporterPubkey);
+  const who = resolveIdentityDisplayName({
+    displayName,
+    pubkey: report.reporterPubkey,
+  });
   return (
     <div className="rounded-md border border-border/50 bg-background/50 px-2.5 py-1.5">
       <div className="flex flex-wrap items-center gap-1.5 text-xs">
@@ -458,7 +462,10 @@ function AuditRow({
   action: ModerationAction;
   actorName?: string | null;
 }) {
-  const who = actorName?.trim() || truncatePubkey(action.actorPubkey);
+  const who = resolveIdentityDisplayName({
+    displayName: actorName,
+    pubkey: action.actorPubkey,
+  });
   const targetShort = action.targetPubkey
     ? truncatePubkey(action.targetPubkey)
     : action.targetEventId
