@@ -8,8 +8,8 @@ export function AgentDefaultsSettingsCard() {
       data-testid="settings-global-agent-config"
     >
       <SectionHeader
-        title="Resident defaults"
-        description="Provider, model, effort, and environment settings inherited by Luca-created residents. Resident-specific settings always take priority."
+        title="Agent defaults"
+        description="Runtime, model, effort, and environment settings inherited by new Polyphonic Agents. Explicit agent settings always take priority."
       />
       <AgentDefaultsEditor />
     </section>

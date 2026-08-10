@@ -324,7 +324,7 @@ export function MobilePairingCard({
   return (
     <section className="min-w-0" data-testid="settings-mobile">
       <SettingsSectionHeader
-        title="Mobile"
+        title="Mobile & devices"
         description={
           <>
             Connect the Luca mobile app to this relay by scanning a QR code. The
@@ -338,9 +338,10 @@ export function MobilePairingCard({
         <SettingsOptionRow className="gap-3">
           <Smartphone className="h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium">Pair Mobile Device</p>
+            <p className="text-sm font-medium">Pair mobile companion</p>
             <p className="text-sm font-normal text-muted-foreground">
-              Securely transfer your identity via NIP-AB protocol
+              Create an encrypted one-time pairing session. Luca does not
+              fabricate a persistent device registry.
             </p>
           </div>
           <Button

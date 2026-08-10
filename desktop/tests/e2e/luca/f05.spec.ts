@@ -25,10 +25,12 @@ test("Luca renders an opaque dark shell at desktop and minimum supported widths"
   await expect
     .poll(() =>
       page.evaluate(() =>
-        document.documentElement.style.getPropertyValue("--background").trim(),
+        getComputedStyle(document.documentElement)
+          .getPropertyValue("--mn-surface")
+          .trim(),
       ),
     )
-    .toBe("222 18% 8%");
+    .toBe("220 8% 2.1%");
 
   await expect(page.locator("html")).toHaveAttribute("data-buzz-sidebar", "");
   await expect(page.locator("html")).toHaveClass(/dark/);
@@ -36,9 +38,22 @@ test("Luca renders an opaque dark shell at desktop and minimum supported widths"
     "background-image",
     "none",
   );
+  const resolveShellColor = async (token: string) =>
+    page.evaluate((tokenName) => {
+      const probe = document.createElement("div");
+      const value = getComputedStyle(document.documentElement)
+        .getPropertyValue(tokenName)
+        .trim();
+      probe.style.backgroundColor = `hsl(${value})`;
+      document.body.append(probe);
+      const color = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return color;
+    }, token);
+
   await expect(page.locator("[data-buzz-content-surface]")).toHaveCSS(
     "border-top-color",
-    "rgb(46, 49, 56)",
+    await resolveShellColor("--mn-border"),
   );
 
   const hoverChannel = page.getByTestId("channel-random");

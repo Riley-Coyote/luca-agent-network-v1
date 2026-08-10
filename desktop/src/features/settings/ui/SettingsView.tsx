@@ -1,6 +1,6 @@
 import * as React from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Menu } from "lucide-react";
 
 import { topChromeBackdrop } from "@/shared/layout/chromeLayout";
 import { cn } from "@/shared/lib/cn";
@@ -43,15 +43,19 @@ const settingsNavGroups: Array<{
 }> = [
   {
     label: "Account",
-    sections: ["profile"],
+    sections: ["profile", "security"],
   },
   {
     label: "Experience",
-    sections: ["appearance", "notifications", "shortcuts"],
+    sections: ["appearance", "notifications", "mobile", "shortcuts"],
   },
   {
-    label: "Agent network",
-    sections: ["agents"],
+    label: "Agent system",
+    sections: ["agents", "connections", "defaults"],
+  },
+  {
+    label: "Application",
+    sections: ["diagnostics", "updates", "about"],
   },
 ];
 
@@ -107,7 +111,12 @@ export function SettingsView({
   onSetSoundForSlot,
   section,
 }: SettingsViewProps) {
-  const { isMobile, open: sidebarOpen, setOpen: setSidebarOpen } = useSidebar();
+  const {
+    isMobile,
+    open: sidebarOpen,
+    setOpen: setSidebarOpen,
+    setOpenMobile,
+  } = useSidebar();
   const visibleSections = settingsSections;
 
   const [isLoaded, setIsLoaded] = React.useState(false);
@@ -164,6 +173,15 @@ export function SettingsView({
         .filter((group) => group.sections.length > 0),
     [visibleSectionByValue],
   );
+  const activeSectionLabel =
+    visibleSectionByValue.get(section)?.label ?? "Settings";
+  const selectSection = React.useCallback(
+    (nextSection: SettingsSection) => {
+      onSectionChange(nextSection);
+      if (isMobile) setOpenMobile(false);
+    },
+    [isMobile, onSectionChange, setOpenMobile],
+  );
 
   return (
     <>
@@ -207,7 +225,7 @@ export function SettingsView({
                     <SettingsSectionButton
                       active={entry.value === section}
                       key={entry.value}
-                      onSelect={onSectionChange}
+                      onSelect={selectSection}
                       section={entry}
                     />
                   ))}
@@ -243,6 +261,30 @@ export function SettingsView({
           className={cn("relative z-10 shrink-0", topChromeBackdrop.height)}
           data-tauri-drag-region
         />
+        {isMobile ? (
+          <header className="relative z-20 flex h-12 shrink-0 items-center justify-between border-b border-border/55 px-3">
+            <button
+              aria-label="Back to app"
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-sm text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+              onClick={onClose}
+              type="button"
+            >
+              <ArrowLeft className="size-4" />
+              App
+            </button>
+            <span className="truncate px-3 text-sm font-medium">
+              {activeSectionLabel}
+            </span>
+            <button
+              aria-label="Open settings navigation"
+              className="inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+              onClick={() => setOpenMobile(true)}
+              type="button"
+            >
+              <Menu className="size-4" />
+            </button>
+          </header>
+        ) : null}
         <div
           className="relative z-10 mb-2 ml-px mr-2 mt-px flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-background shadow-content-edge"
           data-buzz-content-surface
@@ -253,7 +295,10 @@ export function SettingsView({
             data-testid="settings-content-scroll"
           >
             <div
-              className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-4"
+              className={cn(
+                "mx-auto flex min-h-full w-full flex-col gap-4",
+                section === "agents" ? "max-w-6xl" : "max-w-4xl",
+              )}
               data-testid={`settings-panel-${section}`}
             >
               {renderSettingsSection(section, {

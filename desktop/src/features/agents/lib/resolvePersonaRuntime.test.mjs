@@ -36,7 +36,7 @@ test("resolvePersonaRuntime — no personaRuntimeId and no defaultRuntime return
   const result = resolvePersonaRuntime(null, runtimes, null);
   assert.equal(result.runtime, null);
   assert.equal(result.warnings.length, 1);
-  assert.match(result.warnings[0], /No agent runtimes are available/);
+  assert.match(result.warnings[0], /No supported runtime is available/);
   assert.equal(result.isOverridden, false);
 });
 

@@ -104,7 +104,7 @@ function IdentityRow({
   );
 }
 
-function ProtectedOwnerBackupRow() {
+export function ProtectedOwnerBackupRow() {
   const [isOpen, setIsOpen] = React.useState(false);
   const [passphrase, setPassphrase] = React.useState("");
   const [confirmation, setConfirmation] = React.useState("");

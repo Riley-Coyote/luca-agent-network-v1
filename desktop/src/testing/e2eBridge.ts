@@ -50,6 +50,10 @@ import type {
   RawAcpRuntimeCatalogEntry,
   RawInstallRuntimeResult,
 } from "@/shared/api/tauri";
+import type {
+  LucaMcpRegistryV1,
+  SaveLucaMcpConnectionInputV1,
+} from "@/shared/api/tauriMcp";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
 type TestIdentity = {
@@ -2681,6 +2685,54 @@ let mockWebsocketSendMutexWedged = false;
 let mockClosedChannelLiveSubscription = false;
 const realSockets = new Map<number, WebSocket>();
 let mockManagedAgents: MockManagedAgent[] = [];
+
+let mockMcpConnectionSequence = 1;
+let mockLucaMcpRegistry: LucaMcpRegistryV1 = {
+  connections: [],
+  grants: [],
+  health: [],
+};
+
+function resetMockLucaMcpRegistry() {
+  mockMcpConnectionSequence = 1;
+  const connectionId = "11111111-1111-4111-8111-111111111111";
+  mockLucaMcpRegistry = {
+    connections: [
+      {
+        schemaVersion: 1,
+        connectionId,
+        name: "Local project tools",
+        transport: "stdio",
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-filesystem"],
+        enabled: true,
+        environment: [],
+        createdAt: "2026-08-09T00:00:00Z",
+        updatedAt: "2026-08-09T00:00:00Z",
+      },
+    ],
+    grants: mockManagedAgents[0]
+      ? [
+          {
+            schemaVersion: 1,
+            connectionId,
+            residentPubkey: mockManagedAgents[0].pubkey,
+            grantedAt: "2026-08-09T00:00:00Z",
+          },
+        ]
+      : [],
+    health: [
+      {
+        connectionId,
+        readiness: "ready",
+        toolCount: 4,
+        lastTestedAt: "2026-08-09T00:00:00Z",
+        errorCode: null,
+        diagnostic: "MCP initialize and tools/list succeeded.",
+      },
+    ],
+  };
+}
 
 // Mutable `save_subscriptions` table mirror — TEST-ONLY.
 //
@@ -8948,6 +9000,7 @@ export function maybeInstallE2eTauriMocks() {
   resetMockRelayMembers(config);
   resetMockRelayAgents(config);
   resetMockManagedAgents(config);
+  resetMockLucaMcpRegistry();
   resetMockPersonas(config);
   resetMockTeams(config);
   seedMockSearchProfiles(config);
@@ -10446,6 +10499,175 @@ export function maybeInstallE2eTauriMocks() {
         return getRelayHttpUrl(activeConfig);
       case "relay_requires_membership":
         return activeConfig?.mock?.relayRequiresMembership ?? false;
+      case "list_runtime_connection_status":
+        return [
+          {
+            runtimeId: "claude_code",
+            label: "Claude Code",
+            executable: "/usr/local/bin/claude",
+            version: "verified",
+            readiness: "ready",
+            authentication: "ready",
+            lastVerifiedAt: "2026-08-09T00:00:00Z",
+            reason: null,
+          },
+          {
+            runtimeId: "codex",
+            label: "Codex",
+            executable: "/usr/local/bin/codex",
+            version: "verified",
+            readiness: "ready",
+            authentication: "ready",
+            lastVerifiedAt: "2026-08-09T00:00:00Z",
+            reason: null,
+          },
+          {
+            runtimeId: "hermes",
+            label: "Hermes",
+            executable: "/Users/riley/.local/bin/hermes",
+            version: "native profile",
+            readiness: "ready",
+            authentication: "not_applicable",
+            lastVerifiedAt: "2026-08-09T00:00:00Z",
+            reason: null,
+          },
+          {
+            runtimeId: "openclaw",
+            label: "OpenClaw",
+            executable: "/usr/local/bin/openclaw",
+            version: null,
+            readiness: "degraded",
+            authentication: "not_applicable",
+            lastVerifiedAt: null,
+            reason: "Gateway is currently offline.",
+          },
+        ];
+      case "list_luca_mcp_registry":
+        return structuredClone(mockLucaMcpRegistry);
+      case "save_luca_mcp_connection": {
+        const { input } = payload as { input: SaveLucaMcpConnectionInputV1 };
+        const connectionId =
+          input.connectionId ??
+          `22222222-2222-4222-8222-${String(mockMcpConnectionSequence++).padStart(12, "0")}`;
+        const existing = mockLucaMcpRegistry.connections.find(
+          (connection) => connection.connectionId === connectionId,
+        );
+        const timestamp = "2026-08-09T00:01:00Z";
+        const connection = {
+          schemaVersion: 1 as const,
+          connectionId,
+          name: input.name,
+          transport: "stdio" as const,
+          command: input.command,
+          args: [...input.args],
+          enabled: input.enabled,
+          environment: input.environment.map((binding, index) => {
+            if (binding.kind === "secret") {
+              const retained = existing?.environment.find(
+                (candidate) =>
+                  candidate.kind === "secret" &&
+                  candidate.name === binding.name,
+              );
+              return {
+                name: binding.name,
+                kind: "secret" as const,
+                secretRef:
+                  binding.value == null && retained?.secretRef
+                    ? retained.secretRef
+                    : `luca-mcp-secret:mock-${connectionId}-${index}`,
+              };
+            }
+            return {
+              name: binding.name,
+              kind: "plain" as const,
+              value: binding.value ?? "",
+            };
+          }),
+          createdAt: existing?.createdAt ?? timestamp,
+          updatedAt: timestamp,
+        };
+        mockLucaMcpRegistry.connections = [
+          ...mockLucaMcpRegistry.connections.filter(
+            (candidate) => candidate.connectionId !== connectionId,
+          ),
+          connection,
+        ];
+        mockLucaMcpRegistry.health = [
+          ...mockLucaMcpRegistry.health.filter(
+            (health) => health.connectionId !== connectionId,
+          ),
+          {
+            connectionId,
+            readiness: input.enabled ? "untested" : "disabled",
+            toolCount: null,
+            lastTestedAt: null,
+            errorCode: null,
+            diagnostic: null,
+          },
+        ];
+        return structuredClone(mockLucaMcpRegistry);
+      }
+      case "test_luca_mcp_connection": {
+        const { connectionId } = payload as { connectionId: string };
+        const connection = mockLucaMcpRegistry.connections.find(
+          (candidate) => candidate.connectionId === connectionId,
+        );
+        if (!connection) throw new Error("MCP connection does not exist");
+        const health = {
+          connectionId,
+          readiness: connection.enabled
+            ? ("ready" as const)
+            : ("disabled" as const),
+          toolCount: connection.enabled ? 3 : null,
+          lastTestedAt: "2026-08-09T00:02:00Z",
+          errorCode: null,
+          diagnostic: connection.enabled
+            ? "MCP initialize and tools/list succeeded."
+            : "MCP connection is disabled.",
+        };
+        mockLucaMcpRegistry.health = [
+          ...mockLucaMcpRegistry.health.filter(
+            (candidate) => candidate.connectionId !== connectionId,
+          ),
+          health,
+        ];
+        return health;
+      }
+      case "delete_luca_mcp_connection": {
+        const { connectionId } = payload as { connectionId: string };
+        mockLucaMcpRegistry.connections =
+          mockLucaMcpRegistry.connections.filter(
+            (connection) => connection.connectionId !== connectionId,
+          );
+        mockLucaMcpRegistry.grants = mockLucaMcpRegistry.grants.filter(
+          (grant) => grant.connectionId !== connectionId,
+        );
+        mockLucaMcpRegistry.health = mockLucaMcpRegistry.health.filter(
+          (health) => health.connectionId !== connectionId,
+        );
+        return structuredClone(mockLucaMcpRegistry);
+      }
+      case "set_agent_mcp_grant": {
+        const { connectionId, residentPubkey, granted } = payload as {
+          connectionId: string;
+          residentPubkey: string;
+          granted: boolean;
+        };
+        mockLucaMcpRegistry.grants = mockLucaMcpRegistry.grants.filter(
+          (grant) =>
+            grant.connectionId !== connectionId ||
+            grant.residentPubkey !== residentPubkey,
+        );
+        if (granted) {
+          mockLucaMcpRegistry.grants.push({
+            schemaVersion: 1,
+            connectionId,
+            residentPubkey,
+            grantedAt: "2026-08-09T00:03:00Z",
+          });
+        }
+        return structuredClone(mockLucaMcpRegistry);
+      }
       case "discover_acp_providers":
         return handleDiscoverAcpRuntimes(activeConfig);
       case "discover_native_residents":

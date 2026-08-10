@@ -1,4 +1,5 @@
 import type { AgentPersona, ManagedAgent } from "@/shared/api/types";
+import type { ConfigAuthorityV1 } from "@/shared/api/tauriMcp";
 
 export type ResidentKind =
   | "managed_native"
@@ -35,6 +36,57 @@ export type ResidentSummaryViewModel = {
   lastActiveAt: string | null;
 };
 
+export type AgentConfigurationViewModelV1 = {
+  schemaVersion: 1;
+  resident: ResidentSummaryViewModel;
+  origin: "polyphonic" | "hermes" | "openclaw" | "external";
+  authorities: {
+    identity: ConfigAuthorityV1;
+    nativeBinding: ConfigAuthorityV1;
+    runtime: ConfigAuthorityV1;
+    model: ConfigAuthorityV1;
+    workspace: ConfigAuthorityV1;
+    continuity: ConfigAuthorityV1;
+    permissions: ConfigAuthorityV1;
+    mcpGrants: ConfigAuthorityV1;
+  };
+};
+
+const LUCA_BUILTIN_AGENT_NAMES: Readonly<Record<string, string>> = {
+  "builtin:fizz": "Luca",
+  "builtin:honey": "Vektor",
+  "builtin:bumble": "Anima",
+};
+
+export function agentConfigurationViewModel(
+  resident: ResidentSummaryViewModel,
+): AgentConfigurationViewModelV1 {
+  const isNative = resident.kind === "managed_native";
+  const origin =
+    resident.nativeSource === "hermes"
+      ? "hermes"
+      : resident.nativeSource === "openclaw"
+        ? "openclaw"
+        : resident.kind === "managed_luca" || resident.kind === "persona_only"
+          ? "polyphonic"
+          : "external";
+  return {
+    schemaVersion: 1,
+    resident,
+    origin,
+    authorities: {
+      identity: resident.pubkey ? "harness_locked" : "luca_managed",
+      nativeBinding: isNative ? "native_managed" : "luca_managed",
+      runtime: isNative ? "native_managed" : "luca_managed",
+      model: isNative ? "native_managed" : "inherited",
+      workspace: isNative ? "native_managed" : "inherited",
+      continuity: "luca_managed",
+      permissions: "luca_managed",
+      mcpGrants: resident.pubkey ? "luca_managed" : "unsupported",
+    },
+  };
+}
+
 function namedRuntime(command: string | null | undefined) {
   const normalized = command?.trim().toLowerCase() ?? "";
   if (!normalized) return { label: null, source: null };
@@ -49,6 +101,9 @@ function namedRuntime(command: string | null | undefined) {
   }
   if (normalized.includes("claude")) {
     return { label: "Claude Code", source: "claude_code" as const };
+  }
+  if (normalized === "buzz-agent") {
+    return { label: "Polyphonic runtime", source: "other" as const };
   }
   return {
     label: command?.trim() || null,
@@ -102,11 +157,13 @@ export function personaSummary(
   persona: AgentPersona,
 ): ResidentSummaryViewModel {
   const runtime = namedRuntime(persona.runtime);
+  const displayName =
+    LUCA_BUILTIN_AGENT_NAMES[persona.id] ?? persona.displayName;
   return {
     residentId: `persona:${persona.id}`,
     pubkey: null,
     personaId: persona.id,
-    displayName: persona.displayName,
+    displayName,
     kind: "persona_only",
     availability: "offline",
     nativeSource: runtime.source,

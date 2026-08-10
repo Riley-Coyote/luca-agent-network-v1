@@ -1,13 +1,20 @@
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
+  Activity,
+  BadgeInfo,
   BellRing,
   Bot,
   Check,
   ChevronDown,
   Keyboard,
+  KeyRound,
   MonitorCog,
   Moon,
+  PlugZap,
+  RefreshCw,
+  SlidersHorizontal,
+  Smartphone,
   Sun,
   SunMoon,
   UserRound,
@@ -56,30 +63,51 @@ import {
   useThemePreviewVars,
   withAccentPreviewVars,
 } from "@/shared/theme/useThemePreviewVars";
-import { DoctorSettingsPanel } from "./DoctorSettingsPanel";
 import { KeyboardShortcutsCard } from "./KeyboardShortcutsCard";
 import { NotificationSettingsCard } from "./NotificationSettingsCard";
-import { PreventSleepSettingsCard } from "./PreventSleepSettingsCard";
-import { AgentDefaultsSettingsCard } from "./AgentDefaultsSettingsCard";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
 import { ProfileSettingsCard } from "./ProfileSettingsCard";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
+import { SettingsAgentsPanel } from "./SettingsAgentsPanel";
+import { ConnectionsMcpSettings } from "./ConnectionsMcpSettings";
+import {
+  AboutLucaSettings,
+  DefaultsPermissionsSettings,
+  DiagnosticsSettings,
+  MobileDevicesSettings,
+  SecurityBackupSettings,
+  UpdatesSettings,
+} from "./LucaSettingsSupportPanels";
 
 export type SettingsSection =
   | "profile"
+  | "security"
   | "notifications"
   | "agents"
+  | "connections"
+  | "defaults"
   | "appearance"
-  | "shortcuts";
+  | "mobile"
+  | "shortcuts"
+  | "diagnostics"
+  | "updates"
+  | "about";
 
 export const DEFAULT_SETTINGS_SECTION: SettingsSection = "profile";
 
 const SETTINGS_SECTION_VALUES: readonly SettingsSection[] = [
   "profile",
+  "security",
   "notifications",
   "agents",
+  "connections",
+  "defaults",
   "appearance",
+  "mobile",
   "shortcuts",
+  "diagnostics",
+  "updates",
+  "about",
 ];
 
 export function isSettingsSection(value: unknown): value is SettingsSection {
@@ -117,6 +145,11 @@ export const settingsSections: SettingsSectionDescriptor[] = [
     icon: UserRound,
   },
   {
+    value: "security",
+    label: "Security & backup",
+    icon: KeyRound,
+  },
+  {
     value: "appearance",
     label: "Appearance",
     icon: MonitorCog,
@@ -127,14 +160,44 @@ export const settingsSections: SettingsSectionDescriptor[] = [
     icon: BellRing,
   },
   {
-    value: "agents",
-    label: "Residents",
-    icon: Bot,
+    value: "mobile",
+    label: "Mobile & devices",
+    icon: Smartphone,
   },
   {
     value: "shortcuts",
     label: "Shortcuts",
     icon: Keyboard,
+  },
+  {
+    value: "agents",
+    label: "Agents",
+    icon: Bot,
+  },
+  {
+    value: "connections",
+    label: "Connections & MCP",
+    icon: PlugZap,
+  },
+  {
+    value: "defaults",
+    label: "Defaults & permissions",
+    icon: SlidersHorizontal,
+  },
+  {
+    value: "diagnostics",
+    label: "Diagnostics",
+    icon: Activity,
+  },
+  {
+    value: "updates",
+    label: "Updates",
+    icon: RefreshCw,
+  },
+  {
+    value: "about",
+    label: "About Luca",
+    icon: BadgeInfo,
   },
 ];
 
@@ -708,6 +771,8 @@ export function renderSettingsSection(
           fallbackDisplayName={props.fallbackDisplayName}
         />
       );
+    case "security":
+      return <SecurityBackupSettings />;
     case "notifications":
       return (
         <NotificationSettingsCard
@@ -726,17 +791,23 @@ export function renderSettingsSection(
         />
       );
     case "agents":
-      return (
-        <div className="space-y-12">
-          <PreventSleepSettingsCard />
-          <DoctorSettingsPanel />
-          <AgentDefaultsSettingsCard />
-        </div>
-      );
+      return <SettingsAgentsPanel />;
+    case "connections":
+      return <ConnectionsMcpSettings />;
+    case "defaults":
+      return <DefaultsPermissionsSettings />;
     case "appearance":
       return <ThemeSettingsCard />;
+    case "mobile":
+      return <MobileDevicesSettings currentPubkey={props.currentPubkey} />;
     case "shortcuts":
       return <KeyboardShortcutsCard />;
+    case "diagnostics":
+      return <DiagnosticsSettings />;
+    case "updates":
+      return <UpdatesSettings />;
+    case "about":
+      return <AboutLucaSettings />;
     default: {
       const exhaustiveCheck: never = section;
       return exhaustiveCheck;

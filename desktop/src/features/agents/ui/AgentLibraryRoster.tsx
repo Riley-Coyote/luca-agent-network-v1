@@ -35,6 +35,8 @@ export function AgentLibraryRoster({
   query,
   residents,
   selectedId,
+  showAdd = true,
+  showFooter = true,
 }: {
   filter: AgentLibraryFilter;
   onAdd: () => void;
@@ -46,6 +48,8 @@ export function AgentLibraryRoster({
   query: string;
   residents: ResidentSummaryViewModel[];
   selectedId: string | null;
+  showAdd?: boolean;
+  showFooter?: boolean;
 }) {
   const visible = React.useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
@@ -75,8 +79,7 @@ export function AgentLibraryRoster({
             <h1 className="text-lg font-medium tracking-tight">Agents</h1>
             <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
               <span>
-                {residents.length}{" "}
-                {residents.length === 1 ? "resident" : "residents"}
+                {residents.length} {residents.length === 1 ? "agent" : "agents"}
               </span>
               {isMockPreview() ? (
                 <span className="font-mono text-2xs uppercase tracking-[0.12em] text-muted-foreground/70">
@@ -85,14 +88,16 @@ export function AgentLibraryRoster({
               ) : null}
             </div>
           </div>
-          <Button
-            aria-label="Add agent"
-            onClick={onAdd}
-            size="icon"
-            variant="outline"
-          >
-            <Plus />
-          </Button>
+          {showAdd ? (
+            <Button
+              aria-label="Add agent"
+              onClick={onAdd}
+              size="icon"
+              variant="outline"
+            >
+              <Plus />
+            </Button>
+          ) : null}
         </div>
         <div className="relative block">
           <Search
@@ -142,24 +147,26 @@ export function AgentLibraryRoster({
           <div className="px-5 py-12 text-center">
             <p className="text-sm text-foreground">No matching agents</p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Change the filter or add another resident.
+              Change the filter or add another agent.
             </p>
           </div>
         )}
       </div>
 
-      <footer className="grid grid-cols-2 border-t border-border/55 p-2">
-        <Button className="justify-start" onClick={onGroups} variant="ghost">
-          <UsersRound /> Groups
-        </Button>
-        <Button
-          className="justify-start"
-          onClick={onOpenDefaults}
-          variant="ghost"
-        >
-          <Settings2 /> Defaults
-        </Button>
-      </footer>
+      {showFooter ? (
+        <footer className="grid grid-cols-2 border-t border-border/55 p-2">
+          <Button className="justify-start" onClick={onGroups} variant="ghost">
+            <UsersRound /> Groups
+          </Button>
+          <Button
+            className="justify-start"
+            onClick={onOpenDefaults}
+            variant="ghost"
+          >
+            <Settings2 /> Defaults
+          </Button>
+        </footer>
+      ) : null}
     </aside>
   );
 }
