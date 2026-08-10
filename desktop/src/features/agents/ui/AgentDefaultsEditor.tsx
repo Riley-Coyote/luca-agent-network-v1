@@ -114,7 +114,10 @@ export function AgentDefaultsEditor({
 
   const runtimesQuery = useAcpRuntimesQuery();
   const sortedRuntimes = React.useMemo(
-    () => sortPersonaRuntimes(runtimesQuery.data ?? []),
+    () =>
+      sortPersonaRuntimes(runtimesQuery.data ?? []).filter(
+        (runtime) => runtime.id !== "goose",
+      ),
     [runtimesQuery.data],
   );
   // A missing/stale preference displays the same effective fallback the backend
@@ -132,7 +135,10 @@ export function AgentDefaultsEditor({
   const harnessOptions = React.useMemo(
     () =>
       sortedRuntimes.map((runtime) => ({
-        label: formatRuntimeOptionLabel(runtime),
+        label:
+          runtime.id === "buzz-agent"
+            ? "Luca managed"
+            : formatRuntimeOptionLabel(runtime),
         value: runtime.id,
       })),
     [sortedRuntimes],
@@ -221,13 +227,13 @@ export function AgentDefaultsEditor({
               className="text-sm font-medium text-foreground"
               htmlFor="global-agent-default-harness"
             >
-              Default harness
+              Default runtime
             </label>
             <AgentDropdownSelect
               id="global-agent-default-harness"
               onValueChange={handleHarnessChange}
               options={harnessOptions}
-              placeholder="Select a harness"
+              placeholder="Select a runtime"
               testId="global-agent-default-harness"
               value={selectedRuntime?.id ?? ""}
             />

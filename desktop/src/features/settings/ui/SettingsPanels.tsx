@@ -1,23 +1,13 @@
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
-  Archive,
   BellRing,
   Bot,
   Check,
   ChevronDown,
-  Cpu,
-  Download,
-  FlaskConical,
   Keyboard,
-  LayoutTemplate,
-  LockKeyhole,
-  MessagesSquare,
   MonitorCog,
   Moon,
-  ShieldAlert,
-  Smartphone,
-  Smile,
   Sun,
   SunMoon,
   UserRound,
@@ -28,9 +18,6 @@ import type {
   NotificationSettings,
 } from "@/features/notifications/hooks";
 import type { SoundName, SoundSlot } from "@/features/notifications/lib/sound";
-import { CommunityMembersSettingsCard } from "@/features/community-members/ui/CommunityMembersSettingsCard";
-import { CustomEmojiSettingsCard } from "@/features/custom-emoji/ui/CustomEmojiSettingsCard";
-import { LocalArchiveSettingsCard } from "@/features/local-archive/ui/LocalArchiveSettingsCard";
 import {
   setThreadViewMode,
   useThreadViewMode,
@@ -69,57 +56,30 @@ import {
   useThemePreviewVars,
   withAccentPreviewVars,
 } from "@/shared/theme/useThemePreviewVars";
-import { ChannelTemplatesSettingsCard } from "./ChannelTemplatesSettingsCard";
 import { DoctorSettingsPanel } from "./DoctorSettingsPanel";
-import { ExperimentalFeaturesCard } from "./ExperimentalFeaturesCard";
 import { KeyboardShortcutsCard } from "./KeyboardShortcutsCard";
-import { MeshComputeSettingsCard } from "@/features/mesh-compute/ui/MeshComputeSettingsCard";
-import { MobilePairingCard } from "./MobilePairingCard";
-import { ModerationQueueCard } from "./ModerationQueueCard";
 import { NotificationSettingsCard } from "./NotificationSettingsCard";
 import { PreventSleepSettingsCard } from "./PreventSleepSettingsCard";
 import { AgentDefaultsSettingsCard } from "./AgentDefaultsSettingsCard";
-import { HostedCommunitiesSettingsCard } from "./HostedCommunitiesSettingsCard";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
 import { ProfileSettingsCard } from "./ProfileSettingsCard";
-import { UpdateChecker } from "../UpdateChecker";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
 
 export type SettingsSection =
   | "profile"
   | "notifications"
-  | "experimental"
   | "agents"
-  | "channel-templates"
-  | "compute"
   | "appearance"
-  | "shortcuts"
-  | "hosted-communities"
-  | "community-members"
-  | "moderation"
-  | "custom-emoji"
-  | "local-archive"
-  | "mobile"
-  | "updates";
+  | "shortcuts";
 
 export const DEFAULT_SETTINGS_SECTION: SettingsSection = "profile";
 
 const SETTINGS_SECTION_VALUES: readonly SettingsSection[] = [
   "profile",
   "notifications",
-  "experimental",
   "agents",
-  "channel-templates",
-  "compute",
   "appearance",
   "shortcuts",
-  "hosted-communities",
-  "community-members",
-  "moderation",
-  "custom-emoji",
-  "local-archive",
-  "mobile",
-  "updates",
 ];
 
 export function isSettingsSection(value: unknown): value is SettingsSection {
@@ -133,8 +93,6 @@ export type SettingsSectionDescriptor = {
   value: SettingsSection;
   label: string;
   icon: LucideIcon;
-  /** If set, this section is only visible when the feature is enabled */
-  featureGate?: string;
 };
 
 export type SettingsPanelProps = {
@@ -154,14 +112,14 @@ export type SettingsPanelProps = {
 
 export const settingsSections: SettingsSectionDescriptor[] = [
   {
+    value: "profile",
+    label: "Profile & identity",
+    icon: UserRound,
+  },
+  {
     value: "appearance",
     label: "Appearance",
     icon: MonitorCog,
-  },
-  {
-    value: "profile",
-    label: "Profile",
-    icon: UserRound,
   },
   {
     value: "notifications",
@@ -169,67 +127,14 @@ export const settingsSections: SettingsSectionDescriptor[] = [
     icon: BellRing,
   },
   {
-    value: "experimental",
-    label: "Experiments",
-    icon: FlaskConical,
-  },
-  {
     value: "agents",
-    label: "Agents",
+    label: "Residents",
     icon: Bot,
-    featureGate: "managed-agents",
-  },
-  {
-    value: "channel-templates",
-    label: "Templates",
-    icon: LayoutTemplate,
-    featureGate: "channel-templates",
-  },
-  {
-    value: "compute",
-    label: "Compute",
-    icon: Cpu,
   },
   {
     value: "shortcuts",
     label: "Shortcuts",
     icon: Keyboard,
-  },
-  {
-    value: "hosted-communities",
-    label: "Hosted communities",
-    icon: MessagesSquare,
-  },
-  {
-    value: "community-members",
-    label: "Community access",
-    icon: LockKeyhole,
-  },
-  {
-    value: "moderation",
-    label: "Moderation",
-    icon: ShieldAlert,
-  },
-  {
-    value: "custom-emoji",
-    label: "Custom emoji",
-    icon: Smile,
-    featureGate: "custom-emoji",
-  },
-  {
-    value: "local-archive",
-    label: "Local archive",
-    icon: Archive,
-  },
-  {
-    value: "mobile",
-    label: "Mobile",
-    icon: Smartphone,
-  },
-  {
-    value: "updates",
-    label: "Updates",
-    icon: Download,
   },
 ];
 
@@ -820,8 +725,6 @@ export function renderSettingsSection(
           onSetSoundForSlot={props.onSetSoundForSlot}
         />
       );
-    case "experimental":
-      return <ExperimentalFeaturesCard />;
     case "agents":
       return (
         <div className="space-y-12">
@@ -830,30 +733,10 @@ export function renderSettingsSection(
           <AgentDefaultsSettingsCard />
         </div>
       );
-    case "channel-templates":
-      return <ChannelTemplatesSettingsCard />;
-    case "compute":
-      return <MeshComputeSettingsCard />;
     case "appearance":
       return <ThemeSettingsCard />;
     case "shortcuts":
       return <KeyboardShortcutsCard />;
-    case "hosted-communities":
-      return <HostedCommunitiesSettingsCard />;
-    case "community-members":
-      return (
-        <CommunityMembersSettingsCard currentPubkey={props.currentPubkey} />
-      );
-    case "moderation":
-      return <ModerationQueueCard />;
-    case "custom-emoji":
-      return <CustomEmojiSettingsCard />;
-    case "local-archive":
-      return <LocalArchiveSettingsCard />;
-    case "mobile":
-      return <MobilePairingCard currentPubkey={props.currentPubkey} />;
-    case "updates":
-      return <UpdateChecker />;
     default: {
       const exhaustiveCheck: never = section;
       return exhaustiveCheck;

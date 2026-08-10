@@ -35,23 +35,21 @@ import { Spinner } from "@/shared/ui/spinner";
 import { Switch } from "@/shared/ui/switch";
 
 const RUNTIME_LOGO_URLS: Record<string, string> = {
-  "buzz-agent": "/app-icon@2x.png",
   claude: "/runtime-icons/claude.png",
   codex: "/runtime-icons/codex.png",
-  goose: "/runtime-icons/goose.svg",
 };
 
 const RUNTIME_LOGO_SCALE: Record<string, string> = {
-  "buzz-agent": "scale-110",
   claude: "scale-110",
   codex: "scale-110",
-  goose: "scale-125",
 };
 
 const RUNTIME_SORT_PRIORITY: Record<string, number> = {
-  "buzz-agent": 0,
-  goose: 1,
+  claude: 0,
+  codex: 1,
 };
+
+const LUCA_CREATED_RESIDENT_RUNTIME_IDS = new Set(["claude", "codex"]);
 
 function RuntimeLogo({ runtime }: { runtime: AcpRuntimeCatalogEntry }) {
   const avatarUrl = RUNTIME_LOGO_URLS[runtime.id] ?? runtime.avatarUrl;
@@ -402,9 +400,8 @@ function RuntimeRow({
           <AlertDialogHeader>
             <AlertDialogTitle>Update {runtime.label} adapter?</AlertDialogTitle>
             <AlertDialogDescription>
-              This replaces the machine-wide codex-acp adapter. Older Buzz
-              releases using the legacy adapter may lose community access until
-              @zed-industries/codex-acp@0.16.0 is restored.
+              This replaces the machine-wide codex-acp adapter. Other apps that
+              depend on a legacy adapter may need that version restored.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -469,7 +466,7 @@ function GitBashCard({
         </div>
         {!prerequisite.available ? (
           <div className="mt-3 space-y-1 text-sm text-muted-foreground">
-            <p>Required for buzz-agent shell tools on Windows.</p>
+            <p>Required for compatible local shell tools on Windows.</p>
             <p>{prerequisite.installHint}</p>
           </div>
         ) : null}
@@ -483,11 +480,13 @@ export function DoctorSettingsPanel() {
   const gitBashQuery = useGitBashPrerequisiteQuery();
   const runtimes = React.useMemo(
     () =>
-      [...(runtimesQuery.data ?? [])].sort(
-        (left, right) =>
-          (RUNTIME_SORT_PRIORITY[left.id] ?? Number.MAX_SAFE_INTEGER) -
-          (RUNTIME_SORT_PRIORITY[right.id] ?? Number.MAX_SAFE_INTEGER),
-      ),
+      [...(runtimesQuery.data ?? [])]
+        .filter((runtime) => LUCA_CREATED_RESIDENT_RUNTIME_IDS.has(runtime.id))
+        .sort(
+          (left, right) =>
+            (RUNTIME_SORT_PRIORITY[left.id] ?? Number.MAX_SAFE_INTEGER) -
+            (RUNTIME_SORT_PRIORITY[right.id] ?? Number.MAX_SAFE_INTEGER),
+        ),
     [runtimesQuery.data],
   );
   const isRefreshing = runtimesQuery.isFetching;
@@ -552,8 +551,8 @@ export function DoctorSettingsPanel() {
     >
       <SectionHeader
         className="items-center"
-        title="Agent runtimes"
-        description="Choose which agent tools Luca can use on this device."
+        title="Runtime connections"
+        description="Connect the tools Luca can use to create new residents on this device. Imported Hermes and OpenClaw residents keep their own native bindings."
         action={
           <Button
             disabled={isRefreshing}
@@ -582,17 +581,17 @@ export function DoctorSettingsPanel() {
                 System prerequisites
               </h2>
               <p className="mt-1 text-sm font-normal text-muted-foreground">
-                Windows tools required by supported agents.
+                Windows tools required by supported runtimes.
               </p>
             </div>
             <GitBashCard prerequisite={gitBashQuery.data} />
           </section>
         ) : null}
 
-        <section aria-label="Supported agent runtimes">
+        <section aria-label="Supported resident runtimes">
           {runtimesQuery.isLoading ? (
             <div className="rounded-2xl bg-muted/20 px-4 py-4 text-sm font-normal text-muted-foreground">
-              Checking agent runtimes...
+              Checking runtime connections...
             </div>
           ) : runtimes.length > 0 ? (
             <div className="space-y-3" data-testid="doctor-runtime-list">
@@ -609,7 +608,7 @@ export function DoctorSettingsPanel() {
             </div>
           ) : (
             <div className="rounded-2xl bg-amber-500/10 px-4 py-4 text-sm text-warning">
-              No supported agent runtimes found.
+              No supported runtime connections found.
             </div>
           )}
 

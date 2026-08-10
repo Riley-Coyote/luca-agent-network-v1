@@ -622,7 +622,7 @@ function RestWindowFade({
 }
 
 export default function BuzzLogoAnimation({
-  ariaLabel = "Buzz logo animation",
+  ariaLabel = "Luca mark animation",
   className = "",
   fullScreen = true,
   loop = false,

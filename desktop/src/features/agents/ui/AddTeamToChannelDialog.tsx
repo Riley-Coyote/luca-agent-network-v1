@@ -257,8 +257,8 @@ export function AddTeamToChannelDialog({
 
             {!defaultProvider && !providersQuery.isLoading ? (
               <p className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                No ACP runtimes found. Make sure an agent runtime (e.g. Goose)
-                is installed.
+                No supported runtime found. Connect Claude Code or Codex before
+                adding Luca-created residents.
               </p>
             ) : null}
 

@@ -207,7 +207,7 @@ export function AddCommunityDialog({
         <DialogHeader>
           <DialogTitle>Add Community</DialogTitle>
           <DialogDescription>
-            Connect to another Buzz relay. Each community has its own channels,
+            Connect to another relay. Each community has its own channels,
             messages, and identity.
           </DialogDescription>
         </DialogHeader>

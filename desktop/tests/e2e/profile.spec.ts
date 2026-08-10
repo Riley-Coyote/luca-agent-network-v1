@@ -1129,26 +1129,46 @@ test("renders settings in the app shell with a back button", async ({
 }) => {
   await page.goto("/");
 
-  const inboxNavButton = page
+  const conversationNavButton = page
     .getByTestId("app-sidebar")
-    .getByRole("button", { name: "Inbox" });
-  await expect(inboxNavButton).toBeVisible();
+    .getByRole("button", { name: "New conversation" });
+  await expect(conversationNavButton).toBeVisible();
 
   await openSettings(page);
   await expect(page.getByTestId("settings-sidebar")).toBeVisible();
   await expect(page.getByTestId("settings-back-to-app")).toBeVisible();
   await expect(page.getByPlaceholder("Search everything")).toHaveCount(0);
-  await expect(page.getByText("Personal", { exact: true })).toBeVisible();
+  await expect(page.getByText("Account", { exact: true })).toBeVisible();
   await expect(page.getByTestId("settings-nav-profile")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
-  await expect(page.getByText("Communities", { exact: true })).toBeVisible();
-  await expect(
-    page.getByTestId("settings-nav-channel-templates"),
-  ).toBeVisible();
-  await expect(page.getByText("App", { exact: true })).toBeVisible();
+  await expect(page.getByText("Experience", { exact: true })).toBeVisible();
+  await expect(page.getByText("Agent network", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("settings-nav-appearance")).toBeVisible();
+  await expect(page.getByTestId("settings-nav-notifications")).toBeVisible();
+  await expect(page.getByTestId("settings-nav-shortcuts")).toBeVisible();
   await expect(page.getByTestId("settings-nav-agents")).toBeVisible();
+  for (const removedSection of [
+    "experimental",
+    "compute",
+    "hosted-communities",
+    "channel-templates",
+    "community-members",
+    "moderation",
+    "custom-emoji",
+    "local-archive",
+    "mobile",
+    "updates",
+  ]) {
+    await expect(
+      page.getByTestId(`settings-nav-${removedSection}`),
+    ).toHaveCount(0);
+  }
+  await expect(page.getByText("Communities", { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByTestId("settings-view").getByText(/\bBuzz\b/i),
+  ).toHaveCount(0);
   await expect(
     page.getByTestId("settings-profile").getByRole("heading", {
       exact: true,
@@ -1161,11 +1181,11 @@ test("renders settings in the app shell with a back button", async ({
       name: "Appearance",
     }),
   ).toBeVisible();
-  await expect(inboxNavButton).toHaveCount(0);
+  await expect(conversationNavButton).toHaveCount(0);
 
   await page.getByTestId("settings-back-to-app").click();
-  await expectHomeView(page);
-  await expect(inboxNavButton).toBeVisible();
+  await expect(page.getByTestId("app-sidebar")).toBeVisible();
+  await expect(conversationNavButton).toBeVisible();
 });
 
 test("notification settings drive the Inbox badge and desktop alerts", async ({

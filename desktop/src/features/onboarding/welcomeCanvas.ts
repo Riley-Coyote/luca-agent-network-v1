@@ -1,14 +1,14 @@
 import { getCanvas, setCanvas } from "@/shared/api/tauri";
 
-export const WELCOME_CANVAS_CONTENT = `# Welcome
+export const WELCOME_CANVAS_CONTENT = `# Welcome to Luca
 
-This private channel is your home base for getting oriented. Fizz, Honey, and Bumble can help you learn the app, troubleshoot setup, and work through something you are building.
+This private room is your home base for getting oriented. Your residents can help you learn the app, troubleshoot setup, and work through something you are building.
 
 ## Work with your agents
 
 - Mention an agent when you want its help.
 - Bring multiple agents into the same conversation when you want different perspectives.
-- Keep decisions, progress, and results in the channel so everyone shares the same context.
+- Keep decisions, progress, and results in the room so everyone shares the same context.
 
 ## Try something
 
@@ -16,7 +16,7 @@ Bring the team something you are building, or give them a quick challenge to see
 
 ## Get help
 
-Ask the team a question here, or read the [Buzz user guide](https://github.com/block/buzz#readme).
+Ask a resident a question here, or open Settings to review your identity, appearance, notifications, runtime connections, and shortcuts.
 `;
 
 type WelcomeCanvasClient = {
