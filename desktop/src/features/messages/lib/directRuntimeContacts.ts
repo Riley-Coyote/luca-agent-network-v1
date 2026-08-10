@@ -9,6 +9,7 @@ export type DirectRuntimeContactId = "claude" | "codex";
 
 export type DirectRuntimeContactSpec = {
   displayName: string;
+  iconUrl: string;
   personaId: string;
   runtimeId: DirectRuntimeContactId;
 };
@@ -21,11 +22,13 @@ export type DirectRuntimeContactOption = DirectRuntimeContactSpec & {
 export const DIRECT_RUNTIME_CONTACTS: readonly DirectRuntimeContactSpec[] = [
   {
     displayName: "Claude Code",
+    iconUrl: "/runtime-icons/claude.png",
     personaId: "builtin:direct-runtime:claude",
     runtimeId: "claude",
   },
   {
     displayName: "Codex",
+    iconUrl: "/runtime-icons/codex.png",
     personaId: "builtin:direct-runtime:codex",
     runtimeId: "codex",
   },

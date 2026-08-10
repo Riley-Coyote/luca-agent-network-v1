@@ -1,4 +1,4 @@
-import { ArrowRight, LoaderCircle, SquareTerminal } from "lucide-react";
+import { ArrowRight, LoaderCircle } from "lucide-react";
 
 import type { DirectRuntimeContactOption } from "@/features/messages/lib/directRuntimeContacts";
 
@@ -31,8 +31,14 @@ export function DirectRuntimeContactRow({
       onClick={() => onSelect(contact)}
       type="button"
     >
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/25 text-muted-foreground">
-        <SquareTerminal aria-hidden="true" className="size-4" />
+      <span className="flex size-8 shrink-0 items-center justify-center">
+        <img
+          alt=""
+          aria-hidden="true"
+          className="size-7 rounded-[5px] object-cover"
+          data-testid={`direct-runtime-contact-icon-${contact.runtimeId}`}
+          src={contact.iconUrl}
+        />
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium tracking-tight text-foreground">

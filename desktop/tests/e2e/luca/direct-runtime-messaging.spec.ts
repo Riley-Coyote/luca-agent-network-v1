@@ -69,6 +69,9 @@ for (const runtime of [
     const contact = page.getByTestId(`direct-runtime-contact-${runtime.id}`);
     await expect(contact).toContainText(runtime.label);
     await expect(contact).toContainText("Ready");
+    await expect(
+      page.getByTestId(`direct-runtime-contact-icon-${runtime.id}`),
+    ).toHaveAttribute("src", `/runtime-icons/${runtime.id}.png`);
     await contact.click({ force: true });
 
     const selected = page.locator("button[data-testid^='new-dm-selected-']");

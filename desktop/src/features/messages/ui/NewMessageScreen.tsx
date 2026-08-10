@@ -415,7 +415,7 @@ export function NewMessageScreen() {
               {/* biome-ignore lint/a11y/noStaticElementInteractions: clicking anywhere in the recipient field focuses its input */}
               {/* biome-ignore lint/a11y/useKeyWithClickEvents: the nested combobox is the keyboard-accessible focus target */}
               <div
-                className="group/to-field flex min-h-9 min-w-0 flex-1 cursor-text flex-wrap items-center gap-1.5 py-1"
+                className="group/to-field -mx-2 flex min-h-9 min-w-0 flex-1 cursor-text flex-wrap items-center gap-1.5 rounded-md border border-transparent px-2 py-1 transition-colors duration-150 ease-out focus-within:border-foreground/20 focus-within:bg-muted/15"
                 data-testid="new-message-to-field"
                 onClick={() => {
                   setIsRecipientPickerOpen(true);
@@ -458,7 +458,7 @@ export function NewMessageScreen() {
                   aria-label="To"
                   autoComplete="off"
                   autoCorrect="off"
-                  className="h-7 min-w-32 flex-1 bg-transparent text-base outline-hidden placeholder:text-muted-foreground"
+                  className="h-7 min-w-32 flex-1 bg-transparent text-base outline-hidden placeholder:text-muted-foreground focus-visible:!outline-none"
                   data-testid="new-dm-search"
                   disabled={isPending}
                   id="new-dm-search"
