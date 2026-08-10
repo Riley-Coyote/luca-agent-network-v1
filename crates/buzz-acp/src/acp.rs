@@ -34,6 +34,7 @@ const LUCA_DESCENDANT_FORBIDDEN_ENV: &[&str] = &[
     "LUCA_MANAGED_CONTINUITY_FD",
     "LUCA_MANAGED_COGNITION_FD",
     "LUCA_MANAGED_MCP_FD",
+    "LUCA_MANAGED_PRESENTATION_FD",
     "LUCA_MANAGED_BINDING_REF",
     "BUZZ_ACP_REPOSITORY_MCP_COMMAND",
     "BUZZ_ACP_REPOSITORY_MCP_CONFIG",
@@ -1900,7 +1901,7 @@ impl AcpClient {
         match update_type {
             "agent_message_chunk" => {
                 if let Some(text) = update["content"]["text"].as_str() {
-                    tracing::info!(target: "acp::stream", "{text}");
+                    tracing::debug!(target: "acp::stream", bytes = text.len(), "public response chunk received");
                     if let Some(capture) = self.final_message_capture.as_mut() {
                         if capture.push_agent_message_chunk(text).is_err() {
                             // Bounded accumulation fails closed: an oversized

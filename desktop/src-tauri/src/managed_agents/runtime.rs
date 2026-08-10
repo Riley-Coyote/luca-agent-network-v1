@@ -1784,6 +1784,12 @@ pub fn spawn_agent_child(
         resident_pubkey.clone(),
         session_epoch,
     )?;
+    #[cfg(unix)]
+    let managed_presentation_fd = crate::luca::managed_presentation::create_endpoint(
+        app.clone(),
+        resident_pubkey.clone(),
+        session_epoch,
+    )?;
     let spawn_config_hash = super::spawn_hash::spawn_config_hash(
         record,
         &personas,
@@ -1873,6 +1879,7 @@ pub fn spawn_agent_child(
     command.env("LUCA_MANAGED_CONTINUITY_FD", "4");
     #[cfg(unix)]
     command.env("LUCA_MANAGED_COGNITION_FD", "5");
+    command.env("LUCA_MANAGED_PRESENTATION_FD", "7");
     #[cfg(unix)]
     if managed_mcp_fd.is_some() {
         command.env("LUCA_MANAGED_MCP_FD", "6");
@@ -2198,6 +2205,7 @@ pub fn spawn_agent_child(
         let continuity_fd = managed_continuity_fd.raw_fd();
         let cognition_fd = managed_cognition_fd.raw_fd();
         let mcp_fd = managed_mcp_fd.as_ref().map(|fd| fd.raw_fd());
+        let presentation_fd = managed_presentation_fd.raw_fd();
         unsafe {
             command.pre_exec(move || {
                 super::inherited_fds::install_managed_descriptors(
@@ -2205,6 +2213,7 @@ pub fn spawn_agent_child(
                     continuity_fd,
                     cognition_fd,
                     mcp_fd,
+                    presentation_fd,
                 )
             });
         }

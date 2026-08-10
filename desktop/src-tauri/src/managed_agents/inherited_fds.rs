@@ -13,15 +13,17 @@ pub(crate) fn install_managed_descriptors(
     continuity_fd: RawFd,
     cognition_fd: RawFd,
     mcp_fd: Option<RawFd>,
+    presentation_fd: RawFd,
 ) -> io::Result<()> {
     let sources = [
         Some(permission_fd),
         Some(continuity_fd),
         Some(cognition_fd),
         mcp_fd,
+        Some(presentation_fd),
     ];
-    let targets = [3, 4, 5, 6];
-    let mut copies = [-1; 4];
+    let targets = [3, 4, 5, 6, 7];
+    let mut copies = [-1; 5];
 
     for (index, source) in sources.into_iter().enumerate() {
         let Some(source) = source else { continue };
@@ -50,7 +52,7 @@ pub(crate) fn install_managed_descriptors(
     Ok(())
 }
 
-fn close_copies(copies: [RawFd; 4]) {
+fn close_copies(copies: [RawFd; 5]) {
     for copy in copies {
         if copy != -1 {
             unsafe { libc::close(copy) };

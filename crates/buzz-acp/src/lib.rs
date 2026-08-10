@@ -8,6 +8,7 @@ mod filter;
 mod local_cognition;
 pub mod luca_final_publisher;
 mod managed_mcp_provider;
+mod managed_presentation;
 mod observer;
 mod pool;
 mod queue;
@@ -1255,9 +1256,13 @@ async fn tokio_main() -> Result<()> {
         .unwrap_or_default()
         .as_secs();
 
-    let observer = config
-        .relay_observer
+    let managed_presentation = managed_presentation::ManagedPresentationPublisher::from_env()?;
+    let observer = (config.relay_observer || managed_presentation.is_some())
         .then(observer::ObserverHandle::in_process);
+    let _managed_presentation_task = match (managed_presentation, observer.clone()) {
+        (Some(publisher), Some(observer)) => Some(publisher.spawn(observer)),
+        _ => None,
+    };
     if let Some(handle) = &observer {
         handle.emit(
             "harness_started",

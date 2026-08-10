@@ -1270,6 +1270,18 @@ fn send_prompt_result(
     outcome: PromptOutcome,
     batch: Option<FlushBatch>,
 ) {
+    let terminal_status = match &outcome {
+        PromptOutcome::Ok(_) => "finalizing",
+        PromptOutcome::Cancelled => "cancelled",
+        PromptOutcome::Error(_)
+        | PromptOutcome::AgentExited
+        | PromptOutcome::Timeout(_)
+        | PromptOutcome::CancelDrainTimeout(_) => "failed",
+    };
+    agent.acp.observe(
+        "turn_terminal",
+        serde_json::json!({"status": terminal_status}),
+    );
     agent.acp.clear_steer_rx();
     agent.acp.clear_managed_turn_id();
     let private_output = if matches!(source, PromptSource::Continuity(_))
@@ -1304,19 +1316,35 @@ async fn handoff_managed_final_after_end_turn(
     };
     let Some(batch) = batch else {
         agent.acp.discard_final_message_capture();
+        agent.acp.observe(
+            "turn_publication_terminal",
+            serde_json::json!({"status": "failed"}),
+        );
         return;
     };
     let Some(trigger) = last_eligible_managed_trigger(batch, &context.owner_pubkey) else {
         agent.acp.discard_final_message_capture();
+        agent.acp.observe(
+            "turn_publication_terminal",
+            serde_json::json!({"status": "failed"}),
+        );
         return;
     };
     let Some(draft) = agent.acp.take_final_message_draft(true) else {
+        agent.acp.observe(
+            "turn_publication_terminal",
+            serde_json::json!({"status": "failed"}),
+        );
         return;
     };
     let draft = match draft {
         Ok(draft) => draft,
         Err(error) => {
             tracing::warn!(target: "luca::final", "managed final draft was not publishable: {error}");
+            agent.acp.observe(
+                "turn_publication_terminal",
+                serde_json::json!({"status": "failed"}),
+            );
             return;
         }
     };
@@ -1329,6 +1357,10 @@ async fn handoff_managed_final_after_end_turn(
         Ok(turn) => turn,
         Err(error) => {
             tracing::warn!(target: "luca::final", "managed final routing was invalid: {error}");
+            agent.acp.observe(
+                "turn_publication_terminal",
+                serde_json::json!({"status": "failed"}),
+            );
             return;
         }
     };
@@ -1342,11 +1374,34 @@ async fn handoff_managed_final_after_end_turn(
         .handoff(Arc::clone(&context.broker), draft, now_unix_ms)
         .await
     {
-        Ok(result) => {
+        Ok(
+            result @ (luca_protocol::ManagedMessagePublishResultV1::Published { .. }
+            | luca_protocol::ManagedMessagePublishResultV1::Replayed { .. }),
+        ) => {
             tracing::info!(target: "luca::final", "managed final publication completed: {result:?}")
         }
+        Ok(luca_protocol::ManagedMessagePublishResultV1::Cancelled { .. }) => {
+            agent.acp.observe(
+                "turn_publication_terminal",
+                serde_json::json!({"status": "cancelled"}),
+            );
+        }
+        Ok(
+            luca_protocol::ManagedMessagePublishResultV1::Denied { .. }
+            | luca_protocol::ManagedMessagePublishResultV1::Invalid { .. }
+            | luca_protocol::ManagedMessagePublishResultV1::Unavailable { .. },
+        ) => {
+            agent.acp.observe(
+                "turn_publication_terminal",
+                serde_json::json!({"status": "failed"}),
+            );
+        }
         Err(error) => {
-            tracing::warn!(target: "luca::final", "managed final publication denied or unavailable: {error}")
+            tracing::warn!(target: "luca::final", "managed final publication denied or unavailable: {error}");
+            agent.acp.observe(
+                "turn_publication_terminal",
+                serde_json::json!({"status": "failed"}),
+            );
         }
     }
 }
