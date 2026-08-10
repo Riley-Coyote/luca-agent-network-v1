@@ -521,6 +521,7 @@ mod unix {
                 thread_id: None,
                 root_event_id: None,
                 reply_event_id: None,
+                response_surface: None,
                 resolved_p_tags: Vec::new(),
                 final_draft: "managed final".to_owned(),
                 dispatch_receipt_id: dispatch,

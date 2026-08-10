@@ -12,6 +12,20 @@ pub const MAX_FINAL_DRAFT_BYTES: usize = 65_536;
 /// Maximum number of exact resolved `p` tags.
 pub const MAX_RESOLVED_P_TAGS: usize = 64;
 
+/// App-authorized presentation surface for one managed final response.
+///
+/// This is intentionally independent from the causal NIP-10 references. A
+/// timeline response still names the exact owner trigger, but carries the
+/// existing `broadcast=1` marker so renderers do not treat it as a thread.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ManagedResponseSurfaceV1 {
+    /// Render the signed final as an ordinary chronological conversation turn.
+    Timeline,
+    /// Keep the signed final on the explicit Buzz thread surface.
+    Thread,
+}
+
 /// Validation failure for a managed final-publication request.
 #[derive(Debug, thiserror::Error)]
 pub enum MessagePublishError {
@@ -56,6 +70,11 @@ pub struct ManagedMessagePublishRequestV1 {
     /// Optional direct reply event ID.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reply_event_id: Option<Hex64>,
+    /// Versioned app-authorized response presentation. Missing on legacy V1
+    /// outbox entries and therefore interpreted as the historical thread
+    /// behavior during reconciliation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_surface: Option<ManagedResponseSurfaceV1>,
     /// Exact same-owner mention pubkeys, sorted and unique.
     pub resolved_p_tags: Vec<Hex64>,
     /// One bounded final draft produced after successful ACP termination.
@@ -84,6 +103,7 @@ struct RawManagedMessagePublishRequestV1 {
     thread_id: Option<OpaqueId>,
     root_event_id: Option<Hex64>,
     reply_event_id: Option<Hex64>,
+    response_surface: Option<ManagedResponseSurfaceV1>,
     resolved_p_tags: Vec<Hex64>,
     final_draft: String,
     dispatch_receipt_id: OpaqueId,
@@ -132,6 +152,7 @@ impl<'de> Deserialize<'de> for ManagedMessagePublishRequestV1 {
             thread_id: raw.thread_id,
             root_event_id: raw.root_event_id,
             reply_event_id: raw.reply_event_id,
+            response_surface: raw.response_surface,
             resolved_p_tags: raw.resolved_p_tags,
             final_draft: raw.final_draft,
             dispatch_receipt_id: raw.dispatch_receipt_id,

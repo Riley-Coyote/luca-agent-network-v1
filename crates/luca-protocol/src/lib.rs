@@ -16,7 +16,9 @@ mod continuity;
 mod diagnostic;
 mod frame;
 mod ids;
+mod managed_audience;
 mod managed_permission;
+mod managed_presentation;
 mod message_publish;
 mod notebook;
 mod owner_identity;
@@ -40,15 +42,21 @@ pub use ids::{
     BundleId, CanonicalTimestamp, Hex64, OpaqueId, ProtocolValueError, SafeU53, Sha256Ref,
     JSON_SAFE_INTEGER_MAX,
 };
+pub use managed_audience::{ManagedAudienceIntentV1, MAX_MANAGED_AUDIENCE_RESIDENTS};
 pub use managed_permission::{
     ManagedPermissionDecisionV1, ManagedPermissionDispositionV1, ManagedPermissionError,
     ManagedPermissionOptionV1, ManagedPermissionRequestV1, MANAGED_PERMISSION_PROTOCOL,
     MANAGED_PERMISSION_TIMEOUT_SECS,
 };
+pub use managed_presentation::{
+    ManagedPresentationError, ManagedPresentationFailureV1, ManagedPresentationFrameV1,
+    ManagedPresentationKindV1, ManagedPresentationPhaseV1, MANAGED_PRESENTATION_PROTOCOL,
+    MAX_MANAGED_PRESENTATION_CHUNK_BYTES, MAX_MANAGED_PRESENTATION_FRAME_BYTES,
+};
 pub use message_publish::{
     derive_message_publish_idempotency_key, ManagedMessagePublishRequestV1,
-    ManagedMessagePublishResultV1, MessagePublishError, MAX_FINAL_DRAFT_BYTES, MAX_RESOLVED_P_TAGS,
-    MESSAGE_PUBLISH_PROTOCOL,
+    ManagedMessagePublishResultV1, ManagedResponseSurfaceV1, MessagePublishError,
+    MAX_FINAL_DRAFT_BYTES, MAX_RESOLVED_P_TAGS, MESSAGE_PUBLISH_PROTOCOL,
 };
 pub use notebook::*;
 pub use owner_identity::{
