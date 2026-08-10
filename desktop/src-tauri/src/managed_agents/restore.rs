@@ -8,7 +8,7 @@ use super::{
 use crate::app_state::AppState;
 use crate::util;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 type SpawnResult = Result<ManagedAgentProcess, String>;
 type AgentSpawnResult = (String, SpawnResult);
@@ -343,6 +343,13 @@ pub async fn restore_managed_agents_on_launch(
     drop(runtimes);
     drop(_store_guard);
     drop(restore_transition);
+
+    // `apply_workspace` starts restoration after React has mounted. The first
+    // `list_managed_agents` query can therefore observe the persisted stopped
+    // state before Phase C registers the restored processes. Notify every
+    // mounted agent surface after the authoritative write so that result cannot
+    // remain cached indefinitely (the idle query intentionally does not poll).
+    let _ = app.emit("agents-data-changed", ());
 
     // ── Profile reconciliation (fire-and-forget) ────────────────────────────
     // Spawn background tasks to ensure each restored agent's kind:0 profile is

@@ -68,6 +68,7 @@ export type ChannelPaneProps = {
   unreadCount?: number;
   canResetThreadPanelWidth: boolean;
   onCancelEdit?: () => void;
+  onCancelDirectedReply: () => void;
   onCancelThreadReply: () => void;
   /**
    * Fired by the header back arrow when Activity has a captured pane to
@@ -106,7 +107,14 @@ export type ChannelPaneProps = {
   onOpenThread: (message: TimelineMessage) => void;
   onResetThreadPanelWidth: () => void;
   onSelectThreadReplyTarget: (message: TimelineMessage) => void;
+  onSelectDirectedReplyTarget: (message: TimelineMessage) => void;
   onSendMessage: (
+    content: string,
+    mentionPubkeys: string[],
+    mediaTags?: string[][],
+    channelId?: string | null,
+  ) => Promise<void>;
+  onSendDirectedReply: (
     content: string,
     mentionPubkeys: string[],
     mediaTags?: string[][],
@@ -127,6 +135,7 @@ export type ChannelPaneProps = {
     threadContext?: {
       parentEventId: string | null;
       threadHeadId: string | null;
+      replyAuthorPubkey?: string | null;
     } | null,
   ) => Promise<void>;
   onTargetReached?: (messageId: string) => void;
@@ -163,6 +172,7 @@ export type ChannelPaneProps = {
   threadPanelWidthPx: number;
   threadTypingPubkeys: string[];
   threadReplyTargetMessage: TimelineMessage | null;
+  directedReplyTargetMessage: TimelineMessage | null;
   threadScrollTargetId: string | null;
   threadUnreadCounts?: ReadonlyMap<string, number>;
   threadReplyUnreadCounts?: ReadonlyMap<string, number>;

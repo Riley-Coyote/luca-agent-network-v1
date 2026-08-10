@@ -935,6 +935,7 @@ declare global {
       /** 64-hex id required for the event to be a valid reaction target. */
       id?: string;
     }) => RelayEvent;
+    __BUZZ_E2E_EMIT_TAURI_EVENT__?: (event: string, payload: unknown) => void;
     /** Prepend `count` synthetic older messages to a channel's mock store so
      *  an older-history fetch has something to paginate. Mirrors how the real
      *  relay backfills history. Returns the created events. */
@@ -3408,19 +3409,16 @@ function isMockBroadcastReply(tags: string[][]): boolean {
 
 /**
  * Mirror the relay's channel-window row set (buzz-db `thread.rs`, NIP-CW
- * §Top-level Classification): an event is a timeline row iff its depth is 0
- * (no reply marker → `rootEventId === null`) OR its depth is 1 (its parent is
- * the thread root) AND it is broadcast. Depth ≥ 2 replies never surface on the
- * timeline. A bare-`rootEventId === null` predicate silently dropped broadcast
- * depth-1 replies the real relay serves.
+ * §Top-level Classification): an event is a timeline row iff it has no reply
+ * marker OR it is explicitly broadcast. Causal depth remains part of the
+ * signed event, but it does not hide an ordinary timeline response.
  */
 function isMockTopLevelRow(event: RelayEvent): boolean {
-  const { parentEventId, rootEventId } = getThreadReferenceFromTags(event.tags);
+  const { rootEventId } = getThreadReferenceFromTags(event.tags);
   if (rootEventId === null) {
     return true;
   }
-  const isDepthOne = parentEventId !== null && parentEventId === rootEventId;
-  return isDepthOne && isMockBroadcastReply(event.tags);
+  return isMockBroadcastReply(event.tags);
 }
 
 function appendMentionTags(
@@ -8160,6 +8158,8 @@ async function handleSendChannelMessage(
     mentionPubkeys?: string[];
     mediaTags?: string[][] | null;
     emojiTags?: string[][] | null;
+    managedAudience?: unknown;
+    responseSurface?: "timeline" | "thread" | null;
   },
   config: E2eConfig | undefined,
 ): Promise<RawSendChannelMessageResponse> {
@@ -8180,7 +8180,13 @@ async function handleSendChannelMessage(
   // emoji renderer keeps resolving `:shortcode:` after the round-trip.
   const emojiTags = args.emojiTags ?? [];
   // Both kinds end up on the stored event's tag set, just like the real relay.
-  const extraTags = [...mediaTags, ...emojiTags];
+  const extraTags = [
+    ...mediaTags,
+    ...emojiTags,
+    ...(args.parentEventId && args.responseSurface === "timeline"
+      ? [["broadcast", "1"]]
+      : []),
+  ];
   const identity = getIdentity(config);
   if (!identity) {
     const createdAt = Math.floor(Date.now() / 1000);
@@ -8195,6 +8201,11 @@ async function handleSendChannelMessage(
         ),
         ...extraTags,
       ]);
+      window.__BUZZ_E2E_SIGNED_EVENTS__?.push({
+        content: event.content,
+        kind: event.kind,
+        tags: event.tags,
+      });
       recordMockMessage(args.channelId, event);
       emitMockLiveEvent(args.channelId, event);
 
@@ -8258,6 +8269,11 @@ async function handleSendChannelMessage(
       sig: "mocksig".repeat(20).slice(0, 128),
     };
 
+    window.__BUZZ_E2E_SIGNED_EVENTS__?.push({
+      content: event.content,
+      kind: event.kind,
+      tags: event.tags,
+    });
     recordMockMessage(args.channelId, event);
     emitMockLiveEvent(args.channelId, event);
 
@@ -9097,6 +9113,15 @@ export function maybeInstallE2eTauriMocks() {
     }
 
     return emitMockTypingIndicator(channel.id, pubkey ?? CHARLIE_PUBKEY);
+  };
+  window.__BUZZ_E2E_EMIT_TAURI_EVENT__ = (event, payload) => {
+    void (
+      window as unknown as {
+        __TAURI_INTERNALS__: {
+          invoke: (command: string, payload: unknown) => Promise<unknown>;
+        };
+      }
+    ).__TAURI_INTERNALS__.invoke("plugin:event|emit", { event, payload });
   };
   window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__ = ({ channelName, kind }) => {
     const channel = mockChannels.find(
@@ -11215,6 +11240,21 @@ export function maybeInstallE2eTauriMocks() {
         return handleStopManagedAgent(
           payload as Parameters<typeof handleStopManagedAgent>[0],
         );
+      case "cancel_managed_turn": {
+        const input = payload as {
+          conversationId: string;
+          dispatchReceiptId: string | null;
+          residentPubkey: string;
+          sessionEpoch: number | null;
+        };
+        return {
+          status: "already_terminal",
+          dispatchReceiptId: input.dispatchReceiptId ?? "mock-dispatch-receipt",
+          residentPubkey: input.residentPubkey,
+          sessionEpoch: input.sessionEpoch ?? 0,
+          controlEventId: null,
+        };
+      }
       case "set_agent_managed_profiles":
         return undefined;
       case "set_managed_agent_auto_restart":

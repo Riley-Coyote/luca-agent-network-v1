@@ -86,13 +86,105 @@ test("broadcast fan-out renders as linear turns without creating a thread", () =
   const [rootEntry, replyEntry] = buildMainTimelineEntries(
     [root, broadcastReply],
     new Set(),
-    new Map(),
+    new Map([
+      [
+        "broadcast-reply",
+        {
+          replyCount: 1,
+          descendantCount: 2,
+          lastReplyAt: 3,
+          participantPubkeys: ["agent"],
+        },
+      ],
+    ]),
     undefined,
     true,
   );
 
   assert.equal(rootEntry.summary, null);
   assert.equal(replyEntry.quotedParent, null);
+  assert.equal(replyEntry.summary, null);
+});
+
+test("directed owner broadcasts keep one compact parent quote", () => {
+  const root = message({ id: "root", author: "Claude Code", createdAt: 1 });
+  const directedOwnerMessage = message({
+    id: "directed-owner-message",
+    accent: true,
+    author: "You",
+    createdAt: 2,
+    parentId: "root",
+    rootId: "root",
+    depth: 1,
+    tags: [
+      ["e", "root", "", "reply"],
+      ["broadcast", "1"],
+    ],
+  });
+
+  const [, directedEntry] = buildMainTimelineEntries([
+    root,
+    directedOwnerMessage,
+  ]);
+
+  assert.equal(directedEntry.quotedParent?.id, "root");
+  assert.equal(directedEntry.quotedParent?.author, "Claude Code");
+  assert.equal(directedEntry.summary, null);
+});
+
+test("owner cancellation controls stay out of the conversation transcript", () => {
+  const prompt = message({ id: "prompt", accent: true, body: "Keep going" });
+  const ownerCancel = message({
+    id: "owner-cancel",
+    accent: true,
+    body: "!cancel",
+    createdAt: 2,
+  });
+  const agentText = message({
+    id: "agent-text",
+    author: "Codex",
+    body: "!cancel",
+    createdAt: 3,
+  });
+
+  assert.deepEqual(
+    buildMainTimelineEntries([prompt, ownerCancel, agentText]).map(
+      (entry) => entry.message.id,
+    ),
+    ["prompt", "agent-text"],
+  );
+});
+
+test("broadcast fan-out ignores legacy relay counters for the causal anchor", () => {
+  const root = message({ id: "root", createdAt: 1 });
+  const broadcastReply = message({
+    id: "broadcast-reply",
+    createdAt: 2,
+    parentId: "root",
+    rootId: "root",
+    tags: [
+      ["e", "root", "", "reply"],
+      ["broadcast", "1"],
+    ],
+  });
+  const summaries = new Map([
+    [
+      "root",
+      {
+        replyCount: 1,
+        descendantCount: 1,
+        lastReplyAt: 2,
+        participantPubkeys: ["agent"],
+      },
+    ],
+  ]);
+
+  const [rootEntry] = buildMainTimelineEntries(
+    [root, broadcastReply],
+    new Set(),
+    summaries,
+  );
+  assert.equal(rootEntry.summary, null);
 });
 
 test("intentional replies still carry context and create a thread summary", () => {

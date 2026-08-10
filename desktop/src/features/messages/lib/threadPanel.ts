@@ -64,6 +64,10 @@ export type ThreadPanelIndex = {
 
 const MAX_SUMMARY_PARTICIPANTS = 3;
 
+function isOwnerCancelControl(message: TimelineMessage): boolean {
+  return message.accent === true && message.body.trim() === "!cancel";
+}
+
 type SummaryParticipantCandidate = {
   index: number;
   participant: TimelineThreadSummaryParticipant;
@@ -465,49 +469,76 @@ export function buildMainTimelineEntries(
     messages,
     unreadReplyIds,
   );
+  // Relay thread counters predate the timeline-response surface and can count
+  // causal broadcast anchors as replies. Once a broadcast child is present in
+  // the loaded window, prefer the exact local non-broadcast count for that
+  // root. Showing a smaller verified count is better than manufacturing a
+  // thread from ordinary linear agent turns.
+  const rootsWithBroadcastChildren = new Set(
+    messages
+      .filter((message) => isBroadcastReply(message.tags ?? []))
+      .map((message) => message.rootId ?? message.parentId)
+      .filter((id): id is string => id != null),
+  );
 
-  return messages
-    .filter(
-      (message) =>
-        // Replies now stay in the main chronological flow rather than being
-        // hidden until their thread is opened. They are distinguished by the
-        // quoted parent attached to them, not by being pulled out of the room.
-        quoteReplies ||
-        message.parentId == null ||
-        isBroadcastReply(message.tags ?? []),
-    )
-    .map((message) => {
-      const relaySummary = relaySummaries.get(message.id);
-      const parent = message.parentId
-        ? messageById.get(message.parentId)
-        : null;
-      return {
-        message,
-        quotedParent:
-          quoteReplies &&
-          message.parentId &&
-          !isBroadcastReply(message.tags ?? [])
-            ? {
-                id: message.parentId,
-                author: parent?.author ?? "",
-                body: parent?.body ?? "",
-                resolved: parent != null,
-              }
-            : null,
-        summary:
-          message.kind === KIND_HUDDLE_STARTED
-            ? null
-            : mergeThreadSummaries(
-                buildSummaryForDirectReplies(
-                  message.id,
-                  descendantStatsByMessageId,
+  return (
+    messages
+      // Managed cancellation still travels as Buzz's signed `!cancel` control
+      // event so the ACP host can stop the exact resident turn. It is transport
+      // machinery, not conversation content, and must never become a transcript
+      // row. Limit the suppression to the exact owner-authored command so model
+      // content is not filtered by substring or resemblance.
+      .filter((message) => !isOwnerCancelControl(message))
+      .filter(
+        (message) =>
+          // Callers opt into ordinary descendants only for an explicit focused
+          // thread. The room transcript otherwise contains top-level events and
+          // causal broadcast turns (directed owner messages and linear agent
+          // finals), keeping thread traffic confined to its intentional surface.
+          quoteReplies ||
+          message.parentId == null ||
+          isBroadcastReply(message.tags ?? []),
+      )
+      .map((message) => {
+        const relaySummary = rootsWithBroadcastChildren.has(message.id)
+          ? undefined
+          : relaySummaries.get(message.id);
+        const parent = message.parentId
+          ? messageById.get(message.parentId)
+          : null;
+        return {
+          message,
+          quotedParent:
+            message.parentId &&
+            ((quoteReplies && !isBroadcastReply(message.tags ?? [])) ||
+              (isBroadcastReply(message.tags ?? []) && message.accent))
+              ? {
+                  id: message.parentId,
+                  author: parent?.author ?? "",
+                  body: parent?.body ?? "",
+                  resolved: parent != null,
+                }
+              : null,
+          summary:
+            message.kind === KIND_HUDDLE_STARTED ||
+            isBroadcastReply(message.tags ?? [])
+              ? null
+              : mergeThreadSummaries(
+                  buildSummaryForDirectReplies(
+                    message.id,
+                    descendantStatsByMessageId,
+                  ),
+                  relaySummary
+                    ? buildRelayThreadSummary(
+                        message.id,
+                        relaySummary,
+                        profiles,
+                      )
+                    : null,
                 ),
-                relaySummary
-                  ? buildRelayThreadSummary(message.id, relaySummary, profiles)
-                  : null,
-              ),
-      };
-    });
+        };
+      })
+  );
 }
 
 /**

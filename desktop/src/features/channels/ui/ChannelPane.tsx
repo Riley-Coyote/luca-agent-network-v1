@@ -25,12 +25,11 @@ import { AgentSessionThreadPanel } from "@/features/channels/ui/AgentSessionThre
 import { ChannelManagementAuxiliaryPanel } from "@/features/channels/ui/ChannelManagementAuxiliaryPanel";
 import { ConversationContextPanel } from "@/features/channels/ui/ConversationContextPanel";
 import { RightAuxiliaryPane } from "@/features/channels/ui/RightAuxiliaryPane";
-import { useChannelWorkingAgentPubkeys } from "@/features/agents/agentWorkingSignal";
-import { useChannelAgentActivity } from "@/features/agents/activeAgentTurnsStore";
 import { PendingReplyRow } from "@/features/messages/ui/PendingReplyRow";
-import { cancelManagedAgentTurn } from "@/shared/api/agentControl";
+import { ProvisionalResponseRows } from "@/features/messages/ui/ProvisionalResponseRows";
 import { BotActivityComposerAction } from "@/features/channels/ui/BotActivityBar";
 import { ConversationAgentActivityStrip } from "@/features/channels/ui/ConversationAgentActivityStrip";
+import { useConversationPresentation } from "@/features/channels/ui/useConversationPresentation";
 import { useManagedPermissions } from "@/features/agents/useManagedPermissions";
 import { ManagedPermissionCard } from "@/features/agents/ui/ManagedPermissionCard";
 import {
@@ -98,6 +97,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   unreadCount = 0,
   canResetThreadPanelWidth,
   onCancelEdit,
+  onCancelDirectedReply,
   onCancelThreadReply,
   onBackFromAgentSession,
   onCloseAgentSession,
@@ -105,6 +105,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   onCloseConversationContext,
   onChannelManagementDeleted,
   onCloseProfilePanel,
+  onCloseThread,
   onAddAgent,
   onBrowseChannels,
   onCreateChannel,
@@ -123,7 +124,9 @@ export const ChannelPane = React.memo(function ChannelPane({
   onOpenThread,
   onResetThreadPanelWidth,
   onSelectThreadReplyTarget,
+  onSelectDirectedReplyTarget,
   onSendMessage,
+  onSendDirectedReply,
   onSendVideoReviewComment,
   onSendThreadReply,
   onThreadPanelResizeStart,
@@ -146,6 +149,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   threadMessages,
   threadPanelWidthPx,
   threadReplyTargetMessage,
+  directedReplyTargetMessage,
   threadUnreadCounts,
   typingPubkeys,
 }: ChannelPaneProps) {
@@ -297,8 +301,7 @@ export const ChannelPane = React.memo(function ChannelPane({
     activeChannel.archivedAt !== null ||
     activeChannel.channelType === "forum" ||
     timeoutState.active ||
-    isModerationDmChannel ||
-    isSending;
+    isModerationDmChannel;
   const knownAgentPubkeys = React.useMemo(() => {
     const pubkeys = new Set<string>();
 
@@ -383,24 +386,15 @@ export const ChannelPane = React.memo(function ChannelPane({
   // bot typing fallback (both folded together by agentWorkingSignal). This is
   // what makes the bar show for an agent whose observer stream is live but
   // whose typing signal never arrives — and vice versa.
-  const composerWorkingBotPubkeys = useChannelWorkingAgentPubkeys(
-    activeChannel?.id ?? null,
-  );
-  const hasComposerBotActivity = composerWorkingBotPubkeys.length > 0;
-  // What each working resident is actually doing, for the live reply indicator.
-  const pendingReplyRows = useChannelAgentActivity(activeChannel?.id ?? null);
-  const pendingActivityByPubkey = React.useMemo(
-    () =>
-      new Map(pendingReplyRows.map((row) => [row.agentPubkey, row.activity])),
-    [pendingReplyRows],
-  );
-  const handleCancelPendingReply = React.useCallback(
-    (agentPubkey: string) => {
-      if (!activeChannelId) return;
-      void cancelManagedAgentTurn(agentPubkey, activeChannelId);
-    },
-    [activeChannelId],
-  );
+  const {
+    composerWorkingBotPubkeys,
+    handleCancelPendingReply,
+    handleCancelProvisionalResponse,
+    hasComposerBotActivity,
+    pendingActivityByPubkey,
+    pendingReplyRows,
+    provisionalRows,
+  } = useConversationPresentation(activeChannelId);
   const directMessageIntro = React.useMemo(
     () =>
       buildDirectMessageIntro({
@@ -417,6 +411,18 @@ export const ChannelPane = React.memo(function ChannelPane({
         messageTimelineRef.current?.scrollToBottomOnNextUpdate(),
     });
   }, [onAddAgent]);
+  const handleSendDirectedMessage = React.useCallback(
+    async (
+      content: string,
+      mentionPubkeys: string[],
+      mediaTags?: string[][],
+      channelId?: string | null,
+    ) => {
+      messageTimelineRef.current?.scrollToBottomOnNextUpdate();
+      await onSendDirectedReply(content, mentionPubkeys, mediaTags, channelId);
+    },
+    [onSendDirectedReply],
+  );
   const channelIntro = useChannelIntro({
     activeChannel,
     currentPubkey,
@@ -434,26 +440,27 @@ export const ChannelPane = React.memo(function ChannelPane({
     return messages.filter((message) => !isWelcomeSetupSystemMessage(message));
   }, [activeChannel, messages]);
   const mainTimelineEntries = React.useMemo(() => {
-    // Quote-reply presentation: replies stay in the main chronological flow
-    // carrying the message they answer, rather than being hidden until their
-    // thread is opened.
-    //
-    // This makes the inline-nesting pass redundant BY CONSTRUCTION — it exists
-    // to splice an opened thread's replies in under their head, but those
-    // replies are already in the flow, so running it would render every reply
-    // twice the moment a thread was opened.
-    const entries = buildMainTimelineEntries(
+    const roomEntries = buildMainTimelineEntries(
+      visibleMessages,
+      new Set(),
+      threadSummaries,
+      profiles,
+    );
+
+    if (!openThreadHeadId) return roomEntries;
+
+    // Explicit threads reuse the timeline renderer while remaining a separate
+    // intentional surface. Only the focused view admits ordinary NIP-10
+    // descendants; returning to the room immediately restores its linear
+    // top-level + broadcast-only transcript.
+    const threadEntries = buildMainTimelineEntries(
       visibleMessages,
       new Set(),
       threadSummaries,
       profiles,
       true,
     );
-    // The focused view: opening a thread narrows the SAME timeline to that one
-    // exchange rather than opening a second surface. This is what the reply
-    // count does now that replies live in the main flow — without it the count
-    // is a control that changes the URL and nothing else.
-    return buildFocusedThreadEntries(entries, openThreadHeadId);
+    return buildFocusedThreadEntries(threadEntries, openThreadHeadId);
   }, [openThreadHeadId, profiles, threadSummaries, visibleMessages]);
 
   const focusedThreadHead = React.useMemo(
@@ -568,7 +575,7 @@ export const ChannelPane = React.memo(function ChannelPane({
           {focusedThreadHead ? (
             <FocusedThreadBar
               authorName={focusedThreadHead.author}
-              onExit={() => onOpenThread(focusedThreadHead)}
+              onExit={onCloseThread}
               replyCount={Math.max(0, mainTimelineEntries.length - 1)}
             />
           ) : null}
@@ -623,7 +630,11 @@ export const ChannelPane = React.memo(function ChannelPane({
             expandedThreadHeadId={openThreadHeadId}
             onExpandThreadReplies={onExpandThreadReplies}
             onReply={
-              activeChannel?.archivedAt ? undefined : onSelectThreadReplyTarget
+              activeChannel?.archivedAt
+                ? undefined
+                : openThreadHeadId
+                  ? onSelectThreadReplyTarget
+                  : onSelectDirectedReplyTarget
             }
             onToggleThread={
               activeChannel?.archivedAt ? undefined : onOpenThread
@@ -703,8 +714,13 @@ export const ChannelPane = React.memo(function ChannelPane({
                     — which is exactly where the reply will land, because
                     replies are chronological. Below the composer it would read
                     as a status bar rather than as part of the room. */}
-                {pendingReplyRows.length > 0 ? (
+                {provisionalRows.length > 0 || pendingReplyRows.length > 0 ? (
                   <div className="mx-auto w-full max-w-[48rem] px-0">
+                    <ProvisionalResponseRows
+                      onCancel={handleCancelProvisionalResponse}
+                      profiles={profiles}
+                      rows={provisionalRows}
+                    />
                     <PendingReplyRow
                       onCancel={handleCancelPendingReply}
                       onOpenAgentSession={(pubkey) =>
@@ -724,15 +740,24 @@ export const ChannelPane = React.memo(function ChannelPane({
                   editTarget={mainEditTarget}
                   autoSubmitDraftKey={autoSendDraftKey}
                   onAutoSubmitComplete={handleAutoSubmitComplete}
-                  isSending={isSending}
+                  isSending={false}
                   mediaController={mainComposerMedia}
                   onCancelEdit={onCancelEdit}
-                  onCancelReply={onCancelThreadReply}
+                  onCancelReply={
+                    openThreadHeadId
+                      ? onCancelThreadReply
+                      : onCancelDirectedReply
+                  }
                   onCaptureSendContext={
-                    threadReplyTargetMessage && openThreadHeadId
+                    openThreadHeadId
                       ? () => ({
-                          parentEventId: threadReplyTargetMessage.id,
+                          parentEventId:
+                            threadReplyTargetMessage?.id ?? openThreadHeadId,
                           threadHeadId: openThreadHeadId,
+                          replyAuthorPubkey:
+                            threadReplyTargetMessage?.pubkey ??
+                            threadHeadMessage?.pubkey ??
+                            null,
                         })
                       : undefined
                   }
@@ -744,12 +769,18 @@ export const ChannelPane = React.memo(function ChannelPane({
                       : undefined
                   }
                   onSend={
-                    threadReplyTargetMessage
+                    openThreadHeadId
                       ? onSendThreadReply
-                      : handleSendMessage
+                      : directedReplyTargetMessage
+                        ? handleSendDirectedMessage
+                        : handleSendMessage
                   }
                   profiles={profiles}
-                  replyTarget={threadReplyTargetMessage}
+                  replyTarget={
+                    openThreadHeadId
+                      ? threadReplyTargetMessage
+                      : directedReplyTargetMessage
+                  }
                   placeholder={
                     timeoutState.active
                       ? "You're timed out by community moderators."
@@ -767,10 +798,12 @@ export const ChannelPane = React.memo(function ChannelPane({
                               : "Select a channel"
                   }
                   showTopBorder={false}
-                  typingParentEventId={threadReplyTargetMessage?.id ?? null}
-                  typingRootEventId={
-                    threadReplyTargetMessage ? openThreadHeadId : null
+                  typingParentEventId={
+                    openThreadHeadId
+                      ? (threadReplyTargetMessage?.id ?? openThreadHeadId)
+                      : (directedReplyTargetMessage?.id ?? null)
                   }
+                  typingRootEventId={openThreadHeadId ?? null}
                 />
                 <div
                   className="mx-auto min-h-8 w-full max-w-[48rem] overflow-visible bg-background px-0 pb-1.5 pt-0"

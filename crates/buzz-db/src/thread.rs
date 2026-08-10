@@ -551,7 +551,7 @@ pub async fn get_thread_summary(
 }
 
 /// Fetch one channel window: top-level rows (depth = 0, missing metadata, or
-/// broadcast depth-1 replies) in `(created_at DESC, id ASC)` keyset order,
+/// replies explicitly broadcast to the timeline) in `(created_at DESC, id ASC)` keyset order,
 /// with thread summaries joined in, plus the server-side `has_more` fact.
 ///
 /// `cursor` is the composite `(created_at, id)` of the last retained row from
@@ -597,7 +597,7 @@ pub async fn get_channel_window(
           AND (
                 tm.depth IS NULL
              OR tm.depth = 0
-             OR (tm.depth = 1 AND tm.broadcast = true)
+             OR tm.broadcast = true
           )
         "#,
     );
@@ -1495,8 +1495,8 @@ mod tests {
     }
 
     /// The window's top-level predicate: roots (depth 0), events with no
-    /// thread metadata at all (pre-metadata legacy rows), and broadcast
-    /// depth-1 replies are rows; ordinary replies never are. This is the
+    /// thread metadata at all (pre-metadata legacy rows), and replies at any
+    /// depth explicitly marked broadcast are rows; ordinary replies never are. This is the
     /// SQL-level guarantee that replaces the client-side "filter out replies,
     /// splice back islands" machinery.
     #[tokio::test]
@@ -1531,6 +1531,48 @@ mod tests {
         let quiet_reply = make_stream_event(&author, "quiet reply");
         insert_reply(&pool, community, channel.id, &root, &quiet_reply, false).await;
 
+        let nested_broadcast = make_stream_event(&author, "nested broadcast reply");
+        insert_event_with_thread_metadata(
+            &pool,
+            community,
+            &nested_broadcast,
+            Some(channel.id),
+            Some(ThreadMetadataParams {
+                event_id: nested_broadcast.id.as_bytes(),
+                event_created_at: event_created_at(&nested_broadcast),
+                channel_id: channel.id,
+                parent_event_id: Some(broadcast_reply.id.as_bytes()),
+                parent_event_created_at: Some(event_created_at(&broadcast_reply)),
+                root_event_id: Some(root.id.as_bytes()),
+                root_event_created_at: Some(event_created_at(&root)),
+                depth: 2,
+                broadcast: true,
+            }),
+        )
+        .await
+        .expect("insert nested broadcast reply");
+
+        let nested_quiet = make_stream_event(&author, "nested quiet reply");
+        insert_event_with_thread_metadata(
+            &pool,
+            community,
+            &nested_quiet,
+            Some(channel.id),
+            Some(ThreadMetadataParams {
+                event_id: nested_quiet.id.as_bytes(),
+                event_created_at: event_created_at(&nested_quiet),
+                channel_id: channel.id,
+                parent_event_id: Some(broadcast_reply.id.as_bytes()),
+                parent_event_created_at: Some(event_created_at(&broadcast_reply)),
+                root_event_id: Some(root.id.as_bytes()),
+                root_event_created_at: Some(event_created_at(&root)),
+                depth: 2,
+                broadcast: false,
+            }),
+        )
+        .await
+        .expect("insert nested quiet reply");
+
         let window = get_channel_window(&pool, community, channel.id, 50, None, None)
             .await
             .expect("fetch window");
@@ -1550,8 +1592,16 @@ mod tests {
             "broadcast depth-1 reply is a row"
         );
         assert!(
+            ids.contains(&nested_broadcast.id.to_hex()),
+            "broadcast nested reply is a row"
+        );
+        assert!(
             !ids.contains(&quiet_reply.id.to_hex()),
             "ordinary reply must never be a channel row"
+        );
+        assert!(
+            !ids.contains(&nested_quiet.id.to_hex()),
+            "ordinary nested reply must never be a channel row"
         );
         assert!(!window.has_more);
         assert!(window.next_cursor.is_none());

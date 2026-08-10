@@ -146,6 +146,9 @@ export function ChannelScreen({
   const [threadReplyTargetId, setThreadReplyTargetId] = React.useState<
     string | null
   >(null);
+  const [directedReplyTargetId, setDirectedReplyTargetId] = React.useState<
+    string | null
+  >(null);
   const [editTargetId, setEditTargetId] = React.useState<string | null>(null);
   // URL-backed thread state catches up after navigation; this override keeps urgent open/close renders responsive.
   const [optimisticOpenThreadHeadId, setOptimisticOpenThreadHeadId] =
@@ -170,6 +173,7 @@ export function ChannelScreen({
     const didChangeChannel =
       previousActiveChannelIdRef.current !== activeChannelId;
     previousActiveChannelIdRef.current = activeChannelId;
+    if (didChangeChannel) setDirectedReplyTargetId(null);
     setOptimisticOpenThreadHeadId((current) => {
       if (current === undefined) {
         return current;
@@ -202,10 +206,6 @@ export function ChannelScreen({
     activeDmPresenceStatus,
     activeChannelEphemeralDisplay,
   } = useActiveChannelHeader(activeChannel, currentPubkey);
-  const sendMessageMutation = useSendMessageMutation(
-    activeChannel,
-    currentIdentity,
-  );
   const toggleReactionMutation = useToggleReactionMutation();
   const deleteMessageMutation = useDeleteMessageMutation(activeChannel);
   const editMessageMutation = useEditMessageMutation(activeChannel);
@@ -251,6 +251,15 @@ export function ChannelScreen({
   const channelMembers = channelMembersQuery.data;
   const managedAgentsQuery = useManagedAgentsQuery();
   const managedAgents = managedAgentsQuery.data ?? [];
+  const managedResidentPubkeys = React.useMemo(
+    () => new Set(managedAgents.map((agent) => normalizePubkey(agent.pubkey))),
+    [managedAgents],
+  );
+  const sendMessageMutation = useSendMessageMutation(
+    activeChannel,
+    currentIdentity,
+    managedResidentPubkeys,
+  );
   const welcomeGuideAgent = React.useMemo(
     () => pickWelcomeGuideAgent(managedAgents),
     [managedAgents],
@@ -438,7 +447,15 @@ export function ChannelScreen({
       timelineMessages.find((message) => message.id === editTargetId) ?? null,
     [editTargetId, timelineMessages],
   );
+  const directedReplyTargetMessage = React.useMemo(
+    () =>
+      timelineMessages.find(
+        (message) => message.id === directedReplyTargetId,
+      ) ?? null,
+    [directedReplyTargetId, timelineMessages],
+  );
   const {
+    handleCancelDirectedReply,
     handleCancelEdit,
     handleCancelThreadReply,
     handleCloseThread,
@@ -448,11 +465,14 @@ export function ChannelScreen({
     handleExpandThreadReplies,
     handleOpenThread,
     handleSendMessage,
+    handleSendDirectedReply,
     handleSendThreadReply,
     handleSelectThreadReplyTarget,
+    handleSelectDirectedReplyTarget,
     handleToggleReaction,
   } = useChannelPaneHandlers({
     deleteMessageMutation,
+    directedReplyTargetMessage,
     editMessageMutation,
     editTargetId,
     expandedThreadReplyIds,
@@ -464,6 +484,7 @@ export function ChannelScreen({
     sendMessageMutation,
     setExpandedThreadReplyIds,
     setEditTargetId,
+    setDirectedReplyTargetId,
     setOpenThreadHeadId,
     setThreadReplyTargetId,
     setThreadScrollTargetId,
@@ -868,6 +889,7 @@ export function ChannelScreen({
                   messages={timelineMessages}
                   threadSummaries={threadSummaries}
                   onCancelEdit={handleCancelEdit}
+                  onCancelDirectedReply={handleCancelDirectedReply}
                   onCancelThreadReply={handleCancelThreadReply}
                   onChannelManagementDeleted={handleChannelManagementDeleted}
                   onFollowThread={
@@ -911,7 +933,9 @@ export function ChannelScreen({
                   onCloseProfilePanel={handleCloseProfilePanel}
                   onOpenThread={handleOpenThreadAndCloseAgentSession}
                   onSelectThreadReplyTarget={handleSelectThreadReplyTarget}
+                  onSelectDirectedReplyTarget={handleSelectDirectedReplyTarget}
                   onSendMessage={handleSendMessage}
+                  onSendDirectedReply={handleSendDirectedReply}
                   onSendVideoReviewComment={effectiveSendVideoReviewComment}
                   onSendThreadReply={handleSendThreadReply}
                   onThreadScrollTargetResolved={
@@ -943,6 +967,7 @@ export function ChannelScreen({
                   threadPanelWidthPx={threadPanelWidthPx}
                   threadTypingPubkeys={threadTypingPubkeys}
                   threadReplyTargetMessage={displayedThreadReplyTargetMessage}
+                  directedReplyTargetMessage={directedReplyTargetMessage}
                   threadScrollTargetId={threadScrollTargetId}
                   threadUnreadCounts={threadUnreadCounts}
                   threadReplyUnreadCounts={threadReplyUnreadCounts}

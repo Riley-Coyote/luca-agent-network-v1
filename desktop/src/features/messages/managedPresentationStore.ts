@@ -325,9 +325,10 @@ export function replaceManagedPresentationReceipt(
 export function completeManagedPresentation(
   residentPubkey: string | null | undefined,
   dispatchReceiptId: string | null | undefined,
-): void {
-  if (!residentPubkey || !dispatchReceiptId) return;
+): boolean {
+  if (!residentPubkey || !dispatchReceiptId) return false;
   const key = rowKey(residentPubkey, dispatchReceiptId);
+  const removed = rows.has(key);
   completedKeys.add(key);
   markTerminalFrame(key);
   if (completedKeys.size > 512) {
@@ -340,6 +341,35 @@ export function completeManagedPresentation(
   clearStartTimer(key);
   pendingChunks.delete(key);
   if (rows.delete(key)) rebuildSnapshots();
+  return removed;
+}
+
+/**
+ * Reconciles a signed final with its provisional row. The causal event id is
+ * authoritative, while the single-row fallback covers the narrow race where
+ * the live stream is accepted before the optimistic send receipt is replaced.
+ * We never guess when more than one turn from the resident is active.
+ */
+export function completeManagedPresentationForConversation(
+  residentPubkey: string | null | undefined,
+  dispatchReceiptId: string | null | undefined,
+  conversationId: string | null | undefined,
+): void {
+  if (!residentPubkey || !dispatchReceiptId) return;
+  if (completeManagedPresentation(residentPubkey, dispatchReceiptId)) return;
+  if (!conversationId) return;
+
+  const normalizedPubkey = residentPubkey.toLowerCase();
+  const candidates = [...rows.values()].filter(
+    (row) =>
+      row.conversationId === conversationId &&
+      row.residentPubkey === normalizedPubkey,
+  );
+  if (candidates.length !== 1) return;
+  completeManagedPresentation(
+    candidates[0].residentPubkey,
+    candidates[0].dispatchReceiptId,
+  );
 }
 
 export function removeManagedPresentationsByReceipt(receiptId: string): void {

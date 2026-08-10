@@ -28,6 +28,18 @@ export { mergeMessages, mergeTimelineCacheMessages };
 import { splitOutgoingTags } from "@/features/messages/lib/imetaMediaMarkdown";
 import { messageMentionPubkeys } from "@/features/messages/lib/messageMentionPubkeys";
 import {
+  deriveManagedAudience,
+  managedAudiencePubkeys,
+  type ManagedAudienceIntentV1,
+  type ManagedResponseSurface,
+} from "@/features/messages/lib/managedAudience";
+import {
+  completeManagedPresentationForConversation,
+  removeManagedPresentationsByReceipt,
+  replaceManagedPresentationReceipt,
+  seedManagedPresentations,
+} from "@/features/messages/managedPresentationStore";
+import {
   clearTimeoutState,
   recordTimeoutFromRejection,
 } from "@/features/moderation/lib/timeoutStore";
@@ -87,6 +99,7 @@ export function createOptimisticMessage(
   mentionPubkeys: string[] = [],
   parentEventId: string | null = null,
   mediaTags: string[][] = [],
+  responseSurface: ManagedResponseSurface = "timeline",
 ): RelayEvent {
   const localKey = `optimistic-${crypto.randomUUID()}`;
   const tags: string[][] = [];
@@ -101,6 +114,9 @@ export function createOptimisticMessage(
         mentionPubkeys,
       ),
     );
+    if (responseSurface === "timeline") {
+      tags.push(["broadcast", "1"]);
+    }
   } else {
     tags.push(["h", channelId]);
     tags.push(["p", identity.pubkey]);
@@ -280,6 +296,13 @@ export function useChannelSubscription(channel: Channel | null) {
     const threadReference = isTimelineRow
       ? getThreadReference(event.tags)
       : null;
+    if (isTimelineRow && threadReference?.parentId) {
+      completeManagedPresentationForConversation(
+        event.pubkey,
+        threadReference.parentId,
+        channelId,
+      );
+    }
     if (threadReference?.parentId != null) {
       const rootId = threadReference?.rootId;
       if (rootId) {
@@ -400,6 +423,7 @@ export function useChannelSubscription(channel: Channel | null) {
 export function useSendMessageMutation(
   channel: Channel | null,
   identity: Identity | undefined,
+  managedResidentPubkeys?: ReadonlySet<string>,
 ) {
   const queryClient = useQueryClient();
 
@@ -412,6 +436,9 @@ export function useSendMessageMutation(
       content: string;
       mentionPubkeys?: string[];
       parentEventId?: string | null;
+      replyAuthorPubkey?: string | null;
+      managedAudience?: ManagedAudienceIntentV1;
+      responseSurface?: ManagedResponseSurface;
       mediaTags?: string[][];
     },
     MessageQueryContext | undefined
@@ -422,6 +449,9 @@ export function useSendMessageMutation(
       content,
       mentionPubkeys,
       parentEventId,
+      replyAuthorPubkey,
+      managedAudience,
+      responseSurface = "timeline",
       mediaTags,
     }) => {
       // Prefer a channel captured by the caller at compose time. Otherwise,
@@ -459,10 +489,24 @@ export function useSendMessageMutation(
         emojiTags,
         mentionTags,
       } = splitOutgoingTags(mediaTags);
+      const audience =
+        managedAudience ??
+        (managedResidentPubkeys
+          ? deriveManagedAudience({
+              channel: effectiveChannel,
+              managedResidentPubkeys,
+              explicitMentionPubkeys: mentionPubkeys,
+              replyAuthorPubkey,
+            })
+          : undefined);
       const recipientPubkeys = messageMentionPubkeys(
         effectiveChannel,
         identity.pubkey,
-        mentionPubkeys,
+        [
+          ...(mentionPubkeys ?? []),
+          ...(replyAuthorPubkey ? [replyAuthorPubkey] : []),
+          ...(audience ? managedAudiencePubkeys(audience) : []),
+        ],
       );
 
       // Luca keeps Buzz's composer and exact event/tag behavior, but routes
@@ -482,6 +526,8 @@ export function useSendMessageMutation(
         undefined,
         emojiTags,
         mentionTags,
+        audience,
+        responseSurface,
       );
       const replyTags = parentEventId
         ? buildReplyTags(
@@ -506,6 +552,9 @@ export function useSendMessageMutation(
         kind: KIND_STREAM_MESSAGE,
         tags: [
           ...baseTags,
+          ...(parentEventId && responseSurface === "timeline"
+            ? [["broadcast", "1"]]
+            : []),
           ...(!parentEventId
             ? normalizeMentionPubkeys(recipientPubkeys, identity.pubkey).map(
                 (pk) => ["p", pk],
@@ -525,6 +574,9 @@ export function useSendMessageMutation(
       content,
       mentionPubkeys,
       parentEventId,
+      replyAuthorPubkey,
+      managedAudience,
+      responseSurface = "timeline",
       mediaTags,
     }) => {
       // Mirror mutationFn's target resolution so the optimistic message lands
@@ -553,15 +605,42 @@ export function useSendMessageMutation(
       const windowKey = channelWindowKey(effectiveChannel.id);
       const previousWindow =
         queryClient.getQueryData<ChannelWindowStore>(windowKey);
+      const audience =
+        managedAudience ??
+        (managedResidentPubkeys
+          ? deriveManagedAudience({
+              channel: effectiveChannel,
+              managedResidentPubkeys,
+              explicitMentionPubkeys: mentionPubkeys,
+              replyAuthorPubkey,
+            })
+          : undefined);
+      const recipientPubkeys = messageMentionPubkeys(
+        effectiveChannel,
+        identity.pubkey,
+        [
+          ...(mentionPubkeys ?? []),
+          ...(replyAuthorPubkey ? [replyAuthorPubkey] : []),
+          ...(audience ? managedAudiencePubkeys(audience) : []),
+        ],
+      );
       const optimisticMessage = createOptimisticMessage(
         effectiveChannel.id,
         content.trim(),
         identity,
         previousMessages,
-        mentionPubkeys ?? [],
+        recipientPubkeys,
         parentEventId ?? null,
         mediaTags ?? [],
+        responseSurface,
       );
+      if (audience) {
+        seedManagedPresentations(
+          effectiveChannel.id,
+          optimisticMessage.id,
+          managedAudiencePubkeys(audience),
+        );
+      }
 
       const nextWindow = mergeLiveChannelWindowEvent(
         previousWindow ?? emptyChannelWindowStore(),
@@ -586,6 +665,7 @@ export function useSendMessageMutation(
       if (!context) {
         return;
       }
+      removeManagedPresentationsByReceipt(context.optimisticId);
 
       queryClient.setQueryData(context.queryKey, context.previousMessages);
       queryClient.setQueryData(
@@ -600,6 +680,7 @@ export function useSendMessageMutation(
       if (!context) {
         return;
       }
+      replaceManagedPresentationReceipt(context.optimisticId, message.id);
 
       const windowKey = channelWindowKey(context.channelId);
       const current =

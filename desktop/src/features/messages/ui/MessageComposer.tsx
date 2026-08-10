@@ -60,6 +60,7 @@ import { useMentionSendFlow } from "./useMentionSendFlow";
 import { usePersistentAgentMentionHydration } from "./usePersistentAgentMentionHydration";
 import { useComposerContentState } from "./useComposerContentState";
 import { useDraftPersistLifecycle } from "./useDraftPersistSnapshot";
+import type { MessageComposerSendContext } from "./messageComposerTypes";
 
 type MessageComposerAudienceContext = {
   type: "thread";
@@ -75,8 +76,7 @@ type MessageComposerProps = {
   disabled?: boolean;
   draftKey?: string;
   /**
-   * When provided, the composer fires `submitMessage` once on mount after
-   * the draft matching this key has been loaded into the editor. This powers
+   * Fires `submitMessage` once after the matching draft loads. This powers
    * the "Send message" confirm-dialog flow in the Drafts panel. The callback
    * `onAutoSubmitComplete` must clear the trigger (e.g. remove `?autoSend`
    * from the URL) — it is called synchronously before `submitMessage` fires
@@ -120,10 +120,7 @@ type MessageComposerProps = {
     mentionPubkeys?: string[],
   ) => Promise<void>;
   /** Captures send context synchronously before awaits can change navigation. */
-  onCaptureSendContext?: () => {
-    parentEventId: string | null;
-    threadHeadId: string | null;
-  } | null;
+  onCaptureSendContext?: () => MessageComposerSendContext | null;
   /** Resolves the channel required to prepare mentions before sending. */
   onPrepareSendChannel?: (pubkeys?: string[]) => Promise<string | null>;
   onPreparingMentionSendChange?: (isPreparing: boolean) => void;
@@ -132,10 +129,7 @@ type MessageComposerProps = {
     mentionPubkeys: string[],
     mediaTags?: string[][],
     channelId?: string | null,
-    threadContext?: {
-      parentEventId: string | null;
-      threadHeadId: string | null;
-    } | null,
+    threadContext?: MessageComposerSendContext | null,
   ) => Promise<void>;
   placeholder?: string;
   profiles?: UserProfileLookup;

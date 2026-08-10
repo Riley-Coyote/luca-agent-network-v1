@@ -668,10 +668,8 @@ test("keeps the transcript avatar-free when a profile avatar is set", async ({
   await expect(lastMessage.getByTestId("message-author")).not.toBeEmpty();
 });
 
-test("focuses one exchange in the main timeline and sends an inline reply", async ({
-  page,
-}) => {
-  const reply = `Focused timeline reply ${Date.now()}`;
+test("keeps a directed reply in the main timeline", async ({ page }) => {
+  const reply = `Directed timeline reply ${Date.now()}`;
 
   await page.goto("/");
   await page.getByTestId("channel-general").click();
@@ -683,17 +681,14 @@ test("focuses one exchange in the main timeline and sends an inline reply", asyn
   await rootMessage.hover();
   await rootMessage.getByRole("button", { name: "Reply" }).click();
 
-  await expect(page.getByTestId("focused-thread-bar")).toBeVisible();
+  await expect(page.getByTestId("focused-thread-bar")).toHaveCount(0);
   await expect(page.getByTestId("message-thread-panel")).toHaveCount(0);
   await expect(page.getByTestId("reply-target")).toBeVisible();
 
   await page.getByTestId("message-input").fill(reply);
   await page.getByTestId("send-message").click();
   await expect(timeline).toContainText(reply);
-
-  await page.getByRole("button", { name: "Show all messages" }).click();
-  await expect(page.getByTestId("focused-thread-bar")).toHaveCount(0);
-  await expect(timeline).toContainText(reply);
+  await expect(page.getByTestId("reply-target")).toHaveCount(0);
 });
 
 // Historical Buzz coverage retained for reference. Luca's conversation-first

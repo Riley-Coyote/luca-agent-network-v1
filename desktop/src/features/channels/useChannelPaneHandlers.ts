@@ -18,6 +18,7 @@ import { resolveThreadReplyTarget } from "@/features/messages/hooks";
  */
 export function useChannelPaneHandlers({
   deleteMessageMutation,
+  directedReplyTargetMessage,
   editMessageMutation,
   editTargetId,
   expandedThreadReplyIds,
@@ -29,6 +30,7 @@ export function useChannelPaneHandlers({
   sendMessageMutation,
   setExpandedThreadReplyIds,
   setEditTargetId,
+  setDirectedReplyTargetId,
   setOpenThreadHeadId,
   setThreadReplyTargetId,
   setThreadScrollTargetId,
@@ -36,6 +38,10 @@ export function useChannelPaneHandlers({
   toggleReactionMutation,
 }: {
   deleteMessageMutation: ReturnType<typeof useDeleteMessageMutation>;
+  directedReplyTargetMessage: {
+    id: string;
+    pubkey?: string;
+  } | null;
   editMessageMutation: ReturnType<typeof useEditMessageMutation>;
   editTargetId: string | null;
   expandedThreadReplyIds: ReadonlySet<string>;
@@ -49,6 +55,7 @@ export function useChannelPaneHandlers({
   sendMessageMutation: ReturnType<typeof useSendMessageMutation>;
   setExpandedThreadReplyIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   setEditTargetId: React.Dispatch<React.SetStateAction<string | null>>;
+  setDirectedReplyTargetId: React.Dispatch<React.SetStateAction<string | null>>;
   setOpenThreadHeadId: (value: string | null) => void;
   setThreadReplyTargetId: React.Dispatch<React.SetStateAction<string | null>>;
   setThreadScrollTargetId: React.Dispatch<React.SetStateAction<string | null>>;
@@ -61,6 +68,9 @@ export function useChannelPaneHandlers({
 
   const threadReplyTargetIdRef = React.useRef(threadReplyTargetId);
   threadReplyTargetIdRef.current = threadReplyTargetId;
+
+  const directedReplyTargetRef = React.useRef(directedReplyTargetMessage);
+  directedReplyTargetRef.current = directedReplyTargetMessage;
 
   const editTargetIdRef = React.useRef(editTargetId);
   editTargetIdRef.current = editTargetId;
@@ -107,13 +117,21 @@ export function useChannelPaneHandlers({
     setThreadReplyTargetId(null);
   }, [setThreadReplyTargetId]);
 
+  const handleCancelDirectedReply = React.useCallback(() => {
+    setDirectedReplyTargetId(null);
+  }, [setDirectedReplyTargetId]);
+
   const handleCloseThread = React.useCallback(() => {
+    // Clear inline-thread projection state before switching back to the main
+    // timeline. Deferring both changes lets the focused thread disappear one
+    // render before its expanded IDs, briefly flattening the thread into the
+    // conversation and resurfacing a synthetic reply counter.
+    setThreadReplyTargetId(null);
+    setThreadScrollTargetId(null);
+    setExpandedThreadReplyIds(new Set());
     deferPanelState(() => {
       onOptimisticOpenThreadHeadIdChange(null);
       setOpenThreadHeadId(null);
-      setThreadReplyTargetId(null);
-      setThreadScrollTargetId(null);
-      setExpandedThreadReplyIds(new Set());
     });
   }, [
     deferPanelState,
@@ -227,6 +245,16 @@ export function useChannelPaneHandlers({
     ],
   );
 
+  const handleSelectDirectedReplyTarget = React.useCallback(
+    (message: { id: string }) => {
+      setDirectedReplyTargetId((current) =>
+        current === message.id ? null : message.id,
+      );
+      setEditTargetId(null);
+    },
+    [setDirectedReplyTargetId, setEditTargetId],
+  );
+
   const handleExpandThreadReplies = React.useCallback(
     (message: { id: string }) => {
       if (expandedThreadReplyIdsRef.current.has(message.id)) {
@@ -280,6 +308,31 @@ export function useChannelPaneHandlers({
     [],
   );
 
+  const handleSendDirectedReply = React.useCallback(
+    async (
+      content: string,
+      mentionPubkeys: string[],
+      mediaTags?: string[][],
+      channelId?: string | null,
+    ) => {
+      const target = directedReplyTargetRef.current;
+      if (!target) return;
+      await sendMutateRef.current({
+        channelId: channelId ?? undefined,
+        content,
+        mediaTags,
+        mentionPubkeys,
+        parentEventId: target.id,
+        replyAuthorPubkey: target.pubkey ?? null,
+        responseSurface: "timeline",
+      });
+      if (directedReplyTargetRef.current?.id === target.id) {
+        setDirectedReplyTargetId(null);
+      }
+    },
+    [setDirectedReplyTargetId],
+  );
+
   const handleSendThreadReply = React.useCallback(
     async (
       content: string,
@@ -289,6 +342,7 @@ export function useChannelPaneHandlers({
       threadContext?: {
         parentEventId: string | null;
         threadHeadId: string | null;
+        replyAuthorPubkey?: string | null;
       } | null,
     ) => {
       // Resolve target using captured submit-time context (race-free) or live
@@ -320,6 +374,8 @@ export function useChannelPaneHandlers({
         content,
         mentionPubkeys,
         parentEventId,
+        replyAuthorPubkey: threadContext?.replyAuthorPubkey ?? null,
+        responseSurface: "thread",
         mediaTags,
         channelId: channelId ?? undefined,
       });
@@ -353,6 +409,7 @@ export function useChannelPaneHandlers({
   );
 
   return {
+    handleCancelDirectedReply,
     handleCancelEdit,
     handleCancelThreadReply,
     handleCloseThread,
@@ -362,8 +419,10 @@ export function useChannelPaneHandlers({
     handleExpandThreadReplies,
     handleOpenThread,
     handleSendMessage,
+    handleSendDirectedReply,
     handleSendThreadReply,
     handleSelectThreadReplyTarget,
+    handleSelectDirectedReplyTarget,
     handleToggleReaction,
   };
 }

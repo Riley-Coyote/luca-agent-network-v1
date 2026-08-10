@@ -3,6 +3,7 @@ import { afterEach, describe, it } from "node:test";
 
 import {
   completeManagedPresentation,
+  completeManagedPresentationForConversation,
   getManagedPresentationSnapshot,
   ingestManagedPresentationFrame,
   replaceManagedPresentationReceipt,
@@ -53,6 +54,38 @@ describe("managedPresentationStore", () => {
     completeManagedPresentation(residentPubkey, receiptId);
     ingestManagedPresentationFrame(frame("turn_started", 1));
     assert.deepEqual(getManagedPresentationSnapshot(conversationId), []);
+  });
+
+  it("reconciles the only resident row when receipt replacement races the signed final", () => {
+    const optimisticReceipt = "optimistic:directed-reply";
+    seedManagedPresentations(conversationId, optimisticReceipt, [
+      residentPubkey,
+    ]);
+
+    completeManagedPresentationForConversation(
+      residentPubkey,
+      receiptId,
+      conversationId,
+    );
+
+    assert.deepEqual(getManagedPresentationSnapshot(conversationId), []);
+  });
+
+  it("does not guess between concurrent resident turns", () => {
+    seedManagedPresentations(conversationId, "optimistic:first", [
+      residentPubkey,
+    ]);
+    seedManagedPresentations(conversationId, "optimistic:second", [
+      residentPubkey,
+    ]);
+
+    completeManagedPresentationForConversation(
+      residentPubkey,
+      receiptId,
+      conversationId,
+    );
+
+    assert.equal(getManagedPresentationSnapshot(conversationId).length, 2);
   });
 
   it("preserves a stream that arrives before optimistic receipt reconciliation", async () => {

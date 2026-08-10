@@ -91,7 +91,7 @@ const overrides = new Map([
   // the two p-gate filters can't drift) plus two guard unit tests. The file was
   // already at 995; this load-bearing correctness fix crossed 1000. Not generic
   // debt growth. Approved override; queued to split with the rest of this list.
-  ["src-tauri/src/commands/messages.rs", 1281],
+  ["src-tauri/src/commands/messages.rs", 1110],
   // Residual repos_dir integration in ensure_nest_at: REPOS is provisioned
   // outside NEST_DIRS (it may be a symlink), so it needs its own create +
   // chmod-only-when-real-dir handling plus integration test coverage. The
@@ -476,7 +476,7 @@ const overrides = new Map([
   // ownerPubkey) feeding the newly-added-mentions diff. Diff logic itself
   // lives in threading.ts (diffAddedMentionPubkeys); this is the minimal
   // composer-side wiring. Queued to split with the rest of this list.
-  ["src/features/messages/ui/MessageComposer.tsx", 1115],
+  ["src/features/messages/ui/MessageComposer.tsx", 1109],
   // global-agent-config: model-tuning section (BuzzAgentModelTuningFields via
   // EditAgentAdvancedFields) + providerValid gate + effectiveProvider derivation
   // + globalProvider threading into getPersonaProviderOptions. All load-bearing
@@ -515,8 +515,8 @@ const overrides = new Map([
   ["src-tauri/src/luca/continuity_rotation.rs", 1225],
   ["src-tauri/src/luca/continuity_runtime.rs", 1611],
   ["src-tauri/src/luca/continuity_store.rs", 3251],
-  ["src-tauri/src/luca/managed_dispatch_store.rs", 2585],
-  ["src-tauri/src/luca/managed_message_outbox.rs", 1043],
+  ["src-tauri/src/luca/managed_dispatch_store.rs", 2538],
+  ["src-tauri/src/luca/managed_message_outbox.rs", 1024],
   ["src-tauri/src/managed_agents/native_runtime.rs", 1155],
 ]);
 

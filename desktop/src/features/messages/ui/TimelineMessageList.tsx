@@ -923,6 +923,9 @@ function MessageRowItem({
           onMarkUnread={onMarkUnread}
           onToggleReaction={onToggleReaction}
           onReply={onReply}
+          onReplyInThread={
+            message.id === expandedThreadHeadId ? undefined : onToggleThread
+          }
           quotedParent={quotedParent}
           onUnfollowThread={
             unfollowThreadById
@@ -978,6 +981,9 @@ function MessageRowItem({
         onMarkUnread={onMarkUnread}
         onToggleReaction={onToggleReaction}
         onReply={onReply}
+        onReplyInThread={
+          message.id === expandedThreadHeadId ? undefined : onToggleThread
+        }
         profiles={profiles}
         quotedParent={quotedParent}
         searchQuery={isSearchMatch ? searchQuery : undefined}

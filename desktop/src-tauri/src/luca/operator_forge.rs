@@ -105,7 +105,7 @@ impl OperatorPreferencesV1 {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct OperatorForgeStoreV1 {
     #[serde(default = "schema_version")]
@@ -114,6 +114,16 @@ struct OperatorForgeStoreV1 {
     owners: Vec<OperatorPreferencesV1>,
     #[serde(default)]
     transactions: Vec<NativeProvisioningTransactionV1>,
+}
+
+impl Default for OperatorForgeStoreV1 {
+    fn default() -> Self {
+        Self {
+            schema_version: SCHEMA_VERSION,
+            owners: Vec::new(),
+            transactions: Vec::new(),
+        }
+    }
 }
 
 pub(crate) fn create_native_transaction(
@@ -531,6 +541,16 @@ pub async fn list_native_provisioning_transactions(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fresh_store_uses_the_current_schema_version() {
+        let store = OperatorForgeStoreV1::default();
+        assert_eq!(store.schema_version, SCHEMA_VERSION);
+        assert_eq!(
+            serde_json::to_value(store).unwrap()["schemaVersion"],
+            SCHEMA_VERSION
+        );
+    }
 
     #[test]
     fn runtime_target_uses_camel_case_fields_and_rejects_unknown_fields() {

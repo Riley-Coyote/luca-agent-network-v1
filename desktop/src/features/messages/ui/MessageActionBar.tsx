@@ -9,6 +9,7 @@ import {
   Link2,
   MailCheck,
   MailOpen,
+  MessagesSquare,
   Pencil,
   SmilePlus,
   Trash2,
@@ -70,6 +71,7 @@ function MoreActionsMenu({
   onMarkRead,
   onOpenChange,
   onRemindLater,
+  onReplyInThread,
   onUnfollowThread,
   open,
   isFollowingThread,
@@ -86,6 +88,7 @@ function MoreActionsMenu({
   onMarkRead?: (message: TimelineMessage) => void;
   onOpenChange: (open: boolean) => void;
   onRemindLater?: (message: TimelineMessage) => void;
+  onReplyInThread?: (message: TimelineMessage) => void;
   onUnfollowThread?: (message: TimelineMessage) => void;
   open: boolean;
   isFollowingThread?: boolean;
@@ -194,6 +197,16 @@ function MoreActionsMenu({
                 <BellRing className="h-4 w-4" />
               )}
               {isFollowingThread ? "Unfollow thread" : "Follow thread"}
+            </DropdownMenuItem>
+          ) : null}
+
+          {onReplyInThread ? (
+            <DropdownMenuItem
+              data-testid={`reply-in-thread-${message.id}`}
+              onClick={() => onReplyInThread(message)}
+            >
+              <MessagesSquare className="h-4 w-4" />
+              Reply in thread…
             </DropdownMenuItem>
           ) : null}
 
@@ -377,6 +390,7 @@ export const MessageActionBar = React.memo(function MessageActionBar({
   onReactionSelect,
   onRemindLater,
   onReply,
+  onReplyInThread,
   onUnfollowThread,
   reactionErrorMessage = null,
   reactions,
@@ -396,6 +410,7 @@ export const MessageActionBar = React.memo(function MessageActionBar({
   onReactionSelect?: (emoji: string) => Promise<void>;
   onRemindLater?: (message: TimelineMessage) => void;
   onReply?: (message: TimelineMessage) => void;
+  onReplyInThread?: (message: TimelineMessage) => void;
   onUnfollowThread?: (message: TimelineMessage) => void;
   reactionErrorMessage?: string | null;
   reactions: TimelineReaction[];
@@ -431,6 +446,7 @@ export const MessageActionBar = React.memo(function MessageActionBar({
     Boolean(onFollowThread) ||
     Boolean(onUnfollowThread) ||
     Boolean(onRemindLater) ||
+    Boolean(onReplyInThread) ||
     !message.pending;
 
   const wouldAddReaction = React.useCallback(
@@ -578,6 +594,7 @@ export const MessageActionBar = React.memo(function MessageActionBar({
               onMarkRead={onMarkRead}
               onOpenChange={setIsDropdownOpen}
               onRemindLater={onRemindLater}
+              onReplyInThread={onReplyInThread}
               onUnfollowThread={onUnfollowThread}
               open={isDropdownOpen}
               isFollowingThread={isFollowingThread}

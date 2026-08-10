@@ -88,6 +88,7 @@ export const MessageRow = React.memo(
     onMarkRead,
     onToggleReaction,
     onReply,
+    onReplyInThread,
     onEntranceComplete,
     playEntrance = false,
     onUnfollowThread,
@@ -136,6 +137,7 @@ export const MessageRow = React.memo(
       remove: boolean,
     ) => Promise<void>;
     onReply?: (message: TimelineMessage) => void;
+    onReplyInThread?: (message: TimelineMessage) => void;
     onUnfollowThread?: (message: TimelineMessage) => void;
     onEntranceComplete?: (messageId: string) => void;
     playEntrance?: boolean;
@@ -423,6 +425,7 @@ export const MessageRow = React.memo(
           }
           onRemindLater={handleRemindLater}
           onReply={onReply}
+          onReplyInThread={onReplyInThread}
           onUnfollowThread={onUnfollowThread}
           reactionErrorMessage={reactionErrorMessage}
           reactions={reactions}
