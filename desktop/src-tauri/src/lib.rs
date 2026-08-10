@@ -844,6 +844,7 @@ pub fn run() {
             luca::resident_registry::list_luca_residents,
             luca::resident_registry::create_luca_resident,
             luca::operator_forge::get_operator_forge_settings,
+            luca::operator_forge::list_native_provisioning_transactions,
             luca::operator_forge::save_operator_forge_preferences,
             luca::native_provisioning::preview_native_agent_provisioning,
             luca::native_provisioning::execute_native_agent_provisioning,

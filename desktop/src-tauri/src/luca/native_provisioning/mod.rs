@@ -312,6 +312,12 @@ fn managed_create_input(
     .map_err(|_| "resident creation request could not be prepared".into())
 }
 
+fn semantic_hash(binding: &RuntimeBinding) -> String {
+    hex::encode(Sha256::digest(
+        native_runtime_semantic_key(binding).as_bytes(),
+    ))
+}
+
 #[tauri::command]
 pub async fn preview_native_agent_provisioning(
     app: AppHandle,
@@ -414,19 +420,51 @@ pub async fn execute_native_agent_provisioning(
             return Err(error);
         }
     };
-    let semantic_hash = hex::encode(Sha256::digest(
-        native_runtime_semantic_key(&provisioned.binding).as_bytes(),
-    ));
+    let expected_semantic_hash = semantic_hash(&provisioned.binding);
     update_native_transaction(
         &app,
         &owner,
         &input.transaction_id,
         NativeProvisioningStatusV1::NativeCreated,
         None,
-        Some(semantic_hash.clone()),
+        Some(expected_semantic_hash.clone()),
         None,
     )?;
-    let create_input = managed_create_input(&request, &persona_id, &provisioned.binding)?;
+    let discovered = match native_candidate_by_id(&request.runtime, &transaction.intended_slug) {
+        Ok(candidate) => candidate,
+        Err(error) => {
+            update_native_transaction(
+                &app,
+                &owner,
+                &input.transaction_id,
+                NativeProvisioningStatusV1::NeedsAttention,
+                None,
+                Some(expected_semantic_hash),
+                Some((
+                    "NATIVE_REDISCOVERY_FAILED",
+                    "Relaunch Polyphonic to rediscover and finish linking the native agent.",
+                )),
+            )?;
+            return Err(error);
+        }
+    };
+    let semantic_hash = semantic_hash(&discovered.binding_preview);
+    if semantic_hash != expected_semantic_hash {
+        update_native_transaction(
+            &app,
+            &owner,
+            &input.transaction_id,
+            NativeProvisioningStatusV1::NeedsAttention,
+            None,
+            Some(expected_semantic_hash),
+            Some((
+                "NATIVE_IDENTITY_MISMATCH",
+                "Review the discovered native identity before retrying resident linking.",
+            )),
+        )?;
+        return Err("the created native identity did not match the approved preview".into());
+    }
+    let create_input = managed_create_input(&request, &persona_id, &discovered.binding_preview)?;
     let resident = match create_luca_resident(create_input, app.clone(), state.clone()).await {
         Ok(resident) => resident,
         Err(_) => {
@@ -448,6 +486,15 @@ pub async fn execute_native_agent_provisioning(
         }
     };
     let resident_pubkey = resident.resident.resident_pubkey.as_str().to_string();
+    update_native_transaction(
+        &app,
+        &owner,
+        &input.transaction_id,
+        NativeProvisioningStatusV1::ResidentLinked,
+        Some(resident_pubkey.clone()),
+        Some(semantic_hash.clone()),
+        None,
+    )?;
     update_native_transaction(
         &app,
         &owner,
@@ -508,6 +555,10 @@ pub async fn reconcile_native_agent_provisioning(
         .as_deref()
         .ok_or_else(|| "provisioning has not reached resident linking".to_string())?;
     let candidate = native_candidate_by_id(&transaction.runtime, &transaction.intended_slug)?;
+    let discovered_semantic_hash = semantic_hash(&candidate.binding_preview);
+    if transaction.native_semantic_hash.as_deref() != Some(discovered_semantic_hash.as_str()) {
+        return Err("the discovered native identity no longer matches this transaction".into());
+    }
     let display_name = crate::managed_agents::load_personas(&app)?
         .into_iter()
         .find(|persona| persona.id == persona_id)
@@ -533,7 +584,7 @@ pub async fn reconcile_native_agent_provisioning(
         &input.transaction_id,
         NativeProvisioningStatusV1::Complete,
         Some(resident.resident.resident_pubkey.as_str().to_string()),
-        transaction.native_semantic_hash,
+        Some(discovered_semantic_hash),
         None,
     )?;
     Ok(receipt_from_transaction(updated, resident.reused))

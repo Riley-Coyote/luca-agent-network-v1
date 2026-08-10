@@ -711,6 +711,12 @@ export function injectObserverEventsForE2E(
 ) {
   for (const event of events) {
     appendAgentEvent(agentPubkey, event);
+    const managementRequest = parseAgentManagementRequest(event.payload);
+    if (managementRequest) {
+      for (const listener of agentManagementListeners) {
+        listener(agentPubkey, managementRequest);
+      }
+    }
   }
   notifyListeners();
 }

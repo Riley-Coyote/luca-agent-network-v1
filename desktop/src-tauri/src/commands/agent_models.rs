@@ -238,9 +238,9 @@ pub async fn discover_agent_models(
         .map_err(|error| format!("Shared compute model discovery failed: {error}"))?;
         let availability = crate::mesh_llm::availability_from_events(events);
         if availability.models.is_empty() {
-            return Err(availability.reason.unwrap_or_else(|| {
-                "No live shared compute models are available".to_string()
-            }));
+            return Err(availability
+                .reason
+                .unwrap_or_else(|| "No live shared compute models are available".to_string()));
         }
         return Ok(AgentModelsResponse {
             agent_name: crate::managed_agents::RELAY_MESH_PROVIDER_ID.to_string(),

@@ -175,6 +175,13 @@ export function useAgentManagement() {
     }
   }
 
+  function authorizePendingCreate() {
+    if (request?.action !== "create") {
+      throw new Error("This agent creation request is no longer available.");
+    }
+    assertAgentCanActFromOrigin(request.request.channelId);
+  }
+
   async function submitCreate(
     input: CreatePersonaInput | UpdatePersonaInput,
     intent: AgentCreateIntent,
@@ -304,6 +311,7 @@ export function useAgentManagement() {
   }, [currentPersona, error, matchingPersonas.length, request]);
 
   return {
+    authorizePendingCreate,
     request,
     createInitialValues,
     editInitialValues,

@@ -27,6 +27,7 @@ import { Button } from "@/shared/ui/button";
 import { ResidentSetup } from "@/features/luca/residents/ResidentSetup";
 import { useLucaResidentsQuery } from "@/features/luca/residents/hooks";
 import { NativeResidentImportSection } from "./NativeResidentImportSection";
+import { NativeAgentProvisioningDialog } from "./NativeAgentProvisioningDialog";
 import {
   Dialog,
   DialogContent,
@@ -85,6 +86,9 @@ export function AgentsView({
   // Exclusivity: create never sets `personaDialogState` (edit/dup/import do),
   // so the create-mode and definition-edit AgentDialog mounts never coexist.
   const [isCreateDialogOpen, setIsCreateDialogOpen] = React.useState(false);
+  const [nativeCreateRuntime, setNativeCreateRuntime] = React.useState<
+    "hermes" | "openclaw" | null
+  >(null);
 
   function openUnifiedCreate() {
     personas.prepareCreate();
@@ -310,6 +314,28 @@ export function AgentsView({
           </DialogHeader>
           <div className="space-y-6 py-2">
             <NativeResidentImportSection residents={agents.managedAgents} />
+            <section className="space-y-3">
+              <div>
+                <h3 className="text-sm font-medium">Create a native agent</h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Polyphonic previews every native change before creation.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {(["hermes", "openclaw"] as const).map((runtime) => (
+                  <Button
+                    key={runtime}
+                    onClick={() => {
+                      setIsAddOpen(false);
+                      setNativeCreateRuntime(runtime);
+                    }}
+                    variant="outline"
+                  >
+                    New {runtime === "hermes" ? "Hermes" : "OpenClaw"} agent…
+                  </Button>
+                ))}
+              </div>
+            </section>
             <ResidentSetup
               isLoading={
                 residentsQuery.isLoading || personas.personasQuery.isLoading
@@ -331,6 +357,19 @@ export function AgentsView({
           </div>
         </DialogContent>
       </Dialog>
+
+      {nativeCreateRuntime ? (
+        <NativeAgentProvisioningDialog
+          initialRuntime={nativeCreateRuntime}
+          onComplete={() => {
+            void agents.refetchManagedAgents();
+          }}
+          onOpenChange={(open) => {
+            if (!open) setNativeCreateRuntime(null);
+          }}
+          open
+        />
+      ) : null}
 
       <Dialog onOpenChange={setIsGroupsOpen} open={isGroupsOpen}>
         <DialogContent className="max-h-[86vh] max-w-5xl overflow-y-auto">

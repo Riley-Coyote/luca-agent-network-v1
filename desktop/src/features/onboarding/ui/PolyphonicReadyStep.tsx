@@ -1,6 +1,7 @@
 import { AlertCircle, Check } from "lucide-react";
 
 import { useManagedAgentsQuery } from "@/features/agents/hooks";
+import { useOperatorForgeSettingsQuery } from "@/features/agents/operatorForgeQueries";
 import { useConnectedBrainInventoryQuery } from "@/features/luca/brain/hooks";
 import type { PolyphonicOnboardingChapter } from "../polyphonicOnboardingState";
 import { PolyphonicStepHeading } from "./PolyphonicSetupFrame";
@@ -20,6 +21,7 @@ export function PolyphonicReadyStep({
 }) {
   const residents = useManagedAgentsQuery();
   const brain = useConnectedBrainInventoryQuery();
+  const operator = useOperatorForgeSettingsQuery();
   const residentCount = residents.data?.length ?? 0;
   const sources =
     brain.data?.sources.filter((source) => source.status !== "disconnected") ??
@@ -37,7 +39,17 @@ export function PolyphonicReadyStep({
     { label: "You", value: displayName || "Ready", review: "you" as const },
     {
       label: "Agents",
-      value: `${residentCount} ready to work`,
+      value: `${residentCount} ready · ${(residents.data ?? []).some((resident) => resident.personaId === "builtin:fizz") ? "Luca available" : "Luca not added"}`,
+      review: "agents" as const,
+    },
+    {
+      label: "Runtime",
+      value:
+        operator.data?.runtimeOptions.find(
+          (option) =>
+            JSON.stringify(option.target) ===
+            JSON.stringify(operator.data?.preferences.defaultRuntimeTarget),
+        )?.label ?? "No default selected",
       review: "agents" as const,
     },
     {

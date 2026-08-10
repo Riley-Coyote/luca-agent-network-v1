@@ -26,6 +26,7 @@ export type NativeProvisioningTransactionV1 = {
   intendedSlug: string;
   requestHash: string;
   sourceHash: string | null;
+  personaId: string | null;
   reservedResidentPubkey: string | null;
   nativeSemanticHash: string | null;
   status: NativeProvisioningStatusV1;
@@ -108,6 +109,12 @@ export function saveOperatorForgePreferences(
   input: SaveOperatorPreferencesInputV1,
 ): Promise<OperatorForgeSettingsV1> {
   return invoke("save_operator_forge_preferences", { input });
+}
+
+export function listNativeProvisioningTransactions(): Promise<
+  NativeProvisioningTransactionV1[]
+> {
+  return invoke("list_native_provisioning_transactions");
 }
 
 export function previewNativeAgentProvisioning(

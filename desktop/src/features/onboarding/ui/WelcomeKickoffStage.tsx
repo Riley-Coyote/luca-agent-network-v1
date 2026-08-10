@@ -62,7 +62,7 @@ export function WelcomeKickoffStage({
     >
       {STAGE_CHARACTERS.map((character, index) => (
         <span
-          className="motion-kickoff-character-enter flex h-8 items-center rounded-md border border-border/70 bg-background/95 px-3 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground shadow-sm"
+          className="motion-kickoff-character-enter flex h-8 items-center rounded-md border border-border/70 bg-background/95 px-3 font-mono text-2xs uppercase tracking-[0.14em] text-muted-foreground shadow-sm"
           data-testid={`welcome-kickoff-stage-${character.name.toLowerCase()}`}
           key={character.name}
           style={{ "--stagger-index": index } as React.CSSProperties}

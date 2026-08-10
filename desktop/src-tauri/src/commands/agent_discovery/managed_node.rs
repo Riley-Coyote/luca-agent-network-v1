@@ -415,10 +415,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_npm_eacces_hint_guidance_mentions_buzz_private_dir() {
+    fn test_npm_eacces_hint_guidance_mentions_luca_private_dir() {
         let hint = npm_eacces_hint("EACCES: permission denied", "npm install -g foo").unwrap();
         assert!(
-            hint.contains("Buzz's private Node tools directory"),
+            hint.contains("Luca's private Node tools directory"),
             "hint: {hint}"
         );
     }

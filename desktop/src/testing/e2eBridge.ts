@@ -2044,9 +2044,10 @@ function resetMockPersonas(config?: E2eConfig) {
   const builtInPersonas = [
     {
       id: "builtin:fizz",
-      display_name: "Fizz",
+      display_name: "Luca",
       avatar_url: null,
-      system_prompt: "You are Fizz.",
+      system_prompt:
+        "You are Luca, Polyphonic's optional conversational operator.",
     },
     {
       id: "builtin:honey",
@@ -7032,6 +7033,18 @@ let nsecCallCount = 0;
 
 // Per-page confirm_team_snapshot_import call counter for sequenced error testing.
 let teamSnapshotConfirmCallCount = 0;
+let mockOperatorPreferences = {
+  schemaVersion: 1 as const,
+  ownerPubkey: MOCK_IDENTITY_PUBKEY,
+  defaultRuntimeTarget: null as
+    | null
+    | { kind: "managed"; runtimeId: "codex" | "claude" }
+    | { kind: "native"; runtime: "hermes" | "openclaw" },
+  runtimeConfirmed: false,
+  lucaEnabled: true,
+  updatedAt: new Date().toISOString(),
+};
+const mockNativeProvisioningTransactions: Array<Record<string, unknown>> = [];
 
 async function handleInstallAcpRuntime(
   args: {
@@ -10976,6 +10989,190 @@ export function maybeInstallE2eTauriMocks() {
       }
       case "list_managed_agents":
         return handleListManagedAgents(activeConfig);
+      case "get_operator_forge_settings": {
+        const runtimeOptions = [
+          {
+            target: { kind: "managed", runtimeId: "codex" },
+            label: "Codex",
+            readiness: "ready",
+            reason: null,
+            recommended: true,
+          },
+          {
+            target: { kind: "managed", runtimeId: "claude" },
+            label: "Claude Code",
+            readiness: "setup_required",
+            reason: "Sign in to continue.",
+            recommended: false,
+          },
+          {
+            target: { kind: "native", runtime: "hermes" },
+            label: "Hermes",
+            readiness: "ready",
+            reason: null,
+            recommended: false,
+          },
+          {
+            target: { kind: "native", runtime: "openclaw" },
+            label: "OpenClaw",
+            readiness: "ready",
+            reason: null,
+            recommended: false,
+          },
+        ];
+        return {
+          preferences: mockOperatorPreferences,
+          runtimeOptions,
+          recommendation: { kind: "managed", runtimeId: "codex" },
+        };
+      }
+      case "save_operator_forge_preferences": {
+        const input = (payload as { input: typeof mockOperatorPreferences })
+          .input;
+        mockOperatorPreferences = {
+          ...mockOperatorPreferences,
+          ...input,
+          updatedAt: new Date().toISOString(),
+        };
+        return {
+          preferences: mockOperatorPreferences,
+          runtimeOptions: [
+            {
+              target: { kind: "managed", runtimeId: "codex" },
+              label: "Codex",
+              readiness: "ready",
+              reason: null,
+              recommended: true,
+            },
+            {
+              target: { kind: "managed", runtimeId: "claude" },
+              label: "Claude Code",
+              readiness: "setup_required",
+              reason: "Sign in to continue.",
+              recommended: false,
+            },
+            {
+              target: { kind: "native", runtime: "hermes" },
+              label: "Hermes",
+              readiness: "ready",
+              reason: null,
+              recommended: false,
+            },
+            {
+              target: { kind: "native", runtime: "openclaw" },
+              label: "OpenClaw",
+              readiness: "ready",
+              reason: null,
+              recommended: false,
+            },
+          ],
+          recommendation: { kind: "managed", runtimeId: "codex" },
+        };
+      }
+      case "list_native_provisioning_transactions":
+        return mockNativeProvisioningTransactions;
+      case "preview_native_agent_provisioning": {
+        const request = (
+          payload as {
+            request: {
+              displayName: string;
+              runtime: "hermes" | "openclaw";
+              mode: string;
+            };
+          }
+        ).request;
+        const transactionId = `mock-native-${Date.now()}`;
+        const intendedSlug = request.displayName
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-");
+        mockNativeProvisioningTransactions.unshift({
+          schemaVersion: 1,
+          transactionId,
+          ownerPubkey: MOCK_IDENTITY_PUBKEY,
+          runtime: request.runtime,
+          mode: request.mode,
+          intendedSlug,
+          requestHash: "body-free",
+          sourceHash: null,
+          personaId: null,
+          reservedResidentPubkey: null,
+          nativeSemanticHash: null,
+          status: "planned",
+          errorCode: null,
+          recoveryAction: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+        return {
+          schemaVersion: 1,
+          transactionId,
+          displayName: request.displayName,
+          runtime: request.runtime,
+          mode: request.mode,
+          intendedSlug,
+          sourceLabel: null,
+          changes: [
+            {
+              subject:
+                request.runtime === "hermes"
+                  ? "Hermes profile"
+                  : "OpenClaw agent",
+              action: "Create",
+              detail: "Create one isolated native identity.",
+            },
+            {
+              subject: "Polyphonic resident",
+              action: "Link",
+              detail: "Link one stable resident identity.",
+            },
+          ],
+          permissionDefaults:
+            "Credentials and native authentication remain runtime-owned.",
+          recoveryAction: "Remove only the incomplete new identity.",
+        };
+      }
+      case "execute_native_agent_provisioning": {
+        const input = (
+          payload as { input: { transactionId: string; personaId: string } }
+        ).input;
+        const transaction = mockNativeProvisioningTransactions.find(
+          (entry) => entry.transactionId === input.transactionId,
+        );
+        if (transaction)
+          Object.assign(transaction, {
+            personaId: input.personaId,
+            status: "complete",
+            reservedResidentPubkey: `mocknative${Date.now()}`,
+            updatedAt: new Date().toISOString(),
+          });
+        return {
+          schemaVersion: 1,
+          transactionId: input.transactionId,
+          runtime: transaction?.runtime ?? "hermes",
+          residentPubkey: transaction?.reservedResidentPubkey ?? null,
+          nativeSemanticHash: "body-free",
+          status: "complete",
+          reused: false,
+          needsAttention: false,
+          recoveryAction: null,
+          retainedWorkspace: false,
+        };
+      }
+      case "reconcile_native_agent_provisioning":
+      case "rollback_native_agent_provisioning":
+        return {
+          schemaVersion: 1,
+          transactionId: (payload as { input: { transactionId: string } }).input
+            .transactionId,
+          runtime: "hermes",
+          residentPubkey: null,
+          nativeSemanticHash: null,
+          status: command.startsWith("rollback") ? "rolled_back" : "complete",
+          reused: false,
+          needsAttention: false,
+          recoveryAction: null,
+          retainedWorkspace: false,
+        };
       case "is_shared_identity":
         return false;
       case "get_agent_memory":

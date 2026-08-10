@@ -9,9 +9,7 @@ use crate::{
         self, LucaMcpRegistryV1, McpConnectionHealthV1, McpReadinessV1,
         SaveLucaMcpConnectionInputV1,
     },
-    managed_agents::{
-        AcpAvailabilityStatus, AuthStatus, NativeDiscoveryStatus, NativeRuntimeKind,
-    },
+    managed_agents::{AcpAvailabilityStatus, AuthStatus, NativeDiscoveryStatus, NativeRuntimeKind},
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -93,11 +91,9 @@ pub async fn test_luca_mcp_connection(
     let resolved = {
         let app = app.clone();
         let connection_id = connection_id.clone();
-        tokio::task::spawn_blocking(move || {
-            mcp_registry::resolve_connection(&app, &connection_id)
-        })
-        .await
-        .map_err(|_| "MCP connection test task failed".to_string())?
+        tokio::task::spawn_blocking(move || mcp_registry::resolve_connection(&app, &connection_id))
+            .await
+            .map_err(|_| "MCP connection test task failed".to_string())?
     };
     let tested_at = Utc::now().to_rfc3339();
     let health = match resolved {
@@ -196,7 +192,7 @@ pub async fn list_runtime_connection_status() -> Result<Vec<RuntimeConnectionSta
                     readiness,
                     authentication,
                     last_verified_at: ready.then(|| verified_at.clone()),
-                    reason: (!ready).then(|| runtime.install_hint),
+                    reason: (!ready).then_some(runtime.install_hint),
                 }
             })
             .collect::<Vec<_>>();

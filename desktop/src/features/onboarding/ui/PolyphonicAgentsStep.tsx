@@ -3,12 +3,31 @@ import { Check, LoaderCircle, Plus, RefreshCw, Terminal } from "lucide-react";
 
 import {
   managedAgentsQueryKey,
+  useAcpRuntimesQuery,
   useCreateManagedAgentMutation,
   useManagedAgentsQuery,
+  usePersonasQuery,
 } from "@/features/agents/hooks";
+import {
+  availableRuntimesForStart,
+  buildInstanceInputForDefinition,
+} from "@/features/agents/lib/instanceInputForDefinition";
+import {
+  useOperatorForgeSettingsQuery,
+  useSaveOperatorForgePreferencesMutation,
+} from "@/features/agents/operatorForgeQueries";
 import { AgentDialog } from "@/features/agents/ui/AgentDialog";
+import { AgentRuntimeTargetSelector } from "@/features/agents/ui/AgentRuntimeTargetSelector";
 import { usePersonaActions } from "@/features/agents/ui/usePersonaActions";
+import { createLucaResident } from "@/features/luca/residents/api";
 import { discoverNativeResidents } from "@/shared/api/tauri";
+import {
+  executeNativeAgentProvisioning,
+  previewNativeAgentProvisioning,
+  type AgentRuntimeTargetV1,
+  type NativeProvisioningPreviewV1,
+  type NativeProvisioningRequestV1,
+} from "@/shared/api/tauriOperatorForge";
 import { setResidentContinuityEnabled } from "@/shared/api/tauriContinuity";
 import type {
   DiscoveredResidentCandidate,
@@ -26,8 +45,12 @@ import {
 type CandidateResult = "idle" | "importing" | "ready" | "failed";
 
 export type PolyphonicAgentsStepHandle = {
-  commit: () => Promise<{ issueCount: number; residentCount: number }>;
+  commit: () => Promise<
+    { issueCount: number; residentCount: number } | undefined
+  >;
 };
+
+const LUCA_PERSONA_ID = "builtin:fizz";
 
 function bindingIdentity(binding: RuntimeBinding): string {
   return binding.kind === "hermes"
@@ -43,6 +66,10 @@ export const PolyphonicAgentsStep = React.forwardRef<
   const managedQuery = useManagedAgentsQuery();
   const createMutation = useCreateManagedAgentMutation();
   const personas = usePersonaActions();
+  const personasQuery = usePersonasQuery();
+  const runtimesQuery = useAcpRuntimesQuery({ enabled: true });
+  const operatorSettings = useOperatorForgeSettingsQuery();
+  const saveOperatorSettings = useSaveOperatorForgePreferencesMutation();
   const [candidates, setCandidates] = React.useState<
     DiscoveredResidentCandidate[]
   >([]);
@@ -54,6 +81,26 @@ export const PolyphonicAgentsStep = React.forwardRef<
   const [isScanning, setIsScanning] = React.useState(true);
   const [scanError, setScanError] = React.useState<string | null>(null);
   const [createOpen, setCreateOpen] = React.useState(false);
+  const [runtimeTarget, setRuntimeTarget] =
+    React.useState<AgentRuntimeTargetV1 | null>(null);
+  const [lucaSelected, setLucaSelected] = React.useState(true);
+  const [lucaPreview, setLucaPreview] =
+    React.useState<NativeProvisioningPreviewV1 | null>(null);
+  const [lucaRequest, setLucaRequest] =
+    React.useState<NativeProvisioningRequestV1 | null>(null);
+
+  React.useEffect(() => {
+    if (!operatorSettings.data) return;
+    setRuntimeTarget(
+      operatorSettings.data.preferences.defaultRuntimeTarget ??
+        operatorSettings.data.recommendation,
+    );
+    setLucaSelected(operatorSettings.data.preferences.lucaEnabled);
+  }, [operatorSettings.data]);
+
+  const existingLuca = (managedQuery.data ?? []).find(
+    (resident) => resident.personaId === LUCA_PERSONA_ID,
+  );
 
   const importedBindings = React.useMemo(
     () =>
@@ -101,6 +148,75 @@ export const PolyphonicAgentsStep = React.forwardRef<
     let issueCount = 0;
     onBusyChange(true);
     try {
+      await saveOperatorSettings.mutateAsync({
+        defaultRuntimeTarget: runtimeTarget,
+        runtimeConfirmed: runtimeTarget !== null,
+        lucaEnabled: lucaSelected || existingLuca !== undefined,
+      });
+      if (lucaSelected && !existingLuca && runtimeTarget) {
+        const lucaPersona = (personasQuery.data ?? []).find(
+          (persona) => persona.id === LUCA_PERSONA_ID,
+        );
+        if (!lucaPersona) {
+          issueCount += 1;
+          setErrors((current) => ({
+            ...current,
+            luca: "Luca's built-in definition is unavailable.",
+          }));
+        } else if (runtimeTarget.kind === "managed") {
+          try {
+            const runtimes = await availableRuntimesForStart(runtimesQuery);
+            const runtime = runtimes.find(
+              (candidate) => candidate.id === runtimeTarget.runtimeId,
+            );
+            if (!runtime)
+              throw new Error("The selected runtime is no longer ready.");
+            const input = await buildInstanceInputForDefinition(
+              lucaPersona,
+              runtime,
+            );
+            await createLucaResident(input);
+          } catch (cause) {
+            issueCount += 1;
+            setErrors((current) => ({
+              ...current,
+              luca: cause instanceof Error ? cause.message : String(cause),
+            }));
+          }
+        } else {
+          const request: NativeProvisioningRequestV1 = {
+            displayName: "Luca",
+            systemPrompt: lucaPersona.systemPrompt,
+            runtime: runtimeTarget.runtime,
+            mode: "fresh",
+            selectedSkills: [],
+            includeMemory: false,
+            workspaceDocuments: [],
+          };
+          if (
+            !lucaPreview ||
+            JSON.stringify(lucaRequest) !== JSON.stringify(request)
+          ) {
+            setLucaRequest(request);
+            setLucaPreview(await previewNativeAgentProvisioning(request));
+            return undefined;
+          }
+          try {
+            await executeNativeAgentProvisioning(
+              lucaPreview.transactionId,
+              LUCA_PERSONA_ID,
+              request,
+            );
+            setLucaPreview(null);
+          } catch (cause) {
+            issueCount += 1;
+            setErrors((current) => ({
+              ...current,
+              luca: cause instanceof Error ? cause.message : String(cause),
+            }));
+          }
+        }
+      }
       for (const candidate of candidates) {
         if (
           !selected.has(candidate.semanticId) ||
@@ -166,11 +282,19 @@ export const PolyphonicAgentsStep = React.forwardRef<
   }, [
     candidates,
     createMutation,
+    existingLuca,
     importedBindings,
+    lucaPreview,
+    lucaRequest,
+    lucaSelected,
     managedQuery,
     onBusyChange,
+    personasQuery.data,
     queryClient,
     results,
+    runtimeTarget,
+    runtimesQuery,
+    saveOperatorSettings,
     selected,
   ]);
 
@@ -185,10 +309,76 @@ export const PolyphonicAgentsStep = React.forwardRef<
   return (
     <>
       <PolyphonicStepHeading
-        description="Polyphonic found agents already set up on this Mac. Bring in the ones you want now; their models and native settings stay unchanged."
+        description="Choose how new agents run, add Luca if you want a conversational operator, and bring in agents already on this Mac."
         stage="agents"
         title="Bring your agents together"
       />
+      <div className="mt-6 space-y-5">
+        {operatorSettings.data ? (
+          <AgentRuntimeTargetSelector
+            disabled={saveOperatorSettings.isPending}
+            onChange={(target) => {
+              setRuntimeTarget(target);
+              setLucaPreview(null);
+            }}
+            options={operatorSettings.data.runtimeOptions}
+            value={runtimeTarget}
+          />
+        ) : (
+          <p className="text-sm text-white/48" role="status">
+            Checking available runtimes…
+          </p>
+        )}
+        <button
+          aria-pressed={existingLuca ? true : lucaSelected}
+          className="flex w-full items-center gap-3 rounded-lg border border-[hsl(var(--mn-border))] bg-[hsl(var(--mn-surface))] px-3.5 py-3 text-left hover:bg-[hsl(var(--mn-hover))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+          disabled={Boolean(existingLuca)}
+          onClick={() => setLucaSelected((current) => !current)}
+          type="button"
+        >
+          <span className="flex h-9 w-9 items-center justify-center border border-[hsl(var(--mn-border))] text-white/62">
+            <Terminal className="h-4 w-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm text-white/88">Luca</span>
+            <span className="block text-xs text-white/46">
+              Can organize Polyphonic and prepare agent creation for your
+              review.
+            </span>
+          </span>
+          <span
+            aria-hidden
+            className={cn(
+              "flex h-5 w-5 items-center justify-center rounded-full border",
+              existingLuca || lucaSelected
+                ? "border-white bg-white text-black"
+                : "border-white/20 text-transparent",
+            )}
+          >
+            <Check className="h-3 w-3" />
+          </span>
+        </button>
+        {lucaPreview ? (
+          <section
+            className="rounded-lg border border-white/16 bg-white/[0.035] p-3"
+            aria-label="Review Luca native creation"
+          >
+            <p className="text-sm font-medium text-white/88">
+              Review Luca's native setup
+            </p>
+            <ul className="mt-2 space-y-1.5 text-xs text-white/56">
+              {lucaPreview.changes.map((change) => (
+                <li key={`${change.subject}-${change.action}`}>
+                  {change.subject} · {change.detail}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs text-white/42">
+              Press Continue again to approve these exact changes.
+            </p>
+          </section>
+        ) : null}
+      </div>
       <div className="mt-6 overflow-hidden rounded-lg border border-[hsl(var(--mn-border))] bg-[hsl(var(--mn-surface))]">
         {allResidents.map((resident) => (
           <div

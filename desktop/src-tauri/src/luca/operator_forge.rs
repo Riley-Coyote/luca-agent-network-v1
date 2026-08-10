@@ -29,7 +29,12 @@ pub enum NativeRuntimeFamilyV1 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum AgentRuntimeTargetV1 {
     Managed { runtime_id: String },
     Native { runtime: NativeRuntimeFamilyV1 },
@@ -504,9 +509,48 @@ pub async fn save_operator_forge_preferences(
     .map_err(|_| "operator settings task failed".to_string())?
 }
 
+#[tauri::command]
+pub async fn list_native_provisioning_transactions(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<NativeProvisioningTransactionV1>, String> {
+    let owner = owner_pubkey(&state)?;
+    tokio::task::spawn_blocking(move || {
+        let mut transactions = load_store(&app)?
+            .transactions
+            .into_iter()
+            .filter(|transaction| transaction.owner_pubkey == owner)
+            .collect::<Vec<_>>();
+        transactions.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+        Ok(transactions)
+    })
+    .await
+    .map_err(|_| "provisioning activity task failed".to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn runtime_target_uses_camel_case_fields_and_rejects_unknown_fields() {
+        let encoded = serde_json::to_value(AgentRuntimeTargetV1::Managed {
+            runtime_id: "codex".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            encoded,
+            serde_json::json!({"kind": "managed", "runtimeId": "codex"})
+        );
+        assert!(
+            serde_json::from_value::<AgentRuntimeTargetV1>(serde_json::json!({
+                "kind": "managed",
+                "runtimeId": "codex",
+                "command": "sh"
+            }))
+            .is_err()
+        );
+    }
 
     fn option(target: AgentRuntimeTargetV1, ready: bool) -> RuntimeTargetOptionV1 {
         RuntimeTargetOptionV1 {

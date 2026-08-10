@@ -229,8 +229,8 @@ pub fn load_registry(app: &AppHandle) -> Result<LucaMcpRegistryV1, String> {
         });
     }
     let bytes = fs::read(&path).map_err(|_| "MCP registry could not be read".to_string())?;
-    let registry: LucaMcpRegistryV1 = serde_json::from_slice(&bytes)
-        .map_err(|_| "MCP registry is invalid".to_string())?;
+    let registry: LucaMcpRegistryV1 =
+        serde_json::from_slice(&bytes).map_err(|_| "MCP registry is invalid".to_string())?;
     if registry.schema_version != REGISTRY_SCHEMA_VERSION {
         return Err("MCP registry schema is unsupported".into());
     }
@@ -275,11 +275,11 @@ pub fn save_connection(
 ) -> Result<LucaMcpRegistryV1, String> {
     let mut registry = load_registry(app)?;
     if registry.connections.len() >= MAX_CONNECTIONS && input.connection_id.is_none() {
-        return Err(format!("Luca supports at most {MAX_CONNECTIONS} MCP connections"));
+        return Err(format!(
+            "Luca supports at most {MAX_CONNECTIONS} MCP connections"
+        ));
     }
-    if input.args.len() > MAX_ARGUMENTS
-        || input.environment.len() > MAX_ENVIRONMENT_BINDINGS
-    {
+    if input.args.len() > MAX_ARGUMENTS || input.environment.len() > MAX_ENVIRONMENT_BINDINGS {
         return Err("MCP connection exceeds local limits".into());
     }
 
@@ -397,7 +397,9 @@ pub fn save_connection(
     } else {
         registry.connections.push(connection);
     }
-    registry.health.retain(|health| health.connection_id != connection_id);
+    registry
+        .health
+        .retain(|health| health.connection_id != connection_id);
     registry.health.push(McpConnectionHealthV1 {
         connection_id: connection_id.clone(),
         readiness: if input.enabled {
@@ -465,7 +467,9 @@ pub fn delete_connection(
             .iter()
             .filter_map(|binding| binding.secret_ref.as_deref())
         {
-            registry.pending_secret_deletions.push(secret_ref.to_owned());
+            registry
+                .pending_secret_deletions
+                .push(secret_ref.to_owned());
         }
     }
     registry.pending_secret_deletions.sort();
@@ -482,12 +486,10 @@ pub fn set_grant(
     granted: bool,
 ) -> Result<LucaMcpRegistryV1, String> {
     let connection_id = validate_connection_id(connection_id)?;
-    let resident_pubkey = luca_protocol::Hex64::parse(
-        resident_pubkey.trim().to_ascii_lowercase(),
-    )
-    .map_err(|error| format!("invalid resident public key: {error}"))?
-    .as_str()
-    .to_owned();
+    let resident_pubkey = luca_protocol::Hex64::parse(resident_pubkey.trim().to_ascii_lowercase())
+        .map_err(|error| format!("invalid resident public key: {error}"))?
+        .as_str()
+        .to_owned();
     let mut registry = load_registry(app)?;
     if !registry
         .connections
@@ -541,12 +543,10 @@ pub fn resolve_for_resident(
     app: &AppHandle,
     resident_pubkey: &str,
 ) -> Result<Vec<ResolvedMcpServerV1>, String> {
-    let resident_pubkey = luca_protocol::Hex64::parse(
-        resident_pubkey.trim().to_ascii_lowercase(),
-    )
-    .map_err(|error| format!("invalid resident public key: {error}"))?
-    .as_str()
-    .to_owned();
+    let resident_pubkey = luca_protocol::Hex64::parse(resident_pubkey.trim().to_ascii_lowercase())
+        .map_err(|error| format!("invalid resident public key: {error}"))?
+        .as_str()
+        .to_owned();
     let registry = load_registry(app)?;
     let granted = registry
         .grants
@@ -557,7 +557,9 @@ pub fn resolve_for_resident(
     registry
         .connections
         .into_iter()
-        .filter(|connection| connection.enabled && granted.contains(connection.connection_id.as_str()))
+        .filter(|connection| {
+            connection.enabled && granted.contains(connection.connection_id.as_str())
+        })
         .map(resolve_connection_record)
         .collect()
 }
