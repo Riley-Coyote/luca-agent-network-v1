@@ -9,9 +9,10 @@ verdict, and run log in that order.
 - Frontend checkpoint: `b3778c8`
 - MCP/runtime checkpoint: `87e0aa6`
 - Visible-branding checkpoint: `db37bb3`
+- Pre-acceptance evidence checkpoint: `a457c30`
 - Installed bundle: `~/Applications/Luca Agent Network Dev.app`
 - Installed executable SHA-256:
-  `593a5d8049d8e31d2134c41e544d921a5f706549441265769b3113f0b2dbc810`
+  `18be55fe53e4f5a242e310638e583d3a640f1dc888c714b82270dbb093471e4d`
 
 ## Important implementation boundaries
 
@@ -30,6 +31,14 @@ verdict, and run log in that order.
 - Internal Buzz crate, binary, protocol, storage, and test identifiers are
   compatibility details. Do not expose them as Luca product copy, and do not
   mass-rename them without a separate migration plan.
+- Installed interactive MCP acceptance passed with the default Hermes resident:
+  grant, fresh-session tool registration, successful invocation, revocation,
+  fresh-session removal, and ordinary messaging were observed directly.
+- The temporary acceptance connection and its grants were deleted. The local
+  Luca MCP registry was left with zero connections and zero grants.
+- OpenClaw discovery was unavailable after the machine restart because its
+  native agent list was unreadable. Do not infer OpenClaw MCP acceptance from
+  the Hermes proof.
 
 ## Next safe work
 
