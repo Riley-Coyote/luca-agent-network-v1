@@ -17,11 +17,22 @@ import {
 } from "@/features/onboarding/welcome";
 import { forceFreshOnboarding } from "@/features/onboarding/devFreshOnboarding";
 import { readPersonalOwnerOnboardingComplete } from "@/features/onboarding/communityOnboarding";
+import {
+  clearPolyphonicOnboardingSessionSkip,
+  clearPolyphonicOnboardingTransaction,
+  isPolyphonicOnboardingSkippedForSession,
+  skipPolyphonicOnboardingForSession,
+} from "@/features/onboarding/polyphonicOnboardingState";
+import {
+  clearPendingPolyphonicProfile,
+  readPendingPolyphonicProfile,
+} from "@/features/onboarding/polyphonicProfileSync";
 import { ensureWelcomeCanvas } from "@/features/onboarding/welcomeCanvas";
 import { ensureWelcomeTeam } from "@/features/onboarding/welcomeGuide";
 import { useProfileQuery } from "@/features/profile/hooks";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { useIdentityQuery } from "@/shared/api/hooks";
+import { updateProfile } from "@/shared/api/tauriProfiles";
 import type { Channel } from "@/shared/api/types";
 import {
   createChannel,
@@ -192,6 +203,7 @@ type UseFirstRunOnboardingGateOptions = {
   identityLost: boolean;
   identityStatus: QueryStatus;
   isSharedIdentity: boolean;
+  isLucaPersonalHome: boolean;
   profileHasEvent: boolean | undefined;
   profileIsFetching: boolean;
   profileStatus: QueryStatus;
@@ -221,6 +233,13 @@ function readOnboardingCompletion(pubkey: string | null) {
     "true"
   );
 }
+
+export function isPolyphonicOnboardingComplete(pubkey: string | null) {
+  return readOnboardingCompletion(pubkey);
+}
+
+export const POLYPHONIC_REOPEN_ONBOARDING_EVENT =
+  "polyphonic:reopen-onboarding";
 
 function createOnboardingGateState(pubkey: string | null): OnboardingGateState {
   const hasCompletedCurrentPubkey = readOnboardingCompletion(pubkey);
@@ -259,12 +278,15 @@ function resolveOnboardingGateStage({
   gateState,
   identityIsFetching,
   identityStatus,
+  skippedForSession,
 }: {
   currentPubkey: string | null;
   gateState: OnboardingGateState;
   identityIsFetching: boolean;
   identityStatus: QueryStatus;
+  skippedForSession: boolean;
 }): OnboardingGateStage {
+  if (skippedForSession) return "ready";
   const isBlockingCurrentPubkey =
     currentPubkey !== null &&
     !gateState.hasCompletedCurrentPubkey &&
@@ -291,6 +313,7 @@ export function useFirstRunOnboardingGate({
   identityLost,
   identityStatus,
   isSharedIdentity,
+  isLucaPersonalHome,
   profileHasEvent,
   profileIsFetching,
   profileStatus,
@@ -308,6 +331,21 @@ export function useFirstRunOnboardingGate({
         ? current
         : createOnboardingGateState(currentPubkey),
     );
+  }, [currentPubkey]);
+
+  React.useEffect(() => {
+    function reopen() {
+      setGateState((current) =>
+        updateActiveGateState(current, currentPubkey, (active) => ({
+          ...active,
+          hasSettledCurrentPubkey: true,
+          isOpen: true,
+        })),
+      );
+    }
+    window.addEventListener(POLYPHONIC_REOPEN_ONBOARDING_EVENT, reopen);
+    return () =>
+      window.removeEventListener(POLYPHONIC_REOPEN_ONBOARDING_EVENT, reopen);
   }, [currentPubkey]);
 
   // When the backend signals "identity lost" (keyring was cleared after a
@@ -390,6 +428,7 @@ export function useFirstRunOnboardingGate({
     // kind:0 on the relay) always shows onboarding regardless of display_name.
     const hasExistingProfile =
       !forceFreshOnboarding &&
+      !isLucaPersonalHome &&
       profileStatus === "success" &&
       profileHasEvent === true;
 
@@ -426,12 +465,16 @@ export function useFirstRunOnboardingGate({
     hasSettledCurrentPubkey,
     identityStatus,
     isSharedIdentity,
+    isLucaPersonalHome,
     profileHasEvent,
     profileIsFetching,
     profileStatus,
   ]);
 
   const skipForNow = React.useCallback(() => {
+    if (isLucaPersonalHome && currentPubkey) {
+      skipPolyphonicOnboardingForSession(currentPubkey);
+    }
     setGateState((current) =>
       updateActiveGateState(current, currentPubkey, (activeGateState) => ({
         ...activeGateState,
@@ -439,7 +482,7 @@ export function useFirstRunOnboardingGate({
         isOpen: false,
       })),
     );
-  }, [currentPubkey]);
+  }, [currentPubkey, isLucaPersonalHome]);
 
   const complete = React.useCallback(() => {
     if (typeof window !== "undefined" && currentPubkey) {
@@ -447,6 +490,8 @@ export function useFirstRunOnboardingGate({
         onboardingCompletionStorageKey(currentPubkey),
         "true",
       );
+      clearPolyphonicOnboardingTransaction(currentPubkey);
+      clearPolyphonicOnboardingSessionSkip(currentPubkey);
     }
 
     setGateState({
@@ -465,6 +510,9 @@ export function useFirstRunOnboardingGate({
       gateState: activeGateState,
       identityIsFetching,
       identityStatus,
+      skippedForSession:
+        isLucaPersonalHome &&
+        isPolyphonicOnboardingSkippedForSession(currentPubkey),
     }),
   };
 }
@@ -514,12 +562,35 @@ export function useAppOnboardingState(isSharedIdentity: boolean) {
   const profileQuery = useProfileQuery(
     !identityLost && !identityLocked && identityQuery.status === "success",
   );
+  const profileRetryAttemptedRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (
+      !isLucaPersonalHome ||
+      !currentPubkey ||
+      profileRetryAttemptedRef.current === currentPubkey
+    ) {
+      return;
+    }
+    const pending = readPendingPolyphonicProfile(currentPubkey);
+    if (!pending) return;
+    profileRetryAttemptedRef.current = currentPubkey;
+    void updateProfile({ displayName: pending.displayName })
+      .then(async () => {
+        clearPendingPolyphonicProfile(currentPubkey);
+        await queryClient.invalidateQueries({ queryKey: ["profile"] });
+      })
+      .catch(() => {
+        // Exactly one retry per launch. The local draft remains authoritative
+        // until a later launch or a manual profile save succeeds.
+      });
+  }, [currentPubkey, isLucaPersonalHome, queryClient]);
   const onboardingGate = useFirstRunOnboardingGate({
     currentPubkey,
     identityIsFetching: identityQuery.fetchStatus === "fetching",
     identityLost,
     identityStatus: identityQuery.status,
     isSharedIdentity,
+    isLucaPersonalHome,
     profileHasEvent: profileQuery.data?.hasProfileEvent,
     profileIsFetching: profileQuery.fetchStatus === "fetching",
     profileStatus: profileQuery.status,
@@ -636,6 +707,10 @@ export function useAppOnboardingState(isSharedIdentity: boolean) {
   );
 
   const completeAndShowWelcome = React.useCallback(() => {
+    if (isLucaPersonalHome) {
+      gateComplete();
+      return;
+    }
     setIsCompletingStarterSetup(true);
     void requestStarterChannels(true).then(async (starterResult) => {
       await refreshChannelsCache(queryClient);
@@ -652,6 +727,7 @@ export function useAppOnboardingState(isSharedIdentity: boolean) {
     });
   }, [
     gateComplete,
+    isLucaPersonalHome,
     queryClient,
     requestStarterChannels,
     showStarterRetryToast,
@@ -678,6 +754,7 @@ export function useAppOnboardingState(isSharedIdentity: boolean) {
     currentPubkey,
     flow,
     identityLost,
+    isLucaPersonalHome,
     // reset-failed is the highest-precedence stage: a failed boot-time reset
     // means identity resolution was skipped entirely. Nothing can proceed until
     // the user relaunches and the wipe retries.

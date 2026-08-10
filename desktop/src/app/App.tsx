@@ -31,10 +31,15 @@ import {
 } from "@/features/onboarding/communityOnboarding";
 import { CommunityOnboardingFlow } from "@/features/onboarding/ui/CommunityOnboardingFlow";
 import {
+  PolyphonicOnboardingPreview,
+  readPolyphonicOnboardingPreviewStage,
+} from "@/features/onboarding/ui/PolyphonicOnboardingPreview";
+import {
   MachineOnboardingFlow,
   type MachineOnboardingPage,
 } from "@/features/onboarding/ui/MachineOnboardingFlow";
 import { OnboardingFlow } from "@/features/onboarding/ui/OnboardingFlow";
+import { PolyphonicOnboardingFlow } from "@/features/onboarding/ui/PolyphonicOnboardingFlow";
 import { PendingInviteGate } from "@/features/onboarding/ui/PendingInviteGate";
 import { KeyringLockedScreen } from "@/features/onboarding/ui/KeyringLockedScreen";
 import { RelaunchRequiredScreen } from "@/features/onboarding/ui/RelaunchRequiredScreen";
@@ -224,6 +229,16 @@ function AppReady({
   }
 
   if (onboarding.stage === "onboarding") {
+    if (onboarding.isLucaPersonalHome && onboarding.currentPubkey) {
+      return (
+        <PolyphonicOnboardingFlow
+          actions={onboarding.flow.actions}
+          initialProfile={onboarding.flow.initialProfile}
+          key={onboarding.currentPubkey}
+          pubkey={onboarding.currentPubkey}
+        />
+      );
+    }
     return (
       <OnboardingFlow
         actions={onboarding.flow.actions}
@@ -628,6 +643,9 @@ function MachineBootstrap({ sharedIdentity }: { sharedIdentity: boolean }) {
   });
   const [machineInitialPage, setMachineInitialPage] =
     useState<MachineOnboardingPage>();
+  const [onboardingPreviewDismissed, setOnboardingPreviewDismissed] =
+    useState(false);
+  const polyphonicOnboardingPreview = readPolyphonicOnboardingPreviewStage();
 
   const reopenMachineConfig = useCallback(() => {
     setMachineInitialPage("config");
@@ -672,6 +690,15 @@ function MachineBootstrap({ sharedIdentity }: { sharedIdentity: boolean }) {
       void unlisten.then((fn) => fn());
     };
   }, [communityOnboarding.start, openAddCommunity]);
+
+  if (polyphonicOnboardingPreview && !onboardingPreviewDismissed) {
+    return (
+      <PolyphonicOnboardingPreview
+        initialStage={polyphonicOnboardingPreview}
+        onComplete={() => setOnboardingPreviewDismissed(true)}
+      />
+    );
+  }
 
   if (machine.stage === "reset-failed") return <ResetFailedScreen />;
   if (machine.stage === "keyring-locked") return <KeyringLockedScreen />;
