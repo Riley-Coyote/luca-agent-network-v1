@@ -7,6 +7,7 @@ mod engram_fetch;
 mod filter;
 mod local_cognition;
 pub mod luca_final_publisher;
+mod managed_mcp_provider;
 mod observer;
 mod pool;
 mod queue;
@@ -4060,7 +4061,13 @@ async fn run_models(args: ModelsArgs) -> Result<()> {
 }
 
 fn build_mcp_servers(config: &Config) -> Vec<McpServer> {
-    if config.mcp_command.is_empty() || config.identity.is_managed() {
+    if config.identity.is_managed() {
+        return managed_mcp_provider::read_inherited_servers().unwrap_or_else(|error| {
+            tracing::warn!(target: "luca::mcp", code = error.code(), "managed MCP connections unavailable; continuing without tools");
+            vec![]
+        });
+    }
+    if config.mcp_command.is_empty() {
         return vec![];
     }
     let Some(keys) = config.identity.legacy_keys() else {

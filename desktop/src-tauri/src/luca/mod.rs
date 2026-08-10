@@ -31,6 +31,9 @@ pub(crate) mod managed_dispatch_store;
 pub(crate) mod managed_message_outbox;
 pub(crate) mod managed_message_publisher;
 pub(crate) mod managed_permission;
+#[cfg(unix)]
+pub(crate) mod managed_mcp;
+pub(crate) mod mcp_registry;
 pub(crate) mod owner_brain;
 pub(crate) mod owner_brain_store;
 pub(crate) mod owner_identity_recovery;

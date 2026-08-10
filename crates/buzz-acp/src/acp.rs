@@ -33,6 +33,7 @@ const LUCA_DESCENDANT_FORBIDDEN_ENV: &[&str] = &[
     "LUCA_MANAGED_PERMISSION_FD",
     "LUCA_MANAGED_CONTINUITY_FD",
     "LUCA_MANAGED_COGNITION_FD",
+    "LUCA_MANAGED_MCP_FD",
     "LUCA_MANAGED_BINDING_REF",
     "BUZZ_ACP_REPOSITORY_MCP_COMMAND",
     "BUZZ_ACP_REPOSITORY_MCP_CONFIG",
@@ -219,7 +220,7 @@ const MAX_LINE_SIZE: usize = 10_000_000; // 10 MB
 ///
 /// Corresponds to the `McpServerStdio` variant in the ACP schema.
 /// All four fields are **required** by the schema (`args` and `env` may be empty arrays).
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 pub struct McpServer {
     pub name: String,
     pub command: String,
@@ -228,10 +229,35 @@ pub struct McpServer {
 }
 
 /// A single environment variable for an MCP server.
-#[derive(Debug, Clone, serde::Serialize)]
+impl std::fmt::Debug for McpServer {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("McpServer")
+            .field("name", &self.name)
+            .field("command", &self.command)
+            .field("args", &self.args)
+            .field(
+                "env_names",
+                &self.env.iter().map(|item| &item.name).collect::<Vec<_>>(),
+            )
+            .finish()
+    }
+}
+
+#[derive(Clone, serde::Serialize)]
 pub struct EnvVar {
     pub name: String,
     pub value: String,
+}
+
+impl std::fmt::Debug for EnvVar {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("EnvVar")
+            .field("name", &self.name)
+            .field("value", &"[REDACTED]")
+            .finish()
+    }
 }
 
 /// Stop reason returned by `session/prompt` when the agent finishes a turn.
@@ -2214,6 +2240,16 @@ fn observer_payload_for_write(value: &serde_json::Value) -> serde_json::Value {
     let Some(method) = value.get("method").and_then(serde_json::Value::as_str) else {
         return value.clone();
     };
+    if method == "session/new" {
+        let params = &value["params"];
+        return serde_json::json!({
+            "jsonrpc": value.get("jsonrpc").cloned().unwrap_or(serde_json::Value::Null),
+            "id": value.get("id").cloned().unwrap_or(serde_json::Value::Null),
+            "method": method,
+            "mcpServerCount": params.get("mcpServers").and_then(serde_json::Value::as_array).map_or(0, Vec::len),
+            "bodyRedacted": true,
+        });
+    }
     if !matches!(method, "session/prompt" | "_goose/unstable/session/steer") {
         return value.clone();
     }

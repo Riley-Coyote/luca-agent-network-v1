@@ -1822,6 +1822,13 @@ pub fn spawn_agent_child(
             session_epoch,
             runtime_binding_ref.clone(),
         )?;
+    #[cfg(unix)]
+    let managed_mcp_fd = crate::luca::managed_mcp::create_endpoint(
+        app.clone(),
+        resident_pubkey.clone(),
+        session_epoch,
+    )
+    .ok();
     let resident_keys = nostr::Keys::parse(&record.private_key_nsec)
         .map_err(|error| format!("failed to load desktop-held resident key: {error}"))?;
     if resident_keys.public_key().to_hex() != resident_pubkey.as_str() {
@@ -1866,6 +1873,12 @@ pub fn spawn_agent_child(
     command.env("LUCA_MANAGED_CONTINUITY_FD", "4");
     #[cfg(unix)]
     command.env("LUCA_MANAGED_COGNITION_FD", "5");
+    #[cfg(unix)]
+    if managed_mcp_fd.is_some() {
+        command.env("LUCA_MANAGED_MCP_FD", "6");
+    } else {
+        command.env_remove("LUCA_MANAGED_MCP_FD");
+    }
     command.env("LUCA_MANAGED_BINDING_REF", runtime_binding_ref.as_str());
     if let Some((_, attestation_json)) = &owner_attestation {
         command.env("LUCA_MANAGED_OWNER_ATTESTATION", attestation_json);
@@ -2184,42 +2197,15 @@ pub fn spawn_agent_child(
         let permission_fd = managed_permission_fd.raw_fd();
         let continuity_fd = managed_continuity_fd.raw_fd();
         let cognition_fd = managed_cognition_fd.raw_fd();
+        let mcp_fd = managed_mcp_fd.as_ref().map(|fd| fd.raw_fd());
         unsafe {
             command.pre_exec(move || {
-                // Duplicate both sources above the reserved target range before
-                // replacing FD 3/4, so an allocator collision cannot clobber
-                // either private channel.
-                let permission_copy = libc::fcntl(permission_fd, libc::F_DUPFD_CLOEXEC, 10);
-                if permission_copy == -1 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                let continuity_copy = libc::fcntl(continuity_fd, libc::F_DUPFD_CLOEXEC, 10);
-                if continuity_copy == -1 {
-                    libc::close(permission_copy);
-                    return Err(std::io::Error::last_os_error());
-                }
-                let cognition_copy = libc::fcntl(cognition_fd, libc::F_DUPFD_CLOEXEC, 10);
-                if cognition_copy == -1 {
-                    libc::close(permission_copy);
-                    libc::close(continuity_copy);
-                    return Err(std::io::Error::last_os_error());
-                }
-                let result = if libc::dup2(permission_copy, 3) == -1
-                    || libc::dup2(continuity_copy, 4) == -1
-                    || libc::dup2(cognition_copy, 5) == -1
-                    || libc::fcntl(3, libc::F_SETFD, 0) == -1
-                    || libc::fcntl(4, libc::F_SETFD, 0) == -1
-                    || libc::fcntl(5, libc::F_SETFD, 0) == -1
-                {
-                    Err(std::io::Error::last_os_error())
-                } else {
-                    Ok(())
-                };
-                libc::close(permission_copy);
-                libc::close(continuity_copy);
-                libc::close(cognition_copy);
-                result?;
-                Ok(())
+                super::inherited_fds::install_managed_descriptors(
+                    permission_fd,
+                    continuity_fd,
+                    cognition_fd,
+                    mcp_fd,
+                )
             });
         }
     }

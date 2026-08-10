@@ -780,6 +780,34 @@ async fn spawn_one(
     Ok((client, pgid, names, tools))
 }
 
+/// Start one stdio MCP server, complete the MCP initialize handshake, list its
+/// tools, and tear the process group down. This is the desktop Settings probe;
+/// callers must keep diagnostics body-free because the environment may contain
+/// Keychain-resolved secrets.
+pub async fn probe_stdio_server(
+    server: &McpServerStdio,
+    cwd: &str,
+    timeout: Duration,
+) -> Result<Vec<String>, AgentError> {
+    let spec = ServerSpec {
+        name: server.name.clone(),
+        command: server.command.clone(),
+        args: server.args.clone(),
+        env: server
+            .env
+            .iter()
+            .map(|binding| (binding.name.clone(), binding.value.clone()))
+            .collect(),
+        cwd: cwd.to_owned(),
+    };
+    let (client, pgid, names, _) = spawn_one(&spec, timeout).await?;
+    drop(client);
+    if let Some(pgid) = pgid {
+        killpg(pgid, &server.name, "settings_probe_complete");
+    }
+    Ok(names)
+}
+
 /// Send `notifications/cancelled` to the MCP server, fire-and-forget.
 /// Per MCP spec, cancellation notifications are best-effort; we never
 /// block the agent on slow server stdio.
@@ -990,6 +1018,73 @@ fn tool_result_content(
 #[cfg(test)]
 mod content_tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn settings_probe_completes_initialize_and_lists_tools() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().expect("temporary MCP fixture directory");
+        let script = directory.path().join("minimal-mcp-server.js");
+        std::fs::write(
+            &script,
+            r#"#!/usr/bin/env node
+let buffer = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  buffer += chunk;
+  let newline;
+  while ((newline = buffer.indexOf("\n")) >= 0) {
+    const line = buffer.slice(0, newline).trim();
+    buffer = buffer.slice(newline + 1);
+    if (!line) continue;
+    const request = JSON.parse(line);
+    if (request.method === "initialize") {
+      const protocolVersion = request.params?.protocolVersion ?? "2024-11-05";
+      process.stdout.write(JSON.stringify({
+        jsonrpc: "2.0",
+        id: request.id,
+        result: {
+          protocolVersion,
+          capabilities: { tools: {} },
+          serverInfo: { name: "luca-settings-fixture", version: "1.0.0" }
+        }
+      }) + "\n");
+    } else if (request.method === "tools/list") {
+      process.stdout.write(JSON.stringify({
+        jsonrpc: "2.0",
+        id: request.id,
+        result: {
+          tools: [{
+            name: "fixture_echo",
+            description: "Environment-free Settings probe fixture",
+            inputSchema: { type: "object", properties: {} }
+          }]
+        }
+      }) + "\n");
+    }
+  }
+});
+"#,
+        )
+        .expect("write MCP fixture");
+        let mut permissions = std::fs::metadata(&script)
+            .expect("MCP fixture metadata")
+            .permissions();
+        permissions.set_mode(0o700);
+        std::fs::set_permissions(&script, permissions).expect("make MCP fixture executable");
+
+        let server = McpServerStdio {
+            name: "settings_fixture".into(),
+            command: script.to_string_lossy().into_owned(),
+            args: Vec::new(),
+            env: Vec::new(),
+        };
+        let tools = probe_stdio_server(&server, ".", Duration::from_secs(5))
+            .await
+            .expect("Settings MCP probe");
+        assert_eq!(tools, vec!["fixture_echo"]);
+    }
 
     #[test]
     fn passthrough_includes_buzz_owner_attestation() {

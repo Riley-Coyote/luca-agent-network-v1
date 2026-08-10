@@ -26,6 +26,7 @@ mod identity_archive;
 mod legacy_storage;
 mod link_preview;
 mod managed_permissions;
+mod mcp_settings;
 pub(crate) mod media;
 mod media_download;
 mod media_transcode;
@@ -84,6 +85,7 @@ pub use identity_archive::*;
 pub use legacy_storage::*;
 pub use link_preview::*;
 pub use managed_permissions::*;
+pub use mcp_settings::*;
 pub use media::*;
 pub use media_download::*;
 #[cfg(feature = "mesh-llm")]

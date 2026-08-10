@@ -14,6 +14,7 @@ mod wire;
 
 pub use catalog::{discover_databricks_models, ModelEntry, DATABRICKS_V2_KNOWN_MODELS};
 pub use config::Provider;
+pub use mcp::probe_stdio_server;
 pub use types::AgentError;
 
 /// Environment keys the Windows Git Bash resolver may inspect. `spawn_one()`
