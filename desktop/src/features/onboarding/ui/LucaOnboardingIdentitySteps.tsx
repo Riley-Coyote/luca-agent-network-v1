@@ -14,7 +14,47 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { ONBOARDING_PRIMARY_CTA_CLASS } from "./OnboardingChrome";
 import { OnboardingFooter } from "./OnboardingFooter";
-import { LucaOnboardingHeading } from "./LucaOnboardingShell";
+
+function LucaOnboardingHeading({
+  description,
+  eyebrow,
+  focusKey,
+  title,
+}: {
+  description: React.ReactNode;
+  eyebrow: string;
+  focusKey: string;
+  title: string;
+}) {
+  const headingRef = React.useRef<HTMLHeadingElement>(null);
+
+  React.useEffect(() => {
+    const frame = window.requestAnimationFrame(() =>
+      headingRef.current?.focus(),
+    );
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  return (
+    <header className="w-full max-w-[30rem]">
+      <p className="font-mono text-2xs uppercase tracking-[0.2em] text-white/52">
+        {eyebrow}
+      </p>
+      <h1
+        className="mt-4 max-w-[13ch] text-title font-normal tracking-[-0.035em] text-white outline-hidden focus-visible:outline-hidden"
+        data-focus-key={focusKey}
+        ref={headingRef}
+        style={{ outline: "none" }}
+        tabIndex={-1}
+      >
+        {title}
+      </h1>
+      <p className="mt-4 max-w-[28rem] text-base leading-7 text-white/58">
+        {description}
+      </p>
+    </header>
+  );
+}
 
 export const OWNER_MARKS = [
   "d1e3c2b4a5968778695a4b3c2d1e0f1029384756aabbccddeeff001122334455",
