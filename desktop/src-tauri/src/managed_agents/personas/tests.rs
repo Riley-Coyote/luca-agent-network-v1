@@ -39,11 +39,24 @@ fn merge_personas_adds_missing_built_ins() {
     assert!(records
         .iter()
         .any(|record| record.id == "builtin:fizz" && record.runtime.is_none()));
+    assert!(records.iter().any(|record| {
+        record.id == "builtin:direct-runtime:claude"
+            && record.runtime.as_deref() == Some("claude")
+            && !record.is_active
+    }));
+    assert!(records.iter().any(|record| {
+        record.id == "builtin:direct-runtime:codex"
+            && record.runtime.as_deref() == Some("codex")
+            && !record.is_active
+    }));
     let display_names: Vec<&str> = records
         .iter()
         .map(|record| record.display_name.as_str())
         .collect();
-    assert_eq!(display_names, vec!["Luca", "Vektor", "Anima"]);
+    assert_eq!(
+        display_names,
+        vec!["Luca", "Claude Code", "Codex", "Vektor", "Anima"]
+    );
     let active_ids: Vec<&str> = records
         .iter()
         .filter(|record| record.is_active)

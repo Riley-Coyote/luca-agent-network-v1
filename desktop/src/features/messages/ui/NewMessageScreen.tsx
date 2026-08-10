@@ -1,10 +1,29 @@
 import * as React from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import {
+  acpRuntimesQueryKey,
+  managedAgentsQueryKey,
+  personasQueryKey,
+  relayAgentsQueryKey,
+  useAcpRuntimesQuery,
+  useManagedAgentsQuery,
+} from "@/features/agents/hooks";
 import {
   useOpenDmMutation,
   useUpsertCachedChannel,
 } from "@/features/channels/hooks";
+import {
+  buildDirectRuntimeResidentInput,
+  directRuntimeContactMatches,
+  directRuntimeResidentRecipient,
+  getUnmaterializedDirectRuntimeContacts,
+  type DirectRuntimeContactOption,
+} from "@/features/messages/lib/directRuntimeContacts";
+import { createLucaResident } from "@/features/luca/residents/api";
+import { lucaResidentsQueryKey } from "@/features/luca/residents/hooks";
+import { setPersonaActive } from "@/shared/api/tauriPersonas";
 import type { Channel } from "@/shared/api/types";
 import { useSendMessageMutation } from "@/features/messages/hooks";
 import { getKeyboardSearchSelection } from "@/features/profile/lib/userCandidateSearch";
@@ -15,6 +34,7 @@ import { Popover, PopoverAnchor, PopoverContent } from "@/shared/ui/popover";
 import { Skeleton } from "@/shared/ui/skeleton";
 
 import { MessageComposer } from "./MessageComposer";
+import { DirectRuntimeContactRow } from "./DirectRuntimeContactRow";
 import { NewMessageResultRow } from "./NewMessageResultRow";
 import {
   formatRecipientName,
@@ -27,12 +47,15 @@ import {
  * lives in an attached popover instead of taking over the message area.
  */
 export function NewMessageScreen() {
+  const queryClient = useQueryClient();
   const identityQuery = useIdentityQuery();
   const currentPubkey = identityQuery.data?.pubkey;
+  const runtimesQuery = useAcpRuntimesQuery();
+  const managedAgentsQuery = useManagedAgentsQuery();
   const openDmMutation = useOpenDmMutation();
   const upsertCachedChannel = useUpsertCachedChannel();
   const sendMessageMutation = useSendMessageMutation(null, identityQuery.data);
-  const { goChannel } = useAppNavigation();
+  const { goChannel, goSettings } = useAppNavigation();
 
   const [isRecipientPickerOpen, setIsRecipientPickerOpen] =
     React.useState(true);
@@ -45,12 +68,18 @@ export function NewMessageScreen() {
   >(null);
   const [isPreparingMentionSend, setIsPreparingMentionSend] =
     React.useState(false);
+  const [creatingDirectRuntimeId, setCreatingDirectRuntimeId] = React.useState<
+    string | null
+  >(null);
+  const [directRuntimeErrorMessage, setDirectRuntimeErrorMessage] =
+    React.useState<string | null>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const toFieldRef = React.useRef<HTMLDivElement>(null);
   const preparedDirectMessageRef = React.useRef<Channel | null>(null);
   const isMountedRef = React.useRef(false);
   const isPending =
     isPreparingMentionSend ||
+    creatingDirectRuntimeId !== null ||
     openDmMutation.isPending ||
     sendMessageMutation.isPending;
 
@@ -72,6 +101,20 @@ export function NewMessageScreen() {
   const isSearchTransitionPending = searchQuery.trim() !== deferredSearchQuery;
   const visibleSearchResults =
     isSearchTransitionPending || isDirectoryLoading ? [] : searchResults;
+  const directRuntimeContacts = React.useMemo(() => {
+    if (!runtimesQuery.isFetched) return [];
+    return getUnmaterializedDirectRuntimeContacts({
+      managedAgents: managedAgentsQuery.data ?? [],
+      runtimes: runtimesQuery.data ?? [],
+    }).filter((contact) =>
+      directRuntimeContactMatches(contact, deferredSearchQuery),
+    );
+  }, [
+    deferredSearchQuery,
+    managedAgentsQuery.data,
+    runtimesQuery.data,
+    runtimesQuery.isFetched,
+  ]);
   const showRecipientPicker = isRecipientPickerOpen && !isPending;
   const highlightedRecipientIndex = React.useMemo(() => {
     if (!showRecipientPicker || visibleSearchResults.length === 0) {
@@ -164,6 +207,53 @@ export function NewMessageScreen() {
       handleSelectUser(user);
     },
     [handleSelectUser, selectedUsers, setSearchQuery],
+  );
+
+  const handleDirectRuntimeSelect = React.useCallback(
+    async (contact: DirectRuntimeContactOption) => {
+      if (contact.readiness !== "ready") {
+        void goSettings("agents");
+        return;
+      }
+
+      setCreatingDirectRuntimeId(contact.runtimeId);
+      setDirectRuntimeErrorMessage(null);
+      try {
+        await setPersonaActive(contact.personaId, true);
+        const created = await createLucaResident(
+          buildDirectRuntimeResidentInput(contact),
+        );
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: personasQueryKey }),
+          queryClient.invalidateQueries({ queryKey: managedAgentsQueryKey }),
+          queryClient.invalidateQueries({ queryKey: relayAgentsQueryKey }),
+          queryClient.invalidateQueries({ queryKey: lucaResidentsQueryKey }),
+        ]);
+        if (created.spawnError) {
+          throw new Error(
+            `${contact.displayName} was created but could not start: ${created.spawnError}`,
+          );
+        }
+        handleResultSelect(
+          directRuntimeResidentRecipient({
+            avatarUrl: contact.runtime?.avatarUrl || null,
+            displayName: created.resident.displayName,
+            ownerPubkey: currentPubkey,
+            residentPubkey: created.resident.residentPubkey,
+          }),
+        );
+      } catch (error) {
+        setDirectRuntimeErrorMessage(
+          error instanceof Error
+            ? error.message
+            : `Failed to prepare ${contact.displayName}.`,
+        );
+        void queryClient.invalidateQueries({ queryKey: acpRuntimesQueryKey });
+      } finally {
+        setCreatingDirectRuntimeId(null);
+      }
+    },
+    [currentPubkey, goSettings, handleResultSelect, queryClient],
   );
 
   const openDirectMessage = React.useCallback(
@@ -501,8 +591,34 @@ export function NewMessageScreen() {
                 onScroll={handleDirectoryScroll}
                 role="listbox"
               >
+                {directRuntimeContacts.length > 0 ? (
+                  <section
+                    aria-labelledby="direct-runtime-contacts-label"
+                    className="border-b border-border/60"
+                    data-testid="direct-runtime-contacts"
+                  >
+                    <p
+                      className="px-4 pb-1 pt-3 font-mono text-2xs uppercase tracking-[0.14em] text-muted-foreground"
+                      id="direct-runtime-contacts-label"
+                    >
+                      Message a runtime
+                    </p>
+                    {directRuntimeContacts.map((contact) => (
+                      <DirectRuntimeContactRow
+                        contact={contact}
+                        isPending={
+                          creatingDirectRuntimeId === contact.runtimeId
+                        }
+                        key={contact.runtimeId}
+                        onSelect={(selected) => {
+                          void handleDirectRuntimeSelect(selected);
+                        }}
+                      />
+                    ))}
+                  </section>
+                ) : null}
                 {visibleSearchResults.length > 0 ? (
-                  <div>
+                  <div data-testid="new-dm-directory-results">
                     {visibleSearchResults.map((user) => {
                       const isSelected = selectedUsers.some(
                         (selectedUser) => selectedUser.pubkey === user.pubkey,
@@ -544,7 +660,7 @@ export function NewMessageScreen() {
                       </div>
                     ))}
                   </div>
-                ) : (
+                ) : directRuntimeContacts.length === 0 ? (
                   <p
                     className="px-4 py-3 text-sm text-muted-foreground"
                     data-testid="new-dm-empty"
@@ -553,7 +669,7 @@ export function NewMessageScreen() {
                       ? "No people or agents available to message."
                       : "No matching users."}
                   </p>
-                )}
+                ) : null}
               </div>
             </PopoverContent>
           </Popover>
@@ -590,6 +706,15 @@ export function NewMessageScreen() {
       {submitErrorMessage ? (
         <p className="px-5 pb-2 text-sm text-destructive">
           {submitErrorMessage}
+        </p>
+      ) : null}
+      {directRuntimeErrorMessage ? (
+        <p
+          className="px-5 pb-2 text-sm text-destructive"
+          data-testid="direct-runtime-error"
+          role="alert"
+        >
+          {directRuntimeErrorMessage}
         </p>
       ) : null}
 
