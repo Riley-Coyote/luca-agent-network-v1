@@ -27,12 +27,14 @@ export type MachineOnboardingPage =
 export function MachineOnboardingFlow({
   complete,
   continueWithIdentity,
+  currentPubkey,
   identityLost,
   initialPage,
   queryClient,
 }: {
   complete: (pubkey?: string) => void;
   continueWithIdentity: (pubkey: string) => void;
+  currentPubkey: string | null;
   identityLost: boolean;
   initialPage?: MachineOnboardingPage;
   queryClient: QueryClient;
@@ -55,24 +57,20 @@ export function MachineOnboardingFlow({
   );
 
   const loadFreshIdentity = React.useCallback(
-    async (skipSetup = false) => {
+    (skipSetup = false) => {
       setIsPending(true);
       setError(null);
-      try {
-        const identity = await persistCurrentIdentity();
-        queryClient.setQueryData(["identity"], identity);
-        setSelectedPubkey(identity.pubkey);
-        if (skipSetup) skipPolyphonicOnboardingForSession(identity.pubkey);
-        complete(identity.pubkey);
-      } catch (cause) {
-        setError(
-          cause instanceof Error ? cause.message : "Failed to load identity",
-        );
-      } finally {
+      if (!currentPubkey) {
+        setError("The owner identity is not available. Please try again.");
         setIsPending(false);
+        return;
       }
+      setSelectedPubkey(currentPubkey);
+      if (skipSetup) skipPolyphonicOnboardingForSession(currentPubkey);
+      complete(currentPubkey);
+      setIsPending(false);
     },
-    [complete, queryClient],
+    [complete, currentPubkey],
   );
 
   const replaceLostIdentity = React.useCallback(async () => {

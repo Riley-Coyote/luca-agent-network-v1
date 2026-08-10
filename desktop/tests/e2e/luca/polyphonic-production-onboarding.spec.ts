@@ -73,6 +73,10 @@ const nativeResidents: NativeResidentDiscoveryOutcome = {
 async function beginFreshSetup(page: import("@playwright/test").Page) {
   await expect(page.getByRole("heading", { name: "Polyphonic" })).toBeVisible();
   await page.getByRole("button", { name: "Begin setup" }).click();
+  const commands = await page.evaluate(
+    () => window.__BUZZ_E2E_COMMANDS__ ?? [],
+  );
+  expect(commands).not.toContain("persist_current_identity");
 }
 
 test("production onboarding resumes, navigates back, and completes fail-soft", async ({
