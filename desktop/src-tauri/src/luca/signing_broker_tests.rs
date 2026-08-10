@@ -2,14 +2,40 @@ use super::*;
 use luca_protocol::{
     decode_length_prefixed_result_frame, derive_message_publish_idempotency_key,
     encode_length_prefixed_frame, ManagedMessagePublishRequestV1, ManagedMessagePublishResultV1,
-    OpaqueId, OperationV1, RelayAuthPurposeV1, RelayHttpMethodV1, SafeU53, SigningFrameV1,
-    MESSAGE_PUBLISH_PROTOCOL, RELAY_AUTH_SIGN_PROTOCOL,
+    ManagedResponseSurfaceV1, OpaqueId, OperationV1, RelayAuthPurposeV1, RelayHttpMethodV1,
+    SafeU53, SigningFrameV1, MESSAGE_PUBLISH_PROTOCOL, RELAY_AUTH_SIGN_PROTOCOL,
 };
 use nostr::JsonUtil;
 use std::sync::{Arc, Mutex};
 
 fn hex(value: char) -> Hex64 {
     Hex64::parse(value.to_string().repeat(64)).expect("valid fixture hex")
+}
+
+#[test]
+fn luca_signing_broker_marks_only_timeline_finals_as_broadcast() {
+    let (broker, _) = fixture();
+    let mut timeline = publish_request(&broker);
+    timeline.response_surface = Some(ManagedResponseSurfaceV1::Timeline);
+    let timeline_json = broker
+        .build_managed_message_event(&timeline, 1_700_000_000)
+        .expect("timeline event");
+    let timeline_event = nostr::Event::from_json(timeline_json).expect("timeline JSON");
+    assert!(timeline_event.tags.iter().any(|tag| {
+        let parts = tag.as_slice();
+        parts.len() == 2 && parts[0] == "broadcast" && parts[1] == "1"
+    }));
+
+    let mut thread = publish_request(&broker);
+    thread.response_surface = Some(ManagedResponseSurfaceV1::Thread);
+    let thread_json = broker
+        .build_managed_message_event(&thread, 1_700_000_000)
+        .expect("thread event");
+    let thread_event = nostr::Event::from_json(thread_json).expect("thread JSON");
+    assert!(!thread_event.tags.iter().any(|tag| tag
+        .as_slice()
+        .first()
+        .is_some_and(|value| value == "broadcast")));
 }
 
 fn fixture() -> (ResidentSigningBroker, Hex64) {
@@ -52,6 +78,7 @@ fn publish_request(broker: &ResidentSigningBroker) -> ManagedMessagePublishReque
         thread_id: Some(OpaqueId::parse("thread-1").expect("valid thread ID")),
         root_event_id: Some(hex('d')),
         reply_event_id: Some(hex('e')),
+        response_surface: None,
         resolved_p_tags: vec![hex('a'), hex('f')],
         final_draft: "A managed final answer.".to_owned(),
         dispatch_receipt_id,

@@ -597,6 +597,12 @@ impl ResidentSigningBroker {
                     .map_err(|_| ManagedMessageOutboxError::InvalidRequest)?,
             );
         }
+        if request.response_surface == Some(luca_protocol::ManagedResponseSurfaceV1::Timeline) {
+            tags.push(
+                Tag::parse(["broadcast", "1"])
+                    .map_err(|_| ManagedMessageOutboxError::InvalidRequest)?,
+            );
+        }
 
         let event = EventBuilder::new(Kind::Custom(9), request.final_draft.clone())
             .tags(tags)

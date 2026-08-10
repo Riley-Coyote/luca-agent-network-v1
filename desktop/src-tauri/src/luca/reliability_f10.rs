@@ -136,6 +136,7 @@ mod tests {
             | DispatchAuthorizationError::WrongResident
             | DispatchAuthorizationError::WrongConversation
             | DispatchAuthorizationError::WrongThread
+            | DispatchAuthorizationError::WrongSurface
             | DispatchAuthorizationError::WrongRecipients
             | DispatchAuthorizationError::WrongSession => ManagedPublicationAuthorityError::Denied,
         }
@@ -285,6 +286,7 @@ mod tests {
             thread_id: Some(opaque(format!("thread:{}", trigger.id.to_hex()))),
             root_event_id: Some(trigger_id.clone()),
             reply_event_id: Some(trigger_id),
+            response_surface: Some(luca_protocol::ManagedResponseSurfaceV1::Timeline),
             resolved_p_tags: vec![owner_pubkey],
             final_draft: final_draft.to_owned(),
             dispatch_receipt_id,

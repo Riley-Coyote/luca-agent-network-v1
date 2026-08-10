@@ -94,6 +94,7 @@ fn fixture() -> Fixture {
         ),
         root_event_id: Some(Hex64::parse(trigger.id.to_hex()).expect("root")),
         reply_event_id: Some(Hex64::parse(trigger.id.to_hex()).expect("reply")),
+        response_surface: Some(luca_protocol::ManagedResponseSurfaceV1::Timeline),
         resolved_p_tags: vec![Hex64::parse(owner.public_key().to_hex()).expect("owner")],
         final_draft: "exact resident final".to_owned(),
         dispatch_receipt_id: receipt,
@@ -104,6 +105,7 @@ fn fixture() -> Fixture {
             Tag::parse(["h", CHANNEL]).expect("h"),
             Tag::parse(["e", trigger.id.to_hex().as_str(), "", "reply"]).expect("reply"),
             Tag::public_key(owner.public_key()),
+            Tag::parse(["broadcast", "1"]).expect("broadcast"),
         ])
         .custom_created_at(Timestamp::from(101))
         .sign_with_keys(&resident)

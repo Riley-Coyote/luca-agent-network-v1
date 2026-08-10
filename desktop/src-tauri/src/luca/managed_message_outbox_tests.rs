@@ -23,6 +23,7 @@ fn request(keys: &Keys) -> ManagedMessagePublishRequestV1 {
         thread_id: None,
         root_event_id: None,
         reply_event_id: None,
+        response_surface: None,
         resolved_p_tags: Vec::new(),
         final_draft: "A bounded final answer.".to_owned(),
         dispatch_receipt_id,

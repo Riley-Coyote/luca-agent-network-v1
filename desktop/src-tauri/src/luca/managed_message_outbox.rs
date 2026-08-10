@@ -1,13 +1,11 @@
 //! Deterministic, encrypted desktop outbox for managed final publication.
-
 use std::{
     collections::HashMap,
     io::{Read, Write},
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 use age::secrecy::SecretString;
-use atomic_write_file::AtomicWriteFile;
 use luca_protocol::{
     canonical_sha256, canonicalize, Hex64, ManagedMessagePublishRequestV1,
     ManagedMessagePublishResultV1, OpaqueId,
@@ -15,6 +13,8 @@ use luca_protocol::{
 use nostr::{JsonUtil, Kind};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+
+use super::managed_message_outbox_io::atomic_write_ciphertext;
 
 const OUTBOX_SCHEMA: &str = "luca.managed-message-outbox.v1";
 const MAX_OUTBOX_ENTRIES: usize = 256;
@@ -212,6 +212,9 @@ fn event_tags_match_request(
             .iter()
             .map(|pubkey| vec!["p".to_owned(), pubkey.as_str().to_owned()]),
     );
+    if request.response_surface == Some(luca_protocol::ManagedResponseSurfaceV1::Timeline) {
+        expected.push(vec!["broadcast".to_owned(), "1".to_owned()]);
+    }
     event.tags.iter().map(|tag| tag.as_slice()).eq(expected)
 }
 
@@ -1004,28 +1007,6 @@ impl ManagedMessageOutbox {
             self.entries.remove(&key);
         }
     }
-}
-
-fn atomic_write_ciphertext(
-    path: &Path,
-    ciphertext: &[u8],
-) -> Result<(), ManagedMessageOutboxError> {
-    let parent = path
-        .parent()
-        .ok_or(ManagedMessageOutboxError::Persistence)?;
-    std::fs::create_dir_all(parent).map_err(|_| ManagedMessageOutboxError::Persistence)?;
-    let mut file =
-        AtomicWriteFile::open(path).map_err(|_| ManagedMessageOutboxError::Persistence)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))
-            .map_err(|_| ManagedMessageOutboxError::Persistence)?;
-    }
-    file.write_all(ciphertext)
-        .map_err(|_| ManagedMessageOutboxError::Persistence)?;
-    file.commit()
-        .map_err(|_| ManagedMessageOutboxError::Persistence)
 }
 
 fn receipt_for(idempotency_key: &Hex64, entry: &ManagedOutboxEntry) -> ManagedOutboxReceipt {

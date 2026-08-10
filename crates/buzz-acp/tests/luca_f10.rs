@@ -9,7 +9,8 @@ use buzz_acp::luca_final_publisher::{
 };
 use luca_protocol::{
     derive_message_publish_idempotency_key, ContinuityContextRequestV1, ContinuityLayerStatusV1,
-    Hex64, OpaqueId, SafeU53, CONTINUITY_PROTOCOL, MAX_CONTINUITY_PACKET_BYTES,
+    Hex64, ManagedResponseSurfaceV1, OpaqueId, SafeU53, CONTINUITY_PROTOCOL,
+    MAX_CONTINUITY_PACKET_BYTES,
 };
 use nostr::Keys;
 use serde::Deserialize;
@@ -108,6 +109,7 @@ fn final_turn() -> ManagedFinalTurn {
         thread_id: None,
         root_event_id: None,
         reply_event_id: None,
+        response_surface: ManagedResponseSurfaceV1::Timeline,
         resolved_p_tags: Vec::new(),
     }
 }

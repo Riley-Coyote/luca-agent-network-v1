@@ -263,6 +263,7 @@ impl ManagedMessagePublisher {
             | DispatchAuthorizationError::WrongConversation
             | DispatchAuthorizationError::WrongThread
             | DispatchAuthorizationError::WrongRecipients
+            | DispatchAuthorizationError::WrongSurface
             | DispatchAuthorizationError::WrongSession => ManagedPublicationAuthorityError::Denied,
         }
     }

@@ -10,14 +10,14 @@ use std::sync::Arc;
 
 use luca_protocol::{
     derive_message_publish_idempotency_key, Hex64, ManagedMessagePublishRequestV1,
-    ManagedMessagePublishResultV1, OpaqueId, SafeU53, MAX_FINAL_DRAFT_BYTES,
-    MESSAGE_PUBLISH_PROTOCOL,
+    ManagedMessagePublishResultV1, ManagedResponseSurfaceV1, OpaqueId, SafeU53,
+    MAX_FINAL_DRAFT_BYTES, MESSAGE_PUBLISH_PROTOCOL,
 };
 use luca_signing_client::{ManagedSigningClient, SigningClientError};
 use nostr::Event;
 use uuid::Uuid;
 
-const CODEX_SKILL_CONTEXT_NOTICE: &str = "Warning: Skill descriptions were shortened to fit the 2% skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.";
+pub(crate) const CODEX_SKILL_CONTEXT_NOTICE: &str = "Warning: Skill descriptions were shortened to fit the 2% skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.";
 
 fn strip_runtime_notice_preamble(final_draft: String) -> String {
     let Some(remainder) = final_draft.strip_prefix(CODEX_SKILL_CONTEXT_NOTICE) else {
@@ -64,6 +64,8 @@ pub struct ManagedFinalTurn {
     pub root_event_id: Option<Hex64>,
     /// Exact Nostr reply parent, if any.
     pub reply_event_id: Option<Hex64>,
+    /// App-derived response surface. Model output cannot select this value.
+    pub response_surface: ManagedResponseSurfaceV1,
     /// App-resolved recipient/mention identities.
     pub resolved_p_tags: Vec<Hex64>,
 }
@@ -168,7 +170,7 @@ impl ManagedFinalTurn {
         let dispatch_receipt_id = OpaqueId::parse(event_id.as_str())
             .map_err(|error| FinalPublicationError::Invalid(error.to_string()))?;
         let cancellation_epoch = context.session_epoch;
-        let (root_event_id, reply_event_id) =
+        let (root_event_id, reply_event_id, response_surface) =
             strict_trigger_routing(&conversation_id, event, &event_id)?;
         let thread_id = root_event_id
             .as_ref()
@@ -189,6 +191,7 @@ impl ManagedFinalTurn {
             thread_id,
             root_event_id,
             reply_event_id,
+            response_surface,
             resolved_p_tags,
         })
     }
@@ -213,6 +216,7 @@ impl ManagedFinalTurn {
             thread_id: self.thread_id.clone(),
             root_event_id: self.root_event_id.clone(),
             reply_event_id: self.reply_event_id.clone(),
+            response_surface: Some(self.response_surface),
             resolved_p_tags: self.resolved_p_tags.clone(),
             final_draft,
             dispatch_receipt_id: self.dispatch_receipt_id.clone(),
@@ -248,10 +252,11 @@ fn strict_trigger_routing(
     conversation_id: &OpaqueId,
     event: &Event,
     trigger_id: &Hex64,
-) -> Result<(Option<Hex64>, Option<Hex64>), FinalPublicationError> {
+) -> Result<(Option<Hex64>, Option<Hex64>, ManagedResponseSurfaceV1), FinalPublicationError> {
     let mut h_value: Option<&str> = None;
     let mut root: Option<Hex64> = None;
     let mut reply: Option<Hex64> = None;
+    let mut broadcast = false;
 
     for tag in event.tags.iter() {
         let parts = tag.as_slice();
@@ -287,6 +292,14 @@ fn strict_trigger_routing(
                     }
                 }
             }
+            Some("broadcast") => {
+                if parts.len() != 2 || parts[1] != "1" || broadcast {
+                    return Err(FinalPublicationError::Invalid(
+                        "trigger contains an invalid broadcast marker".into(),
+                    ));
+                }
+                broadcast = true;
+            }
             _ => {}
         }
     }
@@ -296,9 +309,29 @@ fn strict_trigger_routing(
         ));
     }
     match (root, reply) {
-        (None, None) => Ok((Some(trigger_id.clone()), Some(trigger_id.clone()))),
-        (None, Some(reply)) => Ok((Some(reply.clone()), Some(reply))),
-        (Some(root), Some(reply)) => Ok((Some(root), Some(reply))),
+        (None, None) => Ok((
+            Some(trigger_id.clone()),
+            Some(trigger_id.clone()),
+            ManagedResponseSurfaceV1::Timeline,
+        )),
+        (None, Some(reply)) => Ok((
+            Some(reply.clone()),
+            Some(reply),
+            if broadcast {
+                ManagedResponseSurfaceV1::Timeline
+            } else {
+                ManagedResponseSurfaceV1::Thread
+            },
+        )),
+        (Some(root), Some(reply)) => Ok((
+            Some(root),
+            Some(reply),
+            if broadcast {
+                ManagedResponseSurfaceV1::Timeline
+            } else {
+                ManagedResponseSurfaceV1::Thread
+            },
+        )),
         (Some(_), None) => Err(FinalPublicationError::Invalid(
             "trigger root tag requires exactly one reply tag".into(),
         )),
@@ -335,6 +368,7 @@ mod tests {
             thread_id: Some(id("thread-1")),
             root_event_id: root,
             reply_event_id: reply,
+            response_surface: ManagedResponseSurfaceV1::Thread,
             resolved_p_tags: p_tags,
         }
     }
@@ -443,6 +477,55 @@ mod tests {
         );
         let trigger_id = Hex64::parse(unmarked.id.to_hex()).expect("trigger id");
         assert!(strict_trigger_routing(&conversation, &unmarked, &trigger_id).is_err());
+    }
+
+    #[test]
+    fn luca_f09_top_level_and_broadcast_replies_use_the_timeline_surface() {
+        let keys = Keys::generate();
+        let conversation = id("conversation-1");
+        let top_level = signed_trigger(&keys, conversation.as_str(), Vec::new());
+        let top_id = Hex64::parse(top_level.id.to_hex()).expect("top-level id");
+        let (root, reply, surface) =
+            strict_trigger_routing(&conversation, &top_level, &top_id).expect("top-level route");
+        assert_eq!(root, Some(top_id.clone()));
+        assert_eq!(reply, Some(top_id));
+        assert_eq!(surface, ManagedResponseSurfaceV1::Timeline);
+
+        let reply_id = "44".repeat(32);
+        let broadcast = signed_trigger(
+            &keys,
+            conversation.as_str(),
+            vec![
+                Tag::parse(["e", reply_id.as_str(), "", "reply"]).expect("reply"),
+                Tag::parse(["broadcast", "1"]).expect("broadcast"),
+            ],
+        );
+        let broadcast_id = Hex64::parse(broadcast.id.to_hex()).expect("broadcast id");
+        let (_, _, surface) = strict_trigger_routing(&conversation, &broadcast, &broadcast_id)
+            .expect("broadcast route");
+        assert_eq!(surface, ManagedResponseSurfaceV1::Timeline);
+    }
+
+    #[test]
+    fn luca_f09_explicit_thread_reply_uses_the_thread_surface() {
+        let keys = Keys::generate();
+        let conversation = id("conversation-1");
+        let root_id = "55".repeat(32);
+        let reply_id = "66".repeat(32);
+        let thread = signed_trigger(
+            &keys,
+            conversation.as_str(),
+            vec![
+                Tag::parse(["e", root_id.as_str(), "", "root"]).expect("root"),
+                Tag::parse(["e", reply_id.as_str(), "", "reply"]).expect("reply"),
+            ],
+        );
+        let thread_id = Hex64::parse(thread.id.to_hex()).expect("thread id");
+        let (root, reply, surface) =
+            strict_trigger_routing(&conversation, &thread, &thread_id).expect("thread route");
+        assert_eq!(root, Some(Hex64::parse(root_id).expect("root hex")));
+        assert_eq!(reply, Some(Hex64::parse(reply_id).expect("reply hex")));
+        assert_eq!(surface, ManagedResponseSurfaceV1::Thread);
     }
 
     #[test]
