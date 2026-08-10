@@ -28,12 +28,13 @@ pub(crate) mod local_broker_session;
 pub(crate) mod managed_cognition;
 pub(crate) mod managed_continuity;
 pub(crate) mod managed_dispatch_store;
+#[cfg(unix)]
+pub(crate) mod managed_mcp;
 pub(crate) mod managed_message_outbox;
 pub(crate) mod managed_message_publisher;
 pub(crate) mod managed_permission;
-#[cfg(unix)]
-pub(crate) mod managed_mcp;
 pub(crate) mod mcp_registry;
+pub(crate) mod operator_forge;
 pub(crate) mod owner_brain;
 pub(crate) mod owner_brain_store;
 pub(crate) mod owner_identity_recovery;

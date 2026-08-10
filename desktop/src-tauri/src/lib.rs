@@ -843,6 +843,8 @@ pub fn run() {
             create_managed_agent,
             luca::resident_registry::list_luca_residents,
             luca::resident_registry::create_luca_resident,
+            luca::operator_forge::get_operator_forge_settings,
+            luca::operator_forge::save_operator_forge_preferences,
             start_managed_agent,
             stop_managed_agent,
             set_agent_managed_profiles,
