@@ -1,4 +1,25 @@
 @layer components {
+  /* Viewport media queries use CSS pixels; rem here would drift with app zoom. */
+  @media (max-height: 540px) {
+    main.polyphonic-onboarding-main {
+      align-items: flex-start !important;
+      padding-bottom: 0.5rem !important;
+      padding-top: 1rem !important;
+    }
+
+    header.polyphonic-onboarding-header {
+      padding-top: 0.75rem !important;
+    }
+
+    div.polyphonic-onboarding-body {
+      padding-bottom: 0.5rem !important;
+      padding-top: 0.75rem !important;
+    }
+
+    footer.polyphonic-onboarding-footer {
+      padding-bottom: 0.75rem !important;
+    }
+  }
   [data-testid="app-sidebar"] [data-testid="sidebar-pinned-header"],
   [data-testid="app-sidebar"] [data-sidebar="footer"] {
     --buzz-sidebar-edge-fade-size: 0.5rem;
