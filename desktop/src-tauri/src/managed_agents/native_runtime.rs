@@ -101,6 +101,43 @@ impl RuntimeBinding {
         };
         (executable, vec!["acp".into()])
     }
+
+    pub(crate) fn hermes_provisioning_context(
+        &self,
+    ) -> Option<(String, PathBuf, PathBuf, Option<PathBuf>)> {
+        match self {
+            Self::Hermes {
+                profile_name,
+                hermes_home,
+                executable_path,
+                default_workspace,
+                ..
+            } => Some((
+                profile_name.clone(),
+                hermes_home.clone(),
+                executable_path.clone(),
+                default_workspace.clone(),
+            )),
+            Self::Openclaw { .. } => None,
+        }
+    }
+}
+
+pub(crate) fn build_hermes_runtime_binding(
+    profile_name: String,
+    hermes_home: PathBuf,
+    executable_path: PathBuf,
+    runtime_version: String,
+    default_workspace: Option<PathBuf>,
+) -> RuntimeBinding {
+    RuntimeBinding::Hermes {
+        schema_version: 1,
+        profile_name,
+        hermes_home,
+        executable_path,
+        runtime_version,
+        default_workspace,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -34,6 +34,7 @@ pub(crate) mod managed_message_outbox;
 pub(crate) mod managed_message_publisher;
 pub(crate) mod managed_permission;
 pub(crate) mod mcp_registry;
+pub(crate) mod native_provisioning;
 pub(crate) mod operator_forge;
 pub(crate) mod owner_brain;
 pub(crate) mod owner_brain_store;

@@ -66,6 +66,7 @@ pub struct NativeProvisioningTransactionV1 {
     pub intended_slug: String,
     pub request_hash: String,
     pub source_hash: Option<String>,
+    pub persona_id: Option<String>,
     pub reserved_resident_pubkey: Option<String>,
     pub native_semantic_hash: Option<String>,
     pub status: NativeProvisioningStatusV1,
@@ -108,6 +109,107 @@ struct OperatorForgeStoreV1 {
     owners: Vec<OperatorPreferencesV1>,
     #[serde(default)]
     transactions: Vec<NativeProvisioningTransactionV1>,
+}
+
+pub(crate) fn create_native_transaction(
+    app: &AppHandle,
+    owner_pubkey: String,
+    runtime: NativeRuntimeFamilyV1,
+    mode: AgentProvisioningModeV1,
+    intended_slug: String,
+    request_hash: String,
+    source_hash: Option<String>,
+) -> Result<NativeProvisioningTransactionV1, String> {
+    let now = Utc::now().to_rfc3339();
+    let transaction = NativeProvisioningTransactionV1 {
+        schema_version: SCHEMA_VERSION,
+        transaction_id: uuid::Uuid::new_v4().to_string(),
+        owner_pubkey,
+        runtime,
+        mode,
+        intended_slug,
+        request_hash,
+        source_hash,
+        persona_id: None,
+        reserved_resident_pubkey: None,
+        native_semantic_hash: None,
+        status: NativeProvisioningStatusV1::Planned,
+        error_code: None,
+        recovery_action: None,
+        created_at: now.clone(),
+        updated_at: now,
+    };
+    let mut store = load_store(app)?;
+    store.transactions.push(transaction.clone());
+    save_store(app, &store)?;
+    Ok(transaction)
+}
+
+pub(crate) fn set_native_transaction_persona(
+    app: &AppHandle,
+    owner_pubkey: &str,
+    transaction_id: &str,
+    persona_id: String,
+) -> Result<NativeProvisioningTransactionV1, String> {
+    let mut store = load_store(app)?;
+    let transaction = store
+        .transactions
+        .iter_mut()
+        .find(|transaction| {
+            transaction.owner_pubkey == owner_pubkey && transaction.transaction_id == transaction_id
+        })
+        .ok_or_else(|| "native provisioning transaction was not found".to_string())?;
+    transaction.persona_id = Some(persona_id);
+    transaction.updated_at = Utc::now().to_rfc3339();
+    let updated = transaction.clone();
+    save_store(app, &store)?;
+    Ok(updated)
+}
+
+pub(crate) fn load_native_transaction(
+    app: &AppHandle,
+    owner_pubkey: &str,
+    transaction_id: &str,
+) -> Result<NativeProvisioningTransactionV1, String> {
+    load_store(app)?
+        .transactions
+        .into_iter()
+        .find(|transaction| {
+            transaction.owner_pubkey == owner_pubkey && transaction.transaction_id == transaction_id
+        })
+        .ok_or_else(|| "native provisioning transaction was not found".into())
+}
+
+pub(crate) fn update_native_transaction(
+    app: &AppHandle,
+    owner_pubkey: &str,
+    transaction_id: &str,
+    status: NativeProvisioningStatusV1,
+    resident_pubkey: Option<String>,
+    native_semantic_hash: Option<String>,
+    failure: Option<(&str, &str)>,
+) -> Result<NativeProvisioningTransactionV1, String> {
+    let mut store = load_store(app)?;
+    let transaction = store
+        .transactions
+        .iter_mut()
+        .find(|transaction| {
+            transaction.owner_pubkey == owner_pubkey && transaction.transaction_id == transaction_id
+        })
+        .ok_or_else(|| "native provisioning transaction was not found".to_string())?;
+    transaction.status = status;
+    if resident_pubkey.is_some() {
+        transaction.reserved_resident_pubkey = resident_pubkey;
+    }
+    if native_semantic_hash.is_some() {
+        transaction.native_semantic_hash = native_semantic_hash;
+    }
+    transaction.error_code = failure.map(|(code, _)| code.to_string());
+    transaction.recovery_action = failure.map(|(_, action)| action.to_string());
+    transaction.updated_at = Utc::now().to_rfc3339();
+    let updated = transaction.clone();
+    save_store(app, &store)?;
+    Ok(updated)
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -465,6 +567,7 @@ mod tests {
             intended_slug: "helper".into(),
             request_hash: "b".repeat(64),
             source_hash: None,
+            persona_id: None,
             reserved_resident_pubkey: None,
             native_semantic_hash: None,
             status: NativeProvisioningStatusV1::Planned,

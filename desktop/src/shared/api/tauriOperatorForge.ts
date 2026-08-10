@@ -63,6 +63,42 @@ export type SaveOperatorPreferencesInputV1 = Pick<
   "defaultRuntimeTarget" | "runtimeConfirmed" | "lucaEnabled"
 >;
 
+export type NativeProvisioningRequestV1 = {
+  displayName: string;
+  systemPrompt: string;
+  runtime: NativeRuntimeFamilyV1;
+  mode: AgentProvisioningModeV1;
+  sourceSemanticId?: string;
+  selectedSkills: string[];
+  includeMemory: boolean;
+  workspaceDocuments: string[];
+};
+
+export type NativeProvisioningPreviewV1 = {
+  schemaVersion: 1;
+  transactionId: string;
+  displayName: string;
+  runtime: NativeRuntimeFamilyV1;
+  mode: AgentProvisioningModeV1;
+  intendedSlug: string;
+  sourceLabel: string | null;
+  changes: Array<{ subject: string; action: string; detail: string }>;
+  permissionDefaults: string;
+  recoveryAction: string;
+};
+
+export type NativeProvisioningReceiptV1 = {
+  schemaVersion: 1;
+  transactionId: string;
+  runtime: NativeRuntimeFamilyV1;
+  residentPubkey: string | null;
+  nativeSemanticHash: string | null;
+  status: NativeProvisioningStatusV1;
+  reused: boolean;
+  needsAttention: boolean;
+  recoveryAction: string | null;
+};
+
 export function getOperatorForgeSettings(): Promise<OperatorForgeSettingsV1> {
   return invoke("get_operator_forge_settings");
 }
@@ -71,4 +107,36 @@ export function saveOperatorForgePreferences(
   input: SaveOperatorPreferencesInputV1,
 ): Promise<OperatorForgeSettingsV1> {
   return invoke("save_operator_forge_preferences", { input });
+}
+
+export function previewNativeAgentProvisioning(
+  request: NativeProvisioningRequestV1,
+): Promise<NativeProvisioningPreviewV1> {
+  return invoke("preview_native_agent_provisioning", { request });
+}
+
+export function executeNativeAgentProvisioning(
+  transactionId: string,
+  personaId: string,
+  request: NativeProvisioningRequestV1,
+): Promise<NativeProvisioningReceiptV1> {
+  return invoke("execute_native_agent_provisioning", {
+    input: { transactionId, personaId, request },
+  });
+}
+
+export function reconcileNativeAgentProvisioning(
+  transactionId: string,
+): Promise<NativeProvisioningReceiptV1> {
+  return invoke("reconcile_native_agent_provisioning", {
+    input: { transactionId },
+  });
+}
+
+export function rollbackNativeAgentProvisioning(
+  transactionId: string,
+): Promise<NativeProvisioningReceiptV1> {
+  return invoke("rollback_native_agent_provisioning", {
+    input: { transactionId },
+  });
 }
