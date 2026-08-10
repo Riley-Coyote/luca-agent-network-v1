@@ -2,10 +2,6 @@ import * as React from "react";
 import { type QueryStatus, useQueryClient } from "@tanstack/react-query";
 
 import { useIdentityQuery } from "@/shared/api/hooks";
-import {
-  LUCA_OWNER_ONBOARDING_COMPLETION_STORAGE_KEY,
-  notifyLucaOwnerOnboardingCompleted,
-} from "./ownerOnboarding";
 
 const MACHINE_ONBOARDING_COMPLETION_STORAGE_KEY =
   "buzz-machine-onboarding-complete.v2";
@@ -32,26 +28,12 @@ export function readMachineOnboardingCompletion(pubkey: string | null) {
   );
 }
 
-/**
- * Machine onboarding is Luca's complete owner-and-resident-runtime flow. Mark
- * the legacy relay-scoped profile gate complete too: otherwise it reopens
- * after the personal-home tenancy is ready and inserts a Buzz-era profile
- * screen into the first-run path.
- */
+/** Machine bootstrap records only durable owner-identity setup. */
 export function markMachineOnboardingComplete(pubkey: string) {
   window.localStorage.setItem(
     completionKey(MACHINE_ONBOARDING_COMPLETION_STORAGE_KEY, pubkey),
     "true",
   );
-  window.localStorage.setItem(
-    completionKey(LEGACY_ONBOARDING_COMPLETION_STORAGE_KEY, pubkey),
-    "true",
-  );
-  window.localStorage.setItem(
-    LUCA_OWNER_ONBOARDING_COMPLETION_STORAGE_KEY,
-    "true",
-  );
-  notifyLucaOwnerOnboardingCompleted();
 }
 
 function clearMachineOnboardingCompletion(pubkey: string | null) {

@@ -171,16 +171,16 @@ test("migrate_already_completed_pubkey_returns_true_immediately", () => {
     // Value was already there; the function should not have touched it
     // (but a redundant write is also acceptable — just verify it's still true).
     assert.equal(storage.getItem(V2_KEY), "true");
-    assert.equal(storage.getItem(LEGACY_KEY), "true");
-    assert.equal(storage.getItem("luca-owner-onboarding-complete.v1"), "true");
+    assert.equal(storage.getItem(LEGACY_KEY), null);
+    assert.equal(storage.getItem("luca-owner-onboarding-complete.v1"), null);
   });
 });
 
-test("completion_closes_the_legacy_profile_gate_for_the_same_owner", () => {
+test("machine completion does not close product onboarding", () => {
   withFakeWindow({}, (storage) => {
     markMachineOnboardingComplete(PUBKEY_A);
 
     assert.equal(storage.getItem(V2_KEY), "true");
-    assert.equal(storage.getItem(LEGACY_KEY), "true");
+    assert.equal(storage.getItem(LEGACY_KEY), null);
   });
 });

@@ -2,7 +2,6 @@ import * as React from "react";
 import type { QueryClient } from "@tanstack/react-query";
 
 import {
-  getIdentity,
   importIdentity,
   persistCurrentIdentity,
 } from "@/shared/api/tauriIdentity";
@@ -10,16 +9,13 @@ import { Button } from "@/shared/ui/button";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 import { BackupStep } from "./BackupStep";
 import { DefaultConfigStep } from "./DefaultConfigStep";
-import { IdentityKeyHelpDialog } from "./IdentityKeyHelpDialog";
-import { LandingBees } from "./LandingBees";
 import { NostrKeyImportForm } from "./NostrKeyImportForm";
-import {
-  ONBOARDING_LANDING_CTA_CLASS,
-  OnboardingChrome,
-} from "./OnboardingChrome";
+import { OnboardingChrome } from "./OnboardingChrome";
 import { OnboardingFooterProvider } from "./OnboardingFooter";
 import { OnboardingSlideTransition } from "./OnboardingSlideTransition";
 import { SetupStep } from "./SetupStep";
+import { PolyphonicThresholdField } from "./PolyphonicThresholdField";
+import { skipPolyphonicOnboardingForSession } from "../polyphonicOnboardingState";
 
 export type MachineOnboardingPage =
   | "identity"
@@ -58,22 +54,26 @@ export function MachineOnboardingFlow({
     [],
   );
 
-  const loadFreshIdentity = React.useCallback(async () => {
-    setIsPending(true);
-    setError(null);
-    try {
-      const identity = await getIdentity();
-      queryClient.setQueryData(["identity"], identity);
-      setSelectedPubkey(identity.pubkey);
-      setPage("backup");
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Failed to load identity",
-      );
-    } finally {
-      setIsPending(false);
-    }
-  }, [queryClient]);
+  const loadFreshIdentity = React.useCallback(
+    async (skipSetup = false) => {
+      setIsPending(true);
+      setError(null);
+      try {
+        const identity = await persistCurrentIdentity();
+        queryClient.setQueryData(["identity"], identity);
+        setSelectedPubkey(identity.pubkey);
+        if (skipSetup) skipPolyphonicOnboardingForSession(identity.pubkey);
+        complete(identity.pubkey);
+      } catch (cause) {
+        setError(
+          cause instanceof Error ? cause.message : "Failed to load identity",
+        );
+      } finally {
+        setIsPending(false);
+      }
+    },
+    [complete, queryClient],
+  );
 
   const replaceLostIdentity = React.useCallback(async () => {
     const confirmed = window.confirm(
@@ -104,9 +104,9 @@ export function MachineOnboardingFlow({
       queryClient.setQueryData(["identity"], identity);
       setIdentityWasImported(true);
       setSelectedPubkey(identity.pubkey);
-      setPage("setup");
+      complete(identity.pubkey);
     },
-    [continueWithIdentity, queryClient],
+    [complete, continueWithIdentity, queryClient],
   );
 
   return (
@@ -119,7 +119,6 @@ export function MachineOnboardingFlow({
       data-testid="machine-onboarding-gate"
     >
       <StartupWindowDragRegion />
-      {page === "identity" ? <LandingBees /> : null}
       {page !== "identity" ? (
         <OnboardingChrome
           brand="luca"
@@ -140,40 +139,45 @@ export function MachineOnboardingFlow({
               effect="mask-reveal-up"
               transitionKey="machine-identity"
             >
-              <div
-                className="font-mono text-sm font-medium uppercase tracking-[0.42em] text-foreground/75"
-                data-testid="luca-owner-mark"
-              >
-                Luca
-              </div>
-              <p className="mt-2 max-w-[560px] text-center text-2xl font-normal leading-none text-foreground">
-                A personal home for the agents
-                <br />
-                you work with.
+              <PolyphonicThresholdField />
+              <h1 className="relative -mt-8 text-4xl font-medium tracking-[-0.04em] text-white">
+                Polyphonic
+              </h1>
+              <p className="mt-3 max-w-[26rem] text-center text-sm leading-6 text-white/60">
+                A private home for your agents and the work that makes them
+                useful.
               </p>
               {error ? (
                 <p className="mt-4 text-sm text-destructive">{error}</p>
               ) : null}
               <div className="mt-10 flex flex-col items-center gap-3">
                 <Button
-                  className={ONBOARDING_LANDING_CTA_CLASS}
+                  className="h-10 rounded-lg bg-white px-5 text-sm font-medium text-black hover:bg-white/90"
                   disabled={isPending}
-                  onClick={() => void loadFreshIdentity()}
+                  onClick={() => void loadFreshIdentity(false)}
                   type="button"
                 >
-                  {isPending ? "Securing identity…" : "Create owner identity"}
+                  {isPending ? "Preparing Polyphonic…" : "Begin setup"}
                 </Button>
                 <Button
-                  className="h-9 rounded-full bg-foreground/10 px-5 hover:bg-foreground/15"
+                  className="h-9 rounded-lg px-4 text-xs text-white/55 hover:bg-white/[0.05] hover:text-white"
                   disabled={isPending}
                   onClick={() => setPage("key-import")}
                   type="button"
                   variant="ghost"
                 >
-                  Connect an existing identity
+                  Use an existing identity…
+                </Button>
+                <Button
+                  className="h-8 rounded-lg px-3 text-xs text-white/40 hover:bg-white/[0.04] hover:text-white/70"
+                  disabled={isPending}
+                  onClick={() => void loadFreshIdentity(true)}
+                  type="button"
+                  variant="ghost"
+                >
+                  Set up later
                 </Button>
               </div>
-              <IdentityKeyHelpDialog />
             </OnboardingSlideTransition>
           ) : page === "key-import" ? (
             <OnboardingSlideTransition
