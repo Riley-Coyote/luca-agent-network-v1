@@ -124,7 +124,7 @@ function buildDirectChildrenByParentId(messages: TimelineMessage[]) {
   const childrenByParentId = new Map<string, TimelineMessage[]>();
 
   for (const message of messages) {
-    if (!message.parentId) {
+    if (!message.parentId || isBroadcastReply(message.tags ?? [])) {
       continue;
     }
 
@@ -167,6 +167,12 @@ export function buildDescendantStatsByMessageId(
 
   for (let index = orderedMessages.length - 1; index >= 0; index -= 1) {
     const message = orderedMessages[index].message;
+    // Fan-out responses preserve their trigger as a transport anchor, but are
+    // ordinary chronological conversation turns. They must not manufacture a
+    // visible thread summary on the owner's prompt.
+    if (isBroadcastReply(message.tags ?? [])) {
+      continue;
+    }
     const participantKey = message.pubkey ?? message.id;
     const participant: TimelineThreadSummaryParticipant = {
       id: participantKey,
@@ -478,7 +484,9 @@ export function buildMainTimelineEntries(
       return {
         message,
         quotedParent:
-          quoteReplies && message.parentId
+          quoteReplies &&
+          message.parentId &&
+          !isBroadcastReply(message.tags ?? [])
             ? {
                 id: message.parentId,
                 author: parent?.author ?? "",

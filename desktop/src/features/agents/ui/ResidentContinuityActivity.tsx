@@ -8,8 +8,6 @@ import {
 import { cn } from "@/shared/lib/cn";
 
 const POLL_MS = 2_500;
-const RECENT_COMPLETION_MS = 60_000;
-
 type ActivityPresentation = {
   label: string;
   tone: "quiet" | "active" | "fault";
@@ -17,33 +15,23 @@ type ActivityPresentation = {
 
 export function continuityActivityPresentation(
   activity: ContinuityActivity | null,
-  recentOnly: boolean,
-  now = Date.now(),
 ): ActivityPresentation | null {
   if (!activity?.enabled) return null;
   const job = activity.job;
-  if (!job)
-    return recentOnly ? null : { label: "Continuity ready", tone: "quiet" };
+  if (!job) return { label: "Continuity ready", tone: "quiet" };
   if (job.state === "pending") {
-    return { label: "Handoff queued", tone: "active" };
+    return { label: "Saving continuity", tone: "active" };
   }
   if (job.state === "running") {
-    return { label: "Updating handoff", tone: "active" };
+    return { label: "Saving continuity", tone: "active" };
   }
   if (job.state === "failed") {
-    return { label: "Handoff needs attention", tone: "fault" };
+    return { label: "Continuity needs attention", tone: "fault" };
   }
   if (job.state === "completed") {
-    const updatedAt = new Date(job.updatedAt).valueOf();
-    if (
-      recentOnly &&
-      (Number.isNaN(updatedAt) || now - updatedAt > RECENT_COMPLETION_MS)
-    ) {
-      return null;
-    }
-    return { label: "Handoff updated", tone: "quiet" };
+    return { label: "Continuity current", tone: "quiet" };
   }
-  return recentOnly ? null : { label: "Continuity ready", tone: "quiet" };
+  return { label: "Continuity ready", tone: "quiet" };
 }
 
 function useResidentContinuityActivity(residentPubkey: string) {
@@ -76,17 +64,15 @@ export function ResidentContinuityActivity({
   className,
   name,
   onOpen,
-  recentOnly = false,
   residentPubkey,
 }: {
   className?: string;
   name?: string;
   onOpen?: () => void;
-  recentOnly?: boolean;
   residentPubkey: string;
 }) {
   const activity = useResidentContinuityActivity(residentPubkey);
-  const presentation = continuityActivityPresentation(activity, recentOnly);
+  const presentation = continuityActivityPresentation(activity);
   if (!presentation) return null;
 
   const Icon =
@@ -112,7 +98,7 @@ export function ResidentContinuityActivity({
     </>
   );
   const classes = cn(
-    "inline-flex min-w-0 items-center gap-1.5 font-mono text-badge uppercase tracking-[0.08em] text-muted-foreground",
+    "inline-flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground",
     presentation.tone === "fault" && "text-destructive",
     className,
   );
@@ -130,33 +116,5 @@ export function ResidentContinuityActivity({
     </button>
   ) : (
     <span className={classes}>{content}</span>
-  );
-}
-
-export function ConversationContinuityActivity({
-  agents,
-  channelId,
-  onOpenAgentSession,
-}: {
-  agents: Array<{ name: string; pubkey: string }>;
-  channelId: string | null;
-  onOpenAgentSession: (pubkey: string, channelId?: string | null) => void;
-}) {
-  if (agents.length === 0) return null;
-  return (
-    <section
-      aria-label="Conversation continuity activity"
-      className="flex min-h-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border/40 px-4 py-1.5 empty:hidden"
-    >
-      {agents.map((agent) => (
-        <ResidentContinuityActivity
-          key={agent.pubkey}
-          name={agents.length > 1 ? agent.name : undefined}
-          onOpen={() => onOpenAgentSession(agent.pubkey, channelId)}
-          recentOnly
-          residentPubkey={agent.pubkey}
-        />
-      ))}
-    </section>
   );
 }

@@ -42,6 +42,7 @@ import { formatTime } from "@/features/messages/lib/dateFormatters";
 // Pure overlay helper lives in a sibling .mjs so node:test (no TS loader)
 // can exercise the exact same source the renderer uses.
 import { applyEditTagOverlay } from "@/features/messages/lib/applyEditTagOverlay.mjs";
+import { stripRuntimeNoticePreamble } from "@/features/messages/lib/runtimeNoticePreamble";
 
 const HEX_RE = /^[0-9a-f]+$/i;
 
@@ -455,7 +456,7 @@ export function formatTimelineMessages(
           ? respondToLookup?.get(authorPubkey.toLowerCase())
           : undefined,
       time: formatTime(event.created_at),
-      body: edit ? edit.content : event.content,
+      body: stripRuntimeNoticePreamble(edit ? edit.content : event.content),
       parentId: thread.parentId,
       rootId: thread.rootId,
       depth: getDepth(event),

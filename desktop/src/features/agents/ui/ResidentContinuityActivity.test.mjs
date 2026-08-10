@@ -22,31 +22,27 @@ test("continuity activity exposes only compact body-free states", () => {
   assert.deepEqual(
     continuityActivityPresentation(
       activity({ job: { ...activity().job, state: "running" } }),
-      true,
     ),
-    { label: "Updating handoff", tone: "active" },
+    { label: "Saving continuity", tone: "active" },
   );
   assert.deepEqual(
     continuityActivityPresentation(
       activity({ job: { ...activity().job, state: "failed" } }),
-      true,
     ),
-    { label: "Handoff needs attention", tone: "fault" },
+    { label: "Continuity needs attention", tone: "fault" },
   );
 });
 
-test("chat hides old completed handoffs while Activity keeps the status", () => {
-  const now = Date.parse("2026-08-05T12:02:00.000Z");
-  assert.equal(continuityActivityPresentation(activity(), true, now), null);
-  assert.deepEqual(continuityActivityPresentation(activity(), false, now), {
-    label: "Handoff updated",
+test("Activity keeps a quiet status for completed continuity", () => {
+  assert.deepEqual(continuityActivityPresentation(activity()), {
+    label: "Continuity current",
     tone: "quiet",
   });
 });
 
 test("disabled continuity produces no activity indicator", () => {
   assert.equal(
-    continuityActivityPresentation(activity({ enabled: false }), false),
+    continuityActivityPresentation(activity({ enabled: false })),
     null,
   );
 });

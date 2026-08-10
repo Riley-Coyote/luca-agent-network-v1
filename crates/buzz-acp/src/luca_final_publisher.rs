@@ -1,9 +1,10 @@
 //! F09's bounded ACP-side final-message handoff.
 //!
 //! A managed resident never publishes stream chunks.  The harness collects
-//! only public `agent_message_chunk` text for one accepted turn, then hands one
-//! exact final draft to F14's typed [`ManagedSigningClient`].  The client has no
-//! generic signing operation and no resident secret.
+//! only public `agent_message_chunk` text for one accepted turn, removes a
+//! narrowly recognized adapter-generated preamble, then hands one final draft
+//! to F14's typed [`ManagedSigningClient`]. The client has no generic signing
+//! operation and no resident secret.
 
 use std::sync::Arc;
 
@@ -15,6 +16,21 @@ use luca_protocol::{
 use luca_signing_client::{ManagedSigningClient, SigningClientError};
 use nostr::Event;
 use uuid::Uuid;
+
+const CODEX_SKILL_CONTEXT_NOTICE: &str = "Warning: Skill descriptions were shortened to fit the 2% skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.";
+
+fn strip_runtime_notice_preamble(final_draft: String) -> String {
+    let Some(remainder) = final_draft.strip_prefix(CODEX_SKILL_CONTEXT_NOTICE) else {
+        return final_draft;
+    };
+    if remainder.is_empty() {
+        return String::new();
+    }
+    if !remainder.starts_with('\n') {
+        return final_draft;
+    }
+    remainder.trim_start().to_owned()
+}
 
 /// Managed-only broker capability retained by the ACP host, never an ACP
 /// model child. The desktop still independently authorizes every request.
@@ -103,14 +119,18 @@ impl FinalChunkAccumulator {
     }
 
     /// Consume the one final draft after ACP reports normal completion.
+    ///
+    /// A known Codex adapter preamble is operational status rather than model
+    /// content. It is removed only when it exactly prefixes the response.
     pub fn finish(self, cancelled: bool) -> Result<String, FinalPublicationError> {
         if cancelled {
             return Err(FinalPublicationError::Cancelled);
         }
-        if self.final_draft.is_empty() {
+        let final_draft = strip_runtime_notice_preamble(self.final_draft);
+        if final_draft.is_empty() {
             return Err(FinalPublicationError::Empty);
         }
-        Ok(self.final_draft)
+        Ok(final_draft)
     }
 }
 
@@ -343,6 +363,28 @@ mod tests {
         let mut chunks = FinalChunkAccumulator::default();
         chunks.push_agent_message_chunk("partial").expect("chunk");
         assert_eq!(chunks.finish(true), Err(FinalPublicationError::Cancelled));
+    }
+
+    #[test]
+    fn luca_f09_runtime_notice_is_not_published_as_conversation_text() {
+        let mut chunks = FinalChunkAccumulator::default();
+        chunks
+            .push_agent_message_chunk(CODEX_SKILL_CONTEXT_NOTICE)
+            .expect("notice");
+        chunks
+            .push_agent_message_chunk("\n\nThe useful answer.")
+            .expect("answer");
+        assert_eq!(chunks.finish(false).expect("final"), "The useful answer.");
+    }
+
+    #[test]
+    fn luca_f09_runtime_notice_filter_is_exact_and_prefix_only() {
+        let quoted = format!("A quoted diagnostic:\n{CODEX_SKILL_CONTEXT_NOTICE}");
+        let mut chunks = FinalChunkAccumulator::default();
+        chunks
+            .push_agent_message_chunk(&quoted)
+            .expect("quoted notice");
+        assert_eq!(chunks.finish(false).expect("final"), quoted);
     }
 
     #[test]

@@ -31,7 +31,6 @@ import { PendingReplyRow } from "@/features/messages/ui/PendingReplyRow";
 import { cancelManagedAgentTurn } from "@/shared/api/agentControl";
 import { BotActivityComposerAction } from "@/features/channels/ui/BotActivityBar";
 import { ConversationAgentActivityStrip } from "@/features/channels/ui/ConversationAgentActivityStrip";
-import { ConversationContinuityActivity } from "@/features/agents/ui/ResidentContinuityActivity";
 import { useManagedPermissions } from "@/features/agents/useManagedPermissions";
 import { ManagedPermissionCard } from "@/features/agents/ui/ManagedPermissionCard";
 import {
@@ -552,11 +551,6 @@ export const ChannelPane = React.memo(function ChannelPane({
             sessionAgents={agentSessionAgents}
             activityByPubkey={pendingActivityByPubkey}
             workingPubkeys={composerWorkingBotPubkeys}
-          />
-          <ConversationContinuityActivity
-            agents={agentSessionAgents}
-            channelId={activeChannel?.id ?? null}
-            onOpenAgentSession={onOpenAgentSession}
           />
           {channelFind.isOpen ? (
             <div className={cn("absolute inset-x-0 z-40", channelChrome.top)}>

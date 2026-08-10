@@ -130,6 +130,14 @@ test("a live broadcast depth-1 reply enters the authoritative channel window sto
     extraTags: [["broadcast", "1"]],
   });
 
+  const broadcastRow = page
+    .getByTestId("message-timeline")
+    .locator("article")
+    .filter({ hasText: "broadcast to the channel" });
+  await expect(broadcastRow).toBeVisible();
+  await expect(broadcastRow.getByTestId("quoted-parent")).toHaveCount(0);
+  await expect(page.getByTestId("message-thread-summary")).toHaveCount(0);
+
   // CONTROL — an ordinary (non-broadcast) depth-1 reply: NOT a window row, MUST
   // stay out of the overlay.
   await emit(page, {
@@ -137,6 +145,12 @@ test("a live broadcast depth-1 reply enters the authoritative channel window sto
     parentEventId: root.id,
     createdAt: now + 2,
   });
+
+  // A deliberate reply remains a thread. Only the transport-level broadcast
+  // response is flattened into the normal chronological conversation.
+  await expect(page.getByTestId("message-thread-summary")).toContainText(
+    "1 reply",
+  );
 
   // The broadcast reply must land in the authoritative window-store overlay via
   // live append alone — the invariant that survives any window-store rebuild.

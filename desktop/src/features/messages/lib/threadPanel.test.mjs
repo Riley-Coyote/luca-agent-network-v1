@@ -68,6 +68,56 @@ test("buildMainTimelineEntries includes broadcast replies", () => {
   );
 });
 
+test("broadcast fan-out renders as linear turns without creating a thread", () => {
+  const root = message({ id: "root", createdAt: 1 });
+  const broadcastReply = message({
+    id: "broadcast-reply",
+    author: "Codex",
+    createdAt: 2,
+    parentId: "root",
+    rootId: "root",
+    depth: 1,
+    tags: [
+      ["e", "root", "", "reply"],
+      ["broadcast", "1"],
+    ],
+  });
+
+  const [rootEntry, replyEntry] = buildMainTimelineEntries(
+    [root, broadcastReply],
+    new Set(),
+    new Map(),
+    undefined,
+    true,
+  );
+
+  assert.equal(rootEntry.summary, null);
+  assert.equal(replyEntry.quotedParent, null);
+});
+
+test("intentional replies still carry context and create a thread summary", () => {
+  const root = message({ id: "root", createdAt: 1 });
+  const reply = message({
+    id: "reply",
+    createdAt: 2,
+    parentId: "root",
+    rootId: "root",
+    depth: 1,
+    tags: [["e", "root", "", "reply"]],
+  });
+
+  const [rootEntry, replyEntry] = buildMainTimelineEntries(
+    [root, reply],
+    new Set(),
+    new Map(),
+    undefined,
+    true,
+  );
+
+  assert.equal(rootEntry.summary?.replyCount, 1);
+  assert.equal(replyEntry.quotedParent?.id, "root");
+});
+
 test("buildInlineConversationEntries places a flattened reply branch beneath its root", () => {
   const root = message({ id: "root", createdAt: 1 });
   const laterRoot = message({ id: "later", createdAt: 4 });
