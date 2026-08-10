@@ -6,10 +6,14 @@ import type { PolyphonicOnboardingChapter } from "../polyphonicOnboardingState";
 import { PolyphonicStepHeading } from "./PolyphonicSetupFrame";
 
 export function PolyphonicReadyStep({
+  agentsNeedAttention,
+  brainNeedsAttention,
   displayName,
   onReview,
   profileNeedsAttention,
 }: {
+  agentsNeedAttention: boolean;
+  brainNeedsAttention: boolean;
   displayName: string;
   onReview: (chapter: PolyphonicOnboardingChapter) => void;
   profileNeedsAttention: boolean;
@@ -25,7 +29,10 @@ export function PolyphonicReadyStep({
       source.status === "needs_attention" || source.status === "unavailable",
   ).length;
   const issueCount =
-    Number(profileNeedsAttention) + Number(residents.isError) + brainIssues;
+    Number(profileNeedsAttention) +
+    Number(agentsNeedAttention || residents.isError) +
+    Number(brainNeedsAttention) +
+    brainIssues;
   const rows = [
     { label: "You", value: displayName || "Ready", review: "you" as const },
     {

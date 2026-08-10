@@ -1,4 +1,6 @@
 const PREFIX = "polyphonic-pending-profile.v1";
+export const POLYPHONIC_PROFILE_SYNCED_EVENT =
+  "polyphonic:pending-profile-synced";
 
 export type PendingPolyphonicProfile = {
   version: 1;

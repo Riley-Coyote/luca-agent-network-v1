@@ -25,6 +25,7 @@ import {
 } from "@/features/onboarding/polyphonicOnboardingState";
 import {
   clearPendingPolyphonicProfile,
+  POLYPHONIC_PROFILE_SYNCED_EVENT,
   readPendingPolyphonicProfile,
 } from "@/features/onboarding/polyphonicProfileSync";
 import { ensureWelcomeCanvas } from "@/features/onboarding/welcomeCanvas";
@@ -335,6 +336,9 @@ export function useFirstRunOnboardingGate({
 
   React.useEffect(() => {
     function reopen() {
+      if (currentPubkey) {
+        clearPolyphonicOnboardingSessionSkip(currentPubkey);
+      }
       setGateState((current) =>
         updateActiveGateState(current, currentPubkey, (active) => ({
           ...active,
@@ -577,6 +581,7 @@ export function useAppOnboardingState(isSharedIdentity: boolean) {
     void updateProfile({ displayName: pending.displayName })
       .then(async () => {
         clearPendingPolyphonicProfile(currentPubkey);
+        window.dispatchEvent(new Event(POLYPHONIC_PROFILE_SYNCED_EVENT));
         await queryClient.invalidateQueries({ queryKey: ["profile"] });
       })
       .catch(() => {

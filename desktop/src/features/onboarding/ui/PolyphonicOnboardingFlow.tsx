@@ -7,7 +7,10 @@ import {
   readPolyphonicOnboardingTransaction,
   savePolyphonicOnboardingTransaction,
 } from "../polyphonicOnboardingState";
-import { readPendingPolyphonicProfile } from "../polyphonicProfileSync";
+import {
+  POLYPHONIC_PROFILE_SYNCED_EVENT,
+  readPendingPolyphonicProfile,
+} from "../polyphonicProfileSync";
 import {
   PolyphonicAgentsStep,
   type PolyphonicAgentsStepHandle,
@@ -57,8 +60,15 @@ export function PolyphonicOnboardingFlow({
   );
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [profileNeedsAttention, setProfileNeedsAttention] =
-    React.useState(false);
+  const [profileNeedsAttention, setProfileNeedsAttention] = React.useState(
+    pendingProfile !== null,
+  );
+  React.useEffect(() => {
+    const synced = () => setProfileNeedsAttention(false);
+    window.addEventListener(POLYPHONIC_PROFILE_SYNCED_EVENT, synced);
+    return () =>
+      window.removeEventListener(POLYPHONIC_PROFILE_SYNCED_EVENT, synced);
+  }, []);
   const youRef = React.useRef<PolyphonicYouStepHandle>(null);
   const agentsRef = React.useRef<PolyphonicAgentsStepHandle>(null);
   const brainRef = React.useRef<PolyphonicBrainStepHandle>(null);
@@ -86,13 +96,21 @@ export function PolyphonicOnboardingFlow({
       if (transaction.chapter === "agents") {
         const outcome = await agentsRef.current?.commit();
         if (!outcome) return;
-        persist({ chapter: "brain", agentsReviewed: true });
+        persist({
+          chapter: "brain",
+          agentsReviewed: true,
+          agentsNeedAttention: outcome.issueCount > 0,
+        });
         return;
       }
       if (transaction.chapter === "brain") {
         const outcome = await brainRef.current?.commit();
         if (!outcome || outcome.cancelled) return;
-        persist({ chapter: "ready", brainReviewed: true });
+        persist({
+          chapter: "ready",
+          brainReviewed: true,
+          brainNeedsAttention: outcome.issueCount > 0,
+        });
         return;
       }
       actions.complete();
@@ -135,6 +153,8 @@ export function PolyphonicOnboardingFlow({
       ) : null}
       {transaction.chapter === "ready" ? (
         <PolyphonicReadyStep
+          agentsNeedAttention={transaction.agentsNeedAttention}
+          brainNeedsAttention={transaction.brainNeedsAttention}
           displayName={displayName}
           onReview={(chapter) => persist({ chapter })}
           profileNeedsAttention={profileNeedsAttention}

@@ -1,12 +1,14 @@
 export type PolyphonicOnboardingChapter = "you" | "agents" | "brain" | "ready";
 
 export type PolyphonicOnboardingTransaction = {
-  version: 1;
+  version: 2;
   pubkey: string;
   chapter: PolyphonicOnboardingChapter;
   profileSaved: boolean;
   agentsReviewed: boolean;
   brainReviewed: boolean;
+  agentsNeedAttention: boolean;
+  brainNeedsAttention: boolean;
   updatedAt: string;
 };
 
@@ -32,12 +34,14 @@ function isTransaction(
   if (!value || typeof value !== "object") return false;
   const transaction = value as Partial<PolyphonicOnboardingTransaction>;
   return (
-    transaction.version === 1 &&
+    transaction.version === 2 &&
     transaction.pubkey === pubkey &&
     isChapter(transaction.chapter) &&
     typeof transaction.profileSaved === "boolean" &&
     typeof transaction.agentsReviewed === "boolean" &&
     typeof transaction.brainReviewed === "boolean" &&
+    typeof transaction.agentsNeedAttention === "boolean" &&
+    typeof transaction.brainNeedsAttention === "boolean" &&
     typeof transaction.updatedAt === "string"
   );
 }
@@ -46,12 +50,14 @@ export function createPolyphonicOnboardingTransaction(
   pubkey: string,
 ): PolyphonicOnboardingTransaction {
   return {
-    version: 1,
+    version: 2,
     pubkey,
     chapter: "you",
     profileSaved: false,
     agentsReviewed: false,
     brainReviewed: false,
+    agentsNeedAttention: false,
+    brainNeedsAttention: false,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -65,6 +71,23 @@ export function readPolyphonicOnboardingTransaction(
     const parsed: unknown = JSON.parse(
       storage.getItem(transactionKey(pubkey)) ?? "null",
     );
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      (parsed as { version?: unknown }).version === 1
+    ) {
+      const legacy = parsed as Record<string, unknown>;
+      const migrated = {
+        ...legacy,
+        version: 2 as const,
+        agentsNeedAttention: false,
+        brainNeedsAttention: false,
+      };
+      if (isTransaction(migrated, pubkey)) {
+        storage.setItem(transactionKey(pubkey), JSON.stringify(migrated));
+        return migrated;
+      }
+    }
     return isTransaction(parsed, pubkey) ? parsed : null;
   } catch {
     return null;

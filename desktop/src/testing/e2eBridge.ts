@@ -6,7 +6,11 @@ import { parse as yamlParse } from "yaml";
 
 import { relayClient } from "@/shared/api/relayClient";
 import type { ConnectionState } from "@/shared/api/relayClientShared";
-import type { RelayEvent, RuntimeBinding } from "@/shared/api/types";
+import type {
+  NativeResidentDiscoveryOutcome,
+  RelayEvent,
+  RuntimeBinding,
+} from "@/shared/api/types";
 import { getMarkdownParseCount } from "@/shared/ui/markdown/nodeCache";
 import { syncAgentTurnsFromEvents } from "@/features/agents/activeAgentTurnsStore";
 import { recordTimeoutFromRejection } from "@/features/moderation/lib/timeoutStore";
@@ -191,6 +195,10 @@ type E2eConfig = {
       mcp?: MockCommandAvailability;
     };
     managedAgents?: MockManagedAgentSeed[];
+    nativeResidentDiscovery?: NativeResidentDiscoveryOutcome;
+    nativeResidentDiscoveryError?: string;
+    createManagedAgentErrors?: (string | null)[];
+    connectedBrainConnectErrors?: (string | null)[];
     personas?: MockPersonaSeed[];
     teams?: MockTeamSeed[];
     relayAgents?: MockRelayAgentSeed[];
@@ -7485,6 +7493,7 @@ async function handleCreateManagedAgent(
       avatarUrl?: string;
       model?: string;
       provider?: string;
+      nativeRuntimeBinding?: RuntimeBinding;
       envVars?: Record<string, string>;
       spawnAfterCreate?: boolean;
       startOnAppLaunch?: boolean;
@@ -7497,6 +7506,8 @@ async function handleCreateManagedAgent(
   },
   config: E2eConfig | undefined,
 ): Promise<RawCreateManagedAgentResponse> {
+  const injectedFailure = config?.mock?.createManagedAgentErrors?.shift();
+  if (injectedFailure) throw new Error(injectedFailure);
   const delayMs = config?.mock?.createManagedAgentDelayMs ?? 0;
   if (delayMs > 0) {
     await new Promise((resolve) => window.setTimeout(resolve, delayMs));
@@ -7559,6 +7570,7 @@ async function handleCreateManagedAgent(
     avatar_url: avatarUrl,
     model: args.input.model?.trim() || linkedPersona?.model || null,
     provider: args.input.provider?.trim() || linkedPersona?.provider || null,
+    native_runtime_binding: args.input.nativeRuntimeBinding ?? null,
     env_vars: { ...(args.input.envVars ?? {}) },
     status: args.input.spawnAfterCreate ? "running" : "stopped",
     pid: args.input.spawnAfterCreate ? 42000 + mockManagedAgents.length : null,
@@ -7621,6 +7633,7 @@ async function handleCreateLucaResident(
   }
 
   const injectedFailure =
+    config?.mock?.createManagedAgentErrors?.shift() ??
     window.__BUZZ_E2E_LUCA_RESIDENT_CREATE_ERRORS__?.shift();
   if (injectedFailure) {
     throw injectedFailure;
@@ -7693,6 +7706,7 @@ async function handleCreateLucaResident(
     avatar_url: avatarUrl,
     model: args.input.model?.trim() || linkedPersona?.model || null,
     provider: args.input.provider?.trim() || linkedPersona?.provider || null,
+    native_runtime_binding: args.input.nativeRuntimeBinding ?? null,
     env_vars: { ...(args.input.envVars ?? {}) },
     status: args.input.spawnAfterCreate ? "running" : "stopped",
     pid: args.input.spawnAfterCreate ? 42000 + mockManagedAgents.length : null,
@@ -9608,6 +9622,9 @@ export function maybeInstallE2eTauriMocks() {
       case "add_connected_brain_root":
         return connectedBrainInventory();
       case "connect_connected_brain_source": {
+        const injectedFailure =
+          activeConfig?.mock?.connectedBrainConnectErrors?.shift();
+        if (injectedFailure) throw new Error(injectedFailure);
         initializeConnectedMode();
         const input = (payload ?? {}) as {
           input?: { discoveryIds?: string[] };
@@ -10671,22 +10688,27 @@ export function maybeInstallE2eTauriMocks() {
       case "discover_acp_providers":
         return handleDiscoverAcpRuntimes(activeConfig);
       case "discover_native_residents":
-        return {
-          runtimes: [
-            {
-              nativeType: "hermes",
-              status: "absent",
-              message: "No additional Hermes profiles found in this preview.",
-              candidates: [],
-            },
-            {
-              nativeType: "openclaw",
-              status: "absent",
-              message: "No additional OpenClaw agents found in this preview.",
-              candidates: [],
-            },
-          ],
-        };
+        if (activeConfig?.mock?.nativeResidentDiscoveryError) {
+          throw new Error(activeConfig.mock.nativeResidentDiscoveryError);
+        }
+        return (
+          activeConfig?.mock?.nativeResidentDiscovery ?? {
+            runtimes: [
+              {
+                nativeType: "hermes",
+                status: "absent",
+                message: "No additional Hermes profiles found in this preview.",
+                candidates: [],
+              },
+              {
+                nativeType: "openclaw",
+                status: "absent",
+                message: "No additional OpenClaw agents found in this preview.",
+                candidates: [],
+              },
+            ],
+          }
+        );
       case "discover_acp_auth_methods":
         return handleDiscoverAcpAuthMethods(
           payload as { runtimeId?: string },

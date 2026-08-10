@@ -7,6 +7,7 @@ import {
   isValidOwnerBackupPassphrase,
   ownerBackupPassphraseByteLength,
 } from "@/shared/api/tauriIdentity";
+import { truncatePubkey } from "@/shared/lib/pubkey";
 import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -127,8 +128,7 @@ export const PolyphonicYouStep = React.forwardRef<
         </label>
       </div>
       <p className="mt-3 font-mono text-xs text-white/38">
-        Identity mark derived from your public key · {pubkey.slice(0, 8)}…
-        {pubkey.slice(-4)}
+        Identity mark derived from your public key · {truncatePubkey(pubkey)}
       </p>
 
       <div className="mt-5 rounded-lg border border-[hsl(var(--mn-border))] bg-[hsl(var(--mn-surface))]">
