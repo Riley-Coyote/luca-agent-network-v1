@@ -49,12 +49,6 @@ function isRelayMembershipDeniedError(error: unknown): boolean {
   );
 }
 
-const STARTER_PERSONA_ANIMATIONS: Record<string, string> = {
-  Fizz: "/onboarding/starter-team/fizz.png",
-  Honey: "/onboarding/starter-team/honey.png",
-  Bumble: "/onboarding/starter-team/bumble.png",
-};
-
 /** Fade duration for the "entering" curtain over the mounting app. */
 const ENTERING_CURTAIN_FADE_MS = 500;
 /**
@@ -185,12 +179,14 @@ export function CommunityOnboardingFlow({
     void listPersonas()
       .then((personas) =>
         setStarterPersonas(
-          ["Fizz", "Honey", "Bumble"].flatMap((name) => {
-            const persona = personas.find(
-              (candidate) => candidate.displayName === name,
-            );
-            return persona ? [persona] : [];
-          }),
+          ["builtin:fizz", "builtin:honey", "builtin:bumble"].flatMap(
+            (personaId) => {
+              const persona = personas.find(
+                (candidate) => candidate.id === personaId,
+              );
+              return persona ? [persona] : [];
+            },
+          ),
         ),
       )
       .catch(() => setStarterPersonas([]));
@@ -616,40 +612,28 @@ export function CommunityOnboardingFlow({
             <>
               <h1 className="text-title font-normal">Meet your starter team</h1>
               <p className="mx-auto mt-3 max-w-[400px] text-sm leading-6 text-foreground/80">
-                Luca lets you bring multiple residents into one personal agent
-                network. Your starter residents will help you get oriented.
+                Luca lets you bring multiple agents into one personal network.
+                Your starter agents will help you get oriented.
               </p>
               <div className="flex w-full flex-1 items-center justify-center py-10">
                 {starterPersonas.length > 0 ? (
                   <div className="flex flex-wrap justify-center gap-8">
-                    {starterPersonas.map((persona) => {
-                      const animationUrl =
-                        STARTER_PERSONA_ANIMATIONS[persona.displayName];
-                      return (
-                        <div
-                          className="flex w-40 flex-col items-center gap-3"
-                          key={persona.id}
-                        >
-                          {animationUrl ? (
-                            <img
-                              alt={`${persona.displayName} animated character`}
-                              className="h-40 w-40 object-contain"
-                              data-testid={`starter-persona-${persona.displayName.toLowerCase()}`}
-                              src={animationUrl}
-                            />
-                          ) : (
-                            <ProfileAvatar
-                              avatarUrl={persona.avatarUrl}
-                              className="h-28 w-28 text-3xl"
-                              label={persona.displayName}
-                            />
-                          )}
-                          <span className="font-mono text-xs font-medium uppercase tracking-[0.15em]">
-                            {persona.displayName}
-                          </span>
-                        </div>
-                      );
-                    })}
+                    {starterPersonas.map((persona) => (
+                      <div
+                        className="flex w-40 flex-col items-center gap-3"
+                        key={persona.id}
+                      >
+                        <ProfileAvatar
+                          avatarUrl={persona.avatarUrl}
+                          className="h-28 w-28 text-3xl"
+                          label={persona.displayName}
+                          testId={`starter-persona-${persona.displayName.toLowerCase()}`}
+                        />
+                        <span className="font-mono text-xs font-medium uppercase tracking-[0.15em]">
+                          {persona.displayName}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 ) : null}
               </div>

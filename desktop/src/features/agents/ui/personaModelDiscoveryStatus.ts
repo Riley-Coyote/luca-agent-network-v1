@@ -34,6 +34,8 @@ function isEmptySharedComputeError(message: string): boolean {
   const normalized = message.toLowerCase();
   return (
     normalized.includes("shared compute status is not published") ||
+    normalized.includes("no shared compute serving members") ||
+    normalized.includes("no live shared compute models") ||
     normalized.includes("no buzz shared compute serving members") ||
     normalized.includes("no live buzz shared compute models") ||
     normalized.includes("no live member is serving") ||

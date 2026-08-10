@@ -8,14 +8,13 @@ import { cn } from "@/shared/lib/cn";
 
 type StageCharacter = {
   name: string;
-  animationUrl: string;
 };
 
-/** Same animated APNGs the "Meet your starter team" onboarding step uses. */
+/** Luca's optional starting network, shown without legacy product artwork. */
 const STAGE_CHARACTERS: readonly StageCharacter[] = [
-  { name: "Fizz", animationUrl: "/onboarding/starter-team/fizz.png" },
-  { name: "Honey", animationUrl: "/onboarding/starter-team/honey.png" },
-  { name: "Bumble", animationUrl: "/onboarding/starter-team/bumble.png" },
+  { name: "Luca" },
+  { name: "Vektor" },
+  { name: "Anima" },
 ];
 
 const STAGE_EXIT_ANIMATION = "motion-kickoff-stage-exit";
@@ -62,14 +61,14 @@ export function WelcomeKickoffStage({
       onAnimationEnd={handleAnimationEnd}
     >
       {STAGE_CHARACTERS.map((character, index) => (
-        <img
-          alt=""
-          className="motion-kickoff-character-enter h-16 w-16 object-contain"
+        <span
+          className="motion-kickoff-character-enter flex h-8 items-center rounded-md border border-border/70 bg-background/95 px-3 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground shadow-sm"
           data-testid={`welcome-kickoff-stage-${character.name.toLowerCase()}`}
           key={character.name}
-          src={character.animationUrl}
           style={{ "--stagger-index": index } as React.CSSProperties}
-        />
+        >
+          {character.name}
+        </span>
       ))}
     </div>
   );

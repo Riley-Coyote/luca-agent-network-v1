@@ -490,16 +490,17 @@ export function AgentConfigFields({
   // for new selections; OSS builds show it.
   const hideProviderIds = React.useMemo(() => {
     const hidden = new Set<string>();
+    // Luca does not offer the inherited relay-mesh compute product. Preserve a
+    // saved value as a read-only `(current)` option, but never offer it for a
+    // new or changed agent configuration.
+    hidden.add("relay-mesh");
     if (bakedEnvKeys.includes("BUZZ_AGENT_PROVIDER")) {
       for (const providerId of BLOCK_BUILD_HIDDEN_PROVIDER_IDS) {
         hidden.add(providerId);
       }
     }
-    if (selectedRuntimeId !== "buzz-agent") {
-      hidden.add("relay-mesh");
-    }
     return hidden;
-  }, [bakedEnvKeys, selectedRuntimeId]);
+  }, [bakedEnvKeys]);
   const providerOptions = getPersonaProviderOptions(
     providerValue,
     credentialRuntimeId,

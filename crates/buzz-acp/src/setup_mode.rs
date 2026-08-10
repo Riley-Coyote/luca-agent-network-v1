@@ -273,11 +273,11 @@ impl SetupPayload {
                 // help. Don't send the user there.
                 "Fix the config file(s) and restart the agent.".to_string()
             } else if any_external {
-                // Mixed: some Buzz-managed fields, some external config.
-                "Open Edit Agent in the Buzz app for the Buzz-managed fields; fix the external CLI config files manually and restart the agent.".to_string()
+                // Mixed: some Luca-managed fields, some external config.
+                "Open the agent in Luca Settings for the Luca-managed fields; fix the external CLI config files manually and restart the agent.".to_string()
             } else {
-                // All Buzz-managed — original footer unchanged.
-                "Open Edit Agent in the Buzz app to set these.".to_string()
+                // All Luca-managed.
+                "Open the agent in Luca Settings to set these.".to_string()
             };
 
             format!(
@@ -848,7 +848,7 @@ mod tests {
 
     #[test]
     fn nudge_body_mixed_requirements_uses_split_footer() {
-        // Mixed list: one Buzz-managed env key + one external config invalid.
+        // Mixed list: one Luca-managed env key + one external config invalid.
         // Footer must address both sides.
         let payload = SetupPayload {
             agent_name: "Codex".to_string(),
@@ -862,8 +862,8 @@ mod tests {
         };
         let body = payload.nudge_body();
         assert!(
-            body.contains("Open Edit Agent"),
-            "mixed nudge must mention Open Edit Agent for managed fields; got: {body:?}"
+            body.contains("Open the agent in Luca Settings"),
+            "mixed nudge must mention Luca Settings for managed fields; got: {body:?}"
         );
         assert!(
             body.contains("fix the external CLI config"),
@@ -883,7 +883,7 @@ mod tests {
         };
         let body = payload.nudge_body();
         assert!(
-            body.contains("Open Edit Agent in the Buzz app to set these."),
+            body.contains("Open the agent in Luca Settings to set these."),
             "all-managed nudge must use the original Edit Agent footer; got: {body:?}"
         );
     }

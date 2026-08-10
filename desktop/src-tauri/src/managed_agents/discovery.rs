@@ -159,7 +159,7 @@ const KNOWN_ACP_RUNTIMES: &[KnownAcpRuntime] = &[
     },
     KnownAcpRuntime {
         id: "buzz-agent",
-        label: "Buzz Agent",
+        label: "Polyphonic runtime",
         commands: &["buzz-agent"],
         aliases: &[],
         avatar_url: BUZZ_AGENT_AVATAR_URL,
@@ -170,7 +170,7 @@ const KNOWN_ACP_RUNTIMES: &[KnownAcpRuntime] = &[
         cli_install_commands_windows: &[],
         adapter_install_commands: &[],
         install_instructions_url: "https://github.com/block/buzz",
-        cli_install_hint: "Ships with the Buzz desktop app.",
+        cli_install_hint: "Built into Luca.",
         adapter_install_hint: "",
         skill_dir: None,
         supports_acp_model_switching: true,

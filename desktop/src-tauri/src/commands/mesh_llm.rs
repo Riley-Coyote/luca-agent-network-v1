@@ -43,7 +43,7 @@ fn load_mesh_sharing_config(app: &AppHandle) -> Result<Option<MeshSharingConfig>
 }
 
 const RELAY_MESH_RUNTIME_NO_TARGET: &str =
-    "Buzz shared compute requires a live serving member; start serving the selected model on a member, then try again";
+    "Shared compute requires a live serving member; start serving the selected model on a member, then try again";
 
 pub type CmdResult<T> = Result<T, String>;
 
@@ -231,7 +231,7 @@ async fn wait_for_mesh_inference(model_id: &str) -> CmdResult<()> {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     }
     Err(format!(
-        "Buzz shared compute did not become inference-ready for {model_id}: {last_error}"
+        "Shared compute did not become inference-ready for {model_id}: {last_error}"
     ))
 }
 
@@ -296,7 +296,7 @@ pub(crate) async fn ensure_client_node_for_model(
     };
     let mut runtime = state.mesh_llm_runtime.lock().await;
     if runtime.is_some() {
-        return Err("mesh node changed while starting Buzz shared compute client".to_string());
+        return Err("mesh node changed while starting shared compute client".to_string());
     }
     let started = mesh_llm::DesktopMeshRuntime::start(start)
         .await
@@ -391,13 +391,13 @@ pub(crate) async fn ensure_relay_mesh_for_record(
         Ok(Some(target)) => target,
         Ok(None) => {
             return Err(
-                "Buzz shared compute cannot start because no live member is serving this model. Start serving it on a member, then try again."
+                "Shared compute cannot start because no live member is serving this model. Start serving it on a member, then try again."
                     .to_string(),
             );
         }
         Err(error) => {
             return Err(format!(
-                "could not refresh Buzz shared compute serving members: {error}"
+                "could not refresh shared compute serving members: {error}"
             ));
         }
     };

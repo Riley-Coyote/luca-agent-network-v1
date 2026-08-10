@@ -377,7 +377,7 @@ function RequirementRow({
       return (
         <div className="flex items-center gap-2 text-xs leading-4 text-muted-foreground">
           <span className="flex-1 [overflow-wrap:anywhere]">
-            Git for Windows is required for buzz-agent shell tools
+            Git for Windows is required for Polyphonic runtime shell tools
           </span>
         </div>
       );
