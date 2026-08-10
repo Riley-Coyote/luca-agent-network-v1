@@ -1,6 +1,6 @@
 # Luca V1 continuation handoff
 
-Updated: 2026-08-09
+Updated: 2026-08-10
 
 Repository: `Riley-Coyote/luca-agent-network-v1`
 
@@ -11,6 +11,9 @@ V1.2 exact product checkpoint:
 
 V1.2.1 exact product checkpoint:
 `ec5ef6fbe6256dd1651280d818976b346045389d`
+
+Polyphonic operator/Agent Forge source checkpoint:
+`30467845b5c4267d1c94168c21f900b03e2521b5`
 
 V1.2 candidate branch: `codex/unified-brain-v1-2`
 
@@ -26,6 +29,11 @@ matrix, protected native no-write proof, and the one formal `just ci` gate all
 pass. The evidence closure is the commit titled
 `Finalize V1.2.1 release evidence` on local `luca/v1.1`. The release remains
 local; no push or pull request was authorized.
+
+Polyphonic operator/Agent Forge state: SOURCE PASS. The full repository gate
+passes, but signed disposable native provisioning acceptance remains pending,
+so this checkpoint is not yet promoted as an installed release. See
+`docs/luca/operator-forge/`.
 
 This document is the repository-native source of truth for continuing Luca V1.
 It supersedes older product assumptions in the upstream Buzz README and older
@@ -229,6 +237,20 @@ Authority rules:
 - The main Brain surface is a quiet Repositories, Codex, Claude Code, and Files
   inventory. Exclusions, grants, refresh detail, and body-free activity remain
   secondary.
+
+### Optional Luca operator and native Agent Forge
+
+- Luca is an optional ordinary resident, preselected only for new onboarding;
+  existing installations receive no resident silently.
+- One confirmed default runtime target covers Codex, Claude Code, Hermes, and
+  OpenClaw while preserving legacy managed and custom runtime compatibility.
+- Luca and other owned residents can draft narrow agent proposals, but owner
+  review in the desktop is the only commit point.
+- Hermes and OpenClaw creation use their supported native command surfaces,
+  exact rediscovery, stable Polyphonic resident linking, reconciliation, and
+  rollback without exposing desktop authority to models or tools.
+- Manual creation, onboarding, Settings, and conversational proposals share one
+  review experience and body-free provisioning activity.
 
 ## Branch and commit map
 
