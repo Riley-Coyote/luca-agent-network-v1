@@ -21,7 +21,7 @@ import { Button } from "@/shared/ui/button";
 import { AgentDefaultsSettingsCard } from "./AgentDefaultsSettingsCard";
 import { MobilePairingCard } from "./MobilePairingCard";
 import { PreventSleepSettingsCard } from "./PreventSleepSettingsCard";
-import { ProtectedOwnerBackupRow } from "./ProfileSettingsCard";
+import { ProtectedOwnerBackupRow } from "./ProtectedOwnerBackupRow";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
 

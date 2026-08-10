@@ -257,6 +257,12 @@ pub enum AgentsCmd {
         /// Proposed instructions; use '-' to read from stdin
         #[arg(long)]
         system_prompt: String,
+        /// Optional runtime family requested for owner review
+        #[arg(long, value_parser = ["codex", "claude_code", "hermes", "openclaw"])]
+        runtime_family: Option<String>,
+        /// Fresh or cloned provisioning preference; the owner selects any native source
+        #[arg(long, value_parser = ["fresh", "template", "advanced"])]
+        provisioning_intent: Option<String>,
     },
     /// Open a prefilled edit-agent form in the owner's Buzz Desktop
     DraftUpdate {

@@ -16,6 +16,10 @@ pub struct CreateAgentDraft {
     pub channel_id: String,
     pub display_name: String,
     pub system_prompt: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested_runtime_family: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provisioning_intent: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -84,6 +88,32 @@ fn optional(value: Option<String>, label: &str) -> Result<Option<String>, CliErr
     value.map(|value| required(value, label, 300)).transpose()
 }
 
+fn runtime_family(value: Option<String>) -> Result<Option<String>, CliError> {
+    let value = optional(value, "runtime family")?;
+    if value
+        .as_deref()
+        .is_some_and(|value| !matches!(value, "codex" | "claude_code" | "hermes" | "openclaw"))
+    {
+        return Err(CliError::Usage(
+            "runtime family must be codex, claude_code, hermes, or openclaw".into(),
+        ));
+    }
+    Ok(value)
+}
+
+fn provisioning_intent(value: Option<String>) -> Result<Option<String>, CliError> {
+    let value = optional(value, "provisioning intent")?;
+    if value
+        .as_deref()
+        .is_some_and(|value| !matches!(value, "fresh" | "template" | "advanced"))
+    {
+        return Err(CliError::Usage(
+            "provisioning intent must be fresh, template, or advanced".into(),
+        ));
+    }
+    Ok(value)
+}
+
 fn build<T: Serialize>(
     keys: &Keys,
     owner: &PublicKey,
@@ -137,6 +167,8 @@ pub fn build_create(
         channel_id: channel_id.clone(),
         display_name: required(draft.display_name, "display name", MAX_NAME_CHARS)?,
         system_prompt: required(draft.system_prompt, "system prompt", MAX_PROMPT_CHARS)?,
+        requested_runtime_family: runtime_family(draft.requested_runtime_family)?,
+        provisioning_intent: provisioning_intent(draft.provisioning_intent)?,
     };
     build(keys, owner, channel_id, "create", request)
 }
@@ -203,6 +235,8 @@ mod tests {
                 channel_id: CHANNEL.into(),
                 display_name: "Research helper".into(),
                 system_prompt: "Find sources.".into(),
+                requested_runtime_family: Some("hermes".into()),
+                provisioning_intent: Some("fresh".into()),
             },
         )
         .unwrap();
@@ -236,7 +270,11 @@ mod tests {
             payload["payload"]["request"]["displayName"],
             "Research helper"
         );
-        assert!(payload["payload"]["request"].get("runtime").is_none());
+        assert_eq!(
+            payload["payload"]["request"]["requestedRuntimeFamily"],
+            "hermes"
+        );
+        assert_eq!(payload["payload"]["request"]["provisioningIntent"], "fresh");
         assert!(payload["payload"]["request"].get("respondTo").is_none());
     }
 
@@ -269,6 +307,8 @@ mod tests {
                 channel_id: "general".into(),
                 display_name: "Scout".into(),
                 system_prompt: "Help".into(),
+                requested_runtime_family: None,
+                provisioning_intent: None,
             },
         )
         .unwrap_err();

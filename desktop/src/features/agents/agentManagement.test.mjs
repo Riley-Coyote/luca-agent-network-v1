@@ -38,7 +38,7 @@ test("rejects an agent-management request with extra secret-shaped fields", () =
   assert.equal(parseAgentManagementRequest(payload), null);
 });
 
-test("chat creation cannot choose runtime, provider, model, or access", () => {
+test("chat creation cannot choose trusted runtime details, model, or access", () => {
   for (const [field, value] of [
     ["runtime", "claude"],
     ["provider", "anthropic"],
@@ -48,6 +48,23 @@ test("chat creation cannot choose runtime, provider, model, or access", () => {
     const payload = createPayload();
     payload.request[field] = value;
     assert.equal(parseAgentManagementRequest(payload), null);
+  }
+});
+
+test("chat creation may request only a runtime family and provisioning intent", () => {
+  const payload = createPayload();
+  payload.request.requestedRuntimeFamily = "openclaw";
+  payload.request.provisioningIntent = "template";
+
+  assert.deepEqual(parseAgentManagementRequest(payload), payload);
+
+  for (const [field, value] of [
+    ["requestedRuntimeFamily", "custom-command"],
+    ["provisioningIntent", "copy-everything"],
+  ]) {
+    const unsafe = createPayload();
+    unsafe.request[field] = value;
+    assert.equal(parseAgentManagementRequest(unsafe), null);
   }
 });
 

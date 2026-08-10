@@ -6,6 +6,16 @@ import type {
 
 export const AGENT_MANAGEMENT_REQUEST = "agent_management_request" as const;
 
+export const AGENT_RUNTIME_FAMILIES = [
+  "codex",
+  "claude_code",
+  "hermes",
+  "openclaw",
+] as const;
+
+export type AgentRuntimeFamily = (typeof AGENT_RUNTIME_FAMILIES)[number];
+export type AgentProvisioningIntent = "fresh" | "template" | "advanced";
+
 export type AgentManagementCreateRequest = {
   type: typeof AGENT_MANAGEMENT_REQUEST;
   action: "create";
@@ -14,6 +24,8 @@ export type AgentManagementCreateRequest = {
     channelId: string;
     displayName: string;
     systemPrompt: string;
+    requestedRuntimeFamily?: AgentRuntimeFamily;
+    provisioningIntent?: AgentProvisioningIntent;
   };
 };
 
@@ -45,6 +57,26 @@ function isRespondTo(value: unknown): value is RespondToMode | undefined {
   return value === undefined || value === "owner-only" || value === "anyone";
 }
 
+function isRuntimeFamily(
+  value: unknown,
+): value is AgentRuntimeFamily | undefined {
+  return (
+    value === undefined ||
+    AGENT_RUNTIME_FAMILIES.includes(value as AgentRuntimeFamily)
+  );
+}
+
+function isProvisioningIntent(
+  value: unknown,
+): value is AgentProvisioningIntent | undefined {
+  return (
+    value === undefined ||
+    value === "fresh" ||
+    value === "template" ||
+    value === "advanced"
+  );
+}
+
 function hasOnlyKeys(
   value: Record<string, unknown>,
   allowed: readonly string[],
@@ -70,7 +102,17 @@ export function parseAgentManagementRequest(
   const request = payload.request as Record<string, unknown>;
 
   if (payload.action === "create") {
-    if (!hasOnlyKeys(request, ["channelId", "displayName", "systemPrompt"])) {
+    if (
+      !hasOnlyKeys(request, [
+        "channelId",
+        "displayName",
+        "systemPrompt",
+        "requestedRuntimeFamily",
+        "provisioningIntent",
+      ]) ||
+      !isRuntimeFamily(request.requestedRuntimeFamily) ||
+      !isProvisioningIntent(request.provisioningIntent)
+    ) {
       return null;
     }
     if (
@@ -88,6 +130,12 @@ export function parseAgentManagementRequest(
         channelId: request.channelId,
         displayName: request.displayName,
         systemPrompt: request.systemPrompt,
+        ...(request.requestedRuntimeFamily
+          ? { requestedRuntimeFamily: request.requestedRuntimeFamily }
+          : {}),
+        ...(request.provisioningIntent
+          ? { provisioningIntent: request.provisioningIntent }
+          : {}),
       },
     };
   }
