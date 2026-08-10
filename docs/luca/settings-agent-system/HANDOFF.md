@@ -8,7 +8,10 @@ verdict, and run log in that order.
 - Branch: `codex/settings-agent-system`
 - Frontend checkpoint: `b3778c8`
 - MCP/runtime checkpoint: `87e0aa6`
+- Visible-branding checkpoint: `db37bb3`
 - Installed bundle: `~/Applications/Luca Agent Network Dev.app`
+- Installed executable SHA-256:
+  `593a5d8049d8e31d2134c41e544d921a5f706549441265769b3113f0b2dbc810`
 
 ## Important implementation boundaries
 
@@ -24,6 +27,9 @@ verdict, and run log in that order.
 - Tool permission remains independent and fail-closed.
 - Mobile currently exposes pairing state, not a fabricated durable device list.
 - Visible upstream attribution belongs only in About Luca third-party notices.
+- Internal Buzz crate, binary, protocol, storage, and test identifiers are
+  compatibility details. Do not expose them as Luca product copy, and do not
+  mass-rename them without a separate migration plan.
 
 ## Next safe work
 

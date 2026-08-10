@@ -15,6 +15,12 @@ The installed Luca development application now provides:
 - Luca-owned security, backup, diagnostics, update, and About surfaces;
 - required upstream attribution only inside third-party notices.
 
+The final supported Settings, onboarding, discovery, and recovery surfaces use
+Luca-native product language. Compatibility-only Buzz names remain in internal
+crate, executable, protocol, storage, and deterministic-test identifiers where
+renaming them would create unnecessary risk or upstream divergence; they are
+not presented as product branding.
+
 ## Security boundary
 
 MCP secret values are not persisted in registry metadata, renderer fixtures,
@@ -35,3 +41,7 @@ not receive managed MCP tools.
 
 These omissions are explicit product boundaries, not hidden or simulated
 capabilities.
+
+The installed bundle was rebuilt from the final visible-branding checkpoint,
+signed with the expected Developer ID, launched successfully, and verified not
+to modify any of the 22 audited native Hermes/OpenClaw configuration files.
