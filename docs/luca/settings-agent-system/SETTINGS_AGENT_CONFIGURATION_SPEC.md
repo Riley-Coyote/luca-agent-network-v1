@@ -1,7 +1,14 @@
 # Luca Settings and Agent Configuration Specification
 
-Status: **SPECIFICATION ONLY — IMPLEMENTATION NOT STARTED**
-Updated: 2026-08-09
+Status: **IMPLEMENTED THROUGH S3 — S4-S6 DEFERRED**
+Updated: 2026-08-10
+
+Current release boundary: Luca Settings, shared agent configuration, runtime
+health, local stdio MCP connections, per-agent grants, mobile pairing,
+diagnostics, updates, and About are implemented. New Polyphonic Agent creation,
+native Hermes/OpenClaw creation, direct-provider execution, and remote MCP
+transports remain deferred. Later roadmap sections describe future work and are
+not claims about the installed application.
 
 ## 1. Purpose
 
@@ -11,7 +18,7 @@ Create one coherent Luca configuration system for:
 - mobile and companion-device pairing;
 - persistent agent configuration;
 - reusable MCP and tool connections;
-- Luca-native agent creation;
+- future Polyphonic Agent creation;
 - safe Hermes and OpenClaw import, creation, and future editing;
 - system diagnostics and recovery.
 
@@ -707,6 +714,8 @@ and removed without secret leakage or native-config mutation.
 
 ### S4 — Luca-native creation
 
+Deferred after the current release.
+
 - Replace any fragmented creation forms with the capability-driven create flow.
 - Prove identity creation, configuration, readiness, first message, edit, restart,
   and removal in the installed app.
@@ -715,12 +724,16 @@ Gate: a new Luca agent is usable without manual file edits or terminal setup.
 
 ### S5 — Hermes native creation adapter
 
+Deferred after the current release.
+
 - Implement exact create preview, backup, atomic apply, read-back verification,
   Luca binding, smoke test, receipt, and rollback.
 
 Gate: create and rollback preserve unrelated Hermes configuration and credentials.
 
 ### S6 — OpenClaw native creation adapter
+
+Deferred after the current release.
 
 - Implement the same transaction contract for exact OpenClaw agent identity and
   gateway binding.
