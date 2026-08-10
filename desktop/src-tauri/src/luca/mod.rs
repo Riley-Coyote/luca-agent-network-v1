@@ -27,12 +27,15 @@ pub(crate) mod journal_jobs;
 pub(crate) mod local_broker_session;
 pub(crate) mod managed_cognition;
 pub(crate) mod managed_continuity;
+mod managed_dispatch_routing;
 pub(crate) mod managed_dispatch_store;
 #[cfg(unix)]
 pub(crate) mod managed_mcp;
 pub(crate) mod managed_message_outbox;
+mod managed_message_outbox_io;
 pub(crate) mod managed_message_publisher;
 pub(crate) mod managed_permission;
+pub(crate) mod managed_presentation;
 pub(crate) mod mcp_registry;
 pub(crate) mod native_provisioning;
 pub(crate) mod operator_forge;

@@ -1,10 +1,6 @@
 //! Desktop-owned admission records for Luca-managed resident turns.
 //!
-//! Relay chronology is not authority to publish a fresh resident response. A
-//! row is created only while this desktop is sending the exact signed owner
-//! event that triggered the turn. The broker later consumes that row after an
-//! exact routing/session comparison.
-
+//! Exact signed owner events authorize turns; relay chronology does not.
 use std::{
     collections::{HashMap, HashSet},
     io::Write,
@@ -13,10 +9,15 @@ use std::{
 };
 
 use atomic_write_file::AtomicWriteFile;
-use luca_protocol::{canonical_sha256, Hex64, ManagedMessagePublishRequestV1, OpaqueId, Sha256Ref};
+use luca_protocol::{
+    canonical_sha256, Hex64, ManagedMessagePublishRequestV1, ManagedResponseSurfaceV1, OpaqueId,
+    Sha256Ref,
+};
 use nostr::{Event, EventId};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
+
+use super::managed_dispatch_routing::routing_from_event;
 
 const STORE_SCHEMA_V1: &str = "luca.managed-dispatch-store.v1";
 const STORE_SCHEMA: &str = "luca.managed-dispatch-store.v2";
@@ -64,6 +65,10 @@ pub(crate) struct ActiveDispatch {
     pub thread_id: Option<String>,
     pub root_event_id: Option<String>,
     pub reply_event_id: Option<String>,
+    /// Missing only on legacy rows created before response surfaces were
+    /// frozen into dispatch authority.
+    #[serde(default)]
+    pub response_surface: Option<ManagedResponseSurfaceV1>,
     pub resolved_p_tags: Vec<String>,
     pub created_at: u64,
     pub expires_at: u64,
@@ -106,6 +111,7 @@ pub(crate) enum DispatchAuthorizationError {
     WrongResident,
     WrongConversation,
     WrongThread,
+    WrongSurface,
     WrongRecipients,
     WrongSession,
     Cancelled,
@@ -123,6 +129,7 @@ impl std::fmt::Display for DispatchAuthorizationError {
             Self::WrongResident => "managed dispatch resident does not match",
             Self::WrongConversation => "managed dispatch conversation does not match",
             Self::WrongThread => "managed dispatch thread does not match",
+            Self::WrongSurface => "managed dispatch response surface does not match",
             Self::WrongRecipients => "managed dispatch recipients do not match",
             Self::WrongSession => "managed dispatch session does not match",
             Self::Cancelled => "managed dispatch was cancelled",
@@ -296,6 +303,7 @@ impl ManagedDispatchStore {
                 || candidate.thread_id != row.thread_id
                 || candidate.root_event_id != row.root_event_id
                 || candidate.reply_event_id != row.reply_event_id
+                || candidate.response_surface != row.response_surface
             {
                 return Err(DispatchAuthorizationError::Ambiguous);
             }
@@ -322,6 +330,7 @@ impl ManagedDispatchStore {
             "thread_id": row.thread_id,
             "root_event_id": row.root_event_id,
             "reply_event_id": row.reply_event_id,
+            "response_surface": row.response_surface,
             "resident_pubkeys": residents,
         }))
         .map_err(|_| DispatchAuthorizationError::Persistence)?;
@@ -377,6 +386,7 @@ impl ManagedDispatchStore {
                 thread_id: routing.thread_id.clone(),
                 root_event_id: routing.root_event_id.clone(),
                 reply_event_id: routing.reply_event_id.clone(),
+                response_surface: Some(routing.response_surface),
                 // G1 is owner-only dispatch. A resident final replies to the
                 // exact owner trigger and addresses only its author; copying
                 // trigger recipients would recursively invoke residents before
@@ -399,6 +409,7 @@ impl ManagedDispatchStore {
                     || existing.thread_id != candidate.thread_id
                     || existing.root_event_id != candidate.root_event_id
                     || existing.reply_event_id != candidate.reply_event_id
+                    || existing.response_surface != candidate.response_surface
                     || existing.resolved_p_tags != candidate.resolved_p_tags
                     || existing.submitted_event_id != candidate.submitted_event_id
                     || existing.outbox_finalized != candidate.outbox_finalized
@@ -758,6 +769,9 @@ impl ManagedDispatchStore {
             {
                 return Err(DispatchAuthorizationError::WrongThread);
             }
+            if request.response_surface != dispatch.response_surface {
+                return Err(DispatchAuthorizationError::WrongSurface);
+            }
             let request_recipients: Vec<&str> = request
                 .resolved_p_tags
                 .iter()
@@ -902,6 +916,9 @@ impl ManagedDispatchStore {
                 .ne(dispatch.resolved_p_tags.iter().map(String::as_str))
         {
             return Err(DispatchAuthorizationError::WrongThread);
+        }
+        if request.response_surface != dispatch.response_surface {
+            return Err(DispatchAuthorizationError::WrongSurface);
         }
         match dispatch.session_epoch {
             Some(epoch) if epoch != request.cancellation_epoch.get() => {
@@ -1280,71 +1297,6 @@ fn validate_dispatch(dispatch: &ActiveDispatch) -> Result<(), String> {
     Ok(())
 }
 
-struct EventRouting {
-    conversation_id: String,
-    thread_id: Option<String>,
-    root_event_id: Option<String>,
-    reply_event_id: Option<String>,
-    trigger_p_tags: Vec<String>,
-}
-
-fn routing_from_event(event: &Event) -> Result<EventRouting, String> {
-    let mut conversations = Vec::new();
-    let mut root = None;
-    let mut reply = None;
-    let mut recipients = Vec::new();
-    for tag in event.tags.iter() {
-        let values = tag.as_slice();
-        match values.first().map(String::as_str) {
-            Some("h") if values.len() == 2 => {
-                uuid::Uuid::parse_str(&values[1])
-                    .map_err(|_| "event contains invalid conversation tag".to_string())?;
-                conversations.push(values[1].clone());
-            }
-            Some("h") => return Err("event contains malformed conversation tag".into()),
-            Some("p") if values.len() >= 2 => {
-                Hex64::parse(values[1].to_ascii_lowercase())
-                    .map_err(|_| "event contains invalid p tag".to_string())?;
-                recipients.push(values[1].to_ascii_lowercase());
-            }
-            Some("e") if values.len() >= 4 && values[3] == "root" => {
-                EventId::from_hex(&values[1])
-                    .map_err(|_| "event contains invalid root event ID".to_string())?;
-                if root.replace(values[1].clone()).is_some() {
-                    return Err("event contains ambiguous root tags".into());
-                }
-            }
-            Some("e") if values.len() >= 4 && values[3] == "reply" => {
-                EventId::from_hex(&values[1])
-                    .map_err(|_| "event contains invalid reply event ID".to_string())?;
-                if reply.replace(values[1].clone()).is_some() {
-                    return Err("event contains ambiguous reply tags".into());
-                }
-            }
-            Some("e") => return Err("event contains unmarked or malformed thread tag".into()),
-            _ => {}
-        }
-    }
-    if conversations.len() != 1 {
-        return Err("event must contain exactly one conversation tag".into());
-    }
-    recipients.sort();
-    recipients.dedup();
-    let (final_root, final_reply) = match (root, reply) {
-        (None, None) => (event.id.to_hex(), event.id.to_hex()),
-        (None, Some(reply)) => (reply.clone(), reply),
-        (Some(root), Some(reply)) => (root, reply),
-        (Some(_), None) => return Err("event thread routing is incomplete".into()),
-    };
-    Ok(EventRouting {
-        conversation_id: conversations.remove(0),
-        thread_id: Some(format!("thread:{final_root}")),
-        root_event_id: Some(final_root),
-        reply_event_id: Some(final_reply),
-        trigger_p_tags: recipients,
-    })
-}
-
 fn store_path(app: &AppHandle) -> Result<PathBuf, String> {
     let root = app
         .path()
@@ -1451,6 +1403,7 @@ mod tests {
             reply_event_id: routing
                 .reply_event_id
                 .map(|value| Hex64::parse(value).expect("reply")),
+            response_surface: Some(routing.response_surface),
             resolved_p_tags: vec![Hex64::parse(owner.public_key().to_hex()).expect("owner")],
             final_draft: "final answer".into(),
             dispatch_receipt_id: receipt,

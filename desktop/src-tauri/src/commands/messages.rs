@@ -2,7 +2,6 @@ use nostr::{Event, EventId, Keys, PublicKey};
 use tauri::{AppHandle, State};
 
 mod forum;
-
 use forum::{forum_message_from_event, forum_reply_from_event};
 
 use crate::{
@@ -507,7 +506,7 @@ pub async fn get_event(event_id: String, state: State<'_, AppState>) -> Result<S
 // ── Writes ──────────────────────────────────────────────────────────────────
 
 /// Fetch a parent event and extract the thread root from its NIP-10 e-tags.
-async fn resolve_thread_ref(
+pub(super) async fn resolve_thread_ref(
     parent_event_id: &str,
     state: &AppState,
 ) -> Result<events::ThreadRef, String> {
@@ -552,176 +551,6 @@ async fn resolve_thread_ref(
     Ok(events::ThreadRef {
         root_event_id: root_eid,
         parent_event_id: parent_eid,
-    })
-}
-
-#[tauri::command]
-#[allow(clippy::too_many_arguments)]
-pub async fn send_channel_message(
-    channel_id: String,
-    content: String,
-    parent_event_id: Option<String>,
-    media_tags: Option<Vec<Vec<String>>>,
-    emoji_tags: Option<Vec<Vec<String>>>,
-    mention_tags: Option<Vec<Vec<String>>>,
-    mention_pubkeys: Option<Vec<String>>,
-    kind: Option<u32>,
-    state: State<'_, AppState>,
-) -> Result<SendChannelMessageResponse, String> {
-    let channel_uuid = uuid::Uuid::parse_str(&channel_id)
-        .map_err(|_| format!("invalid channel UUID: {channel_id}"))?;
-    let mentions = mention_pubkeys.unwrap_or_default();
-    let mention_refs: Vec<&str> = mentions.iter().map(|s| s.as_str()).collect();
-    let media = media_tags.unwrap_or_default();
-    let emoji = emoji_tags.unwrap_or_default();
-    let mention_refs_only = mention_tags.unwrap_or_default();
-    let kind_num = kind.unwrap_or(buzz_core_pkg::kind::KIND_STREAM_MESSAGE);
-
-    let mut resolved_root: Option<String> = None;
-
-    let builder = match kind_num {
-        buzz_core_pkg::kind::KIND_FORUM_POST => events::build_forum_post(
-            channel_uuid,
-            content.trim(),
-            &mention_refs,
-            &media,
-            &mention_refs_only,
-        )?,
-        buzz_core_pkg::kind::KIND_FORUM_COMMENT => {
-            let parent_id = parent_event_id
-                .as_deref()
-                .ok_or("forum comment requires parent_event_id")?;
-            let thread_ref = resolve_thread_ref(parent_id, &state).await?;
-            resolved_root = Some(thread_ref.root_event_id.to_hex());
-            events::build_forum_comment(
-                channel_uuid,
-                content.trim(),
-                &thread_ref,
-                &mention_refs,
-                &media,
-                &mention_refs_only,
-            )?
-        }
-        _ => {
-            let thread_ref = match parent_event_id.as_deref() {
-                Some(pid) => {
-                    let tr = resolve_thread_ref(pid, &state).await?;
-                    resolved_root = Some(tr.root_event_id.to_hex());
-                    Some(tr)
-                }
-                None => None,
-            };
-            events::build_message(
-                channel_uuid,
-                content.trim(),
-                thread_ref.as_ref(),
-                &mention_refs,
-                &media,
-                &emoji,
-                &mention_refs_only,
-            )?
-        }
-    };
-
-    // Luca routes every ordinary composer send through this desktop boundary.
-    // Sign first, then stage exact managed-resident dispatch authority before
-    // relay I/O. This preserves Buzz's event shape and `/events` semantics
-    // while ensuring relay history alone can never mint publication authority.
-    let event = {
-        let owner_keys = state.signing_keys()?;
-        builder
-            .sign_with_keys(&owner_keys)
-            .map_err(|error| format!("failed to sign event: {error}"))?
-    };
-    let mentioned: std::collections::HashSet<String> = mentions
-        .iter()
-        .map(|value| value.to_ascii_lowercase())
-        .collect();
-    let (managed_residents, dispatch_store) = if mentioned.is_empty() {
-        (Vec::new(), None)
-    } else {
-        let app = state
-            .app_handle
-            .lock()
-            .map_err(|error| error.to_string())?
-            .clone()
-            .ok_or_else(|| "application handle is unavailable".to_string())?;
-        let residents: Vec<String> = load_managed_agents(&app)?
-            .into_iter()
-            .map(|record| record.pubkey.to_ascii_lowercase())
-            .filter(|pubkey| mentioned.contains(pubkey))
-            .collect();
-        let store = if residents.is_empty() {
-            None
-        } else {
-            Some(crate::luca::managed_dispatch_store::global_dispatch_store(
-                &app,
-            )?)
-        };
-        (residents, store)
-    };
-    let staged = if let Some(dispatch_store) = &dispatch_store {
-        let mut store = dispatch_store.lock().map_err(|error| error.to_string())?;
-        if content.trim() == "!cancel" {
-            // Existing ACP control requires an exact p-mention. A bare
-            // `!cancel` therefore cancels zero residents instead of becoming
-            // a conversation-wide wildcard.
-            store.cancel_matching(
-                &event.pubkey.to_hex(),
-                &channel_id,
-                // ACP V1 cancellation is channel-scoped. Revoke every
-                // pending/active row for the exact owner+channel+mentioned
-                // resident set until ACP gains thread-scoped cancellation.
-                None,
-                &managed_residents,
-            )?;
-            Vec::new()
-        } else if kind_num == buzz_core_pkg::kind::KIND_STREAM_MESSAGE {
-            store.stage_owner_event(
-                &event,
-                &managed_residents,
-                chrono::Utc::now().timestamp().max(0) as u64,
-            )?
-        } else {
-            Vec::new()
-        }
-    } else {
-        Vec::new()
-    };
-
-    let result = match submit_signed_event(&event, &state).await {
-        Ok(result) => result,
-        Err(error) => {
-            // An explicit OK=false relay receipt is terminal. Transport loss is
-            // intentionally left pending because relay acceptance may already
-            // have won; expiry/reconciliation handles that ambiguous case.
-            if error.starts_with("relay rejected event:")
-                && !staged.is_empty()
-                && dispatch_store.is_some()
-            {
-                let dispatch_store = dispatch_store.as_ref().ok_or_else(|| {
-                    "managed dispatch store disappeared after staging".to_string()
-                })?;
-                let mut store = dispatch_store.lock().map_err(|lock| lock.to_string())?;
-                store.mark_rejected(&staged)?;
-            }
-            return Err(error);
-        }
-    };
-
-    let depth = match (&parent_event_id, &resolved_root) {
-        (None, _) => 0,
-        (Some(pid), Some(root)) if pid == root => 1,
-        (Some(_), Some(_)) => 2,
-        (Some(_), None) => 1,
-    };
-
-    Ok(SendChannelMessageResponse {
-        event_id: result.event_id,
-        root_event_id: resolved_root,
-        parent_event_id,
-        depth,
-        created_at: chrono::Utc::now().timestamp(),
     })
 }
 

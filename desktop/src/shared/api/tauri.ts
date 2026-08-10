@@ -545,6 +545,8 @@ export async function sendChannelMessage(
   kind?: number,
   emojiTags?: string[][],
   mentionTags?: string[][],
+  managedAudience?: import("@/features/messages/lib/managedAudience").ManagedAudienceIntentV1,
+  responseSurface?: import("@/features/messages/lib/managedAudience").ManagedResponseSurface,
 ): Promise<SendChannelMessageResult> {
   const response = await invokeTauri<RawSendChannelMessageResult>(
     "send_channel_message",
@@ -557,6 +559,8 @@ export async function sendChannelMessage(
       mentionTags: mentionTags ?? null,
       mentionPubkeys: mentionPubkeys ?? null,
       kind: kind ?? null,
+      managedAudience: managedAudience ?? null,
+      responseSurface: responseSurface ?? null,
     },
   );
 
