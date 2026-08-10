@@ -16,6 +16,9 @@ use std::{
 };
 
 mod openclaw;
+mod provisioning;
+
+pub(crate) use provisioning::{openclaw_provisioning_context, with_openclaw_agent};
 
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_CAPTURE_BYTES: usize = 2 * 1024 * 1024;

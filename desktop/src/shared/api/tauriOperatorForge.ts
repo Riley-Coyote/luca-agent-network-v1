@@ -97,6 +97,7 @@ export type NativeProvisioningReceiptV1 = {
   reused: boolean;
   needsAttention: boolean;
   recoveryAction: string | null;
+  retainedWorkspace: boolean;
 };
 
 export function getOperatorForgeSettings(): Promise<OperatorForgeSettingsV1> {

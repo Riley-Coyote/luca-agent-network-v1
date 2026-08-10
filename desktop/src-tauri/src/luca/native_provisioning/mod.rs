@@ -30,6 +30,7 @@ use crate::{
 };
 
 mod hermes;
+mod openclaw;
 
 const MAX_NAME_CHARS: usize = 120;
 const MAX_PROMPT_CHARS: usize = 20_000;
@@ -103,6 +104,7 @@ pub struct NativeProvisioningReceiptV1 {
     pub reused: bool,
     pub needs_attention: bool,
     pub recovery_action: Option<String>,
+    pub retained_workspace: bool,
 }
 
 #[derive(Debug)]
@@ -320,10 +322,10 @@ pub async fn preview_native_agent_provisioning(
     let owner = owner_pubkey(&state)?;
     let slug = slug_for_name(&request.display_name)?;
     let candidate = native_candidate(&request.runtime, request.source_semantic_id.as_deref())?;
-    if request.runtime != NativeRuntimeFamilyV1::Hermes {
-        return Err("OpenClaw provisioning is not available in this build".into());
+    match request.runtime {
+        NativeRuntimeFamilyV1::Hermes => hermes::ensure_name_available(&slug)?,
+        NativeRuntimeFamilyV1::Openclaw => openclaw::ensure_name_available(&slug)?,
     }
-    hermes::ensure_name_available(&slug)?;
     let transaction = create_native_transaction(
         &app,
         owner,
@@ -333,12 +335,14 @@ pub async fn preview_native_agent_provisioning(
         request_hash(&request)?,
         source_hash(request.source_semantic_id.as_deref()),
     )?;
-    Ok(hermes::preview(
-        &request,
-        &candidate,
-        transaction.transaction_id,
-        slug,
-    ))
+    Ok(match request.runtime {
+        NativeRuntimeFamilyV1::Hermes => {
+            hermes::preview(&request, &candidate, transaction.transaction_id, slug)
+        }
+        NativeRuntimeFamilyV1::Openclaw => {
+            openclaw::preview(&request, &candidate, transaction.transaction_id, slug)
+        }
+    })
 }
 
 #[tauri::command]
@@ -361,6 +365,7 @@ pub async fn execute_native_agent_provisioning(
             reused: true,
             needs_attention: false,
             recovery_action: None,
+            retained_workspace: false,
         });
     }
     if transaction.status != NativeProvisioningStatusV1::Planned
@@ -383,7 +388,15 @@ pub async fn execute_native_agent_provisioning(
         None,
     )?;
     let candidate = native_candidate(&request.runtime, request.source_semantic_id.as_deref())?;
-    let provisioned = match hermes::execute(&request, &candidate, &transaction.intended_slug) {
+    let provisioned_result = match request.runtime {
+        NativeRuntimeFamilyV1::Hermes => {
+            hermes::execute(&request, &candidate, &transaction.intended_slug)
+        }
+        NativeRuntimeFamilyV1::Openclaw => {
+            openclaw::execute(&request, &candidate, &transaction.intended_slug)
+        }
+    };
+    let provisioned = match provisioned_result {
         Ok(provisioned) => provisioned,
         Err(error) => {
             update_native_transaction(
@@ -394,8 +407,8 @@ pub async fn execute_native_agent_provisioning(
                 None,
                 None,
                 Some((
-                    "HERMES_PROVISIONING_FAILED",
-                    "Review Hermes setup, then retry.",
+                    "NATIVE_PROVISIONING_FAILED",
+                    "Review the native runtime setup, then retry.",
                 )),
             )?;
             return Err(error);
@@ -426,10 +439,12 @@ pub async fn execute_native_agent_provisioning(
                 Some(semantic_hash.clone()),
                 Some((
                     "RESIDENT_LINK_FAILED",
-                    "Relaunch Polyphonic to finish linking the existing Hermes profile.",
+                    "Relaunch Polyphonic to finish linking the existing native agent.",
                 )),
             )?;
-            return Err("Hermes was created, but its Polyphonic resident needs attention".into());
+            return Err(
+                "The native agent was created, but its Polyphonic resident needs attention".into(),
+            );
         }
     };
     let resident_pubkey = resident.resident.resident_pubkey.as_str().to_string();
@@ -452,6 +467,7 @@ pub async fn execute_native_agent_provisioning(
         reused: resident.reused,
         needs_attention: false,
         recovery_action: None,
+        retained_workspace: false,
     })
 }
 
@@ -469,6 +485,7 @@ fn receipt_from_transaction(
         recovery_action: transaction.recovery_action,
         status: transaction.status,
         reused,
+        retained_workspace: false,
     }
 }
 
@@ -486,16 +503,18 @@ pub async fn reconcile_native_agent_provisioning(
     ) {
         return Ok(receipt_from_transaction(transaction, true));
     }
-    if transaction.runtime != NativeRuntimeFamilyV1::Hermes {
-        return Err("OpenClaw reconciliation is not available in this build".into());
-    }
     let persona_id = transaction
         .persona_id
         .as_deref()
         .ok_or_else(|| "provisioning has not reached resident linking".to_string())?;
     let candidate = native_candidate_by_id(&transaction.runtime, &transaction.intended_slug)?;
+    let display_name = crate::managed_agents::load_personas(&app)?
+        .into_iter()
+        .find(|persona| persona.id == persona_id)
+        .map(|persona| persona.display_name)
+        .unwrap_or(candidate.display_name.clone());
     let request = NativeProvisioningRequestV1 {
-        display_name: candidate.display_name.clone(),
+        display_name,
         system_prompt: "Native resident recovery".into(),
         runtime: transaction.runtime.clone(),
         mode: transaction.mode.clone(),
@@ -552,11 +571,15 @@ pub async fn rollback_native_agent_provisioning(
     if transaction.status == NativeProvisioningStatusV1::RolledBack {
         return Ok(receipt_from_transaction(transaction, true));
     }
-    if transaction.runtime != NativeRuntimeFamilyV1::Hermes {
-        return Err("OpenClaw rollback is not available in this build".into());
-    }
+    let mut retained_workspace = false;
     if native_candidate_by_id(&transaction.runtime, &transaction.intended_slug).is_ok() {
-        hermes::rollback(&transaction.intended_slug)?;
+        retained_workspace = match transaction.runtime {
+            NativeRuntimeFamilyV1::Hermes => {
+                hermes::rollback(&transaction.intended_slug)?;
+                false
+            }
+            NativeRuntimeFamilyV1::Openclaw => openclaw::rollback(&transaction.intended_slug)?,
+        };
     }
     if let Some(pubkey) = transaction.reserved_resident_pubkey.as_ref() {
         delete_managed_agent(pubkey.clone(), Some(false), app.clone()).await?;
@@ -570,7 +593,9 @@ pub async fn rollback_native_agent_provisioning(
         transaction.native_semantic_hash,
         None,
     )?;
-    Ok(receipt_from_transaction(updated, false))
+    let mut receipt = receipt_from_transaction(updated, false);
+    receipt.retained_workspace = retained_workspace;
+    Ok(receipt)
 }
 
 struct ProvisionedNative {
