@@ -267,6 +267,17 @@ pub const KIND_NIP43_MEMBER_REMOVED: u32 = 8001;
 /// NIP-43: User leave request (user-signed, ephemeral).
 pub const KIND_NIP43_LEAVE_REQUEST: u32 = 28936;
 
+/// Kind:9 optimistic membership guard tag name.
+///
+/// The complete wire shape is `[“expected_membership”, “v1”, <kind-39002-id>]`.
+/// It binds a trusted sender's message to the exact relay-signed channel
+/// membership snapshot it observed. Relays that support it compare the ID at
+/// storage time; relays and clients that do not see the tag retain legacy
+/// kind:9 behavior.
+pub const TAG_EXPECTED_MEMBERSHIP_SNAPSHOT: &str = "expected_membership";
+/// Current version for [`TAG_EXPECTED_MEMBERSHIP_SNAPSHOT`].
+pub const EXPECTED_MEMBERSHIP_SNAPSHOT_VERSION: &str = "v1";
+
 // NIP-IA identity archival requests (user/agent/owner-signed)
 /// NIP-IA: Request that the relay archive a target identity.
 pub const KIND_IA_ARCHIVE_REQUEST: u32 = 9035;

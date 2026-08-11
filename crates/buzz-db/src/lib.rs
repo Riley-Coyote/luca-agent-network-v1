@@ -55,6 +55,19 @@ pub mod workflow;
 pub use error::{DbError, Result};
 pub use event::{EventQuery, ReactionEventInsertOutcome};
 
+/// Outcome of a kind:9 insertion guarded by a relay-signed kind:39002 ID.
+#[derive(Debug)]
+pub enum MembershipSnapshotGuardedInsertOutcome {
+    /// The snapshot was still current and the event transaction committed.
+    Inserted {
+        stored_event: StoredEvent,
+        was_inserted: bool,
+    },
+    /// The expected snapshot is no longer the current relay-signed snapshot
+    /// for this channel (including a snapshot from another channel).
+    SnapshotChanged,
+}
+
 use chrono::{DateTime, Utc};
 use sqlx::postgres::{PgConnection, PgPoolOptions};
 use sqlx::{Connection, PgPool, QueryBuilder, Row};
@@ -1409,6 +1422,75 @@ impl Db {
             }
         }
         Ok(result)
+    }
+
+    /// Atomically compare a kind:9 sender's expected channel-members snapshot
+    /// with the live relay-signed kind:39002 event and insert the message.
+    ///
+    /// The advisory key intentionally matches `replace_addressable_event` for
+    /// the relay-authored `(39002, channel)` coordinate. A membership snapshot
+    /// replacement therefore cannot interleave between the comparison and the
+    /// message insert.
+    pub async fn insert_event_if_membership_snapshot_matches(
+        &self,
+        community_id: CommunityId,
+        event: &nostr::Event,
+        channel_id: Uuid,
+        relay_pubkey: &nostr::PublicKey,
+        expected_snapshot_id: &[u8; 32],
+        thread_meta: Option<event::ThreadMetadataParams<'_>>,
+    ) -> Result<MembershipSnapshotGuardedInsertOutcome> {
+        let relay_pubkey_bytes = relay_pubkey.to_bytes();
+        let lock_key = event_replacement_lock_key(
+            community_id,
+            buzz_core::kind::KIND_NIP29_GROUP_MEMBERS as i32,
+            relay_pubkey_bytes.as_slice(),
+            Some(channel_id.as_bytes()),
+        );
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(lock_key)
+            .execute(&mut *tx)
+            .await?;
+
+        let current_snapshot_id: Option<Vec<u8>> = sqlx::query_scalar(
+            "SELECT id FROM events \
+             WHERE community_id = $1 AND kind = $2 AND pubkey = $3 \
+             AND channel_id = $4 AND deleted_at IS NULL \
+             ORDER BY created_at DESC, id ASC LIMIT 1",
+        )
+        .bind(community_id.as_uuid())
+        .bind(buzz_core::kind::KIND_NIP29_GROUP_MEMBERS as i32)
+        .bind(relay_pubkey_bytes.as_slice())
+        .bind(channel_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if current_snapshot_id.as_deref() != Some(expected_snapshot_id.as_slice()) {
+            tx.rollback().await?;
+            return Ok(MembershipSnapshotGuardedInsertOutcome::SnapshotChanged);
+        }
+
+        let (stored_event, was_inserted) = event::insert_event_with_thread_metadata_tx(
+            &mut tx,
+            community_id,
+            event,
+            Some(channel_id),
+            thread_meta,
+        )
+        .await?;
+        tx.commit().await?;
+
+        if was_inserted {
+            if let Err(e) = insert_mentions(&self.pool, community_id, event, Some(channel_id)).await {
+                tracing::warn!(event_id = %event.id, "Failed to insert mentions: {e}");
+            }
+        }
+
+        Ok(MembershipSnapshotGuardedInsertOutcome::Inserted {
+            stored_event,
+            was_inserted,
+        })
     }
 
     /// Atomically insert a kind:7 reaction event and its reaction row.
@@ -3936,7 +4018,8 @@ mod tests {
     //! helper ever started returning a default/zero entry for unknown
     //! channels, that fail-closed chain would go blind.
     use super::*;
-    use buzz_core::CommunityId;
+    use buzz_core::{channel::{ChannelType, ChannelVisibility}, CommunityId};
+    use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
     use sqlx::postgres::PgPoolOptions;
     use sqlx::{Acquire, PgPool};
     use uuid::Uuid;
@@ -3962,6 +4045,108 @@ mod tests {
             .await
             .expect("insert community");
         id
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
+    async fn kind9_expected_membership_snapshot_guard_matches_then_rejects_changed_or_wrong_channel() {
+        let db = setup_db().await;
+        let community = CommunityId::from_uuid(make_community(&db.pool).await);
+        let relay = Keys::generate();
+        let author = Keys::generate();
+        let creator = author.public_key().to_bytes();
+        let channel_a = db
+            .create_channel(
+                community,
+                "snapshot-a",
+                ChannelType::Stream,
+                ChannelVisibility::Open,
+                None,
+                &creator,
+                None,
+            )
+            .await
+            .expect("create channel a");
+        let channel_b = db
+            .create_channel(
+                community,
+                "snapshot-b",
+                ChannelType::Stream,
+                ChannelVisibility::Open,
+                None,
+                &creator,
+                None,
+            )
+            .await
+            .expect("create channel b");
+
+        let snapshot = |channel_id: Uuid, timestamp: u64| {
+            EventBuilder::new(Kind::Custom(39002), "")
+                .tags(vec![Tag::parse(["d", &channel_id.to_string()]).expect("d tag")])
+                .custom_created_at(Timestamp::from(timestamp))
+                .sign_with_keys(&relay)
+                .expect("sign snapshot")
+        };
+        let snapshot_a = snapshot(channel_a.id, 1_700_000_000);
+        db.replace_addressable_event(community, &snapshot_a, Some(channel_a.id))
+            .await
+            .expect("store snapshot a");
+        let message = |channel_id: Uuid, content: &str| {
+            EventBuilder::new(Kind::Custom(9), content)
+                .tags(vec![Tag::parse(["h", &channel_id.to_string()]).expect("h tag")])
+                .sign_with_keys(&author)
+                .expect("sign message")
+        };
+
+        assert!(matches!(
+            db.insert_event_if_membership_snapshot_matches(
+                community,
+                &message(channel_a.id, "matches"),
+                channel_a.id,
+                &relay.public_key(),
+                snapshot_a.id.as_bytes(),
+                None,
+            )
+            .await
+            .expect("guarded insert"),
+            MembershipSnapshotGuardedInsertOutcome::Inserted { .. }
+        ));
+
+        let changed_snapshot_a = snapshot(channel_a.id, 1_700_000_001);
+        db.replace_addressable_event(community, &changed_snapshot_a, Some(channel_a.id))
+            .await
+            .expect("replace snapshot a");
+        assert!(matches!(
+            db.insert_event_if_membership_snapshot_matches(
+                community,
+                &message(channel_a.id, "changed"),
+                channel_a.id,
+                &relay.public_key(),
+                snapshot_a.id.as_bytes(),
+                None,
+            )
+            .await
+            .expect("guarded changed insert"),
+            MembershipSnapshotGuardedInsertOutcome::SnapshotChanged
+        ));
+
+        let snapshot_b = snapshot(channel_b.id, 1_700_000_000);
+        db.replace_addressable_event(community, &snapshot_b, Some(channel_b.id))
+            .await
+            .expect("store snapshot b");
+        assert!(matches!(
+            db.insert_event_if_membership_snapshot_matches(
+                community,
+                &message(channel_a.id, "wrong-channel"),
+                channel_a.id,
+                &relay.public_key(),
+                snapshot_b.id.as_bytes(),
+                None,
+            )
+            .await
+            .expect("guarded wrong-channel insert"),
+            MembershipSnapshotGuardedInsertOutcome::SnapshotChanged
+        ));
     }
 
     #[tokio::test]

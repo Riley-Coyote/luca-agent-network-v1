@@ -32,8 +32,10 @@ use buzz_core::kind::{
     KIND_STREAM_MESSAGE, KIND_STREAM_MESSAGE_BOOKMARKED, KIND_STREAM_MESSAGE_DIFF,
     KIND_STREAM_MESSAGE_EDIT, KIND_STREAM_MESSAGE_PINNED, KIND_STREAM_MESSAGE_SCHEDULED,
     KIND_STREAM_MESSAGE_V2, KIND_STREAM_REMINDER, KIND_TEAM, KIND_TEXT_NOTE, KIND_USER_STATUS,
-    KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER, RELAY_ADMIN_ADD_MEMBER, RELAY_ADMIN_CHANGE_ROLE,
+    KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER, EXPECTED_MEMBERSHIP_SNAPSHOT_VERSION,
+    RELAY_ADMIN_ADD_MEMBER, RELAY_ADMIN_CHANGE_ROLE,
     RELAY_ADMIN_REMOVE_MEMBER, RELAY_ADMIN_SET_WORKSPACE_PROFILE,
+    TAG_EXPECTED_MEMBERSHIP_SNAPSHOT,
 };
 use buzz_core::tenant::TenantContext;
 use buzz_core::verification::verify_event;
@@ -316,6 +318,41 @@ pub(crate) fn extract_channel_id(event: &Event) -> Option<Uuid> {
         }
     }
     None
+}
+
+/// Parse the optional versioned kind:9 expected-membership guard.
+///
+/// The tag is deliberately strict once present: accepting an ambiguous or
+/// malformed expectation would silently downgrade a sender that believes it
+/// requested compare-and-store semantics.
+fn expected_membership_snapshot_id(event: &Event) -> Result<Option<[u8; 32]>, IngestError> {
+    let tags = event
+        .tags
+        .iter()
+        .filter(|tag| tag.kind().to_string() == TAG_EXPECTED_MEMBERSHIP_SNAPSHOT)
+        .collect::<Vec<_>>();
+    if tags.is_empty() {
+        return Ok(None);
+    }
+    if tags.len() != 1 {
+        return Err(IngestError::Rejected(
+            "invalid: expected_membership tag must appear exactly once".into(),
+        ));
+    }
+    let parts = tags[0].as_slice();
+    if parts.len() != 3 || parts[1] != EXPECTED_MEMBERSHIP_SNAPSHOT_VERSION {
+        return Err(IngestError::Rejected(
+            "invalid: expected_membership tag must be [expected_membership, v1, <event-id>]"
+                .into(),
+        ));
+    }
+    let decoded = hex::decode(&parts[2]).map_err(|_| {
+        IngestError::Rejected("invalid: expected_membership snapshot id must be 64 hex characters".into())
+    })?;
+    let snapshot_id: [u8; 32] = decoded.try_into().map_err(|_| {
+        IngestError::Rejected("invalid: expected_membership snapshot id must be 64 hex characters".into())
+    })?;
+    Ok(Some(snapshot_id))
 }
 
 /// Result of resolving a reaction's target channel.
@@ -1716,6 +1753,15 @@ async fn ingest_event_inner(
         ));
     }
 
+    // Legacy kind:9 events omit this optional compare-and-store guard. Once a
+    // sender includes it, however, parsing is strict and the actual comparison
+    // happens in the same DB transaction as the eventual insert below.
+    let expected_membership_snapshot = if kind_u32 == KIND_STREAM_MESSAGE {
+        expected_membership_snapshot_id(&event)?
+    } else {
+        None
+    };
+
     if let Some(ch_id) = channel_id {
         check_token_channel_access(&auth, ch_id).map_err(IngestError::AuthFailed)?;
     } else if auth.channel_ids().is_some() {
@@ -2384,16 +2430,45 @@ async fn ingest_event_inner(
             .map_err(|e| IngestError::Internal(format!("error: {e}")))?
     } else {
         let thread_params = thread_meta.as_ref().map(|m| m.as_params());
-        match state
-            .db
-            .insert_event_with_thread_metadata(
-                tenant.community(),
-                &event,
-                channel_id,
-                thread_params,
-            )
-            .await
-        {
+        let insert_result = if let Some(expected_snapshot_id) = expected_membership_snapshot {
+            let ch_id = channel_id.expect("kind:9 expected_membership requires h channel scope");
+            match state
+                .db
+                .insert_event_if_membership_snapshot_matches(
+                    tenant.community(),
+                    &event,
+                    ch_id,
+                    &state.relay_keypair.public_key(),
+                    &expected_snapshot_id,
+                    thread_params,
+                )
+                .await
+                .map_err(|e| IngestError::Internal(format!("error: database error: {e}")))?
+            {
+                buzz_db::MembershipSnapshotGuardedInsertOutcome::Inserted {
+                    stored_event,
+                    was_inserted,
+                } => Ok((stored_event, was_inserted)),
+                buzz_db::MembershipSnapshotGuardedInsertOutcome::SnapshotChanged => {
+                    Err(IngestError::Rejected(
+                        "restricted: expected_membership snapshot is stale or belongs to another channel"
+                            .into(),
+                    ))
+                }
+            }
+        } else {
+            state
+                .db
+                .insert_event_with_thread_metadata(
+                    tenant.community(),
+                    &event,
+                    channel_id,
+                    thread_params,
+                )
+                .await
+                .map_err(|e| IngestError::Internal(format!("error: database error: {e}")))
+        };
+        match insert_result {
             Ok(result) => result,
             Err(e) => {
                 // Compensate: if we pre-created a channel for kind:9007,
@@ -2408,12 +2483,7 @@ async fn ingest_event_inner(
                     }
                     state.invalidate_channel_deleted(tenant);
                 }
-                return Err(match e {
-                    buzz_db::DbError::AuthEventRejected => {
-                        IngestError::Rejected("invalid: AUTH events cannot be stored".into())
-                    }
-                    other => IngestError::Internal(format!("error: database error: {other}")),
-                });
+                return Err(e);
             }
         }
     };
@@ -3035,6 +3105,45 @@ mod tests {
             ],
         );
         assert!(validate_diff_event(&event).is_err());
+    }
+
+    #[test]
+    fn kind9_expected_membership_tag_accepts_exact_snapshot_id() {
+        let snapshot = "ab".repeat(32);
+        let event = make_event_with_tags(
+            KIND_STREAM_MESSAGE,
+            "guarded",
+            &[
+                &["h", "00000000-0000-0000-0000-000000000001"],
+                &[
+                    TAG_EXPECTED_MEMBERSHIP_SNAPSHOT,
+                    EXPECTED_MEMBERSHIP_SNAPSHOT_VERSION,
+                    &snapshot,
+                ],
+            ],
+        );
+
+        assert_eq!(
+            expected_membership_snapshot_id(&event).expect("valid tag"),
+            Some([0xab; 32]),
+            "matching snapshot IDs are passed through to the atomic DB guard"
+        );
+    }
+
+    #[test]
+    fn kind9_expected_membership_tag_rejects_malformed_values() {
+        let event = make_event_with_tags(
+            KIND_STREAM_MESSAGE,
+            "guarded",
+            &[&[
+                TAG_EXPECTED_MEMBERSHIP_SNAPSHOT,
+                "v2",
+                "not-an-event-id",
+            ]],
+        );
+
+        let err = expected_membership_snapshot_id(&event).expect_err("version must be frozen");
+        assert!(matches!(err, IngestError::Rejected(message) if message.contains("expected_membership")));
     }
 
     fn make_dummy_event() -> Event {
