@@ -481,64 +481,97 @@ export function buildMainTimelineEntries(
       .filter((id): id is string => id != null),
   );
 
-  return (
-    messages
-      // Managed cancellation still travels as Buzz's signed `!cancel` control
-      // event so the ACP host can stop the exact resident turn. It is transport
-      // machinery, not conversation content, and must never become a transcript
-      // row. Limit the suppression to the exact owner-authored command so model
-      // content is not filtered by substring or resemblance.
-      .filter((message) => !isOwnerCancelControl(message))
-      .filter(
-        (message) =>
-          // Callers opt into ordinary descendants only for an explicit focused
-          // thread. The room transcript otherwise contains top-level events and
-          // causal broadcast turns (directed owner messages and linear agent
-          // finals), keeping thread traffic confined to its intentional surface.
-          quoteReplies ||
-          message.parentId == null ||
-          isBroadcastReply(message.tags ?? []),
-      )
-      .map((message) => {
-        const relaySummary = rootsWithBroadcastChildren.has(message.id)
-          ? undefined
-          : relaySummaries.get(message.id);
-        const parent = message.parentId
-          ? messageById.get(message.parentId)
-          : null;
-        return {
-          message,
-          quotedParent:
-            message.parentId &&
-            ((quoteReplies && !isBroadcastReply(message.tags ?? [])) ||
-              (isBroadcastReply(message.tags ?? []) && message.accent))
-              ? {
-                  id: message.parentId,
-                  author: parent?.author ?? "",
-                  body: parent?.body ?? "",
-                  resolved: parent != null,
-                }
-              : null,
-          summary:
-            message.kind === KIND_HUDDLE_STARTED ||
-            isBroadcastReply(message.tags ?? [])
-              ? null
-              : mergeThreadSummaries(
-                  buildSummaryForDirectReplies(
-                    message.id,
-                    descendantStatsByMessageId,
-                  ),
-                  relaySummary
-                    ? buildRelayThreadSummary(
-                        message.id,
-                        relaySummary,
-                        profiles,
-                      )
-                    : null,
+  const entries = messages
+    // Managed cancellation still travels as Buzz's signed `!cancel` control
+    // event so the ACP host can stop the exact resident turn. It is transport
+    // machinery, not conversation content, and must never become a transcript
+    // row. Limit the suppression to the exact owner-authored command so model
+    // content is not filtered by substring or resemblance.
+    .filter((message) => !isOwnerCancelControl(message))
+    .filter(
+      (message) =>
+        // Callers opt into ordinary descendants only for an explicit focused
+        // thread. The room transcript otherwise contains top-level events and
+        // causal broadcast turns (directed owner messages and linear agent
+        // finals), keeping thread traffic confined to its intentional surface.
+        quoteReplies ||
+        message.parentId == null ||
+        isBroadcastReply(message.tags ?? []),
+    )
+    .map((message) => {
+      const relaySummary = rootsWithBroadcastChildren.has(message.id)
+        ? undefined
+        : relaySummaries.get(message.id);
+      const parent = message.parentId
+        ? messageById.get(message.parentId)
+        : null;
+      return {
+        message,
+        quotedParent:
+          message.parentId &&
+          ((quoteReplies && !isBroadcastReply(message.tags ?? [])) ||
+            (isBroadcastReply(message.tags ?? []) && message.accent))
+            ? {
+                id: message.parentId,
+                author: parent?.author ?? "",
+                body: parent?.body ?? "",
+                resolved: parent != null,
+              }
+            : null,
+        summary:
+          message.kind === KIND_HUDDLE_STARTED ||
+          isBroadcastReply(message.tags ?? [])
+            ? null
+            : mergeThreadSummaries(
+                buildSummaryForDirectReplies(
+                  message.id,
+                  descendantStatsByMessageId,
                 ),
-        };
-      })
+                relaySummary
+                  ? buildRelayThreadSummary(message.id, relaySummary, profiles)
+                  : null,
+              ),
+      };
+    });
+
+  // Relay order uses `(created_at, event_id)`. A fast resident can publish in
+  // the same second as its prompt and its random event id may sort first. Keep
+  // that transport order intact, but repair the impossible visual inversion:
+  // a managed linear final must never appear above the message that caused it.
+  // Directed owner replies retain their chronological position.
+  const entryIndexById = new Map(
+    entries.map((entry, index) => [entry.message.id, index] as const),
   );
+  const deferredByParent = new Map<string, MainTimelineEntry[]>();
+  const deferredIds = new Set<string>();
+  for (const [index, entry] of entries.entries()) {
+    const parentId = entry.message.parentId;
+    if (
+      !entry.message.isAgent ||
+      !parentId ||
+      !isBroadcastReply(entry.message.tags ?? []) ||
+      (entryIndexById.get(parentId) ?? -1) <= index
+    ) {
+      continue;
+    }
+    const siblings = deferredByParent.get(parentId) ?? [];
+    siblings.push(entry);
+    deferredByParent.set(parentId, siblings);
+    deferredIds.add(entry.message.id);
+  }
+  if (deferredIds.size === 0) return entries;
+
+  const repaired: MainTimelineEntry[] = [];
+  const appendWithDeferred = (entry: MainTimelineEntry): void => {
+    repaired.push(entry);
+    for (const child of deferredByParent.get(entry.message.id) ?? []) {
+      appendWithDeferred(child);
+    }
+  };
+  for (const entry of entries) {
+    if (!deferredIds.has(entry.message.id)) appendWithDeferred(entry);
+  }
+  return repaired;
 }
 
 /**

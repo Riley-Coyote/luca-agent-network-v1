@@ -9,6 +9,7 @@ export type ProjectRoomSummary = {
 export interface ProjectNavigatorViewModel {
   projectId: string;
   label: string;
+  sourceIds: string[];
   workingContextStatus: "attached" | "missing" | "none";
   rooms: ProjectRoomSummary[];
   selectedRoomId?: string;
@@ -47,6 +48,7 @@ export function buildProjectNavigatorViewModel({
   return {
     projectId: project.id,
     label: project.label,
+    sourceIds: project.sourceIds ?? [],
     workingContextStatus: project.workingContextStatus ?? "none",
     rooms,
     ...(selectedRoomId &&

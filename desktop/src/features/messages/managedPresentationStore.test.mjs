@@ -6,6 +6,7 @@ import {
   completeManagedPresentationForConversation,
   getManagedPresentationSnapshot,
   ingestManagedPresentationFrame,
+  releaseManagedPresentationFinals,
   replaceManagedPresentationReceipt,
   resetManagedPresentationStore,
   seedManagedPresentations,
@@ -53,6 +54,24 @@ describe("managedPresentationStore", () => {
   it("handles signed-final-before-stream without leaving a duplicate", () => {
     completeManagedPresentation(residentPubkey, receiptId);
     ingestManagedPresentationFrame(frame("turn_started", 1));
+    assert.deepEqual(getManagedPresentationSnapshot(conversationId), []);
+  });
+
+  it("keeps the live row until its signed final reaches the rendered timeline", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    completeManagedPresentation(
+      residentPubkey,
+      receiptId,
+      "signed-final-message",
+    );
+
+    const [settling] = getManagedPresentationSnapshot(conversationId);
+    assert.equal(settling.phase, "finalizing");
+    assert.equal(settling.finalMessageId, "signed-final-message");
+
+    releaseManagedPresentationFinals(["different-message"]);
+    assert.equal(getManagedPresentationSnapshot(conversationId).length, 1);
+    releaseManagedPresentationFinals(["signed-final-message"]);
     assert.deepEqual(getManagedPresentationSnapshot(conversationId), []);
   });
 

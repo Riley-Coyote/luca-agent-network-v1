@@ -44,7 +44,7 @@ export function CreateChannelDialog({
     onCreated: () => onOpenChange(false),
   });
 
-  const kindLabel = channelKind === "forum" ? "forum" : "channel";
+  const kindLabel = channelKind === "forum" ? "forum" : "room";
 
   return (
     <Dialog
@@ -64,7 +64,7 @@ export function CreateChannelDialog({
         description={
           channelKind === "forum"
             ? "Forums organize threaded discussions around a topic."
-            : "Channels are real-time streams for team conversation."
+            : "Rooms are durable conversations for people, agents, and shared work."
         }
         footer={<CreateChannelFormFooter form={form} />}
       >

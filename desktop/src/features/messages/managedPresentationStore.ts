@@ -38,6 +38,7 @@ export type ManagedPresentationRow = {
   conversationId: string;
   dispatchReceiptId: string;
   failure: "runtime" | "publication" | "unavailable" | null;
+  finalMessageId: string | null;
   phase: ManagedPresentationPhase;
   publicText: string;
   residentPubkey: string;
@@ -204,6 +205,7 @@ export function ingestManagedPresentationFrame(frameValue: unknown): void {
     conversationId: frame.conversation_id,
     dispatchReceiptId: frame.dispatch_receipt_id,
     failure: current?.failure ?? null,
+    finalMessageId: current?.finalMessageId ?? null,
     phase: current?.phase ?? "thinking",
     publicText: current?.publicText ?? "",
     residentPubkey: frame.resident_pubkey,
@@ -284,6 +286,7 @@ export function seedManagedPresentations(
       conversationId,
       dispatchReceiptId,
       failure: null,
+      finalMessageId: null,
       phase: "thinking",
       publicText: "",
       residentPubkey,
@@ -325,6 +328,7 @@ export function replaceManagedPresentationReceipt(
 export function completeManagedPresentation(
   residentPubkey: string | null | undefined,
   dispatchReceiptId: string | null | undefined,
+  finalMessageId?: string | null,
 ): boolean {
   if (!residentPubkey || !dispatchReceiptId) return false;
   const key = rowKey(residentPubkey, dispatchReceiptId);
@@ -340,7 +344,17 @@ export function completeManagedPresentation(
   paintTimers.delete(key);
   clearStartTimer(key);
   pendingChunks.delete(key);
-  if (rows.delete(key)) rebuildSnapshots();
+  const current = rows.get(key);
+  if (current && finalMessageId) {
+    rows.set(key, {
+      ...current,
+      finalMessageId,
+      phase: "finalizing",
+    });
+    rebuildSnapshots();
+  } else if (rows.delete(key)) {
+    rebuildSnapshots();
+  }
   return removed;
 }
 
@@ -354,9 +368,18 @@ export function completeManagedPresentationForConversation(
   residentPubkey: string | null | undefined,
   dispatchReceiptId: string | null | undefined,
   conversationId: string | null | undefined,
+  finalMessageId?: string | null,
 ): void {
   if (!residentPubkey || !dispatchReceiptId) return;
-  if (completeManagedPresentation(residentPubkey, dispatchReceiptId)) return;
+  if (
+    completeManagedPresentation(
+      residentPubkey,
+      dispatchReceiptId,
+      finalMessageId,
+    )
+  ) {
+    return;
+  }
   if (!conversationId) return;
 
   const normalizedPubkey = residentPubkey.toLowerCase();
@@ -369,7 +392,23 @@ export function completeManagedPresentationForConversation(
   completeManagedPresentation(
     candidates[0].residentPubkey,
     candidates[0].dispatchReceiptId,
+    finalMessageId,
   );
+}
+
+/** Release live rows only after their signed finals have joined the rendered timeline. */
+export function releaseManagedPresentationFinals(
+  messageIds: readonly string[],
+): void {
+  if (messageIds.length === 0) return;
+  const rendered = new Set(messageIds);
+  let changed = false;
+  for (const [key, row] of rows) {
+    if (!row.finalMessageId || !rendered.has(row.finalMessageId)) continue;
+    rows.delete(key);
+    changed = true;
+  }
+  if (changed) rebuildSnapshots();
 }
 
 export function removeManagedPresentationsByReceipt(receiptId: string): void {

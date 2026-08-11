@@ -1,5 +1,5 @@
 import * as React from "react";
-import { MessageCircle, MessagesSquare } from "lucide-react";
+import { MessageCircle, MessagesSquare, Plus } from "lucide-react";
 
 import {
   readLastProjectRoom,
@@ -274,6 +274,8 @@ export function ChatList({
   workingByChannelId,
   onSelectChannel,
   onSelectProject,
+  onCreateProject,
+  onCreateRoom,
   projects,
   selectedProjectId,
 }: {
@@ -288,6 +290,8 @@ export function ChatList({
   workingByChannelId?: ReadonlyMap<string, { agentCount: number }>;
   onSelectChannel: (channelId: string) => void;
   onSelectProject: (projectId: string, preferredRoomId: string | null) => void;
+  onCreateProject: () => void;
+  onCreateRoom: () => void;
 }) {
   const groups = React.useMemo(
     () => groupChats(items, projectByChannelId),
@@ -320,38 +324,65 @@ export function ChatList({
 
   return (
     <div className="flex flex-col px-2" data-testid="chat-list">
-      {orderedProjects.length > 0 ? (
-        <div className="mt-2 flex flex-col" data-testid="chat-projects">
-          <div className="px-2 pb-1 text-2xs font-medium uppercase tracking-[0.1em] text-sidebar-foreground/35">
-            Projects
-          </div>
-          {orderedProjects.map((project) => {
-            const group =
-              groupsByProjectId.get(project.id) ??
-              ({ project, items: [], mostRecent: 0 } satisfies ChatGroup);
-            return (
-              <ProjectRow
-                group={group}
-                isActive={effectiveProjectId === project.id}
-                key={project.id}
-                onSelectProject={onSelectProject}
-                unreadChannelIds={unreadChannelIds}
-                workingByChannelId={workingByChannelId}
-              />
-            );
-          })}
+      <div className="mt-2 flex flex-col" data-testid="chat-projects">
+        <div className="flex items-center justify-between px-2 pb-1 text-2xs font-medium uppercase tracking-[0.1em] text-sidebar-foreground/35">
+          <span>Projects</span>
+          <button
+            aria-label="New project"
+            className="-mr-1 flex size-6 items-center justify-center rounded-md text-sidebar-foreground/45 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
+            data-testid="create-room-project"
+            onClick={onCreateProject}
+            title="New project"
+            type="button"
+          >
+            <Plus className="size-3.5" />
+          </button>
         </div>
-      ) : null}
+        {orderedProjects.map((project) => {
+          const group =
+            groupsByProjectId.get(project.id) ??
+            ({ project, items: [], mostRecent: 0 } satisfies ChatGroup);
+          return (
+            <ProjectRow
+              group={group}
+              isActive={effectiveProjectId === project.id}
+              key={project.id}
+              onSelectProject={onSelectProject}
+              unreadChannelIds={unreadChannelIds}
+              workingByChannelId={workingByChannelId}
+            />
+          );
+        })}
+        {orderedProjects.length === 0 ? (
+          <button
+            className="flex min-h-8 items-center gap-2.5 rounded-md px-2 text-left text-sm text-sidebar-foreground/45 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            onClick={onCreateProject}
+            type="button"
+          >
+            <span className="flex size-5 items-center justify-center">
+              <Plus className="size-3.5" />
+            </span>
+            New project
+          </button>
+        ) : null}
+      </div>
 
       <div
-        className={cn(
-          "flex flex-col",
-          orderedProjects.length > 0 ? "mt-3" : "mt-2",
-        )}
+        className={cn("flex flex-col", "mt-3")}
         data-testid="chat-group-ungrouped"
       >
-        <div className="px-2 pb-1 text-2xs font-medium uppercase tracking-[0.1em] text-sidebar-foreground/35">
-          Rooms
+        <div className="flex items-center justify-between px-2 pb-1 text-2xs font-medium uppercase tracking-[0.1em] text-sidebar-foreground/35">
+          <span>Rooms</span>
+          <button
+            aria-label="New room"
+            className="-mr-1 flex size-6 items-center justify-center rounded-md text-sidebar-foreground/45 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
+            data-testid="create-room"
+            onClick={onCreateRoom}
+            title="New room"
+            type="button"
+          >
+            <Plus className="size-3.5" />
+          </button>
         </div>
         {looseRooms?.items.map((item) => (
           <ChatRow item={item} key={item.channel.id} {...rowProps} />

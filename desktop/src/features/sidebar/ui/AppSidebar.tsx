@@ -40,6 +40,8 @@ import {
 import { cn } from "@/shared/lib/cn";
 import { SidebarSection } from "@/features/sidebar/ui/SidebarSection";
 import { buildChatListItems, ChatList } from "@/features/sidebar/ui/ChatList";
+import { createRoomProject } from "@/features/channels/lib/roomProjects";
+import { CreateRoomProjectDialog } from "@/features/projects/ui/CreateRoomProjectDialog";
 
 /** PROTOTYPE SWITCH. true = one recency-sorted chat list (the chat-app shape).
  *  false = the original CHANNELS / DIRECT MESSAGES sections. Kept so the two
@@ -218,6 +220,7 @@ export function AppSidebar({
 
   const [createDialogKind, setCreateDialogKind] =
     React.useState<CreateChannelKind | null>(null);
+  const [isCreateProjectOpen, setIsCreateProjectOpen] = React.useState(false);
   const { openNextFrame: openModalNextFrame } = useDeferredModalOpen();
   const openCreateDialog = React.useCallback(
     (kind: CreateChannelKind) => {
@@ -569,6 +572,8 @@ export function AppSidebar({
                         if (isMobile) setOpenMobile(false);
                         onSelectProject(projectId, preferredRoomId);
                       }}
+                      onCreateProject={() => setIsCreateProjectOpen(true)}
+                      onCreateRoom={handleOpenCreateChannel}
                       projectByChannelId={roomProjects}
                       projects={projectCatalog}
                       selectedChannelId={selectedChannelId}
@@ -878,6 +883,33 @@ export function AppSidebar({
           }
         }}
         onCreate={handleCreateFromDialog}
+      />
+      <CreateRoomProjectDialog
+        isCreating={isCreatingChannel}
+        onCreate={async ({ label, roomName, sourceIds }) => {
+          if (!currentPubkey)
+            throw new Error("Your identity is still loading.");
+          await onCreateChannel(
+            {
+              name: roomName,
+              description: `${label} project room`,
+              visibility: "private",
+            },
+            (channelId) => {
+              const project = createRoomProject(
+                currentPubkey,
+                activeCommunity?.relayUrl,
+                { label, roomId: channelId, sourceIds },
+              );
+              if (!project)
+                throw new Error(
+                  "The room was created, but the project could not be saved.",
+                );
+            },
+          );
+        }}
+        onOpenChange={setIsCreateProjectOpen}
+        open={isCreateProjectOpen}
       />
 
       <AddCommunityDialog

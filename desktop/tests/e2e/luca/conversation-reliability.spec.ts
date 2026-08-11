@@ -3,6 +3,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
 
 const CHANNEL = "general";
+const CHANNEL_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
 const PRESENTATION_EVENT = "luca://managed-presentation";
 const CLAUDE = TEST_IDENTITIES.alice.pubkey;
 const CODEX = TEST_IDENTITIES.charlie.pubkey;
@@ -28,7 +29,7 @@ test.beforeEach(async ({ page }) => {
       { displayName: "Codex", isAgent: true, pubkey: CODEX },
     ],
   });
-  await page.goto("/");
+  await page.goto("/?e2e=mock");
   await page.getByTestId("channel-general").click();
   await expect(page.getByTestId("chat-title")).toHaveText(CHANNEL);
   await expect
@@ -71,6 +72,27 @@ async function lastSendPayload(page: Page) {
   });
 }
 
+async function findThreadMessageId(page: Page, content: string) {
+  return page.evaluate(
+    async ({ channelId, expectedContent }) => {
+      const response = (await window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.(
+        "get_thread_replies",
+        {
+          channelId,
+          depthLimit: 64,
+          limit: 200,
+          rootEventId: "mock-general-alice",
+        },
+      )) as { events?: Array<{ content: string; id: string }> } | undefined;
+      return (
+        response?.events?.find((event) => event.content === expectedContent)
+          ?.id ?? null
+      );
+    },
+    { channelId: CHANNEL_ID, expectedContent: content },
+  );
+}
+
 async function emitFrame(
   page: Page,
   input: {
@@ -79,6 +101,7 @@ async function emitFrame(
     receiptId: string;
     sequence: number;
     turnId: string;
+    finalMessageId?: string;
     publicChunk?: string;
   },
 ) {
@@ -98,6 +121,9 @@ async function emitFrame(
         session_epoch: 7,
         sequence: input.sequence,
         ...(input.publicChunk ? { public_chunk: input.publicChunk } : {}),
+        ...(input.finalMessageId
+          ? { final_message_id: input.finalMessageId }
+          : {}),
       },
     },
   );
@@ -131,6 +157,16 @@ test("group activation streams independently and settles into linear signed turn
   if (!receiptId) throw new Error("Expected an owner event ID.");
 
   await expect(page.getByTestId("provisional-response-row")).toHaveCount(2);
+  await expect(
+    page
+      .getByTestId("message-timeline")
+      .getByTestId("provisional-response-row"),
+  ).toHaveCount(2);
+  await expect(
+    page
+      .getByTestId("channel-composer-overlay")
+      .getByTestId("provisional-response-row"),
+  ).toHaveCount(0);
   const payload = await lastSendPayload(page);
   expect(payload?.managedAudience).toEqual({
     mode: "conversation",
@@ -189,6 +225,52 @@ test("group activation streams independently and settles into linear signed turn
   await expect(page.getByText(/skills context budget/i)).toHaveCount(0);
 });
 
+test("a streamed response settles in place when its signed final arrives", async ({
+  page,
+}) => {
+  const claudeMessage = page.locator('[data-message-id="mock-general-alice"]');
+  await claudeMessage.hover();
+  await claudeMessage.getByRole("button", { name: "Reply" }).click();
+  const ownerRow = await send(page, "Settle this response without a jump.");
+  const receiptId = await ownerRow.getAttribute("data-message-id");
+  if (!receiptId) throw new Error("Expected an owner event ID.");
+
+  await emitFrame(page, {
+    kind: "turn_started",
+    receiptId,
+    residentPubkey: CLAUDE,
+    sequence: 1,
+    turnId: "settled-turn",
+  });
+  await emitFrame(page, {
+    kind: "public_chunk",
+    publicChunk: "One continuous response.",
+    receiptId,
+    residentPubkey: CLAUDE,
+    sequence: 2,
+    turnId: "settled-turn",
+  });
+  const provisional = page
+    .getByTestId("provisional-response-row")
+    .filter({ hasText: "One continuous response." });
+  await expect(provisional).toBeVisible();
+  const provisionalBox = await provisional.boundingBox();
+
+  await emitSignedFinal(page, CLAUDE, receiptId, "One continuous response.");
+  const final = page
+    .getByTestId("message-row")
+    .filter({ hasText: "One continuous response." });
+  await expect(final).toBeVisible();
+  await expect(provisional).toHaveCount(0);
+  const finalBox = await final.boundingBox();
+
+  expect(provisionalBox).not.toBeNull();
+  expect(finalBox).not.toBeNull();
+  expect(Math.abs((provisionalBox?.y ?? 0) - (finalBox?.y ?? 0))).toBeLessThan(
+    16,
+  );
+});
+
 test("ordinary Reply is directed while Reply in thread remains explicit", async ({
   page,
 }) => {
@@ -223,24 +305,66 @@ test("ordinary Reply is directed while Reply in thread remains explicit", async 
   await expect(page.getByTestId("focused-thread-bar")).toBeVisible();
   await expect(page).toHaveURL(/thread=/);
 
-  await page
-    .getByTestId("message-input")
-    .fill("This belongs only in the thread.");
+  const threadOwnerContent = "This belongs only in the thread.";
+  await page.getByTestId("message-input").fill(threadOwnerContent);
   await page.getByTestId("send-message").click();
+  let threadReceiptId: string | null = null;
+  await expect
+    .poll(async () => {
+      threadReceiptId = await findThreadMessageId(page, threadOwnerContent);
+      return threadReceiptId;
+    })
+    .not.toBeNull();
+  if (!threadReceiptId) throw new Error("Expected a thread event ID.");
   await expect
     .poll(async () => (await lastSendPayload(page))?.responseSurface)
     .toBe("thread");
+  await emitFrame(page, {
+    kind: "turn_started",
+    receiptId: threadReceiptId,
+    residentPubkey: CLAUDE,
+    sequence: 1,
+    turnId: "thread-turn",
+  });
+  await emitFrame(page, {
+    kind: "public_chunk",
+    publicChunk: "A real thread response.",
+    receiptId: threadReceiptId,
+    residentPubkey: CLAUDE,
+    sequence: 2,
+    turnId: "thread-turn",
+  });
+  const threadFinalId = "mock-thread-final";
   await page.evaluate(
-    ({ claude }) => {
+    ({ claude, finalId, parentEventId }) => {
       window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
         channelName: "general",
         content: "A real thread response.",
-        parentEventId: "mock-general-alice",
+        id: finalId,
+        parentEventId,
         pubkey: claude,
       });
     },
-    { claude: CLAUDE },
+    {
+      claude: CLAUDE,
+      finalId: threadFinalId,
+      parentEventId: threadReceiptId,
+    },
   );
+  await emitFrame(page, {
+    finalMessageId: threadFinalId,
+    kind: "completed",
+    receiptId: threadReceiptId,
+    residentPubkey: CLAUDE,
+    sequence: 3,
+    turnId: "thread-turn",
+  });
+  const newMessageAffordance = page
+    .getByRole("button", { name: /new messages?/i })
+    .last();
+  if (await newMessageAffordance.isVisible()) {
+    await newMessageAffordance.click();
+  }
   await expect(page.getByText("A real thread response.")).toBeVisible();
   await page.getByRole("button", { name: "Show all messages" }).click();
   await expect(page.getByTestId("focused-thread-bar")).toHaveCount(0);

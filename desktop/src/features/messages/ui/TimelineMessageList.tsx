@@ -33,7 +33,12 @@ import type { ChannelType } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { DayDivider } from "./DayDivider";
 import { MessageRow } from "./MessageRow";
+import {
+  PreserveVirtualizedItemVisibilityContext,
+  VirtualizedTimelineItemShell,
+} from "./VirtualizedTimelineItemShell";
 import { TimelineRowShell } from "./TimelineRowShell";
+import { useFollowGrowingTimelineTail } from "./useFollowGrowingTimelineTail";
 import { MessageThreadSummaryRow } from "./MessageThreadSummaryRow";
 import { SystemMessageRow } from "./SystemMessageRow";
 import { UnreadDivider } from "./UnreadDivider";
@@ -108,8 +113,8 @@ type TimelineMessageListProps = {
   searchQuery?: string;
   /** Per-thread unread counts keyed by thread root id. */
   threadUnreadCounts?: ReadonlyMap<string, number>;
-  /** Content rendered as the first virtual row before channel history. */
   leadingContent?: React.ReactNode;
+  trailingContent?: React.ReactNode;
   /**
    * True when the loaded window provably starts at the channel's beginning.
    * Proves the oldest loaded day's boundary so its divider may render.
@@ -161,6 +166,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
   threadUnreadCounts,
   unfollowThreadById,
   leadingContent,
+  trailingContent,
   historyExhausted = false,
   useVirtualizer = false,
   onStartReached,
@@ -338,6 +344,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
         dayGroups={dayGroups}
         historyExhausted={historyExhausted}
         leadingContent={leadingContent}
+        trailingContent={trailingContent}
         onAtBottomStateChange={onAtBottomStateChange}
         onStartReached={onStartReached}
         onVirtualizerApiChange={onVirtualizerApiChange}
@@ -375,6 +382,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
           ))}
         </section>
       ))}
+      {trailingContent}
     </div>
   );
 });
@@ -389,6 +397,7 @@ type VirtualizedTimelineRowsProps = {
   dayGroups: TimelineDayGroup[];
   historyExhausted: boolean;
   leadingContent?: React.ReactNode;
+  trailingContent?: React.ReactNode;
   onAtBottomStateChange?: (atBottom: boolean) => void;
   onStartReached?: () => boolean;
   onVirtualizerApiChange?: (api: TimelineVirtualizerApi | null) => void;
@@ -397,37 +406,11 @@ type VirtualizedTimelineRowsProps = {
   renderItem: (item: TimelineNonDayItem) => React.ReactNode;
 };
 
-type VirtualizedTimelineItemShellProps = {
-  children: React.ReactNode;
-  index: number;
-  ref?: React.LegacyRef<HTMLDivElement>;
-  style: React.CSSProperties;
-};
-
-const PreserveVirtualizedItemVisibilityContext = React.createContext(false);
-
-function VirtualizedTimelineItemShell({
-  children,
-  ref,
-  style,
-}: VirtualizedTimelineItemShellProps) {
-  const preserveVisibility = React.useContext(
-    PreserveVirtualizedItemVisibilityContext,
-  );
-  return (
-    <div
-      ref={ref}
-      style={preserveVisibility ? style : { ...style, visibility: undefined }}
-    >
-      {children}
-    </div>
-  );
-}
-
 function VirtualizedTimelineRows({
   dayGroups,
   historyExhausted,
   leadingContent,
+  trailingContent,
   onAtBottomStateChange,
   onStartReached,
   onVirtualizerApiChange,
@@ -460,8 +443,14 @@ function VirtualizedTimelineRows({
     [],
   );
   const items = React.useMemo(
-    () => buildVirtualizedItems(dayGroups, leadingContent, historyExhausted),
-    [dayGroups, historyExhausted, leadingContent],
+    () =>
+      buildVirtualizedItems(
+        dayGroups,
+        leadingContent,
+        historyExhausted,
+        trailingContent,
+      ),
+    [dayGroups, historyExhausted, leadingContent, trailingContent],
   );
   const keys = React.useMemo(() => items.map(virtualizedItemKey), [items]);
   itemsLengthRef.current = items.length;
@@ -492,6 +481,10 @@ function VirtualizedTimelineRows({
   }, []);
   const { cancel: cancelBottomSettle, settle: settleAtBottom } =
     useVirtualizedBottomSettle(hostRef, listRef, itemsLengthRef);
+  const updateGrowingTailPosition = useFollowGrowingTimelineTail(
+    trailingContent,
+    settleAtBottom,
+  );
   const retireTimelineSettle = React.useCallback(() => {
     retirePrependAnchor();
     cancelBottomSettle();
@@ -500,8 +493,6 @@ function VirtualizedTimelineRows({
     useUpwardPaginationWheel(hostRef, retireTimelineSettle);
 
   const capturePrependAnchor = React.useCallback(() => {
-    // Keep the pending capture current while the fetch is in flight. Once the
-    // prepend commits and the watcher starts, its baseline is frozen.
     if (prependWatcherFrameRef.current !== null) return;
     const scroller = hostRef.current?.firstElementChild;
     if (!(scroller instanceof HTMLDivElement)) return;
@@ -521,14 +512,8 @@ function VirtualizedTimelineRows({
 
   React.useLayoutEffect(() => {
     if (!isPrepend || !prependAnchorRef.current) return;
-    // Virtua's shift mode correctly absorbs prepended measurements, but
-    // estimated offsets can misclassify late row growth deep in history. Keep
-    // the semantic row identity as a short-lived, deviation-gated backstop.
-    // Do not correct in this commit: Virtua has shifted its estimate but has not
-    // applied its ResizeObserver batch yet, so that delta is transient and its
-    // subsequent absolute correction would overwrite our relative write.
-    // This watcher deliberately survives a temporary row unmount and waits for
-    // stable geometry so Virtua remains the primary scroll owner.
+    // Keep the semantic row as a short-lived backstop while Virtua measures a
+    // prepend; corrections wait for stable geometry so Virtua stays primary.
     if (prependWatcherFrameRef.current !== null) {
       cancelAnimationFrame(prependWatcherFrameRef.current);
     }
@@ -658,12 +643,7 @@ function VirtualizedTimelineRows({
     const host = hostRef.current;
     if (!host) return;
     const updateBufferSize = () => {
-      // Measure rows three viewports ahead of the reader. Virtua deliberately
-      // hides each newly mounted row until its first ResizeObserver result; a
-      // one-viewport lead can be consumed by WebKit trackpad momentum before
-      // that result commits, producing a first-pass-only blank flash. The
-      // measured size is cached, which is why revisiting the same range is
-      // already stable.
+      // Measure ahead so WebKit momentum never outruns Virtua's first pass.
       setOffscreenBufferSize(host.clientHeight * 3);
     };
     updateBufferSize();
@@ -682,8 +662,10 @@ function VirtualizedTimelineRows({
       if (!list || !(scroller instanceof HTMLDivElement)) return;
       onVirtualizerRangeChanged?.();
       const distanceFromBottom = list.scrollSize - list.viewportSize - offset;
+      const atBottom = distanceFromBottom <= 32;
+      updateGrowingTailPosition(atBottom);
       if (distanceFromBottom > 32) cancelBottomSettle();
-      onAtBottomStateChange?.(distanceFromBottom <= 32);
+      onAtBottomStateChange?.(atBottom);
       if (
         prependAnchorRef.current !== null ||
         offset <= 200 ||
@@ -692,7 +674,6 @@ function VirtualizedTimelineRows({
         capturePrependAnchor();
       }
       if (offset <= 200) {
-        // Layout scrolls near the top must not poison the reader's next input.
         armUpwardMomentum(onStartReached?.() ?? false);
       }
     },
@@ -702,6 +683,7 @@ function VirtualizedTimelineRows({
       capturePrependAnchor,
       onAtBottomStateChange,
       onStartReached,
+      updateGrowingTailPosition,
       onVirtualizerRangeChanged,
     ],
   );
@@ -733,6 +715,9 @@ function VirtualizedTimelineRows({
               );
             }
             if (item.kind === "leading-content") {
+              return <div key={virtualizedItemKey(item)}>{item.content}</div>;
+            }
+            if (item.kind === "trailing-content") {
               return <div key={virtualizedItemKey(item)}>{item.content}</div>;
             }
             if (item.kind === "day-divider") {

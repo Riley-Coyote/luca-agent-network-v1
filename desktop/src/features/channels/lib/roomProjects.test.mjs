@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   assignRoomProject,
+  createRoomProject,
   parseRoomProjectStore,
   readRoomProjectStore,
   roomProjectStorageKey,
@@ -39,7 +40,12 @@ test("invalid projects and orphaned room assignments are removed", () => {
     parseRoomProjectStore({
       version: 1,
       projects: [
-        { id: "luca", label: "Luca", workingContextStatus: "attached" },
+        {
+          id: "luca",
+          label: "Luca",
+          sourceIds: [],
+          workingContextStatus: "attached",
+        },
         { id: "", label: "Invalid" },
       ],
       assignments: { general: "luca", orphaned: "missing" },
@@ -47,7 +53,12 @@ test("invalid projects and orphaned room assignments are removed", () => {
     {
       version: 1,
       projects: [
-        { id: "luca", label: "Luca", workingContextStatus: "attached" },
+        {
+          id: "luca",
+          label: "Luca",
+          sourceIds: [],
+          workingContextStatus: "attached",
+        },
       ],
       assignments: { general: "luca" },
     },
@@ -90,7 +101,12 @@ test("writes persist a normalized project catalog", () => {
   assert.deepEqual(readRoomProjectStore("owner", "relay", storage), {
     version: 1,
     projects: [
-      { id: "project", label: "Project", workingContextStatus: "none" },
+      {
+        id: "project",
+        label: "Project",
+        sourceIds: [],
+        workingContextStatus: "none",
+      },
     ],
     assignments: { room: "project" },
   });
@@ -114,6 +130,33 @@ test("assignRoomProject keeps one project per room", () => {
     assert.equal(assignRoomProject("owner", "relay", "room", "a"), true);
     assert.equal(assignRoomProject("owner", "relay", "room", "b"), true);
     assert.equal(readRoomProjectStore("owner", "relay").assignments.room, "b");
+  } finally {
+    globalThis.window = priorWindow;
+    globalThis.localStorage = priorStorage;
+  }
+});
+
+test("createRoomProject stores opaque context ids and assigns its first room", () => {
+  const priorWindow = globalThis.window;
+  const priorStorage = globalThis.localStorage;
+  const storage = memoryStorage();
+  globalThis.localStorage = storage;
+  globalThis.window = { dispatchEvent: () => true };
+  try {
+    const project = createRoomProject("owner", "relay", {
+      label: "Luca Network",
+      roomId: "room-1",
+      sourceIds: ["repo:one", "repo:one", "/private/source"],
+    });
+    assert.deepEqual(project, {
+      id: "luca-network",
+      label: "Luca Network",
+      sourceIds: ["repo:one"],
+      workingContextStatus: "attached",
+    });
+    const stored = readRoomProjectStore("owner", "relay");
+    assert.equal(stored.assignments["room-1"], "luca-network");
+    assert.deepEqual(stored.projects[0]?.sourceIds, ["repo:one"]);
   } finally {
     globalThis.window = priorWindow;
     globalThis.localStorage = priorStorage;

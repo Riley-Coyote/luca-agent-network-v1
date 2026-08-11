@@ -20,6 +20,7 @@ export type VirtualizedTimelineItem =
       kind: "leading-content";
       content: React.ReactNode;
     }
+  | { kind: "trailing-content"; content: React.ReactNode }
   | { kind: "bottom-spacer" }
   | { kind: "day-divider"; key: string; headingTimestamp: number }
   | {
@@ -32,6 +33,7 @@ export function estimateVirtualizedTimelineItemHeight(
 ): number {
   if (item.kind === "bottom-spacer") return 96;
   if (item.kind === "leading-content") return 60;
+  if (item.kind === "trailing-content") return 72;
   if (item.kind === "day-divider") return 32;
   return estimateTimelineItemHeight(item.item);
 }
@@ -39,6 +41,7 @@ export function estimateVirtualizedTimelineItemHeight(
 export function virtualizedItemKey(item: VirtualizedTimelineItem): string {
   if (item.kind === "bottom-spacer") return "bottom-spacer";
   if (item.kind === "leading-content") return "leading-content";
+  if (item.kind === "trailing-content") return "trailing-content";
   if (item.kind === "day-divider") return item.key;
   return getTimelineItemKey(item.item);
 }
@@ -64,6 +67,7 @@ export function buildVirtualizedItems(
   dayGroups: readonly TimelineDayGroup[],
   leadingContent: React.ReactNode | undefined,
   historyExhausted: boolean,
+  trailingContent?: React.ReactNode,
 ): VirtualizedTimelineItem[] {
   const timelineItems = dayGroups.flatMap((group, groupIndex) => {
     const boundaryProven = groupIndex > 0 || historyExhausted;
@@ -98,6 +102,9 @@ export function buildVirtualizedItems(
         ]
       : []),
     ...timelineItems,
+    ...(trailingContent
+      ? [{ kind: "trailing-content" as const, content: trailingContent }]
+      : []),
     { kind: "bottom-spacer" as const },
   ];
 }

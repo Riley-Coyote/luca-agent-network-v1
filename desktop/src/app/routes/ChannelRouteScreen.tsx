@@ -3,6 +3,7 @@ import * as React from "react";
 import { getCachedSearchHitEvent } from "@/app/navigation/searchHitEventCache";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useChannelsQuery } from "@/features/channels/hooks";
+import { useCommunities } from "@/features/communities/useCommunities";
 import {
   rememberLastProjectRoom,
   useRoomProjectCatalog,
@@ -112,12 +113,21 @@ export function ChannelRouteScreen({
   const { closeForumPost, goChannel, goForumPost } = useAppNavigation();
   const channelsQuery = useChannelsQuery();
   const identityQuery = useIdentityQuery();
+  const communities = useCommunities();
   const profileQuery = useProfileQuery();
   const channels = channelsQuery.data ?? [];
   const activeChannel =
     channels.find((channel) => channel.id === channelId) ?? null;
-  const projectByChannelId = useRoomProjects(channels);
-  const projectCatalog = useRoomProjectCatalog(channels);
+  const projectByChannelId = useRoomProjects(
+    channels,
+    identityQuery.data?.pubkey,
+    communities.activeCommunity?.relayUrl,
+  );
+  const projectCatalog = useRoomProjectCatalog(
+    channels,
+    identityQuery.data?.pubkey,
+    communities.activeCommunity?.relayUrl,
+  );
   const activeProject = activeChannel
     ? (projectByChannelId.get(activeChannel.id) ?? null)
     : null;

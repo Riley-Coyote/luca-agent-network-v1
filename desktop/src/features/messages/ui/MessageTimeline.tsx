@@ -115,6 +115,9 @@ type MessageTimelineProps = {
   unreadCount?: number;
   /** Per-thread unread counts keyed by thread root id. */
   threadUnreadCounts?: ReadonlyMap<string, number>;
+  trailingContent?: React.ReactNode;
+  managedFinalMessageIds?: readonly string[];
+  onManagedFinalsRendered?: (messageIds: readonly string[]) => void;
 };
 
 /** Stable empty reference used as the `useDeferredValue` initial value so the
@@ -199,6 +202,9 @@ const MessageTimelineBase = React.forwardRef<
     firstUnreadMessageId = null,
     unreadCount = 0,
     threadUnreadCounts,
+    trailingContent,
+    managedFinalMessageIds = [],
+    onManagedFinalsRendered,
   }: MessageTimelineProps,
   ref,
 ) {
@@ -355,6 +361,7 @@ const MessageTimelineBase = React.forwardRef<
     hasConfirmedVirtualizerBottomRef.current = false;
   }
   const suppressNextSemanticBottomRef = React.useRef(false);
+  const forceSemanticBottomUntilSettledRef = React.useRef(false);
   const semanticAtBottomRef = React.useRef(isSemanticallyAtBottom);
   semanticAtBottomRef.current = isSemanticallyAtBottom;
   const semanticBottomRafRef = React.useRef<number | null>(null);
@@ -383,6 +390,7 @@ const MessageTimelineBase = React.forwardRef<
       // into a semantic dataset freeze: wait until this channel has reached a
       // confirmed bottom once, then track genuine bottom -> history movement.
       if (atBottom) {
+        forceSemanticBottomUntilSettledRef.current = false;
         hasConfirmedVirtualizerBottomRef.current = true;
         onVirtualizerAtBottomStateChange(true);
         if (suppressNextSemanticBottomRef.current) {
@@ -393,7 +401,10 @@ const MessageTimelineBase = React.forwardRef<
         } else if (!semanticAtBottomRef.current) {
           queueSemanticBottom(true);
         }
-      } else if (hasConfirmedVirtualizerBottomRef.current) {
+      } else if (
+        hasConfirmedVirtualizerBottomRef.current &&
+        !forceSemanticBottomUntilSettledRef.current
+      ) {
         onVirtualizerAtBottomStateChange(false);
         if (semanticAtBottomRef.current) {
           suppressNextSemanticBottomRef.current = true;
@@ -430,6 +441,8 @@ const MessageTimelineBase = React.forwardRef<
     // The user's own send is the deliberate Zulip exception: release buffered
     // output before arming the next-append bottom pin so the sent row can enter
     // Virtua's model and become the new physical floor.
+    forceSemanticBottomUntilSettledRef.current = true;
+    semanticAtBottomRef.current = true;
     setIsSemanticallyAtBottom(true);
     scrollToBottomOnNextUpdate();
   }, [scrollToBottomOnNextUpdate]);
@@ -626,6 +639,7 @@ const MessageTimelineBase = React.forwardRef<
       messageFooters={messageFooters}
       mainEntries={renderedMessages === messages ? mainEntries : undefined}
       leadingContent={virtualizedLeadingContent}
+      trailingContent={trailingContent}
       historyExhausted={renderedHistoryExhausted}
       threadSummaries={threadSummaries}
       messages={renderedMessages}
@@ -656,6 +670,35 @@ const MessageTimelineBase = React.forwardRef<
       unfollowThreadById={unfollowThreadById}
     />
   ) : null;
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the active scroll node is an imperative ref; final ids and rendered messages are the commit triggers.
+  React.useLayoutEffect(() => {
+    if (!onManagedFinalsRendered || managedFinalMessageIds.length === 0) return;
+    const renderedIds = new Set(renderedMessages.map((message) => message.id));
+    const settled = managedFinalMessageIds.filter((id) => renderedIds.has(id));
+    if (settled.length === 0) return;
+
+    // The signed row and its provisional predecessor coexist for this commit.
+    // Preserve the predecessor's viewport anchor before removing it so Virtua
+    // cannot retain the transient doubled height and make the final jump up.
+    const scrollContainer = activeScrollContainerRef.current;
+    const anchorId = settled[0];
+    if (scrollContainer && anchorId) {
+      const selectorId = CSS.escape(anchorId);
+      const provisional = scrollContainer.querySelector(
+        `[data-managed-final-message-id="${selectorId}"]`,
+      );
+      const final = scrollContainer.querySelector(
+        `[data-message-id="${selectorId}"]`,
+      );
+      if (provisional instanceof HTMLElement && final instanceof HTMLElement) {
+        scrollContainer.scrollTop +=
+          final.getBoundingClientRect().top -
+          provisional.getBoundingClientRect().top;
+      }
+    }
+    onManagedFinalsRendered(settled);
+  }, [managedFinalMessageIds, onManagedFinalsRendered, renderedMessages]);
 
   return (
     <TooltipProvider delayDuration={200}>

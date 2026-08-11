@@ -83,7 +83,7 @@ export function useCreateChannelForm({
   const templatesQuery = useChannelTemplatesQuery();
   const templates = templatesQuery.data ?? [];
 
-  const kindLabel = channelKind === "forum" ? "forum" : "channel";
+  const kindLabel = channelKind === "forum" ? "forum" : "room";
   const durationLabel = ephemeral ? "Temporary" : "Ongoing";
   const DurationIcon = ephemeral ? ClockFading : Hash;
 

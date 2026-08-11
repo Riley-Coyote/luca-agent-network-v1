@@ -26,6 +26,7 @@ import {
   useOpenDmMutation,
 } from "@/features/channels/hooks";
 import { useUnreadChannels } from "@/features/channels/useUnreadChannels";
+import { assignRoomProject } from "@/features/channels/lib/roomProjects";
 import { msgContextKey } from "@/features/channels/readState/readStateFormat";
 import { useMembershipNotifications } from "@/features/channels/useMembershipNotifications";
 import { useFeedItemState } from "@/features/home/useFeedItemState";
@@ -110,6 +111,9 @@ export function AppShell() {
   );
   const [searchFocusRequest, setSearchFocusRequest] = React.useState(0);
   const [isCreateChannelOpen, setIsCreateChannelOpen] = React.useState(false);
+  const [createChannelProjectId, setCreateChannelProjectId] = React.useState<
+    string | null
+  >(null);
   const [isSendFeedbackOpen, setIsSendFeedbackOpen] = React.useState(false);
   const [isHuddleDrawerOpen, setIsHuddleDrawerOpen] = React.useState(false);
   const mainInsetRef = React.useRef<HTMLElement>(null);
@@ -471,11 +475,33 @@ export function AppShell() {
       });
 
       await applyCanvas(templateId, createdChannel.id, name);
+      if (createChannelProjectId) {
+        const assigned = assignRoomProject(
+          identityQuery.data?.pubkey,
+          communitiesHook.activeCommunity?.relayUrl,
+          createdChannel.id,
+          createChannelProjectId,
+        );
+        if (!assigned) {
+          throw new Error(
+            "The room was created, but it could not be added to the project.",
+          );
+        }
+      }
       await goChannel(createdChannel.id);
       onCreated?.(createdChannel.id);
+      setCreateChannelProjectId(null);
       void applyAgents(templateId, createdChannel.id);
     },
-    [applyAgents, applyCanvas, createChannelMutation, goChannel],
+    [
+      applyAgents,
+      applyCanvas,
+      communitiesHook.activeCommunity?.relayUrl,
+      createChannelMutation,
+      createChannelProjectId,
+      goChannel,
+      identityQuery.data?.pubkey,
+    ],
   );
 
   const handleCreateForum = React.useCallback(
@@ -588,10 +614,10 @@ export function AppShell() {
     () => void goNewMessage(),
     [goNewMessage],
   );
-  const handleOpenCreateChannel = React.useCallback(
-    () => setIsCreateChannelOpen(true),
-    [],
-  );
+  const handleOpenCreateChannel = React.useCallback((projectId?: string) => {
+    setCreateChannelProjectId(projectId ?? null);
+    setIsCreateChannelOpen(true);
+  }, []);
   React.useLayoutEffect(() => {
     if (settingsOpen) {
       return;
@@ -814,7 +840,10 @@ export function AppShell() {
                             addCommunityDialog.onOpenChange
                           }
                           onNewMessage={handleOpenNewDm}
-                          onCreateChannelOpenChange={setIsCreateChannelOpen}
+                          onCreateChannelOpenChange={(open) => {
+                            setIsCreateChannelOpen(open);
+                            if (!open) setCreateChannelProjectId(null);
+                          }}
                           onOpenAddCommunity={addCommunityDialog.openDialog}
                           onSendFeedback={() => setIsSendFeedbackOpen(true)}
                           onUpdateCommunity={communitiesHook.updateCommunity}

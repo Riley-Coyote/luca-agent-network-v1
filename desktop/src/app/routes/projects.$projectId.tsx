@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useChannelsQuery } from "@/features/channels/hooks";
+import { useCommunities } from "@/features/communities/useCommunities";
 import {
   readLastProjectRoom,
   useRoomProjectCatalog,
@@ -14,6 +15,7 @@ import {
   ProjectRoomWorkspace,
 } from "@/features/projects/ui/ProjectRoomWorkspace";
 import { usePreviewFeatureWarning } from "@/shared/features";
+import { useIdentityQuery } from "@/shared/api/hooks";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
 const ProjectDetailScreen = React.lazy(async () => {
@@ -39,9 +41,19 @@ function ProjectDetailRouteComponent() {
   const projectSearch = Route.useSearch();
   const { goChannel } = useAppNavigation();
   const channelsQuery = useChannelsQuery();
+  const identityQuery = useIdentityQuery();
+  const communities = useCommunities();
   const channels = channelsQuery.data ?? [];
-  const projectCatalog = useRoomProjectCatalog(channels);
-  const projectByChannelId = useRoomProjects(channels);
+  const projectCatalog = useRoomProjectCatalog(
+    channels,
+    identityQuery.data?.pubkey,
+    communities.activeCommunity?.relayUrl,
+  );
+  const projectByChannelId = useRoomProjects(
+    channels,
+    identityQuery.data?.pubkey,
+    communities.activeCommunity?.relayUrl,
+  );
   const project = projectCatalog.find(
     (candidate) => candidate.id === projectId,
   );
@@ -81,7 +93,10 @@ function ProjectDetailRouteComponent() {
       onSelectRoom={(channelId) => void goChannel(channelId)}
       viewModel={viewModel}
     >
-      <EmptyProjectConversation projectName={project.label} />
+      <EmptyProjectConversation
+        projectId={project.id}
+        projectName={project.label}
+      />
     </ProjectRoomWorkspace>
   );
 }

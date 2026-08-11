@@ -27,6 +27,7 @@ import { ConversationContextPanel } from "@/features/channels/ui/ConversationCon
 import { RightAuxiliaryPane } from "@/features/channels/ui/RightAuxiliaryPane";
 import { PendingReplyRow } from "@/features/messages/ui/PendingReplyRow";
 import { ProvisionalResponseRows } from "@/features/messages/ui/ProvisionalResponseRows";
+import { releaseManagedPresentationFinals } from "@/features/messages/managedPresentationStore";
 import { BotActivityComposerAction } from "@/features/channels/ui/BotActivityBar";
 import { ConversationAgentActivityStrip } from "@/features/channels/ui/ConversationAgentActivityStrip";
 import { useConversationPresentation } from "@/features/channels/ui/useConversationPresentation";
@@ -404,6 +405,42 @@ export const ChannelPane = React.memo(function ChannelPane({
       }),
     [activeChannel, currentPubkey, profiles],
   );
+  const managedFinalMessageIds = React.useMemo(
+    () =>
+      provisionalRows.flatMap((row) =>
+        row.finalMessageId ? [row.finalMessageId] : [],
+      ),
+    [provisionalRows],
+  );
+  const conversationTail = React.useMemo(
+    () =>
+      provisionalRows.length > 0 || pendingReplyRows.length > 0 ? (
+        <div className="mx-auto w-full max-w-[48rem] px-0">
+          <ProvisionalResponseRows
+            onCancel={handleCancelProvisionalResponse}
+            profiles={profiles}
+            rows={provisionalRows}
+          />
+          <PendingReplyRow
+            onCancel={handleCancelPendingReply}
+            onOpenAgentSession={(pubkey) =>
+              onOpenAgentSession(pubkey, activeChannelId)
+            }
+            profiles={profiles}
+            rows={pendingReplyRows}
+          />
+        </div>
+      ) : null,
+    [
+      activeChannelId,
+      handleCancelPendingReply,
+      handleCancelProvisionalResponse,
+      onOpenAgentSession,
+      pendingReplyRows,
+      profiles,
+      provisionalRows,
+    ],
+  );
 
   const handleWelcomeAddAgent = React.useCallback(() => {
     onAddAgent?.({
@@ -653,6 +690,9 @@ export const ChannelPane = React.memo(function ChannelPane({
             targetMessageId={targetMessageId}
             splitThreadPanelOpen={false}
             threadUnreadCounts={threadUnreadCounts}
+            trailingContent={conversationTail}
+            managedFinalMessageIds={managedFinalMessageIds}
+            onManagedFinalsRendered={releaseManagedPresentationFinals}
           />
           {isNonMemberView ? (
             <div
@@ -707,27 +747,6 @@ export const ChannelPane = React.memo(function ChannelPane({
                     <WelcomeComposerBanner
                       settingUp={welcomeKickoffSettingUp}
                       state={welcomeComposerBannerState}
-                    />
-                  </div>
-                ) : null}
-                {/* Directly above the composer, at the END of the conversation
-                    — which is exactly where the reply will land, because
-                    replies are chronological. Below the composer it would read
-                    as a status bar rather than as part of the room. */}
-                {provisionalRows.length > 0 || pendingReplyRows.length > 0 ? (
-                  <div className="mx-auto w-full max-w-[48rem] px-0">
-                    <ProvisionalResponseRows
-                      onCancel={handleCancelProvisionalResponse}
-                      profiles={profiles}
-                      rows={provisionalRows}
-                    />
-                    <PendingReplyRow
-                      onCancel={handleCancelPendingReply}
-                      onOpenAgentSession={(pubkey) =>
-                        onOpenAgentSession(pubkey, activeChannelId)
-                      }
-                      profiles={profiles}
-                      rows={pendingReplyRows}
                     />
                   </div>
                 ) : null}

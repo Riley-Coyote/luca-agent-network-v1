@@ -669,7 +669,11 @@ export function useAnchoredScroll({
     // resulting append lands, snap to bottom regardless of the current anchor,
     // then clear the flag. Bail before the anchored branch so the user's own
     // message pulls the view down.
-    if (newLatestArrived && forceBottomOnNextAppendRef.current) {
+    if (
+      messagesArrived > 0 &&
+      !isPrepend &&
+      forceBottomOnNextAppendRef.current
+    ) {
       forceBottomOnNextAppendRef.current = false;
       anchorRef.current = { kind: "at-bottom" };
       settlingRef.current = true;

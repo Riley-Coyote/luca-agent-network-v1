@@ -106,6 +106,30 @@ test("broadcast fan-out renders as linear turns without creating a thread", () =
   assert.equal(replyEntry.summary, null);
 });
 
+test("same-second agent finals never render above their causal prompt", () => {
+  const prompt = message({ id: "z-prompt", accent: true, createdAt: 1 });
+  const agentFinal = message({
+    id: "a-final",
+    author: "Claude Code",
+    createdAt: 1,
+    isAgent: true,
+    parentId: "z-prompt",
+    rootId: "z-prompt",
+    depth: 1,
+    tags: [
+      ["e", "z-prompt", "", "reply"],
+      ["broadcast", "1"],
+    ],
+  });
+
+  assert.deepEqual(
+    buildMainTimelineEntries([agentFinal, prompt]).map(
+      (entry) => entry.message.id,
+    ),
+    ["z-prompt", "a-final"],
+  );
+});
+
 test("directed owner broadcasts keep one compact parent quote", () => {
   const root = message({ id: "root", author: "Claude Code", createdAt: 1 });
   const directedOwnerMessage = message({

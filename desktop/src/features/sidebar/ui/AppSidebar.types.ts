@@ -42,13 +42,16 @@ export type AppSidebarProps = {
   communities: Community[];
   onAddCommunity: (community: Community) => void;
   onAddCommunityOpenChange?: (open: boolean) => void;
-  onCreateChannel: (input: {
-    name: string;
-    description?: string;
-    visibility: ChannelVisibility;
-    ttlSeconds?: number;
-    templateId?: string;
-  }) => Promise<void>;
+  onCreateChannel: (
+    input: {
+      name: string;
+      description?: string;
+      visibility: ChannelVisibility;
+      ttlSeconds?: number;
+      templateId?: string;
+    },
+    onCreated?: (channelId: string) => void,
+  ) => Promise<void>;
   onCreateForum: (input: {
     name: string;
     description?: string;

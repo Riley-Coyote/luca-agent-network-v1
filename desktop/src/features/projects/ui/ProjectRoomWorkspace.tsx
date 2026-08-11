@@ -31,12 +31,17 @@ function relativeTime(iso: string | null): string {
   return days < 7 ? `${days}d` : `${Math.floor(days / 7)}w`;
 }
 
-function contextStatus(
-  status: ProjectNavigatorViewModel["workingContextStatus"],
-) {
-  if (status === "attached") return "Working context attached";
-  if (status === "missing") return "Working folder unavailable";
-  return "No working folder attached";
+function contextStatus(viewModel: ProjectNavigatorViewModel) {
+  if (viewModel.sourceIds.length > 0) {
+    return `${viewModel.sourceIds.length} connected ${viewModel.sourceIds.length === 1 ? "source" : "sources"}`;
+  }
+  if (viewModel.workingContextStatus === "attached") {
+    return "Working context attached";
+  }
+  if (viewModel.workingContextStatus === "missing") {
+    return "Working folder unavailable";
+  }
+  return "No connected context";
 }
 
 export function ProjectRoomNavigator({
@@ -77,15 +82,13 @@ export function ProjectRoomNavigator({
             {viewModel.workingContextStatus === "missing" ? (
               <FolderX aria-hidden className="size-3.5" />
             ) : null}
-            <span className="truncate">
-              {contextStatus(viewModel.workingContextStatus)}
-            </span>
+            <span className="truncate">{contextStatus(viewModel)}</span>
           </div>
         </div>
         <button
           aria-label="New room"
           className="luca-project-icon-button"
-          onClick={openCreateChannel}
+          onClick={() => openCreateChannel(viewModel.projectId)}
           title="New room"
           type="button"
         >
@@ -254,8 +257,10 @@ export function ProjectRoomWorkspace({
 }
 
 export function EmptyProjectConversation({
+  projectId,
   projectName,
 }: {
+  projectId: string;
   projectName: string;
 }) {
   const { openCreateChannel } = useAppShell();
@@ -268,7 +273,7 @@ export function EmptyProjectConversation({
           Create a room to give this project a durable place for messages,
           agents, files, and decisions.
         </p>
-        <button onClick={openCreateChannel} type="button">
+        <button onClick={() => openCreateChannel(projectId)} type="button">
           <Plus aria-hidden className="size-4" />
           Create first room
         </button>

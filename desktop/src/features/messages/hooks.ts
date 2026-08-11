@@ -301,6 +301,7 @@ export function useChannelSubscription(channel: Channel | null) {
         event.pubkey,
         threadReference.parentId,
         channelId,
+        event.id,
       );
     }
     if (threadReference?.parentId != null) {

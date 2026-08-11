@@ -28,11 +28,14 @@ const ProvisionalResponseRow = React.memo(function ProvisionalResponseRow({
   const active = !["cancelled", "failed"].includes(row.phase);
   return (
     <div
-      className="group/provisional px-1 py-2"
+      className="group/provisional animate-in fade-in slide-in-from-bottom-1 px-2 py-1.5 duration-300 ease-out motion-reduce:animate-none"
+      data-managed-final-message-id={row.finalMessageId ?? undefined}
       data-testid="provisional-response-row"
     >
-      <div className="flex items-baseline gap-2">
-        <span className="text-sm font-medium text-foreground/90">{name}</span>
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0 leading-4">
+        <span className="truncate text-sm font-semibold leading-4 tracking-[-0.012em] text-foreground/90">
+          {name}
+        </span>
         <span className="text-xs text-muted-foreground/65">
           {phaseLabel[row.phase]}
         </span>
@@ -52,7 +55,7 @@ const ProvisionalResponseRow = React.memo(function ProvisionalResponseRow({
       {row.publicText ? (
         <div
           aria-hidden="true"
-          className="mt-1 whitespace-pre-wrap break-words text-base leading-relaxed text-foreground/90"
+          className="-mt-0.5 whitespace-pre-wrap break-words text-base leading-relaxed text-foreground/90"
         >
           {row.publicText}
         </div>
@@ -80,10 +83,7 @@ export function ProvisionalResponseRows({
 }) {
   if (rows.length === 0) return null;
   return (
-    <div
-      className="flex flex-col gap-1 pb-2"
-      data-testid="provisional-response-rows"
-    >
+    <div className="flex flex-col" data-testid="provisional-response-rows">
       {rows.map((row) => (
         <ProvisionalResponseRow
           key={`${row.residentPubkey}:${row.dispatchReceiptId}`}

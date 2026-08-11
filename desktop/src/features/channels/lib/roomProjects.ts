@@ -21,6 +21,8 @@ import * as React from "react";
 export type RoomProject = {
   id: string;
   label: string;
+  /** Opaque Brain source ids only. Paths and source bodies never enter this store. */
+  sourceIds?: string[];
   workingContextStatus?: "attached" | "missing" | "none";
 };
 
@@ -84,6 +86,21 @@ export function roomProjectStorageKey(
   return `${STORE_KEY_PREFIX}:${normalizeScopePart(ownerPubkey, "unknown-owner")}:${normalizeScopePart(relayUrl, "local")}`;
 }
 
+function sanitizeSourceIds(input: unknown): string[] {
+  return Array.isArray(input)
+    ? [
+        ...new Set(
+          input.filter(
+            (value): value is string =>
+              typeof value === "string" &&
+              value.length <= 128 &&
+              /^[A-Za-z0-9._:-]+$/.test(value),
+          ),
+        ),
+      ].sort()
+    : [];
+}
+
 function sanitizeProject(input: unknown): RoomProject | null {
   if (!input || typeof input !== "object") return null;
   const candidate = input as Record<string, unknown>;
@@ -97,7 +114,8 @@ function sanitizeProject(input: unknown): RoomProject | null {
     candidate.workingContextStatus === "none"
       ? candidate.workingContextStatus
       : "none";
-  return { id, label, workingContextStatus };
+  const sourceIds = sanitizeSourceIds(candidate.sourceIds);
+  return { id, label, sourceIds, workingContextStatus };
 }
 
 export function parseRoomProjectStore(
@@ -230,6 +248,74 @@ export function replaceRoomProjects(
   });
 }
 
+function projectIdForLabel(label: string, existingIds: ReadonlySet<string>) {
+  const base =
+    label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48) || "project";
+  if (!existingIds.has(base)) return base;
+  let suffix = 2;
+  while (existingIds.has(`${base}-${suffix}`)) suffix += 1;
+  return `${base}-${suffix}`;
+}
+
+/** Atomically creates a local project and assigns its first canonical room. */
+export function createRoomProject(
+  ownerPubkey: string | undefined,
+  relayUrl: string | undefined,
+  input: { label: string; roomId: string; sourceIds?: readonly string[] },
+): RoomProject | null {
+  const label = input.label.trim();
+  if (!label || !input.roomId.trim()) return null;
+  const current = readRoomProjectStore(ownerPubkey, relayUrl);
+  const sourceIds = sanitizeSourceIds(input.sourceIds);
+  const id = projectIdForLabel(
+    label,
+    new Set(current.projects.map((project) => project.id)),
+  );
+  const project = sanitizeProject({
+    id,
+    label,
+    sourceIds,
+    workingContextStatus: sourceIds.length ? "attached" : "none",
+  });
+  if (!project) return null;
+  return writeRoomProjectStore(ownerPubkey, relayUrl, {
+    version: 1,
+    projects: [...current.projects, project],
+    assignments: { ...current.assignments, [input.roomId]: project.id },
+  })
+    ? project
+    : null;
+}
+
+export function updateRoomProjectSources(
+  ownerPubkey: string | undefined,
+  relayUrl: string | undefined,
+  projectId: string,
+  sourceIds: readonly string[],
+): boolean {
+  const current = readRoomProjectStore(ownerPubkey, relayUrl);
+  const sanitizedSourceIds = sanitizeSourceIds(sourceIds);
+  const projects: RoomProject[] = current.projects.map((project) =>
+    project.id === projectId
+      ? {
+          ...project,
+          sourceIds: sanitizedSourceIds,
+          workingContextStatus: sanitizedSourceIds.length
+            ? ("attached" as const)
+            : ("none" as const),
+        }
+      : project,
+  );
+  return writeRoomProjectStore(ownerPubkey, relayUrl, {
+    ...current,
+    projects,
+  });
+}
+
 /** Assign or unassign one room without changing its messaging identity. */
 export function assignRoomProject(
   ownerPubkey: string | undefined,
@@ -329,6 +415,7 @@ export function useRoomProjectCatalog(
       unique.set(project.id, {
         id: project.id,
         label: project.label,
+        sourceIds: project.sourceIds ?? [],
         workingContextStatus: project.workingContextStatus ?? "none",
       });
     }

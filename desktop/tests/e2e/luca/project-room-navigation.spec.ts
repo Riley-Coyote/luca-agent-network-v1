@@ -69,3 +69,31 @@ test("mobile projects move from their room list into the conversation", async ({
   await expect(page.getByTestId("chat-title")).toHaveText("engineering");
   await expect(mobileBack).toBeVisible();
 });
+
+test("a new project creates its first real room with chosen connected context", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock");
+
+  await page.getByTestId("create-room-project").click();
+  const dialog = page.getByTestId("create-room-project-dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByTestId("create-project-name").fill("Launch Work");
+  await dialog.getByTestId("create-project-room-name").fill("planning");
+  await expect(dialog.getByText("luca-agent-network")).toBeVisible();
+  await dialog.getByRole("button", { name: "Create project" }).click();
+
+  await expect(page.getByTestId("project-row-launch-work")).toBeVisible();
+  await expect(page.getByTestId("chat-title")).toHaveText("planning");
+  const navigator = page.getByTestId("project-room-navigator");
+  await expect(navigator).toBeVisible();
+  await expect(navigator).toContainText("2 connected sources");
+
+  await navigator.getByRole("button", { name: "New room" }).click();
+  const roomDialog = page.getByTestId("create-channel-dialog");
+  await expect(roomDialog).toContainText("Create a new room");
+  await roomDialog.getByTestId("create-channel-name").fill("shipping");
+  await roomDialog.getByTestId("create-channel-submit").click();
+  await expect(page.getByTestId("chat-title")).toHaveText("shipping");
+  await expect(navigator.getByText("shipping", { exact: true })).toBeVisible();
+});
