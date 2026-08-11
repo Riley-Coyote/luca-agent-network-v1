@@ -560,6 +560,55 @@ fn terminal_tombstones_are_body_free_and_preserve_exact_replay_identity() {
 }
 
 #[test]
+fn accepted_terminal_retains_private_cleanup_authority_until_acknowledged() {
+    const BODY: &str = "CLEANUP-BODY-MUST-NOT-APPEAR";
+    const HANDLE: &str = "sealed-event-cleanup-capability";
+    let session = id("installation-cleanup");
+    let request = request(BODY);
+    let mut outbox = CommunicationActionOutbox::new(session.clone());
+    outbox
+        .prepare(
+            &request,
+            id(HANDLE),
+            hex('a'),
+            hex('b'),
+            &session,
+            2,
+            false,
+            time("2026-08-11T12:00:00Z"),
+        )
+        .expect("prepare");
+    outbox
+        .mark_submitted(&request.idempotency_key, &session, 2, false, time("2026-08-11T12:00:01Z"))
+        .expect("submit");
+    outbox
+        .mark_accepted(
+            &request.idempotency_key,
+            hex('b'),
+            id("cleanup-publication-receipt"),
+            time("2026-08-11T12:00:02Z"),
+        )
+        .expect("accept");
+
+    let cleanup = outbox
+        .terminal_cleanup_for_request(&request)
+        .expect("cleanup lookup")
+        .expect("pending cleanup");
+    assert_eq!(cleanup.sealed_event_handle, id(HANDLE));
+    assert_eq!(cleanup.expected_event_id, hex('b'));
+    assert!(!format!("{cleanup:?}").contains(HANDLE));
+    assert!(!serde_json::to_string(&outbox.tombstones).unwrap().contains(BODY));
+
+    outbox
+        .complete_terminal_cleanup(&request.idempotency_key)
+        .expect("acknowledge cleanup");
+    assert!(outbox
+        .terminal_cleanup_for_request(&request)
+        .expect("cleanup lookup")
+        .is_none());
+}
+
+#[test]
 fn request_preflight_reuses_frozen_nonterminal_and_terminal_identity() {
     let session = id("installation-request-preflight");
     let request = request("request-only preflight sentinel");

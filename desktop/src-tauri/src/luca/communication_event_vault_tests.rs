@@ -204,6 +204,39 @@ fn exact_repeat_is_idempotent_and_binding_drift_is_rejected() {
 }
 
 #[test]
+fn seal_or_recover_reuses_the_frozen_event_without_a_replacement_signature() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let keys = Keys::generate();
+    let resident = Hex64::parse(keys.public_key().to_hex()).expect("resident");
+    let vault = vault(&dir.path().join("events"), "vault-secret", resident.clone());
+    let request = request(resident, "recover frozen event");
+    let original = signed(
+        &keys,
+        Kind::Custom(9),
+        "recover frozen event",
+        vec![channel_tag(CONVERSATION)],
+    );
+    let sealed = vault.seal(&request, &original).expect("seal original");
+    let recovered = vault
+        .seal_or_recover(&request, None)
+        .expect("recover committed slot");
+    assert_eq!(recovered, sealed);
+
+    let replacement = signed_at(
+        &keys,
+        Kind::Custom(9),
+        "recover frozen event",
+        vec![channel_tag(CONVERSATION)],
+        1_723_000_001,
+    );
+    assert_eq!(
+        vault.seal_or_recover(&request, Some(&replacement)).expect("still recover"),
+        sealed,
+        "an already-sealed semantic action never consumes a replacement signature"
+    );
+}
+
+#[test]
 fn wrong_key_tamper_and_terminal_deletion_fail_closed() {
     let dir = tempfile::tempdir().expect("tempdir");
     let keys = Keys::generate();

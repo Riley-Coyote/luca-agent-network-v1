@@ -185,6 +185,62 @@ impl CommunicationEventVault {
         })
     }
 
+    /// Return the already-frozen event for this semantic action, or seal the
+    /// supplied candidate if no slot exists yet.  In particular, callers must
+    /// probe with `None` before constructing another signature after a crash
+    /// between this vault commit and outbox preparation.
+    pub(crate) fn seal_or_recover(
+        &self,
+        request: &CommunicationActionRequestV1,
+        candidate_signed_event_json: Option<&str>,
+    ) -> Result<SealedCommunicationEvent, CommunicationEventVaultError> {
+        let binding = binding_for_request(request, &self.resident_pubkey)?;
+        let handle = derive_handle(&binding, &self.resident_pubkey)?;
+        if self.path_for(&handle)?.exists() {
+            let stored = self.load_stored(&handle)?;
+            // Re-run the complete exact binding check; an existing slot is
+            // authoritative only when it is exactly this semantic action.
+            drop(self.load_exact(
+                &handle,
+                request,
+                &stored.event_id,
+                &stored.event_sha256,
+            )?);
+            return Ok(SealedCommunicationEvent {
+                handle,
+                event_id: stored.event_id,
+                event_sha256: stored.event_sha256,
+            });
+        }
+        let candidate = candidate_signed_event_json.ok_or(CommunicationEventVaultError::NotFound)?;
+        self.seal(request, candidate)
+    }
+
+    /// Delete using only body-free terminal cleanup authority held in the
+    /// encrypted outbox tombstone.  The vault still re-verifies event identity
+    /// before deleting; no filesystem path or plaintext is exposed.
+    pub(crate) fn delete_terminal_cleanup(
+        &self,
+        handle: &OpaqueId,
+        expected_event_id: &Hex64,
+        expected_event_sha256: &Hex64,
+        _terminal: CommunicationEventVaultTerminal,
+    ) -> Result<(), CommunicationEventVaultError> {
+        let path = self.path_for(handle)?;
+        if !path.exists() {
+            return Ok(());
+        }
+        let stored = self.load_stored(handle)?;
+        if stored.event_id != *expected_event_id || stored.event_sha256 != *expected_event_sha256 {
+            return Err(CommunicationEventVaultError::Collision);
+        }
+        match std::fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err(CommunicationEventVaultError::Persistence),
+        }
+    }
+
     /// Load and re-verify the one exact signed event selected by the outbox.
     pub(crate) fn load_exact(
         &self,

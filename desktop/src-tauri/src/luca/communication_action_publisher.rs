@@ -14,9 +14,7 @@ use std::{
 };
 
 use age::secrecy::SecretString;
-use buzz_core_pkg::kind::{
-    EXPECTED_MEMBERSHIP_SNAPSHOT_VERSION, TAG_EXPECTED_MEMBERSHIP_SNAPSHOT,
-};
+use buzz_core_pkg::kind::{EXPECTED_MEMBERSHIP_SNAPSHOT_VERSION, TAG_EXPECTED_MEMBERSHIP_SNAPSHOT};
 use chrono::{DateTime, SecondsFormat, Utc};
 use luca_protocol::{
     canonical_sha256, CanonicalTimestamp, CommunicationActionOutboxStateV1,
@@ -32,16 +30,14 @@ use uuid::Uuid;
 use zeroize::Zeroize;
 
 use super::{
-    communication_action_outbox::{
-        CommunicationActionOutbox, CommunicationActionRequestPreflight,
-    },
+    communication_action_outbox::{CommunicationActionOutbox, CommunicationActionRequestPreflight},
     communication_bridge::{
-        recheck_desktop_communication_authority, BrokerFailure,
-        CommunicationConversationAuthority, CommunicationTurnAuthoritySnapshot,
-        StagedCommunicationAction,
+        recheck_desktop_communication_authority, BrokerFailure, CommunicationConversationAuthority,
+        CommunicationTurnAuthoritySnapshot, StagedCommunicationAction,
     },
     communication_event_vault::{
-        CommunicationEventVault, CommunicationEventVaultTerminal, SealedCommunicationEvent,
+        CommunicationEventVault, CommunicationEventVaultError, CommunicationEventVaultTerminal,
+        SealedCommunicationEvent,
     },
 };
 
@@ -49,10 +45,8 @@ const MESSAGE_KIND: u16 = 9;
 const MEMBERSHIP_KIND: u16 = 39_002;
 const MAX_RELAY_QUERY_EVENTS: usize = 64;
 const RELAY_TIMEOUT_SECS: u64 = 12;
-const OUTBOX_PASSPHRASE_DOMAIN: &[u8] =
-    b"luca-communication-action-outbox-passphrase-v1\0";
-const VAULT_PASSPHRASE_DOMAIN: &[u8] =
-    b"luca-communication-event-vault-passphrase-v1\0";
+const OUTBOX_PASSPHRASE_DOMAIN: &[u8] = b"luca-communication-action-outbox-passphrase-v1\0";
+const VAULT_PASSPHRASE_DOMAIN: &[u8] = b"luca-communication-event-vault-passphrase-v1\0";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CommunicationPublicationError {
@@ -125,13 +119,19 @@ fn derive_passphrase(domain: &[u8], secret: &[u8]) -> SecretString {
 
 pub(crate) trait CommunicationRelayTransport: Send + Sync + 'static {
     fn relay_self_pubkey(&self) -> &Hex64;
-    fn query(&self, filters: &[serde_json::Value]) -> Result<Vec<Event>, CommunicationPublicationError>;
+    fn query(
+        &self,
+        filters: &[serde_json::Value],
+    ) -> Result<Vec<Event>, CommunicationPublicationError>;
     fn submit_exact(&self, signed_event_json: &str) -> RelaySubmitOutcome;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RelaySubmitOutcome {
-    Accepted { event_id: Hex64, receipt_id: OpaqueId },
+    Accepted {
+        event_id: Hex64,
+        receipt_id: OpaqueId,
+    },
     ExplicitlyRejected,
     Unknown,
 }
@@ -168,7 +168,11 @@ impl HttpCommunicationRelay {
         })
     }
 
-    fn post_exact(&self, endpoint: &str, body: Vec<u8>) -> Result<reqwest::blocking::Response, CommunicationPublicationError> {
+    fn post_exact(
+        &self,
+        endpoint: &str,
+        body: Vec<u8>,
+    ) -> Result<reqwest::blocking::Response, CommunicationPublicationError> {
         let url = format!("{}{endpoint}", self.http_base_url);
         let auth = crate::relay::build_nip98_auth_header_for_keys(
             &self.resident_keys,
@@ -197,7 +201,10 @@ impl CommunicationRelayTransport for HttpCommunicationRelay {
         &self.relay_self_pubkey
     }
 
-    fn query(&self, filters: &[serde_json::Value]) -> Result<Vec<Event>, CommunicationPublicationError> {
+    fn query(
+        &self,
+        filters: &[serde_json::Value],
+    ) -> Result<Vec<Event>, CommunicationPublicationError> {
         let body = serde_json::to_vec(filters)
             .map_err(|_| CommunicationPublicationError::InvalidRequest)?;
         let response = self.post_exact("/query", body)?;
@@ -241,7 +248,10 @@ impl CommunicationRelayTransport for HttpCommunicationRelay {
         let Ok(receipt_id) = OpaqueId::parse(format!("communication-relay-{digest}")) else {
             return RelaySubmitOutcome::Unknown;
         };
-        RelaySubmitOutcome::Accepted { event_id, receipt_id }
+        RelaySubmitOutcome::Accepted {
+            event_id,
+            receipt_id,
+        }
     }
 }
 
@@ -318,12 +328,9 @@ impl ExistingConversationPublisher {
             passphrases.outbox,
         )
         .map_err(|_| CommunicationPublicationError::Persistence)?;
-        let vault = CommunicationEventVault::open(
-            vault_directory,
-            passphrases.vault,
-            resident_pubkey,
-        )
-        .map_err(|_| CommunicationPublicationError::Persistence)?;
+        let vault =
+            CommunicationEventVault::open(vault_directory, passphrases.vault, resident_pubkey)
+                .map_err(|_| CommunicationPublicationError::Persistence)?;
         let relay = Arc::new(HttpCommunicationRelay::new(
             relay_url.as_str(),
             resident_keys.clone(),
@@ -380,6 +387,24 @@ impl ExistingConversationPublisher {
     /// probed by exact event ID; relay absence retries only the already-frozen
     /// bytes. This path never creates or signs a new event.
     pub(crate) fn reconcile_one_on_start(&self) -> Result<(), CommunicationPublicationError> {
+        // Terminal tombstones retain only this private, body-free cleanup
+        // authority when a prior vault deletion could not be committed.
+        if let Some(cleanup) = self
+            .stores
+            .lock()
+            .map_err(|_| CommunicationPublicationError::Persistence)?
+            .outbox
+            .terminal_cleanup_entries()
+            .into_iter()
+            .next()
+        {
+            let mut stores = self
+                .stores
+                .lock()
+                .map_err(|_| CommunicationPublicationError::Persistence)?;
+            cleanup_terminal_event(&mut stores, cleanup)?;
+            return Ok(());
+        }
         let entry = {
             let stores = self
                 .stores
@@ -401,10 +426,7 @@ impl ExistingConversationPublisher {
                     .map_err(|_| CommunicationPublicationError::Persistence)?;
                 stores
                     .outbox
-                    .fail_before_submission(
-                        &request.idempotency_key,
-                        now_timestamp()?,
-                    )
+                    .fail_before_submission(&request.idempotency_key, now_timestamp()?)
                     .map_err(|_| CommunicationPublicationError::Persistence)?;
                 stores
                     .vault
@@ -448,16 +470,10 @@ impl ExistingConversationPublisher {
                     now_timestamp()?,
                 )
                 .map_err(|_| CommunicationPublicationError::Persistence)?;
-            stores
-                .vault
-                .delete_after_terminal(
-                    &row.sealed_event_handle,
-                    &request,
-                    &row.expected_event_id,
-                    &row.exact_event_sha256,
-                    CommunicationEventVaultTerminal::AcceptedAndFinalized,
-                )
-                .map_err(|_| CommunicationPublicationError::Persistence)?;
+            let cleanup = stores.outbox.terminal_cleanup_for_request(&request)
+                .map_err(|_| CommunicationPublicationError::Persistence)?
+                .ok_or(CommunicationPublicationError::Persistence)?;
+            cleanup_terminal_event(&mut stores, cleanup)?;
             stores
                 .outbox
                 .advance_reconcile_cursor(entry.created_order)
@@ -517,35 +533,20 @@ impl ExistingConversationPublisher {
                         now_timestamp()?,
                     )
                     .map_err(|_| CommunicationPublicationError::Persistence)?;
-                stores
-                    .vault
-                    .delete_after_terminal(
-                        &row.sealed_event_handle,
-                        &request,
-                        &row.expected_event_id,
-                        &row.exact_event_sha256,
-                        CommunicationEventVaultTerminal::AcceptedAndFinalized,
-                    )
-                    .map_err(|_| CommunicationPublicationError::Persistence)?;
+                let cleanup = stores.outbox.terminal_cleanup_for_request(&request)
+                    .map_err(|_| CommunicationPublicationError::Persistence)?
+                    .ok_or(CommunicationPublicationError::Persistence)?;
+                cleanup_terminal_event(&mut stores, cleanup)?;
             }
             RelaySubmitOutcome::ExplicitlyRejected => {
                 stores
                     .outbox
-                    .reject_during_reconciliation(
-                        &request.idempotency_key,
-                        now_timestamp()?,
-                    )
+                    .reject_during_reconciliation(&request.idempotency_key, now_timestamp()?)
                     .map_err(|_| CommunicationPublicationError::Persistence)?;
-                stores
-                    .vault
-                    .delete_after_terminal(
-                        &row.sealed_event_handle,
-                        &request,
-                        &row.expected_event_id,
-                        &row.exact_event_sha256,
-                        CommunicationEventVaultTerminal::ExplicitlyRejected,
-                    )
-                    .map_err(|_| CommunicationPublicationError::Persistence)?;
+                let cleanup = stores.outbox.terminal_cleanup_for_request(&request)
+                    .map_err(|_| CommunicationPublicationError::Persistence)?
+                    .ok_or(CommunicationPublicationError::Persistence)?;
+                cleanup_terminal_event(&mut stores, cleanup)?;
             }
             _ => {
                 stores
@@ -583,8 +584,7 @@ impl ExistingConversationPublisher {
         request: CommunicationActionRequestV1,
         expected_authority: &CommunicationTurnAuthoritySnapshot,
     ) -> Result<StagedCommunicationAction, BrokerFailure> {
-        validate_narrow_request(&request, expected_authority)
-            .map_err(map_publication_failure)?;
+        validate_narrow_request(&request, expected_authority).map_err(map_publication_failure)?;
         if self.resident_keys.public_key().to_hex() != expected_authority.resident_pubkey.as_str() {
             return Err(BrokerFailure::custody_denied());
         }
@@ -602,7 +602,16 @@ impl ExistingConversationPublisher {
                 CommunicationActionRequestPreflight::Terminal(receipt)
                     if receipt.state == CommunicationActionOutboxStateV1::Accepted =>
                 {
+                    self.retry_terminal_cleanup_for_request(&request)?;
                     Ok(staged(&request, "accepted"))
+                }
+                CommunicationActionRequestPreflight::Terminal(receipt)
+                    if receipt.state == CommunicationActionOutboxStateV1::Rejected =>
+                {
+                    self.retry_terminal_cleanup_for_request(&request)?;
+                    Err(map_publication_failure(
+                        CommunicationPublicationError::RelayRejected,
+                    ))
                 }
                 CommunicationActionRequestPreflight::Nonterminal(row)
                     if matches!(
@@ -619,18 +628,36 @@ impl ExistingConversationPublisher {
             };
         }
 
+        // A process may have died after the vault's atomic seal but before the
+        // outbox commit. Probe that deterministic slot before asking nostr to
+        // make another signature for the same semantic action.
+        let recovered_sealed = {
+            let stores = self.stores.lock().map_err(|_| BrokerFailure::outbox_unavailable())?;
+            match stores.vault.seal_or_recover(&request, None) {
+                Ok(sealed) => Some(sealed),
+                Err(CommunicationEventVaultError::NotFound) => None,
+                Err(_) => return Err(BrokerFailure::outbox_unavailable()),
+            }
+        };
+
         let first_membership = self
             .membership(existing_conversation_id(&request).map_err(map_publication_failure)?)
             .map_err(map_publication_failure)?;
         validate_membership(&request, expected_authority, &first_membership)
             .map_err(map_publication_failure)?;
-        let signed_event = build_exact_message_event(
-            &request,
-            &self.resident_keys,
-            &first_membership,
-            self.relay.as_ref(),
-        )
-        .map_err(map_publication_failure)?;
+        let signed_event = if recovered_sealed.is_none() {
+            Some(
+                build_exact_message_event(
+                    &request,
+                    &self.resident_keys,
+                    &first_membership,
+                    self.relay.as_ref(),
+                )
+                .map_err(map_publication_failure)?,
+            )
+        } else {
+            None
+        };
 
         // Cancellation, replacement, and membership can race construction.
         // Recheck both immediately before freezing the event and outbox row.
@@ -651,10 +678,12 @@ impl ExistingConversationPublisher {
                 .stores
                 .lock()
                 .map_err(|_| BrokerFailure::outbox_unavailable())?;
-            let sealed = stores
-                .vault
-                .seal(&request, signed_event.as_str())
-                .map_err(|_| BrokerFailure::outbox_unavailable())?;
+            let sealed = recovered_sealed.unwrap_or(
+                stores
+                    .vault
+                    .seal_or_recover(&request, signed_event.as_deref())
+                    .map_err(|_| BrokerFailure::outbox_unavailable())?,
+            );
             if let Some(receipt) = stores
                 .outbox
                 .preflight_existing(
@@ -685,11 +714,7 @@ impl ExistingConversationPublisher {
         };
 
         if receipt.state == CommunicationActionOutboxStateV1::Accepted {
-            self.delete_terminal_event(
-                &request,
-                &sealed,
-                CommunicationEventVaultTerminal::AcceptedAndFinalized,
-            )?;
+            self.retry_terminal_cleanup_for_request(&request)?;
             return Ok(staged(&request, "accepted"));
         }
         if receipt.state != CommunicationActionOutboxStateV1::Prepared {
@@ -851,15 +876,10 @@ impl ExistingConversationPublisher {
                         now_timestamp().map_err(map_publication_failure)?,
                     )
                     .map_err(|_| BrokerFailure::outbox_unavailable())?;
-                stores
-                    .vault
-                    .delete_after_terminal(
-                        &row.sealed_event_handle,
-                        request,
-                        &row.expected_event_id,
-                        &row.exact_event_sha256,
-                        CommunicationEventVaultTerminal::AcceptedAndFinalized,
-                    )
+                let cleanup = stores.outbox.terminal_cleanup_for_request(request)
+                    .map_err(|_| BrokerFailure::outbox_unavailable())?
+                    .ok_or_else(BrokerFailure::outbox_unavailable)?;
+                cleanup_terminal_event(&mut stores, cleanup)
                     .map_err(|_| BrokerFailure::outbox_unavailable())?;
             }
             RelaySubmitOutcome::ExplicitlyRejected => {
@@ -870,15 +890,10 @@ impl ExistingConversationPublisher {
                         now_timestamp().map_err(map_publication_failure)?,
                     )
                     .map_err(|_| BrokerFailure::outbox_unavailable())?;
-                stores
-                    .vault
-                    .delete_after_terminal(
-                        &row.sealed_event_handle,
-                        request,
-                        &row.expected_event_id,
-                        &row.exact_event_sha256,
-                        CommunicationEventVaultTerminal::ExplicitlyRejected,
-                    )
+                let cleanup = stores.outbox.terminal_cleanup_for_request(request)
+                    .map_err(|_| BrokerFailure::outbox_unavailable())?
+                    .ok_or_else(BrokerFailure::outbox_unavailable)?;
+                cleanup_terminal_event(&mut stores, cleanup)
                     .map_err(|_| BrokerFailure::outbox_unavailable())?;
                 return Err(map_publication_failure(
                     CommunicationPublicationError::RelayRejected,
@@ -898,28 +913,45 @@ impl ExistingConversationPublisher {
         Ok(())
     }
 
-    fn delete_terminal_event(
+    fn retry_terminal_cleanup_for_request(
         &self,
         request: &CommunicationActionRequestV1,
-        sealed: &SealedCommunicationEvent,
-        terminal: CommunicationEventVaultTerminal,
     ) -> Result<(), BrokerFailure> {
-        self.stores
-            .lock()
+        let mut stores = self.stores.lock().map_err(|_| BrokerFailure::outbox_unavailable())?;
+        let Some(cleanup) = stores
+            .outbox
+            .terminal_cleanup_for_request(request)
             .map_err(|_| BrokerFailure::outbox_unavailable())?
-            .vault
-            .delete_after_terminal(
-                &sealed.handle,
-                request,
-                &sealed.event_id,
-                &sealed.event_sha256,
-                terminal,
-            )
-            .map_err(|_| BrokerFailure::outbox_unavailable())
+        else {
+            return Ok(());
+        };
+        cleanup_terminal_event(&mut stores, cleanup).map_err(|_| BrokerFailure::outbox_unavailable())
     }
 }
 
-fn staged(request: &CommunicationActionRequestV1, state: &'static str) -> StagedCommunicationAction {
+fn cleanup_terminal_event(
+    stores: &mut PublicationStores,
+    cleanup: super::communication_action_outbox::CommunicationActionTerminalCleanup,
+) -> Result<(), CommunicationPublicationError> {
+    let terminal = match cleanup.terminal {
+        CommunicationActionOutboxStateV1::Accepted => CommunicationEventVaultTerminal::AcceptedAndFinalized,
+        CommunicationActionOutboxStateV1::Rejected => CommunicationEventVaultTerminal::ExplicitlyRejected,
+        _ => return Err(CommunicationPublicationError::Persistence),
+    };
+    stores.vault.delete_terminal_cleanup(
+        &cleanup.sealed_event_handle,
+        &cleanup.expected_event_id,
+        &cleanup.exact_event_sha256,
+        terminal,
+    ).map_err(|_| CommunicationPublicationError::Persistence)?;
+    stores.outbox.complete_terminal_cleanup(&cleanup.idempotency_key)
+        .map_err(|_| CommunicationPublicationError::Persistence)
+}
+
+fn staged(
+    request: &CommunicationActionRequestV1,
+    state: &'static str,
+) -> StagedCommunicationAction {
     StagedCommunicationAction {
         action_id: request.action_id.clone(),
         idempotency_key: request.idempotency_key.clone(),
@@ -979,7 +1011,9 @@ fn validate_membership(
     authority: &CommunicationTurnAuthoritySnapshot,
     membership: &ExistingConversationMembership,
 ) -> Result<(), CommunicationPublicationError> {
-    if !membership.participant_pubkeys.contains(&authority.owner_pubkey)
+    if !membership
+        .participant_pubkeys
+        .contains(&authority.owner_pubkey)
         || !membership
             .participant_pubkeys
             .contains(&authority.resident_pubkey)
@@ -997,7 +1031,10 @@ fn validate_membership(
             participant_set_ref,
         } if conversation_id == &membership.conversation_id
             && participant_set_version == &membership.participant_set_version
-            && participant_set_ref == &membership.participant_set_ref => Ok(()),
+            && participant_set_ref == &membership.participant_set_ref =>
+        {
+            Ok(())
+        }
         _ => Err(CommunicationPublicationError::Membership),
     }
 }
@@ -1006,8 +1043,12 @@ fn validate_restart_membership(
     request: &CommunicationActionRequestV1,
     membership: &ExistingConversationMembership,
 ) -> Result<(), CommunicationPublicationError> {
-    if !membership.participant_pubkeys.contains(&request.owner_pubkey)
-        || !membership.participant_pubkeys.contains(&request.resident_pubkey)
+    if !membership
+        .participant_pubkeys
+        .contains(&request.owner_pubkey)
+        || !membership
+            .participant_pubkeys
+            .contains(&request.resident_pubkey)
     {
         return Err(CommunicationPublicationError::Membership);
     }
@@ -1018,14 +1059,15 @@ fn validate_restart_membership(
             participant_set_ref,
         } if conversation_id == &membership.conversation_id
             && participant_set_version == &membership.participant_set_version
-            && participant_set_ref == &membership.participant_set_ref => Ok(()),
+            && participant_set_ref == &membership.participant_set_ref =>
+        {
+            Ok(())
+        }
         _ => Err(CommunicationPublicationError::Membership),
     }
 }
 
-fn reconciliation_receipt_id(
-    event_id: &Hex64,
-) -> Result<OpaqueId, CommunicationPublicationError> {
+fn reconciliation_receipt_id(event_id: &Hex64) -> Result<OpaqueId, CommunicationPublicationError> {
     OpaqueId::parse(format!("relay-reconciled-{}", event_id.as_str()))
         .map_err(|_| CommunicationPublicationError::Persistence)
 }
@@ -1188,15 +1230,20 @@ fn build_exact_message_event(
                     .flatten()
                 })
                 .unwrap_or_else(|| event_id.as_str().to_owned());
-            Ok::<crate::events::ThreadRef, CommunicationPublicationError>(crate::events::ThreadRef {
-                root_event_id: EventId::from_hex(&root)
-                    .map_err(|_| CommunicationPublicationError::InvalidRequest)?,
-                parent_event_id: EventId::from_hex(event_id.as_str())
-                    .map_err(|_| CommunicationPublicationError::InvalidRequest)?,
-            })
+            Ok::<crate::events::ThreadRef, CommunicationPublicationError>(
+                crate::events::ThreadRef {
+                    root_event_id: EventId::from_hex(&root)
+                        .map_err(|_| CommunicationPublicationError::InvalidRequest)?,
+                    parent_event_id: EventId::from_hex(event_id.as_str())
+                        .map_err(|_| CommunicationPublicationError::InvalidRequest)?,
+                },
+            )
         })
         .transpose()?;
-    let mention_refs = mention_pubkeys.iter().map(Hex64::as_str).collect::<Vec<_>>();
+    let mention_refs = mention_pubkeys
+        .iter()
+        .map(Hex64::as_str)
+        .collect::<Vec<_>>();
     let client_tags = vec![vec![
         "client".to_owned(),
         "luca-communication-v1".to_owned(),
@@ -1396,14 +1443,15 @@ mod tests {
         authority: CommunicationTurnAuthoritySnapshot,
     }
 
-    fn publisher_fixture(submit_results: impl IntoIterator<Item = FakeSubmitResult>) -> PublisherFixture {
+    fn publisher_fixture(
+        submit_results: impl IntoIterator<Item = FakeSubmitResult>,
+    ) -> PublisherFixture {
         let relay_keys = keys("41");
         let owner_keys = keys("42");
         let resident_keys = keys("43");
         let owner_pubkey = Hex64::parse(owner_keys.public_key().to_hex()).unwrap();
         let resident_pubkey = Hex64::parse(resident_keys.public_key().to_hex()).unwrap();
-        let conversation_id =
-            OpaqueId::parse("55555555-5555-4555-8555-555555555555").unwrap();
+        let conversation_id = OpaqueId::parse("55555555-5555-4555-8555-555555555555").unwrap();
         let membership_event = membership_event(
             &relay_keys,
             conversation_id.as_str(),
@@ -1541,12 +1589,7 @@ mod tests {
         let owner = keys("26");
         let resident = keys("27");
         let conversation = OpaqueId::parse("44444444-4444-4444-8444-444444444444").unwrap();
-        let canonical = membership_event(
-            &relay,
-            conversation.as_str(),
-            &[&owner, &resident],
-            10,
-        );
+        let canonical = membership_event(&relay, conversation.as_str(), &[&owner, &resident], 10);
         let forged = membership_event(&attacker, conversation.as_str(), &[&attacker], 11);
         let snapshot = newest_membership(
             vec![forged, canonical.clone()],
@@ -1590,7 +1633,10 @@ mod tests {
         assert_eq!(submitted.len(), 1);
         let event = Event::from_json(&submitted[0]).unwrap();
         assert_eq!(event.kind, Kind::Custom(MESSAGE_KIND));
-        assert_eq!(event.pubkey.to_hex(), fixture.request.resident_pubkey.as_str());
+        assert_eq!(
+            event.pubkey.to_hex(),
+            fixture.request.resident_pubkey.as_str()
+        );
         assert_eq!(
             exact_tag_values(&event, "h"),
             vec![existing_conversation_id(&fixture.request)
@@ -1620,10 +1666,7 @@ mod tests {
 
     #[test]
     fn publication_unknown_retry_reuses_identical_frozen_event() {
-        let fixture = publisher_fixture([
-            FakeSubmitResult::Unknown,
-            FakeSubmitResult::Accepted,
-        ]);
+        let fixture = publisher_fixture([FakeSubmitResult::Unknown, FakeSubmitResult::Accepted]);
         assert!(fixture
             .publisher
             .stage_and_publish(fixture.request.clone(), &fixture.authority)
@@ -1642,11 +1685,39 @@ mod tests {
     }
 
     #[test]
+    fn seal_before_prepare_crash_recovers_the_original_signed_event() {
+        let fixture = publisher_fixture([FakeSubmitResult::Accepted]);
+        let membership = fixture
+            .publisher
+            .membership(existing_conversation_id(&fixture.request).unwrap())
+            .expect("membership");
+        let frozen = build_exact_message_event(
+            &fixture.request,
+            &fixture.publisher.resident_keys,
+            &membership,
+            fixture.publisher.relay.as_ref(),
+        )
+        .expect("sign once");
+        fixture
+            .publisher
+            .stores
+            .lock()
+            .unwrap()
+            .vault
+            .seal(&fixture.request, frozen.as_str())
+            .expect("simulate vault commit before outbox prepare");
+
+        let staged = fixture
+            .publisher
+            .stage_and_publish(fixture.request.clone(), &fixture.authority)
+            .expect("recover and prepare frozen event");
+        assert_eq!(staged.state, "accepted");
+        assert_eq!(fixture.relay.submitted(), vec![frozen.to_string()]);
+    }
+
+    #[test]
     fn startup_reconciliation_resubmits_only_the_frozen_unknown_event() {
-        let fixture = publisher_fixture([
-            FakeSubmitResult::Unknown,
-            FakeSubmitResult::Accepted,
-        ]);
+        let fixture = publisher_fixture([FakeSubmitResult::Unknown, FakeSubmitResult::Accepted]);
         assert!(fixture
             .publisher
             .stage_and_publish(fixture.request.clone(), &fixture.authority)

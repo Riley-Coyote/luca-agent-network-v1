@@ -185,12 +185,39 @@ struct StoredCommunicationActionTombstone {
     created_order: u64,
     request_sha256: Hex64,
     sealed_event_handle_sha256: Hex64,
+    /// Retained only until the corresponding vault ciphertext is deleted.
+    /// This encrypted, private field is never returned in a replay receipt.
+    #[serde(default)]
+    cleanup_pending_handle: Option<OpaqueId>,
     request_expires_at: CanonicalTimestamp,
     receipt: CommunicationActionOutboxReceipt,
     terminal_at: CanonicalTimestamp,
     accepted_event_id: Option<Hex64>,
     publication_receipt_id: Option<OpaqueId>,
     diagnostic_code: Option<OpaqueId>,
+}
+
+/// Body-free, private authority to finish deletion of terminal vault bytes.
+#[derive(Clone)]
+pub(crate) struct CommunicationActionTerminalCleanup {
+    pub(crate) idempotency_key: Hex64,
+    pub(crate) sealed_event_handle: OpaqueId,
+    pub(crate) expected_event_id: Hex64,
+    pub(crate) exact_event_sha256: Hex64,
+    pub(crate) terminal: CommunicationActionOutboxStateV1,
+}
+
+impl std::fmt::Debug for CommunicationActionTerminalCleanup {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CommunicationActionTerminalCleanup")
+            .field("idempotency_key", &self.idempotency_key)
+            .field("sealed_event_handle", &"[REDACTED]")
+            .field("expected_event_id", &self.expected_event_id)
+            .field("exact_event_sha256", &self.exact_event_sha256)
+            .field("terminal", &self.terminal)
+            .finish()
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -348,6 +375,44 @@ impl CommunicationActionOutbox {
             return Ok(Some(tombstone.receipt.clone()));
         }
         Ok(None)
+    }
+
+    pub(crate) fn terminal_cleanup_for_request(
+        &self,
+        request: &CommunicationActionRequestV1,
+    ) -> Result<Option<CommunicationActionTerminalCleanup>, CommunicationActionOutboxError> {
+        let Some(tombstone) = self.tombstones.get(request.idempotency_key.as_str()) else {
+            return Ok(None);
+        };
+        validate_tombstone_request_duplicate(tombstone, request)?;
+        Ok(terminal_cleanup_from_tombstone(tombstone))
+    }
+
+    pub(crate) fn terminal_cleanup_entries(&self) -> Vec<CommunicationActionTerminalCleanup> {
+        self.tombstones
+            .values()
+            .filter_map(terminal_cleanup_from_tombstone)
+            .collect()
+    }
+
+    pub(crate) fn complete_terminal_cleanup(
+        &mut self,
+        idempotency_key: &Hex64,
+    ) -> Result<(), CommunicationActionOutboxError> {
+        let previous = self.tombstones.clone();
+        let tombstone = self
+            .tombstones
+            .get_mut(idempotency_key.as_str())
+            .ok_or(CommunicationActionOutboxError::NotFound)?;
+        if tombstone.cleanup_pending_handle.is_none() {
+            return Ok(());
+        }
+        tombstone.cleanup_pending_handle = None;
+        if let Err(error) = self.persist() {
+            self.tombstones = previous;
+            return Err(error);
+        }
+        Ok(())
     }
 
     /// Persist one exact semantic action before any network I/O.
@@ -977,6 +1042,11 @@ fn tombstone_for(
         created_order: stored.created_order,
         request_sha256: stored.request_sha256.clone(),
         sealed_event_handle_sha256: sealed_handle_sha256(&terminal_row.sealed_event_handle)?,
+        cleanup_pending_handle: matches!(
+            receipt.state,
+            CommunicationActionOutboxStateV1::Accepted | CommunicationActionOutboxStateV1::Rejected
+        )
+        .then(|| terminal_row.sealed_event_handle.clone()),
         request_expires_at: terminal_row.request.expires_at.clone(),
         receipt,
         terminal_at: terminal_row
@@ -990,6 +1060,15 @@ fn tombstone_for(
 }
 
 fn tombstone_fields_are_consistent(tombstone: &StoredCommunicationActionTombstone) -> bool {
+    if let Some(handle) = &tombstone.cleanup_pending_handle {
+        if !matches!(
+            tombstone.receipt.state,
+            CommunicationActionOutboxStateV1::Accepted | CommunicationActionOutboxStateV1::Rejected
+        ) || sealed_handle_sha256(handle).ok().as_ref() != Some(&tombstone.sealed_event_handle_sha256)
+        {
+            return false;
+        }
+    }
     match tombstone.receipt.state {
         CommunicationActionOutboxStateV1::Accepted => {
             tombstone.accepted_event_id.as_ref() == Some(&tombstone.receipt.expected_event_id)
@@ -1007,6 +1086,25 @@ fn tombstone_fields_are_consistent(tombstone: &StoredCommunicationActionTombston
         | CommunicationActionOutboxStateV1::Submitted
         | CommunicationActionOutboxStateV1::PublicationUnknown => false,
     }
+}
+
+fn terminal_cleanup_from_tombstone(
+    tombstone: &StoredCommunicationActionTombstone,
+) -> Option<CommunicationActionTerminalCleanup> {
+    let terminal = tombstone.receipt.state;
+    let sealed_event_handle = tombstone.cleanup_pending_handle.clone()?;
+    if !matches!(terminal, CommunicationActionOutboxStateV1::Accepted | CommunicationActionOutboxStateV1::Rejected)
+        || tombstone.sealed_event_handle_sha256 != sealed_handle_sha256(&sealed_event_handle).ok()?
+    {
+        return None;
+    }
+    Some(CommunicationActionTerminalCleanup {
+        idempotency_key: tombstone.receipt.idempotency_key.clone(),
+        sealed_event_handle,
+        expected_event_id: tombstone.receipt.expected_event_id.clone(),
+        exact_event_sha256: tombstone.receipt.exact_event_sha256.clone(),
+        terminal,
+    })
 }
 
 fn is_terminal_state(state: CommunicationActionOutboxStateV1) -> bool {
