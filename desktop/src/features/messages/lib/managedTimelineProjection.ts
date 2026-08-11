@@ -12,6 +12,30 @@ export type ManagedTimelineProjection = {
   suppressedFinalMessageIds: ReadonlySet<string>;
 };
 
+function deduplicateMessagesById(
+  messages: readonly TimelineMessage[],
+): TimelineMessage[] {
+  const positions = new Map<string, number>();
+  const unique: TimelineMessage[] = [];
+  for (const message of messages) {
+    const existingIndex = positions.get(message.id);
+    if (existingIndex === undefined) {
+      positions.set(message.id, unique.length);
+      unique.push(message);
+      continue;
+    }
+    const existing = unique[existingIndex];
+    // A relay echo can overlap its optimistic copy for one render. Preserve
+    // the first timeline position while preferring the durable canonical row.
+    if (existing.pending && !message.pending) {
+      unique[existingIndex] = message;
+    } else if (existing.pending === message.pending) {
+      unique[existingIndex] = message;
+    }
+  }
+  return unique;
+}
+
 function unixSeconds(timestamp: number): number {
   return timestamp > 10_000_000_000
     ? Math.floor(timestamp / 1_000)
@@ -87,6 +111,7 @@ export function projectManagedTimelineMessages(
   residentPersonaIdLookup?: ReadonlyMap<string, string | null>,
   responseSurface: ManagedResponseSurface = "timeline",
 ): ManagedTimelineProjection {
+  const uniqueMessages = deduplicateMessagesById(messages);
   const renderableSlots = [
     ...slots.filter((slot) => slot.responseSurface === responseSurface),
   ].sort(
@@ -101,12 +126,14 @@ export function projectManagedTimelineMessages(
     ),
   );
   const finalById = new Map(
-    messages
+    uniqueMessages
       .filter((message) => suppressedFinalMessageIds.has(message.id))
       .map((message) => [message.id, message]),
   );
-  const messageById = new Map(messages.map((message) => [message.id, message]));
-  const projected = messages.filter(
+  const messageById = new Map(
+    uniqueMessages.map((message) => [message.id, message]),
+  );
+  const projected = uniqueMessages.filter(
     (message) => !suppressedFinalMessageIds.has(message.id),
   );
 

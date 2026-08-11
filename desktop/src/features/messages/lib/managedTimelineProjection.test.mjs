@@ -69,6 +69,27 @@ test("hydrates a signed final in the same render slot without a duplicate", () =
   assert.equal(result.suppressedFinalMessageIds.has("signed"), true);
 });
 
+test("deduplicates overlapping optimistic and canonical owner events", () => {
+  const result = projectManagedTimelineMessages(
+    [
+      message("owner", 1_999_999_999, {
+        body: "optimistic",
+        pending: true,
+      }),
+      message("owner", 1_999_999_999, {
+        body: "canonical",
+        pending: false,
+      }),
+    ],
+    [],
+  );
+
+  assert.equal(result.messages.length, 1);
+  assert.equal(result.messages[0].id, "owner");
+  assert.equal(result.messages[0].body, "canonical");
+  assert.equal(result.messages[0].pending, false);
+});
+
 test("keeps thread-surface slots out of the main transcript", () => {
   const result = projectManagedTimelineMessages(
     [message("owner", 1_999_999_999)],
