@@ -19,6 +19,7 @@ import { cn } from "@/shared/lib/cn";
 import { channelChrome } from "@/shared/layout/chromeLayout";
 import { Button } from "@/shared/ui/button";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
+import "./chatHeader.css";
 
 type ChatHeaderProps = {
   actions?: React.ReactNode;
@@ -127,14 +128,14 @@ export function ChatHeader({
   const header = (
     <header
       className={cn(
-        "pointer-events-auto relative z-30 min-w-0 shrink-0 cursor-default select-none border-b border-border/70 bg-background px-5 py-2 transition-[margin,padding] duration-200 ease-linear",
+        "luca-chat-header pointer-events-auto relative z-30 min-w-0 shrink-0 cursor-default select-none border-b border-border/70 bg-background px-5 py-2 transition-[margin,padding] duration-200 ease-linear",
         overlaysContent && !belowSystemChrome && "-mb-14",
       )}
       data-testid="chat-header"
       data-tauri-drag-region
     >
       {centerContent ? (
-        <div className="pointer-events-auto absolute left-1/2 top-3 hidden -translate-x-1/2 items-center justify-center min-[56rem]:flex">
+        <div className="luca-chat-header__presence-wide pointer-events-auto absolute left-1/2 top-3 -translate-x-1/2 items-center justify-center">
           {centerContent}
         </div>
       ) : null}
@@ -207,7 +208,7 @@ export function ChatHeader({
         </div>
       </div>
       {centerContent ? (
-        <div className="pointer-events-auto mt-1 flex min-w-0 justify-center min-[56rem]:hidden">
+        <div className="luca-chat-header__presence-stacked pointer-events-auto mt-1 min-w-0 justify-center">
           {centerContent}
         </div>
       ) : null}

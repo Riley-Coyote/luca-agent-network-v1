@@ -1,0 +1,27 @@
+.luca-chat-header {
+  container-name: luca-chat-header;
+  container-type: inline-size;
+}
+
+.luca-chat-header__presence-wide {
+  display: none;
+}
+
+.luca-chat-header__presence-stacked {
+  display: flex;
+}
+
+/*
+ * `em` is intentionally relative to the query container. Increasing the root
+ * type size therefore raises this threshold and moves presence into its own
+ * row before the title and controls compete for space.
+ */
+@container luca-chat-header (min-width: 56em) {
+  .luca-chat-header__presence-wide {
+    display: flex;
+  }
+
+  .luca-chat-header__presence-stacked {
+    display: none;
+  }
+}

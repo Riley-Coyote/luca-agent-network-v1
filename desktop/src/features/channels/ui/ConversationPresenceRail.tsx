@@ -36,7 +36,7 @@ export function ConversationPresenceRail({
         return (
           <button
             aria-label={`Open ${name} details`}
-            className="rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             key={pubkey}
             onClick={() => onOpenResident(pubkey)}
             title={name}
@@ -57,7 +57,7 @@ export function ConversationPresenceRail({
       {hiddenCount > 0 ? (
         <button
           aria-label={`Open conversation roster. ${hiddenCount} more residents.`}
-          className="flex h-6 min-w-6 items-center justify-center rounded-md px-1 text-2xs font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex size-8 items-center justify-center rounded-md text-2xs font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           onClick={onOpenRoster}
           type="button"
         >
