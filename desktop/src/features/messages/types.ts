@@ -49,4 +49,19 @@ export type TimelineMessage = {
   kind?: number;
   tags?: string[][];
   reactions?: TimelineReaction[];
+  /** Process-memory presentation state for a managed response row. */
+  managedPresentation?: {
+    failure: "runtime" | "publication" | "unavailable" | null;
+    finalMessageId: string | null;
+    phase:
+      | "thinking"
+      | "working"
+      | "writing"
+      | "finalizing"
+      | "stopping"
+      | "stopped"
+      | "needs_attention"
+      | "failed";
+    uiKey: string;
+  };
 };
