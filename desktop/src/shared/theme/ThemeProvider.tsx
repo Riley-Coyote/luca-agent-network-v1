@@ -12,11 +12,13 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invokeTauri } from "@/shared/api/tauri";
 import { isMacPlatform } from "@/shared/lib/platform";
 import {
+  createGraphiteThemeVars,
   createLucaThemeVars,
   createThemeVars,
   hexToHsl,
 } from "./adaptive-theme";
 import {
+  GRAPHITE_THEME_NAME,
   SYNTAX_THEMES,
   type SyntaxThemeName,
   extractThemeInfo,
@@ -223,6 +225,11 @@ export function isBuzzTheme(themeName: string): boolean {
   return themeName === "buzz" || themeName === "buzz-dark";
 }
 
+/** App palettes whose selection treatment is intentionally monochrome. */
+export function isFixedNeutralTheme(themeName: string): boolean {
+  return isBuzzTheme(themeName) || themeName === GRAPHITE_THEME_NAME;
+}
+
 /**
  * Resolve the accent to actually apply for a theme. Luca's shell pins the
  * neutral accent; optional syntax themes retain a user's selection.
@@ -239,7 +246,7 @@ function resolveEffectiveAccent(
   themeName: string,
   accentColor: string,
 ): string {
-  return isBuzzTheme(themeName) ? NEUTRAL_ACCENT : accentColor;
+  return isFixedNeutralTheme(themeName) ? NEUTRAL_ACCENT : accentColor;
 }
 
 /**
@@ -442,6 +449,7 @@ let themeApplyRequest = 0;
 
 const LUCA_SHELL_THEME_VARIABLES = [
   "--mn-floor",
+  "--mn-navigator",
   "--mn-surface",
   "--mn-raised",
   "--mn-hover",
@@ -465,13 +473,15 @@ async function applyTheme(
   if (requestToken !== themeApplyRequest) return null;
 
   const info = extractThemeInfo(name, themeData);
-  const { isDark, vars } = isBuzzTheme(name)
-    ? createLucaThemeVars()
-    : createThemeVars(info.bg, info.fg, info.comment, {
-        added: info.added,
-        deleted: info.deleted,
-        modified: info.modified,
-      });
+  const { isDark, vars } = (() => {
+    if (isBuzzTheme(name)) return createLucaThemeVars();
+    if (name === GRAPHITE_THEME_NAME) return createGraphiteThemeVars();
+    return createThemeVars(info.bg, info.fg, info.comment, {
+      added: info.added,
+      deleted: info.deleted,
+      modified: info.modified,
+    });
+  })();
 
   const root = document.documentElement;
   // A non-default palette supplies `--mn-*` values so the permanent Luca shell

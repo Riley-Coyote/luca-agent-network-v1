@@ -50,6 +50,19 @@ export const VOID_PREVIEW_VARS: ThemePreviewVars = {
   "--sidebar-foreground": "220 11.8% 93.1%",
 };
 
+/** Appearance-tile snapshot of the conversation study's Graphite palette. */
+export const GRAPHITE_PREVIEW_VARS: ThemePreviewVars = {
+  "--background": "240 5.88% 6.7%",
+  "--border": "240 2.7% 14.5%",
+  "--foreground": "240 5% 92.2%",
+  "--muted": "240 5.88% 10%",
+  "--muted-foreground": "240 2.01% 51.2%",
+  "--primary": "240 5% 92.2%",
+  "--primary-foreground": "240 7.14% 5.5%",
+  "--sidebar-background": "240 7.14% 5.5%",
+  "--sidebar-foreground": "240 5% 92.2%",
+};
+
 function hsl(vars: ThemePreviewVars | null, key: string) {
   return `hsl(${vars?.[key] ?? LIGHT_PREVIEW_VARS[key]})`;
 }

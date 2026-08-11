@@ -6,11 +6,13 @@ import {
   extractThemeInfo,
   BUZZ_DARK_THEME_NAME,
   BUZZ_THEME_NAME,
+  GRAPHITE_THEME_NAME,
   isLightTheme,
   loadThemeData,
 } from "./theme-loader";
 import {
   DARK_PREVIEW_VARS,
+  GRAPHITE_PREVIEW_VARS,
   LIGHT_PREVIEW_VARS,
   type ThemePreviewVars,
   VOID_PREVIEW_VARS,
@@ -28,6 +30,9 @@ let themePreviewVarsPromise: Promise<ThemePreviewVarsByTheme> | null = null;
 async function loadThemePreviewVars(name: SyntaxThemeName) {
   if (name === BUZZ_THEME_NAME || name === BUZZ_DARK_THEME_NAME) {
     return [name, VOID_PREVIEW_VARS] as const;
+  }
+  if (name === GRAPHITE_THEME_NAME) {
+    return [name, GRAPHITE_PREVIEW_VARS] as const;
   }
   const themeData = await loadThemeData(name);
   const info = extractThemeInfo(name, themeData);

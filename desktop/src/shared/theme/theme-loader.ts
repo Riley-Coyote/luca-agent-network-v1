@@ -20,11 +20,21 @@ export const BUZZ_THEME_NAME = "buzz";
  */
 export const BUZZ_DARK_THEME_NAME = "buzz-dark";
 
+/**
+ * First-party low-contrast charcoal palette derived from the approved
+ * conversation-experience study. It is an app theme, not a bundled Shiki
+ * theme, so code highlighting resolves through {@link GRAPHITE_BASE_THEME}.
+ */
+export const GRAPHITE_THEME_NAME = "graphite";
+
 /** The Luca shell uses GitHub Dark for its syntax-highlighting baseline. */
 export const BUZZ_BASE_THEME: SyntaxThemeName = "github-dark";
 
 /** The Shiki bundle Buzz Dark borrows its base palette from. */
 export const BUZZ_DARK_BASE_THEME: SyntaxThemeName = "github-dark";
+
+/** Graphite keeps the same restrained GitHub Dark syntax baseline as Void. */
+export const GRAPHITE_BASE_THEME: SyntaxThemeName = "github-dark";
 
 /**
  * Resolve a theme name to the real Shiki bundled theme it maps to.
@@ -40,6 +50,7 @@ export const BUZZ_DARK_BASE_THEME: SyntaxThemeName = "github-dark";
 export function resolveShikiThemeName(name: string): SyntaxThemeName {
   if (name === BUZZ_THEME_NAME) return BUZZ_BASE_THEME;
   if (name === BUZZ_DARK_THEME_NAME) return BUZZ_DARK_BASE_THEME;
+  if (name === GRAPHITE_THEME_NAME) return GRAPHITE_BASE_THEME;
   return name as SyntaxThemeName;
 }
 
@@ -48,6 +59,7 @@ export function resolveShikiThemeName(name: string): SyntaxThemeName {
 export const SYNTAX_THEMES = [
   "buzz",
   "buzz-dark",
+  "graphite",
   "andromeeda",
   "aurora-x",
   "ayu-dark",
@@ -143,6 +155,7 @@ const themeImports: Record<
   // Both legacy first-party keys use the dark code palette beneath Luca's shell.
   buzz: () => import("shiki/themes/github-dark.mjs"),
   "buzz-dark": () => import("shiki/themes/github-dark.mjs"),
+  graphite: () => import("shiki/themes/github-dark.mjs"),
   andromeeda: () => import("shiki/themes/andromeeda.mjs"),
   "aurora-x": () => import("shiki/themes/aurora-x.mjs"),
   "ayu-dark": () => import("shiki/themes/ayu-dark.mjs"),

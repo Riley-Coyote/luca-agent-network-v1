@@ -183,6 +183,27 @@ export interface ThemeResult {
 }
 
 /**
+ * Source colors for the approved low-contrast charcoal shell. These values
+ * come from the conversation-experience study rather than a syntax theme.
+ * Secondary ink is lifted just enough to keep readable UI copy at WCAG AA on
+ * the raised surface while preserving the study's quieter hierarchy.
+ */
+export const GRAPHITE_THEME_COLORS = {
+  floor: "#0d0d0f",
+  navigator: "#0d0d0f",
+  surface: "#101012",
+  raised: "#151517",
+  hover: "#18181b",
+  glass: "#0b0b0d",
+  border: "#242426",
+  borderStrong: "#333336",
+  ink: "#eaeaec",
+  inkMuted: "#808085",
+  inkFaint: "#5f5f65",
+  focus: "#d6d6d8",
+} as const;
+
+/**
  * The first-party Luca shell is intentionally not derived from a syntax
  * palette. It establishes a stable, dark working canvas while syntax themes
  * continue to govern code blocks and optional appearance choices.
@@ -226,6 +247,48 @@ export function createLucaThemeVars(): ThemeResult {
       "--status-modified": "#d6a95c",
       "--ui-warning": "#d6a95c",
       "--ui-warning-bg": "rgb(214 169 92 / 12%)",
+    },
+  };
+}
+
+/**
+ * Build the Graphite app palette while retaining Luca's audited semantic
+ * signal colors. Only shell and huddle surfaces are recolored; provider marks,
+ * destructive actions, Git status, charts, and warnings keep their established
+ * semantic identities.
+ */
+export function createGraphiteThemeVars(): ThemeResult {
+  const semanticVars = createLucaThemeVars().vars;
+  const colors = GRAPHITE_THEME_COLORS;
+
+  return {
+    isDark: true,
+    vars: {
+      ...semanticVars,
+      "--mn-floor": hexToHsl(colors.floor),
+      "--mn-navigator": hexToHsl(colors.navigator),
+      "--mn-surface": hexToHsl(colors.surface),
+      "--mn-raised": hexToHsl(colors.raised),
+      "--mn-hover": hexToHsl(colors.hover),
+      "--mn-glass": hexToHsl(colors.glass),
+      "--mn-surface-raised": hexToHsl(colors.raised),
+      "--mn-surface-hover": hexToHsl(colors.hover),
+      "--mn-border": hexToHsl(colors.border),
+      "--mn-border-strong": hexToHsl(colors.borderStrong),
+      "--mn-ink": hexToHsl(colors.ink),
+      "--mn-ink-muted": hexToHsl(colors.inkMuted),
+      "--mn-ink-faint": hexToHsl(colors.inkFaint),
+      "--mn-focus": hexToHsl(colors.focus),
+      "--huddle-drawer-surface": hexToHsl(colors.raised),
+      "--huddle-control-surface": hexToHsl(colors.hover),
+      "--huddle-control-hover-surface": hexToHsl(colors.border),
+      "--huddle-control-chevron-surface": hexToHsl(colors.surface),
+      "--huddle-control-chevron-hover-surface": hexToHsl(colors.hover),
+      "--huddle-control-foreground": hexToHsl(colors.ink),
+      "--huddle-popover-surface": hexToHsl(colors.raised),
+      "--huddle-popover-border": hexToHsl(colors.borderStrong),
+      "--huddle-tooltip-surface": hexToHsl(colors.hover),
+      "--huddle-tooltip-foreground": hexToHsl(colors.ink),
     },
   };
 }

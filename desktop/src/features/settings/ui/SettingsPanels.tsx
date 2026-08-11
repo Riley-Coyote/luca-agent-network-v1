@@ -47,6 +47,7 @@ import {
 import {
   ACCENT_COLORS,
   isBuzzTheme,
+  isFixedNeutralTheme,
   NEUTRAL_ACCENT,
   useTheme,
 } from "@/shared/theme/ThemeProvider";
@@ -398,10 +399,9 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
     setFollowSystem,
   } = useTheme();
 
-  // Buzz themes pin a neutral accent (GitHub black in light, white in dark),
-  // so the accent picker is hidden while a Buzz theme is active. `themeName` is
-  // the effective theme, so this also covers System mode resolving to Buzz.
-  const accentPickerHidden = isBuzzTheme(themeName);
+  // First-party app palettes pin a neutral accent so their authored selection
+  // and focus hierarchy cannot be overwritten by a stored chromatic swatch.
+  const accentPickerHidden = isFixedNeutralTheme(themeName);
   const shouldReduceMotion = useReducedMotion();
 
   const previewVarsByTheme = useThemePreviewVars();
@@ -416,11 +416,15 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
 
   const [selectedMode, setSelectedMode] = useState<AppearanceMode>(activeMode);
 
-  const getVars = (name: SyntaxThemeName) =>
-    withAccentPreviewVars(
+  const getVars = (name: SyntaxThemeName) => {
+    const previewAccent = isFixedNeutralTheme(name)
+      ? NEUTRAL_ACCENT
+      : accentColor;
+    return withAccentPreviewVars(
       previewVarsByTheme[name] ?? getThemeFallbackPreviewVars(name),
-      accentColor,
+      previewAccent,
     );
+  };
 
   // All light themes (paired light + light-only)
   const allLightThemes = useMemo(
