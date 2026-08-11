@@ -327,9 +327,18 @@ fn current_membership_and_hidden_snapshot_helpers_fail_closed() {
         "",
         vec![vec!["d", "conversation-1"], vec!["p", owner_two.as_str()]],
     );
-    let newest = newest_event_by_d(vec![old, latest.clone()]);
-    assert_eq!(newest["conversation-1"].id, latest.id);
-    assert!(!valid_pubkey_tags(&latest, "p").contains(&hex('1')));
+    let expected = [&old, &latest]
+        .into_iter()
+        .max_by_key(|event| (event.created_at.as_secs(), event.id.to_hex()))
+        .expect("membership fixture");
+    let expected_id = expected.id;
+    let expected_members = valid_pubkey_tags(expected, "p");
+    let newest = newest_event_by_d(vec![old, latest]);
+    assert_eq!(newest["conversation-1"].id, expected_id);
+    assert_eq!(
+        valid_pubkey_tags(&newest["conversation-1"], "p"),
+        expected_members
+    );
 
     let hidden = signed_event(
         buzz_core_pkg::kind::KIND_DM_VISIBILITY as u16,

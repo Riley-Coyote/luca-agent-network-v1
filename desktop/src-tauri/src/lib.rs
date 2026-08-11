@@ -754,6 +754,7 @@ pub fn run() {
             get_canvas,
             set_canvas,
             get_feed,
+            get_luca_owner_inbox,
             search_messages,
             send_channel_message,
             list_cancellable_managed_turns,

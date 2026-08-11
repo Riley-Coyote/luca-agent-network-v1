@@ -140,26 +140,54 @@ pub(crate) struct NativeInboxProjectionRequestV1 {
 
 /// Deterministic native projection failure. It contains no message body,
 /// preview, local path, relay event, or secret value.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub(crate) enum NativeInboxProjectionError {
-    #[error("native Inbox scope is invalid")]
     InvalidScope,
-    #[error("native Inbox projection limit is invalid")]
     InvalidLimit,
-    #[error("native Inbox feed exceeds its bounded candidate limit")]
     FeedTooLarge,
-    #[error("native Inbox feed item is not canonical or authorized for this viewer")]
     InvalidFeedItem,
-    #[error("native Inbox feed contains a conflicting duplicate source")]
     ConflictingDuplicate,
-    #[error("native Inbox cursor does not identify an item in this projection")]
     CursorNotFound,
-    #[error("native Inbox canonical identity could not be derived")]
     CanonicalIdentity,
-    #[error(transparent)]
-    Protocol(#[from] CommunicationContractError),
-    #[error(transparent)]
-    ProtocolValue(#[from] ProtocolValueError),
+    Protocol(CommunicationContractError),
+    ProtocolValue(ProtocolValueError),
+}
+
+impl std::fmt::Display for NativeInboxProjectionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let message = match self {
+            Self::InvalidScope => "native Inbox scope is invalid",
+            Self::InvalidLimit => "native Inbox projection limit is invalid",
+            Self::FeedTooLarge => "native Inbox feed exceeds its bounded candidate limit",
+            Self::InvalidFeedItem => {
+                "native Inbox feed item is not canonical or authorized for this viewer"
+            }
+            Self::ConflictingDuplicate => {
+                "native Inbox feed contains a conflicting duplicate source"
+            }
+            Self::CursorNotFound => {
+                "native Inbox cursor does not identify an item in this projection"
+            }
+            Self::CanonicalIdentity => "native Inbox canonical identity could not be derived",
+            Self::Protocol(error) => return error.fmt(formatter),
+            Self::ProtocolValue(error) => return error.fmt(formatter),
+        };
+        formatter.write_str(message)
+    }
+}
+
+impl std::error::Error for NativeInboxProjectionError {}
+
+impl From<CommunicationContractError> for NativeInboxProjectionError {
+    fn from(error: CommunicationContractError) -> Self {
+        Self::Protocol(error)
+    }
+}
+
+impl From<ProtocolValueError> for NativeInboxProjectionError {
+    fn from(error: ProtocolValueError) -> Self {
+        Self::ProtocolValue(error)
+    }
 }
 
 #[derive(Serialize)]
@@ -472,7 +500,7 @@ fn structural_tags(event: &nostr::Event) -> Vec<Vec<String>> {
 fn thread_reference(event: &nostr::Event) -> (Option<Hex64>, Option<Hex64>) {
     let mut root = None;
     let mut reply = None;
-    for tag in &event.tags {
+    for tag in event.tags.iter() {
         let values = tag.as_slice();
         if values.len() < 2 || values[0] != "e" {
             continue;
