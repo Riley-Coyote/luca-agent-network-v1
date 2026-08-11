@@ -50,11 +50,11 @@ import { VirtualizedList } from "@/shared/ui/VirtualizedList";
 
 const FILTER_OPTIONS: Array<{ label: string; value: InboxFilter }> = [
   { value: "all", label: "All" },
+  { value: "direct", label: "Direct" },
   { value: "mention", label: "Mentions" },
   { value: "thread", label: "Threads" },
   { value: "needs_action", label: "Needs Action" },
-  { value: "activity", label: "Activity" },
-  { value: "agent_activity", label: "Agents" },
+  { value: "agents", label: "Agents" },
   { value: "reminders", label: "Reminders" },
   { value: "drafts", label: "Drafts" },
 ];

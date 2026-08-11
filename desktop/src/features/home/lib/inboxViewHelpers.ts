@@ -39,6 +39,14 @@ export function matchesInboxFilter(
     );
   }
 
+  if (filter === "direct") {
+    return item.item?.channelType === "dm";
+  }
+
+  if (filter === "agents") {
+    return item.categories.includes("agent_activity");
+  }
+
   return item.categories.includes(filter);
 }
 
