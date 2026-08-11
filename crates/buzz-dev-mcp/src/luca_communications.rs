@@ -8,6 +8,7 @@
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
+use nostr::prelude::rand::{rngs::OsRng, RngCore};
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
@@ -123,6 +124,7 @@ impl CommunicationsBrokerClient {
         operation: BrokerOperation,
         arguments: T,
     ) -> Result<CallToolResult, ErrorData> {
+        let operation_request_id = mint_operation_request_id();
         let frame = BrokerFrameV1 {
             protocol: BROKER_PROTOCOL,
             capability: self.capability.as_str(),
@@ -131,6 +133,7 @@ impl CommunicationsBrokerClient {
             turn_id: &self.turn_id,
             dispatch_receipt_id: &self.dispatch_receipt_id,
             cancellation_epoch: self.cancellation_epoch,
+            operation_request_id: &operation_request_id,
             operation: operation.as_str(),
             arguments,
         };
@@ -208,8 +211,35 @@ struct BrokerFrameV1<'a, T> {
     turn_id: &'a str,
     dispatch_receipt_id: &'a str,
     cancellation_epoch: u64,
+    operation_request_id: &'a str,
     operation: &'static str,
     arguments: T,
+}
+
+fn mint_operation_request_id() -> String {
+    let mut bytes = [0_u8; 16];
+    OsRng.fill_bytes(&mut bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0],
+        bytes[1],
+        bytes[2],
+        bytes[3],
+        bytes[4],
+        bytes[5],
+        bytes[6],
+        bytes[7],
+        bytes[8],
+        bytes[9],
+        bytes[10],
+        bytes[11],
+        bytes[12],
+        bytes[13],
+        bytes[14],
+        bytes[15],
+    )
 }
 
 #[derive(Deserialize)]
@@ -870,6 +900,23 @@ mod tests {
         response.ok = true;
         response.receipt.diagnostic_code = Some("turn_not_active".into());
         assert!(!should_retry_turn_not_active(&response));
+    }
+
+    #[test]
+    fn every_tool_invocation_mints_a_distinct_v4_request_id() {
+        let first = mint_operation_request_id();
+        let second = mint_operation_request_id();
+        assert_ne!(first, second);
+        assert_eq!(first.len(), 36);
+        assert_eq!(&first[14..15], "4");
+        assert!(matches!(&first[19..20], "8" | "9" | "a" | "b"));
+        assert!(first
+            .chars()
+            .enumerate()
+            .all(
+                |(index, value)| matches!(index, 8 | 13 | 18 | 23) && value == '-'
+                    || !matches!(index, 8 | 13 | 18 | 23) && value.is_ascii_hexdigit()
+            ));
     }
 
     #[test]

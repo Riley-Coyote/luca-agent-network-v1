@@ -12,7 +12,8 @@ use std::{fmt, path::Path, str::FromStr};
 
 use luca_protocol::{Hex64, OpaqueId, SafeU53, Sha256Ref};
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
+use sha2::{digest::Output, Digest, Sha256};
+use zeroize::Zeroize;
 
 use crate::acp::{EnvVar, McpServer};
 
@@ -183,26 +184,56 @@ fn derive_turn_capability(
     binding_ref: &Sha256Ref,
     turn: &CommunicationsTurnBindingV1,
 ) -> String {
-    let mut digest = Sha256::new();
-    digest.update(b"luca.communications.turn-capability.v1\0");
-    digest.update(master_capability.as_bytes());
-    digest.update(b"\0");
-    digest.update(capability_generation.get().to_be_bytes());
-    digest.update(b"\0");
-    digest.update(resident_pubkey.as_str().as_bytes());
-    digest.update(b"\0");
-    digest.update(session_epoch.get().to_be_bytes());
-    digest.update(b"\0");
-    digest.update(binding_ref.as_str().as_bytes());
-    digest.update(b"\0");
-    digest.update(turn.conversation_id.as_str().as_bytes());
-    digest.update(b"\0");
-    digest.update(turn.turn_id.as_str().as_bytes());
-    digest.update(b"\0");
-    digest.update(turn.dispatch_receipt_id.as_str().as_bytes());
-    digest.update(b"\0");
-    digest.update(turn.cancellation_epoch.get().to_be_bytes());
-    format!("sha256:{}", hex::encode(digest.finalize()))
+    let mut material = Vec::with_capacity(512);
+    material.extend_from_slice(b"luca.communications.turn-capability.v1\0");
+    material.extend_from_slice(&capability_generation.get().to_be_bytes());
+    material.push(0);
+    material.extend_from_slice(resident_pubkey.as_str().as_bytes());
+    material.push(0);
+    material.extend_from_slice(&session_epoch.get().to_be_bytes());
+    material.push(0);
+    material.extend_from_slice(binding_ref.as_str().as_bytes());
+    material.push(0);
+    material.extend_from_slice(turn.conversation_id.as_str().as_bytes());
+    material.push(0);
+    material.extend_from_slice(turn.turn_id.as_str().as_bytes());
+    material.push(0);
+    material.extend_from_slice(turn.dispatch_receipt_id.as_str().as_bytes());
+    material.push(0);
+    material.extend_from_slice(&turn.cancellation_epoch.get().to_be_bytes());
+    let digest = hmac_sha256(master_capability.as_bytes(), &material);
+    material.zeroize();
+    format!("sha256:{}", hex::encode(digest))
+}
+
+fn hmac_sha256(key: &[u8], message: &[u8]) -> Output<Sha256> {
+    const BLOCK_SIZE: usize = 64;
+    let mut key_block = [0_u8; BLOCK_SIZE];
+    if key.len() > BLOCK_SIZE {
+        let hashed = Sha256::digest(key);
+        key_block[..hashed.len()].copy_from_slice(&hashed);
+    } else {
+        key_block[..key.len()].copy_from_slice(key);
+    }
+    let mut inner_pad = [0x36_u8; BLOCK_SIZE];
+    let mut outer_pad = [0x5c_u8; BLOCK_SIZE];
+    for index in 0..BLOCK_SIZE {
+        inner_pad[index] ^= key_block[index];
+        outer_pad[index] ^= key_block[index];
+    }
+    let mut inner = Sha256::new();
+    inner.update(inner_pad);
+    inner.update(message);
+    let mut inner_digest = inner.finalize();
+    let mut outer = Sha256::new();
+    outer.update(outer_pad);
+    outer.update(inner_digest);
+    let result = outer.finalize();
+    key_block.zeroize();
+    inner_pad.zeroize();
+    outer_pad.zeroize();
+    inner_digest.zeroize();
+    result
 }
 
 #[cfg(test)]
@@ -296,6 +327,25 @@ mod tests {
         assert_ne!(
             env_value(&first, "LUCA_COMMUNICATIONS_CAPABILITY"),
             env_value(&second, "LUCA_COMMUNICATIONS_CAPABILITY"),
+        );
+    }
+
+    #[test]
+    fn capability_matches_the_trusted_broker_wire_vector() {
+        let master = format!("sha256:{}", "33".repeat(32));
+        let conversation =
+            Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").expect("fixed conversation");
+        let capability = derive_turn_capability(
+            &master,
+            SafeU53::new(9).expect("generation"),
+            &Hex64::parse("11".repeat(32)).expect("resident"),
+            SafeU53::new(7).expect("epoch"),
+            &Sha256Ref::parse(format!("sha256:{}", "22".repeat(32))).expect("binding"),
+            &turn(conversation, "turn-1", "dispatch-1"),
+        );
+        assert_eq!(
+            capability,
+            "sha256:00d5fb020bcad97fa72ab77f0d58436cec9b3adf4d62dd122d50fe387b757762"
         );
     }
 
