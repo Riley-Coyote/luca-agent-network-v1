@@ -7,6 +7,28 @@ export type ConversationActivityState =
   | "stopped"
   | "needs-attention";
 
+export type ActivityShelfRetryTarget = {
+  residentPubkey: string;
+  uiKey: string;
+};
+
+export type ActivityShelfPresentationPhase =
+  | ConversationActivityState
+  | "failed"
+  | "needs_attention";
+
+export type ActivityStopSettlement = "stopped" | "ambiguous" | "failed";
+
+export type ActivityStopOutcome = {
+  result: ActivityStopSettlement;
+  state: ConversationActivityState;
+};
+
+export type ActivityAnnouncementItem = {
+  name: string;
+  state: ConversationActivityState;
+};
+
 export type ActivityShelfSlotState = {
   /** Stable visible positions. A null entry is intentionally left empty. */
   slots: Array<string | null>;
@@ -47,6 +69,74 @@ export function conversationActivityLabel(
     case "needs-attention":
       return "Needs attention";
   }
+}
+
+/**
+ * Resolve one resident's exact retry identity. Terminal state by itself is not
+ * enough: observer and typing fallbacks have no process presentation to retry.
+ */
+export function activityShelfRetryTarget(
+  presentationPhase: ActivityShelfPresentationPhase | null | undefined,
+  residentPubkey: string,
+  uiKey: string | null | undefined,
+): ActivityShelfRetryTarget | null {
+  const terminal =
+    presentationPhase === "failed" ||
+    presentationPhase === "needs_attention" ||
+    (presentationPhase !== null &&
+      presentationPhase !== undefined &&
+      isTerminalConversationActivity(presentationPhase));
+  if (!terminal || !uiKey) return null;
+  return { residentPubkey, uiKey };
+}
+
+/**
+ * Convert exact desktop cancellation settlements into one truthful shelf
+ * outcome. An empty result means there was no cancellable managed dispatch; it
+ * must never be presented as a successful stop.
+ */
+export function activityStopOutcome(
+  settlements: readonly ActivityStopSettlement[],
+): ActivityStopOutcome {
+  if (settlements.length === 0 || settlements.includes("failed")) {
+    return { result: "failed", state: "needs-attention" };
+  }
+  if (settlements.includes("ambiguous")) {
+    return { result: "ambiguous", state: "needs-attention" };
+  }
+  return { result: "stopped", state: "stopped" };
+}
+
+/** Return only meaningful lifecycle deltas for the shelf's polite live region. */
+export function activityAnnouncementDelta(
+  previous: ReadonlyMap<string, ActivityAnnouncementItem>,
+  current: ReadonlyMap<string, ActivityAnnouncementItem>,
+): string {
+  const announcements: string[] = [];
+  for (const [key, item] of current) {
+    const prior = previous.get(key);
+    if (prior?.state === item.state) continue;
+    if (item.state === "stopped") {
+      announcements.push(`${item.name} stopped`);
+    } else if (item.state === "needs-attention") {
+      announcements.push(`${item.name} failed`);
+    } else if (item.state === "writing") {
+      announcements.push(`${item.name} began writing`);
+    } else if (!prior) {
+      announcements.push(`${item.name} started`);
+    }
+  }
+  for (const [key, item] of previous) {
+    if (
+      current.has(key) ||
+      item.state === "stopped" ||
+      item.state === "needs-attention"
+    ) {
+      continue;
+    }
+    announcements.push(`${item.name} replied`);
+  }
+  return announcements.join(". ");
 }
 
 /**

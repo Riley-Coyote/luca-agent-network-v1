@@ -17,8 +17,13 @@ import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import {
   EMPTY_ACTIVITY_SHELF_SLOTS,
+  type ActivityAnnouncementItem,
+  type ActivityShelfRetryTarget,
   type ConversationActivityState,
+  activityAnnouncementDelta,
+  activityShelfRetryTarget,
   activityShelfOverflow,
+  activityStopOutcome,
   conversationActivityLabel,
   isTerminalConversationActivity,
   reconcileActivityShelfSlots,
@@ -43,7 +48,7 @@ export type ConversationAgentActivityStripProps = {
    * receipt only after the owner presses Stop. */
   presentationActivityByPubkey?: ManagedConversationActivity;
   /** Retry remains an explicit owner action; the shelf never retries itself. */
-  onRetryResident?: (pubkey: string) => void;
+  onRetryResident?: (target: ActivityShelfRetryTarget) => void;
   /** Human typing can occupy the same reserved shelf when no resident works. */
   idleContent?: React.ReactNode;
 };
@@ -52,6 +57,7 @@ type ActivityShelfItem = {
   key: string;
   name: string;
   pubkey: string;
+  retryTarget: ActivityShelfRetryTarget | null;
   state: ConversationActivityState;
   canStop: boolean;
 };
@@ -120,7 +126,7 @@ function ActivityItem({
   compact?: boolean;
   item: ActivityShelfItem;
   onOpenResident: (pubkey: string) => void;
-  onRetryResident?: (pubkey: string) => void;
+  onRetryResident?: (target: ActivityShelfRetryTarget) => void;
   onStop: (pubkey: string) => void;
   replacement?: boolean;
 }) {
@@ -152,17 +158,19 @@ function ActivityItem({
           {stateLabel}
         </span>
       </button>
-      {terminal && onRetryResident ? (
+      {item.retryTarget && onRetryResident ? (
         <button
           aria-label={`Retry ${item.name}`}
           className="luca-activity-item__action"
-          onClick={() => onRetryResident(item.pubkey)}
+          onClick={() => {
+            if (item.retryTarget) onRetryResident(item.retryTarget);
+          }}
           type="button"
         >
           <RotateCcw aria-hidden="true" className="h-3 w-3" />
           <span>Retry</span>
         </button>
-      ) : (
+      ) : !terminal ? (
         <button
           aria-label={`Stop ${item.name}`}
           className="luca-activity-item__action"
@@ -173,7 +181,7 @@ function ActivityItem({
           <Square aria-hidden="true" className="h-3 w-3" />
           <span>{item.state === "stopping" ? "Stopping" : "Stop"}</span>
         </button>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -189,7 +197,7 @@ function ActivityDisclosure({
   items: ActivityShelfItem[];
   label: string;
   onOpenResident: (pubkey: string) => void;
-  onRetryResident?: (pubkey: string) => void;
+  onRetryResident?: (target: ActivityShelfRetryTarget) => void;
   onStop: (pubkey: string) => void;
   onStopAll: () => void;
 }) {
@@ -271,6 +279,11 @@ export function ConversationAgentActivityStrip({
   >(() => new Map());
   const terminalTimers = React.useRef(new Map<string, number>());
   const slotState = React.useRef(EMPTY_ACTIVITY_SHELF_SLOTS);
+  const announcedChannelId = React.useRef(channelId);
+  const announcedItems = React.useRef(
+    new Map<string, ActivityAnnouncementItem>(),
+  );
+  const [liveAnnouncement, setLiveAnnouncement] = React.useState("");
 
   React.useEffect(
     () => () => {
@@ -335,9 +348,16 @@ export function ConversationAgentActivityStrip({
     for (const pubkey of workingPubkeys) add(pubkey);
     for (const pubkey of observerActivity.keys()) add(pubkey);
     for (const pubkey of presentationStates.keys()) add(pubkey);
+    for (const pubkey of presentationActivity.keys()) add(pubkey);
     for (const pubkey of localStates.keys()) add(pubkey);
     return keys;
-  }, [localStates, observerActivity, presentationStates, workingPubkeys]);
+  }, [
+    localStates,
+    observerActivity,
+    presentationActivity,
+    presentationStates,
+    workingPubkeys,
+  ]);
 
   const previousSlotState = slotState.current;
   slotState.current = reconcileActivityShelfSlots(
@@ -357,12 +377,22 @@ export function ConversationAgentActivityStrip({
         presentation ??
         observed ??
         (isSessionReady(sessions.get(key)) ? "thinking" : "needs-attention");
+      const pubkey = agent?.pubkey ?? key;
+      const processActivity = presentationActivity.get(key);
       items.set(key, {
         key,
         name: agent?.name ?? "Resident",
-        pubkey: agent?.pubkey ?? key,
+        pubkey,
+        retryTarget: activityShelfRetryTarget(
+          processActivity?.phase,
+          pubkey,
+          processActivity?.uiKey,
+        ),
         state,
-        canStop: Boolean(channelId) && isStoppableState(state),
+        canStop:
+          Boolean(channelId) &&
+          Boolean(processActivity?.uiKey) &&
+          isStoppableState(state),
       });
     }
     return items;
@@ -372,14 +402,19 @@ export function ConversationAgentActivityStrip({
     knownAgents,
     localStates,
     observerActivity,
+    presentationActivity,
     presentationStates,
     sessions,
   ]);
 
-  const orderedItems = slotState.current.order.flatMap((key) => {
-    const item = itemsByKey.get(key);
-    return item ? [item] : [];
-  });
+  const orderedItems = React.useMemo(
+    () =>
+      slotState.current.order.flatMap((key) => {
+        const item = itemsByKey.get(key);
+        return item ? [item] : [];
+      }),
+    [itemsByKey],
+  );
   const visibleSlots = slotState.current.slots.slice(
     0,
     slotState.current.capacity,
@@ -506,25 +541,18 @@ export function ConversationAgentActivityStrip({
         const indices = commands.flatMap((command, index) =>
           command.key === key ? [index] : [],
         );
-        if (indices.length === 0) {
-          nextStates.set(key, inspectionFailed ? "needs-attention" : "stopped");
-          if (inspectionFailed) failed += 1;
-          else stopped += 1;
-          continue;
-        }
         const residentResults = indices.map((index) => results[index]);
-        if (residentResults.some((result) => result?.status === "rejected")) {
-          nextStates.set(key, "needs-attention");
-          failed += 1;
-          continue;
-        }
-        const hasAmbiguousFinal = residentResults.some(
-          (result) =>
-            result?.status === "fulfilled" &&
-            result.value.status === "publication_ambiguous",
+        const outcome = activityStopOutcome(
+          residentResults.map((result) => {
+            if (!result || result.status === "rejected") return "failed";
+            return result.value.status === "publication_ambiguous"
+              ? "ambiguous"
+              : "stopped";
+          }),
         );
-        nextStates.set(key, hasAmbiguousFinal ? "needs-attention" : "stopped");
-        if (hasAmbiguousFinal) ambiguous += 1;
+        nextStates.set(key, outcome.state);
+        if (outcome.result === "ambiguous") ambiguous += 1;
+        else if (outcome.result === "failed") failed += 1;
         else stopped += 1;
       }
       applyStates(nextStates);
@@ -558,13 +586,41 @@ export function ConversationAgentActivityStrip({
     (pubkey: string) => void stopResidents([pubkey]),
     [stopResidents],
   );
+  const handleRetryResident = React.useCallback(
+    (target: ActivityShelfRetryTarget) => {
+      const key = normalizePubkey(target.residentPubkey);
+      const timer = terminalTimers.current.get(key);
+      if (timer !== undefined) window.clearTimeout(timer);
+      terminalTimers.current.delete(key);
+      setLocalStates((current) => {
+        if (!current.has(key)) return current;
+        const next = new Map(current);
+        next.delete(key);
+        return next;
+      });
+      onRetryResident?.(target);
+    },
+    [onRetryResident],
+  );
   const handleStopAll = React.useCallback(
     () => void stopResidents(stoppableItems.map((item) => item.pubkey)),
     [stopResidents, stoppableItems],
   );
-  const announcement = orderedItems
-    .map((item) => `${item.name} ${conversationActivityLabel(item.state)}`)
-    .join(". ");
+  React.useEffect(() => {
+    const current = new Map(
+      orderedItems.map((item) => [
+        item.key,
+        { name: item.name, state: item.state },
+      ]),
+    );
+    const previous =
+      announcedChannelId.current === channelId
+        ? announcedItems.current
+        : new Map<string, ActivityAnnouncementItem>();
+    announcedChannelId.current = channelId;
+    announcedItems.current = current;
+    setLiveAnnouncement(activityAnnouncementDelta(previous, current));
+  }, [channelId, orderedItems]);
 
   return (
     <section
@@ -601,7 +657,9 @@ export function ConversationAgentActivityStrip({
                   item={itemsByKey.get(slot.residentKey) as ActivityShelfItem}
                   key={slot.residentKey}
                   onOpenResident={onOpenResident}
-                  onRetryResident={onRetryResident}
+                  onRetryResident={
+                    onRetryResident ? handleRetryResident : undefined
+                  }
                   onStop={handleStopResident}
                   replacement={slot.replacement}
                 />
@@ -615,7 +673,9 @@ export function ConversationAgentActivityStrip({
               items={orderedItems}
               label={`+${overflowCount} working`}
               onOpenResident={onOpenResident}
-              onRetryResident={onRetryResident}
+              onRetryResident={
+                onRetryResident ? handleRetryResident : undefined
+              }
               onStop={handleStopResident}
               onStopAll={handleStopAll}
             />
@@ -638,15 +698,17 @@ export function ConversationAgentActivityStrip({
               items={orderedItems}
               label={`${orderedItems.length} residents working`}
               onOpenResident={onOpenResident}
-              onRetryResident={onRetryResident}
+              onRetryResident={
+                onRetryResident ? handleRetryResident : undefined
+              }
               onStop={handleStopResident}
               onStopAll={handleStopAll}
             />
           </div>
         ) : null}
       </div>
-      <span aria-atomic="true" aria-live="polite" className="sr-only">
-        {announcement}
+      <span aria-live="polite" className="sr-only">
+        {liveAnnouncement}
       </span>
     </section>
   );

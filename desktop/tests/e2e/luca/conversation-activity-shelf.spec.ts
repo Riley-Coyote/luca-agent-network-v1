@@ -78,10 +78,13 @@ test("activity shelf keeps three stable residents and discloses the rest", async
   ).toHaveAttribute("data-activity-state", "thinking");
   await expect(page.getByText("+1 working", { exact: true })).toBeVisible();
   await expect(
+    page.getByRole("button", { name: "Stop Claude Code" }),
+  ).toBeDisabled();
+  await expect(
     page.getByRole("button", {
       name: "Stop all active residents in this conversation",
     }),
-  ).toBeVisible();
+  ).toHaveCount(0);
 
   const disclosure = page.getByRole("button", {
     name: "+1 working. View all resident activity.",
