@@ -33,6 +33,7 @@ pub(crate) mod managed_dispatch_store;
 pub(crate) mod managed_mcp;
 pub(crate) mod managed_message_outbox;
 mod managed_message_outbox_io;
+pub(crate) mod communication_turn_registry;
 pub(crate) mod managed_message_publisher;
 pub(crate) mod managed_permission;
 pub(crate) mod managed_presentation;

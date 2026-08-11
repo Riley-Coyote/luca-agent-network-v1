@@ -607,6 +607,15 @@ pub async fn cancel_managed_turn(
                 session_epoch,
             )
             .map_err(|error| format!("managed cancellation denied: {error:?}"))?;
+        // Communication side-effect authority is process-local and must be
+        // revoked synchronously with the durable cancellation, before the
+        // best-effort relay control event or any cancellation acknowledgement.
+        crate::luca::communication_turn_registry::revoke_dispatch(
+            &resident_pubkey,
+            session_epoch,
+            &conversation_id,
+            &dispatch_receipt_id,
+        );
         (cancellation, dispatch_receipt_id, session_epoch)
     };
     let cancellation = match cancellation {

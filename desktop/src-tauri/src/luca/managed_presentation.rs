@@ -16,6 +16,7 @@ const MAX_TERMINAL_TOMBSTONES: usize = 512;
 
 type FrameKey = (String, String, String);
 
+#[derive(Clone)]
 struct PresentationFrameGate {
     resident_pubkey: Hex64,
     session_epoch: SafeU53,
@@ -91,26 +92,6 @@ impl PresentationFrameGate {
         true
     }
 
-    /// Whether this exact frame belongs to a turn that already authenticated
-    /// its `turn_started` frame against the durable dispatch store.
-    ///
-    /// Subsequent frames are still checked by `accept` for resident, epoch,
-    /// turn, sequence, and terminal state. Avoiding a second durable-state
-    /// check is intentional: cancellation may make the dispatch terminal just
-    /// before the ACP host emits its final process-memory cancellation frame.
-    fn is_bound(&self, frame: &ManagedPresentationFrameV1) -> bool {
-        if frame.resident_pubkey != self.resident_pubkey
-            || frame.session_epoch != self.session_epoch
-        {
-            return false;
-        }
-        self.dispatch_turns
-            .get(&(
-                frame.conversation_id.as_str().to_owned(),
-                frame.dispatch_receipt_id.as_str().to_owned(),
-            ))
-            .is_some_and(|turn_id| turn_id == frame.turn_id.as_str())
-    }
 }
 
 /// Child-side descriptor for the one-way presentation socket.
@@ -152,6 +133,24 @@ fn serve(
         std::sync::Mutex<super::managed_dispatch_store::ManagedDispatchStore>,
     >,
 ) {
+    struct SessionAuthorityGuard {
+        resident_pubkey: Hex64,
+        session_epoch: SafeU53,
+    }
+
+    impl Drop for SessionAuthorityGuard {
+        fn drop(&mut self) {
+            let _ = super::communication_turn_registry::clear_session(
+                self.resident_pubkey.as_str(),
+                self.session_epoch.get(),
+            );
+        }
+    }
+
+    let _authority_guard = SessionAuthorityGuard {
+        resident_pubkey: resident_pubkey.clone(),
+        session_epoch,
+    };
     let mut reader = BufReader::new(stream);
     let mut gate = PresentationFrameGate::new(resident_pubkey, session_epoch);
     loop {
@@ -172,25 +171,81 @@ fn serve(
         let Ok(frame) = serde_json::from_slice::<ManagedPresentationFrameV1>(&line) else {
             continue;
         };
-        let already_bound = gate.is_bound(&frame);
-        let authorized_start = already_bound
-            || dispatch_store.lock().is_ok_and(|store| {
-                store
-                    .authorize_continuity_turn(
-                        frame.dispatch_receipt_id.as_str(),
+        let mut candidate_gate = gate.clone();
+        if !candidate_gate.accept(&frame) {
+            continue;
+        }
+        let now = chrono::Utc::now().timestamp().max(0) as u64;
+        match frame.kind {
+            ManagedPresentationKindV1::TurnStarted => {
+                // Reserve the exact process-memory tuple first. A broker action
+                // cannot use this brief reservation because every action also
+                // rechecks that the durable dispatch is Active. If durable
+                // binding fails, revoke the reservation before continuing.
+                if super::communication_turn_registry::observe_accepted_frame(&frame).is_err() {
+                    continue;
+                }
+                let bound = dispatch_store.lock().is_ok_and(|mut store| {
+                    store
+                        .bind_communication_turn_start(
+                            frame.dispatch_receipt_id.as_str(),
+                            frame.resident_pubkey.as_str(),
+                            frame.conversation_id.as_str(),
+                            frame.session_epoch.get(),
+                            now,
+                        )
+                        .is_ok()
+                });
+                if !bound {
+                    super::communication_turn_registry::revoke_exact(
                         frame.resident_pubkey.as_str(),
-                        frame.conversation_id.as_str(),
                         frame.session_epoch.get(),
-                        chrono::Utc::now().timestamp().max(0) as u64,
-                    )
-                    .is_ok()
-            });
-        if !authorized_start {
-            continue;
+                        frame.conversation_id.as_str(),
+                        frame.turn_id.as_str(),
+                        frame.dispatch_receipt_id.as_str(),
+                    );
+                    continue;
+                }
+            }
+            ManagedPresentationKindV1::Completed
+            | ManagedPresentationKindV1::Cancelled
+            | ManagedPresentationKindV1::Failed => {
+                // Revoke before the terminal frame is visible. This ordering is
+                // the synchronous cancellation/publication race boundary.
+                super::communication_turn_registry::revoke_exact(
+                    frame.resident_pubkey.as_str(),
+                    frame.session_epoch.get(),
+                    frame.conversation_id.as_str(),
+                    frame.turn_id.as_str(),
+                    frame.dispatch_receipt_id.as_str(),
+                );
+            }
+            ManagedPresentationKindV1::Phase | ManagedPresentationKindV1::PublicChunk => {
+                let active = super::communication_turn_registry::authorize(
+                    frame.resident_pubkey.as_str(),
+                    frame.session_epoch.get(),
+                    frame.conversation_id.as_str(),
+                    frame.turn_id.as_str(),
+                    frame.dispatch_receipt_id.as_str(),
+                )
+                .is_ok();
+                let durable = dispatch_store.lock().is_ok_and(|store| {
+                    store
+                        .recheck_communication_turn(
+                            frame.dispatch_receipt_id.as_str(),
+                            frame.resident_pubkey.as_str(),
+                            frame.conversation_id.as_str(),
+                            frame.session_epoch.get(),
+                            now,
+                        )
+                        .is_ok()
+                });
+                if !active || !durable {
+                    continue;
+                }
+            }
         }
-        if !gate.accept(&frame) {
-            continue;
-        }
+        gate = candidate_gate;
         let _ = app.emit(PRESENTATION_EVENT, frame);
     }
 }
@@ -262,12 +317,6 @@ mod tests {
             epoch,
             1,
             ManagedPresentationKindV1::TurnStarted,
-        )));
-        assert!(gate.is_bound(&frame(
-            resident.clone(),
-            epoch,
-            2,
-            ManagedPresentationKindV1::Phase,
         )));
         let mut wrong_turn = frame(resident.clone(), epoch, 2, ManagedPresentationKindV1::Phase);
         wrong_turn.turn_id = OpaqueId::parse("turn-2").unwrap();

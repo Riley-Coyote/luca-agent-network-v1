@@ -140,6 +140,10 @@ pub(crate) fn managed_capsule_broker_handle(
 }
 
 fn join_managed_signing_broker(resident_pubkey: &str) -> Result<(), String> {
+    // Process replacement, forced kill, ordinary exit, and app teardown all
+    // converge here. Revoke every communication turn before any replacement
+    // runtime can be exposed under a fresh session epoch.
+    crate::luca::communication_turn_registry::clear_resident(resident_pubkey);
     #[cfg(unix)]
     let repository_result = crate::luca::repository_bridge::stop_repository_broker(resident_pubkey);
     crate::luca::managed_cognition::unregister(resident_pubkey);
