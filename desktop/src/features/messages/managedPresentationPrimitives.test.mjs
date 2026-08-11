@@ -156,6 +156,40 @@ describe("managed presentation primitives", () => {
     assert.equal(clock.timers.size, 0);
   });
 
+  it("publishes bursty subscriber work at most once per 40ms boundary", () => {
+    const clock = new FakeClock();
+    let pendingChunks = 0;
+    let publications = 0;
+    const scheduler = new ManagedPresentationScheduler(() => {
+      assert.ok(pendingChunks > 0);
+      pendingChunks = 0;
+      publications += 1;
+      return false;
+    }, clock.api);
+    const ingestBurst = () => {
+      for (let index = 0; index < 200; index += 1) {
+        pendingChunks += 1;
+        scheduler.requestPaint();
+      }
+    };
+
+    ingestBurst();
+    assert.equal(clock.animationFrames.size, 1);
+    clock.paint();
+    assert.equal(publications, 1);
+
+    ingestBurst();
+    assert.equal(clock.animationFrames.size, 0);
+    assert.equal(clock.timers.size, 1);
+    clock.advance(MANAGED_PRESENTATION_PAINT_INTERVAL_MS - 1);
+    clock.paint();
+    assert.equal(publications, 1);
+    clock.advance(1);
+    assert.equal(clock.animationFrames.size, 1);
+    clock.paint();
+    assert.equal(publications, 2);
+  });
+
   it("owns only the nearest deadline timer and cancels it on reset", () => {
     const clock = new FakeClock();
     let deadlines = 0;

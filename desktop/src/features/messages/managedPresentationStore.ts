@@ -47,7 +47,6 @@ const terminalUiKeys = new Set<string>();
 const completedLookupKeys = new Set<string>();
 const terminalFrameLookupKeys = new Set<string>();
 const nextSlotOrdinal = new Map<string, number>();
-
 const turnListeners = new Map<string, Set<() => void>>();
 const topologyListeners = new Map<string, Set<() => void>>();
 const legacyListeners = new Map<string, Set<() => void>>();
@@ -62,7 +61,7 @@ let unlisten: UnlistenFn | null = null;
 let listenerPromise: Promise<void> | null = null;
 let creationCounter = 0;
 let paintCommitCount = 0;
-
+let legacySnapshotRebuildCount = 0;
 const scheduler = new ManagedPresentationScheduler(
   flushPendingPresentationText,
 );
@@ -70,14 +69,12 @@ const scheduler = new ManagedPresentationScheduler(
 function lookupKey(residentPubkey: string, receiptId: string): string {
   return `${residentPubkey.toLowerCase()}:${receiptId}`;
 }
-
 function addBoundedLookupKey(target: Set<string>, key: string): void {
   target.add(key);
   if (target.size <= MAX_MANAGED_PRESENTATION_ROWS) return;
   const oldest = target.values().next().value;
   if (typeof oldest === "string") target.delete(oldest);
 }
-
 function createTurn(
   conversationId: string,
   receiptId: string,
@@ -111,7 +108,6 @@ function createTurn(
     visibleText: "",
   };
 }
-
 function ensureCapacity(): void {
   if (turns.size < MAX_MANAGED_PRESENTATION_ROWS) return;
   const oldestTerminal = [...turns.keys()].find((key) =>
@@ -120,7 +116,6 @@ function ensureCapacity(): void {
   const oldest = oldestTerminal ?? turns.keys().next().value;
   if (typeof oldest === "string") removeTurn(oldest);
 }
-
 function registerTurn(turn: ManagedPresentationTurn): void {
   ensureCapacity();
   turns.set(turn.uiKey, turn);
@@ -138,7 +133,6 @@ function registerTurn(turn: ManagedPresentationTurn): void {
   notifyLegacy(turn.conversationId);
   scheduleNearestDeadline();
 }
-
 function activateResponseSlot(
   turn: ManagedPresentationTurn,
   now: number,
@@ -153,7 +147,6 @@ function activateResponseSlot(
     slotOrdinal: ordinal,
   };
 }
-
 function legacyPhase(
   phase: ManagedPresentationDisplayPhase,
 ): ManagedPresentationRow["phase"] {
@@ -161,7 +154,6 @@ function legacyPhase(
   if (phase === "needs_attention") return "failed";
   return phase;
 }
-
 function toLegacyRow(turn: ManagedPresentationTurn): ManagedPresentationRow {
   return {
     anchorAt: turn.anchorAt || turn.lastFrameAt,
@@ -177,7 +169,6 @@ function toLegacyRow(turn: ManagedPresentationTurn): ManagedPresentationRow {
     turnId: turn.turnId,
   };
 }
-
 function responseSlot(
   turn: ManagedPresentationTurn,
 ): ManagedResponseSlot | null {
@@ -223,6 +214,7 @@ function rebuildConversationTopology(conversationId: string): void {
 }
 
 function rebuildLegacySnapshot(conversationId: string): void {
+  legacySnapshotRebuildCount += 1;
   legacySnapshots.set(
     conversationId,
     turnsForConversation(conversationId).map(toLegacyRow),
@@ -275,6 +267,7 @@ function flushPendingPresentationText(now: number): boolean {
   if (pendingGraphemes.size === 0) return false;
   paintCommitCount += 1;
   const dirtyTurns: ManagedPresentationTurn[] = [];
+  const legacyConversations = new Set<string>();
   const topologyChanged = new Set<string>();
   for (const [uiKey, backlog] of pendingGraphemes) {
     const current = turns.get(uiKey);
@@ -303,8 +296,11 @@ function flushPendingPresentationText(now: number): boolean {
   }
   for (const turn of dirtyTurns) {
     notifyTurn(turn.uiKey);
-    rebuildLegacySnapshot(turn.conversationId);
-    notifyLegacy(turn.conversationId);
+    legacyConversations.add(turn.conversationId);
+  }
+  for (const conversationId of legacyConversations) {
+    rebuildLegacySnapshot(conversationId);
+    notifyLegacy(conversationId);
   }
   for (const conversationId of topologyChanged) {
     rebuildConversationTopology(conversationId);
@@ -426,19 +422,9 @@ export function ingestManagedPresentationFrame(frameValue: unknown): void {
   ) {
     return;
   }
-  let uiKey = lookupToUiKey.get(frameLookupKey);
-  let current = uiKey ? turns.get(uiKey) : undefined;
-  if (!current) {
-    const created = createTurn(
-      frame.conversation_id,
-      frame.dispatch_receipt_id,
-      frame.resident_pubkey,
-      "timeline",
-    );
-    uiKey = created.uiKey;
-    current = created;
-    registerTurn(created);
-  }
+  const uiKey = lookupToUiKey.get(frameLookupKey);
+  const current = uiKey ? turns.get(uiKey) : undefined;
+  if (!current) return;
   if (
     current.sessionEpoch === 0
       ? frame.sequence !== 1
@@ -464,7 +450,13 @@ export function ingestManagedPresentationFrame(frameValue: unknown): void {
       const withChunk = ingestPublicChunk(next, frame.public_chunk ?? "");
       if (!withChunk) return;
       next = withChunk;
-      break;
+      turns.set(next.uiKey, next);
+      upsertManagedPresentationActivity(
+        next,
+        creationOrdinals.get(next.uiKey) ?? 0,
+      );
+      scheduleNearestDeadline();
+      return;
     }
     case "completed":
       next = activateResponseSlot(
@@ -837,6 +829,19 @@ export function subscribeManagedPresentationTopology(
   };
 }
 
+export function subscribeManagedPresentationLegacy(
+  conversationId: string,
+  listener: () => void,
+): () => void {
+  const active = legacyListeners.get(conversationId) ?? new Set<() => void>();
+  active.add(listener);
+  legacyListeners.set(conversationId, active);
+  return () => {
+    active.delete(listener);
+    if (active.size === 0) legacyListeners.delete(conversationId);
+  };
+}
+
 export function useManagedPresentationTurnKeys(
   conversationId: string | null,
 ): readonly string[] {
@@ -922,17 +927,10 @@ export function useManagedPresentations(
     void ensureManagedPresentationListener();
   }, []);
   const subscribe = React.useCallback(
-    (listener: () => void) => {
-      if (!conversationId) return () => undefined;
-      const active =
-        legacyListeners.get(conversationId) ?? new Set<() => void>();
-      active.add(listener);
-      legacyListeners.set(conversationId, active);
-      return () => {
-        active.delete(listener);
-        if (active.size === 0) legacyListeners.delete(conversationId);
-      };
-    },
+    (listener: () => void) =>
+      conversationId
+        ? subscribeManagedPresentationLegacy(conversationId, listener)
+        : () => undefined,
     [conversationId],
   );
   const getSnapshot = React.useCallback(
@@ -956,9 +954,13 @@ export function expireManagedPresentationDeadlinesForTests(now?: number): void {
 }
 
 export function getManagedPresentationSchedulerStatsForTests(): {
+  legacySnapshotRebuilds: number;
   paintCommits: number;
 } {
-  return { paintCommits: paintCommitCount };
+  return {
+    legacySnapshotRebuilds: legacySnapshotRebuildCount,
+    paintCommits: paintCommitCount,
+  };
 }
 
 export function resetManagedPresentationStore(): void {
@@ -981,6 +983,7 @@ export function resetManagedPresentationStore(): void {
   legacySnapshots.clear();
   creationCounter = 0;
   paintCommitCount = 0;
+  legacySnapshotRebuildCount = 0;
   for (const active of activeTurnListeners) notifyListeners(active);
   for (const active of activeTopologyListeners) notifyListeners(active);
   for (const active of activeLegacyListeners) notifyListeners(active);

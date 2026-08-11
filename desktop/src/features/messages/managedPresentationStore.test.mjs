@@ -18,6 +18,7 @@ import {
   replaceManagedPresentationReceipt,
   resetManagedPresentationStore,
   seedManagedPresentations,
+  subscribeManagedPresentationLegacy,
   subscribeManagedPresentationTopology,
   subscribeManagedPresentationTurn,
   subscribeManagedPresentationActivity,
@@ -61,6 +62,22 @@ function flushAll() {
 afterEach(resetManagedPresentationStore);
 
 describe("managedPresentationStore", () => {
+  it("rejects unseeded frames before and after a community reset", () => {
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    assert.deepEqual(
+      getManagedPresentationTurnKeysSnapshot(conversationId),
+      [],
+    );
+
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    resetManagedPresentationStore();
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    assert.deepEqual(
+      getManagedPresentationTurnKeysSnapshot(conversationId),
+      [],
+    );
+  });
+
   it("drains chunks adaptively and preserves strict sequence", () => {
     seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
     ingestManagedPresentationFrame(frame("turn_started", 1));
@@ -134,6 +151,78 @@ describe("managedPresentationStore", () => {
     }
   });
 
+  it("keeps bursty chunk ingestion private until one scheduled publish", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    const uiKey = getManagedPresentationTurnKeysSnapshot(conversationId)[0];
+    let rowNotifications = 0;
+    const dispose = subscribeManagedPresentationTurn(uiKey, () => {
+      rowNotifications += 1;
+    });
+    const rebuildsBefore =
+      getManagedPresentationSchedulerStatsForTests().legacySnapshotRebuilds;
+
+    for (let index = 0; index < 200; index += 1) {
+      ingestManagedPresentationFrame(
+        frame("public_chunk", index + 2, { public_chunk: "x" }),
+      );
+    }
+
+    assert.equal(rowNotifications, 0);
+    assert.equal(getManagedPresentationTurn(uiKey).visibleText, "");
+    assert.equal(getManagedPresentationTurn(uiKey).receivedText.length, 200);
+    assert.equal(
+      getManagedPresentationSchedulerStatsForTests().legacySnapshotRebuilds,
+      rebuildsBefore,
+    );
+
+    flushManagedPresentationSchedulerForTests();
+    assert.equal(rowNotifications, 1);
+    assert.equal(getManagedPresentationTurn(uiKey).visibleText, "xxxxxxx");
+    assert.equal(
+      getManagedPresentationSchedulerStatsForTests().legacySnapshotRebuilds,
+      rebuildsBefore + 1,
+    );
+    dispose();
+  });
+
+  it("rebuilds and notifies one legacy snapshot per conversation per tick", () => {
+    const residents = Array.from({ length: 8 }, (_, index) =>
+      (index + 1).toString(16).padStart(2, "0").repeat(32),
+    );
+    seedManagedPresentations(conversationId, receiptId, residents);
+    residents.forEach((pubkey, index) => {
+      ingestManagedPresentationFrame(
+        frame("turn_started", 1, {
+          resident_pubkey: pubkey,
+          turn_id: `turn-${index}`,
+        }),
+      );
+      ingestManagedPresentationFrame(
+        frame("public_chunk", 2, {
+          public_chunk: "abcdefgh",
+          resident_pubkey: pubkey,
+          turn_id: `turn-${index}`,
+        }),
+      );
+    });
+    const rebuildsBefore =
+      getManagedPresentationSchedulerStatsForTests().legacySnapshotRebuilds;
+    let legacyNotifications = 0;
+    const dispose = subscribeManagedPresentationLegacy(conversationId, () => {
+      legacyNotifications += 1;
+    });
+
+    flushManagedPresentationSchedulerForTests();
+
+    assert.equal(legacyNotifications, 1);
+    assert.equal(
+      getManagedPresentationSchedulerStatsForTests().legacySnapshotRebuilds,
+      rebuildsBefore + 1,
+    );
+    dispose();
+  });
+
   it("notifies only the dirty row plus topology on first visibility", () => {
     const secondPubkey = "33".repeat(32);
     seedManagedPresentations(conversationId, receiptId, [
@@ -171,20 +260,20 @@ describe("managedPresentationStore", () => {
     disposeTopology();
   });
 
-  it("keeps a stable uiKey when authenticated streaming wins the receipt race", () => {
+  it("keeps a stable uiKey after the receipt is authenticated", () => {
     const optimisticReceipt = "optimistic:message-1";
     seedManagedPresentations(conversationId, optimisticReceipt, [
       residentPubkey,
     ]);
     const originalUiKey =
       getManagedPresentationTurnKeysSnapshot(conversationId)[0];
+    replaceManagedPresentationReceipt(optimisticReceipt, receiptId);
     ingestManagedPresentationFrame(frame("turn_started", 1));
     ingestManagedPresentationFrame(
       frame("public_chunk", 2, { public_chunk: "Already streaming" }),
     );
     flushAll();
 
-    replaceManagedPresentationReceipt(optimisticReceipt, receiptId);
     const keys = getManagedPresentationTurnKeysSnapshot(conversationId);
     assert.deepEqual(keys, [originalUiKey]);
     assert.equal(
@@ -199,6 +288,7 @@ describe("managedPresentationStore", () => {
   });
 
   it("preserves visible partial text and discards unseen text on cancellation", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
     ingestManagedPresentationFrame(frame("turn_started", 1));
     ingestManagedPresentationFrame(
       frame("public_chunk", 2, { public_chunk: "Partial backlog" }),
@@ -220,6 +310,7 @@ describe("managedPresentationStore", () => {
   });
 
   it("preserves visible partial text on failure", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
     ingestManagedPresentationFrame(frame("turn_started", 1));
     ingestManagedPresentationFrame(
       frame("public_chunk", 2, { public_chunk: "Partial failure" }),
@@ -235,6 +326,7 @@ describe("managedPresentationStore", () => {
   });
 
   it("classifies exact signed reconciliation and retains the finalized turn", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
     ingestManagedPresentationFrame(frame("turn_started", 1));
     ingestManagedPresentationFrame(
       frame("public_chunk", 2, { public_chunk: "Stream" }),
@@ -259,6 +351,7 @@ describe("managedPresentationStore", () => {
   });
 
   it("classifies stream-longer and divergent signed finals without duplicating", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
     ingestManagedPresentationFrame(frame("turn_started", 1));
     ingestManagedPresentationFrame(
       frame("public_chunk", 2, { public_chunk: "Stream is longer" }),
@@ -276,6 +369,7 @@ describe("managedPresentationStore", () => {
     assert.equal(getManagedResponseSlotsSnapshot(conversationId).length, 1);
 
     resetManagedPresentationStore();
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
     ingestManagedPresentationFrame(frame("turn_started", 1));
     ingestManagedPresentationFrame(
       frame("public_chunk", 2, { public_chunk: "Alpha" }),
@@ -421,6 +515,7 @@ describe("managedPresentationStore", () => {
   });
 
   it("shows terminal activity briefly without deleting retained partial text", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
     ingestManagedPresentationFrame(frame("turn_started", 1));
     ingestManagedPresentationFrame(
       frame("public_chunk", 2, { public_chunk: "Partial response" }),
