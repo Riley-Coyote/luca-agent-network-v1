@@ -30,8 +30,13 @@ import {
   useThreadViewMode,
   type ThreadViewMode,
 } from "@/features/channels/lib/threadViewModePreference";
+import {
+  setResidentMarksInMessages,
+  useResidentMarksInMessages,
+} from "@/features/messages/lib/conversationAppearancePreference";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
+import { Switch } from "@/shared/ui/switch";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -381,7 +386,7 @@ const ACCENT_PICKER_TRANSITION = {
   ease: [0.23, 1, 0.32, 1] as const,
 };
 
-function ThemeSettingsCard() {
+function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
   const {
     setTheme,
     selectedThemeName,
@@ -627,8 +632,50 @@ function ThemeSettingsCard() {
         </AnimatePresence>
       )}
 
-      <ThreadLayoutSetting />
+      <ConversationAppearanceSettings currentPubkey={currentPubkey} />
     </section>
+  );
+}
+
+function ConversationAppearanceSettings({
+  currentPubkey,
+}: {
+  currentPubkey?: string;
+}) {
+  const residentMarksInMessages = useResidentMarksInMessages(currentPubkey);
+
+  return (
+    <div className="mt-8">
+      <h3 className="mb-2 px-1 text-sm font-medium">Conversation</h3>
+      <SettingsOptionGroup>
+        <SettingsOptionRow>
+          <div className="min-w-0">
+            <label
+              className="text-sm font-medium"
+              htmlFor="resident-marks-in-messages-switch"
+            >
+              Resident marks in messages
+            </label>
+            <p className="text-sm font-normal text-muted-foreground">
+              Show each resident’s identity beside their messages.
+            </p>
+          </div>
+          <Switch
+            checked={residentMarksInMessages}
+            data-testid="resident-marks-in-messages-toggle"
+            disabled={!currentPubkey}
+            id="resident-marks-in-messages-switch"
+            onCheckedChange={(enabled) =>
+              setResidentMarksInMessages(currentPubkey, enabled)
+            }
+          />
+        </SettingsOptionRow>
+
+        <SettingsOptionRow className="border-t border-border/45">
+          <ThreadLayoutSetting />
+        </SettingsOptionRow>
+      </SettingsOptionGroup>
+    </div>
   );
 }
 
@@ -662,53 +709,49 @@ function ThreadLayoutSetting() {
     ) ?? THREAD_VIEW_MODE_OPTIONS[0];
 
   return (
-    <SettingsOptionGroup className="mt-8">
-      <SettingsOptionRow>
-        <div className="min-w-0">
-          <p className="text-sm font-medium">Thread layout</p>
-          <p className="text-sm font-normal text-muted-foreground">
-            {activeOption.description}
-          </p>
-        </div>
-        <DropdownMenu modal={false}>
-          <DropdownMenuTrigger asChild>
-            <Button
-              className="h-7 min-w-28 justify-between gap-1.5 rounded-full border border-border/50 bg-muted/45 px-2.5 text-xs font-medium text-foreground shadow-none hover:bg-muted/70"
-              data-testid="thread-layout-trigger"
-              size="sm"
-              type="button"
-              variant="ghost"
-            >
-              <span className="truncate">{activeOption.label}</span>
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-72">
-            <DropdownMenuRadioGroup
-              onValueChange={(next) =>
-                setThreadViewMode(next as ThreadViewMode)
-              }
-              value={threadViewMode}
-            >
-              {THREAD_VIEW_MODE_OPTIONS.map((option) => (
-                <DropdownMenuRadioItem
-                  data-testid={`thread-layout-${option.value}`}
-                  key={option.value}
-                  value={option.value}
-                >
-                  <span className="flex min-w-0 flex-col">
-                    <span className="font-medium">{option.label}</span>
-                    <span className="text-2xs text-muted-foreground">
-                      {option.description}
-                    </span>
+    <div className="flex w-full items-center justify-between gap-4">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">Thread layout</p>
+        <p className="text-sm font-normal text-muted-foreground">
+          {activeOption.description}
+        </p>
+      </div>
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            className="h-7 min-w-28 justify-between gap-1.5 rounded-full border border-border/50 bg-muted/45 px-2.5 text-xs font-medium text-foreground shadow-none hover:bg-muted/70"
+            data-testid="thread-layout-trigger"
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            <span className="truncate">{activeOption.label}</span>
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-72">
+          <DropdownMenuRadioGroup
+            onValueChange={(next) => setThreadViewMode(next as ThreadViewMode)}
+            value={threadViewMode}
+          >
+            {THREAD_VIEW_MODE_OPTIONS.map((option) => (
+              <DropdownMenuRadioItem
+                data-testid={`thread-layout-${option.value}`}
+                key={option.value}
+                value={option.value}
+              >
+                <span className="flex min-w-0 flex-col">
+                  <span className="font-medium">{option.label}</span>
+                  <span className="text-2xs text-muted-foreground">
+                    {option.description}
                   </span>
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </SettingsOptionRow>
-    </SettingsOptionGroup>
+                </span>
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
 
@@ -797,7 +840,7 @@ export function renderSettingsSection(
     case "defaults":
       return <DefaultsPermissionsSettings />;
     case "appearance":
-      return <ThemeSettingsCard />;
+      return <ThemeSettingsCard currentPubkey={props.currentPubkey} />;
     case "mobile":
       return <MobileDevicesSettings currentPubkey={props.currentPubkey} />;
     case "shortcuts":
