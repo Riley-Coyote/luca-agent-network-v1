@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { describe, it } from "node:test";
 
 import {
@@ -95,5 +96,18 @@ describe("conversationAgentActivityShelf", () => {
     assert.equal(isTerminalConversationActivity("stopped"), true);
     assert.equal(isTerminalConversationActivity("needs-attention"), true);
     assert.equal(isTerminalConversationActivity("writing"), false);
+  });
+
+  it("keeps the resident details control at a 28px minimum target", async () => {
+    const css = await readFile(
+      new URL("./conversationAgentActivityShelf.css", import.meta.url),
+      "utf8",
+    );
+    const residentRule = css.match(
+      /\.luca-activity-item__resident\s*\{([\s\S]*?)\}/,
+    );
+
+    assert.ok(residentRule);
+    assert.match(residentRule[1], /min-height:\s*28px/);
   });
 });

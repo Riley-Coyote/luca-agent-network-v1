@@ -6,13 +6,6 @@ export type ResidentMarkKind = "custom" | "codex" | "claude";
 export const DIRECT_CODEX_PERSONA_ID = "builtin:direct-runtime:codex";
 export const DIRECT_CLAUDE_PERSONA_ID = "builtin:direct-runtime:claude";
 
-export const RESIDENT_PROVIDER_MARKS: Readonly<
-  Record<Exclude<ResidentMarkKind, "custom">, string>
-> = {
-  claude: "/runtime-icons/claude.png",
-  codex: "/runtime-icons/codex.png",
-};
-
 /**
  * Provider marks identify only the two direct runtime contacts. A custom
  * resident keeps its key-derived identity even when Codex or Claude powers it.

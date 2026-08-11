@@ -1,6 +1,14 @@
 import { ArrowRight, LoaderCircle } from "lucide-react";
 
 import type { DirectRuntimeContactOption } from "@/features/messages/lib/directRuntimeContacts";
+import chatgptLogoUrl from "@/features/onboarding/assets/harness-logos/chatgpt.png?inline";
+import claudeLogoUrl from "@/features/onboarding/assets/harness-logos/claude.png?inline";
+import { cn } from "@/shared/lib/cn";
+
+const DIRECT_RUNTIME_MARKS = {
+  claude: claudeLogoUrl,
+  codex: chatgptLogoUrl,
+} as const;
 
 export function DirectRuntimeContactRow({
   contact,
@@ -35,9 +43,12 @@ export function DirectRuntimeContactRow({
         <img
           alt=""
           aria-hidden="true"
-          className="size-7 rounded-[5px] object-cover"
+          className={cn(
+            "size-7 object-contain",
+            contact.runtimeId === "codex" && "brightness-0 dark:invert",
+          )}
           data-testid={`direct-runtime-contact-icon-${contact.runtimeId}`}
-          src={contact.iconUrl}
+          src={DIRECT_RUNTIME_MARKS[contact.runtimeId]}
         />
       </span>
       <span className="min-w-0 flex-1">

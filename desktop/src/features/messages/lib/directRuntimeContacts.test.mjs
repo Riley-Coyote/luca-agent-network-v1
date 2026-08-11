@@ -45,22 +45,22 @@ test("offers familiar direct contacts in the intended order", () => {
   });
 
   assert.deepEqual(
-    contacts.map(({ displayName, iconUrl, readiness, runtimeId }) => ({
+    contacts.map(({ displayName, personaId, readiness, runtimeId }) => ({
       displayName,
-      iconUrl,
+      personaId,
       readiness,
       runtimeId,
     })),
     [
       {
         displayName: "Claude Code",
-        iconUrl: "/runtime-icons/claude.png",
+        personaId: "builtin:direct-runtime:claude",
         readiness: "ready",
         runtimeId: "claude",
       },
       {
         displayName: "Codex",
-        iconUrl: "/runtime-icons/codex.png",
+        personaId: "builtin:direct-runtime:codex",
         readiness: "ready",
         runtimeId: "codex",
       },

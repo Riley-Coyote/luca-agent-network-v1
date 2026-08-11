@@ -1,11 +1,17 @@
 import * as React from "react";
 
 import {
-  RESIDENT_PROVIDER_MARKS,
   residentIdentityCells,
   residentMarkKind,
 } from "@/features/channels/lib/residentIdentity";
+import chatgptLogoUrl from "@/features/onboarding/assets/harness-logos/chatgpt.png?inline";
+import claudeLogoUrl from "@/features/onboarding/assets/harness-logos/claude.png?inline";
 import { cn } from "@/shared/lib/cn";
+
+const PROVIDER_MARKS = {
+  claude: claudeLogoUrl,
+  codex: chatgptLogoUrl,
+} as const;
 
 export type ResidentIdentityMarkProps = {
   accessibleName: string;
@@ -79,9 +85,12 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
         <img
           alt=""
           aria-hidden="true"
-          className="block size-full object-contain"
+          className={cn(
+            "block size-full object-contain",
+            kind === "codex" && "brightness-0 dark:invert",
+          )}
           draggable={false}
-          src={RESIDENT_PROVIDER_MARKS[kind as "claude" | "codex"]}
+          src={PROVIDER_MARKS[kind as "claude" | "codex"]}
         />
       )}
     </span>
