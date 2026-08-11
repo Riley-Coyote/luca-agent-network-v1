@@ -765,7 +765,12 @@ export function reconcileManagedPresentationFinal(
       reconciliation === "divergent"
     ) {
       clearPending(current.uiKey);
-      next = { ...next, bufferedText: "" };
+      next = {
+        ...next,
+        bufferedText: "",
+        receivedText: signedText,
+        visibleText: signedText,
+      };
     }
   }
   if (
@@ -859,6 +864,23 @@ export function getManagedPresentationTurn(
   uiKey: string,
 ): ManagedPresentationTurn | null {
   return turns.get(uiKey) ?? null;
+}
+
+export function acknowledgeManagedPresentationReconciliation(
+  uiKey: string,
+  finalMessageId: string,
+): boolean {
+  const current = turns.get(uiKey);
+  if (
+    !current ||
+    current.finalMessageId !== finalMessageId ||
+    current.finalReconciliation === null
+  ) {
+    return false;
+  }
+  turns.set(uiKey, { ...current, finalReconciliation: null });
+  notifyTurn(uiKey);
+  return true;
 }
 
 export function getManagedPresentationTurnKeysSnapshot(

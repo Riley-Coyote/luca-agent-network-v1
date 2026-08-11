@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 
 import {
+  acknowledgeManagedPresentationReconciliation,
   completeManagedPresentation,
   completeManagedPresentationForConversation,
   expireManagedPresentationDeadlinesForTests,
@@ -520,6 +521,8 @@ describe("managedPresentationStore", () => {
     );
     assert.equal(turn().finalReconciliation, "stream_extends_signed");
     assert.equal(turn().signedText, "Stream");
+    assert.equal(turn().visibleText, "Stream");
+    assert.equal(turn().receivedText, "Stream");
     assert.equal(getManagedResponseSlotsSnapshot(conversationId).length, 1);
 
     resetManagedPresentationStore();
@@ -537,6 +540,57 @@ describe("managedPresentationStore", () => {
       "Omega",
     );
     assert.equal(turn().finalReconciliation, "divergent");
+    assert.equal(turn().visibleText, "Omega");
+    assert.equal(turn().receivedText, "Omega");
+  });
+
+  it("acknowledges only the matching authoritative reconciliation", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 2, { public_chunk: "Streamed" }),
+    );
+    flushAll();
+    const uiKey = turn().uiKey;
+    reconcileManagedPresentationFinal(
+      residentPubkey,
+      receiptId,
+      conversationId,
+      "signed-reconciliation",
+      "Authoritative",
+    );
+
+    assert.equal(turn().finalReconciliation, "divergent");
+    assert.equal(turn().visibleText, "Authoritative");
+    assert.equal(
+      acknowledgeManagedPresentationReconciliation(
+        "wrong-ui-key",
+        "signed-reconciliation",
+      ),
+      false,
+    );
+    assert.equal(
+      acknowledgeManagedPresentationReconciliation(uiKey, "stale-message"),
+      false,
+    );
+    assert.equal(turn().finalReconciliation, "divergent");
+    assert.equal(
+      acknowledgeManagedPresentationReconciliation(
+        uiKey,
+        "signed-reconciliation",
+      ),
+      true,
+    );
+    assert.equal(turn().finalReconciliation, null);
+    assert.equal(turn().visibleText, "Authoritative");
+    assert.equal(turn().receivedText, "Authoritative");
+    assert.equal(
+      acknowledgeManagedPresentationReconciliation(
+        uiKey,
+        "signed-reconciliation",
+      ),
+      false,
+    );
   });
 
   it("publishes a signed final atomically when no streamed grapheme was visible", () => {
