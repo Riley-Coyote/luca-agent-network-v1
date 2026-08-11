@@ -110,12 +110,9 @@ import {
 import { MarkdownTable } from "./markdown/MarkdownTable";
 import { MaskedLinkTooltip } from "./markdown/MaskedLinkTooltip";
 import { ProgressiveImage } from "./markdown/ProgressiveImage";
+import { ProgressiveMarkdownRenderer } from "./markdown/ProgressiveMarkdownRenderer";
 import { MessageLinkPill } from "./markdown/MessageLinkPill";
-import {
-  renderCachedMarkdown,
-  renderUncachedMarkdown,
-} from "./markdown/nodeCache";
-import { splitProgressiveMarkdownBlocks } from "./markdown/progressiveMarkdown";
+import { renderCachedMarkdown } from "./markdown/nodeCache";
 import {
   MarkdownRuntimeContext,
   useMarkdownRuntime,
@@ -1355,10 +1352,7 @@ function ExternalLinkAnchor({
   );
 }
 
-function createMarkdownComponents(
-  interactive = true,
-  mediaInset = false,
-): Components {
+function createMarkdownComponents(mediaInset = false): Components {
   const listItemClassName = "[&_p]:inline";
   const listClassName = "space-y-1 pl-6 marker:text-muted-foreground/80";
 
@@ -1370,6 +1364,7 @@ function createMarkdownComponents(
     const {
       channels,
       imetaByUrl,
+      interactive,
       onOpenMessageLink,
       onImportSnapshotFromUrl,
       snapshotSharedBy,
@@ -1485,20 +1480,23 @@ function createMarkdownComponents(
   }
 
   return {
-    spoiler: ({
+    spoiler: function MarkdownSpoiler({
       children,
       ...props
     }: {
       "data-block-spoiler"?: string;
       children?: React.ReactNode;
-    }) => (
-      <SpoilerInline
-        block={props["data-block-spoiler"] != null}
-        interactive={interactive}
-      >
-        {children}
-      </SpoilerInline>
-    ),
+    }) {
+      const { interactive } = useMarkdownRuntime();
+      return (
+        <SpoilerInline
+          block={props["data-block-spoiler"] != null}
+          interactive={interactive}
+        >
+          {children}
+        </SpoilerInline>
+      );
+    },
     a: MarkdownAnchor,
     blockquote: ({ children }) => (
       <blockquote className="border-l-2 border-border pl-4 italic text-muted-foreground [&>*:first-child]:mt-0 [&>*+*]:mt-2">
@@ -1572,7 +1570,7 @@ function createMarkdownComponents(
     ),
     hr: () => <hr className="border-border/80" />,
     img: function MarkdownImage({ alt, src }) {
-      const { imetaByUrl } = useMarkdownRuntime();
+      const { imetaByUrl, interactive } = useMarkdownRuntime();
       const entry = src ? imetaByUrl?.get(src) : undefined;
       const isVideo = src ? isVideoMedia(src, entry?.m) : false;
       if (!interactive) {
@@ -1636,8 +1634,8 @@ function createMarkdownComponents(
 
       return <p>{children}</p>;
     },
-    pre: ({ children }) => {
-      if (!interactive) return <span>{children}</span>;
+    pre: function MarkdownPre({ children }) {
+      const { interactive } = useMarkdownRuntime();
       let language = "";
       React.Children.forEach(children, (child) => {
         if (
@@ -1648,7 +1646,9 @@ function createMarkdownComponents(
         }
       });
       return (
-        <MarkdownCodeBlock language={language}>{children}</MarkdownCodeBlock>
+        <MarkdownCodeBlock interactive={interactive} language={language}>
+          {children}
+        </MarkdownCodeBlock>
       );
     },
     strong: ({ children }) => (
@@ -1673,7 +1673,7 @@ function createMarkdownComponents(
     }: {
       children?: React.ReactNode;
     }) {
-      const { agentMentionPubkeysByName, mentionPubkeysByName } =
+      const { agentMentionPubkeysByName, interactive, mentionPubkeysByName } =
         useMarkdownRuntime();
       const mentionText = String(children ?? "");
       const mentionName = mentionText.replace(/^@/, "").trim().toLowerCase();
@@ -1721,7 +1721,14 @@ function createMarkdownComponents(
         mentionNode
       );
     },
-    emoji: ({ src, alt }: { src?: string; alt?: string }) => {
+    emoji: function MarkdownEmoji({
+      src,
+      alt,
+    }: {
+      src?: string;
+      alt?: string;
+    }) {
+      const { interactive } = useMarkdownRuntime();
       const resolvedSrc = src ? rewriteRelayUrl(src) : src;
       if (!resolvedSrc) {
         return <span>{alt}</span>;
@@ -1736,7 +1743,7 @@ function createMarkdownComponents(
     }: {
       children?: React.ReactNode;
     }) {
-      const { channels, onOpenChannel } = useMarkdownRuntime();
+      const { channels, interactive, onOpenChannel } = useMarkdownRuntime();
       const text = String(children ?? "");
       const channelName = text.startsWith("#") ? text.slice(1) : text;
       const channel = channels.find(
@@ -1776,7 +1783,7 @@ function createMarkdownComponents(
     }: {
       children?: React.ReactNode;
     }) {
-      const { channels, onOpenMessageLink } = useMarkdownRuntime();
+      const { channels, interactive, onOpenMessageLink } = useMarkdownRuntime();
       const href = String(children ?? "");
       const parsed = parseMessageLink(href);
       if (!parsed.ok) {
@@ -1799,11 +1806,12 @@ function createMarkdownComponents(
 }
 
 /**
- * The component map only varies by the two boolean render flags, so at most
- * four instances ever exist. Module-stable maps mean cached markdown element
+ * The component map varies only by geometry. Interaction state flows through
+ * runtime context, so signing an equal streamed body never reparses it.
+ * Module-stable maps mean cached markdown element
  * trees (see ./markdown/nodeCache.ts) never embed per-mount closures.
  */
-const MARKDOWN_COMPONENT_SCHEMA_VERSION = "4";
+const MARKDOWN_COMPONENT_SCHEMA_VERSION = "5";
 const markdownComponentsByVariant = new Map<string, MarkdownComponentSet>();
 
 type MarkdownComponentSet = { components: Components; variant: string };
@@ -1815,57 +1823,18 @@ type MarkdownComponentSet = { components: Components; variant: string };
  * come from one place and cannot drift apart: a new render flag added here
  * automatically partitions the cache too.
  */
-function getMarkdownComponents(
-  interactive: boolean,
-  mediaInset: boolean,
-): MarkdownComponentSet {
-  const variant = `${MARKDOWN_COMPONENT_SCHEMA_VERSION}:${interactive ? "i" : ""}${mediaInset ? "m" : ""}`;
+function getMarkdownComponents(mediaInset: boolean): MarkdownComponentSet {
+  const variant = `${MARKDOWN_COMPONENT_SCHEMA_VERSION}:${mediaInset ? "m" : ""}`;
   let entry = markdownComponentsByVariant.get(variant);
   if (!entry) {
     entry = {
-      components: createMarkdownComponents(interactive, mediaInset),
+      components: createMarkdownComponents(mediaInset),
       variant,
     };
     markdownComponentsByVariant.set(variant, entry);
   }
   return entry;
 }
-
-type ProgressiveMarkdownBlockProps = {
-  channelNames?: string[];
-  components: Components;
-  content: string;
-  customEmoji?: MarkdownProps["customEmoji"];
-  mentionNames?: string[];
-  variant: string;
-};
-
-const ProgressiveMarkdownBlock = React.memo(
-  function ProgressiveMarkdownBlock({
-    channelNames,
-    components,
-    content,
-    customEmoji,
-    mentionNames,
-    variant,
-  }: ProgressiveMarkdownBlockProps) {
-    return renderUncachedMarkdown({
-      channelNames,
-      components,
-      content,
-      customEmoji,
-      mentionNames,
-      variant,
-    });
-  },
-  (previous, next) =>
-    previous.content === next.content &&
-    previous.components === next.components &&
-    previous.customEmoji === next.customEmoji &&
-    previous.variant === next.variant &&
-    shallowArrayEqual(previous.channelNames, next.channelNames) &&
-    shallowArrayEqual(previous.mentionNames, next.mentionNames),
-);
 
 function MarkdownInner({
   channelNames,
@@ -1879,6 +1848,7 @@ function MarkdownInner({
   mediaInset = false,
   mentionNames,
   mentionPubkeysByName,
+  progressive = false,
   searchQuery,
   snapshotSharedBy,
   streaming = false,
@@ -1926,6 +1896,7 @@ function MarkdownInner({
       agentMentionPubkeysByName,
       channels,
       imetaByUrl,
+      interactive,
       mentionPubkeysByName,
       onOpenChannel,
       onOpenMessageLink,
@@ -1943,6 +1914,7 @@ function MarkdownInner({
       agentMentionPubkeysByName,
       channels,
       imetaByUrl,
+      interactive,
       mentionPubkeysByName,
       onOpenChannel,
       onOpenMessageLink,
@@ -1970,34 +1942,18 @@ function MarkdownInner({
 
   // When a config-nudge suppresses the prose (selectProseOrNudge returns
   // null), skip the parse entirely — it would be thrown away unrendered.
-  const componentSet = getMarkdownComponents(interactive, mediaInset);
-  const progressive = React.useMemo(
-    () =>
-      streaming
-        ? splitProgressiveMarkdownBlocks(processedContent)
-        : { blocks: [], trailing: "" },
-    [processedContent, streaming],
-  );
+  const componentSet = getMarkdownComponents(mediaInset);
+  const progressiveMode = progressive || streaming;
   const markdownNode =
-    configNudge !== null ? null : streaming ? (
-      <>
-        {progressive.blocks.map((block) => (
-          <ProgressiveMarkdownBlock
-            channelNames={channelNames}
-            components={componentSet.components}
-            content={block.content}
-            customEmoji={customEmoji}
-            key={block.start}
-            mentionNames={mentionNames}
-            variant={componentSet.variant}
-          />
-        ))}
-        {progressive.trailing ? (
-          <span className="whitespace-pre-wrap" data-streaming-tail="">
-            {progressive.trailing}
-          </span>
-        ) : null}
-      </>
+    configNudge !== null ? null : progressiveMode ? (
+      <ProgressiveMarkdownRenderer
+        channelNames={channelNames}
+        components={componentSet.components}
+        content={processedContent}
+        customEmoji={customEmoji}
+        mentionNames={mentionNames}
+        variant={componentSet.variant}
+      />
     ) : (
       renderCachedMarkdown({
         channelNames,
@@ -2076,6 +2032,7 @@ export const Markdown = React.memo(
     prev.imetaByUrl === next.imetaByUrl &&
     prev.configNudgeAuthorPubkey === next.configNudgeAuthorPubkey &&
     prev.searchQuery === next.searchQuery &&
+    prev.progressive === next.progressive &&
     prev.streaming === next.streaming &&
     prev.snapshotSharedBy === next.snapshotSharedBy &&
     prev.videoReviewContext === next.videoReviewContext,

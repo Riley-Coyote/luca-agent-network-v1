@@ -29,6 +29,8 @@ export type MarkdownRuntime = {
   agentMentionPubkeysByName?: Record<string, string>;
   channels: Channel[];
   imetaByUrl?: ImetaLookup;
+  /** Interactive behavior changes through context without reparsing content. */
+  interactive: boolean;
   mentionPubkeysByName?: Record<string, string>;
   onOpenChannel: (channelId: string) => void;
   onOpenMessageLink: (link: ParsedMessageLink) => void;
@@ -62,6 +64,8 @@ export type MarkdownProps = {
   searchQuery?: string;
   /** Parse only completed blocks while an in-flight public response grows. */
   streaming?: boolean;
+  /** Retain the progressive block tree after a managed response is signed. */
+  progressive?: boolean;
   /** Display name shown in shared-agent card metadata. */
   snapshotSharedBy?: string;
   videoReviewContext?: VideoReviewContext;

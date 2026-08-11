@@ -386,6 +386,7 @@ export const MessageRow = React.memo(
               agentMentionPubkeysByName={agentMentionPubkeysByName}
               mentionNames={mentionNames}
               mentionPubkeysByName={mentionPubkeysByName}
+              progressive={Boolean(message.managedPresentation)}
               interactive={
                 !message.managedPresentation ||
                 (Boolean(message.managedPresentation.finalMessageId) &&

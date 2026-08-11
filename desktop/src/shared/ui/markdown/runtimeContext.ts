@@ -14,6 +14,7 @@ import type { MarkdownRuntime } from "./types";
  */
 const INERT_MARKDOWN_RUNTIME: MarkdownRuntime = {
   channels: [],
+  interactive: false,
   onOpenChannel: () => {},
   onOpenMessageLink: () => {},
 };

@@ -66,9 +66,11 @@ function getCodeBlockText(children: React.ReactNode) {
 
 export function MarkdownCodeBlock({
   children,
+  interactive = true,
   language,
 }: {
   children?: React.ReactNode;
+  interactive?: boolean;
   language?: string;
 }) {
   const [isCopying, setIsCopying] = React.useState(false);
@@ -109,23 +111,25 @@ export function MarkdownCodeBlock({
         )}
         {children}
       </pre>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            aria-label="Copy code block"
-            className="absolute right-2 top-2 h-7 w-7 bg-background/80 text-muted-foreground opacity-0 shadow-xs ring-1 ring-border/60 backdrop-blur-sm transition-opacity hover:bg-background hover:text-foreground hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 disabled:opacity-60"
-            disabled={isCopying}
-            onClick={handleCopy}
-            size="icon"
-            type="button"
-            variant="ghost"
-          >
-            <Copy className="h-4 w-4" />
-            <span className="sr-only">Copy code block</span>
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Copy code</TooltipContent>
-      </Tooltip>
+      {interactive ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              aria-label="Copy code block"
+              className="absolute right-2 top-2 h-7 w-7 bg-background/80 text-muted-foreground opacity-0 shadow-xs ring-1 ring-border/60 backdrop-blur-sm transition-opacity hover:bg-background hover:text-foreground hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 disabled:opacity-60"
+              disabled={isCopying}
+              onClick={handleCopy}
+              size="icon"
+              type="button"
+              variant="ghost"
+            >
+              <Copy className="h-4 w-4" />
+              <span className="sr-only">Copy code block</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Copy code</TooltipContent>
+        </Tooltip>
+      ) : null}
     </div>
   );
 }
