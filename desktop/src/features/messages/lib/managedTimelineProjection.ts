@@ -1,5 +1,6 @@
 import { formatTime } from "@/features/messages/lib/dateFormatters";
 import type { ManagedResponseSurface } from "@/features/messages/lib/managedAudience";
+import { MAX_MANAGED_PRESENTATION_ROWS } from "@/features/messages/managedPresentationProtocol";
 import type { ManagedResponseSlot } from "@/features/messages/managedPresentationTypes";
 import type { TimelineMessage } from "@/features/messages/types";
 import {
@@ -11,6 +12,67 @@ export type ManagedTimelineProjection = {
   messages: TimelineMessage[];
   suppressedFinalMessageIds: ReadonlySet<string>;
 };
+
+const stablePredecessorBySlot = new Map<string, string | null>();
+
+function slotPlacementKey(slot: ManagedResponseSlot): string {
+  return `${slot.conversationId}\0${slot.responseSurface}\0${slot.uiKey}`;
+}
+
+function rememberStablePredecessor(
+  slot: ManagedResponseSlot,
+  predecessor: string | null,
+): void {
+  const key = slotPlacementKey(slot);
+  if (!stablePredecessorBySlot.has(key)) {
+    while (stablePredecessorBySlot.size >= MAX_MANAGED_PRESENTATION_ROWS) {
+      const oldest = stablePredecessorBySlot.keys().next().value;
+      if (typeof oldest !== "string") break;
+      stablePredecessorBySlot.delete(oldest);
+    }
+  }
+  stablePredecessorBySlot.set(key, predecessor);
+}
+
+function stableMessageKey(message: TimelineMessage): string {
+  return message.managedPresentation
+    ? (message.renderKey ?? message.id)
+    : message.id;
+}
+
+function findStableMessageIndex(
+  messages: readonly TimelineMessage[],
+  key: string,
+): number {
+  return messages.findIndex(
+    (message) => message.id === key || message.renderKey === key,
+  );
+}
+
+function timestampInsertionIndex(
+  messages: readonly TimelineMessage[],
+  createdAt: number,
+): number {
+  let insertAt = messages.length;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].createdAt <= createdAt) return index + 1;
+    insertAt = index;
+  }
+  return insertAt;
+}
+
+/** Clears process-memory placement anchors during a community switch. */
+export function resetManagedTimelineProjectionState(): void {
+  stablePredecessorBySlot.clear();
+}
+
+/** Releases the placement anchor with its bounded presentation turn. */
+export function releaseManagedTimelineProjectionSlot(uiKey: string): void {
+  const suffix = `\0${uiKey}`;
+  for (const key of stablePredecessorBySlot.keys()) {
+    if (key.endsWith(suffix)) stablePredecessorBySlot.delete(key);
+  }
+}
 
 function deduplicateMessagesById(
   messages: readonly TimelineMessage[],
@@ -136,6 +198,7 @@ export function projectManagedTimelineMessages(
   const projected = uniqueMessages.filter(
     (message) => !suppressedFinalMessageIds.has(message.id),
   );
+  let previousSlotUiKey: string | null = null;
 
   for (const slot of renderableSlots) {
     const message = projectSlot(
@@ -145,15 +208,48 @@ export function projectManagedTimelineMessages(
       profiles,
       residentPersonaIdLookup,
     );
-    let insertAt = projected.length;
-    for (let index = projected.length - 1; index >= 0; index -= 1) {
-      if (projected[index].createdAt <= message.createdAt) {
-        insertAt = index + 1;
-        break;
+    const placementKey = slotPlacementKey(slot);
+    const hasStablePredecessor = stablePredecessorBySlot.has(placementKey);
+    const stablePredecessor = stablePredecessorBySlot.get(placementKey);
+    let insertAt = -1;
+    if (hasStablePredecessor) {
+      if (stablePredecessor === null) {
+        insertAt = 0;
+      } else if (stablePredecessor !== undefined) {
+        const predecessorIndex = findStableMessageIndex(
+          projected,
+          stablePredecessor,
+        );
+        if (predecessorIndex >= 0) {
+          insertAt = predecessorIndex + 1;
+          rememberStablePredecessor(
+            slot,
+            stableMessageKey(projected[predecessorIndex]),
+          );
+        }
       }
-      insertAt = index;
     }
+
+    if (insertAt < 0) {
+      insertAt = timestampInsertionIndex(projected, message.createdAt);
+    }
+
+    if (previousSlotUiKey) {
+      const previousSlotIndex = findStableMessageIndex(
+        projected,
+        previousSlotUiKey,
+      );
+      if (previousSlotIndex >= 0) {
+        insertAt = Math.max(insertAt, previousSlotIndex + 1);
+      }
+    }
+
+    rememberStablePredecessor(
+      slot,
+      insertAt > 0 ? stableMessageKey(projected[insertAt - 1]) : null,
+    );
     projected.splice(insertAt, 0, message);
+    previousSlotUiKey = slot.uiKey;
   }
 
   return { messages: projected, suppressedFinalMessageIds };

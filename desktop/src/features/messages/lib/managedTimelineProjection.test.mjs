@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { beforeEach } from "node:test";
 
-import { projectManagedTimelineMessages } from "./managedTimelineProjection.ts";
+import {
+  projectManagedTimelineMessages,
+  resetManagedTimelineProjectionState,
+} from "./managedTimelineProjection.ts";
 
 const pubkey = "a".repeat(64);
+
+beforeEach(() => resetManagedTimelineProjectionState());
 
 function message(id, createdAt, overrides = {}) {
   return {
@@ -43,6 +48,68 @@ test("projects one stable managed row after its first-visible anchor", () => {
   );
   assert.equal(result.messages[1].renderKey, `managed:${pubkey}:receipt`);
   assert.equal(result.messages[1].body, "");
+});
+
+test("keeps a visible response ahead of a later owner send in the same second", () => {
+  const active = projectManagedTimelineMessages(
+    [message("owner", 2_000_000_000)],
+    [slot()],
+  );
+  assert.deepEqual(
+    active.messages.map((item) => item.id),
+    ["owner", `managed:${pubkey}:receipt`],
+  );
+
+  const afterLaterSend = projectManagedTimelineMessages(
+    [
+      message("owner", 2_000_000_000),
+      message("same-second-later", 2_000_000_000),
+    ],
+    [slot()],
+  );
+
+  assert.deepEqual(
+    afterLaterSend.messages.map((item) => item.id),
+    ["owner", `managed:${pubkey}:receipt`, "same-second-later"],
+  );
+});
+
+test("does not move an earlier visible response when an older turn writes late", () => {
+  const fasterSecondTurn = slot({
+    anchorAt: 2_000_000_001_000,
+    anchorKey: "owner-b",
+    slotOrdinal: 1,
+    uiKey: `managed:${pubkey}:receipt-b`,
+  });
+  const firstProjection = projectManagedTimelineMessages(
+    [message("owner-a", 2_000_000_000), message("owner-b", 2_000_000_001)],
+    [fasterSecondTurn],
+  );
+  assert.deepEqual(
+    firstProjection.messages.map((item) => item.id),
+    ["owner-a", "owner-b", `managed:${pubkey}:receipt-b`],
+  );
+
+  const slowerFirstTurn = slot({
+    anchorAt: 2_000_000_002_000,
+    anchorKey: "owner-a",
+    slotOrdinal: 2,
+    uiKey: `managed:${pubkey}:receipt-a`,
+  });
+  const secondProjection = projectManagedTimelineMessages(
+    [message("owner-a", 2_000_000_000), message("owner-b", 2_000_000_001)],
+    [fasterSecondTurn, slowerFirstTurn],
+  );
+
+  assert.deepEqual(
+    secondProjection.messages.map((item) => item.id),
+    [
+      "owner-a",
+      "owner-b",
+      `managed:${pubkey}:receipt-b`,
+      `managed:${pubkey}:receipt-a`,
+    ],
+  );
 });
 
 test("hydrates a signed final in the same render slot without a duplicate", () => {

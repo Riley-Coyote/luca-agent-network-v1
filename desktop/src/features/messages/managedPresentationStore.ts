@@ -1,6 +1,7 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { ManagedResponseSurface } from "@/features/messages/lib/managedAudience";
+import * as timelinePlacement from "@/features/messages/lib/managedTimelineProjection";
 import {
   expireManagedPresentationActivity,
   getNearestManagedPresentationActivityExpiry,
@@ -412,6 +413,7 @@ function removeTurn(uiKey: string): void {
   const current = turns.get(uiKey);
   if (!current) return;
   turns.delete(uiKey);
+  timelinePlacement.releaseManagedTimelineProjectionSlot(uiKey);
   clearPending(uiKey);
   creationOrdinals.delete(uiKey);
   terminalUiKeys.delete(uiKey);
@@ -966,6 +968,7 @@ export function getManagedPresentationSchedulerStatsForTests(): {
 
 export function resetManagedPresentationStore(): void {
   scheduler.reset();
+  timelinePlacement.resetManagedTimelineProjectionState();
   const activeTurnListeners = [...turnListeners.values()];
   const activeTopologyListeners = [...topologyListeners.values()];
   const activeLegacyListeners = [...legacyListeners.values()];
