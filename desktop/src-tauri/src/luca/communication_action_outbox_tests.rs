@@ -519,7 +519,7 @@ fn acceptance_is_bound_to_the_exact_expected_event_id() {
 }
 
 #[test]
-fn terminal_tombstones_are_body_free_and_preserve_exact_replay_identity() {
+fn terminal_tombstones_exclude_bodies_and_preserve_private_cleanup_identity() {
     const BODY: &str = "TOMBSTONE-BODY-MUST-NOT-APPEAR";
     const HANDLE: &str = "sealed-event-capability-must-not-appear";
 
@@ -546,7 +546,14 @@ fn terminal_tombstones_are_body_free_and_preserve_exact_replay_identity() {
     assert_eq!(outbox.tombstones.len(), 1);
     let encoded = serde_json::to_string(&outbox.tombstones).expect("serialize tombstone");
     assert!(!encoded.contains(BODY));
-    assert!(!encoded.contains(HANDLE));
+    // The encrypted private store must retain the opaque cleanup capability
+    // until vault deletion succeeds. Public receipts and Debug output redact it.
+    assert!(encoded.contains(HANDLE));
+    let cleanup = outbox
+        .terminal_cleanup_for_request(&request)
+        .expect("cleanup lookup")
+        .expect("pending cleanup");
+    assert!(!format!("{cleanup:?}").contains(HANDLE));
 
     let replay = outbox
         .preflight_existing(&request, &id(HANDLE), &hex('a'), &hex('b'))

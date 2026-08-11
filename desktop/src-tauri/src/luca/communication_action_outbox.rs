@@ -109,8 +109,8 @@ pub(crate) struct CommunicationActionOutboxReceipt {
 /// key, and derived outbox ID are still validated exactly.
 #[derive(Clone)]
 pub(crate) enum CommunicationActionRequestPreflight {
-    Nonterminal(CommunicationActionOutboxV1),
-    Terminal(CommunicationActionOutboxReceipt),
+    Nonterminal(Box<CommunicationActionOutboxV1>),
+    Terminal(Box<CommunicationActionOutboxReceipt>),
 }
 
 impl std::fmt::Debug for CommunicationActionOutboxReceipt {
@@ -330,13 +330,13 @@ impl CommunicationActionOutbox {
         if let Some(entry) = self.entries.get(request.idempotency_key.as_str()) {
             validate_request_duplicate(entry, request)?;
             return Ok(Some(CommunicationActionRequestPreflight::Nonterminal(
-                entry.row.clone(),
+                Box::new(entry.row.clone()),
             )));
         }
         if let Some(tombstone) = self.tombstones.get(request.idempotency_key.as_str()) {
             validate_tombstone_request_duplicate(tombstone, request)?;
             return Ok(Some(CommunicationActionRequestPreflight::Terminal(
-                tombstone.receipt.clone(),
+                Box::new(tombstone.receipt.clone()),
             )));
         }
         Ok(None)

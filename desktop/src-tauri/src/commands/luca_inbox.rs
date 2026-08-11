@@ -1010,7 +1010,7 @@ pub async fn get_luca_owner_inbox(
         category: InboxCategoryV1::All,
         generated_at,
         cursor: None,
-        limit: feed.len().max(1).min(MAX_INBOX_ITEMS) as u16,
+        limit: feed.len().clamp(1, MAX_INBOX_ITEMS) as u16,
         feed,
     })
     .map_err(|error| error.to_string())?;
