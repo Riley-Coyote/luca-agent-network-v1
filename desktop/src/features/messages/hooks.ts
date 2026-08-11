@@ -302,6 +302,7 @@ export function useChannelSubscription(channel: Channel | null) {
         threadReference.parentId,
         channelId,
         event.id,
+        event.content,
       );
     }
     if (threadReference?.parentId != null) {
@@ -640,6 +641,7 @@ export function useSendMessageMutation(
           effectiveChannel.id,
           optimisticMessage.id,
           managedAudiencePubkeys(audience),
+          responseSurface,
         );
       }
 

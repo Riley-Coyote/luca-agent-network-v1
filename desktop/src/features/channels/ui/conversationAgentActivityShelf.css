@@ -33,6 +33,14 @@
   min-width: 0;
 }
 
+:root[data-luca-shell] .luca-activity-shelf__idle-content {
+  align-items: center;
+  display: flex;
+  inset: 0 4px;
+  min-width: 0;
+  position: absolute;
+}
+
 :root[data-luca-shell] .luca-activity-shelf__slot {
   align-items: center;
   display: flex;

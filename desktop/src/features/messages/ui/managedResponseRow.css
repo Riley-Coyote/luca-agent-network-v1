@@ -1,0 +1,22 @@
+@keyframes managed-response-authoritative-reconcile {
+  from {
+    opacity: 0.58;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+[data-managed-final-reconciliation="divergent"] .managed-response-content,
+[data-managed-final-reconciliation="stream_extends_signed"]
+  .managed-response-content {
+  animation: managed-response-authoritative-reconcile 140ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-managed-final-reconciliation="divergent"] .managed-response-content,
+  [data-managed-final-reconciliation="stream_extends_signed"]
+    .managed-response-content {
+    animation: none;
+  }
+}

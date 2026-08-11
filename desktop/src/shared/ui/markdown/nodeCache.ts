@@ -109,6 +109,13 @@ function buildMarkdownElement(input: MarkdownParseInputs): React.ReactElement {
   });
 }
 
+/** Parse without retaining provisional content in the persistent node cache. */
+export function renderUncachedMarkdown(
+  input: MarkdownParseInputs,
+): React.ReactElement {
+  return buildMarkdownElement(input);
+}
+
 /** Return the parsed element tree for the given inputs, reusing a cached
  * tree when an identical parse has been done before. See the module doc
  * comment for why this is safe. */

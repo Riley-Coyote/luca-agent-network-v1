@@ -33,6 +33,7 @@ import type { ChannelType } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { DayDivider } from "./DayDivider";
 import { MessageRow } from "./MessageRow";
+import { ManagedResponseRow } from "./ManagedResponseRow";
 import {
   PreserveVirtualizedItemVisibilityContext,
   VirtualizedTimelineItemShell,
@@ -105,6 +106,7 @@ type TimelineMessageListProps = {
   personaLookup?: Map<string, string>;
   profiles?: UserProfileLookup;
   ownerProfiles?: UserProfileLookup;
+  residentMarksEnabled?: boolean;
   /** The message ID of the currently active find-in-channel match. */
   searchActiveMessageId?: string | null;
   /** Set of message IDs that match the current find-in-channel query. */
@@ -114,7 +116,6 @@ type TimelineMessageListProps = {
   /** Per-thread unread counts keyed by thread root id. */
   threadUnreadCounts?: ReadonlyMap<string, number>;
   leadingContent?: React.ReactNode;
-  trailingContent?: React.ReactNode;
   /**
    * True when the loaded window provably starts at the channel's beginning.
    * Proves the oldest loaded day's boundary so its divider may render.
@@ -160,13 +161,13 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
   onToggleReaction,
   profiles,
   ownerProfiles,
+  residentMarksEnabled = true,
   searchActiveMessageId = null,
   searchMatchingMessageIds,
   searchQuery,
   threadUnreadCounts,
   unfollowThreadById,
   leadingContent,
-  trailingContent,
   historyExhausted = false,
   useVirtualizer = false,
   onStartReached,
@@ -294,6 +295,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
               expandedThreadHeadId={expandedThreadHeadId}
               onToggleReaction={onToggleReaction}
               profiles={profiles}
+              residentMarksEnabled={residentMarksEnabled}
               searchActiveMessageId={searchActiveMessageId}
               searchMatchingMessageIds={searchMatchingMessageIds}
               searchQuery={searchQuery}
@@ -328,6 +330,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
       expandedThreadHeadId,
       onToggleReaction,
       profiles,
+      residentMarksEnabled,
       ownerProfiles,
       searchActiveMessageId,
       searchMatchingMessageIds,
@@ -344,7 +347,6 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
         dayGroups={dayGroups}
         historyExhausted={historyExhausted}
         leadingContent={leadingContent}
-        trailingContent={trailingContent}
         onAtBottomStateChange={onAtBottomStateChange}
         onStartReached={onStartReached}
         onVirtualizerApiChange={onVirtualizerApiChange}
@@ -382,7 +384,6 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
           ))}
         </section>
       ))}
-      {trailingContent}
     </div>
   );
 });
@@ -397,7 +398,6 @@ type VirtualizedTimelineRowsProps = {
   dayGroups: TimelineDayGroup[];
   historyExhausted: boolean;
   leadingContent?: React.ReactNode;
-  trailingContent?: React.ReactNode;
   onAtBottomStateChange?: (atBottom: boolean) => void;
   onStartReached?: () => boolean;
   onVirtualizerApiChange?: (api: TimelineVirtualizerApi | null) => void;
@@ -410,7 +410,6 @@ function VirtualizedTimelineRows({
   dayGroups,
   historyExhausted,
   leadingContent,
-  trailingContent,
   onAtBottomStateChange,
   onStartReached,
   onVirtualizerApiChange,
@@ -443,14 +442,8 @@ function VirtualizedTimelineRows({
     [],
   );
   const items = React.useMemo(
-    () =>
-      buildVirtualizedItems(
-        dayGroups,
-        leadingContent,
-        historyExhausted,
-        trailingContent,
-      ),
-    [dayGroups, historyExhausted, leadingContent, trailingContent],
+    () => buildVirtualizedItems(dayGroups, leadingContent, historyExhausted),
+    [dayGroups, historyExhausted, leadingContent],
   );
   const keys = React.useMemo(() => items.map(virtualizedItemKey), [items]);
   itemsLengthRef.current = items.length;
@@ -481,9 +474,16 @@ function VirtualizedTimelineRows({
   }, []);
   const { cancel: cancelBottomSettle, settle: settleAtBottom } =
     useVirtualizedBottomSettle(hostRef, listRef, itemsLengthRef);
+  const scrollGrowingTailToBottom = React.useCallback(() => {
+    cancelBottomSettle();
+    const lastIndex = itemsLengthRef.current - 1;
+    if (lastIndex >= 0) {
+      listRef.current?.scrollToIndex(lastIndex, { align: "end" });
+    }
+  }, [cancelBottomSettle]);
   const updateGrowingTailPosition = useFollowGrowingTimelineTail(
-    trailingContent,
-    settleAtBottom,
+    hostRef,
+    scrollGrowingTailToBottom,
   );
   const retireTimelineSettle = React.useCallback(() => {
     retirePrependAnchor();
@@ -663,7 +663,7 @@ function VirtualizedTimelineRows({
       onVirtualizerRangeChanged?.();
       const distanceFromBottom = list.scrollSize - list.viewportSize - offset;
       const atBottom = distanceFromBottom <= 32;
-      updateGrowingTailPosition(atBottom);
+      updateGrowingTailPosition(distanceFromBottom);
       if (distanceFromBottom > 32) cancelBottomSettle();
       onAtBottomStateChange?.(atBottom);
       if (
@@ -715,9 +715,6 @@ function VirtualizedTimelineRows({
               );
             }
             if (item.kind === "leading-content") {
-              return <div key={virtualizedItemKey(item)}>{item.content}</div>;
-            }
-            if (item.kind === "trailing-content") {
               return <div key={virtualizedItemKey(item)}>{item.content}</div>;
             }
             if (item.kind === "day-divider") {
@@ -816,6 +813,7 @@ type MessageRowItemProps = Pick<
   | "expandedThreadHeadId"
   | "onToggleReaction"
   | "profiles"
+  | "residentMarksEnabled"
   | "searchActiveMessageId"
   | "searchMatchingMessageIds"
   | "searchQuery"
@@ -857,6 +855,7 @@ function MessageRowItem({
   expandedThreadHeadId,
   onToggleReaction,
   profiles,
+  residentMarksEnabled = true,
   searchActiveMessageId,
   searchMatchingMessageIds,
   searchQuery,
@@ -872,6 +871,7 @@ function MessageRowItem({
   );
   const canDelete = canManage && onDelete ? onDelete : undefined;
   const canEdit = canManage && onEdit ? onEdit : undefined;
+  const TurnRow = message.managedPresentation ? ManagedResponseRow : MessageRow;
 
   if (summary && onToggleThread) {
     const isHighlighted = message.id === highlightedMessageId;
@@ -883,7 +883,7 @@ function MessageRowItem({
             "-mx-4 px-4 before:absolute before:-inset-y-1.5 before:inset-x-0 before:animate-[route-target-highlight-fade_2s_ease-out_forwards] before:bg-primary/10 before:content-[''] motion-reduce:before:animate-none sm:-mx-6 sm:px-6",
         )}
       >
-        <MessageRow
+        <TurnRow
           channelId={channelId}
           highlighted={false}
           hoverBackground={false}
@@ -918,6 +918,7 @@ function MessageRowItem({
               : undefined
           }
           profiles={profiles}
+          residentMarksEnabled={residentMarksEnabled}
           showDepthGuides={false}
           videoReviewContext={videoReviewContext}
         />
@@ -950,7 +951,7 @@ function MessageRowItem({
         isFollowedByContinuation ? "pb-0" : "pb-2.5",
       )}
     >
-      <MessageRow
+      <TurnRow
         channelId={channelId}
         highlighted={message.id === highlightedMessageId || isSearchActive}
         huddleMemberPubkeys={huddleMemberPubkeys}
@@ -970,6 +971,7 @@ function MessageRowItem({
           message.id === expandedThreadHeadId ? undefined : onToggleThread
         }
         profiles={profiles}
+        residentMarksEnabled={residentMarksEnabled}
         quotedParent={quotedParent}
         searchQuery={isSearchMatch ? searchQuery : undefined}
         showDepthGuides={false}

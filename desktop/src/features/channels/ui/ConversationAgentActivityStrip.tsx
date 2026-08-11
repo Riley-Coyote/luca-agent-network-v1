@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import type { AgentActivity } from "@/features/agents/lib/activityPhase";
 import type { BotActivityAgent } from "@/features/channels/ui/BotActivityBar";
 import type { ChannelAgentSessionAgent } from "@/features/channels/ui/useChannelAgentSessions";
+import { getManagedPresentationTurn } from "@/features/messages/managedPresentationStore";
+import type { ManagedConversationActivity } from "@/features/messages/managedPresentationTypes";
 import {
   cancelManagedAgentTurn,
   listCancellableManagedTurns,
@@ -37,8 +39,13 @@ export type ConversationAgentActivityStripProps = {
    * reconciliation states can share this shelf without another polling loop.
    */
   presentationStateByPubkey?: ReadonlyMap<string, ConversationActivityState>;
+  /** Body-free presentation identities used to resolve an exact cancellation
+   * receipt only after the owner presses Stop. */
+  presentationActivityByPubkey?: ManagedConversationActivity;
   /** Retry remains an explicit owner action; the shelf never retries itself. */
   onRetryResident?: (pubkey: string) => void;
+  /** Human typing can occupy the same reserved shelf when no resident works. */
+  idleContent?: React.ReactNode;
 };
 
 type ActivityShelfItem = {
@@ -254,8 +261,10 @@ export function ConversationAgentActivityStrip({
   sessionAgents,
   workingPubkeys,
   activityByPubkey,
+  presentationActivityByPubkey,
   presentationStateByPubkey,
   onRetryResident,
+  idleContent,
 }: ConversationAgentActivityStripProps) {
   const [localStates, setLocalStates] = React.useState<
     Map<string, ConversationActivityState>
@@ -303,6 +312,15 @@ export function ConversationAgentActivityStrip({
   const presentationStates = React.useMemo(
     () => normalizedStateMap(presentationStateByPubkey),
     [presentationStateByPubkey],
+  );
+  const presentationActivity = React.useMemo(
+    () =>
+      new Map(
+        [...(presentationActivityByPubkey?.entries() ?? [])].map(
+          ([pubkey, activity]) => [normalizePubkey(pubkey), activity],
+        ),
+      ),
+    [presentationActivityByPubkey],
   );
 
   const activeKeys = React.useMemo(() => {
@@ -426,21 +444,52 @@ export function ConversationAgentActivityStrip({
       const targets = [...new Set(residentKeys.map(normalizePubkey))];
       applyStates(new Map(targets.map((key) => [key, "stopping"] as const)));
 
-      let cancellable: CancellableManagedTurn[];
+      let cancellable: CancellableManagedTurn[] = [];
+      let inspectionFailed = false;
       try {
         cancellable = await listCancellableManagedTurns(channelId);
       } catch {
-        applyStates(
-          new Map(targets.map((key) => [key, "needs-attention"] as const)),
-        );
-        toast.error("Active resident work could not be inspected.");
-        return;
+        inspectionFailed = true;
       }
 
       const targetSet = new Set(targets);
       const exactTurns = cancellable.filter((turn) =>
         targetSet.has(normalizePubkey(turn.residentPubkey)),
       );
+      const exactReceipts = new Set(
+        exactTurns.map(
+          (turn) =>
+            `${normalizePubkey(turn.residentPubkey)}:${turn.dispatchReceiptId}:${turn.sessionEpoch}`,
+        ),
+      );
+      for (const key of targets) {
+        const activity = presentationActivity.get(key);
+        const turn = activity
+          ? getManagedPresentationTurn(activity.uiKey)
+          : null;
+        if (
+          !turn ||
+          turn.sessionEpoch === 0 ||
+          turn.dispatchReceiptId.length === 0
+        ) {
+          continue;
+        }
+        const receiptKey = `${key}:${turn.dispatchReceiptId}:${turn.sessionEpoch}`;
+        if (exactReceipts.has(receiptKey)) continue;
+        exactReceipts.add(receiptKey);
+        exactTurns.push({
+          dispatchReceiptId: turn.dispatchReceiptId,
+          residentPubkey: key,
+          sessionEpoch: turn.sessionEpoch,
+        });
+      }
+      if (inspectionFailed && exactTurns.length === 0) {
+        applyStates(
+          new Map(targets.map((key) => [key, "needs-attention"] as const)),
+        );
+        toast.error("Active resident work could not be inspected.");
+        return;
+      }
       const commands = exactTurns.map((turn) => ({
         key: normalizePubkey(turn.residentPubkey),
         promise: cancelManagedAgentTurn(turn.residentPubkey, channelId, turn),
@@ -458,8 +507,9 @@ export function ConversationAgentActivityStrip({
           command.key === key ? [index] : [],
         );
         if (indices.length === 0) {
-          nextStates.set(key, "stopped");
-          stopped += 1;
+          nextStates.set(key, inspectionFailed ? "needs-attention" : "stopped");
+          if (inspectionFailed) failed += 1;
+          else stopped += 1;
           continue;
         }
         const residentResults = indices.map((index) => results[index]);
@@ -501,7 +551,7 @@ export function ConversationAgentActivityStrip({
         );
       }
     },
-    [applyStates, channelId],
+    [applyStates, channelId, presentationActivity],
   );
 
   const handleStopResident = React.useCallback(
@@ -525,10 +575,15 @@ export function ConversationAgentActivityStrip({
       data-testid="conversation-activity-shelf"
     >
       <div className="luca-activity-shelf__inner">
+        {orderedItems.length === 0 && idleContent ? (
+          <div className="luca-activity-shelf__idle-content">{idleContent}</div>
+        ) : null}
         <div
           className="luca-activity-shelf__slots"
           data-testid="conversation-activity-slots"
           style={{
+            visibility:
+              orderedItems.length === 0 && idleContent ? "hidden" : undefined,
             gridTemplateColumns: `repeat(${Math.max(
               1,
               slotState.current.capacity,

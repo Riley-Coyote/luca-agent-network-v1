@@ -1,21 +1,13 @@
 import { LogIn, PanelRight } from "lucide-react";
 import * as React from "react";
 
-import { useChannelAgentActivity } from "@/features/agents/activeAgentTurnsStore";
-import { activityLabel } from "@/features/agents/lib/activityPhase";
-import { conversationMarkSeeds } from "@/features/channels/lib/conversationMarks";
-
 import { ChatHeader } from "@/features/chat/ui/ChatHeader";
 import type { EphemeralChannelDisplay } from "@/features/channels/lib/ephemeralChannel";
-import type { ActiveDmHeaderParticipant } from "@/features/channels/useActiveChannelHeader";
 import { getChannelDescription } from "@/features/channels/lib/channelDescription";
-import {
-  resolveUserLabel,
-  type UserProfileLookup,
-} from "@/features/profile/lib/identity";
-import { getDmParticipantPreview } from "@/features/channels/lib/dmParticipantDisplay";
+import type { ActiveDmHeaderParticipant } from "@/features/channels/useActiveChannelHeader";
 import { ChannelHeaderStatusBadge } from "@/features/channels/ui/ChannelHeaderStatusBadge";
-import { ChannelMembersBar } from "@/features/channels/ui/ChannelMembersBar";
+import { ConversationPresenceRail } from "@/features/channels/ui/ConversationPresenceRail";
+import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import {
   DEFAULT_HOVER_PROFILE_STATUS_GEOMETRY,
   ProfileAvatarWithStatus,
@@ -24,11 +16,6 @@ import {
 import { Button } from "@/shared/ui/button";
 import type { Channel, PresenceStatus } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
-import {
-  AgentIdentitySpecimen,
-  shortAgentFingerprint,
-} from "@/shared/ui/AgentIdentitySpecimen";
-import { UserAvatar } from "@/shared/ui/UserAvatar";
 
 const DM_HEADER_AVATAR_SIZE = 32;
 const DM_HEADER_AVATAR_STATUS_GEOMETRY = scaleProfileAvatarStatusGeometry(
@@ -45,9 +32,8 @@ type ChannelScreenHeaderProps = {
   activeDmHeaderParticipants: ActiveDmHeaderParticipant[];
   activeDmPresenceStatus: PresenceStatus | null;
   agentPubkeys: ReadonlySet<string>;
-  /** Names for the live-state line; without it the subtitle can only say
-   *  "a resident", which is true but impersonal. */
   profiles?: UserProfileLookup;
+  residentPersonaIdLookup?: ReadonlyMap<string, string | null>;
   chromeWrapperRef?: React.Ref<HTMLDivElement>;
   currentPubkey?: string;
   isAddBotOpen?: boolean;
@@ -57,52 +43,75 @@ type ChannelScreenHeaderProps = {
   onAddBotOpenChange?: (open: boolean) => void;
   onJoinChannel?: () => Promise<void>;
   onManageChannel: () => void;
+  onOpenResident: (pubkey: string) => void;
   onToggleMembers: () => void;
 };
 
-/** PROTOTYPE SWITCH. true = the chat-app conversation header (mark stack +
- *  live subtitle). false = the original room header (channel icon, fingerprint
- *  meta, member count). */
-const CONVERSATION_HEADER = true;
+function conversationResidentPubkeys(
+  channel: Channel | null,
+  currentPubkey: string | undefined,
+  agentPubkeys: ReadonlySet<string>,
+): string[] {
+  if (!channel) return [];
+  const current = currentPubkey ? normalizePubkey(currentPubkey) : null;
+  const source = channel.participantPubkeys?.length
+    ? channel.participantPubkeys
+    : (channel.memberPubkeys ?? []);
+  const seen = new Set<string>();
+  const residents: string[] = [];
+  for (const pubkey of source) {
+    const normalized = normalizePubkey(pubkey);
+    if (
+      !normalized ||
+      normalized === current ||
+      seen.has(normalized) ||
+      !agentPubkeys.has(normalized)
+    ) {
+      continue;
+    }
+    seen.add(normalized);
+    residents.push(normalized);
+  }
+  return residents;
+}
 
 export function ChannelScreenHeader({
   activeChannel,
   activeChannelEphemeralDisplay,
   activeChannelTitle,
-  actionsVariant = "inline",
   activeDmAvatarUrl,
   activeDmHeaderParticipants,
   activeDmPresenceStatus,
   agentPubkeys,
   profiles,
+  residentPersonaIdLookup,
   chromeWrapperRef,
   currentPubkey,
-  isAddBotOpen,
   isJoining = false,
-  onAddBotOpenChange,
+  onJoinChannel,
+  onOpenResident,
+  onToggleMembers,
   showHeaderContent = true,
   transparentChrome = false,
-  onJoinChannel,
-  onManageChannel,
-  onToggleMembers,
 }: ChannelScreenHeaderProps) {
-  const isGroupDm =
-    activeChannel?.channelType === "dm" &&
-    activeDmHeaderParticipants.length > 1;
+  const residentPubkeys = React.useMemo(
+    () =>
+      conversationResidentPubkeys(activeChannel, currentPubkey, agentPubkeys),
+    [activeChannel, agentPubkeys, currentPubkey],
+  );
+  const primaryDmParticipant = activeDmHeaderParticipants[0] ?? null;
+  const primaryDmIsResident = Boolean(
+    primaryDmParticipant &&
+      agentPubkeys.has(normalizePubkey(primaryDmParticipant.pubkey)),
+  );
   const showJoinButton =
     activeChannel !== null &&
     !activeChannel.isMember &&
     activeChannel.visibility === "open" &&
     !activeChannel.archivedAt &&
     onJoinChannel;
-  const primaryDmParticipant = activeDmHeaderParticipants[0] ?? null;
-  const primaryDmIsAgent = Boolean(
-    primaryDmParticipant &&
-      agentPubkeys.has(normalizePubkey(primaryDmParticipant.pubkey)),
-  );
-  const groupAgentCount = activeDmHeaderParticipants.filter((participant) =>
-    agentPubkeys.has(normalizePubkey(participant.pubkey)),
-  ).length;
+
+  if (!showHeaderContent) return null;
 
   const actions = activeChannel ? (
     showJoinButton ? (
@@ -115,7 +124,7 @@ export function ChannelScreenHeader({
         <LogIn className="mr-1.5 h-4 w-4" />
         {isJoining ? "Joining…" : "Join"}
       </Button>
-    ) : CONVERSATION_HEADER ? (
+    ) : (
       <Button
         aria-label="Open conversation details"
         onClick={onToggleMembers}
@@ -126,187 +135,56 @@ export function ChannelScreenHeader({
       >
         <PanelRight />
       </Button>
-    ) : (
-      // The mark stack beside the title already says who is here, more legibly
-      // than a number does. A count is org-speak; a chat app shows faces.
-      <ChannelMembersBar
-        channel={activeChannel}
-        currentPubkey={currentPubkey}
-        isAddBotOpen={isAddBotOpen}
-        onAddBotOpenChange={onAddBotOpenChange}
-        onManageChannel={onManageChannel}
-        onToggleMembers={onToggleMembers}
-        variant={actionsVariant}
-      />
     )
   ) : null;
 
-  // Everyone in the room but you. A room with no other participants falls back
-  // to its own id so it still carries a mark — same rule as the rail.
-  const headerMarkSeeds = React.useMemo(
-    () => conversationMarkSeeds(activeChannel, currentPubkey),
-    [activeChannel, currentPubkey],
-  );
-
-  // Live state beats a static description. Every messenger puts presence on
-  // this line; ours can say what the resident is actually doing.
-  const headerActivity = useChannelAgentActivity(activeChannel?.id ?? null);
-  const workingSeeds = React.useMemo(
-    () =>
-      new Set(
-        headerActivity.map((row: { agentPubkey: string }) => row.agentPubkey),
-      ),
-    [headerActivity],
-  );
-  const conversationSubtitle = React.useMemo(() => {
-    if (headerActivity.length > 1) {
-      return `${headerActivity.length} residents are working…`;
-    }
-    const one = headerActivity[0];
-    if (one) {
-      const name =
-        resolveUserLabel({ profiles, pubkey: one.agentPubkey }) ||
-        activeDmHeaderParticipants?.find(
-          (participant) =>
-            normalizePubkey(participant.pubkey) ===
-            normalizePubkey(one.agentPubkey),
-        )?.displayName ||
-        "A resident";
-      return `${name} is ${activityLabel(one.activity) || "working"}…`;
-    }
-    return getChannelDescription(activeChannel) ?? "";
-  }, [activeChannel, activeDmHeaderParticipants, headerActivity, profiles]);
-
-  if (!showHeaderContent) {
-    return null;
-  }
+  const humanDmLeading =
+    activeChannel?.channelType === "dm" &&
+    primaryDmParticipant &&
+    !primaryDmIsResident ? (
+      <ProfileAvatarWithStatus
+        avatarClassName="text-xs"
+        avatarUrl={activeDmAvatarUrl}
+        className="mr-1.5 h-8 w-8"
+        geometry={DM_HEADER_AVATAR_STATUS_GEOMETRY}
+        iconClassName="h-4 w-4"
+        label={activeChannelTitle}
+        size={DM_HEADER_AVATAR_SIZE}
+        status={activeDmPresenceStatus ?? "offline"}
+        statusTestId="chat-presence-badge"
+        testId="chat-header-dm-avatar"
+      />
+    ) : (
+      <span aria-hidden />
+    );
 
   return (
     <ChatHeader
       belowSystemChrome
-      chromeWrapperRef={chromeWrapperRef}
       actions={actions}
+      centerContent={
+        <ConversationPresenceRail
+          onOpenResident={onOpenResident}
+          onOpenRoster={onToggleMembers}
+          profiles={profiles}
+          residentPersonaIdLookup={residentPersonaIdLookup}
+          residentPubkeys={residentPubkeys}
+        />
+      }
       channelType={activeChannel?.channelType}
-      description={getChannelDescription(activeChannel)}
-      identityMeta={
-        CONVERSATION_HEADER ? null : activeChannel?.channelType === "dm" ? (
-          isGroupDm ? (
-            `${groupAgentCount} ${groupAgentCount === 1 ? "agent" : "agents"}`
-          ) : primaryDmIsAgent && primaryDmParticipant ? (
-            <>
-              {shortAgentFingerprint(primaryDmParticipant.pubkey)}
-              <span className="ml-3" data-luca-agent-state>
-                {activeDmPresenceStatus === "offline"
-                  ? "unavailable"
-                  : "present"}
-              </span>
-            </>
-          ) : null
-        ) : null
-      }
+      chromeWrapperRef={chromeWrapperRef}
       conversation
-      subtitle={conversationSubtitle}
-      leadingContent={
-        CONVERSATION_HEADER ? (
-          <span className="mr-1.5 flex shrink-0 gap-0.5">
-            {headerMarkSeeds.map((seed) => (
-              <AgentIdentitySpecimen
-                accessibleName={activeChannelTitle ?? "conversation"}
-                key={seed}
-                publicKey={seed}
-                size={20}
-                state={workingSeeds.has(seed) ? "working" : "present"}
-              />
-            ))}
-          </span>
-        ) : activeChannel?.channelType === "dm" ? (
-          isGroupDm ? (
-            <DmHeaderParticipantStack
-              agentPubkeys={agentPubkeys}
-              participants={activeDmHeaderParticipants}
-            />
-          ) : primaryDmIsAgent && primaryDmParticipant ? (
-            <AgentIdentitySpecimen
-              accessibleName={primaryDmParticipant.displayName}
-              className="mr-1.5"
-              publicKey={primaryDmParticipant.pubkey}
-              size={26}
-              state={
-                activeDmPresenceStatus === "offline" ? "unavailable" : "present"
-              }
-            />
-          ) : (
-            <ProfileAvatarWithStatus
-              avatarClassName="text-xs"
-              avatarUrl={activeDmAvatarUrl}
-              className="mr-1.5 h-8 w-8"
-              geometry={DM_HEADER_AVATAR_STATUS_GEOMETRY}
-              iconClassName="h-4 w-4"
-              label={activeChannelTitle}
-              size={DM_HEADER_AVATAR_SIZE}
-              status={activeDmPresenceStatus ?? "offline"}
-              statusTestId="chat-presence-badge"
-              testId="chat-header-dm-avatar"
-            />
-          )
-        ) : undefined
-      }
+      description={getChannelDescription(activeChannel)}
+      leadingContent={humanDmLeading}
       statusBadge={
         <ChannelHeaderStatusBadge
           ephemeralDisplay={activeChannelEphemeralDisplay}
         />
       }
+      subtitle={getChannelDescription(activeChannel) ?? ""}
       title={activeChannelTitle}
       transparentChrome={transparentChrome}
       visibility={activeChannel?.visibility}
     />
-  );
-}
-
-function DmHeaderParticipantStack({
-  agentPubkeys,
-  participants,
-}: {
-  agentPubkeys: ReadonlySet<string>;
-  participants: ActiveDmHeaderParticipant[];
-}) {
-  const { hiddenCount, visibleParticipants } =
-    getDmParticipantPreview(participants);
-  return (
-    <div
-      aria-hidden="true"
-      className="mr-1.5 flex shrink-0 items-center gap-1"
-      data-testid="chat-header-dm-avatar-stack"
-    >
-      {visibleParticipants.map((participant) => (
-        <div
-          data-testid="chat-header-dm-avatar-stack-participant"
-          key={participant.pubkey}
-        >
-          {agentPubkeys.has(normalizePubkey(participant.pubkey)) ? (
-            <AgentIdentitySpecimen
-              accessibleName={participant.displayName}
-              publicKey={participant.pubkey}
-              size={26}
-              state="present"
-            />
-          ) : (
-            <UserAvatar
-              avatarUrl={participant.avatarUrl}
-              className="h-[26px] w-[26px] text-badge"
-              displayName={participant.displayName}
-              size="sm"
-            />
-          )}
-        </div>
-      ))}
-      {hiddenCount > 0 ? (
-        <div data-testid="chat-header-dm-avatar-stack-more">
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary font-semibold text-secondary-foreground shadow-xs">
-            <span className="text-2xs leading-none">+{hiddenCount}</span>
-          </span>
-        </div>
-      ) : null}
-    </div>
   );
 }

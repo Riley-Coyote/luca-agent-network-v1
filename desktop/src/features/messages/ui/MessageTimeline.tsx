@@ -7,6 +7,7 @@ import {
   selectTimelineIntroSurface,
 } from "@/features/messages/lib/timelineSnapshot";
 import { preloadTimelineImages } from "@/features/messages/lib/timelineImagePreload";
+import { useResidentMarksInMessages } from "@/features/messages/lib/conversationAppearancePreference";
 import type { TimelineMessage } from "@/features/messages/types";
 import type { MainTimelineEntry } from "@/features/messages/lib/threadPanel";
 import type { ChannelWindowThreadSummary } from "@/features/messages/lib/channelWindowStore";
@@ -29,6 +30,10 @@ import {
   type DirectMessageIntroParticipant,
 } from "./DirectMessageIntroAvatarStack";
 import { useSettleGatedPrependMessages } from "./useSettleGatedPrependMessages";
+
+function newResponseLabel(count: number): string {
+  return count === 1 ? "New response" : `${count} new responses`;
+}
 
 export type MessageTimelineHandle = {
   scrollToBottomOnNextUpdate: () => void;
@@ -115,9 +120,6 @@ type MessageTimelineProps = {
   unreadCount?: number;
   /** Per-thread unread counts keyed by thread root id. */
   threadUnreadCounts?: ReadonlyMap<string, number>;
-  trailingContent?: React.ReactNode;
-  managedFinalMessageIds?: readonly string[];
-  onManagedFinalsRendered?: (messageIds: readonly string[]) => void;
 };
 
 /** Stable empty reference used as the `useDeferredValue` initial value so the
@@ -202,12 +204,10 @@ const MessageTimelineBase = React.forwardRef<
     firstUnreadMessageId = null,
     unreadCount = 0,
     threadUnreadCounts,
-    trailingContent,
-    managedFinalMessageIds = [],
-    onManagedFinalsRendered,
   }: MessageTimelineProps,
   ref,
 ) {
+  const residentMarksEnabled = useResidentMarksInMessages(currentPubkey);
   const internalScrollRef = React.useRef<HTMLDivElement>(null);
   const scrollContainerRef = externalScrollRef ?? internalScrollRef;
   const contentRef = React.useRef<HTMLDivElement>(null);
@@ -639,7 +639,6 @@ const MessageTimelineBase = React.forwardRef<
       messageFooters={messageFooters}
       mainEntries={renderedMessages === messages ? mainEntries : undefined}
       leadingContent={virtualizedLeadingContent}
-      trailingContent={trailingContent}
       historyExhausted={renderedHistoryExhausted}
       threadSummaries={threadSummaries}
       messages={renderedMessages}
@@ -661,6 +660,7 @@ const MessageTimelineBase = React.forwardRef<
       onAtBottomStateChange={handleVirtualizerAtBottomStateChange}
       personaLookup={personaLookup}
       profiles={profiles}
+      residentMarksEnabled={residentMarksEnabled}
       ownerProfiles={ownerProfiles}
       searchActiveMessageId={searchActiveMessageId}
       searchMatchingMessageIds={searchMatchingMessageIds}
@@ -670,35 +670,6 @@ const MessageTimelineBase = React.forwardRef<
       unfollowThreadById={unfollowThreadById}
     />
   ) : null;
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the active scroll node is an imperative ref; final ids and rendered messages are the commit triggers.
-  React.useLayoutEffect(() => {
-    if (!onManagedFinalsRendered || managedFinalMessageIds.length === 0) return;
-    const renderedIds = new Set(renderedMessages.map((message) => message.id));
-    const settled = managedFinalMessageIds.filter((id) => renderedIds.has(id));
-    if (settled.length === 0) return;
-
-    // The signed row and its provisional predecessor coexist for this commit.
-    // Preserve the predecessor's viewport anchor before removing it so Virtua
-    // cannot retain the transient doubled height and make the final jump up.
-    const scrollContainer = activeScrollContainerRef.current;
-    const anchorId = settled[0];
-    if (scrollContainer && anchorId) {
-      const selectorId = CSS.escape(anchorId);
-      const provisional = scrollContainer.querySelector(
-        `[data-managed-final-message-id="${selectorId}"]`,
-      );
-      const final = scrollContainer.querySelector(
-        `[data-message-id="${selectorId}"]`,
-      );
-      if (provisional instanceof HTMLElement && final instanceof HTMLElement) {
-        scrollContainer.scrollTop +=
-          final.getBoundingClientRect().top -
-          provisional.getBoundingClientRect().top;
-      }
-    }
-    onManagedFinalsRendered(settled);
-  }, [managedFinalMessageIds, onManagedFinalsRendered, renderedMessages]);
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -877,9 +848,9 @@ const MessageTimelineBase = React.forwardRef<
               direction="down"
               label={
                 bufferedTimeline.pendingCount > 0
-                  ? unreadCountLabel(bufferedTimeline.pendingCount)
+                  ? newResponseLabel(bufferedTimeline.pendingCount)
                   : newMessageCount > 0
-                    ? unreadCountLabel(newMessageCount)
+                    ? newResponseLabel(newMessageCount)
                     : "Jump to latest"
               }
               onClick={() => {

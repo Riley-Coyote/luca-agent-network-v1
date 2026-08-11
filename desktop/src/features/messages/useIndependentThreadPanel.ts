@@ -22,6 +22,7 @@ export function useIndependentThreadPanel(args: {
   ownerProfiles: UserProfileLookup | undefined;
   members: ChannelMember[] | undefined;
   personaLookup: Map<string, string>;
+  residentPersonaIdLookup: ReadonlyMap<string, string | null>;
   respondToLookup: Map<string, RespondToMode>;
   relaySelfPubkey: string | null | undefined;
 }) {
@@ -50,6 +51,7 @@ export function useIndependentThreadPanel(args: {
         args.respondToLookup,
         args.relaySelfPubkey,
         args.ownerProfiles,
+        args.residentPersonaIdLookup,
       ),
     [
       args.channelEvents,
@@ -62,6 +64,7 @@ export function useIndependentThreadPanel(args: {
       args.currentAvatarUrl,
       args.profiles,
       args.ownerProfiles,
+      args.residentPersonaIdLookup,
       args.members,
       args.personaLookup,
       args.respondToLookup,

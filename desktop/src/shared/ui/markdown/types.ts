@@ -60,6 +60,8 @@ export type MarkdownProps = {
   mentionPubkeysByName?: Record<string, string>;
   mediaInset?: boolean;
   searchQuery?: string;
+  /** Parse only completed blocks while an in-flight public response grows. */
+  streaming?: boolean;
   /** Display name shown in shared-agent card metadata. */
   snapshotSharedBy?: string;
   videoReviewContext?: VideoReviewContext;

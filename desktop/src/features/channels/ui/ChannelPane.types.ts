@@ -96,7 +96,6 @@ export type ChannelPaneProps = {
   onMarkRead?: (message: TimelineMessage) => void;
   onExpandThreadReplies: (message: TimelineMessage) => void;
   onJoinChannel?: () => Promise<void>;
-  onOpenAgentSession: (pubkey: string, channelId?: string | null) => void;
   onOpenDm?: (pubkeys: string[]) => Promise<void> | void;
   onOpenMembers?: () => void;
   onOpenProfilePanel: (
@@ -149,6 +148,7 @@ export type ChannelPaneProps = {
     event: React.PointerEvent<HTMLButtonElement>,
   ) => void;
   personaLookup?: Map<string, string>;
+  residentPersonaIdLookup?: ReadonlyMap<string, string | null>;
   profiles?: UserProfileLookup;
   ownerProfiles?: UserProfileLookup;
   openThreadHeadId: string | null;

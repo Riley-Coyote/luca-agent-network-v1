@@ -196,6 +196,8 @@ export function formatTimelineMessages(
   relaySelfPubkey?: string | null,
   /** Profiles for verified agent owners, fetched in one batch by the surface. */
   ownerProfiles?: UserProfileLookup,
+  /** Trusted managed persona id by lowercase resident pubkey. */
+  residentPersonaIdLookup?: ReadonlyMap<string, string | null>,
 ): TimelineMessage[] {
   const currentPubkeyLower = currentPubkey?.toLowerCase();
   const roleByPubkey = new Map<string, string>();
@@ -451,6 +453,9 @@ export function formatTimelineMessages(
         role === "bot"
           ? personaLookup?.get(authorPubkey.toLowerCase())
           : undefined,
+      residentPersonaId: isAgent
+        ? (residentPersonaIdLookup?.get(authorPubkey.toLowerCase()) ?? null)
+        : undefined,
       respondTo:
         role === "bot"
           ? respondToLookup?.get(authorPubkey.toLowerCase())

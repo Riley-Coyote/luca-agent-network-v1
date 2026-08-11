@@ -18,7 +18,6 @@ import { ForumChannelContent } from "@/features/channels/ui/ForumChannelContent"
 import { MembersSidebar } from "@/features/channels/ui/MembersSidebar";
 import {
   useManagedAgentsQuery,
-  usePersonasQuery,
   useRelayAgentsQuery,
 } from "@/features/agents/hooks";
 import { mergeChannelKnownAgentPubkeys } from "@/features/agents/knownAgentPubkeys";
@@ -53,7 +52,7 @@ import { useChannelTyping } from "@/features/messages/useChannelTyping";
 import type { TimelineMessage } from "@/features/messages/types";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
 import { useRelaySelfQuery } from "@/features/moderation/hooks";
-import type { RelayEvent, RespondToMode } from "@/shared/api/types";
+import type { RelayEvent } from "@/shared/api/types";
 import { useChannelFind } from "@/features/search/useChannelFind";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 import { AgentSessionProvider } from "@/shared/context/AgentSessionContext";
@@ -74,6 +73,7 @@ import { useChannelRouteTarget } from "./useChannelRouteTarget";
 import { useChannelUnreadState } from "./useChannelUnreadState";
 import { useActiveChannelReadSync } from "./useActiveChannelReadSync";
 import { useResolvedChannelMessages } from "./useResolvedChannelMessages";
+import { useChannelPersonaLookups } from "./useChannelPersonaLookups";
 import type { ChannelScreenProps } from "./ChannelScreen.types";
 const HEADER_ACTIONS_COMPACT_BREAKPOINT_PX = 760,
   EMPTY_RELAY_EVENTS: RelayEvent[] = [];
@@ -341,22 +341,8 @@ export function ChannelScreen({
     }
     return pubkeys;
   }, [knownAgentPubkeys, messageProfiles, communityAgentPubkeys]);
-  const personasQuery = usePersonasQuery();
-  const { personaLookup, respondToLookup } = React.useMemo(() => {
-    const agents = managedAgentsQuery.data ?? [];
-    const personaById = new Map(
-      (personasQuery.data ?? []).map((p) => [p.id, p.displayName]),
-    );
-    const pLookup = new Map<string, string>();
-    const rLookup = new Map<string, RespondToMode>();
-    for (const agent of agents) {
-      const key = agent.pubkey.toLowerCase();
-      rLookup.set(key, agent.respondTo);
-      const pName = agent.personaId ? personaById.get(agent.personaId) : null;
-      if (pName) pLookup.set(key, pName);
-    }
-    return { personaLookup: pLookup, respondToLookup: rLookup };
-  }, [managedAgentsQuery.data, personasQuery.data]);
+  const { personaLookup, residentPersonaIdLookup, respondToLookup } =
+    useChannelPersonaLookups(managedAgentsQuery.data);
   const timelineMessages = React.useMemo(
     () =>
       formatTimelineMessages(
@@ -370,6 +356,7 @@ export function ChannelScreen({
         respondToLookup,
         relaySelfPubkey,
         messageOwnerProfiles,
+        residentPersonaIdLookup,
       ),
     [
       activeChannel,
@@ -377,6 +364,7 @@ export function ChannelScreen({
       currentProfile?.avatarUrl,
       currentPubkey,
       messageProfiles,
+      residentPersonaIdLookup,
       messageOwnerProfiles,
       personaLookup,
       relaySelfPubkey,
@@ -411,6 +399,7 @@ export function ChannelScreen({
     members: channelMembers,
     personaLookup,
     respondToLookup,
+    residentPersonaIdLookup,
     relaySelfPubkey,
   });
   const {
@@ -763,6 +752,7 @@ export function ChannelScreen({
         activeDmPresenceStatus={activeDmPresenceStatus}
         agentPubkeys={agentPubkeys}
         profiles={messageProfiles}
+        residentPersonaIdLookup={residentPersonaIdLookup}
         chromeWrapperRef={channelHeaderChromeRef}
         currentPubkey={currentPubkey}
         isAddBotOpen={isAddBotOpen}
@@ -770,6 +760,9 @@ export function ChannelScreen({
         onAddBotOpenChange={setIsAddBotOpen}
         onJoinChannel={joinChannelMutation.mutateAsync}
         onManageChannel={handleManageChannel}
+        onOpenResident={(pubkey) =>
+          handleOpenProfilePanel(pubkey, { tab: "continuity" })
+        }
         onToggleMembers={handleToggleMembers}
         showHeaderContent={!isSinglePanelView}
         transparentChrome={activeChannel?.channelType !== "forum"}
@@ -777,6 +770,7 @@ export function ChannelScreen({
     ),
     [
       messageProfiles,
+      residentPersonaIdLookup,
       activeChannel,
       activeChannelEphemeralDisplay,
       activeChannelTitle,
@@ -791,6 +785,7 @@ export function ChannelScreen({
       joinChannelMutation.isPending,
       joinChannelMutation.mutateAsync,
       handleManageChannel,
+      handleOpenProfilePanel,
       handleToggleMembers,
       isSinglePanelView,
     ],
@@ -925,7 +920,6 @@ export function ChannelScreen({
                   onMarkUnread={handleMessageMarkUnread}
                   onMarkRead={handleMessageMarkRead}
                   onExpandThreadReplies={handleExpandThreadReplies}
-                  onOpenAgentSession={handleOpenAgentSession}
                   onOpenDm={handleOpenDm}
                   onOpenProfilePanel={handleOpenProfilePanel}
                   onBackToConversation={handleBackToConversation}
@@ -954,6 +948,7 @@ export function ChannelScreen({
                   profilePanelTab={profilePanelTab}
                   profilePanelView={profilePanelView}
                   personaLookup={personaLookup}
+                  residentPersonaIdLookup={residentPersonaIdLookup}
                   profiles={messageProfiles}
                   ownerProfiles={messageOwnerProfiles}
                   firstUnreadMessageId={firstUnreadMessageId}

@@ -72,6 +72,27 @@ async function lastSendPayload(page: Page) {
   });
 }
 
+function managedResponseRows(page: Page): Locator {
+  return page.locator("[data-managed-response-ui-key]");
+}
+
+async function responseGeometry(row: Locator) {
+  return row.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    const body = element.querySelector<HTMLElement>(
+      ".managed-response-content",
+    );
+    const style = getComputedStyle(body ?? element);
+    return {
+      fontSize: Number.parseFloat(style.fontSize),
+      left: bounds.left,
+      lineHeight: Number.parseFloat(style.lineHeight),
+      top: bounds.top,
+      width: bounds.width,
+    };
+  });
+}
+
 async function findThreadMessageId(page: Page, content: string) {
   return page.evaluate(
     async ({ channelId, expectedContent }) => {
@@ -156,17 +177,11 @@ test("group activation streams independently and settles into linear signed turn
   const receiptId = await ownerRow.getAttribute("data-message-id");
   if (!receiptId) throw new Error("Expected an owner event ID.");
 
-  await expect(page.getByTestId("provisional-response-row")).toHaveCount(2);
-  await expect(
-    page
-      .getByTestId("message-timeline")
-      .getByTestId("provisional-response-row"),
-  ).toHaveCount(2);
-  await expect(
-    page
-      .getByTestId("channel-composer-overlay")
-      .getByTestId("provisional-response-row"),
-  ).toHaveCount(0);
+  await expect(managedResponseRows(page)).toHaveCount(0);
+  await expect(page.getByTestId("conversation-activity-shelf")).toHaveAttribute(
+    "data-active-count",
+    "2",
+  );
   const payload = await lastSendPayload(page);
   expect(payload?.managedAudience).toEqual({
     mode: "conversation",
@@ -207,14 +222,15 @@ test("group activation streams independently and settles into linear signed turn
 
   await expect(page.getByText("Claude is streaming.")).toBeVisible();
   await expect(page.getByText("Codex is streaming.")).toBeVisible();
+  await expect(managedResponseRows(page)).toHaveCount(2);
   await expect(page.getByTestId("message-input")).toBeEditable();
 
   await emitSignedFinal(page, CLAUDE, receiptId, "Claude signed final.");
   await expect(page.getByText("Claude signed final.")).toBeVisible();
-  await expect(page.getByTestId("provisional-response-row")).toHaveCount(1);
+  await expect(managedResponseRows(page)).toHaveCount(2);
   await emitSignedFinal(page, CODEX, receiptId, "Codex signed final.");
   await expect(page.getByText("Codex signed final.")).toBeVisible();
-  await expect(page.getByTestId("provisional-response-row")).toHaveCount(0);
+  await expect(managedResponseRows(page)).toHaveCount(2);
 
   for (const text of ["Claude signed final.", "Codex signed final."]) {
     const row = page.getByTestId("message-row").filter({ hasText: text });
@@ -250,25 +266,38 @@ test("a streamed response settles in place when its signed final arrives", async
     sequence: 2,
     turnId: "settled-turn",
   });
-  const provisional = page
-    .getByTestId("provisional-response-row")
-    .filter({ hasText: "One continuous response." });
-  await expect(provisional).toBeVisible();
-  const provisionalBox = await provisional.boundingBox();
+  const response = managedResponseRows(page).filter({
+    hasText: "One continuous response.",
+  });
+  await expect(response).toBeVisible();
+  await response.evaluate((element) => {
+    element.setAttribute("data-stable-node-probe", "settled-turn");
+  });
+  const streamedGeometry = await responseGeometry(response);
 
   await emitSignedFinal(page, CLAUDE, receiptId, "One continuous response.");
-  const final = page
-    .getByTestId("message-row")
-    .filter({ hasText: "One continuous response." });
-  await expect(final).toBeVisible();
-  await expect(provisional).toHaveCount(0);
-  const finalBox = await final.boundingBox();
+  const finalResponse = managedResponseRows(page).filter({
+    hasText: "One continuous response.",
+  });
+  await expect(finalResponse).toBeVisible();
+  await expect(
+    page.locator('[data-stable-node-probe="settled-turn"]'),
+  ).toHaveCount(1);
+  await expect(finalResponse).toHaveAttribute("data-signed-message-id", /.+/);
+  const signedGeometry = await responseGeometry(finalResponse);
 
-  expect(provisionalBox).not.toBeNull();
-  expect(finalBox).not.toBeNull();
-  expect(Math.abs((provisionalBox?.y ?? 0) - (finalBox?.y ?? 0))).toBeLessThan(
-    16,
-  );
+  for (const key of [
+    "fontSize",
+    "left",
+    "lineHeight",
+    "top",
+    "width",
+  ] as const) {
+    expect(
+      Math.abs(streamedGeometry[key] - signedGeometry[key]),
+      `${key} should remain stable through signing`,
+    ).toBeLessThanOrEqual(1);
+  }
 });
 
 test("ordinary Reply is directed while Reply in thread remains explicit", async ({
@@ -290,7 +319,11 @@ test("ordinary Reply is directed while Reply in thread remains explicit", async 
     resident_pubkeys: [CLAUDE],
   });
   expect(payload?.responseSurface).toBe("timeline");
-  await expect(page.getByTestId("provisional-response-row")).toHaveCount(1);
+  await expect(managedResponseRows(page)).toHaveCount(0);
+  await expect(page.getByTestId("conversation-activity-shelf")).toHaveAttribute(
+    "data-active-count",
+    "1",
+  );
 
   await emitSignedFinal(page, CLAUDE, receiptId, "Claude alone replied.");
   const finalRow = page
@@ -366,7 +399,9 @@ test("ordinary Reply is directed while Reply in thread remains explicit", async 
     await newMessageAffordance.click();
   }
   await expect(page.getByText("A real thread response.")).toBeVisible();
-  await page.getByRole("button", { name: "Show all messages" }).click();
+  await page
+    .getByRole("button", { name: "Show all messages" })
+    .click({ force: true });
   await expect(page.getByTestId("focused-thread-bar")).toHaveCount(0);
   await expect(page).not.toHaveURL(/thread=/);
   await expect(page.getByText("A real thread response.")).toHaveCount(0);
@@ -391,10 +426,14 @@ test("agent mentions activate exactly the named resident subset", async ({
     mode: "directed",
     resident_pubkeys: [CLAUDE, CODEX].sort(),
   });
-  await expect(page.getByTestId("provisional-response-row")).toHaveCount(2);
+  await expect(managedResponseRows(page)).toHaveCount(0);
+  await expect(page.getByTestId("conversation-activity-shelf")).toHaveAttribute(
+    "data-active-count",
+    "2",
+  );
 });
 
-test("cancellation discards partial public text without affecting another resident", async ({
+test("cancellation preserves visible partial text without affecting another resident", async ({
   page,
 }) => {
   const ownerRow = await send(page, "Start two independent responses.");
@@ -446,8 +485,8 @@ test("cancellation discards partial public text without affecting another reside
     turnId: "claude-cancel",
   });
   await expect(
-    page.getByText("Response stopped", { exact: true }),
+    page.getByText("Stopped · Response may be incomplete", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByText("Discard this partial.")).toHaveCount(0);
+  await expect(page.getByText("Discard this partial.")).toBeVisible();
   await expect(page.getByText("Keep this text.")).toBeVisible();
 });

@@ -50,3 +50,16 @@ test("accepts an authoritative replacement when its old tail disappeared", () =>
     messages,
   );
 });
+
+test("keeps a signed managed response in its frozen immutable slot", () => {
+  const provisional = { id: "managed:slot", renderKey: "managed:slot" };
+  const signed = { id: "signed-event", renderKey: "managed:slot" };
+  const result = selectBufferedTimelineMessages({
+    frozenMessageIds: ["owner", "managed:slot"],
+    isAtBottom: false,
+    messages: [{ id: "owner" }, signed, { id: "later" }],
+  });
+
+  assert.deepEqual(result, [{ id: "owner" }, signed]);
+  assert.notEqual(result[1], provisional);
+});

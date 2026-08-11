@@ -63,6 +63,7 @@ export type ManagedPresentationTurn = {
 
 /** Stable virtualized timeline identity from first public text to signed final. */
 export type ManagedResponseSlot = {
+  anchorAt: number;
   anchorKey: string | null;
   conversationId: string;
   finalMessageId: string | null;

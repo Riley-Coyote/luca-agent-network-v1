@@ -9,6 +9,7 @@ import {
 import type { TimelineMessage } from "@/features/messages/types";
 import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
 import { HuddleAttachment } from "@/features/huddle/components/HuddleAttachment";
+import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMark";
 import { MessageReactions } from "@/features/messages/ui/MessageReactions";
 import { useReactionHandler } from "@/features/messages/ui/useReactionHandler";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
@@ -95,6 +96,7 @@ export const MessageRow = React.memo(
     profiles,
     searchQuery,
     quotedParent = null,
+    residentMarksEnabled = true,
     showDepthGuides = true,
     videoReviewContext,
   }: {
@@ -151,6 +153,7 @@ export const MessageRow = React.memo(
       body: string;
       resolved: boolean;
     } | null;
+    residentMarksEnabled?: boolean;
     showDepthGuides?: boolean;
     videoReviewContext?: VideoReviewContext;
   }) {
@@ -365,7 +368,7 @@ export const MessageRow = React.memo(
             <Markdown
               channelNames={channelNames}
               className={cn(
-                "max-w-full text-chat leading-[1.68] text-foreground/90",
+                "max-w-full text-base leading-[1.68] text-foreground/90",
                 emojiOnly &&
                   "text-4xl leading-tight [&_p]:leading-tight [&_img[data-custom-emoji]]:h-[1.45em] [&_img[data-custom-emoji]]:align-middle [&_button:has(img[data-custom-emoji])]:align-middle",
               )}
@@ -383,8 +386,14 @@ export const MessageRow = React.memo(
               agentMentionPubkeysByName={agentMentionPubkeysByName}
               mentionNames={mentionNames}
               mentionPubkeysByName={mentionPubkeysByName}
+              interactive={
+                !message.managedPresentation ||
+                (Boolean(message.managedPresentation.finalMessageId) &&
+                  !message.managedPresentation.streaming)
+              }
               searchQuery={searchQuery}
               snapshotSharedBy={snapshotSharedBy}
+              streaming={message.managedPresentation?.streaming ?? false}
               videoReviewContext={videoReviewContext}
             />
           );
@@ -392,46 +401,51 @@ export const MessageRow = React.memo(
     };
 
     const isThreadReplyLayout = layoutVariant === "thread-reply";
+    const showResidentMarkGutter = Boolean(
+      residentMarksEnabled && message.isAgent && message.pubkey,
+    );
     const guideBleedRem = isThreadReplyLayout ? 0.25 : 0;
     const authorNode = message.pubkey ? (
       <MessageAuthorText hoverUnderline>{message.author}</MessageAuthorText>
     ) : (
       <MessageAuthorText as="h3">{message.author}</MessageAuthorText>
     );
-    const actionBarNode = (
-      <div
-        className={cn(
-          "absolute right-2 top-1 z-10 sm:pointer-events-none",
-          actionBarPlacement === "floating"
-            ? "sm:top-0 sm:-translate-y-1/2"
-            : "sm:top-1 sm:translate-y-0",
-        )}
-      >
-        <MessageActionBar
-          channelId={channelId}
-          isFollowingThread={isFollowingThread}
-          isUnread={isUnread}
-          message={message}
-          onDelete={onDelete}
-          onEdit={onEdit}
-          onFollowThread={onFollowThread}
-          onMarkUnread={onMarkUnread}
-          onMarkRead={onMarkRead}
-          onReactionBadgeBurstRequest={
-            reactionPending ? undefined : setBadgeBurstEmoji
-          }
-          onReactionSelect={
-            canToggleReactions ? handleReactionSelect : undefined
-          }
-          onRemindLater={handleRemindLater}
-          onReply={onReply}
-          onReplyInThread={onReplyInThread}
-          onUnfollowThread={onUnfollowThread}
-          reactionErrorMessage={reactionErrorMessage}
-          reactions={reactions}
-        />
-      </div>
-    );
+    const actionBarNode =
+      message.managedPresentation?.finalMessageId === null ||
+      message.managedPresentation?.streaming ? null : (
+        <div
+          className={cn(
+            "absolute right-2 top-1 z-10 sm:pointer-events-none",
+            actionBarPlacement === "floating"
+              ? "sm:top-0 sm:-translate-y-1/2"
+              : "sm:top-1 sm:translate-y-0",
+          )}
+        >
+          <MessageActionBar
+            channelId={channelId}
+            isFollowingThread={isFollowingThread}
+            isUnread={isUnread}
+            message={message}
+            onDelete={onDelete}
+            onEdit={onEdit}
+            onFollowThread={onFollowThread}
+            onMarkUnread={onMarkUnread}
+            onMarkRead={onMarkRead}
+            onReactionBadgeBurstRequest={
+              reactionPending ? undefined : setBadgeBurstEmoji
+            }
+            onReactionSelect={
+              canToggleReactions ? handleReactionSelect : undefined
+            }
+            onRemindLater={handleRemindLater}
+            onReply={onReply}
+            onReplyInThread={onReplyInThread}
+            onUnfollowThread={onUnfollowThread}
+            reactionErrorMessage={reactionErrorMessage}
+            reactions={reactions}
+          />
+        </div>
+      );
 
     const statusMetadataNode =
       message.pending || message.edited ? (
@@ -451,6 +465,33 @@ export const MessageRow = React.memo(
           ) : null}
         </>
       ) : null;
+
+    const managedStatusNode = (() => {
+      const managed = message.managedPresentation;
+      if (!managed) return null;
+      if (managed.phase === "stopped") {
+        return (
+          <p
+            className="mt-1 text-xs text-muted-foreground"
+            data-testid="managed-response-status"
+          >
+            Stopped · Response may be incomplete
+          </p>
+        );
+      }
+      if (managed.phase === "failed" || managed.phase === "needs_attention") {
+        return (
+          <p
+            className="mt-1 text-xs text-destructive"
+            data-testid="managed-response-status"
+            role="status"
+          >
+            Couldn’t finish
+          </p>
+        );
+      }
+      return null;
+    })();
 
     const inlineMetadataNode = (
       <div className="flex shrink-0 items-baseline gap-2 text-xs">
@@ -505,7 +546,12 @@ export const MessageRow = React.memo(
             resolved={quotedParent.resolved}
           />
         ) : null}
-        <CollapsibleMessageBody>{renderBody()}</CollapsibleMessageBody>
+        {message.managedPresentation ? (
+          renderBody()
+        ) : (
+          <CollapsibleMessageBody>{renderBody()}</CollapsibleMessageBody>
+        )}
+        {managedStatusNode}
         {continuationMetadataNode}
         <MessageReactions
           messageId={message.id}
@@ -711,7 +757,9 @@ export const MessageRow = React.memo(
         <article
           className={cn(
             "group/message relative z-10 rounded-[10px] transition-colors",
-            playEntrance && "motion-enter-conversation",
+            playEntrance &&
+              !message.managedPresentation &&
+              "motion-enter-conversation",
             "py-1.5",
             hoverBackground
               ? "mx-1 px-2 hover:bg-muted/45 focus-within:bg-muted/45"
@@ -719,7 +767,7 @@ export const MessageRow = React.memo(
                 ? "mx-1 px-2"
                 : "px-2",
             "flex",
-            isThreadReplyLayout && "gap-2.5",
+            (isThreadReplyLayout || showResidentMarkGutter) && "gap-2.5",
             isContinuation ? "items-center" : "items-start",
             hasActiveReminder ? "bg-foreground/[0.045]" : "",
             highlighted
@@ -727,15 +775,45 @@ export const MessageRow = React.memo(
               : "",
           )}
           data-message-id={message.id}
+          data-managed-response-phase={message.managedPresentation?.phase}
+          data-managed-final-reconciliation={
+            message.managedPresentation?.finalReconciliation ?? undefined
+          }
+          data-managed-response-ui-key={message.managedPresentation?.uiKey}
+          data-signed-message-id={
+            message.managedPresentation?.finalMessageId ?? undefined
+          }
           data-testid="message-row"
           onAnimationEnd={handleEntranceAnimationEnd}
         >
           {isThreadReplyLayout ? (
             <span aria-hidden className="w-4 shrink-0" />
           ) : null}
+          {showResidentMarkGutter && message.pubkey ? (
+            <span className="mt-0.5 flex w-5 shrink-0 justify-center">
+              {isContinuation ? (
+                <span aria-hidden className="size-5" />
+              ) : (
+                <ResidentIdentityMark
+                  accessibleName={message.author}
+                  decorative
+                  personaId={message.residentPersonaId}
+                  publicKey={message.pubkey}
+                  size={20}
+                />
+              )}
+            </span>
+          ) : null}
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             {headerNode}
-            <div className={bodyContainerClass}>{messageBodyNode}</div>
+            <div
+              className={cn(
+                bodyContainerClass,
+                message.managedPresentation && "managed-response-content",
+              )}
+            >
+              {messageBodyNode}
+            </div>
           </div>
           {actionBarNode}
         </article>
@@ -759,6 +837,20 @@ export const MessageRow = React.memo(
     prev.message.kind === next.message.kind &&
     prev.message.pending === next.message.pending &&
     prev.message.edited === next.message.edited &&
+    prev.message.managedPresentation?.uiKey ===
+      next.message.managedPresentation?.uiKey &&
+    prev.message.managedPresentation?.canonicalPresent ===
+      next.message.managedPresentation?.canonicalPresent &&
+    prev.message.managedPresentation?.phase ===
+      next.message.managedPresentation?.phase &&
+    prev.message.managedPresentation?.finalMessageId ===
+      next.message.managedPresentation?.finalMessageId &&
+    prev.message.managedPresentation?.finalReconciliation ===
+      next.message.managedPresentation?.finalReconciliation &&
+    prev.message.managedPresentation?.failure ===
+      next.message.managedPresentation?.failure &&
+    prev.message.managedPresentation?.streaming ===
+      next.message.managedPresentation?.streaming &&
     // Value comparisons, not identity: these arrays are rebuilt with fresh
     // identities on every ingest/refetch even when unchanged — identity
     // checks made every row re-render on every streamed event in an open
@@ -767,6 +859,7 @@ export const MessageRow = React.memo(
     tagsEqual(prev.message.tags, next.message.tags) &&
     prev.message.role === next.message.role &&
     prev.message.personaDisplayName === next.message.personaDisplayName &&
+    prev.message.residentPersonaId === next.message.residentPersonaId &&
     depthGuideActionsEqual(
       prev.collapseDepthGuideActions,
       next.collapseDepthGuideActions,
@@ -797,6 +890,7 @@ export const MessageRow = React.memo(
     prev.onEntranceComplete === next.onEntranceComplete &&
     prev.playEntrance === next.playEntrance &&
     prev.profiles === next.profiles &&
+    prev.residentMarksEnabled === next.residentMarksEnabled &&
     prev.searchQuery === next.searchQuery &&
     prev.videoReviewContext === next.videoReviewContext,
 );

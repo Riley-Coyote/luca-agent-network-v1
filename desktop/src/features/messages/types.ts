@@ -35,6 +35,8 @@ export type TimelineMessage = {
   role?: string;
   /** For bot messages, the display name of the persona this bot was created from. */
   personaDisplayName?: string;
+  /** Trusted managed persona identifier used only to resolve resident identity marks. */
+  residentPersonaId?: string | null;
   /** For bot messages, the respond-to mode (who can interact with this bot). */
   respondTo?: "owner-only" | "allowlist" | "anyone";
   time: string;
@@ -51,7 +53,14 @@ export type TimelineMessage = {
   reactions?: TimelineReaction[];
   /** Process-memory presentation state for a managed response row. */
   managedPresentation?: {
+    canonicalPresent: boolean;
     failure: "runtime" | "publication" | "unavailable" | null;
+    finalReconciliation:
+      | "equal"
+      | "signed_extends_stream"
+      | "stream_extends_signed"
+      | "divergent"
+      | null;
     finalMessageId: string | null;
     phase:
       | "thinking"
@@ -62,6 +71,8 @@ export type TimelineMessage = {
       | "stopped"
       | "needs_attention"
       | "failed";
+    /** True while public graphemes are still being revealed in this row. */
+    streaming: boolean;
     uiKey: string;
   };
 };

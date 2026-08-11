@@ -1,69 +1,40 @@
 import * as React from "react";
 import { useChannelAgentActivity } from "@/features/agents/activeAgentTurnsStore";
 import { useChannelWorkingAgentPubkeys } from "@/features/agents/agentWorkingSignal";
-import {
-  type ManagedPresentationRow,
-  useManagedPresentations,
-} from "@/features/messages/managedPresentationStore";
-import { cancelManagedAgentTurn } from "@/shared/api/agentControl";
+import type { ConversationActivityState } from "@/features/channels/ui/conversationAgentActivityShelf";
+import { useManagedPresentationActivity } from "@/features/messages/managedPresentationStore";
 
 /**
  * Joins durable turn activity with process-memory presentation streams for one
- * conversation. A provisional stream wins over the observer fallback so a
- * resident is represented by exactly one working row.
+ * conversation. Public response bodies subscribe inside their own timeline
+ * rows, so this hook deliberately never observes per-chunk presentation text.
  */
 export function useConversationPresentation(channelId: string | null) {
   const composerWorkingBotPubkeys = useChannelWorkingAgentPubkeys(channelId);
   const agentActivityRows = useChannelAgentActivity(channelId);
-  const provisionalRows = useManagedPresentations(channelId);
-  const provisionalPubkeys = React.useMemo(
-    () => new Set(provisionalRows.map((row) => row.residentPubkey)),
-    [provisionalRows],
-  );
-  const pendingReplyRows = React.useMemo(
-    () =>
-      agentActivityRows.filter(
-        (row) => !provisionalPubkeys.has(row.agentPubkey.toLowerCase()),
-      ),
-    [agentActivityRows, provisionalPubkeys],
-  );
+  const managedActivity = useManagedPresentationActivity(channelId);
   const pendingActivityByPubkey = React.useMemo(
     () =>
       new Map(agentActivityRows.map((row) => [row.agentPubkey, row.activity])),
     [agentActivityRows],
   );
-  const handleCancelPendingReply = React.useCallback(
-    (agentPubkey: string) => {
-      if (!channelId) return;
-      void cancelManagedAgentTurn(agentPubkey, channelId);
-    },
-    [channelId],
-  );
-  const handleCancelProvisionalResponse = React.useCallback(
-    (row: ManagedPresentationRow) => {
-      if (!channelId) return;
-      void cancelManagedAgentTurn(
-        row.residentPubkey,
-        channelId,
-        row.sessionEpoch > 0
-          ? {
-              dispatchReceiptId: row.dispatchReceiptId,
-              sessionEpoch: row.sessionEpoch,
-            }
-          : undefined,
+  const presentationStateByPubkey = React.useMemo(() => {
+    const states = new Map<string, ConversationActivityState>();
+    for (const [pubkey, activity] of managedActivity) {
+      states.set(
+        pubkey,
+        activity.phase === "failed" || activity.phase === "needs_attention"
+          ? "needs-attention"
+          : activity.phase,
       );
-    },
-    [channelId],
-  );
-
+    }
+    return states;
+  }, [managedActivity]);
   return {
     agentActivityRows,
     composerWorkingBotPubkeys,
-    handleCancelPendingReply,
-    handleCancelProvisionalResponse,
-    hasComposerBotActivity: composerWorkingBotPubkeys.length > 0,
+    managedActivity,
     pendingActivityByPubkey,
-    pendingReplyRows,
-    provisionalRows,
+    presentationStateByPubkey,
   };
 }

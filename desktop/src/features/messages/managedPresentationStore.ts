@@ -183,6 +183,7 @@ function responseSlot(
 ): ManagedResponseSlot | null {
   if (turn.slotOrdinal === null) return null;
   return {
+    anchorAt: turn.anchorAt,
     anchorKey: turn.anchorKey,
     conversationId: turn.conversationId,
     finalMessageId: turn.finalMessageId,

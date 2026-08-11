@@ -30,6 +30,7 @@ type ChatHeaderProps = {
   channelType?: ChannelType;
   visibility?: ChannelVisibility;
   leadingContent?: React.ReactNode;
+  centerContent?: React.ReactNode;
   identityMeta?: React.ReactNode;
   mode?: "home" | "channel" | "agents" | "workflows" | "pulse" | "projects";
   overlaysContent?: boolean;
@@ -100,6 +101,7 @@ export function ChatHeader({
   channelType,
   visibility,
   leadingContent,
+  centerContent,
   identityMeta,
   mode = "channel",
   overlaysContent = false,
@@ -131,6 +133,11 @@ export function ChatHeader({
       data-testid="chat-header"
       data-tauri-drag-region
     >
+      {centerContent ? (
+        <div className="pointer-events-auto absolute left-1/2 top-3 hidden -translate-x-1/2 items-center justify-center min-[56rem]:flex">
+          {centerContent}
+        </div>
+      ) : null}
       <div className="flex min-h-9 min-w-0 items-center gap-2.5">
         <div className="min-w-0 flex-1">
           <div className="group/title flex min-w-0 items-center gap-[4px] overflow-hidden">
@@ -199,6 +206,11 @@ export function ChatHeader({
           {actions ? <div className="shrink-0">{actions}</div> : null}
         </div>
       </div>
+      {centerContent ? (
+        <div className="pointer-events-auto mt-1 flex min-w-0 justify-center min-[56rem]:hidden">
+          {centerContent}
+        </div>
+      ) : null}
     </header>
   );
 

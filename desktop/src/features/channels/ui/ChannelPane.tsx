@@ -25,10 +25,8 @@ import { AgentSessionThreadPanel } from "@/features/channels/ui/AgentSessionThre
 import { ChannelManagementAuxiliaryPanel } from "@/features/channels/ui/ChannelManagementAuxiliaryPanel";
 import { ConversationContextPanel } from "@/features/channels/ui/ConversationContextPanel";
 import { RightAuxiliaryPane } from "@/features/channels/ui/RightAuxiliaryPane";
-import { PendingReplyRow } from "@/features/messages/ui/PendingReplyRow";
-import { ProvisionalResponseRows } from "@/features/messages/ui/ProvisionalResponseRows";
-import { releaseManagedPresentationFinals } from "@/features/messages/managedPresentationStore";
-import { BotActivityComposerAction } from "@/features/channels/ui/BotActivityBar";
+import { useManagedResponseSlots } from "@/features/messages/managedPresentationStore";
+import { projectManagedTimelineMessages } from "@/features/messages/lib/managedTimelineProjection";
 import { ConversationAgentActivityStrip } from "@/features/channels/ui/ConversationAgentActivityStrip";
 import { useConversationPresentation } from "@/features/channels/ui/useConversationPresentation";
 import { useManagedPermissions } from "@/features/agents/useManagedPermissions";
@@ -117,7 +115,6 @@ export const ChannelPane = React.memo(function ChannelPane({
   onMarkRead,
   onExpandThreadReplies,
   onJoinChannel,
-  onOpenAgentSession,
   onOpenDm,
   onOpenMembers,
   onOpenProfilePanel,
@@ -135,6 +132,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   onToggleReaction,
   unfollowThreadById,
   personaLookup,
+  residentPersonaIdLookup,
   profiles,
   ownerProfiles,
   openThreadHeadId,
@@ -389,13 +387,11 @@ export const ChannelPane = React.memo(function ChannelPane({
   // whose typing signal never arrives — and vice versa.
   const {
     composerWorkingBotPubkeys,
-    handleCancelPendingReply,
-    handleCancelProvisionalResponse,
-    hasComposerBotActivity,
+    managedActivity,
     pendingActivityByPubkey,
-    pendingReplyRows,
-    provisionalRows,
+    presentationStateByPubkey,
   } = useConversationPresentation(activeChannelId);
+  const managedResponseSlots = useManagedResponseSlots(activeChannelId);
   const directMessageIntro = React.useMemo(
     () =>
       buildDirectMessageIntro({
@@ -405,43 +401,6 @@ export const ChannelPane = React.memo(function ChannelPane({
       }),
     [activeChannel, currentPubkey, profiles],
   );
-  const managedFinalMessageIds = React.useMemo(
-    () =>
-      provisionalRows.flatMap((row) =>
-        row.finalMessageId ? [row.finalMessageId] : [],
-      ),
-    [provisionalRows],
-  );
-  const conversationTail = React.useMemo(
-    () =>
-      provisionalRows.length > 0 || pendingReplyRows.length > 0 ? (
-        <div className="mx-auto w-full max-w-[48rem] px-0">
-          <ProvisionalResponseRows
-            onCancel={handleCancelProvisionalResponse}
-            profiles={profiles}
-            rows={provisionalRows}
-          />
-          <PendingReplyRow
-            onCancel={handleCancelPendingReply}
-            onOpenAgentSession={(pubkey) =>
-              onOpenAgentSession(pubkey, activeChannelId)
-            }
-            profiles={profiles}
-            rows={pendingReplyRows}
-          />
-        </div>
-      ) : null,
-    [
-      activeChannelId,
-      handleCancelPendingReply,
-      handleCancelProvisionalResponse,
-      onOpenAgentSession,
-      pendingReplyRows,
-      profiles,
-      provisionalRows,
-    ],
-  );
-
   const handleWelcomeAddAgent = React.useCallback(() => {
     onAddAgent?.({
       beforeSend: () =>
@@ -476,9 +435,26 @@ export const ChannelPane = React.memo(function ChannelPane({
 
     return messages.filter((message) => !isWelcomeSetupSystemMessage(message));
   }, [activeChannel, messages]);
+  const projectedTimelineMessages = React.useMemo(
+    () =>
+      projectManagedTimelineMessages(
+        visibleMessages,
+        managedResponseSlots,
+        profiles,
+        residentPersonaIdLookup,
+        openThreadHeadId ? "thread" : "timeline",
+      ).messages,
+    [
+      managedResponseSlots,
+      openThreadHeadId,
+      profiles,
+      residentPersonaIdLookup,
+      visibleMessages,
+    ],
+  );
   const mainTimelineEntries = React.useMemo(() => {
     const roomEntries = buildMainTimelineEntries(
-      visibleMessages,
+      projectedTimelineMessages,
       new Set(),
       threadSummaries,
       profiles,
@@ -491,14 +467,14 @@ export const ChannelPane = React.memo(function ChannelPane({
     // descendants; returning to the room immediately restores its linear
     // top-level + broadcast-only transcript.
     const threadEntries = buildMainTimelineEntries(
-      visibleMessages,
+      projectedTimelineMessages,
       new Set(),
       threadSummaries,
       profiles,
       true,
     );
     return buildFocusedThreadEntries(threadEntries, openThreadHeadId);
-  }, [openThreadHeadId, profiles, threadSummaries, visibleMessages]);
+  }, [openThreadHeadId, profiles, projectedTimelineMessages, threadSummaries]);
 
   const focusedThreadHead = React.useMemo(
     () =>
@@ -586,16 +562,6 @@ export const ChannelPane = React.memo(function ChannelPane({
           }
         >
           {header}
-          <ConversationAgentActivityStrip
-            agents={activityAgents}
-            channelId={activeChannel?.id ?? null}
-            onOpenResident={(pubkey) =>
-              onOpenProfilePanel(pubkey, { tab: "continuity" })
-            }
-            sessionAgents={agentSessionAgents}
-            activityByPubkey={pendingActivityByPubkey}
-            workingPubkeys={composerWorkingBotPubkeys}
-          />
           {channelFind.isOpen ? (
             <div className={cn("absolute inset-x-0 z-40", channelChrome.top)}>
               <ChannelFindBar
@@ -657,7 +623,7 @@ export const ChannelPane = React.memo(function ChannelPane({
             onEntranceMessageComplete={onEntranceMessageComplete}
             mainEntries={mainTimelineEntries}
             threadSummaries={threadSummaries}
-            messages={visibleMessages}
+            messages={projectedTimelineMessages}
             firstUnreadMessageId={firstUnreadMessageId}
             unreadCount={unreadCount}
             onDelete={onDelete}
@@ -690,9 +656,6 @@ export const ChannelPane = React.memo(function ChannelPane({
             targetMessageId={targetMessageId}
             splitThreadPanelOpen={false}
             threadUnreadCounts={threadUnreadCounts}
-            trailingContent={conversationTail}
-            managedFinalMessageIds={managedFinalMessageIds}
-            onManagedFinalsRendered={releaseManagedPresentationFinals}
           />
           {isNonMemberView ? (
             <div
@@ -750,6 +713,29 @@ export const ChannelPane = React.memo(function ChannelPane({
                     />
                   </div>
                 ) : null}
+                <ConversationAgentActivityStrip
+                  agents={activityAgents}
+                  channelId={activeChannel?.id ?? null}
+                  idleContent={
+                    hasTypingActivity ? (
+                      <TypingIndicatorRow
+                        channel={activeChannel}
+                        className="min-w-0 flex-1 py-0 pl-[calc(0.75rem+1px)] pr-0 sm:pl-[calc(1rem+1px)]"
+                        currentPubkey={currentPubkey}
+                        profiles={profiles}
+                        typingPubkeys={typingPubkeys}
+                      />
+                    ) : null
+                  }
+                  onOpenResident={(pubkey) =>
+                    onOpenProfilePanel(pubkey, { tab: "continuity" })
+                  }
+                  sessionAgents={agentSessionAgents}
+                  activityByPubkey={pendingActivityByPubkey}
+                  presentationActivityByPubkey={managedActivity}
+                  presentationStateByPubkey={presentationStateByPubkey}
+                  workingPubkeys={composerWorkingBotPubkeys}
+                />
                 <MessageComposer
                   channelId={activeChannel?.id ?? null}
                   channelName={activeChannel?.name ?? "channel"}
@@ -824,41 +810,6 @@ export const ChannelPane = React.memo(function ChannelPane({
                   }
                   typingRootEventId={openThreadHeadId ?? null}
                 />
-                <div
-                  className="mx-auto min-h-8 w-full max-w-[48rem] overflow-visible bg-background px-0 pb-1.5 pt-0"
-                  data-luca-reading-plane
-                  data-testid="channel-composer-activity-row"
-                >
-                  <div className="flex h-full w-full items-center gap-2 overflow-visible">
-                    {/* Fallback only. The pending row says the same thing with
-                        more detail and a live mark, so showing both puts two
-                        different sentences about one resident in one strip. The
-                        pill still covers the case where an agent reads as busy
-                        from the typing signal with no turn tracked. */}
-                    {hasComposerBotActivity && pendingReplyRows.length === 0 ? (
-                      <div className="flex min-w-0 flex-1 overflow-visible">
-                        <BotActivityComposerAction
-                          agents={activityAgents}
-                          channelId={activeChannel?.id ?? null}
-                          onOpenAgentSession={onOpenAgentSession}
-                          openAgentSessionPubkey={openAgentSessionPubkey}
-                          profiles={profiles}
-                          workingBotPubkeys={composerWorkingBotPubkeys}
-                          variant="inline"
-                        />
-                      </div>
-                    ) : null}
-                    {hasTypingActivity ? (
-                      <TypingIndicatorRow
-                        channel={activeChannel}
-                        className="min-w-0 flex-1 py-0 pl-[calc(0.75rem+1px)] pr-0 sm:pl-[calc(1rem+1px)]"
-                        currentPubkey={currentPubkey}
-                        profiles={profiles}
-                        typingPubkeys={typingPubkeys}
-                      />
-                    ) : null}
-                  </div>
-                </div>
               </div>
             </div>
           )}

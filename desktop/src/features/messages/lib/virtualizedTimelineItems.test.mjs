@@ -65,21 +65,6 @@ test("oldest day carries no divider while more history exists", () => {
   assert.deepEqual(keys, ["a3", "a4", "a5", "bottom-spacer"]);
 });
 
-test("live response content occupies the chronological tail before the composer", () => {
-  const items = buildVirtualizedItems(
-    [group("day-A", DAY_A, ["a3"])],
-    undefined,
-    false,
-    "live response",
-  );
-  assert.deepEqual(items.map(virtualizedItemKey), [
-    "a3",
-    "trailing-content",
-    "bottom-spacer",
-  ]);
-  assert.equal(estimateVirtualizedTimelineItemHeight(items[1]), 72);
-});
-
 test("oldest day divider renders once history is exhausted", () => {
   const keys = keysOf([group("day-A", DAY_A, ["a3", "a4", "a5"])], {
     exhausted: true,

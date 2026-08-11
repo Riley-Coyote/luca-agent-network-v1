@@ -1,5 +1,6 @@
 import { formatTime } from "@/features/messages/lib/dateFormatters";
-import type { ManagedPresentationTurn } from "@/features/messages/managedPresentationTypes";
+import type { ManagedResponseSurface } from "@/features/messages/lib/managedAudience";
+import type { ManagedResponseSlot } from "@/features/messages/managedPresentationTypes";
 import type { TimelineMessage } from "@/features/messages/types";
 import {
   resolveUserLabel,
@@ -17,42 +18,59 @@ function unixSeconds(timestamp: number): number {
     : Math.floor(timestamp);
 }
 
-function shouldRenderTurn(turn: ManagedPresentationTurn): boolean {
-  if (turn.responseSurface !== "timeline") return false;
-  if (turn.visibleText.length > 0 || turn.finalMessageId) return true;
-  return turn.phase === "stopped" || turn.phase === "failed";
-}
-
-function projectTurn(
-  turn: ManagedPresentationTurn,
+function projectSlot(
+  slot: ManagedResponseSlot,
   finalMessage: TimelineMessage | undefined,
+  anchorMessage: TimelineMessage | undefined,
   profiles?: UserProfileLookup,
+  residentPersonaIdLookup?: ReadonlyMap<string, string | null>,
 ): TimelineMessage {
-  const createdAt = unixSeconds(turn.anchorAt);
-  const messageId = finalMessage?.id ?? turn.uiKey;
+  const createdAt = unixSeconds(slot.anchorAt);
+  const messageId = finalMessage?.id ?? slot.uiKey;
+  const isThreadResponse = slot.responseSurface === "thread";
 
   return {
     ...(finalMessage ?? {}),
     id: messageId,
-    renderKey: turn.uiKey,
+    renderKey: slot.uiKey,
     createdAt,
-    pubkey: finalMessage?.pubkey ?? turn.residentPubkey,
-    signerPubkey: finalMessage?.signerPubkey ?? turn.residentPubkey,
+    pubkey: finalMessage?.pubkey ?? slot.residentPubkey,
+    signerPubkey: finalMessage?.signerPubkey ?? slot.residentPubkey,
     author:
       finalMessage?.author ??
-      resolveUserLabel({ pubkey: turn.residentPubkey, profiles }),
+      resolveUserLabel({ pubkey: slot.residentPubkey, profiles }),
     isAgent: true,
+    residentPersonaId:
+      finalMessage?.residentPersonaId ??
+      residentPersonaIdLookup?.get(slot.residentPubkey.toLowerCase()) ??
+      null,
     time: finalMessage?.time ?? formatTime(createdAt),
-    body: turn.visibleText,
-    parentId: finalMessage?.parentId ?? null,
-    rootId: finalMessage?.rootId ?? null,
-    depth: finalMessage?.depth ?? 0,
+    body: finalMessage?.body ?? "",
+    // Timeline finals keep their causal NIP-10 reference in the signed event,
+    // but `broadcast=1` makes their visual surface top-level. Never let the
+    // durable event's causal depth indent the stable in-memory response slot
+    // when signing hydrates it.
+    parentId: isThreadResponse
+      ? (finalMessage?.parentId ?? anchorMessage?.id ?? slot.anchorKey)
+      : null,
+    rootId: isThreadResponse
+      ? (finalMessage?.rootId ??
+        anchorMessage?.rootId ??
+        anchorMessage?.id ??
+        slot.anchorKey)
+      : null,
+    depth: isThreadResponse
+      ? (finalMessage?.depth ?? (anchorMessage?.depth ?? 0) + 1)
+      : 0,
     pending: false,
     managedPresentation: {
-      failure: turn.failure,
-      finalMessageId: turn.finalMessageId,
-      phase: turn.phase,
-      uiKey: turn.uiKey,
+      canonicalPresent: Boolean(finalMessage),
+      failure: null,
+      finalMessageId: slot.finalMessageId,
+      finalReconciliation: null,
+      phase: slot.finalMessageId ? "finalizing" : "writing",
+      streaming: true,
+      uiKey: slot.uiKey,
     },
   };
 }
@@ -64,19 +82,22 @@ function projectTurn(
  */
 export function projectManagedTimelineMessages(
   messages: readonly TimelineMessage[],
-  turns: readonly ManagedPresentationTurn[],
+  slots: readonly ManagedResponseSlot[],
   profiles?: UserProfileLookup,
+  residentPersonaIdLookup?: ReadonlyMap<string, string | null>,
+  responseSurface: ManagedResponseSurface = "timeline",
 ): ManagedTimelineProjection {
-  const renderableTurns = [...turns.filter(shouldRenderTurn)].sort(
+  const renderableSlots = [
+    ...slots.filter((slot) => slot.responseSurface === responseSurface),
+  ].sort(
     (left, right) =>
       left.anchorAt - right.anchorAt ||
-      (left.slotOrdinal ?? Number.MAX_SAFE_INTEGER) -
-        (right.slotOrdinal ?? Number.MAX_SAFE_INTEGER) ||
+      left.slotOrdinal - right.slotOrdinal ||
       left.uiKey.localeCompare(right.uiKey),
   );
   const suppressedFinalMessageIds = new Set(
-    renderableTurns.flatMap((turn) =>
-      turn.finalMessageId ? [turn.finalMessageId] : [],
+    renderableSlots.flatMap((slot) =>
+      slot.finalMessageId ? [slot.finalMessageId] : [],
     ),
   );
   const finalById = new Map(
@@ -84,15 +105,18 @@ export function projectManagedTimelineMessages(
       .filter((message) => suppressedFinalMessageIds.has(message.id))
       .map((message) => [message.id, message]),
   );
+  const messageById = new Map(messages.map((message) => [message.id, message]));
   const projected = messages.filter(
     (message) => !suppressedFinalMessageIds.has(message.id),
   );
 
-  for (const turn of renderableTurns) {
-    const message = projectTurn(
-      turn,
-      turn.finalMessageId ? finalById.get(turn.finalMessageId) : undefined,
+  for (const slot of renderableSlots) {
+    const message = projectSlot(
+      slot,
+      slot.finalMessageId ? finalById.get(slot.finalMessageId) : undefined,
+      slot.anchorKey ? messageById.get(slot.anchorKey) : undefined,
       profiles,
+      residentPersonaIdLookup,
     );
     let insertAt = projected.length;
     for (let index = projected.length - 1; index >= 0; index -= 1) {

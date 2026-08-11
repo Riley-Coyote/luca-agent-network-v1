@@ -111,7 +111,11 @@ import { MarkdownTable } from "./markdown/MarkdownTable";
 import { MaskedLinkTooltip } from "./markdown/MaskedLinkTooltip";
 import { ProgressiveImage } from "./markdown/ProgressiveImage";
 import { MessageLinkPill } from "./markdown/MessageLinkPill";
-import { renderCachedMarkdown } from "./markdown/nodeCache";
+import {
+  renderCachedMarkdown,
+  renderUncachedMarkdown,
+} from "./markdown/nodeCache";
+import { splitProgressiveMarkdownBlocks } from "./markdown/progressiveMarkdown";
 import {
   MarkdownRuntimeContext,
   useMarkdownRuntime,
@@ -1827,6 +1831,42 @@ function getMarkdownComponents(
   return entry;
 }
 
+type ProgressiveMarkdownBlockProps = {
+  channelNames?: string[];
+  components: Components;
+  content: string;
+  customEmoji?: MarkdownProps["customEmoji"];
+  mentionNames?: string[];
+  variant: string;
+};
+
+const ProgressiveMarkdownBlock = React.memo(
+  function ProgressiveMarkdownBlock({
+    channelNames,
+    components,
+    content,
+    customEmoji,
+    mentionNames,
+    variant,
+  }: ProgressiveMarkdownBlockProps) {
+    return renderUncachedMarkdown({
+      channelNames,
+      components,
+      content,
+      customEmoji,
+      mentionNames,
+      variant,
+    });
+  },
+  (previous, next) =>
+    previous.content === next.content &&
+    previous.components === next.components &&
+    previous.customEmoji === next.customEmoji &&
+    previous.variant === next.variant &&
+    shallowArrayEqual(previous.channelNames, next.channelNames) &&
+    shallowArrayEqual(previous.mentionNames, next.mentionNames),
+);
+
 function MarkdownInner({
   channelNames,
   className,
@@ -1841,6 +1881,7 @@ function MarkdownInner({
   mentionPubkeysByName,
   searchQuery,
   snapshotSharedBy,
+  streaming = false,
   videoReviewContext,
 }: MarkdownProps) {
   const { channels: rawChannels } = useChannelNavigation();
@@ -1869,12 +1910,16 @@ function MarkdownInner({
     [goChannel],
   );
   const linkPreviews = React.useMemo(
-    () => (interactive ? extractSupportedLinkPreviews(content) : []),
-    [content, interactive],
+    () =>
+      interactive && !streaming ? extractSupportedLinkPreviews(content) : [],
+    [content, interactive, streaming],
   );
   const configNudge = React.useMemo(
-    () => computeConfigNudge(content, interactive, configNudgeAuthorPubkey),
-    [content, interactive, configNudgeAuthorPubkey],
+    () =>
+      streaming
+        ? null
+        : computeConfigNudge(content, interactive, configNudgeAuthorPubkey),
+    [content, interactive, configNudgeAuthorPubkey, streaming],
   );
   const runtime = React.useMemo<MarkdownRuntime>(
     () => ({
@@ -1926,18 +1971,44 @@ function MarkdownInner({
   // When a config-nudge suppresses the prose (selectProseOrNudge returns
   // null), skip the parse entirely — it would be thrown away unrendered.
   const componentSet = getMarkdownComponents(interactive, mediaInset);
+  const progressive = React.useMemo(
+    () =>
+      streaming
+        ? splitProgressiveMarkdownBlocks(processedContent)
+        : { blocks: [], trailing: "" },
+    [processedContent, streaming],
+  );
   const markdownNode =
-    configNudge === null
-      ? renderCachedMarkdown({
-          channelNames,
-          components: componentSet.components,
-          content: processedContent,
-          customEmoji,
-          mentionNames,
-          searchQuery,
-          variant: componentSet.variant,
-        })
-      : null;
+    configNudge !== null ? null : streaming ? (
+      <>
+        {progressive.blocks.map((block) => (
+          <ProgressiveMarkdownBlock
+            channelNames={channelNames}
+            components={componentSet.components}
+            content={block.content}
+            customEmoji={customEmoji}
+            key={block.start}
+            mentionNames={mentionNames}
+            variant={componentSet.variant}
+          />
+        ))}
+        {progressive.trailing ? (
+          <span className="whitespace-pre-wrap" data-streaming-tail="">
+            {progressive.trailing}
+          </span>
+        ) : null}
+      </>
+    ) : (
+      renderCachedMarkdown({
+        channelNames,
+        components: componentSet.components,
+        content: processedContent,
+        customEmoji,
+        mentionNames,
+        searchQuery,
+        variant: componentSet.variant,
+      })
+    );
 
   return (
     <div
@@ -2005,6 +2076,7 @@ export const Markdown = React.memo(
     prev.imetaByUrl === next.imetaByUrl &&
     prev.configNudgeAuthorPubkey === next.configNudgeAuthorPubkey &&
     prev.searchQuery === next.searchQuery &&
+    prev.streaming === next.streaming &&
     prev.snapshotSharedBy === next.snapshotSharedBy &&
     prev.videoReviewContext === next.videoReviewContext,
 );
