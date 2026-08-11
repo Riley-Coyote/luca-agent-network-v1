@@ -1,0 +1,1685 @@
+//! Durable publisher for resident-authored communication actions.
+//!
+//! This first vertical slice deliberately supports only an ordinary kind-9
+//! message into an existing owner-visible conversation. Exact event bytes are
+//! encrypted in `CommunicationEventVault`; the sibling encrypted outbox owns
+//! lifecycle and retry state. No raw event or filesystem capability crosses
+//! the desktop boundary.
+
+use std::{
+    collections::BTreeSet,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use age::secrecy::SecretString;
+use buzz_core_pkg::kind::{
+    EXPECTED_MEMBERSHIP_SNAPSHOT_VERSION, TAG_EXPECTED_MEMBERSHIP_SNAPSHOT,
+};
+use chrono::{DateTime, SecondsFormat, Utc};
+use luca_protocol::{
+    canonical_sha256, CanonicalTimestamp, CommunicationActionOutboxStateV1,
+    CommunicationActionRequestV1, CommunicationDestinationV1, CommunicationOperationV1, Hex64,
+    OpaqueId, SafeU53, Sha256Ref,
+};
+use nostr::{Event, EventId, JsonUtil, Keys, Kind, Tag, Timestamp};
+use reqwest::{blocking::Client, Method, StatusCode};
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
+use tauri::AppHandle;
+use uuid::Uuid;
+use zeroize::Zeroize;
+
+use super::{
+    communication_action_outbox::{
+        CommunicationActionOutbox, CommunicationActionRequestPreflight,
+    },
+    communication_bridge::{
+        recheck_desktop_communication_authority, BrokerFailure,
+        CommunicationConversationAuthority, CommunicationTurnAuthoritySnapshot,
+        StagedCommunicationAction,
+    },
+    communication_event_vault::{
+        CommunicationEventVault, CommunicationEventVaultTerminal, SealedCommunicationEvent,
+    },
+};
+
+const MESSAGE_KIND: u16 = 9;
+const MEMBERSHIP_KIND: u16 = 39_002;
+const MAX_RELAY_QUERY_EVENTS: usize = 64;
+const RELAY_TIMEOUT_SECS: u64 = 12;
+const OUTBOX_PASSPHRASE_DOMAIN: &[u8] =
+    b"luca-communication-action-outbox-passphrase-v1\0";
+const VAULT_PASSPHRASE_DOMAIN: &[u8] =
+    b"luca-communication-event-vault-passphrase-v1\0";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CommunicationPublicationError {
+    InvalidRequest,
+    Authority,
+    Membership,
+    Unsupported,
+    RelayUnavailable,
+    RelayRejected,
+    Persistence,
+}
+
+impl CommunicationPublicationError {
+    pub(crate) const fn diagnostic_code(self) -> &'static str {
+        match self {
+            Self::InvalidRequest => "communication-publication-invalid-request",
+            Self::Authority => "communication-publication-authority",
+            Self::Membership => "communication-publication-membership",
+            Self::Unsupported => "communication-publication-unsupported",
+            Self::RelayUnavailable => "communication-publication-relay-unavailable",
+            Self::RelayRejected => "communication-publication-relay-rejected",
+            Self::Persistence => "communication-publication-persistence",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ExistingConversationMembership {
+    pub(crate) conversation_id: OpaqueId,
+    pub(crate) participant_pubkeys: BTreeSet<Hex64>,
+    pub(crate) participant_set_version: SafeU53,
+    pub(crate) participant_set_ref: Sha256Ref,
+    membership_event_id: Hex64,
+}
+
+impl ExistingConversationMembership {
+    pub(crate) fn as_authority(&self) -> CommunicationConversationAuthority {
+        CommunicationConversationAuthority {
+            conversation_id: self.conversation_id.clone(),
+            participant_pubkeys: self.participant_pubkeys.clone(),
+            participant_set_version: self.participant_set_version,
+            agent_may_invite_same_owner: false,
+            read_only: false,
+        }
+    }
+}
+
+pub(crate) struct CommunicationStoragePassphrases {
+    pub(crate) outbox: SecretString,
+    pub(crate) vault: SecretString,
+}
+
+/// Derive independent store passphrases without exposing the resident nsec.
+pub(crate) fn derive_communication_storage_passphrases(
+    resident_keys: &Keys,
+) -> Result<CommunicationStoragePassphrases, CommunicationPublicationError> {
+    let mut secret_hex = resident_keys.secret_key().to_secret_hex();
+    let outbox = derive_passphrase(OUTBOX_PASSPHRASE_DOMAIN, secret_hex.as_bytes());
+    let vault = derive_passphrase(VAULT_PASSPHRASE_DOMAIN, secret_hex.as_bytes());
+    secret_hex.zeroize();
+    Ok(CommunicationStoragePassphrases { outbox, vault })
+}
+
+fn derive_passphrase(domain: &[u8], secret: &[u8]) -> SecretString {
+    let mut hasher = Sha256::new();
+    hasher.update(domain);
+    hasher.update(secret);
+    SecretString::from(hex::encode(hasher.finalize()))
+}
+
+pub(crate) trait CommunicationRelayTransport: Send + Sync + 'static {
+    fn relay_self_pubkey(&self) -> &Hex64;
+    fn query(&self, filters: &[serde_json::Value]) -> Result<Vec<Event>, CommunicationPublicationError>;
+    fn submit_exact(&self, signed_event_json: &str) -> RelaySubmitOutcome;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RelaySubmitOutcome {
+    Accepted { event_id: Hex64, receipt_id: OpaqueId },
+    ExplicitlyRejected,
+    Unknown,
+}
+
+struct HttpCommunicationRelay {
+    client: Client,
+    http_base_url: String,
+    resident_keys: Keys,
+    resident_auth_tag: Option<String>,
+    relay_self_pubkey: Hex64,
+}
+
+impl HttpCommunicationRelay {
+    fn new(
+        relay_url: &str,
+        resident_keys: Keys,
+        resident_auth_tag: Option<String>,
+    ) -> Result<Self, CommunicationPublicationError> {
+        let http_base_url = crate::relay::relay_http_base_url(relay_url);
+        if http_base_url.is_empty() {
+            return Err(CommunicationPublicationError::InvalidRequest);
+        }
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(RELAY_TIMEOUT_SECS))
+            .build()
+            .map_err(|_| CommunicationPublicationError::RelayUnavailable)?;
+        let relay_self_pubkey = fetch_relay_self_pubkey(&client, &http_base_url)?;
+        Ok(Self {
+            client,
+            http_base_url,
+            resident_keys,
+            resident_auth_tag,
+            relay_self_pubkey,
+        })
+    }
+
+    fn post_exact(&self, endpoint: &str, body: Vec<u8>) -> Result<reqwest::blocking::Response, CommunicationPublicationError> {
+        let url = format!("{}{endpoint}", self.http_base_url);
+        let auth = crate::relay::build_nip98_auth_header_for_keys(
+            &self.resident_keys,
+            &Method::POST,
+            &url,
+            &body,
+        )
+        .map_err(|_| CommunicationPublicationError::RelayUnavailable)?;
+        let mut request = self
+            .client
+            .post(url)
+            .header("Authorization", auth)
+            .header("Content-Type", "application/json");
+        if let Some(tag) = &self.resident_auth_tag {
+            request = request.header("x-auth-tag", tag);
+        }
+        request
+            .body(body)
+            .send()
+            .map_err(|_| CommunicationPublicationError::RelayUnavailable)
+    }
+}
+
+impl CommunicationRelayTransport for HttpCommunicationRelay {
+    fn relay_self_pubkey(&self) -> &Hex64 {
+        &self.relay_self_pubkey
+    }
+
+    fn query(&self, filters: &[serde_json::Value]) -> Result<Vec<Event>, CommunicationPublicationError> {
+        let body = serde_json::to_vec(filters)
+            .map_err(|_| CommunicationPublicationError::InvalidRequest)?;
+        let response = self.post_exact("/query", body)?;
+        if !response.status().is_success() {
+            return Err(CommunicationPublicationError::RelayUnavailable);
+        }
+        response
+            .json::<Vec<Event>>()
+            .map_err(|_| CommunicationPublicationError::RelayUnavailable)
+    }
+
+    fn submit_exact(&self, signed_event_json: &str) -> RelaySubmitOutcome {
+        let response = match self.post_exact("/events", signed_event_json.as_bytes().to_vec()) {
+            Ok(response) => response,
+            Err(_) => return RelaySubmitOutcome::Unknown,
+        };
+        if response.status() == StatusCode::BAD_REQUEST {
+            return RelaySubmitOutcome::ExplicitlyRejected;
+        }
+        if !response.status().is_success() {
+            return RelaySubmitOutcome::Unknown;
+        }
+        let response = match response.json::<RelaySubmitResponse>() {
+            Ok(response) => response,
+            Err(_) => return RelaySubmitOutcome::Unknown,
+        };
+        if !response.accepted {
+            return RelaySubmitOutcome::ExplicitlyRejected;
+        }
+        let Ok(event_id) = Hex64::parse(response.event_id.to_ascii_lowercase()) else {
+            return RelaySubmitOutcome::Unknown;
+        };
+        let receipt_material = serde_json::json!({
+            "domain": "luca.communication.relay-receipt.v1",
+            "event_id": &event_id,
+            "message_sha256": hex::encode(Sha256::digest(response.message.as_bytes())),
+        });
+        let Ok(digest) = canonical_sha256(&receipt_material) else {
+            return RelaySubmitOutcome::Unknown;
+        };
+        let Ok(receipt_id) = OpaqueId::parse(format!("communication-relay-{digest}")) else {
+            return RelaySubmitOutcome::Unknown;
+        };
+        RelaySubmitOutcome::Accepted { event_id, receipt_id }
+    }
+}
+
+#[derive(Deserialize)]
+struct RelayInformationDocument {
+    #[serde(default, rename = "self")]
+    self_: Option<String>,
+}
+
+fn fetch_relay_self_pubkey(
+    client: &Client,
+    http_base_url: &str,
+) -> Result<Hex64, CommunicationPublicationError> {
+    let response = client
+        .get(http_base_url)
+        .header("Accept", "application/nostr+json")
+        .send()
+        .map_err(|_| CommunicationPublicationError::RelayUnavailable)?;
+    if !response.status().is_success() {
+        return Err(CommunicationPublicationError::RelayUnavailable);
+    }
+    let document = response
+        .json::<RelayInformationDocument>()
+        .map_err(|_| CommunicationPublicationError::RelayUnavailable)?;
+    Hex64::parse(
+        document
+            .self_
+            .ok_or(CommunicationPublicationError::RelayUnavailable)?
+            .to_ascii_lowercase(),
+    )
+    .map_err(|_| CommunicationPublicationError::RelayUnavailable)
+}
+
+#[derive(Deserialize)]
+struct RelaySubmitResponse {
+    event_id: String,
+    accepted: bool,
+    #[serde(default)]
+    message: String,
+}
+
+struct PublicationStores {
+    outbox: CommunicationActionOutbox,
+    vault: CommunicationEventVault,
+}
+
+pub(crate) struct ExistingConversationPublisher {
+    app: Option<AppHandle>,
+    resident_keys: Keys,
+    current_session_epoch: SafeU53,
+    installation_session_id: OpaqueId,
+    relay: Arc<dyn CommunicationRelayTransport>,
+    stores: Mutex<PublicationStores>,
+}
+
+impl ExistingConversationPublisher {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn open(
+        app: AppHandle,
+        resident_keys: Keys,
+        current_session_epoch: SafeU53,
+        resident_auth_tag: Option<String>,
+        relay_url: String,
+        installation_session_id: OpaqueId,
+        outbox_path: PathBuf,
+        vault_directory: PathBuf,
+    ) -> Result<Arc<Self>, CommunicationPublicationError> {
+        let resident_pubkey = Hex64::parse(resident_keys.public_key().to_hex())
+            .map_err(|_| CommunicationPublicationError::InvalidRequest)?;
+        let passphrases = derive_communication_storage_passphrases(&resident_keys)?;
+        let outbox = CommunicationActionOutbox::load_encrypted(
+            installation_session_id.clone(),
+            outbox_path,
+            passphrases.outbox,
+        )
+        .map_err(|_| CommunicationPublicationError::Persistence)?;
+        let vault = CommunicationEventVault::open(
+            vault_directory,
+            passphrases.vault,
+            resident_pubkey,
+        )
+        .map_err(|_| CommunicationPublicationError::Persistence)?;
+        let relay = Arc::new(HttpCommunicationRelay::new(
+            relay_url.as_str(),
+            resident_keys.clone(),
+            resident_auth_tag,
+        )?);
+        Ok(Arc::new(Self {
+            app: Some(app),
+            resident_keys,
+            current_session_epoch,
+            installation_session_id,
+            relay,
+            stores: Mutex::new(PublicationStores { outbox, vault }),
+        }))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn relay_for_tests(
+        resident_keys: Keys,
+        current_session_epoch: SafeU53,
+        installation_session_id: OpaqueId,
+        outbox: CommunicationActionOutbox,
+        vault: CommunicationEventVault,
+        relay: Arc<dyn CommunicationRelayTransport>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            app: None,
+            resident_keys,
+            current_session_epoch,
+            installation_session_id,
+            relay,
+            stores: Mutex::new(PublicationStores { outbox, vault }),
+        })
+    }
+
+    pub(crate) fn membership(
+        &self,
+        conversation_id: &OpaqueId,
+    ) -> Result<ExistingConversationMembership, CommunicationPublicationError> {
+        query_membership(self.relay.as_ref(), conversation_id)
+    }
+
+    pub(crate) fn require_event(
+        &self,
+        conversation_id: &OpaqueId,
+        event_id: &Hex64,
+    ) -> Result<(), CommunicationPublicationError> {
+        query_message(self.relay.as_ref(), conversation_id, event_id).map(|_| ())
+    }
+
+    /// Reconcile at most one frozen action before exposing a new broker lease.
+    ///
+    /// A Prepared action from an older resident session is proven unsent and
+    /// terminalized. Submitted or publication-unknown actions are first
+    /// probed by exact event ID; relay absence retries only the already-frozen
+    /// bytes. This path never creates or signs a new event.
+    pub(crate) fn reconcile_one_on_start(&self) -> Result<(), CommunicationPublicationError> {
+        let entry = {
+            let stores = self
+                .stores
+                .lock()
+                .map_err(|_| CommunicationPublicationError::Persistence)?;
+            stores.outbox.reconciliation_entries().into_iter().next()
+        };
+        let Some(entry) = entry else {
+            return Ok(());
+        };
+        let row = entry.row().clone();
+        let request = row.request.clone();
+
+        if row.state == CommunicationActionOutboxStateV1::Prepared {
+            if request.session_epoch != self.current_session_epoch {
+                let mut stores = self
+                    .stores
+                    .lock()
+                    .map_err(|_| CommunicationPublicationError::Persistence)?;
+                stores
+                    .outbox
+                    .fail_before_submission(
+                        &request.idempotency_key,
+                        now_timestamp()?,
+                    )
+                    .map_err(|_| CommunicationPublicationError::Persistence)?;
+                stores
+                    .vault
+                    .delete_after_terminal(
+                        &row.sealed_event_handle,
+                        &request,
+                        &row.expected_event_id,
+                        &row.exact_event_sha256,
+                        CommunicationEventVaultTerminal::NeverSubmitted,
+                    )
+                    .map_err(|_| CommunicationPublicationError::Persistence)?;
+            }
+            self.stores
+                .lock()
+                .map_err(|_| CommunicationPublicationError::Persistence)?
+                .outbox
+                .advance_reconcile_cursor(entry.created_order)
+                .map_err(|_| CommunicationPublicationError::Persistence)?;
+            return Ok(());
+        }
+
+        if !matches!(
+            row.state,
+            CommunicationActionOutboxStateV1::Submitted
+                | CommunicationActionOutboxStateV1::PublicationUnknown
+        ) {
+            return Ok(());
+        }
+        let conversation_id = existing_conversation_id(&request)?;
+        if query_message(self.relay.as_ref(), conversation_id, &row.expected_event_id).is_ok() {
+            let mut stores = self
+                .stores
+                .lock()
+                .map_err(|_| CommunicationPublicationError::Persistence)?;
+            stores
+                .outbox
+                .mark_accepted(
+                    &request.idempotency_key,
+                    row.expected_event_id.clone(),
+                    reconciliation_receipt_id(&row.expected_event_id)?,
+                    now_timestamp()?,
+                )
+                .map_err(|_| CommunicationPublicationError::Persistence)?;
+            stores
+                .vault
+                .delete_after_terminal(
+                    &row.sealed_event_handle,
+                    &request,
+                    &row.expected_event_id,
+                    &row.exact_event_sha256,
+                    CommunicationEventVaultTerminal::AcceptedAndFinalized,
+                )
+                .map_err(|_| CommunicationPublicationError::Persistence)?;
+            stores
+                .outbox
+                .advance_reconcile_cursor(entry.created_order)
+                .map_err(|_| CommunicationPublicationError::Persistence)?;
+            return Ok(());
+        }
+
+        let membership = self.membership(conversation_id)?;
+        validate_restart_membership(&request, &membership)?;
+        let exact_json = {
+            let stores = self
+                .stores
+                .lock()
+                .map_err(|_| CommunicationPublicationError::Persistence)?;
+            stores
+                .vault
+                .load_exact(
+                    &row.sealed_event_handle,
+                    &request,
+                    &row.expected_event_id,
+                    &row.exact_event_sha256,
+                )
+                .map_err(|_| CommunicationPublicationError::Persistence)?
+        };
+        {
+            let mut stores = self
+                .stores
+                .lock()
+                .map_err(|_| CommunicationPublicationError::Persistence)?;
+            stores
+                .outbox
+                .mark_submitted(
+                    &request.idempotency_key,
+                    &self.installation_session_id,
+                    request.cancellation_epoch.get(),
+                    false,
+                    now_timestamp()?,
+                )
+                .map_err(|_| CommunicationPublicationError::Persistence)?;
+        }
+        let outcome = self.relay.submit_exact(exact_json.as_str());
+        let mut stores = self
+            .stores
+            .lock()
+            .map_err(|_| CommunicationPublicationError::Persistence)?;
+        match outcome {
+            RelaySubmitOutcome::Accepted {
+                event_id,
+                receipt_id,
+            } if event_id == row.expected_event_id => {
+                stores
+                    .outbox
+                    .mark_accepted(
+                        &request.idempotency_key,
+                        event_id,
+                        receipt_id,
+                        now_timestamp()?,
+                    )
+                    .map_err(|_| CommunicationPublicationError::Persistence)?;
+                stores
+                    .vault
+                    .delete_after_terminal(
+                        &row.sealed_event_handle,
+                        &request,
+                        &row.expected_event_id,
+                        &row.exact_event_sha256,
+                        CommunicationEventVaultTerminal::AcceptedAndFinalized,
+                    )
+                    .map_err(|_| CommunicationPublicationError::Persistence)?;
+            }
+            RelaySubmitOutcome::ExplicitlyRejected => {
+                stores
+                    .outbox
+                    .reject_during_reconciliation(
+                        &request.idempotency_key,
+                        now_timestamp()?,
+                    )
+                    .map_err(|_| CommunicationPublicationError::Persistence)?;
+                stores
+                    .vault
+                    .delete_after_terminal(
+                        &row.sealed_event_handle,
+                        &request,
+                        &row.expected_event_id,
+                        &row.exact_event_sha256,
+                        CommunicationEventVaultTerminal::ExplicitlyRejected,
+                    )
+                    .map_err(|_| CommunicationPublicationError::Persistence)?;
+            }
+            _ => {
+                stores
+                    .outbox
+                    .mark_publication_unknown(&request.idempotency_key)
+                    .map_err(|_| CommunicationPublicationError::Persistence)?;
+            }
+        }
+        stores
+            .outbox
+            .advance_reconcile_cursor(entry.created_order)
+            .map_err(|_| CommunicationPublicationError::Persistence)?;
+        Ok(())
+    }
+
+    fn recheck_authority(
+        &self,
+        expected_authority: &CommunicationTurnAuthoritySnapshot,
+    ) -> Result<(), BrokerFailure> {
+        if let Some(app) = &self.app {
+            return recheck_desktop_communication_authority(app, expected_authority);
+        }
+        #[cfg(test)]
+        {
+            Ok(())
+        }
+        #[cfg(not(test))]
+        {
+            Err(BrokerFailure::authority_unavailable())
+        }
+    }
+
+    pub(crate) fn stage_and_publish(
+        &self,
+        request: CommunicationActionRequestV1,
+        expected_authority: &CommunicationTurnAuthoritySnapshot,
+    ) -> Result<StagedCommunicationAction, BrokerFailure> {
+        validate_narrow_request(&request, expected_authority)
+            .map_err(map_publication_failure)?;
+        if self.resident_keys.public_key().to_hex() != expected_authority.resident_pubkey.as_str() {
+            return Err(BrokerFailure::custody_denied());
+        }
+
+        self.recheck_authority(expected_authority)?;
+        let durable_preflight = self
+            .stores
+            .lock()
+            .map_err(|_| BrokerFailure::outbox_unavailable())?
+            .outbox
+            .preflight_request(&request)
+            .map_err(|_| BrokerFailure::outbox_unavailable())?;
+        if let Some(existing) = durable_preflight {
+            return match existing {
+                CommunicationActionRequestPreflight::Terminal(receipt)
+                    if receipt.state == CommunicationActionOutboxStateV1::Accepted =>
+                {
+                    Ok(staged(&request, "accepted"))
+                }
+                CommunicationActionRequestPreflight::Nonterminal(row)
+                    if matches!(
+                        row.state,
+                        CommunicationActionOutboxStateV1::Prepared
+                            | CommunicationActionOutboxStateV1::Submitted
+                            | CommunicationActionOutboxStateV1::PublicationUnknown
+                    ) =>
+                {
+                    self.publish_prepared(&request, expected_authority)?;
+                    Ok(staged(&request, self.current_nonterminal_state(&request)?))
+                }
+                _ => Err(BrokerFailure::outbox_unavailable()),
+            };
+        }
+
+        let first_membership = self
+            .membership(existing_conversation_id(&request).map_err(map_publication_failure)?)
+            .map_err(map_publication_failure)?;
+        validate_membership(&request, expected_authority, &first_membership)
+            .map_err(map_publication_failure)?;
+        let signed_event = build_exact_message_event(
+            &request,
+            &self.resident_keys,
+            &first_membership,
+            self.relay.as_ref(),
+        )
+        .map_err(map_publication_failure)?;
+
+        // Cancellation, replacement, and membership can race construction.
+        // Recheck both immediately before freezing the event and outbox row.
+        self.recheck_authority(expected_authority)?;
+        let final_membership = self
+            .membership(existing_conversation_id(&request).map_err(map_publication_failure)?)
+            .map_err(map_publication_failure)?;
+        if !same_membership(&first_membership, &final_membership) {
+            return Err(BrokerFailure::membership_denied());
+        }
+        validate_membership(&request, expected_authority, &final_membership)
+            .map_err(map_publication_failure)?;
+        self.recheck_authority(expected_authority)?;
+
+        let prepared_at = now_timestamp().map_err(map_publication_failure)?;
+        let (sealed, receipt) = {
+            let mut stores = self
+                .stores
+                .lock()
+                .map_err(|_| BrokerFailure::outbox_unavailable())?;
+            let sealed = stores
+                .vault
+                .seal(&request, signed_event.as_str())
+                .map_err(|_| BrokerFailure::outbox_unavailable())?;
+            if let Some(receipt) = stores
+                .outbox
+                .preflight_existing(
+                    &request,
+                    &sealed.handle,
+                    &sealed.event_sha256,
+                    &sealed.event_id,
+                )
+                .map_err(|_| BrokerFailure::outbox_unavailable())?
+            {
+                (sealed, receipt)
+            } else {
+                let receipt = stores
+                    .outbox
+                    .prepare(
+                        &request,
+                        sealed.handle.clone(),
+                        sealed.event_sha256.clone(),
+                        sealed.event_id.clone(),
+                        &self.installation_session_id,
+                        expected_authority.coordinates.cancellation_epoch.get(),
+                        false,
+                        prepared_at,
+                    )
+                    .map_err(|_| BrokerFailure::outbox_unavailable())?;
+                (sealed, receipt)
+            }
+        };
+
+        if receipt.state == CommunicationActionOutboxStateV1::Accepted {
+            self.delete_terminal_event(
+                &request,
+                &sealed,
+                CommunicationEventVaultTerminal::AcceptedAndFinalized,
+            )?;
+            return Ok(staged(&request, "accepted"));
+        }
+        if receipt.state != CommunicationActionOutboxStateV1::Prepared {
+            return Err(BrokerFailure::outbox_unavailable());
+        }
+
+        self.publish_prepared(&request, expected_authority)?;
+        let state = self
+            .stores
+            .lock()
+            .map_err(|_| BrokerFailure::outbox_unavailable())?
+            .outbox
+            .preflight_existing(
+                &request,
+                &sealed.handle,
+                &sealed.event_sha256,
+                &sealed.event_id,
+            )
+            .map_err(|_| BrokerFailure::outbox_unavailable())?
+            .map(|receipt| receipt.state);
+        Ok(staged(
+            &request,
+            if state == Some(CommunicationActionOutboxStateV1::Accepted) {
+                "accepted"
+            } else {
+                "prepared"
+            },
+        ))
+    }
+
+    fn current_nonterminal_state(
+        &self,
+        request: &CommunicationActionRequestV1,
+    ) -> Result<&'static str, BrokerFailure> {
+        let preflight = self
+            .stores
+            .lock()
+            .map_err(|_| BrokerFailure::outbox_unavailable())?
+            .outbox
+            .preflight_request(request)
+            .map_err(|_| BrokerFailure::outbox_unavailable())?;
+        match preflight {
+            Some(CommunicationActionRequestPreflight::Terminal(receipt))
+                if receipt.state == CommunicationActionOutboxStateV1::Accepted =>
+            {
+                Ok("accepted")
+            }
+            Some(CommunicationActionRequestPreflight::Nonterminal(_)) => Ok("prepared"),
+            _ => Err(BrokerFailure::outbox_unavailable()),
+        }
+    }
+
+    fn publish_prepared(
+        &self,
+        request: &CommunicationActionRequestV1,
+        expected_authority: &CommunicationTurnAuthoritySnapshot,
+    ) -> Result<(), BrokerFailure> {
+        // First exact authority + current participant snapshot before bytes are
+        // selected. The durable dispatch is checked again under its mutex below.
+        self.recheck_authority(expected_authority)?;
+        let membership = self
+            .membership(existing_conversation_id(request).map_err(map_publication_failure)?)
+            .map_err(map_publication_failure)?;
+        validate_membership(request, expected_authority, &membership)
+            .map_err(map_publication_failure)?;
+        self.recheck_authority(expected_authority)?;
+
+        let (row, exact_json) = {
+            let stores = self
+                .stores
+                .lock()
+                .map_err(|_| BrokerFailure::outbox_unavailable())?;
+            let row = stores
+                .outbox
+                .row_for_submission(&request.idempotency_key)
+                .map_err(|_| BrokerFailure::outbox_unavailable())?
+                .clone();
+            let exact_json = stores
+                .vault
+                .load_exact(
+                    &row.sealed_event_handle,
+                    request,
+                    &row.expected_event_id,
+                    &row.exact_event_sha256,
+                )
+                .map_err(|_| BrokerFailure::outbox_unavailable())?;
+            (row, exact_json)
+        };
+
+        let dispatch_store = if let Some(app) = &self.app {
+            super::communication_turn_registry::authorize(
+                expected_authority.resident_pubkey.as_str(),
+                expected_authority.session_epoch.get(),
+                expected_authority
+                    .coordinates
+                    .source_conversation_id
+                    .as_str(),
+                expected_authority.coordinates.turn_id.as_str(),
+                expected_authority.coordinates.dispatch_receipt_id.as_str(),
+            )
+            .map_err(|_| BrokerFailure::authority_unavailable())?;
+            Some(
+                super::managed_dispatch_store::global_dispatch_store(app)
+                    .map_err(|_| BrokerFailure::authority_unavailable())?,
+            )
+        } else {
+            None
+        };
+        let dispatch_guard = dispatch_store
+            .as_ref()
+            .map(|store| {
+                let guard = store
+                    .lock()
+                    .map_err(|_| BrokerFailure::authority_unavailable())?;
+                guard
+                    .recheck_communication_turn(
+                        expected_authority.coordinates.dispatch_receipt_id.as_str(),
+                        expected_authority.resident_pubkey.as_str(),
+                        expected_authority
+                            .coordinates
+                            .source_conversation_id
+                            .as_str(),
+                        expected_authority.session_epoch.get(),
+                        unix_now().map_err(map_publication_failure)?,
+                    )
+                    .map_err(|_| BrokerFailure::authority_unavailable())?;
+                Ok::<_, BrokerFailure>(guard)
+            })
+            .transpose()?;
+
+        // Keep the durable dispatch lock across Submitted persistence and the
+        // first relay I/O. Cancellation therefore cannot win between them.
+        let mut stores = self
+            .stores
+            .lock()
+            .map_err(|_| BrokerFailure::outbox_unavailable())?;
+        stores
+            .outbox
+            .mark_submitted(
+                &request.idempotency_key,
+                &self.installation_session_id,
+                expected_authority.coordinates.cancellation_epoch.get(),
+                false,
+                now_timestamp().map_err(map_publication_failure)?,
+            )
+            .map_err(|_| BrokerFailure::outbox_unavailable())?;
+
+        match self.relay.submit_exact(exact_json.as_str()) {
+            RelaySubmitOutcome::Accepted {
+                event_id,
+                receipt_id,
+            } if event_id == row.expected_event_id => {
+                stores
+                    .outbox
+                    .mark_accepted(
+                        &request.idempotency_key,
+                        event_id,
+                        receipt_id,
+                        now_timestamp().map_err(map_publication_failure)?,
+                    )
+                    .map_err(|_| BrokerFailure::outbox_unavailable())?;
+                stores
+                    .vault
+                    .delete_after_terminal(
+                        &row.sealed_event_handle,
+                        request,
+                        &row.expected_event_id,
+                        &row.exact_event_sha256,
+                        CommunicationEventVaultTerminal::AcceptedAndFinalized,
+                    )
+                    .map_err(|_| BrokerFailure::outbox_unavailable())?;
+            }
+            RelaySubmitOutcome::ExplicitlyRejected => {
+                stores
+                    .outbox
+                    .reject_during_reconciliation(
+                        &request.idempotency_key,
+                        now_timestamp().map_err(map_publication_failure)?,
+                    )
+                    .map_err(|_| BrokerFailure::outbox_unavailable())?;
+                stores
+                    .vault
+                    .delete_after_terminal(
+                        &row.sealed_event_handle,
+                        request,
+                        &row.expected_event_id,
+                        &row.exact_event_sha256,
+                        CommunicationEventVaultTerminal::ExplicitlyRejected,
+                    )
+                    .map_err(|_| BrokerFailure::outbox_unavailable())?;
+                return Err(map_publication_failure(
+                    CommunicationPublicationError::RelayRejected,
+                ));
+            }
+            _ => {
+                stores
+                    .outbox
+                    .mark_publication_unknown(&request.idempotency_key)
+                    .map_err(|_| BrokerFailure::outbox_unavailable())?;
+                return Err(map_publication_failure(
+                    CommunicationPublicationError::RelayUnavailable,
+                ));
+            }
+        }
+        drop(dispatch_guard);
+        Ok(())
+    }
+
+    fn delete_terminal_event(
+        &self,
+        request: &CommunicationActionRequestV1,
+        sealed: &SealedCommunicationEvent,
+        terminal: CommunicationEventVaultTerminal,
+    ) -> Result<(), BrokerFailure> {
+        self.stores
+            .lock()
+            .map_err(|_| BrokerFailure::outbox_unavailable())?
+            .vault
+            .delete_after_terminal(
+                &sealed.handle,
+                request,
+                &sealed.event_id,
+                &sealed.event_sha256,
+                terminal,
+            )
+            .map_err(|_| BrokerFailure::outbox_unavailable())
+    }
+}
+
+fn staged(request: &CommunicationActionRequestV1, state: &'static str) -> StagedCommunicationAction {
+    StagedCommunicationAction {
+        action_id: request.action_id.clone(),
+        idempotency_key: request.idempotency_key.clone(),
+        state,
+    }
+}
+
+fn validate_narrow_request(
+    request: &CommunicationActionRequestV1,
+    authority: &CommunicationTurnAuthoritySnapshot,
+) -> Result<(), CommunicationPublicationError> {
+    request
+        .validate()
+        .map_err(|_| CommunicationPublicationError::InvalidRequest)?;
+    if request.owner_pubkey != authority.owner_pubkey
+        || request.resident_pubkey != authority.resident_pubkey
+        || request.actor_pubkey != authority.resident_pubkey
+        || request.session_epoch != authority.session_epoch
+        || request.runtime_binding_ref != authority.runtime_binding_ref
+        || request.source_conversation_id != authority.coordinates.source_conversation_id
+        || request.turn_id != authority.coordinates.turn_id
+        || request.dispatch_receipt_id != authority.coordinates.dispatch_receipt_id
+        || request.cancellation_epoch != authority.coordinates.cancellation_epoch
+    {
+        return Err(CommunicationPublicationError::Authority);
+    }
+    let CommunicationDestinationV1::ExistingConversation { .. } = &request.destination else {
+        return Err(CommunicationPublicationError::Unsupported);
+    };
+    let CommunicationOperationV1::SendMessage {
+        activation_pubkeys,
+        artifact_handles,
+        ..
+    } = &request.operation
+    else {
+        return Err(CommunicationPublicationError::Unsupported);
+    };
+    if !activation_pubkeys.is_empty() || !artifact_handles.is_empty() {
+        return Err(CommunicationPublicationError::Unsupported);
+    }
+    Ok(())
+}
+
+fn existing_conversation_id(
+    request: &CommunicationActionRequestV1,
+) -> Result<&OpaqueId, CommunicationPublicationError> {
+    match &request.destination {
+        CommunicationDestinationV1::ExistingConversation {
+            conversation_id, ..
+        } => Ok(conversation_id),
+        _ => Err(CommunicationPublicationError::Unsupported),
+    }
+}
+
+fn validate_membership(
+    request: &CommunicationActionRequestV1,
+    authority: &CommunicationTurnAuthoritySnapshot,
+    membership: &ExistingConversationMembership,
+) -> Result<(), CommunicationPublicationError> {
+    if !membership.participant_pubkeys.contains(&authority.owner_pubkey)
+        || !membership
+            .participant_pubkeys
+            .contains(&authority.resident_pubkey)
+        || membership.participant_pubkeys.iter().any(|participant| {
+            participant != &authority.owner_pubkey
+                && !authority.owned_resident_pubkeys.contains(participant)
+        })
+    {
+        return Err(CommunicationPublicationError::Membership);
+    }
+    match &request.destination {
+        CommunicationDestinationV1::ExistingConversation {
+            conversation_id,
+            participant_set_version,
+            participant_set_ref,
+        } if conversation_id == &membership.conversation_id
+            && participant_set_version == &membership.participant_set_version
+            && participant_set_ref == &membership.participant_set_ref => Ok(()),
+        _ => Err(CommunicationPublicationError::Membership),
+    }
+}
+
+fn validate_restart_membership(
+    request: &CommunicationActionRequestV1,
+    membership: &ExistingConversationMembership,
+) -> Result<(), CommunicationPublicationError> {
+    if !membership.participant_pubkeys.contains(&request.owner_pubkey)
+        || !membership.participant_pubkeys.contains(&request.resident_pubkey)
+    {
+        return Err(CommunicationPublicationError::Membership);
+    }
+    match &request.destination {
+        CommunicationDestinationV1::ExistingConversation {
+            conversation_id,
+            participant_set_version,
+            participant_set_ref,
+        } if conversation_id == &membership.conversation_id
+            && participant_set_version == &membership.participant_set_version
+            && participant_set_ref == &membership.participant_set_ref => Ok(()),
+        _ => Err(CommunicationPublicationError::Membership),
+    }
+}
+
+fn reconciliation_receipt_id(
+    event_id: &Hex64,
+) -> Result<OpaqueId, CommunicationPublicationError> {
+    OpaqueId::parse(format!("relay-reconciled-{}", event_id.as_str()))
+        .map_err(|_| CommunicationPublicationError::Persistence)
+}
+
+fn same_membership(
+    left: &ExistingConversationMembership,
+    right: &ExistingConversationMembership,
+) -> bool {
+    left.conversation_id == right.conversation_id
+        && left.participant_pubkeys == right.participant_pubkeys
+        && left.participant_set_version == right.participant_set_version
+        && left.participant_set_ref == right.participant_set_ref
+        && left.membership_event_id == right.membership_event_id
+}
+
+fn query_membership(
+    relay: &dyn CommunicationRelayTransport,
+    conversation_id: &OpaqueId,
+) -> Result<ExistingConversationMembership, CommunicationPublicationError> {
+    let events = relay.query(&[serde_json::json!({
+        "authors": [relay.relay_self_pubkey().as_str()],
+        "kinds": [MEMBERSHIP_KIND],
+        "#d": [conversation_id.as_str()],
+        "limit": MAX_RELAY_QUERY_EVENTS,
+    })])?;
+    newest_membership(events, conversation_id, relay.relay_self_pubkey())
+}
+
+fn newest_membership(
+    events: Vec<Event>,
+    conversation_id: &OpaqueId,
+    relay_self_pubkey: &Hex64,
+) -> Result<ExistingConversationMembership, CommunicationPublicationError> {
+    let mut candidates = Vec::new();
+    for event in events {
+        if event.kind != Kind::Custom(MEMBERSHIP_KIND)
+            || !event.verify_id()
+            || !event.verify_signature()
+            || event.pubkey.to_hex() != relay_self_pubkey.as_str()
+            || exact_tag_values(&event, "d") != vec![conversation_id.as_str().to_owned()]
+        {
+            continue;
+        }
+        let mut participants = event
+            .tags
+            .iter()
+            .filter_map(|tag| {
+                let values = tag.as_slice();
+                (values.first().map(String::as_str) == Some("p"))
+                    .then(|| values.get(1))
+                    .flatten()
+                    .and_then(|value| Hex64::parse(value.to_ascii_lowercase()).ok())
+            })
+            .collect::<Vec<_>>();
+        participants.sort();
+        participants.dedup();
+        if participants.is_empty() {
+            continue;
+        }
+        candidates.push((event.created_at.as_secs(), event.id.to_hex(), participants));
+    }
+    candidates.sort_by(|left, right| (left.0, &left.1).cmp(&(right.0, &right.1)));
+    let (_, event_id, participants) = candidates
+        .pop()
+        .ok_or(CommunicationPublicationError::Membership)?;
+    let participant_pubkeys = participants.iter().cloned().collect::<BTreeSet<_>>();
+    let participant_set_ref = participant_ref(&participants)?;
+    let version = u64::from_str_radix(&event_id[..13], 16)
+        .map_err(|_| CommunicationPublicationError::Membership)?
+        .max(1);
+    Ok(ExistingConversationMembership {
+        conversation_id: conversation_id.clone(),
+        participant_pubkeys,
+        participant_set_version: SafeU53::new(version)
+            .map_err(|_| CommunicationPublicationError::Membership)?,
+        participant_set_ref,
+        membership_event_id: Hex64::parse(event_id)
+            .map_err(|_| CommunicationPublicationError::Membership)?,
+    })
+}
+
+fn participant_ref(participants: &[Hex64]) -> Result<Sha256Ref, CommunicationPublicationError> {
+    let digest = canonical_sha256(&participants.to_vec())
+        .map_err(|_| CommunicationPublicationError::Membership)?;
+    Sha256Ref::parse(format!("sha256:{digest}"))
+        .map_err(|_| CommunicationPublicationError::Membership)
+}
+
+fn exact_tag_values(event: &Event, name: &str) -> Vec<String> {
+    event
+        .tags
+        .iter()
+        .filter_map(|tag| {
+            let values = tag.as_slice();
+            (values.first().map(String::as_str) == Some(name))
+                .then(|| values.get(1).cloned())
+                .flatten()
+        })
+        .collect()
+}
+
+fn query_message(
+    relay: &dyn CommunicationRelayTransport,
+    conversation_id: &OpaqueId,
+    event_id: &Hex64,
+) -> Result<Event, CommunicationPublicationError> {
+    let events = relay.query(&[serde_json::json!({
+        "ids": [event_id.as_str()],
+        "kinds": [MESSAGE_KIND],
+        "#h": [conversation_id.as_str()],
+        "limit": 2,
+    })])?;
+    let mut matches = events.into_iter().filter(|event| {
+        event.id.to_hex() == event_id.as_str()
+            && event.kind == Kind::Custom(MESSAGE_KIND)
+            && event.verify_id()
+            && event.verify_signature()
+            && exact_tag_values(event, "h") == vec![conversation_id.as_str().to_owned()]
+    });
+    let event = matches
+        .next()
+        .ok_or(CommunicationPublicationError::Membership)?;
+    if matches.next().is_some() {
+        return Err(CommunicationPublicationError::Membership);
+    }
+    Ok(event)
+}
+
+fn build_exact_message_event(
+    request: &CommunicationActionRequestV1,
+    keys: &Keys,
+    membership: &ExistingConversationMembership,
+    relay: &dyn CommunicationRelayTransport,
+) -> Result<String, CommunicationPublicationError> {
+    let CommunicationOperationV1::SendMessage {
+        body,
+        reply_to_event_id,
+        mention_pubkeys,
+        activation_pubkeys,
+        artifact_handles,
+    } = &request.operation
+    else {
+        return Err(CommunicationPublicationError::Unsupported);
+    };
+    if !activation_pubkeys.is_empty() || !artifact_handles.is_empty() {
+        return Err(CommunicationPublicationError::Unsupported);
+    }
+    let thread_ref = reply_to_event_id
+        .as_ref()
+        .map(|event_id| {
+            let parent = query_message(relay, &membership.conversation_id, event_id)?;
+            let root = parent
+                .tags
+                .iter()
+                .find_map(|tag| {
+                    let values = tag.as_slice();
+                    (values.first().map(String::as_str) == Some("e")
+                        && values.get(3).map(String::as_str) == Some("root"))
+                    .then(|| values.get(1).cloned())
+                    .flatten()
+                })
+                .unwrap_or_else(|| event_id.as_str().to_owned());
+            Ok::<crate::events::ThreadRef, CommunicationPublicationError>(crate::events::ThreadRef {
+                root_event_id: EventId::from_hex(&root)
+                    .map_err(|_| CommunicationPublicationError::InvalidRequest)?,
+                parent_event_id: EventId::from_hex(event_id.as_str())
+                    .map_err(|_| CommunicationPublicationError::InvalidRequest)?,
+            })
+        })
+        .transpose()?;
+    let mention_refs = mention_pubkeys.iter().map(Hex64::as_str).collect::<Vec<_>>();
+    let client_tags = vec![vec![
+        "client".to_owned(),
+        "luca-communication-v1".to_owned(),
+        request.action_id.as_str().to_owned(),
+        membership.membership_event_id.as_str().to_owned(),
+    ]];
+    let channel_id = Uuid::parse_str(membership.conversation_id.as_str())
+        .map_err(|_| CommunicationPublicationError::InvalidRequest)?;
+    let builder = crate::events::build_message_with_client_tags(
+        channel_id,
+        body,
+        thread_ref.as_ref(),
+        &mention_refs,
+        &[],
+        &[],
+        &[],
+        &client_tags,
+    )?;
+    let builder = builder.tag(
+        Tag::parse([
+            TAG_EXPECTED_MEMBERSHIP_SNAPSHOT,
+            EXPECTED_MEMBERSHIP_SNAPSHOT_VERSION,
+            membership.membership_event_id.as_str(),
+        ])
+        .map_err(|_| CommunicationPublicationError::InvalidRequest)?,
+    );
+    let event = builder
+        .custom_created_at(Timestamp::from(deterministic_event_timestamp(request)?))
+        .sign_with_keys(keys)
+        .map_err(|_| CommunicationPublicationError::InvalidRequest)?;
+    Ok(event.as_json())
+}
+
+fn deterministic_event_timestamp(
+    request: &CommunicationActionRequestV1,
+) -> Result<u64, CommunicationPublicationError> {
+    let expiry = DateTime::parse_from_rfc3339(request.expires_at.as_str())
+        .map_err(|_| CommunicationPublicationError::InvalidRequest)?
+        .timestamp();
+    u64::try_from(expiry.saturating_sub(30 * 60).max(1))
+        .map_err(|_| CommunicationPublicationError::InvalidRequest)
+}
+
+fn now_timestamp() -> Result<CanonicalTimestamp, CommunicationPublicationError> {
+    let seconds = unix_now()?;
+    let seconds = i64::try_from(seconds).map_err(|_| CommunicationPublicationError::Authority)?;
+    let timestamp = DateTime::<Utc>::from_timestamp(seconds, 0)
+        .ok_or(CommunicationPublicationError::Authority)?;
+    CanonicalTimestamp::parse(timestamp.to_rfc3339_opts(SecondsFormat::Secs, true))
+        .map_err(|_| CommunicationPublicationError::Authority)
+}
+
+fn unix_now() -> Result<u64, CommunicationPublicationError> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .map_err(|_| CommunicationPublicationError::Authority)
+}
+
+fn map_publication_failure(error: CommunicationPublicationError) -> BrokerFailure {
+    match error {
+        CommunicationPublicationError::InvalidRequest => BrokerFailure::invalid_arguments(),
+        CommunicationPublicationError::Authority => BrokerFailure::authority_unavailable(),
+        CommunicationPublicationError::Membership => BrokerFailure::membership_denied(),
+        CommunicationPublicationError::Unsupported => BrokerFailure::operation_not_implemented(),
+        CommunicationPublicationError::RelayUnavailable
+        | CommunicationPublicationError::RelayRejected
+        | CommunicationPublicationError::Persistence => BrokerFailure::outbox_unavailable(),
+    }
+}
+
+impl From<String> for CommunicationPublicationError {
+    fn from(_: String) -> Self {
+        Self::InvalidRequest
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{collections::VecDeque, sync::Mutex};
+
+    use luca_protocol::{CommunicationDestinationV1, COMMUNICATION_ACTION_PROTOCOL};
+    use nostr::{EventBuilder, Tag};
+    use tempfile::TempDir;
+
+    fn keys(byte: &str) -> Keys {
+        Keys::parse(&byte.repeat(32)).expect("keys")
+    }
+
+    fn membership_event(
+        signer: &Keys,
+        conversation: &str,
+        members: &[&Keys],
+        created_at: u64,
+    ) -> Event {
+        let mut tags = vec![Tag::parse(["d", conversation]).expect("d")];
+        tags.extend(members.iter().map(|member| {
+            let pubkey = member.public_key().to_hex();
+            Tag::parse(vec!["p".to_owned(), pubkey]).expect("p")
+        }));
+        EventBuilder::new(Kind::Custom(MEMBERSHIP_KIND), "")
+            .tags(tags)
+            .custom_created_at(Timestamp::from(created_at))
+            .sign_with_keys(signer)
+            .expect("membership")
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum FakeSubmitResult {
+        Accepted,
+        Unknown,
+    }
+
+    struct FakeRelay {
+        relay_self_pubkey: Hex64,
+        membership_events: Vec<Event>,
+        submit_results: Mutex<VecDeque<FakeSubmitResult>>,
+        submitted: Mutex<Vec<String>>,
+    }
+
+    impl FakeRelay {
+        fn new(
+            relay: &Keys,
+            membership_events: Vec<Event>,
+            submit_results: impl IntoIterator<Item = FakeSubmitResult>,
+        ) -> Arc<Self> {
+            Arc::new(Self {
+                relay_self_pubkey: Hex64::parse(relay.public_key().to_hex()).unwrap(),
+                membership_events,
+                submit_results: Mutex::new(submit_results.into_iter().collect()),
+                submitted: Mutex::new(Vec::new()),
+            })
+        }
+
+        fn submitted(&self) -> Vec<String> {
+            self.submitted.lock().unwrap().clone()
+        }
+    }
+
+    impl CommunicationRelayTransport for FakeRelay {
+        fn relay_self_pubkey(&self) -> &Hex64 {
+            &self.relay_self_pubkey
+        }
+
+        fn query(
+            &self,
+            filters: &[serde_json::Value],
+        ) -> Result<Vec<Event>, CommunicationPublicationError> {
+            let is_membership_query = filters.iter().any(|filter| {
+                filter
+                    .get("kinds")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|kinds| {
+                        kinds
+                            .iter()
+                            .any(|kind| kind.as_u64() == Some(u64::from(MEMBERSHIP_KIND)))
+                    })
+            });
+            Ok(if is_membership_query {
+                self.membership_events.clone()
+            } else {
+                Vec::new()
+            })
+        }
+
+        fn submit_exact(&self, signed_event_json: &str) -> RelaySubmitOutcome {
+            self.submitted
+                .lock()
+                .unwrap()
+                .push(signed_event_json.to_owned());
+            match self
+                .submit_results
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or(FakeSubmitResult::Unknown)
+            {
+                FakeSubmitResult::Accepted => {
+                    let event = Event::from_json(signed_event_json).expect("submitted event");
+                    RelaySubmitOutcome::Accepted {
+                        event_id: Hex64::parse(event.id.to_hex()).unwrap(),
+                        receipt_id: OpaqueId::parse(format!("relay-{}", event.id.to_hex()))
+                            .unwrap(),
+                    }
+                }
+                FakeSubmitResult::Unknown => RelaySubmitOutcome::Unknown,
+            }
+        }
+    }
+
+    struct PublisherFixture {
+        _directory: TempDir,
+        publisher: Arc<ExistingConversationPublisher>,
+        relay: Arc<FakeRelay>,
+        request: CommunicationActionRequestV1,
+        authority: CommunicationTurnAuthoritySnapshot,
+    }
+
+    fn publisher_fixture(submit_results: impl IntoIterator<Item = FakeSubmitResult>) -> PublisherFixture {
+        let relay_keys = keys("41");
+        let owner_keys = keys("42");
+        let resident_keys = keys("43");
+        let owner_pubkey = Hex64::parse(owner_keys.public_key().to_hex()).unwrap();
+        let resident_pubkey = Hex64::parse(resident_keys.public_key().to_hex()).unwrap();
+        let conversation_id =
+            OpaqueId::parse("55555555-5555-4555-8555-555555555555").unwrap();
+        let membership_event = membership_event(
+            &relay_keys,
+            conversation_id.as_str(),
+            &[&owner_keys, &resident_keys],
+            100,
+        );
+        let relay = FakeRelay::new(&relay_keys, vec![membership_event], submit_results);
+        let session = OpaqueId::parse("installation-test-1").unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let vault = CommunicationEventVault::open(
+            directory.path().join("vault"),
+            SecretString::from("test-vault-passphrase"),
+            resident_pubkey.clone(),
+        )
+        .unwrap();
+        let publisher = ExistingConversationPublisher::relay_for_tests(
+            resident_keys,
+            SafeU53::new(4).unwrap(),
+            session.clone(),
+            CommunicationActionOutbox::new(session),
+            vault,
+            relay.clone(),
+        );
+        let membership = publisher.membership(&conversation_id).unwrap();
+        let source_conversation_id = OpaqueId::parse("source-conversation-test").unwrap();
+        let turn_id = OpaqueId::parse("turn-test-1").unwrap();
+        let dispatch_receipt_id = OpaqueId::parse("dispatch-test-1").unwrap();
+        let runtime_binding_ref = Sha256Ref::parse(format!("sha256:{}", "4".repeat(64))).unwrap();
+        let expires_at = CanonicalTimestamp::parse("2030-08-11T13:00:00Z").unwrap();
+        let authority = CommunicationTurnAuthoritySnapshot {
+            owner_pubkey: owner_pubkey.clone(),
+            resident_pubkey: resident_pubkey.clone(),
+            session_epoch: SafeU53::new(4).unwrap(),
+            runtime_binding_ref: runtime_binding_ref.clone(),
+            coordinates: super::super::communication_bridge::CommunicationTurnCoordinates {
+                source_conversation_id: source_conversation_id.clone(),
+                turn_id: turn_id.clone(),
+                dispatch_receipt_id: dispatch_receipt_id.clone(),
+                cancellation_epoch: SafeU53::new(2).unwrap(),
+            },
+            causal_root_id: OpaqueId::parse("causal-root-test-1").unwrap(),
+            owned_resident_pubkeys: [resident_pubkey.clone()].into_iter().collect(),
+            expires_at: expires_at.clone(),
+        };
+        let mut request = CommunicationActionRequestV1 {
+            protocol: COMMUNICATION_ACTION_PROTOCOL.to_owned(),
+            action_id: OpaqueId::parse("communication-action-test-1").unwrap(),
+            idempotency_key: Hex64::parse("0".repeat(64)).unwrap(),
+            action_fingerprint: Sha256Ref::parse(format!("sha256:{}", "0".repeat(64))).unwrap(),
+            actor_pubkey: resident_pubkey.clone(),
+            owner_pubkey,
+            resident_pubkey,
+            session_epoch: SafeU53::new(4).unwrap(),
+            runtime_binding_ref,
+            source_conversation_id,
+            destination: CommunicationDestinationV1::ExistingConversation {
+                conversation_id,
+                participant_set_version: membership.participant_set_version,
+                participant_set_ref: membership.participant_set_ref,
+            },
+            turn_id,
+            dispatch_receipt_id,
+            causal_root_id: OpaqueId::parse("causal-root-test-1").unwrap(),
+            causal_parent_action_id: None,
+            causal_depth: SafeU53::new(0).unwrap(),
+            cancellation_epoch: SafeU53::new(2).unwrap(),
+            expires_at,
+            approval_id: None,
+            operation: CommunicationOperationV1::SendMessage {
+                body: "exact resident message".to_owned(),
+                reply_to_event_id: None,
+                mention_pubkeys: Vec::new(),
+                activation_pubkeys: Vec::new(),
+                artifact_handles: Vec::new(),
+            },
+        };
+        request.action_fingerprint = request.derive_action_fingerprint().unwrap();
+        request.idempotency_key = request.derive_idempotency_key().unwrap();
+        request.validate().unwrap();
+        PublisherFixture {
+            _directory: directory,
+            publisher,
+            relay,
+            request,
+            authority,
+        }
+    }
+
+    #[test]
+    fn newest_membership_is_deterministic_and_owner_visible() {
+        let relay = keys("11");
+        let owner = keys("12");
+        let resident = keys("13");
+        let conversation = OpaqueId::parse("11111111-1111-4111-8111-111111111111").unwrap();
+        let old = membership_event(&relay, conversation.as_str(), &[&owner], 10);
+        let current = membership_event(&relay, conversation.as_str(), &[&owner, &resident], 11);
+        let relay_pubkey = Hex64::parse(relay.public_key().to_hex()).unwrap();
+        let snapshot =
+            newest_membership(vec![current.clone(), old], &conversation, &relay_pubkey).unwrap();
+        assert!(snapshot
+            .participant_pubkeys
+            .contains(&Hex64::parse(owner.public_key().to_hex()).unwrap()));
+        assert!(snapshot
+            .participant_pubkeys
+            .contains(&Hex64::parse(resident.public_key().to_hex()).unwrap()));
+        assert_eq!(snapshot.membership_event_id.as_str(), current.id.to_hex());
+    }
+
+    #[test]
+    fn invalid_or_wrong_conversation_membership_is_rejected() {
+        let relay = keys("21");
+        let owner = keys("22");
+        let expected = OpaqueId::parse("22222222-2222-4222-8222-222222222222").unwrap();
+        let wrong = membership_event(
+            &relay,
+            "33333333-3333-4333-8333-333333333333",
+            &[&owner],
+            10,
+        );
+        assert_eq!(
+            newest_membership(
+                vec![wrong],
+                &expected,
+                &Hex64::parse(relay.public_key().to_hex()).unwrap(),
+            )
+            .unwrap_err(),
+            CommunicationPublicationError::Membership
+        );
+    }
+
+    #[test]
+    fn newer_membership_from_wrong_signer_is_rejected() {
+        let relay = keys("24");
+        let attacker = keys("25");
+        let owner = keys("26");
+        let resident = keys("27");
+        let conversation = OpaqueId::parse("44444444-4444-4444-8444-444444444444").unwrap();
+        let canonical = membership_event(
+            &relay,
+            conversation.as_str(),
+            &[&owner, &resident],
+            10,
+        );
+        let forged = membership_event(&attacker, conversation.as_str(), &[&attacker], 11);
+        let snapshot = newest_membership(
+            vec![forged, canonical.clone()],
+            &conversation,
+            &Hex64::parse(relay.public_key().to_hex()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(snapshot.membership_event_id.as_str(), canonical.id.to_hex());
+    }
+
+    #[test]
+    fn passphrase_domains_are_distinct_and_stable() {
+        let resident = keys("31");
+        let first = derive_communication_storage_passphrases(&resident).unwrap();
+        let second = derive_communication_storage_passphrases(&resident).unwrap();
+        use age::secrecy::ExposeSecret;
+        assert_ne!(first.outbox.expose_secret(), first.vault.expose_secret());
+        assert_eq!(first.outbox.expose_secret(), second.outbox.expose_secret());
+        assert_eq!(first.vault.expose_secret(), second.vault.expose_secret());
+    }
+
+    #[test]
+    fn participant_reference_is_order_sensitive_but_callers_sort() {
+        let a = Hex64::parse("a".repeat(64)).unwrap();
+        let b = Hex64::parse("b".repeat(64)).unwrap();
+        assert_ne!(
+            participant_ref(&[a.clone(), b.clone()]).unwrap(),
+            participant_ref(&[b, a]).unwrap()
+        );
+    }
+
+    #[test]
+    fn owner_visible_existing_conversation_accepts_exact_resident_kind_nine_once() {
+        let fixture = publisher_fixture([FakeSubmitResult::Accepted]);
+        let staged = fixture
+            .publisher
+            .stage_and_publish(fixture.request.clone(), &fixture.authority)
+            .unwrap();
+        assert_eq!(staged.state, "accepted");
+        let submitted = fixture.relay.submitted();
+        assert_eq!(submitted.len(), 1);
+        let event = Event::from_json(&submitted[0]).unwrap();
+        assert_eq!(event.kind, Kind::Custom(MESSAGE_KIND));
+        assert_eq!(event.pubkey.to_hex(), fixture.request.resident_pubkey.as_str());
+        assert_eq!(
+            exact_tag_values(&event, "h"),
+            vec![existing_conversation_id(&fixture.request)
+                .unwrap()
+                .as_str()
+                .to_owned()]
+        );
+        let membership = fixture
+            .publisher
+            .membership(existing_conversation_id(&fixture.request).unwrap())
+            .unwrap();
+        assert!(event.tags.iter().any(|tag| {
+            let values = tag.as_slice();
+            values.len() == 3
+                && values[0] == TAG_EXPECTED_MEMBERSHIP_SNAPSHOT
+                && values[1] == EXPECTED_MEMBERSHIP_SNAPSHOT_VERSION
+                && values[2] == membership.membership_event_id.as_str()
+        }));
+
+        let repeated = fixture
+            .publisher
+            .stage_and_publish(fixture.request.clone(), &fixture.authority)
+            .unwrap();
+        assert_eq!(repeated.state, "accepted");
+        assert_eq!(fixture.relay.submitted().len(), 1);
+    }
+
+    #[test]
+    fn publication_unknown_retry_reuses_identical_frozen_event() {
+        let fixture = publisher_fixture([
+            FakeSubmitResult::Unknown,
+            FakeSubmitResult::Accepted,
+        ]);
+        assert!(fixture
+            .publisher
+            .stage_and_publish(fixture.request.clone(), &fixture.authority)
+            .is_err());
+        let accepted = fixture
+            .publisher
+            .stage_and_publish(fixture.request.clone(), &fixture.authority)
+            .unwrap();
+        assert_eq!(accepted.state, "accepted");
+        let submitted = fixture.relay.submitted();
+        assert_eq!(submitted.len(), 2);
+        assert_eq!(submitted[0], submitted[1]);
+        let first = Event::from_json(&submitted[0]).unwrap();
+        let second = Event::from_json(&submitted[1]).unwrap();
+        assert_eq!(first.id, second.id);
+    }
+
+    #[test]
+    fn startup_reconciliation_resubmits_only_the_frozen_unknown_event() {
+        let fixture = publisher_fixture([
+            FakeSubmitResult::Unknown,
+            FakeSubmitResult::Accepted,
+        ]);
+        assert!(fixture
+            .publisher
+            .stage_and_publish(fixture.request.clone(), &fixture.authority)
+            .is_err());
+        fixture.publisher.reconcile_one_on_start().unwrap();
+        let submitted = fixture.relay.submitted();
+        assert_eq!(submitted.len(), 2);
+        assert_eq!(submitted[0], submitted[1]);
+        let replay = fixture
+            .publisher
+            .stage_and_publish(fixture.request, &fixture.authority)
+            .unwrap();
+        assert_eq!(replay.state, "accepted");
+        assert_eq!(fixture.relay.submitted().len(), 2);
+    }
+
+    #[test]
+    fn wrong_participant_snapshot_fails_before_submission() {
+        let mut fixture = publisher_fixture([FakeSubmitResult::Accepted]);
+        let CommunicationDestinationV1::ExistingConversation {
+            participant_set_version,
+            ..
+        } = &mut fixture.request.destination
+        else {
+            unreachable!();
+        };
+        *participant_set_version = SafeU53::new(participant_set_version.get() + 1).unwrap();
+        fixture.request.action_fingerprint = fixture.request.derive_action_fingerprint().unwrap();
+        fixture.request.idempotency_key = fixture.request.derive_idempotency_key().unwrap();
+        assert!(fixture
+            .publisher
+            .stage_and_publish(fixture.request, &fixture.authority)
+            .is_err());
+        assert!(fixture.relay.submitted().is_empty());
+    }
+}

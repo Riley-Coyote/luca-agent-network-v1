@@ -1280,6 +1280,12 @@ impl BrokerFailure {
             "The communication could not be durably staged.",
         )
     }
+    pub(crate) fn operation_not_implemented() -> Self {
+        Self::new(
+            "operation_not_implemented",
+            "This communication operation is not implemented yet.",
+        )
+    }
     fn response_too_large() -> Self {
         Self::new(
             "response_too_large",

@@ -101,6 +101,18 @@ pub(crate) struct CommunicationActionOutboxReceipt {
     pub state: CommunicationActionOutboxStateV1,
 }
 
+/// Existing durable identity for an exact semantic request.
+///
+/// This is intentionally request-only: callers can discover an accepted
+/// tombstone or reuse already-frozen event metadata before signing or sealing
+/// another event. The semantic request hash, action fingerprint, idempotency
+/// key, and derived outbox ID are still validated exactly.
+#[derive(Clone)]
+pub(crate) enum CommunicationActionRequestPreflight {
+    Nonterminal(CommunicationActionOutboxV1),
+    Terminal(CommunicationActionOutboxReceipt),
+}
+
 impl std::fmt::Debug for CommunicationActionOutboxReceipt {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -279,6 +291,29 @@ impl CommunicationActionOutbox {
             persistence_path: Some(path),
             passphrase: Some(passphrase),
         })
+    }
+
+    /// Inspect a durable duplicate without consulting mutable turn authority.
+    pub(crate) fn preflight_request(
+        &self,
+        request: &CommunicationActionRequestV1,
+    ) -> Result<Option<CommunicationActionRequestPreflight>, CommunicationActionOutboxError> {
+        request
+            .validate()
+            .map_err(|_| CommunicationActionOutboxError::InvalidRequest)?;
+        if let Some(entry) = self.entries.get(request.idempotency_key.as_str()) {
+            validate_request_duplicate(entry, request)?;
+            return Ok(Some(CommunicationActionRequestPreflight::Nonterminal(
+                entry.row.clone(),
+            )));
+        }
+        if let Some(tombstone) = self.tombstones.get(request.idempotency_key.as_str()) {
+            validate_tombstone_request_duplicate(tombstone, request)?;
+            return Ok(Some(CommunicationActionRequestPreflight::Terminal(
+                tombstone.receipt.clone(),
+            )));
+        }
+        Ok(None)
     }
 
     /// Inspect a durable duplicate without consulting mutable turn authority.
@@ -881,6 +916,33 @@ fn validate_duplicate(
         || &entry.row.expected_event_id != expected_event_id
         || entry.row.action_fingerprint != request.action_fingerprint
         || entry.row.outbox_id != derive_outbox_id(request)?
+    {
+        return Err(CommunicationActionOutboxError::IdempotencyCollision);
+    }
+    Ok(())
+}
+
+fn validate_request_duplicate(
+    entry: &StoredCommunicationAction,
+    request: &CommunicationActionRequestV1,
+) -> Result<(), CommunicationActionOutboxError> {
+    if entry.request_sha256 != request_sha256(request)?
+        || entry.row.request != *request
+        || entry.row.action_fingerprint != request.action_fingerprint
+        || entry.row.outbox_id != derive_outbox_id(request)?
+    {
+        return Err(CommunicationActionOutboxError::IdempotencyCollision);
+    }
+    Ok(())
+}
+
+fn validate_tombstone_request_duplicate(
+    tombstone: &StoredCommunicationActionTombstone,
+    request: &CommunicationActionRequestV1,
+) -> Result<(), CommunicationActionOutboxError> {
+    if tombstone.request_sha256 != request_sha256(request)?
+        || tombstone.receipt.action_fingerprint != request.action_fingerprint
+        || tombstone.receipt.outbox_id != derive_outbox_id(request)?
     {
         return Err(CommunicationActionOutboxError::IdempotencyCollision);
     }

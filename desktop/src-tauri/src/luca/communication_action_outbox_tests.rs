@@ -560,6 +560,81 @@ fn terminal_tombstones_are_body_free_and_preserve_exact_replay_identity() {
 }
 
 #[test]
+fn request_preflight_reuses_frozen_nonterminal_and_terminal_identity() {
+    let session = id("installation-request-preflight");
+    let request = request("request-only preflight sentinel");
+    let mut outbox = CommunicationActionOutbox::new(session.clone());
+    prepare(&mut outbox, &request, &session);
+
+    let CommunicationActionRequestPreflight::Nonterminal(prepared) = outbox
+        .preflight_request(&request)
+        .expect("preflight prepared request")
+        .expect("prepared request exists")
+    else {
+        panic!("expected nonterminal row");
+    };
+    assert_eq!(prepared.sealed_event_handle, id("sealed-event-1"));
+    assert_eq!(prepared.exact_event_sha256, hex('a'));
+    assert_eq!(prepared.expected_event_id, hex('b'));
+
+    outbox
+        .mark_submitted(
+            &request.idempotency_key,
+            &session,
+            2,
+            false,
+            time("2026-08-11T12:00:01Z"),
+        )
+        .expect("submit action");
+    outbox
+        .mark_publication_unknown(&request.idempotency_key)
+        .expect("record ambiguous publication");
+    let CommunicationActionRequestPreflight::Nonterminal(ambiguous) = outbox
+        .preflight_request(&request)
+        .expect("preflight ambiguous request")
+        .expect("ambiguous request exists")
+    else {
+        panic!("expected nonterminal row");
+    };
+    assert_eq!(
+        ambiguous.state,
+        CommunicationActionOutboxStateV1::PublicationUnknown
+    );
+    assert_eq!(ambiguous.sealed_event_handle, id("sealed-event-1"));
+
+    outbox
+        .mark_accepted(
+            &request.idempotency_key,
+            hex('b'),
+            id("publication-receipt-request-preflight"),
+            time("2026-08-11T12:00:02Z"),
+        )
+        .expect("accept exact event");
+    let CommunicationActionRequestPreflight::Terminal(accepted) = outbox
+        .preflight_request(&request)
+        .expect("preflight accepted request")
+        .expect("accepted request exists")
+    else {
+        panic!("expected terminal receipt");
+    };
+    assert_eq!(accepted.state, CommunicationActionOutboxStateV1::Accepted);
+
+    let mut collision = request.clone();
+    collision.operation = CommunicationOperationV1::SendMessage {
+        body: "changed body".to_owned(),
+        reply_to_event_id: None,
+        mention_pubkeys: Vec::new(),
+        activation_pubkeys: Vec::new(),
+        artifact_handles: Vec::new(),
+    };
+    assert!(matches!(
+        outbox.preflight_request(&collision),
+        Err(CommunicationActionOutboxError::IdempotencyCollision)
+            | Err(CommunicationActionOutboxError::InvalidRequest)
+    ));
+}
+
+#[test]
 fn terminal_compaction_does_not_exhaust_the_nonterminal_capacity() {
     let session = id("installation-capacity");
     let mut outbox = CommunicationActionOutbox::new(session.clone());
