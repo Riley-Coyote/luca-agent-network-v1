@@ -1,5 +1,4 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import * as React from "react";
 
 import type { ManagedResponseSurface } from "@/features/messages/lib/managedAudience";
 import {
@@ -9,7 +8,6 @@ import {
   removeManagedPresentationActivity,
   resetManagedPresentationActivityStore,
   upsertManagedPresentationActivity,
-  useManagedPresentationActivitySnapshot,
 } from "@/features/messages/managedPresentationActivityStore";
 import {
   managedPresentationDrainQuota,
@@ -47,6 +45,10 @@ const terminalUiKeys = new Set<string>();
 const completedLookupKeys = new Set<string>();
 const terminalFrameLookupKeys = new Set<string>();
 const nextSlotOrdinal = new Map<string, number>();
+const stagedTurnUiKeys = new Set<string>();
+const stagedLegacyConversationIds = new Set<string>();
+const stagedTopologyConversationIds = new Set<string>();
+const stagedTerminalActivityUntil = new Map<string, number>();
 const turnListeners = new Map<string, Set<() => void>>();
 const topologyListeners = new Map<string, Set<() => void>>();
 const legacyListeners = new Map<string, Set<() => void>>();
@@ -62,8 +64,9 @@ let listenerPromise: Promise<void> | null = null;
 let creationCounter = 0;
 let paintCommitCount = 0;
 let legacySnapshotRebuildCount = 0;
+let stagedActivityExpiryAt: number | null = null;
 const scheduler = new ManagedPresentationScheduler(
-  flushPendingPresentationText,
+  flushManagedPresentationPublications,
 );
 
 function lookupKey(residentPubkey: string, receiptId: string): string {
@@ -146,6 +149,14 @@ function activateResponseSlot(
     anchorKey: turn.durableReceiptId ?? turn.dispatchReceiptId,
     slotOrdinal: ordinal,
   };
+}
+
+function activateTerminalResponseSlot(
+  turn: ManagedPresentationTurn,
+  now: number,
+): ManagedPresentationTurn {
+  if (turn.slotOrdinal !== null || turn.visibleText.length === 0) return turn;
+  return activateResponseSlot(turn, now);
 }
 function legacyPhase(
   phase: ManagedPresentationDisplayPhase,
@@ -251,6 +262,30 @@ function publishTurn(
   if (topologyChanged) rebuildConversationTopology(turn.conversationId);
 }
 
+function stageTurnPublication(
+  turn: ManagedPresentationTurn,
+  topologyChanged = false,
+  terminalActivityUntil?: number,
+): void {
+  turns.set(turn.uiKey, turn);
+  stagedTurnUiKeys.add(turn.uiKey);
+  stagedLegacyConversationIds.add(turn.conversationId);
+  if (topologyChanged) stagedTopologyConversationIds.add(turn.conversationId);
+  if (terminalActivityUntil !== undefined) {
+    stagedTerminalActivityUntil.set(turn.uiKey, terminalActivityUntil);
+  }
+  scheduler.requestPaint();
+}
+
+function hasStagedPublications(): boolean {
+  return (
+    stagedTurnUiKeys.size > 0 ||
+    stagedLegacyConversationIds.size > 0 ||
+    stagedTopologyConversationIds.size > 0 ||
+    stagedActivityExpiryAt !== null
+  );
+}
+
 function terminalDrainQuota(
   uiKey: string,
   backlog: number,
@@ -263,12 +298,9 @@ function terminalDrainQuota(
   return Math.max(base, Math.ceil(backlog / remainingTicks));
 }
 
-function flushPendingPresentationText(now: number): boolean {
-  if (pendingGraphemes.size === 0) return false;
+function flushManagedPresentationPublications(now: number): boolean {
+  if (pendingGraphemes.size === 0 && !hasStagedPublications()) return false;
   paintCommitCount += 1;
-  const dirtyTurns: ManagedPresentationTurn[] = [];
-  const legacyConversations = new Set<string>();
-  const topologyChanged = new Set<string>();
   for (const [uiKey, backlog] of pendingGraphemes) {
     const current = turns.get(uiKey);
     if (!current || backlog.length === 0) {
@@ -285,27 +317,50 @@ function flushPendingPresentationText(now: number): boolean {
     };
     if (reveal && next.slotOrdinal === null) {
       next = activateResponseSlot(next, Date.now());
-      topologyChanged.add(next.conversationId);
+      stagedTopologyConversationIds.add(next.conversationId);
     }
     turns.set(uiKey, next);
-    dirtyTurns.push(next);
+    stagedTurnUiKeys.add(uiKey);
+    stagedLegacyConversationIds.add(next.conversationId);
     if (backlog.length === 0) {
       pendingGraphemes.delete(uiKey);
       terminalDrainDeadlines.delete(uiKey);
     }
   }
-  for (const turn of dirtyTurns) {
-    notifyTurn(turn.uiKey);
-    legacyConversations.add(turn.conversationId);
+
+  const turnUiKeys = [...stagedTurnUiKeys];
+  const legacyConversationIds = [...stagedLegacyConversationIds];
+  const topologyConversationIds = [...stagedTopologyConversationIds];
+  const terminalActivityUntil = new Map(stagedTerminalActivityUntil);
+  const activityExpiryAt = stagedActivityExpiryAt;
+  stagedTurnUiKeys.clear();
+  stagedLegacyConversationIds.clear();
+  stagedTopologyConversationIds.clear();
+  stagedTerminalActivityUntil.clear();
+  stagedActivityExpiryAt = null;
+
+  for (const uiKey of turnUiKeys) {
+    const turn = turns.get(uiKey);
+    if (!turn) continue;
+    upsertManagedPresentationActivity(
+      turn,
+      creationOrdinals.get(uiKey) ?? 0,
+      terminalActivityUntil.get(uiKey),
+    );
   }
-  for (const conversationId of legacyConversations) {
+  if (activityExpiryAt !== null) {
+    expireManagedPresentationActivity(activityExpiryAt);
+  }
+  for (const uiKey of turnUiKeys) notifyTurn(uiKey);
+  for (const conversationId of legacyConversationIds) {
     rebuildLegacySnapshot(conversationId);
     notifyLegacy(conversationId);
   }
-  for (const conversationId of topologyChanged) {
+  for (const conversationId of topologyConversationIds) {
     rebuildConversationTopology(conversationId);
   }
-  return pendingGraphemes.size > 0;
+  scheduleNearestDeadline();
+  return pendingGraphemes.size > 0 || hasStagedPublications();
 }
 
 function scheduleNearestDeadline(): void {
@@ -322,10 +377,10 @@ function scheduleNearestDeadline(): void {
 }
 
 function processDeadlines(now = Date.now()): void {
-  expireManagedPresentationActivity(now);
+  stagedActivityExpiryAt = Math.max(stagedActivityExpiryAt ?? now, now);
   for (const current of turns.values()) {
     if (current.deadlineAt === null || current.deadlineAt > now) continue;
-    const next = activateResponseSlot(
+    const next = activateTerminalResponseSlot(
       {
         ...current,
         deadlineAt: null,
@@ -334,13 +389,13 @@ function processDeadlines(now = Date.now()): void {
       },
       now,
     );
-    publishTurn(
+    stageTurnPublication(
       next,
-      current.slotOrdinal === null,
+      current.slotOrdinal === null && next.slotOrdinal !== null,
       now + MANAGED_TERMINAL_ACTIVITY_MS,
     );
   }
-  scheduleNearestDeadline();
+  scheduler.requestPaint();
 }
 
 function clearPending(uiKey: string): void {
@@ -450,20 +505,10 @@ export function ingestManagedPresentationFrame(frameValue: unknown): void {
       const withChunk = ingestPublicChunk(next, frame.public_chunk ?? "");
       if (!withChunk) return;
       next = withChunk;
-      turns.set(next.uiKey, next);
-      upsertManagedPresentationActivity(
-        next,
-        creationOrdinals.get(next.uiKey) ?? 0,
-      );
-      scheduleNearestDeadline();
-      return;
+      break;
     }
     case "completed":
-      next = activateResponseSlot(
-        { ...next, deadlineAt: null, phase: "finalizing" },
-        Date.now(),
-      );
-      topologyChanged = current.slotOrdinal === null;
+      next = { ...next, deadlineAt: null, phase: "finalizing" };
       terminalDrainDeadlines.set(
         next.uiKey,
         Date.now() + MANAGED_TERMINAL_DRAIN_TARGET_MS,
@@ -473,7 +518,7 @@ export function ingestManagedPresentationFrame(frameValue: unknown): void {
       break;
     case "cancelled":
       clearPending(next.uiKey);
-      next = activateResponseSlot(
+      next = activateTerminalResponseSlot(
         {
           ...next,
           bufferedText: "",
@@ -483,12 +528,13 @@ export function ingestManagedPresentationFrame(frameValue: unknown): void {
         },
         Date.now(),
       );
-      topologyChanged = current.slotOrdinal === null;
+      topologyChanged =
+        current.slotOrdinal === null && next.slotOrdinal !== null;
       markTerminalFrame(frameLookupKey, next.uiKey);
       break;
     case "failed":
       clearPending(next.uiKey);
-      next = activateResponseSlot(
+      next = activateTerminalResponseSlot(
         {
           ...next,
           bufferedText: "",
@@ -499,11 +545,12 @@ export function ingestManagedPresentationFrame(frameValue: unknown): void {
         },
         Date.now(),
       );
-      topologyChanged = current.slotOrdinal === null;
+      topologyChanged =
+        current.slotOrdinal === null && next.slotOrdinal !== null;
       markTerminalFrame(frameLookupKey, next.uiKey);
       break;
   }
-  publishTurn(
+  stageTurnPublication(
     next,
     topologyChanged,
     ["stopped", "failed"].includes(next.phase)
@@ -681,17 +728,14 @@ export function reconcileManagedPresentationFinal(
   );
   if (!current) return null;
   lookupToUiKey.set(finalLookupKey, current.uiKey);
-  let next = activateResponseSlot(
-    {
-      ...current,
-      deadlineAt: null,
-      dispatchReceiptId,
-      durableReceiptId: dispatchReceiptId,
-      finalMessageId: finalMessageId ?? current.finalMessageId,
-      phase: "finalizing",
-    },
-    Date.now(),
-  );
+  let next: ManagedPresentationTurn = {
+    ...current,
+    deadlineAt: null,
+    dispatchReceiptId,
+    durableReceiptId: dispatchReceiptId,
+    finalMessageId: finalMessageId ?? current.finalMessageId,
+    phase: "finalizing",
+  };
   if (
     signedText !== undefined &&
     signedText !== null &&
@@ -724,13 +768,28 @@ export function reconcileManagedPresentationFinal(
       next = { ...next, bufferedText: "" };
     }
   }
+  if (
+    next.slotOrdinal === null &&
+    (next.finalMessageId !== null || next.signedText !== null)
+  ) {
+    clearPending(next.uiKey);
+    next = activateResponseSlot(
+      {
+        ...next,
+        bufferedText: "",
+        receivedText: next.signedText ?? next.receivedText,
+        visibleText: next.signedText ?? "",
+      },
+      Date.now(),
+    );
+  }
   terminalUiKeys.add(next.uiKey);
   terminalDrainDeadlines.set(
     next.uiKey,
     Date.now() + MANAGED_TERMINAL_DRAIN_TARGET_MS,
   );
   if (pendingGraphemes.has(next.uiKey)) scheduler.requestPaint();
-  publishTurn(next, true);
+  publishTurn(next, current.slotOrdinal === null && next.slotOrdinal !== null);
   scheduleNearestDeadline();
   return next;
 }
@@ -853,73 +912,6 @@ export function subscribeManagedPresentationLegacy(
   };
 }
 
-export function useManagedPresentationTurnKeys(
-  conversationId: string | null,
-): readonly string[] {
-  React.useEffect(() => {
-    void ensureManagedPresentationListener();
-  }, []);
-  const subscribe = React.useCallback(
-    (listener: () => void) =>
-      conversationId
-        ? subscribeManagedPresentationTopology(conversationId, listener)
-        : () => undefined,
-    [conversationId],
-  );
-  const getSnapshot = React.useCallback(
-    () =>
-      conversationId
-        ? getManagedPresentationTurnKeysSnapshot(conversationId)
-        : EMPTY_KEYS,
-    [conversationId],
-  );
-  return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-}
-
-export function useManagedResponseSlots(
-  conversationId: string | null,
-): readonly ManagedResponseSlot[] {
-  React.useEffect(() => {
-    void ensureManagedPresentationListener();
-  }, []);
-  const subscribe = React.useCallback(
-    (listener: () => void) =>
-      conversationId
-        ? subscribeManagedPresentationTopology(conversationId, listener)
-        : () => undefined,
-    [conversationId],
-  );
-  const getSnapshot = React.useCallback(
-    () =>
-      conversationId
-        ? getManagedResponseSlotsSnapshot(conversationId)
-        : EMPTY_SLOTS,
-    [conversationId],
-  );
-  return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-}
-
-export function useManagedPresentationTurn(
-  uiKey: string,
-): ManagedPresentationTurn | null {
-  const subscribe = React.useCallback(
-    (listener: () => void) => subscribeManagedPresentationTurn(uiKey, listener),
-    [uiKey],
-  );
-  const getSnapshot = React.useCallback(
-    () => getManagedPresentationTurn(uiKey),
-    [uiKey],
-  );
-  return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-}
-
-export function useManagedPresentationActivity(conversationId: string | null) {
-  React.useEffect(() => {
-    void ensureManagedPresentationListener();
-  }, []);
-  return useManagedPresentationActivitySnapshot(conversationId);
-}
-
 export {
   getManagedPresentationActivitySnapshot,
   subscribeManagedPresentationActivity,
@@ -929,29 +921,6 @@ export function getManagedPresentationSnapshot(
   conversationId: string,
 ): readonly ManagedPresentationRow[] {
   return legacySnapshots.get(conversationId) ?? EMPTY_LEGACY;
-}
-
-export function useManagedPresentations(
-  conversationId: string | null,
-): readonly ManagedPresentationRow[] {
-  React.useEffect(() => {
-    void ensureManagedPresentationListener();
-  }, []);
-  const subscribe = React.useCallback(
-    (listener: () => void) =>
-      conversationId
-        ? subscribeManagedPresentationLegacy(conversationId, listener)
-        : () => undefined,
-    [conversationId],
-  );
-  const getSnapshot = React.useCallback(
-    () =>
-      conversationId
-        ? getManagedPresentationSnapshot(conversationId)
-        : EMPTY_LEGACY,
-    [conversationId],
-  );
-  return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
 export function flushManagedPresentationSchedulerForTests(
@@ -988,6 +957,11 @@ export function resetManagedPresentationStore(): void {
   completedLookupKeys.clear();
   terminalFrameLookupKeys.clear();
   nextSlotOrdinal.clear();
+  stagedTurnUiKeys.clear();
+  stagedLegacyConversationIds.clear();
+  stagedTopologyConversationIds.clear();
+  stagedTerminalActivityUntil.clear();
+  stagedActivityExpiryAt = null;
   resetManagedPresentationActivityStore();
   turnKeySnapshots.clear();
   responseSlotSnapshots.clear();

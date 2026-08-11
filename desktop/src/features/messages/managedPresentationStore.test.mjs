@@ -187,6 +187,159 @@ describe("managedPresentationStore", () => {
     dispose();
   });
 
+  it("coalesces bursty lifecycle and activity publications into one paint", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    const uiKey = getManagedPresentationTurnKeysSnapshot(conversationId)[0];
+    let activityNotifications = 0;
+    let legacyNotifications = 0;
+    let rowNotifications = 0;
+    const disposeActivity = subscribeManagedPresentationActivity(
+      conversationId,
+      () => {
+        activityNotifications += 1;
+      },
+    );
+    const disposeLegacy = subscribeManagedPresentationLegacy(
+      conversationId,
+      () => {
+        legacyNotifications += 1;
+      },
+    );
+    const disposeRow = subscribeManagedPresentationTurn(uiKey, () => {
+      rowNotifications += 1;
+    });
+    const paintsBefore =
+      getManagedPresentationSchedulerStatsForTests().paintCommits;
+
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    for (let sequence = 2; sequence <= 41; sequence += 1) {
+      ingestManagedPresentationFrame(
+        frame("phase", sequence, {
+          phase: sequence % 2 === 0 ? "working" : "writing",
+        }),
+      );
+    }
+
+    assert.equal(getManagedPresentationTurn(uiKey).phase, "writing");
+    assert.equal(rowNotifications, 0);
+    assert.equal(legacyNotifications, 0);
+    assert.equal(activityNotifications, 0);
+
+    flushManagedPresentationSchedulerForTests();
+    assert.equal(rowNotifications, 1);
+    assert.equal(legacyNotifications, 1);
+    assert.equal(activityNotifications, 1);
+    assert.equal(
+      getManagedPresentationSchedulerStatsForTests().paintCommits,
+      paintsBefore + 1,
+    );
+    disposeActivity();
+    disposeLegacy();
+    disposeRow();
+  });
+
+  it("keeps empty completion in activity without creating a response slot", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    let activityNotifications = 0;
+    let topologyNotifications = 0;
+    const disposeActivity = subscribeManagedPresentationActivity(
+      conversationId,
+      () => {
+        activityNotifications += 1;
+      },
+    );
+    const dispose = subscribeManagedPresentationTopology(conversationId, () => {
+      topologyNotifications += 1;
+    });
+
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(frame("completed", 2));
+    assert.equal(turn().phase, "finalizing");
+    assert.deepEqual(getManagedResponseSlotsSnapshot(conversationId), []);
+    assert.equal(activityNotifications, 0);
+
+    flushManagedPresentationSchedulerForTests();
+    assert.deepEqual(getManagedResponseSlotsSnapshot(conversationId), []);
+    assert.equal(topologyNotifications, 0);
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).get(residentPubkey)
+        .phase,
+      "finalizing",
+    );
+    assert.equal(activityNotifications, 1);
+    disposeActivity();
+    dispose();
+  });
+
+  it("keeps timeout before public text in activity only", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    const deadline = turn().deadlineAt;
+
+    expireManagedPresentationDeadlinesForTests(deadline);
+    assert.equal(turn().phase, "needs_attention");
+    assert.deepEqual(getManagedResponseSlotsSnapshot(conversationId), []);
+
+    flushManagedPresentationSchedulerForTests(deadline);
+    assert.deepEqual(getManagedResponseSlotsSnapshot(conversationId), []);
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).get(residentPubkey)
+        .phase,
+      "needs_attention",
+    );
+  });
+
+  it("keeps cancellation before public text in activity only", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(frame("cancelled", 2));
+
+    assert.equal(turn().phase, "stopped");
+    assert.deepEqual(getManagedResponseSlotsSnapshot(conversationId), []);
+    flushManagedPresentationSchedulerForTests();
+    assert.deepEqual(getManagedResponseSlotsSnapshot(conversationId), []);
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).get(residentPubkey)
+        .phase,
+      "stopped",
+    );
+  });
+
+  it("keeps failure before public text in activity only", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(frame("failed", 2, { failure: "runtime" }));
+
+    assert.equal(turn().phase, "failed");
+    assert.deepEqual(getManagedResponseSlotsSnapshot(conversationId), []);
+    flushManagedPresentationSchedulerForTests();
+    assert.deepEqual(getManagedResponseSlotsSnapshot(conversationId), []);
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).get(residentPubkey)
+        .phase,
+      "failed",
+    );
+  });
+
+  it("creates one response slot when completion has buffered public text", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    let topologyNotifications = 0;
+    const dispose = subscribeManagedPresentationTopology(conversationId, () => {
+      topologyNotifications += 1;
+    });
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 2, { public_chunk: "Buffered" }),
+    );
+    ingestManagedPresentationFrame(frame("completed", 3));
+
+    assert.deepEqual(getManagedResponseSlotsSnapshot(conversationId), []);
+    flushManagedPresentationSchedulerForTests();
+    assert.equal(getManagedResponseSlotsSnapshot(conversationId).length, 1);
+    assert.equal(topologyNotifications, 1);
+    assert.equal(turn().visibleText.length > 0, true);
+    dispose();
+  });
+
   it("rebuilds and notifies one legacy snapshot per conversation per tick", () => {
     const residents = Array.from({ length: 8 }, (_, index) =>
       (index + 1).toString(16).padStart(2, "0").repeat(32),
@@ -253,7 +406,7 @@ describe("managedPresentationStore", () => {
       frame("public_chunk", 2, { public_chunk: "Hello" }),
     );
     flushManagedPresentationSchedulerForTests();
-    assert.ok(firstChanges >= 2);
+    assert.equal(firstChanges, 1);
     assert.equal(secondChanges, 0);
     assert.equal(topologyChanges, 1);
     disposeFirst();
@@ -386,6 +539,29 @@ describe("managedPresentationStore", () => {
     assert.equal(turn().finalReconciliation, "divergent");
   });
 
+  it("publishes a signed final atomically when no streamed grapheme was visible", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 2, { public_chunk: "Complete signed body" }),
+    );
+
+    reconcileManagedPresentationFinal(
+      residentPubkey,
+      receiptId,
+      conversationId,
+      "signed-before-paint",
+      "Complete signed body",
+    );
+    assert.equal(turn().visibleText, "Complete signed body");
+    assert.equal(turn().bufferedText, "");
+    assert.equal(getManagedResponseSlotsSnapshot(conversationId).length, 1);
+
+    flushAll();
+    assert.equal(turn().visibleText, "Complete signed body");
+    assert.equal(turn().bufferedText, "");
+  });
+
   it("tombstones a signed final that arrives before the stream", () => {
     completeManagedPresentation(residentPubkey, receiptId);
     ingestManagedPresentationFrame(frame("turn_started", 1));
@@ -440,7 +616,8 @@ describe("managedPresentationStore", () => {
     assert.equal(turn().phase, "needs_attention");
     assert.equal(turn().failure, "unavailable");
     assert.equal(turn().finalMessageId, null);
-    assert.equal(getManagedResponseSlotsSnapshot(conversationId).length, 1);
+    flushManagedPresentationSchedulerForTests(deadline);
+    assert.equal(getManagedResponseSlotsSnapshot(conversationId).length, 0);
   });
 
   it("keeps the compatibility projection bounded to visible store state", () => {
@@ -468,6 +645,8 @@ describe("managedPresentationStore", () => {
     ingestManagedPresentationFrame(
       frame("public_chunk", 2, { public_chunk: "Streaming body" }),
     );
+    assert.equal(notifications, 0);
+    flushManagedPresentationSchedulerForTests();
     assert.equal(notifications, 1);
     const writing = getManagedPresentationActivitySnapshot(conversationId);
     assert.notEqual(writing, initial);
@@ -541,33 +720,61 @@ describe("managedPresentationStore", () => {
       frame("public_chunk", 2, { public_chunk: "Partial response" }),
     );
     flushManagedPresentationSchedulerForTests();
+    let activityNotifications = 0;
+    let rowNotifications = 0;
+    const uiKey = turn().uiKey;
+    const disposeActivity = subscribeManagedPresentationActivity(
+      conversationId,
+      () => {
+        activityNotifications += 1;
+      },
+    );
+    const disposeRow = subscribeManagedPresentationTurn(uiKey, () => {
+      rowNotifications += 1;
+    });
     ingestManagedPresentationFrame(frame("cancelled", 3));
+    assert.equal(turn().phase, "stopped");
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).get(residentPubkey)
+        .phase,
+      "writing",
+    );
+    assert.equal(activityNotifications, 0);
+    assert.equal(rowNotifications, 0);
+    flushManagedPresentationSchedulerForTests();
     const stopped = turn();
     assert.equal(
       getManagedPresentationActivitySnapshot(conversationId).get(residentPubkey)
         .phase,
       "stopped",
     );
+    assert.equal(activityNotifications, 1);
+    assert.equal(rowNotifications, 1);
 
     expireManagedPresentationDeadlinesForTests(stopped.lastFrameAt + 4_001);
+    flushManagedPresentationSchedulerForTests(stopped.lastFrameAt + 4_001);
     assert.equal(
       getManagedPresentationActivitySnapshot(conversationId).size,
       0,
     );
     assert.equal(getManagedPresentationTurn(stopped.uiKey).phase, "stopped");
     assert.equal(getManagedPresentationTurn(stopped.uiKey).visibleText, "Pa");
+    disposeActivity();
+    disposeRow();
   });
 
   it("briefly projects needs-attention state and then expires only the activity", () => {
     seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
     const pending = turn();
     expireManagedPresentationDeadlinesForTests(pending.deadlineAt);
+    flushManagedPresentationSchedulerForTests(pending.deadlineAt);
     assert.equal(
       getManagedPresentationActivitySnapshot(conversationId).get(residentPubkey)
         .phase,
       "needs_attention",
     );
     expireManagedPresentationDeadlinesForTests(pending.deadlineAt + 4_001);
+    flushManagedPresentationSchedulerForTests(pending.deadlineAt + 4_001);
     assert.equal(
       getManagedPresentationActivitySnapshot(conversationId).size,
       0,
