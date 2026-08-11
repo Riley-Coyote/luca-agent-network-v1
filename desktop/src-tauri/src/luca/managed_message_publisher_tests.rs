@@ -105,6 +105,11 @@ fn fixture() -> Fixture {
             Tag::parse(["h", CHANNEL]).expect("h"),
             Tag::parse(["e", trigger.id.to_hex().as_str(), "", "reply"]).expect("reply"),
             Tag::public_key(owner.public_key()),
+            Tag::parse([
+                luca_protocol::MANAGED_DISPATCH_RECEIPT_TAG,
+                request.dispatch_receipt_id.as_str(),
+            ])
+            .expect("managed dispatch receipt"),
             Tag::parse(["broadcast", "1"]).expect("broadcast"),
         ])
         .custom_created_at(Timestamp::from(101))

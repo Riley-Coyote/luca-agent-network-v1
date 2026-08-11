@@ -629,41 +629,68 @@ describe("managedPresentationStore", () => {
     );
   });
 
-  it("reconciles only an unambiguous resident fallback", () => {
-    seedManagedPresentations(conversationId, "optimistic:one", [
-      residentPubkey,
-    ]);
+  it("reconciles concurrent same-resident timeline and thread finals only by exact receipt", () => {
+    const firstReceipt = "receipt:first";
+    const secondReceipt = "receipt:second";
+    seedManagedPresentations(conversationId, firstReceipt, [residentPubkey]);
+    seedManagedPresentations(
+      conversationId,
+      secondReceipt,
+      [residentPubkey],
+      "thread",
+    );
+
     completeManagedPresentationForConversation(
       residentPubkey,
-      receiptId,
+      firstReceipt,
       conversationId,
       "signed-one",
-      "Final",
+      "First final",
     );
-    assert.equal(turn().finalMessageId, "signed-one");
-
-    resetManagedPresentationStore();
-    seedManagedPresentations(conversationId, "optimistic:first", [
-      residentPubkey,
-    ]);
-    seedManagedPresentations(conversationId, "optimistic:second", [
-      residentPubkey,
-    ]);
-    completeManagedPresentationForConversation(
-      residentPubkey,
-      receiptId,
-      conversationId,
-      "ambiguous",
-      "Final",
+    const keysByReceipt = new Map(
+      getManagedPresentationTurnKeysSnapshot(conversationId).map((uiKey) => {
+        const current = getManagedPresentationTurn(uiKey);
+        return [current.dispatchReceiptId, uiKey];
+      }),
+    );
+    assert.equal(keysByReceipt.size, 2);
+    const firstKey = keysByReceipt.get(firstReceipt);
+    const secondKey = keysByReceipt.get(secondReceipt);
+    assert.ok(firstKey);
+    assert.ok(secondKey);
+    assert.equal(
+      getManagedPresentationTurn(firstKey).finalMessageId,
+      "signed-one",
     );
     assert.equal(
-      getManagedPresentationTurnKeysSnapshot(conversationId).length,
-      2,
+      getManagedPresentationTurn(firstKey).responseSurface,
+      "timeline",
     );
-    assert.ok(
-      getManagedPresentationTurnKeysSnapshot(conversationId).every(
-        (uiKey) => getManagedPresentationTurn(uiKey).finalMessageId === null,
-      ),
+    assert.equal(getManagedPresentationTurn(secondKey).finalMessageId, null);
+    assert.equal(
+      getManagedPresentationTurn(secondKey).responseSurface,
+      "thread",
+    );
+
+    completeManagedPresentationForConversation(
+      residentPubkey,
+      "receipt:unrelated",
+      conversationId,
+      "unrelated-final",
+      "Must not bind",
+    );
+    assert.equal(getManagedPresentationTurn(secondKey).finalMessageId, null);
+
+    completeManagedPresentationForConversation(
+      residentPubkey,
+      secondReceipt,
+      conversationId,
+      "signed-two",
+      "Second final",
+    );
+    assert.equal(
+      getManagedPresentationTurn(secondKey).finalMessageId,
+      "signed-two",
     );
   });
 

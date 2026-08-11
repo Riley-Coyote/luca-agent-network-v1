@@ -7,6 +7,11 @@ use sha2::{Digest, Sha256};
 
 /// Managed final-publication protocol identifier.
 pub const MESSAGE_PUBLISH_PROTOCOL: &str = "luca.message.publish.v1";
+/// Exact signed-event tag carrying the body-free managed dispatch receipt.
+///
+/// The tag is emitted only for requests with a versioned response surface.
+/// Legacy V1 outbox events without a response surface remain valid without it.
+pub const MANAGED_DISPATCH_RECEIPT_TAG: &str = "luca-managed-dispatch";
 /// Maximum UTF-8 byte length of an accepted final draft.
 pub const MAX_FINAL_DRAFT_BYTES: usize = 65_536;
 /// Maximum number of exact resolved `p` tags.

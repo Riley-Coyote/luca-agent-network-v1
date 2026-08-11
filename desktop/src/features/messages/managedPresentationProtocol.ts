@@ -1,6 +1,7 @@
 import type { RawManagedPresentationFrame } from "@/features/messages/managedPresentationTypes";
 
 export const MANAGED_PRESENTATION_EVENT = "luca://managed-presentation";
+export const MANAGED_DISPATCH_RECEIPT_TAG = "luca-managed-dispatch";
 export const MAX_MANAGED_PRESENTATION_ROWS = 512;
 export const MANAGED_TURN_START_TIMEOUT_MS = 12_000;
 export const MANAGED_TURN_LIVENESS_MS = 90_000;
@@ -37,6 +38,34 @@ function validOpaqueId(value: unknown): value is string {
     value.length <= 128 &&
     /^[A-Za-z0-9._:-]+$/.test(value)
   );
+}
+
+/**
+ * Resolve the exact signed managed-dispatch receipt carried by a resident
+ * final. Missing, malformed, or duplicate receipt tags fail closed so a
+ * causal NIP-10 reference can never be mistaken for presentation authority.
+ */
+export function managedDispatchReceiptIdFromTags(
+  tags: readonly unknown[],
+): string | null {
+  let receiptId: string | null = null;
+  for (const candidate of tags) {
+    if (
+      !Array.isArray(candidate) ||
+      candidate[0] !== MANAGED_DISPATCH_RECEIPT_TAG
+    ) {
+      continue;
+    }
+    if (
+      candidate.length !== 2 ||
+      !validOpaqueId(candidate[1]) ||
+      receiptId !== null
+    ) {
+      return null;
+    }
+    receiptId = candidate[1];
+  }
+  return receiptId;
 }
 
 export function validManagedPresentationFrame(

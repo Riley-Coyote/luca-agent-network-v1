@@ -1,5 +1,8 @@
 use super::*;
-use luca_protocol::{derive_message_publish_idempotency_key, SafeU53, MESSAGE_PUBLISH_PROTOCOL};
+use luca_protocol::{
+    derive_message_publish_idempotency_key, ManagedResponseSurfaceV1, SafeU53,
+    MESSAGE_PUBLISH_PROTOCOL,
+};
 use nostr::{EventBuilder, Keys, Kind, Tag};
 
 fn hex(value: char) -> Hex64 {
@@ -171,6 +174,75 @@ fn luca_signing_outbox_encrypts_and_reloads_exact_prepared_event() {
     assert_eq!(entries[0].signed_event_json, exact_event);
     assert_eq!(entries[0].request, request);
     assert_eq!(entries[0].state, ManagedOutboxState::Prepared);
+}
+
+#[test]
+fn luca_signing_outbox_reloads_pre_receipt_surface_events() {
+    let keys = Keys::parse(&"0e".repeat(32)).expect("valid fixture key");
+    let request = request(&keys);
+    let event = frozen_event(&keys, &request);
+    let mut surfaced_request = request.clone();
+    surfaced_request.response_surface = Some(ManagedResponseSurfaceV1::Timeline);
+    let legacy_signed_event = EventBuilder::new(Kind::Custom(9), request.final_draft.clone())
+        .tags([
+            Tag::parse(["h", request.conversation_id.as_str()]).expect("conversation tag"),
+            Tag::parse(["broadcast", "1"]).expect("broadcast tag"),
+        ])
+        .sign_with_keys(&keys)
+        .expect("sign pre-receipt event");
+    let exact_legacy_event =
+        String::from_utf8(canonicalize(&legacy_signed_event).expect("canonical pre-receipt event"))
+            .expect("UTF-8 pre-receipt event");
+    assert!(matches!(
+        FrozenManagedMessageEvent::parse(exact_legacy_event.clone(), &surfaced_request),
+        Err(ManagedMessageOutboxError::InvalidEvent)
+    ));
+    let legacy_frozen = FrozenManagedMessageEvent::parse_with_tag_policy(
+        exact_legacy_event,
+        &surfaced_request,
+        true,
+    )
+    .expect("persisted compatibility accepts exact pre-receipt event");
+    let session = OpaqueId::parse("installation-pre-receipt").expect("valid installation ID");
+    let passphrase = SecretString::from("pre-receipt-passphrase".to_owned());
+    let temp = tempfile::tempdir().expect("temp");
+    let path = temp.path().join("managed-outbox.age");
+    let mut outbox =
+        ManagedMessageOutbox::load_encrypted(session.clone(), path.clone(), passphrase.clone())
+            .expect("new encrypted outbox");
+    outbox
+        .prepare(&request, event, &session, 3, false)
+        .expect("prepare legacy event");
+
+    // Surface routing predates receipt-address tags. Model a canonical row
+    // written by that release: the typed request has a surface, while its
+    // already-frozen signed event remains exact and tagless.
+    let entry = outbox
+        .entries
+        .get_mut(request.idempotency_key.as_str())
+        .expect("prepared entry");
+    entry.request = surfaced_request;
+    entry.event = legacy_frozen;
+    entry.request_sha256 = Hex64::parse(canonical_sha256(&entry.request).expect("request hash"))
+        .expect("canonical request hash");
+    outbox.persist().expect("persist legacy surface row");
+
+    let reloaded = ManagedMessageOutbox::load_encrypted(session, path, passphrase)
+        .expect("pre-receipt outbox remains recoverable");
+    let restored_entries = reloaded.reconciliation_entries();
+    let [restored] = restored_entries.as_slice() else {
+        panic!("expected one restored entry");
+    };
+    assert_eq!(
+        restored.request.response_surface,
+        Some(ManagedResponseSurfaceV1::Timeline)
+    );
+    let restored_event =
+        nostr::Event::from_json(&restored.signed_event_json).expect("restored signed event");
+    assert!(!restored_event.tags.iter().any(|tag| tag
+        .as_slice()
+        .first()
+        .is_some_and(|value| value == luca_protocol::MANAGED_DISPATCH_RECEIPT_TAG)));
 }
 
 #[test]

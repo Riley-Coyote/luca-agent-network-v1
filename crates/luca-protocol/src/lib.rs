@@ -56,7 +56,8 @@ pub use managed_presentation::{
 pub use message_publish::{
     derive_message_publish_idempotency_key, ManagedMessagePublishRequestV1,
     ManagedMessagePublishResultV1, ManagedResponseSurfaceV1, MessagePublishError,
-    MAX_FINAL_DRAFT_BYTES, MAX_RESOLVED_P_TAGS, MESSAGE_PUBLISH_PROTOCOL,
+    MANAGED_DISPATCH_RECEIPT_TAG, MAX_FINAL_DRAFT_BYTES, MAX_RESOLVED_P_TAGS,
+    MESSAGE_PUBLISH_PROTOCOL,
 };
 pub use notebook::*;
 pub use owner_identity::{

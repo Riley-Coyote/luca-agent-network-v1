@@ -13,7 +13,7 @@ fn hex(value: char) -> Hex64 {
 }
 
 #[test]
-fn luca_signing_broker_marks_only_timeline_finals_as_broadcast() {
+fn luca_signing_broker_preserves_causal_tags_and_addresses_managed_finals() {
     let (broker, _) = fixture();
     let mut timeline = publish_request(&broker);
     timeline.response_surface = Some(ManagedResponseSurfaceV1::Timeline);
@@ -25,6 +25,35 @@ fn luca_signing_broker_marks_only_timeline_finals_as_broadcast() {
         let parts = tag.as_slice();
         parts.len() == 2 && parts[0] == "broadcast" && parts[1] == "1"
     }));
+    assert!(timeline_event.tags.iter().any(|tag| {
+        let parts = tag.as_slice();
+        parts.len() == 2
+            && parts[0] == luca_protocol::MANAGED_DISPATCH_RECEIPT_TAG
+            && parts[1] == timeline.dispatch_receipt_id.as_str()
+    }));
+    assert!(timeline_event.tags.iter().any(|tag| {
+        tag.as_slice()
+            == [
+                "e",
+                timeline.root_event_id.as_ref().expect("root").as_str(),
+                "",
+                "root",
+            ]
+    }));
+    assert!(timeline_event.tags.iter().any(|tag| {
+        tag.as_slice()
+            == [
+                "e",
+                timeline.reply_event_id.as_ref().expect("reply").as_str(),
+                "",
+                "reply",
+            ]
+    }));
+    assert_ne!(
+        timeline.dispatch_receipt_id.as_str(),
+        timeline.reply_event_id.as_ref().expect("reply").as_str(),
+        "receipt addressing must remain separate from causal NIP-10 routing"
+    );
 
     let mut thread = publish_request(&broker);
     thread.response_surface = Some(ManagedResponseSurfaceV1::Thread);
@@ -36,6 +65,40 @@ fn luca_signing_broker_marks_only_timeline_finals_as_broadcast() {
         .as_slice()
         .first()
         .is_some_and(|value| value == "broadcast")));
+    assert!(thread_event.tags.iter().any(|tag| {
+        let parts = tag.as_slice();
+        parts.len() == 2
+            && parts[0] == luca_protocol::MANAGED_DISPATCH_RECEIPT_TAG
+            && parts[1] == thread.dispatch_receipt_id.as_str()
+    }));
+    assert!(thread_event.tags.iter().any(|tag| {
+        tag.as_slice()
+            == [
+                "e",
+                thread.root_event_id.as_ref().expect("root").as_str(),
+                "",
+                "root",
+            ]
+    }));
+    assert!(thread_event.tags.iter().any(|tag| {
+        tag.as_slice()
+            == [
+                "e",
+                thread.reply_event_id.as_ref().expect("reply").as_str(),
+                "",
+                "reply",
+            ]
+    }));
+
+    let legacy = publish_request(&broker);
+    let legacy_json = broker
+        .build_managed_message_event(&legacy, 1_700_000_000)
+        .expect("legacy event");
+    let legacy_event = nostr::Event::from_json(legacy_json).expect("legacy JSON");
+    assert!(!legacy_event.tags.iter().any(|tag| tag
+        .as_slice()
+        .first()
+        .is_some_and(|value| value == luca_protocol::MANAGED_DISPATCH_RECEIPT_TAG)));
 }
 
 fn fixture() -> (ResidentSigningBroker, Hex64) {

@@ -40,6 +40,7 @@ import {
   replaceManagedPresentationReceipt,
   seedManagedPresentations,
 } from "@/features/messages/managedPresentationStore";
+import { managedDispatchReceiptIdFromTags } from "@/features/messages/managedPresentationProtocol";
 import {
   clearTimeoutState,
   recordTimeoutFromRejection,
@@ -309,10 +310,13 @@ export function useChannelSubscription(channel: Channel | null) {
     const threadReference = isTimelineRow
       ? getThreadReference(event.tags)
       : null;
-    if (isTimelineRow && threadReference?.parentId) {
+    const managedDispatchReceiptId = isTimelineRow
+      ? managedDispatchReceiptIdFromTags(event.tags)
+      : null;
+    if (managedDispatchReceiptId) {
       completeManagedPresentationForConversation(
         event.pubkey,
-        threadReference.parentId,
+        managedDispatchReceiptId,
         channelId,
         event.id,
         event.content,

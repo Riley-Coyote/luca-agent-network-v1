@@ -31,6 +31,7 @@ mod managed_dispatch_routing;
 pub(crate) mod managed_dispatch_store;
 #[cfg(unix)]
 pub(crate) mod managed_mcp;
+mod managed_message_event;
 pub(crate) mod managed_message_outbox;
 mod managed_message_outbox_io;
 pub(crate) mod managed_message_publisher;

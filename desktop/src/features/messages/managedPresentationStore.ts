@@ -700,15 +700,10 @@ function findTurnForFinal(
   const directUiKey = lookupToUiKey.get(
     lookupKey(normalizedPubkey, dispatchReceiptId),
   );
-  if (directUiKey) return turns.get(directUiKey) ?? null;
-  if (!conversationId) return null;
-  const candidates = [...turns.values()].filter(
-    (turn) =>
-      turn.conversationId === conversationId &&
-      turn.residentPubkey === normalizedPubkey &&
-      turn.finalMessageId === null,
-  );
-  return candidates.length === 1 ? candidates[0] : null;
+  if (!directUiKey) return null;
+  const turn = turns.get(directUiKey) ?? null;
+  if (conversationId && turn?.conversationId !== conversationId) return null;
+  return turn;
 }
 
 export function reconcileManagedPresentationFinal(

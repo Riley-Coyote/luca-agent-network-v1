@@ -126,7 +126,7 @@ async function emitFrame(
     publicChunk?: string;
   },
 ) {
-  await page.evaluate(
+  return page.evaluate(
     ({ eventName, frame }) => {
       window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.(eventName, frame);
     },
@@ -155,18 +155,27 @@ async function emitSignedFinal(
   residentPubkey: string,
   receiptId: string,
   content: string,
+  causalParentEventId = receiptId,
 ) {
   await page.evaluate(
-    ({ parentEventId, pubkey, text }) => {
+    ({ dispatchReceiptId, parentEventId, pubkey, text }) => {
       window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
         channelName: "general",
         content: text,
         parentEventId,
         pubkey,
-        extraTags: [["broadcast", "1"]],
+        extraTags: [
+          ["luca-managed-dispatch", dispatchReceiptId],
+          ["broadcast", "1"],
+        ],
       });
     },
-    { parentEventId: receiptId, pubkey: residentPubkey, text: content },
+    {
+      dispatchReceiptId: receiptId,
+      parentEventId: causalParentEventId,
+      pubkey: residentPubkey,
+      text: content,
+    },
   );
 }
 
@@ -462,7 +471,26 @@ test("ordinary Reply is directed while Reply in thread remains explicit", async 
     "1",
   );
 
-  await emitSignedFinal(page, CLAUDE, receiptId, "Claude alone replied.");
+  const directedFinal = await emitSignedFinal(
+    page,
+    CLAUDE,
+    receiptId,
+    "Claude alone replied.",
+    "mock-general-alice",
+  );
+  expect(directedFinal?.tags).toContainEqual([
+    "luca-managed-dispatch",
+    receiptId,
+  ]);
+  expect(directedFinal?.tags).toContainEqual([
+    "e",
+    "mock-general-alice",
+    "",
+    "reply",
+  ]);
+  expect(
+    directedFinal?.tags.some((tag) => tag[0] === "e" && tag[1] === receiptId),
+  ).toBe(false);
   const finalRow = page
     .getByTestId("message-row")
     .filter({ hasText: "Claude alone replied." });
@@ -510,8 +538,9 @@ test("ordinary Reply is directed while Reply in thread remains explicit", async 
       window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
         channelName: "general",
         content: "A real thread response.",
+        extraTags: [["luca-managed-dispatch", parentEventId]],
         id: finalId,
-        parentEventId,
+        parentEventId: "mock-general-alice",
         pubkey: claude,
       });
     },

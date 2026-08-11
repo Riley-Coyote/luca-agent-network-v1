@@ -571,38 +571,8 @@ impl ResidentSigningBroker {
         request: &ManagedMessagePublishRequestV1,
         now_unix_secs: u64,
     ) -> Result<String, ManagedMessageOutboxError> {
-        let mut tags = vec![Tag::parse(["h", request.conversation_id.as_str()])
-            .map_err(|_| ManagedMessageOutboxError::InvalidRequest)?];
-        match (&request.root_event_id, &request.reply_event_id) {
-            (None, None) => {}
-            (Some(root), Some(reply)) if root == reply => tags.push(
-                Tag::parse(["e", root.as_str(), "", "reply"])
-                    .map_err(|_| ManagedMessageOutboxError::InvalidRequest)?,
-            ),
-            (Some(root), Some(reply)) => {
-                tags.push(
-                    Tag::parse(["e", root.as_str(), "", "root"])
-                        .map_err(|_| ManagedMessageOutboxError::InvalidRequest)?,
-                );
-                tags.push(
-                    Tag::parse(["e", reply.as_str(), "", "reply"])
-                        .map_err(|_| ManagedMessageOutboxError::InvalidRequest)?,
-                );
-            }
-            _ => return Err(ManagedMessageOutboxError::InvalidRequest),
-        }
-        for pubkey in &request.resolved_p_tags {
-            tags.push(
-                Tag::parse(["p", pubkey.as_str()])
-                    .map_err(|_| ManagedMessageOutboxError::InvalidRequest)?,
-            );
-        }
-        if request.response_surface == Some(luca_protocol::ManagedResponseSurfaceV1::Timeline) {
-            tags.push(
-                Tag::parse(["broadcast", "1"])
-                    .map_err(|_| ManagedMessageOutboxError::InvalidRequest)?,
-            );
-        }
+        let tags = super::managed_message_event::managed_message_tags(request)
+            .map_err(|_| ManagedMessageOutboxError::InvalidRequest)?;
 
         let event = EventBuilder::new(Kind::Custom(9), request.final_draft.clone())
             .tags(tags)

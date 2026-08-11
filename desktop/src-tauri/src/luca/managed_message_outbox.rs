@@ -14,7 +14,10 @@ use nostr::{JsonUtil, Kind};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::managed_message_outbox_io::atomic_write_ciphertext;
+use super::{
+    managed_message_event::{event_tags_match_persisted_request, event_tags_match_request},
+    managed_message_outbox_io::atomic_write_ciphertext,
+};
 
 const OUTBOX_SCHEMA: &str = "luca.managed-message-outbox.v1";
 const MAX_OUTBOX_ENTRIES: usize = 256;
@@ -121,14 +124,27 @@ impl FrozenManagedMessageEvent {
         signed_event_json: String,
         request: &ManagedMessagePublishRequestV1,
     ) -> Result<Self, ManagedMessageOutboxError> {
+        Self::parse_with_tag_policy(signed_event_json, request, false)
+    }
+
+    fn parse_with_tag_policy(
+        signed_event_json: String,
+        request: &ManagedMessagePublishRequestV1,
+        allow_pre_receipt_surface_event: bool,
+    ) -> Result<Self, ManagedMessageOutboxError> {
         let event = nostr::Event::from_json(&signed_event_json)
             .map_err(|_| ManagedMessageOutboxError::InvalidEvent)?;
+        let tags_match = if allow_pre_receipt_surface_event {
+            event_tags_match_persisted_request(&event, request)
+        } else {
+            event_tags_match_request(&event, request)
+        };
         if !event.verify_id()
             || !event.verify_signature()
             || event.pubkey.to_hex() != request.resident_pubkey.as_str()
             || event.kind != Kind::Custom(9)
             || event.content != request.final_draft
-            || !event_tags_match_request(&event, request)
+            || !tags_match
         {
             return Err(ManagedMessageOutboxError::InvalidEvent);
         }
@@ -172,50 +188,6 @@ impl FrozenManagedMessageEvent {
             && hex::encode(Sha256::digest(&canonical)) == self.event_sha256.as_str()
             && hex::encode(Sha256::digest(event.content.as_bytes())) == self.content_sha256.as_str()
     }
-}
-
-fn event_tags_match_request(
-    event: &nostr::Event,
-    request: &ManagedMessagePublishRequestV1,
-) -> bool {
-    let mut expected = vec![vec![
-        "h".to_owned(),
-        request.conversation_id.as_str().to_owned(),
-    ]];
-    match (&request.root_event_id, &request.reply_event_id) {
-        (None, None) => {}
-        (Some(root), Some(reply)) if root == reply => expected.push(vec![
-            "e".to_owned(),
-            root.as_str().to_owned(),
-            String::new(),
-            "reply".to_owned(),
-        ]),
-        (Some(root), Some(reply)) => {
-            expected.push(vec![
-                "e".to_owned(),
-                root.as_str().to_owned(),
-                String::new(),
-                "root".to_owned(),
-            ]);
-            expected.push(vec![
-                "e".to_owned(),
-                reply.as_str().to_owned(),
-                String::new(),
-                "reply".to_owned(),
-            ]);
-        }
-        _ => return false,
-    }
-    expected.extend(
-        request
-            .resolved_p_tags
-            .iter()
-            .map(|pubkey| vec!["p".to_owned(), pubkey.as_str().to_owned()]),
-    );
-    if request.response_surface == Some(luca_protocol::ManagedResponseSurfaceV1::Timeline) {
-        expected.push(vec!["broadcast".to_owned(), "1".to_owned()]);
-    }
-    event.tags.iter().map(|tag| tag.as_slice()).eq(expected)
 }
 
 /// Body-free state observable by the ACP-side typed client.
@@ -496,9 +468,10 @@ impl ManagedMessageOutbox {
             let request_sha256 = canonical_sha256(&entry.request)
                 .ok()
                 .and_then(|value| Hex64::parse(value).ok());
-            let event_matches_request = FrozenManagedMessageEvent::parse(
+            let event_matches_request = FrozenManagedMessageEvent::parse_with_tag_policy(
                 entry.event.signed_event_json.clone(),
                 &entry.request,
+                true,
             )
             .map(|event| {
                 event.event_id == entry.event.event_id

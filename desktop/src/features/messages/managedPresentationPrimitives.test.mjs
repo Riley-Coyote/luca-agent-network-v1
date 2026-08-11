@@ -7,6 +7,7 @@ import {
 } from "./managedPresentationGraphemes.ts";
 import { classifyManagedFinalReconciliation } from "./managedPresentationReconciliation.ts";
 import {
+  managedDispatchReceiptIdFromTags,
   validManagedPresentationChunk,
   validManagedPresentationFrame,
 } from "./managedPresentationProtocol.ts";
@@ -128,6 +129,36 @@ describe("managed presentation primitives", () => {
     assert.equal(
       validManagedPresentationChunk("x".repeat(16 * 1024 + 1)),
       false,
+    );
+  });
+
+  it("parses exactly one strict signed managed-dispatch receipt tag", () => {
+    assert.equal(
+      managedDispatchReceiptIdFromTags([
+        ["h", "conversation-1"],
+        ["luca-managed-dispatch", "receipt-1"],
+      ]),
+      "receipt-1",
+    );
+    assert.equal(managedDispatchReceiptIdFromTags([]), null);
+    assert.equal(
+      managedDispatchReceiptIdFromTags([
+        ["luca-managed-dispatch", "receipt-1", "unexpected"],
+      ]),
+      null,
+    );
+    assert.equal(
+      managedDispatchReceiptIdFromTags([
+        ["luca-managed-dispatch", "receipt-1"],
+        ["luca-managed-dispatch", "receipt-1"],
+      ]),
+      null,
+    );
+    assert.equal(
+      managedDispatchReceiptIdFromTags([
+        ["luca-managed-dispatch", "unsafe receipt"],
+      ]),
+      null,
     );
   });
 
