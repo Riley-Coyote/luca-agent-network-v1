@@ -3,6 +3,15 @@ import * as React from "react";
 
 import type { ManagedResponseSurface } from "@/features/messages/lib/managedAudience";
 import {
+  expireManagedPresentationActivity,
+  getNearestManagedPresentationActivityExpiry,
+  MANAGED_TERMINAL_ACTIVITY_MS,
+  removeManagedPresentationActivity,
+  resetManagedPresentationActivityStore,
+  upsertManagedPresentationActivity,
+  useManagedPresentationActivitySnapshot,
+} from "@/features/messages/managedPresentationActivityStore";
+import {
   managedPresentationDrainQuota,
   segmentManagedPresentationText,
 } from "@/features/messages/managedPresentationGraphemes";
@@ -21,32 +30,13 @@ import { ManagedPresentationScheduler } from "@/features/messages/managedPresent
 import {
   managedPresentationUiKey,
   type ManagedPresentationDisplayPhase,
-  type ManagedPresentationFailure,
+  type ManagedPresentationRow,
   type ManagedPresentationTurn,
   type ManagedResponseSlot,
   type RawManagedPresentationFrame,
 } from "@/features/messages/managedPresentationTypes";
 
-/** Compatibility projection retained until every caller uses scoped turns. */
-export type ManagedPresentationRow = {
-  anchorAt: number;
-  conversationId: string;
-  dispatchReceiptId: string;
-  failure: ManagedPresentationFailure | null;
-  finalMessageId: string | null;
-  phase:
-    | "thinking"
-    | "working"
-    | "writing"
-    | "finalizing"
-    | "cancelled"
-    | "failed";
-  publicText: string;
-  residentPubkey: string;
-  sequence: number;
-  sessionEpoch: number;
-  turnId: string;
-};
+export type { ManagedPresentationRow } from "@/features/messages/managedPresentationTypes";
 
 const turns = new Map<string, ManagedPresentationTurn>();
 const pendingGraphemes = new Map<string, string[]>();
@@ -135,6 +125,10 @@ function registerTurn(turn: ManagedPresentationTurn): void {
   ensureCapacity();
   turns.set(turn.uiKey, turn);
   creationOrdinals.set(turn.uiKey, creationCounter++);
+  upsertManagedPresentationActivity(
+    turn,
+    creationOrdinals.get(turn.uiKey) ?? 0,
+  );
   lookupToUiKey.set(
     lookupKey(turn.residentPubkey, turn.dispatchReceiptId),
     turn.uiKey,
@@ -250,8 +244,14 @@ function notifyLegacy(conversationId: string): void {
 function publishTurn(
   turn: ManagedPresentationTurn,
   topologyChanged = false,
+  terminalActivityUntil?: number,
 ): void {
   turns.set(turn.uiKey, turn);
+  upsertManagedPresentationActivity(
+    turn,
+    creationOrdinals.get(turn.uiKey) ?? 0,
+    terminalActivityUntil,
+  );
   notifyTurn(turn.uiKey);
   rebuildLegacySnapshot(turn.conversationId);
   notifyLegacy(turn.conversationId);
@@ -312,7 +312,7 @@ function flushPendingPresentationText(now: number): boolean {
 }
 
 function scheduleNearestDeadline(): void {
-  let nearest: number | null = null;
+  let nearest = getNearestManagedPresentationActivityExpiry();
   for (const turn of turns.values()) {
     if (turn.deadlineAt === null) continue;
     if (nearest === null || turn.deadlineAt < nearest)
@@ -325,6 +325,7 @@ function scheduleNearestDeadline(): void {
 }
 
 function processDeadlines(now = Date.now()): void {
+  expireManagedPresentationActivity(now);
   for (const current of turns.values()) {
     if (current.deadlineAt === null || current.deadlineAt > now) continue;
     const next = activateResponseSlot(
@@ -336,7 +337,11 @@ function processDeadlines(now = Date.now()): void {
       },
       now,
     );
-    publishTurn(next, current.slotOrdinal === null);
+    publishTurn(
+      next,
+      current.slotOrdinal === null,
+      now + MANAGED_TERMINAL_ACTIVITY_MS,
+    );
   }
   scheduleNearestDeadline();
 }
@@ -358,6 +363,7 @@ function removeTurn(uiKey: string): void {
   clearPending(uiKey);
   creationOrdinals.delete(uiKey);
   terminalUiKeys.delete(uiKey);
+  removeManagedPresentationActivity(uiKey, current.conversationId);
   for (const [key, value] of lookupToUiKey) {
     if (value === uiKey) lookupToUiKey.delete(key);
   }
@@ -504,7 +510,13 @@ export function ingestManagedPresentationFrame(frameValue: unknown): void {
       markTerminalFrame(frameLookupKey, next.uiKey);
       break;
   }
-  publishTurn(next, topologyChanged);
+  publishTurn(
+    next,
+    topologyChanged,
+    ["stopped", "failed"].includes(next.phase)
+      ? Date.now() + MANAGED_TERMINAL_ACTIVITY_MS
+      : undefined,
+  );
   scheduleNearestDeadline();
 }
 
@@ -582,6 +594,10 @@ function mergeReceiptRace(
     terminalDrainDeadlines.set(optimisticUiKey, authenticatedDrainDeadline);
   }
   creationOrdinals.delete(authenticatedUiKey);
+  removeManagedPresentationActivity(
+    authenticatedUiKey,
+    authenticated.conversationId,
+  );
   if (terminalUiKeys.delete(authenticatedUiKey)) {
     terminalUiKeys.add(optimisticUiKey);
   }
@@ -594,6 +610,13 @@ function mergeReceiptRace(
   );
   notifyTurn(authenticatedUiKey);
   notifyTurn(optimisticUiKey);
+  upsertManagedPresentationActivity(
+    merged,
+    creationOrdinals.get(optimisticUiKey) ?? 0,
+    ["stopped", "failed", "needs_attention"].includes(merged.phase)
+      ? Date.now() + MANAGED_TERMINAL_ACTIVITY_MS
+      : undefined,
+  );
   rebuildConversationTopology(merged.conversationId);
   rebuildLegacySnapshot(merged.conversationId);
   notifyLegacy(merged.conversationId);
@@ -625,6 +648,7 @@ export function replaceManagedPresentationReceipt(
     lookupToUiKey.set(nextKey, current.uiKey);
     publishTurn(next, current.slotOrdinal !== null);
   }
+  scheduleNearestDeadline();
 }
 
 function findTurnForFinal(
@@ -815,6 +839,9 @@ export function subscribeManagedPresentationTopology(
 export function useManagedPresentationTurnKeys(
   conversationId: string | null,
 ): readonly string[] {
+  React.useEffect(() => {
+    void ensureManagedPresentationListener();
+  }, []);
   const subscribe = React.useCallback(
     (listener: () => void) =>
       conversationId
@@ -835,6 +862,9 @@ export function useManagedPresentationTurnKeys(
 export function useManagedResponseSlots(
   conversationId: string | null,
 ): readonly ManagedResponseSlot[] {
+  React.useEffect(() => {
+    void ensureManagedPresentationListener();
+  }, []);
   const subscribe = React.useCallback(
     (listener: () => void) =>
       conversationId
@@ -865,6 +895,18 @@ export function useManagedPresentationTurn(
   );
   return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
+
+export function useManagedPresentationActivity(conversationId: string | null) {
+  React.useEffect(() => {
+    void ensureManagedPresentationListener();
+  }, []);
+  return useManagedPresentationActivitySnapshot(conversationId);
+}
+
+export {
+  getManagedPresentationActivitySnapshot,
+  subscribeManagedPresentationActivity,
+} from "@/features/messages/managedPresentationActivityStore";
 
 export function getManagedPresentationSnapshot(
   conversationId: string,
@@ -932,6 +974,7 @@ export function resetManagedPresentationStore(): void {
   completedLookupKeys.clear();
   terminalFrameLookupKeys.clear();
   nextSlotOrdinal.clear();
+  resetManagedPresentationActivityStore();
   turnKeySnapshots.clear();
   responseSlotSnapshots.clear();
   legacySnapshots.clear();

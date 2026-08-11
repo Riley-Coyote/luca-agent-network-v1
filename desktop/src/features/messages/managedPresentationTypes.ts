@@ -72,6 +72,40 @@ export type ManagedResponseSlot = {
   uiKey: string;
 };
 
+/** Stable activity-shelf projection; public response bodies are excluded. */
+export type ManagedResidentActivity = {
+  failure: ManagedPresentationFailure | null;
+  phase: ManagedPresentationDisplayPhase;
+  residentPubkey: string;
+  uiKey: string;
+};
+
+export type ManagedConversationActivity = ReadonlyMap<
+  string,
+  ManagedResidentActivity
+>;
+
+/** Compatibility projection retained until every caller uses scoped turns. */
+export type ManagedPresentationRow = {
+  anchorAt: number;
+  conversationId: string;
+  dispatchReceiptId: string;
+  failure: ManagedPresentationFailure | null;
+  finalMessageId: string | null;
+  phase:
+    | "thinking"
+    | "working"
+    | "writing"
+    | "finalizing"
+    | "cancelled"
+    | "failed";
+  publicText: string;
+  residentPubkey: string;
+  sequence: number;
+  sessionEpoch: number;
+  turnId: string;
+};
+
 export type RawManagedPresentationFrame = {
   protocol: "luca.managed.presentation.v1";
   kind: ManagedPresentationKind;

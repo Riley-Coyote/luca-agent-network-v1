@@ -6,6 +6,7 @@ import {
   completeManagedPresentationForConversation,
   expireManagedPresentationDeadlinesForTests,
   flushManagedPresentationSchedulerForTests,
+  getManagedPresentationActivitySnapshot,
   getManagedPresentationSchedulerStatsForTests,
   getManagedPresentationSnapshot,
   getManagedPresentationTurn,
@@ -19,6 +20,7 @@ import {
   seedManagedPresentations,
   subscribeManagedPresentationTopology,
   subscribeManagedPresentationTurn,
+  subscribeManagedPresentationActivity,
 } from "./managedPresentationStore.ts";
 
 const conversationId = "11111111-1111-4111-8111-111111111111";
@@ -357,5 +359,146 @@ describe("managedPresentationStore", () => {
       getManagedPresentationSnapshot(conversationId)[0].publicText,
       "Legacy",
     );
+  });
+
+  it("keeps activity snapshots stable across public-text paints", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    const initial = getManagedPresentationActivitySnapshot(conversationId);
+    let notifications = 0;
+    const dispose = subscribeManagedPresentationActivity(conversationId, () => {
+      notifications += 1;
+    });
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    assert.equal(notifications, 0);
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 2, { public_chunk: "Streaming body" }),
+    );
+    assert.equal(notifications, 1);
+    const writing = getManagedPresentationActivitySnapshot(conversationId);
+    assert.notEqual(writing, initial);
+    assert.equal(writing.get(residentPubkey).phase, "writing");
+
+    flushAll();
+    assert.equal(notifications, 1);
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId),
+      writing,
+    );
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 3, { public_chunk: " more" }),
+    );
+    flushAll();
+    assert.equal(notifications, 1);
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId),
+      writing,
+    );
+    dispose();
+  });
+
+  it("omits settled signed finals while retaining their response slots", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    const uiKey = getManagedPresentationTurnKeysSnapshot(conversationId)[0];
+    reconcileManagedPresentationFinal(
+      residentPubkey,
+      receiptId,
+      conversationId,
+      "signed-final",
+      "Signed body",
+    );
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).size,
+      0,
+    );
+    assert.equal(
+      getManagedPresentationTurn(uiKey).finalMessageId,
+      "signed-final",
+    );
+    assert.equal(
+      getManagedResponseSlotsSnapshot(conversationId)[0].uiKey,
+      uiKey,
+    );
+  });
+
+  it("shows terminal activity briefly without deleting retained partial text", () => {
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 2, { public_chunk: "Partial response" }),
+    );
+    flushManagedPresentationSchedulerForTests();
+    ingestManagedPresentationFrame(frame("cancelled", 3));
+    const stopped = turn();
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).get(residentPubkey)
+        .phase,
+      "stopped",
+    );
+
+    expireManagedPresentationDeadlinesForTests(stopped.lastFrameAt + 4_001);
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).size,
+      0,
+    );
+    assert.equal(getManagedPresentationTurn(stopped.uiKey).phase, "stopped");
+    assert.equal(getManagedPresentationTurn(stopped.uiKey).visibleText, "Pa");
+  });
+
+  it("briefly projects needs-attention state and then expires only the activity", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    const pending = turn();
+    expireManagedPresentationDeadlinesForTests(pending.deadlineAt);
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).get(residentPubkey)
+        .phase,
+      "needs_attention",
+    );
+    expireManagedPresentationDeadlinesForTests(pending.deadlineAt + 4_001);
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).size,
+      0,
+    );
+    assert.equal(turn().phase, "needs_attention");
+  });
+
+  it("aggregates concurrent turns to one resident and reveals the surviving turn", () => {
+    const firstReceipt = "optimistic:first";
+    const secondReceipt = "optimistic:second";
+    seedManagedPresentations(conversationId, firstReceipt, [residentPubkey]);
+    const firstUiKey =
+      getManagedPresentationTurnKeysSnapshot(conversationId)[0];
+    seedManagedPresentations(conversationId, secondReceipt, [residentPubkey]);
+    const secondUiKey =
+      getManagedPresentationTurnKeysSnapshot(conversationId)[1];
+    const activity = getManagedPresentationActivitySnapshot(conversationId);
+    assert.equal(activity.size, 1);
+    assert.equal(activity.get(residentPubkey).uiKey, secondUiKey);
+
+    reconcileManagedPresentationFinal(
+      residentPubkey,
+      secondReceipt,
+      conversationId,
+      "second-final",
+      "Done",
+    );
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).get(residentPubkey)
+        .uiKey,
+      firstUiKey,
+    );
+  });
+
+  it("clears and notifies activity subscribers during a community reset", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    let notifications = 0;
+    const dispose = subscribeManagedPresentationActivity(conversationId, () => {
+      notifications += 1;
+    });
+    resetManagedPresentationStore();
+    assert.equal(notifications, 1);
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).size,
+      0,
+    );
+    dispose();
   });
 });
