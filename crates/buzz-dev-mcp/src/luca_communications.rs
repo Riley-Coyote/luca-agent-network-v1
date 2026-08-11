@@ -31,6 +31,8 @@ const MAX_ARTIFACTS: usize = 16;
 const MAX_PAGE_ITEMS: usize = 256;
 const MAX_SAFE_U53: u64 = 9_007_199_254_740_991;
 const BROKER_DEADLINE: Duration = Duration::from_secs(130);
+const TURN_REGISTRATION_RETRY_DELAY: Duration = Duration::from_millis(75);
+const TURN_REGISTRATION_RETRIES: usize = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BrokerOperation {
@@ -142,12 +144,38 @@ impl CommunicationsBrokerClient {
         }
         bytes.push(b'\n');
 
-        let response = tokio::time::timeout(BROKER_DEADLINE, async {
+        let mut retry_count = 0;
+        let response = loop {
+            let response = self.exchange(&bytes).await?;
+            response.validate(operation, self)?;
+            if should_retry_turn_not_active(&response) && retry_count < TURN_REGISTRATION_RETRIES {
+                retry_count += 1;
+                tokio::time::sleep(TURN_REGISTRATION_RETRY_DELAY).await;
+                continue;
+            }
+            break response;
+        };
+
+        let receipt = serde_json::to_string(&response.receipt)
+            .map_err(|_| internal_error("communications receipt could not be encoded"))?;
+        let content = vec![
+            Content::text(response.content),
+            Content::text(format!("Communication receipt: {receipt}")),
+        ];
+        if response.ok {
+            Ok(CallToolResult::success(content))
+        } else {
+            Ok(CallToolResult::error(content))
+        }
+    }
+
+    async fn exchange(&self, bytes: &[u8]) -> Result<BrokerResponseV1, ErrorData> {
+        tokio::time::timeout(BROKER_DEADLINE, async {
             let mut stream = UnixStream::connect(&self.endpoint)
                 .await
                 .map_err(|_| internal_error("communications broker is unavailable"))?;
             stream
-                .write_all(&bytes)
+                .write_all(bytes)
                 .await
                 .map_err(|_| internal_error("communications broker request failed"))?;
             stream
@@ -167,20 +195,7 @@ impl CommunicationsBrokerClient {
                 .map_err(|_| internal_error("communications broker response is invalid"))
         })
         .await
-        .map_err(|_| internal_error("communications broker request timed out"))??;
-
-        response.validate(operation, self)?;
-        let receipt = serde_json::to_string(&response.receipt)
-            .map_err(|_| internal_error("communications receipt could not be encoded"))?;
-        let content = vec![
-            Content::text(response.content),
-            Content::text(format!("Communication receipt: {receipt}")),
-        ];
-        if response.ok {
-            Ok(CallToolResult::success(content))
-        } else {
-            Ok(CallToolResult::error(content))
-        }
+        .map_err(|_| internal_error("communications broker request timed out"))?
     }
 }
 
@@ -233,6 +248,10 @@ impl BrokerResponseV1 {
         }
         Ok(())
     }
+}
+
+fn should_retry_turn_not_active(response: &BrokerResponseV1) -> bool {
+    !response.ok && response.receipt.diagnostic_code.as_deref() == Some("turn_not_active")
 }
 
 /// Body-free proof that the trusted broker handled one exact request under
@@ -825,6 +844,32 @@ mod tests {
         assert!(response
             .validate(BrokerOperation::Send, &later_turn)
             .is_err());
+    }
+
+    #[test]
+    fn only_turn_not_active_gets_the_bounded_registration_retry() {
+        let mut response = BrokerResponseV1 {
+            protocol: BROKER_PROTOCOL.into(),
+            ok: false,
+            content: "not ready".into(),
+            receipt: BrokerReceiptV1 {
+                protocol: BROKER_RECEIPT_PROTOCOL.into(),
+                receipt_id: "receipt-1".into(),
+                operation: "send".into(),
+                capability_generation: 12,
+                source_conversation_id: "conversation-1".into(),
+                turn_id: "turn-1".into(),
+                dispatch_receipt_id: "dispatch-1".into(),
+                cancellation_epoch: 7,
+                diagnostic_code: Some("turn_not_active".into()),
+            },
+        };
+        assert!(should_retry_turn_not_active(&response));
+        response.receipt.diagnostic_code = Some("permission_denied".into());
+        assert!(!should_retry_turn_not_active(&response));
+        response.ok = true;
+        response.receipt.diagnostic_code = Some("turn_not_active".into());
+        assert!(!should_retry_turn_not_active(&response));
     }
 
     #[test]

@@ -414,6 +414,13 @@ pub struct CliArgs {
     #[arg(long, env = "BUZZ_ACP_REPOSITORY_MCP_CONFIG")]
     pub(crate) repository_mcp_config: Option<crate::repository_mcp::RepositoryMcpBootstrapV1>,
 
+    #[arg(long, env = "BUZZ_ACP_COMMUNICATIONS_MCP_COMMAND", default_value = "")]
+    pub(crate) communications_mcp_command: String,
+
+    #[arg(long, env = "BUZZ_ACP_COMMUNICATIONS_MCP_CONFIG")]
+    pub(crate) communications_mcp_config:
+        Option<crate::communications_mcp::CommunicationsMcpBootstrapV1>,
+
     /// Idle timeout: max seconds of silence before killing a turn.
     /// Resets on any agent stdout activity.
     #[arg(long, env = "BUZZ_ACP_IDLE_TIMEOUT")]
@@ -639,6 +646,7 @@ pub struct Config {
     pub agent_args: Vec<String>,
     pub mcp_command: String,
     pub(crate) repository_mcp: Option<crate::repository_mcp::RepositoryMcpConfig>,
+    pub(crate) communications_mcp: Option<crate::communications_mcp::CommunicationsMcpConfig>,
     pub idle_timeout_secs: u64,
     pub max_turn_duration_secs: u64,
     pub agents: u32,
@@ -1154,7 +1162,7 @@ impl Config {
             .map(Sha256Ref::parse)
             .transpose()
             .map_err(|_| ConfigError::ConfigFile("invalid managed runtime binding".into()))?;
-        let managed_repository_identity = match (&identity, managed_binding_ref.as_ref()) {
+        let managed_mcp_identity = match (&identity, managed_binding_ref.as_ref()) {
             (
                 IdentityConfig::Managed {
                     resident_pubkey,
@@ -1168,7 +1176,13 @@ impl Config {
         let repository_mcp = crate::repository_mcp::RepositoryMcpConfig::new(
             args.repository_mcp_command,
             args.repository_mcp_config,
-            managed_repository_identity,
+            managed_mcp_identity,
+        )
+        .map_err(ConfigError::ConfigFile)?;
+        let communications_mcp = crate::communications_mcp::CommunicationsMcpConfig::new(
+            args.communications_mcp_command,
+            args.communications_mcp_config,
+            managed_mcp_identity,
         )
         .map_err(ConfigError::ConfigFile)?;
         let config = Config {
@@ -1178,6 +1192,7 @@ impl Config {
             agent_args,
             mcp_command: args.mcp_command,
             repository_mcp,
+            communications_mcp,
             idle_timeout_secs,
             max_turn_duration_secs,
             agents: args.agents,
@@ -1595,6 +1610,7 @@ mod tests {
             agent_args: vec!["acp".into()],
             mcp_command: "".into(),
             repository_mcp: None,
+            communications_mcp: None,
             idle_timeout_secs: DEFAULT_IDLE_TIMEOUT_SECS,
             max_turn_duration_secs: DEFAULT_MAX_TURN_DURATION_SECS,
             agents: 1,
