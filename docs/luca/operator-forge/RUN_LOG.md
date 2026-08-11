@@ -32,3 +32,24 @@ Date: 2026-08-10
 ## Native boundary
 
 Automated tests used mocks or temporary/disposable filesystem fixtures and did not modify real Hermes/OpenClaw state. The installed signed native mutation and no-write matrix remains explicitly pending; see `ACCEPTANCE.md`.
+
+## 2026-08-10 — Conversation reliability closure
+
+- Froze strict managed-audience and response-surface contracts.
+- Separated relay delivery recipients from the validated resident activation
+  snapshot retained by each durable dispatch.
+- Made causal managed finals ordinary linear turns while preserving explicit
+  Buzz threads as a separate surface.
+- Added process-memory-only provisional working phases and public response
+  streaming with final-event replacement, cancellation, and community reset.
+- Removed repeated parent quotes, synthetic linear reply summaries, persistent
+  handoff banners, exact known runtime notices, and internal owner cancellation
+  controls from the transcript.
+- Corrected the late explicit-thread room leak before promotion.
+- Exact product checkpoint: `4df383309b750311d796be9bee72f3969231e001`.
+- Installed direct, group, directed, mention-subset, thread, per-resident stop,
+  conversation stop, and relaunch acceptance: pass.
+- Focused Playwright 4/4, renderer units 3,457, production build, protocol
+  vectors, strict Clippy, and formal `just ci`: pass.
+- Detailed evidence: `CONVERSATION_ACCEPTANCE.md` and
+  `CONVERSATION_VERDICT.md`.
