@@ -241,6 +241,29 @@ test("@ trigger prioritizes channel members before runnable personas and other m
   expect(fizzIndex).toBeLessThan(charlieIndex);
 });
 
+test("mention selector remains above the composer activity shelf", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByTestId("channel-general").click();
+  await page.getByTestId("message-input").fill("@");
+
+  const dropdown = autocomplete(page);
+  await expect(dropdown).toBeVisible();
+  await expect
+    .poll(async () => {
+      return dropdown.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const lowerRowTarget = document.elementFromPoint(
+          rect.left + rect.width / 2,
+          rect.bottom - 8,
+        );
+        return element.contains(lowerRowTarget);
+      });
+    })
+    .toBe(true);
+});
+
 test("thread autocomplete keeps multiple long names readable in a narrow panel", async ({
   page,
 }) => {

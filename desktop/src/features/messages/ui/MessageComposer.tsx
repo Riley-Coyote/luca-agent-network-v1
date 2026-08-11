@@ -967,7 +967,7 @@ function MessageComposerImpl({
     <>
       <footer
         className={cn(
-          "relative z-10 shrink-0 bg-transparent px-0 pb-3 pt-0",
+          "relative z-20 shrink-0 bg-transparent px-0 pb-3 pt-0",
           showTopBorder ? "border-t border-border/40 pt-3" : "",
           containerClassName,
         )}
