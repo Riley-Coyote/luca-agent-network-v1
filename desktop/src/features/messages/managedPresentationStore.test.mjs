@@ -15,6 +15,7 @@ import {
   ingestManagedPresentationFrame,
   reconcileManagedPresentationFinal,
   releaseManagedPresentationFinals,
+  removeManagedPresentationByFinalMessageId,
   replaceManagedPresentationReceipt,
   resetManagedPresentationStore,
   seedManagedPresentations,
@@ -511,6 +512,25 @@ describe("managedPresentationStore", () => {
     assert.equal(
       getManagedResponseSlotsSnapshot(conversationId)[0].uiKey,
       uiKey,
+    );
+  });
+
+  it("removes a retained response slot when its signed event is deleted", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    reconcileManagedPresentationFinal(
+      residentPubkey,
+      receiptId,
+      conversationId,
+      "signed-final",
+      "Signed body",
+    );
+
+    removeManagedPresentationByFinalMessageId("SIGNED-FINAL");
+
+    assert.deepEqual(getManagedResponseSlotsSnapshot(conversationId), []);
+    assert.deepEqual(
+      getManagedPresentationTurnKeysSnapshot(conversationId),
+      [],
     );
   });
 

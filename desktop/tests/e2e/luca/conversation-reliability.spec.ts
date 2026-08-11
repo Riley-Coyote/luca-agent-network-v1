@@ -399,9 +399,10 @@ test("ordinary Reply is directed while Reply in thread remains explicit", async 
     await newMessageAffordance.click();
   }
   await expect(page.getByText("A real thread response.")).toBeVisible();
-  await page
-    .getByRole("button", { name: "Show all messages" })
-    .click({ force: true });
+  // The focused-thread bar is a mode and Escape is its required keyboard exit.
+  // This avoids coupling the routing assertion to the virtualizer's transient
+  // pointer geometry after it follows a newly streamed thread response.
+  await page.keyboard.press("Escape");
   await expect(page.getByTestId("focused-thread-bar")).toHaveCount(0);
   await expect(page).not.toHaveURL(/thread=/);
   await expect(page.getByText("A real thread response.")).toHaveCount(0);

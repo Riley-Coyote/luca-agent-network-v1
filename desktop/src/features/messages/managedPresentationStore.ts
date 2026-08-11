@@ -785,6 +785,17 @@ export function removeManagedPresentationsByReceipt(receiptId: string): void {
   for (const uiKey of uiKeys) removeTurn(uiKey);
 }
 
+/** Removes a retained response slot when its durable signed event is deleted. */
+export function removeManagedPresentationByFinalMessageId(
+  finalMessageId: string,
+): void {
+  const normalizedId = finalMessageId.toLowerCase();
+  const uiKeys = [...turns.values()]
+    .filter((turn) => turn.finalMessageId?.toLowerCase() === normalizedId)
+    .map((turn) => turn.uiKey);
+  for (const uiKey of uiKeys) removeTurn(uiKey);
+}
+
 export function getManagedPresentationTurn(
   uiKey: string,
 ): ManagedPresentationTurn | null {

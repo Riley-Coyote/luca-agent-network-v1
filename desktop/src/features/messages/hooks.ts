@@ -35,6 +35,7 @@ import {
 } from "@/features/messages/lib/managedAudience";
 import {
   completeManagedPresentationForConversation,
+  removeManagedPresentationByFinalMessageId,
   removeManagedPresentationsByReceipt,
   replaceManagedPresentationReceipt,
   seedManagedPresentations,
@@ -76,6 +77,8 @@ import {
   CHANNEL_AUX_EVENT_KINDS,
   CHANNEL_TIMELINE_CONTENT_KINDS,
   KIND_CHANNEL_THREAD_SUMMARY,
+  KIND_DELETION,
+  KIND_NIP29_DELETE_EVENT,
   KIND_STREAM_MESSAGE,
   KIND_SYSTEM_MESSAGE,
 } from "@/shared/constants/kinds";
@@ -279,6 +282,16 @@ export function useChannelSubscription(channel: Channel | null) {
 
   const appendMessage = useEffectEvent((event: RelayEvent) => {
     if (!channelId) return;
+    if (
+      event.kind === KIND_DELETION ||
+      event.kind === KIND_NIP29_DELETE_EVENT
+    ) {
+      for (const tag of event.tags) {
+        if (tag[0] === "e" && typeof tag[1] === "string") {
+          removeManagedPresentationByFinalMessageId(tag[1]);
+        }
+      }
+    }
     if (event.kind === KIND_CHANNEL_THREAD_SUMMARY) {
       // Relay-pushed live badge recount — window-store overlay only, never a
       // timeline row (mirrors the page path, where 39005 is metadata).
