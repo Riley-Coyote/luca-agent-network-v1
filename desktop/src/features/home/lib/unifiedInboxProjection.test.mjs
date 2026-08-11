@@ -12,6 +12,7 @@ import {
   canonicalInboxEventIdentity,
   isInboxCandidateVisibleToViewer,
   isInboxQuietHoursActive,
+  mergeOwnerNativeInboxIntoHomeFeed,
   resolveInboxNotificationEligibility,
   UNIFIED_INBOX_FILTERS,
 } from "./unifiedInboxProjection.ts";
@@ -234,4 +235,129 @@ test("generic category-free activity is excluded from every Inbox surface", () =
   });
   assert.equal(view.items.length, 0);
   assert.equal(view.counts.all.total, 0);
+});
+
+function legacyFeedItem(id, category, overrides = {}) {
+  return {
+    id,
+    kind: 9,
+    pubkey: "a".repeat(64),
+    content: `legacy ${id}`,
+    createdAt: 10,
+    channelId: "room-1",
+    channelName: "Room one",
+    tags: [["h", "room-1"]],
+    category,
+    ...overrides,
+  };
+}
+
+function nativePresentationItem(id, categories, overrides = {}) {
+  return {
+    sourceEventId: id,
+    kind: 9,
+    authorPubkey: "b".repeat(64),
+    content: `native ${id}`,
+    createdAt: 20,
+    channelId: "dm-1",
+    channelName: "Direct one",
+    channelType: "direct",
+    structuralTags: [["h", "dm-1"]],
+    categories,
+    ...overrides,
+  };
+}
+
+function legacyHomeFeed() {
+  return {
+    feed: {
+      mentions: [legacyFeedItem("mention-1", "mention")],
+      needsAction: [legacyFeedItem("action-1", "needs_action")],
+      activity: [legacyFeedItem("activity-1", "activity")],
+      agentActivity: [legacyFeedItem("agent-1", "agent_activity")],
+    },
+    meta: { since: 0, total: 4, generatedAt: 10 },
+  };
+}
+
+test("native Inbox projection augments Direct and Agent views without replacing legacy authority", () => {
+  const merged = mergeOwnerNativeInboxIntoHomeFeed({
+    legacy: legacyHomeFeed(),
+    native: {
+      presentationItems: [
+        nativePresentationItem("human-dm", ["direct"]),
+        nativePresentationItem("agent-dm", ["direct", "agents"]),
+        nativePresentationItem("agent-room", ["agents"], {
+          channelId: "room-2",
+          channelName: "Room two",
+          channelType: "room",
+        }),
+      ],
+      sources: [],
+    },
+  });
+
+  assert.deepEqual(
+    merged.feed.mentions.map((item) => item.id),
+    ["mention-1"],
+  );
+  assert.deepEqual(
+    merged.feed.needsAction.map((item) => item.id),
+    ["action-1"],
+  );
+  assert.equal(
+    merged.feed.activity.find((item) => item.id === "human-dm")?.channelType,
+    "dm",
+  );
+  assert.ok(merged.feed.activity.some((item) => item.id === "agent-dm"));
+  assert.ok(merged.feed.agentActivity.some((item) => item.id === "agent-dm"));
+  assert.equal(
+    merged.feed.agentActivity.find((item) => item.id === "agent-room")
+      ?.channelType,
+    undefined,
+  );
+});
+
+test("native source failure stays empty and thread activity remains passive", () => {
+  const merged = mergeOwnerNativeInboxIntoHomeFeed({
+    legacy: legacyHomeFeed(),
+    native: {
+      presentationItems: [],
+      sources: [
+        {
+          source: "direct_messages",
+          availability: "unavailable",
+          diagnosticCode: "membership_unavailable",
+        },
+      ],
+    },
+    threadActivity: [legacyFeedItem("thread-1", "activity")],
+  });
+
+  assert.deepEqual(
+    merged.feed.activity.map((item) => item.id),
+    ["thread-1", "activity-1"],
+  );
+  assert.equal(merged.feed.agentActivity.length, 1);
+});
+
+test("stricter native representation replaces an overlapping legacy event once", () => {
+  const legacy = legacyHomeFeed();
+  legacy.feed.activity.push(
+    legacyFeedItem("same-event", "activity", {
+      content: "less constrained legacy copy",
+    }),
+  );
+  const merged = mergeOwnerNativeInboxIntoHomeFeed({
+    legacy,
+    native: {
+      presentationItems: [nativePresentationItem("same-event", ["direct"])],
+      sources: [],
+    },
+  });
+  const overlap = merged.feed.activity.filter(
+    (item) => item.id === "same-event",
+  );
+  assert.equal(overlap.length, 1);
+  assert.equal(overlap[0].content, "native same-event");
 });

@@ -1,11 +1,9 @@
 //! Deterministic native Inbox projection boundary.
-//!
-//! This module deliberately accepts only already-authorized semantic native
-//! feed inputs. It does not query the relay, decrypt direct messages, infer
-//! resident custody, mutate read state, activate an agent, or publish an event.
-//! Those authority-bearing steps remain with their existing native owners.
-//! Registration must therefore pair this helper with a command that constructs
-//! `NativeInboxProjectionRequestV1` exclusively from trusted desktop state.
+//! The pure projection below accepts only already-authorized semantic native
+//! feed inputs. The command adapter at the bottom of this file constructs those
+//! inputs from exact owner membership snapshots, channel metadata, the private
+//! hidden-DM snapshot, and Luca's local managed-agent registry. It never mutates
+//! read state, activates an agent, or publishes an event.
 
 use luca_protocol::{
     canonical_sha256, CanonicalTimestamp, CommunicationContractError, Hex64, InboxCategoryV1,
@@ -14,9 +12,16 @@ use luca_protocol::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use tauri::{AppHandle, State};
+
+use crate::{
+    app_state::AppState, managed_agents::load_managed_agents, nostr_convert, relay::query_relay,
+};
 
 /// Largest authorized native candidate set accepted by one projection pass.
 pub(crate) const MAX_NATIVE_INBOX_FEED_ITEMS: usize = 4_096;
+const MAX_NATIVE_INBOX_CHANNELS: usize = 256;
+const DEFAULT_NATIVE_INBOX_LIMIT: usize = 100;
 
 /// Whether an authorized event belongs to a direct conversation or a room.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -384,250 +389,611 @@ pub(crate) fn project_native_inbox(
     Ok(projection)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
+#[path = "luca_inbox_types.rs"]
+mod types;
+use types::*;
 
-    fn hex(digit: char) -> Hex64 {
-        Hex64::parse(digit.to_string().repeat(64)).expect("fixture pubkey")
-    }
+#[derive(Clone)]
+struct AuthorizedConversationV1 {
+    channel_id: String,
+    channel_name: String,
+    conversation_kind: NativeInboxConversationKindV1,
+    recipient_pubkeys: Vec<Hex64>,
+}
 
-    fn id(value: &str) -> OpaqueId {
-        OpaqueId::parse(value).expect("fixture ID")
-    }
+fn first_tag_value<'a>(event: &'a nostr::Event, name: &str) -> Option<&'a str> {
+    event.tags.iter().find_map(|tag| {
+        let values = tag.as_slice();
+        (values.len() >= 2 && values[0] == name).then(|| values[1].as_str())
+    })
+}
 
-    fn time(value: &str) -> CanonicalTimestamp {
-        CanonicalTimestamp::parse(value).expect("fixture timestamp")
-    }
+fn valid_pubkey_tags(event: &nostr::Event, name: &str) -> Vec<Hex64> {
+    let mut values: Vec<Hex64> = event
+        .tags
+        .iter()
+        .filter_map(|tag| {
+            let values = tag.as_slice();
+            (values.len() >= 2 && values[0] == name)
+                .then(|| Hex64::parse(values[1].to_ascii_lowercase()).ok())
+                .flatten()
+        })
+        .collect();
+    values.sort();
+    values.dedup();
+    values
+}
 
-    fn scope(resident: bool) -> NativeInboxScopeV1 {
-        NativeInboxScopeV1 {
-            owner_pubkey: hex('1'),
-            viewer_pubkey: if resident { hex('2') } else { hex('1') },
-            resident_pubkey: resident.then(|| hex('2')),
+fn newest_event_by_d(events: Vec<nostr::Event>) -> BTreeMap<String, nostr::Event> {
+    let mut current = BTreeMap::<String, nostr::Event>::new();
+    for event in events {
+        let Some(d_tag) = first_tag_value(&event, "d").map(str::to_owned) else {
+            continue;
+        };
+        let replace = current.get(&d_tag).is_none_or(|existing| {
+            (event.created_at.as_secs(), event.id.to_hex())
+                > (existing.created_at.as_secs(), existing.id.to_hex())
+        });
+        if replace {
+            current.insert(d_tag, event);
         }
     }
+    current
+}
 
-    fn event_item(event_digit: char, resident_viewer: bool) -> AuthorizedNativeInboxFeedItemV1 {
-        let scope = scope(resident_viewer);
-        AuthorizedNativeInboxFeedItemV1 {
-            source_kind: NativeInboxSourceKindV1::Message,
-            conversation_kind: NativeInboxConversationKindV1::Direct,
-            conversation_id: id("conversation-1"),
-            author_pubkey: hex('3'),
-            author_resident_pubkey: Some(hex('3')),
-            recipient_pubkeys: if resident_viewer {
-                vec![hex('1'), hex('2')]
-            } else {
-                vec![hex('1'), hex('3')]
-            },
-            mention_pubkeys: vec![scope.viewer_pubkey],
-            source_event_id: Some(hex(event_digit)),
-            local_state_id: None,
-            thread_root_event_id: None,
-            target_event_id: Some(hex(event_digit)),
-            preview: Some("private preview".to_owned()),
-            occurred_at: time("2026-08-11T12:00:00Z"),
-            unread: true,
-            acknowledged: false,
-            handled: false,
-            muted: false,
-            requires_action: false,
+fn hidden_channel_ids(events: &[nostr::Event]) -> BTreeSet<String> {
+    events
+        .iter()
+        .max_by_key(|event| (event.created_at.as_secs(), event.id.to_hex()))
+        .into_iter()
+        .flat_map(|event| event.tags.iter())
+        .filter_map(|tag| {
+            let values = tag.as_slice();
+            (values.len() >= 2 && values[0] == "h").then(|| values[1].clone())
+        })
+        .collect()
+}
+
+fn structural_tags(event: &nostr::Event) -> Vec<Vec<String>> {
+    event
+        .tags
+        .iter()
+        .filter_map(|tag| {
+            let values = tag.as_slice();
+            matches!(
+                values.first().map(String::as_str),
+                Some("h" | "e" | "p" | "broadcast")
+            )
+            .then(|| values.to_vec())
+        })
+        .collect()
+}
+
+fn thread_reference(event: &nostr::Event) -> (Option<Hex64>, Option<Hex64>) {
+    let mut root = None;
+    let mut reply = None;
+    for tag in &event.tags {
+        let values = tag.as_slice();
+        if values.len() < 2 || values[0] != "e" {
+            continue;
+        }
+        let Ok(event_id) = Hex64::parse(values[1].to_ascii_lowercase()) else {
+            continue;
+        };
+        match values.get(3).map(String::as_str) {
+            Some("root") => root = Some(event_id),
+            Some("reply") => reply = Some(event_id),
+            _ => {}
         }
     }
+    let target = reply.clone();
+    (root.or(reply), target)
+}
 
-    fn request(
-        resident_viewer: bool,
-        category: InboxCategoryV1,
-        feed: Vec<AuthorizedNativeInboxFeedItemV1>,
-    ) -> NativeInboxProjectionRequestV1 {
-        NativeInboxProjectionRequestV1 {
-            scope: scope(resident_viewer),
-            category,
-            generated_at: time("2026-08-11T12:01:00Z"),
-            cursor: None,
-            limit: 50,
-            feed,
-        }
+fn authorized_message_candidate(
+    event: &nostr::Event,
+    owner: &Hex64,
+    conversation: &AuthorizedConversationV1,
+    managed_agent_pubkeys: &BTreeSet<Hex64>,
+) -> Result<
+    Option<(
+        AuthorizedNativeInboxFeedItemV1,
+        OwnerNativeInboxPresentationItemV1,
+    )>,
+    NativeInboxProjectionError,
+> {
+    let kind = u32::from(event.kind.as_u16());
+    if kind != 9 && kind != 40_002 {
+        return Ok(None);
+    }
+    // DMs are membership-restricted kind-9 events. A broader timeline kind
+    // must never enter Direct even when it carries the same channel tag.
+    if conversation.conversation_kind == NativeInboxConversationKindV1::Direct && kind != 9 {
+        return Ok(None);
+    }
+    if first_tag_value(event, "h") != Some(conversation.channel_id.as_str()) {
+        return Ok(None);
     }
 
-    #[test]
-    fn overlapping_categories_produce_one_all_item() {
-        let projection = project_native_inbox(request(
-            false,
-            InboxCategoryV1::All,
-            vec![event_item('a', false)],
-        ))
-        .expect("projection");
-        assert_eq!(projection.items.len(), 1);
-        assert_eq!(
-            projection.items[0].categories,
-            vec![
-                InboxCategoryV1::All,
-                InboxCategoryV1::Direct,
-                InboxCategoryV1::Mentions,
-                InboxCategoryV1::Agents,
-            ]
-        );
+    let author_pubkey = Hex64::parse(event.pubkey.to_hex())?;
+    // Inbox is an inbound projection. Owner-authored messages remain in the
+    // canonical conversation, but must not be presented as new mail to self.
+    if &author_pubkey == owner {
+        return Ok(None);
+    }
+    let author_is_managed = managed_agent_pubkeys.contains(&author_pubkey);
+    if conversation.conversation_kind == NativeInboxConversationKindV1::Room && !author_is_managed {
+        return Ok(None);
     }
 
-    #[test]
-    fn exact_duplicate_dedupes_but_conflicting_duplicate_fails() {
-        let first = event_item('a', false);
-        let exact = first.clone();
-        let projection = project_native_inbox(request(
-            false,
-            InboxCategoryV1::All,
-            vec![first.clone(), exact],
-        ))
-        .expect("deduped projection");
-        assert_eq!(projection.items.len(), 1);
+    let mention_pubkeys: Vec<Hex64> = valid_pubkey_tags(event, "p")
+        .into_iter()
+        .filter(|pubkey| conversation.recipient_pubkeys.binary_search(pubkey).is_ok())
+        .collect();
+    let source_event_id = Hex64::parse(event.id.to_hex())?;
+    let channel_id = OpaqueId::parse(conversation.channel_id.clone())?;
+    let (thread_root_event_id, target_event_id) = thread_reference(event);
+    let source = AuthorizedNativeInboxFeedItemV1 {
+        source_kind: NativeInboxSourceKindV1::Message,
+        conversation_kind: conversation.conversation_kind,
+        conversation_id: channel_id.clone(),
+        author_pubkey: author_pubkey.clone(),
+        author_resident_pubkey: author_is_managed.then(|| author_pubkey.clone()),
+        recipient_pubkeys: conversation.recipient_pubkeys.clone(),
+        mention_pubkeys,
+        source_event_id: Some(source_event_id.clone()),
+        local_state_id: None,
+        thread_root_event_id,
+        target_event_id: target_event_id.or_else(|| Some(source_event_id.clone())),
+        preview: Some(event.content.clone()),
+        occurred_at: CanonicalTimestamp::parse(nostr_convert::timestamp_to_iso(
+            event.created_at.as_secs(),
+        ))?,
+        // Read authority remains in the existing frontend NIP-RS/local-state
+        // resolver. The adapter makes no unread or acknowledgement claim.
+        unread: false,
+        acknowledged: false,
+        handled: false,
+        muted: false,
+        requires_action: false,
+    };
 
-        let mut conflict = first.clone();
-        conflict.preview = Some("different private preview".to_owned());
-        assert!(matches!(
-            project_native_inbox(request(false, InboxCategoryV1::All, vec![first, conflict])),
-            Err(NativeInboxProjectionError::ConflictingDuplicate)
-        ));
+    let mut categories = Vec::new();
+    if conversation.conversation_kind == NativeInboxConversationKindV1::Direct {
+        categories.push(InboxCategoryV1::Direct);
     }
-
-    #[test]
-    fn resident_scope_cannot_receive_another_viewers_item() {
-        let mut item = event_item('a', true);
-        item.recipient_pubkeys = vec![hex('1'), hex('3')];
-        assert!(matches!(
-            project_native_inbox(request(true, InboxCategoryV1::All, vec![item])),
-            Err(NativeInboxProjectionError::InvalidFeedItem)
-        ));
-
-        let mut invalid_scope = request(true, InboxCategoryV1::All, Vec::new());
-        invalid_scope.scope.viewer_pubkey = hex('3');
-        assert!(matches!(
-            project_native_inbox(invalid_scope),
-            Err(NativeInboxProjectionError::InvalidScope)
-        ));
+    if author_is_managed {
+        categories.push(InboxCategoryV1::Agents);
     }
+    let presentation = OwnerNativeInboxPresentationItemV1 {
+        source_event_id,
+        kind,
+        author_pubkey,
+        content: event.content.clone(),
+        created_at: event.created_at.as_secs(),
+        channel_id,
+        channel_name: conversation.channel_name.clone(),
+        channel_type: conversation.conversation_kind,
+        structural_tags: structural_tags(event),
+        categories,
+    };
+    debug_assert!(conversation.recipient_pubkeys.binary_search(owner).is_ok());
+    Ok(Some((source, presentation)))
+}
 
-    #[test]
-    fn category_filter_and_structural_deep_link_are_preserved() {
-        let mut thread = event_item('a', false);
-        thread.conversation_kind = NativeInboxConversationKindV1::Room;
-        thread.mention_pubkeys.clear();
-        thread.thread_root_event_id = Some(hex('b'));
-        let projection =
-            project_native_inbox(request(false, InboxCategoryV1::Threads, vec![thread]))
-                .expect("thread projection");
-        assert_eq!(projection.items.len(), 1);
-        assert_eq!(projection.items[0].conversation_id, id("conversation-1"));
-        assert_eq!(projection.items[0].thread_root_event_id, Some(hex('b')));
-        assert_eq!(projection.items[0].target_event_id, Some(hex('a')));
-    }
+fn empty_owner_projection(
+    owner_pubkey: Hex64,
+    generated_at: CanonicalTimestamp,
+) -> Result<InboxProjectionV1, NativeInboxProjectionError> {
+    project_native_inbox(NativeInboxProjectionRequestV1 {
+        scope: NativeInboxScopeV1 {
+            owner_pubkey: owner_pubkey.clone(),
+            viewer_pubkey: owner_pubkey,
+            resident_pubkey: None,
+        },
+        category: InboxCategoryV1::All,
+        generated_at,
+        cursor: None,
+        limit: 1,
+        feed: Vec::new(),
+    })
+}
 
-    #[test]
-    fn local_and_action_sources_map_to_exact_passive_categories() {
-        let mut permission = event_item('a', false);
-        permission.source_kind = NativeInboxSourceKindV1::PermissionRequest;
-        permission.mention_pubkeys.clear();
-
-        let mut reminder = event_item('b', false);
-        reminder.source_kind = NativeInboxSourceKindV1::Reminder;
-        reminder.mention_pubkeys.clear();
-
-        let mut draft = event_item('c', false);
-        draft.source_kind = NativeInboxSourceKindV1::Draft;
-        draft.source_event_id = None;
-        draft.local_state_id = Some(id("draft-1"));
-        draft.target_event_id = None;
-        draft.mention_pubkeys.clear();
-
-        for (category, expected_kind, source) in [
-            (
-                InboxCategoryV1::NeedsAction,
-                InboxItemKindV1::PermissionRequest,
-                permission,
-            ),
-            (
-                InboxCategoryV1::Reminders,
-                InboxItemKindV1::Reminder,
-                reminder,
-            ),
-            (InboxCategoryV1::Drafts, InboxItemKindV1::Draft, draft),
-        ] {
-            let projection =
-                project_native_inbox(request(false, category, vec![source])).expect("projection");
-            assert_eq!(projection.items.len(), 1);
-            assert_eq!(projection.items[0].kind, expected_kind);
-            assert!(projection.items[0].categories.contains(&category));
-        }
-    }
-
-    #[test]
-    fn pagination_cursor_is_deterministic_and_body_free() {
-        let mut first_page_request = request(
-            false,
-            InboxCategoryV1::All,
-            vec![
-                event_item('a', false),
-                event_item('b', false),
-                event_item('c', false),
-            ],
-        );
-        first_page_request.limit = 2;
-        let first = project_native_inbox(first_page_request.clone()).expect("first page");
-        assert!(first.has_more);
-        let cursor = first.next_cursor.clone().expect("next cursor");
-
-        first_page_request.cursor = Some(cursor);
-        let second = project_native_inbox(first_page_request).expect("second page");
-        assert_eq!(second.items.len(), 1);
-        assert!(!second.has_more);
-        assert!(second.next_cursor.is_none());
-        let debug = format!("{second:?}");
-        assert!(!debug.contains("private preview"));
-    }
-
-    #[test]
-    fn passive_projection_ignores_unaddressed_room_chatter() {
-        let mut chatter = event_item('a', false);
-        chatter.conversation_kind = NativeInboxConversationKindV1::Room;
-        chatter.mention_pubkeys.clear();
-        chatter.author_resident_pubkey = None;
-        let projection = project_native_inbox(request(false, InboxCategoryV1::All, vec![chatter]))
-            .expect("empty passive projection");
-        assert!(projection.items.is_empty());
-    }
-
-    #[test]
-    fn strict_input_rejects_paths_raw_events_and_unbounded_fields() {
-        let item = event_item('a', false);
-        for forbidden in ["path", "raw_event", "activation_request", "diagnostic_body"] {
-            let mut value = serde_json::to_value(&item).expect("serialize source");
-            value[forbidden] = json!("forbidden");
-            assert!(serde_json::from_value::<AuthorizedNativeInboxFeedItemV1>(value).is_err());
-        }
-    }
-
-    #[test]
-    fn invalid_limit_cursor_and_feed_bound_fail_closed() {
-        let mut zero = request(false, InboxCategoryV1::All, Vec::new());
-        zero.limit = 0;
-        assert!(matches!(
-            project_native_inbox(zero),
-            Err(NativeInboxProjectionError::InvalidLimit)
-        ));
-
-        let mut cursor = request(false, InboxCategoryV1::All, vec![event_item('a', false)]);
-        cursor.cursor = Some(id("not-present"));
-        assert!(matches!(
-            project_native_inbox(cursor),
-            Err(NativeInboxProjectionError::CursorNotFound)
-        ));
-
-        let too_many = vec![event_item('a', false); MAX_NATIVE_INBOX_FEED_ITEMS + 1];
-        assert!(matches!(
-            project_native_inbox(request(false, InboxCategoryV1::All, too_many)),
-            Err(NativeInboxProjectionError::FeedTooLarge)
-        ));
+fn source_report(
+    source: OwnerInboxSourceV1,
+    availability: OwnerInboxSourceAvailabilityV1,
+    diagnostic_code: Option<&str>,
+) -> OwnerInboxSourceReportV1 {
+    OwnerInboxSourceReportV1 {
+        source,
+        availability,
+        diagnostic_code: diagnostic_code.map(str::to_owned),
     }
 }
+
+/// Return a passive owner Inbox projection from authoritative native data.
+///
+/// Failure in one optional source is represented in `sources`; it does not
+/// fabricate items or make the remaining authorized source unavailable.
+#[tauri::command]
+pub async fn get_luca_owner_inbox(
+    since: Option<i64>,
+    limit: Option<u16>,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<OwnerNativeInboxResponseV1, String> {
+    let owner_pubkey = Hex64::parse(state.signing_keys()?.public_key().to_hex())
+        .map_err(|_| "owner Inbox identity is invalid".to_string())?;
+    let generated_at = CanonicalTimestamp::parse(nostr_convert::timestamp_to_iso(
+        chrono::Utc::now().timestamp().max(0) as u64,
+    ))
+    .map_err(|_| "owner Inbox timestamp is invalid".to_string())?;
+    let requested_limit =
+        usize::from(limit.unwrap_or(DEFAULT_NATIVE_INBOX_LIMIT as u16)).clamp(1, MAX_INBOX_ITEMS);
+
+    let mut sources = vec![source_report(
+        OwnerInboxSourceV1::ReadState,
+        OwnerInboxSourceAvailabilityV1::Ready,
+        Some("frontend_read_state_authority"),
+    )];
+
+    let membership_seed = match query_relay(
+        &state,
+        &[serde_json::json!({
+            "kinds": [39002],
+            "#p": [owner_pubkey.as_str()],
+            "limit": MAX_NATIVE_INBOX_CHANNELS + 1,
+        })],
+    )
+    .await
+    {
+        Ok(events) => events,
+        Err(_) => {
+            sources.extend([
+                source_report(
+                    OwnerInboxSourceV1::ConversationMembership,
+                    OwnerInboxSourceAvailabilityV1::Unavailable,
+                    Some("membership_query_failed"),
+                ),
+                source_report(
+                    OwnerInboxSourceV1::DirectMessages,
+                    OwnerInboxSourceAvailabilityV1::Unavailable,
+                    Some("membership_unavailable"),
+                ),
+                source_report(
+                    OwnerInboxSourceV1::ManagedAgentMessages,
+                    OwnerInboxSourceAvailabilityV1::Unavailable,
+                    Some("membership_unavailable"),
+                ),
+            ]);
+            return Ok(OwnerNativeInboxResponseV1 {
+                projection: empty_owner_projection(owner_pubkey, generated_at)
+                    .map_err(|error| error.to_string())?,
+                presentation_items: Vec::new(),
+                sources,
+            });
+        }
+    };
+
+    let membership_truncated = membership_seed.len() > MAX_NATIVE_INBOX_CHANNELS;
+    let mut candidate_channel_ids: Vec<String> = membership_seed
+        .iter()
+        .filter_map(|event| first_tag_value(event, "d").map(str::to_owned))
+        .collect();
+    candidate_channel_ids.sort();
+    candidate_channel_ids.dedup();
+    candidate_channel_ids.truncate(MAX_NATIVE_INBOX_CHANNELS);
+
+    let current_membership = if candidate_channel_ids.is_empty() {
+        Vec::new()
+    } else {
+        match query_relay(
+            &state,
+            &[serde_json::json!({
+                "kinds": [39002],
+                "#d": candidate_channel_ids,
+                "limit": MAX_NATIVE_INBOX_CHANNELS,
+            })],
+        )
+        .await
+        {
+            Ok(events) => events,
+            Err(_) => {
+                sources.extend([
+                    source_report(
+                        OwnerInboxSourceV1::ConversationMembership,
+                        OwnerInboxSourceAvailabilityV1::Unavailable,
+                        Some("current_membership_query_failed"),
+                    ),
+                    source_report(
+                        OwnerInboxSourceV1::DirectMessages,
+                        OwnerInboxSourceAvailabilityV1::Unavailable,
+                        Some("membership_unavailable"),
+                    ),
+                    source_report(
+                        OwnerInboxSourceV1::ManagedAgentMessages,
+                        OwnerInboxSourceAvailabilityV1::Unavailable,
+                        Some("membership_unavailable"),
+                    ),
+                ]);
+                return Ok(OwnerNativeInboxResponseV1 {
+                    projection: empty_owner_projection(owner_pubkey, generated_at)
+                        .map_err(|error| error.to_string())?,
+                    presentation_items: Vec::new(),
+                    sources,
+                });
+            }
+        }
+    };
+    let current_membership = newest_event_by_d(current_membership);
+    let authorized_memberships: BTreeMap<String, Vec<Hex64>> = current_membership
+        .into_iter()
+        .filter_map(|(channel_id, event)| {
+            let members = valid_pubkey_tags(&event, "p");
+            members
+                .binary_search(&owner_pubkey)
+                .is_ok()
+                .then_some((channel_id, members))
+        })
+        .collect();
+    sources.push(source_report(
+        OwnerInboxSourceV1::ConversationMembership,
+        if authorized_memberships.is_empty() {
+            OwnerInboxSourceAvailabilityV1::Empty
+        } else if membership_truncated {
+            OwnerInboxSourceAvailabilityV1::Degraded
+        } else {
+            OwnerInboxSourceAvailabilityV1::Ready
+        },
+        membership_truncated.then_some("membership_channel_limit_reached"),
+    ));
+
+    let channel_ids: Vec<String> = authorized_memberships.keys().cloned().collect();
+    let metadata = if channel_ids.is_empty() {
+        Vec::new()
+    } else {
+        match query_relay(
+            &state,
+            &[serde_json::json!({
+                "kinds": [39000],
+                "#d": channel_ids,
+                "limit": MAX_NATIVE_INBOX_CHANNELS,
+            })],
+        )
+        .await
+        {
+            Ok(events) => events,
+            Err(_) => {
+                sources.extend([
+                    source_report(
+                        OwnerInboxSourceV1::DirectMessages,
+                        OwnerInboxSourceAvailabilityV1::Unavailable,
+                        Some("channel_metadata_query_failed"),
+                    ),
+                    source_report(
+                        OwnerInboxSourceV1::ManagedAgentMessages,
+                        OwnerInboxSourceAvailabilityV1::Unavailable,
+                        Some("channel_metadata_query_failed"),
+                    ),
+                ]);
+                return Ok(OwnerNativeInboxResponseV1 {
+                    projection: empty_owner_projection(owner_pubkey, generated_at)
+                        .map_err(|error| error.to_string())?,
+                    presentation_items: Vec::new(),
+                    sources,
+                });
+            }
+        }
+    };
+    let metadata = newest_event_by_d(metadata);
+
+    let hidden_dm_result = query_relay(
+        &state,
+        &[serde_json::json!({
+            "kinds": [buzz_core_pkg::kind::KIND_DM_VISIBILITY],
+            "#p": [owner_pubkey.as_str()],
+            "limit": 1,
+        })],
+    )
+    .await;
+    let hidden_dm_query_failed = hidden_dm_result.is_err();
+    let hidden_dms = hidden_dm_result
+        .as_deref()
+        .map(hidden_channel_ids)
+        .unwrap_or_default();
+
+    let mut conversations = Vec::new();
+    for (channel_id, event) in metadata {
+        let Some(members) = authorized_memberships.get(&channel_id).cloned() else {
+            continue;
+        };
+        let Ok(info) = nostr_convert::channel_info_from_event(&event, None, Some(true)) else {
+            continue;
+        };
+        let conversation_kind = if info.channel_type == "dm" {
+            NativeInboxConversationKindV1::Direct
+        } else {
+            NativeInboxConversationKindV1::Room
+        };
+        if conversation_kind == NativeInboxConversationKindV1::Direct
+            && (hidden_dm_query_failed || hidden_dms.contains(&channel_id))
+        {
+            continue;
+        }
+        conversations.push(AuthorizedConversationV1 {
+            channel_id,
+            channel_name: info.name,
+            conversation_kind,
+            recipient_pubkeys: members,
+        });
+    }
+
+    let mut managed_agent_pubkeys = BTreeSet::new();
+    let managed_registry_failed = match load_managed_agents(&app) {
+        Ok(records) => {
+            for record in records {
+                if let Ok(pubkey) = Hex64::parse(record.pubkey.to_ascii_lowercase()) {
+                    managed_agent_pubkeys.insert(pubkey);
+                }
+            }
+            false
+        }
+        Err(_) => true,
+    };
+
+    let dm_ids: Vec<&str> = conversations
+        .iter()
+        .filter(|conversation| {
+            conversation.conversation_kind == NativeInboxConversationKindV1::Direct
+        })
+        .map(|conversation| conversation.channel_id.as_str())
+        .collect();
+    let room_ids: Vec<&str> = conversations
+        .iter()
+        .filter(|conversation| {
+            conversation.conversation_kind == NativeInboxConversationKindV1::Room
+        })
+        .map(|conversation| conversation.channel_id.as_str())
+        .collect();
+    let mut message_filters = Vec::new();
+    if !dm_ids.is_empty() {
+        let mut filter = serde_json::json!({
+            "kinds": [9],
+            "#h": dm_ids,
+            "limit": MAX_NATIVE_INBOX_FEED_ITEMS,
+        });
+        if let Some(since) = since.filter(|value| *value >= 0) {
+            filter["since"] = serde_json::json!(since);
+        }
+        message_filters.push(filter);
+    }
+    if !room_ids.is_empty() && !managed_agent_pubkeys.is_empty() {
+        let mut filter = serde_json::json!({
+            "kinds": [9, 40002],
+            "#h": room_ids,
+            "authors": managed_agent_pubkeys
+                .iter()
+                .map(Hex64::as_str)
+                .collect::<Vec<_>>(),
+            "limit": MAX_NATIVE_INBOX_FEED_ITEMS,
+        });
+        if let Some(since) = since.filter(|value| *value >= 0) {
+            filter["since"] = serde_json::json!(since);
+        }
+        message_filters.push(filter);
+    }
+
+    let message_query = if message_filters.is_empty() {
+        Ok(Vec::new())
+    } else {
+        query_relay(&state, &message_filters).await
+    };
+    let message_query_failed = message_query.is_err();
+    let conversation_by_id: BTreeMap<&str, &AuthorizedConversationV1> = conversations
+        .iter()
+        .map(|conversation| (conversation.channel_id.as_str(), conversation))
+        .collect();
+    let mut admitted = Vec::new();
+    if let Ok(events) = message_query {
+        for event in events {
+            let Some(channel_id) = first_tag_value(&event, "h") else {
+                continue;
+            };
+            let Some(conversation) = conversation_by_id.get(channel_id) else {
+                continue;
+            };
+            if let Ok(Some(candidate)) = authorized_message_candidate(
+                &event,
+                &owner_pubkey,
+                conversation,
+                &managed_agent_pubkeys,
+            ) {
+                admitted.push(candidate);
+            }
+        }
+    }
+    admitted.sort_by(|left, right| {
+        (right.1.created_at, right.1.source_event_id.as_str())
+            .cmp(&(left.1.created_at, left.1.source_event_id.as_str()))
+    });
+    admitted.truncate(requested_limit);
+
+    let direct_count = admitted
+        .iter()
+        .filter(|(_, item)| item.categories.contains(&InboxCategoryV1::Direct))
+        .count();
+    let agent_count = admitted
+        .iter()
+        .filter(|(_, item)| item.categories.contains(&InboxCategoryV1::Agents))
+        .count();
+    sources.extend([
+        source_report(
+            OwnerInboxSourceV1::DirectMessages,
+            if hidden_dm_query_failed {
+                OwnerInboxSourceAvailabilityV1::Unavailable
+            } else if message_query_failed && !dm_ids.is_empty() {
+                OwnerInboxSourceAvailabilityV1::Degraded
+            } else if direct_count == 0 {
+                OwnerInboxSourceAvailabilityV1::Empty
+            } else {
+                OwnerInboxSourceAvailabilityV1::Ready
+            },
+            if hidden_dm_query_failed {
+                Some("hidden_dm_snapshot_unavailable")
+            } else if message_query_failed && !dm_ids.is_empty() {
+                Some("message_query_failed")
+            } else {
+                None
+            },
+        ),
+        source_report(
+            OwnerInboxSourceV1::ManagedAgentMessages,
+            if managed_registry_failed {
+                OwnerInboxSourceAvailabilityV1::Unavailable
+            } else if message_query_failed && !managed_agent_pubkeys.is_empty() {
+                OwnerInboxSourceAvailabilityV1::Degraded
+            } else if agent_count == 0 {
+                OwnerInboxSourceAvailabilityV1::Empty
+            } else {
+                OwnerInboxSourceAvailabilityV1::Ready
+            },
+            if managed_registry_failed {
+                Some("managed_agent_registry_unavailable")
+            } else if message_query_failed && !managed_agent_pubkeys.is_empty() {
+                Some("message_query_failed")
+            } else {
+                None
+            },
+        ),
+    ]);
+
+    let feed: Vec<AuthorizedNativeInboxFeedItemV1> =
+        admitted.iter().map(|(source, _)| source.clone()).collect();
+    let presentation_items = admitted
+        .into_iter()
+        .map(|(_, presentation)| presentation)
+        .collect();
+    let projection = project_native_inbox(NativeInboxProjectionRequestV1 {
+        scope: NativeInboxScopeV1 {
+            owner_pubkey: owner_pubkey.clone(),
+            viewer_pubkey: owner_pubkey,
+            resident_pubkey: None,
+        },
+        category: InboxCategoryV1::All,
+        generated_at,
+        cursor: None,
+        limit: feed.len().max(1).min(MAX_INBOX_ITEMS) as u16,
+        feed,
+    })
+    .map_err(|error| error.to_string())?;
+
+    Ok(OwnerNativeInboxResponseV1 {
+        projection,
+        presentation_items,
+        sources,
+    })
+}
+
+#[cfg(test)]
+#[path = "luca_inbox_tests.rs"]
+mod tests;

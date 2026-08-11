@@ -7,6 +7,12 @@
  * display.
  */
 
+import type { FeedItem, HomeFeedResponse } from "@/shared/api/types";
+import type {
+  OwnerNativeInboxPresentationItem,
+  OwnerNativeInboxResponse,
+} from "@/shared/api/tauri";
+
 export const UNIFIED_INBOX_FILTERS = [
   "all",
   "direct",
@@ -147,6 +153,90 @@ export type UnifiedInboxViewModelV1 = {
     }
   >;
 };
+
+function nativePresentationFeedItem(
+  item: OwnerNativeInboxPresentationItem,
+  category: "activity" | "agent_activity",
+): FeedItem {
+  return {
+    id: item.sourceEventId,
+    kind: item.kind,
+    pubkey: item.authorPubkey,
+    content: item.content,
+    createdAt: item.createdAt,
+    channelId: item.channelId,
+    channelName: item.channelName,
+    // Resolve ordinary room type from the canonical channels query. Direct
+    // membership is exact and may be represented immediately.
+    channelType: item.channelType === "direct" ? "dm" : undefined,
+    tags: item.structuralTags,
+    category,
+  };
+}
+
+function mergeFeedItems(
+  existing: readonly FeedItem[],
+  additions: readonly FeedItem[],
+): FeedItem[] {
+  const byEventId = new Map(existing.map((item) => [item.id, item]));
+  // The native adapter has stricter membership and author admission than the
+  // legacy feed. Prefer its structural representation for an overlapping ID.
+  for (const item of additions) {
+    byEventId.set(item.id, item);
+  }
+  return [...byEventId.values()].sort(
+    (left, right) =>
+      right.createdAt - left.createdAt || right.id.localeCompare(left.id),
+  );
+}
+
+/**
+ * Add authorized Direct and managed-Agent events to the existing Inbox feed.
+ * Mentions and action sources remain exactly as provided by the legacy feed;
+ * no source failure creates a placeholder or synthetic Inbox row.
+ */
+export function mergeOwnerNativeInboxIntoHomeFeed(input: {
+  legacy: HomeFeedResponse;
+  native?: OwnerNativeInboxResponse;
+  threadActivity?: readonly FeedItem[];
+}): HomeFeedResponse {
+  const nativeItems = input.native?.presentationItems ?? [];
+  const nativeDirect = nativeItems
+    .filter((item) => item.categories.includes("direct"))
+    .map((item) => nativePresentationFeedItem(item, "activity"));
+  const nativeAgents = nativeItems
+    .filter((item) => item.categories.includes("agents"))
+    .map((item) => nativePresentationFeedItem(item, "agent_activity"));
+  const activity = mergeFeedItems(input.legacy.feed.activity, [
+    ...(input.threadActivity ?? []),
+    ...nativeDirect,
+  ]);
+  const agentActivity = mergeFeedItems(
+    input.legacy.feed.agentActivity,
+    nativeAgents,
+  );
+  const uniqueVisibleIds = new Set(
+    [
+      ...input.legacy.feed.mentions,
+      ...input.legacy.feed.needsAction,
+      ...activity,
+      ...agentActivity,
+    ].map((item) => item.id),
+  );
+
+  return {
+    feed: {
+      mentions: input.legacy.feed.mentions,
+      needsAction: input.legacy.feed.needsAction,
+      activity,
+      agentActivity,
+    },
+    meta: {
+      ...input.legacy.meta,
+      total: Math.max(input.legacy.meta.total, uniqueVisibleIds.size),
+    },
+  };
+}
 
 const CATEGORY_ORDER = new Map<UnifiedInboxCategory, number>(
   UNIFIED_INBOX_FILTERS.filter(

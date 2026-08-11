@@ -43,6 +43,39 @@ import type {
 
 export * from "@/shared/api/tauriChannels";
 
+export type OwnerInboxSource =
+  | "conversation_membership"
+  | "direct_messages"
+  | "managed_agent_messages"
+  | "read_state";
+export type OwnerInboxSourceAvailability =
+  | "ready"
+  | "empty"
+  | "degraded"
+  | "unavailable";
+export type OwnerInboxSourceReport = {
+  source: OwnerInboxSource;
+  availability: OwnerInboxSourceAvailability;
+  diagnosticCode: string | null;
+};
+export type OwnerNativeInboxPresentationItem = {
+  sourceEventId: string;
+  kind: number;
+  authorPubkey: string;
+  content: string;
+  createdAt: number;
+  channelId: string;
+  channelName: string;
+  channelType: "direct" | "room";
+  structuralTags: string[][];
+  categories: Array<"direct" | "agents">;
+};
+export type OwnerNativeInboxResponse = {
+  presentationItems: OwnerNativeInboxPresentationItem[];
+  sources: OwnerInboxSourceReport[];
+};
+export type GetOwnerNativeInboxInput = { since?: number; limit?: number };
+
 type RawPresenceLookup = Record<string, PresenceStatus>;
 
 type RawAddChannelMembersResult = {
@@ -80,6 +113,38 @@ type RawHomeFeedResponse = {
     total: number;
     generated_at: number;
   };
+};
+
+type RawOwnerInboxSourceReport = {
+  source:
+    | "conversation_membership"
+    | "direct_messages"
+    | "managed_agent_messages"
+    | "read_state";
+  availability: "ready" | "empty" | "degraded" | "unavailable";
+  diagnostic_code?: string;
+};
+
+type RawOwnerNativeInboxPresentationItem = {
+  source_event_id: string;
+  kind: number;
+  author_pubkey: string;
+  content: string;
+  created_at: number;
+  channel_id: string;
+  channel_name: string;
+  channel_type: "direct" | "room";
+  structural_tags: string[][];
+  categories: Array<"direct" | "agents">;
+};
+
+type RawOwnerNativeInboxResponse = {
+  // The trusted protocol projection remains available to future native Inbox
+  // surfaces, but this compatibility adapter consumes presentation fields
+  // only. Keep it opaque rather than duplicating the Rust protocol contract.
+  projection: unknown;
+  presentation_items: RawOwnerNativeInboxPresentationItem[];
+  sources: RawOwnerInboxSourceReport[];
 };
 
 type RawSearchHit = {
@@ -451,6 +516,39 @@ export async function getHomeFeed(
       total: response.meta.total,
       generatedAt: response.meta.generated_at,
     },
+  };
+}
+
+/**
+ * Read the trusted desktop's passive native Inbox projection. This command
+ * never dispatches an agent or changes read state.
+ */
+export async function getOwnerNativeInbox(
+  input: GetOwnerNativeInboxInput = {},
+): Promise<OwnerNativeInboxResponse> {
+  const response = await invokeTauri<RawOwnerNativeInboxResponse>(
+    "get_luca_owner_inbox",
+    input,
+  );
+
+  return {
+    presentationItems: response.presentation_items.map((item) => ({
+      sourceEventId: item.source_event_id,
+      kind: item.kind,
+      authorPubkey: item.author_pubkey,
+      content: item.content,
+      createdAt: item.created_at,
+      channelId: item.channel_id,
+      channelName: item.channel_name,
+      channelType: item.channel_type,
+      structuralTags: item.structural_tags,
+      categories: item.categories,
+    })),
+    sources: response.sources.map((source) => ({
+      source: source.source,
+      availability: source.availability,
+      diagnosticCode: source.diagnostic_code ?? null,
+    })),
   };
 }
 
