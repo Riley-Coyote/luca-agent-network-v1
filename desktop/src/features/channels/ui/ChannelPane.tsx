@@ -30,6 +30,7 @@ import { getManagedPresentationTurn } from "@/features/messages/managedPresentat
 import { useManagedResponseSlots } from "@/features/messages/managedPresentationHooks";
 import { resolveManagedPresentationRetry } from "@/features/messages/lib/managedPresentationRetry";
 import { projectManagedTimelineMessages } from "@/features/messages/lib/managedTimelineProjection";
+import { projectFocusedThreadTimeline } from "@/features/messages/lib/focusedThreadProjection";
 import { ConversationAgentActivityStrip } from "@/features/channels/ui/ConversationAgentActivityStrip";
 import type { ActivityShelfRetryTarget } from "@/features/channels/ui/conversationAgentActivityShelf";
 import { useConversationPresentation } from "@/features/channels/ui/useConversationPresentation";
@@ -53,10 +54,7 @@ import type { ChannelPaneProps } from "@/features/channels/ui/ChannelPane.types"
 import * as agentSessionSelection from "@/features/channels/ui/agentSessionSelection";
 import { usePrepareDmSendChannel } from "@/features/channels/ui/usePrepareDmSendChannel";
 import { Button } from "@/shared/ui/button";
-import {
-  buildFocusedThreadEntries,
-  buildMainTimelineEntries,
-} from "@/features/messages/lib/threadPanel";
+import { buildMainTimelineEntries } from "@/features/messages/lib/threadPanel";
 import { FocusedThreadBar } from "@/features/messages/ui/FocusedThreadBar";
 import { useRenderScopedReactionHydration } from "@/features/messages/lib/useRenderScopedReactionHydration";
 import type { TimelineMessage } from "@/features/messages/types";
@@ -469,53 +467,59 @@ export const ChannelPane = React.memo(function ChannelPane({
 
     return messages.filter((message) => !isWelcomeSetupSystemMessage(message));
   }, [activeChannel, messages]);
-  const projectedTimelineMessages = React.useMemo(
+  const projectedRoomMessages = React.useMemo(
     () =>
       projectManagedTimelineMessages(
         visibleMessages,
         managedResponseSlots,
         profiles,
         residentPersonaIdLookup,
-        openThreadHeadId ? "thread" : "timeline",
+        "timeline",
       ).messages,
+    [managedResponseSlots, profiles, residentPersonaIdLookup, visibleMessages],
+  );
+  const focusedThread = React.useMemo(
+    () =>
+      projectFocusedThreadTimeline({
+        focusedHeadId: openThreadHeadId,
+        managedResponseSlots,
+        profiles,
+        residentPersonaIdLookup,
+        roomMessages: visibleMessages,
+        threadHeadMessage,
+        threadMessages,
+      }),
     [
       managedResponseSlots,
       openThreadHeadId,
       profiles,
       residentPersonaIdLookup,
+      threadHeadMessage,
+      threadMessages,
       visibleMessages,
     ],
   );
-  const mainTimelineEntries = React.useMemo(() => {
-    const roomEntries = buildMainTimelineEntries(
-      projectedTimelineMessages,
-      new Set(),
-      threadSummaries,
-      profiles,
-    );
-
-    if (!openThreadHeadId) return roomEntries;
-
-    // Explicit threads reuse the timeline renderer while remaining a separate
-    // intentional surface. Only the focused view admits ordinary NIP-10
-    // descendants; returning to the room immediately restores its linear
-    // top-level + broadcast-only transcript.
-    const threadEntries = buildMainTimelineEntries(
-      projectedTimelineMessages,
-      new Set(),
-      threadSummaries,
-      profiles,
-      true,
-    );
-    return buildFocusedThreadEntries(threadEntries, openThreadHeadId);
-  }, [openThreadHeadId, profiles, projectedTimelineMessages, threadSummaries]);
-
-  const focusedThreadHead = React.useMemo(
+  const focusedThreadHead = focusedThread.head;
+  const projectedTimelineMessages = openThreadHeadId
+    ? focusedThread.messages
+    : projectedRoomMessages;
+  const mainTimelineEntries = React.useMemo(
     () =>
       openThreadHeadId
-        ? (visibleMessages.find((m) => m.id === openThreadHeadId) ?? null)
-        : null,
-    [openThreadHeadId, visibleMessages],
+        ? focusedThread.entries
+        : buildMainTimelineEntries(
+            projectedRoomMessages,
+            new Set(),
+            threadSummaries,
+            profiles,
+          ),
+    [
+      focusedThread.entries,
+      openThreadHeadId,
+      profiles,
+      projectedRoomMessages,
+      threadSummaries,
+    ],
   );
   useRenderScopedReactionHydration({
     activeChannel,
