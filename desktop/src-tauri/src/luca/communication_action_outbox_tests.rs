@@ -74,6 +74,7 @@ fn prepare(
             request,
             id("sealed-event-1"),
             hex('a'),
+            hex('b'),
             session,
             2,
             false,
@@ -115,7 +116,7 @@ fn action_outbox_has_one_way_exact_lifecycle_and_suppresses_late_finalization() 
         .expect("accept action");
     assert_eq!(accepted.state, CommunicationActionOutboxStateV1::Accepted);
     assert!(matches!(
-        outbox.cancel_during_reconciliation(&request.idempotency_key, time("2026-08-11T12:00:03Z")),
+        outbox.mark_publication_unknown(&request.idempotency_key),
         Err(CommunicationActionOutboxError::InvalidTransition)
     ));
 }
@@ -150,7 +151,7 @@ fn cancellation_wins_before_submission_and_blocks_late_acceptance() {
 }
 
 #[test]
-fn submitted_rows_require_explicit_reconciliation_to_cancel() {
+fn relay_absence_becomes_nonterminal_publication_unknown() {
     let session = id("installation-3");
     let request = request("submitted message sentinel");
     let mut outbox = CommunicationActionOutbox::new(session.clone());
@@ -169,10 +170,21 @@ fn submitted_rows_require_explicit_reconciliation_to_cancel() {
         outbox.cancel_before_submission(&request.idempotency_key, time("2026-08-11T12:00:02Z")),
         Err(CommunicationActionOutboxError::InvalidTransition)
     ));
-    let cancelled = outbox
-        .cancel_during_reconciliation(&request.idempotency_key, time("2026-08-11T12:00:02Z"))
-        .expect("relay-absence cancellation");
-    assert_eq!(cancelled.state, CommunicationActionOutboxStateV1::Cancelled);
+    let unknown = outbox
+        .mark_publication_unknown(&request.idempotency_key)
+        .expect("record unknown publication outcome");
+    assert_eq!(
+        unknown.state,
+        CommunicationActionOutboxStateV1::PublicationUnknown
+    );
+    assert_eq!(outbox.reconciliation_entries().len(), 1);
+    assert_eq!(
+        outbox
+            .row_for_submission(&request.idempotency_key)
+            .expect("same frozen event remains retryable")
+            .expected_event_id,
+        hex('b')
+    );
 }
 
 #[test]
@@ -186,6 +198,7 @@ fn exact_duplicate_is_idempotent_and_any_binding_drift_collides() {
             &request,
             id("sealed-event-1"),
             hex('a'),
+            hex('b'),
             &session,
             2,
             false,
@@ -195,11 +208,15 @@ fn exact_duplicate_is_idempotent_and_any_binding_drift_collides() {
     assert_eq!(first, duplicate);
 
     assert!(matches!(
-        outbox.preflight_existing(&request, &id("sealed-event-2"), &hex('a')),
+        outbox.preflight_existing(&request, &id("sealed-event-2"), &hex('a'), &hex('b')),
         Err(CommunicationActionOutboxError::IdempotencyCollision)
     ));
     assert!(matches!(
-        outbox.preflight_existing(&request, &id("sealed-event-1"), &hex('b')),
+        outbox.preflight_existing(&request, &id("sealed-event-1"), &hex('c'), &hex('b')),
+        Err(CommunicationActionOutboxError::IdempotencyCollision)
+    ));
+    assert!(matches!(
+        outbox.preflight_existing(&request, &id("sealed-event-1"), &hex('a'), &hex('c')),
         Err(CommunicationActionOutboxError::IdempotencyCollision)
     ));
 }
@@ -215,6 +232,7 @@ fn stale_session_cancellation_epoch_and_expiry_fail_closed() {
             &request,
             id("sealed-event-1"),
             hex('a'),
+            hex('b'),
             &id("wrong-installation"),
             2,
             false,
@@ -227,6 +245,7 @@ fn stale_session_cancellation_epoch_and_expiry_fail_closed() {
             &request,
             id("sealed-event-1"),
             hex('a'),
+            hex('b'),
             &session,
             3,
             false,
@@ -239,6 +258,7 @@ fn stale_session_cancellation_epoch_and_expiry_fail_closed() {
             &request,
             id("sealed-event-1"),
             hex('a'),
+            hex('b'),
             &session,
             2,
             false,
@@ -316,6 +336,7 @@ fn restart_reconciliation_returns_only_nonterminal_rows_in_fair_order() {
             &second,
             id("sealed-event-2"),
             hex('b'),
+            hex('c'),
             &session,
             2,
             false,
@@ -439,6 +460,7 @@ fn protocol_fingerprint_validation_remains_the_first_boundary() {
             &request,
             id("sealed-event-1"),
             hex('a'),
+            hex('b'),
             &session,
             2,
             false,
@@ -446,4 +468,156 @@ fn protocol_fingerprint_validation_remains_the_first_boundary() {
         ),
         Err(CommunicationActionOutboxError::InvalidRequest)
     ));
+}
+
+#[test]
+fn acceptance_is_bound_to_the_exact_expected_event_id() {
+    let session = id("installation-exact-event");
+    let request = request("exact event sentinel");
+    let mut outbox = CommunicationActionOutbox::new(session.clone());
+    prepare(&mut outbox, &request, &session);
+    outbox
+        .mark_submitted(
+            &request.idempotency_key,
+            &session,
+            2,
+            false,
+            time("2026-08-11T12:00:01Z"),
+        )
+        .expect("submit exact event");
+
+    assert!(matches!(
+        outbox.mark_accepted(
+            &request.idempotency_key,
+            hex('c'),
+            id("publication-receipt-wrong"),
+            time("2026-08-11T12:00:02Z")
+        ),
+        Err(CommunicationActionOutboxError::IdempotencyCollision)
+    ));
+    assert_eq!(
+        outbox
+            .row_for_submission(&request.idempotency_key)
+            .expect("wrong acceptance leaves exact row retryable")
+            .state,
+        CommunicationActionOutboxStateV1::Submitted
+    );
+
+    outbox
+        .mark_publication_unknown(&request.idempotency_key)
+        .expect("record uncertain relay result");
+    let accepted = outbox
+        .mark_accepted(
+            &request.idempotency_key,
+            hex('b'),
+            id("publication-receipt-exact"),
+            time("2026-08-11T12:00:03Z"),
+        )
+        .expect("accept exact event after reconciliation");
+    assert_eq!(accepted.state, CommunicationActionOutboxStateV1::Accepted);
+    assert_eq!(accepted.expected_event_id, hex('b'));
+}
+
+#[test]
+fn terminal_tombstones_are_body_free_and_preserve_exact_replay_identity() {
+    const BODY: &str = "TOMBSTONE-BODY-MUST-NOT-APPEAR";
+    const HANDLE: &str = "sealed-event-capability-must-not-appear";
+
+    let session = id("installation-tombstone");
+    let request = request(BODY);
+    let mut outbox = CommunicationActionOutbox::new(session.clone());
+    outbox
+        .prepare(
+            &request,
+            id(HANDLE),
+            hex('a'),
+            hex('b'),
+            &session,
+            2,
+            false,
+            time("2026-08-11T12:00:00Z"),
+        )
+        .expect("prepare terminal action");
+    let failed = outbox
+        .fail_before_submission(&request.idempotency_key, time("2026-08-11T12:00:01Z"))
+        .expect("compact terminal action");
+
+    assert!(outbox.entries.is_empty());
+    assert_eq!(outbox.tombstones.len(), 1);
+    let encoded = serde_json::to_string(&outbox.tombstones).expect("serialize tombstone");
+    assert!(!encoded.contains(BODY));
+    assert!(!encoded.contains(HANDLE));
+
+    let replay = outbox
+        .preflight_existing(&request, &id(HANDLE), &hex('a'), &hex('b'))
+        .expect("exact tombstone replay")
+        .expect("terminal receipt");
+    assert_eq!(replay, failed);
+    assert!(matches!(
+        outbox.preflight_existing(&request, &id("different-handle"), &hex('a'), &hex('b')),
+        Err(CommunicationActionOutboxError::IdempotencyCollision)
+    ));
+}
+
+#[test]
+fn terminal_compaction_does_not_exhaust_the_nonterminal_capacity() {
+    let session = id("installation-capacity");
+    let mut outbox = CommunicationActionOutbox::new(session.clone());
+
+    for index in 0..=MAX_NONTERMINAL_OUTBOX_ENTRIES {
+        let mut request = request("bounded terminal body");
+        request.action_id = id(&format!("terminal-action-{index}"));
+        request.action_fingerprint = request
+            .derive_action_fingerprint()
+            .expect("terminal fingerprint");
+        request.idempotency_key = request.derive_idempotency_key().expect("terminal key");
+        outbox
+            .prepare(
+                &request,
+                id(&format!("sealed-terminal-{index}")),
+                hex('a'),
+                hex('b'),
+                &session,
+                2,
+                false,
+                time("2026-08-11T12:00:00Z"),
+            )
+            .expect("terminal records do not consume the active cap");
+        outbox
+            .fail_before_submission(&request.idempotency_key, time("2026-08-11T12:00:01Z"))
+            .expect("compact terminal record");
+    }
+
+    assert_eq!(outbox.nonterminal_entry_count(), 0);
+    assert_eq!(outbox.tombstones.len(), MAX_NONTERMINAL_OUTBOX_ENTRIES + 1);
+}
+
+#[test]
+fn outbox_debug_redacts_the_sealed_event_capability() {
+    const HANDLE: &str = "sealed-event-super-secret-capability";
+
+    let session = id("installation-debug-redaction");
+    let request = request("debug body sentinel");
+    let mut outbox = CommunicationActionOutbox::new(session.clone());
+    outbox
+        .prepare(
+            &request,
+            id(HANDLE),
+            hex('a'),
+            hex('b'),
+            &session,
+            2,
+            false,
+            time("2026-08-11T12:00:00Z"),
+        )
+        .expect("prepare redacted row");
+
+    let debug = format!(
+        "{:?}",
+        outbox
+            .row_for_submission(&request.idempotency_key)
+            .expect("debug row")
+    );
+    assert!(!debug.contains(HANDLE));
+    assert!(debug.contains("[REDACTED]"));
 }

@@ -1339,6 +1339,12 @@ impl<'de> Deserialize<'de> for CommunicationActionReceiptV1 {
 pub enum CommunicationActionOutboxStateV1 {
     Prepared,
     Submitted,
+    /// The exact signed event may or may not have reached the relay.
+    ///
+    /// This is deliberately nonterminal: relay absence is not proof that an
+    /// earlier submission failed, so reconciliation may only query or retry
+    /// the same frozen event.
+    PublicationUnknown,
     Accepted,
     Cancelled,
     Rejected,
@@ -1357,6 +1363,8 @@ pub struct CommunicationActionOutboxV1 {
     pub action_fingerprint: Sha256Ref,
     pub sealed_event_handle: OpaqueId,
     pub exact_event_sha256: Hex64,
+    /// The immutable Nostr event ID computed from the exact signed event.
+    pub expected_event_id: Hex64,
     pub state: CommunicationActionOutboxStateV1,
     pub prepared_at: CanonicalTimestamp,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1379,8 +1387,9 @@ impl std::fmt::Debug for CommunicationActionOutboxV1 {
             .field("outbox_id", &self.outbox_id)
             .field("request", &"[REDACTED]")
             .field("action_fingerprint", &self.action_fingerprint)
-            .field("sealed_event_handle", &self.sealed_event_handle)
+            .field("sealed_event_handle", &"[REDACTED]")
             .field("exact_event_sha256", &self.exact_event_sha256)
+            .field("expected_event_id", &self.expected_event_id)
             .field("state", &self.state)
             .field("prepared_at", &self.prepared_at)
             .field("submitted_at", &self.submitted_at)
@@ -1401,6 +1410,7 @@ struct RawCommunicationActionOutboxV1 {
     action_fingerprint: Sha256Ref,
     sealed_event_handle: OpaqueId,
     exact_event_sha256: Hex64,
+    expected_event_id: Hex64,
     state: CommunicationActionOutboxStateV1,
     prepared_at: CanonicalTimestamp,
     submitted_at: Option<CanonicalTimestamp>,
@@ -1433,10 +1443,17 @@ impl CommunicationActionOutboxV1 {
                     && self.publication_receipt_id.is_none()
                     && self.diagnostic_code.is_none()
             }
+            CommunicationActionOutboxStateV1::PublicationUnknown => {
+                self.submitted_at.is_some()
+                    && self.terminal_at.is_none()
+                    && self.accepted_event_id.is_none()
+                    && self.publication_receipt_id.is_none()
+                    && self.diagnostic_code.is_some()
+            }
             CommunicationActionOutboxStateV1::Accepted => {
                 self.submitted_at.is_some()
                     && self.terminal_at.is_some()
-                    && self.accepted_event_id.is_some()
+                    && self.accepted_event_id.as_ref() == Some(&self.expected_event_id)
                     && self.publication_receipt_id.is_some()
                     && self.diagnostic_code.is_none()
             }
@@ -1475,6 +1492,7 @@ impl<'de> Deserialize<'de> for CommunicationActionOutboxV1 {
             action_fingerprint: raw.action_fingerprint,
             sealed_event_handle: raw.sealed_event_handle,
             exact_event_sha256: raw.exact_event_sha256,
+            expected_event_id: raw.expected_event_id,
             state: raw.state,
             prepared_at: raw.prepared_at,
             submitted_at: raw.submitted_at,
@@ -2126,6 +2144,7 @@ mod tests {
             request,
             sealed_event_handle: id("sealed-event-1"),
             exact_event_sha256: hex('8'),
+            expected_event_id: hex('9'),
             state: CommunicationActionOutboxStateV1::Prepared,
             prepared_at: time("2026-08-11T11:30:00Z"),
             submitted_at: None,
