@@ -37,8 +37,11 @@ export type ManagedFinalReconciliation =
  * placement data never leave process memory or become relay/outbox records.
  */
 export type ManagedPresentationTurn = {
+  anchorKey: string | null;
   anchorAt: number;
+  bufferedText: string;
   conversationId: string;
+  deadlineAt: number | null;
   dispatchReceiptId: string;
   durableReceiptId: string | null;
   failure: ManagedPresentationFailure | null;
@@ -49,6 +52,7 @@ export type ManagedPresentationTurn = {
   receivedText: string;
   residentPubkey: string;
   responseSurface: ManagedResponseSurface;
+  signedText: string | null;
   sequence: number;
   sessionEpoch: number;
   slotOrdinal: number | null;

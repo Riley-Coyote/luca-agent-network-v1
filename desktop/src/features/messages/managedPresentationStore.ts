@@ -1,45 +1,46 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import * as React from "react";
 
-const PRESENTATION_PROTOCOL = "luca.managed.presentation.v1";
-const PRESENTATION_EVENT = "luca://managed-presentation";
-const PAINT_INTERVAL_MS = 40;
-const MAX_CHUNK_BYTES = 16 * 1024;
-const MAX_PUBLIC_TEXT_BYTES = 65_536;
-const MAX_PRESENTATION_ROWS = 512;
-const TURN_START_TIMEOUT_MS = 12_000;
-const PRESENTATION_KINDS = new Set<PresentationKind>([
-  "turn_started",
-  "phase",
-  "public_chunk",
-  "completed",
-  "cancelled",
-  "failed",
-]);
+import type { ManagedResponseSurface } from "@/features/messages/lib/managedAudience";
+import {
+  managedPresentationDrainQuota,
+  segmentManagedPresentationText,
+} from "@/features/messages/managedPresentationGraphemes";
+import {
+  MANAGED_PRESENTATION_EVENT,
+  MANAGED_TERMINAL_DRAIN_TARGET_MS,
+  MANAGED_TURN_LIVENESS_MS,
+  MANAGED_TURN_START_TIMEOUT_MS,
+  MAX_MANAGED_PRESENTATION_ROWS,
+  validManagedPresentationChunk,
+  validManagedPresentationFrame,
+  withinManagedPresentationPublicTextLimit,
+} from "@/features/messages/managedPresentationProtocol";
+import { classifyManagedFinalReconciliation } from "@/features/messages/managedPresentationReconciliation";
+import { ManagedPresentationScheduler } from "@/features/messages/managedPresentationScheduler";
+import {
+  managedPresentationUiKey,
+  type ManagedPresentationDisplayPhase,
+  type ManagedPresentationFailure,
+  type ManagedPresentationTurn,
+  type ManagedResponseSlot,
+  type RawManagedPresentationFrame,
+} from "@/features/messages/managedPresentationTypes";
 
-type PresentationKind =
-  | "turn_started"
-  | "phase"
-  | "public_chunk"
-  | "completed"
-  | "cancelled"
-  | "failed";
-
-export type ManagedPresentationPhase =
-  | "thinking"
-  | "working"
-  | "writing"
-  | "finalizing"
-  | "cancelled"
-  | "failed";
-
+/** Compatibility projection retained until every caller uses scoped turns. */
 export type ManagedPresentationRow = {
   anchorAt: number;
   conversationId: string;
   dispatchReceiptId: string;
-  failure: "runtime" | "publication" | "unavailable" | null;
+  failure: ManagedPresentationFailure | null;
   finalMessageId: string | null;
-  phase: ManagedPresentationPhase;
+  phase:
+    | "thinking"
+    | "working"
+    | "writing"
+    | "finalizing"
+    | "cancelled"
+    | "failed";
   publicText: string;
   residentPubkey: string;
   sequence: number;
@@ -47,217 +48,470 @@ export type ManagedPresentationRow = {
   turnId: string;
 };
 
-type RawManagedPresentationFrame = {
-  protocol: string;
-  kind: PresentationKind;
-  resident_pubkey: string;
-  conversation_id: string;
-  turn_id: string;
-  dispatch_receipt_id: string;
-  session_epoch: number;
-  sequence: number;
-  phase?: "thinking" | "working" | "writing" | "finalizing";
-  public_chunk?: string;
-  failure?: "runtime" | "publication" | "unavailable";
-};
+const turns = new Map<string, ManagedPresentationTurn>();
+const pendingGraphemes = new Map<string, string[]>();
+const terminalDrainDeadlines = new Map<string, number>();
+const lookupToUiKey = new Map<string, string>();
+const creationOrdinals = new Map<string, number>();
+const terminalUiKeys = new Set<string>();
+const completedLookupKeys = new Set<string>();
+const terminalFrameLookupKeys = new Set<string>();
+const nextSlotOrdinal = new Map<string, number>();
 
-const rows = new Map<string, ManagedPresentationRow>();
-const pendingChunks = new Map<string, string>();
-const paintTimers = new Map<string, ReturnType<typeof globalThis.setTimeout>>();
-const startTimers = new Map<string, ReturnType<typeof globalThis.setTimeout>>();
-const completedKeys = new Set<string>();
-const terminalFrameKeys = new Set<string>();
-const listeners = new Set<() => void>();
-const snapshots = new Map<string, readonly ManagedPresentationRow[]>();
-const EMPTY_SNAPSHOT: readonly ManagedPresentationRow[] = [];
+const turnListeners = new Map<string, Set<() => void>>();
+const topologyListeners = new Map<string, Set<() => void>>();
+const legacyListeners = new Map<string, Set<() => void>>();
+const turnKeySnapshots = new Map<string, readonly string[]>();
+const responseSlotSnapshots = new Map<string, readonly ManagedResponseSlot[]>();
+const legacySnapshots = new Map<string, readonly ManagedPresentationRow[]>();
+const EMPTY_KEYS: readonly string[] = [];
+const EMPTY_SLOTS: readonly ManagedResponseSlot[] = [];
+const EMPTY_LEGACY: readonly ManagedPresentationRow[] = [];
+
 let unlisten: UnlistenFn | null = null;
 let listenerPromise: Promise<void> | null = null;
+let creationCounter = 0;
+let paintCommitCount = 0;
 
-function rowKey(residentPubkey: string, dispatchReceiptId: string): string {
-  return `${residentPubkey.toLowerCase()}:${dispatchReceiptId}`;
+const scheduler = new ManagedPresentationScheduler(
+  flushPendingPresentationText,
+);
+
+function lookupKey(residentPubkey: string, receiptId: string): string {
+  return `${residentPubkey.toLowerCase()}:${receiptId}`;
 }
 
-function markTerminalFrame(key: string): void {
-  terminalFrameKeys.add(key);
-  if (terminalFrameKeys.size <= MAX_PRESENTATION_ROWS) return;
-  const oldest = terminalFrameKeys.values().next().value;
-  if (typeof oldest !== "string") return;
-  terminalFrameKeys.delete(oldest);
-  rows.delete(oldest);
-  pendingChunks.delete(oldest);
+function addBoundedLookupKey(target: Set<string>, key: string): void {
+  target.add(key);
+  if (target.size <= MAX_MANAGED_PRESENTATION_ROWS) return;
+  const oldest = target.values().next().value;
+  if (typeof oldest === "string") target.delete(oldest);
 }
 
-function rebuildSnapshots(): void {
-  snapshots.clear();
-  for (const row of rows.values()) {
-    const current = snapshots.get(row.conversationId) ?? [];
-    snapshots.set(row.conversationId, [...current, row]);
-  }
-  for (const [conversationId, values] of snapshots) {
-    snapshots.set(
-      conversationId,
-      [...values].sort(
-        (left, right) =>
-          left.anchorAt - right.anchorAt ||
-          left.residentPubkey.localeCompare(right.residentPubkey),
-      ),
+function createTurn(
+  conversationId: string,
+  receiptId: string,
+  residentPubkey: string,
+  responseSurface: ManagedResponseSurface,
+): ManagedPresentationTurn {
+  const normalizedPubkey = residentPubkey.toLowerCase();
+  const now = Date.now();
+  return {
+    anchorKey: null,
+    anchorAt: 0,
+    bufferedText: "",
+    conversationId,
+    deadlineAt: now + MANAGED_TURN_START_TIMEOUT_MS,
+    dispatchReceiptId: receiptId,
+    durableReceiptId: null,
+    failure: null,
+    finalMessageId: null,
+    finalReconciliation: null,
+    lastFrameAt: now,
+    phase: "thinking",
+    receivedText: "",
+    residentPubkey: normalizedPubkey,
+    responseSurface,
+    sequence: 0,
+    sessionEpoch: 0,
+    signedText: null,
+    slotOrdinal: null,
+    turnId: `pending:${receiptId}:${normalizedPubkey}`,
+    uiKey: managedPresentationUiKey(normalizedPubkey, receiptId),
+    visibleText: "",
+  };
+}
+
+function ensureCapacity(): void {
+  if (turns.size < MAX_MANAGED_PRESENTATION_ROWS) return;
+  const oldestTerminal = [...turns.keys()].find((key) =>
+    terminalUiKeys.has(key),
+  );
+  const oldest = oldestTerminal ?? turns.keys().next().value;
+  if (typeof oldest === "string") removeTurn(oldest);
+}
+
+function registerTurn(turn: ManagedPresentationTurn): void {
+  ensureCapacity();
+  turns.set(turn.uiKey, turn);
+  creationOrdinals.set(turn.uiKey, creationCounter++);
+  lookupToUiKey.set(
+    lookupKey(turn.residentPubkey, turn.dispatchReceiptId),
+    turn.uiKey,
+  );
+  rebuildConversationTopology(turn.conversationId);
+  rebuildLegacySnapshot(turn.conversationId);
+  notifyLegacy(turn.conversationId);
+  scheduleNearestDeadline();
+}
+
+function activateResponseSlot(
+  turn: ManagedPresentationTurn,
+  now: number,
+): ManagedPresentationTurn {
+  if (turn.slotOrdinal !== null) return turn;
+  const ordinal = nextSlotOrdinal.get(turn.conversationId) ?? 0;
+  nextSlotOrdinal.set(turn.conversationId, ordinal + 1);
+  return {
+    ...turn,
+    anchorAt: now,
+    anchorKey: turn.durableReceiptId ?? turn.dispatchReceiptId,
+    slotOrdinal: ordinal,
+  };
+}
+
+function legacyPhase(
+  phase: ManagedPresentationDisplayPhase,
+): ManagedPresentationRow["phase"] {
+  if (phase === "stopped" || phase === "stopping") return "cancelled";
+  if (phase === "needs_attention") return "failed";
+  return phase;
+}
+
+function toLegacyRow(turn: ManagedPresentationTurn): ManagedPresentationRow {
+  return {
+    anchorAt: turn.anchorAt || turn.lastFrameAt,
+    conversationId: turn.conversationId,
+    dispatchReceiptId: turn.dispatchReceiptId,
+    failure: turn.failure,
+    finalMessageId: turn.finalMessageId,
+    phase: legacyPhase(turn.phase),
+    publicText: turn.visibleText,
+    residentPubkey: turn.residentPubkey,
+    sequence: turn.sequence,
+    sessionEpoch: turn.sessionEpoch,
+    turnId: turn.turnId,
+  };
+}
+
+function responseSlot(
+  turn: ManagedPresentationTurn,
+): ManagedResponseSlot | null {
+  if (turn.slotOrdinal === null) return null;
+  return {
+    anchorKey: turn.anchorKey,
+    conversationId: turn.conversationId,
+    finalMessageId: turn.finalMessageId,
+    residentPubkey: turn.residentPubkey,
+    responseSurface: turn.responseSurface,
+    slotOrdinal: turn.slotOrdinal,
+    uiKey: turn.uiKey,
+  };
+}
+
+function turnsForConversation(
+  conversationId: string,
+): ManagedPresentationTurn[] {
+  return [...turns.values()]
+    .filter((turn) => turn.conversationId === conversationId)
+    .sort(
+      (left, right) =>
+        (creationOrdinals.get(left.uiKey) ?? 0) -
+        (creationOrdinals.get(right.uiKey) ?? 0),
     );
+}
+
+function rebuildConversationTopology(conversationId: string): void {
+  const conversationTurns = turnsForConversation(conversationId);
+  turnKeySnapshots.set(
+    conversationId,
+    conversationTurns.map((turn) => turn.uiKey),
+  );
+  responseSlotSnapshots.set(
+    conversationId,
+    conversationTurns
+      .map(responseSlot)
+      .filter((slot): slot is ManagedResponseSlot => slot !== null)
+      .sort((left, right) => left.slotOrdinal - right.slotOrdinal),
+  );
+  notifyListeners(topologyListeners.get(conversationId));
+}
+
+function rebuildLegacySnapshot(conversationId: string): void {
+  legacySnapshots.set(
+    conversationId,
+    turnsForConversation(conversationId).map(toLegacyRow),
+  );
+}
+
+function notifyListeners(active: Set<() => void> | undefined): void {
+  if (!active) return;
+  for (const listener of active) listener();
+}
+
+function notifyTurn(uiKey: string): void {
+  notifyListeners(turnListeners.get(uiKey));
+}
+
+function notifyLegacy(conversationId: string): void {
+  notifyListeners(legacyListeners.get(conversationId));
+}
+
+function publishTurn(
+  turn: ManagedPresentationTurn,
+  topologyChanged = false,
+): void {
+  turns.set(turn.uiKey, turn);
+  notifyTurn(turn.uiKey);
+  rebuildLegacySnapshot(turn.conversationId);
+  notifyLegacy(turn.conversationId);
+  if (topologyChanged) rebuildConversationTopology(turn.conversationId);
+}
+
+function terminalDrainQuota(
+  uiKey: string,
+  backlog: number,
+  now: number,
+): number {
+  const base = managedPresentationDrainQuota(backlog);
+  const deadline = terminalDrainDeadlines.get(uiKey);
+  if (deadline === undefined) return base;
+  const remainingTicks = Math.max(1, Math.ceil((deadline - now) / 40));
+  return Math.max(base, Math.ceil(backlog / remainingTicks));
+}
+
+function flushPendingPresentationText(now: number): boolean {
+  if (pendingGraphemes.size === 0) return false;
+  paintCommitCount += 1;
+  const dirtyTurns: ManagedPresentationTurn[] = [];
+  const topologyChanged = new Set<string>();
+  for (const [uiKey, backlog] of pendingGraphemes) {
+    const current = turns.get(uiKey);
+    if (!current || backlog.length === 0) {
+      pendingGraphemes.delete(uiKey);
+      terminalDrainDeadlines.delete(uiKey);
+      continue;
+    }
+    const quota = terminalDrainQuota(uiKey, backlog.length, now);
+    const reveal = backlog.splice(0, quota).join("");
+    let next: ManagedPresentationTurn = {
+      ...current,
+      bufferedText: backlog.join(""),
+      visibleText: current.visibleText + reveal,
+    };
+    if (reveal && next.slotOrdinal === null) {
+      next = activateResponseSlot(next, Date.now());
+      topologyChanged.add(next.conversationId);
+    }
+    turns.set(uiKey, next);
+    dirtyTurns.push(next);
+    if (backlog.length === 0) {
+      pendingGraphemes.delete(uiKey);
+      terminalDrainDeadlines.delete(uiKey);
+    }
   }
-  for (const listener of listeners) listener();
-}
-
-function validFrame(value: unknown): value is RawManagedPresentationFrame {
-  if (!value || typeof value !== "object") return false;
-  const frame = value as Partial<RawManagedPresentationFrame>;
-  return (
-    frame.protocol === PRESENTATION_PROTOCOL &&
-    typeof frame.kind === "string" &&
-    PRESENTATION_KINDS.has(frame.kind as PresentationKind) &&
-    typeof frame.resident_pubkey === "string" &&
-    /^[0-9a-f]{64}$/.test(frame.resident_pubkey) &&
-    validOpaqueId(frame.conversation_id) &&
-    validOpaqueId(frame.turn_id) &&
-    validOpaqueId(frame.dispatch_receipt_id) &&
-    Number.isSafeInteger(frame.session_epoch) &&
-    Number.isSafeInteger(frame.sequence) &&
-    (frame.sequence ?? 0) > 0
-  );
-}
-
-function validOpaqueId(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.length >= 1 &&
-    value.length <= 128 &&
-    /^[A-Za-z0-9._:-]+$/.test(value)
-  );
-}
-
-function flushChunk(key: string): void {
-  paintTimers.delete(key);
-  const chunk = pendingChunks.get(key);
-  pendingChunks.delete(key);
-  const current = rows.get(key);
-  if (!current || !chunk) return;
-  rows.set(key, { ...current, publicText: current.publicText + chunk });
-  rebuildSnapshots();
-}
-
-function queueChunk(key: string, chunk: string): void {
-  const pending = pendingChunks.get(key) ?? "";
-  const current = rows.get(key)?.publicText ?? "";
-  if (
-    new TextEncoder().encode(current + pending + chunk).length >
-    MAX_PUBLIC_TEXT_BYTES
-  ) {
-    return;
+  for (const turn of dirtyTurns) {
+    notifyTurn(turn.uiKey);
+    rebuildLegacySnapshot(turn.conversationId);
+    notifyLegacy(turn.conversationId);
   }
-  pendingChunks.set(key, pending + chunk);
-  if (paintTimers.has(key)) return;
-  paintTimers.set(
-    key,
-    globalThis.setTimeout(() => flushChunk(key), PAINT_INTERVAL_MS),
+  for (const conversationId of topologyChanged) {
+    rebuildConversationTopology(conversationId);
+  }
+  return pendingGraphemes.size > 0;
+}
+
+function scheduleNearestDeadline(): void {
+  let nearest: number | null = null;
+  for (const turn of turns.values()) {
+    if (turn.deadlineAt === null) continue;
+    if (nearest === null || turn.deadlineAt < nearest)
+      nearest = turn.deadlineAt;
+  }
+  scheduler.setNearestDeadline(
+    nearest,
+    nearest === null ? null : processDeadlines,
   );
 }
 
-function clearStartTimer(key: string): void {
-  const timer = startTimers.get(key);
-  if (timer) globalThis.clearTimeout(timer);
-  startTimers.delete(key);
-}
-
-function scheduleStartTimeout(key: string): void {
-  clearStartTimer(key);
-  startTimers.set(
-    key,
-    globalThis.setTimeout(() => {
-      startTimers.delete(key);
-      const current = rows.get(key);
-      if (current?.sessionEpoch !== 0) return;
-      rows.set(key, {
+function processDeadlines(now = Date.now()): void {
+  for (const current of turns.values()) {
+    if (current.deadlineAt === null || current.deadlineAt > now) continue;
+    const next = activateResponseSlot(
+      {
         ...current,
-        failure: "unavailable",
-        phase: "failed",
-        publicText: "",
-      });
-      rebuildSnapshots();
-    }, TURN_START_TIMEOUT_MS),
-  );
+        deadlineAt: null,
+        failure: current.sessionEpoch === 0 ? "unavailable" : current.failure,
+        phase: "needs_attention",
+      },
+      now,
+    );
+    publishTurn(next, current.slotOrdinal === null);
+  }
+  scheduleNearestDeadline();
 }
 
-export function ingestManagedPresentationFrame(frameValue: unknown): void {
-  if (!validFrame(frameValue)) return;
-  const frame = frameValue;
-  const key = rowKey(frame.resident_pubkey, frame.dispatch_receipt_id);
-  if (completedKeys.has(key) || terminalFrameKeys.has(key)) return;
-  const current = rows.get(key);
-  if (
-    current &&
-    current.sessionEpoch !== 0 &&
-    (current.sessionEpoch !== frame.session_epoch ||
-      frame.sequence !== current.sequence + 1)
-  ) {
-    return;
+function clearPending(uiKey: string): void {
+  pendingGraphemes.delete(uiKey);
+  terminalDrainDeadlines.delete(uiKey);
+}
+
+function markTerminalFrame(key: string, uiKey: string): void {
+  addBoundedLookupKey(terminalFrameLookupKeys, key);
+  terminalUiKeys.add(uiKey);
+}
+
+function removeTurn(uiKey: string): void {
+  const current = turns.get(uiKey);
+  if (!current) return;
+  turns.delete(uiKey);
+  clearPending(uiKey);
+  creationOrdinals.delete(uiKey);
+  terminalUiKeys.delete(uiKey);
+  for (const [key, value] of lookupToUiKey) {
+    if (value === uiKey) lookupToUiKey.delete(key);
   }
-  clearStartTimer(key);
-  const base: ManagedPresentationRow = {
-    anchorAt: current?.anchorAt ?? Date.now(),
+  notifyTurn(uiKey);
+  rebuildConversationTopology(current.conversationId);
+  rebuildLegacySnapshot(current.conversationId);
+  notifyLegacy(current.conversationId);
+  scheduleNearestDeadline();
+}
+
+function ingestPublicChunk(
+  turn: ManagedPresentationTurn,
+  chunk: string,
+): ManagedPresentationTurn | null {
+  if (!validManagedPresentationChunk(chunk)) return null;
+  const receivedText = turn.receivedText + chunk;
+  if (!withinManagedPresentationPublicTextLimit(receivedText)) return null;
+  const graphemes = pendingGraphemes.get(turn.uiKey) ?? [];
+  graphemes.push(...segmentManagedPresentationText(chunk));
+  pendingGraphemes.set(turn.uiKey, graphemes);
+  scheduler.requestPaint();
+  return {
+    ...turn,
+    bufferedText: turn.bufferedText + chunk,
+    phase: "writing",
+    receivedText,
+  };
+}
+
+function frameBase(
+  current: ManagedPresentationTurn,
+  frame: RawManagedPresentationFrame,
+): ManagedPresentationTurn {
+  const now = Date.now();
+  return {
+    ...current,
     conversationId: frame.conversation_id,
+    deadlineAt: now + MANAGED_TURN_LIVENESS_MS,
     dispatchReceiptId: frame.dispatch_receipt_id,
-    failure: current?.failure ?? null,
-    finalMessageId: current?.finalMessageId ?? null,
-    phase: current?.phase ?? "thinking",
-    publicText: current?.publicText ?? "",
+    durableReceiptId: frame.dispatch_receipt_id,
+    lastFrameAt: now,
     residentPubkey: frame.resident_pubkey,
     sequence: frame.sequence,
     sessionEpoch: frame.session_epoch,
     turnId: frame.turn_id,
   };
+}
+
+export function ingestManagedPresentationFrame(frameValue: unknown): void {
+  if (!validManagedPresentationFrame(frameValue)) return;
+  const frame = frameValue;
+  const frameLookupKey = lookupKey(
+    frame.resident_pubkey,
+    frame.dispatch_receipt_id,
+  );
+  if (
+    completedLookupKeys.has(frameLookupKey) ||
+    terminalFrameLookupKeys.has(frameLookupKey)
+  ) {
+    return;
+  }
+  let uiKey = lookupToUiKey.get(frameLookupKey);
+  let current = uiKey ? turns.get(uiKey) : undefined;
+  if (!current) {
+    const created = createTurn(
+      frame.conversation_id,
+      frame.dispatch_receipt_id,
+      frame.resident_pubkey,
+      "timeline",
+    );
+    uiKey = created.uiKey;
+    current = created;
+    registerTurn(created);
+  }
+  if (
+    current.sessionEpoch === 0
+      ? frame.sequence !== 1
+      : current.sessionEpoch !== frame.session_epoch ||
+        frame.sequence !== current.sequence + 1 ||
+        current.turnId !== frame.turn_id ||
+        current.conversationId !== frame.conversation_id
+  ) {
+    return;
+  }
+
+  let next = frameBase(current, frame);
+  let topologyChanged = false;
   switch (frame.kind) {
     case "turn_started":
-      rows.set(key, { ...base, failure: null, phase: "thinking" });
+      next = { ...next, failure: null, phase: "thinking" };
       break;
     case "phase":
       if (!frame.phase) return;
-      rows.set(key, { ...base, phase: frame.phase });
+      next = { ...next, failure: null, phase: frame.phase };
       break;
-    case "public_chunk":
-      if (
-        !frame.public_chunk ||
-        new TextEncoder().encode(frame.public_chunk).length > MAX_CHUNK_BYTES
-      ) {
-        return;
-      }
-      rows.set(key, { ...base, phase: "writing" });
-      queueChunk(key, frame.public_chunk);
+    case "public_chunk": {
+      const withChunk = ingestPublicChunk(next, frame.public_chunk ?? "");
+      if (!withChunk) return;
+      next = withChunk;
       break;
+    }
     case "completed":
-      rows.set(key, { ...base, phase: "finalizing" });
-      markTerminalFrame(key);
+      next = activateResponseSlot(
+        { ...next, deadlineAt: null, phase: "finalizing" },
+        Date.now(),
+      );
+      topologyChanged = current.slotOrdinal === null;
+      terminalDrainDeadlines.set(
+        next.uiKey,
+        Date.now() + MANAGED_TERMINAL_DRAIN_TARGET_MS,
+      );
+      if (pendingGraphemes.has(next.uiKey)) scheduler.requestPaint();
+      markTerminalFrame(frameLookupKey, next.uiKey);
       break;
     case "cancelled":
-      pendingChunks.delete(key);
-      rows.set(key, { ...base, phase: "cancelled", publicText: "" });
-      markTerminalFrame(key);
+      clearPending(next.uiKey);
+      next = activateResponseSlot(
+        {
+          ...next,
+          bufferedText: "",
+          deadlineAt: null,
+          phase: "stopped",
+          receivedText: next.visibleText,
+        },
+        Date.now(),
+      );
+      topologyChanged = current.slotOrdinal === null;
+      markTerminalFrame(frameLookupKey, next.uiKey);
       break;
     case "failed":
-      pendingChunks.delete(key);
-      rows.set(key, {
-        ...base,
-        failure: frame.failure ?? "runtime",
-        phase: "failed",
-        publicText: "",
-      });
-      markTerminalFrame(key);
+      clearPending(next.uiKey);
+      next = activateResponseSlot(
+        {
+          ...next,
+          bufferedText: "",
+          deadlineAt: null,
+          failure: frame.failure ?? "runtime",
+          phase: "failed",
+          receivedText: next.visibleText,
+        },
+        Date.now(),
+      );
+      topologyChanged = current.slotOrdinal === null;
+      markTerminalFrame(frameLookupKey, next.uiKey);
       break;
   }
-  if (frame.kind !== "public_chunk") rebuildSnapshots();
+  publishTurn(next, topologyChanged);
+  scheduleNearestDeadline();
 }
 
 export async function ensureManagedPresentationListener(): Promise<void> {
   if (unlisten || listenerPromise) return listenerPromise ?? Promise.resolve();
   listenerPromise = listen<RawManagedPresentationFrame>(
-    PRESENTATION_EVENT,
+    MANAGED_PRESENTATION_EVENT,
     (event) => ingestManagedPresentationFrame(event.payload),
   )
     .then((dispose) => {
@@ -273,172 +527,349 @@ export function seedManagedPresentations(
   conversationId: string,
   dispatchReceiptId: string,
   residentPubkeys: readonly string[],
+  responseSurface: ManagedResponseSurface = "timeline",
 ): void {
   void ensureManagedPresentationListener();
-  const anchorAt = Date.now();
   for (const pubkey of residentPubkeys) {
     const residentPubkey = pubkey.toLowerCase();
-    const key = rowKey(residentPubkey, dispatchReceiptId);
-    if (rows.has(key) || completedKeys.has(key)) continue;
-    if (rows.size >= MAX_PRESENTATION_ROWS) continue;
-    rows.set(key, {
-      anchorAt,
-      conversationId,
-      dispatchReceiptId,
-      failure: null,
-      finalMessageId: null,
-      phase: "thinking",
-      publicText: "",
-      residentPubkey,
-      sequence: 0,
-      sessionEpoch: 0,
-      turnId: `pending:${dispatchReceiptId}:${residentPubkey}`,
-    });
-    scheduleStartTimeout(key);
+    const key = lookupKey(residentPubkey, dispatchReceiptId);
+    if (lookupToUiKey.has(key) || completedLookupKeys.has(key)) continue;
+    registerTurn(
+      createTurn(
+        conversationId,
+        dispatchReceiptId,
+        residentPubkey,
+        responseSurface,
+      ),
+    );
   }
-  rebuildSnapshots();
+}
+
+function mergeReceiptRace(
+  optimisticUiKey: string,
+  authenticatedUiKey: string,
+  receiptId: string,
+): void {
+  const optimistic = turns.get(optimisticUiKey);
+  const authenticated = turns.get(authenticatedUiKey);
+  if (!optimistic || !authenticated) return;
+  const merged: ManagedPresentationTurn = {
+    ...authenticated,
+    anchorAt:
+      authenticated.slotOrdinal !== null
+        ? authenticated.anchorAt
+        : optimistic.anchorAt,
+    anchorKey:
+      authenticated.slotOrdinal !== null
+        ? authenticated.anchorKey
+        : optimistic.anchorKey,
+    dispatchReceiptId: receiptId,
+    durableReceiptId: receiptId,
+    responseSurface: optimistic.responseSurface,
+    slotOrdinal: authenticated.slotOrdinal ?? optimistic.slotOrdinal,
+    uiKey: optimisticUiKey,
+  };
+  const authenticatedPending = pendingGraphemes.get(authenticatedUiKey);
+  const authenticatedDrainDeadline =
+    terminalDrainDeadlines.get(authenticatedUiKey);
+  turns.delete(authenticatedUiKey);
+  turns.set(optimisticUiKey, merged);
+  if (authenticatedPending) {
+    pendingGraphemes.set(optimisticUiKey, authenticatedPending);
+  }
+  clearPending(authenticatedUiKey);
+  if (authenticatedDrainDeadline !== undefined) {
+    terminalDrainDeadlines.set(optimisticUiKey, authenticatedDrainDeadline);
+  }
+  creationOrdinals.delete(authenticatedUiKey);
+  if (terminalUiKeys.delete(authenticatedUiKey)) {
+    terminalUiKeys.add(optimisticUiKey);
+  }
+  for (const [key, value] of lookupToUiKey) {
+    if (value === authenticatedUiKey) lookupToUiKey.set(key, optimisticUiKey);
+  }
+  lookupToUiKey.set(
+    lookupKey(merged.residentPubkey, receiptId),
+    optimisticUiKey,
+  );
+  notifyTurn(authenticatedUiKey);
+  notifyTurn(optimisticUiKey);
+  rebuildConversationTopology(merged.conversationId);
+  rebuildLegacySnapshot(merged.conversationId);
+  notifyLegacy(merged.conversationId);
 }
 
 export function replaceManagedPresentationReceipt(
   previousReceiptId: string,
   receiptId: string,
 ): void {
-  for (const [key, row] of [...rows]) {
-    if (row.dispatchReceiptId !== previousReceiptId) continue;
-    rows.delete(key);
-    clearStartTimer(key);
-    const next = { ...row, dispatchReceiptId: receiptId };
-    const nextKey = rowKey(row.residentPubkey, receiptId);
-    if (!completedKeys.has(nextKey)) {
-      const streamed = rows.get(nextKey);
-      if (streamed) {
-        // The native stream can beat the relay send result. Preserve the
-        // authenticated row and only carry over the optimistic placement so
-        // receipt reconciliation never erases already-visible public chunks.
-        rows.set(nextKey, { ...streamed, anchorAt: row.anchorAt });
-      } else {
-        rows.set(nextKey, next);
-        if (next.sessionEpoch === 0) scheduleStartTimeout(nextKey);
-      }
+  const candidates = [...turns.values()].filter(
+    (turn) => turn.dispatchReceiptId === previousReceiptId,
+  );
+  for (const current of candidates) {
+    const previousKey = lookupKey(current.residentPubkey, previousReceiptId);
+    const nextKey = lookupKey(current.residentPubkey, receiptId);
+    const authenticatedUiKey = lookupToUiKey.get(nextKey);
+    if (authenticatedUiKey && authenticatedUiKey !== current.uiKey) {
+      mergeReceiptRace(current.uiKey, authenticatedUiKey, receiptId);
+      continue;
+    }
+    const next = {
+      ...current,
+      anchorKey: current.slotOrdinal === null ? null : receiptId,
+      dispatchReceiptId: receiptId,
+      durableReceiptId: receiptId,
+    };
+    turns.set(current.uiKey, next);
+    lookupToUiKey.set(previousKey, current.uiKey);
+    lookupToUiKey.set(nextKey, current.uiKey);
+    publishTurn(next, current.slotOrdinal !== null);
+  }
+}
+
+function findTurnForFinal(
+  residentPubkey: string,
+  dispatchReceiptId: string,
+  conversationId?: string | null,
+): ManagedPresentationTurn | null {
+  const normalizedPubkey = residentPubkey.toLowerCase();
+  const directUiKey = lookupToUiKey.get(
+    lookupKey(normalizedPubkey, dispatchReceiptId),
+  );
+  if (directUiKey) return turns.get(directUiKey) ?? null;
+  if (!conversationId) return null;
+  const candidates = [...turns.values()].filter(
+    (turn) =>
+      turn.conversationId === conversationId &&
+      turn.residentPubkey === normalizedPubkey &&
+      turn.finalMessageId === null,
+  );
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+export function reconcileManagedPresentationFinal(
+  residentPubkey: string | null | undefined,
+  dispatchReceiptId: string | null | undefined,
+  conversationId: string | null | undefined,
+  finalMessageId: string | null | undefined,
+  signedText?: string | null,
+): ManagedPresentationTurn | null {
+  if (!residentPubkey || !dispatchReceiptId) return null;
+  const finalLookupKey = lookupKey(residentPubkey, dispatchReceiptId);
+  addBoundedLookupKey(completedLookupKeys, finalLookupKey);
+  const current = findTurnForFinal(
+    residentPubkey,
+    dispatchReceiptId,
+    conversationId,
+  );
+  if (!current) return null;
+  lookupToUiKey.set(finalLookupKey, current.uiKey);
+  let next = activateResponseSlot(
+    {
+      ...current,
+      deadlineAt: null,
+      dispatchReceiptId,
+      durableReceiptId: dispatchReceiptId,
+      finalMessageId: finalMessageId ?? current.finalMessageId,
+      phase: "finalizing",
+    },
+    Date.now(),
+  );
+  if (
+    signedText !== undefined &&
+    signedText !== null &&
+    withinManagedPresentationPublicTextLimit(signedText)
+  ) {
+    const reconciliation = classifyManagedFinalReconciliation(
+      current.receivedText,
+      signedText,
+    );
+    next = {
+      ...next,
+      finalReconciliation: reconciliation,
+      signedText,
+    };
+    if (reconciliation === "signed_extends_stream") {
+      const suffix = signedText.slice(current.receivedText.length);
+      const backlog = pendingGraphemes.get(current.uiKey) ?? [];
+      backlog.push(...segmentManagedPresentationText(suffix));
+      pendingGraphemes.set(current.uiKey, backlog);
+      next = {
+        ...next,
+        bufferedText: next.bufferedText + suffix,
+        receivedText: signedText,
+      };
+    } else if (
+      reconciliation === "stream_extends_signed" ||
+      reconciliation === "divergent"
+    ) {
+      clearPending(current.uiKey);
+      next = { ...next, bufferedText: "" };
     }
   }
-  rebuildSnapshots();
+  terminalUiKeys.add(next.uiKey);
+  terminalDrainDeadlines.set(
+    next.uiKey,
+    Date.now() + MANAGED_TERMINAL_DRAIN_TARGET_MS,
+  );
+  if (pendingGraphemes.has(next.uiKey)) scheduler.requestPaint();
+  publishTurn(next, true);
+  scheduleNearestDeadline();
+  return next;
 }
 
 export function completeManagedPresentation(
   residentPubkey: string | null | undefined,
   dispatchReceiptId: string | null | undefined,
   finalMessageId?: string | null,
+  signedText?: string | null,
 ): boolean {
   if (!residentPubkey || !dispatchReceiptId) return false;
-  const key = rowKey(residentPubkey, dispatchReceiptId);
-  const removed = rows.has(key);
-  completedKeys.add(key);
-  markTerminalFrame(key);
-  if (completedKeys.size > 512) {
-    const oldest = completedKeys.values().next().value;
-    if (typeof oldest === "string") completedKeys.delete(oldest);
-  }
-  const timer = paintTimers.get(key);
-  if (timer) globalThis.clearTimeout(timer);
-  paintTimers.delete(key);
-  clearStartTimer(key);
-  pendingChunks.delete(key);
-  const current = rows.get(key);
-  if (current && finalMessageId) {
-    rows.set(key, {
-      ...current,
+  return (
+    reconcileManagedPresentationFinal(
+      residentPubkey,
+      dispatchReceiptId,
+      null,
       finalMessageId,
-      phase: "finalizing",
-    });
-    rebuildSnapshots();
-  } else if (rows.delete(key)) {
-    rebuildSnapshots();
-  }
-  return removed;
+      signedText,
+    ) !== null
+  );
 }
 
-/**
- * Reconciles a signed final with its provisional row. The causal event id is
- * authoritative, while the single-row fallback covers the narrow race where
- * the live stream is accepted before the optimistic send receipt is replaced.
- * We never guess when more than one turn from the resident is active.
- */
 export function completeManagedPresentationForConversation(
   residentPubkey: string | null | undefined,
   dispatchReceiptId: string | null | undefined,
   conversationId: string | null | undefined,
   finalMessageId?: string | null,
+  signedText?: string | null,
 ): void {
-  if (!residentPubkey || !dispatchReceiptId) return;
-  if (
-    completeManagedPresentation(
-      residentPubkey,
-      dispatchReceiptId,
-      finalMessageId,
-    )
-  ) {
-    return;
-  }
-  if (!conversationId) return;
-
-  const normalizedPubkey = residentPubkey.toLowerCase();
-  const candidates = [...rows.values()].filter(
-    (row) =>
-      row.conversationId === conversationId &&
-      row.residentPubkey === normalizedPubkey,
-  );
-  if (candidates.length !== 1) return;
-  completeManagedPresentation(
-    candidates[0].residentPubkey,
-    candidates[0].dispatchReceiptId,
+  reconcileManagedPresentationFinal(
+    residentPubkey,
+    dispatchReceiptId,
+    conversationId,
     finalMessageId,
+    signedText,
   );
 }
 
-/** Release live rows only after their signed finals have joined the rendered timeline. */
+/** Finalized turns stay bounded in memory so the mounted row keeps one uiKey. */
 export function releaseManagedPresentationFinals(
-  messageIds: readonly string[],
-): void {
-  if (messageIds.length === 0) return;
-  const rendered = new Set(messageIds);
-  let changed = false;
-  for (const [key, row] of rows) {
-    if (!row.finalMessageId || !rendered.has(row.finalMessageId)) continue;
-    rows.delete(key);
-    changed = true;
-  }
-  if (changed) rebuildSnapshots();
-}
+  _messageIds: readonly string[],
+): void {}
 
 export function removeManagedPresentationsByReceipt(receiptId: string): void {
-  let changed = false;
-  for (const [key, row] of [...rows]) {
-    if (row.dispatchReceiptId !== receiptId) continue;
-    clearStartTimer(key);
-    rows.delete(key);
-    changed = true;
+  const uiKeys = new Set<string>();
+  for (const [key, uiKey] of lookupToUiKey) {
+    if (key.endsWith(`:${receiptId}`)) uiKeys.add(uiKey);
   }
-  if (changed) rebuildSnapshots();
+  for (const turn of turns.values()) {
+    if (turn.dispatchReceiptId === receiptId) uiKeys.add(turn.uiKey);
+  }
+  for (const uiKey of uiKeys) removeTurn(uiKey);
 }
 
-export function resetManagedPresentationStore(): void {
-  for (const timer of paintTimers.values()) globalThis.clearTimeout(timer);
-  for (const timer of startTimers.values()) globalThis.clearTimeout(timer);
-  rows.clear();
-  pendingChunks.clear();
-  paintTimers.clear();
-  startTimers.clear();
-  completedKeys.clear();
-  terminalFrameKeys.clear();
-  snapshots.clear();
-  for (const listener of listeners) listener();
+export function getManagedPresentationTurn(
+  uiKey: string,
+): ManagedPresentationTurn | null {
+  return turns.get(uiKey) ?? null;
+}
+
+export function getManagedPresentationTurnKeysSnapshot(
+  conversationId: string,
+): readonly string[] {
+  return turnKeySnapshots.get(conversationId) ?? EMPTY_KEYS;
+}
+
+export function getManagedResponseSlotsSnapshot(
+  conversationId: string,
+): readonly ManagedResponseSlot[] {
+  return responseSlotSnapshots.get(conversationId) ?? EMPTY_SLOTS;
+}
+
+export function subscribeManagedPresentationTurn(
+  uiKey: string,
+  listener: () => void,
+): () => void {
+  const active = turnListeners.get(uiKey) ?? new Set<() => void>();
+  active.add(listener);
+  turnListeners.set(uiKey, active);
+  return () => {
+    active.delete(listener);
+    if (active.size === 0) turnListeners.delete(uiKey);
+  };
+}
+
+export function subscribeManagedPresentationTopology(
+  conversationId: string,
+  listener: () => void,
+): () => void {
+  const active = topologyListeners.get(conversationId) ?? new Set<() => void>();
+  active.add(listener);
+  topologyListeners.set(conversationId, active);
+  return () => {
+    active.delete(listener);
+    if (active.size === 0) topologyListeners.delete(conversationId);
+  };
+}
+
+export function useManagedPresentationTurnKeys(
+  conversationId: string | null,
+): readonly string[] {
+  const subscribe = React.useCallback(
+    (listener: () => void) =>
+      conversationId
+        ? subscribeManagedPresentationTopology(conversationId, listener)
+        : () => undefined,
+    [conversationId],
+  );
+  const getSnapshot = React.useCallback(
+    () =>
+      conversationId
+        ? getManagedPresentationTurnKeysSnapshot(conversationId)
+        : EMPTY_KEYS,
+    [conversationId],
+  );
+  return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+export function useManagedResponseSlots(
+  conversationId: string | null,
+): readonly ManagedResponseSlot[] {
+  const subscribe = React.useCallback(
+    (listener: () => void) =>
+      conversationId
+        ? subscribeManagedPresentationTopology(conversationId, listener)
+        : () => undefined,
+    [conversationId],
+  );
+  const getSnapshot = React.useCallback(
+    () =>
+      conversationId
+        ? getManagedResponseSlotsSnapshot(conversationId)
+        : EMPTY_SLOTS,
+    [conversationId],
+  );
+  return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+export function useManagedPresentationTurn(
+  uiKey: string,
+): ManagedPresentationTurn | null {
+  const subscribe = React.useCallback(
+    (listener: () => void) => subscribeManagedPresentationTurn(uiKey, listener),
+    [uiKey],
+  );
+  const getSnapshot = React.useCallback(
+    () => getManagedPresentationTurn(uiKey),
+    [uiKey],
+  );
+  return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
 export function getManagedPresentationSnapshot(
   conversationId: string,
 ): readonly ManagedPresentationRow[] {
-  return snapshots.get(conversationId) ?? EMPTY_SNAPSHOT;
+  return legacySnapshots.get(conversationId) ?? EMPTY_LEGACY;
 }
 
 export function useManagedPresentations(
@@ -447,16 +878,66 @@ export function useManagedPresentations(
   React.useEffect(() => {
     void ensureManagedPresentationListener();
   }, []);
-  const subscribe = React.useCallback((listener: () => void) => {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
-  }, []);
+  const subscribe = React.useCallback(
+    (listener: () => void) => {
+      if (!conversationId) return () => undefined;
+      const active =
+        legacyListeners.get(conversationId) ?? new Set<() => void>();
+      active.add(listener);
+      legacyListeners.set(conversationId, active);
+      return () => {
+        active.delete(listener);
+        if (active.size === 0) legacyListeners.delete(conversationId);
+      };
+    },
+    [conversationId],
+  );
   const getSnapshot = React.useCallback(
     () =>
       conversationId
         ? getManagedPresentationSnapshot(conversationId)
-        : EMPTY_SNAPSHOT,
+        : EMPTY_LEGACY,
     [conversationId],
   );
   return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+export function flushManagedPresentationSchedulerForTests(
+  now?: number,
+): boolean {
+  return scheduler.flushForTests(now);
+}
+
+export function expireManagedPresentationDeadlinesForTests(now?: number): void {
+  processDeadlines(now);
+}
+
+export function getManagedPresentationSchedulerStatsForTests(): {
+  paintCommits: number;
+} {
+  return { paintCommits: paintCommitCount };
+}
+
+export function resetManagedPresentationStore(): void {
+  scheduler.reset();
+  const activeTurnListeners = [...turnListeners.values()];
+  const activeTopologyListeners = [...topologyListeners.values()];
+  const activeLegacyListeners = [...legacyListeners.values()];
+  turns.clear();
+  pendingGraphemes.clear();
+  terminalDrainDeadlines.clear();
+  lookupToUiKey.clear();
+  creationOrdinals.clear();
+  terminalUiKeys.clear();
+  completedLookupKeys.clear();
+  terminalFrameLookupKeys.clear();
+  nextSlotOrdinal.clear();
+  turnKeySnapshots.clear();
+  responseSlotSnapshots.clear();
+  legacySnapshots.clear();
+  creationCounter = 0;
+  paintCommitCount = 0;
+  for (const active of activeTurnListeners) notifyListeners(active);
+  for (const active of activeTopologyListeners) notifyListeners(active);
+  for (const active of activeLegacyListeners) notifyListeners(active);
 }

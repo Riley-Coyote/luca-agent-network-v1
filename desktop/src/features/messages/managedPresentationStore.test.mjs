@@ -4,12 +4,21 @@ import { afterEach, describe, it } from "node:test";
 import {
   completeManagedPresentation,
   completeManagedPresentationForConversation,
+  expireManagedPresentationDeadlinesForTests,
+  flushManagedPresentationSchedulerForTests,
+  getManagedPresentationSchedulerStatsForTests,
   getManagedPresentationSnapshot,
+  getManagedPresentationTurn,
+  getManagedPresentationTurnKeysSnapshot,
+  getManagedResponseSlotsSnapshot,
   ingestManagedPresentationFrame,
+  reconcileManagedPresentationFinal,
   releaseManagedPresentationFinals,
   replaceManagedPresentationReceipt,
   resetManagedPresentationStore,
   seedManagedPresentations,
+  subscribeManagedPresentationTopology,
+  subscribeManagedPresentationTurn,
 } from "./managedPresentationStore.ts";
 
 const conversationId = "11111111-1111-4111-8111-111111111111";
@@ -30,10 +39,27 @@ function frame(kind, sequence, extra = {}) {
   };
 }
 
+function turn() {
+  const [uiKey] = getManagedPresentationTurnKeysSnapshot(conversationId);
+  return uiKey ? getManagedPresentationTurn(uiKey) : null;
+}
+
+function flushAll() {
+  let pending = true;
+  let paints = 0;
+  while (pending && paints < 100) {
+    pending = flushManagedPresentationSchedulerForTests(
+      Date.now() + paints * 40,
+    );
+    paints += 1;
+  }
+  assert.ok(paints < 100, "presentation backlog should settle");
+}
+
 afterEach(resetManagedPresentationStore);
 
 describe("managedPresentationStore", () => {
-  it("coalesces public chunks and preserves strict sequence", async () => {
+  it("drains chunks adaptively and preserves strict sequence", () => {
     seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
     ingestManagedPresentationFrame(frame("turn_started", 1));
     ingestManagedPresentationFrame(frame("phase", 2, { phase: "working" }));
@@ -43,107 +69,293 @@ describe("managedPresentationStore", () => {
     ingestManagedPresentationFrame(
       frame("public_chunk", 5, { public_chunk: " ignored" }),
     );
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    assert.equal(
-      getManagedPresentationSnapshot(conversationId)[0].publicText,
-      "Hello",
-    );
-    assert.equal(getManagedPresentationSnapshot(conversationId)[0].sequence, 3);
+
+    flushManagedPresentationSchedulerForTests();
+    assert.equal(turn().visibleText, "He");
+    flushAll();
+    assert.equal(turn().visibleText, "Hello");
+    assert.equal(turn().sequence, 3);
+    assert.equal(turn().receivedText, "Hello");
   });
 
-  it("handles signed-final-before-stream without leaving a duplicate", () => {
-    completeManagedPresentation(residentPubkey, receiptId);
-    ingestManagedPresentationFrame(frame("turn_started", 1));
-    assert.deepEqual(getManagedPresentationSnapshot(conversationId), []);
-  });
-
-  it("keeps the live row until its signed final reaches the rendered timeline", () => {
+  it("assigns immutable placement only when text first becomes visible", () => {
     seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
-    completeManagedPresentation(
-      residentPubkey,
-      receiptId,
-      "signed-final-message",
+    const uiKey = getManagedPresentationTurnKeysSnapshot(conversationId)[0];
+    assert.equal(getManagedPresentationTurn(uiKey).anchorAt, 0);
+    assert.equal(getManagedPresentationTurn(uiKey).slotOrdinal, null);
+    assert.deepEqual(getManagedResponseSlotsSnapshot(conversationId), []);
+
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 2, { public_chunk: "Visible" }),
     );
-
-    const [settling] = getManagedPresentationSnapshot(conversationId);
-    assert.equal(settling.phase, "finalizing");
-    assert.equal(settling.finalMessageId, "signed-final-message");
-
-    releaseManagedPresentationFinals(["different-message"]);
-    assert.equal(getManagedPresentationSnapshot(conversationId).length, 1);
-    releaseManagedPresentationFinals(["signed-final-message"]);
-    assert.deepEqual(getManagedPresentationSnapshot(conversationId), []);
+    flushManagedPresentationSchedulerForTests();
+    const activated = getManagedPresentationTurn(uiKey);
+    assert.ok(activated.anchorAt > 0);
+    assert.equal(activated.slotOrdinal, 0);
+    assert.equal(
+      getManagedResponseSlotsSnapshot(conversationId)[0].uiKey,
+      uiKey,
+    );
   });
 
-  it("reconciles the only resident row when receipt replacement races the signed final", () => {
-    const optimisticReceipt = "optimistic:directed-reply";
+  it("uses one global paint commit for eight resident backlogs", () => {
+    const residents = Array.from({ length: 8 }, (_, index) =>
+      index.toString(16).padStart(2, "0").repeat(32),
+    );
+    seedManagedPresentations(conversationId, receiptId, residents);
+    residents.forEach((pubkey, index) => {
+      ingestManagedPresentationFrame(
+        frame("turn_started", 1, {
+          resident_pubkey: pubkey,
+          turn_id: `turn-${index}`,
+        }),
+      );
+      ingestManagedPresentationFrame(
+        frame("public_chunk", 2, {
+          public_chunk: "abcdefgh",
+          resident_pubkey: pubkey,
+          turn_id: `turn-${index}`,
+        }),
+      );
+    });
+
+    flushManagedPresentationSchedulerForTests();
+    assert.equal(
+      getManagedPresentationSchedulerStatsForTests().paintCommits,
+      1,
+    );
+    for (const uiKey of getManagedPresentationTurnKeysSnapshot(
+      conversationId,
+    )) {
+      assert.equal(getManagedPresentationTurn(uiKey).visibleText, "ab");
+    }
+  });
+
+  it("notifies only the dirty row plus topology on first visibility", () => {
+    const secondPubkey = "33".repeat(32);
+    seedManagedPresentations(conversationId, receiptId, [
+      residentPubkey,
+      secondPubkey,
+    ]);
+    const [firstKey, secondKey] =
+      getManagedPresentationTurnKeysSnapshot(conversationId);
+    let firstChanges = 0;
+    let secondChanges = 0;
+    let topologyChanges = 0;
+    const disposeFirst = subscribeManagedPresentationTurn(firstKey, () => {
+      firstChanges += 1;
+    });
+    const disposeSecond = subscribeManagedPresentationTurn(secondKey, () => {
+      secondChanges += 1;
+    });
+    const disposeTopology = subscribeManagedPresentationTopology(
+      conversationId,
+      () => {
+        topologyChanges += 1;
+      },
+    );
+
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 2, { public_chunk: "Hello" }),
+    );
+    flushManagedPresentationSchedulerForTests();
+    assert.ok(firstChanges >= 2);
+    assert.equal(secondChanges, 0);
+    assert.equal(topologyChanges, 1);
+    disposeFirst();
+    disposeSecond();
+    disposeTopology();
+  });
+
+  it("keeps a stable uiKey when authenticated streaming wins the receipt race", () => {
+    const optimisticReceipt = "optimistic:message-1";
     seedManagedPresentations(conversationId, optimisticReceipt, [
       residentPubkey,
     ]);
+    const originalUiKey =
+      getManagedPresentationTurnKeysSnapshot(conversationId)[0];
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 2, { public_chunk: "Already streaming" }),
+    );
+    flushAll();
 
+    replaceManagedPresentationReceipt(optimisticReceipt, receiptId);
+    const keys = getManagedPresentationTurnKeysSnapshot(conversationId);
+    assert.deepEqual(keys, [originalUiKey]);
+    assert.equal(
+      getManagedPresentationTurn(originalUiKey).visibleText,
+      "Already streaming",
+    );
+    assert.equal(
+      getManagedPresentationTurn(originalUiKey).dispatchReceiptId,
+      receiptId,
+    );
+    assert.equal(getManagedPresentationTurn(originalUiKey).sessionEpoch, 7);
+  });
+
+  it("preserves visible partial text and discards unseen text on cancellation", () => {
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 2, { public_chunk: "Partial backlog" }),
+    );
+    flushManagedPresentationSchedulerForTests();
+    flushManagedPresentationSchedulerForTests();
+    assert.equal(turn().visibleText, "Part");
+
+    ingestManagedPresentationFrame(frame("cancelled", 3));
+    assert.equal(turn().phase, "stopped");
+    assert.equal(turn().visibleText, "Part");
+    assert.equal(turn().receivedText, "Part");
+    assert.equal(turn().bufferedText, "");
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 4, { public_chunk: "must stay discarded" }),
+    );
+    flushAll();
+    assert.equal(turn().visibleText, "Part");
+  });
+
+  it("preserves visible partial text on failure", () => {
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 2, { public_chunk: "Partial failure" }),
+    );
+    flushManagedPresentationSchedulerForTests();
+    flushManagedPresentationSchedulerForTests();
+    ingestManagedPresentationFrame(
+      frame("failed", 3, { failure: "publication" }),
+    );
+    assert.equal(turn().phase, "failed");
+    assert.equal(turn().failure, "publication");
+    assert.equal(turn().visibleText, "Part");
+  });
+
+  it("classifies exact signed reconciliation and retains the finalized turn", () => {
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 2, { public_chunk: "Stream" }),
+    );
+    flushAll();
+    const uiKey = turn().uiKey;
+    reconcileManagedPresentationFinal(
+      residentPubkey,
+      receiptId,
+      conversationId,
+      "signed-final-message",
+      "Stream plus signed suffix",
+    );
+    assert.equal(turn().uiKey, uiKey);
+    assert.equal(turn().finalReconciliation, "signed_extends_stream");
+    assert.equal(turn().finalMessageId, "signed-final-message");
+    flushAll();
+    assert.equal(turn().visibleText, "Stream plus signed suffix");
+
+    releaseManagedPresentationFinals(["signed-final-message"]);
+    assert.equal(turn().uiKey, uiKey);
+  });
+
+  it("classifies stream-longer and divergent signed finals without duplicating", () => {
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 2, { public_chunk: "Stream is longer" }),
+    );
+    flushAll();
+    reconcileManagedPresentationFinal(
+      residentPubkey,
+      receiptId,
+      conversationId,
+      "short-final",
+      "Stream",
+    );
+    assert.equal(turn().finalReconciliation, "stream_extends_signed");
+    assert.equal(turn().signedText, "Stream");
+    assert.equal(getManagedResponseSlotsSnapshot(conversationId).length, 1);
+
+    resetManagedPresentationStore();
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 2, { public_chunk: "Alpha" }),
+    );
+    flushAll();
+    reconcileManagedPresentationFinal(
+      residentPubkey,
+      receiptId,
+      conversationId,
+      "divergent-final",
+      "Omega",
+    );
+    assert.equal(turn().finalReconciliation, "divergent");
+  });
+
+  it("tombstones a signed final that arrives before the stream", () => {
+    completeManagedPresentation(residentPubkey, receiptId);
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    assert.deepEqual(
+      getManagedPresentationTurnKeysSnapshot(conversationId),
+      [],
+    );
+  });
+
+  it("reconciles only an unambiguous resident fallback", () => {
+    seedManagedPresentations(conversationId, "optimistic:one", [
+      residentPubkey,
+    ]);
     completeManagedPresentationForConversation(
       residentPubkey,
       receiptId,
       conversationId,
+      "signed-one",
+      "Final",
     );
+    assert.equal(turn().finalMessageId, "signed-one");
 
-    assert.deepEqual(getManagedPresentationSnapshot(conversationId), []);
-  });
-
-  it("does not guess between concurrent resident turns", () => {
+    resetManagedPresentationStore();
     seedManagedPresentations(conversationId, "optimistic:first", [
       residentPubkey,
     ]);
     seedManagedPresentations(conversationId, "optimistic:second", [
       residentPubkey,
     ]);
-
     completeManagedPresentationForConversation(
       residentPubkey,
       receiptId,
       conversationId,
+      "ambiguous",
+      "Final",
     );
-
-    assert.equal(getManagedPresentationSnapshot(conversationId).length, 2);
+    assert.equal(
+      getManagedPresentationTurnKeysSnapshot(conversationId).length,
+      2,
+    );
+    assert.ok(
+      getManagedPresentationTurnKeysSnapshot(conversationId).every(
+        (uiKey) => getManagedPresentationTurn(uiKey).finalMessageId === null,
+      ),
+    );
   });
 
-  it("preserves a stream that arrives before optimistic receipt reconciliation", async () => {
-    const optimisticReceipt = "optimistic:message-1";
-    seedManagedPresentations(conversationId, optimisticReceipt, [
-      residentPubkey,
-    ]);
-    ingestManagedPresentationFrame(frame("turn_started", 1));
-    ingestManagedPresentationFrame(
-      frame("public_chunk", 2, { public_chunk: "Already streaming" }),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    replaceManagedPresentationReceipt(optimisticReceipt, receiptId);
-
-    const rows = getManagedPresentationSnapshot(conversationId);
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0].dispatchReceiptId, receiptId);
-    assert.equal(rows[0].publicText, "Already streaming");
-    assert.equal(rows[0].sessionEpoch, 7);
+  it("marks overdue work as needs attention without synthesizing completion", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    const deadline = turn().deadlineAt;
+    expireManagedPresentationDeadlinesForTests(deadline);
+    assert.equal(turn().phase, "needs_attention");
+    assert.equal(turn().failure, "unavailable");
+    assert.equal(turn().finalMessageId, null);
+    assert.equal(getManagedResponseSlotsSnapshot(conversationId).length, 1);
   });
 
-  it("discards partial text on cancellation", async () => {
+  it("keeps the compatibility projection bounded to visible store state", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
     ingestManagedPresentationFrame(frame("turn_started", 1));
     ingestManagedPresentationFrame(
-      frame("public_chunk", 2, { public_chunk: "Partial" }),
+      frame("public_chunk", 2, { public_chunk: "Legacy" }),
     );
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    ingestManagedPresentationFrame(frame("cancelled", 3));
-    const [row] = getManagedPresentationSnapshot(conversationId);
-    assert.equal(row.phase, "cancelled");
-    assert.equal(row.publicText, "");
-    ingestManagedPresentationFrame(
-      frame("public_chunk", 4, { public_chunk: "must stay discarded" }),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    flushAll();
     assert.equal(
       getManagedPresentationSnapshot(conversationId)[0].publicText,
-      "",
+      "Legacy",
     );
   });
 });
