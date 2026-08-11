@@ -1,0 +1,45 @@
+version: 1
+baseline: 81762ad144368bd1b5f5e7f144fdd19a57466676
+branch: codex/communication-parity
+tasks:
+  - id: CP0
+    title: Frozen baseline and parity ledger
+    depends_on: []
+    owner: lead
+    checks: [ledger-validator, focused-messaging-baseline, native-hash-snapshot]
+  - id: CP1A
+    title: Protocol, authority, approval, and action outbox
+    depends_on: [CP0]
+    owner: lane-a
+    checks: [protocol-tests, authority-tests, outbox-recovery-tests]
+  - id: CP1B
+    title: Restricted Communications MCP and capability lifecycle
+    depends_on: [CP0, CP1A]
+    owner: lane-b
+    checks: [mcp-contract-tests, descendant-redaction-tests, private-cognition-denial]
+  - id: CP2
+    title: Broker publication and bounded causal activation
+    depends_on: [CP1A, CP1B]
+    owner: lead
+    checks: [broker-tests, relay-acceptance-tests, causal-budget-tests, cancellation-tests]
+  - id: CP3
+    title: Unified Inbox projection and presentation
+    depends_on: [CP0]
+    owner: lane-c
+    checks: [projection-tests, read-state-tests, inbox-browser-tests]
+  - id: CP4
+    title: Focused integrated regression and reviews
+    depends_on: [CP2, CP3]
+    owner: lead
+    checks: [rust-focused, frontend-unit, typecheck, build, playwright-focused, security-review]
+  - id: CP5
+    title: Complete source gate
+    depends_on: [CP4]
+    owner: lead
+    checks: [just-ci]
+  - id: CP6
+    title: Installed application gate
+    depends_on: [CP5]
+    owner: lead
+    checks: [signed-build, hermes-smoke, openclaw-smoke, native-no-write, privacy-scan]
+
