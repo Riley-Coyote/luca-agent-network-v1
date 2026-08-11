@@ -564,6 +564,42 @@ type RawHomeFeedResponse = {
   };
 };
 
+type RawOwnerNativeInboxPresentationItem = {
+  source_event_id: string;
+  kind: number;
+  author_pubkey: string;
+  content: string;
+  created_at: number;
+  channel_id: string;
+  channel_name: string;
+  channel_type: "direct" | "room";
+  structural_tags: string[][];
+  categories: Array<"direct" | "agents">;
+};
+
+type RawOwnerNativeInboxResponse = {
+  projection: {
+    protocol: "luca.inbox.projection.v1";
+    projection_id: string;
+    owner_pubkey: string;
+    viewer_pubkey: string;
+    category: "all";
+    generated_at: string;
+    items: Array<Record<string, unknown>>;
+    has_more: false;
+  };
+  presentation_items: RawOwnerNativeInboxPresentationItem[];
+  sources: Array<{
+    source:
+      | "conversation_membership"
+      | "direct_messages"
+      | "managed_agent_messages"
+      | "read_state";
+    availability: "ready" | "empty" | "degraded" | "unavailable";
+    diagnostic_code?: string;
+  }>;
+};
+
 type RawThreadSummary = {
   reply_count: number;
   descendant_count: number;
@@ -3183,6 +3219,178 @@ function getManagedAgentRelayMembership(pubkey: string) {
   return {
     channelIds: memberships.map((channel) => channel.id),
     channels: memberships.map((channel) => channel.name),
+  };
+}
+
+const MOCK_NATIVE_INBOX_GENERATED_AT = "2026-08-11T18:00:00.000Z";
+const MOCK_NATIVE_INBOX_DIRECT_CREATED_AT = Math.floor(
+  Date.parse("2026-08-11T17:58:00.000Z") / 1000,
+);
+const MOCK_NATIVE_INBOX_AGENT_CREATED_AT = Math.floor(
+  Date.parse("2026-08-11T17:59:00.000Z") / 1000,
+);
+
+/**
+ * Deterministic mirror of the trusted owner Inbox command.
+ *
+ * The fixture projects only exact mock memberships and locally managed agents.
+ * It never starts a resident, mutates a conversation, or invents a source when
+ * the mock bridge has no corresponding authority record.
+ */
+function handleGetLucaOwnerInbox(
+  args: { since?: number; limit?: number },
+  config: E2eConfig | undefined,
+): RawOwnerNativeInboxResponse {
+  const ownerPubkey = getMockMemberPubkey(config).toLowerCase();
+  const admitted: RawOwnerNativeInboxPresentationItem[] = [];
+  const authorizedConversations = mockChannels.filter((channel) =>
+    channel.members.some(
+      (member) => member.pubkey.toLowerCase() === ownerPubkey,
+    ),
+  );
+  const directChannel = authorizedConversations
+    .filter((channel) => channel.channel_type === "dm")
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .find((channel) =>
+      channel.members.some(
+        (member) => member.pubkey.toLowerCase() !== ownerPubkey,
+      ),
+    );
+
+  if (directChannel) {
+    const authorPubkey = directChannel.members
+      .map((member) => member.pubkey.toLowerCase())
+      .find((pubkey) => pubkey !== ownerPubkey);
+    if (authorPubkey) {
+      admitted.push({
+        source_event_id: "1".repeat(64),
+        kind: 9,
+        author_pubkey: authorPubkey,
+        content: "A private update is waiting in this conversation.",
+        created_at: MOCK_NATIVE_INBOX_DIRECT_CREATED_AT,
+        channel_id: directChannel.id,
+        channel_name: directChannel.name,
+        channel_type: "direct",
+        structural_tags: [
+          ["h", directChannel.id],
+          ["p", ownerPubkey],
+        ],
+        categories: ["direct"],
+      });
+    }
+  }
+
+  const managedRoom = mockManagedAgents
+    .slice()
+    .sort((left, right) => left.pubkey.localeCompare(right.pubkey))
+    .map((agent) => {
+      const memberships = getManagedAgentRelayMembership(agent.pubkey);
+      const channel = authorizedConversations
+        .filter((candidate) => candidate.channel_type !== "dm")
+        .sort((left, right) => left.id.localeCompare(right.id))
+        .find((candidate) => memberships.channelIds.includes(candidate.id));
+      return channel ? { agent, channel } : null;
+    })
+    .find(
+      (
+        candidate,
+      ): candidate is { agent: MockManagedAgent; channel: MockChannel } =>
+        candidate !== null,
+    );
+
+  if (managedRoom) {
+    admitted.push({
+      source_event_id: "2".repeat(64),
+      kind: 9,
+      author_pubkey: managedRoom.agent.pubkey.toLowerCase(),
+      content: `${managedRoom.agent.name} reporting in.`,
+      created_at: MOCK_NATIVE_INBOX_AGENT_CREATED_AT,
+      channel_id: managedRoom.channel.id,
+      channel_name: managedRoom.channel.name,
+      channel_type: "room",
+      structural_tags: [
+        ["h", managedRoom.channel.id],
+        ["p", ownerPubkey],
+      ],
+      categories: ["agents"],
+    });
+  }
+
+  const since = Math.max(0, args.since ?? 0);
+  const limit = Math.min(Math.max(args.limit ?? 100, 1), 500);
+  const presentationItems = admitted
+    .filter((item) => item.created_at >= since)
+    .sort(
+      (left, right) =>
+        right.created_at - left.created_at ||
+        right.source_event_id.localeCompare(left.source_event_id),
+    )
+    .slice(0, limit);
+  const directCount = presentationItems.filter((item) =>
+    item.categories.includes("direct"),
+  ).length;
+  const agentCount = presentationItems.filter((item) =>
+    item.categories.includes("agents"),
+  ).length;
+  const projectionItems = presentationItems
+    .map((item) => {
+      const primaryCategory = item.categories[0];
+      const itemId = `mock-inbox:${primaryCategory}:${item.source_event_id}`;
+      return {
+        protocol: "luca.inbox.item.v1",
+        item_id: itemId,
+        owner_pubkey: ownerPubkey,
+        viewer_pubkey: ownerPubkey,
+        recipient_pubkeys: [
+          ...new Set([ownerPubkey, item.author_pubkey.toLowerCase()]),
+        ].sort(),
+        kind: primaryCategory === "direct" ? "direct_message" : "agent_message",
+        primary_category: primaryCategory,
+        categories: ["all", primaryCategory],
+        conversation_id: item.channel_id,
+        source_event_id: item.source_event_id,
+        preview: item.content,
+        occurred_at: new Date(item.created_at * 1000).toISOString(),
+        unread: false,
+        acknowledged: false,
+        handled: false,
+        muted: false,
+        requires_action: false,
+      };
+    })
+    .sort((left, right) => left.item_id.localeCompare(right.item_id));
+
+  return {
+    projection: {
+      protocol: "luca.inbox.projection.v1",
+      projection_id: `mock-owner-inbox:${ownerPubkey}`,
+      owner_pubkey: ownerPubkey,
+      viewer_pubkey: ownerPubkey,
+      category: "all",
+      generated_at: MOCK_NATIVE_INBOX_GENERATED_AT,
+      items: projectionItems,
+      has_more: false,
+    },
+    presentation_items: presentationItems,
+    sources: [
+      {
+        source: "conversation_membership",
+        availability: authorizedConversations.length > 0 ? "ready" : "empty",
+      },
+      {
+        source: "direct_messages",
+        availability: directCount > 0 ? "ready" : "empty",
+      },
+      {
+        source: "managed_agent_messages",
+        availability: agentCount > 0 ? "ready" : "empty",
+      },
+      {
+        source: "read_state",
+        availability: "ready",
+        diagnostic_code: "frontend_read_state_authority",
+      },
+    ],
   };
 }
 
@@ -10790,6 +10998,11 @@ export function maybeInstallE2eTauriMocks() {
       case "get_feed":
         return handleGetFeed(
           (payload as Parameters<typeof handleGetFeed>[0]) ?? {},
+          activeConfig,
+        );
+      case "get_luca_owner_inbox":
+        return handleGetLucaOwnerInbox(
+          (payload as Parameters<typeof handleGetLucaOwnerInbox>[0]) ?? {},
           activeConfig,
         );
       case "list_relay_agents":
