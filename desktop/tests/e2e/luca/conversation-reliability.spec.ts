@@ -157,9 +157,9 @@ async function emitSignedFinal(
   content: string,
   causalParentEventId = receiptId,
 ) {
-  await page.evaluate(
+  return page.evaluate(
     ({ dispatchReceiptId, parentEventId, pubkey, text }) => {
-      window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+      return window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
         channelName: "general",
         content: text,
         parentEventId,
