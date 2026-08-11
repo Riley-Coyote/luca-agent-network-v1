@@ -67,9 +67,12 @@ fn key(frame: &ManagedPresentationFrameV1) -> TurnKey {
     )
 }
 
-/// Record or revoke authority after the presentation gate has accepted the
-/// exact frame. Callers must never invoke this before durable dispatch
-/// authorization and presentation sequence validation succeed.
+/// Reserve or revoke process-local authority after the presentation sequence
+/// gate accepts the exact frame. A `turn_started` reservation is deliberately
+/// created before durable dispatch binding so registry capacity/conflicts can
+/// fail without mutating durable state. It is unusable on its own: every broker
+/// action also requires the matching durable Active dispatch, and callers must
+/// revoke the reservation if that binding or its final recheck fails.
 pub(crate) fn observe_accepted_frame(
     frame: &ManagedPresentationFrameV1,
 ) -> Result<(), CommunicationTurnAuthorizationError> {

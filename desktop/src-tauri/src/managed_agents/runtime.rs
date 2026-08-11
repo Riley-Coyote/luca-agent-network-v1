@@ -146,6 +146,9 @@ fn join_managed_signing_broker(resident_pubkey: &str) -> Result<(), String> {
     crate::luca::communication_turn_registry::clear_resident(resident_pubkey);
     #[cfg(unix)]
     let repository_result = crate::luca::repository_bridge::stop_repository_broker(resident_pubkey);
+    #[cfg(unix)]
+    let communications_result =
+        crate::luca::communication_bridge::stop_communication_broker(resident_pubkey);
     crate::luca::managed_cognition::unregister(resident_pubkey);
     managed_capsule_brokers()
         .lock()
@@ -167,6 +170,8 @@ fn join_managed_signing_broker(resident_pubkey: &str) -> Result<(), String> {
     }
     #[cfg(unix)]
     repository_result?;
+    #[cfg(unix)]
+    communications_result?;
     Ok(())
 }
 

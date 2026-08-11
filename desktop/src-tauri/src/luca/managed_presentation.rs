@@ -206,6 +206,42 @@ fn serve(
                     );
                     continue;
                 }
+
+                // Cancellation or runtime replacement can win while the
+                // durable Pending -> Active transition is being persisted.
+                // Recheck both authorities after that transition and before
+                // making the start frame visible to the UI. The broker still
+                // performs the same dual recheck for every privileged action;
+                // this closes the corresponding stale-presentation window.
+                let active = super::communication_turn_registry::authorize(
+                    frame.resident_pubkey.as_str(),
+                    frame.session_epoch.get(),
+                    frame.conversation_id.as_str(),
+                    frame.turn_id.as_str(),
+                    frame.dispatch_receipt_id.as_str(),
+                )
+                .is_ok();
+                let durable = dispatch_store.lock().is_ok_and(|store| {
+                    store
+                        .recheck_communication_turn(
+                            frame.dispatch_receipt_id.as_str(),
+                            frame.resident_pubkey.as_str(),
+                            frame.conversation_id.as_str(),
+                            frame.session_epoch.get(),
+                            now,
+                        )
+                        .is_ok()
+                });
+                if !active || !durable {
+                    super::communication_turn_registry::revoke_exact(
+                        frame.resident_pubkey.as_str(),
+                        frame.session_epoch.get(),
+                        frame.conversation_id.as_str(),
+                        frame.turn_id.as_str(),
+                        frame.dispatch_receipt_id.as_str(),
+                    );
+                    continue;
+                }
             }
             ManagedPresentationKindV1::Completed
             | ManagedPresentationKindV1::Cancelled
