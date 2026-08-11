@@ -12,7 +12,7 @@ import "./managedResponseRow.css";
 
 type ManagedResponseRowProps = Omit<
   React.ComponentProps<typeof MessageRow>,
-  "message" | "playEntrance"
+  "collapseLongBody" | "message" | "playEntrance"
 > & {
   message: TimelineMessage;
 };
@@ -128,7 +128,12 @@ function SubscribedManagedResponseRow({
   );
 
   return (
-    <MessageRow {...rowProps} message={hydratedMessage} playEntrance={false} />
+    <MessageRow
+      {...rowProps}
+      collapseLongBody={false}
+      message={hydratedMessage}
+      playEntrance={false}
+    />
   );
 }
 
@@ -142,7 +147,14 @@ export const ManagedResponseRow = React.memo(function ManagedResponseRow({
 }: ManagedResponseRowProps) {
   const uiKey = message.managedPresentation?.uiKey;
   if (!uiKey) {
-    return <MessageRow {...rowProps} message={message} playEntrance={false} />;
+    return (
+      <MessageRow
+        {...rowProps}
+        collapseLongBody={false}
+        message={message}
+        playEntrance={false}
+      />
+    );
   }
   return (
     <SubscribedManagedResponseRow

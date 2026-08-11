@@ -96,6 +96,7 @@ export const MessageRow = React.memo(
     profiles,
     searchQuery,
     quotedParent = null,
+    collapseLongBody = true,
     residentMarksEnabled = true,
     showDepthGuides = true,
     videoReviewContext,
@@ -153,6 +154,7 @@ export const MessageRow = React.memo(
       body: string;
       resolved: boolean;
     } | null;
+    collapseLongBody?: boolean;
     residentMarksEnabled?: boolean;
     showDepthGuides?: boolean;
     videoReviewContext?: VideoReviewContext;
@@ -547,10 +549,10 @@ export const MessageRow = React.memo(
             resolved={quotedParent.resolved}
           />
         ) : null}
-        {message.managedPresentation ? (
-          renderBody()
-        ) : (
+        {collapseLongBody ? (
           <CollapsibleMessageBody>{renderBody()}</CollapsibleMessageBody>
+        ) : (
+          renderBody()
         )}
         {managedStatusNode}
         {continuationMetadataNode}
@@ -865,6 +867,7 @@ export const MessageRow = React.memo(
       prev.collapseDepthGuideActions,
       next.collapseDepthGuideActions,
     ) &&
+    prev.collapseLongBody === next.collapseLongBody &&
     prev.collapseDescendantsLabel === next.collapseDescendantsLabel &&
     prev.connectDescendants === next.connectDescendants &&
     numberArrayEqual(prev.depthGuideDepths, next.depthGuideDepths) &&
