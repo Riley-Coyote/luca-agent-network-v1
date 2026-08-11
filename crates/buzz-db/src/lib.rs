@@ -60,7 +60,10 @@ pub use event::{EventQuery, ReactionEventInsertOutcome};
 pub enum MembershipSnapshotGuardedInsertOutcome {
     /// The snapshot was still current and the event transaction committed.
     Inserted {
+        /// Canonical stored event returned by the committed transaction.
         stored_event: StoredEvent,
+        /// Whether this transaction inserted a new row rather than observing
+        /// an exact idempotent duplicate.
         was_inserted: bool,
     },
     /// The expected snapshot is no longer the current relay-signed snapshot
@@ -1482,7 +1485,8 @@ impl Db {
         tx.commit().await?;
 
         if was_inserted {
-            if let Err(e) = insert_mentions(&self.pool, community_id, event, Some(channel_id)).await {
+            if let Err(e) = insert_mentions(&self.pool, community_id, event, Some(channel_id)).await
+            {
                 tracing::warn!(event_id = %event.id, "Failed to insert mentions: {e}");
             }
         }
@@ -4018,7 +4022,10 @@ mod tests {
     //! helper ever started returning a default/zero entry for unknown
     //! channels, that fail-closed chain would go blind.
     use super::*;
-    use buzz_core::{channel::{ChannelType, ChannelVisibility}, CommunityId};
+    use buzz_core::{
+        channel::{ChannelType, ChannelVisibility},
+        CommunityId,
+    };
     use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
     use sqlx::postgres::PgPoolOptions;
     use sqlx::{Acquire, PgPool};
@@ -4049,7 +4056,8 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires Postgres"]
-    async fn kind9_expected_membership_snapshot_guard_matches_then_rejects_changed_or_wrong_channel() {
+    async fn kind9_expected_membership_snapshot_guard_matches_then_rejects_changed_or_wrong_channel(
+    ) {
         let db = setup_db().await;
         let community = CommunityId::from_uuid(make_community(&db.pool).await);
         let relay = Keys::generate();
@@ -4082,7 +4090,9 @@ mod tests {
 
         let snapshot = |channel_id: Uuid, timestamp: u64| {
             EventBuilder::new(Kind::Custom(39002), "")
-                .tags(vec![Tag::parse(["d", &channel_id.to_string()]).expect("d tag")])
+                .tags(vec![
+                    Tag::parse(["d", &channel_id.to_string()]).expect("d tag")
+                ])
                 .custom_created_at(Timestamp::from(timestamp))
                 .sign_with_keys(&relay)
                 .expect("sign snapshot")
@@ -4093,7 +4103,9 @@ mod tests {
             .expect("store snapshot a");
         let message = |channel_id: Uuid, content: &str| {
             EventBuilder::new(Kind::Custom(9), content)
-                .tags(vec![Tag::parse(["h", &channel_id.to_string()]).expect("h tag")])
+                .tags(vec![
+                    Tag::parse(["h", &channel_id.to_string()]).expect("h tag")
+                ])
                 .sign_with_keys(&author)
                 .expect("sign message")
         };

@@ -12,30 +12,28 @@ use uuid::Uuid;
 use buzz_auth::Scope;
 use buzz_core::kind::{
     event_kind_u32, is_identity_archive_request_kind, is_parameterized_replaceable,
-    is_relay_admin_kind, KIND_AGENT_ENGRAM, KIND_AGENT_PROFILE, KIND_AGENT_TURN_METRIC,
-    KIND_APPROVAL_DENY, KIND_APPROVAL_GRANT, KIND_AUTH, KIND_BOOKMARK_LIST, KIND_BOOKMARK_SET,
-    KIND_CANVAS, KIND_CONTACT_LIST, KIND_DELETION, KIND_DM_ADD_MEMBER, KIND_DM_HIDE, KIND_DM_OPEN,
-    KIND_EMOJI_LIST, KIND_EMOJI_SET, KIND_EVENT_REMINDER, KIND_FOLLOW_SET, KIND_FORUM_COMMENT,
-    KIND_FORUM_POST, KIND_FORUM_VOTE, KIND_GIFT_WRAP, KIND_GIT_ISSUE, KIND_GIT_PATCH,
-    KIND_GIT_PR_UPDATE, KIND_GIT_PULL_REQUEST, KIND_GIT_REPO_ANNOUNCEMENT, KIND_GIT_REPO_STATE,
-    KIND_GIT_STATUS_CLOSED, KIND_GIT_STATUS_DRAFT, KIND_GIT_STATUS_MERGED, KIND_GIT_STATUS_OPEN,
-    KIND_HUDDLE_ENDED, KIND_HUDDLE_GUIDELINES, KIND_HUDDLE_PARTICIPANT_JOINED,
-    KIND_HUDDLE_PARTICIPANT_LEFT, KIND_HUDDLE_STARTED, KIND_IA_ARCHIVE_REQUEST,
-    KIND_IA_UNARCHIVE_REQUEST, KIND_LONG_FORM, KIND_MANAGED_AGENT, KIND_MEMBER_ADDED_NOTIFICATION,
-    KIND_MEMBER_REMOVED_NOTIFICATION, KIND_MODERATION_BAN, KIND_MODERATION_RESOLVE_REPORT,
-    KIND_MODERATION_TIMEOUT, KIND_MODERATION_UNBAN, KIND_MODERATION_UNTIMEOUT, KIND_MUTE_LIST,
-    KIND_NIP29_CREATE_GROUP, KIND_NIP29_DELETE_EVENT, KIND_NIP29_DELETE_GROUP,
-    KIND_NIP29_EDIT_METADATA, KIND_NIP29_JOIN_REQUEST, KIND_NIP29_LEAVE_REQUEST,
-    KIND_NIP29_PUT_USER, KIND_NIP29_REMOVE_USER, KIND_NIP43_LEAVE_REQUEST,
-    KIND_NIP65_RELAY_LIST_METADATA, KIND_PERSONA, KIND_PIN_LIST, KIND_PRESENCE_UPDATE,
-    KIND_PRODUCT_FEEDBACK, KIND_PROFILE, KIND_REACTION, KIND_READ_STATE, KIND_REPORT,
-    KIND_STREAM_MESSAGE, KIND_STREAM_MESSAGE_BOOKMARKED, KIND_STREAM_MESSAGE_DIFF,
+    is_relay_admin_kind, EXPECTED_MEMBERSHIP_SNAPSHOT_VERSION, KIND_AGENT_ENGRAM,
+    KIND_AGENT_PROFILE, KIND_AGENT_TURN_METRIC, KIND_APPROVAL_DENY, KIND_APPROVAL_GRANT, KIND_AUTH,
+    KIND_BOOKMARK_LIST, KIND_BOOKMARK_SET, KIND_CANVAS, KIND_CONTACT_LIST, KIND_DELETION,
+    KIND_DM_ADD_MEMBER, KIND_DM_HIDE, KIND_DM_OPEN, KIND_EMOJI_LIST, KIND_EMOJI_SET,
+    KIND_EVENT_REMINDER, KIND_FOLLOW_SET, KIND_FORUM_COMMENT, KIND_FORUM_POST, KIND_FORUM_VOTE,
+    KIND_GIFT_WRAP, KIND_GIT_ISSUE, KIND_GIT_PATCH, KIND_GIT_PR_UPDATE, KIND_GIT_PULL_REQUEST,
+    KIND_GIT_REPO_ANNOUNCEMENT, KIND_GIT_REPO_STATE, KIND_GIT_STATUS_CLOSED, KIND_GIT_STATUS_DRAFT,
+    KIND_GIT_STATUS_MERGED, KIND_GIT_STATUS_OPEN, KIND_HUDDLE_ENDED, KIND_HUDDLE_GUIDELINES,
+    KIND_HUDDLE_PARTICIPANT_JOINED, KIND_HUDDLE_PARTICIPANT_LEFT, KIND_HUDDLE_STARTED,
+    KIND_IA_ARCHIVE_REQUEST, KIND_IA_UNARCHIVE_REQUEST, KIND_LONG_FORM, KIND_MANAGED_AGENT,
+    KIND_MEMBER_ADDED_NOTIFICATION, KIND_MEMBER_REMOVED_NOTIFICATION, KIND_MODERATION_BAN,
+    KIND_MODERATION_RESOLVE_REPORT, KIND_MODERATION_TIMEOUT, KIND_MODERATION_UNBAN,
+    KIND_MODERATION_UNTIMEOUT, KIND_MUTE_LIST, KIND_NIP29_CREATE_GROUP, KIND_NIP29_DELETE_EVENT,
+    KIND_NIP29_DELETE_GROUP, KIND_NIP29_EDIT_METADATA, KIND_NIP29_JOIN_REQUEST,
+    KIND_NIP29_LEAVE_REQUEST, KIND_NIP29_PUT_USER, KIND_NIP29_REMOVE_USER,
+    KIND_NIP43_LEAVE_REQUEST, KIND_NIP65_RELAY_LIST_METADATA, KIND_PERSONA, KIND_PIN_LIST,
+    KIND_PRESENCE_UPDATE, KIND_PRODUCT_FEEDBACK, KIND_PROFILE, KIND_REACTION, KIND_READ_STATE,
+    KIND_REPORT, KIND_STREAM_MESSAGE, KIND_STREAM_MESSAGE_BOOKMARKED, KIND_STREAM_MESSAGE_DIFF,
     KIND_STREAM_MESSAGE_EDIT, KIND_STREAM_MESSAGE_PINNED, KIND_STREAM_MESSAGE_SCHEDULED,
     KIND_STREAM_MESSAGE_V2, KIND_STREAM_REMINDER, KIND_TEAM, KIND_TEXT_NOTE, KIND_USER_STATUS,
-    KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER, EXPECTED_MEMBERSHIP_SNAPSHOT_VERSION,
-    RELAY_ADMIN_ADD_MEMBER, RELAY_ADMIN_CHANGE_ROLE,
-    RELAY_ADMIN_REMOVE_MEMBER, RELAY_ADMIN_SET_WORKSPACE_PROFILE,
-    TAG_EXPECTED_MEMBERSHIP_SNAPSHOT,
+    KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER, RELAY_ADMIN_ADD_MEMBER, RELAY_ADMIN_CHANGE_ROLE,
+    RELAY_ADMIN_REMOVE_MEMBER, RELAY_ADMIN_SET_WORKSPACE_PROFILE, TAG_EXPECTED_MEMBERSHIP_SNAPSHOT,
 };
 use buzz_core::tenant::TenantContext;
 use buzz_core::verification::verify_event;
@@ -342,17 +340,29 @@ fn expected_membership_snapshot_id(event: &Event) -> Result<Option<[u8; 32]>, In
     let parts = tags[0].as_slice();
     if parts.len() != 3 || parts[1] != EXPECTED_MEMBERSHIP_SNAPSHOT_VERSION {
         return Err(IngestError::Rejected(
-            "invalid: expected_membership tag must be [expected_membership, v1, <event-id>]"
-                .into(),
+            "invalid: expected_membership tag must be [expected_membership, v1, <event-id>]".into(),
         ));
     }
     let decoded = hex::decode(&parts[2]).map_err(|_| {
-        IngestError::Rejected("invalid: expected_membership snapshot id must be 64 hex characters".into())
+        IngestError::Rejected(
+            "invalid: expected_membership snapshot id must be 64 hex characters".into(),
+        )
     })?;
     let snapshot_id: [u8; 32] = decoded.try_into().map_err(|_| {
-        IngestError::Rejected("invalid: expected_membership snapshot id must be 64 hex characters".into())
+        IngestError::Rejected(
+            "invalid: expected_membership snapshot id must be 64 hex characters".into(),
+        )
     })?;
     Ok(Some(snapshot_id))
+}
+
+fn map_event_insert_error(error: buzz_db::DbError) -> IngestError {
+    match error {
+        buzz_db::DbError::AuthEventRejected => {
+            IngestError::Rejected("invalid: AUTH events cannot be stored".into())
+        }
+        other => IngestError::Internal(format!("error: database error: {other}")),
+    }
 }
 
 /// Result of resolving a reaction's target channel.
@@ -2431,7 +2441,11 @@ async fn ingest_event_inner(
     } else {
         let thread_params = thread_meta.as_ref().map(|m| m.as_params());
         let insert_result = if let Some(expected_snapshot_id) = expected_membership_snapshot {
-            let ch_id = channel_id.expect("kind:9 expected_membership requires h channel scope");
+            let Some(ch_id) = channel_id else {
+                return Err(IngestError::Rejected(
+                    "invalid: expected_membership requires kind:9 channel scope".into(),
+                ));
+            };
             match state
                 .db
                 .insert_event_if_membership_snapshot_matches(
@@ -2443,7 +2457,7 @@ async fn ingest_event_inner(
                     thread_params,
                 )
                 .await
-                .map_err(|e| IngestError::Internal(format!("error: database error: {e}")))?
+                .map_err(map_event_insert_error)?
             {
                 buzz_db::MembershipSnapshotGuardedInsertOutcome::Inserted {
                     stored_event,
@@ -2466,7 +2480,7 @@ async fn ingest_event_inner(
                     thread_params,
                 )
                 .await
-                .map_err(|e| IngestError::Internal(format!("error: database error: {e}")))
+                .map_err(map_event_insert_error)
         };
         match insert_result {
             Ok(result) => result,
@@ -3135,15 +3149,13 @@ mod tests {
         let event = make_event_with_tags(
             KIND_STREAM_MESSAGE,
             "guarded",
-            &[&[
-                TAG_EXPECTED_MEMBERSHIP_SNAPSHOT,
-                "v2",
-                "not-an-event-id",
-            ]],
+            &[&[TAG_EXPECTED_MEMBERSHIP_SNAPSHOT, "v2", "not-an-event-id"]],
         );
 
         let err = expected_membership_snapshot_id(&event).expect_err("version must be frozen");
-        assert!(matches!(err, IngestError::Rejected(message) if message.contains("expected_membership")));
+        assert!(
+            matches!(err, IngestError::Rejected(message) if message.contains("expected_membership"))
+        );
     }
 
     fn make_dummy_event() -> Event {
