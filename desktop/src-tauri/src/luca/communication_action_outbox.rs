@@ -187,7 +187,6 @@ struct StoredCommunicationActionTombstone {
     sealed_event_handle_sha256: Hex64,
     /// Retained only until the corresponding vault ciphertext is deleted.
     /// This encrypted, private field is never returned in a replay receipt.
-    #[serde(default)]
     cleanup_pending_handle: Option<OpaqueId>,
     request_expires_at: CanonicalTimestamp,
     receipt: CommunicationActionOutboxReceipt,
@@ -874,7 +873,10 @@ impl CommunicationActionOutbox {
 
     fn prune_expired_tombstones(&mut self, now: &CanonicalTimestamp) {
         self.tombstones
-            .retain(|_, tombstone| tombstone.request_expires_at.as_str() >= now.as_str());
+            .retain(|_, tombstone| {
+                tombstone.cleanup_pending_handle.is_some()
+                    || tombstone.request_expires_at.as_str() >= now.as_str()
+            });
     }
 
     fn persist(&self) -> Result<(), CommunicationActionOutboxError> {
@@ -1042,11 +1044,7 @@ fn tombstone_for(
         created_order: stored.created_order,
         request_sha256: stored.request_sha256.clone(),
         sealed_event_handle_sha256: sealed_handle_sha256(&terminal_row.sealed_event_handle)?,
-        cleanup_pending_handle: matches!(
-            receipt.state,
-            CommunicationActionOutboxStateV1::Accepted | CommunicationActionOutboxStateV1::Rejected
-        )
-        .then(|| terminal_row.sealed_event_handle.clone()),
+        cleanup_pending_handle: Some(terminal_row.sealed_event_handle.clone()),
         request_expires_at: terminal_row.request.expires_at.clone(),
         receipt,
         terminal_at: terminal_row
@@ -1063,7 +1061,10 @@ fn tombstone_fields_are_consistent(tombstone: &StoredCommunicationActionTombston
     if let Some(handle) = &tombstone.cleanup_pending_handle {
         if !matches!(
             tombstone.receipt.state,
-            CommunicationActionOutboxStateV1::Accepted | CommunicationActionOutboxStateV1::Rejected
+            CommunicationActionOutboxStateV1::Accepted
+                | CommunicationActionOutboxStateV1::Rejected
+                | CommunicationActionOutboxStateV1::Failed
+                | CommunicationActionOutboxStateV1::Cancelled
         ) || sealed_handle_sha256(handle).ok().as_ref() != Some(&tombstone.sealed_event_handle_sha256)
         {
             return false;
@@ -1093,7 +1094,13 @@ fn terminal_cleanup_from_tombstone(
 ) -> Option<CommunicationActionTerminalCleanup> {
     let terminal = tombstone.receipt.state;
     let sealed_event_handle = tombstone.cleanup_pending_handle.clone()?;
-    if !matches!(terminal, CommunicationActionOutboxStateV1::Accepted | CommunicationActionOutboxStateV1::Rejected)
+    if !matches!(
+        terminal,
+        CommunicationActionOutboxStateV1::Accepted
+            | CommunicationActionOutboxStateV1::Rejected
+            | CommunicationActionOutboxStateV1::Failed
+            | CommunicationActionOutboxStateV1::Cancelled
+    )
         || tombstone.sealed_event_handle_sha256 != sealed_handle_sha256(&sealed_event_handle).ok()?
     {
         return None;

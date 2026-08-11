@@ -208,8 +208,8 @@ impl CommunicationEventVault {
             )?);
             return Ok(SealedCommunicationEvent {
                 handle,
-                event_id: stored.event_id,
-                event_sha256: stored.event_sha256,
+                event_id: stored.event_id.clone(),
+                event_sha256: stored.event_sha256.clone(),
             });
         }
         let candidate = candidate_signed_event_json.ok_or(CommunicationEventVaultError::NotFound)?;
@@ -393,14 +393,11 @@ fn canonical_signed_event(
     if signed_event_json.len() > MAX_EVENT_PLAINTEXT_BYTES {
         return Err(CommunicationEventVaultError::Invalid);
     }
-    let value: serde_json::Value = serde_json::from_str(signed_event_json)
-        .map_err(|_| CommunicationEventVaultError::Invalid)?;
-    let canonical = canonicalize(&value).map_err(|_| CommunicationEventVaultError::Invalid)?;
-    let canonical = Zeroizing::new(
-        String::from_utf8(canonical).map_err(|_| CommunicationEventVaultError::Invalid)?,
-    );
-    parse_verified_event(canonical.as_str(), resident_pubkey)?;
-    Ok(canonical)
+    // Nostr's JSON representation has a stable field order.  Do not apply
+    // generic object-key canonicalization here: that would change the exact
+    // signed byte representation retained across seal/recovery.
+    let event = parse_verified_event(signed_event_json, resident_pubkey)?;
+    Ok(Zeroizing::new(event.as_json()))
 }
 
 fn parse_verified_event(

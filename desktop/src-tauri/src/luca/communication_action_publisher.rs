@@ -37,7 +37,6 @@ use super::{
     },
     communication_event_vault::{
         CommunicationEventVault, CommunicationEventVaultError, CommunicationEventVaultTerminal,
-        SealedCommunicationEvent,
     },
 };
 
@@ -428,16 +427,10 @@ impl ExistingConversationPublisher {
                     .outbox
                     .fail_before_submission(&request.idempotency_key, now_timestamp()?)
                     .map_err(|_| CommunicationPublicationError::Persistence)?;
-                stores
-                    .vault
-                    .delete_after_terminal(
-                        &row.sealed_event_handle,
-                        &request,
-                        &row.expected_event_id,
-                        &row.exact_event_sha256,
-                        CommunicationEventVaultTerminal::NeverSubmitted,
-                    )
-                    .map_err(|_| CommunicationPublicationError::Persistence)?;
+                let cleanup = stores.outbox.terminal_cleanup_for_request(&request)
+                    .map_err(|_| CommunicationPublicationError::Persistence)?
+                    .ok_or(CommunicationPublicationError::Persistence)?;
+                cleanup_terminal_event(&mut stores, cleanup)?;
             }
             self.stores
                 .lock()
@@ -936,6 +929,9 @@ fn cleanup_terminal_event(
     let terminal = match cleanup.terminal {
         CommunicationActionOutboxStateV1::Accepted => CommunicationEventVaultTerminal::AcceptedAndFinalized,
         CommunicationActionOutboxStateV1::Rejected => CommunicationEventVaultTerminal::ExplicitlyRejected,
+        CommunicationActionOutboxStateV1::Failed | CommunicationActionOutboxStateV1::Cancelled => {
+            CommunicationEventVaultTerminal::NeverSubmitted
+        }
         _ => return Err(CommunicationPublicationError::Persistence),
     };
     stores.vault.delete_terminal_cleanup(

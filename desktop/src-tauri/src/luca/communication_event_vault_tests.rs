@@ -6,7 +6,7 @@ use luca_protocol::{
     CommunicationOperationV1, Hex64, OpaqueArtifactHandleV1, OpaqueId, SafeU53, Sha256Ref,
     COMMUNICATION_ACTION_PROTOCOL,
 };
-use nostr::{EventBuilder, JsonUtil, Keys, Kind, Tag, Timestamp};
+use nostr::{Event, EventBuilder, JsonUtil, Keys, Kind, Tag, Timestamp};
 
 use super::{
     CommunicationEventVault, CommunicationEventVaultError, CommunicationEventVaultTerminal,
@@ -221,6 +221,19 @@ fn seal_or_recover_reuses_the_frozen_event_without_a_replacement_signature() {
         .seal_or_recover(&request, None)
         .expect("recover committed slot");
     assert_eq!(recovered, sealed);
+    assert_eq!(
+        vault
+            .load_exact(
+                &recovered.handle,
+                &request,
+                &recovered.event_id,
+                &recovered.event_sha256,
+            )
+            .expect("load recovered bytes")
+            .as_str(),
+        Event::from_json(&original).expect("parse original").as_json(),
+        "recovery must retain nostr's stable signed-event bytes"
+    );
 
     let replacement = signed_at(
         &keys,
