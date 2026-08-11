@@ -1,7 +1,11 @@
 import * as React from "react";
 
-import { useManagedPresentationTurn } from "@/features/messages/managedPresentationStore";
-import type { ManagedPresentationTurn } from "@/features/messages/managedPresentationTypes";
+import { useManagedPresentationTurn } from "@/features/messages/managedPresentationHooks";
+import { acknowledgeManagedPresentationReconciliation } from "@/features/messages/managedPresentationStore";
+import type {
+  ManagedFinalReconciliation,
+  ManagedPresentationTurn,
+} from "@/features/messages/managedPresentationTypes";
 import type { TimelineMessage } from "@/features/messages/types";
 import { MessageRow } from "./MessageRow";
 import "./managedResponseRow.css";
@@ -29,9 +33,9 @@ function reconciledBody(
     return fallbackBody;
   }
   if (
+    turn.finalMessageId !== null &&
     turn.signedText !== null &&
-    (turn.finalReconciliation === "stream_extends_signed" ||
-      turn.finalReconciliation === "divergent")
+    turn.bufferedText.length === 0
   ) {
     return turn.signedText;
   }
@@ -42,6 +46,7 @@ function reconciledBody(
 function hydrateManagedMessage(
   message: TimelineMessage,
   turn: ManagedPresentationTurn,
+  visibleReconciliation: ManagedFinalReconciliation | null,
 ): TimelineMessage {
   const streaming =
     turn.finalMessageId === null || turn.bufferedText.length > 0;
@@ -57,7 +62,7 @@ function hydrateManagedMessage(
       canonicalPresent: message.managedPresentation?.canonicalPresent ?? false,
       failure: turn.failure,
       finalMessageId: turn.finalMessageId,
-      finalReconciliation: turn.finalReconciliation,
+      finalReconciliation: visibleReconciliation,
       phase: turn.phase,
       streaming,
       uiKey: turn.uiKey,
@@ -71,9 +76,55 @@ function SubscribedManagedResponseRow({
   ...rowProps
 }: ManagedResponseRowProps & { uiKey: string }) {
   const turn = useManagedPresentationTurn(uiKey);
+  const [visibleReconciliation, setVisibleReconciliation] =
+    React.useState<ManagedFinalReconciliation | null>(null);
+  const reconciliationTimer = React.useRef<number | null>(null);
+  const reconciliationIdentity = turn?.finalMessageId
+    ? `${turn.finalMessageId}:${turn.finalReconciliation ?? ""}`
+    : null;
+
+  React.useLayoutEffect(() => {
+    if (
+      !turn?.finalMessageId ||
+      !turn.finalReconciliation ||
+      !reconciliationIdentity
+    ) {
+      return;
+    }
+    if (reconciliationTimer.current !== null) {
+      window.clearTimeout(reconciliationTimer.current);
+      reconciliationTimer.current = null;
+    }
+    const animated =
+      turn.finalReconciliation === "divergent" ||
+      turn.finalReconciliation === "stream_extends_signed";
+    setVisibleReconciliation(animated ? turn.finalReconciliation : null);
+    acknowledgeManagedPresentationReconciliation(
+      turn.uiKey,
+      turn.finalMessageId,
+    );
+    if (animated) {
+      reconciliationTimer.current = window.setTimeout(() => {
+        reconciliationTimer.current = null;
+        setVisibleReconciliation(null);
+      }, 160);
+    }
+  }, [reconciliationIdentity, turn]);
+
+  React.useEffect(
+    () => () => {
+      if (reconciliationTimer.current !== null) {
+        window.clearTimeout(reconciliationTimer.current);
+      }
+    },
+    [],
+  );
   const hydratedMessage = React.useMemo(
-    () => (turn ? hydrateManagedMessage(message, turn) : message),
-    [message, turn],
+    () =>
+      turn
+        ? hydrateManagedMessage(message, turn, visibleReconciliation)
+        : message,
+    [message, turn, visibleReconciliation],
   );
 
   return (

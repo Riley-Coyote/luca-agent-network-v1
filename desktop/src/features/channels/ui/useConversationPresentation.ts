@@ -2,7 +2,7 @@ import * as React from "react";
 import { useChannelAgentActivity } from "@/features/agents/activeAgentTurnsStore";
 import { useChannelWorkingAgentPubkeys } from "@/features/agents/agentWorkingSignal";
 import type { ConversationActivityState } from "@/features/channels/ui/conversationAgentActivityShelf";
-import { useManagedPresentationActivity } from "@/features/messages/managedPresentationStore";
+import { useManagedPresentationActivity } from "@/features/messages/managedPresentationHooks";
 
 /**
  * Joins durable turn activity with process-memory presentation streams for one

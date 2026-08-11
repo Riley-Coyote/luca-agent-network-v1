@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Hash, LogIn } from "lucide-react";
+import { toast } from "sonner";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useMediaUpload } from "@/features/messages/lib/useMediaUpload";
 import { MessageComposer } from "@/features/messages/ui/MessageComposer";
@@ -25,9 +26,12 @@ import { AgentSessionThreadPanel } from "@/features/channels/ui/AgentSessionThre
 import { ChannelManagementAuxiliaryPanel } from "@/features/channels/ui/ChannelManagementAuxiliaryPanel";
 import { ConversationContextPanel } from "@/features/channels/ui/ConversationContextPanel";
 import { RightAuxiliaryPane } from "@/features/channels/ui/RightAuxiliaryPane";
-import { useManagedResponseSlots } from "@/features/messages/managedPresentationStore";
+import { getManagedPresentationTurn } from "@/features/messages/managedPresentationStore";
+import { useManagedResponseSlots } from "@/features/messages/managedPresentationHooks";
+import { resolveManagedPresentationRetry } from "@/features/messages/lib/managedPresentationRetry";
 import { projectManagedTimelineMessages } from "@/features/messages/lib/managedTimelineProjection";
 import { ConversationAgentActivityStrip } from "@/features/channels/ui/ConversationAgentActivityStrip";
+import type { ActivityShelfRetryTarget } from "@/features/channels/ui/conversationAgentActivityShelf";
 import { useConversationPresentation } from "@/features/channels/ui/useConversationPresentation";
 import { useManagedPermissions } from "@/features/agents/useManagedPermissions";
 import { ManagedPermissionCard } from "@/features/agents/ui/ManagedPermissionCard";
@@ -392,6 +396,36 @@ export const ChannelPane = React.memo(function ChannelPane({
     presentationStateByPubkey,
   } = useConversationPresentation(activeChannelId);
   const managedResponseSlots = useManagedResponseSlots(activeChannelId);
+  const handleRetryResident = React.useCallback(
+    async ({ residentPubkey, uiKey }: ActivityShelfRetryTarget) => {
+      if (!activeChannelId) return;
+      const retry = resolveManagedPresentationRetry({
+        currentPubkey,
+        messages,
+        residentPubkey,
+        turn: getManagedPresentationTurn(uiKey),
+      });
+      if (!retry) {
+        toast.error("The original request is no longer available to retry.");
+        return;
+      }
+      try {
+        await handleSendMessage(
+          retry.content,
+          [retry.residentPubkey],
+          retry.mediaTags,
+          activeChannelId,
+        );
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "The resident could not be retried.",
+        );
+      }
+    },
+    [activeChannelId, currentPubkey, handleSendMessage, messages],
+  );
   const directMessageIntro = React.useMemo(
     () =>
       buildDirectMessageIntro({
@@ -730,6 +764,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                   onOpenResident={(pubkey) =>
                     onOpenProfilePanel(pubkey, { tab: "continuity" })
                   }
+                  onRetryResident={(target) => void handleRetryResident(target)}
                   sessionAgents={agentSessionAgents}
                   activityByPubkey={pendingActivityByPubkey}
                   presentationActivityByPubkey={managedActivity}

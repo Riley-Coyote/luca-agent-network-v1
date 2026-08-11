@@ -300,6 +300,143 @@ test("a streamed response settles in place when its signed final arrives", async
   }
 });
 
+test("authoritative reconciliation animates once and never replays after remount", async ({
+  page,
+}) => {
+  const ownerRow = await send(page, "Reconcile this response exactly once.");
+  const receiptId = await ownerRow.getAttribute("data-message-id");
+  if (!receiptId) throw new Error("Expected an owner event ID.");
+
+  await emitFrame(page, {
+    kind: "turn_started",
+    receiptId,
+    residentPubkey: CLAUDE,
+    sequence: 1,
+    turnId: "one-shot-reconciliation",
+  });
+  await emitFrame(page, {
+    kind: "public_chunk",
+    publicChunk: "Provisional wording.",
+    receiptId,
+    residentPubkey: CLAUDE,
+    sequence: 2,
+    turnId: "one-shot-reconciliation",
+  });
+  const response = managedResponseRows(page).filter({
+    hasText: "Provisional wording.",
+  });
+  await expect(response).toBeVisible();
+  await response.evaluate((element) => {
+    const observer = new MutationObserver(() => {
+      if (
+        element.getAttribute("data-managed-final-reconciliation") ===
+        "divergent"
+      ) {
+        element.setAttribute("data-reconciliation-observed", "true");
+      }
+    });
+    observer.observe(element, {
+      attributeFilter: ["data-managed-final-reconciliation"],
+      attributes: true,
+    });
+  });
+
+  await emitSignedFinal(page, CLAUDE, receiptId, "Authoritative wording.");
+  const signed = managedResponseRows(page).filter({
+    hasText: "Authoritative wording.",
+  });
+  await expect(signed).toHaveAttribute("data-reconciliation-observed", "true");
+  await expect(signed).not.toHaveAttribute(
+    "data-managed-final-reconciliation",
+    /.+/,
+  );
+
+  await page.getByTestId("channel-random").click();
+  await page.getByTestId("channel-general").click();
+  const remounted = managedResponseRows(page).filter({
+    hasText: "Authoritative wording.",
+  });
+  await expect(remounted).toBeVisible();
+  await expect(remounted).not.toHaveAttribute(
+    "data-managed-final-reconciliation",
+    /.+/,
+  );
+});
+
+test("terminal Markdown keeps its geometry when the signed final arrives", async ({
+  page,
+}) => {
+  const claudeMessage = page.locator('[data-message-id="mock-general-alice"]');
+  await claudeMessage.hover();
+  await claudeMessage.getByRole("button", { name: "Reply" }).click();
+  const ownerRow = await send(page, "Return one Markdown heading.");
+  const receiptId = await ownerRow.getAttribute("data-message-id");
+  if (!receiptId) throw new Error("Expected an owner event ID.");
+
+  await emitFrame(page, {
+    kind: "turn_started",
+    receiptId,
+    residentPubkey: CLAUDE,
+    sequence: 1,
+    turnId: "markdown-geometry",
+  });
+  await emitFrame(page, {
+    kind: "public_chunk",
+    publicChunk: "# Stable heading",
+    receiptId,
+    residentPubkey: CLAUDE,
+    sequence: 2,
+    turnId: "markdown-geometry",
+  });
+  const response = managedResponseRows(page).filter({
+    hasText: "Stable heading",
+  });
+  const streamedHeading = response.getByRole("heading", {
+    name: "Stable heading",
+  });
+  await expect(streamedHeading).toBeVisible();
+  const before = await streamedHeading.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return {
+      fontSize: Number.parseFloat(style.fontSize),
+      height: bounds.height,
+      left: bounds.left,
+      lineHeight: Number.parseFloat(style.lineHeight),
+      top: bounds.top,
+    };
+  });
+
+  await emitSignedFinal(page, CLAUDE, receiptId, "# Stable heading");
+  const signedHeading = response.getByRole("heading", {
+    name: "Stable heading",
+  });
+  await expect(signedHeading).toBeVisible();
+  const after = await signedHeading.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return {
+      fontSize: Number.parseFloat(style.fontSize),
+      height: bounds.height,
+      left: bounds.left,
+      lineHeight: Number.parseFloat(style.lineHeight),
+      top: bounds.top,
+    };
+  });
+  for (const key of [
+    "fontSize",
+    "height",
+    "left",
+    "lineHeight",
+    "top",
+  ] as const) {
+    expect(
+      Math.abs(before[key] - after[key]),
+      `${key} should remain stable through Markdown signing`,
+    ).toBeLessThanOrEqual(1);
+  }
+});
+
 test("ordinary Reply is directed while Reply in thread remains explicit", async ({
   page,
 }) => {
@@ -490,4 +627,14 @@ test("cancellation preserves visible partial text without affecting another resi
   ).toBeVisible();
   await expect(page.getByText("Discard this partial.")).toBeVisible();
   await expect(page.getByText("Keep this text.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Retry Claude Code" }).click();
+  await expect
+    .poll(async () => (await lastSendPayload(page))?.managedAudience)
+    .toEqual({ mode: "directed", resident_pubkeys: [CLAUDE] });
+  await expect(
+    page
+      .getByTestId("message-row")
+      .filter({ hasText: "Start two independent responses." }),
+  ).toHaveCount(2);
 });
