@@ -794,7 +794,11 @@ export function reconcileManagedPresentationFinal(
     Date.now() + MANAGED_TERMINAL_DRAIN_TARGET_MS,
   );
   if (pendingGraphemes.has(next.uiKey)) scheduler.requestPaint();
-  publishTurn(next, current.slotOrdinal === null && next.slotOrdinal !== null);
+  publishTurn(
+    next,
+    (current.slotOrdinal === null && next.slotOrdinal !== null) ||
+      current.finalMessageId !== next.finalMessageId,
+  );
   scheduleNearestDeadline();
   return next;
 }

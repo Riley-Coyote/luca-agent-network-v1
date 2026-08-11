@@ -498,6 +498,10 @@ describe("managedPresentationStore", () => {
     assert.equal(turn().uiKey, uiKey);
     assert.equal(turn().finalReconciliation, "signed_extends_stream");
     assert.equal(turn().finalMessageId, "signed-final-message");
+    assert.equal(
+      getManagedResponseSlotsSnapshot(conversationId)[0].finalMessageId,
+      "signed-final-message",
+    );
     flushAll();
     assert.equal(turn().visibleText, "Stream plus signed suffix");
 
