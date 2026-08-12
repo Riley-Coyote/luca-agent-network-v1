@@ -278,6 +278,7 @@ impl CommunicationEventVault {
     /// Loading the exact binding first prevents an unrelated terminal receipt
     /// from deleting another action's retry bytes. The terminal enum excludes
     /// ambiguous publication outcomes by construction.
+    #[cfg(test)]
     pub(crate) fn delete_after_terminal(
         &self,
         handle: &OpaqueId,

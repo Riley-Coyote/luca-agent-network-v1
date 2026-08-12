@@ -381,7 +381,7 @@ impl ManagedDispatchStore {
             .keys()
             .any(|(trigger, _)| trigger == &normalized_trigger);
         let (authorized, newly_bound) = {
-            let dispatch = self.dispatches.get_mut(&key).ok_or_else(|| {
+            let dispatch = self.dispatches.get_mut(&key).ok_or({
                 if has_trigger {
                     DispatchAuthorizationError::WrongResident
                 } else {
