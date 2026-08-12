@@ -14,8 +14,9 @@
 > inactive. The program-control branch is documentation/status only. The
 > revised control package passed exact-commit validation at
 > `b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b`. Riley explicitly approved the
-> P0–P5 graph and authorized CTRL-004 on 2026-08-12; team activation waits only
-> for exact validation of the committed approval receipt.
+> P0–P5 graph and authorized CTRL-004 on 2026-08-12. CTRL-004 is source-tested
+> on exact approval receipt `7cc3bc54278eba8300b7c02bd94bd07a4b39e2f3`;
+> five-team read-only activation is authorized from that common base.
 >
 > The detailed milestone material below remains historical architecture and
 > evidence. Its older continuation/release priority statements do not override

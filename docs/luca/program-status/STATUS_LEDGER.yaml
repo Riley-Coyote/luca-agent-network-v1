@@ -31,13 +31,13 @@ control:
     status: source_tested
     exact_validation_commit: b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b
   CTRL-004:
-    status: implemented_in_source
+    status: source_tested
     approved_by: Riley
     approved_at: 2026-08-12
     approved_control_commit: 62589f445af524be0f9bac9a67570e593dd58558
     approved_release_target: luca/v1-beta
-    exact_validation_commit: pending_exact_commit
-    note: team activation waits for exact validation of this approval receipt
+    exact_validation_commit: 7cc3bc54278eba8300b7c02bd94bd07a4b39e2f3
+    note: five-team activation authorized from this exact common base; later gates remain inactive
 
 milestones:
   P0: active_control_only

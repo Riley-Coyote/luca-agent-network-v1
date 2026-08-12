@@ -1,8 +1,8 @@
 # Luca team charters
 
-All teams are inactive until CTRL-004. When activated, each starts from the
-same exact approved control commit, owns bounded paths, and may report at most
-`source_tested`. Program alone integrates and publishes.
+CTRL-004 is `source_tested`. Each activated team starts from exact common base
+`7cc3bc54278eba8300b7c02bd94bd07a4b39e2f3`, owns bounded paths, and may report
+at most `source_tested`. Program alone integrates and publishes.
 
 ## Program Integration & Release
 

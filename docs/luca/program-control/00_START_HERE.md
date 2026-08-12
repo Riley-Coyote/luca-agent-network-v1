@@ -78,9 +78,10 @@ or release completion.
 The prior control package and its corrected release name remain historical
 facts. CTRL-003 is `source_tested` on the exact pre-promotion commit above.
 Riley explicitly approved the revised graph and authorized CTRL-004 on
-2026-08-12; CTRL-004 remains `implemented_in_source` until this approval receipt
-exists on an exact commit and the full control validator set passes. Until that
-validation passes:
+2026-08-12. The approval receipt passed the full validator set at exact commit
+`7cc3bc54278eba8300b7c02bd94bd07a4b39e2f3`; CTRL-004 is `source_tested` and
+team activation is authorized from that common base. Until the team worktrees
+are created and verified:
 
 - all five product teams are inactive;
 - all proposed team worktrees and branches remain uncreated;

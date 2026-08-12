@@ -149,7 +149,26 @@ Teams and trains remain inactive.
   `luca/v1-beta` worktree, P4, P5, or product edits before each team's read-only
   reconciliation and bounded write capsule.
 
-CTRL-004 status in this receipt: `implemented_in_source` pending the receipt's
-exact commit and full validator pass.
+CTRL-004 approval-receipt commit:
+`7cc3bc54278eba8300b7c02bd94bd07a4b39e2f3`.
 
-CTRL-004 approval-receipt commit: pending.
+Exact-commit validation on that SHA:
+
+- Cleanliness and ancestry: PASS.
+- Required files/YAML: PASS (19/4).
+- Graph/dependencies/cycles/status order: PASS (69 tasks; P0 8, P1 12, P2 18,
+  P3 7, P4 9, P5 15).
+- Categories: PASS (37 product requirements, 12 architectural constraints,
+  5 recommended safety measures, 7 optional hardening, 8 deferred enhancements).
+- Acceptance/human references: PASS (64/69).
+- Commit-class schema: PASS (26 integration candidates, one historical
+  reference, eight reference files).
+- Markdown links and changed-file scope: PASS (23 files checked; 10 intended
+  receipt files changed).
+- Candidate ancestry and historical reference reachability/content: PASS.
+- Release coordinate, diff, proposed-branch absence, and proposed-worktree
+  absence: PASS.
+
+CTRL-004 was promoted to `source_tested` only after this receipt. The five team
+branches/worktrees are authorized from this exact common base. The integration
+train, release candidate, release worktree, P4, and P5 remain inactive.

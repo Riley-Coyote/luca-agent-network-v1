@@ -9,6 +9,7 @@ coordinates:
   release_branch: luca/v1-beta
   release_worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-release-v1-beta
   revised_control_validation_commit: b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b
+  approved_team_base_commit: 7cc3bc54278eba8300b7c02bd94bd07a4b39e2f3
 
 task_categories:
   - product requirement
@@ -109,7 +110,7 @@ tasks:
   - {id: CTRL-003, milestone: P0, title: Revise control package to functional-product-first P0-P5 graph, category: product requirement, owner: Program Integration & Release, status: source_tested, depends_on: [CTRL-001], acceptance: [P0-A3]}
   - {id: TRUTH-001, milestone: P0, title: Reconcile functional hidden reusable adapter and missing capability truth, category: product requirement, owner: Program Integration & Release, status: source_tested, depends_on: [CTRL-003], acceptance: [P0-A4]}
   - {id: REUSE-001, milestone: P0, title: Classify communication commits and existing Buzz reuse before new architecture, category: existing architectural constraint, owner: Program Integration & Release, status: source_tested, depends_on: [CTRL-003], acceptance: [P0-A4]}
-  - {id: CTRL-004, milestone: P0, title: Riley approves revised graph ownership and activation order, category: product requirement, owner: Program Integration & Release, status: implemented_in_source, depends_on: [CTRL-003, TRUTH-001, REUSE-001], acceptance: [P0-A5]}
+  - {id: CTRL-004, milestone: P0, title: Riley approves revised graph ownership and activation order, category: product requirement, owner: Program Integration & Release, status: source_tested, depends_on: [CTRL-003, TRUTH-001, REUSE-001], acceptance: [P0-A5]}
 
   - {id: COM-101, milestone: P1, title: Preserve direct owner-to-resident DM and group messaging with verbatim resident output, category: product requirement, owner: Communications & Collaboration, status: planned, depends_on: [CTRL-004], acceptance: [P1-A1]}
   - {id: COM-102, milestone: P1, title: Connect managed residents to existing DM room creation and membership operations, category: product requirement, owner: Communications & Collaboration, status: planned, depends_on: [COM-101], acceptance: [P1-A2]}

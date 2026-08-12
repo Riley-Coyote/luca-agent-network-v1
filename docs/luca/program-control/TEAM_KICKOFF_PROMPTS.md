@@ -2,12 +2,12 @@
 
 ## Dispatch lock
 
-These prompts are complete but inactive. Do not paste or dispatch any prompt
-until CTRL-004 records Riley's approval, Program has created the named worktree
-and branch from one exact approved control commit, initialized its team report
-from the repository template, and replaced `APPROVED_CONTROL_SHA` below with
-that full SHA. The kickoff task must verify its own worktree coordinate, branch,
-HEAD, ancestry, and clean status before any work.
+These prompts are approved for dispatch after Program creates and verifies the
+named worktree/branch from exact common control base
+`7cc3bc54278eba8300b7c02bd94bd07a4b39e2f3`, initializes its report and first
+read-only capsule, and records the clean documentation-only team activation
+HEAD. Each kickoff task verifies its path, branch, common-base ancestry,
+current activation HEAD, report, capsule, and clean status before any work.
 
 ## Experience & Onboarding
 
@@ -17,11 +17,14 @@ You are the Experience & Onboarding team for Luca Agent Network V1.
 Required repository coordinate:
 - Worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-experience-onboarding
 - Branch: codex/team-experience-onboarding
-- Required initial HEAD: APPROVED_CONTROL_SHA
+- Required common control base: 7cc3bc54278eba8300b7c02bd94bd07a4b39e2f3
+- Required current HEAD: the clean documentation-only team activation commit recorded by Program
 - Team report: docs/luca/program-control/team-reports/experience-onboarding.yaml
 
-Stop before work if pwd, branch, full HEAD, ancestry, or git status differs, or
-if the report was not initialized from team-reports/TEMPLATE.yaml.
+Stop before work if pwd or branch differs, the common base is not an ancestor
+of current HEAD, git status is dirty, current HEAD differs from Program's
+activation registry, or the report/capsule was not initialized from its
+template.
 
 Read PROGRAM_CHARTER.md, PROGRAM_GRAPH.md/YAML, ACCEPTANCE_MATRIX.md,
 TEAM_CHARTERS.md, OWNERSHIP_MAP.md, INTERFACE_FREEZES.md, WAVE_PLAN.md,
@@ -60,11 +63,14 @@ You are the Communications & Collaboration team for Luca Agent Network V1.
 Required repository coordinate:
 - Worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-communications-collaboration
 - Branch: codex/team-communications-collaboration
-- Required initial HEAD: APPROVED_CONTROL_SHA
+- Required common control base: 7cc3bc54278eba8300b7c02bd94bd07a4b39e2f3
+- Required current HEAD: the clean documentation-only team activation commit recorded by Program
 - Team report: docs/luca/program-control/team-reports/communications-collaboration.yaml
 
-Stop before work if pwd, branch, full HEAD, ancestry, or git status differs, or
-if the report was not initialized from team-reports/TEMPLATE.yaml.
+Stop before work if pwd or branch differs, the common base is not an ancestor
+of current HEAD, git status is dirty, current HEAD differs from Program's
+activation registry, or the report/capsule was not initialized from its
+template.
 
 Read the complete control package in 00_START_HERE.md order, plus
 docs/luca/communication-parity/CROSS_SESSION_HANDOFF.md, ACCEPTANCE.md, and
@@ -108,11 +114,14 @@ You are the Projects, Brain & Connections team for Luca Agent Network V1.
 Required repository coordinate:
 - Worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-projects-brain-connections
 - Branch: codex/team-projects-brain-connections
-- Required initial HEAD: APPROVED_CONTROL_SHA
+- Required common control base: 7cc3bc54278eba8300b7c02bd94bd07a4b39e2f3
+- Required current HEAD: the clean documentation-only team activation commit recorded by Program
 - Team report: docs/luca/program-control/team-reports/projects-brain-connections.yaml
 
-Stop before work if pwd, branch, full HEAD, ancestry, or git status differs, or
-if the report was not initialized from team-reports/TEMPLATE.yaml.
+Stop before work if pwd or branch differs, the common base is not an ancestor
+of current HEAD, git status is dirty, current HEAD differs from Program's
+activation registry, or the report/capsule was not initialized from its
+template.
 
 Read the full control package. Mission: close PRJ-201–205 for the functional
 beta, then MNEM-402–406 only after P4 activation. Before code, classify existing
@@ -151,11 +160,14 @@ You are the Agent Platform team for Luca Agent Network V1.
 Required repository coordinate:
 - Worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-agent-platform
 - Branch: codex/team-agent-platform
-- Required initial HEAD: APPROVED_CONTROL_SHA
+- Required common control base: 7cc3bc54278eba8300b7c02bd94bd07a4b39e2f3
+- Required current HEAD: the clean documentation-only team activation commit recorded by Program
 - Team report: docs/luca/program-control/team-reports/agent-platform.yaml
 
-Stop before work if pwd, branch, full HEAD, ancestry, or git status differs, or
-if the report was not initialized from team-reports/TEMPLATE.yaml.
+Stop before work if pwd or branch differs, the common base is not an ancestor
+of current HEAD, git status is dirty, current HEAD differs from Program's
+activation registry, or the report/capsule was not initialized from its
+template.
 
 Read the full control package plus current operator-forge/native-runtime
 acceptance. Mission: close AGT-201–205 for import/create/configure/start/stop/
@@ -190,11 +202,14 @@ You are the Clients & Creative Surfaces team for Luca Agent Network V1.
 Required repository coordinate:
 - Worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-clients-creative-surfaces
 - Branch: codex/team-clients-creative-surfaces
-- Required initial HEAD: APPROVED_CONTROL_SHA
+- Required common control base: 7cc3bc54278eba8300b7c02bd94bd07a4b39e2f3
+- Required current HEAD: the clean documentation-only team activation commit recorded by Program
 - Team report: docs/luca/program-control/team-reports/clients-creative-surfaces.yaml
 
-Stop before work if pwd, branch, full HEAD, ancestry, or git status differs, or
-if the report was not initialized from team-reports/TEMPLATE.yaml.
+Stop before work if pwd or branch differs, the common base is not an ancestor
+of current HEAD, git status is dirty, current HEAD differs from Program's
+activation registry, or the report/capsule was not initialized from its
+template.
 
 Read the full control package. Phase 1 mission is narrowly UX-205: preserve and
 truthfully present desktop mobile-pairing foundations as phone access to

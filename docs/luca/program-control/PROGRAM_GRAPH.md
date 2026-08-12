@@ -21,7 +21,7 @@ flowchart LR
 | CTRL-001 | Historical first control package | `source_tested` on its recorded exact commit |
 | CTRL-002 | Historical bounded approval/corrections | `implemented_in_source`; the later promotion commit did not complete final validation |
 | CTRL-003 | This revised P0–P5 control package | `source_tested` on exact pre-promotion commit `b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b` |
-| CTRL-004 | Riley approval of the revised graph | Approval received; `implemented_in_source` pending exact receipt validation; blocks every team until validated |
+| CTRL-004 | Riley approval of the revised graph | `source_tested` on exact approval receipt `7cc3bc54278eba8300b7c02bd94bd07a4b39e2f3`; five-team activation authorized |
 
 ## Task-count comparison
 

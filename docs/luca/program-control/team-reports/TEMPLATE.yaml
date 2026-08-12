@@ -5,8 +5,8 @@ activation_approved: false
 mode: inactive
 repository: REPLACE_WITH_EXACT_WORKTREE
 branch: REPLACE_WITH_BRANCH
-head: REPLACE_WITH_FULL_APPROVED_CONTROL_SHA
-base: REPLACE_WITH_FULL_APPROVED_CONTROL_SHA
+head: REPLACE_WITH_TEAM_ACTIVATION_HEAD
+base: 7cc3bc54278eba8300b7c02bd94bd07a4b39e2f3
 ancestry_verified: false
 clean_status_verified: false
 kickoff_prompt_coordinate_verified: false

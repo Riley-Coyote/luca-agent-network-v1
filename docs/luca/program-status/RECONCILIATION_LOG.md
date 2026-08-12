@@ -55,7 +55,7 @@ Exact revised-control commits and validator receipts are recorded in
 - Riley explicitly approved the revised P0–P5 graph at exact control commit
   `62589f445af524be0f9bac9a67570e593dd58558` and release target
   `luca/v1-beta`.
-- P1 and safe disjoint P2 team activation is authorized after the approval
-  receipt itself passes exact-commit validation.
+- P1 and safe disjoint P2 team activation is authorized from exact validated
+  approval receipt `7cc3bc54278eba8300b7c02bd94bd07a4b39e2f3`.
 - P3 train/release coordinates, P4, and P5 remain gated and inactive.
-- CTRL-004 remains `implemented_in_source` until that exact validation exists.
+- CTRL-004 is `source_tested`; the integration train and P3/P4/P5 gates remain.
