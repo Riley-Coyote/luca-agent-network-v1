@@ -20,7 +20,8 @@ use tauri::{AppHandle, Manager};
 use super::managed_dispatch_routing::routing_from_event;
 
 const STORE_SCHEMA_V1: &str = "luca.managed-dispatch-store.v1";
-const STORE_SCHEMA: &str = "luca.managed-dispatch-store.v2";
+const STORE_SCHEMA_V2: &str = "luca.managed-dispatch-store.v2";
+const STORE_SCHEMA: &str = "luca.managed-dispatch-store.v3";
 const MAX_DISPATCHES: usize = 512;
 const DISPATCH_TTL_SECONDS: u64 = 30 * 60;
 const CONTINUITY_DISPATCH_DOMAIN: &str = "luca.continuity.dispatch-set.v1";
@@ -65,6 +66,20 @@ pub(crate) struct ActiveDispatch {
     pub thread_id: Option<String>,
     pub root_event_id: Option<String>,
     pub reply_event_id: Option<String>,
+    /// Exact dispatch from which this visible activation was requested. For a
+    /// top-level owner send this is the trigger itself.
+    #[serde(default)]
+    pub source_dispatch_id: Option<String>,
+    /// Stable root of the bounded owner-visible activation chain.
+    #[serde(default)]
+    pub causal_root_event_id: Option<String>,
+    /// Exact semantic action that produced a one-hop descendant trigger.
+    #[serde(default)]
+    pub causal_parent_action_id: Option<String>,
+    /// Zero for owner activation and exactly one for the only permitted
+    /// resident-descendant activation in this milestone.
+    #[serde(default)]
+    pub descendant_depth: u8,
     /// Missing only on legacy rows created before response surfaces were
     /// frozen into dispatch authority.
     #[serde(default)]
@@ -199,13 +214,24 @@ impl ManagedDispatchStore {
             }
             let persisted: PersistedDispatchStore = serde_json::from_slice(&bytes)
                 .map_err(|error| format!("parse managed dispatch store: {error}"))?;
-            if !matches!(persisted.schema.as_str(), STORE_SCHEMA_V1 | STORE_SCHEMA)
-                || persisted.dispatches.len() > MAX_DISPATCHES
+            if !matches!(
+                persisted.schema.as_str(),
+                STORE_SCHEMA_V1 | STORE_SCHEMA_V2 | STORE_SCHEMA
+            ) || persisted.dispatches.len() > MAX_DISPATCHES
             {
                 return Err("managed dispatch store schema or row count is invalid".into());
             }
             let mut dispatches = HashMap::with_capacity(persisted.dispatches.len());
-            for dispatch in persisted.dispatches {
+            for mut dispatch in persisted.dispatches {
+                // v1/v2 rows are top-level owner dispatches. Upgrade their
+                // public causal coordinates in memory before the next atomic
+                // v3 persistence without changing their idempotency key.
+                if dispatch.source_dispatch_id.is_none() {
+                    dispatch.source_dispatch_id = Some(dispatch.trigger_event_id.clone());
+                }
+                if dispatch.causal_root_event_id.is_none() {
+                    dispatch.causal_root_event_id = Some(dispatch.trigger_event_id.clone());
+                }
                 validate_dispatch(&dispatch)?;
                 let key = (
                     dispatch.trigger_event_id.clone(),
@@ -509,6 +535,10 @@ impl ManagedDispatchStore {
                 thread_id: routing.thread_id.clone(),
                 root_event_id: routing.root_event_id.clone(),
                 reply_event_id: routing.reply_event_id.clone(),
+                source_dispatch_id: Some(event.id.to_hex()),
+                causal_root_event_id: Some(event.id.to_hex()),
+                causal_parent_action_id: None,
+                descendant_depth: 0,
                 response_surface: Some(routing.response_surface),
                 // G1 is owner-only dispatch. A resident final replies to the
                 // exact owner trigger and addresses only its author; copying
@@ -546,6 +576,131 @@ impl ManagedDispatchStore {
         let mut staged = Vec::with_capacity(candidates.len());
         for (key, candidate) in candidates {
             self.dispatches.entry(key.clone()).or_insert(candidate);
+            staged.push(key);
+        }
+        self.prune(now_unix_secs);
+        if self.dispatches.len() > MAX_DISPATCHES {
+            self.dispatches = previous;
+            return Err("managed dispatch store has no terminal capacity".into());
+        }
+        if let Err(error) = self.persist() {
+            self.dispatches = previous;
+            return Err(error);
+        }
+        Ok(staged)
+    }
+
+    /// Atomically stage one visible, same-owner, current-member descendant
+    /// activation. The signed resident event is the target's exact trigger;
+    /// the retained owner and causal coordinates prevent relay replay from
+    /// broadening that authority after restart.
+    pub(crate) fn stage_descendant_event(
+        &mut self,
+        event: &Event,
+        owner_pubkey: &str,
+        source_dispatch_id: &str,
+        causal_root_event_id: &str,
+        parent_action_id: &str,
+        managed_residents: &[String],
+        now_unix_secs: u64,
+    ) -> Result<Vec<(String, String)>, String> {
+        if event.kind != nostr::Kind::Custom(9)
+            || !event.verify_id()
+            || !event.verify_signature()
+            || event.created_at.as_secs() > now_unix_secs + 60
+            || event.pubkey.to_hex() == owner_pubkey
+        {
+            return Err("managed descendant trigger event is invalid".into());
+        }
+        Hex64::parse(owner_pubkey.to_ascii_lowercase())
+            .map_err(|_| "managed descendant owner pubkey is invalid".to_string())?;
+        EventId::from_hex(source_dispatch_id)
+            .map_err(|_| "managed descendant source dispatch is invalid".to_string())?;
+        EventId::from_hex(causal_root_event_id)
+            .map_err(|_| "managed descendant causal root is invalid".to_string())?;
+        OpaqueId::parse(parent_action_id.to_owned())
+            .map_err(|_| "managed descendant parent action is invalid".to_string())?;
+
+        let source = self
+            .dispatches
+            .get(&(
+                source_dispatch_id.to_ascii_lowercase(),
+                event.pubkey.to_hex(),
+            ))
+            .ok_or_else(|| "managed descendant source dispatch is unknown".to_string())?;
+        if source.owner_pubkey != owner_pubkey.to_ascii_lowercase()
+            || source.descendant_depth != 0
+            || source.causal_root_event_id.as_deref() != Some(causal_root_event_id)
+            || !matches!(
+                source.state,
+                ManagedDispatchState::Pending
+                    | ManagedDispatchState::Active
+                    | ManagedDispatchState::Interrupted
+            )
+        {
+            return Err("managed descendant source authority is invalid".into());
+        }
+
+        let routing = routing_from_event(event)?;
+        if routing.conversation_id != source.conversation_id {
+            return Err("managed descendant conversation changed".into());
+        }
+        let requested: HashSet<String> = managed_residents
+            .iter()
+            .map(|pubkey| pubkey.to_ascii_lowercase())
+            .collect();
+        if requested.is_empty() {
+            return Ok(Vec::new());
+        }
+        let event_recipients: HashSet<&str> =
+            routing.trigger_p_tags.iter().map(String::as_str).collect();
+        let previous = self.dispatches.clone();
+        let mut staged = Vec::with_capacity(requested.len());
+        for resident in requested {
+            if resident == event.pubkey.to_hex()
+                || resident == owner_pubkey
+                || !event_recipients.contains(resident.as_str())
+            {
+                self.dispatches = previous;
+                return Err("managed descendant is not an exact visible recipient".into());
+            }
+            Hex64::parse(resident.clone())
+                .map_err(|_| "managed descendant pubkey is invalid".to_string())?;
+            let key = (event.id.to_hex(), resident.clone());
+            let candidate = ActiveDispatch {
+                trigger_event_id: key.0.clone(),
+                owner_pubkey: owner_pubkey.to_ascii_lowercase(),
+                resident_pubkey: resident,
+                conversation_id: routing.conversation_id.clone(),
+                thread_id: routing.thread_id.clone(),
+                root_event_id: routing.root_event_id.clone(),
+                reply_event_id: routing.reply_event_id.clone(),
+                source_dispatch_id: Some(source_dispatch_id.to_ascii_lowercase()),
+                causal_root_event_id: Some(causal_root_event_id.to_ascii_lowercase()),
+                causal_parent_action_id: Some(parent_action_id.to_owned()),
+                descendant_depth: 1,
+                response_surface: Some(routing.response_surface.clone()),
+                resolved_p_tags: vec![event.pubkey.to_hex()],
+                created_at: event.created_at.as_secs(),
+                expires_at: event
+                    .created_at
+                    .as_secs()
+                    .saturating_add(DISPATCH_TTL_SECONDS),
+                session_epoch: None,
+                state: ManagedDispatchState::Pending,
+                interruption_reason: None,
+                submitted_event_id: None,
+                published_event_id: None,
+                outbox_finalized: false,
+            };
+            if let Some(existing) = self.dispatches.get(&key) {
+                if existing != &candidate {
+                    self.dispatches = previous;
+                    return Err("managed descendant dispatch id collision".into());
+                }
+            } else {
+                self.dispatches.insert(key.clone(), candidate);
+            }
             staged.push(key);
         }
         self.prune(now_unix_secs);
@@ -1353,11 +1508,43 @@ fn validate_dispatch(dispatch: &ActiveDispatch) -> Result<(), String> {
         .map_err(|_| "managed dispatch owner pubkey is invalid".to_string())?;
     Hex64::parse(dispatch.resident_pubkey.clone())
         .map_err(|_| "managed dispatch resident pubkey is invalid".to_string())?;
+    let source_dispatch_id = dispatch
+        .source_dispatch_id
+        .as_deref()
+        .ok_or_else(|| "managed dispatch source coordinate is missing".to_string())?;
+    let causal_root_event_id = dispatch
+        .causal_root_event_id
+        .as_deref()
+        .ok_or_else(|| "managed dispatch causal root is missing".to_string())?;
+    EventId::from_hex(source_dispatch_id)
+        .map_err(|_| "managed dispatch source coordinate is invalid".to_string())?;
+    EventId::from_hex(causal_root_event_id)
+        .map_err(|_| "managed dispatch causal root is invalid".to_string())?;
+    let causal_coordinates_are_valid = match dispatch.descendant_depth {
+        0 => {
+            source_dispatch_id == dispatch.trigger_event_id
+                && causal_root_event_id == dispatch.trigger_event_id
+                && dispatch.causal_parent_action_id.is_none()
+                && dispatch.resolved_p_tags == vec![dispatch.owner_pubkey.clone()]
+        }
+        1 => {
+            source_dispatch_id != dispatch.trigger_event_id
+                && dispatch
+                    .causal_parent_action_id
+                    .as_ref()
+                    .is_some_and(|value| OpaqueId::parse(value.clone()).is_ok())
+                && dispatch.resolved_p_tags.len() == 1
+                && dispatch.resolved_p_tags[0] != dispatch.owner_pubkey
+                && dispatch.resolved_p_tags[0] != dispatch.resident_pubkey
+                && Hex64::parse(dispatch.resolved_p_tags[0].clone()).is_ok()
+        }
+        _ => false,
+    };
     if dispatch.owner_pubkey == dispatch.resident_pubkey
         || uuid::Uuid::parse_str(&dispatch.conversation_id).is_err()
         || dispatch.created_at > dispatch.expires_at
         || dispatch.expires_at.saturating_sub(dispatch.created_at) != DISPATCH_TTL_SECONDS
-        || dispatch.resolved_p_tags != vec![dispatch.owner_pubkey.clone()]
+        || !causal_coordinates_are_valid
     {
         return Err("managed dispatch identity, timestamp, or recipient tuple is invalid".into());
     }
@@ -1532,6 +1719,94 @@ mod tests {
             dispatch_receipt_id: receipt,
             cancellation_epoch: SafeU53::new(epoch).expect("epoch"),
         }
+    }
+
+    #[test]
+    fn schema_v3_stages_one_exact_visible_descendant_idempotently_and_caps_depth() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let path = directory.path().join("dispatches.json");
+        let owner = Keys::generate();
+        let source = Keys::generate();
+        let target = Keys::generate();
+        let third = Keys::generate();
+        let root = event(&owner, &source, CHANNEL_ONE, "Start visible work");
+        let mut store = ManagedDispatchStore::load(path.clone()).expect("store");
+        store
+            .stage_owner_event(&root, &[source.public_key().to_hex()], 100)
+            .expect("owner stage");
+
+        let descendant = event_with_thread(
+            &source,
+            &target,
+            CHANNEL_ONE,
+            "Please respond here",
+            Some(&root.id.to_hex()),
+            Some(&root.id.to_hex()),
+        );
+        let staged = store
+            .stage_descendant_event(
+                &descendant,
+                &owner.public_key().to_hex(),
+                &root.id.to_hex(),
+                &root.id.to_hex(),
+                "communication-parent-action",
+                &[target.public_key().to_hex()],
+                100,
+            )
+            .expect("descendant stage");
+        assert_eq!(staged.len(), 1);
+        assert_eq!(
+            store
+                .stage_descendant_event(
+                    &descendant,
+                    &owner.public_key().to_hex(),
+                    &root.id.to_hex(),
+                    &root.id.to_hex(),
+                    "communication-parent-action",
+                    &[target.public_key().to_hex()],
+                    120,
+                )
+                .expect("idempotent restage"),
+            staged
+        );
+
+        let reloaded = ManagedDispatchStore::load(path).expect("reload v3");
+        let row = reloaded
+            .dispatches
+            .get(&(descendant.id.to_hex(), target.public_key().to_hex()))
+            .expect("descendant row");
+        assert_eq!(row.owner_pubkey, owner.public_key().to_hex());
+        assert_eq!(
+            row.source_dispatch_id.as_deref(),
+            Some(root.id.to_hex().as_str())
+        );
+        assert_eq!(
+            row.causal_root_event_id.as_deref(),
+            Some(root.id.to_hex().as_str())
+        );
+        assert_eq!(row.descendant_depth, 1);
+        assert_eq!(row.resolved_p_tags, vec![source.public_key().to_hex()]);
+
+        let chained = event_with_thread(
+            &target,
+            &third,
+            CHANNEL_ONE,
+            "This chain must stop",
+            Some(&root.id.to_hex()),
+            Some(&descendant.id.to_hex()),
+        );
+        let mut reloaded = reloaded;
+        assert!(reloaded
+            .stage_descendant_event(
+                &chained,
+                &owner.public_key().to_hex(),
+                &descendant.id.to_hex(),
+                &root.id.to_hex(),
+                "communication-forbidden-chain",
+                &[third.public_key().to_hex()],
+                100,
+            )
+            .is_err());
     }
 
     #[test]
@@ -2278,7 +2553,7 @@ mod tests {
     }
 
     #[test]
-    fn v1_rows_load_without_an_interruption_reason_and_persist_as_v2() {
+    fn v1_and_v2_rows_gain_bounded_causal_coordinates_and_persist_as_v3() {
         let owner = Keys::parse(&"91".repeat(32)).expect("owner");
         let resident = Keys::parse(&"92".repeat(32)).expect("resident");
         let trigger = event(&owner, &resident, CHANNEL_ONE, "v1");
@@ -2289,26 +2564,37 @@ mod tests {
             .stage_owner_event(&trigger, &[resident.public_key().to_hex()], 100)
             .expect("stage");
 
-        let mut v1: serde_json::Value =
+        let base: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).expect("read")).expect("json");
-        v1["schema"] = serde_json::json!(STORE_SCHEMA_V1);
-        v1["dispatches"][0]
-            .as_object_mut()
-            .expect("row")
-            .remove("interruption_reason");
-        std::fs::write(&path, serde_json::to_vec(&v1).expect("serialize")).expect("write v1");
+        for legacy_schema in [STORE_SCHEMA_V1, STORE_SCHEMA_V2] {
+            let mut legacy = base.clone();
+            legacy["schema"] = serde_json::json!(legacy_schema);
+            let row = legacy["dispatches"][0].as_object_mut().expect("row");
+            row.remove("interruption_reason");
+            row.remove("source_dispatch_id");
+            row.remove("causal_root_event_id");
+            row.remove("causal_parent_action_id");
+            row.remove("descendant_depth");
+            std::fs::write(&path, serde_json::to_vec(&legacy).expect("serialize"))
+                .expect("write legacy");
 
-        let migrated = ManagedDispatchStore::load(path.clone()).expect("load v1");
-        let row = migrated
-            .dispatches
-            .get(&(trigger.id.to_hex(), resident.public_key().to_hex()))
-            .expect("row");
-        assert_eq!(row.state, ManagedDispatchState::Pending);
-        assert_eq!(row.interruption_reason, None);
-        migrated.persist().expect("persist v2");
-        let persisted: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(path).expect("read v2")).expect("json");
-        assert_eq!(persisted["schema"], STORE_SCHEMA);
+            let migrated = ManagedDispatchStore::load(path.clone()).expect("load legacy");
+            let row = migrated
+                .dispatches
+                .get(&(trigger.id.to_hex(), resident.public_key().to_hex()))
+                .expect("row");
+            assert_eq!(row.state, ManagedDispatchState::Pending);
+            assert_eq!(row.interruption_reason, None);
+            assert_eq!(
+                row.source_dispatch_id.as_deref(),
+                Some(trigger.id.to_hex().as_str())
+            );
+            assert_eq!(row.descendant_depth, 0);
+            migrated.persist().expect("persist v3");
+            let persisted: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&path).expect("read v3")).expect("json");
+            assert_eq!(persisted["schema"], STORE_SCHEMA);
+        }
     }
 
     #[test]

@@ -457,7 +457,13 @@ impl CommunicationTurnAuthority for DesktopCommunicationTurnAuthority {
             session_epoch: context.session_epoch,
             runtime_binding_ref: context.binding_ref.clone(),
             coordinates: coordinates.clone(),
-            causal_root_id: coordinates.dispatch_receipt_id.clone(),
+            causal_root_id: OpaqueId::parse(
+                dispatch
+                    .causal_root_event_id
+                    .clone()
+                    .unwrap_or_else(|| dispatch.trigger_event_id.clone()),
+            )
+            .map_err(|_| BrokerFailure::stale_turn())?,
             owned_resident_pubkeys,
             expires_at: canonical_timestamp(dispatch.expires_at)?,
         })
@@ -595,10 +601,12 @@ impl CommunicationBridgeCore {
         validate_message_body(&raw.body, &raw.artifact_handle_ids)?;
         let mention_pubkeys = sorted_pubkeys(raw.mention_pubkeys)?;
         let activation_pubkeys = sorted_pubkeys(raw.activation_pubkeys)?;
-        if !activation_pubkeys.is_empty() {
-            // COM-103 owns visible activation and its delivery/activation
-            // result split. Do not open a DM before rejecting that request.
-            return Err(BrokerFailure::operation_not_implemented());
+        if !activation_pubkeys.is_empty()
+            && authority.causal_root_id != authority.coordinates.dispatch_receipt_id
+        {
+            // A one-hop descendant may reply visibly but cannot activate a
+            // further resident. This is enforced before destination mutation.
+            return Err(BrokerFailure::approval_required());
         }
         if activation_pubkeys
             .iter()
@@ -948,6 +956,7 @@ impl CommunicationBridgeCore {
         // custody can race semantic resolution. Recheck the exact tuple again
         // immediately before handing the action to durable staging.
         let rechecked = self.recheck_exact_authority(&authority)?;
+        let activation_requested = !request.operation.activation_pubkeys().is_empty();
         let staged = self.backend.stage_action(request.clone(), &rechecked)?;
         if staged.action_id != request.action_id
             || staged.idempotency_key != request.idempotency_key
@@ -955,7 +964,12 @@ impl CommunicationBridgeCore {
         {
             return Err(BrokerFailure::outbox_unavailable());
         }
-        Ok("Communication action was durably staged.".into())
+        Ok(if activation_requested {
+            "Communication delivery and one-hop activation were requested and durably staged."
+                .into()
+        } else {
+            "Communication action was durably staged.".into()
+        })
     }
 
     fn success_response(
@@ -1518,8 +1532,13 @@ fn build_action_request(
         turn_id: authority.coordinates.turn_id.clone(),
         dispatch_receipt_id: authority.coordinates.dispatch_receipt_id.clone(),
         causal_root_id: authority.causal_root_id.clone(),
-        causal_parent_action_id: None,
-        causal_depth: SafeU53::new(0).map_err(|_| BrokerFailure::invalid_arguments())?,
+        causal_parent_action_id: (authority.causal_root_id
+            != authority.coordinates.dispatch_receipt_id)
+            .then(|| authority.coordinates.dispatch_receipt_id.clone()),
+        causal_depth: SafeU53::new(u64::from(
+            authority.causal_root_id != authority.coordinates.dispatch_receipt_id,
+        ))
+        .map_err(|_| BrokerFailure::invalid_arguments())?,
         cancellation_epoch: authority.coordinates.cancellation_epoch,
         expires_at: expiry,
         approval_id: None,

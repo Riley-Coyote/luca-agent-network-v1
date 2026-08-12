@@ -304,6 +304,8 @@ pub(crate) struct ExistingConversationPublisher {
     installation_session_id: OpaqueId,
     relay: Arc<dyn CommunicationRelayTransport>,
     stores: Mutex<PublicationStores>,
+    #[cfg(test)]
+    test_dispatch_store: Option<Arc<Mutex<super::managed_dispatch_store::ManagedDispatchStore>>>,
 }
 
 impl ExistingConversationPublisher {
@@ -342,6 +344,8 @@ impl ExistingConversationPublisher {
             installation_session_id,
             relay,
             stores: Mutex::new(PublicationStores { outbox, vault }),
+            #[cfg(test)]
+            test_dispatch_store: None,
         }))
     }
 
@@ -361,7 +365,48 @@ impl ExistingConversationPublisher {
             installation_session_id,
             relay,
             stores: Mutex::new(PublicationStores { outbox, vault }),
+            test_dispatch_store: None,
         })
+    }
+
+    #[cfg(test)]
+    fn relay_with_dispatch_for_tests(
+        resident_keys: Keys,
+        current_session_epoch: SafeU53,
+        installation_session_id: OpaqueId,
+        outbox: CommunicationActionOutbox,
+        vault: CommunicationEventVault,
+        relay: Arc<dyn CommunicationRelayTransport>,
+        dispatch_store: Arc<Mutex<super::managed_dispatch_store::ManagedDispatchStore>>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            app: None,
+            resident_keys,
+            current_session_epoch,
+            installation_session_id,
+            relay,
+            stores: Mutex::new(PublicationStores { outbox, vault }),
+            test_dispatch_store: Some(dispatch_store),
+        })
+    }
+
+    fn active_dispatch_store(
+        &self,
+    ) -> Result<
+        Option<Arc<Mutex<super::managed_dispatch_store::ManagedDispatchStore>>>,
+        CommunicationPublicationError,
+    > {
+        if let Some(app) = &self.app {
+            return super::managed_dispatch_store::global_dispatch_store(app)
+                .map(Some)
+                .map_err(|_| CommunicationPublicationError::Persistence);
+        }
+        #[cfg(test)]
+        {
+            return Ok(self.test_dispatch_store.clone());
+        }
+        #[cfg(not(test))]
+        Ok(None)
     }
 
     pub(crate) fn membership(
@@ -511,6 +556,42 @@ impl ExistingConversationPublisher {
                 )
                 .map_err(|_| CommunicationPublicationError::Persistence)?;
         }
+        let activation_targets = request
+            .operation
+            .activation_pubkeys()
+            .iter()
+            .map(|pubkey| pubkey.as_str().to_owned())
+            .collect::<Vec<_>>();
+        let dispatch_store = if activation_targets.is_empty() {
+            None
+        } else {
+            self.active_dispatch_store()?
+        };
+        let mut dispatch_guard = dispatch_store
+            .as_ref()
+            .map(|store| {
+                store
+                    .lock()
+                    .map_err(|_| CommunicationPublicationError::Persistence)
+            })
+            .transpose()?;
+        let staged_descendants = if let Some(guard) = dispatch_guard.as_mut() {
+            let event = Event::from_json(exact_json.as_str())
+                .map_err(|_| CommunicationPublicationError::Persistence)?;
+            guard
+                .stage_descendant_event(
+                    &event,
+                    request.owner_pubkey.as_str(),
+                    request.dispatch_receipt_id.as_str(),
+                    request.causal_root_id.as_str(),
+                    request.action_id.as_str(),
+                    &activation_targets,
+                    unix_now()?,
+                )
+                .map_err(|_| CommunicationPublicationError::Persistence)?
+        } else {
+            Vec::new()
+        };
         let outcome = self.relay.submit_exact(exact_json.as_str());
         let mut stores = self
             .stores
@@ -538,6 +619,11 @@ impl ExistingConversationPublisher {
                 cleanup_terminal_event(&mut stores, cleanup)?;
             }
             RelaySubmitOutcome::ExplicitlyRejected => {
+                if let Some(guard) = dispatch_guard.as_mut() {
+                    guard
+                        .mark_rejected(&staged_descendants)
+                        .map_err(|_| CommunicationPublicationError::Persistence)?;
+                }
                 stores
                     .outbox
                     .reject_during_reconciliation(&request.idempotency_key, now_timestamp()?)
@@ -808,7 +894,7 @@ impl ExistingConversationPublisher {
             (row, exact_json)
         };
 
-        let dispatch_store = if let Some(app) = &self.app {
+        let dispatch_store = if self.app.is_some() {
             super::communication_turn_registry::authorize(
                 expected_authority.resident_pubkey.as_str(),
                 expected_authority.session_epoch.get(),
@@ -820,14 +906,13 @@ impl ExistingConversationPublisher {
                 expected_authority.coordinates.dispatch_receipt_id.as_str(),
             )
             .map_err(|_| BrokerFailure::authority_unavailable())?;
-            Some(
-                super::managed_dispatch_store::global_dispatch_store(app)
-                    .map_err(|_| BrokerFailure::authority_unavailable())?,
-            )
+            self.active_dispatch_store()
+                .map_err(map_publication_failure)?
         } else {
-            None
+            self.active_dispatch_store()
+                .map_err(map_publication_failure)?
         };
-        let dispatch_guard = dispatch_store
+        let mut dispatch_guard = dispatch_store
             .as_ref()
             .map(|store| {
                 let guard = store
@@ -849,8 +934,9 @@ impl ExistingConversationPublisher {
             })
             .transpose()?;
 
-        // Keep the durable dispatch lock across Submitted persistence and the
-        // first relay I/O. Cancellation therefore cannot win between them.
+        // Keep the durable dispatch lock across descendant staging, Submitted
+        // persistence, and the first relay I/O. Cancellation cannot win
+        // between them and retry sees the same exact descendant keys.
         let mut stores = self
             .stores
             .lock()
@@ -865,6 +951,33 @@ impl ExistingConversationPublisher {
                 now_timestamp().map_err(map_publication_failure)?,
             )
             .map_err(|_| BrokerFailure::outbox_unavailable())?;
+
+        let activation_targets = request
+            .operation
+            .activation_pubkeys()
+            .iter()
+            .map(|pubkey| pubkey.as_str().to_owned())
+            .collect::<Vec<_>>();
+        let staged_descendants = if activation_targets.is_empty() {
+            Vec::new()
+        } else {
+            let guard = dispatch_guard
+                .as_mut()
+                .ok_or_else(BrokerFailure::authority_unavailable)?;
+            let event = Event::from_json(exact_json.as_str())
+                .map_err(|_| BrokerFailure::outbox_unavailable())?;
+            guard
+                .stage_descendant_event(
+                    &event,
+                    expected_authority.owner_pubkey.as_str(),
+                    expected_authority.coordinates.dispatch_receipt_id.as_str(),
+                    expected_authority.causal_root_id.as_str(),
+                    request.action_id.as_str(),
+                    &activation_targets,
+                    unix_now().map_err(map_publication_failure)?,
+                )
+                .map_err(|_| BrokerFailure::authority_unavailable())?
+        };
 
         match self.relay.submit_exact(exact_json.as_str()) {
             RelaySubmitOutcome::Accepted {
@@ -889,6 +1002,11 @@ impl ExistingConversationPublisher {
                     .map_err(|_| BrokerFailure::outbox_unavailable())?;
             }
             RelaySubmitOutcome::ExplicitlyRejected => {
+                if let Some(guard) = dispatch_guard.as_mut() {
+                    guard
+                        .mark_rejected(&staged_descendants)
+                        .map_err(|_| BrokerFailure::authority_unavailable())?;
+                }
                 stores
                     .outbox
                     .reject_during_reconciliation(
@@ -1008,12 +1126,23 @@ fn validate_narrow_request(
     let CommunicationOperationV1::SendMessage {
         activation_pubkeys,
         artifact_handles,
+        mention_pubkeys,
         ..
     } = &request.operation
     else {
         return Err(CommunicationPublicationError::Unsupported);
     };
-    if !activation_pubkeys.is_empty() || !artifact_handles.is_empty() {
+    if !artifact_handles.is_empty()
+        || (!activation_pubkeys.is_empty()
+            && (request.causal_depth.get() != 0
+                || request.causal_parent_action_id.is_some()
+                || activation_pubkeys.iter().any(|target| {
+                    target == &authority.owner_pubkey
+                        || target == &authority.resident_pubkey
+                        || !authority.owned_resident_pubkeys.contains(target)
+                        || mention_pubkeys.binary_search(target).is_err()
+                })))
+    {
         return Err(CommunicationPublicationError::Unsupported);
     }
     Ok(())
@@ -1045,6 +1174,11 @@ fn validate_membership(
             participant != &authority.owner_pubkey
                 && !authority.owned_resident_pubkeys.contains(participant)
         })
+        || request
+            .operation
+            .activation_pubkeys()
+            .iter()
+            .any(|target| !membership.participant_pubkeys.contains(target))
     {
         return Err(CommunicationPublicationError::Membership);
     }
@@ -1230,13 +1364,13 @@ fn build_exact_message_event(
         body,
         reply_to_event_id,
         mention_pubkeys,
-        activation_pubkeys,
+        activation_pubkeys: _,
         artifact_handles,
     } = &request.operation
     else {
         return Err(CommunicationPublicationError::Unsupported);
     };
-    if !activation_pubkeys.is_empty() || !artifact_handles.is_empty() {
+    if !artifact_handles.is_empty() {
         return Err(CommunicationPublicationError::Unsupported);
     }
     let thread_ref = reply_to_event_id
@@ -1686,6 +1820,172 @@ mod tests {
             .unwrap();
         assert_eq!(repeated.state, "accepted");
         assert_eq!(fixture.relay.submitted().len(), 1);
+    }
+
+    #[test]
+    fn visible_one_hop_activation_is_staged_before_relay_and_retry_is_idempotent() {
+        let relay_keys = keys("51");
+        let owner_keys = keys("52");
+        let source_keys = keys("53");
+        let target_keys = keys("54");
+        let owner_pubkey = Hex64::parse(owner_keys.public_key().to_hex()).unwrap();
+        let source_pubkey = Hex64::parse(source_keys.public_key().to_hex()).unwrap();
+        let target_pubkey = Hex64::parse(target_keys.public_key().to_hex()).unwrap();
+        let conversation_id = OpaqueId::parse("56565656-5656-4565-8565-565656565656").unwrap();
+        let membership_event = membership_event(
+            &relay_keys,
+            conversation_id.as_str(),
+            &[&owner_keys, &source_keys, &target_keys],
+            100,
+        );
+        let relay = FakeRelay::new(
+            &relay_keys,
+            vec![membership_event],
+            [FakeSubmitResult::Unknown, FakeSubmitResult::Accepted],
+        );
+        let directory = tempfile::tempdir().unwrap();
+        let trigger = EventBuilder::new(Kind::Custom(MESSAGE_KIND), "Coordinate visibly")
+            .tags([
+                Tag::parse(["h", conversation_id.as_str()]).unwrap(),
+                Tag::public_key(source_keys.public_key()),
+            ])
+            .custom_created_at(Timestamp::from(unix_now().unwrap()))
+            .sign_with_keys(&owner_keys)
+            .unwrap();
+        let dispatch_store = Arc::new(Mutex::new(
+            super::super::managed_dispatch_store::ManagedDispatchStore::load(
+                directory.path().join("dispatches.json"),
+            )
+            .unwrap(),
+        ));
+        {
+            let mut store = dispatch_store.lock().unwrap();
+            store
+                .stage_owner_event(
+                    &trigger,
+                    &[source_pubkey.as_str().to_owned()],
+                    unix_now().unwrap(),
+                )
+                .unwrap();
+            store.activate_session(source_pubkey.as_str(), 4).unwrap();
+            store
+                .bind_communication_turn_start(
+                    &trigger.id.to_hex(),
+                    source_pubkey.as_str(),
+                    conversation_id.as_str(),
+                    4,
+                    unix_now().unwrap(),
+                )
+                .unwrap();
+        }
+        let session = OpaqueId::parse("installation-activation-test").unwrap();
+        let vault = CommunicationEventVault::open(
+            directory.path().join("vault"),
+            SecretString::from("test-vault-passphrase"),
+            source_pubkey.clone(),
+        )
+        .unwrap();
+        let publisher = ExistingConversationPublisher::relay_with_dispatch_for_tests(
+            source_keys,
+            SafeU53::new(4).unwrap(),
+            session.clone(),
+            CommunicationActionOutbox::new(session),
+            vault,
+            relay.clone(),
+            dispatch_store.clone(),
+        );
+        let membership = publisher.membership(&conversation_id).unwrap();
+        let trigger_id = OpaqueId::parse(trigger.id.to_hex()).unwrap();
+        let runtime_binding_ref = Sha256Ref::parse(format!("sha256:{}", "5".repeat(64))).unwrap();
+        let expiry = CanonicalTimestamp::parse(
+            DateTime::<Utc>::from_timestamp((unix_now().unwrap() + 30 * 60) as i64, 0)
+                .unwrap()
+                .to_rfc3339_opts(SecondsFormat::Secs, true),
+        )
+        .unwrap();
+        let authority = CommunicationTurnAuthoritySnapshot {
+            owner_pubkey: owner_pubkey.clone(),
+            resident_pubkey: source_pubkey.clone(),
+            session_epoch: SafeU53::new(4).unwrap(),
+            runtime_binding_ref: runtime_binding_ref.clone(),
+            coordinates: super::super::communication_bridge::CommunicationTurnCoordinates {
+                source_conversation_id: conversation_id.clone(),
+                turn_id: trigger_id.clone(),
+                dispatch_receipt_id: trigger_id.clone(),
+                cancellation_epoch: SafeU53::new(4).unwrap(),
+            },
+            causal_root_id: trigger_id.clone(),
+            owned_resident_pubkeys: [source_pubkey.clone(), target_pubkey.clone()]
+                .into_iter()
+                .collect(),
+            expires_at: expiry.clone(),
+        };
+        let mut request = CommunicationActionRequestV1 {
+            protocol: COMMUNICATION_ACTION_PROTOCOL.to_owned(),
+            action_id: OpaqueId::parse("communication-visible-activation").unwrap(),
+            idempotency_key: Hex64::parse("0".repeat(64)).unwrap(),
+            action_fingerprint: Sha256Ref::parse(format!("sha256:{}", "0".repeat(64))).unwrap(),
+            actor_pubkey: source_pubkey.clone(),
+            owner_pubkey,
+            resident_pubkey: source_pubkey,
+            session_epoch: SafeU53::new(4).unwrap(),
+            runtime_binding_ref,
+            source_conversation_id: conversation_id.clone(),
+            destination: CommunicationDestinationV1::ExistingConversation {
+                conversation_id,
+                participant_set_version: membership.participant_set_version,
+                participant_set_ref: membership.participant_set_ref,
+            },
+            turn_id: trigger_id.clone(),
+            dispatch_receipt_id: trigger_id.clone(),
+            causal_root_id: trigger_id,
+            causal_parent_action_id: None,
+            causal_depth: SafeU53::new(0).unwrap(),
+            cancellation_epoch: SafeU53::new(4).unwrap(),
+            expires_at: expiry,
+            approval_id: None,
+            operation: CommunicationOperationV1::SendMessage {
+                body: "Please respond here.".to_owned(),
+                reply_to_event_id: None,
+                mention_pubkeys: vec![target_pubkey.clone()],
+                activation_pubkeys: vec![target_pubkey.clone()],
+                artifact_handles: Vec::new(),
+            },
+        };
+        request.action_fingerprint = request.derive_action_fingerprint().unwrap();
+        request.idempotency_key = request.derive_idempotency_key().unwrap();
+
+        assert!(publisher
+            .stage_and_publish(request.clone(), &authority)
+            .is_err());
+        let first_event = Event::from_json(&relay.submitted()[0]).unwrap();
+
+        let staged = publisher.stage_and_publish(request, &authority).unwrap();
+        assert_eq!(staged.state, "accepted");
+        assert_eq!(relay.submitted().len(), 2);
+        assert_eq!(relay.submitted()[0], relay.submitted()[1]);
+        let child = {
+            let mut store = dispatch_store.lock().unwrap();
+            store.activate_session(target_pubkey.as_str(), 9).unwrap();
+            store
+                .bind_communication_turn_start(
+                    &first_event.id.to_hex(),
+                    target_pubkey.as_str(),
+                    authority.coordinates.source_conversation_id.as_str(),
+                    9,
+                    unix_now().unwrap(),
+                )
+                .unwrap()
+        };
+        assert_eq!(child.descendant_depth, 1);
+        assert_eq!(
+            child.source_dispatch_id.as_deref(),
+            Some(authority.coordinates.dispatch_receipt_id.as_str())
+        );
+        assert_eq!(
+            child.resolved_p_tags,
+            vec![authority.resident_pubkey.as_str()]
+        );
     }
 
     #[test]

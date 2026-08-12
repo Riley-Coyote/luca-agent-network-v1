@@ -15,6 +15,7 @@ struct TestAuthority {
     calls: AtomicUsize,
     fail_on_call: Mutex<Option<usize>>,
     active: AtomicBool,
+    descendant: AtomicBool,
 }
 
 impl TestAuthority {
@@ -24,6 +25,7 @@ impl TestAuthority {
             calls: AtomicUsize::new(0),
             fail_on_call: Mutex::new(None),
             active: AtomicBool::new(true),
+            descendant: AtomicBool::new(false),
         }
     }
 
@@ -62,7 +64,11 @@ impl CommunicationTurnAuthority for TestAuthority {
             session_epoch: context.session_epoch,
             runtime_binding_ref: context.binding_ref.clone(),
             coordinates: coordinates.clone(),
-            causal_root_id: coordinates.dispatch_receipt_id.clone(),
+            causal_root_id: if self.descendant.load(Ordering::SeqCst) {
+                opaque("owner-root-dispatch")
+            } else {
+                coordinates.dispatch_receipt_id.clone()
+            },
             owned_resident_pubkeys: [context.resident_pubkey.clone(), hex64(OTHER_RESIDENT)]
                 .into_iter()
                 .collect(),
@@ -583,7 +589,7 @@ fn private_room_and_same_owner_membership_use_bounded_host_operations() {
 }
 
 #[test]
-fn activation_and_external_room_participants_fail_before_host_mutation() {
+fn invitation_activation_and_external_room_participants_fail_before_host_mutation() {
     let fixture = Fixture::new();
     let activation = fixture.response(
         "invite",
@@ -611,22 +617,33 @@ fn activation_and_external_room_participants_fail_before_host_mutation() {
                 "destination_type": "direct_participants",
                 "participant_pubkeys": [OTHER_RESIDENT],
             },
-            "body": "Do not open this DM yet.",
+            "body": "Please respond here.",
             "mention_pubkeys": [OTHER_RESIDENT],
             "activation_pubkeys": [OTHER_RESIDENT],
         }),
     );
-    assert!(!direct_activation.ok);
+    assert!(direct_activation.ok);
+    assert!(direct_activation.content.contains("activation"));
+    let staged = fixture.backend.staged.lock().expect("staged");
+    let (request, _) = staged.last().expect("activation request");
     assert_eq!(
-        direct_activation.receipt.diagnostic_code,
-        Some("operation_not_implemented")
+        request.operation.activation_pubkeys(),
+        &[hex64(OTHER_RESIDENT)]
     );
-    assert!(fixture
-        .backend
-        .direct_resolutions
-        .lock()
-        .expect("direct resolutions")
-        .is_empty());
+    drop(staged);
+
+    fixture.authority.descendant.store(true, Ordering::SeqCst);
+    let chained = fixture.response(
+        "send",
+        json!({
+            "destination": {"destination_type": "current_conversation"},
+            "body": "A descendant cannot activate another resident.",
+            "mention_pubkeys": [OTHER_RESIDENT],
+            "activation_pubkeys": [OTHER_RESIDENT],
+        }),
+    );
+    assert!(!chained.ok);
+    assert_eq!(chained.receipt.diagnostic_code, Some("approval_required"));
 
     let external = fixture.response(
         "create_private_room",
