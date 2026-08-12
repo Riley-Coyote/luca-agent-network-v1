@@ -78,7 +78,7 @@ export function SettingsAgentsPanel() {
   const isMobile = useIsMobile();
   const managedQuery = useManagedAgentsQuery();
   const personasQuery = usePersonasQuery();
-  const { goAgent, goAgents } = useAppNavigation();
+  const { goAgent, goAgents, goSettings } = useAppNavigation();
   const { applyPatch, values } = useHistorySearchState(
     SETTINGS_AGENT_SEARCH_KEYS,
   );
@@ -186,6 +186,7 @@ export function SettingsAgentsPanel() {
                   if (selected.pubkey)
                     void goAgent(selected.pubkey, { section: "settings" });
                 }}
+                onOpenMcp={() => void goSettings("connections")}
                 onTabChange={(nextTab) =>
                   applyPatch({
                     settingsAgentTab: nextTab === "general" ? null : nextTab,
@@ -218,6 +219,7 @@ export function SettingsAgentsPanel() {
 function AgentSettingsDetail({
   managedAgent,
   onOpenLibrary,
+  onOpenMcp,
   onRevalidate,
   onTabChange,
   resident,
@@ -225,6 +227,7 @@ function AgentSettingsDetail({
 }: {
   managedAgent: ManagedAgent | null;
   onOpenLibrary: () => void;
+  onOpenMcp: () => void;
   onRevalidate: () => Promise<unknown>;
   onTabChange: (tab: AgentSettingsTab) => void;
   resident: ResidentSummaryViewModel;
@@ -351,9 +354,14 @@ function AgentSettingsDetail({
               }
               detail="Private continuity jobs never receive MCP tools."
             />
-            <p className="text-sm text-muted-foreground">
-              Per-agent Luca MCP grants are managed in Connections & MCP.
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">
+                Per-agent Luca MCP grants are managed in Connections & MCP.
+              </p>
+              <Button onClick={onOpenMcp} size="sm" variant="outline">
+                Manage MCP access <ArrowUpRight className="ml-1.5 size-3.5" />
+              </Button>
+            </div>
           </>
         ) : null}
         {tab === "advanced" ? (

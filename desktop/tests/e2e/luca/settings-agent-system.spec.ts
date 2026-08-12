@@ -95,7 +95,7 @@ test("settings exposes only the Luca information architecture", async ({
   await expect(page.getByText("Experiments", { exact: true })).toHaveCount(0);
 });
 
-test("agent settings share the roster and expose native authority", async ({
+test("one resident record agrees across settings, runtime, and MCP grants", async ({
   page,
 }) => {
   await page.goto(settingsUrl("agents"));
@@ -112,6 +112,34 @@ test("agent settings share the roster and expose native authority", async ({
   await expect(page).toHaveURL(/settingsAgentTab=runtime/);
   await page.goBack();
   await expect(page.getByText("Configuration authority")).toBeVisible();
+
+  await page.getByRole("button", { name: "Capabilities" }).click();
+  await page.getByRole("button", { name: "Manage MCP access" }).click();
+  await expect(page).toHaveURL(/section=connections/);
+  await expect(page.getByText("Hermes", { exact: true })).toBeVisible();
+
+  await page
+    .getByTestId("settings-connections-mcp")
+    .getByRole("button", { name: "Agents", exact: true })
+    .click();
+  const grant = page.getByRole("switch", {
+    name: "Grant Local project tools to Luca",
+  });
+  await expect(grant).toBeVisible();
+  await grant.click();
+  await expect(grant).toBeChecked();
+
+  const grantCall = await page.evaluate(
+    () =>
+      window.__BUZZ_E2E_COMMAND_LOG__?.find(
+        (entry) => entry.command === "set_agent_mcp_grant",
+      ) ?? null,
+  );
+  expect(grantCall?.payload).toMatchObject({
+    connectionId: "11111111-1111-4111-8111-111111111111",
+    granted: true,
+    residentPubkey: HERMES_PUBKEY,
+  });
 });
 
 test("MCP connections can be edited, disabled, tested, and granted", async ({
