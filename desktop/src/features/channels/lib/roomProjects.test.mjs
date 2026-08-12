@@ -5,8 +5,10 @@ import {
   assignRoomProject,
   createEmptyRoomProject,
   createRoomProject,
+  deleteRoomProject,
   parseRoomProjectStore,
   readRoomProjectStore,
+  renameRoomProject,
   roomProjectStorageKey,
   writeRoomProjectStore,
 } from "./roomProjects.ts";
@@ -214,5 +216,107 @@ test("createEmptyRoomProject generates stable unique ids without changing atomic
   assert.deepEqual(
     readRoomProjectStore("owner", "relay", storage).assignments,
     {},
+  );
+});
+
+test("renameRoomProject preserves stable identity sources status and assignments", () => {
+  const storage = memoryStorage();
+  writeRoomProjectStore(
+    "owner",
+    "relay",
+    {
+      version: 1,
+      projects: [
+        {
+          id: "luca",
+          label: "Luca",
+          sourceIds: ["repo:luca"],
+          workingContextStatus: "missing",
+        },
+      ],
+      assignments: { general: "luca" },
+    },
+    storage,
+  );
+
+  assert.equal(
+    renameRoomProject("owner", "relay", "luca", "  Luca Network  ", storage),
+    true,
+  );
+  assert.deepEqual(readRoomProjectStore("owner", "relay", storage), {
+    version: 1,
+    projects: [
+      {
+        id: "luca",
+        label: "Luca Network",
+        sourceIds: ["repo:luca"],
+        workingContextStatus: "missing",
+      },
+    ],
+    assignments: { general: "luca" },
+  });
+  assert.equal(
+    renameRoomProject("owner", "relay", "luca", "Luca Network", storage),
+    false,
+  );
+  assert.equal(
+    renameRoomProject("owner", "relay", "luca", " ", storage),
+    false,
+  );
+});
+
+test("deleteRoomProject removes only its local grouping and assignments", () => {
+  const storage = memoryStorage();
+  writeRoomProjectStore(
+    "owner",
+    "relay",
+    {
+      version: 1,
+      projects: [
+        { id: "luca", label: "Luca", sourceIds: ["repo:luca"] },
+        { id: "other", label: "Other", sourceIds: ["folder:notes"] },
+      ],
+      assignments: { general: "luca", engineering: "luca", random: "other" },
+    },
+    storage,
+  );
+
+  assert.equal(deleteRoomProject("owner", "relay", "luca", storage), true);
+  assert.deepEqual(readRoomProjectStore("owner", "relay", storage), {
+    version: 1,
+    projects: [
+      {
+        id: "other",
+        label: "Other",
+        sourceIds: ["folder:notes"],
+        workingContextStatus: "none",
+      },
+    ],
+    assignments: { random: "other" },
+  });
+  assert.equal(deleteRoomProject("owner", "relay", "missing", storage), false);
+});
+
+test("project detail mutations report storage failure without changing state", () => {
+  const stored = JSON.stringify({
+    version: 1,
+    projects: [{ id: "luca", label: "Luca" }],
+    assignments: { general: "luca" },
+  });
+  const storage = {
+    ...memoryStorage({ [roomProjectStorageKey("owner", "relay")]: stored }),
+    setItem: () => {
+      throw new Error("storage unavailable");
+    },
+  };
+
+  assert.equal(
+    renameRoomProject("owner", "relay", "luca", "Renamed", storage),
+    false,
+  );
+  assert.equal(deleteRoomProject("owner", "relay", "luca", storage), false);
+  assert.equal(
+    readRoomProjectStore("owner", "relay", storage).projects[0]?.label,
+    "Luca",
   );
 });

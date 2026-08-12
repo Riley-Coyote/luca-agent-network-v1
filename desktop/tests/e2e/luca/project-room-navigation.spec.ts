@@ -33,10 +33,38 @@ async function storedProjects(page: import("@playwright/test").Page) {
     );
     if (!key) return null;
     return JSON.parse(window.localStorage.getItem(key) ?? "null") as {
-      projects: Array<{ id: string; sourceIds?: string[] }>;
+      projects: Array<{
+        id: string;
+        label: string;
+        sourceIds?: string[];
+        workingContextStatus?: "attached" | "missing" | "none";
+      }>;
       assignments: Record<string, string>;
     } | null;
   });
+}
+
+async function markProjectContextMissing(
+  page: import("@playwright/test").Page,
+  projectId: string,
+) {
+  await page.evaluate((id) => {
+    const key = Object.keys(window.localStorage).find((candidate) =>
+      candidate.startsWith("luca-room-projects.v1:"),
+    );
+    if (!key) throw new Error("Expected a local project store.");
+    const store = JSON.parse(window.localStorage.getItem(key) ?? "null") as {
+      projects: Array<{
+        id: string;
+        workingContextStatus?: "attached" | "missing" | "none";
+      }>;
+    };
+    const project = store.projects.find((candidate) => candidate.id === id);
+    if (!project) throw new Error(`Expected project ${id}.`);
+    project.workingContextStatus = "missing";
+    window.localStorage.setItem(key, JSON.stringify(store));
+    window.dispatchEvent(new Event("luca:room-projects-changed"));
+  }, projectId);
 }
 
 test("projects open their room navigator and remember the selected room", async ({
@@ -185,6 +213,158 @@ test("a project can begin empty with no room residents or sources", async ({
       (entry) => entry.command === "create_channel",
     ),
   ).toHaveLength(0);
+});
+
+test("project details rename, reopen, recover missing context, and remove an empty grouping", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock");
+
+  await page.getByTestId("create-room-project").click();
+  const createDialog = page.getByTestId("create-room-project-dialog");
+  await createDialog.getByTestId("create-project-name").fill("Quiet Research");
+  await createDialog.getByTestId("project-first-room-enabled").click();
+  await createDialog.getByRole("button", { name: "Clear" }).click();
+  await createDialog.getByRole("button", { name: "Create project" }).click();
+
+  await page.getByTestId("project-row-quiet-research").click();
+  const navigator = page.getByTestId("project-room-navigator");
+  await navigator.getByRole("button", { name: "Project details" }).click();
+  let details = page.getByTestId("project-details-dialog");
+  await expect(details).toBeVisible();
+  const projectName = details.getByRole("textbox", { name: "Project name" });
+  await expect(projectName).toBeFocused();
+  await expect(
+    details.getByRole("button", { name: "Save changes" }),
+  ).toBeDisabled();
+  await projectName.fill("Quiet Field");
+  await details.getByRole("button", { name: "Save changes" }).click();
+
+  await expect(navigator).toContainText("Quiet Field");
+  await expect(page).toHaveURL(/#\/projects\/quiet-research$/);
+  expect((await storedProjects(page))?.projects[0]).toEqual(
+    expect.objectContaining({ id: "quiet-research", label: "Quiet Field" }),
+  );
+
+  await navigator.getByRole("button", { name: "Project details" }).click();
+  details = page.getByTestId("project-details-dialog");
+  await expect(
+    details.getByRole("textbox", { name: "Project name" }),
+  ).toHaveValue("Quiet Field");
+  await details.locator("form").getByRole("button", { name: "Close" }).click();
+
+  await page.reload();
+  await expect(page).toHaveURL(/#\/projects\/quiet-research$/);
+  await expect(page.getByTestId("project-room-navigator")).toContainText(
+    "Quiet Field",
+  );
+
+  await markProjectContextMissing(page, "quiet-research");
+  await expect(page.getByTestId("project-room-navigator")).toContainText(
+    "Working folder unavailable",
+  );
+  await page
+    .getByTestId("project-room-navigator")
+    .getByRole("button", { name: "Project details" })
+    .click();
+  details = page.getByTestId("project-details-dialog");
+  const recovery = details.getByTestId("project-missing-context-recovery");
+  await expect(recovery).toContainText(
+    "The project and its rooms are still here",
+  );
+  await expect(recovery).not.toContainText("/Users/");
+  await recovery
+    .getByRole("button", { name: "Review sources in Brain" })
+    .click();
+  await expect(page).toHaveURL(/#\/brain$/);
+
+  await page.goBack();
+  await expect(page).toHaveURL(/#\/projects\/quiet-research$/);
+  await page
+    .getByTestId("project-room-navigator")
+    .getByRole("button", { name: "Project details" })
+    .click();
+  await page
+    .getByTestId("project-details-dialog")
+    .getByRole("button", { name: "Remove grouping" })
+    .click();
+  const confirmation = page.getByTestId("project-delete-grouping-dialog");
+  await expect(confirmation).toContainText("No rooms will be deleted");
+  await expect(confirmation).toContainText(
+    "Connected sources and resident grants remain in Brain",
+  );
+  await confirmation.getByRole("button", { name: "Keep project" }).click();
+  await expect(page.getByTestId("project-details-dialog")).toBeVisible();
+
+  await page
+    .getByTestId("project-details-dialog")
+    .getByRole("button", { name: "Remove grouping" })
+    .click();
+  await page
+    .getByTestId("project-delete-grouping-dialog")
+    .getByRole("button", { name: "Remove grouping" })
+    .click();
+  await expect(page).toHaveURL(/#\/messages\/new$/);
+  await expect(page.getByTestId("project-row-quiet-research")).toHaveCount(0);
+  expect(await storedProjects(page)).toEqual({
+    assignments: {},
+    projects: [],
+    version: 1,
+  });
+});
+
+test("removing a populated project keeps its room, message, and native state intact", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock");
+
+  await page.getByTestId("create-room-project").click();
+  const createDialog = page.getByTestId("create-room-project-dialog");
+  await createDialog.getByTestId("create-project-name").fill("Launch Work");
+  await createDialog.getByTestId("create-project-room-name").fill("planning");
+  await createDialog.getByRole("button", { name: "Create project" }).click();
+  await expect(page.getByTestId("chat-title")).toHaveText("planning");
+
+  await page
+    .getByTestId("message-input")
+    .fill("This message stays with planning.");
+  await page.getByTestId("send-message").click();
+  await expect(
+    page.getByText("This message stays with planning."),
+  ).toBeVisible();
+  const commandsBeforeDelete = (await commandLog(page)).length;
+
+  await page
+    .getByTestId("project-room-navigator")
+    .getByRole("button", { name: "Project details" })
+    .click();
+  await page
+    .getByTestId("project-details-dialog")
+    .getByRole("button", { name: "Remove grouping" })
+    .click();
+  const confirmation = page.getByTestId("project-delete-grouping-dialog");
+  await expect(confirmation).toContainText(
+    "The room stays intact and becomes loose",
+  );
+  await confirmation.getByRole("button", { name: "Remove grouping" }).click();
+
+  await expect(page.getByTestId("project-room-navigator")).toHaveCount(0);
+  await expect(page.getByTestId("chat-title")).toHaveText("planning");
+  await expect(
+    page.getByText("This message stays with planning."),
+  ).toBeVisible();
+  await expect(page.getByTestId("message-input")).toBeEditable();
+  await expect(page.getByTestId("project-row-launch-work")).toHaveCount(0);
+  expect(await storedProjects(page)).toEqual({
+    assignments: {},
+    projects: [],
+    version: 1,
+  });
+  expect(
+    (await commandLog(page))
+      .slice(commandsBeforeDelete)
+      .filter((entry) => /disconnect|delete|revoke|grant/i.test(entry.command)),
+  ).toEqual([]);
 });
 
 test("a first room attaches selected existing residents as membership only", async ({

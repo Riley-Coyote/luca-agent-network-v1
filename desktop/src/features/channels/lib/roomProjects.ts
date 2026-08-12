@@ -352,6 +352,67 @@ export function updateRoomProjectSources(
   });
 }
 
+/** Rename one local project without changing its stable id or relationships. */
+export function renameRoomProject(
+  ownerPubkey: string | undefined,
+  relayUrl: string | undefined,
+  projectId: string,
+  label: string,
+  storage: Storage | undefined = globalThis.localStorage,
+): boolean {
+  const trimmedLabel = label.trim();
+  if (!trimmedLabel) return false;
+  const current = readRoomProjectStore(ownerPubkey, relayUrl, storage);
+  const project = current.projects.find(
+    (candidate) => candidate.id === projectId,
+  );
+  if (!project || project.label === trimmedLabel) return false;
+  return writeRoomProjectStore(
+    ownerPubkey,
+    relayUrl,
+    {
+      ...current,
+      projects: current.projects.map((candidate) =>
+        candidate.id === projectId
+          ? { ...candidate, label: trimmedLabel }
+          : candidate,
+      ),
+    },
+    storage,
+  );
+}
+
+/**
+ * Remove one local project grouping while preserving every canonical room.
+ * Connected Brain sources and grants live outside this projection and are not
+ * mutated; matching room assignments are removed so those rooms become loose.
+ */
+export function deleteRoomProject(
+  ownerPubkey: string | undefined,
+  relayUrl: string | undefined,
+  projectId: string,
+  storage: Storage | undefined = globalThis.localStorage,
+): boolean {
+  const current = readRoomProjectStore(ownerPubkey, relayUrl, storage);
+  if (!current.projects.some((project) => project.id === projectId)) {
+    return false;
+  }
+  return writeRoomProjectStore(
+    ownerPubkey,
+    relayUrl,
+    {
+      ...current,
+      projects: current.projects.filter((project) => project.id !== projectId),
+      assignments: Object.fromEntries(
+        Object.entries(current.assignments).filter(
+          ([, assignedProjectId]) => assignedProjectId !== projectId,
+        ),
+      ),
+    },
+    storage,
+  );
+}
+
 /** Assign or unassign one room without changing its messaging identity. */
 export function assignRoomProject(
   ownerPubkey: string | undefined,
