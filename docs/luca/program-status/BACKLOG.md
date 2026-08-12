@@ -122,6 +122,24 @@ The existing browser prototype is design evidence only.
 - Packaging, updater, backup/restore, logs/diagnostics, and rollback.
 - One full repository gate only on the final unchanged commit.
 
+### P1.5 Effortless resident creation
+
+- Complete the natural-language concierge path over the existing proposal and
+  owner-review authority.
+- Preserve one stable resident identity and advanced runtime configuration as
+  an optional detail rather than a first-run requirement.
+- Prove manual and conversational creation converge on the same review and
+  installed native behavior.
+
+### P1.6 Agent-requested source access
+
+- Let a resident request a specific folder or repository scope for one stated
+  purpose.
+- Bind owner approval to the exact resident, source, action, and current
+  content/path state.
+- Keep project or room membership from granting access automatically.
+- Prove revoke, stale/reconfirm, moved source, cancellation, and restart.
+
 ## P2 — High-impact product expansions
 
 ### P2.1 V1.3 Resident Reflection
@@ -178,6 +196,9 @@ These remain candidates, not current commitments:
   projects;
 - one native multi-model resident identity with direct-chat and escalation
   lanes plus bounded worker delegation;
+- an optional conductor held by an ordinary resident as an explicit project
+  role, after roles, grants, budgets, communication, activation, Inbox,
+  receipt-backed Activity, approvals, recovery, and audit are complete;
 - shared/multi-user administration and concurrent multi-device authority;
 - native voice;
 - true NIP-17/group end-to-end encrypted messaging;
@@ -193,5 +214,5 @@ Do not spend time restoring these merely because Buzz contains them:
 - experiments;
 - broad workflow/canvas/forum/huddle product surfaces;
 - moderation, templates, and custom emoji administration;
-- conductor behavior;
+- hidden, privileged, mandatory, or authority-bypassing conductor behavior;
 - unrestricted raw Nostr/CLI/signing authority for agents.

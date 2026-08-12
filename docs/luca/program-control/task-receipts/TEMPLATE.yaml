@@ -1,0 +1,30 @@
+schema: luca.program-control.task-receipt.v1
+task_id: REPLACE
+objective: REPLACE
+team: REPLACE
+repository: REPLACE_WITH_EXACT_WORKTREE
+branch: REPLACE
+base_commit: REPLACE_WITH_FULL_SHA
+head_commit: REPLACE_WITH_FULL_SHA
+delivery_state: planned
+terminal_status: open
+dependencies: []
+owned_paths: []
+leased_paths: []
+forbidden_paths: []
+frozen_interfaces: []
+acceptance_tests: []
+commands: []
+evidence_paths: []
+security_findings: []
+qa_findings: []
+risks: []
+reviewer:
+  identity: REPLACE
+  verdict: REPLACE_WITH_PASS_FAIL_OR_NEEDS_REPAIR
+  reviewed_commit: REPLACE_WITH_FULL_SHA
+repair_count: 0
+repair_limit: 1
+integration_target: REPLACE
+next_safe_action: REPLACE
+updated_at: REPLACE_WITH_ISO8601

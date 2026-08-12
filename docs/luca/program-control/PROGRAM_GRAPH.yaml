@@ -1,0 +1,1047 @@
+schema: luca.program-control.v1
+generated_at: 2026-08-12
+authority:
+  status_package: docs/luca/program-status/
+  audited_base: f1f1eb3b135cae287c372c3210da635f324a1f81
+  integration_target: codex/conversation-communication-integration
+  control_branch: codex/program-control
+delivery_states:
+  - planned
+  - implemented_in_source
+  - source_tested
+  - integrated
+  - verified_in_installed_application
+  - release_complete_and_pushed
+terminal_status_values: [open, complete, blocked, deferred, cancelled]
+teams:
+  PIR: Program Integration & Release
+  EXP: Experience & Onboarding
+  COM: Communications & Collaboration
+  PBC: Projects, Brain & Connections
+  AGP: Agent Platform
+  CCS: Clients & Creative Surfaces
+interfaces:
+  IF-01: App shell, onboarding gate, and route selection
+  IF-02: Resident identity, registry, and selection
+  IF-03: Project, room, and membership transaction
+  IF-04: Shared command and frontend API registration
+  IF-05: Communication event, receipt, Activity, and Inbox semantics
+  IF-06: Brain, filesystem, connector grant, and provenance authority
+  IF-07: Runtime turn, cancellation, permission, and signing isolation
+  IF-08: Artifact handle and renderer trust boundary
+  IF-09: Pairing, device, push, and remote-client authority
+  IF-10: Release identity, bundle metadata, and evidence chain
+capability_coverage:
+  runtime.native_imports: [BASE-001]
+  runtime.identity: [BASE-001]
+  messaging.human_agent: [BASE-001]
+  continuity.handoff: [BASE-002]
+  continuity.notebook: [BASE-002]
+  brain.scoped_sources: [BASE-002, P1-PBC-001]
+  brain.connected_work: [BASE-002, P1-PBC-001]
+  navigation.project_room: [BASE-002, P0-PRJ-001]
+  agents.library: [BASE-002, P1-AGP-001]
+  settings.agent_system: [BASE-002, P0-AGP-001]
+  communications.secure_send: [BASE-001, P0-COM-007]
+  communications.owner_inbox: [P0-COM-005]
+  communications.agent_mutations: [P0-COM-001, P0-COM-002]
+  communications.agent_attachments: [P0-COM-003]
+  communications.agent_activation: [P0-COM-004]
+  communications.resident_inbox: [P0-COM-005]
+  communications.nip17: [P3-COM-001]
+  onboarding.production_flow: [P0-ONB-001, P0-ONB-002]
+  projects.unified_creation: [P0-PRJ-001, P0-PRJ-003]
+  projects.filesystem_access_requests: [P1-PBC-002]
+  agents.operator_forge: [P0-AGP-001]
+  agents.natural_language_creation: [P1-AGP-002]
+  agents.skills_library: [P1-AGP-001]
+  continuity.reflection_v1_3: [P2-PBC-001]
+  brain.unified_import: [P2-PBC-003]
+  connector.obsidian: [P2-PBC-002]
+  connector.gmail_google: [P2-PBC-004, P2-PBC-005]
+  artifacts.library_canvas: [P2-CCS-001, P2-CCS-002, P2-CCS-003]
+  mobile.companion: [P1-CCS-001, P1-CCS-002, P1-CCS-003]
+  agents.native_multimodel: [P3-AGP-001]
+  orchestration.optional_conductor: [P3-AGP-002]
+  continuity.inner_life: [P3-PBC-003]
+  release.canonical_consolidation: [P0-INT-001, P0-INT-002, P0-REL-001, P0-REL-002]
+  mobile.device_administration: [P1-CCS-002, P3-CCS-002]
+  clients.imessage_gateway: [P3-CCS-003]
+  clients.voice: [P3-CCS-001]
+  collaboration.multi_user: [P3-CCS-002]
+  artifacts.live_apps: [P3-CCS-001]
+  connectors.database_and_platform: [P3-PBC-001]
+  brain.embeddings_and_code_graph: [P3-PBC-002]
+tasks:
+  - id: BASE-001
+    epic: Locked functional foundation
+    team: PIR
+    objective: Preserve stable identity, native runtime import, conversation, cancellation, permission, and recovery behavior.
+    priority: BASE
+    release_gate: inherited_baseline
+    status: verified_in_installed_application
+    verification_level: installed_signed_application
+    dependencies: []
+    blocking_interfaces: [IF-02, IF-05, IF-07]
+    branch: codex/conversation-communication-integration
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-conversation-communication-integration
+    owned_paths: []
+    forbidden_paths: ['all product paths unless a regression is proven']
+    frozen_interfaces: [IF-02, IF-05, IF-07]
+    acceptance_tests: ['docs/luca/functional-beta/V1B_VERDICT.md remains applicable to the exact inherited source']
+    evidence: [docs/luca/functional-beta/V1B_VERDICT.md]
+    reviewer: PIR plus Security
+    integration_target: inherited baseline
+    repair_limit: 1
+    terminal_status: complete
+  - id: BASE-002
+    epic: Locked knowledge and shell foundation
+    team: PIR
+    objective: Preserve Notebook, continuity, scoped Brain, connected work, Settings, Agent Library, and project-room navigation.
+    priority: BASE
+    release_gate: inherited_baseline
+    status: verified_in_installed_application
+    verification_level: installed_signed_application
+    dependencies: []
+    blocking_interfaces: [IF-01, IF-03, IF-06, IF-07]
+    branch: codex/conversation-communication-integration
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-conversation-communication-integration
+    owned_paths: []
+    forbidden_paths: ['all product paths unless a regression is proven']
+    frozen_interfaces: [IF-01, IF-03, IF-06, IF-07]
+    acceptance_tests: ['existing V1.1, V1.2, V1.2.1, Settings, Agent Library, and project-navigation verdicts remain applicable']
+    evidence: [docs/luca/v1.1-v1.3/, docs/luca/settings-agent-system/VERDICT.md, docs/luca/project-navigation/PRODUCTION_HANDOFF.md]
+    reviewer: PIR plus Security and QA
+    integration_target: inherited baseline
+    repair_limit: 1
+    terminal_status: complete
+  - id: CTRL-001
+    epic: Program operating system
+    team: PIR
+    objective: Build and validate the complete repository-native control package.
+    priority: P0
+    release_gate: PC-G0_control_approval
+    status: source_tested
+    verification_level: focused_source_tests
+    dependencies: [BASE-001, BASE-002]
+    blocking_interfaces: []
+    branch: codex/program-control
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-program-control
+    owned_paths: ['docs/luca/program-control/**', 'docs/luca/program-status/*.md', docs/luca/program-status/STATUS_LEDGER.yaml]
+    forbidden_paths: ['desktop/**', 'mobile/**', 'crates/**', 'migrations/**', 'lockfiles']
+    frozen_interfaces: []
+    acceptance_tests: ['Ruby safe YAML parse', 'dependency and interface reference check', 'local Markdown link check', 'Git diff review']
+    evidence: [docs/luca/program-control/RUN_LOG.md]
+    reviewer: Riley
+    integration_target: codex/program-control
+    repair_limit: 1
+    terminal_status: complete
+  - id: CTRL-002
+    epic: Program operating system
+    team: PIR
+    objective: Obtain Riley approval and ratify branch topology, ownership, and shared-interface freezes.
+    priority: P0
+    release_gate: PC-G0_control_approval
+    status: source_tested
+    verification_level: focused_source_tests
+    dependencies: [CTRL-001]
+    blocking_interfaces: [IF-01, IF-02, IF-03, IF-04, IF-05, IF-06, IF-07, IF-08, IF-09, IF-10]
+    branch: codex/program-control
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-program-control
+    owned_paths: ['docs/luca/program-control/**']
+    forbidden_paths: ['all product source', 'team worktrees before approval']
+    frozen_interfaces: [IF-01, IF-02, IF-03, IF-04, IF-05, IF-06, IF-07, IF-08, IF-09, IF-10]
+    acceptance_tests: ['Riley approval recorded in DECISION_LEDGER.md', 'all team prompts and coordinates confirmed']
+    evidence: [docs/luca/program-control/DECISION_LEDGER.md]
+    reviewer: Riley
+    integration_target: codex/program-control
+    repair_limit: 1
+    terminal_status: complete
+  - id: P0-ONB-001
+    epic: Production onboarding reconciliation
+    team: EXP
+    objective: Reconcile the eight unique production-onboarding commits onto the audited integration base without shell regression.
+    priority: P0
+    release_gate: PC-G2_source_receipt
+    status: planned
+    verification_level: none
+    current_evidence: source-tested input exists on codex/brain-onboarding-ux at 13c9ec9
+    dependencies: [CTRL-002, BASE-001, BASE-002]
+    blocking_interfaces: [IF-01, IF-02, IF-03, IF-04, IF-06]
+    branch: codex/team-experience-onboarding
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-experience-onboarding
+    owned_paths: ['desktop/src/features/onboarding/**', 'desktop/tests/e2e/*onboarding*', 'approved leased shell files']
+    forbidden_paths: ['communication authority modules', 'Brain persistence/grant semantics', 'runtime signing/custody', 'lockfiles', 'migrations']
+    frozen_interfaces: [IF-01, IF-02, IF-03, IF-04, IF-06]
+    acceptance_tests: ['cd desktop && pnpm typecheck', 'cd desktop && pnpm exec playwright test tests/e2e/onboarding.spec.ts tests/e2e/onboarding-backup.spec.ts tests/e2e/onboarding-agent-defaults.spec.ts tests/e2e/luca/polyphonic-production-onboarding.spec.ts']
+    evidence: [evidence/program-control/P0-ONB-001/receipt.yaml]
+    reviewer: QA plus PIR
+    integration_target: codex/p0-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P0-ONB-002
+    epic: Production onboarding reconciliation
+    team: EXP
+    objective: Prove combined clean-profile, recovery, returning-profile, accessibility, and responsive onboarding in the signed app.
+    priority: P0
+    release_gate: PC-G2_source_receipt
+    status: planned
+    verification_level: none
+    dependencies: [P0-ONB-001]
+    blocking_interfaces: [IF-01, IF-02, IF-03, IF-06, IF-10]
+    branch: codex/team-experience-onboarding
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-experience-onboarding
+    owned_paths: ['desktop/tests/e2e/*onboarding*', 'evidence/program-control/P0-ONB-002/**']
+    forbidden_paths: ['release promotion', 'communication/runtime authority', 'native configuration mutation']
+    frozen_interfaces: [IF-01, IF-02, IF-03, IF-06, IF-10]
+    acceptance_tests: ['clean profile reaches conversation home', 'returning profile never re-enters onboarding', '390x844 and desktop visual checks', 'keyboard, screen-reader, and reduced-motion checks', 'signed installed-app observation']
+    evidence: [evidence/program-control/P0-ONB-002/receipt.yaml]
+    reviewer: Independent QA plus PIR
+    integration_target: codex/p0-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P0-COM-001
+    epic: Communication parity
+    team: COM
+    objective: Implement managed add/remove-own reaction, author-only edit, and exact owner-approved stale-bound delete.
+    priority: P0
+    release_gate: PC-G2_source_receipt
+    status: planned
+    verification_level: none
+    dependencies: [CTRL-002, BASE-001]
+    blocking_interfaces: [IF-04, IF-05, IF-07]
+    branch: codex/team-communications-collaboration
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-communications-collaboration
+    owned_paths: ['desktop/src/features/messages/**', 'desktop/src-tauri/src/luca/managed_message*', 'crates/luca-protocol/**', 'communication tests']
+    forbidden_paths: ['resident key export', 'project/Brain authority', 'event kind registry without lease', 'lockfiles', 'migrations']
+    frozen_interfaces: [IF-04, IF-05, IF-07]
+    acceptance_tests: ['applicable mutation rows in docs/luca/communication-parity/ACCEPTANCE.md', 'negative author, custody, membership, stale-content, cancellation, and restart tests']
+    evidence: [evidence/program-control/P0-COM-001/receipt.yaml]
+    reviewer: Security plus PIR
+    integration_target: codex/p0-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P0-COM-002
+    epic: Communication parity
+    team: COM
+    objective: Implement owner-visible A2A DM/private-room creation, same-owner invitations, and compare-and-set membership sagas.
+    priority: P0
+    release_gate: PC-G2_source_receipt
+    status: planned
+    verification_level: none
+    dependencies: [CTRL-002, BASE-001]
+    blocking_interfaces: [IF-02, IF-03, IF-04, IF-05, IF-07]
+    branch: codex/team-communications-collaboration
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-communications-collaboration
+    owned_paths: ['communication room/invitation domain modules', 'communication fixtures and tests', 'approved leased UI files']
+    forbidden_paths: ['project membership as authority', 'raw signing/CLI access', 'shared registries without lease', 'lockfiles', 'migrations']
+    frozen_interfaces: [IF-02, IF-03, IF-04, IF-05, IF-07]
+    acceptance_tests: ['applicable room and invitation rows in docs/luca/communication-parity/ACCEPTANCE.md', 'same-owner, outsider, stale-membership, restart, idempotency, and rollback tests']
+    evidence: [evidence/program-control/P0-COM-002/receipt.yaml]
+    reviewer: Security plus PIR
+    integration_target: codex/p0-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P0-COM-003
+    epic: Communication parity
+    team: COM
+    objective: Implement managed opaque artifact-handle attachment publication without exposing arbitrary paths or bytes.
+    priority: P0
+    release_gate: PC-G2_source_receipt
+    status: planned
+    verification_level: none
+    dependencies: [CTRL-002, BASE-001]
+    blocking_interfaces: [IF-05, IF-07, IF-08]
+    branch: codex/team-communications-collaboration
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-communications-collaboration
+    owned_paths: ['communication attachment adapter and tests', 'approved media integration files']
+    forbidden_paths: ['raw filesystem paths to model descendants', 'new renderer execution', 'Artifact Library implementation', 'lockfiles']
+    frozen_interfaces: [IF-05, IF-07, IF-08]
+    acceptance_tests: ['artifact-handle acceptance rows in docs/luca/communication-parity/ACCEPTANCE.md', 'invalid, revoked, cross-owner, changed-byte, restart, and retry tests']
+    evidence: [evidence/program-control/P0-COM-003/receipt.yaml]
+    reviewer: Security plus QA
+    integration_target: codex/p0-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P0-COM-004
+    epic: Communication parity
+    team: COM
+    objective: Separate delivery from bounded A-to-B activation with causal depth, loop suppression, cancellation, offline truth, and idempotency.
+    priority: P0
+    release_gate: PC-G2_source_receipt
+    status: planned
+    verification_level: none
+    dependencies: [P0-COM-002]
+    blocking_interfaces: [IF-05, IF-07]
+    branch: codex/team-communications-collaboration
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-communications-collaboration
+    owned_paths: ['managed activation modules', 'activation fixtures and tests', 'communication Activity adapters']
+    forbidden_paths: ['hidden conductor/router', 'unbounded recursive activation', 'authority/tool/model/budget mutation', 'project/Brain grants']
+    frozen_interfaces: [IF-05, IF-07]
+    acceptance_tests: ['A-to-B and A-to-B-to-A acceptance rows in docs/luca/communication-parity/ACCEPTANCE.md', 'depth exhaustion, duplicate, offline delivered_not_activated, cancellation, restart, and crash tests']
+    evidence: [evidence/program-control/P0-COM-004/receipt.yaml]
+    reviewer: Security plus independent QA
+    integration_target: codex/p0-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P0-COM-005
+    epic: Communication parity
+    team: COM
+    objective: Complete owner Inbox aggregation and build a custody-bound resident Inbox with pagination, acknowledgement, handled state, and canonical deep links.
+    priority: P0
+    release_gate: PC-G2_source_receipt
+    status: planned
+    verification_level: none
+    current_evidence: owner browser projection is integrated but native aggregation is narrower
+    dependencies: [CTRL-002, BASE-001]
+    blocking_interfaces: [IF-01, IF-02, IF-04, IF-05]
+    branch: codex/team-communications-collaboration
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-communications-collaboration
+    owned_paths: ['desktop/src/features/home/lib/unifiedInboxProjection*', 'Inbox domain/UI/tests', 'approved sidebar leases']
+    forbidden_paths: ['duplicate ordinary conversation feed', 'cross-resident audience leakage', 'shared shell without lease', 'project/Brain authority']
+    frozen_interfaces: [IF-01, IF-02, IF-04, IF-05]
+    acceptance_tests: ['owner and resident Inbox rows in docs/luca/communication-parity/ACCEPTANCE.md', 'audience isolation, pagination, read/ack/handled, restart, and deep-link tests']
+    evidence: [evidence/program-control/P0-COM-005/receipt.yaml]
+    reviewer: Security plus QA
+    integration_target: codex/p0-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P0-COM-006
+    epic: Communication parity
+    team: COM
+    objective: Back communication Activity with signed messages, runtime states, decisions, failures, and other real receipts while distinguishing agent statements.
+    priority: P0
+    release_gate: PC-G2_source_receipt
+    status: planned
+    verification_level: none
+    dependencies: [P0-COM-001, P0-COM-002, P0-COM-003, P0-COM-004, P0-COM-005]
+    blocking_interfaces: [IF-05, IF-07]
+    branch: codex/team-communications-collaboration
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-communications-collaboration
+    owned_paths: ['communication Activity projection and tests', 'approved Activity UI leases']
+    forbidden_paths: ['self-asserted busy state presented as verified', 'raw reasoning', 'secret/protected bodies', 'generic workflow mandate']
+    frozen_interfaces: [IF-05, IF-07]
+    acceptance_tests: ['receipt-to-projection determinism tests', 'statement versus verified-event rendering tests', 'restart and duplicate suppression tests']
+    evidence: [evidence/program-control/P0-COM-006/receipt.yaml]
+    reviewer: QA plus PIR
+    integration_target: codex/p0-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P0-COM-007
+    epic: Communication parity
+    team: COM
+    objective: Close the complete browser, restart, security, Hermes, OpenClaw, and installed communication acceptance matrix.
+    priority: P0
+    release_gate: PC-G2_source_receipt
+    status: planned
+    verification_level: none
+    dependencies: [P0-COM-001, P0-COM-002, P0-COM-003, P0-COM-004, P0-COM-005, P0-COM-006]
+    blocking_interfaces: [IF-05, IF-07, IF-10]
+    branch: codex/team-communications-collaboration
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-communications-collaboration
+    owned_paths: ['docs/luca/communication-parity/ACCEPTANCE.md', 'evidence/program-control/P0-COM-007/**']
+    forbidden_paths: ['claiming NIP-17', 'release promotion', 'post-verification product edits']
+    frozen_interfaces: [IF-05, IF-07, IF-10]
+    acceptance_tests: ['every applicable row in docs/luca/communication-parity/ACCEPTANCE.md has exact evidence', 'installed signed-app Hermes and OpenClaw matrix']
+    evidence: [evidence/program-control/P0-COM-007/receipt.yaml]
+    reviewer: Independent Security and QA plus PIR
+    integration_target: codex/p0-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P0-PRJ-001
+    epic: Unified project, resident, and source creation
+    team: PBC
+    objective: Implement one optional project flow for name, sources, first room, existing/new residents, and empty states with later edits.
+    priority: P0
+    release_gate: PC-G2_source_receipt
+    status: planned
+    verification_level: none
+    current_evidence: basic project and first-room creation is integrated
+    dependencies: [CTRL-002, BASE-002]
+    blocking_interfaces: [IF-01, IF-02, IF-03, IF-04, IF-06]
+    branch: codex/team-projects-brain-connections
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-projects-brain-connections
+    owned_paths: ['desktop/src/features/projects/**', 'project creation domain/tests', 'approved onboarding leases']
+    forbidden_paths: ['runtime selection by default', 'membership-derived grants', 'resident provisioning internals', 'shared routing/registries without lease']
+    frozen_interfaces: [IF-01, IF-02, IF-03, IF-04, IF-06]
+    acceptance_tests: ['fresh and existing profile create, reopen, edit, and recover organization', 'empty project, no-source, no-room, no-resident, existing-resident, and new-resident fixtures', 'desktop and 390x844 browser checks']
+    evidence: [evidence/program-control/P0-PRJ-001/receipt.yaml]
+    reviewer: Security plus QA and PIR
+    integration_target: codex/p0-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P0-PRJ-002
+    epic: Unified project, resident, and source creation
+    team: PBC
+    objective: Repair Brain Add Folder and Project Sources/Details, including moved, stale, revoked, and disconnected source states.
+    priority: P0
+    release_gate: PC-G2_source_receipt
+    status: planned
+    verification_level: none
+    current_evidence: partial source entry and detail surfaces exist
+    dependencies: [CTRL-002, BASE-002]
+    blocking_interfaces: [IF-03, IF-04, IF-06]
+    branch: codex/team-projects-brain-connections
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-projects-brain-connections
+    owned_paths: ['desktop/src/features/brain/**', 'project source/detail UI and tests', 'approved native picker commands']
+    forbidden_paths: ['source-byte mutation', 'automatic grants', 'native credential/config mutation', 'shared registries without lease']
+    frozen_interfaces: [IF-03, IF-04, IF-06]
+    acceptance_tests: ['folder, repository, arbitrary folder, cancel, moved, stale, revoke, reconfirm, disconnect, and restart tests', 'source before/after byte hash equality']
+    evidence: [evidence/program-control/P0-PRJ-002/receipt.yaml]
+    reviewer: Security plus QA
+    integration_target: codex/p0-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P0-PRJ-003
+    epic: Unified project, resident, and source creation
+    team: PBC
+    objective: Close combined project creation and source-authority acceptance without hidden mock data or inferred grants.
+    priority: P0
+    release_gate: PC-G2_source_receipt
+    status: planned
+    verification_level: none
+    dependencies: [P0-PRJ-001, P0-PRJ-002]
+    blocking_interfaces: [IF-02, IF-03, IF-06, IF-10]
+    branch: codex/team-projects-brain-connections
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-projects-brain-connections
+    owned_paths: ['project/Brain acceptance tests', 'evidence/program-control/P0-PRJ-003/**']
+    forbidden_paths: ['release promotion', 'permission weakening', 'mock-only completion claims']
+    frozen_interfaces: [IF-02, IF-03, IF-06, IF-10]
+    acceptance_tests: ['signed-app create, reopen, edit, delete/recover matrix', 'project membership never changes filesystem, Brain, MCP, provider, model, or budget grants']
+    evidence: [evidence/program-control/P0-PRJ-003/receipt.yaml]
+    reviewer: Independent Security and QA plus PIR
+    integration_target: codex/p0-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P0-AGP-001
+    epic: Agent Forge installed acceptance
+    team: AGP
+    objective: Close the disposable signed Hermes/OpenClaw create, reconcile, cancel, failure, duplicate, rediscovery, and rollback matrix.
+    priority: P0
+    release_gate: PC-G2_source_receipt
+    status: planned
+    verification_level: none
+    current_evidence: source-tested Forge implementation exists
+    dependencies: [CTRL-002, BASE-001, BASE-002]
+    blocking_interfaces: [IF-02, IF-04, IF-07, IF-10]
+    branch: codex/team-agent-platform
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-agent-platform
+    owned_paths: ['docs/luca/operator-forge/ACCEPTANCE.md', 'evidence/program-control/P0-AGP-001/**', 'repair files explicitly granted after failure']
+    forbidden_paths: ['unrelated native config', 'credential/memory/workspace/schedule/pairing mutation', 'project/communication ownership', 'release promotion']
+    frozen_interfaces: [IF-02, IF-04, IF-07, IF-10]
+    acceptance_tests: ['every applicable row in docs/luca/operator-forge/ACCEPTANCE.md', 'before/after protected-state hashes are identical', 'signed disposable installed-app proof']
+    evidence: [evidence/program-control/P0-AGP-001/receipt.yaml]
+    reviewer: Independent Security and QA plus PIR
+    integration_target: codex/p0-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P0-INT-001
+    epic: Canonical beta integration
+    team: PIR
+    objective: Assemble only reviewed P0 commits through the ordered integration train and resolve shared seams without broad merges.
+    priority: P0
+    release_gate: PC-G3_integrated_candidate
+    status: planned
+    verification_level: none
+    dependencies: [P0-ONB-002, P0-COM-007, P0-PRJ-003, P0-AGP-001]
+    blocking_interfaces: [IF-01, IF-02, IF-03, IF-04, IF-05, IF-06, IF-07, IF-08, IF-10]
+    branch: codex/p0-integration-train
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-p0-integration-train
+    owned_paths: ['shared leased files', 'integration adapters', 'program-control receipts', 'curated release evidence']
+    forbidden_paths: ['unreviewed team source', 'wholesale onboarding merge', 'agent/vision-demo wholesale merge', 'dirty primary checkout material', 'blanket staging']
+    frozen_interfaces: [IF-01, IF-02, IF-03, IF-04, IF-05, IF-06, IF-07, IF-08, IF-10]
+    acceptance_tests: ['focused checks after each carriage', 'all accepted commit SHAs and resolutions recorded', 'git diff contains only named task paths']
+    evidence: [evidence/program-control/P0-INT-001/receipt.yaml]
+    reviewer: Independent Security and QA plus Riley
+    integration_target: codex/conversation-communication-integration
+    repair_limit: 1
+    terminal_status: open
+  - id: P0-INT-002
+    epic: Canonical beta integration
+    team: PIR
+    objective: Freeze one candidate SHA and run the complete unchanged-commit security, QA, native, packaging, and installed-app gate.
+    priority: P0
+    release_gate: PC-G4_installed_candidate
+    status: planned
+    verification_level: none
+    dependencies: [P0-INT-001]
+    blocking_interfaces: [IF-10]
+    branch: codex/p0-release-candidate
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-p0-release-candidate
+    owned_paths: ['evidence/program-control/P0-INT-002/**', 'release verdict documents']
+    forbidden_paths: ['product source edits after candidate freeze', 'stale running processes', 'unscanned evidence', 'release push before pass']
+    frozen_interfaces: [IF-10]
+    acceptance_tests: ['just ci on the unchanged candidate', 'clean and upgraded profile native matrix', 'Hermes/OpenClaw, restart, offline, permission, attachment, search, accessibility, and responsive smoke', 'artifact and secret scan']
+    evidence: [evidence/program-control/P0-INT-002/receipt.yaml]
+    reviewer: Independent Security and QA plus Riley
+    integration_target: codex/conversation-communication-integration
+    repair_limit: 1
+    terminal_status: open
+  - id: P0-REL-001
+    epic: Canonical beta release
+    team: PIR
+    objective: Promote and push one documented canonical source branch and required tags from the accepted candidate SHA.
+    priority: P0
+    release_gate: PC-G5_release
+    status: planned
+    verification_level: none
+    dependencies: [P0-INT-002]
+    blocking_interfaces: [IF-10]
+    branch: luca/v1-beta
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-release-v1-beta
+    owned_paths: ['release metadata', 'HANDOFF.md', 'docs/luca/program-status/**', 'docs/luca/program-control/**']
+    forbidden_paths: ['product changes during publication', 'force push', 'uncurated raw evidence', 'unapproved branch rename']
+    frozen_interfaces: [IF-10]
+    acceptance_tests: ['remote branch resolves to accepted candidate SHA', 'fresh clone can check out and build documented source', 'tag and handoff coordinates match']
+    evidence: [evidence/program-control/P0-REL-001/receipt.yaml]
+    reviewer: Riley
+    integration_target: origin
+    repair_limit: 1
+    terminal_status: open
+  - id: P0-REL-002
+    epic: Canonical beta release
+    team: PIR
+    objective: Build, sign, deep-verify, install, launch, and hash one unambiguously named tester application from the published candidate.
+    priority: P0
+    release_gate: PC-G5_release
+    status: planned
+    verification_level: none
+    dependencies: [P0-INT-002, P0-REL-001]
+    blocking_interfaces: [IF-10]
+    branch: luca/v1-beta
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-release-v1-beta
+    owned_paths: ['release scripts and metadata under Program lease', 'evidence/program-control/P0-REL-002/**']
+    forbidden_paths: ['overwriting rollback bundles without inventory', 'ambiguous generic bundle naming', 'source edits after build', 'unsigned tester claim']
+    frozen_interfaces: [IF-10]
+    acceptance_tests: ['codesign strict deep verification', 'bundle identifier and source receipt match', 'executable SHA-256 recorded', 'installed app launches against intended profile and relay']
+    evidence: [evidence/program-control/P0-REL-002/receipt.yaml]
+    reviewer: Independent QA plus Riley
+    integration_target: installed tester application
+    repair_limit: 1
+    terminal_status: open
+  - id: P1-AGP-001
+    epic: Skills Library
+    team: AGP
+    objective: Freeze and build skills discovery, provenance, compatibility, per-resident grants, and Luca-managed install/update/remove lifecycle.
+    priority: P1
+    release_gate: P1_release_gate
+    status: planned
+    verification_level: none
+    dependencies: [P0-REL-002]
+    blocking_interfaces: [IF-02, IF-04, IF-06, IF-07]
+    branch: codex/team-agent-platform
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-agent-platform
+    owned_paths: ['agent skill domain, Settings/Agent Library UI, tests, and approved runtime adapters']
+    forbidden_paths: ['native skill mutation without owner action', 'skills conflated with MCP, Brain, or system prompts', 'credential exposure', 'shared registries without lease']
+    frozen_interfaces: [IF-02, IF-04, IF-06, IF-07]
+    acceptance_tests: ['contract freeze before implementation', 'discover, compatible, grant, revoke, install, update, remove, restart, and native read-only tests', 'signed installed-app acceptance']
+    evidence: [evidence/program-control/P1-AGP-001/receipt.yaml]
+    reviewer: Security plus QA and PIR
+    integration_target: codex/p1-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P1-AGP-002
+    epic: Effortless resident creation
+    team: AGP
+    objective: Complete natural-language concierge resident creation over the same explicit owner-review and native provisioning authority as manual creation.
+    priority: P1
+    release_gate: P1_release_gate
+    status: planned
+    verification_level: none
+    dependencies: [P0-AGP-001]
+    blocking_interfaces: [IF-01, IF-02, IF-04, IF-07]
+    branch: codex/team-agent-platform
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-agent-platform
+    owned_paths: ['conversational proposal adapters, shared Forge review experience, and tests']
+    forbidden_paths: ['silent resident creation', 'model-selected durable authority', 'advanced runtime choice forced on new users', 'shared shell/registries without lease']
+    frozen_interfaces: [IF-01, IF-02, IF-04, IF-07]
+    acceptance_tests: ['natural-language proposal, owner edit/approve/reject, cancel, duplicate, failure, reconcile, and installed provisioning tests', 'manual and conversational paths produce the same review contract']
+    evidence: [evidence/program-control/P1-AGP-002/receipt.yaml]
+    reviewer: Security plus QA and PIR
+    integration_target: codex/p1-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P1-CCS-001
+    epic: Native mobile companion
+    team: CCS
+    objective: Freeze a native SwiftUI companion architecture that uses existing secure pairing and Mac-hosted residents.
+    priority: P1
+    release_gate: P1_release_gate
+    status: planned
+    verification_level: none
+    dependencies: [P0-INT-002]
+    blocking_interfaces: [IF-05, IF-07, IF-09]
+    branch: codex/team-clients-creative-surfaces
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-clients-creative-surfaces
+    owned_paths: ['mobile architecture documents and new native companion paths after approval']
+    forbidden_paths: ['shipping inherited Buzz Flutter UI as Luca', 'resident runtime on phone', 'new pairing protocol', 'desktop authority changes']
+    frozen_interfaces: [IF-05, IF-07, IF-09]
+    acceptance_tests: ['architecture review', 'threat model', 'pairing and reconnect sequence proof', 'real-device acceptance plan']
+    evidence: [evidence/program-control/P1-CCS-001/receipt.yaml]
+    reviewer: Security plus Product Design and PIR
+    integration_target: codex/p1-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P1-CCS-002
+    epic: Native mobile companion
+    team: CCS
+    objective: Build native rooms, DMs, history, send, reconnect, approvals, attachments, push enrollment, and failure states.
+    priority: P1
+    release_gate: P1_release_gate
+    status: planned
+    verification_level: none
+    dependencies: [P1-CCS-001]
+    blocking_interfaces: [IF-05, IF-07, IF-09]
+    branch: codex/team-clients-creative-surfaces
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-clients-creative-surfaces
+    owned_paths: ['approved native mobile companion source and tests']
+    forbidden_paths: ['desktop resident execution move', 'concurrent write authority', 'silent notification/body leakage', 'core event contract changes']
+    frozen_interfaces: [IF-05, IF-07, IF-09]
+    acceptance_tests: ['paired and unpaired flows', 'history/send/reply/attachment/approval/reconnect/offline/push tests', 'privacy-safe notification tests']
+    evidence: [evidence/program-control/P1-CCS-002/receipt.yaml]
+    reviewer: Security plus QA and PIR
+    integration_target: codex/p1-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P1-CCS-003
+    epic: Native mobile companion
+    team: CCS
+    objective: Close real-iPhone and TestFlight acceptance for the native companion.
+    priority: P1
+    release_gate: P1_release_gate
+    status: planned
+    verification_level: none
+    dependencies: [P1-CCS-002]
+    blocking_interfaces: [IF-09, IF-10]
+    branch: codex/team-clients-creative-surfaces
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-clients-creative-surfaces
+    owned_paths: ['mobile evidence and release metadata under Program lease']
+    forbidden_paths: ['simulator-only release claim', 'unapproved App Store/TestFlight publication', 'release promotion']
+    frozen_interfaces: [IF-09, IF-10]
+    acceptance_tests: ['real iPhone pairing, background/foreground, network transition, send, approval, attachment, push, and reconnect matrix', 'TestFlight install receipt']
+    evidence: [evidence/program-control/P1-CCS-003/receipt.yaml]
+    reviewer: Independent QA plus Riley
+    integration_target: codex/p1-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P1-PBC-001
+    epic: Brain and connection usability
+    team: PBC
+    objective: Complete picker, source detail, grants, stale/reconfirm, indexing, exclusions, disconnect, degradation, and moved-source recovery UX.
+    priority: P1
+    release_gate: P1_release_gate
+    status: planned
+    verification_level: none
+    dependencies: [P0-PRJ-003]
+    blocking_interfaces: [IF-04, IF-06, IF-07]
+    branch: codex/team-projects-brain-connections
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-projects-brain-connections
+    owned_paths: ['desktop/src/features/brain/**', 'connected Brain UI/adapters/tests under approved scope']
+    forbidden_paths: ['automatic connection/indexing', 'source mutation', 'OpenClaw config edits', 'permission weakening']
+    frozen_interfaces: [IF-04, IF-06, IF-07]
+    acceptance_tests: ['picker, grant, revoke, stale, reconfirm, index, exclusion, disconnect, degraded runtime, moved source, restart, and no-write tests', 'signed installed-app acceptance']
+    evidence: [evidence/program-control/P1-PBC-001/receipt.yaml]
+    reviewer: Security plus QA and PIR
+    integration_target: codex/p1-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P1-PBC-002
+    epic: Agent-requested source access
+    team: PBC
+    objective: Let a resident request an exact folder or repository scope for owner review without deriving authority from project or room membership.
+    priority: P1
+    release_gate: P1_release_gate
+    status: planned
+    verification_level: none
+    dependencies: [P1-PBC-001]
+    blocking_interfaces: [IF-02, IF-03, IF-05, IF-06, IF-07]
+    branch: codex/team-projects-brain-connections
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-projects-brain-connections
+    owned_paths: ['source access request domain, owner approval UI, and tests under approved scope']
+    forbidden_paths: ['membership-derived grants', 'broad reusable approval', 'automatic source connection', 'raw path or body exposure to descendants']
+    frozen_interfaces: [IF-02, IF-03, IF-05, IF-06, IF-07]
+    acceptance_tests: ['exact resident/source/purpose request and approval tests', 'reject, revoke, stale, reconfirm, moved, cancel, timeout, restart, and no-write tests']
+    evidence: [evidence/program-control/P1-PBC-002/receipt.yaml]
+    reviewer: Security plus QA and PIR
+    integration_target: codex/p1-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P1-INT-001
+    epic: Release hardening
+    team: PIR
+    objective: Close clean/upgraded migrations, offline and crash drills, accessibility, packaging, updater, backup/restore, diagnostics, and rollback.
+    priority: P1
+    release_gate: P1_release_gate
+    status: planned
+    verification_level: none
+    dependencies: [P0-REL-001, P0-REL-002]
+    blocking_interfaces: [IF-01, IF-07, IF-09, IF-10]
+    branch: codex/p1-release-hardening
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-p1-release-hardening
+    owned_paths: ['release/hardening adapters under explicit leases', 'curated evidence and verdicts']
+    forbidden_paths: ['broad feature work', 'multiple full gates during iteration', 'post-freeze edits without new candidate']
+    frozen_interfaces: [IF-01, IF-07, IF-09, IF-10]
+    acceptance_tests: ['clean and upgraded profile matrix', 'offline/crash/restart drills', '390x844 through large desktop accessibility matrix', 'packaging/updater/backup/restore/diagnostics/rollback tests', 'one final unchanged-commit just ci']
+    evidence: [evidence/program-control/P1-INT-001/receipt.yaml]
+    reviewer: Independent Security and QA plus Riley
+    integration_target: codex/p1-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P2-PBC-001
+    epic: Resident Reflection V1.3
+    team: PBC
+    objective: Implement explicit owner-triggered same-resident notebook review and bounded revision proposals without scheduler or proactive DM.
+    priority: P2
+    release_gate: P2_release_gate
+    status: planned
+    verification_level: none
+    dependencies: [P0-REL-002]
+    blocking_interfaces: [IF-02, IF-06, IF-07]
+    branch: codex/team-projects-brain-connections
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-projects-brain-connections
+    owned_paths: ['Reflection contract and approved continuity/notebook source and tests']
+    forbidden_paths: ['scheduled reflection', 'automatic memory writes', 'cross-resident review', 'raw reasoning publication']
+    frozen_interfaces: [IF-02, IF-06, IF-07]
+    acceptance_tests: ['separate frozen contract', 'owner trigger, same resident, proposal, accept/reject, revision, pinned correction, cancellation, restart, and disclosure tests']
+    evidence: [evidence/program-control/P2-PBC-001/receipt.yaml]
+    reviewer: Security plus QA and PIR
+    integration_target: codex/p2-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P2-PBC-002
+    epic: Obsidian connector
+    team: PBC
+    objective: Add vault/subfolder read, search, watch, exclusions, provenance, and grants, followed only later by approved diff/write/undo.
+    priority: P2
+    release_gate: P2_release_gate
+    status: planned
+    verification_level: none
+    dependencies: [P1-PBC-001]
+    blocking_interfaces: [IF-04, IF-06, IF-07]
+    branch: codex/team-projects-brain-connections
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-projects-brain-connections
+    owned_paths: ['connector contracts and approved Obsidian adapter/UI/tests']
+    forbidden_paths: ['implicit vault scan', 'write before read-only acceptance', 'link/frontmatter loss', 'unapproved external mutation']
+    frozen_interfaces: [IF-04, IF-06, IF-07]
+    acceptance_tests: ['separate connector contract', 'read/search/watch/exclusion/grant/revoke/move/restart/no-write tests', 'later exact diff approval and undo tests']
+    evidence: [evidence/program-control/P2-PBC-002/receipt.yaml]
+    reviewer: Security plus QA and PIR
+    integration_target: codex/p2-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P2-CCS-001
+    epic: Artifact Library and static Canvas
+    team: CCS
+    objective: Reconcile, review, and commit the existing untracked Artifact/Canvas planning packet before product work.
+    priority: P2
+    release_gate: P2_release_gate
+    status: planned
+    verification_level: none
+    dependencies: [P0-REL-002]
+    blocking_interfaces: [IF-06, IF-08]
+    branch: codex/team-clients-creative-surfaces
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-clients-creative-surfaces
+    owned_paths: ['docs/luca/artifacts/** after explicit import from preserved source material']
+    forbidden_paths: ['dirty-checkout bulk copy', 'product source', 'live process/network renderer scope', 'unreviewed archive/generated files']
+    frozen_interfaces: [IF-06, IF-08]
+    acceptance_tests: ['packet source inventory', 'contract/security/design review', 'named-file import with clean secret/artifact scan']
+    evidence: [evidence/program-control/P2-CCS-001/receipt.yaml]
+    reviewer: Security plus Product Design and PIR
+    integration_target: codex/p2-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P2-CCS-002
+    epic: Artifact Library and static Canvas
+    team: CCS
+    objective: Build owner import/open, local catalog, immutable versions, static safe renderers, diff, revert-as-new-version, and restart recovery.
+    priority: P2
+    release_gate: P2_release_gate
+    status: planned
+    verification_level: none
+    dependencies: [P2-CCS-001]
+    blocking_interfaces: [IF-04, IF-06, IF-08]
+    branch: codex/team-clients-creative-surfaces
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-clients-creative-surfaces
+    owned_paths: ['approved artifact domain, renderer, UI, and tests']
+    forbidden_paths: ['live servers/processes', 'network previews', 'arbitrary script execution', 'mutable version history']
+    frozen_interfaces: [IF-04, IF-06, IF-08]
+    acceptance_tests: ['HTML, Markdown, image, PDF, text, and file renderer matrix', 'import/open/version/diff/revert/restart tests', 'malicious-content and path-isolation tests']
+    evidence: [evidence/program-control/P2-CCS-002/receipt.yaml]
+    reviewer: Security plus QA and PIR
+    integration_target: codex/p2-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P2-CCS-003
+    epic: Artifact Library and static Canvas
+    team: CCS
+    objective: Add scoped resident artifact create, update, read, and list operations over immutable owner-visible versions.
+    priority: P2
+    release_gate: P2_release_gate
+    status: planned
+    verification_level: none
+    dependencies: [P2-CCS-002]
+    blocking_interfaces: [IF-02, IF-06, IF-07, IF-08]
+    branch: codex/team-clients-creative-surfaces
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-clients-creative-surfaces
+    owned_paths: ['resident artifact operations and tests', 'approved communication attachment adapter']
+    forbidden_paths: ['arbitrary filesystem access', 'silent overwrite', 'unbounded artifact size/process/network authority', 'hidden versions']
+    frozen_interfaces: [IF-02, IF-06, IF-07, IF-08]
+    acceptance_tests: ['per-resident create/update/read/list/revoke/cancel/retry/restart tests', 'owner-visible provenance and immutable-version tests']
+    evidence: [evidence/program-control/P2-CCS-003/receipt.yaml]
+    reviewer: Security plus QA and PIR
+    integration_target: codex/p2-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P2-PBC-003
+    epic: Expanded Unified Brain import
+    team: PBC
+    objective: Add broad native/history/export discovery, staged atomic idempotent import, Imported History archive, lineage, migration proposals, and egress consent.
+    priority: P2
+    release_gate: P2_release_gate
+    status: planned
+    verification_level: none
+    current_evidence: narrow files, repositories, Codex, and Claude Code are verified; broad import is partial
+    dependencies: [P1-PBC-001]
+    blocking_interfaces: [IF-02, IF-04, IF-06, IF-07]
+    branch: codex/team-projects-brain-connections
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-projects-brain-connections
+    owned_paths: ['Unified Brain contracts and approved discovery/import/archive UI/native/tests']
+    forbidden_paths: ['automatic import', 'live-conversation fabrication', 'source deletion/mutation', 'authority changes from imported text', 'unconsented provider egress']
+    frozen_interfaces: [IF-02, IF-04, IF-06, IF-07]
+    acceptance_tests: ['separate frozen import contract', 'preview/cancel/atomicity/idempotency/lineage/unsupported-format/restart/rollback tests', 'body-free receipt and plaintext scan']
+    evidence: [evidence/program-control/P2-PBC-003/receipt.yaml]
+    reviewer: Security plus QA and PIR
+    integration_target: codex/p2-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P2-PBC-004
+    epic: Gmail and Google connector
+    team: PBC
+    objective: Implement explicit-account read-only search and read with provenance, revocation, and egress truth.
+    priority: P2
+    release_gate: P2_release_gate
+    status: planned
+    verification_level: none
+    dependencies: [P1-PBC-001]
+    blocking_interfaces: [IF-04, IF-06, IF-07]
+    branch: codex/team-projects-brain-connections
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-projects-brain-connections
+    owned_paths: ['connector contracts and approved Google read adapter/UI/tests']
+    forbidden_paths: ['send', 'draft mutation', 'implicit account access', 'credential exposure', 'unbounded sync']
+    frozen_interfaces: [IF-04, IF-06, IF-07]
+    acceptance_tests: ['separate connector contract', 'authorize/search/read/revoke/expired-token/offline/restart/body-provenance tests', 'no-write proof']
+    evidence: [evidence/program-control/P2-PBC-004/receipt.yaml]
+    reviewer: Security plus QA and PIR
+    integration_target: codex/p2-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P2-PBC-005
+    epic: Gmail and Google connector
+    team: PBC
+    objective: Add drafts and later external actions bound to exact owner approval, stale-content detection, receipts, and retry safety.
+    priority: P2
+    release_gate: P2_release_gate
+    status: planned
+    verification_level: none
+    dependencies: [P2-PBC-004]
+    blocking_interfaces: [IF-05, IF-06, IF-07]
+    branch: codex/team-projects-brain-connections
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-projects-brain-connections
+    owned_paths: ['approved Google draft/action adapter, approval UI, and tests']
+    forbidden_paths: ['automatic send', 'broad reusable approval', 'stale draft send', 'credential/model access', 'calendar scope without new contract']
+    frozen_interfaces: [IF-05, IF-06, IF-07]
+    acceptance_tests: ['draft create/edit/delete tests', 'exact-approved send, reject, stale-content, duplicate, timeout, offline, retry, and receipt tests']
+    evidence: [evidence/program-control/P2-PBC-005/receipt.yaml]
+    reviewer: Security plus QA and Riley
+    integration_target: codex/p2-integration-train
+    repair_limit: 1
+    terminal_status: open
+  - id: P3-PBC-001
+    epic: Broad connector platform and databases
+    team: PBC
+    objective: Define shared discovery, authorization, provenance, egress, action, sync, and database-adapter contracts.
+    priority: P3
+    release_gate: explicit_Riley_reopen
+    status: planned
+    verification_level: none
+    dependencies: [P2-PBC-002, P2-PBC-004]
+    blocking_interfaces: [IF-04, IF-06, IF-07]
+    branch: codex/team-projects-brain-connections
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-projects-brain-connections
+    owned_paths: ['future connector/database contracts and approved adapters']
+    forbidden_paths: ['activation before Riley reopen', 'generic credential export', 'implicit sync/write', 'mandatory cloud dependency']
+    frozen_interfaces: [IF-04, IF-06, IF-07]
+    acceptance_tests: ['Riley reopen', 'new threat model and contract', 'adapter-specific read/write/revoke/retry/recovery acceptance']
+    evidence: [evidence/program-control/P3-PBC-001/receipt.yaml]
+    reviewer: Security plus PIR and Riley
+    integration_target: not assigned until activation
+    repair_limit: 1
+    terminal_status: deferred
+  - id: P3-PBC-002
+    epic: Associative retrieval and code graph
+    team: PBC
+    objective: Evaluate local embeddings, bounded associative expansion, and revision-bound code graph only against measured product needs.
+    priority: P3
+    release_gate: explicit_Riley_reopen
+    status: planned
+    verification_level: none
+    dependencies: [P2-PBC-003]
+    blocking_interfaces: [IF-06, IF-07]
+    branch: codex/team-projects-brain-connections
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-projects-brain-connections
+    owned_paths: ['future retrieval experiments and approved Brain modules']
+    forbidden_paths: ['activation before Riley reopen', 'unbounded graph traversal', 'remote egress without consent', 'retrieval-derived authority']
+    frozen_interfaces: [IF-06, IF-07]
+    acceptance_tests: ['Riley reopen', 'measured retrieval benchmark and privacy budget', 'revision, deletion, isolation, egress, and boundedness tests']
+    evidence: [evidence/program-control/P3-PBC-002/receipt.yaml]
+    reviewer: Security plus PIR and Riley
+    integration_target: not assigned until activation
+    repair_limit: 1
+    terminal_status: deferred
+  - id: P3-PBC-003
+    epic: Rich resident inner life
+    team: PBC
+    objective: Stage scheduled reflection, quiet hours, proactive outreach, richer hypomnema, and journal metabolism with visible owner control.
+    priority: P3
+    release_gate: explicit_Riley_reopen
+    status: planned
+    verification_level: none
+    dependencies: [P2-PBC-001, P0-COM-005, P0-COM-006]
+    blocking_interfaces: [IF-02, IF-05, IF-06, IF-07]
+    branch: codex/team-projects-brain-connections
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-projects-brain-connections
+    owned_paths: ['future continuity/inner-life contracts and approved modules']
+    forbidden_paths: ['activation before Riley reopen', 'hidden background society', 'unbounded spend', 'automatic authority or source-derived memory writing']
+    frozen_interfaces: [IF-02, IF-05, IF-06, IF-07]
+    acceptance_tests: ['Riley reopen', 'budget, quiet-hours, cancellation, disclosure, provenance, Inbox routing, and recovery contract', 'installed long-running acceptance']
+    evidence: [evidence/program-control/P3-PBC-003/receipt.yaml]
+    reviewer: Security plus PIR and Riley
+    integration_target: not assigned until activation
+    repair_limit: 1
+    terminal_status: deferred
+  - id: P3-AGP-001
+    epic: Native multi-model resident
+    team: AGP
+    objective: Preserve one resident identity while delegating to bounded internal model lanes with attribution, budgets, cancellation, and recovery.
+    priority: P3
+    release_gate: explicit_Riley_reopen
+    status: planned
+    verification_level: none
+    dependencies: [P1-AGP-001, P0-COM-004, P1-INT-001]
+    blocking_interfaces: [IF-02, IF-05, IF-07]
+    branch: codex/team-agent-platform
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-agent-platform
+    owned_paths: ['future multi-model contracts and approved runtime modules']
+    forbidden_paths: ['activation before Riley reopen', 'worker identity masquerading', 'unbounded delegation', 'signing/credential inheritance']
+    frozen_interfaces: [IF-02, IF-05, IF-07]
+    acceptance_tests: ['Riley reopen', 'direct/escalation lane, attribution, budget, cancel, crash, restart, and descendant-isolation tests']
+    evidence: [evidence/program-control/P3-AGP-001/receipt.yaml]
+    reviewer: Security plus PIR and Riley
+    integration_target: not assigned until activation
+    repair_limit: 1
+    terminal_status: deferred
+  - id: P3-AGP-002
+    epic: Optional conductor role
+    team: AGP
+    objective: Implement an optional replaceable conductor as an ordinary project role with explicit owner-granted authority and visible actions.
+    priority: P3
+    release_gate: explicit_Riley_reopen
+    status: planned
+    verification_level: none
+    dependencies: [P0-COM-002, P0-COM-004, P0-COM-005, P0-COM-006, P3-AGP-001, P1-INT-001]
+    blocking_interfaces: [IF-02, IF-03, IF-05, IF-06, IF-07]
+    branch: codex/team-agent-platform
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-agent-platform
+    owned_paths: ['future optional-role contract and approved agent-platform modules']
+    forbidden_paths: ['activation before Riley reopen', 'hidden privileged router', 'mandatory hierarchy', 'bypass of signing, grants, budgets, approvals, causal depth, or audit']
+    frozen_interfaces: [IF-02, IF-03, IF-05, IF-06, IF-07]
+    acceptance_tests: ['Riley reopen', 'separate threat model and role contract', 'grant, revoke, replace, budget, delegate, escalate, cancel, loop, restart, audit, and no-bypass tests']
+    evidence: [evidence/program-control/P3-AGP-002/receipt.yaml]
+    reviewer: Independent Security plus PIR and Riley
+    integration_target: not assigned until activation
+    repair_limit: 1
+    terminal_status: deferred
+  - id: P3-COM-001
+    epic: True end-to-end encrypted messaging
+    team: COM
+    objective: Stage true NIP-17 and group E2EE as a separate privacy and migration milestone.
+    priority: P3
+    release_gate: explicit_Riley_reopen
+    status: planned
+    verification_level: none
+    dependencies: [P0-REL-002, P1-INT-001]
+    blocking_interfaces: [IF-02, IF-03, IF-05, IF-09]
+    branch: codex/team-communications-collaboration
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-communications-collaboration
+    owned_paths: ['future E2EE contracts and approved communication modules']
+    forbidden_paths: ['activation before Riley reopen', 'claiming current kind-9 DMs are E2EE', 'silent history migration', 'metadata/privacy overclaim']
+    frozen_interfaces: [IF-02, IF-03, IF-05, IF-09]
+    acceptance_tests: ['Riley reopen', 'separate cryptographic threat model', 'interop, migration, multi-device, loss/recovery, metadata, and installed privacy acceptance']
+    evidence: [evidence/program-control/P3-COM-001/receipt.yaml]
+    reviewer: Independent Security plus PIR and Riley
+    integration_target: not assigned until activation
+    repair_limit: 1
+    terminal_status: deferred
+  - id: P3-CCS-001
+    epic: Creative and live surfaces
+    team: CCS
+    objective: Stage multimedia Notebook artifacts, live artifact apps/dev servers, network previews, voice, and broader creative surfaces.
+    priority: P3
+    release_gate: explicit_Riley_reopen
+    status: planned
+    verification_level: none
+    dependencies: [P2-CCS-003, P1-INT-001]
+    blocking_interfaces: [IF-06, IF-07, IF-08, IF-09]
+    branch: codex/team-clients-creative-surfaces
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-clients-creative-surfaces
+    owned_paths: ['future creative/live/voice contracts and approved clients']
+    forbidden_paths: ['activation before Riley reopen', 'unsandboxed process/network execution', 'silent microphone use', 'artifact authority bypass']
+    frozen_interfaces: [IF-06, IF-07, IF-08, IF-09]
+    acceptance_tests: ['Riley reopen', 'separate process, network, media, and microphone threat models', 'consent, isolation, budget, cancel, recovery, and installed acceptance']
+    evidence: [evidence/program-control/P3-CCS-001/receipt.yaml]
+    reviewer: Security plus QA and Riley
+    integration_target: not assigned until activation
+    repair_limit: 1
+    terminal_status: deferred
+  - id: P3-CCS-002
+    epic: Shared and multi-device product
+    team: CCS
+    objective: Stage multi-user administration, durable device management, and concurrent multi-device write authority.
+    priority: P3
+    release_gate: explicit_Riley_reopen
+    status: planned
+    verification_level: none
+    dependencies: [P1-CCS-003, P3-COM-001]
+    blocking_interfaces: [IF-02, IF-03, IF-05, IF-06, IF-09]
+    branch: codex/team-clients-creative-surfaces
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-clients-creative-surfaces
+    owned_paths: ['future shared/mobile authority contracts and approved clients']
+    forbidden_paths: ['activation before Riley reopen', 'implicit sharing', 'single-device assumptions presented as conflict-safe', 'authority inherited from room membership']
+    frozen_interfaces: [IF-02, IF-03, IF-05, IF-06, IF-09]
+    acceptance_tests: ['Riley reopen', 'roles, invite, revoke, device loss, conflict, concurrent write, audit, and recovery contract', 'multi-device installed acceptance']
+    evidence: [evidence/program-control/P3-CCS-002/receipt.yaml]
+    reviewer: Independent Security plus PIR and Riley
+    integration_target: not assigned until activation
+    repair_limit: 1
+    terminal_status: deferred
+  - id: P3-CCS-003
+    epic: iMessage gateway
+    team: CCS
+    objective: Keep iMessage gateway parked until explicit product, platform, legal, reliability, and permission review.
+    priority: P3
+    release_gate: explicit_Riley_reopen
+    status: planned
+    verification_level: none
+    dependencies: [P1-CCS-003]
+    blocking_interfaces: [IF-05, IF-07, IF-09]
+    branch: codex/team-clients-creative-surfaces
+    worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-clients-creative-surfaces
+    owned_paths: ['future gateway research and contract only after reopen']
+    forbidden_paths: ['implementation before Riley reopen', 'private API assumption', 'silent message send/read', 'credential or Full Disk Access bypass']
+    frozen_interfaces: [IF-05, IF-07, IF-09]
+    acceptance_tests: ['Riley reopen', 'platform/legal/reliability review', 'explicit permission, send approval, failure truth, revocation, and audit acceptance']
+    evidence: [evidence/program-control/P3-CCS-003/receipt.yaml]
+    reviewer: Security plus PIR and Riley
+    integration_target: not assigned until activation
+    repair_limit: 1
+    terminal_status: deferred

@@ -97,9 +97,17 @@ capabilities:
     status: NOT_STARTED
     scope: project, folders, first room, residents, sources, empty states
     source_task: 019fe378-be44-7860-86c5-39fa21c18363
+  - id: projects.filesystem_access_requests
+    status: NOT_STARTED
+    scope: exact resident-requested folder or repository access with owner review
+    evidence: docs/luca/program-control/PROGRAM_GRAPH.yaml
   - id: agents.operator_forge
     status: SOURCE_PASS
     scope: operator proposals and native Hermes/OpenClaw provisioning
+    evidence: docs/luca/operator-forge/VERDICT.md
+  - id: agents.natural_language_creation
+    status: PARTIAL
+    scope: effortless concierge creation over the shared owner-review proposal model
     evidence: docs/luca/operator-forge/VERDICT.md
   - id: agents.skills_library
     status: NOT_STARTED
@@ -135,6 +143,18 @@ capabilities:
     source_tasks:
       - 019feabf-e786-73b3-85fe-1d1b263cdebf
       - 019fe030-3f3b-7f02-aec8-533c33b17831
+  - id: orchestration.optional_conductor
+    status: SPEC_ONLY
+    scope: optional ordinary project role with explicit grants, budgets, causal limits, visible actions, replacement, and audit
+    dependencies:
+      - communications.agent_mutations
+      - communications.agent_activation
+      - communications.resident_inbox
+      - agents.native_multimodel
+      - roles_and_membership
+      - receipt_backed_activity
+      - owner_approvals_and_budgets
+    evidence: docs/luca/program-control/DECISION_LEDGER.md
   - id: continuity.inner_life
     status: DEFERRED
     scope: scheduled reflection, proactive outreach, rich hypomnema and journaling
@@ -151,5 +171,4 @@ hidden_or_rejected:
   - experiments
   - broad_workflow_forum_huddle_surfaces
   - moderation_templates_custom_emoji_admin
-  - conductor
   - unrestricted_agent_raw_nostr_cli_signing

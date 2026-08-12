@@ -63,6 +63,7 @@ not mean every related idea discussed in a task is finished.
 | Unified creation flow | `NOT_STARTED` | A single project flow for project name, repository/folders, first room, existing/new residents, optional empty states, and future edits was designed but not completed. |
 | Natural-language resident creation | `PARTIAL` | Proposal infrastructure exists; the complete effortless concierge experience and installed proof do not. |
 | Polyphonic native multi-model agent | `SPEC_ONLY` | One enduring identity delegating among internal models, direct-chat/escalation lanes, and worker budgets are architecture only. |
+| Optional project conductor role | `SPEC_ONLY` | Reopened as a long-range ordinary cryptographic resident role with explicit owner grants, budgets, causal limits, visible actions, and no hidden routing privilege. Communication, Inbox, Activity, roles, approvals, and audit must land first. |
 | Skills Library | `NOT_STARTED` | Mentioned as the next product slice after MCP; no frozen specification or implementation was found. |
 
 ## 5. Projects, sources, and connectors
@@ -108,7 +109,8 @@ not mean every related idea discussed in a task is finished.
 
 The following are not missing beta requirements unless Riley reopens them:
 
-- a conductor or privileged Luca router;
+- a hidden, privileged, or mandatory Luca router; an optional ordinary
+  conductor role is a staged long-range epic, not a current beta requirement;
 - arbitrary native Hermes/OpenClaw configuration editing;
 - provider API-key storage or direct-provider execution;
 - HTTP/SSE MCP transports;
