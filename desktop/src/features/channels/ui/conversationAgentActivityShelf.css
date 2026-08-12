@@ -1,12 +1,13 @@
 :root[data-luca-shell] .luca-activity-shelf {
-  background: hsl(var(--mn-surface) / 0.98);
-  border-top: 1px solid hsl(var(--mn-border) / 0.48);
+  background: transparent;
+  border-top: 1px solid transparent;
   container-name: luca-activity-shelf;
   container-type: inline-size;
   flex: 0 0 38px;
   height: 38px;
   min-height: 38px;
   position: relative;
+  pointer-events: none;
   z-index: 12;
 }
 
@@ -87,6 +88,7 @@
   min-height: 28px;
   min-width: 0;
   outline: none;
+  pointer-events: auto;
   text-align: left;
 }
 
@@ -150,6 +152,7 @@
   gap: 5px;
   line-height: 1;
   outline: none;
+  pointer-events: auto;
   transition:
     color 120ms ease,
     opacity 120ms ease;
@@ -289,6 +292,7 @@
   line-height: 1;
   outline: none;
   padding-inline: 8px;
+  pointer-events: auto;
   transition:
     background-color 120ms ease,
     border-color 120ms ease,
@@ -447,10 +451,6 @@
 }
 
 @media (prefers-contrast: more) {
-  :root[data-luca-shell] .luca-activity-shelf {
-    border-top-color: hsl(var(--mn-border-strong));
-  }
-
   :root[data-luca-shell] .luca-activity-item__name,
   :root[data-luca-shell] .luca-activity-item__state,
   :root[data-luca-shell] .luca-activity-item__action,
@@ -467,7 +467,6 @@
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  :root[data-luca-shell] .luca-activity-shelf,
   :root[data-luca-shell] .luca-activity-popover {
     background: hsl(var(--mn-raised));
     backdrop-filter: none;

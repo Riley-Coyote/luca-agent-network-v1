@@ -71,6 +71,8 @@ test("activity shelf keeps three stable residents and discloses the rest", async
 
   const shelf = page.getByTestId("conversation-activity-shelf");
   await expect(shelf).toHaveAttribute("data-active-count", "4");
+  await expect(shelf).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(shelf).toHaveCSS("pointer-events", "none");
   await expect(
     page.getByTestId(
       "resident-activity-953d3363262e86b770419834c53d2446409db6d918a57f8f339d495d54ab001f",
@@ -89,6 +91,7 @@ test("activity shelf keeps three stable residents and discloses the rest", async
   const disclosure = page.getByRole("button", {
     name: "+1 working. View all resident activity.",
   });
+  await expect(disclosure).toHaveCSS("pointer-events", "auto");
   await disclosure.focus();
   await page.keyboard.press("Enter");
   await expect(
@@ -123,4 +126,35 @@ test("activity shelf collapses and settles motion at compact Mac size", async ({
     .evaluate((cell) => getComputedStyle(cell).animationName);
   expect(animationName).toBe("none");
   await expect(page.getByTestId("message-input")).toBeVisible();
+});
+
+test("activity controls stay usable at compact size and 200% text", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 800, height: 500 });
+  await openConversation(page);
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = "200%";
+  });
+  await seedResidentActivity(page);
+
+  const disclosure = page.getByRole("button", {
+    name: "4 residents working. View all resident activity.",
+  });
+  await expect(disclosure).toBeVisible();
+  await disclosure.click();
+  await expect(
+    page.getByRole("dialog", { name: "All resident activity" }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(disclosure).toBeFocused();
+  await expect(page.getByTestId("message-input")).toBeVisible();
+
+  const documentGeometry = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }));
+  expect(documentGeometry.scrollWidth).toBeLessThanOrEqual(
+    documentGeometry.clientWidth,
+  );
 });

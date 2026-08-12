@@ -566,21 +566,6 @@
     0 0 0 1px hsl(var(--mn-border) / 0.18);
 }
 
-/* The legacy masks were inset for a full-width composer. Luca's compact
-   reading-plane composer is centered, so anchor the masks to that same 48rem
-   width or timeline text can remain visible beside its lower corners. */
-:root[data-luca-shell]
-  [data-testid="channel-composer-overlay"]
-  .composer-overlay-corner-masks::before {
-  left: max(0px, calc((100% - 48rem) / 2));
-}
-
-:root[data-luca-shell]
-  [data-testid="channel-composer-overlay"]
-  .composer-overlay-corner-masks::after {
-  right: max(0px, calc((100% - 48rem) / 2));
-}
-
 :root[data-luca-shell] [data-testid="message-composer-toolbar"] {
   width: 100%;
 }

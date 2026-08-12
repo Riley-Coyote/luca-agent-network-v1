@@ -3,11 +3,9 @@ import { expect, test } from "@playwright/test";
 import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
 
-// The channel and thread composers float over their conversation scrollers.
-// When the conversation is scrolled up, later rows pass underneath the
-// composer overlay — the overlay must mask them (gradient fade + solid
-// bottom strip, mirroring the inbox treatment from PR #2143) instead of
-// letting them bleed out below the composer box.
+// The channel composer floats over its conversation scroller. Its surrounding
+// overlay stays transparent so content and the scrollbar remain visible and
+// interactive while the composer itself remains usable.
 
 const CHANNEL = "general";
 
@@ -46,57 +44,62 @@ async function emit(
   return event as { id: string };
 }
 
-async function expectOverlayBottomMask(
-  overlay: import("@playwright/test").Locator,
+async function expectTransparentNonblockingChannelOverlay(
+  page: import("@playwright/test").Page,
 ) {
-  const hasMask = await overlay.evaluate((element) => {
-    const after = getComputedStyle(element, "::after");
-    const before = getComputedStyle(element, "::before");
+  const overlay = page.getByTestId("channel-composer-overlay");
+  const scroller = page.locator('[data-buzz-conversation-scroll="true"]');
+  const geometry = await overlay.evaluate((element) => {
+    const overlayRect = element.getBoundingClientRect();
+    const shelf = element.querySelector<HTMLElement>(
+      '[data-testid="conversation-activity-shelf"]',
+    );
     const composer = element.querySelector<HTMLElement>(
       '[data-testid="message-composer"]',
     );
-    const cornerMaskContainer = element.querySelector<HTMLElement>(
-      ".composer-overlay-corner-masks",
-    );
-    if (!composer || !cornerMaskContainer) return false;
+    if (!shelf || !composer) throw new Error("Missing composer surfaces");
 
-    const overlayRect = element.getBoundingClientRect();
-    const composerRect = composer.getBoundingClientRect();
-    const leftMask = getComputedStyle(cornerMaskContainer, "::before");
-    const rightMask = getComputedStyle(cornerMaskContainer, "::after");
-    const tolerance = 0.5;
-
-    return (
-      after.content !== "none" &&
-      before.content !== "none" &&
-      leftMask.maskImage !== "none" &&
-      rightMask.maskImage !== "none" &&
-      Math.abs(
-        composerRect.left - overlayRect.left - Number.parseFloat(leftMask.left),
-      ) <= tolerance &&
-      Math.abs(
-        overlayRect.right -
-          composerRect.right -
-          Number.parseFloat(rightMask.right),
-      ) <= tolerance &&
-      Math.abs(
-        overlayRect.bottom -
-          composerRect.bottom -
-          Number.parseFloat(leftMask.bottom),
-      ) <= tolerance &&
-      leftMask.bottom === rightMask.bottom
-    );
+    const x = overlayRect.right - 4;
+    const y = overlayRect.top + 8;
+    const hit = document.elementFromPoint(x, y);
+    return {
+      background: getComputedStyle(element).backgroundColor,
+      beforeContent: getComputedStyle(element, "::before").content,
+      afterContent: getComputedStyle(element, "::after").content,
+      hitInsideOverlay: hit instanceof Element && element.contains(hit),
+      overlayPointerEvents: getComputedStyle(element).pointerEvents,
+      shelfBackground: getComputedStyle(shelf).backgroundColor,
+      shelfPointerEvents: getComputedStyle(shelf).pointerEvents,
+      composerPointerEvents: getComputedStyle(composer).pointerEvents,
+      wheelPoint: { x, y },
+    };
   });
-  expect(hasMask).toBe(true);
+
+  expect(geometry).toMatchObject({
+    background: "rgba(0, 0, 0, 0)",
+    beforeContent: "none",
+    afterContent: "none",
+    hitInsideOverlay: false,
+    overlayPointerEvents: "none",
+    shelfBackground: "rgba(0, 0, 0, 0)",
+    shelfPointerEvents: "none",
+    composerPointerEvents: "auto",
+  });
+
+  const beforeWheel = await scroller.evaluate((element) => element.scrollTop);
+  await page.mouse.move(geometry.wheelPoint.x, geometry.wheelPoint.y);
+  await page.mouse.wheel(0, -180);
+  await expect
+    .poll(() => scroller.evaluate((element) => element.scrollTop))
+    .toBeLessThan(beforeWheel);
 }
 
-test.describe("composer overlays mask scrolled content", () => {
-  test("channel timeline rows fade out behind the composer", async ({
+test.describe("composer overlay behavior", () => {
+  test("channel timeline and scrollbar remain visible and interactive", async ({
     page,
   }) => {
     await installMockBridge(page);
     await page.goto("/");
-    await page.getByTestId("project-luca").click();
     await page.getByTestId(`channel-${CHANNEL}`).click();
     await expect(page.getByTestId("message-timeline")).toBeVisible();
     await waitForMockLiveSubscription(page, CHANNEL);
@@ -128,56 +131,6 @@ test.describe("composer overlays mask scrolled content", () => {
       clip: { x: 300, y: 720 - 280, width: 980, height: 280 },
     });
 
-    await expectOverlayBottomMask(page.getByTestId("channel-composer-overlay"));
-  });
-
-  test("thread panel replies fade out behind the reply composer", async ({
-    page,
-  }) => {
-    await installMockBridge(page);
-    await page.goto("/");
-    await page.getByTestId(`channel-${CHANNEL}`).click();
-    await expect(page.getByTestId("message-timeline")).toBeVisible();
-    await waitForMockLiveSubscription(page, CHANNEL);
-
-    const root = await emit(page, "Thread root — the discussion begins here.");
-    for (let i = 0; i < 20; i++) {
-      await emit(
-        page,
-        `Thread reply ${i} — enough text to occupy vertical space so the thread body scrolls and replies pass behind the reply composer.`,
-        root.id,
-      );
-    }
-    await page.waitForTimeout(400);
-
-    const summary = page.locator(
-      `[data-testid="message-thread-summary"][data-thread-head-id="${root.id}"]`,
-    );
-    await expect(summary).toBeVisible();
-    await summary.click();
-    const threadPanel = page.getByTestId("message-thread-panel");
-    await expect(threadPanel).toBeVisible();
-    await waitForAnimations(page);
-
-    // Scroll the thread body up so trailing replies sit behind the overlay.
-    await page.evaluate(() => {
-      const scroller = document.querySelector<HTMLElement>(
-        '[data-testid="message-thread-body"]',
-      );
-      if (!scroller) throw new Error("Missing thread body scroll container");
-      scroller.scrollTop = Math.max(
-        0,
-        scroller.scrollHeight - scroller.clientHeight - 220,
-      );
-    });
-    await page.waitForTimeout(300);
-    await waitForAnimations(page);
-
-    await page.screenshot({
-      path: "test-results/channel-overflow/thread-composer.png",
-      clip: { x: 1280 - 560, y: 720 - 300, width: 560, height: 300 },
-    });
-
-    await expectOverlayBottomMask(page.getByTestId("thread-composer-overlay"));
+    await expectTransparentNonblockingChannelOverlay(page);
   });
 });
