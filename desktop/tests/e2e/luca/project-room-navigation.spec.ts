@@ -84,6 +84,37 @@ test("project search and empty-project navigation stay purposeful", async ({
   ).toBeVisible();
 });
 
+test("project Sources opens Brain and browser back preserves project context", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock&projectDemo=1");
+
+  await page.getByTestId("project-row-luca").click();
+  let navigator = page.getByTestId("project-room-navigator");
+  await navigator.getByRole("button", { name: /engineering/i }).click();
+  await expect(page.getByTestId("chat-title")).toHaveText("engineering");
+
+  await navigator.getByRole("button", { name: "Sources" }).click();
+  await expect(page).toHaveURL(/#\/brain$/);
+  await expect(page.getByRole("heading", { name: "Brain" })).toBeVisible();
+
+  await page.goBack();
+  await expect(page.getByTestId("chat-title")).toHaveText("engineering");
+  navigator = page.getByTestId("project-room-navigator");
+  await expect(navigator).toBeVisible();
+
+  await page.getByTestId("project-row-field-unit").click();
+  await expect(page).toHaveURL(/#\/projects\/field-unit$/);
+  await navigator.getByRole("button", { name: "Sources" }).click();
+  await expect(page).toHaveURL(/#\/brain$/);
+
+  await page.goBack();
+  await expect(page).toHaveURL(/#\/projects\/field-unit$/);
+  await expect(
+    page.getByRole("heading", { name: /has no conversations yet/i }),
+  ).toBeVisible();
+});
+
 test("mobile projects move from their room list into the conversation", async ({
   page,
 }) => {

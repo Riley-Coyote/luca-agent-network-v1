@@ -56,10 +56,9 @@ test("Brain connects work while keeping controls and provenance quiet", async ({
     path: "test-results/luca-brain/brain-connections-overview.png",
   });
 
-  await page
-    .getByTestId("brain-card-repository")
-    .getByRole("button", { name: "Details" })
-    .click();
+  const repositoryCard = page.getByTestId("brain-card-repository");
+  await repositoryCard.getByRole("button", { name: "Add folder" }).click();
+  await repositoryCard.getByRole("button", { name: "Details" }).click();
   await expect(
     page.getByTestId("connected-source-connected-repository-luca"),
   ).toContainText("luca-agent-network");
@@ -78,6 +77,18 @@ test("Brain connects work while keeping controls and provenance quiet", async ({
   await expect(page.getByTestId("brain-card-codex_history")).toContainText(
     "Current",
   );
+
+  await repositoryCard.getByRole("button", { name: "Details" }).click();
+  await page.getByRole("button", { name: "Disconnect" }).click();
+  const disconnect = page.getByRole("alertdialog");
+  await expect(disconnect).toContainText(
+    "Recall and repository tools stop immediately",
+  );
+  await disconnect.getByRole("button", { name: "Disconnect" }).click();
+  await expect(
+    page.getByTestId("connected-source-connected-repository-luca"),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Close" }).click();
 
   await page
     .getByTestId("brain-card-files")
@@ -107,6 +118,26 @@ test("Brain connects work while keeping controls and provenance quiet", async ({
         }
       ).__BUZZ_E2E_COMMAND_PAYLOADS__ ?? [],
   );
+  expect(
+    commandLog.filter(
+      (entry) =>
+        (entry as { command?: string }).command === "add_connected_brain_root",
+    ),
+  ).toHaveLength(1);
+  expect(
+    commandLog.filter(
+      (entry) =>
+        (entry as { command?: string }).command ===
+        "reconfirm_connected_brain_source",
+    ),
+  ).toHaveLength(1);
+  expect(
+    commandLog.filter(
+      (entry) =>
+        (entry as { command?: string }).command ===
+        "disconnect_connected_brain_source",
+    ),
+  ).toHaveLength(1);
   expect(JSON.stringify(commandLog)).not.toContain("/Users/");
   expect(JSON.stringify(commandLog)).not.toContain("sourceBody");
 

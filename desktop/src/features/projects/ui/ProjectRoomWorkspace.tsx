@@ -9,6 +9,7 @@ import {
 import * as React from "react";
 
 import { useAppShell } from "@/app/AppShellContext";
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { ConversationTypeIcon } from "@/features/channels/ui/ConversationTypeIcon";
 import { useActiveWorkingChannelsById } from "@/features/sidebar/lib/useActiveWorkingChannelsById";
 import {
@@ -53,6 +54,7 @@ export function ProjectRoomNavigator({
 }) {
   const { getChannelReadAt, openCreateChannel, readStateVersion } =
     useAppShell();
+  const { goBrain } = useAppNavigation();
   const workingByChannelId = useActiveWorkingChannelsById();
   const [query, setQuery] = React.useState("");
   const filteredRooms = React.useMemo(
@@ -186,8 +188,8 @@ export function ProjectRoomNavigator({
 
       <footer className="luca-project-room-navigator__footer">
         <button
-          disabled
-          title="Source access is configured in Brain"
+          onClick={() => void goBrain()}
+          title="Manage sources in Brain"
           type="button"
         >
           <BookOpen aria-hidden className="size-4" />
