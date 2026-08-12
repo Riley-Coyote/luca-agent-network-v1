@@ -9,10 +9,13 @@ use crate::{
         self, LucaMcpRegistryV1, McpConnectionHealthV1, McpReadinessV1,
         SaveLucaMcpConnectionInputV1,
     },
-    managed_agents::{AcpAvailabilityStatus, AuthStatus, NativeDiscoveryStatus, NativeRuntimeKind},
+    managed_agents::{
+        AcpAvailabilityStatus, AuthStatus, NativeDiscoveryStatus, NativeRuntimeKind,
+        ResidentReadiness, RuntimeBinding,
+    },
 };
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum RuntimeReadinessV1 {
     Ready,
@@ -20,7 +23,7 @@ enum RuntimeReadinessV1 {
     Unavailable,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum RuntimeAuthenticationV1 {
     Ready,
@@ -29,9 +32,19 @@ enum RuntimeAuthenticationV1 {
     NotApplicable,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum RuntimeReadinessBasisV1 {
+    BoundedProbe,
+    DiscoveryOnly,
+    NativeReported,
+    BindingValidation,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeConnectionStatusV1 {
+    status_id: String,
     runtime_id: String,
     label: String,
     executable: Option<String>,
@@ -40,6 +53,68 @@ pub struct RuntimeConnectionStatusV1 {
     authentication: RuntimeAuthenticationV1,
     last_verified_at: Option<String>,
     reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    native_semantic_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    native_display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    readiness_basis: Option<RuntimeReadinessBasisV1>,
+}
+
+fn native_runtime_metadata(native_type: &NativeRuntimeKind) -> (&'static str, &'static str) {
+    match native_type {
+        NativeRuntimeKind::Hermes => ("hermes", "Hermes"),
+        NativeRuntimeKind::Openclaw => ("openclaw", "OpenClaw"),
+    }
+}
+
+fn native_binding_executable(binding: &RuntimeBinding) -> String {
+    match binding {
+        RuntimeBinding::Hermes {
+            executable_path, ..
+        }
+        | RuntimeBinding::Openclaw {
+            executable_path, ..
+        } => executable_path.to_string_lossy().to_string(),
+    }
+}
+
+fn project_native_readiness(
+    readiness: &ResidentReadiness,
+    binding_resolution: Result<(), String>,
+) -> (RuntimeReadinessV1, RuntimeReadinessBasisV1, Option<String>) {
+    if let Err(error) = binding_resolution {
+        return (
+            RuntimeReadinessV1::Unavailable,
+            RuntimeReadinessBasisV1::BindingValidation,
+            Some(format!(
+                "Current native binding could not be resolved: {error}"
+            )),
+        );
+    }
+
+    match readiness {
+        ResidentReadiness::Ready => (
+            RuntimeReadinessV1::Ready,
+            RuntimeReadinessBasisV1::BoundedProbe,
+            Some("The bounded native ACP readiness probe passed.".into()),
+        ),
+        ResidentReadiness::Discovered { message } => (
+            RuntimeReadinessV1::Degraded,
+            RuntimeReadinessBasisV1::DiscoveryOnly,
+            Some(message.clone()),
+        ),
+        ResidentReadiness::Degraded { message, .. } => (
+            RuntimeReadinessV1::Degraded,
+            RuntimeReadinessBasisV1::NativeReported,
+            Some(message.clone()),
+        ),
+        ResidentReadiness::Unavailable { message, .. } => (
+            RuntimeReadinessV1::Unavailable,
+            RuntimeReadinessBasisV1::NativeReported,
+            Some(message.clone()),
+        ),
+    }
 }
 
 #[tauri::command]
@@ -181,6 +256,7 @@ pub async fn list_runtime_connection_status() -> Result<Vec<RuntimeConnectionSta
                 };
                 let ready = matches!(readiness, RuntimeReadinessV1::Ready);
                 RuntimeConnectionStatusV1 {
+                    status_id: runtime.id.clone(),
                     runtime_id: if runtime.id == "claude-code" {
                         "claude_code".into()
                     } else {
@@ -193,46 +269,117 @@ pub async fn list_runtime_connection_status() -> Result<Vec<RuntimeConnectionSta
                     authentication,
                     last_verified_at: ready.then(|| verified_at.clone()),
                     reason: (!ready).then_some(runtime.install_hint),
+                    native_semantic_id: None,
+                    native_display_name: None,
+                    readiness_basis: None,
                 }
             })
             .collect::<Vec<_>>();
 
         for runtime in crate::managed_agents::discover_native_resident_outcome().runtimes {
-            let (runtime_id, label) = match runtime.native_type {
-                NativeRuntimeKind::Hermes => ("hermes", "Hermes"),
-                NativeRuntimeKind::Openclaw => ("openclaw", "OpenClaw"),
-            };
-            let readiness = match runtime.status {
-                NativeDiscoveryStatus::Available => RuntimeReadinessV1::Ready,
-                NativeDiscoveryStatus::Degraded => RuntimeReadinessV1::Degraded,
-                NativeDiscoveryStatus::Absent | NativeDiscoveryStatus::Failed => {
-                    RuntimeReadinessV1::Unavailable
-                }
-            };
-            let ready = matches!(readiness, RuntimeReadinessV1::Ready);
-            let first = runtime.candidates.first();
-            statuses.push(RuntimeConnectionStatusV1 {
-                runtime_id: runtime_id.into(),
-                label: label.into(),
-                executable: first
-                    .and_then(|candidate| candidate.canonical_location.as_ref())
-                    .map(|path| path.to_string_lossy().to_string()),
-                version: first.and_then(|candidate| candidate.runtime_version.clone()),
-                readiness,
-                authentication: RuntimeAuthenticationV1::NotApplicable,
-                last_verified_at: ready.then(|| verified_at.clone()),
-                reason: runtime.message,
-            });
+            let (runtime_id, runtime_label) = native_runtime_metadata(&runtime.native_type);
+            if runtime.candidates.is_empty() {
+                let readiness = match runtime.status {
+                    NativeDiscoveryStatus::Available | NativeDiscoveryStatus::Degraded => {
+                        RuntimeReadinessV1::Degraded
+                    }
+                    NativeDiscoveryStatus::Absent | NativeDiscoveryStatus::Failed => {
+                        RuntimeReadinessV1::Unavailable
+                    }
+                };
+                statuses.push(RuntimeConnectionStatusV1 {
+                    status_id: format!("{runtime_id}:family"),
+                    runtime_id: runtime_id.into(),
+                    label: runtime_label.into(),
+                    executable: None,
+                    version: None,
+                    readiness,
+                    authentication: RuntimeAuthenticationV1::NotApplicable,
+                    last_verified_at: None,
+                    reason: runtime.message.or_else(|| {
+                        Some("No native identities were returned by current discovery.".into())
+                    }),
+                    native_semantic_id: None,
+                    native_display_name: None,
+                    readiness_basis: Some(RuntimeReadinessBasisV1::DiscoveryOnly),
+                });
+                continue;
+            }
+
+            for candidate in runtime.candidates {
+                let binding_resolution = crate::managed_agents::resolve_native_runtime_binding(
+                    &candidate.binding_preview,
+                )
+                .map(|_| ());
+                let (readiness, readiness_basis, reason) =
+                    project_native_readiness(&candidate.readiness, binding_resolution);
+                let ready = matches!(readiness, RuntimeReadinessV1::Ready);
+                statuses.push(RuntimeConnectionStatusV1 {
+                    status_id: format!("{runtime_id}:{}", candidate.binding_fingerprint),
+                    runtime_id: runtime_id.into(),
+                    label: format!("{runtime_label} · {}", candidate.display_name),
+                    executable: Some(native_binding_executable(&candidate.binding_preview)),
+                    version: candidate.runtime_version,
+                    readiness,
+                    authentication: RuntimeAuthenticationV1::NotApplicable,
+                    last_verified_at: ready.then(|| verified_at.clone()),
+                    reason,
+                    native_semantic_id: Some(candidate.semantic_id),
+                    native_display_name: Some(candidate.display_name),
+                    readiness_basis: Some(readiness_basis),
+                });
+            }
         }
-        statuses.sort_by_key(|status| match status.runtime_id.as_str() {
-            "claude_code" => 0,
-            "codex" => 1,
-            "hermes" => 2,
-            "openclaw" => 3,
-            _ => 4,
+        statuses.sort_by(|left, right| {
+            let rank = |runtime_id: &str| match runtime_id {
+                "claude_code" => 0,
+                "codex" => 1,
+                "hermes" => 2,
+                "openclaw" => 3,
+                _ => 4,
+            };
+            rank(&left.runtime_id)
+                .cmp(&rank(&right.runtime_id))
+                .then_with(|| left.label.cmp(&right.label))
         });
         Ok(statuses)
     })
     .await
     .map_err(|_| "runtime discovery task failed".to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn discovery_only_native_candidate_is_not_reported_ready() {
+        let (readiness, basis, reason) = project_native_readiness(
+            &ResidentReadiness::Discovered {
+                message: "Detected; ACP readiness has not been tested.".into(),
+            },
+            Ok(()),
+        );
+
+        assert_eq!(readiness, RuntimeReadinessV1::Degraded);
+        assert_eq!(basis, RuntimeReadinessBasisV1::DiscoveryOnly);
+        assert_eq!(
+            reason.as_deref(),
+            Some("Detected; ACP readiness has not been tested.")
+        );
+    }
+
+    #[test]
+    fn unresolved_native_binding_fails_closed() {
+        let (readiness, basis, reason) = project_native_readiness(
+            &ResidentReadiness::Ready,
+            Err("native executable is unavailable".into()),
+        );
+
+        assert_eq!(readiness, RuntimeReadinessV1::Unavailable);
+        assert_eq!(basis, RuntimeReadinessBasisV1::BindingValidation);
+        assert!(reason
+            .as_deref()
+            .is_some_and(|message| message.contains("could not be resolved")));
+    }
 }

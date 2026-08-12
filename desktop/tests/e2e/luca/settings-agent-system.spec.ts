@@ -147,6 +147,17 @@ test("MCP connections can be edited, disabled, tested, and granted", async ({
   ).toBeVisible();
 });
 
+test("native runtime readiness exposes degraded reason and refresh feedback", async ({
+  page,
+}) => {
+  await page.goto(settingsUrl("connections"));
+
+  await expect(page.getByText("Gateway is currently offline.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Refresh runtimes" }).click();
+  await expect(page.getByText("Runtime readiness rechecked")).toBeVisible();
+});
+
 test("mobile pairing remains a real Luca companion flow", async ({ page }) => {
   await page.goto(settingsUrl("mobile"));
 

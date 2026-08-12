@@ -1,6 +1,7 @@
 import * as React from "react";
 import {
   CheckCircle2,
+  CircleDashed,
   CircleSlash,
   Pencil,
   Plus,
@@ -23,6 +24,7 @@ import {
   type LucaMcpRegistryV1,
   type RuntimeConnectionStatusV1,
 } from "@/shared/api/tauriMcp";
+import type { RuntimeBinding } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Switch } from "@/shared/ui/switch";
@@ -40,6 +42,21 @@ type ConnectionDraft = {
   secretEnvironment: string;
 };
 
+type NativeRuntimeConnectionStatus = RuntimeConnectionStatusV1 & {
+  statusId?: string;
+  nativeSemanticId?: string;
+  nativeDisplayName?: string;
+  readinessBasis?:
+    | "bounded_probe"
+    | "discovery_only"
+    | "native_reported"
+    | "binding_validation";
+};
+
+type PresentedRuntimeConnectionStatus = NativeRuntimeConnectionStatus & {
+  linkedResidentName?: string;
+};
+
 const EMPTY_DRAFT: ConnectionDraft = {
   name: "",
   command: "",
@@ -48,6 +65,18 @@ const EMPTY_DRAFT: ConnectionDraft = {
   plainEnvironment: "",
   secretEnvironment: "",
 };
+
+function nativeBindingIdentity(binding: RuntimeBinding): string {
+  return binding.kind === "hermes"
+    ? `hermes:${binding.hermesHome}:${binding.profileName.trim()}`
+    : `openclaw:${binding.gatewayIdentity.trim()}:${binding.agentId.trim()}`;
+}
+
+function nativeBindingDisplayName(binding: RuntimeBinding): string {
+  return binding.kind === "hermes"
+    ? binding.profileName.trim()
+    : binding.agentId.trim();
+}
 
 function parseEnvironment(source: string, kind: "plain" | "secret") {
   return source
@@ -92,15 +121,17 @@ export function ConnectionsMcpSettings() {
   const [registry, setRegistry] = React.useState<LucaMcpRegistryV1 | null>(
     null,
   );
-  const [runtimes, setRuntimes] = React.useState<RuntimeConnectionStatusV1[]>(
-    [],
-  );
+  const [runtimes, setRuntimes] = React.useState<
+    NativeRuntimeConnectionStatus[]
+  >([]);
   const [error, setError] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState<ConnectionDraft>(EMPTY_DRAFT);
   const [showForm, setShowForm] = React.useState(false);
   const [pendingId, setPendingId] = React.useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
 
-  const refresh = React.useCallback(async () => {
+  const refresh = React.useCallback(async (announce = false) => {
+    setIsRefreshing(true);
     setError(null);
     try {
       const [nextRegistry, nextRuntimes] = await Promise.all([
@@ -109,18 +140,82 @@ export function ConnectionsMcpSettings() {
       ]);
       setRegistry(nextRegistry);
       setRuntimes(nextRuntimes);
+      if (announce) toast.success("Runtime readiness rechecked");
     } catch (cause) {
       setError(
         cause instanceof Error
           ? cause.message
           : "Connections could not be loaded.",
       );
+    } finally {
+      setIsRefreshing(false);
     }
   }, []);
 
   React.useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const presentedRuntimes = React.useMemo(() => {
+    const linkedByNativeIdentity = new Map<
+      string,
+      { name: string; pubkey: string; binding: RuntimeBinding }
+    >();
+    for (const agent of agentsQuery.data ?? []) {
+      if (!agent.nativeRuntimeBinding) continue;
+      linkedByNativeIdentity.set(
+        nativeBindingIdentity(agent.nativeRuntimeBinding),
+        {
+          name: agent.name,
+          pubkey: agent.pubkey,
+          binding: agent.nativeRuntimeBinding,
+        },
+      );
+    }
+
+    const discoveredIdentities = new Set<string>();
+    const presented: PresentedRuntimeConnectionStatus[] = runtimes.map(
+      (runtime) => {
+        if (!runtime.nativeSemanticId) return runtime;
+        discoveredIdentities.add(runtime.nativeSemanticId);
+        return {
+          ...runtime,
+          linkedResidentName: linkedByNativeIdentity.get(
+            runtime.nativeSemanticId,
+          )?.name,
+        };
+      },
+    );
+
+    // New backend projections carry statusId. Preserve compatibility with the
+    // deterministic legacy bridge while ensuring a linked native resident can
+    // never silently disappear from the real Settings response.
+    if (!runtimes.some((runtime) => runtime.statusId)) return presented;
+
+    for (const [semanticId, resident] of linkedByNativeIdentity) {
+      if (discoveredIdentities.has(semanticId)) continue;
+      const { binding } = resident;
+      const runtimeLabel = binding.kind === "hermes" ? "Hermes" : "OpenClaw";
+      presented.push({
+        statusId: `${binding.kind}:missing:${resident.pubkey}`,
+        runtimeId: binding.kind,
+        label: `${runtimeLabel} · ${nativeBindingDisplayName(binding)}`,
+        executable: binding.executablePath,
+        version: binding.runtimeVersion,
+        readiness: "unavailable",
+        authentication: "not_applicable",
+        lastVerifiedAt: null,
+        reason:
+          "This linked resident was not returned by current native discovery.",
+        nativeSemanticId: semanticId,
+        nativeDisplayName: nativeBindingDisplayName(binding),
+        readinessBasis: "binding_validation",
+        linkedResidentName: resident.name,
+      });
+    }
+
+    return presented;
+  }, [agentsQuery.data, runtimes]);
 
   async function saveConnection() {
     if (!draft.name.trim() || !draft.command.trim()) return;
@@ -190,36 +285,57 @@ export function ConnectionsMcpSettings() {
             action={
               <Button
                 aria-label="Refresh runtimes"
-                onClick={() => void refresh()}
+                aria-busy={isRefreshing}
+                disabled={isRefreshing}
+                onClick={() => void refresh(true)}
                 size="icon"
                 variant="ghost"
               >
-                <RefreshCw className="size-4" />
+                <RefreshCw
+                  className={isRefreshing ? "size-4 animate-spin" : "size-4"}
+                />
               </Button>
             }
             description="Luca uses the authentication and configuration already owned by each runtime."
             title="Runtime connections"
           />
           <SettingsOptionGroup>
-            {runtimes.length > 0 ? (
-              runtimes.map((runtime, index) => (
+            {presentedRuntimes.length > 0 ? (
+              presentedRuntimes.map((runtime, index) => (
                 <SettingsOptionRow
                   className={index ? "border-t border-border/50" : undefined}
-                  key={runtime.runtimeId}
+                  key={
+                    runtime.statusId ?? `${runtime.runtimeId}:${runtime.label}`
+                  }
                 >
-                  <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex min-w-0 items-start gap-3">
                     <span className="grid size-9 shrink-0 place-items-center rounded-full bg-muted/50">
                       <ServerCog className="size-4 text-muted-foreground" />
                     </span>
                     <div className="min-w-0">
                       <p className="text-sm font-medium">{runtime.label}</p>
-                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                        {runtime.executable ?? runtime.reason ?? "Not detected"}
+                      {runtime.nativeSemanticId ? (
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {runtime.linkedResidentName
+                            ? `Linked resident · ${runtime.linkedResidentName}`
+                            : "Native identity detected · not linked to a Luca resident"}
+                        </p>
+                      ) : null}
+                      <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
+                        {runtime.executable ?? "Not detected"}
                         {runtime.version ? ` · ${runtime.version}` : ""}
                       </p>
+                      {runtime.reason ? (
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                          {runtime.reason}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
-                  <StatusLabel status={runtime.readiness} />
+                  <StatusLabel
+                    readinessBasis={runtime.readinessBasis}
+                    status={runtime.readiness}
+                  />
                 </SettingsOptionRow>
               ))
             ) : (
@@ -584,30 +700,38 @@ function ConnectionRow({
 }
 
 function StatusLabel({
+  readinessBasis,
   status,
 }: {
+  readinessBasis?: NativeRuntimeConnectionStatus["readinessBasis"];
   status: RuntimeConnectionStatusV1["readiness"];
 }) {
+  const discoveryOnly =
+    status === "degraded" && readinessBasis === "discovery_only";
   const Icon =
     status === "ready"
       ? CheckCircle2
-      : status === "unavailable"
-        ? CircleSlash
-        : TriangleAlert;
+      : discoveryOnly
+        ? CircleDashed
+        : status === "unavailable"
+          ? CircleSlash
+          : TriangleAlert;
   return (
     <span
       className={
-        status === "ready"
+        status === "ready" || discoveryOnly
           ? "inline-flex items-center gap-1.5 text-xs text-muted-foreground"
           : "inline-flex items-center gap-1.5 text-xs text-destructive"
       }
     >
       <Icon className="size-3.5" />
-      {status === "ready"
-        ? "Ready"
-        : status === "degraded"
-          ? "Degraded"
-          : "Unavailable"}
+      {discoveryOnly
+        ? "Detected"
+        : status === "ready"
+          ? "Ready"
+          : status === "degraded"
+            ? "Degraded"
+            : "Unavailable"}
     </span>
   );
 }
