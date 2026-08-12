@@ -2,20 +2,27 @@
 
 ## Verdict
 
-**INTEGRATED — SOURCE CHECKPOINT READY FOR REVIEW**
+**INTEGRATED — SOURCE CHECKPOINT VERIFIED; NATIVE SIGNING BLOCKED**
 
 The approved conversation-design and communication-parity histories merge cleanly and the combined behavioral, authority, frontend, and isolated-browser checks below pass. File-size thresholds are review signals under the current repository policy and do not mechanically block this checkpoint.
 
-No installed application was rebuilt or replaced.
+No installed application was rebuilt or replaced. Native promotion remains blocked until a valid Developer ID Application identity for the authorized team is available in the login keychain.
 
 ## Checkpoint
 
 - Integration branch: `codex/conversation-communication-integration`
+- Verified product checkpoint: `80510dbe026039ea923bab81cde9cc65e049af4e`
 - Merge commit: `e4b6a1c4aaa285ac77b63147a33457171875d7c3`
 - Design parent: `0bfbd7a7eec70d55c16253314f810c49eee9d9d3`
 - Communication parent: `b49ee31057897ad8aa4388098bd7a4e75f8a9623`
 - Shared base: `81762ad144368bd1b5f5e7f144fdd19a57466676`
 - Merge method: two-parent `--no-ff` merge; neither source history was rewritten or cherry-picked.
+
+The verified product checkpoint adds three bounded integration-hardening commits after the merge and advisory file-size policy:
+
+- `1f0dc5e` reduces the guarded membership insert outcome's stack size without changing behavior.
+- `d16b53f` applies repository Rust formatting to the integrated communication authority files.
+- `80510db` resolves strict Tauri lint findings without changing runtime behavior.
 
 ## Registry reconciliation
 
@@ -85,6 +92,16 @@ Focused policy verification:
 - `node web/scripts/check-file-sizes.mjs` — PASS.
 - `node mobile/scripts/check-file-sizes.mjs` — PASS.
 - Full desktop `pnpm check` — PASS, including file-size warnings, pixel-text, public-key, and 58-capability communication-ledger checks; seven pre-existing onboarding CSS warnings remain non-failing.
+- Full repository `just ci` — PASS at verified product checkpoint `80510db`, including workspace formatting, strict Clippy, workspace tests, desktop checks/build/tests, Tauri checks/tests, web build, and mobile tests.
+
+## Native promotion preflight
+
+- The branch-specific installed app remains at version `0.4.22` with the intended bundle identifier and keyring scope.
+- The running relay on port `3030` remains healthy and untouched.
+- The current installed executable hash is `b600edb76f22158a9420a216327705723a520131219f60300b95c5cd6ce59852`; it remains the rollback reference for this promotion attempt.
+- Read-only verification found zero valid code-signing identities in the login keychain.
+- The existing installed bundle does not pass strict deep code-signing verification (`CSSMERR_TP_NOT_TRUSTED`). This is historical installed-bundle state, not a result of the combined source checkpoint.
+- No unsigned or ad-hoc candidate was built, launched, or installed. Promotion must resume only after the valid Developer ID Application identity is restored, then perform an exact branch-specific build, entitlement check, strict signature verification, rollback capture, atomic replacement, and installed acceptance.
 
 ## Browser evidence
 
