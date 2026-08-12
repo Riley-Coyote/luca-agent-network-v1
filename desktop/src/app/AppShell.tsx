@@ -464,7 +464,7 @@ export function AppShell() {
         ttlSeconds?: number;
         templateId?: string;
       },
-      onCreated?: (channelId: string) => void,
+      onCreated?: (channelId: string) => void | Promise<void>,
     ) => {
       const createdChannel = await createChannelMutation.mutateAsync({
         name,
@@ -489,7 +489,7 @@ export function AppShell() {
         }
       }
       await goChannel(createdChannel.id);
-      onCreated?.(createdChannel.id);
+      await onCreated?.(createdChannel.id);
       setCreateChannelProjectId(null);
       void applyAgents(templateId, createdChannel.id);
     },

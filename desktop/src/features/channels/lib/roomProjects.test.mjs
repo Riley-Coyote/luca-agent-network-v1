@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   assignRoomProject,
+  createEmptyRoomProject,
   createRoomProject,
   parseRoomProjectStore,
   readRoomProjectStore,
@@ -161,4 +162,57 @@ test("createRoomProject stores opaque context ids and assigns its first room", (
     globalThis.window = priorWindow;
     globalThis.localStorage = priorStorage;
   }
+});
+
+test("createEmptyRoomProject stores a scoped project without a room assignment", () => {
+  const storage = memoryStorage();
+  const project = createEmptyRoomProject(
+    "owner",
+    "relay",
+    {
+      label: "Launch Work",
+      sourceIds: ["folder:notes", "/private/source", "folder:notes"],
+    },
+    storage,
+  );
+
+  assert.deepEqual(project, {
+    id: "launch-work",
+    label: "Launch Work",
+    sourceIds: ["folder:notes"],
+    workingContextStatus: "attached",
+  });
+  assert.deepEqual(readRoomProjectStore("owner", "relay", storage), {
+    version: 1,
+    projects: [project],
+    assignments: {},
+  });
+  assert.deepEqual(readRoomProjectStore("another-owner", "relay", storage), {
+    version: 1,
+    projects: [],
+    assignments: {},
+  });
+});
+
+test("createEmptyRoomProject generates stable unique ids without changing atomic room creation", () => {
+  const storage = memoryStorage();
+  const first = createEmptyRoomProject(
+    "owner",
+    "relay",
+    { label: "Launch Work" },
+    storage,
+  );
+  const second = createEmptyRoomProject(
+    "owner",
+    "relay",
+    { label: "Launch Work" },
+    storage,
+  );
+
+  assert.equal(first?.id, "launch-work");
+  assert.equal(second?.id, "launch-work-2");
+  assert.deepEqual(
+    readRoomProjectStore("owner", "relay", storage).assignments,
+    {},
+  );
 });

@@ -34,14 +34,19 @@ import {
 } from "@/features/sidebar/ui/AppSidebarPinnedHeader";
 import { MoreUnreadButton } from "@/features/sidebar/ui/MoreUnreadButton";
 import {
+  assignRoomProject,
+  createEmptyRoomProject,
   useRoomProjectCatalog,
   useRoomProjects,
 } from "@/features/channels/lib/roomProjects";
+import { useManagedAgentsQuery } from "@/features/agents/hooks";
+import { requestOpenCreateAgent } from "@/features/agents/openCreateAgentEvent";
 import { cn } from "@/shared/lib/cn";
 import { SidebarSection } from "@/features/sidebar/ui/SidebarSection";
 import { buildChatListItems, ChatList } from "@/features/sidebar/ui/ChatList";
-import { createRoomProject } from "@/features/channels/lib/roomProjects";
 import { CreateRoomProjectDialog } from "@/features/projects/ui/CreateRoomProjectDialog";
+import { runProjectCreationTransaction } from "@/features/projects/lib/projectCreationTransaction";
+import { addChannelMembers } from "@/shared/api/tauri";
 
 /** PROTOTYPE SWITCH. true = one recency-sorted chat list (the chat-app shape).
  *  false = the original CHANNELS / DIRECT MESSAGES sections. Kept so the two
@@ -160,6 +165,18 @@ export function AppSidebar({
   const [dmActionsMenuOpen, setDmActionsMenuOpen] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const [isRoomListScrolled, setIsRoomListScrolled] = React.useState(false);
+  const managedAgentsQuery = useManagedAgentsQuery();
+  const projectResidentOptions = React.useMemo(
+    () =>
+      [...(managedAgentsQuery.data ?? [])]
+        .sort((left, right) => left.name.localeCompare(right.name))
+        .map((resident) => ({
+          name: resident.name,
+          pubkey: resident.pubkey,
+          status: resident.status.replaceAll("_", " "),
+        })),
+    [managedAgentsQuery.data],
+  );
   const roomProjects = useRoomProjects(
     channels,
     currentPubkey,
@@ -888,30 +905,41 @@ export function AppSidebar({
       />
       <CreateRoomProjectDialog
         isCreating={isCreatingChannel}
-        onCreate={async ({ label, roomName, sourceIds }) => {
+        onCreate={async (draft, checkpoint) => {
           if (!currentPubkey)
             throw new Error("Your identity is still loading.");
-          await onCreateChannel(
-            {
-              name: roomName,
-              description: `${label} project room`,
-              visibility: "private",
-            },
-            (channelId) => {
-              const project = createRoomProject(
+          return runProjectCreationTransaction(draft, checkpoint, {
+            createProject: ({ label, sourceIds }) =>
+              createEmptyRoomProject(currentPubkey, activeCommunity?.relayUrl, {
+                label,
+                sourceIds,
+              }),
+            createRoom: (input, onCreated) =>
+              onCreateChannel(
+                {
+                  ...input,
+                  visibility: "private",
+                },
+                onCreated,
+              ),
+            assignRoom: (channelId, projectId) =>
+              assignRoomProject(
                 currentPubkey,
                 activeCommunity?.relayUrl,
-                { label, roomId: channelId, sourceIds },
-              );
-              if (!project)
-                throw new Error(
-                  "The room was created, but the project could not be saved.",
-                );
+                channelId,
+                projectId,
+              ),
+            addResidents: (channelId, pubkeys) =>
+              addChannelMembers({ channelId, pubkeys, role: "bot" }),
+            requestNewResident: ({ channelId, channelName }) => {
+              requestOpenCreateAgent({ channelId, channelName });
             },
-          );
+          });
         }}
         onOpenChange={setIsCreateProjectOpen}
         open={isCreateProjectOpen}
+        residentOptions={projectResidentOptions}
+        residentsLoading={managedAgentsQuery.isLoading}
       />
 
       <AddCommunityDialog

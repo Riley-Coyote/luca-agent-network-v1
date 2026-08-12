@@ -50,7 +50,7 @@ export type AppSidebarProps = {
       ttlSeconds?: number;
       templateId?: string;
     },
-    onCreated?: (channelId: string) => void,
+    onCreated?: (channelId: string) => void | Promise<void>,
   ) => Promise<void>;
   onCreateForum: (input: {
     name: string;

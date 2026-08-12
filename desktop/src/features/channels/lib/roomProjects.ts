@@ -261,6 +261,42 @@ function projectIdForLabel(label: string, existingIds: ReadonlySet<string>) {
   return `${base}-${suffix}`;
 }
 
+/** Creates a valid local project before any optional remote room work begins. */
+export function createEmptyRoomProject(
+  ownerPubkey: string | undefined,
+  relayUrl: string | undefined,
+  input: { label: string; sourceIds?: readonly string[] },
+  storage: Storage | undefined = globalThis.localStorage,
+): RoomProject | null {
+  const label = input.label.trim();
+  if (!label) return null;
+  const current = readRoomProjectStore(ownerPubkey, relayUrl, storage);
+  const sourceIds = sanitizeSourceIds(input.sourceIds);
+  const id = projectIdForLabel(
+    label,
+    new Set(current.projects.map((project) => project.id)),
+  );
+  const project = sanitizeProject({
+    id,
+    label,
+    sourceIds,
+    workingContextStatus: sourceIds.length ? "attached" : "none",
+  });
+  if (!project) return null;
+  return writeRoomProjectStore(
+    ownerPubkey,
+    relayUrl,
+    {
+      version: 1,
+      projects: [...current.projects, project],
+      assignments: current.assignments,
+    },
+    storage,
+  )
+    ? project
+    : null;
+}
+
 /** Atomically creates a local project and assigns its first canonical room. */
 export function createRoomProject(
   ownerPubkey: string | undefined,

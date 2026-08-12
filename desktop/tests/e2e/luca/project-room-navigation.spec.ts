@@ -2,9 +2,42 @@ import { expect, test } from "@playwright/test";
 
 import { installMockBridge } from "../../helpers/bridge";
 
-test.beforeEach(async ({ page }) => {
-  await installMockBridge(page);
+const EXISTING_RESIDENT_PUBKEY = "a".repeat(64);
+
+test.beforeEach(async ({ page }, testInfo) => {
+  await installMockBridge(page, {
+    addChannelMembersErrors: testInfo.title.includes("membership failure")
+      ? ["Membership unavailable.", null]
+      : undefined,
+    createChannelErrors: testInfo.title.includes("room failure")
+      ? ["Room unavailable."]
+      : undefined,
+    managedAgents: [
+      {
+        name: "Atlas",
+        pubkey: EXISTING_RESIDENT_PUBKEY,
+        status: "running",
+      },
+    ],
+  });
 });
+
+async function commandLog(page: import("@playwright/test").Page) {
+  return page.evaluate(() => window.__BUZZ_E2E_COMMAND_LOG__ ?? []);
+}
+
+async function storedProjects(page: import("@playwright/test").Page) {
+  return page.evaluate(() => {
+    const key = Object.keys(window.localStorage).find((candidate) =>
+      candidate.startsWith("luca-room-projects.v1:"),
+    );
+    if (!key) return null;
+    return JSON.parse(window.localStorage.getItem(key) ?? "null") as {
+      projects: Array<{ id: string; sourceIds?: string[] }>;
+      assignments: Record<string, string>;
+    } | null;
+  });
+}
 
 test("projects open their room navigator and remember the selected room", async ({
   page,
@@ -96,4 +129,157 @@ test("a new project creates its first real room with chosen connected context", 
   await roomDialog.getByTestId("create-channel-submit").click();
   await expect(page.getByTestId("chat-title")).toHaveText("shipping");
   await expect(navigator.getByText("shipping", { exact: true })).toBeVisible();
+});
+
+test("a project can begin empty with no room residents or sources", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock");
+
+  await page.getByTestId("create-room-project").click();
+  const dialog = page.getByTestId("create-room-project-dialog");
+  await dialog.getByTestId("create-project-name").fill("Quiet Research");
+  await dialog.getByTestId("project-first-room-enabled").click();
+  await dialog.getByRole("button", { name: "Clear" }).click();
+  await dialog.getByRole("button", { name: "Create project" }).click();
+
+  await expect(page.getByTestId("project-row-quiet-research")).toBeVisible();
+  const store = await storedProjects(page);
+  expect(store?.projects).toEqual([
+    expect.objectContaining({ id: "quiet-research", sourceIds: [] }),
+  ]);
+  expect(store?.assignments).toEqual({});
+  expect(
+    (await commandLog(page)).filter(
+      (entry) => entry.command === "create_channel",
+    ),
+  ).toHaveLength(0);
+});
+
+test("a first room attaches selected existing residents as membership only", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock");
+
+  await page.getByTestId("create-room-project").click();
+  const dialog = page.getByTestId("create-room-project-dialog");
+  await dialog.getByTestId("create-project-name").fill("Resident Work");
+  await dialog.getByTestId("create-project-room-name").fill("resident-room");
+  await dialog.getByTestId("project-resident-mode-existing").click();
+  await dialog.getByText("Atlas", { exact: true }).click();
+  await dialog.getByRole("button", { name: "Create project" }).click();
+
+  await expect(page.getByTestId("chat-title")).toHaveText("resident-room");
+  const membershipCalls = (await commandLog(page)).filter(
+    (entry) => entry.command === "add_channel_members",
+  );
+  expect(membershipCalls).toHaveLength(1);
+  expect(membershipCalls[0]?.payload).toEqual({
+    channelId: expect.any(String),
+    pubkeys: [EXISTING_RESIDENT_PUBKEY],
+    role: "bot",
+  });
+  expect(JSON.stringify(membershipCalls)).not.toMatch(
+    /runtime|provider|model|tools|mcp|budget|grant|signing|authority/i,
+  );
+});
+
+test("a new resident handoff contains only the exact created room identity", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    window.addEventListener(
+      "buzz:open-create-agent",
+      (event) => {
+        (
+          window as Window & { __PRJ201_AGENT_REQUEST__?: unknown }
+        ).__PRJ201_AGENT_REQUEST__ = (event as CustomEvent).detail;
+      },
+      { capture: true },
+    );
+  });
+  await page.goto("/?e2e=mock");
+
+  await page.getByTestId("create-room-project").click();
+  const dialog = page.getByTestId("create-room-project-dialog");
+  await dialog.getByTestId("create-project-name").fill("Agent Handoff");
+  await dialog.getByTestId("create-project-room-name").fill("agent-room");
+  await dialog.getByTestId("project-resident-mode-new").click();
+  await dialog.getByRole("button", { name: "Create project" }).click();
+
+  const request = await page.evaluate(
+    () =>
+      (
+        window as Window & {
+          __PRJ201_AGENT_REQUEST__?: Record<string, unknown>;
+        }
+      ).__PRJ201_AGENT_REQUEST__,
+  );
+  expect(request).toEqual({
+    channelId: expect.any(String),
+    channelName: "agent-room",
+  });
+  expect(Object.keys(request ?? {}).sort()).toEqual([
+    "channelId",
+    "channelName",
+  ]);
+});
+
+test("a room failure retains one empty project and retry creates one room", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock");
+
+  await page.getByTestId("create-room-project").click();
+  const dialog = page.getByTestId("create-room-project-dialog");
+  await dialog.getByTestId("create-project-name").fill("Recovery Plan");
+  await dialog.getByTestId("create-project-room-name").fill("recovery-room");
+  await dialog.getByRole("button", { name: "Create project" }).click();
+
+  await expect(dialog.getByRole("alert")).toContainText(
+    "The empty project is saved",
+  );
+  let store = await storedProjects(page);
+  expect(store?.projects).toHaveLength(1);
+  expect(store?.assignments).toEqual({});
+
+  await dialog.getByRole("button", { name: "Retry setup" }).click();
+  await expect(page.getByTestId("chat-title")).toHaveText("recovery-room");
+  store = await storedProjects(page);
+  expect(store?.projects).toHaveLength(1);
+  expect(Object.keys(store?.assignments ?? {})).toHaveLength(1);
+  expect(
+    (await commandLog(page)).filter(
+      (entry) => entry.command === "create_channel",
+    ),
+  ).toHaveLength(2);
+});
+
+test("a membership failure retries membership without another project or room", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock");
+
+  await page.getByTestId("create-room-project").click();
+  const dialog = page.getByTestId("create-room-project-dialog");
+  await dialog.getByTestId("create-project-name").fill("Membership Recovery");
+  await dialog.getByTestId("create-project-room-name").fill("membership-room");
+  await dialog.getByTestId("project-resident-mode-existing").click();
+  await dialog.getByText("Atlas", { exact: true }).click();
+  await dialog.getByRole("button", { name: "Create project" }).click();
+
+  await expect(dialog.getByRole("alert")).toContainText(
+    "Retry to add only the remaining residents",
+  );
+  await dialog.getByRole("button", { name: "Retry setup" }).click();
+  await expect(page.getByTestId("chat-title")).toHaveText("membership-room");
+
+  const commands = await commandLog(page);
+  expect(
+    commands.filter((entry) => entry.command === "create_channel"),
+  ).toHaveLength(1);
+  expect(
+    commands.filter((entry) => entry.command === "add_channel_members"),
+  ).toHaveLength(2);
+  expect((await storedProjects(page))?.projects).toHaveLength(1);
 });
