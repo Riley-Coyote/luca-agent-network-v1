@@ -39,6 +39,30 @@ async function commandLog(page: import("@playwright/test").Page) {
   );
 }
 
+async function createdResidentPubkey(
+  page: import("@playwright/test").Page,
+  displayName: string,
+) {
+  return page.evaluate(async (expectedName) => {
+    const response = (await window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.(
+      "list_luca_residents",
+      {},
+    )) as
+      | {
+          residents?: Array<{
+            displayName: string;
+            residentPubkey: string;
+          }>;
+        }
+      | undefined;
+    return (
+      response?.residents?.find(
+        (resident) => resident.displayName === expectedName,
+      )?.residentPubkey ?? null
+    );
+  }, displayName);
+}
+
 async function openNewMessage(page: import("@playwright/test").Page) {
   if (await page.getByTestId("new-message-page").isVisible()) return;
   await page.getByTestId("open-new-conversation").click();
@@ -71,7 +95,12 @@ for (const runtime of [
     await expect(contact).toContainText("Ready");
     await expect(
       page.getByTestId(`direct-runtime-contact-icon-${runtime.id}`),
-    ).toHaveAttribute("src", `/runtime-icons/${runtime.id}.png`);
+    ).toHaveAttribute(
+      "src",
+      new RegExp(
+        `^(?:data:image/png;base64,|/runtime-icons/${runtime.id}\\.png$)`,
+      ),
+    );
     await contact.click({ force: true });
 
     const selected = page.locator("button[data-testid^='new-dm-selected-']");
@@ -101,11 +130,121 @@ for (const runtime of [
       },
     });
 
-    await page
-      .getByTestId("message-input")
-      .fill(`Hello ${runtime.label}, check this project.`);
+    const ownerMessage = `Hello ${runtime.label}, check this project.`;
+    await page.getByTestId("message-input").fill(ownerMessage);
     await page.getByTestId("send-message").click();
     await expect(page.getByTestId("chat-title")).toHaveText(runtime.label);
+
+    const residentPubkey = await createdResidentPubkey(page, runtime.label);
+    expect(residentPubkey).toMatch(/^[0-9a-f]{64}$/);
+    if (!residentPubkey) throw new Error("Expected a created resident pubkey.");
+
+    const ownerRow = page
+      .getByTestId("message-row")
+      .filter({ hasText: ownerMessage })
+      .last();
+    await expect(ownerRow).toBeVisible();
+    const dispatchReceiptId = await ownerRow.getAttribute("data-message-id");
+    if (!dispatchReceiptId) {
+      throw new Error("Expected an owner dispatch receipt event ID.");
+    }
+
+    const directSend = await page.evaluate(() => {
+      const entries = (window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? []).filter(
+        (entry) => entry.command === "send_channel_message",
+      );
+      return entries.at(-1)?.payload;
+    });
+    expect(directSend).toMatchObject({
+      content: ownerMessage,
+      // The first send precedes the channel-scoped audience query remount. The
+      // native boundary therefore uses its registered-resident + p-tag
+      // compatibility path to derive this one-resident managed audience.
+      managedAudience: null,
+      mentionPubkeys: [residentPubkey],
+      responseSurface: "timeline",
+    });
+    const targetChannelId = (directSend as { channelId?: string } | undefined)
+      ?.channelId;
+    expect(targetChannelId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    if (!targetChannelId) {
+      throw new Error(
+        "Expected the direct send to retain its channel binding.",
+      );
+    }
+    // The ordinary owner send completes through the canonical command without
+    // inserting a confirmation or alternate guarded-mode payload.
+    expect(directSend).not.toHaveProperty("approval");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+
+    const signedOwnerEvent = await page.evaluate(
+      () => window.__BUZZ_E2E_SIGNED_EVENTS__?.at(-1) ?? null,
+    );
+    expect(signedOwnerEvent).toMatchObject({ content: ownerMessage, kind: 9 });
+    expect(signedOwnerEvent?.tags).toContainEqual(["p", residentPubkey]);
+
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({
+              channelName: "DM",
+            }) ?? false,
+        ),
+      )
+      .toBe(true);
+
+    // `DM` is also the name of an older bridge fixture. Give the dynamic
+    // conversation a unique mock lookup name so the injected live event is
+    // delivered to the exact channel bound above.
+    const mockChannelName = `com-101-${runtime.id}-direct`;
+    await page.evaluate(
+      ({ channelId, name }) =>
+        window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.("update_channel", {
+          input: { channelId, name },
+        }),
+      { channelId: targetChannelId, name: mockChannelName },
+    );
+
+    const verbatimFinal = `${runtime.label}: exact resident output — unchanged.`;
+    const signedFinal = await page.evaluate(
+      ({ channelName, content, dispatchId, pubkey }) =>
+        window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+          channelName,
+          content,
+          extraTags: [
+            ["luca-managed-dispatch", dispatchId],
+            ["broadcast", "1"],
+          ],
+          parentEventId: dispatchId,
+          pubkey,
+        }),
+      {
+        channelName: mockChannelName,
+        content: verbatimFinal,
+        dispatchId: dispatchReceiptId,
+        pubkey: residentPubkey,
+      },
+    );
+    expect(signedFinal).toMatchObject({
+      content: verbatimFinal,
+      kind: 9,
+      pubkey: residentPubkey,
+    });
+    expect(signedFinal?.tags).toContainEqual([
+      "luca-managed-dispatch",
+      dispatchReceiptId,
+    ]);
+
+    const finalRow = page
+      .getByTestId("message-row")
+      .filter({ hasText: verbatimFinal });
+    await expect(finalRow).toHaveCount(1);
+    await expect(finalRow.getByTestId("message-author")).toHaveText(
+      runtime.label,
+    );
 
     await openNewMessage(page);
     await expect(
