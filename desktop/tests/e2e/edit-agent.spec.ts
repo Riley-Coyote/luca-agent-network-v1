@@ -37,30 +37,32 @@ const AGENT_NAME = "Tyler Agent";
 const PERSONA_ID = "persona-edit-e2e";
 
 /**
- * Open the Edit Agent dialog for the seeded managed agent via the profile
- * panel (agents view → agent card → Edit quick action) — EditAgentDialog's
- * only mount path.
+ * Open the Edit Agent dialog for the seeded managed agent via the current
+ * resident workspace (agents view → resident selector → Edit action).
  */
 async function openEditDialog(page: import("@playwright/test").Page) {
   await page.goto("/");
   await page.getByTestId("open-agents-view").click();
 
-  const agentButton = page.getByRole("button", {
-    name: `${AGENT_NAME} agent profile`,
+  const residentButton = page.getByRole("button", {
+    name: new RegExp(`^${AGENT_NAME} identity, idle`),
   });
-  await expect(agentButton).toBeVisible({ timeout: 10_000 });
-  await agentButton.click();
-
-  await expect(page.getByTestId("user-profile-panel")).toBeVisible({
-    timeout: 10_000,
-  });
-  await page.getByTestId("user-profile-edit-agent").click();
+  await expect(residentButton).toBeVisible({ timeout: 10_000 });
+  await residentButton.click();
+  await page.getByRole("button", { name: "Edit agent" }).click();
 
   await expect(page.getByTestId("edit-agent-dialog")).toBeVisible({
     timeout: 10_000,
   });
-  // Provider field visible = runtime catalog loaded and form settled.
-  await expect(page.locator("#edit-agent-llm-provider")).toBeVisible({
+  // The current editor exposes the runtime as Provider and keeps Model
+  // available for Codex. Both controls visible means the catalog and form have
+  // settled; no runtime change is required merely to edit another field.
+  await expect(
+    page.getByRole("button", { name: "Provider", exact: true }),
+  ).toBeVisible({ timeout: 10_000 });
+  await expect(
+    page.getByRole("button", { name: /^Model(?:Optional)?$/ }),
+  ).toBeVisible({
     timeout: 10_000,
   });
 }
@@ -71,10 +73,10 @@ async function openEditDialog(page: import("@playwright/test").Page) {
  */
 async function pickDropdownOption(
   page: import("@playwright/test").Page,
-  triggerId: string,
+  fieldName: string,
   optionName: string | RegExp,
 ) {
-  await page.locator(`#${triggerId}`).click();
+  await page.getByRole("button", { name: fieldName, exact: true }).click();
   await page.getByRole("menuitemradio", { name: optionName }).click();
 }
 
@@ -106,7 +108,7 @@ test.describe("edit agent dialog", () => {
     // survived the dialog lifecycle rather than living in local state. (The
     // panel HEADER is not asserted — it renders the relay profile name, which
     // the update path does not touch.)
-    await page.getByTestId("user-profile-edit-agent").click();
+    await page.getByRole("button", { name: "Edit agent" }).click();
     await expect(page.locator("#edit-agent-name")).toHaveValue(
       "Tyler Agent Renamed",
       { timeout: 10_000 },
@@ -129,19 +131,16 @@ test.describe("edit agent dialog", () => {
 
     await openEditDialog(page);
 
-    // Pick a provider so model discovery has a scope, then set a custom model.
-    await pickDropdownOption(page, "edit-agent-llm-provider", "Anthropic");
-    await pickDropdownOption(page, "edit-agent-model", "Custom model...");
+    // Set a custom model through the current accessible Model control.
+    await pickDropdownOption(page, "ModelOptional", "Custom model...");
     await page.locator("#edit-agent-custom-model").fill("claude-opus-4-5");
-    // Anthropic requires a credential before save unlocks.
-    await page.getByLabel("Anthropic API Key").fill("sk-test-edit-agent-e2e");
 
     const submit = page.getByTestId("edit-agent-dialog-submit");
     await expect(submit).toBeEnabled({ timeout: 10_000 });
     await submit.click();
     await expect(page.getByTestId("edit-agent-dialog")).not.toBeVisible();
 
-    await page.getByTestId("user-profile-edit-agent").click();
+    await page.getByRole("button", { name: "Edit agent" }).click();
     await expect(page.getByTestId("edit-agent-dialog")).toBeVisible({
       timeout: 10_000,
     });
@@ -168,9 +167,9 @@ test.describe("edit agent dialog", () => {
 
     await openEditDialog(page);
 
-    await expect(page.locator("#edit-agent-llm-provider")).toHaveText(
-      "Anthropic (inherited from build)",
-    );
+    await expect(
+      page.getByRole("button", { name: "Provider", exact: true }),
+    ).toHaveText("Codex (not installed)");
     await expect(page.locator("#edit-agent-model")).toHaveText(
       "Inherit build default (claude-opus-4-8)",
     );
@@ -205,9 +204,9 @@ test.describe("edit agent dialog", () => {
 
     await openEditDialog(page);
 
-    await expect(page.locator("#edit-agent-llm-provider")).toHaveText(
-      "Use agent defaults (anthropic)",
-    );
+    await expect(
+      page.getByRole("button", { name: "Provider", exact: true }),
+    ).toHaveText("Codex (not installed)");
     await expect(page.locator("#edit-agent-model")).toHaveText(
       "Use agent defaults (claude-opus-4-5)",
     );
@@ -220,16 +219,11 @@ test.describe("edit agent dialog", () => {
     ).toBeVisible();
   });
 
-  test("profile Edit routes persona-linked agents to the definition editor", async ({
+  test("workspace Edit opens the current instance editor for persona-linked agents", async ({
     page,
   }) => {
-    // Routing pin for handleEditAgent (UserProfilePanel): when the agent has
-    // a resolvable non-built-in persona, the Edit quick action opens the
-    // DEFINITION editor (persona dialog), not EditAgentDialog. The instance
-    // editor (and its inherit-runtime toggle) is reachable for persona-linked
-    // agents only via the requestOpenEditAgent event (ConfigNudgeCard) — no
-    // plain UI path — so its inherit-toggle behavior is covered by B3b's
-    // component-level pinning test, not e2e.
+    // The resident workspace owns instance lifecycle configuration, including
+    // for residents linked to an editable persona definition.
     await installMockBridge(page, {
       managedAgents: [
         {
@@ -252,26 +246,17 @@ test.describe("edit agent dialog", () => {
     await page.goto("/");
     await page.getByTestId("open-agents-view").click();
 
-    // Persona-linked agents render grouped under the persona's card name.
-    const agentButton = page.getByRole("button", {
-      name: "Edit E2E Persona agent profile",
+    // Persona-linked residents now open through the same identity workspace.
+    const residentButton = page.getByRole("button", {
+      name: new RegExp(`^${AGENT_NAME} identity, idle`),
     });
-    await expect(agentButton).toBeVisible({ timeout: 10_000 });
-    await agentButton.click();
+    await expect(residentButton).toBeVisible({ timeout: 10_000 });
+    await residentButton.click();
+    await page.getByRole("button", { name: "Edit agent" }).click();
 
-    await expect(page.getByTestId("user-profile-panel")).toBeVisible({
+    await expect(page.getByTestId("edit-agent-dialog")).toBeVisible({
       timeout: 10_000,
     });
-    await page.getByTestId("user-profile-edit-agent").click();
-
-    // Definition editor opens; the instance editor does not.
-    await expect(page.getByTestId("persona-dialog")).toBeVisible({
-      timeout: 10_000,
-    });
-    await expect(page.getByTestId("edit-agent-dialog")).not.toBeVisible();
-    // And it is the persona's record that's being edited.
-    await expect(page.locator("#persona-display-name")).toHaveValue(
-      "Edit E2E Persona",
-    );
+    await expect(page.locator("#edit-agent-name")).toHaveValue(AGENT_NAME);
   });
 });

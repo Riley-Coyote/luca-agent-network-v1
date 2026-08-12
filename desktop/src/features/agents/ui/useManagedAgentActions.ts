@@ -23,6 +23,7 @@ import { normalizePubkey } from "@/shared/lib/pubkey";
 import {
   deleteManagedAgentWithRules,
   isManagedAgentActive,
+  respawnManagedAgentWithRules,
   startManagedAgentWithRules,
   stopManagedAgentWithRules,
 } from "../lib/managedAgentControlActions";
@@ -161,6 +162,11 @@ export function useManagedAgentActions() {
         agent,
         startManagedAgent: startMutation.mutateAsync,
       });
+      setActionNoticeMessage(
+        agent.backend.type === "provider"
+          ? `Deploying ${agent.name}.`
+          : `Started ${agent.name}.`,
+      );
       await queryClient.invalidateQueries({ queryKey: lucaResidentsQueryKey });
     } catch (error) {
       setActionErrorMessage(
@@ -259,11 +265,44 @@ export function useManagedAgentActions() {
       });
       if (result.noticeMessage) {
         setActionNoticeMessage(result.noticeMessage);
+      } else {
+        setActionNoticeMessage(`Stopped ${agent.name}.`);
       }
       await queryClient.invalidateQueries({ queryKey: lucaResidentsQueryKey });
     } catch (error) {
       setActionErrorMessage(
         error instanceof Error ? error.message : "Failed to stop agent.",
+      );
+    }
+  }
+
+  async function handleRestart(pubkey: string) {
+    clearFeedback();
+    const agent = managedAgents.find(
+      (candidate) => candidate.pubkey === pubkey,
+    );
+    if (!agent) return;
+
+    let stoppedBeforeFailure = false;
+    try {
+      await respawnManagedAgentWithRules({
+        agent,
+        startManagedAgent: startMutation.mutateAsync,
+        stopManagedAgent: async (residentPubkey) => {
+          const result = await stopMutation.mutateAsync(residentPubkey);
+          stoppedBeforeFailure = true;
+          return result;
+        },
+      });
+      setActionNoticeMessage(`Restarted ${agent.name}.`);
+      await queryClient.invalidateQueries({ queryKey: lucaResidentsQueryKey });
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unknown runtime failure.";
+      setActionErrorMessage(
+        stoppedBeforeFailure
+          ? `${agent.name} stopped, but failed to restart: ${detail} Use Start to try again.`
+          : `Failed to restart ${agent.name}: ${detail}`,
       );
     }
   }
@@ -429,6 +468,7 @@ export function useManagedAgentActions() {
     handleStartPersona,
     handleAddResident,
     handleStop,
+    handleRestart,
     handleDelete,
     handleToggleStartOnAppLaunch,
     handleAddedToChannel,

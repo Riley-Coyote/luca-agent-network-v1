@@ -244,6 +244,8 @@ export function AgentsView({
                     ] ?? [])
                   : []
               }
+              actionErrorMessage={agents.actionErrorMessage}
+              actionNoticeMessage={agents.actionNoticeMessage}
               isActionPending={isActionPending}
               managedAgent={selectedManagedAgent}
               onBack={() => {
@@ -277,6 +279,11 @@ export function AgentsView({
               onStop={() => {
                 if (selectedManagedAgent) {
                   void agents.handleStop(selectedManagedAgent.pubkey);
+                }
+              }}
+              onRestart={() => {
+                if (selectedManagedAgent) {
+                  void agents.handleRestart(selectedManagedAgent.pubkey);
                 }
               }}
               onToggleStartOnLaunch={(enabled) => {

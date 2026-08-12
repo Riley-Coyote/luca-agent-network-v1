@@ -33,6 +33,8 @@ import {
 export type AgentLibrarySection = "overview" | "notebook" | "settings";
 
 export function AgentLibraryWorkspace({
+  actionErrorMessage,
+  actionNoticeMessage,
   channels,
   isActionPending,
   managedAgent,
@@ -41,6 +43,7 @@ export function AgentLibraryWorkspace({
   onMessage,
   onOpenChannel,
   onSectionChange,
+  onRestart,
   onStart,
   onStop,
   onToggleStartOnLaunch,
@@ -48,6 +51,8 @@ export function AgentLibraryWorkspace({
   resident,
   section,
 }: {
+  actionErrorMessage: string | null;
+  actionNoticeMessage: string | null;
   channels: Array<{ id: string; name: string }>;
   isActionPending: boolean;
   managedAgent: ManagedAgent | null;
@@ -56,6 +61,7 @@ export function AgentLibraryWorkspace({
   onMessage: () => void;
   onOpenChannel: (channelId: string) => void;
   onSectionChange: (section: AgentLibrarySection) => void;
+  onRestart: () => void;
   onStart: () => void;
   onStop: () => void;
   onToggleStartOnLaunch: (enabled: boolean) => void;
@@ -136,6 +142,17 @@ export function AgentLibraryWorkspace({
                 >
                   {isRunning ? <Square /> : <Play />}
                 </Button>
+                {isRunning && managedAgent.backend.type === "local" ? (
+                  <Button
+                    aria-label="Restart agent"
+                    disabled={isActionPending}
+                    onClick={onRestart}
+                    size="icon"
+                    variant="outline"
+                  >
+                    <RotateCcw />
+                  </Button>
+                ) : null}
               </>
             ) : (
               <Button disabled={isActionPending} onClick={onStart} size="sm">
@@ -176,6 +193,22 @@ export function AgentLibraryWorkspace({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-7">
         <div className="mx-auto w-full max-w-4xl">
+          {actionErrorMessage ? (
+            <div
+              className="mb-5 flex items-start gap-3 border border-destructive/35 bg-destructive/8 px-4 py-3 text-sm text-destructive"
+              role="alert"
+            >
+              <CircleAlert className="mt-0.5 size-4 shrink-0" />
+              <span>{actionErrorMessage}</span>
+            </div>
+          ) : actionNoticeMessage ? (
+            <div
+              className="mb-5 border border-border/70 bg-background/55 px-4 py-3 text-sm text-foreground"
+              role="status"
+            >
+              {actionNoticeMessage}
+            </div>
+          ) : null}
           {section === "overview" ? (
             <OverviewSection
               channels={channels}
@@ -195,7 +228,8 @@ export function AgentLibraryWorkspace({
             <SettingsSection
               managedAgent={managedAgent}
               onEdit={onEdit}
-              onRetry={onStart}
+              onRestart={onRestart}
+              onStart={onStart}
               onToggleStartOnLaunch={onToggleStartOnLaunch}
               persona={persona}
               resident={resident}
@@ -436,14 +470,16 @@ function NotebookSection({
 function SettingsSection({
   managedAgent,
   onEdit,
-  onRetry,
+  onRestart,
+  onStart,
   onToggleStartOnLaunch,
   persona,
   resident,
 }: {
   managedAgent: ManagedAgent | null;
   onEdit: () => void;
-  onRetry: () => void;
+  onRestart: () => void;
+  onStart: () => void;
   onToggleStartOnLaunch: (enabled: boolean) => void;
   persona: AgentPersona | null;
   resident: ResidentSummaryViewModel;
@@ -473,7 +509,8 @@ function SettingsSection({
             <div>
               <p className="text-sm">Start when Luca opens</p>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                Restore this resident with a fresh runtime session at launch.
+                Restore this resident with a fresh runtime session whenever Luca
+                opens or relaunches.
               </p>
             </div>
             <Switch
@@ -512,11 +549,24 @@ function SettingsSection({
           </div>
           <Button
             className="mt-4"
-            onClick={onRetry}
+            onClick={
+              managedAgent.needsRestart &&
+              managedAgent.backend.type === "local" &&
+              (managedAgent.status === "running" ||
+                managedAgent.status === "deployed")
+                ? onRestart
+                : onStart
+            }
             size="sm"
             variant="outline"
           >
-            <RotateCcw /> Retry runtime
+            <RotateCcw />
+            {managedAgent.needsRestart &&
+            managedAgent.backend.type === "local" &&
+            (managedAgent.status === "running" ||
+              managedAgent.status === "deployed")
+              ? "Restart resident"
+              : "Retry runtime"}
           </Button>
         </LedgerSection>
       ) : null}
