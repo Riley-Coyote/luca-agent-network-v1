@@ -1,13 +1,24 @@
 # Luca V1 continuation handoff
 
-> **Current status override (2026-08-12):** This handoff predates the combined
-> conversation/communication integration and the cross-session program audit.
-> Begin with [`docs/luca/program-status/00_START_HERE.md`](docs/luca/program-status/00_START_HERE.md).
-> The newest integrated coordinate is
-> `codex/conversation-communication-integration` at `5cd754e`; `luca/v1.1`
-> remains the last earlier release line, not the newest complete source line.
+> **Current control override (2026-08-12):** Begin with
+> [`docs/luca/program-control/00_START_HERE.md`](docs/luca/program-control/00_START_HERE.md)
+> and then
+> [`docs/luca/program-status/00_START_HERE.md`](docs/luca/program-status/00_START_HERE.md).
+> The active order is P0 verified control/product truth, P1 complete visible
+> messaging/A2A, P2 projects/native agents/Inbox/Activity/app UX, P3 installed
+> functional beta, P4 Mnemos felt continuity, and P5 optional hardening/deferred
+> expansion. The proposed combined tester release is `luca/v1-beta`.
+>
+> The revised graph is not yet Riley-approved. Product teams, integration
+> train, release candidate, product implementation, and shared-file writes are
+> inactive. The program-control branch is documentation/status only. The exact
+> validated control SHA will be recorded in the control run log after it exists.
+>
+> The detailed milestone material below remains historical architecture and
+> evidence. Its older continuation/release priority statements do not override
+> the current P0–P5 control package.
 
-Updated: 2026-08-10
+Updated: 2026-08-12
 
 Repository: `Riley-Coyote/luca-agent-network-v1`
 

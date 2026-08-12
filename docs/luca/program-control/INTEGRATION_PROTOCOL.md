@@ -1,114 +1,91 @@
-# Luca integration and release protocol
+# Luca integration protocol
 
-## 1. Task admission
+## Activation
 
-Program admits a task only when its dependencies are terminally passed and its
-capsule records objective, exact branch/worktree/SHA, owned and forbidden
-paths, frozen interfaces, acceptance, evidence path, reviewer, repair limit,
-and intended terminal status. `PROGRAM_GRAPH.yaml` supplies the durable
-baseline; the task receipt narrows it.
+CTRL-004 must record Riley's approval before any product team worktree exists.
+After approval, Program creates all five team branches from the same exact
+control commit and initializes each report from
+`team-reports/TEMPLATE.yaml`. Creating teams does not create the integration
+train and does not authorize shared-file writes.
 
-No team begins a source change from chat-only instructions.
+## Task capsule
 
-## 2. Branch discipline
+Before a write, Program records:
 
-- Team branches start from the exact approved control commit recorded after PC-G0;
-  that commit must descend from audited product base `f1f1eb3` and contain
-  documentation/status changes only.
-- One bounded task commit owns named files. Evidence remains uncommitted until
-  Program intentionally curates it.
-- Teams do not merge each other, the canonical integration branch, or dirty
-  worktree material.
-- Teams report exact SHAs; branch names alone are insufficient because two
-  independent local Git registries exist.
-- Product teams never commit directly to
-  `codex/conversation-communication-integration`.
+- task ID/category/milestone and dependency proof;
+- repository/worktree/branch/base/full HEAD;
+- exact owned and forbidden files;
+- consumed freezes and any shared-file lease;
+- focused tests and acceptance rows;
+- reviewer, evidence paths, and one bounded repair allowance.
 
-## 3. Ready-for-review receipt
+## Reuse-first review
 
-A team marks a commit ready only when:
+For every visible capability, the team reports one classification before code:
 
-1. the diff contains only owned or leased files;
-2. focused formatting, lint/typecheck, unit, and relevant E2E checks pass;
-3. authority/privacy negative tests pass where applicable;
-4. evidence is redacted and scanned;
-5. the team report names risks and unresolved limitations;
-6. an independent reviewer returns PASS;
-7. the exact commit is unchanged after review.
+1. functional;
+2. hidden or disconnected;
+3. reusable with Luca presentation;
+4. thin managed-agent adapter required;
+5. genuinely missing.
 
-The team may say `source_tested`; it may not say integrated or installed.
+A new domain, protocol, store, receipt system, or approval layer must show why
+the existing operation cannot satisfy the accepted visible requirement.
 
-## 4. Review and repair
+## Commit and status rules
 
-Review verdicts are PASS, FAIL, or NEEDS_REPAIR. A failed task gets at most one
-evidence-based repair within its original scope, followed by independent
-re-review. A second repair or scope expansion returns to Program for a new task
-or blocked decision. Reviewers do not silently fix the implementation they
-review.
+- One bounded task commit at a time; no broad staging.
+- Team commits may reach `source_tested` only after named tests pass on that
+  exact commit.
+- Program reviews ancestry, scope, diff, status, evidence, interface drift, and
+  security/QA findings before accepting a commit manifest.
+- Team status never becomes integrated/installed/released by assertion.
 
-## 5. Shared-file resolution
+## Commit-coordinate validation classes
 
-Program issues one writer lease at a time. The owning team proposes the
-semantic change; affected teams review it. Program applies or delegates the
-smallest registration/adapter diff. Conflicts that change a frozen interface
-require a decision-ledger entry before resolution.
+- **Candidate integration commits:** must be ancestors of the selected
+  integration or release coordinate before any integrated claim.
+- **Historical source/reference commits:** must exist as exact commits, remain
+  reachable from their recorded branches, retain their recorded role/title,
+  and be content-auditable. They do not need to be ancestors of the control,
+  integration, or release branch and are never made integrated by reference.
 
-## 6. Integration train
+`f27bbce4d0366116ba34ad284eabceb35ed81dac` is a `reference_only`
+historical program-status source on `codex/communication-parity`; its eight-file
+content inventory is recorded in `PROGRAM_GRAPH.yaml`.
 
-Program creates `codex/p0-integration-train` only after PC-G1. It integrates exact
-ready commits in the order in `WAVE_PLAN.md`, using cherry-pick or a deliberately
-reviewed bounded merge. After each carriage:
+## Integration train
 
-- inspect the staged/named diff;
-- run the focused checks for the affected seam;
-- record conflicts and resolution ownership;
-- confirm prior receipts still refer to unchanged source or mark them stale.
+Program creates `codex/p1-p3-integration-train` only after all required P1/P2
+team gates. Commits are cherry-picked/replayed in the order in `WAVE_PLAN.md`;
+blanket branch merges are disallowed. A semantic conflict returns to the owner;
+Program may write only a minimal recorded adapter.
 
-No blanket merge, bulk staging, wholesale onboarding merge, or wholesale
-`agent/vision-demo` merge is allowed.
+Focused checks run after each carriage. Full repository checks run on the
+assembled train. Any failure creates a new task/repair commit and a new train
+candidate.
 
-## 7. Candidate freeze
+## Installed candidate
 
-When all P0 carriages pass, Program records the exact train SHA and creates
-`codex/p0-release-candidate`. Product source freezes. Security and QA run the
-complete matrix and one formal `just ci` on that exact SHA. A repair produces a
-new SHA and restarts candidate verification; evidence never floats between
-commits.
+The release-candidate branch starts at the accepted train SHA. Product source
+is frozen. QA builds/signs/installs and records source SHA, bundle ID,
+signature, executable hash, launch receipt, profile type, real runtime, and
+acceptance evidence. Any source change invalidates all installed proof.
 
-## 8. Status promotion authority
+## Evidence
 
-| Promotion | Required authority and evidence |
-|---|---|
-| `planned` → `implemented_in_source` | Team lead; named diff on exact SHA |
-| `implemented_in_source` → `source_tested` | Independent reviewer; focused receipts |
-| `source_tested` → `integrated` | Program; accepted integration-train SHA |
-| `integrated` → `verified_in_installed_application` | Program + independent QA/Security; signed installed receipt |
-| `verified_in_installed_application` → `release_complete_and_pushed` | Riley/Program; canonical remote SHA/tag and reproducibility receipt |
+- Team report: `docs/luca/program-control/team-reports/<team>.yaml`
+- Task receipt: `docs/luca/program-control/task-receipts/<task>.yaml`
+- Raw redacted evidence: `evidence/program-control/<task>/`
 
-Team reports may preserve a narrower source-tested foundation while the broader
-epic remains planned.
+Evidence must omit secrets, protected message/continuity bodies, credentials,
+and absolute local paths. Status documents may record exact source/worktree
+coordinates where required for reproducibility.
 
-## 9. Evidence protocol
+## Stop conditions
 
-- Team report: `docs/luca/program-control/team-reports/<team>.yaml`.
-- Task receipt: `docs/luca/program-control/task-receipts/<task>.yaml`.
-- Raw redacted evidence: `evidence/program-control/<task>/`.
-- Raw evidence contains no secrets, protected bodies, or absolute local paths.
-- Reports may include the exact worktree coordinate required for coordination.
-- Logs identify command, exit code, environment version, commit, and timestamp.
-- Screenshots identify state, viewport, commit, and subject; distinct states must
-  have distinct image hashes.
-- Use repository evidence templates/scanners and run the applicable Luca
-  contract validator before review.
-
-## 10. Release and publication
-
-After PC-G4, Riley confirms the final release branch name. Program promotes the
-exact candidate, pushes without force, records remote SHA/tag, builds from a
-clean published coordinate, signs and deep-verifies the app, installs it under
-one unambiguous tester name, launches it, and records executable hash and
-profile/relay identity. Program then updates status, backlog, handoff,
-dashboard, and graph.
-
-Nothing is release-complete if source is only local or the installed bundle
-cannot be tied to the published commit.
+Stop the affected activation/integration immediately on unknown required
+candidate ancestry, missing/unreachable/mismatched historical reference,
+dirty or mismatched worktree, unexpected path, missing dependency, validator
+failure, interface drift, secret/body leak, duplicate final publication,
+native-config mutation, implicit authority, or source/bundle mismatch.

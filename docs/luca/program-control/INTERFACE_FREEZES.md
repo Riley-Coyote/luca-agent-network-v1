@@ -1,124 +1,71 @@
-# Luca shared-interface freezes
+# Luca interface freezes
 
-These freezes define semantics, not every implementation type. Before a team
-changes a frozen semantic, it submits a decision proposal with affected tasks,
-migration/compatibility impact, security analysis, tests, and rollback. Program
-Integration & Release approves or rejects it before source changes.
+These freezes preserve working architecture while teams close visible product
+gaps. A freeze may be changed only by a recorded Program decision and affected
+team review.
 
-## IF-01 — App shell, onboarding gate, and route selection
+## IF-01 — Conversation plane
 
-- New profiles enter production onboarding; healthy returning profiles bypass it.
-- Completion is durable, recoverable, and independent of prototype fixtures.
-- DM/room deep links resolve to the accepted conversation-first shell.
-- Onboarding may collect project/source/resident intent but must call the owning
-  domain transaction rather than duplicate its persistence.
-- Freeze point: before Experience writes reconciliation source.
+Buzz signed events, relay chronology, rooms/membership, DMs/groups, replies,
+mentions, reactions, edits/deletion, attachments, search, unread/read, and host
+publication remain canonical. No parallel conversation store or signer.
 
-## IF-02 — Resident identity, registry, and selection
+## IF-02 — Direct communication behavior
 
-- One stable cryptographic resident identity is independent of runtime, model,
-  executable, provider, session, project, and role.
-- Import/re-import and native Forge reconciliation reuse identity when semantic
-  identity matches; binding changes never rotate identity silently.
-- The desktop owns private keys; renderers, ACP, models, tools, connectors, and
-  mobile clients receive no signing secret.
-- Consumers use one Program-approved resident descriptor/selector contract.
-- Freeze point: before onboarding, project resident selection, Forge repair, or
-  resident Inbox writes.
+Direct mode is default inside the owner's authorized local network. Resident
+output is published verbatim. Routine local communication has no approval.
+Confirmation is limited to deletion, external/unresolved recipients,
+authority/membership changes, broad broadcasts, and material data effects.
 
-## IF-03 — Project, room, role, and membership transaction
+## IF-03 — Managed adapter boundary
 
-- Projects organize rooms, residents, sources, and artifacts; they are not
-  mandatory workflows.
-- Project and room membership are durable, attributable organizational state.
-- Creating/removing membership is idempotent and stale-bound where appropriate.
-- Membership never grants source, filesystem, MCP, model, provider, budget,
-  signing, or external-action authority.
-- Optional roles, including a future conductor, are ordinary replaceable
-  role assignments with explicit grants.
-- Freeze point: before unified creation or A2A invitation implementation.
+Missing managed operations call narrow typed desktop/native adapters over
+existing operations. Model/runtime descendants receive neither signing keys nor
+durable authority. The host resolves resident, membership, recipient, current
+state, and publication.
 
-## IF-04 — Commands, frontend API, and registration
+## IF-04 — Resident identity and native runtimes
 
-- Domain operations have typed request/result/error contracts and idempotency
-  keys where retries can duplicate work.
-- Command registration, app state injection, frontend API exposure, and event
-  kind allocation are Program-owned integration adapters.
-- Teams implement domain handlers and tests in owned modules, then request the
-  smallest registration diff.
-- No new HTTP endpoint when an authenticated signed-event operation fits the
-  inherited conversation plane.
-- Freeze point: before any new cross-process operation.
+Cryptographic resident identity is stable across model/runtime/session changes.
+Hermes/OpenClaw configuration and credentials remain native-owned and read-only
+to Luca. Readiness claims name the exact runtime state observed.
 
-## IF-05 — Communication events, receipts, Activity, and Inbox
+## IF-05 — Organization is not authority
 
-- Signed Buzz/Nostr events remain canonical chronology and authorship.
-- Delivery and activation are distinct. A delivered event may truthfully be
-  `delivered_not_activated`; delivery is never rolled back because activation
-  failed.
-- Every mutation binds exact actor, owner, resident, conversation, target,
-  expected state/content, dispatch, session epoch, and idempotency key as
-  applicable.
-- Activity distinguishes signed/host/runtime/test/commit/artifact receipts from
-  agent-authored statements.
-- Inbox routes attention; ordinary room coordination remains in conversation.
-- Current DMs are not described as NIP-17 E2EE.
-- Freeze point: before any P0 communication source write.
+Project, room, resident, repository, folder, and source relationships organize
+the product. They never imply filesystem, Brain, MCP, tool, provider, model,
+budget, external-action, or signing authority. Those remain explicit grants.
 
-## IF-06 — Brain, filesystem, connector grants, and provenance
+## IF-06 — Lifecycle and publication
 
-- Source discovery does not connect, import, index, grant, or mutate.
-- Every read or action is authorized for a stable owner/resident/source/action
-  tuple and rechecked at use and terminal authority points.
-- Originals remain authoritative; local stores preserve lineage, hashes,
-  revision/cursor state, exclusions, and body-safe receipts.
-- Runtime/provider changes make grants stale until explicit reconfirmation.
-- Imported or retrieved text is untrusted material and cannot alter identity,
-  runtime, model, tools, authority, routing, budget, or policy.
-- External writes require exact action approval, stale binding, receipt, and
-  safe retry/undo where supported.
-- Freeze point: before unified source creation or connector work.
+Cancellation invalidates outstanding work; restart/relaunch recovers safely;
+duplicate attempts cannot create duplicate final publications; ordinary
+conversation remains available when optional continuity or activity systems
+fail.
 
-## IF-07 — Runtime turn, cancellation, permission, and signing isolation
+## IF-07 — Inbox and Activity
 
-- Desktop-managed exact-turn authority controls publication, cancellation,
-  permission, activation, and recovery.
-- One canonical final is published per admitted managed dispatch.
-- Owner/resident keys, signing capabilities, provider credentials, and local
-  control descriptors never reach model/tool descendants.
-- Permission choices are exact runtime-advertised options and fail closed on
-  timeout, cancel, stale epoch, malformed input, exit, or app closure.
-- Causal depth and budget are explicit and non-increasing through delegation.
-- Freeze point: before activation, Forge repair, Skills, or multi-model work.
+Owner Inbox and useful Activity first consume existing signed events,
+projections, read-state, feed data, and runtime publication. A new projection
+must be the smallest demonstrably necessary addition for a visible accepted
+flow, not a universal workflow/receipt architecture.
 
-## IF-08 — Artifact handles and renderer trust
+## IF-08 — Mnemos authorship
 
-- P0 communication uses opaque, owner-scoped, revocable artifact handles—not
-  arbitrary paths or model-supplied raw filesystem authority.
-- Static artifact versions are immutable; revert creates a new version.
-- HTML/Markdown/PDF/image/text/file renderers do not imply process or network
-  execution.
-- Live processes, network previews, and voice require separate later contracts.
-- Freeze point: before managed attachment publication.
+Native identity documents and the exact bound runtime/model are authoritative
+for resident-authored identity, handoff, and reflection. Stored authored text
+is verbatim and attributed. Retrieved memory is supplemental. Crypto identity
+proves address/authorship, not semantic inner identity. Continuity fails soft.
 
-## IF-09 — Pairing, device, push, and remote-client authority
+## IF-09 — Mobile boundary
 
-- Reuse the inherited secure pairing substrate; do not invent a parallel
-  pairing protocol.
-- The phone is a client of Mac-hosted residents; residents do not run on the
-  phone in the first native companion.
-- Device registration, revocation, push enrollment, notification privacy, and
-  reconnect state are explicit and auditable.
-- Concurrent multi-device write authority remains deferred.
-- Freeze point: before native mobile implementation.
+The phone is a client of Mac-hosted residents. Pairing never implies that the
+resident, signing key, native runtime config, or durable authority moved to the
+phone.
 
-## IF-10 — Release identity and evidence chain
+## IF-10 — Evidence and release
 
-- Every claim names repository/worktree coordinate, branch, full commit, test
-  environment, bundle ID, signing identity/status, executable hash, and profile.
-- Focused tests happen during development; one complete gate runs on the final
-  unchanged candidate.
-- A source edit after freeze creates a new candidate and invalidates installed
-  proof tied to the prior SHA.
-- Only Program promotes integrated, installed, or release-complete status.
-- Freeze point: before the P0 train opens.
+Source-tested, integrated, installed, and released are distinct states tied to
+exact commits. Installed proof names bundle ID, signature, executable hash, and
+source SHA. Any source change invalidates the candidate. The combined tester
+release is `luca/v1-beta` only after P3 promotion approval.

@@ -1,104 +1,106 @@
 # Luca program decision ledger
 
-Decisions are append-only. Superseding a decision adds a new entry; it does not
-erase the earlier rationale.
+## D-001 — Conversation plane is reused
 
-## PC-D001 — Audited program baseline
+- Decision: Buzz signed events, relay, rooms, membership, DMs/groups, replies,
+  mentions, reactions, edits/deletion, attachments, search, unread/read, feed,
+  Inbox projections, human UI, and host-managed runtime publication remain the
+  conversation foundation.
+- Consequence: P1 adds thin managed adapters and Luca presentation; it does not
+  introduce a parallel message store, room model, signer, or universal broker.
 
-- Status: accepted
-- Decision: program control is based on
-  `f1f1eb3b135cae287c372c3210da635f324a1f81` from the canonical integration
-  repository.
-- Rationale: the user-opened checkout belongs to another Git registry and does
-  not contain the audited commit.
-- Consequence: product work targets
-  `codex/conversation-communication-integration`; the dirty primary checkout is
-  preserved as archaeology and user-owned material.
+## D-002 — Functional product precedes Mnemos and optional hardening
 
-## PC-D002 — General substrate over mandatory workflow
+- Decision: P1–P3 close the visible installed beta; P4 builds felt continuity;
+  P5 contains optional hardening and deferred expansion.
+- Consequence: security-only architecture may not displace visible product
+  work unless a concrete beta failure makes it indispensable.
 
-- Status: accepted
-- Decision: build identity, projects, rooms, messaging, permissions, Brain,
-  files, artifacts, Activity, Inbox, provenance, recovery, and auditability as
-  general primitives. Goals, plans, roles, rituals, and work decomposition are
-  composed by people and agents.
-- Consequence: task graphs and autonomy templates are optional artifacts, not
-  mandatory state for every project.
+## D-003 — Direct mode is the Phase 1 default
 
-## PC-D003 — Optional conductor reopened
+- Decision: authorized local resident communication publishes resident output
+  verbatim without routine approval.
+- Confirmation boundary: destructive deletion, external/unresolved recipient,
+  authority or membership-policy change, broad broadcast, material data effect.
+- Consequence: Guarded/Restricted modes are optional P5 work.
 
-- Status: accepted; long-range only
-- Supersedes: treating all conductor behavior as hidden or rejected.
-- Decision: a conductor may be implemented later as an ordinary,
-  cryptographically identified project role with explicit owner grants.
-- Constraints: no hidden router privilege; no bypass of signing, security,
-  memory, filesystem, external-action, budget, or causal-depth policy; visible
-  actions; replaceable role holder; durable project state.
-- Dependencies: roles and membership, communication parity, bounded activation,
-  owner Inbox, receipt-backed Activity, grants, budgets, approvals, recovery,
-  and audit.
-- Consequence: `orchestration.optional_conductor` is a staged P3 epic, not a P0
-  feature and not the universal Luca product model.
+## D-004 — Restore Inbox and Activity before inventing replacements
 
-## PC-D004 — Conversation remains independently reliable
+- Decision: use existing events, owner Inbox projections, feed/activity data,
+  and deep links first.
+- Consequence: a resident-specific projection is allowed only when an accepted
+  visible workflow cannot be supported by the existing data, and must remain
+  minimal rather than becoming a new resident workflow architecture.
 
-- Status: accepted
-- Decision: conversation delivery and final publication cannot depend on
-  continuity, Brain retrieval, reflection, or orchestration.
+## D-005 — Communication commit reclassification
 
-## PC-D005 — Authority remains host-owned
+No commit is discarded. Candidate integration commits retain strict ancestry
+requirements. Historical source/reference commits retain exact recorded
+coordinates and content auditability without being misclassified as integrated.
 
-- Status: accepted
-- Decision: model/tool descendants never receive owner or resident private keys,
-  signing-broker capabilities, provider credentials, or persistent authority.
+The separate status commit has this binding:
 
-## PC-D006 — Organization is not authorization
+| Field | Value |
+|---|---|
+| Exact commit | `f27bbce4d0366116ba34ad284eabceb35ed81dac` |
+| Title | `Document complete Luca program status` |
+| Role | `historical program-status source` |
+| Preserved branch | `codex/communication-parity` |
+| Integration status | `reference_only` |
+| Ancestry requirement | `not_applicable` |
+| Preservation requirement | Exact commit and branch remain reachable; eight recorded status/handoff files remain content-auditable |
 
-- Status: accepted
-- Decision: project, room, role, invitation, and resident membership do not
-  imply filesystem, Brain, MCP, provider, model, budget, or external-action
-  grants.
+| Classification | Commits | Decision |
+|---|---|---|
+| Directly reusable now | `1ef062b`, `4d1beb7`, `2ff32f9`, `f22d2f6`, `af8dd7c`, `11583e8`, `2029508`, `b304bc1`, `16b971d`, `21cac2c`, `732de70`, `0c53239` | Reuse Inbox projection, managed send/runtime, membership publication, retry/recovery, and fixtures |
+| Preserve but do not expand in P1–P3 | `6b867cf`, `7dd9f9e`, `a822f8b`, `24fdc5e`, `9daf89d`, `6b2a532` | Keep exact-turn MCP/broker/vault/authority foundations; do not generalize them for every ordinary local action |
+| Excessive for the present milestone | `199f0ac`, `95aac1f` | Preserve the action-outbox/reconciliation code, but do not make generalized outboxes a dependency for visible parity |
+| Incomplete or still requiring installed proof | `11583e8`, `2029508`, `1ef062b`, `2ff32f9`, `f22d2f6`, `d2d5bf7` | Treat as foundations, not full communication parity or complete native Inbox proof |
+| Superseded by existing-operation reuse | `e8659cb`, `b98f138` operation shapes for reactions, edits, deletion, invitations, room creation, and attachments | Retain contracts as design/negative-authority history; implement missing UX through existing builders/commands rather than a second protocol |
+| Documentation/handoff retained in integrated ancestry | `d2d5bf7`, `b49ee31`, `a1ba589` | Preserve the communication checkpoint, handoff, and integration receipt; this ledger is the current prioritization authority |
 
-## PC-D007 — Sole integration authority
+The other 26 audited communication commits remain under their existing
+classifications above and must be ancestors of the selected integration/release
+coordinate before any integrated claim. The separate `f27bbce…` reference is
+not part of that 26-commit ancestry set and must not be cherry-picked merely to
+satisfy an ancestry check.
 
-- Status: accepted
-- Decision: Program Integration & Release alone may alter the integration
-  train, resolve shared-interface conflicts, promote installed verification,
-  or publish release completion.
+## D-006 — Mnemos authorship and identity
 
-## PC-D008 — Six-state completion model
+- Native profile/identity documents are authoritative and read through the
+  exact bound runtime/model.
+- Resident-authored identity and handoff text is stored verbatim with
+  attribution, provenance, revisions, and corrections.
+- Retrieved memory is supplemental context, never a substitute author.
+- Crypto keys prove authorship/address continuity, not inner identity or
+  semantic truth.
+- Continuity failure never blocks ordinary conversation.
 
-- Status: accepted
-- Decision: planned, implemented in source, source-tested, integrated, installed
-  verified, and release-complete/pushed remain distinct terminal observations.
+## D-007 — Existing protections remain
 
-## PC-D009 — P0 before expansion
+Stable cryptographic identity, host signing, key/credential isolation,
+read-only native configuration, encrypted Brain/continuity, cancellation,
+restart recovery, duplicate suppression, exactly-once final publication,
+authority separation, and honest readiness remain mandatory constraints.
 
-- Status: accepted
-- Decision: onboarding, communication parity, unified creation, Forge native
-  proof, consolidation, publication, and one signed tester bundle precede P1–P3
-  implementation. Later teams may prepare read-only evidence where safe.
+## D-008 — Tester release coordinate
 
-## PC-D010 — Approval-gated topology
-
-- Status: accepted
-- Decision: this turn creates only the control worktree. Team worktrees and the
-  P0 integration train are proposed, not created, until Riley approves.
-
-## PC-D011 — PC-G0 conditional approval
-
-- Status: accepted on 2026-08-12
-- Decision: PC-G0 is approved after two bounded corrections.
-- Release coordinate: the combined tester release is `luca/v1-beta`, with
-  proposed worktree
+- Proposed canonical combined tester branch: `luca/v1-beta`.
+- Proposed worktree:
   `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-release-v1-beta`.
-  V1.2 and V1.2.1 remain the names of completed Brain milestones.
-- Status sequencing: CTRL-001 remains `implemented_in_source` until the control
-  package exists on an exact commit and every control validator passes against
-  that commit. Only then may a documentation-only promotion record
-  `source_tested`.
-- Authorized next action: finalize the control commit, validate it, and create
-  the five team branches/worktrees and initial team reports from that exact
-  commit.
-- Still prohibited: P0 integration-train creation, product implementation,
-  shared-file writes, release publication, or tester-app construction.
+- It is not created during P0 and cannot be promoted before the P3 unchanged
+  installed candidate and Riley approval.
+
+## D-009 — Historical and revised control approvals are distinct
+
+- Historical CTRL-001 remains tied to pre-promotion exact validation. CTRL-002
+  records the bounded prior approval/corrections but remains
+  `implemented_in_source` because the later promotion commit did not complete
+  final validation.
+- The functional-product-first revision creates CTRL-003. It remains
+  `implemented_in_source` until a documentation commit exists and all control
+  validators pass that exact commit.
+- CTRL-004 is a new explicit Riley approval of the revised graph. The prior
+  approval does not activate teams under this replacement graph.
+- Until CTRL-004: no product team worktree, kickoff dispatch, integration
+  train, product implementation, or shared-file write is authorized.

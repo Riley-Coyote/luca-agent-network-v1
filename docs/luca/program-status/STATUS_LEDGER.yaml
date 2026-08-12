@@ -1,174 +1,139 @@
-schema: luca.program-status.v1
+schema: luca.program-status.v2
 audited_at: 2026-08-12
-current_coordinate:
-  branch: codex/conversation-communication-integration
-  evidence_head: 5cd754edf2710b22119517b68d169f3e645113b2
-  product_checkpoint: 80510dbe026039ea923bab81cde9cc65e049af4e
-  installed_bundle: Luca Agent Network Dev (luca-operator-native-forge).app
-  executable_sha256: ad607a83b9b567ad6b2efa1d79e6c32d42eed16991af92e3976642d987a80f78
 
-status_values:
-  - VERIFIED_INSTALLED
-  - INTEGRATED_SOURCE
-  - SOURCE_PASS
-  - UNMERGED
-  - PROTOTYPE_ONLY
-  - SPEC_ONLY
-  - PARTIAL
-  - NOT_STARTED
-  - DEFERRED
-  - HIDDEN_OR_REJECTED
+coordinates:
+  integration_branch: codex/conversation-communication-integration
+  program_control_branch: codex/program-control
+  program_control_worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-program-control
+  revised_control_validation_commit: pending_exact_commit
+  proposed_release_branch: luca/v1-beta
+  proposed_release_worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-release-v1-beta
+
+historical_source_references:
+  - commit: f27bbce4d0366116ba34ad284eabceb35ed81dac
+    title: Document complete Luca program status
+    role: historical program-status source
+    branch: codex/communication-parity
+    integration_status: reference_only
+    ancestry_requirement: not_applicable
+    preservation_requirement: exact commit and branch remain reachable
+    content_file_count: 8
+
+control:
+  CTRL-001:
+    status: source_tested
+    exact_validation_commit: 63900cd2cb48299e24e73b0736c3faf95d8b6337
+  CTRL-002:
+    status: implemented_in_source
+    note: prior bounded approval and corrections recorded; later promotion commit did not complete final validation
+  CTRL-003:
+    status: implemented_in_source
+    exact_validation_commit: pending_exact_commit
+  CTRL-004:
+    status: planned
+    note: Riley approval required before team or train activation
+
+milestones:
+  P0: active_control_only
+  P1: planned_inactive
+  P2: planned_inactive
+  P3: planned_inactive
+  P4: planned_inactive
+  P5: not_activated
+
+teams_created: false
+integration_train_created: false
+release_candidate_created: false
+release_branch_created: false
+product_writes_authorized: false
+shared_file_writes_authorized: false
+
+classification_values:
+  - functional
+  - hidden_or_disconnected
+  - reusable_with_luca_presentation
+  - thin_managed_agent_adapter_required
+  - genuinely_missing
 
 capabilities:
-  - id: runtime.native_imports
-    status: VERIFIED_INSTALLED
-    scope: Hermes and OpenClaw discovery, import, binding, DM and group runtime
+  - id: resident.stable_identity_host_signing
+    classification: functional
     evidence: docs/luca/functional-beta/V1B_VERDICT.md
-  - id: runtime.identity
-    status: VERIFIED_INSTALLED
-    scope: stable cryptographic resident identity and key-derived specimen
+  - id: runtime.hermes_openclaw_import_reply
+    classification: functional
     evidence: docs/luca/functional-beta/V1B_VERDICT.md
-  - id: messaging.human_agent
-    status: VERIFIED_INSTALLED
-    scope: DM, group room, reply, search, unread, attachment, cancellation, permission
+  - id: messaging.owner_agent_dm_group_reply_mention
+    classification: functional
     evidence: docs/luca/functional-beta/V1B_VERDICT.md
-  - id: continuity.handoff
-    status: VERIFIED_INSTALLED
-    scope: encrypted resident handoff and fail-soft injection
+  - id: messaging.human_reaction_edit_delete
+    classification: reusable_with_luca_presentation
+    evidence: desktop/src-tauri/src/commands/messages.rs
+  - id: messaging.room_dm_membership_invite
+    classification: reusable_with_luca_presentation
+    evidence: desktop/src-tauri/src/commands/channels.rs
+  - id: messaging.attachments
+    classification: reusable_with_luca_presentation
+    evidence: desktop/src-tauri/src/commands/media.rs
+  - id: messaging.search_unread_read_deeplinks
+    classification: functional
     evidence: docs/luca/functional-beta/V1B_VERDICT.md
-  - id: continuity.notebook
-    status: VERIFIED_INSTALLED
-    scope: Continuity Notes, Journal Pages, revisions, disclosure, lifecycle
-    evidence: docs/luca/v1.1-v1.3/V1_1_VERDICT.md
-  - id: brain.scoped_sources
-    status: VERIFIED_INSTALLED
-    scope: Markdown and text import, grants, lexical retrieval
-    evidence: docs/luca/v1.1-v1.3/V1_2_VERDICT.md
-  - id: brain.connected_work
-    status: VERIFIED_INSTALLED
-    scope: repositories, Codex, Claude Code, scoped repo read and approved work
-    evidence: docs/luca/v1.1-v1.3/V1_2_1_VERDICT.md
-  - id: navigation.project_room
-    status: VERIFIED_INSTALLED
-    scope: project room navigator, loose rooms and DMs, responsive states
-    evidence: docs/luca/project-navigation/PRODUCTION_HANDOFF.md
-  - id: agents.library
-    status: VERIFIED_INSTALLED
-    scope: roster, overview, notebook, settings, conversation projection
-    evidence: docs/luca/agent-library/INSTALLED_VERIFICATION.md
-  - id: settings.agent_system
-    status: VERIFIED_INSTALLED
-    scope: Luca settings, agent configuration, runtime health, stdio MCP, mobile pairing
-    evidence: docs/luca/settings-agent-system/VERDICT.md
-  - id: communications.secure_send
-    status: INTEGRATED_SOURCE
-    scope: exact-turn authority and resident send to existing owner-visible conversation
-    evidence: docs/luca/communication-parity/CROSS_SESSION_HANDOFF.md
-  - id: communications.owner_inbox
-    status: INTEGRATED_SOURCE
-    scope: passive owner projection with deterministic fixtures
-    evidence: docs/luca/communication-parity/CROSS_SESSION_HANDOFF.md
-  - id: communications.agent_mutations
-    status: NOT_STARTED
-    scope: reactions, edit, approved delete, invite, room create
+  - id: messaging.managed_mutations
+    classification: thin_managed_agent_adapter_required
     evidence: docs/luca/communication-parity/ACCEPTANCE.md
-  - id: communications.agent_attachments
-    status: NOT_STARTED
-    scope: opaque artifact-handle attachment publication
+  - id: messaging.managed_room_member_invite
+    classification: thin_managed_agent_adapter_required
+    evidence: docs/luca/communication-parity/ACCEPTANCE.md
+  - id: messaging.explicit_a2a_activation
+    classification: genuinely_missing
     evidence: docs/luca/communication-parity/CROSS_SESSION_HANDOFF.md
-  - id: communications.agent_activation
-    status: NOT_STARTED
-    scope: bounded causal A2A activation and loop prevention
+  - id: attention.owner_inbox_activity
+    classification: hidden_or_disconnected
     evidence: docs/luca/communication-parity/CROSS_SESSION_HANDOFF.md
-  - id: communications.resident_inbox
-    status: NOT_STARTED
-    scope: native resident-specific Inbox projection
-    evidence: docs/luca/communication-parity/CROSS_SESSION_HANDOFF.md
-  - id: communications.nip17
-    status: DEFERRED
-    scope: true end-to-end encrypted DM and group delivery
-    evidence: docs/luca/communication-parity/PRIVACY_LANGUAGE.md
-  - id: onboarding.production_flow
-    status: UNMERGED
-    scope: identity, residents, Brain, readiness, recovery, accessibility
-    branch: codex/brain-onboarding-ux
-    head: 13c9ec9ffb34c1d7b01a92cdb5171d03e9954f6f
-  - id: projects.unified_creation
-    status: NOT_STARTED
-    scope: project, folders, first room, residents, sources, empty states
-    source_task: 019fe378-be44-7860-86c5-39fa21c18363
-  - id: projects.filesystem_access_requests
-    status: NOT_STARTED
-    scope: exact resident-requested folder or repository access with owner review
+  - id: onboarding.combined_clean_returning
+    classification: genuinely_missing
+    evidence: codex/brain-onboarding-ux
+  - id: projects.navigation
+    classification: functional
+    evidence: docs/luca/project-navigation/PRODUCTION_HANDOFF.md
+  - id: projects.unified_create_details_sources
+    classification: genuinely_missing
     evidence: docs/luca/program-control/PROGRAM_GRAPH.yaml
-  - id: agents.operator_forge
-    status: SOURCE_PASS
-    scope: operator proposals and native Hermes/OpenClaw provisioning
+  - id: agents.library_settings_pairing
+    classification: functional
+    evidence: docs/luca/settings-agent-system/VERDICT.md
+  - id: agents.combined_create_lifecycle_experience
+    classification: hidden_or_disconnected
     evidence: docs/luca/operator-forge/VERDICT.md
-  - id: agents.natural_language_creation
-    status: PARTIAL
-    scope: effortless concierge creation over the shared owner-review proposal model
-    evidence: docs/luca/operator-forge/VERDICT.md
-  - id: agents.skills_library
-    status: NOT_STARTED
-    scope: agent skills discovery, grants, install and lifecycle
-    evidence: discussion only
-  - id: continuity.reflection_v1_3
-    status: NOT_STARTED
-    scope: explicit same-resident notebook review and revision proposals
-    evidence: docs/luca/v1.1-v1.3/ROADMAP.md
-  - id: brain.unified_import
-    status: PARTIAL
-    scope: broad native, history, export, format, migration and archive import
-    evidence: docs/luca/unified-brain/
-  - id: connector.obsidian
-    status: SPEC_ONLY
-    scope: vault read, search, watch, grants, later approved writes
-    source_task: 019fea12-2258-7e62-b6d0-83e2d345668d
-  - id: connector.gmail_google
-    status: SPEC_ONLY
-    scope: read and search, later drafts and approved send
-    source_task: 019fea12-2258-7e62-b6d0-83e2d345668d
+  - id: continuity.handoff_notes_journal_brain
+    classification: functional
+    evidence: docs/luca/v1.1-v1.3/V1_2_1_VERDICT.md
+  - id: continuity.mnemos_felt_identity
+    classification: genuinely_missing
+    evidence: docs/luca/program-control/PROGRAM_GRAPH.yaml
+  - id: mobile.pairing_foundation
+    classification: functional
+    evidence: docs/luca/settings-agent-system/VERDICT.md
+  - id: mobile.full_native_companion
+    classification: genuinely_missing
+    evidence: docs/luca/program-control/PROGRAM_GRAPH.yaml
   - id: artifacts.library_canvas
-    status: SPEC_ONLY
-    scope: local static artifact library and safe canvas
-    source_task: 019fe49e-1bab-70a3-be16-a83a84b64726
-  - id: mobile.companion
-    status: PROTOTYPE_ONLY
-    scope: Luca-native phone client using Mac-hosted residents
-    source_task: 019fe8a5-dee3-7301-a968-c3e385edc662
-  - id: agents.native_multimodel
-    status: SPEC_ONLY
-    scope: one identity with internal bounded model delegation
-    source_tasks:
-      - 019feabf-e786-73b3-85fe-1d1b263cdebf
-      - 019fe030-3f3b-7f02-aec8-533c33b17831
-  - id: orchestration.optional_conductor
-    status: SPEC_ONLY
-    scope: optional ordinary project role with explicit grants, budgets, causal limits, visible actions, replacement, and audit
-    dependencies:
-      - communications.agent_mutations
-      - communications.agent_activation
-      - communications.resident_inbox
-      - agents.native_multimodel
-      - roles_and_membership
-      - receipt_backed_activity
-      - owner_approvals_and_budgets
-    evidence: docs/luca/program-control/DECISION_LEDGER.md
-  - id: continuity.inner_life
-    status: DEFERRED
-    scope: scheduled reflection, proactive outreach, rich hypomnema and journaling
-    evidence: docs/luca/continuity-g2/ACCEPTANCE_G2.md
-  - id: release.canonical_consolidation
-    status: PARTIAL
-    scope: merge onboarding and unfinished parity, push canonical branch, rebuild tester app
-    evidence: docs/luca/program-status/BRANCH_AND_ARTIFACT_MAP.md
+    classification: genuinely_missing
+    evidence: docs/luca/program-control/PROGRAM_GRAPH.yaml
 
-hidden_or_rejected:
-  - goose
-  - mesh_compute
-  - hosted_communities_as_project_model
-  - experiments
-  - broad_workflow_forum_huddle_surfaces
-  - moderation_templates_custom_emoji_admin
-  - unrestricted_agent_raw_nostr_cli_signing
+preserved_protections:
+  - stable cryptographic identity
+  - host signing and key isolation
+  - read-only native runtime configuration
+  - encrypted continuity and Brain
+  - cancellation restart duplicate suppression exactly-once final
+  - project and membership separation from authority
+  - truthful runtime privacy and degradation status
+
+phase_1_deferred_hardening:
+  - generalized exact-turn leases
+  - generalized action outboxes and receipt activity
+  - advanced causal graphs and unrestricted auto-reply chains
+  - guarded and restricted communication modes
+  - NIP-17 end-to-end delivery
+  - production key rotation recovery and writer transfer
+  - hostile multi-tenant hardening

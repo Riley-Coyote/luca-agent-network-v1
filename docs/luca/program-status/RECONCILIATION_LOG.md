@@ -1,102 +1,45 @@
-# Luca program reconciliation log
+# Luca reconciliation log
 
-## Scope
+## 2026-08-12 — Cross-session product audit
 
-The audit answered four different questions for every item:
+- Confirmed the audited integrated source line, installed functional-beta
+  foundation, Brain/Notebook continuity milestones, project navigation, Agent
+  Library, Settings, operator/Forge source, onboarding divergence,
+  communication-parity foundation, mobile prototype, and artifact packet.
+- Preserved the user-opened dirty checkout and all existing worktrees.
+- Created the documentation-only `codex/program-control` worktree from the
+  audited integration repository.
 
-1. Was it discussed?
-2. Was a durable plan or contract written?
-3. Was product source implemented and integrated?
-4. Was the behavior verified in the installed signed app?
+## 2026-08-12 — Initial control corrections
 
-Those questions were intentionally not collapsed into one “done” flag.
+- Corrected the proposed combined tester branch/worktree to `luca/v1-beta` and
+  its matching release path.
+- Validated the pre-promotion control commit and promoted CTRL-001 afterward.
+- The later promotion commit did not complete final validation because of an
+  obsolete alias literal in historical prose.
+- No teams, train, release candidate, or tester release were activated.
 
-## Sources inspected
+## 2026-08-12 — Functional-product-first revision
 
-- the six task IDs supplied by Riley;
-- the current main Luca build task;
-- additional root tasks found by searching Codex session metadata/content for
-  Luca repository coordinates;
-- root Git worktrees, branches, ancestry, logs, and remote tracking state;
-- functional-beta, V1.1, V1.2, V1.2.1, G2.0–G2.2, Settings, Agent Library,
-  project-navigation, Operator Forge, and communication verdicts/handoffs;
-- the current communication acceptance matrix;
-- the divergent onboarding branch;
-- installed-app paths and recorded executable hashes;
-- the dirty primary checkout's untracked Unified Brain, Artifact, mobile,
-  design, and evidence material.
+- Riley superseded the security-first program order.
+- Reconciled the product into five truth classes: functional,
+  hidden/disconnected, reusable with Luca presentation, thin managed adapter,
+  and genuinely missing.
+- Audited working message, room, membership, mutation, invite, attachment,
+  search, unread/read, Inbox/feed, and runtime-publication infrastructure.
+- Kept 26 audited communication commits under strict integrated-ancestry
+  validation and recorded their reuse classifications in the Decision Ledger.
+- Recorded `f27bbce4d0366116ba34ad284eabceb35ed81dac` separately as the
+  `reference_only` historical program-status source on
+  `codex/communication-parity`; exact commit/branch reachability and its eight
+  status/handoff files are required, but control/release ancestry is not.
+- Replaced the 46-task graph with a 69-task P0–P5 graph. No visible Phase 1
+  feature was removed; security/generalized architecture was separated into P5.
+- Added explicit P4 Mnemos authorship, identity, handoff, notes/notebooks/
+  journal, reflection, hypomnema, provenance/revision/correction, fail-soft, and
+  creative Notebook tasks.
+- Added CTRL-003 exact-commit validation and CTRL-004 revised Riley approval.
+- Teams, trains, product code, and shared product files remain inactive.
 
-## Session discovery method
-
-Codex session files were searched for the repository name and relevant
-worktree/branch coordinates. Results were filtered to root user tasks. Subagent
-lanes, generated Luca resident/continuity turns, and unrelated repositories
-were excluded. This found the Unified Brain and original main build tasks that
-were absent from the supplied list.
-
-## Contradictions resolved
-
-### “Communication complete” versus acceptance
-
-The integrated branch and signed app prove the secure communication foundation.
-They do not implement or prove every operation in the original parity plan.
-The unchecked acceptance matrix and explicit cross-session handoff are the
-controlling evidence. Status: `INTEGRATED_SOURCE`, not full parity.
-
-### “Installed rebuild deferred” versus promoted signed app
-
-The integration receipt contains stale wording in its deferred section. Later
-sections and evidence commit `5cd754e` record the signed branch-specific app,
-installed hash, relaunch, relay health, and protected native-state hashes.
-Status: installed promotion occurred.
-
-### Formal G1 incomplete versus later beta verdicts
-
-Older `HANDOFF.md` and G1 checklist text predates later candidate review and
-functional-beta/native acceptance. The runtime foundation should not be
-retested from zero unless source drift invalidates a specific proof. Status:
-historical G1 documentation is stale; current capability status is derived from
-later exact verdicts.
-
-### G2 acceptance rows versus later beta releases
-
-The original G2 task graph was intentionally narrowed into Functional Beta and
-V1.1–V1.2.1. Some G2.3 concepts are now shipped through handoff/Notebook/Brain,
-while the original broad G2.3–G2.6 matrices remain unclaimed. Status: partially
-superseded, not wholly complete or wholly absent.
-
-### Project creation versus unified project flow
-
-Basic project creation, first-room creation, and existing Brain source linking
-are integrated. The later unified flow—source picker, resident choice/creation,
-empty states, later editing, and broader access requests—was designed but not
-finished. Status: basic creation built; unified flow `NOT_STARTED`.
-
-## Confidence and limitations
-
-High confidence:
-
-- Git ancestry and branch divergence;
-- exact verdicts tied to commits and installed hashes;
-- communication acceptance omissions;
-- onboarding branch being unmerged;
-- untracked artifact/mobile packets existing outside the integration branch.
-
-Medium confidence:
-
-- whether every exploratory visual artifact should eventually ship;
-- exact prioritization among mobile, artifacts, connectors, and V1.3;
-- whether hidden Buzz product surfaces should remain permanently closed.
-
-Those are product choices, not missing evidence. The backlog keeps them
-separate from required beta repairs.
-
-## Maintenance rule
-
-When a task changes state:
-
-1. update `STATUS_LEDGER.yaml`;
-2. update the matching row in `MASTER_STATUS.md`;
-3. attach exact commit/test/installed evidence;
-4. move or close the corresponding `BACKLOG.md` item;
-5. never mark a broad capability complete from a narrower sub-slice.
+Exact revised-control commits and validator receipts are recorded in
+`docs/luca/program-control/RUN_LOG.md` after they exist.

@@ -1,141 +1,99 @@
-# Luca wave plan
+# Luca branch, worktree, and wave plan
 
-## Proposed branch and worktree topology
+## Proposed coordinates — all inactive
 
-The five team branches below were approved at PC-G0 and must start from the
-final validated control commit. The integration train and release-candidate
-branches remain uncreated and gated.
+No row except Program control exists as an activated delivery worktree. The
+five team branches/worktrees may be created only after CTRL-004 records Riley's
+approval on a final exact control commit. The integration train and release
+worktrees remain later gates.
 
-| Team/train | Branch | Worktree | Base |
+| Owner/train | Proposed branch | Proposed worktree | Required base |
 |---|---|---|---|
-| Program control | `codex/program-control` | `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-program-control` | `f1f1eb3` |
-| Experience | `codex/team-experience-onboarding` | `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-experience-onboarding` | approved control commit descending from `f1f1eb3` |
-| Communications | `codex/team-communications-collaboration` | `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-communications-collaboration` | approved control commit descending from `f1f1eb3` |
-| Projects | `codex/team-projects-brain-connections` | `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-projects-brain-connections` | approved control commit descending from `f1f1eb3` |
-| Agent Platform | `codex/team-agent-platform` | `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-agent-platform` | approved control commit descending from `f1f1eb3` |
-| Clients | `codex/team-clients-creative-surfaces` | `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-clients-creative-surfaces` | approved control commit descending from `f1f1eb3` |
-| P0 integration train | `codex/p0-integration-train` | `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-p0-integration-train` | approved control commit descending from `f1f1eb3` |
-| P0 release candidate | `codex/p0-release-candidate` | `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-p0-release-candidate` | accepted train SHA |
-| Canonical P0 tester release | `luca/v1-beta` | `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-release-v1-beta` | accepted candidate; name approved at PC-G0 |
-| P1 integration train | `codex/p1-integration-train` | `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-p1-integration-train` | exact P0 release; create only after P1 activation |
-| P2 integration train | `codex/p2-integration-train` | `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-p2-integration-train` | exact accepted P1/P0 base; create only after P2 activation |
+| Program control | `codex/program-control` | `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-program-control` | Existing audited descendant |
+| Experience & Onboarding | `codex/team-experience-onboarding` | `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-experience-onboarding` | Exact Riley-approved control commit |
+| Communications & Collaboration | `codex/team-communications-collaboration` | `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-communications-collaboration` | Exact Riley-approved control commit |
+| Projects, Brain & Connections | `codex/team-projects-brain-connections` | `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-projects-brain-connections` | Exact Riley-approved control commit |
+| Agent Platform | `codex/team-agent-platform` | `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-agent-platform` | Exact Riley-approved control commit |
+| Clients & Creative Surfaces | `codex/team-clients-creative-surfaces` | `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-team-clients-creative-surfaces` | Exact Riley-approved control commit |
+| Functional-beta integration train | `codex/p1-p3-integration-train` | `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-p1-p3-integration-train` | Exact accepted P1/P2 team commits; do not create at team activation |
+| Functional-beta release candidate | `codex/v1-beta-release-candidate` | `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-v1-beta-release-candidate` | Accepted unchanged train SHA |
+| Canonical tester release | `luca/v1-beta` | `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-release-v1-beta` | Accepted installed candidate after Riley promotion approval |
 
-The integration target remains
-`codex/conversation-communication-integration`. It is updated only after the
-train passes PC-G3 and Riley approves promotion. `luca/v1-beta` is the approved
-canonical combined tester-release branch.
+## Wave 0 — P0 control truth
 
-## Wave 0 — Control and approval
+1. Commit the documentation-only revision with CTRL-003 still
+   `implemented_in_source`.
+2. Run every control validator against that exact commit.
+3. Record exact results and promote CTRL-003 only after all pass.
+4. Validate the final promotion commit without modifying it.
+5. Ask Riley to approve or revise the P0–P5 graph (CTRL-004).
 
-- Build and validate this package.
-- Riley approves or revises graph, ownership, freezes, topology, and prompts.
-- Program creates the five team worktrees and team-report files.
-- Program records one approved control commit; team and train branches start
-  from that documentation-only commit so every session sees the same graph.
-- No product code is written.
+No teams, train, product implementation, or shared product writes occur in
+Wave 0.
 
-Exit: PC-G0 passes.
+## Wave 1 — P1 messaging and A2A
 
-## Wave 1A — Parallel read-only and disjoint preparation
+After CTRL-004, create the five team worktrees from the same exact approved
+control commit and initialize reports from the template. Begin with read-only
+source reconciliation and file-level task capsules.
 
-Starts immediately after PC-G0:
+Communications closes P1 by reuse order:
 
-- **Experience:** read-only eight-commit reconciliation and 88-file conflict
-  map. No product writes.
-- **Communications:** freeze typed operation, receipt, activation, Inbox, and
-  Activity contracts; may write tests/fixtures and disjoint protocol/native
-  modules after each relevant freeze is approved.
-- **Projects:** freeze creation transaction and grant invariants; may write
-  deterministic fixtures and disjoint picker/detail components after approval.
-- **Agent Platform:** prepare and run disposable signed Forge acceptance. No
-  product repair unless a row fails and a repair capsule is approved.
-- **Clients:** read-only mobile/artifact reconciliation. No product writes.
-- **Program:** adjudicate interfaces, grant shared-file leases, and prepare the
-  integration train without merging incomplete slices.
+1. prove existing owner/resident DM, group, reply, mention, search, unread,
+   attachment, reaction, edit/delete, room, membership, feed, and Inbox paths;
+2. reconnect hidden/disconnected human functionality in Luca presentation;
+3. add thin managed-agent adapters for missing operations;
+4. add the smallest explicit mention/invite activation seam needed for visible
+   A2A;
+5. prove Direct mode, cancellation, restart, offline, duplicate, and
+   exactly-once behavior.
 
-Exit: PC-G1 passes and every active task has a file-level capsule.
+No generalized receipt system, resident Inbox architecture, causal graph,
+Guarded/Restricted mode, or NIP-17 work is activated.
 
-## Wave 1B — P0 implementation
+## Wave 2 — P2 product experience
 
-Run safe lanes concurrently:
+Safe disjoint lanes may run after CTRL-004:
 
-1. Experience reconciles onboarding on its branch.
-2. Communications implements mutations, rooms/invitations, attachments, Inbox,
-   and native activation in disjoint lanes; shared UI waits for the onboarding
-   shell checkpoint.
-3. Projects implements source entry repairs and unified creation domain logic;
-   shared onboarding/shell connection waits for the checkpoint.
-4. Agent Platform performs at most one evidence-driven Forge repair.
-5. Security reviews authority-sensitive commits before they become ready.
+- Experience reconciles onboarding and owns combined shell/accessibility UX.
+- Agent Platform closes native import, creation, lifecycle, Library, Settings,
+  runtime health, and MCP presentation.
+- Projects closes unified creation, sources/Brain Setup, details/recovery, and
+  project-room navigation.
+- Clients verifies pairing presentation and compact client-consumer contracts.
+- Communications lands Inbox/Activity and messaging UI tails only under shared
+  file leases.
 
-Each task ends at `source_tested`; no team labels it integrated.
+P2 integration waits for a frozen P1 communication acceptance commit when a
+shared timeline/sidebar surface depends on it.
 
-## Wave 2 — Shared-shell tails and team gates
+## Wave 3 — P3 integration and installed beta
 
-- Experience publishes the reconciled shell checkpoint.
-- Communications and Projects rebase or replay only their shared-UI tails onto
-  that checkpoint under Program-issued leases.
-- Teams close browser/native/installed acceptance applicable to their scope.
-- Independent QA and Security publish PASS/FAIL/NEEDS-REPAIR verdicts.
+Program creates the train only after all required P1/P2 tasks are
+`source_tested`. Ordered carriages:
 
-Exit: all P0 team gates have exact ready commits and receipts.
+1. onboarding/current shell;
+2. native agent lifecycle and settings;
+3. project/source domain and navigation;
+4. communication adapters and activation;
+5. Inbox/Activity and shared presentation tails;
+6. minimal Program-owned registrations/adapters;
+7. status, evidence, and demo language.
 
-## Wave 3 — Integration train
+After focused and full gates pass on one train SHA, create the release
+candidate, freeze source, build/sign/install, and run the complete real-agent
+demo. Any source repair creates a new candidate and reruns the installed gate.
+Promotion to `luca/v1-beta` requires Riley approval.
 
-Program assembles commits in this order:
+## Wave 4 — P4 Mnemos continuity
 
-1. onboarding reconciliation;
-2. communication native/protocol foundation and mutations;
-3. unified project/source domain and UI;
-4. communication shared UI, Inbox, Activity, and activation;
-5. Forge repair, only if required;
-6. minimal Program-owned adapters/registrations;
-7. documentation and curated evidence.
+Build on the accepted functional beta. Start with native identity document
+loading and exact-runtime authorship, then handoffs, notes/notebooks/journal,
+reflection, hypomnema, provenance/revisions/corrections, fail-soft behavior,
+and richer creative notebooks. Continuity remains supplemental to conversation.
 
-Focused checks run after each carriage. Conflicts return to the owning team
-unless the resolution is a documented minimal adapter. No blanket merges.
+## Wave 5 — P5 optional work
 
-Exit: PC-G3 passes on one exact train SHA.
-
-## Wave 4 — Unchanged-commit candidate and installed proof
-
-- Create `codex/p0-release-candidate` from the accepted train SHA.
-- Freeze product source.
-- Run security, full QA, clean/upgraded profiles, Hermes/OpenClaw, restart,
-  offline, accessibility, desktop/mobile-width, packaging, and evidence scans.
-- Build/sign/install the candidate from that same SHA.
-- Any source repair invalidates the candidate and restarts Wave 4 from a new SHA.
-
-Exit: PC-G4 passes.
-
-## Wave 5 — Publish
-
-- Promote the candidate to the approved canonical release branch.
-- Push the exact branch and required tags.
-- Install one clearly named tester bundle and record bundle ID, source SHA,
-  signature, executable hash, and launch receipt.
-- Update program status and handoff.
-
-Exit: both P0-REL-001 and P0-REL-002 reach
-`release_complete_and_pushed`/installed proof as applicable.
-
-## Later waves
-
-- P1 may begin only after the P0 release, except read-only mobile architecture
-  preparation that consumes frozen interfaces.
-- P2 needs separate Program activation and a frozen contract per epic.
-- P3/deferred work needs an explicit Riley reopen. Optional conductor work also
-  needs all graph dependencies, threat-model review, and owner-role acceptance.
-
-## Riley launch instructions
-
-After approving PC-G0:
-
-1. Create five new top-level Codex tasks, one per product team.
-2. Paste the matching complete prompt from `TEAM_KICKOFF_PROMPTS.md`; do not
-   combine prompts or ask one task to simulate multiple teams.
-3. Keep this Program Lead task open as the permanent control center.
-4. Tell teams to communicate only through exact commits, team reports, task
-   receipts, and evidence paths; they may use up to three bounded subagents.
-5. Return here for interface leases, merge decisions, blockers, and gate
-   promotion. Team tasks must not coordinate merges among themselves.
+Each security-hardening or deferred-expansion task needs separate Riley
+activation, its own contract, and evidence that it does not regress Direct-mode
+usability or the functional beta. P5 is not a bundled backlog dump.

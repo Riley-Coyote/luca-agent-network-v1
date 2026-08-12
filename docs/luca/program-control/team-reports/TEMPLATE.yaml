@@ -1,15 +1,25 @@
-schema: luca.program-control.team-report.v1
+schema: luca.program-control.team-report.v2
 team: REPLACE_WITH_TEAM
-mode: read_only
-approved_to_write: false
+activation_gate: CTRL-004
+activation_approved: false
+mode: inactive
 repository: REPLACE_WITH_EXACT_WORKTREE
 branch: REPLACE_WITH_BRANCH
-head: REPLACE_WITH_FULL_SHA
-base: f1f1eb3b135cae287c372c3210da635f324a1f81
+head: REPLACE_WITH_FULL_APPROVED_CONTROL_SHA
+base: REPLACE_WITH_FULL_APPROVED_CONTROL_SHA
+ancestry_verified: false
+clean_status_verified: false
+kickoff_prompt_coordinate_verified: false
 owned_paths: []
 forbidden_paths: []
 frozen_interfaces: []
 current_tasks: []
+capability_classification:
+  functional: []
+  hidden_or_disconnected: []
+  reusable_with_luca_presentation: []
+  thin_managed_agent_adapter_required: []
+  genuinely_missing: []
 dependencies: []
 blockers: []
 shared_file_lease_requests: []
@@ -18,5 +28,5 @@ security_risks: []
 product_risks: []
 ready_commits: []
 reviewers: []
-next_safe_action: REPLACE
+next_safe_action: WAIT_FOR_ACTIVATION
 updated_at: REPLACE_WITH_ISO8601

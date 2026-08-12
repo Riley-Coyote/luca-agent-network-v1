@@ -1,71 +1,51 @@
-# Luca security and QA topology
+# Luca QA and security topology
 
-Security and QA are independent review swarms. They review implementation
-owned by product teams and report to Program Integration & Release. They do not
-own feature source and cannot promote release state.
+QA leads P1–P3 proof of the visible product. Security review protects the
+existing indispensable boundaries and does not introduce a competing roadmap.
 
-## Security review lanes
+## Review layers
 
-| Lane | Reviews | Required for |
-|---|---|---|
-| Identity and custody | Stable identity, keys, signing broker, resident audience | onboarding, Forge, resident Inbox, mobile |
-| Communication authority | authorship, membership, stale binding, exact turns, idempotency | every P0 communication task |
-| Activation and budgets | causal depth, loop suppression, cancellation, delegation, spend | activation, multi-model, conductor |
-| Data and grants | filesystem/Brain/connector scope, provenance, revoke/reconfirm, egress | projects, sources, connectors |
-| Native interoperability | no-write native config/credentials/memory/workspace/schedules | Hermes/OpenClaw Forge and runtime work |
-| Artifact/client isolation | opaque handles, renderer/process/network isolation, pairing/push | attachments, artifacts, mobile, voice |
-| Release supply chain | exact SHA, dependencies, secrets, signing, bundle identity | every installed/release gate |
-
-Security requires negative tests, not only happy paths. Any key/capability leak,
-cross-owner access, authority inference, duplicate final, unbounded loop,
-unapproved external action, or protected native mutation is a P0 stop.
-
-## QA review lanes
-
-| Lane | Coverage |
+| Layer | Required evidence |
 |---|---|
-| Domain behavior | deterministic unit/integration tests and failure states |
-| Browser experience | desktop and 390×844, keyboard/focus, overflow, empty/loading/error/recovery, reduced motion |
-| Native desktop | clean/upgraded profile, real Tauri IPC, Hermes/OpenClaw, permission, cancel, restart, offline |
-| Data durability | crash/relaunch, idempotency, duplicate suppression, stale state, rollback, backup/restore |
-| Cross-surface | onboarding → home, project → room, Inbox/activity deep links, attachment/source flows |
-| Packaging | clean build, signing, bundle metadata, install/launch, diagnostics/updater/rollback |
-| Real device | iPhone/TestFlight only when mobile activates |
+| Source-focused | Unit/widget/native tests for the bounded task on exact commit |
+| Browser/mock bridge | Deterministic state, interactions, console cleanliness, accessibility, visual screenshots where applicable |
+| Native development app | Real Tauri commands, runtime processes, signing/publication, storage, permissions, restart/offline behavior |
+| Installed signed app | Clean and upgraded profiles, Hermes/OpenClaw, package/signature/hash/source identity, full P3 demo |
+| Real device | Pairing truth in P2; full native mobile only when EXT-501 is activated |
 
-## Review topology by wave
+## P1–P3 security acceptance
 
-1. **Contract review:** Security, QA, owning team, and Program review frozen
-   semantics before authority-sensitive source work.
-2. **Commit review:** one independent reviewer inspects the exact task diff and
-   focused receipts. Security is mandatory for authority/data/runtime tasks.
-3. **Integration review:** Program validates conflicts; Security/QA rerun
-   seam-specific tests after each affected carriage.
-4. **Candidate review:** independent Security and QA work from the same frozen
-   SHA; neither relies solely on team verdicts.
-5. **Installed/release review:** Program and Riley verify provenance, bundle,
-   launch, and remote source identity.
+Required because functionality would otherwise be unsafe or dishonest:
+
+- stable resident identity and host-only signing;
+- no model/worker access to durable keys or native credentials;
+- native Hermes/OpenClaw configuration remains byte-stable;
+- authorization/membership/recipient checks for the existing operation;
+- narrow confirmations only at the charter boundary;
+- cancellation/restart/duplicate/exactly-once behavior;
+- organization remains separate from authority;
+- encrypted Brain/continuity already relied upon by the product;
+- truthful runtime/privacy/degradation state.
+
+Not a P1–P3 requirement without a proven blocker: generalized exact-turn
+leases, universal action outboxes, complete receipt Activity, advanced causal
+graphs, broad approval bindings, unrestricted autonomous reply controls,
+NIP-17, production rotation/recovery, or hostile multi-tenant hardening.
+
+## QA matrix emphasis
+
+- clean and returning onboarding;
+- Hermes and OpenClaw import/readiness/create/start/stop/relaunch;
+- DM/group/A2A, replies/mentions/invites/reactions/edits/delete/attachments;
+- search/unread/read/deep links, Inbox/Activity;
+- projects/rooms/repos/folders/residents/sources and navigation;
+- Agent Library, Settings, Brain Setup, Notebook, composer, blackout shell;
+- cancel/restart/offline/duplicate/partial-failure;
+- desktop and 390×844 layout, keyboard/focus/screen-reader/reduced motion;
+- installed demo and truthful beta/privacy copy.
 
 ## Verdicts
 
-- **PASS:** exact commit, scope, tests, and evidence satisfy the task.
-- **NEEDS_REPAIR:** bounded defect with one repair permitted.
-- **FAIL:** authority violation, scope inversion, invalid evidence, or broad
-  redesign; task returns to Program.
-- **BLOCKED:** reserved for an external dependency or Riley decision that
-  prevents meaningful progress, not ordinary incompleteness.
-
-A reviewer records unresolved P0/P1 findings with owner and disposition. PC-G3
-and later require none.
-
-## Adversarial scenarios required across P0
-
-- wrong owner/resident/conversation/session/epoch;
-- stale message content or stale membership;
-- duplicate delivery, retry after crash, and restart reconciliation;
-- offline recipient and `delivered_not_activated` truth;
-- causal-depth exhaustion and A→B→A loop suppression;
-- permission pending during cancel/timeout/app close;
-- revoked/stale/moved source and source-byte immutability;
-- native provisioning partial failure and rollback;
-- malicious imported text, artifact metadata, file path, and renderer content;
-- dirty/stale build process, wrong bundle, wrong profile, and mismatched SHA.
+Reviewers return `PASS`, `FAIL`, or `NEEDS_REPAIR` against an exact commit and
+acceptance IDs. A PASS cannot promote beyond `source_tested`; Program performs
+integration and installed/release promotion.

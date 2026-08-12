@@ -1,7 +1,10 @@
-schema: luca.program-control.task-receipt.v1
+schema: luca.program-control.task-receipt.v2
 task_id: REPLACE
+task_category: REPLACE_WITH_EXACT_GRAPH_CATEGORY
+milestone: REPLACE_WITH_P0_TO_P5
 objective: REPLACE
 team: REPLACE
+activation_gate: CTRL-004
 repository: REPLACE_WITH_EXACT_WORKTREE
 branch: REPLACE
 base_commit: REPLACE_WITH_FULL_SHA
@@ -9,11 +12,14 @@ head_commit: REPLACE_WITH_FULL_SHA
 delivery_state: planned
 terminal_status: open
 dependencies: []
+reuse_classification: REPLACE_WITH_ONE_OF_FIVE_PRODUCT_TRUTH_CLASSES
+reused_implementations: []
+new_adapter_justification: null
 owned_paths: []
 leased_paths: []
 forbidden_paths: []
 frozen_interfaces: []
-acceptance_tests: []
+acceptance_ids: []
 commands: []
 evidence_paths: []
 security_findings: []
@@ -25,6 +31,6 @@ reviewer:
   reviewed_commit: REPLACE_WITH_FULL_SHA
 repair_count: 0
 repair_limit: 1
-integration_target: REPLACE
+integration_target: codex/p1-p3-integration-train
 next_safe_action: REPLACE
 updated_at: REPLACE_WITH_ISO8601

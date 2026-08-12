@@ -1,141 +1,84 @@
 # Luca team charters
 
-All six teams operate under `INTEGRATION_PROTOCOL.md`. Security and QA are
-independent reviewers, not substitute implementation owners.
+All teams are inactive until CTRL-004. When activated, each starts from the
+same exact approved control commit, owns bounded paths, and may report at most
+`source_tested`. Program alone integrates and publishes.
 
-## 1. Program Integration & Release
+## Program Integration & Release
 
-**Mission:** preserve one truthful product line and turn reviewed team commits
-into installed, reproducible releases.
+Mission: keep one truthful graph and turn accepted team commits into a
+reproducible installed beta.
 
-**Owns:** graph and dashboard; status/decision/run ledgers; architecture and
-shared-interface authority; branch/worktree registry; shared-file leases;
-integration train; conflict resolution; evidence validation; installed builds;
-release metadata; GitHub publication.
+Owns control/status documents, task activation, shared-file leases, train
+assembly, release metadata, exact-commit validation, installed proof, demo
+truth, and release promotion. It does not absorb product work except a minimal
+documented integration adapter.
 
-**Does not own:** implementing product slices on behalf of teams except a
-minimal integration adapter approved and recorded after a merge conflict.
+## Experience & Onboarding
 
-**First wave:** obtain Riley approval, ratify freezes, create team worktrees,
-receive read-only conflict maps, and open the P0 train only after onboarding
-reconciliation is reviewable.
+Mission: make Luca immediately understandable and polished for clean and
+returning owners.
 
-**Required output:** exact train SHA, accepted commit list, conflicts and
-resolutions, full gate receipts, installed bundle identity/hash, release branch
-and push receipt.
+Owns onboarding/recovery/readiness, blackout shell composition, composer and
+shared visible-state polish, accessibility/responsiveness, and combined surface
+coherence. It consumes frozen communication/project/agent interfaces and does
+not invent their authority or persistence.
 
-## 2. Experience & Onboarding
+First functional tasks: ONB-201–203 and UX-201–204.
 
-**Mission:** make Luca feel like a simple, polished personal chat home for new
-and returning owners while preserving the accepted conversation shell.
+## Communications & Collaboration
 
-**Owns:** onboarding views/state/tests; owner identity/profile/recovery UX;
-first resident and Brain readiness; returning-profile bypass; responsive and
-accessibility acceptance for owned flows.
+Mission: finish the complete visible messaging/A2A product by reusing the
+existing conversation plane and adding only thin missing managed adapters.
 
-**Does not own:** messaging authority, resident signing/runtime policy, Brain
-grant semantics, project persistence, app-wide registries, release files, or
-other teams' feature directories.
+Owns COM-101–112, communication domain adapters, explicit activation, owner
+Inbox/useful Activity, and communication acceptance. Direct mode and verbatim
+output are defaults. It does not create a parallel message/room/signing store,
+generalized workflow system, or Phase 1 security mode.
 
-**First wave:** read-only map the eight onboarding commits against `f1f1eb3`,
-publish a file-by-file keep/adapt/drop/conflict plan, and request leases for
-shared shell files. Write only after Program approval.
+P4 contribution: MNEM-408 fail-soft conversation isolation. P5 work is
+inactive unless separately activated.
 
-**Required output:** source-tested reconciliation commit(s), desktop and
-390×844 screenshots, keyboard/screen-reader/reduced-motion checks, clean and
-returning profile receipts, and no-regression evidence for the conversation
-shell.
+## Projects, Brain & Connections
 
-## 3. Communications & Collaboration
+Mission: make projects, rooms, repositories, folders, residents, sources,
+Brain, and Notebook work as one understandable organization system without
+turning organization into authority.
 
-**Mission:** finish safe resident communication primitives and trustworthy
-attention/activity projections without turning Luca into a mandatory workflow
-engine.
+Owns PRJ-201–205, source/Brain Setup/details/recovery, and MNEM-402–406. It
+does not own resident runtime/signing, messaging semantics, app-wide
+registration, or external connector writes before a later contract.
 
-**Owns:** managed message mutations; A2A room/DM creation and invitations;
-attachment publication; bounded activation; owner/resident Inbox domain logic;
-receipt-backed Activity for communications; communication acceptance tests.
+## Agent Platform
 
-**Does not own:** raw signing keys, universal orchestration, project/Brain
-authority, hidden conductor privileges, generic app shell, event registries,
-or NIP-17 in P0.
+Mission: make persistent residents easy to import, create, configure, start,
+stop, restart, relaunch, and understand while preserving native runtime
+ownership and stable identity.
 
-**First wave:** freeze operation envelopes and receipts, then implement disjoint
-native/protocol slices. Defer shared timeline/sidebar UI until onboarding's
-shell reconciliation point is frozen.
+Owns AGT-201–205, Agent Library/Settings/runtime health/MCP, and MNEM-401/407.
+It does not copy native configuration or credentials, sign as residents outside
+the host path, grant project-derived authority, or activate optional conductor
+or multi-model work early.
 
-**Required output:** exact event/receipt fixtures, negative authority tests,
-restart/offline/duplicate/causal-loop receipts, browser/native evidence, and
-Hermes/OpenClaw acceptance tied to exact commits.
+## Clients & Creative Surfaces
 
-## 4. Projects, Brain & Connections
+Mission: preserve pairing foundations and prepare later native companion and
+creative surfaces without moving residents or durable authority onto the phone.
 
-**Mission:** make projects, residents, and sources easy to compose while keeping
-organization strictly separate from data/tool authority.
+Owns UX-205 and MNEM-409. Full mobile, Artifact Library/Canvas, voice, live
+artifacts, and additional clients are P5 deferred work. During P1–P3 it may
+write only explicitly activated pairing/compact acceptance paths.
 
-**Owns:** unified project creation and editing; source/folder/repository entry;
-Project Details/Sources; Brain source usability and grants; later Reflection,
-Unified Brain expansion, and connectors.
+## Universal rules
 
-**Does not own:** resident runtime provisioning, signing, communication event
-semantics, app-wide routing/registries, mobile, artifact rendering, or external
-actions without a frozen connector approval contract.
-
-**First wave:** freeze the creation transaction and membership/grant separation;
-build deterministic fixtures; implement disjoint picker/detail repairs; defer
-shared onboarding shell integration until the Program lease is granted.
-
-**Required output:** create/reopen/edit/recover receipts, source-byte no-write
-proof, grant/revoke/stale tests, moved-source failure states, responsive
-screenshots, and exact commits.
-
-## 5. Agent Platform
-
-**Mission:** make residents easy to create and configure while preserving
-stable identity, native-runtime ownership, and bounded model/tool authority.
-
-**Owns:** Agent Forge; resident creation/configuration; runtime boundaries;
-native interoperability; Skills Library; longer-term multi-model resident and
-optional conductor role mechanics.
-
-**Does not own:** project membership, conversation publication policy, owner
-Inbox projection, Brain semantics, shared shell, release promotion, or native
-credential/configuration migration.
-
-**First wave:** acceptance-first. Prepare disposable signed Hermes/OpenClaw
-fixtures and run the existing Forge matrix. Product writes require a specific
-failed row and Program-approved repair capsule.
-
-**Required output:** before/after protected-state hashes, create/reconcile/
-rollback/cancel/duplicate receipts, signed bundle SHA, failure classification,
-and exact repair commit if one is necessary.
-
-## 6. Clients & Creative Surfaces
-
-**Mission:** extend Luca to native companion and creative artifact surfaces
-without moving residents or authority onto the phone or bypassing desktop
-policy.
-
-**Owns:** native mobile companion; Artifact Library; Static Canvas; later
-creative Notebook artifacts, live surfaces, voice, and additional clients.
-
-**Does not own:** desktop resident runtime, signing policy, core messaging
-contracts, Brain authority, shared registries, or P0 shell/source work.
-
-**First wave:** read-only preparation only. Reconcile the mobile and artifact
-packets with P0 contracts, identify consumer interfaces, and publish an
-activation plan. No P0 product code.
-
-**Required output:** architecture delta, dependency/API list, real-device test
-plan, artifact renderer threat model, and explicit statement that phone access
-uses Mac-hosted residents.
-
-## Universal team rules
-
-- One task capsule, one bounded commit, named files only.
-- One focused attempt plus at most one evidence-based repair before re-review.
-- No silent shared-contract change; request a Program lease.
-- No team claims integration, installed verification, or release completion.
-- Reports include repository path, branch, full SHA, owned/forbidden paths,
-  frozen interfaces, tests, evidence, risks, reviewer, and next safe action.
-- Raw evidence is redacted, scanned, body-safe, and free of secrets.
+- Read across the repository; write only named owned files or an exact Program
+  lease.
+- One task capsule and bounded commit at a time.
+- Reuse working operations before adding a new domain or protocol.
+- Preserve stable identity, host signing, credential/config isolation,
+  encrypted continuity/Brain, cancellation/restart/exactly-once, and honest
+  runtime/privacy truth.
+- Do not reset, clean, discard, bulk-stage, or silently edit locks, migrations,
+  manifests, event registries, or release files.
+- Evidence contains no secrets, protected bodies, or absolute local paths.
+- Stop on ancestry, worktree, scope, validation, or cleanliness discrepancy.
