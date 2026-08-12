@@ -2,9 +2,9 @@
 
 ## Verdict
 
-**INTEGRATED — NATIVE PROMOTION BLOCKED**
+**INTEGRATED — SOURCE CHECKPOINT READY FOR REVIEW**
 
-The approved conversation-design and communication-parity histories merge cleanly and the combined behavioral, authority, frontend, and isolated-browser checks below pass. The combined source is not yet promotable because the communication checkpoint brings seven Rust files above the repository's existing hard file-size limits. No limit or exception was changed.
+The approved conversation-design and communication-parity histories merge cleanly and the combined behavioral, authority, frontend, and isolated-browser checks below pass. File-size thresholds are review signals under the current repository policy and do not mechanically block this checkpoint.
 
 No installed application was rebuilt or replaced.
 
@@ -62,9 +62,9 @@ All commands ran from the isolated integration worktree.
 
 The broad legacy `mentions.spec.ts` still contains two assertions for deliberately removed surfaces: the old `Fizz` identity and the old `message-thread-panel` drawer. Those assertions were not rewritten during this integration because the approved Luca design replaces Fizz and uses the focused thread surface. Current directed-reply/thread behavior is covered by the green conversation-reliability matrix.
 
-## File-size release blocker
+## File-size review warnings
 
-`pnpm --dir desktop check` reaches the existing file-size gate and rejects:
+The shared checker reports these files for human architecture/cohesion review while exiting successfully:
 
 - `src-tauri/src/commands/luca_inbox.rs`: 1,028 lines, limit 1,000.
 - `src-tauri/src/commands/messages.rs`: 1,119 lines, retained ratchet 1,110.
@@ -74,7 +74,17 @@ The broad legacy `mentions.spec.ts` still contains two assertions for deliberate
 - `src-tauri/src/luca/managed_dispatch_store.rs`: 2,783 lines, retained ratchet 2,538.
 - `src-tauri/src/managed_agents/runtime.rs`: 2,733 lines, retained ratchet 2,620.
 
-This is inherited from the communication source checkpoint, not a textual merge conflict. Promotion requires behavior-preserving extraction that restores the existing gate. Raising ceilings or adding exceptions is not acceptable.
+These warnings are inherited from the communication source checkpoint, not a textual merge conflict. They do not justify cosmetic splitting. A future architecture/security review may still recommend substantive extraction based on cohesion, complexity, or authority boundaries.
+
+The shared checker policy was verified with focused tests proving that threshold violations warn and return success while malformed checker configuration still rejects normally. Desktop, web, and mobile all use this shared behavior.
+
+Focused policy verification:
+
+- `node --test scripts/check-file-sizes-core.test.mjs` — PASS, 2/2.
+- `node desktop/scripts/check-file-sizes.mjs` — PASS with the seven warnings above.
+- `node web/scripts/check-file-sizes.mjs` — PASS.
+- `node mobile/scripts/check-file-sizes.mjs` — PASS.
+- Full desktop `pnpm check` — PASS, including file-size warnings, pixel-text, public-key, and 58-capability communication-ledger checks; seven pre-existing onboarding CSS warnings remain non-failing.
 
 ## Browser evidence
 

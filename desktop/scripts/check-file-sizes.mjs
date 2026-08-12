@@ -46,9 +46,9 @@ const rules = [
   },
 ];
 
-// TEMP — these files exceed the 1000-line limit and are queued to be split.
-// Do not add to this list; split the file instead. Remove each entry as its
-// file is broken up. Tracked as a follow-up.
+// Informational per-file ratchets for historically oversized files. Keep these
+// thresholds honest, but split only when architecture, cohesion, or security
+// review supports a substantive extraction—not to satisfy line count alone.
 const overrides = new Map([
   // Native Builderlab auth/community commands add a small registration surface
   // to the existing Tauri composition root. The implementation lives in

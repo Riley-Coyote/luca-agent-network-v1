@@ -3,7 +3,8 @@
   "private": true,
   "packageManager": "pnpm@11.4.0",
   "scripts": {
-    "check": "pnpm -r check"
+    "check": "pnpm -r check",
+    "test:file-sizes": "node --test scripts/check-file-sizes-core.test.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6"
