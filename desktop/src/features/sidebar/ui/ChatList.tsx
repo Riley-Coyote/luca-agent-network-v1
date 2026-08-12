@@ -6,9 +6,15 @@ import {
   type RoomProject,
 } from "@/features/channels/lib/roomProjects";
 import { ProjectTypeIcon } from "@/features/channels/ui/ConversationTypeIcon";
+import { ChannelContextMenuItems } from "@/features/sidebar/ui/ChannelContextMenu";
 import type { Channel } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { conversationMarkSeeds } from "@/features/channels/lib/conversationMarks";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuTrigger,
+} from "@/shared/ui/context-menu";
 
 /**
  * Luca's persistent conversation rail.
@@ -107,6 +113,11 @@ type RowProps = {
   unreadChannelIds: ReadonlySet<string>;
   workingByChannelId?: ReadonlyMap<string, { agentCount: number }>;
   onSelectChannel: (channelId: string) => void;
+  onMarkChannelRead: (
+    channelId: string,
+    lastMessageAt: string | null | undefined,
+  ) => void;
+  onMarkChannelUnread: (channelId: string) => void;
 };
 
 function ChatRow({
@@ -115,6 +126,8 @@ function ChatRow({
   unreadChannelIds,
   workingByChannelId,
   onSelectChannel,
+  onMarkChannelRead,
+  onMarkChannelUnread,
 }: RowProps) {
   const { channel, label } = item;
   const isActive = channel.id === selectedChannelId;
@@ -127,7 +140,7 @@ function ChatRow({
       : "working"
     : null;
 
-  return (
+  const row = (
     <button
       aria-label={isUnread ? `${label}, unread` : label}
       // Wearing the app's own menu-button identity rather than hand-rolling
@@ -171,6 +184,7 @@ function ChatRow({
           <span
             aria-hidden
             className="size-1.5 self-center rounded-full bg-sidebar-foreground/70"
+            data-testid={`channel-unread-${channel.name}`}
           />
         ) : liveLabel ? (
           <span className="truncate text-2xs text-sidebar-foreground/55">
@@ -183,6 +197,20 @@ function ChatRow({
         )}
       </span>
     </button>
+  );
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+      <ContextMenuContent>
+        <ChannelContextMenuItems
+          channel={channel}
+          hasUnread={isUnread}
+          onMarkChannelRead={onMarkChannelRead}
+          onMarkChannelUnread={onMarkChannelUnread}
+        />
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
@@ -273,6 +301,8 @@ export function ChatList({
   unreadChannelIds,
   workingByChannelId,
   onSelectChannel,
+  onMarkChannelRead,
+  onMarkChannelUnread,
   onSelectProject,
   onCreateProject,
   onCreateRoom,
@@ -289,6 +319,11 @@ export function ChatList({
    *  "what is happening" beats "when it last happened". */
   workingByChannelId?: ReadonlyMap<string, { agentCount: number }>;
   onSelectChannel: (channelId: string) => void;
+  onMarkChannelRead: (
+    channelId: string,
+    lastMessageAt: string | null | undefined,
+  ) => void;
+  onMarkChannelUnread: (channelId: string) => void;
   onSelectProject: (projectId: string, preferredRoomId: string | null) => void;
   onCreateProject: () => void;
   onCreateRoom: () => void;
@@ -302,6 +337,8 @@ export function ChatList({
     unreadChannelIds,
     workingByChannelId,
     onSelectChannel,
+    onMarkChannelRead,
+    onMarkChannelUnread,
   };
   const looseRooms = groups.find((group) => group.project === null);
   const groupsByProjectId = new Map(

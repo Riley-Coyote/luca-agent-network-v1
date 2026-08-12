@@ -574,6 +574,8 @@ export function AppSidebar({
                       }}
                       onCreateProject={() => setIsCreateProjectOpen(true)}
                       onCreateRoom={handleOpenCreateChannel}
+                      onMarkChannelRead={onMarkChannelRead}
+                      onMarkChannelUnread={onMarkChannelUnread}
                       projectByChannelId={roomProjects}
                       projects={projectCatalog}
                       selectedChannelId={selectedChannelId}
