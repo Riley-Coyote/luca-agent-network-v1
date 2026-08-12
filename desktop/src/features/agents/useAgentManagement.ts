@@ -151,6 +151,13 @@ export function useAgentManagement() {
   }, [personasQuery.data, request]);
   const currentPersona =
     matchingPersonas.length === 1 ? matchingPersonas[0] : undefined;
+  const createTargetChannel = React.useMemo(() => {
+    if (request?.action !== "create") return null;
+    const channel = (channelsQuery.data ?? []).find(
+      (candidate) => candidate.id === request.request.channelId,
+    );
+    return channel ? { id: channel.id, name: channel.name } : null;
+  }, [channelsQuery.data, request]);
 
   const isPending =
     createPersonaMutation.isPending ||
@@ -313,6 +320,7 @@ export function useAgentManagement() {
   return {
     authorizePendingCreate,
     request,
+    createTargetChannel,
     createInitialValues,
     editInitialValues,
     editError,

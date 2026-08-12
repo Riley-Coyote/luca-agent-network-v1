@@ -5,12 +5,16 @@ import {
   subscribeOpenCreateAgent,
   type OpenCreateAgentOptions,
 } from "@/features/agents/openCreateAgentEvent";
+import { useOperatorForgeSettingsQuery } from "@/features/agents/operatorForgeQueries";
 import { AgentDialog } from "./AgentDialog";
+import { NativeAgentProvisioningDialog } from "./NativeAgentProvisioningDialog";
 import { usePersonaActions } from "./usePersonaActions";
+import { createPersonaDialogState } from "./personaDialogState";
 
 /** App-level create flow so contextual entry points do not navigate away. */
 export function RequestedAgentCreateDialogs() {
   const personas = usePersonaActions();
+  const operatorSettings = useOperatorForgeSettingsQuery();
   const [targetChannel, setTargetChannel] = React.useState<{
     id: string;
     name: string;
@@ -33,6 +37,30 @@ export function RequestedAgentCreateDialogs() {
     return subscribeOpenCreateAgent(openCreate);
   }, []);
 
+  const effectiveTarget = operatorSettings.data
+    ? operatorSettings.data.preferences.runtimeConfirmed
+      ? operatorSettings.data.preferences.defaultRuntimeTarget
+      : operatorSettings.data.recommendation
+    : null;
+
+  if (isOpen && operatorSettings.isLoading) return null;
+
+  if (isOpen && effectiveTarget?.kind === "native") {
+    return (
+      <NativeAgentProvisioningDialog
+        initialRuntime={effectiveTarget.runtime}
+        onOpenChange={(open) => {
+          if (!open) {
+            setIsOpen(false);
+            setTargetChannel(null);
+          }
+        }}
+        open
+        targetChannel={targetChannel}
+      />
+    );
+  }
+
   return isOpen ? (
     <AgentDialog
       definitionError={
@@ -41,6 +69,14 @@ export function RequestedAgentCreateDialogs() {
           : null
       }
       isDefinitionPending={personas.isPending}
+      initialValues={
+        effectiveTarget?.kind === "managed"
+          ? {
+              ...createPersonaDialogState().initialValues,
+              runtime: effectiveTarget.runtimeId,
+            }
+          : undefined
+      }
       mode="definition"
       onOpenChange={(open) => {
         if (!open) {

@@ -7264,7 +7264,26 @@ let mockOperatorPreferences = {
   lucaEnabled: true,
   updatedAt: new Date().toISOString(),
 };
-const mockNativeProvisioningTransactions: Array<Record<string, unknown>> = [];
+type MockNativeProvisioningTransaction = {
+  schemaVersion: 1;
+  transactionId: string;
+  ownerPubkey: string;
+  runtime: "hermes" | "openclaw";
+  mode: string;
+  intendedSlug: string;
+  requestHash: string;
+  sourceHash: string | null;
+  personaId: string | null;
+  reservedResidentPubkey: string | null;
+  nativeSemanticHash: string | null;
+  status: string;
+  errorCode: string | null;
+  recoveryAction: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+const mockNativeProvisioningTransactions: MockNativeProvisioningTransaction[] =
+  [];
 
 async function handleInstallAcpRuntime(
   args: {
@@ -8005,6 +8024,62 @@ function publicResidentCreateResponse(
     reused,
     recoveryNotice: null,
   };
+}
+
+function mockNativeBinding(
+  transaction: MockNativeProvisioningTransaction,
+): RuntimeBinding {
+  if (transaction.runtime === "hermes") {
+    return {
+      kind: "hermes",
+      schemaVersion: 1,
+      profileName: transaction.intendedSlug,
+      hermesHome: `/mock/hermes/${transaction.intendedSlug}`,
+      executablePath: "/mock/bin/hermes",
+      runtimeVersion: "mock-hermes",
+    };
+  }
+  return {
+    kind: "openclaw",
+    schemaVersion: 1,
+    agentId: transaction.intendedSlug,
+    executablePath: "/mock/bin/openclaw",
+    runtimeVersion: "mock-openclaw",
+    gatewayIdentity: "mock-local-gateway",
+    gatewayUrlRef: {
+      provider: "native_store",
+      locator: "mock-gateway-url",
+    },
+  };
+}
+
+async function createMockNativeResident(
+  transaction: MockNativeProvisioningTransaction,
+  config: E2eConfig | undefined,
+) {
+  const persona = mockPersonas.find(
+    (candidate) => candidate.id === transaction.personaId,
+  );
+  if (!persona || !transaction.personaId) {
+    throw new Error("The native transaction has no linked agent definition.");
+  }
+  return handleCreateLucaResident(
+    {
+      input: {
+        name: persona.display_name,
+        personaId: transaction.personaId,
+        agentCommand:
+          transaction.runtime === "hermes"
+            ? "/mock/bin/hermes"
+            : "/mock/bin/openclaw",
+        agentArgs: ["acp"],
+        nativeRuntimeBinding: mockNativeBinding(transaction),
+        spawnAfterCreate: false,
+        startOnAppLaunch: true,
+      },
+    },
+    config,
+  );
 }
 
 function handleListLucaResidents() {
@@ -11248,7 +11323,7 @@ export function maybeInstallE2eTauriMocks() {
             label: "Codex",
             readiness: "ready",
             reason: null,
-            recommended: true,
+            recommended: false,
           },
           {
             target: { kind: "managed", runtimeId: "claude" },
@@ -11262,7 +11337,7 @@ export function maybeInstallE2eTauriMocks() {
             label: "Hermes",
             readiness: "ready",
             reason: null,
-            recommended: false,
+            recommended: true,
           },
           {
             target: { kind: "native", runtime: "openclaw" },
@@ -11275,7 +11350,7 @@ export function maybeInstallE2eTauriMocks() {
         return {
           preferences: mockOperatorPreferences,
           runtimeOptions,
-          recommendation: { kind: "managed", runtimeId: "codex" },
+          recommendation: { kind: "native", runtime: "hermes" },
         };
       }
       case "save_operator_forge_preferences": {
@@ -11286,6 +11361,11 @@ export function maybeInstallE2eTauriMocks() {
           ...input,
           updatedAt: new Date().toISOString(),
         };
+        const recommendation =
+          mockOperatorPreferences.runtimeConfirmed &&
+          mockOperatorPreferences.defaultRuntimeTarget
+            ? mockOperatorPreferences.defaultRuntimeTarget
+            : ({ kind: "native", runtime: "hermes" } as const);
         return {
           preferences: mockOperatorPreferences,
           runtimeOptions: [
@@ -11294,31 +11374,39 @@ export function maybeInstallE2eTauriMocks() {
               label: "Codex",
               readiness: "ready",
               reason: null,
-              recommended: true,
+              recommended:
+                recommendation.kind === "managed" &&
+                recommendation.runtimeId === "codex",
             },
             {
               target: { kind: "managed", runtimeId: "claude" },
               label: "Claude Code",
               readiness: "setup_required",
               reason: "Sign in to continue.",
-              recommended: false,
+              recommended:
+                recommendation.kind === "managed" &&
+                recommendation.runtimeId === "claude",
             },
             {
               target: { kind: "native", runtime: "hermes" },
               label: "Hermes",
               readiness: "ready",
               reason: null,
-              recommended: false,
+              recommended:
+                recommendation.kind === "native" &&
+                recommendation.runtime === "hermes",
             },
             {
               target: { kind: "native", runtime: "openclaw" },
               label: "OpenClaw",
               readiness: "ready",
               reason: null,
-              recommended: false,
+              recommended:
+                recommendation.kind === "native" &&
+                recommendation.runtime === "openclaw",
             },
           ],
-          recommendation: { kind: "managed", runtimeId: "codex" },
+          recommendation,
         };
       }
       case "list_native_provisioning_transactions":
@@ -11385,46 +11473,119 @@ export function maybeInstallE2eTauriMocks() {
       }
       case "execute_native_agent_provisioning": {
         const input = (
-          payload as { input: { transactionId: string; personaId: string } }
+          payload as {
+            input: {
+              transactionId: string;
+              personaId: string;
+              request: { runtime: "hermes" | "openclaw" };
+            };
+          }
         ).input;
         const transaction = mockNativeProvisioningTransactions.find(
           (entry) => entry.transactionId === input.transactionId,
         );
-        if (transaction)
-          Object.assign(transaction, {
-            personaId: input.personaId,
+        if (!transaction) throw new Error("Mock native transaction not found.");
+        if (transaction.status === "complete") {
+          return {
+            schemaVersion: 1,
+            transactionId: input.transactionId,
+            runtime: transaction.runtime,
+            residentPubkey: transaction.reservedResidentPubkey,
+            nativeSemanticHash: transaction.nativeSemanticHash,
             status: "complete",
-            reservedResidentPubkey: `mocknative${Date.now()}`,
-            updatedAt: new Date().toISOString(),
-          });
+            reused: true,
+            needsAttention: false,
+            recoveryAction: null,
+            retainedWorkspace: false,
+          };
+        }
+        transaction.personaId = input.personaId;
+        transaction.nativeSemanticHash = `mock-${transaction.runtime}-${transaction.intendedSlug}`;
+        transaction.updatedAt = new Date().toISOString();
+        const injectedFailure =
+          activeConfig?.mock?.createManagedAgentErrors?.shift();
+        if (injectedFailure) {
+          transaction.status = "needs_attention";
+          transaction.errorCode = "RESIDENT_LINK_FAILED";
+          transaction.recoveryAction =
+            "Reconcile the existing native identity and resident link.";
+          throw new Error(injectedFailure);
+        }
+        const created = await createMockNativeResident(
+          transaction,
+          activeConfig,
+        );
+        transaction.status = "complete";
+        transaction.reservedResidentPubkey = created.resident.residentPubkey;
+        transaction.updatedAt = new Date().toISOString();
         return {
           schemaVersion: 1,
           transactionId: input.transactionId,
-          runtime: transaction?.runtime ?? "hermes",
-          residentPubkey: transaction?.reservedResidentPubkey ?? null,
-          nativeSemanticHash: "body-free",
+          runtime: transaction.runtime,
+          residentPubkey: transaction.reservedResidentPubkey,
+          nativeSemanticHash: transaction.nativeSemanticHash,
           status: "complete",
+          reused: created.reused,
+          needsAttention: false,
+          recoveryAction: null,
+          retainedWorkspace: false,
+        };
+      }
+      case "reconcile_native_agent_provisioning": {
+        const transactionId = (payload as { input: { transactionId: string } })
+          .input.transactionId;
+        const transaction = mockNativeProvisioningTransactions.find(
+          (entry) => entry.transactionId === transactionId,
+        );
+        if (!transaction) throw new Error("Mock native transaction not found.");
+        let reused = true;
+        if (!transaction.reservedResidentPubkey) {
+          const created = await createMockNativeResident(
+            transaction,
+            activeConfig,
+          );
+          transaction.reservedResidentPubkey = created.resident.residentPubkey;
+          reused = created.reused;
+        }
+        transaction.status = "complete";
+        transaction.errorCode = null;
+        transaction.recoveryAction = null;
+        transaction.updatedAt = new Date().toISOString();
+        return {
+          schemaVersion: 1,
+          transactionId,
+          runtime: transaction.runtime,
+          residentPubkey: transaction.reservedResidentPubkey,
+          nativeSemanticHash: transaction.nativeSemanticHash,
+          status: "complete",
+          reused,
+          needsAttention: false,
+          recoveryAction: null,
+          retainedWorkspace: false,
+        };
+      }
+      case "rollback_native_agent_provisioning": {
+        const transactionId = (payload as { input: { transactionId: string } })
+          .input.transactionId;
+        const transaction = mockNativeProvisioningTransactions.find(
+          (entry) => entry.transactionId === transactionId,
+        );
+        if (!transaction) throw new Error("Mock native transaction not found.");
+        transaction.status = "rolled_back";
+        transaction.updatedAt = new Date().toISOString();
+        return {
+          schemaVersion: 1,
+          transactionId,
+          runtime: transaction.runtime,
+          residentPubkey: transaction.reservedResidentPubkey,
+          nativeSemanticHash: transaction.nativeSemanticHash,
+          status: "rolled_back",
           reused: false,
           needsAttention: false,
           recoveryAction: null,
           retainedWorkspace: false,
         };
       }
-      case "reconcile_native_agent_provisioning":
-      case "rollback_native_agent_provisioning":
-        return {
-          schemaVersion: 1,
-          transactionId: (payload as { input: { transactionId: string } }).input
-            .transactionId,
-          runtime: "hermes",
-          residentPubkey: null,
-          nativeSemanticHash: null,
-          status: command.startsWith("rollback") ? "rolled_back" : "complete",
-          reused: false,
-          needsAttention: false,
-          recoveryAction: null,
-          retainedWorkspace: false,
-        };
       case "is_shared_identity":
         return false;
       case "get_agent_memory":

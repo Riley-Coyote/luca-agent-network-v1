@@ -448,6 +448,18 @@ fn choose_recommendation(
         .or_else(|| {
             options
                 .iter()
+                .find(|option| {
+                    option.target
+                        == (AgentRuntimeTargetV1::Native {
+                            runtime: NativeRuntimeFamilyV1::Hermes,
+                        })
+                        && option.readiness == RuntimeReadinessV1::Ready
+                })
+                .map(|option| option.target.clone())
+        })
+        .or_else(|| {
+            options
+                .iter()
                 .find(|option| option.readiness == RuntimeReadinessV1::Ready)
                 .map(|option| option.target.clone())
         })
@@ -457,8 +469,11 @@ fn build_settings(
     preferences: OperatorPreferencesV1,
     mut options: Vec<RuntimeTargetOptionV1>,
 ) -> OperatorForgeSettingsV1 {
-    let recommendation =
-        choose_recommendation(preferences.default_runtime_target.as_ref(), &options);
+    let confirmed_target = preferences
+        .runtime_confirmed
+        .then_some(preferences.default_runtime_target.as_ref())
+        .flatten();
+    let recommendation = choose_recommendation(confirmed_target, &options);
     for option in &mut options {
         option.recommended = recommendation.as_ref() == Some(&option.target);
     }
@@ -599,15 +614,53 @@ mod tests {
     }
 
     #[test]
-    fn recommendation_uses_codex_claude_hermes_openclaw_order() {
+    fn recommendation_prefers_ready_hermes_for_an_unconfirmed_profile() {
         let codex = AgentRuntimeTargetV1::Managed {
             runtime_id: "codex".into(),
         };
-        let claude = AgentRuntimeTargetV1::Managed {
-            runtime_id: "claude".into(),
+        let hermes = AgentRuntimeTargetV1::Native {
+            runtime: NativeRuntimeFamilyV1::Hermes,
         };
-        let options = vec![option(codex.clone(), false), option(claude.clone(), true)];
-        assert_eq!(choose_recommendation(None, &options), Some(claude));
+        let options = vec![option(codex, true), option(hermes.clone(), true)];
+        assert_eq!(choose_recommendation(None, &options), Some(hermes));
+    }
+
+    #[test]
+    fn recommendation_falls_back_to_another_ready_runtime_when_hermes_is_not_ready() {
+        let codex = AgentRuntimeTargetV1::Managed {
+            runtime_id: "codex".into(),
+        };
+        let hermes = AgentRuntimeTargetV1::Native {
+            runtime: NativeRuntimeFamilyV1::Hermes,
+        };
+        let options = vec![option(codex.clone(), true), option(hermes, false)];
+        assert_eq!(choose_recommendation(None, &options), Some(codex));
+    }
+
+    #[test]
+    fn unconfirmed_saved_target_does_not_override_the_intended_default() {
+        let codex = AgentRuntimeTargetV1::Managed {
+            runtime_id: "codex".into(),
+        };
+        let hermes = AgentRuntimeTargetV1::Native {
+            runtime: NativeRuntimeFamilyV1::Hermes,
+        };
+        let mut preferences = OperatorPreferencesV1::new("owner".into());
+        preferences.default_runtime_target = Some(codex);
+        preferences.runtime_confirmed = false;
+        let settings = build_settings(
+            preferences,
+            vec![
+                option(
+                    AgentRuntimeTargetV1::Managed {
+                        runtime_id: "codex".into(),
+                    },
+                    true,
+                ),
+                option(hermes.clone(), true),
+            ],
+        );
+        assert_eq!(settings.recommendation, Some(hermes));
     }
 
     #[test]

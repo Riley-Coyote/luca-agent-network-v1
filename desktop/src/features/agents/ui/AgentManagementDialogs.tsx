@@ -1,16 +1,41 @@
 import { useAgentManagement } from "@/features/agents/useAgentManagement";
+import { useOperatorForgeSettingsQuery } from "@/features/agents/operatorForgeQueries";
 import { AgentDialog } from "./AgentDialog";
 import { NativeAgentProvisioningDialog } from "./NativeAgentProvisioningDialog";
 
 /** Global review surfaces opened by owned agents through the Buzz harness. */
 export function AgentManagementDialogs() {
   const management = useAgentManagement();
-  const nativeRuntime =
-    management.request?.action === "create" &&
-    (management.request.request.requestedRuntimeFamily === "hermes" ||
-      management.request.request.requestedRuntimeFamily === "openclaw")
+  const operatorSettings = useOperatorForgeSettingsQuery();
+  const requestedRuntime =
+    management.request?.action === "create"
       ? management.request.request.requestedRuntimeFamily
-      : null;
+      : undefined;
+  const effectiveTarget = operatorSettings.data
+    ? operatorSettings.data.preferences.runtimeConfirmed
+      ? operatorSettings.data.preferences.defaultRuntimeTarget
+      : operatorSettings.data.recommendation
+    : null;
+  const nativeRuntime =
+    requestedRuntime === "hermes" || requestedRuntime === "openclaw"
+      ? requestedRuntime
+      : requestedRuntime === undefined && effectiveTarget?.kind === "native"
+        ? effectiveTarget.runtime
+        : null;
+  const managedRuntime =
+    requestedRuntime === "codex"
+      ? "codex"
+      : requestedRuntime === "claude_code"
+        ? "claude"
+        : requestedRuntime === undefined && effectiveTarget?.kind === "managed"
+          ? effectiveTarget.runtimeId
+          : undefined;
+  const waitingForOwnerTarget =
+    management.request?.action === "create" &&
+    requestedRuntime === undefined &&
+    operatorSettings.isLoading;
+
+  if (waitingForOwnerTarget) return null;
 
   return (
     <>
@@ -19,7 +44,11 @@ export function AgentManagementDialogs() {
           definitionError={
             management.error ? new Error(management.error) : null
           }
-          initialValues={management.createInitialValues}
+          initialValues={
+            management.createInitialValues && managedRuntime
+              ? { ...management.createInitialValues, runtime: managedRuntime }
+              : management.createInitialValues
+          }
           isDefinitionPending={management.isPending}
           mode="definition"
           onOpenChange={(open) => {
@@ -42,6 +71,7 @@ export function AgentManagementDialogs() {
             if (!open) management.dismiss();
           }}
           open
+          targetChannel={management.createTargetChannel}
         />
       ) : null}
       {management.request?.action === "update" ? (
