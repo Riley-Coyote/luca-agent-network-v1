@@ -872,11 +872,10 @@ impl CommunicationActionOutbox {
     }
 
     fn prune_expired_tombstones(&mut self, now: &CanonicalTimestamp) {
-        self.tombstones
-            .retain(|_, tombstone| {
-                tombstone.cleanup_pending_handle.is_some()
-                    || tombstone.request_expires_at.as_str() >= now.as_str()
-            });
+        self.tombstones.retain(|_, tombstone| {
+            tombstone.cleanup_pending_handle.is_some()
+                || tombstone.request_expires_at.as_str() >= now.as_str()
+        });
     }
 
     fn persist(&self) -> Result<(), CommunicationActionOutboxError> {
@@ -1065,7 +1064,8 @@ fn tombstone_fields_are_consistent(tombstone: &StoredCommunicationActionTombston
                 | CommunicationActionOutboxStateV1::Rejected
                 | CommunicationActionOutboxStateV1::Failed
                 | CommunicationActionOutboxStateV1::Cancelled
-        ) || sealed_handle_sha256(handle).ok().as_ref() != Some(&tombstone.sealed_event_handle_sha256)
+        ) || sealed_handle_sha256(handle).ok().as_ref()
+            != Some(&tombstone.sealed_event_handle_sha256)
         {
             return false;
         }
@@ -1100,8 +1100,8 @@ fn terminal_cleanup_from_tombstone(
             | CommunicationActionOutboxStateV1::Rejected
             | CommunicationActionOutboxStateV1::Failed
             | CommunicationActionOutboxStateV1::Cancelled
-    )
-        || tombstone.sealed_event_handle_sha256 != sealed_handle_sha256(&sealed_event_handle).ok()?
+    ) || tombstone.sealed_event_handle_sha256
+        != sealed_handle_sha256(&sealed_event_handle).ok()?
     {
         return None;
     }

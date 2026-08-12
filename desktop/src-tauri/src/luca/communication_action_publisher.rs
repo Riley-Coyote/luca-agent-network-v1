@@ -427,7 +427,9 @@ impl ExistingConversationPublisher {
                     .outbox
                     .fail_before_submission(&request.idempotency_key, now_timestamp()?)
                     .map_err(|_| CommunicationPublicationError::Persistence)?;
-                let cleanup = stores.outbox.terminal_cleanup_for_request(&request)
+                let cleanup = stores
+                    .outbox
+                    .terminal_cleanup_for_request(&request)
                     .map_err(|_| CommunicationPublicationError::Persistence)?
                     .ok_or(CommunicationPublicationError::Persistence)?;
                 cleanup_terminal_event(&mut stores, cleanup)?;
@@ -463,7 +465,9 @@ impl ExistingConversationPublisher {
                     now_timestamp()?,
                 )
                 .map_err(|_| CommunicationPublicationError::Persistence)?;
-            let cleanup = stores.outbox.terminal_cleanup_for_request(&request)
+            let cleanup = stores
+                .outbox
+                .terminal_cleanup_for_request(&request)
                 .map_err(|_| CommunicationPublicationError::Persistence)?
                 .ok_or(CommunicationPublicationError::Persistence)?;
             cleanup_terminal_event(&mut stores, cleanup)?;
@@ -526,7 +530,9 @@ impl ExistingConversationPublisher {
                         now_timestamp()?,
                     )
                     .map_err(|_| CommunicationPublicationError::Persistence)?;
-                let cleanup = stores.outbox.terminal_cleanup_for_request(&request)
+                let cleanup = stores
+                    .outbox
+                    .terminal_cleanup_for_request(&request)
                     .map_err(|_| CommunicationPublicationError::Persistence)?
                     .ok_or(CommunicationPublicationError::Persistence)?;
                 cleanup_terminal_event(&mut stores, cleanup)?;
@@ -536,7 +542,9 @@ impl ExistingConversationPublisher {
                     .outbox
                     .reject_during_reconciliation(&request.idempotency_key, now_timestamp()?)
                     .map_err(|_| CommunicationPublicationError::Persistence)?;
-                let cleanup = stores.outbox.terminal_cleanup_for_request(&request)
+                let cleanup = stores
+                    .outbox
+                    .terminal_cleanup_for_request(&request)
                     .map_err(|_| CommunicationPublicationError::Persistence)?
                     .ok_or(CommunicationPublicationError::Persistence)?;
                 cleanup_terminal_event(&mut stores, cleanup)?;
@@ -625,7 +633,10 @@ impl ExistingConversationPublisher {
         // outbox commit. Probe that deterministic slot before asking nostr to
         // make another signature for the same semantic action.
         let recovered_sealed = {
-            let stores = self.stores.lock().map_err(|_| BrokerFailure::outbox_unavailable())?;
+            let stores = self
+                .stores
+                .lock()
+                .map_err(|_| BrokerFailure::outbox_unavailable())?;
             match stores.vault.seal_or_recover(&request, None) {
                 Ok(sealed) => Some(sealed),
                 Err(CommunicationEventVaultError::NotFound) => None,
@@ -869,7 +880,9 @@ impl ExistingConversationPublisher {
                         now_timestamp().map_err(map_publication_failure)?,
                     )
                     .map_err(|_| BrokerFailure::outbox_unavailable())?;
-                let cleanup = stores.outbox.terminal_cleanup_for_request(request)
+                let cleanup = stores
+                    .outbox
+                    .terminal_cleanup_for_request(request)
                     .map_err(|_| BrokerFailure::outbox_unavailable())?
                     .ok_or_else(BrokerFailure::outbox_unavailable)?;
                 cleanup_terminal_event(&mut stores, cleanup)
@@ -883,7 +896,9 @@ impl ExistingConversationPublisher {
                         now_timestamp().map_err(map_publication_failure)?,
                     )
                     .map_err(|_| BrokerFailure::outbox_unavailable())?;
-                let cleanup = stores.outbox.terminal_cleanup_for_request(request)
+                let cleanup = stores
+                    .outbox
+                    .terminal_cleanup_for_request(request)
                     .map_err(|_| BrokerFailure::outbox_unavailable())?
                     .ok_or_else(BrokerFailure::outbox_unavailable)?;
                 cleanup_terminal_event(&mut stores, cleanup)
@@ -910,7 +925,10 @@ impl ExistingConversationPublisher {
         &self,
         request: &CommunicationActionRequestV1,
     ) -> Result<(), BrokerFailure> {
-        let mut stores = self.stores.lock().map_err(|_| BrokerFailure::outbox_unavailable())?;
+        let mut stores = self
+            .stores
+            .lock()
+            .map_err(|_| BrokerFailure::outbox_unavailable())?;
         let Some(cleanup) = stores
             .outbox
             .terminal_cleanup_for_request(request)
@@ -918,7 +936,8 @@ impl ExistingConversationPublisher {
         else {
             return Ok(());
         };
-        cleanup_terminal_event(&mut stores, cleanup).map_err(|_| BrokerFailure::outbox_unavailable())
+        cleanup_terminal_event(&mut stores, cleanup)
+            .map_err(|_| BrokerFailure::outbox_unavailable())
     }
 }
 
@@ -927,20 +946,29 @@ fn cleanup_terminal_event(
     cleanup: super::communication_action_outbox::CommunicationActionTerminalCleanup,
 ) -> Result<(), CommunicationPublicationError> {
     let terminal = match cleanup.terminal {
-        CommunicationActionOutboxStateV1::Accepted => CommunicationEventVaultTerminal::AcceptedAndFinalized,
-        CommunicationActionOutboxStateV1::Rejected => CommunicationEventVaultTerminal::ExplicitlyRejected,
+        CommunicationActionOutboxStateV1::Accepted => {
+            CommunicationEventVaultTerminal::AcceptedAndFinalized
+        }
+        CommunicationActionOutboxStateV1::Rejected => {
+            CommunicationEventVaultTerminal::ExplicitlyRejected
+        }
         CommunicationActionOutboxStateV1::Failed | CommunicationActionOutboxStateV1::Cancelled => {
             CommunicationEventVaultTerminal::NeverSubmitted
         }
         _ => return Err(CommunicationPublicationError::Persistence),
     };
-    stores.vault.delete_terminal_cleanup(
-        &cleanup.sealed_event_handle,
-        &cleanup.expected_event_id,
-        &cleanup.exact_event_sha256,
-        terminal,
-    ).map_err(|_| CommunicationPublicationError::Persistence)?;
-    stores.outbox.complete_terminal_cleanup(&cleanup.idempotency_key)
+    stores
+        .vault
+        .delete_terminal_cleanup(
+            &cleanup.sealed_event_handle,
+            &cleanup.expected_event_id,
+            &cleanup.exact_event_sha256,
+            terminal,
+        )
+        .map_err(|_| CommunicationPublicationError::Persistence)?;
+    stores
+        .outbox
+        .complete_terminal_cleanup(&cleanup.idempotency_key)
         .map_err(|_| CommunicationPublicationError::Persistence)
 }
 

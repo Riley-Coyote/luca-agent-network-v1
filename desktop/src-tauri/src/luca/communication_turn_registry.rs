@@ -161,7 +161,10 @@ pub(crate) fn revoke_dispatch(
     let mut turns = lock_registry();
     let before = turns.len();
     turns.retain(|_, turn| {
-        !turn.resident_pubkey.as_str().eq_ignore_ascii_case(resident_pubkey)
+        !turn
+            .resident_pubkey
+            .as_str()
+            .eq_ignore_ascii_case(resident_pubkey)
             || turn.session_epoch.get() != session_epoch
             || turn.conversation_id.as_str() != conversation_id
             || !turn
@@ -181,7 +184,10 @@ pub(crate) fn clear_session(
     let mut turns = lock_registry();
     let before = turns.len();
     turns.retain(|_, turn| {
-        !turn.resident_pubkey.as_str().eq_ignore_ascii_case(resident_pubkey)
+        !turn
+            .resident_pubkey
+            .as_str()
+            .eq_ignore_ascii_case(resident_pubkey)
             || turn.session_epoch.get() != session_epoch
     });
     Ok(before.saturating_sub(turns.len()))
@@ -194,7 +200,10 @@ pub(crate) fn clear_resident(resident_pubkey: &str) -> usize {
     let mut turns = lock_registry();
     let before = turns.len();
     turns.retain(|_, turn| {
-        !turn.resident_pubkey.as_str().eq_ignore_ascii_case(resident_pubkey)
+        !turn
+            .resident_pubkey
+            .as_str()
+            .eq_ignore_ascii_case(resident_pubkey)
     });
     before.saturating_sub(turns.len())
 }
@@ -245,14 +254,8 @@ mod tests {
             Err(CommunicationTurnAuthorizationError::Unknown)
         );
         observe_accepted_frame(&start).unwrap();
-        let active = authorize(
-            &resident,
-            7,
-            "conversation-1",
-            "turn-1",
-            "dispatch-turn-1",
-        )
-        .unwrap();
+        let active =
+            authorize(&resident, 7, "conversation-1", "turn-1", "dispatch-turn-1").unwrap();
         assert_eq!(active.turn_id.as_str(), "turn-1");
 
         let mut terminal = start;
@@ -282,41 +285,15 @@ mod tests {
             ManagedPresentationKindV1::TurnStarted,
         ))
         .unwrap();
-        assert!(authorize(
-            &resident,
-            7,
-            "conversation-2",
-            "turn-a",
-            "dispatch-turn-a"
-        )
-        .is_ok());
-        assert!(authorize(
-            &resident,
-            7,
-            "conversation-2",
-            "turn-b",
-            "dispatch-turn-b"
-        )
-        .is_ok());
+        assert!(authorize(&resident, 7, "conversation-2", "turn-a", "dispatch-turn-a").is_ok());
+        assert!(authorize(&resident, 7, "conversation-2", "turn-b", "dispatch-turn-b").is_ok());
         assert_eq!(
-            authorize(
-                &resident,
-                7,
-                "conversation-2",
-                "turn-a",
-                "dispatch-turn-b"
-            ),
+            authorize(&resident, 7, "conversation-2", "turn-a", "dispatch-turn-b"),
             Err(CommunicationTurnAuthorizationError::Unknown)
         );
         assert_eq!(clear_session(&resident, 7).unwrap(), 2);
         assert_eq!(
-            authorize(
-                &resident,
-                7,
-                "conversation-2",
-                "turn-a",
-                "dispatch-turn-a"
-            ),
+            authorize(&resident, 7, "conversation-2", "turn-a", "dispatch-turn-a"),
             Err(CommunicationTurnAuthorizationError::Unknown)
         );
     }
@@ -347,13 +324,6 @@ mod tests {
         let mut terminal_a = start_a;
         terminal_a.kind = ManagedPresentationKindV1::Cancelled;
         observe_accepted_frame(&terminal_a).unwrap();
-        assert!(authorize(
-            &resident,
-            7,
-            "conversation-3",
-            "turn-b",
-            "dispatch-turn-b"
-        )
-        .is_ok());
+        assert!(authorize(&resident, 7, "conversation-3", "turn-b", "dispatch-turn-b").is_ok());
     }
 }

@@ -586,7 +586,13 @@ fn accepted_terminal_retains_private_cleanup_authority_until_acknowledged() {
         )
         .expect("prepare");
     outbox
-        .mark_submitted(&request.idempotency_key, &session, 2, false, time("2026-08-11T12:00:01Z"))
+        .mark_submitted(
+            &request.idempotency_key,
+            &session,
+            2,
+            false,
+            time("2026-08-11T12:00:01Z"),
+        )
         .expect("submit");
     outbox
         .mark_accepted(
@@ -604,7 +610,9 @@ fn accepted_terminal_retains_private_cleanup_authority_until_acknowledged() {
     assert_eq!(cleanup.sealed_event_handle, id(HANDLE));
     assert_eq!(cleanup.expected_event_id, hex('b'));
     assert!(!format!("{cleanup:?}").contains(HANDLE));
-    assert!(!serde_json::to_string(&outbox.tombstones).unwrap().contains(BODY));
+    assert!(!serde_json::to_string(&outbox.tombstones)
+        .unwrap()
+        .contains(BODY));
 
     outbox
         .complete_terminal_cleanup(&request.idempotency_key)

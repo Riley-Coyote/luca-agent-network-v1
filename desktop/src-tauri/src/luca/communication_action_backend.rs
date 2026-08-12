@@ -78,9 +78,7 @@ impl DesktopCommunicationActionBackend {
     /// Reconcile one frozen action before exposing this backend to an agent.
     /// Callers deliberately treat failure as communication-tool degradation;
     /// ordinary messaging and resident startup remain available.
-    pub(crate) fn reconcile_one_on_start(
-        &self,
-    ) -> Result<(), CommunicationPublicationError> {
+    pub(crate) fn reconcile_one_on_start(&self) -> Result<(), CommunicationPublicationError> {
         self.publisher.reconcile_one_on_start()
     }
 

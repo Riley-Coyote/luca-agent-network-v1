@@ -381,16 +381,13 @@ impl ManagedDispatchStore {
             .keys()
             .any(|(trigger, _)| trigger == &normalized_trigger);
         let (authorized, newly_bound) = {
-            let dispatch = self
-                .dispatches
-                .get_mut(&key)
-                .ok_or_else(|| {
-                    if has_trigger {
-                        DispatchAuthorizationError::WrongResident
-                    } else {
-                        DispatchAuthorizationError::Unknown
-                    }
-                })?;
+            let dispatch = self.dispatches.get_mut(&key).ok_or_else(|| {
+                if has_trigger {
+                    DispatchAuthorizationError::WrongResident
+                } else {
+                    DispatchAuthorizationError::Unknown
+                }
+            })?;
             if now_unix_secs > dispatch.expires_at {
                 return Err(DispatchAuthorizationError::Expired);
             }

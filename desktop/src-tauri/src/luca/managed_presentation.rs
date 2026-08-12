@@ -91,7 +91,6 @@ impl PresentationFrameGate {
         }
         true
     }
-
 }
 
 /// Child-side descriptor for the one-way presentation socket.

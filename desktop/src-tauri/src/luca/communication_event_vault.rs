@@ -200,19 +200,15 @@ impl CommunicationEventVault {
             let stored = self.load_stored(&handle)?;
             // Re-run the complete exact binding check; an existing slot is
             // authoritative only when it is exactly this semantic action.
-            drop(self.load_exact(
-                &handle,
-                request,
-                &stored.event_id,
-                &stored.event_sha256,
-            )?);
+            drop(self.load_exact(&handle, request, &stored.event_id, &stored.event_sha256)?);
             return Ok(SealedCommunicationEvent {
                 handle,
                 event_id: stored.event_id.clone(),
                 event_sha256: stored.event_sha256.clone(),
             });
         }
-        let candidate = candidate_signed_event_json.ok_or(CommunicationEventVaultError::NotFound)?;
+        let candidate =
+            candidate_signed_event_json.ok_or(CommunicationEventVaultError::NotFound)?;
         self.seal(request, candidate)
     }
 

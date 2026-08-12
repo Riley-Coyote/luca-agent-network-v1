@@ -231,7 +231,9 @@ fn seal_or_recover_reuses_the_frozen_event_without_a_replacement_signature() {
             )
             .expect("load recovered bytes")
             .as_str(),
-        Event::from_json(&original).expect("parse original").as_json(),
+        Event::from_json(&original)
+            .expect("parse original")
+            .as_json(),
         "recovery must retain nostr's stable signed-event bytes"
     );
 
@@ -243,7 +245,9 @@ fn seal_or_recover_reuses_the_frozen_event_without_a_replacement_signature() {
         1_723_000_001,
     );
     assert_eq!(
-        vault.seal_or_recover(&request, Some(&replacement)).expect("still recover"),
+        vault
+            .seal_or_recover(&request, Some(&replacement))
+            .expect("still recover"),
         sealed,
         "an already-sealed semantic action never consumes a replacement signature"
     );
