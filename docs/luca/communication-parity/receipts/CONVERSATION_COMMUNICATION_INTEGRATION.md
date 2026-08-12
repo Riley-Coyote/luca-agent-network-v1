@@ -2,11 +2,11 @@
 
 ## Verdict
 
-**INTEGRATED — SOURCE CHECKPOINT VERIFIED; NATIVE SIGNING BLOCKED**
+**INTEGRATED — SOURCE AND SIGNED CANDIDATE VERIFIED; PROMOTION AWAITING APPROVAL**
 
 The approved conversation-design and communication-parity histories merge cleanly and the combined behavioral, authority, frontend, and isolated-browser checks below pass. File-size thresholds are review signals under the current repository policy and do not mechanically block this checkpoint.
 
-No installed application was rebuilt or replaced. Native promotion remains blocked until a valid Developer ID Application identity for the authorized team is available in the login keychain.
+No installed application was replaced. An exact branch-specific candidate was built and signed, but the protected atomic replacement remains separately approval-gated.
 
 ## Checkpoint
 
@@ -99,9 +99,11 @@ Focused policy verification:
 - The branch-specific installed app remains at version `0.4.22` with the intended bundle identifier and keyring scope.
 - The running relay on port `3030` remains healthy and untouched.
 - The current installed executable hash is `b600edb76f22158a9420a216327705723a520131219f60300b95c5cd6ce59852`; it remains the rollback reference for this promotion attempt.
-- Read-only verification found zero valid code-signing identities in the login keychain.
+- Authorized Keychain verification found the established valid identity `Developer ID Application: Riley Ralmuto (WQUY4M5HYR)`; the earlier sandbox-limited query could not see it.
 - The existing installed bundle does not pass strict deep code-signing verification (`CSSMERR_TP_NOT_TRUSTED`). This is historical installed-bundle state, not a result of the combined source checkpoint.
-- No unsigned or ad-hoc candidate was built, launched, or installed. Promotion must resume only after the valid Developer ID Application identity is restored, then perform an exact branch-specific build, entitlement check, strict signature verification, rollback capture, atomic replacement, and installed acceptance.
+- The exact branch-specific candidate was built with all five sidecars, keyring service `buzz-desktop-dev.conversation-acceptance`, bundle identifier `com.luca.agent-network.dev.codex-luca-operator-native-forge`, and version `0.4.22`.
+- The staged candidate is signed by team `WQUY4M5HYR`, carries the repository camera, audio-input, and disable-library-validation entitlements, and passes strict deep verification. It has not been launched or installed.
+- Promotion must resume only after explicit replacement approval, then capture the rollback bundle, atomically replace the branch-specific app, and run installed acceptance.
 
 ## Browser evidence
 
