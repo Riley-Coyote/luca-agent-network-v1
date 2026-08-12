@@ -73,13 +73,25 @@ const nativeResidents: NativeResidentDiscoveryOutcome = {
 async function beginFreshSetup(page: import("@playwright/test").Page) {
   await expect(page.getByRole("heading", { name: "Polyphonic" })).toBeVisible();
   await page.getByRole("button", { name: "Begin setup" }).click();
+  await expect(page.getByTestId("polyphonic-onboarding")).toContainText("Luca");
+  await expect(page.getByText("Polyphonic", { exact: true })).toHaveCount(0);
   const commands = await page.evaluate(
     () => window.__BUZZ_E2E_COMMANDS__ ?? [],
   );
   expect(commands).not.toContain("persist_current_identity");
 }
 
-test("production onboarding resumes, navigates back, and completes fail-soft", async ({
+async function expectFirstUsefulDestination(
+  page: import("@playwright/test").Page,
+) {
+  await expect(page).toHaveURL(/\/messages\/new$/);
+  await expect(page.getByTestId("app-sidebar")).toBeVisible();
+  await expect(page.getByTestId("new-message-page")).toBeVisible();
+  await expect(page.getByTestId("new-message-to-field")).toBeVisible();
+}
+
+test("clean onboarding resumes, completes fail-soft, and returns to a useful destination", async ({
+  context,
   page,
 }) => {
   await installFresh(page);
@@ -106,10 +118,16 @@ test("production onboarding resumes, navigates back, and completes fail-soft", a
   ).toBeFocused();
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(
-    page.getByRole("heading", { name: "Everything is in its place" }),
+    page.getByRole("heading", { name: "Luca is ready" }),
   ).toBeFocused();
-  await page.getByRole("button", { name: "Enter Polyphonic" }).click();
-  await expect(page.getByTestId("app-sidebar")).toBeVisible();
+  await page.getByRole("button", { name: "Start a conversation" }).click();
+  await expectFirstUsefulDestination(page);
+
+  const returning = await context.newPage();
+  await installFresh(returning);
+  await returning.goto("/?e2e=mock");
+  await expect(returning.getByTestId("polyphonic-onboarding")).toHaveCount(0);
+  await expectFirstUsefulDestination(returning);
 });
 
 test("onboarding keeps its primary action reachable at 800 by 500", async ({
@@ -233,8 +251,10 @@ test("the last safe chapter survives a relaunch", async ({ page }) => {
   await page.getByRole("button", { name: "Continue" }).click();
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "Everything is in its place" }),
+    page.getByRole("heading", { name: "Luca is ready" }),
   ).toBeFocused();
+  await page.getByRole("button", { name: "Start a conversation" }).click();
+  await expectFirstUsefulDestination(page);
 });
 
 test("no agents and no selected sources remain valid", async ({ page }) => {
@@ -253,8 +273,10 @@ test("no agents and no selected sources remain valid", async ({ page }) => {
   }
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(
-    page.getByRole("heading", { name: "Everything is in its place" }),
+    page.getByRole("heading", { name: "Luca is ready" }),
   ).toBeFocused();
+  await page.getByRole("button", { name: "Start a conversation" }).click();
+  await expectFirstUsefulDestination(page);
   const commands = await page.evaluate(
     () => window.__BUZZ_E2E_COMMANDS__ ?? [],
   );
@@ -280,7 +302,7 @@ test("Brain preview requires confirmation and first connection requires consent"
   await expect(page.getByTestId("brain-consent-dialog")).toBeVisible();
   await page.getByRole("button", { name: "Connect for all residents" }).click();
   await expect(
-    page.getByRole("heading", { name: "Everything is in its place" }),
+    page.getByRole("heading", { name: "Luca is ready" }),
   ).toBeFocused();
   await expect(page.getByText("3 source groups connected")).toBeVisible();
 
@@ -314,7 +336,7 @@ test("partial resident and Brain failures are body-free, reviewable outcomes", a
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Connect for all residents" }).click();
   await expect(
-    page.getByRole("heading", { name: "Everything is in its place" }),
+    page.getByRole("heading", { name: "Luca is ready" }),
   ).toBeFocused();
   await expect(page.getByText("2 items need attention")).toBeVisible();
 

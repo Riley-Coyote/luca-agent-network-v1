@@ -47,7 +47,7 @@ export const PolyphonicYouStep = React.forwardRef<
 
   const commit = React.useCallback(async () => {
     const name = displayName.trim();
-    if (!name) throw new Error("Enter the name you want Polyphonic to use.");
+    if (!name) throw new Error("Enter the name you want Luca to use.");
     onBusyChange(true);
     setSyncNotice(null);
     try {
@@ -61,7 +61,7 @@ export const PolyphonicYouStep = React.forwardRef<
         displayName: name,
       });
       setSyncNotice(
-        "Your name is saved on this Mac. Polyphonic will try to sync it once on the next launch.",
+        "Your name is saved on this Mac. Luca will try to sync it once on the next launch.",
       );
       return { displayName: name, needsAttention: true };
     } finally {

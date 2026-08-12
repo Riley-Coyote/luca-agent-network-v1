@@ -342,8 +342,8 @@ export const PolyphonicAgentsStep = React.forwardRef<
           <span className="min-w-0 flex-1">
             <span className="block text-sm text-white/88">Luca</span>
             <span className="block text-xs text-white/46">
-              Can organize Polyphonic and prepare agent creation for your
-              review.
+              Can help organize your Luca home and prepare agent creation for
+              your review.
             </span>
           </span>
           <span

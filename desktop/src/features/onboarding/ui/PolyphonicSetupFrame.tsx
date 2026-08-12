@@ -67,9 +67,11 @@ export function PolyphonicSetupFrame({
         >
           <header className="polyphonic-onboarding-header flex items-center justify-between px-5 pt-5 sm:px-8 sm:pt-7">
             <div className="flex items-center gap-2.5">
-              <PolyphonicBrandMark />
+              <span aria-hidden>
+                <PolyphonicBrandMark />
+              </span>
               <span className="text-sm font-medium tracking-[-0.01em] text-white/88">
-                Polyphonic
+                Luca
               </span>
             </div>
             <span className="text-xs text-white/46">

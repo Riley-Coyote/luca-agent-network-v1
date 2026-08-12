@@ -328,8 +328,8 @@ export const PolyphonicBrainStep = React.forwardRef<
         <PolyphonicNotice kind="error">
           <div className="flex items-center justify-between gap-3">
             <span>
-              Polyphonic could not scan Brain sources. You can continue and try
-              again later.
+              Luca could not scan Brain sources. You can continue and try again
+              later.
             </span>
             <Button
               onClick={() => void inventoryQuery.refetch()}
@@ -347,7 +347,7 @@ export const PolyphonicBrainStep = React.forwardRef<
         </PolyphonicNotice>
       ) : null}
       <p className="mt-4 border-t border-[hsl(var(--mn-border))] pt-4 text-xs leading-5 text-white/48">
-        Polyphonic keeps a private local index. Agents may send only relevant
+        Luca keeps a private local index. Residents may send only relevant
         excerpts to their configured models. Edits and commands always ask
         first.
       </p>

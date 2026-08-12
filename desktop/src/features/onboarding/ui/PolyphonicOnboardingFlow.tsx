@@ -127,7 +127,7 @@ export function PolyphonicOnboardingFlow({
       }
       continueLabel={
         transaction.chapter === "ready"
-          ? "Enter Polyphonic"
+          ? "Start a conversation"
           : busy
             ? "Working…"
             : "Continue"

@@ -62,9 +62,9 @@ export function PolyphonicReadyStep({
   return (
     <>
       <PolyphonicStepHeading
-        description="Your private agent network is ready. Every choice remains available from Agents, Brain, or Settings."
+        description="Your Luca home is ready. Start with a conversation; every setup choice remains available from Agents, Brain, or Settings."
         stage="ready"
-        title="Everything is in its place"
+        title="Luca is ready"
       />
       <div className="mt-6 overflow-hidden rounded-lg border border-[hsl(var(--mn-border))] bg-[hsl(var(--mn-surface))]">
         {rows.map((row) => (
