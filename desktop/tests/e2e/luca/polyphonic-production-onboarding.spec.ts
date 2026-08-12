@@ -373,3 +373,65 @@ test("keyboard focus and 200 percent text remain navigable", async ({
     page.getByRole("heading", { name: "Make it yours" }),
   ).toBeFocused();
 });
+
+test("compact reduced-motion onboarding keeps semantics and controls reachable", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await installFresh(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/?e2e=mock&machineOnboarding=1");
+
+  const beginSetup = page.getByRole("button", { name: "Begin setup" });
+  await beginSetup.focus();
+  await expect(beginSetup).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  const onboarding = page.getByTestId("polyphonic-onboarding");
+  const assistant = page.getByTestId("polyphonic-setup-assistant");
+  const heading = page.getByRole("heading", { name: "Make it yours" });
+  await expect(heading).toBeFocused();
+  await expect(assistant).toHaveAttribute(
+    "aria-labelledby",
+    "polyphonic-you-heading",
+  );
+  await expect(
+    onboarding.getByRole("status").filter({ hasText: "Step 2 of 5: You" }),
+  ).toBeAttached();
+
+  const horizontalOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  expect(horizontalOverflow).toBeLessThanOrEqual(1);
+  await expect(
+    page.getByRole("button", { name: "Back", exact: true }),
+  ).toBeVisible();
+
+  await page.keyboard.press("Tab");
+  await expect(page.getByLabel("Display name")).toBeFocused();
+  await page.getByLabel("Display name").fill("Riley");
+  const continueButton = page.getByRole("button", { name: "Continue" });
+  await continueButton.scrollIntoViewIfNeeded();
+  await expect(continueButton).toBeVisible();
+  await continueButton.focus();
+  await page.keyboard.press("Enter");
+
+  await expect(
+    page.getByRole("heading", { name: "Bring your agents together" }),
+  ).toBeFocused();
+  await expect(
+    onboarding
+      .getByRole("status")
+      .filter({ hasText: "Step 3 of 5: Your agents" }),
+  ).toBeAttached();
+  expect(
+    await page
+      .locator(".polyphonic-onboarding-main")
+      .evaluate(
+        (element) =>
+          element
+            .getAnimations()
+            .filter((animation) => animation.playState !== "finished").length,
+      ),
+  ).toBe(0);
+});
