@@ -145,7 +145,7 @@ export const PolyphonicAgentsStep = React.forwardRef<
   }, [scan]);
 
   const commit = React.useCallback(async () => {
-    let issueCount = 0;
+    let issueCount = scanError ? 1 : 0;
     onBusyChange(true);
     try {
       await saveOperatorSettings.mutateAsync({
@@ -294,6 +294,7 @@ export const PolyphonicAgentsStep = React.forwardRef<
     results,
     runtimeTarget,
     runtimesQuery,
+    scanError,
     saveOperatorSettings,
     selected,
   ]);

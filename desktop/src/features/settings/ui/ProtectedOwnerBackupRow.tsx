@@ -70,7 +70,7 @@ export function ProtectedOwnerBackupRow() {
       {isOpen ? (
         <div className="mt-4 space-y-3 rounded-lg border border-border/60 bg-muted/20 p-3">
           <p className="text-xs leading-5 text-muted-foreground">
-            Choose a unique passphrase. Polyphonic never displays or copies the
+            Choose a unique passphrase. Luca never displays or copies the
             private key.
           </p>
           <Input

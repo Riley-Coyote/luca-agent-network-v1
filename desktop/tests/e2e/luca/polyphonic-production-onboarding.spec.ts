@@ -71,7 +71,8 @@ const nativeResidents: NativeResidentDiscoveryOutcome = {
 };
 
 async function beginFreshSetup(page: import("@playwright/test").Page) {
-  await expect(page.getByRole("heading", { name: "Polyphonic" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Luca" })).toBeVisible();
+  await expect(page.getByText("Polyphonic", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Begin setup" }).click();
   await expect(page.getByTestId("polyphonic-onboarding")).toContainText("Luca");
   await expect(page.getByText("Polyphonic", { exact: true })).toHaveCount(0);
@@ -184,7 +185,15 @@ test("Settings can reopen an incomplete journey", async ({ page }) => {
   await page.goto("/?e2e=mock");
   await page.getByRole("button", { name: "Set up later" }).click();
   await page.getByRole("button", { name: "Settings" }).click();
-  await expect(page.getByText("Finish setting up Polyphonic")).toBeVisible();
+  await expect(page.getByText("Finish setting up Luca")).toBeVisible();
+  await page.getByTestId("profile-identity-toggle").click();
+  await page.getByTestId("profile-protected-backup-toggle").click();
+  await expect(
+    page.getByText(
+      "Choose a unique passphrase. Luca never displays or copies the private key.",
+    ),
+  ).toBeVisible();
+  await expect(page.getByText(/Polyphonic never displays/)).toHaveCount(0);
   await page.getByRole("button", { name: "Finish setup" }).click();
   await expect(
     page.getByRole("heading", { name: "Make it yours" }),
@@ -350,6 +359,35 @@ test("partial resident and Brain failures are body-free, reviewable outcomes", a
     commands.filter((command) => command === "set_resident_continuity_enabled"),
   ).toHaveLength(1);
   expect(commands).toContain("connect_connected_brain_source");
+});
+
+test("native discovery failure remains visible in final readiness", async ({
+  page,
+}) => {
+  await installFresh(page, {
+    nativeResidentDiscoveryError: "Native resident discovery unavailable",
+  });
+  await page.goto("/?e2e=mock#/?brainConnections=empty");
+  await beginFreshSetup(page);
+  await page.getByLabel("Display name").fill("Riley");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(
+    page.getByText("Native resident discovery unavailable"),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Scan again" })).toBeVisible();
+  await page.getByRole("button", { name: "Continue" }).click();
+
+  for (const label of ["Repositories", "Codex", "Claude Code"]) {
+    const category = page.getByRole("button", { name: new RegExp(label) });
+    await expect(category).toHaveAttribute("aria-pressed", "true");
+    await category.click();
+  }
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Luca is ready" }),
+  ).toBeFocused();
+  await expect(page.getByText("1 item needs attention")).toBeVisible();
+  await expect(page.getByText("Setup is complete")).toHaveCount(0);
 });
 
 test("keyboard focus and 200 percent text remain navigable", async ({

@@ -139,7 +139,7 @@ export function MachineOnboardingFlow({
             >
               <PolyphonicThresholdField />
               <h1 className="relative -mt-8 text-4xl font-medium tracking-[-0.04em] text-white">
-                Polyphonic
+                Luca
               </h1>
               <p className="mt-3 max-w-[26rem] text-center text-sm leading-6 text-white/60">
                 A private home for your agents and the work that makes them
@@ -155,7 +155,7 @@ export function MachineOnboardingFlow({
                   onClick={() => void loadFreshIdentity(false)}
                   type="button"
                 >
-                  {isPending ? "Preparing Polyphonic…" : "Begin setup"}
+                  {isPending ? "Preparing Luca…" : "Begin setup"}
                 </Button>
                 <Button
                   className="h-9 rounded-lg px-4 text-xs text-white/55 hover:bg-white/[0.05] hover:text-white"
