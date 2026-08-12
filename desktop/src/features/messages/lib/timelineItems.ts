@@ -165,6 +165,15 @@ export function buildTimelineItems(
   firstUnreadMessageId: string | null,
 ): TimelineItemsResult {
   const items: TimelineItem[] = [];
+  const renderedEntryKeys = new Set<string>();
+  // Relay echoes can briefly overlap an optimistic row during reconciliation.
+  // Virtua requires unique data keys or it can leave duplicate DOM rows.
+  const uniqueEntries = entries.filter((entry) => {
+    const key = entryRenderKey(entry);
+    if (renderedEntryKeys.has(key)) return false;
+    renderedEntryKeys.add(key);
+    return true;
+  });
   let previousGroupEntry: MainTimelineEntry | null = null;
   let previousMessageItemIndex: number | null = null;
 
@@ -173,24 +182,24 @@ export function buildTimelineItems(
   // start-of-day, not by the first message, keeps the day section from
   // remounting when older messages prepend into it.
   const dayBoundariesByStartIndex = new Map(
-    buildDayGroupBoundaries(entries.map((entry) => entry.message)).map(
+    buildDayGroupBoundaries(uniqueEntries.map((entry) => entry.message)).map(
       (boundary: DayGroupBoundary) => [boundary.startIndex, boundary] as const,
     ),
   );
   const membershipBarrierIndexes = new Set(dayBoundariesByStartIndex.keys());
   if (firstUnreadMessageId) {
-    const unreadIndex = entries.findIndex(
+    const unreadIndex = uniqueEntries.findIndex(
       (entry) => entry.message.id === firstUnreadMessageId,
     );
     if (unreadIndex > 0) membershipBarrierIndexes.add(unreadIndex);
   }
   const membershipGroupsByStartIndex = buildMembershipGroups(
-    entries,
+    uniqueEntries,
     membershipBarrierIndexes,
   );
 
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
+  for (let i = 0; i < uniqueEntries.length; i++) {
+    const entry = uniqueEntries[i];
     const { message } = entry;
     const renderKey = entryRenderKey(entry);
 

@@ -346,6 +346,25 @@ test("getTimelineItemKey: keys are unique across the stream", () => {
   assert.equal(new Set(keys).size, keys.length);
 });
 
+test("buildTimelineItems: duplicate render keys produce one virtual row", () => {
+  const original = entry({ id: "original" });
+  const duplicate = {
+    ...entry({ id: "canonical" }),
+    message: {
+      ...entry({ id: "canonical" }).message,
+      renderKey: "original",
+    },
+  };
+
+  const messageItems = buildTimelineItems(
+    [original, duplicate],
+    null,
+  ).items.filter((item) => item.kind === "message");
+
+  assert.equal(messageItems.length, 1);
+  assert.equal(getTimelineItemKey(messageItems[0]), "original");
+});
+
 test("buildTimelineDayGroups: moves non-day rows under their day section", () => {
   const entries = [
     entry({ id: "d1a", createdAt: dayAt(2026, 6, 12) }),
