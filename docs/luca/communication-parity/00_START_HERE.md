@@ -5,6 +5,10 @@ slice. The immutable product baseline is commit
 `81762ad144368bd1b5f5e7f144fdd19a57466676` on
 `codex/communication-parity`.
 
+The latest durable communication checkpoint is `d2d5bf7`. Before combining
+this work with the conversation-design branch, read
+`CROSS_SESSION_HANDOFF.md`.
+
 ## Product promise
 
 Luca preserves the useful communication system inherited from Buzz while
@@ -23,6 +27,7 @@ native Hermes/OpenClaw behavior are preservation boundaries for this slice.
 4. `TASK_GRAPH.yaml`
 5. `ACCEPTANCE.md`
 6. `RUN_LOG.md`
+7. `CROSS_SESSION_HANDOFF.md`
 
 ## Fixed architecture decisions
 
@@ -43,4 +48,3 @@ native Hermes/OpenClaw behavior are preservation boundaries for this slice.
 Stop and request Riley's decision only for a genuine architecture, privacy,
 authority, or data-loss conflict. A repeated identical environment failure gets
 one evidence-based repair attempt and is then recorded rather than looped.
-
