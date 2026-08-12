@@ -5,7 +5,7 @@
 | Purpose | Coordinate | Status |
 |---|---|---|
 | Audited integrated source | `codex/conversation-communication-integration` | Preserved source line; exact evidence remains in status/verdict documents |
-| Program control | `codex/program-control` at the exact HEAD recorded in the run log | Documentation/status only |
+| Program control | `codex/program-control`; pre-promotion validation commit `b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b` | Documentation/status only; final promotion SHA is recorded after revalidation |
 | User-opened checkout | `agent/runtime-reliability` in `/Users/rileycoyote/Documents/Repositories/luca-agent-network-v1` | Preserved; not used as the control worktree |
 | Onboarding reconciliation source | `codex/brain-onboarding-ux` | Read-only source inventory until task activation; never merge wholesale |
 | Historical program-status source | `f27bbce4d0366116ba34ad284eabceb35ed81dac` on `codex/communication-parity` | `reference_only`; exact commit/branch/content remain reachable; ancestry to control/release is not applicable |

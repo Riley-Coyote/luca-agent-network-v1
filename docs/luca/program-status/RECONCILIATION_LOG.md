@@ -41,5 +41,11 @@
 - Added CTRL-003 exact-commit validation and CTRL-004 revised Riley approval.
 - Teams, trains, product code, and shared product files remain inactive.
 
+The complete revised package was committed at exact
+`b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b` with control tasks unpromoted. All
+control validators passed on that clean exact commit; CTRL-003, TRUTH-001, and
+REUSE-001 were then promoted to `source_tested`. CTRL-001 remains
+evidence-backed by its original exact validation commit and was not rewritten.
+
 Exact revised-control commits and validator receipts are recorded in
 `docs/luca/program-control/RUN_LOG.md` after they exist.

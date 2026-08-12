@@ -11,8 +11,9 @@
 >
 > The revised graph is not yet Riley-approved. Product teams, integration
 > train, release candidate, product implementation, and shared-file writes are
-> inactive. The program-control branch is documentation/status only. The exact
-> validated control SHA will be recorded in the control run log after it exists.
+> inactive. The program-control branch is documentation/status only. The
+> revised control package passed exact-commit validation at
+> `b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b`; Riley approval remains pending.
 >
 > The detailed milestone material below remains historical architecture and
 > evidence. Its older continuation/release priority statements do not override

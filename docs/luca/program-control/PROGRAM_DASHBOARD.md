@@ -6,8 +6,8 @@ Updated: 2026-08-12
 
 | Item | State | Next gate |
 |---|---|---|
-| Revised control package | `implemented_in_source` | Commit, validate exact SHA, then promote CTRL-003 |
-| Product-truth and reuse audit | `implemented_in_source` | Exact-commit control validation |
+| Revised control package | `source_tested` on `b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b` | Riley revised-graph decision |
+| Product-truth and reuse audit | `source_tested` on the same exact commit | Riley revised-graph decision |
 | Riley revised-graph approval | `planned` | CTRL-004 explicit approval |
 | Five product teams | `inactive / not created` | CTRL-004 plus final approved control SHA |
 | P1 integration train | `inactive / not created` | P1/P2 team source gates |

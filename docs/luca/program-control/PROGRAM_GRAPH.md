@@ -20,7 +20,7 @@ flowchart LR
 | BASE-002 | Preserved onboarding/adjacent source inventory | `source_tested` |
 | CTRL-001 | Historical first control package | `source_tested` on its recorded exact commit |
 | CTRL-002 | Historical bounded approval/corrections | `implemented_in_source`; the later promotion commit did not complete final validation |
-| CTRL-003 | This revised P0–P5 control package | `implemented_in_source` until exact-commit validation is recorded |
+| CTRL-003 | This revised P0–P5 control package | `source_tested` on exact pre-promotion commit `b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b` |
 | CTRL-004 | Riley approval of the revised graph | `planned`; blocks every team and train |
 
 ## Task-count comparison

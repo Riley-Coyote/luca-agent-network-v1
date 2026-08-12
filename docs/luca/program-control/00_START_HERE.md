@@ -22,10 +22,12 @@ release publication.
 - Proposed combined tester release: `luca/v1-beta`
 - Proposed release worktree:
   `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-release-v1-beta`
+- Exact pre-promotion revised-control validation commit:
+  `b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b`
 
-The exact revised-control validation commit is recorded in `RUN_LOG.md` only
-after the documentation commit exists and every validator passes against that
-commit. Riley approval of the revised graph is a separate gate.
+The exact revised-control validation commit is recorded in `RUN_LOG.md` after
+the documentation commit exists and every validator passes against that
+commit. Riley approval of the revised graph remains a separate gate.
 
 ## Read order
 
@@ -74,8 +76,8 @@ or release completion.
 ## Current gate
 
 The prior control package and its corrected release name remain historical
-facts. This revised graph introduces CTRL-003 for exact-commit validation and
-CTRL-004 for Riley approval. Until CTRL-004 passes:
+facts. CTRL-003 is `source_tested` on the exact pre-promotion commit above;
+CTRL-004 remains Riley approval. Until CTRL-004 passes:
 
 - all five product teams are inactive;
 - all proposed team worktrees and branches remain uncreated;

@@ -71,8 +71,8 @@ applicable.
 
 ### Exact-commit sequence
 
-CTRL-003, TRUTH-001, and REUSE-001 remain `implemented_in_source` in this
-working tree. Required sequence:
+CTRL-003, TRUTH-001, and REUSE-001 remained `implemented_in_source` until the
+first committed revision passed. Required sequence:
 
 1. commit documentation only;
 2. prove changed-file scope, required candidate ancestry, historical-reference
@@ -85,8 +85,43 @@ working tree. Required sequence:
    exact commit;
 5. request CTRL-004 approval from Riley.
 
-Pre-promotion exact commit: pending.
+Pre-promotion exact commit:
+`b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b`.
 
-Final promotion exact commit: pending.
+Exact-commit results on that SHA:
+
+- Clean worktree and ancestry from the starting control commit: PASS.
+- Required files: PASS (19).
+- YAML/schema: PASS (4 files).
+- Graph/dependencies/cycles: PASS (69 tasks; P0 8, P1 12, P2 18, P3 7,
+  P4 9, P5 15; no duplicates, unknown dependencies, or cycles).
+- Task categories: PASS (37 product requirements, 12 existing architectural
+  constraints, 5 recommended safety measures, 7 optional hardening, 8 deferred
+  enhancements).
+- Acceptance and human graph references: PASS (64 acceptance rows; 69 task
+  IDs).
+- Commit-class schema: PASS (26 integration candidates; one historical
+  reference; eight reference files).
+- Candidate integration ancestry: PASS (26/26 ancestors of exact integration
+  coordinate `f1f1eb3b135cae287c372c3210da635f324a1f81`).
+- Historical reference: PASS; exact `f27bbce4d0366116ba34ad284eabceb35ed81dac`
+  exists, remains reachable from `codex/communication-parity`, has the exact
+  recorded title, and changes only the eight recorded status/handoff files.
+- Local Markdown links: PASS (23 files).
+- Commit changed-file scope: PASS (27 intended control/status/handoff files).
+- Release coordinate and worktree: PASS for `luca/v1-beta` and the matching
+  `release-v1-beta` worktree path.
+- Whitespace/diff: PASS.
+- Proposed team/train/release branches and worktrees absent: PASS (8/8 each).
+
+CTRL-003, TRUTH-001, and REUSE-001 were promoted to `source_tested` only after
+these results. CTRL-001 remains `source_tested` on its original exact evidence
+commit `63900cd2cb48299e24e73b0736c3faf95d8b6337`; this revision revalidates that
+historical record but does not rewrite its evidence. CTRL-002 remains
+`implemented_in_source`. CTRL-004 remains `planned`.
+
+The promotion record is committed only after the receipt above. Its immutable
+exact SHA is reported in the Program Lead handoff after the same validator set
+passes on that final clean commit; a commit cannot embed its own resulting SHA.
 
 Teams and trains remain inactive.

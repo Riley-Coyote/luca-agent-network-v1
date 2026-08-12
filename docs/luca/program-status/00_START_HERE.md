@@ -10,8 +10,8 @@ authority live in `docs/luca/program-control/`.
 - Audited integrated product line:
   `codex/conversation-communication-integration`.
 - Program-control line: `codex/program-control`.
-- Revised P0–P5 control package: awaiting exact-commit validation and Riley
-  approval.
+- Revised P0–P5 control package: exact-commit validated at
+  `b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b`; awaiting Riley approval.
 - Proposed combined tester branch: `luca/v1-beta`.
 - Product teams, integration train, release candidate, and tester release:
   inactive/uncreated.

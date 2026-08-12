@@ -5,7 +5,7 @@ coordinates:
   integration_branch: codex/conversation-communication-integration
   program_control_branch: codex/program-control
   program_control_worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-program-control
-  revised_control_validation_commit: pending_exact_commit
+  revised_control_validation_commit: b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b
   proposed_release_branch: luca/v1-beta
   proposed_release_worktree: /Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-release-v1-beta
 
@@ -23,12 +23,13 @@ control:
   CTRL-001:
     status: source_tested
     exact_validation_commit: 63900cd2cb48299e24e73b0736c3faf95d8b6337
+    revalidated_by_control_revision: b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b
   CTRL-002:
     status: implemented_in_source
     note: prior bounded approval and corrections recorded; later promotion commit did not complete final validation
   CTRL-003:
-    status: implemented_in_source
-    exact_validation_commit: pending_exact_commit
+    status: source_tested
+    exact_validation_commit: b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b
   CTRL-004:
     status: planned
     note: Riley approval required before team or train activation
