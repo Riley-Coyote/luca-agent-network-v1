@@ -1,15 +1,16 @@
 //! Trusted desktop bridge for turn-scoped resident communication.
 //!
-//! The restricted Communications MCP process can describe only five semantic
+//! The restricted Communications MCP process can describe only six semantic
 //! operations. This bridge authenticates the exact managed turn, rechecks the
 //! process-local turn registry and durable dispatch state for every frame, and
 //! resolves all identity, membership, artifact, signing, and publication
 //! authority inside the desktop process.
 //!
-//! Mutating operations end at [`CommunicationBrokerBackend::stage_action`]. A
-//! backend implementation must seal the exact signed event and durably prepare
-//! it in `CommunicationActionOutbox` before any relay submission. The bridge
-//! deliberately has no direct relay-publication escape hatch.
+//! Resident-authored publications end at
+//! [`CommunicationBrokerBackend::stage_action`]. Host-authorized DM resolution,
+//! private-room creation, and same-owner membership reuse the existing desktop
+//! operations through separate narrow backend methods; they cannot accept raw
+//! events or signing material from the model descendant.
 
 use std::{
     collections::{BTreeSet, HashMap},
@@ -31,6 +32,7 @@ use luca_protocol::{
     CommunicationOperationV1, Hex64, OpaqueArtifactHandleV1, OpaqueId, SafeU53, Sha256Ref,
     COMMUNICATION_ACTION_PROTOCOL, MAX_COMMUNICATION_ARTIFACTS, MAX_COMMUNICATION_BODY_BYTES,
     MAX_COMMUNICATION_PARTICIPANTS, MAX_COMMUNICATION_REACTION_BYTES,
+    MAX_COMMUNICATION_ROOM_LABEL_BYTES, MAX_COMMUNICATION_ROOM_METADATA_BYTES,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -46,6 +48,7 @@ const MAX_BROKER_FRAME_BYTES: usize = 768 * 1024;
 const MAX_READ_RESULT_BYTES: usize = 512 * 1024;
 const MAX_PAGE_ITEMS: usize = 256;
 const MAX_CONCURRENT_CONNECTIONS: usize = 16;
+const MAX_DM_PARTICIPANTS: usize = 9;
 
 static NEXT_CAPABILITY_GENERATION: AtomicU64 = AtomicU64::new(1);
 
@@ -78,6 +81,7 @@ enum BrokerOperation {
     Send,
     React,
     Invite,
+    CreatePrivateRoom,
 }
 
 impl BrokerOperation {
@@ -88,6 +92,7 @@ impl BrokerOperation {
             "send" => Ok(Self::Send),
             "react" => Ok(Self::React),
             "invite" => Ok(Self::Invite),
+            "create_private_room" => Ok(Self::CreatePrivateRoom),
             _ => Err(BrokerFailure::invalid_operation()),
         }
     }
@@ -99,6 +104,7 @@ impl BrokerOperation {
             Self::Send => "send",
             Self::React => "react",
             Self::Invite => "invite",
+            Self::CreatePrivateRoom => "create_private_room",
         }
     }
 }
@@ -265,6 +271,13 @@ pub(crate) struct StagedCommunicationAction {
     pub(crate) state: &'static str,
 }
 
+/// Body-free result from one existing host-authorized conversation operation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ManagedConversationMutation {
+    pub(crate) conversation_id: OpaqueId,
+    pub(crate) state: &'static str,
+}
+
 /// Trusted desktop integration seam. There is deliberately no `publish`
 /// method: mutating operations must pass through the durable action outbox.
 pub(crate) trait CommunicationBrokerBackend: Send + Sync + 'static {
@@ -285,6 +298,34 @@ pub(crate) trait CommunicationBrokerBackend: Send + Sync + 'static {
         scope: &CommunicationReadScope,
         conversation_id: &OpaqueId,
     ) -> Result<CommunicationConversationAuthority, BrokerFailure>;
+
+    /// Open or reuse the exact owner-visible direct participant set and return
+    /// its canonical membership snapshot.
+    fn resolve_direct_conversation(
+        &self,
+        authority: &CommunicationTurnAuthoritySnapshot,
+        participant_pubkeys: &BTreeSet<Hex64>,
+    ) -> Result<CommunicationConversationAuthority, BrokerFailure>;
+
+    /// Create or recover one deterministic owner-visible private room through
+    /// the existing owner channel and membership operations.
+    fn create_private_room(
+        &self,
+        authority: &CommunicationTurnAuthoritySnapshot,
+        operation_request_id: &OpaqueId,
+        label: &str,
+        purpose: Option<&str>,
+        participant_pubkeys: &BTreeSet<Hex64>,
+    ) -> Result<ManagedConversationMutation, BrokerFailure>;
+
+    /// Add one locally verified same-owner resident through the existing room
+    /// or DM membership operation. Activation is deliberately not represented.
+    fn invite_same_owner_resident(
+        &self,
+        authority: &CommunicationTurnAuthoritySnapshot,
+        conversation_id: &OpaqueId,
+        participant_pubkey: &Hex64,
+    ) -> Result<ManagedConversationMutation, BrokerFailure>;
 
     fn resolve_artifact_handles(
         &self,
@@ -489,6 +530,11 @@ impl CommunicationBridgeCore {
             BrokerOperation::Invite => {
                 self.handle_invite(authority, &operation_request_id, frame.arguments.clone())
             }
+            BrokerOperation::CreatePrivateRoom => self.handle_create_private_room(
+                authority,
+                &operation_request_id,
+                frame.arguments.clone(),
+            ),
         }?;
         if result.len() > MAX_READ_RESULT_BYTES {
             return Err(BrokerFailure::response_too_large());
@@ -549,6 +595,11 @@ impl CommunicationBridgeCore {
         validate_message_body(&raw.body, &raw.artifact_handle_ids)?;
         let mention_pubkeys = sorted_pubkeys(raw.mention_pubkeys)?;
         let activation_pubkeys = sorted_pubkeys(raw.activation_pubkeys)?;
+        if !activation_pubkeys.is_empty() {
+            // COM-103 owns visible activation and its delivery/activation
+            // result split. Do not open a DM before rejecting that request.
+            return Err(BrokerFailure::operation_not_implemented());
+        }
         if activation_pubkeys
             .iter()
             .any(|pubkey| mention_pubkeys.binary_search(pubkey).is_err())
@@ -687,10 +738,15 @@ impl CommunicationBridgeCore {
     fn handle_invite(
         &self,
         authority: CommunicationTurnAuthoritySnapshot,
-        operation_request_id: &OpaqueId,
+        _operation_request_id: &OpaqueId,
         arguments: Value,
     ) -> Result<String, BrokerFailure> {
         let raw: RawInviteParams = parse_arguments(arguments)?;
+        if raw.request_activation {
+            // COM-103 owns explicit activation. COM-102 must not imply that a
+            // successful membership mutation activated another resident.
+            return Err(BrokerFailure::operation_not_implemented());
+        }
         let participant_pubkey = parse_hex(raw.participant_pubkey)?;
         if participant_pubkey == authority.owner_pubkey
             || participant_pubkey == authority.resident_pubkey
@@ -717,18 +773,73 @@ impl CommunicationBridgeCore {
             .participant_pubkeys
             .contains(&participant_pubkey)
         {
-            return Err(BrokerFailure::already_present());
+            return serialize_read_result(serde_json::json!({
+                "conversation_id": conversation_id.as_str(),
+                "membership": "already_member",
+                "activation": "not_requested",
+            }));
         }
-        let operation = CommunicationOperationV1::InviteSameOwnerAgent {
-            participant_pubkey,
-            request_activation: raw.request_activation,
-        };
-        self.stage_request(
-            authority,
+        let rechecked = self.recheck_exact_authority(&authority)?;
+        let result = self.backend.invite_same_owner_resident(
+            &rechecked,
+            &conversation_id,
+            &participant_pubkey,
+        )?;
+        if !matches!(result.state, "member_added_or_present") {
+            return Err(BrokerFailure::managed_operation_failed());
+        }
+        serialize_read_result(serde_json::json!({
+            "conversation_id": result.conversation_id.as_str(),
+            "membership": result.state,
+            "activation": "not_requested",
+        }))
+    }
+
+    fn handle_create_private_room(
+        &self,
+        authority: CommunicationTurnAuthoritySnapshot,
+        operation_request_id: &OpaqueId,
+        arguments: Value,
+    ) -> Result<String, BrokerFailure> {
+        let raw: RawCreatePrivateRoomParams = parse_arguments(arguments)?;
+        validate_bounded_text(&raw.label, MAX_COMMUNICATION_ROOM_LABEL_BYTES)?;
+        if let Some(purpose) = raw.purpose.as_deref() {
+            validate_bounded_text(purpose, MAX_COMMUNICATION_ROOM_METADATA_BYTES)?;
+        }
+        let additional = sorted_pubkeys(raw.participant_pubkeys)?;
+        if additional.contains(&authority.owner_pubkey)
+            || additional.contains(&authority.resident_pubkey)
+        {
+            return Err(BrokerFailure::invalid_arguments());
+        }
+        if additional
+            .iter()
+            .any(|pubkey| !authority.owned_resident_pubkeys.contains(pubkey))
+        {
+            return Err(BrokerFailure::same_owner_required());
+        }
+        let mut participants = additional.into_iter().collect::<BTreeSet<_>>();
+        participants.insert(authority.owner_pubkey.clone());
+        participants.insert(authority.resident_pubkey.clone());
+        if participants.len() > MAX_COMMUNICATION_PARTICIPANTS {
+            return Err(BrokerFailure::invalid_arguments());
+        }
+
+        let rechecked = self.recheck_exact_authority(&authority)?;
+        let result = self.backend.create_private_room(
+            &rechecked,
             operation_request_id,
-            conversation.destination()?,
-            operation,
-        )
+            &raw.label,
+            raw.purpose.as_deref(),
+            &participants,
+        )?;
+        if !matches!(result.state, "created_or_existing") {
+            return Err(BrokerFailure::managed_operation_failed());
+        }
+        serialize_read_result(serde_json::json!({
+            "conversation_id": result.conversation_id.as_str(),
+            "room": result.state,
+        }))
     }
 
     fn resolve_send_destination(
@@ -779,20 +890,45 @@ impl CommunicationBridgeCore {
                     .collect::<BTreeSet<_>>();
                 participants.insert(authority.owner_pubkey.clone());
                 participants.insert(authority.resident_pubkey.clone());
+                if participants.len() > MAX_DM_PARTICIPANTS {
+                    return Err(BrokerFailure::invalid_arguments());
+                }
                 if participants.iter().any(|participant| {
                     participant != &authority.owner_pubkey
                         && !authority.owned_resident_pubkeys.contains(participant)
                 }) {
                     return Err(BrokerFailure::same_owner_required());
                 }
-                let participant_pubkeys = participants.iter().cloned().collect::<Vec<_>>();
-                let destination = CommunicationDestinationV1::DirectParticipants {
-                    participant_set_ref: participant_set_ref(&participant_pubkeys)?,
-                    participant_pubkeys,
-                };
-                Ok((destination, None, participants))
+                let rechecked = self.recheck_exact_authority(authority)?;
+                let conversation = self
+                    .backend
+                    .resolve_direct_conversation(&rechecked, &participants)?;
+                conversation.require_internal_write(&rechecked)?;
+                if conversation.participant_pubkeys != participants {
+                    return Err(BrokerFailure::membership_denied());
+                }
+                let conversation_id = conversation.conversation_id.clone();
+                Ok((
+                    conversation.destination()?,
+                    Some(conversation_id),
+                    participants,
+                ))
             }
         }
+    }
+
+    fn recheck_exact_authority(
+        &self,
+        authority: &CommunicationTurnAuthoritySnapshot,
+    ) -> Result<CommunicationTurnAuthoritySnapshot, BrokerFailure> {
+        let rechecked = self
+            .authority
+            .recheck(&self.context, &authority.coordinates)?;
+        require_exact_authority(&self.context, &authority.coordinates, &rechecked)?;
+        if &rechecked != authority {
+            return Err(BrokerFailure::stale_turn());
+        }
+        Ok(rechecked)
     }
 
     fn stage_request(
@@ -811,13 +947,7 @@ impl CommunicationBridgeCore {
         // Cancellation, turn completion, runtime replacement, membership, and
         // custody can race semantic resolution. Recheck the exact tuple again
         // immediately before handing the action to durable staging.
-        let rechecked = self
-            .authority
-            .recheck(&self.context, &authority.coordinates)?;
-        require_exact_authority(&self.context, &authority.coordinates, &rechecked)?;
-        if rechecked != authority {
-            return Err(BrokerFailure::stale_turn());
-        }
+        let rechecked = self.recheck_exact_authority(&authority)?;
         let staged = self.backend.stage_action(request.clone(), &rechecked)?;
         if staged.action_id != request.action_id
             || staged.idempotency_key != request.idempotency_key
@@ -1191,6 +1321,16 @@ struct RawInviteParams {
     request_activation: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawCreatePrivateRoomParams {
+    label: String,
+    #[serde(default)]
+    purpose: Option<String>,
+    #[serde(default)]
+    participant_pubkeys: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct BrokerFailure {
     code: &'static str,
@@ -1271,9 +1411,6 @@ impl BrokerFailure {
             "The resident may remove only its own reaction.",
         )
     }
-    pub(crate) fn already_present() -> Self {
-        Self::new("already_present", "The agent is already a participant.")
-    }
     pub(crate) fn outbox_unavailable() -> Self {
         Self::new(
             "outbox_unavailable",
@@ -1284,6 +1421,18 @@ impl BrokerFailure {
         Self::new(
             "operation_not_implemented",
             "This communication operation is not implemented yet.",
+        )
+    }
+    pub(crate) fn managed_operation_failed() -> Self {
+        Self::new(
+            "managed_operation_failed",
+            "The existing conversation operation could not be completed.",
+        )
+    }
+    pub(crate) fn membership_partial() -> Self {
+        Self::new(
+            "membership_partial",
+            "The conversation exists, but its requested membership is incomplete.",
         )
     }
     fn response_too_large() -> Self {
@@ -1532,6 +1681,13 @@ fn validate_message_body(body: &str, artifacts: &[String]) -> Result<(), BrokerF
         || body.len() > MAX_COMMUNICATION_BODY_BYTES
         || body.contains('\0')
     {
+        return Err(BrokerFailure::invalid_arguments());
+    }
+    Ok(())
+}
+
+fn validate_bounded_text(value: &str, maximum: usize) -> Result<(), BrokerFailure> {
+    if value.is_empty() || value.trim() != value || value.len() > maximum || value.contains('\0') {
         return Err(BrokerFailure::invalid_arguments());
     }
     Ok(())

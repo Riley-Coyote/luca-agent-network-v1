@@ -28,6 +28,8 @@ const MAX_BROKER_FRAME_BYTES: usize = 768 * 1024;
 const MAX_MESSAGE_BYTES: usize = 65_536;
 const MAX_REACTION_BYTES: usize = 64;
 const MAX_PARTICIPANTS: usize = 64;
+const MAX_ROOM_LABEL_BYTES: usize = 120;
+const MAX_ROOM_METADATA_BYTES: usize = 1_024;
 const MAX_ARTIFACTS: usize = 16;
 const MAX_PAGE_ITEMS: usize = 256;
 const MAX_SAFE_U53: u64 = 9_007_199_254_740_991;
@@ -42,6 +44,7 @@ enum BrokerOperation {
     Send,
     React,
     Invite,
+    CreatePrivateRoom,
 }
 
 impl BrokerOperation {
@@ -52,6 +55,7 @@ impl BrokerOperation {
             Self::Send => "send",
             Self::React => "react",
             Self::Invite => "invite",
+            Self::CreatePrivateRoom => "create_private_room",
         }
     }
 }
@@ -550,15 +554,45 @@ pub(crate) struct CommunicationsInviteParams {
     /// Exact same-owner resident public key. External identities are not
     /// representable through this restricted tool.
     participant_pubkey: String,
-    /// Separately request activation after invitation. Invitation may succeed
-    /// while activation is skipped or fails.
+    /// Reserved for COM-103 explicit activation. COM-102 accepts only false
+    /// and fails closed before mutation when true.
     #[serde(default)]
     request_activation: bool,
 }
 
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CommunicationsCreatePrivateRoomParams {
+    /// Human-readable private-room label.
+    label: String,
+    /// Optional bounded purpose presented with the room.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    purpose: Option<String>,
+    /// Additional same-owner residents. The trusted desktop always adds the
+    /// owner and acting resident and verifies local custody.
+    #[serde(default)]
+    participant_pubkeys: Vec<String>,
+}
+
+impl CommunicationsCreatePrivateRoomParams {
+    fn validate(&self) -> Result<(), String> {
+        if !valid_bounded_text(&self.label, MAX_ROOM_LABEL_BYTES)
+            || self
+                .purpose
+                .as_ref()
+                .is_some_and(|purpose| !valid_bounded_text(purpose, MAX_ROOM_METADATA_BYTES))
+            || !valid_unique_pubkeys(&self.participant_pubkeys, MAX_PARTICIPANTS - 2)
+        {
+            return Err("private room request is invalid".into());
+        }
+        Ok(())
+    }
+}
+
 impl CommunicationsInviteParams {
     fn validate(&self) -> Result<(), String> {
-        if !is_hex64(&self.participant_pubkey)
+        if self.request_activation
+            || !is_hex64(&self.participant_pubkey)
             || self
                 .conversation_id
                 .as_ref()
@@ -637,7 +671,7 @@ impl LucaCommunicationsMcp {
 
     #[tool(
         name = "communications_invite",
-        description = "Invite one locally verified same-owner agent to an owner-visible conversation. External invitations are unavailable here."
+        description = "Add one locally verified same-owner agent to an owner-visible conversation without activating it. External invitations and activation are unavailable here."
     )]
     async fn communications_invite(
         &self,
@@ -645,6 +679,20 @@ impl LucaCommunicationsMcp {
     ) -> Result<CallToolResult, ErrorData> {
         params.validate().map_err(invalid_params)?;
         self.client.call(BrokerOperation::Invite, params).await
+    }
+
+    #[tool(
+        name = "communications_create_private_room",
+        description = "Create or recover one owner-visible private room for locally verified same-owner residents through Luca's existing room operations."
+    )]
+    async fn communications_create_private_room(
+        &self,
+        Parameters(params): Parameters<CommunicationsCreatePrivateRoomParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        params.validate().map_err(invalid_params)?;
+        self.client
+            .call(BrokerOperation::CreatePrivateRoom, params)
+            .await
     }
 }
 
@@ -688,6 +736,10 @@ fn has_duplicates(values: &[String]) -> bool {
         .iter()
         .enumerate()
         .any(|(index, value)| values[..index].contains(value))
+}
+
+fn valid_bounded_text(value: &str, maximum: usize) -> bool {
+    !value.is_empty() && value.trim() == value && value.len() <= maximum && !value.contains('\0')
 }
 
 fn is_hex64(value: &str) -> bool {
@@ -737,7 +789,7 @@ mod tests {
     }
 
     #[test]
-    fn exposes_only_the_five_semantic_communication_tools() {
+    fn exposes_only_the_six_semantic_communication_tools() {
         let mut names = LucaCommunicationsMcp::tool_router()
             .list_all()
             .into_iter()
@@ -748,6 +800,7 @@ mod tests {
             names,
             vec![
                 "communications_conversation",
+                "communications_create_private_room",
                 "communications_inbox",
                 "communications_invite",
                 "communications_react",
@@ -759,6 +812,30 @@ mod tests {
                 .iter()
                 .any(|forbidden| name.contains(forbidden))
         }));
+    }
+
+    #[test]
+    fn private_room_shape_is_bounded_and_same_owner_semantic_only() {
+        let params: CommunicationsCreatePrivateRoomParams =
+            serde_json::from_value(serde_json::json!({
+                "label": "Release room",
+                "purpose": "Coordinate the functional preview.",
+                "participant_pubkeys": [event_id('b')],
+            }))
+            .expect("private room request");
+        assert!(params.validate().is_ok());
+
+        let blank: CommunicationsCreatePrivateRoomParams =
+            serde_json::from_value(serde_json::json!({"label": " "})).expect("syntactic request");
+        assert!(blank.validate().is_err());
+
+        let duplicate: CommunicationsCreatePrivateRoomParams =
+            serde_json::from_value(serde_json::json!({
+                "label": "Room",
+                "participant_pubkeys": [event_id('c'), event_id('c')],
+            }))
+            .expect("syntactic request");
+        assert!(duplicate.validate().is_err());
     }
 
     #[test]
@@ -841,6 +918,24 @@ mod tests {
             }
         }));
         assert!(destructive.is_err());
+    }
+
+    #[test]
+    fn invitation_activation_is_reserved_for_com_103() {
+        let membership_only: CommunicationsInviteParams =
+            serde_json::from_value(serde_json::json!({
+                "participant_pubkey": event_id('d'),
+                "request_activation": false,
+            }))
+            .expect("membership request");
+        assert!(membership_only.validate().is_ok());
+
+        let activation: CommunicationsInviteParams = serde_json::from_value(serde_json::json!({
+            "participant_pubkey": event_id('d'),
+            "request_activation": true,
+        }))
+        .expect("syntactic request");
+        assert!(activation.validate().is_err());
     }
 
     #[test]

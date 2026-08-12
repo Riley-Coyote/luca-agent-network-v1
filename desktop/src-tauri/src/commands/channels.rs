@@ -478,6 +478,19 @@ fn is_duplicate_channel_rejection(error: &str) -> bool {
     error.contains("relay rejected event:") && error.contains("duplicate: channel already exists")
 }
 
+fn exact_channel_metadata_matches(
+    channel: &ChannelInfo,
+    name: &str,
+    visibility: &str,
+    channel_type: &str,
+    description: Option<&str>,
+) -> bool {
+    channel.name == name
+        && channel.visibility == visibility
+        && channel.channel_type == channel_type
+        && channel.description == description.unwrap_or_default()
+}
+
 fn is_matching_starter_channel(channel: &ChannelInfo, spec: &StarterChannelSpec) -> bool {
     normalize_channel_name(&channel.name) == normalize_channel_name(spec.name)
         && channel.channel_type == "stream"
@@ -552,25 +565,65 @@ pub async fn create_channel(
     ttl_seconds: Option<i32>,
     state: State<'_, AppState>,
 ) -> Result<ChannelInfo, String> {
-    let channel_uuid = uuid::Uuid::new_v4();
+    create_channel_at_uuid(
+        uuid::Uuid::new_v4(),
+        &name,
+        &channel_type,
+        &visibility,
+        description.as_deref(),
+        ttl_seconds,
+        false,
+        &state,
+    )
+    .await
+}
 
-    let vis = match visibility.as_str() {
-        "open" | "private" => visibility.as_str(),
+/// Internal managed-operation seam for retry-stable private-room creation.
+///
+/// The registered owner command above remains random-ID and unchanged at its
+/// public boundary. Managed communication derives the UUID from its exact
+/// operation identity and may therefore safely recover a matching duplicate.
+pub(crate) async fn create_channel_with_exact_uuid(
+    channel_uuid: uuid::Uuid,
+    name: &str,
+    description: Option<&str>,
+    state: &AppState,
+) -> Result<ChannelInfo, String> {
+    create_channel_at_uuid(
+        channel_uuid,
+        name,
+        "stream",
+        "private",
+        description,
+        None,
+        true,
+        state,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn create_channel_at_uuid(
+    channel_uuid: uuid::Uuid,
+    name: &str,
+    channel_type: &str,
+    visibility: &str,
+    description: Option<&str>,
+    ttl_seconds: Option<i32>,
+    recover_matching_duplicate: bool,
+    state: &AppState,
+) -> Result<ChannelInfo, String> {
+    let vis = match visibility {
+        "open" | "private" => visibility,
         other => return Err(format!("invalid visibility: {other}")),
     };
-    let ct = match channel_type.as_str() {
-        "stream" | "forum" => channel_type.as_str(),
+    let ct = match channel_type {
+        "stream" | "forum" => channel_type,
         other => return Err(format!("invalid channel_type: {other}")),
     };
 
-    let builder = events::build_create_channel(
-        channel_uuid,
-        &name,
-        vis,
-        ct,
-        description.as_deref(),
-        ttl_seconds,
-    )?;
+    let builder =
+        events::build_create_channel(channel_uuid, name, vis, ct, description, ttl_seconds)?;
 
     // Capture the signing identity before submission so the pending-owner
     // mark below is bound to whoever actually signed this create — not
@@ -579,7 +632,11 @@ pub async fn create_channel(
     // able to retarget the mark onto the new identity.
     let creator_keys = state.signing_keys()?;
     let creator_pubkey = creator_keys.public_key().to_hex();
-    submit_event_with_keys(builder, &state, &creator_keys, None).await?;
+    let created = match submit_event_with_keys(builder, state, &creator_keys, None).await {
+        Ok(_) => true,
+        Err(error) if recover_matching_duplicate && is_duplicate_channel_rejection(&error) => false,
+        Err(error) => return Err(error),
+    };
 
     // Mark this channel pending-owner: we just created it, so we know we're
     // the owner, but the relay's kind:39002 membership entry (#1761) is
@@ -588,11 +645,13 @@ pub async fn create_channel(
     // to the identity that signed the create above, so an in-process
     // identity swap can neither inherit nor retarget this entry.
     let channel_uuid_string = channel_uuid.to_string();
-    state.mark_pending_owned_channel(&creator_pubkey, &channel_uuid_string);
+    if created {
+        state.mark_pending_owned_channel(&creator_pubkey, &channel_uuid_string);
+    }
 
     // Re-fetch the canonical metadata event to return ChannelInfo.
     let events = query_relay(
-        &state,
+        state,
         &[serde_json::json!({
             "kinds": [39000],
             "#d": [channel_uuid_string],
@@ -601,11 +660,22 @@ pub async fn create_channel(
     )
     .await?;
 
-    events
+    let channel = events
         .first()
         .map(|ev| nostr_convert::channel_info_from_event(ev, None, None))
         .transpose()?
-        .ok_or_else(|| "channel created but metadata not yet available".to_string())
+        .ok_or_else(|| "channel created but metadata not yet available".to_string())?;
+    if recover_matching_duplicate
+        && !exact_channel_metadata_matches(&channel, name, vis, ct, description)
+    {
+        return Err("existing channel does not match the managed room request".to_string());
+    }
+    if !created {
+        // A retry may recover only the exact metadata previously requested;
+        // mark it pending-owner after that binding has been verified.
+        state.mark_pending_owned_channel(&creator_pubkey, &channel_uuid_string);
+    }
+    Ok(channel)
 }
 
 #[tauri::command]

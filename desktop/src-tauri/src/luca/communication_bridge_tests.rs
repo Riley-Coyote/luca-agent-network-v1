@@ -74,6 +74,9 @@ impl CommunicationTurnAuthority for TestAuthority {
 #[derive(Default)]
 struct TestBackend {
     conversations: Mutex<HashMap<String, CommunicationConversationAuthority>>,
+    direct_resolutions: Mutex<Vec<BTreeSet<Hex64>>>,
+    created_rooms: Mutex<Vec<(OpaqueId, String, Option<String>, BTreeSet<Hex64>)>>,
+    invitations: Mutex<Vec<(OpaqueId, Hex64)>>,
     staged: Mutex<
         Vec<(
             CommunicationActionRequestV1,
@@ -144,6 +147,60 @@ impl CommunicationBrokerBackend for TestBackend {
             .get(conversation_id.as_str())
             .cloned()
             .ok_or_else(BrokerFailure::membership_denied)
+    }
+
+    fn resolve_direct_conversation(
+        &self,
+        _authority: &CommunicationTurnAuthoritySnapshot,
+        participant_pubkeys: &BTreeSet<Hex64>,
+    ) -> Result<CommunicationConversationAuthority, BrokerFailure> {
+        self.direct_resolutions
+            .lock()
+            .expect("direct resolutions")
+            .push(participant_pubkeys.clone());
+        Ok(CommunicationConversationAuthority {
+            conversation_id: opaque("resolved-direct"),
+            participant_pubkeys: participant_pubkeys.clone(),
+            participant_set_version: safe(4),
+            agent_may_invite_same_owner: true,
+            read_only: false,
+        })
+    }
+
+    fn create_private_room(
+        &self,
+        _authority: &CommunicationTurnAuthoritySnapshot,
+        operation_request_id: &OpaqueId,
+        label: &str,
+        purpose: Option<&str>,
+        participant_pubkeys: &BTreeSet<Hex64>,
+    ) -> Result<ManagedConversationMutation, BrokerFailure> {
+        self.created_rooms.lock().expect("created rooms").push((
+            operation_request_id.clone(),
+            label.to_owned(),
+            purpose.map(str::to_owned),
+            participant_pubkeys.clone(),
+        ));
+        Ok(ManagedConversationMutation {
+            conversation_id: opaque("managed-room"),
+            state: "created_or_existing",
+        })
+    }
+
+    fn invite_same_owner_resident(
+        &self,
+        _authority: &CommunicationTurnAuthoritySnapshot,
+        conversation_id: &OpaqueId,
+        participant_pubkey: &Hex64,
+    ) -> Result<ManagedConversationMutation, BrokerFailure> {
+        self.invitations
+            .lock()
+            .expect("invitations")
+            .push((conversation_id.clone(), participant_pubkey.clone()));
+        Ok(ManagedConversationMutation {
+            conversation_id: conversation_id.clone(),
+            state: "member_added_or_present",
+        })
     }
 
     fn resolve_artifact_handles(
@@ -314,6 +371,42 @@ fn cancellation_between_parse_and_staging_prevents_the_action() {
 }
 
 #[test]
+fn cancellation_prevents_direct_resolution_and_room_creation() {
+    let direct = Fixture::new();
+    direct.authority.fail_on_call(2);
+    let response = direct.response(
+        "send",
+        json!({
+            "destination": {
+                "destination_type": "direct_participants",
+                "participant_pubkeys": [OTHER_RESIDENT],
+            },
+            "body": "must not open a DM",
+        }),
+    );
+    assert!(!response.ok);
+    assert_eq!(response.receipt.diagnostic_code, Some("turn_not_active"));
+    assert!(direct
+        .backend
+        .direct_resolutions
+        .lock()
+        .expect("direct resolutions")
+        .is_empty());
+
+    let room = Fixture::new();
+    room.authority.fail_on_call(2);
+    let response = room.response("create_private_room", json!({"label": "Must not exist"}));
+    assert!(!response.ok);
+    assert_eq!(response.receipt.diagnostic_code, Some("turn_not_active"));
+    assert!(room
+        .backend
+        .created_rooms
+        .lock()
+        .expect("created rooms")
+        .is_empty());
+}
+
+#[test]
 fn raw_paths_and_raw_events_are_not_representable() {
     let fixture = Fixture::new();
     for arguments in [
@@ -378,24 +471,29 @@ fn direct_agent_message_is_forced_owner_visible_and_external_delivery_is_denied(
             },
             "body": "owner-visible A2A",
             "mention_pubkeys": [OTHER_RESIDENT],
-            "activation_pubkeys": [OTHER_RESIDENT],
         }),
     );
     assert!(response.ok);
     let staged = fixture.backend.staged.lock().expect("staged");
     let (request, authority) = staged.last().expect("staged request");
     assert_eq!(authority.resident_pubkey, hex64(RESIDENT));
-    let CommunicationDestinationV1::DirectParticipants {
-        participant_pubkeys,
-        ..
+    let CommunicationDestinationV1::ExistingConversation {
+        conversation_id, ..
     } = &request.destination
     else {
-        panic!("direct destination");
+        panic!("resolved direct destination");
     };
-    assert_eq!(
-        participant_pubkeys,
-        &vec![hex64(OWNER), hex64(RESIDENT), hex64(OTHER_RESIDENT)]
-    );
+    assert_eq!(conversation_id, &opaque("resolved-direct"));
+    let resolutions = fixture
+        .backend
+        .direct_resolutions
+        .lock()
+        .expect("direct resolutions");
+    let expected_participants = [hex64(OWNER), hex64(RESIDENT), hex64(OTHER_RESIDENT)]
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    assert_eq!(resolutions.last(), Some(&expected_participants));
+    drop(resolutions);
     drop(staged);
 
     let response = fixture.response(
@@ -413,6 +511,141 @@ fn direct_agent_message_is_forced_owner_visible_and_external_delivery_is_denied(
         response.receipt.diagnostic_code,
         Some("same_owner_required")
     );
+}
+
+#[test]
+fn private_room_and_same_owner_membership_use_bounded_host_operations() {
+    let fixture = Fixture::new();
+    let response = fixture.response(
+        "create_private_room",
+        json!({
+            "label": "Release room",
+            "purpose": "Coordinate the preview.",
+            "participant_pubkeys": [OTHER_RESIDENT],
+        }),
+    );
+    assert!(response.ok);
+    let created = fixture.backend.created_rooms.lock().expect("created rooms");
+    assert_eq!(created.len(), 1);
+    assert_eq!(created[0].0, opaque("operation-1"));
+    assert_eq!(created[0].1, "Release room");
+    assert_eq!(created[0].2.as_deref(), Some("Coordinate the preview."));
+    assert_eq!(
+        created[0].3,
+        [hex64(OWNER), hex64(RESIDENT), hex64(OTHER_RESIDENT)]
+            .into_iter()
+            .collect()
+    );
+    drop(created);
+
+    let response = fixture.response(
+        "invite",
+        json!({
+            "participant_pubkey": OTHER_RESIDENT,
+            "request_activation": false,
+        }),
+    );
+    assert!(response.ok);
+    assert!(fixture
+        .backend
+        .invitations
+        .lock()
+        .expect("invitations")
+        .is_empty());
+
+    fixture
+        .backend
+        .insert_conversation(CommunicationConversationAuthority {
+            conversation_id: opaque("owner-and-resident"),
+            participant_pubkeys: [hex64(OWNER), hex64(RESIDENT)].into_iter().collect(),
+            participant_set_version: safe(5),
+            agent_may_invite_same_owner: true,
+            read_only: false,
+        });
+    let response = fixture.response(
+        "invite",
+        json!({
+            "conversation_id": "owner-and-resident",
+            "participant_pubkey": OTHER_RESIDENT,
+            "request_activation": false,
+        }),
+    );
+    assert!(response.ok);
+    assert_eq!(
+        fixture
+            .backend
+            .invitations
+            .lock()
+            .expect("invitations")
+            .as_slice(),
+        &[(opaque("owner-and-resident"), hex64(OTHER_RESIDENT))]
+    );
+}
+
+#[test]
+fn activation_and_external_room_participants_fail_before_host_mutation() {
+    let fixture = Fixture::new();
+    let activation = fixture.response(
+        "invite",
+        json!({
+            "participant_pubkey": OTHER_RESIDENT,
+            "request_activation": true,
+        }),
+    );
+    assert!(!activation.ok);
+    assert_eq!(
+        activation.receipt.diagnostic_code,
+        Some("operation_not_implemented")
+    );
+    assert!(fixture
+        .backend
+        .invitations
+        .lock()
+        .expect("invitations")
+        .is_empty());
+
+    let direct_activation = fixture.response(
+        "send",
+        json!({
+            "destination": {
+                "destination_type": "direct_participants",
+                "participant_pubkeys": [OTHER_RESIDENT],
+            },
+            "body": "Do not open this DM yet.",
+            "mention_pubkeys": [OTHER_RESIDENT],
+            "activation_pubkeys": [OTHER_RESIDENT],
+        }),
+    );
+    assert!(!direct_activation.ok);
+    assert_eq!(
+        direct_activation.receipt.diagnostic_code,
+        Some("operation_not_implemented")
+    );
+    assert!(fixture
+        .backend
+        .direct_resolutions
+        .lock()
+        .expect("direct resolutions")
+        .is_empty());
+
+    let external = fixture.response(
+        "create_private_room",
+        json!({
+            "label": "External room",
+            "participant_pubkeys": [EXTERNAL],
+        }),
+    );
+    assert!(!external.ok);
+    assert_eq!(
+        external.receipt.diagnostic_code,
+        Some("same_owner_required")
+    );
+    assert!(fixture
+        .backend
+        .created_rooms
+        .lock()
+        .expect("created rooms")
+        .is_empty());
 }
 
 #[test]

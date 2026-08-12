@@ -267,6 +267,50 @@ fn duplicate_channel_rejection_is_ensure_success_only() {
 }
 
 #[test]
+fn exact_channel_recovery_requires_matching_private_room_metadata() {
+    let channel = ChannelInfo {
+        id: "11111111-1111-5111-8111-111111111111".into(),
+        name: "Release room".into(),
+        channel_type: "stream".into(),
+        visibility: "private".into(),
+        description: "Coordinate the preview.".into(),
+        topic: None,
+        purpose: None,
+        member_count: 1,
+        member_pubkeys: Vec::new(),
+        last_message_at: None,
+        archived_at: None,
+        participants: Vec::new(),
+        participant_pubkeys: Vec::new(),
+        is_member: true,
+        ttl_seconds: None,
+        ttl_deadline: None,
+    };
+
+    assert!(exact_channel_metadata_matches(
+        &channel,
+        "Release room",
+        "private",
+        "stream",
+        Some("Coordinate the preview."),
+    ));
+    assert!(!exact_channel_metadata_matches(
+        &channel,
+        "Other room",
+        "private",
+        "stream",
+        Some("Coordinate the preview."),
+    ));
+    assert!(!exact_channel_metadata_matches(
+        &channel,
+        "Release room",
+        "open",
+        "stream",
+        Some("Coordinate the preview."),
+    ));
+}
+
+#[test]
 fn starter_match_requires_open_unarchived_stream_by_normalized_name() {
     let spec = &STARTER_CHANNELS[0];
     let mut channel = ChannelInfo {
