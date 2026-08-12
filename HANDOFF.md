@@ -1,5 +1,12 @@
 # Luca V1 continuation handoff
 
+> **Current status override (2026-08-12):** This handoff predates the combined
+> conversation/communication integration and the cross-session program audit.
+> Begin with [`docs/luca/program-status/00_START_HERE.md`](docs/luca/program-status/00_START_HERE.md).
+> The newest integrated coordinate is
+> `codex/conversation-communication-integration` at `5cd754e`; `luca/v1.1`
+> remains the last earlier release line, not the newest complete source line.
+
 Updated: 2026-08-10
 
 Repository: `Riley-Coyote/luca-agent-network-v1`
