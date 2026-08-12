@@ -376,7 +376,7 @@ export function AppShell() {
       identityQuery.data?.pubkey,
       notificationSettings.settings,
       notificationSettings.setDesktopEnabled,
-      selectedView === "home" && !settingsOpen,
+      (selectedView === "home" || selectedView === "inbox") && !settingsOpen,
       getChannelReadAt,
       readStateVersion,
       highPriorityUnreadChannelIds,

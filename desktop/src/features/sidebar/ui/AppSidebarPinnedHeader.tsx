@@ -1,4 +1,4 @@
-import { Activity, Bot, Brain, Plus, Settings } from "lucide-react";
+import { Activity, Bot, Brain, Inbox, Plus, Settings } from "lucide-react";
 
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
 import type { Channel, SearchHit } from "@/shared/api/types";
@@ -41,6 +41,7 @@ type AppSidebarPrimaryMenuProps = {
   onNewMessage: () => void;
   onSelectAgents: () => void;
   onSelectBrain: () => void;
+  onSelectInbox: () => void;
   onSelectPulse: () => void;
   onSelectSettings: () => void;
   selectedView: SidebarSelectedView;
@@ -86,6 +87,7 @@ export function AppSidebarPrimaryMenu({
   onNewMessage,
   onSelectAgents,
   onSelectBrain,
+  onSelectInbox,
   onSelectPulse,
   onSelectSettings,
   selectedView,
@@ -111,6 +113,26 @@ export function AppSidebarPrimaryMenu({
         </SidebarMenuItem>
         <SidebarMenuItem>
           <SidebarMenuButton
+            data-testid="open-inbox-view"
+            isActive={selectedView === "inbox"}
+            onClick={onSelectInbox}
+            tooltip="Inbox"
+            type="button"
+          >
+            <Inbox className="h-4 w-4" />
+            <SidebarMenuLabel>Inbox</SidebarMenuLabel>
+          </SidebarMenuButton>
+          {homeBadgeCount > 0 ? (
+            <SidebarMenuBadge
+              className="right-2 rounded-full bg-primary/15 px-1.5 text-2xs text-primary peer-data-[active=true]/menu-button:bg-sidebar-active-foreground/20 peer-data-[active=true]/menu-button:text-sidebar-active-foreground"
+              data-testid="sidebar-home-count"
+            >
+              {Math.min(homeBadgeCount, 99)}
+            </SidebarMenuBadge>
+          ) : null}
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton
             data-testid="open-agents-view"
             isActive={selectedView === "agents"}
             onClick={onSelectAgents}
@@ -133,14 +155,6 @@ export function AppSidebarPrimaryMenu({
             <Activity className="h-4 w-4" />
             <SidebarMenuLabel>Activity</SidebarMenuLabel>
           </SidebarMenuButton>
-          {homeBadgeCount > 0 ? (
-            <SidebarMenuBadge
-              className="right-2 rounded-full bg-primary/15 px-1.5 text-2xs text-primary peer-data-[active=true]/menu-button:bg-sidebar-active-foreground/20 peer-data-[active=true]/menu-button:text-sidebar-active-foreground"
-              data-testid="sidebar-home-count"
-            >
-              {Math.min(homeBadgeCount, 99)}
-            </SidebarMenuBadge>
-          ) : null}
         </SidebarMenuItem>
         <SidebarMenuItem>
           <SidebarMenuButton
