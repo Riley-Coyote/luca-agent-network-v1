@@ -2,11 +2,11 @@
 
 ## Verdict
 
-**INTEGRATED — SOURCE AND SIGNED CANDIDATE VERIFIED; PROMOTION AWAITING APPROVAL**
+**INTEGRATED — SIGNED BRANCH-SPECIFIC APP PROMOTED**
 
 The approved conversation-design and communication-parity histories merge cleanly and the combined behavioral, authority, frontend, and isolated-browser checks below pass. File-size thresholds are review signals under the current repository policy and do not mechanically block this checkpoint.
 
-No installed application was replaced. An exact branch-specific candidate was built and signed, but the protected atomic replacement remains separately approval-gated.
+Riley explicitly authorized the protected atomic replacement. The exact branch-specific candidate was installed and relaunched with the prior bundle retained for rollback.
 
 ## Checkpoint
 
@@ -102,8 +102,12 @@ Focused policy verification:
 - Authorized Keychain verification found the established valid identity `Developer ID Application: Riley Ralmuto (WQUY4M5HYR)`; the earlier sandbox-limited query could not see it.
 - The existing installed bundle does not pass strict deep code-signing verification (`CSSMERR_TP_NOT_TRUSTED`). This is historical installed-bundle state, not a result of the combined source checkpoint.
 - The exact branch-specific candidate was built with all five sidecars, keyring service `buzz-desktop-dev.conversation-acceptance`, bundle identifier `com.luca.agent-network.dev.codex-luca-operator-native-forge`, and version `0.4.22`.
-- The staged candidate is signed by team `WQUY4M5HYR`, carries the repository camera, audio-input, and disable-library-validation entitlements, and passes strict deep verification. It has not been launched or installed.
-- Promotion must resume only after explicit replacement approval, then capture the rollback bundle, atomically replace the branch-specific app, and run installed acceptance.
+- The candidate is signed by team `WQUY4M5HYR`, carries the repository camera, audio-input, and disable-library-validation entitlements, and passes strict deep verification before and after installation.
+- The installed candidate passes strict deep verification and is running from the exact branch-specific application path with executable SHA-256 `ad607a83b9b567ad6b2efa1d79e6c32d42eed16991af92e3976642d987a80f78`.
+- The prior executable SHA-256 `b600edb76f22158a9420a216327705723a520131219f60300b95c5cd6ce59852` is retained under `Polyphonic Rollbacks/conversation-communication-20260812T053658Z`.
+- Relay port `3030` remained healthy throughout replacement and returned `ok` after relaunch.
+- The existing profile opened without onboarding or missing-identity recovery; the installed shell displayed the existing projects, rooms, residents, and conversation state.
+- Pre/post body-free hashes matched exactly for protected Hermes and OpenClaw configuration, identity, model, memory/workspace, schedule, credential sets, and the bounded Hermes session set. No native runtime mutation was observed.
 
 ## Browser evidence
 
