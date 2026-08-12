@@ -16,22 +16,43 @@ import {
 
 test("matchesInboxFilter returns true for the 'all' filter regardless of categories", () => {
   assert.equal(matchesInboxFilter({ categories: [] }, "all"), true);
-  assert.equal(matchesInboxFilter({ categories: ["mentions"] }, "all"), true);
+  assert.equal(matchesInboxFilter({ categories: ["mention"] }, "all"), true);
 });
 
 test("matchesInboxFilter matches when the category is present", () => {
   assert.equal(
-    matchesInboxFilter({ categories: ["mentions", "activity"] }, "mentions"),
+    matchesInboxFilter({ categories: ["mention", "activity"] }, "mention"),
     true,
   );
 });
 
 test("matchesInboxFilter is false when the category is absent", () => {
   assert.equal(
-    matchesInboxFilter({ categories: ["activity"] }, "mentions"),
+    matchesInboxFilter({ categories: ["activity"] }, "mention"),
     false,
   );
-  assert.equal(matchesInboxFilter({ categories: [] }, "mentions"), false);
+  assert.equal(matchesInboxFilter({ categories: [] }, "mention"), false);
+});
+
+test("matchesInboxFilter derives direct and agent filters from feed facts", () => {
+  assert.equal(
+    matchesInboxFilter(
+      {
+        categories: ["activity"],
+        item: { channelType: "dm", tags: [] },
+      },
+      "direct",
+    ),
+    true,
+  );
+  assert.equal(
+    matchesInboxFilter({ categories: ["agent_activity"] }, "agents"),
+    true,
+  );
+  assert.equal(
+    matchesInboxFilter({ categories: ["activity"] }, "agents"),
+    false,
+  );
 });
 
 test("matchesInboxFilter matches thread rows by thread tags", () => {

@@ -78,6 +78,8 @@ pub(crate) const RESERVED_ENV_KEYS: &[&str] = &[
     "BUZZ_ACP_MCP_COMMAND",
     "BUZZ_ACP_REPOSITORY_MCP_COMMAND",
     "BUZZ_ACP_REPOSITORY_MCP_CONFIG",
+    "BUZZ_ACP_COMMUNICATIONS_MCP_COMMAND",
+    "BUZZ_ACP_COMMUNICATIONS_MCP_CONFIG",
     // Security gates: respond-to mode + allowlist + legacy owner-only
     // fallback. Overriding would make the running agent's gate diverge
     // from the saved/UI-visible settings.

@@ -349,6 +349,132 @@ impl ManagedDispatchStore {
         })
     }
 
+    /// Durably bind one exact managed conversation turn before privileged
+    /// Communications MCP authority is exposed to its model session.
+    ///
+    /// Unlike continuity retrieval, communication side effects require an
+    /// `Active` dispatch. The presentation endpoint calls this only after its
+    /// strict sequence gate accepts the exact `turn_started` frame.
+    pub(crate) fn bind_communication_turn_start(
+        &mut self,
+        trigger_event_id: &str,
+        resident_pubkey: &str,
+        conversation_id: &str,
+        session_epoch: u64,
+        now_unix_secs: u64,
+    ) -> Result<ActiveDispatch, DispatchAuthorizationError> {
+        let normalized_resident = resident_pubkey.to_ascii_lowercase();
+        let normalized_trigger = trigger_event_id.to_ascii_lowercase();
+        let key = (normalized_trigger.clone(), normalized_resident.clone());
+        let active_epoch = self
+            .active_sessions
+            .get(&normalized_resident)
+            .copied()
+            .ok_or(DispatchAuthorizationError::WrongSession)?;
+        if active_epoch != session_epoch {
+            return Err(DispatchAuthorizationError::WrongSession);
+        }
+
+        let previous = self.dispatches.clone();
+        let has_trigger = self
+            .dispatches
+            .keys()
+            .any(|(trigger, _)| trigger == &normalized_trigger);
+        let (authorized, newly_bound) = {
+            let dispatch = self
+                .dispatches
+                .get_mut(&key)
+                .ok_or_else(|| {
+                    if has_trigger {
+                        DispatchAuthorizationError::WrongResident
+                    } else {
+                        DispatchAuthorizationError::Unknown
+                    }
+                })?;
+            if now_unix_secs > dispatch.expires_at {
+                return Err(DispatchAuthorizationError::Expired);
+            }
+            if dispatch.conversation_id != conversation_id {
+                return Err(DispatchAuthorizationError::WrongConversation);
+            }
+            match dispatch.state {
+                ManagedDispatchState::Cancelled => {
+                    return Err(DispatchAuthorizationError::Cancelled)
+                }
+                ManagedDispatchState::Rejected
+                | ManagedDispatchState::Published
+                | ManagedDispatchState::Interrupted => {
+                    return Err(DispatchAuthorizationError::Terminal)
+                }
+                ManagedDispatchState::Active => {
+                    if dispatch.session_epoch != Some(session_epoch) {
+                        return Err(DispatchAuthorizationError::WrongSession);
+                    }
+                    (dispatch.clone(), false)
+                }
+                ManagedDispatchState::Pending => {
+                    if dispatch
+                        .session_epoch
+                        .is_some_and(|epoch| epoch != session_epoch)
+                    {
+                        return Err(DispatchAuthorizationError::WrongSession);
+                    }
+                    dispatch.session_epoch = Some(session_epoch);
+                    dispatch.state = ManagedDispatchState::Active;
+                    dispatch.interruption_reason = None;
+                    (dispatch.clone(), true)
+                }
+            }
+        };
+        if newly_bound && self.persist().is_err() {
+            self.dispatches = previous;
+            return Err(DispatchAuthorizationError::Persistence);
+        }
+        Ok(authorized)
+    }
+
+    /// Recheck one exact Communications MCP action immediately before any
+    /// read, mutation, signing, or relay submission. Cancellation, restart,
+    /// publication, and session replacement all fail closed here.
+    pub(crate) fn recheck_communication_turn(
+        &self,
+        trigger_event_id: &str,
+        resident_pubkey: &str,
+        conversation_id: &str,
+        session_epoch: u64,
+        now_unix_secs: u64,
+    ) -> Result<&ActiveDispatch, DispatchAuthorizationError> {
+        let normalized_resident = resident_pubkey.to_ascii_lowercase();
+        let dispatch = self
+            .dispatches
+            .get(&(
+                trigger_event_id.to_ascii_lowercase(),
+                normalized_resident.clone(),
+            ))
+            .ok_or(DispatchAuthorizationError::Unknown)?;
+        if now_unix_secs > dispatch.expires_at {
+            return Err(DispatchAuthorizationError::Expired);
+        }
+        if dispatch.conversation_id != conversation_id {
+            return Err(DispatchAuthorizationError::WrongConversation);
+        }
+        match dispatch.state {
+            ManagedDispatchState::Cancelled => Err(DispatchAuthorizationError::Cancelled),
+            ManagedDispatchState::Active
+                if dispatch.session_epoch == Some(session_epoch)
+                    && self.active_sessions.get(&normalized_resident) == Some(&session_epoch) =>
+            {
+                Ok(dispatch)
+            }
+            ManagedDispatchState::Active | ManagedDispatchState::Pending => {
+                Err(DispatchAuthorizationError::WrongSession)
+            }
+            ManagedDispatchState::Rejected
+            | ManagedDispatchState::Published
+            | ManagedDispatchState::Interrupted => Err(DispatchAuthorizationError::Terminal),
+        }
+    }
+
     /// Atomically stage rows for all managed residents named by one exact owner event.
     pub(crate) fn stage_owner_event(
         &mut self,
@@ -2532,6 +2658,125 @@ mod tests {
                 101,
             ),
             Err(DispatchAuthorizationError::WrongResident)
+        );
+    }
+
+    #[test]
+    fn communication_turn_start_binds_pending_once_and_rechecks_only_active_epoch() {
+        let owner = Keys::parse(&"c1".repeat(32)).expect("owner");
+        let resident = Keys::parse(&"c2".repeat(32)).expect("resident");
+        let trigger = event(&owner, &resident, CHANNEL_ONE, "prompt");
+        let temp = tempfile::tempdir().expect("temp");
+        let path = temp.path().join("dispatches.json");
+        let mut store = ManagedDispatchStore::load(path.clone()).expect("store");
+        store
+            .stage_owner_event(&trigger, &[resident.public_key().to_hex()], 100)
+            .expect("stage");
+        store
+            .activate_session(&resident.public_key().to_hex(), 41)
+            .expect("session");
+
+        let active = store
+            .bind_communication_turn_start(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_ONE,
+                41,
+                101,
+            )
+            .expect("bind");
+        assert_eq!(active.state, ManagedDispatchState::Active);
+        assert_eq!(active.session_epoch, Some(41));
+        assert!(store
+            .recheck_communication_turn(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_ONE,
+                41,
+                102,
+            )
+            .is_ok());
+        assert_eq!(
+            store.recheck_communication_turn(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_ONE,
+                42,
+                102,
+            ),
+            Err(DispatchAuthorizationError::WrongSession)
+        );
+
+        let reloaded = ManagedDispatchStore::load(path).expect("reload");
+        assert_eq!(
+            reloaded
+                .dispatches
+                .get(&(trigger.id.to_hex(), resident.public_key().to_hex()))
+                .expect("row")
+                .state,
+            ManagedDispatchState::Active
+        );
+    }
+
+    #[test]
+    fn communication_recheck_fails_closed_after_cancel_or_session_rotation() {
+        let owner = Keys::parse(&"d1".repeat(32)).expect("owner");
+        let resident = Keys::parse(&"d2".repeat(32)).expect("resident");
+        let trigger = event(&owner, &resident, CHANNEL_ONE, "prompt");
+        let temp = tempfile::tempdir().expect("temp");
+        let mut store =
+            ManagedDispatchStore::load(temp.path().join("dispatches.json")).expect("store");
+        store
+            .stage_owner_event(&trigger, &[resident.public_key().to_hex()], 100)
+            .expect("stage");
+        store
+            .activate_session(&resident.public_key().to_hex(), 43)
+            .expect("session");
+        store
+            .bind_communication_turn_start(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_ONE,
+                43,
+                101,
+            )
+            .expect("bind");
+
+        store
+            .activate_session(&resident.public_key().to_hex(), 44)
+            .expect("rotate");
+        assert_eq!(
+            store.recheck_communication_turn(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_ONE,
+                43,
+                102,
+            ),
+            Err(DispatchAuthorizationError::WrongSession)
+        );
+
+        store
+            .activate_session(&resident.public_key().to_hex(), 43)
+            .expect("restore test epoch");
+        store
+            .cancel_exact(
+                &owner.public_key().to_hex(),
+                CHANNEL_ONE,
+                &resident.public_key().to_hex(),
+                &trigger.id.to_hex(),
+                43,
+            )
+            .expect("cancel");
+        assert_eq!(
+            store.recheck_communication_turn(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_ONE,
+                43,
+                103,
+            ),
+            Err(DispatchAuthorizationError::Cancelled)
         );
     }
 }

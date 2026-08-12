@@ -74,8 +74,35 @@ fn managed_signing_registry_refuses_overlapping_outbox_owner() {
     overlapping.handle.join().expect("join refused broker");
 
     super::join_managed_signing_broker(&resident).expect("join sole broker");
+    super::join_managed_signing_broker(&resident).expect("repeated join is idempotent");
     drop(first_child);
     drop(second_child);
+}
+
+#[cfg(unix)]
+#[test]
+fn communication_storage_paths_are_stable_and_resident_scoped() {
+    let root = std::path::Path::new("/test/app-data");
+    let first = luca_protocol::Hex64::parse("a".repeat(64)).expect("first resident");
+    let second = luca_protocol::Hex64::parse("b".repeat(64)).expect("second resident");
+
+    let (first_outbox, first_vault) = super::communication_storage_paths(root, &first);
+    let (second_outbox, second_vault) = super::communication_storage_paths(root, &second);
+
+    assert_eq!(
+        first_outbox,
+        root.join("luca")
+            .join("communication-actions")
+            .join(format!("{}.age", first.as_str()))
+    );
+    assert_eq!(
+        first_vault,
+        root.join("luca")
+            .join("communication-events")
+            .join(first.as_str())
+    );
+    assert_ne!(first_outbox, second_outbox);
+    assert_ne!(first_vault, second_vault);
 }
 
 // ── buffer_contains_identifier tests ────────────────────────────────────

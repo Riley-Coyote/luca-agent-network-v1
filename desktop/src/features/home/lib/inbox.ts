@@ -6,6 +6,7 @@ import {
   getThreadReference,
   isBroadcastReply,
 } from "@/features/messages/lib/threading";
+import type { UnifiedInboxFilter } from "@/features/home/lib/unifiedInboxProjection";
 import type { TimelineReaction } from "@/features/messages/types";
 import type {
   Channel,
@@ -16,15 +17,7 @@ import type {
 } from "@/shared/api/types";
 import { resolveMentionProps } from "@/shared/lib/resolveMentionNames";
 
-export type InboxFilter =
-  | "all"
-  | "mention"
-  | "thread"
-  | "needs_action"
-  | "activity"
-  | "agent_activity"
-  | "reminders"
-  | "drafts";
+export type InboxFilter = UnifiedInboxFilter;
 
 export type InboxItem = {
   avatarUrl: string | null;

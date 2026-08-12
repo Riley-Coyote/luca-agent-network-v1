@@ -174,6 +174,16 @@ pub(crate) fn shutdown_managed_agents(app: &tauri::AppHandle) -> Result<(), Stri
     if !to_stop.is_empty() {
         changed = true;
 
+        // Revoke signing, repository, cognition, and communication authority
+        // before any fallible process termination. App shutdown must converge
+        // with the ordinary managed-agent stop path.
+        for agent in &to_stop {
+            let resident = records[agent.idx].pubkey.clone();
+            if let Err(error) = managed_agents::join_managed_signing_broker(&resident) {
+                eprintln!("luca-signing: failed to stop managed brokers for {resident}: {error}");
+            }
+        }
+
         // Fan-out: send SIGTERM to all process groups at once.
         #[cfg(unix)]
         for agent in &to_stop {

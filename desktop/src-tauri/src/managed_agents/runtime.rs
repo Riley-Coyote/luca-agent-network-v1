@@ -139,9 +139,16 @@ pub(crate) fn managed_capsule_broker_handle(
         .ok_or_else(|| "managed resident signing broker is unavailable".to_owned())
 }
 
-fn join_managed_signing_broker(resident_pubkey: &str) -> Result<(), String> {
+pub(crate) fn join_managed_signing_broker(resident_pubkey: &str) -> Result<(), String> {
+    // Process replacement, forced kill, ordinary exit, and app teardown all
+    // converge here. Revoke every communication turn before any replacement
+    // runtime can be exposed under a fresh session epoch.
+    crate::luca::communication_turn_registry::clear_resident(resident_pubkey);
     #[cfg(unix)]
     let repository_result = crate::luca::repository_bridge::stop_repository_broker(resident_pubkey);
+    #[cfg(unix)]
+    let communications_result =
+        crate::luca::communication_bridge::stop_communication_broker(resident_pubkey);
     crate::luca::managed_cognition::unregister(resident_pubkey);
     managed_capsule_brokers()
         .lock()
@@ -163,6 +170,8 @@ fn join_managed_signing_broker(resident_pubkey: &str) -> Result<(), String> {
     }
     #[cfg(unix)]
     repository_result?;
+    #[cfg(unix)]
+    communications_result?;
     Ok(())
 }
 
@@ -322,6 +331,22 @@ pub(crate) fn process_belongs_to_us(_pid: u32) -> bool {
 /// one machine without one's cleanup nuking the other's agents.
 pub(crate) fn current_instance_id(app: &AppHandle) -> String {
     app.config().identifier.clone()
+}
+
+#[cfg(unix)]
+fn communication_storage_paths(
+    app_data_dir: &std::path::Path,
+    resident_pubkey: &luca_protocol::Hex64,
+) -> (std::path::PathBuf, std::path::PathBuf) {
+    let luca_root = app_data_dir.join("luca");
+    (
+        luca_root
+            .join("communication-actions")
+            .join(format!("{}.age", resident_pubkey.as_str())),
+        luca_root
+            .join("communication-events")
+            .join(resident_pubkey.as_str()),
+    )
 }
 
 /// Build the full `BUZZ_MANAGED_AGENT=<instance-id>` env entry we match
@@ -1660,6 +1685,13 @@ pub(crate) fn configure_runtime_cli(
     }
 }
 
+fn abort_spawned_child(child: &mut std::process::Child) {
+    if terminate_process(child.id()).is_err() {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+}
+
 /// Spawn an agent process without holding any locks on records or runtimes.
 /// Returns the child process and log path on success. The caller is responsible
 /// for updating `ManagedAgentRecord` fields and inserting into the runtimes map.
@@ -1842,10 +1874,77 @@ pub fn spawn_agent_child(
     }
     let installation_session_id = luca_protocol::OpaqueId::parse(current_instance_id(app))
         .map_err(|error| format!("invalid installation session identifier: {error}"))?;
+    let app_data_dir = {
+        use tauri::Manager;
+        app.path()
+            .app_data_dir()
+            .map_err(|error| format!("resolve managed agent data directory: {error}"))?
+    };
     let relay_query_url = format!(
         "{}/query",
         crate::relay::relay_http_base_url(&effective_relay_url).trim_end_matches('/')
     );
+    #[cfg(unix)]
+    let communication_broker_lease = 'communication_lease: {
+        let (outbox_path, vault_directory) =
+            communication_storage_paths(&app_data_dir, &resident_pubkey);
+        let backend =
+            crate::luca::communication_action_backend::DesktopCommunicationActionBackend::open(
+                crate::luca::communication_action_backend::DesktopCommunicationBackendConfig {
+                    app: app.clone(),
+                    resident_keys: resident_keys.clone(),
+                    resident_auth_tag: record.auth_tag.clone(),
+                    relay_url: effective_relay_url.clone(),
+                    installation_session_id: installation_session_id.clone(),
+                    session_epoch,
+                    outbox_path,
+                    vault_directory,
+                },
+            );
+        match backend {
+            Ok(backend) if backend.resident_pubkey() == &resident_pubkey => {
+                if let Err(error) = backend.reconcile_one_on_start() {
+                    eprintln!(
+                        "luca-communications: managed communication tools are unavailable ({})",
+                        error.diagnostic_code()
+                    );
+                    break 'communication_lease None;
+                }
+                let context = crate::luca::communication_bridge::CommunicationBrokerContext {
+                    owner_pubkey: owner_pubkey.clone(),
+                    resident_pubkey: resident_pubkey.clone(),
+                    session_epoch,
+                    binding_ref: runtime_binding_ref.clone(),
+                };
+                match crate::luca::communication_bridge::create_communication_broker_lease(
+                    app,
+                    context,
+                    backend.broker_backend(),
+                ) {
+                    Ok(lease) => Some(lease),
+                    Err(_) => {
+                        eprintln!(
+                            "luca-communications: managed communication tools are unavailable (communication-broker-unavailable)"
+                        );
+                        None
+                    }
+                }
+            }
+            Ok(_) => {
+                eprintln!(
+                    "luca-communications: managed communication tools are unavailable (communication-resident-mismatch)"
+                );
+                None
+            }
+            Err(error) => {
+                eprintln!(
+                    "luca-communications: managed communication tools are unavailable ({})",
+                    error.diagnostic_code()
+                );
+                None
+            }
+        }
+    };
 
     let mut command = std::process::Command::new(&resolved_acp_command);
     if let Some(home) = native_runtime
@@ -1903,6 +2002,10 @@ pub fn spawn_agent_child(
             command.env("BUZZ_ACP_MCP_COMMAND", "");
         }
     }
+    // Never inherit a stale desktop-shell bootstrap. Only this spawn's
+    // successfully created lease may expose the communications broker.
+    command.env_remove("BUZZ_ACP_COMMUNICATIONS_MCP_COMMAND");
+    command.env_remove("BUZZ_ACP_COMMUNICATIONS_MCP_CONFIG");
     #[cfg(unix)]
     {
         command.env("BUZZ_ACP_REPOSITORY_MCP_COMMAND", &repository_mcp_command);
@@ -1910,6 +2013,13 @@ pub fn spawn_agent_child(
             "BUZZ_ACP_REPOSITORY_MCP_CONFIG",
             repository_broker_lease.bootstrap_json(),
         );
+        if let Some(lease) = &communication_broker_lease {
+            command.env(
+                "BUZZ_ACP_COMMUNICATIONS_MCP_COMMAND",
+                &repository_mcp_command,
+            );
+            command.env("BUZZ_ACP_COMMUNICATIONS_MCP_CONFIG", lease.bootstrap_json());
+        }
     }
     // Enable MCP hook tools (_Stop, _PostCompact) for agents that need them.
     // Uses "*" because build_mcp_servers() hard-codes the server name to "buzz-mcp".
@@ -2253,15 +2363,10 @@ pub fn spawn_agent_child(
             .lock()
             .map_err(|_| "managed dispatch store lock is unavailable".to_string())?
             .activate_session(resident_pubkey.as_str(), session_epoch.get())?;
-        let outbox_path = {
-            use tauri::Manager;
-            app.path()
-                .app_data_dir()
-                .map_err(|error| format!("resolve managed outbox directory: {error}"))?
-                .join("luca")
-                .join("managed-outbox")
-                .join(format!("{}.age", resident_pubkey.as_str()))
-        };
+        let outbox_path = app_data_dir
+            .join("luca")
+            .join("managed-outbox")
+            .join(format!("{}.age", resident_pubkey.as_str()));
         let publisher = crate::luca::managed_message_publisher::ManagedMessagePublisher::new(
             resident_keys.clone(),
             &effective_relay_url,
@@ -2276,7 +2381,7 @@ pub fn spawn_agent_child(
     let (outbox_path, publisher, dispatch_store) = match publisher_setup {
         Ok(setup) => setup,
         Err(error) => {
-            let _ = child.kill();
+            abort_spawned_child(&mut child);
             return Err(error);
         }
     };
@@ -2289,21 +2394,26 @@ pub fn spawn_agent_child(
         ) {
             Ok(broker) => broker,
             Err(error) => {
-                let _ = child.kill();
+                abort_spawned_child(&mut child);
                 return Err(format!("failed to bind managed signing broker: {error}"));
             }
         };
     let capsule_handle = broker.capsule_handle();
-    let (mut broker_stream, broker_shutdown) = desktop_broker_endpoint
-        .split_for_serve()
-        .map_err(|error| format!("failed to split managed signing broker endpoint: {error}"))?;
+    let (mut broker_stream, broker_shutdown) = match desktop_broker_endpoint.split_for_serve() {
+        Ok(split) => split,
+        Err(error) => {
+            abort_spawned_child(&mut child);
+            return Err(format!(
+                "failed to split managed signing broker endpoint: {error}"
+            ));
+        }
+    };
     for result in [
         broker_stream.set_read_timeout(Some(std::time::Duration::from_millis(250))),
         broker_stream.set_write_timeout(Some(std::time::Duration::from_secs(5))),
     ] {
         if let Err(error) = result {
-            let _ = child.kill();
-            let _ = child.wait();
+            abort_spawned_child(&mut child);
             return Err(format!(
                 "failed to bound managed signing broker socket I/O: {error}"
             ));
@@ -2348,8 +2458,7 @@ pub fn spawn_agent_child(
             }) {
             Ok(handle) => handle,
             Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                abort_spawned_child(&mut child);
                 return Err(format!("failed to start managed signing broker: {error}"));
             }
         };
@@ -2360,30 +2469,34 @@ pub fn spawn_agent_child(
             handle: broker_thread,
         },
     ) {
-        let _ = child.kill();
-        let _ = child.wait();
         let _ = owner.shutdown.shutdown();
         let _ = owner.handle.join();
+        abort_spawned_child(&mut child);
         return Err("managed signing broker owner already exists".into());
     }
     if register_managed_capsule_broker(&record.pubkey, capsule_handle).is_err() {
-        let _ = child.kill();
-        let _ = child.wait();
         let _ = join_managed_signing_broker(&record.pubkey);
+        abort_spawned_child(&mut child);
         return Err("managed Capsule broker owner already exists".into());
     }
     if crate::luca::managed_cognition::register(managed_cognition_client).is_err() {
-        let _ = child.kill();
-        let _ = child.wait();
         let _ = join_managed_signing_broker(&record.pubkey);
+        abort_spawned_child(&mut child);
         return Err("managed cognition broker owner already exists".into());
     }
     #[cfg(unix)]
     if let Err(error) = repository_broker_lease.commit() {
-        let _ = child.kill();
-        let _ = child.wait();
         let _ = join_managed_signing_broker(&record.pubkey);
+        abort_spawned_child(&mut child);
         return Err(format!("failed to register repository broker: {error}"));
+    }
+    #[cfg(unix)]
+    if let Some(lease) = communication_broker_lease {
+        if let Err(error) = lease.commit() {
+            let _ = join_managed_signing_broker(&record.pubkey);
+            abort_spawned_child(&mut child);
+            return Err(format!("failed to register communications broker: {error}"));
+        }
     }
 
     // Stamp the adapter availability for runtimes with a version gate (codex
@@ -2486,6 +2599,10 @@ pub fn stop_managed_agent_process(
     runtimes: &mut HashMap<String, ManagedAgentProcess>,
 ) -> Result<(), String> {
     let Some(mut runtime) = runtimes.remove(&record.pubkey) else {
+        // Revoke all resident-scoped broker authority before attempting a
+        // fallible process termination. A failed kill must never leave the
+        // process paired with live signing or communication capabilities.
+        let broker_result = join_managed_signing_broker(&record.pubkey);
         if let Some(pid) = record.runtime_pid {
             if process_is_running(pid) {
                 terminate_process(pid)?;
@@ -2500,8 +2617,13 @@ pub fn stop_managed_agent_process(
             record.last_error_code = None;
         }
         super::remove_agent_pid_file(app, &record.pubkey);
+        broker_result?;
         return Ok(());
     };
+
+    // Close broker authority first; process termination remains best-effort
+    // after this point, but no live child can retain host-managed privileges.
+    let broker_result = join_managed_signing_broker(&record.pubkey);
 
     // On Unix, kill the entire process group via terminate_process.
     // On Windows, drop the Job Object handle (KILL_ON_JOB_CLOSE) so the whole
@@ -2526,7 +2648,6 @@ pub fn stop_managed_agent_process(
         .child
         .wait()
         .map_err(|error| format!("failed to wait for agent shutdown: {error}"))?;
-    join_managed_signing_broker(&record.pubkey)?;
     let now = now_iso();
     record.runtime_pid = None;
     record.updated_at = now.clone();
@@ -2546,6 +2667,7 @@ pub fn stop_managed_agent_process(
             now_iso()
         ),
     )?;
+    broker_result?;
 
     Ok(())
 }

@@ -11,6 +11,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 #[cfg(unix)]
+mod luca_communications;
+#[cfg(unix)]
 mod luca_repositories;
 mod paths;
 mod read_file;
@@ -172,7 +174,26 @@ async fn async_main(cmd: String) -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(buzz_cli::run_from_args(std::env::args()).await);
     }
 
-    if std::env::var("LUCA_REPOSITORY_MODE").as_deref() == Ok("1") {
+    let repository_mode = std::env::var("LUCA_REPOSITORY_MODE").as_deref() == Ok("1");
+    let communications_mode = std::env::var("LUCA_COMMUNICATIONS_MODE").as_deref() == Ok("1");
+    if repository_mode && communications_mode {
+        return Err("Luca MCP personalities are mutually exclusive".into());
+    }
+
+    if communications_mode {
+        #[cfg(unix)]
+        {
+            let service = luca_communications::LucaCommunicationsMcp::from_environment()?
+                .serve(stdio())
+                .await?;
+            service.waiting().await?;
+            return Ok(());
+        }
+        #[cfg(not(unix))]
+        return Err("Luca communications MCP is supported only on Unix".into());
+    }
+
+    if repository_mode {
         #[cfg(unix)]
         {
             let service = luca_repositories::LucaRepositoriesMcp::from_environment()?

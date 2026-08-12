@@ -168,6 +168,8 @@ fn reserved_keys_include_code_execution_surface() {
         "BUZZ_ACP_MCP_COMMAND",
         "BUZZ_ACP_REPOSITORY_MCP_COMMAND",
         "BUZZ_ACP_REPOSITORY_MCP_CONFIG",
+        "BUZZ_ACP_COMMUNICATIONS_MCP_COMMAND",
+        "BUZZ_ACP_COMMUNICATIONS_MCP_CONFIG",
     ] {
         assert!(is_reserved_env_key(key), "{key} should be reserved");
     }

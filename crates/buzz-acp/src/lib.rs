@@ -1,6 +1,7 @@
 #![deny(unsafe_code)]
 
 mod acp;
+mod communications_mcp;
 mod config;
 pub mod continuity_provider;
 mod engram_fetch;
@@ -1609,6 +1610,7 @@ async fn tokio_main() -> Result<()> {
     let ctx = Arc::new(PromptContext {
         mcp_servers: build_mcp_servers(&config),
         repository_mcp: config.repository_mcp.clone(),
+        communications_mcp: config.communications_mcp.clone(),
         initial_message: config.initial_message.clone(),
         idle_timeout: Duration::from_secs(config.idle_timeout_secs),
         max_turn_duration: Duration::from_secs(config.max_turn_duration_secs),
@@ -4653,6 +4655,7 @@ mod build_mcp_servers_tests {
             agent_args: vec!["acp".into()],
             mcp_command: "test-mcp-server".into(),
             repository_mcp: None,
+            communications_mcp: None,
             idle_timeout_secs: config::DEFAULT_IDLE_TIMEOUT_SECS,
             max_turn_duration_secs: config::DEFAULT_MAX_TURN_DURATION_SECS,
             agents: 1,
@@ -4819,6 +4822,7 @@ mod error_outcome_emission_tests {
             agent_args: vec![],
             mcp_command: "test-mcp-server".into(),
             repository_mcp: None,
+            communications_mcp: None,
             idle_timeout_secs: config::DEFAULT_IDLE_TIMEOUT_SECS,
             max_turn_duration_secs: config::DEFAULT_MAX_TURN_DURATION_SECS,
             agents: 1,
