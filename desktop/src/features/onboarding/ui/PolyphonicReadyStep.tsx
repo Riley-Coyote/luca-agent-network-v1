@@ -87,7 +87,7 @@ export function PolyphonicReadyStep({
         {issueCount ? (
           <>
             <AlertCircle className="h-3.5 w-3.5" /> {issueCount} item
-            {issueCount === 1 ? "" : "s"} need attention
+            {issueCount === 1 ? " needs" : "s need"} attention
           </>
         ) : (
           <>
