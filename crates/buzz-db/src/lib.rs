@@ -61,7 +61,7 @@ pub enum MembershipSnapshotGuardedInsertOutcome {
     /// The snapshot was still current and the event transaction committed.
     Inserted {
         /// Canonical stored event returned by the committed transaction.
-        stored_event: StoredEvent,
+        stored_event: Box<StoredEvent>,
         /// Whether this transaction inserted a new row rather than observing
         /// an exact idempotent duplicate.
         was_inserted: bool,
@@ -1492,7 +1492,7 @@ impl Db {
         }
 
         Ok(MembershipSnapshotGuardedInsertOutcome::Inserted {
-            stored_event,
+            stored_event: Box::new(stored_event),
             was_inserted,
         })
     }

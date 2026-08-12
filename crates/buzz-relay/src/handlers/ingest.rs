@@ -2462,7 +2462,7 @@ async fn ingest_event_inner(
                 buzz_db::MembershipSnapshotGuardedInsertOutcome::Inserted {
                     stored_event,
                     was_inserted,
-                } => Ok((stored_event, was_inserted)),
+                } => Ok((*stored_event, was_inserted)),
                 buzz_db::MembershipSnapshotGuardedInsertOutcome::SnapshotChanged => {
                     Err(IngestError::Rejected(
                         "restricted: expected_membership snapshot is stale or belongs to another channel"
