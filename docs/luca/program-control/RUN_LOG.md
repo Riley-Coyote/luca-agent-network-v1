@@ -125,3 +125,31 @@ exact SHA is reported in the Program Lead handoff after the same validator set
 passes on that final clean commit; a commit cannot embed its own resulting SHA.
 
 Teams and trains remain inactive.
+
+## PC-0003 — CTRL-004 approval receipt and team-activation authorization
+
+- Date: 2026-08-12.
+- Approver: Riley.
+- Approved control package: `codex/program-control` at exact
+  `62589f445af524be0f9bac9a67570e593dd58558`.
+- Approved release target: `luca/v1-beta`.
+- Approved scope: P1 complete visible messaging/A2A; safe disjoint P2 projects,
+  native agents, onboarding, Inbox, Activity, Brain, Notebook, Settings, and
+  complete app UX; later gated P3 installed truthful beta.
+- P4 and P5 remain inactive.
+- Constraints reaffirmed: no visible-function reduction; reuse first; Direct
+  mode; preserve existing identity/signing/credential isolation/encryption/
+  cancellation/restart/exactly-once protections without early optional
+  hardening.
+- Authorized next actions after exact receipt validation: create five team
+  branches/worktrees from the validated receipt, initialize reports and first
+  read-only capsules, verify coordinates/ancestry/cleanliness, and dispatch the
+  exact repository-native prompts.
+- Explicitly not authorized: integration train, release candidate,
+  `luca/v1-beta` worktree, P4, P5, or product edits before each team's read-only
+  reconciliation and bounded write capsule.
+
+CTRL-004 status in this receipt: `implemented_in_source` pending the receipt's
+exact commit and full validator pass.
+
+CTRL-004 approval-receipt commit: pending.

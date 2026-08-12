@@ -104,3 +104,22 @@ authority separation, and honest readiness remain mandatory constraints.
   approval does not activate teams under this replacement graph.
 - Until CTRL-004: no product team worktree, kickoff dispatch, integration
   train, product implementation, or shared-file write is authorized.
+
+## D-010 — Revised P0–P5 graph approved and CTRL-004 authorized
+
+- Decision date: 2026-08-12.
+- Approver: Riley.
+- Approved package: `codex/program-control` at exact
+  `62589f445af524be0f9bac9a67570e593dd58558`.
+- Approved release target: `luca/v1-beta`.
+- Approved activation: P1 and safe disjoint P2 read-only reconciliation and
+  bounded task capsules may begin after this receipt is committed and validated.
+- P3 remains gated by accepted P1/P2 results; no integration train, release
+  candidate, or release worktree is authorized now.
+- P4 and every P5 task remain inactive. P5 requires separate future approval.
+- Visible functionality may not be reduced. Reuse, Direct mode, and all
+  existing identity/signing/credential/encryption/cancellation/restart/exactly-
+  once protections remain binding.
+- Status sequencing: CTRL-004 is `implemented_in_source` in the approval
+  receipt and may become `source_tested` only after every control validator
+  passes on the receipt's exact commit.

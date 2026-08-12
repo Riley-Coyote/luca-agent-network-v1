@@ -8,8 +8,8 @@ Updated: 2026-08-12
 |---|---|---|
 | Revised control package | `source_tested` on `b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b` | Riley revised-graph decision |
 | Product-truth and reuse audit | `source_tested` on the same exact commit | Riley revised-graph decision |
-| Riley revised-graph approval | `planned` | CTRL-004 explicit approval |
-| Five product teams | `inactive / not created` | CTRL-004 plus final approved control SHA |
+| Riley revised-graph approval | Received; CTRL-004 receipt `implemented_in_source` | Commit and validate exact approval receipt |
+| Five product teams | `inactive / not created` | Exact validated CTRL-004 receipt |
 | P1 integration train | `inactive / not created` | P1/P2 team source gates |
 | Product/shared-file writes | `not authorized` | CTRL-004 and bounded task activation |
 | Proposed tester release | `luca/v1-beta` | P3 installed proof and promotion approval |

@@ -76,8 +76,11 @@ or release completion.
 ## Current gate
 
 The prior control package and its corrected release name remain historical
-facts. CTRL-003 is `source_tested` on the exact pre-promotion commit above;
-CTRL-004 remains Riley approval. Until CTRL-004 passes:
+facts. CTRL-003 is `source_tested` on the exact pre-promotion commit above.
+Riley explicitly approved the revised graph and authorized CTRL-004 on
+2026-08-12; CTRL-004 remains `implemented_in_source` until this approval receipt
+exists on an exact commit and the full control validator set passes. Until that
+validation passes:
 
 - all five product teams are inactive;
 - all proposed team worktrees and branches remain uncreated;

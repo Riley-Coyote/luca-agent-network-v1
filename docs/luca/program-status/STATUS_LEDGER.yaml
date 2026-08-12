@@ -31,8 +31,13 @@ control:
     status: source_tested
     exact_validation_commit: b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b
   CTRL-004:
-    status: planned
-    note: Riley approval required before team or train activation
+    status: implemented_in_source
+    approved_by: Riley
+    approved_at: 2026-08-12
+    approved_control_commit: 62589f445af524be0f9bac9a67570e593dd58558
+    approved_release_target: luca/v1-beta
+    exact_validation_commit: pending_exact_commit
+    note: team activation waits for exact validation of this approval receipt
 
 milestones:
   P0: active_control_only

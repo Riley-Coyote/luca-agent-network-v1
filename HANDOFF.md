@@ -13,7 +13,9 @@
 > train, release candidate, product implementation, and shared-file writes are
 > inactive. The program-control branch is documentation/status only. The
 > revised control package passed exact-commit validation at
-> `b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b`; Riley approval remains pending.
+> `b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b`. Riley explicitly approved the
+> P0–P5 graph and authorized CTRL-004 on 2026-08-12; team activation waits only
+> for exact validation of the committed approval receipt.
 >
 > The detailed milestone material below remains historical architecture and
 > evidence. Its older continuation/release priority statements do not override

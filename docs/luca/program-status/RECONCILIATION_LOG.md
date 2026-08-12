@@ -49,3 +49,13 @@ evidence-backed by its original exact validation commit and was not rewritten.
 
 Exact revised-control commits and validator receipts are recorded in
 `docs/luca/program-control/RUN_LOG.md` after they exist.
+
+## 2026-08-12 — Riley authorizes CTRL-004
+
+- Riley explicitly approved the revised P0–P5 graph at exact control commit
+  `62589f445af524be0f9bac9a67570e593dd58558` and release target
+  `luca/v1-beta`.
+- P1 and safe disjoint P2 team activation is authorized after the approval
+  receipt itself passes exact-commit validation.
+- P3 train/release coordinates, P4, and P5 remain gated and inactive.
+- CTRL-004 remains `implemented_in_source` until that exact validation exists.
