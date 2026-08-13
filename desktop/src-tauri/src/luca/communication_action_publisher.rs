@@ -1,10 +1,11 @@
 //! Durable publisher for resident-authored communication actions.
 //!
-//! This first vertical slice deliberately supports only an ordinary kind-9
-//! message into an existing owner-visible conversation. Exact event bytes are
-//! encrypted in `CommunicationEventVault`; the sibling encrypted outbox owns
-//! lifecycle and retry state. No raw event or filesystem capability crosses
-//! the desktop boundary.
+//! This publisher supports the approved resident-authored message, reaction,
+//! remove-own-reaction, and own-message-edit operations in an existing
+//! owner-visible conversation. Exact event bytes are encrypted in
+//! `CommunicationEventVault`; the sibling encrypted outbox owns lifecycle and
+//! retry state. No raw event or filesystem capability crosses the desktop
+//! boundary.
 
 use std::{
     collections::BTreeSet,
@@ -41,6 +42,7 @@ use super::{
 };
 
 const MESSAGE_KIND: u16 = 9;
+const REACTION_KIND: u16 = 7;
 const MEMBERSHIP_KIND: u16 = 39_002;
 const MAX_RELAY_QUERY_EVENTS: usize = 64;
 const RELAY_TIMEOUT_SECS: u64 = 12;
@@ -424,6 +426,21 @@ impl ExistingConversationPublisher {
         query_message(self.relay.as_ref(), conversation_id, event_id).map(|_| ())
     }
 
+    pub(crate) fn reaction_author(
+        &self,
+        conversation_id: &OpaqueId,
+        target_event_id: &Hex64,
+        reaction_event_id: &Hex64,
+    ) -> Result<Hex64, CommunicationPublicationError> {
+        let event = query_reaction(
+            self.relay.as_ref(),
+            conversation_id,
+            target_event_id,
+            reaction_event_id,
+        )?;
+        Hex64::parse(event.pubkey.to_hex()).map_err(|_| CommunicationPublicationError::Membership)
+    }
+
     /// Reconcile at most one frozen action before exposing a new broker lease.
     ///
     /// A Prepared action from an older resident session is proven unsent and
@@ -737,7 +754,7 @@ impl ExistingConversationPublisher {
             .map_err(map_publication_failure)?;
         let signed_event = if recovered_sealed.is_none() {
             Some(
-                build_exact_message_event(
+                build_exact_communication_event(
                     &request,
                     &self.resident_keys,
                     &first_membership,
@@ -1123,27 +1140,36 @@ fn validate_narrow_request(
     let CommunicationDestinationV1::ExistingConversation { .. } = &request.destination else {
         return Err(CommunicationPublicationError::Unsupported);
     };
-    let CommunicationOperationV1::SendMessage {
-        activation_pubkeys,
-        artifact_handles,
-        mention_pubkeys,
-        ..
-    } = &request.operation
-    else {
-        return Err(CommunicationPublicationError::Unsupported);
-    };
-    if !artifact_handles.is_empty()
-        || (!activation_pubkeys.is_empty()
-            && (request.causal_depth.get() != 0
-                || request.causal_parent_action_id.is_some()
-                || activation_pubkeys.iter().any(|target| {
-                    target == &authority.owner_pubkey
-                        || target == &authority.resident_pubkey
-                        || !authority.owned_resident_pubkeys.contains(target)
-                        || mention_pubkeys.binary_search(target).is_err()
-                })))
-    {
-        return Err(CommunicationPublicationError::Unsupported);
+    match &request.operation {
+        CommunicationOperationV1::SendMessage {
+            activation_pubkeys,
+            artifact_handles,
+            mention_pubkeys,
+            ..
+        } => {
+            if !artifact_handles.is_empty()
+                || (!activation_pubkeys.is_empty()
+                    && (request.causal_depth.get() != 0
+                        || request.causal_parent_action_id.is_some()
+                        || activation_pubkeys.iter().any(|target| {
+                            target == &authority.owner_pubkey
+                                || target == &authority.resident_pubkey
+                                || !authority.owned_resident_pubkeys.contains(target)
+                                || mention_pubkeys.binary_search(target).is_err()
+                        })))
+            {
+                return Err(CommunicationPublicationError::Unsupported);
+            }
+        }
+        CommunicationOperationV1::EditOwnMessage {
+            artifact_handles, ..
+        } if !artifact_handles.is_empty() => {
+            return Err(CommunicationPublicationError::Unsupported);
+        }
+        CommunicationOperationV1::EditOwnMessage { .. }
+        | CommunicationOperationV1::AddReaction { .. }
+        | CommunicationOperationV1::RemoveOwnReaction { .. } => {}
+        _ => return Err(CommunicationPublicationError::Unsupported),
     }
     Ok(())
 }
@@ -1354,80 +1380,161 @@ fn query_message(
     Ok(event)
 }
 
-fn build_exact_message_event(
+fn query_reaction(
+    relay: &dyn CommunicationRelayTransport,
+    conversation_id: &OpaqueId,
+    target_event_id: &Hex64,
+    reaction_event_id: &Hex64,
+) -> Result<Event, CommunicationPublicationError> {
+    query_message(relay, conversation_id, target_event_id)?;
+    let events = relay.query(&[serde_json::json!({
+        "ids": [reaction_event_id.as_str()],
+        "kinds": [REACTION_KIND],
+        "#e": [target_event_id.as_str()],
+        "limit": 2,
+    })])?;
+    let mut matches = events.into_iter().filter(|event| {
+        event.id.to_hex() == reaction_event_id.as_str()
+            && event.kind == Kind::Custom(REACTION_KIND)
+            && event.verify_id()
+            && event.verify_signature()
+            && exact_tag_values(event, "e") == vec![target_event_id.as_str().to_owned()]
+    });
+    let event = matches
+        .next()
+        .ok_or(CommunicationPublicationError::Membership)?;
+    if matches.next().is_some() {
+        return Err(CommunicationPublicationError::Membership);
+    }
+    Ok(event)
+}
+
+fn build_exact_communication_event(
     request: &CommunicationActionRequestV1,
     keys: &Keys,
     membership: &ExistingConversationMembership,
     relay: &dyn CommunicationRelayTransport,
 ) -> Result<String, CommunicationPublicationError> {
-    let CommunicationOperationV1::SendMessage {
-        body,
-        reply_to_event_id,
-        mention_pubkeys,
-        activation_pubkeys: _,
-        artifact_handles,
-    } = &request.operation
-    else {
-        return Err(CommunicationPublicationError::Unsupported);
-    };
-    if !artifact_handles.is_empty() {
-        return Err(CommunicationPublicationError::Unsupported);
-    }
-    let thread_ref = reply_to_event_id
-        .as_ref()
-        .map(|event_id| {
-            let parent = query_message(relay, &membership.conversation_id, event_id)?;
-            let root = parent
-                .tags
-                .iter()
-                .find_map(|tag| {
-                    let values = tag.as_slice();
-                    (values.first().map(String::as_str) == Some("e")
-                        && values.get(3).map(String::as_str) == Some("root"))
-                    .then(|| values.get(1).cloned())
-                    .flatten()
-                })
-                .unwrap_or_else(|| event_id.as_str().to_owned());
-            Ok::<crate::events::ThreadRef, CommunicationPublicationError>(
-                crate::events::ThreadRef {
-                    root_event_id: EventId::from_hex(&root)
-                        .map_err(|_| CommunicationPublicationError::InvalidRequest)?,
-                    parent_event_id: EventId::from_hex(event_id.as_str())
-                        .map_err(|_| CommunicationPublicationError::InvalidRequest)?,
-                },
-            )
-        })
-        .transpose()?;
-    let mention_refs = mention_pubkeys
-        .iter()
-        .map(Hex64::as_str)
-        .collect::<Vec<_>>();
-    let client_tags = vec![vec![
-        "client".to_owned(),
-        "luca-communication-v1".to_owned(),
-        request.action_id.as_str().to_owned(),
-        membership.membership_event_id.as_str().to_owned(),
-    ]];
     let channel_id = Uuid::parse_str(membership.conversation_id.as_str())
         .map_err(|_| CommunicationPublicationError::InvalidRequest)?;
-    let builder = crate::events::build_message_with_client_tags(
-        channel_id,
-        body,
-        thread_ref.as_ref(),
-        &mention_refs,
-        &[],
-        &[],
-        &[],
-        &client_tags,
-    )?;
-    let builder = builder.tag(
-        Tag::parse([
-            TAG_EXPECTED_MEMBERSHIP_SNAPSHOT,
-            EXPECTED_MEMBERSHIP_SNAPSHOT_VERSION,
-            membership.membership_event_id.as_str(),
-        ])
-        .map_err(|_| CommunicationPublicationError::InvalidRequest)?,
-    );
+    let builder = match &request.operation {
+        CommunicationOperationV1::SendMessage {
+            body,
+            reply_to_event_id,
+            mention_pubkeys,
+            activation_pubkeys: _,
+            artifact_handles,
+        } => {
+            if !artifact_handles.is_empty() {
+                return Err(CommunicationPublicationError::Unsupported);
+            }
+            let thread_ref = reply_to_event_id
+                .as_ref()
+                .map(|event_id| {
+                    let parent = query_message(relay, &membership.conversation_id, event_id)?;
+                    let root = parent
+                        .tags
+                        .iter()
+                        .find_map(|tag| {
+                            let values = tag.as_slice();
+                            (values.first().map(String::as_str) == Some("e")
+                                && values.get(3).map(String::as_str) == Some("root"))
+                            .then(|| values.get(1).cloned())
+                            .flatten()
+                        })
+                        .unwrap_or_else(|| event_id.as_str().to_owned());
+                    Ok::<crate::events::ThreadRef, CommunicationPublicationError>(
+                        crate::events::ThreadRef {
+                            root_event_id: EventId::from_hex(&root)
+                                .map_err(|_| CommunicationPublicationError::InvalidRequest)?,
+                            parent_event_id: EventId::from_hex(event_id.as_str())
+                                .map_err(|_| CommunicationPublicationError::InvalidRequest)?,
+                        },
+                    )
+                })
+                .transpose()?;
+            let mention_refs = mention_pubkeys
+                .iter()
+                .map(Hex64::as_str)
+                .collect::<Vec<_>>();
+            let client_tags = vec![vec![
+                "client".to_owned(),
+                "luca-communication-v1".to_owned(),
+                request.action_id.as_str().to_owned(),
+                membership.membership_event_id.as_str().to_owned(),
+            ]];
+            crate::events::build_message_with_client_tags(
+                channel_id,
+                body,
+                thread_ref.as_ref(),
+                &mention_refs,
+                &[],
+                &[],
+                &[],
+                &client_tags,
+            )?
+            .tag(
+                Tag::parse([
+                    TAG_EXPECTED_MEMBERSHIP_SNAPSHOT,
+                    EXPECTED_MEMBERSHIP_SNAPSHOT_VERSION,
+                    membership.membership_event_id.as_str(),
+                ])
+                .map_err(|_| CommunicationPublicationError::InvalidRequest)?,
+            )
+        }
+        CommunicationOperationV1::AddReaction {
+            target_event_id,
+            reaction,
+        } => {
+            query_message(relay, &membership.conversation_id, target_event_id)?;
+            crate::events::build_reaction(
+                EventId::from_hex(target_event_id.as_str())
+                    .map_err(|_| CommunicationPublicationError::InvalidRequest)?,
+                reaction,
+            )?
+        }
+        CommunicationOperationV1::RemoveOwnReaction {
+            target_event_id,
+            reaction_event_id,
+        } => {
+            let reaction = query_reaction(
+                relay,
+                &membership.conversation_id,
+                target_event_id,
+                reaction_event_id,
+            )?;
+            if reaction.pubkey != keys.public_key() {
+                return Err(CommunicationPublicationError::Authority);
+            }
+            crate::events::build_remove_reaction(
+                EventId::from_hex(reaction_event_id.as_str())
+                    .map_err(|_| CommunicationPublicationError::InvalidRequest)?,
+            )?
+        }
+        CommunicationOperationV1::EditOwnMessage {
+            target_event_id,
+            replacement_body,
+            artifact_handles,
+        } => {
+            if !artifact_handles.is_empty() {
+                return Err(CommunicationPublicationError::Unsupported);
+            }
+            let target = query_message(relay, &membership.conversation_id, target_event_id)?;
+            if target.pubkey != keys.public_key() {
+                return Err(CommunicationPublicationError::Authority);
+            }
+            crate::events::build_message_edit(
+                channel_id,
+                EventId::from_hex(target_event_id.as_str())
+                    .map_err(|_| CommunicationPublicationError::InvalidRequest)?,
+                replacement_body,
+                &[],
+                &[],
+                &[],
+            )?
+        }
+        _ => return Err(CommunicationPublicationError::Unsupported),
+    };
     let event = builder
         .custom_created_at(Timestamp::from(deterministic_event_timestamp(request)?))
         .sign_with_keys(keys)
@@ -1518,7 +1625,7 @@ mod tests {
 
     struct FakeRelay {
         relay_self_pubkey: Hex64,
-        membership_events: Vec<Event>,
+        events: Vec<Event>,
         submit_results: Mutex<VecDeque<FakeSubmitResult>>,
         submitted: Mutex<Vec<String>>,
     }
@@ -1526,12 +1633,12 @@ mod tests {
     impl FakeRelay {
         fn new(
             relay: &Keys,
-            membership_events: Vec<Event>,
+            events: Vec<Event>,
             submit_results: impl IntoIterator<Item = FakeSubmitResult>,
         ) -> Arc<Self> {
             Arc::new(Self {
                 relay_self_pubkey: Hex64::parse(relay.public_key().to_hex()).unwrap(),
-                membership_events,
+                events,
                 submit_results: Mutex::new(submit_results.into_iter().collect()),
                 submitted: Mutex::new(Vec::new()),
             })
@@ -1539,6 +1646,10 @@ mod tests {
 
         fn submitted(&self) -> Vec<String> {
             self.submitted.lock().unwrap().clone()
+        }
+
+        fn events(&self) -> Vec<Event> {
+            self.events.clone()
         }
     }
 
@@ -1551,21 +1662,23 @@ mod tests {
             &self,
             filters: &[serde_json::Value],
         ) -> Result<Vec<Event>, CommunicationPublicationError> {
-            let is_membership_query = filters.iter().any(|filter| {
-                filter
-                    .get("kinds")
-                    .and_then(serde_json::Value::as_array)
-                    .is_some_and(|kinds| {
-                        kinds
-                            .iter()
-                            .any(|kind| kind.as_u64() == Some(u64::from(MEMBERSHIP_KIND)))
-                    })
-            });
-            Ok(if is_membership_query {
-                self.membership_events.clone()
-            } else {
-                Vec::new()
-            })
+            let requested_kinds = filters
+                .iter()
+                .flat_map(|filter| {
+                    filter
+                        .get("kinds")
+                        .and_then(serde_json::Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(serde_json::Value::as_u64)
+                })
+                .collect::<BTreeSet<_>>();
+            Ok(self
+                .events
+                .iter()
+                .filter(|event| requested_kinds.contains(&u64::from(event.kind.as_u16())))
+                .cloned()
+                .collect())
         }
 
         fn submit_exact(&self, signed_event_json: &str) -> RelaySubmitOutcome {
@@ -1616,7 +1729,37 @@ mod tests {
             &[&owner_keys, &resident_keys],
             100,
         );
-        let relay = FakeRelay::new(&relay_keys, vec![membership_event], submit_results);
+        let resident_message = EventBuilder::new(Kind::Custom(MESSAGE_KIND), "resident original")
+            .tags([Tag::parse(["h", conversation_id.as_str()]).unwrap()])
+            .custom_created_at(Timestamp::from(101))
+            .sign_with_keys(&resident_keys)
+            .unwrap();
+        let owner_message = EventBuilder::new(Kind::Custom(MESSAGE_KIND), "owner original")
+            .tags([Tag::parse(["h", conversation_id.as_str()]).unwrap()])
+            .custom_created_at(Timestamp::from(102))
+            .sign_with_keys(&owner_keys)
+            .unwrap();
+        let resident_reaction = crate::events::build_reaction(resident_message.id, "+")
+            .unwrap()
+            .custom_created_at(Timestamp::from(103))
+            .sign_with_keys(&resident_keys)
+            .unwrap();
+        let owner_reaction = crate::events::build_reaction(resident_message.id, "-")
+            .unwrap()
+            .custom_created_at(Timestamp::from(104))
+            .sign_with_keys(&owner_keys)
+            .unwrap();
+        let relay = FakeRelay::new(
+            &relay_keys,
+            vec![
+                membership_event,
+                resident_message,
+                owner_message,
+                resident_reaction,
+                owner_reaction,
+            ],
+            submit_results,
+        );
         let session = OpaqueId::parse("installation-test-1").unwrap();
         let directory = tempfile::tempdir().unwrap();
         let vault = CommunicationEventVault::open(
@@ -1696,6 +1839,20 @@ mod tests {
             request,
             authority,
         }
+    }
+
+    fn request_with_operation(
+        request: &CommunicationActionRequestV1,
+        suffix: &str,
+        operation: CommunicationOperationV1,
+    ) -> CommunicationActionRequestV1 {
+        let mut request = request.clone();
+        request.action_id = OpaqueId::parse(format!("communication-action-{suffix}")).unwrap();
+        request.operation = operation;
+        request.action_fingerprint = request.derive_action_fingerprint().unwrap();
+        request.idempotency_key = request.derive_idempotency_key().unwrap();
+        request.validate().unwrap();
+        request
     }
 
     #[test]
@@ -1820,6 +1977,161 @@ mod tests {
             .unwrap();
         assert_eq!(repeated.state, "accepted");
         assert_eq!(fixture.relay.submitted().len(), 1);
+    }
+
+    #[test]
+    fn approved_reaction_remove_and_own_edit_reuse_existing_event_builders() {
+        let fixture = publisher_fixture([
+            FakeSubmitResult::Accepted,
+            FakeSubmitResult::Accepted,
+            FakeSubmitResult::Accepted,
+        ]);
+        let resident_pubkey = fixture.request.resident_pubkey.as_str();
+        let events = fixture.relay.events();
+        let resident_message = events
+            .iter()
+            .find(|event| {
+                event.kind == Kind::Custom(MESSAGE_KIND) && event.pubkey.to_hex() == resident_pubkey
+            })
+            .unwrap();
+        let resident_reaction = events
+            .iter()
+            .find(|event| {
+                event.kind == Kind::Custom(REACTION_KIND)
+                    && event.pubkey.to_hex() == resident_pubkey
+            })
+            .unwrap();
+        let target_event_id = Hex64::parse(resident_message.id.to_hex()).unwrap();
+        let reaction_event_id = Hex64::parse(resident_reaction.id.to_hex()).unwrap();
+
+        let add = request_with_operation(
+            &fixture.request,
+            "add-reaction",
+            CommunicationOperationV1::AddReaction {
+                target_event_id: target_event_id.clone(),
+                reaction: "+1".to_owned(),
+            },
+        );
+        fixture
+            .publisher
+            .stage_and_publish(add, &fixture.authority)
+            .unwrap();
+
+        let remove = request_with_operation(
+            &fixture.request,
+            "remove-reaction",
+            CommunicationOperationV1::RemoveOwnReaction {
+                target_event_id: target_event_id.clone(),
+                reaction_event_id: reaction_event_id.clone(),
+            },
+        );
+        fixture
+            .publisher
+            .stage_and_publish(remove, &fixture.authority)
+            .unwrap();
+
+        let edit = request_with_operation(
+            &fixture.request,
+            "edit-message",
+            CommunicationOperationV1::EditOwnMessage {
+                target_event_id: target_event_id.clone(),
+                replacement_body: "resident replacement".to_owned(),
+                artifact_handles: Vec::new(),
+            },
+        );
+        fixture
+            .publisher
+            .stage_and_publish(edit, &fixture.authority)
+            .unwrap();
+
+        let submitted = fixture
+            .relay
+            .submitted()
+            .into_iter()
+            .map(|event| Event::from_json(event).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(submitted.len(), 3);
+        assert_eq!(submitted[0].kind, Kind::Custom(REACTION_KIND));
+        assert_eq!(submitted[0].content, "+1");
+        assert_eq!(
+            exact_tag_values(&submitted[0], "e"),
+            vec![target_event_id.as_str().to_owned()]
+        );
+        assert_eq!(submitted[1].kind, Kind::Custom(5));
+        assert_eq!(
+            exact_tag_values(&submitted[1], "e"),
+            vec![reaction_event_id.as_str().to_owned()]
+        );
+        assert_eq!(submitted[2].kind, Kind::Custom(40_003));
+        assert_eq!(submitted[2].content, "resident replacement");
+        assert_eq!(
+            exact_tag_values(&submitted[2], "h"),
+            vec![existing_conversation_id(&fixture.request)
+                .unwrap()
+                .as_str()
+                .to_owned()]
+        );
+        assert_eq!(
+            exact_tag_values(&submitted[2], "e"),
+            vec![target_event_id.as_str().to_owned()]
+        );
+        assert!(submitted
+            .iter()
+            .all(|event| event.pubkey.to_hex() == resident_pubkey));
+    }
+
+    #[test]
+    fn foreign_message_edits_and_foreign_reaction_removal_fail_before_signing() {
+        let fixture = publisher_fixture([FakeSubmitResult::Accepted]);
+        let resident_pubkey = fixture.request.resident_pubkey.as_str();
+        let events = fixture.relay.events();
+        let resident_message = events
+            .iter()
+            .find(|event| {
+                event.kind == Kind::Custom(MESSAGE_KIND) && event.pubkey.to_hex() == resident_pubkey
+            })
+            .unwrap();
+        let foreign_message = events
+            .iter()
+            .find(|event| {
+                event.kind == Kind::Custom(MESSAGE_KIND) && event.pubkey.to_hex() != resident_pubkey
+            })
+            .unwrap();
+        let foreign_reaction = events
+            .iter()
+            .find(|event| {
+                event.kind == Kind::Custom(REACTION_KIND)
+                    && event.pubkey.to_hex() != resident_pubkey
+            })
+            .unwrap();
+
+        let edit = request_with_operation(
+            &fixture.request,
+            "foreign-edit",
+            CommunicationOperationV1::EditOwnMessage {
+                target_event_id: Hex64::parse(foreign_message.id.to_hex()).unwrap(),
+                replacement_body: "denied".to_owned(),
+                artifact_handles: Vec::new(),
+            },
+        );
+        assert!(fixture
+            .publisher
+            .stage_and_publish(edit, &fixture.authority)
+            .is_err());
+
+        let remove = request_with_operation(
+            &fixture.request,
+            "foreign-remove",
+            CommunicationOperationV1::RemoveOwnReaction {
+                target_event_id: Hex64::parse(resident_message.id.to_hex()).unwrap(),
+                reaction_event_id: Hex64::parse(foreign_reaction.id.to_hex()).unwrap(),
+            },
+        );
+        assert!(fixture
+            .publisher
+            .stage_and_publish(remove, &fixture.authority)
+            .is_err());
+        assert!(fixture.relay.submitted().is_empty());
     }
 
     #[test]
@@ -2009,13 +2321,79 @@ mod tests {
     }
 
     #[test]
+    fn reaction_retry_and_restart_reuse_the_exact_frozen_event() {
+        let retry_fixture =
+            publisher_fixture([FakeSubmitResult::Unknown, FakeSubmitResult::Accepted]);
+        let target = retry_fixture
+            .relay
+            .events()
+            .into_iter()
+            .find(|event| {
+                event.kind == Kind::Custom(MESSAGE_KIND)
+                    && event.pubkey.to_hex() == retry_fixture.request.resident_pubkey.as_str()
+            })
+            .expect("resident message");
+        let reaction = request_with_operation(
+            &retry_fixture.request,
+            "retry-reaction",
+            CommunicationOperationV1::AddReaction {
+                target_event_id: Hex64::parse(target.id.to_hex()).unwrap(),
+                reaction: "+1".to_owned(),
+            },
+        );
+        assert!(retry_fixture
+            .publisher
+            .stage_and_publish(reaction.clone(), &retry_fixture.authority)
+            .is_err());
+        let accepted = retry_fixture
+            .publisher
+            .stage_and_publish(reaction, &retry_fixture.authority)
+            .expect("retry exact reaction");
+        assert_eq!(accepted.state, "accepted");
+        let retry_submitted = retry_fixture.relay.submitted();
+        assert_eq!(retry_submitted.len(), 2);
+        assert_eq!(retry_submitted[0], retry_submitted[1]);
+
+        let restart_fixture =
+            publisher_fixture([FakeSubmitResult::Unknown, FakeSubmitResult::Accepted]);
+        let target = restart_fixture
+            .relay
+            .events()
+            .into_iter()
+            .find(|event| {
+                event.kind == Kind::Custom(MESSAGE_KIND)
+                    && event.pubkey.to_hex() == restart_fixture.request.resident_pubkey.as_str()
+            })
+            .expect("resident message");
+        let reaction = request_with_operation(
+            &restart_fixture.request,
+            "restart-reaction",
+            CommunicationOperationV1::AddReaction {
+                target_event_id: Hex64::parse(target.id.to_hex()).unwrap(),
+                reaction: "+1".to_owned(),
+            },
+        );
+        assert!(restart_fixture
+            .publisher
+            .stage_and_publish(reaction, &restart_fixture.authority)
+            .is_err());
+        restart_fixture
+            .publisher
+            .reconcile_one_on_start()
+            .expect("restart reconciliation");
+        let restart_submitted = restart_fixture.relay.submitted();
+        assert_eq!(restart_submitted.len(), 2);
+        assert_eq!(restart_submitted[0], restart_submitted[1]);
+    }
+
+    #[test]
     fn seal_before_prepare_crash_recovers_the_original_signed_event() {
         let fixture = publisher_fixture([FakeSubmitResult::Accepted]);
         let membership = fixture
             .publisher
             .membership(existing_conversation_id(&fixture.request).unwrap())
             .expect("membership");
-        let frozen = build_exact_message_event(
+        let frozen = build_exact_communication_event(
             &fixture.request,
             &fixture.publisher.resident_keys,
             &membership,

@@ -345,6 +345,7 @@ pub(crate) trait CommunicationBrokerBackend: Send + Sync + 'static {
         &self,
         authority: &CommunicationTurnAuthoritySnapshot,
         conversation_id: &OpaqueId,
+        target_event_id: &Hex64,
         reaction_event_id: &Hex64,
     ) -> Result<Hex64, BrokerFailure>;
 
@@ -724,6 +725,7 @@ impl CommunicationBridgeCore {
                 let author = self.backend.reaction_author(
                     &authority,
                     &conversation_id,
+                    &target_event_id,
                     &reaction_event_id,
                 )?;
                 if author != authority.resident_pubkey {

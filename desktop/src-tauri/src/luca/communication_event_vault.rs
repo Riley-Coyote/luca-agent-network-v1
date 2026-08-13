@@ -16,7 +16,7 @@ use luca_protocol::{
     canonicalize, CommunicationActionRequestV1, CommunicationDestinationV1,
     CommunicationOperationV1, Hex64, OpaqueArtifactHandleV1, OpaqueId, Sha256Ref,
 };
-use nostr::{Event, JsonUtil, Kind};
+use nostr::{Event, JsonUtil};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, Zeroizing};
@@ -254,7 +254,7 @@ impl CommunicationEventVault {
             || stored.action_fingerprint != binding.action_fingerprint
             || stored.destination_ref != binding.destination_ref
             || stored.conversation_id != binding.conversation_id
-            || stored.event_kind != Kind::Custom(9).as_u16()
+            || stored.event_kind != expected_event_kind(request)?
             || &stored.event_id != expected_event_id
             || &stored.event_sha256 != expected_event_sha256
         {
@@ -458,12 +458,7 @@ fn binding_for_request(
     if &request.resident_pubkey != resident_pubkey || &request.actor_pubkey != resident_pubkey {
         return Err(CommunicationEventVaultError::Invalid);
     }
-    if !matches!(
-        &request.operation,
-        CommunicationOperationV1::SendMessage { .. }
-    ) {
-        return Err(CommunicationEventVaultError::Invalid);
-    }
+    expected_event_kind(request)?;
     let CommunicationDestinationV1::ExistingConversation {
         conversation_id, ..
     } = &request.destination
@@ -486,33 +481,82 @@ fn verify_event_binding(
     request: &CommunicationActionRequestV1,
     binding: &CommunicationEventBinding,
 ) -> Result<(), CommunicationEventVaultError> {
-    let CommunicationOperationV1::SendMessage {
-        body,
-        reply_to_event_id,
-        mention_pubkeys,
-        artifact_handles,
-        ..
-    } = &request.operation
-    else {
-        return Err(CommunicationEventVaultError::Invalid);
-    };
-    if event.kind != Kind::Custom(9) || event.content != *body {
+    if event.kind.as_u16() != expected_event_kind(request)? {
         return Err(CommunicationEventVaultError::Invalid);
     }
 
-    let channel_tags = event
-        .tags
-        .iter()
-        .filter_map(|tag| {
-            let values = tag.as_slice();
-            (values.first().map(String::as_str) == Some("h")).then_some(values)
-        })
-        .collect::<Vec<_>>();
-    if channel_tags.len() != 1
-        || channel_tags[0].get(1).map(String::as_str) != Some(binding.conversation_id.as_str())
-    {
+    match &request.operation {
+        CommunicationOperationV1::SendMessage {
+            body,
+            reply_to_event_id,
+            mention_pubkeys,
+            artifact_handles,
+            ..
+        } => verify_message_binding(
+            event,
+            binding,
+            body,
+            reply_to_event_id.as_ref(),
+            mention_pubkeys,
+            artifact_handles,
+        ),
+        CommunicationOperationV1::AddReaction {
+            target_event_id,
+            reaction,
+        } => {
+            if event.content != *reaction {
+                return Err(CommunicationEventVaultError::Invalid);
+            }
+            verify_exact_event_reference(event, target_event_id)
+        }
+        CommunicationOperationV1::RemoveOwnReaction {
+            reaction_event_id, ..
+        } => {
+            if !event.content.is_empty() {
+                return Err(CommunicationEventVaultError::Invalid);
+            }
+            verify_exact_event_reference(event, reaction_event_id)
+        }
+        CommunicationOperationV1::EditOwnMessage {
+            target_event_id,
+            replacement_body,
+            artifact_handles,
+        } => {
+            if !artifact_handles.is_empty() || event.content != *replacement_body {
+                return Err(CommunicationEventVaultError::Invalid);
+            }
+            verify_exact_channel(event, &binding.conversation_id)?;
+            verify_exact_event_reference(event, target_event_id)
+        }
+        _ => Err(CommunicationEventVaultError::Invalid),
+    }
+}
+
+fn expected_event_kind(
+    request: &CommunicationActionRequestV1,
+) -> Result<u16, CommunicationEventVaultError> {
+    match &request.operation {
+        CommunicationOperationV1::SendMessage { .. } => Ok(9),
+        CommunicationOperationV1::AddReaction { .. } => Ok(7),
+        CommunicationOperationV1::RemoveOwnReaction { .. } => Ok(5),
+        CommunicationOperationV1::EditOwnMessage { .. } => Ok(40_003),
+        _ => Err(CommunicationEventVaultError::Invalid),
+    }
+}
+
+fn verify_message_binding(
+    event: &Event,
+    binding: &CommunicationEventBinding,
+    body: &str,
+    reply_to_event_id: Option<&Hex64>,
+    mention_pubkeys: &[Hex64],
+    artifact_handles: &[OpaqueArtifactHandleV1],
+) -> Result<(), CommunicationEventVaultError> {
+    if event.content != body {
         return Err(CommunicationEventVaultError::Invalid);
     }
+
+    verify_exact_channel(event, &binding.conversation_id)?;
 
     let mut actual_mentions = Vec::new();
     for values in event.tags.iter().filter_map(|tag| {
@@ -525,13 +569,55 @@ fn verify_event_binding(
     }
     actual_mentions.sort();
     if actual_mentions.windows(2).any(|pair| pair[0] == pair[1])
-        || actual_mentions != *mention_pubkeys
+        || actual_mentions != mention_pubkeys
     {
         return Err(CommunicationEventVaultError::Invalid);
     }
 
-    verify_reply_tags(event, reply_to_event_id.as_ref())?;
+    verify_reply_tags(event, reply_to_event_id)?;
     verify_artifact_tags(event, artifact_handles)
+}
+
+fn verify_exact_channel(
+    event: &Event,
+    conversation_id: &OpaqueId,
+) -> Result<(), CommunicationEventVaultError> {
+    let channel_tags = event
+        .tags
+        .iter()
+        .filter_map(|tag| {
+            let values = tag.as_slice();
+            (values.first().map(String::as_str) == Some("h")).then_some(values)
+        })
+        .collect::<Vec<_>>();
+    if channel_tags.len() != 1
+        || channel_tags[0].len() != 2
+        || channel_tags[0].get(1).map(String::as_str) != Some(conversation_id.as_str())
+    {
+        return Err(CommunicationEventVaultError::Invalid);
+    }
+    Ok(())
+}
+
+fn verify_exact_event_reference(
+    event: &Event,
+    expected_event_id: &Hex64,
+) -> Result<(), CommunicationEventVaultError> {
+    let references = event
+        .tags
+        .iter()
+        .filter_map(|tag| {
+            let values = tag.as_slice();
+            (values.first().map(String::as_str) == Some("e")).then_some(values)
+        })
+        .collect::<Vec<_>>();
+    if references.len() != 1
+        || references[0].len() != 2
+        || references[0].get(1).map(String::as_str) != Some(expected_event_id.as_str())
+    {
+        return Err(CommunicationEventVaultError::Invalid);
+    }
+    Ok(())
 }
 
 fn verify_reply_tags(

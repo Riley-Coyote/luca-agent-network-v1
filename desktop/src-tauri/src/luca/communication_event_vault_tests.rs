@@ -360,6 +360,168 @@ fn ciphertext_tampering_is_detected() {
 }
 
 #[test]
+fn approved_reaction_remove_and_edit_events_round_trip_exactly() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let keys = Keys::generate();
+    let resident = Hex64::parse(keys.public_key().to_hex()).expect("resident");
+    let target = hex('a');
+    let reaction_event = hex('b');
+
+    let cases = [
+        (
+            "reaction",
+            CommunicationOperationV1::AddReaction {
+                target_event_id: target.clone(),
+                reaction: "+1".to_owned(),
+            },
+            signed(
+                &keys,
+                Kind::Custom(7),
+                "+1",
+                vec![Tag::parse(["e", target.as_str()]).expect("target tag")],
+            ),
+        ),
+        (
+            "remove-reaction",
+            CommunicationOperationV1::RemoveOwnReaction {
+                target_event_id: target.clone(),
+                reaction_event_id: reaction_event.clone(),
+            },
+            signed(
+                &keys,
+                Kind::Custom(5),
+                "",
+                vec![Tag::parse(["e", reaction_event.as_str()]).expect("reaction tag")],
+            ),
+        ),
+        (
+            "edit",
+            CommunicationOperationV1::EditOwnMessage {
+                target_event_id: target.clone(),
+                replacement_body: "corrected".to_owned(),
+                artifact_handles: Vec::new(),
+            },
+            signed(
+                &keys,
+                Kind::Custom(40_003),
+                "corrected",
+                vec![
+                    channel_tag(CONVERSATION),
+                    Tag::parse(["e", target.as_str()]).expect("target tag"),
+                ],
+            ),
+        ),
+    ];
+
+    for (index, (name, operation, event)) in cases.into_iter().enumerate() {
+        let mut request = request(resident.clone(), "placeholder");
+        request.action_id = opaque(&format!("action-{name}"));
+        request.operation = operation;
+        let request = finalize_request(request);
+        let vault = vault(
+            &dir.path().join(format!("events-{index}")),
+            "vault-secret",
+            resident.clone(),
+        );
+        let sealed = vault.seal(&request, &event).expect("seal approved event");
+        let recovered = vault
+            .seal_or_recover(&request, None)
+            .expect("recover approved event");
+        assert_eq!(recovered, sealed);
+        assert_eq!(
+            vault
+                .load_exact(
+                    &sealed.handle,
+                    &request,
+                    &sealed.event_id,
+                    &sealed.event_sha256,
+                )
+                .expect("load exact approved event")
+                .as_str(),
+            Event::from_json(event)
+                .expect("parse approved event")
+                .as_json(),
+        );
+    }
+}
+
+#[test]
+fn mutation_kind_target_body_and_resident_binding_fail_closed() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let keys = Keys::generate();
+    let other = Keys::generate();
+    let resident = Hex64::parse(keys.public_key().to_hex()).expect("resident");
+    let target = hex('a');
+    let wrong_target = hex('b');
+    let mut request = request(resident.clone(), "placeholder");
+    request.operation = CommunicationOperationV1::EditOwnMessage {
+        target_event_id: target.clone(),
+        replacement_body: "corrected".to_owned(),
+        artifact_handles: Vec::new(),
+    };
+    let request = finalize_request(request);
+
+    let invalid = [
+        signed(
+            &keys,
+            Kind::Custom(40_003),
+            "wrong body",
+            vec![
+                channel_tag(CONVERSATION),
+                Tag::parse(["e", target.as_str()]).expect("target tag"),
+            ],
+        ),
+        signed(
+            &keys,
+            Kind::Custom(40_003),
+            "corrected",
+            vec![
+                channel_tag(CONVERSATION),
+                Tag::parse(["e", wrong_target.as_str()]).expect("wrong target tag"),
+            ],
+        ),
+        signed(
+            &other,
+            Kind::Custom(40_003),
+            "corrected",
+            vec![
+                channel_tag(CONVERSATION),
+                Tag::parse(["e", target.as_str()]).expect("target tag"),
+            ],
+        ),
+    ];
+    for (index, event) in invalid.into_iter().enumerate() {
+        assert_eq!(
+            vault(
+                &dir.path().join(format!("invalid-mutation-{index}")),
+                "vault-secret",
+                resident.clone(),
+            )
+            .seal(&request, &event),
+            Err(CommunicationEventVaultError::Invalid),
+        );
+    }
+
+    let mut delete_request = request.clone();
+    delete_request.operation = CommunicationOperationV1::DeleteOwnMessage {
+        target_event_id: target,
+    };
+    let delete_request = finalize_request(delete_request);
+    let delete_event = signed(
+        &keys,
+        Kind::Custom(5),
+        "",
+        vec![Tag::parse(["e", wrong_target.as_str()]).expect("delete tag")],
+    );
+    assert_eq!(
+        vault(&dir.path().join("delete"), "vault-secret", resident)
+            .seal(&delete_request, &delete_event),
+        Err(CommunicationEventVaultError::Invalid),
+        "delete remains outside COM-104"
+    );
+}
+
+#[test]
 fn signing_identity_kind_destination_body_mentions_and_reply_are_exact() {
     let dir = tempfile::tempdir().expect("tempdir");
     let keys = Keys::generate();

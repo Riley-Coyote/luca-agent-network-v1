@@ -365,11 +365,14 @@ impl CommunicationBrokerBackend for DesktopCommunicationActionBackend {
     fn reaction_author(
         &self,
         authority: &CommunicationTurnAuthoritySnapshot,
-        _conversation_id: &OpaqueId,
-        _reaction_event_id: &Hex64,
+        conversation_id: &OpaqueId,
+        target_event_id: &Hex64,
+        reaction_event_id: &Hex64,
     ) -> Result<Hex64, BrokerFailure> {
         self.require_authority(authority)?;
-        Err(BrokerFailure::operation_not_implemented())
+        self.publisher
+            .reaction_author(conversation_id, target_event_id, reaction_event_id)
+            .map_err(|_| BrokerFailure::membership_denied())
     }
 
     fn stage_action(

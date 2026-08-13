@@ -239,8 +239,12 @@ impl CommunicationBrokerBackend for TestBackend {
         &self,
         authority: &CommunicationTurnAuthoritySnapshot,
         _conversation_id: &OpaqueId,
+        target_event_id: &Hex64,
         reaction_event_id: &Hex64,
     ) -> Result<Hex64, BrokerFailure> {
+        if target_event_id != &hex64(EVENT) {
+            return Err(BrokerFailure::membership_denied());
+        }
         if reaction_event_id == &hex64(EVENT) {
             Ok(authority.resident_pubkey.clone())
         } else {
@@ -746,6 +750,58 @@ fn action_identity_and_expiry_are_retry_stable() {
     .expect("third request");
     assert_ne!(first.action_id, third.action_id);
     assert_ne!(first.idempotency_key, third.idempotency_key);
+}
+
+#[test]
+fn reactions_are_scoped_to_exact_events_and_only_own_reactions_are_removed() {
+    let fixture = Fixture::new();
+    let added = fixture.response(
+        "react",
+        json!({
+            "mutation": {
+                "action": "add",
+                "target_event_id": EVENT,
+                "reaction": "+1",
+            },
+        }),
+    );
+    assert!(added.ok);
+
+    let removed = fixture.response(
+        "react",
+        json!({
+            "mutation": {
+                "action": "remove",
+                "target_event_id": EVENT,
+                "reaction_event_id": EVENT,
+            },
+        }),
+    );
+    assert!(removed.ok);
+
+    let foreign = fixture.response(
+        "react",
+        json!({
+            "mutation": {
+                "action": "remove",
+                "target_event_id": EVENT,
+                "reaction_event_id": OTHER_RESIDENT,
+            },
+        }),
+    );
+    assert!(!foreign.ok);
+    assert_eq!(foreign.receipt.diagnostic_code, Some("authorship_denied"));
+
+    let staged = fixture.backend.staged.lock().expect("staged reactions");
+    assert_eq!(staged.len(), 2);
+    assert!(matches!(
+        staged[0].0.operation,
+        CommunicationOperationV1::AddReaction { .. }
+    ));
+    assert!(matches!(
+        staged[1].0.operation,
+        CommunicationOperationV1::RemoveOwnReaction { .. }
+    ));
 }
 
 #[test]
