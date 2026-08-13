@@ -135,7 +135,11 @@ impl CommunicationsMcpConfig {
             turn,
         );
         McpServer {
-            name: "luca-communications".into(),
+            // Persistent ACP runtimes may cache MCP children by server name
+            // across session/new calls. Give each immutable turn projection a
+            // distinct public-coordinate-derived name so a later turn cannot
+            // accidentally reuse the previous turn's environment/capability.
+            name: communications_server_name(turn),
             command: self.command.clone(),
             args: Vec::new(),
             env: vec![
@@ -174,6 +178,17 @@ impl CommunicationsMcpConfig {
             ],
         }
     }
+}
+
+fn communications_server_name(turn: &CommunicationsTurnBindingV1) -> String {
+    let mut material = Vec::with_capacity(256);
+    material.extend_from_slice(turn.conversation_id.as_str().as_bytes());
+    material.push(0);
+    material.extend_from_slice(turn.turn_id.as_str().as_bytes());
+    material.push(0);
+    material.extend_from_slice(turn.dispatch_receipt_id.as_str().as_bytes());
+    let digest = Sha256::digest(material);
+    format!("luca-communications-{}", &hex::encode(digest)[..12])
 }
 
 fn derive_turn_capability(
@@ -284,7 +299,8 @@ mod tests {
         let second_turn = turn(conversation, "turn-2", "dispatch-2");
         let first = config.server_for_turn(&first_turn);
         let second = config.server_for_turn(&second_turn);
-        assert_eq!(first.name, "luca-communications");
+        assert!(first.name.starts_with("luca-communications-"));
+        assert_ne!(first.name, second.name);
         assert!(!first.env.iter().any(|entry| entry.value == master));
         assert_ne!(
             env_value(&first, "LUCA_COMMUNICATIONS_CAPABILITY"),
