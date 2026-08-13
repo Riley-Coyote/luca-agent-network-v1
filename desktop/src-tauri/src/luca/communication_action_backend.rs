@@ -8,8 +8,10 @@
 use std::{collections::BTreeSet, path::PathBuf, sync::Arc, thread, time::Duration};
 
 use luca_protocol::{
-    canonical_sha256, CommunicationActionRequestV1, Hex64, OpaqueArtifactHandleV1, OpaqueId,
-    SafeU53,
+    canonical_sha256, CanonicalTimestamp, CommunicationActionRequestV1,
+    CommunicationApprovalBindingV1, CommunicationDestinationV1, CommunicationOperationV1, Hex64,
+    ManagedPermissionOptionV1, ManagedPermissionRequestV1, OpaqueArtifactHandleV1, OpaqueId,
+    SafeU53, COMMUNICATION_APPROVAL_PROTOCOL, MANAGED_PERMISSION_PROTOCOL,
 };
 use nostr::Keys;
 use serde::Deserialize;
@@ -31,6 +33,8 @@ use super::{
 const MANAGED_ROOM_NAMESPACE: Uuid = uuid::uuid!("c20e259b-1685-5e1d-9141-55ea3320f9c2");
 const MEMBERSHIP_RECONCILE_ATTEMPTS: usize = 6;
 const MEMBERSHIP_RECONCILE_DELAY: Duration = Duration::from_millis(100);
+const COMMUNICATION_ALLOW_ONCE: &str = "communication_allow_once";
+const COMMUNICATION_REJECT: &str = "communication_reject";
 
 fn protocol_artifact_handles(
     bindings: Vec<super::managed_dispatch_store::ManagedArtifactBinding>,
@@ -413,6 +417,18 @@ impl CommunicationBrokerBackend for DesktopCommunicationActionBackend {
             .map_err(|_| BrokerFailure::membership_denied())
     }
 
+    fn message_author(
+        &self,
+        authority: &CommunicationTurnAuthoritySnapshot,
+        conversation_id: &OpaqueId,
+        message_event_id: &Hex64,
+    ) -> Result<Hex64, BrokerFailure> {
+        self.require_authority(authority)?;
+        self.publisher
+            .message_author(conversation_id, message_event_id)
+            .map_err(|_| BrokerFailure::membership_denied())
+    }
+
     fn stage_action(
         &self,
         request: CommunicationActionRequestV1,
@@ -422,6 +438,128 @@ impl CommunicationBrokerBackend for DesktopCommunicationActionBackend {
         self.publisher
             .stage_and_publish(request, expected_authority)
     }
+
+    fn approve_and_stage_action(
+        &self,
+        request: CommunicationActionRequestV1,
+        expected_authority: &CommunicationTurnAuthoritySnapshot,
+    ) -> Result<StagedCommunicationAction, BrokerFailure> {
+        self.require_authority(expected_authority)?;
+        if !matches!(
+            &request.operation,
+            CommunicationOperationV1::DeleteOwnMessage { .. }
+        ) || request.approval_id.is_none()
+        {
+            return Err(BrokerFailure::approval_required());
+        }
+        let decision = crate::luca::managed_permission::await_local_decision(
+            &self.app,
+            delete_permission_request(&request)?,
+        );
+        if decision.option_id.as_deref() != Some(COMMUNICATION_ALLOW_ONCE) {
+            return Err(BrokerFailure::approval_denied());
+        }
+
+        // The decision is not durable authority. Recheck the exact active turn
+        // after the owner responds, then bind the approval to this exact action.
+        super::communication_bridge::recheck_desktop_communication_authority(
+            &self.app,
+            expected_authority,
+        )?;
+        let approved_at = canonical_now()?;
+        let approval = exact_approval_binding(&request, approved_at.clone())?;
+        approval
+            .validate_request(&request, &approved_at)
+            .map_err(|_| BrokerFailure::approval_denied())?;
+        self.publisher
+            .stage_approved_and_publish(request, &approval, expected_authority)
+    }
+}
+
+fn delete_permission_request(
+    request: &CommunicationActionRequestV1,
+) -> Result<ManagedPermissionRequestV1, BrokerFailure> {
+    if !matches!(
+        &request.operation,
+        CommunicationOperationV1::DeleteOwnMessage { .. }
+    ) || request.approval_id.is_none()
+    {
+        return Err(BrokerFailure::approval_required());
+    }
+    let conversation_id = match &request.destination {
+        CommunicationDestinationV1::ExistingConversation {
+            conversation_id, ..
+        } => conversation_id.clone(),
+        _ => return Err(BrokerFailure::approval_required()),
+    };
+    Ok(ManagedPermissionRequestV1 {
+        protocol: MANAGED_PERMISSION_PROTOCOL.into(),
+        resident_pubkey: request.resident_pubkey.clone(),
+        session_epoch: request.session_epoch,
+        turn_id: request.turn_id.clone(),
+        conversation_id,
+        acp_request_id: request.action_fingerprint.as_str().to_owned(),
+        title: "Delete this resident-authored message?".into(),
+        tool_call_id: None,
+        options: vec![
+            ManagedPermissionOptionV1 {
+                option_id: COMMUNICATION_ALLOW_ONCE.into(),
+                name: "Allow once".into(),
+                kind: "allow_once".into(),
+            },
+            ManagedPermissionOptionV1 {
+                option_id: COMMUNICATION_REJECT.into(),
+                name: "Reject".into(),
+                kind: "reject_once".into(),
+            },
+        ],
+    })
+}
+
+fn canonical_now() -> Result<CanonicalTimestamp, BrokerFailure> {
+    CanonicalTimestamp::parse(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+        .map_err(|_| BrokerFailure::approval_denied())
+}
+
+fn exact_approval_binding(
+    request: &CommunicationActionRequestV1,
+    approved_at: CanonicalTimestamp,
+) -> Result<CommunicationApprovalBindingV1, BrokerFailure> {
+    Ok(CommunicationApprovalBindingV1 {
+        protocol: COMMUNICATION_APPROVAL_PROTOCOL.into(),
+        approval_id: request
+            .approval_id
+            .clone()
+            .ok_or_else(BrokerFailure::approval_required)?,
+        action_id: request.action_id.clone(),
+        action_fingerprint: request.action_fingerprint.clone(),
+        content_ref: request
+            .content_ref()
+            .map_err(|_| BrokerFailure::approval_denied())?,
+        artifact_set_ref: request
+            .artifact_set_ref()
+            .map_err(|_| BrokerFailure::approval_denied())?,
+        destination_ref: request
+            .destination_ref()
+            .map_err(|_| BrokerFailure::approval_denied())?,
+        participant_set_ref: request.destination.participant_set_ref().clone(),
+        operation: request.operation.kind(),
+        actor_pubkey: request.actor_pubkey.clone(),
+        owner_pubkey: request.owner_pubkey.clone(),
+        resident_pubkey: request.resident_pubkey.clone(),
+        session_epoch: request.session_epoch,
+        runtime_binding_ref: request.runtime_binding_ref.clone(),
+        source_conversation_id: request.source_conversation_id.clone(),
+        turn_id: request.turn_id.clone(),
+        dispatch_receipt_id: request.dispatch_receipt_id.clone(),
+        causal_root_id: request.causal_root_id.clone(),
+        causal_parent_action_id: request.causal_parent_action_id.clone(),
+        causal_depth: request.causal_depth,
+        idempotency_key: request.idempotency_key.clone(),
+        cancellation_epoch: request.cancellation_epoch,
+        approved_at,
+        expires_at: request.expires_at.clone(),
+    })
 }
 
 #[cfg(test)]

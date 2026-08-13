@@ -529,6 +529,13 @@ fn verify_event_binding(
             verify_exact_channel(event, &binding.conversation_id)?;
             verify_exact_event_reference(event, target_event_id)
         }
+        CommunicationOperationV1::DeleteOwnMessage { target_event_id } => {
+            if !event.content.is_empty() {
+                return Err(CommunicationEventVaultError::Invalid);
+            }
+            verify_exact_channel(event, &binding.conversation_id)?;
+            verify_exact_event_reference(event, target_event_id)
+        }
         _ => Err(CommunicationEventVaultError::Invalid),
     }
 }
@@ -541,6 +548,7 @@ fn expected_event_kind(
         CommunicationOperationV1::AddReaction { .. } => Ok(7),
         CommunicationOperationV1::RemoveOwnReaction { .. } => Ok(5),
         CommunicationOperationV1::EditOwnMessage { .. } => Ok(40_003),
+        CommunicationOperationV1::DeleteOwnMessage { .. } => Ok(5),
         _ => Err(CommunicationEventVaultError::Invalid),
     }
 }

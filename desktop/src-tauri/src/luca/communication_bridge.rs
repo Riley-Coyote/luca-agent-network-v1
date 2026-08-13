@@ -1,6 +1,6 @@
 //! Trusted desktop bridge for turn-scoped resident communication.
 //!
-//! The restricted Communications MCP process can describe only six semantic
+//! The restricted Communications MCP process can describe only bounded semantic
 //! operations. This bridge authenticates the exact managed turn, rechecks the
 //! process-local turn registry and durable dispatch state for every frame, and
 //! resolves all identity, membership, artifact, signing, and publication
@@ -80,6 +80,7 @@ enum BrokerOperation {
     Conversation,
     Send,
     React,
+    DeleteOwnMessage,
     Invite,
     CreatePrivateRoom,
 }
@@ -91,6 +92,7 @@ impl BrokerOperation {
             "conversation" => Ok(Self::Conversation),
             "send" => Ok(Self::Send),
             "react" => Ok(Self::React),
+            "delete_own_message" => Ok(Self::DeleteOwnMessage),
             "invite" => Ok(Self::Invite),
             "create_private_room" => Ok(Self::CreatePrivateRoom),
             _ => Err(BrokerFailure::invalid_operation()),
@@ -103,6 +105,7 @@ impl BrokerOperation {
             Self::Conversation => "conversation",
             Self::Send => "send",
             Self::React => "react",
+            Self::DeleteOwnMessage => "delete_own_message",
             Self::Invite => "invite",
             Self::CreatePrivateRoom => "create_private_room",
         }
@@ -349,10 +352,25 @@ pub(crate) trait CommunicationBrokerBackend: Send + Sync + 'static {
         reaction_event_id: &Hex64,
     ) -> Result<Hex64, BrokerFailure>;
 
+    fn message_author(
+        &self,
+        authority: &CommunicationTurnAuthoritySnapshot,
+        conversation_id: &OpaqueId,
+        message_event_id: &Hex64,
+    ) -> Result<Hex64, BrokerFailure>;
+
     /// Seal/sign the exact semantic request and prepare it in the encrypted
     /// `CommunicationActionOutbox` before any relay I/O. Returning success for
     /// an untracked or directly published side effect violates this contract.
     fn stage_action(
+        &self,
+        request: CommunicationActionRequestV1,
+        expected_authority: &CommunicationTurnAuthoritySnapshot,
+    ) -> Result<StagedCommunicationAction, BrokerFailure>;
+
+    /// Obtain one exact, local owner decision and stage only the request bound
+    /// by that one-shot approval. A denial must not reach durable staging.
+    fn approve_and_stage_action(
         &self,
         request: CommunicationActionRequestV1,
         expected_authority: &CommunicationTurnAuthoritySnapshot,
@@ -534,6 +552,11 @@ impl CommunicationBridgeCore {
             BrokerOperation::React => {
                 self.handle_react(authority, &operation_request_id, frame.arguments.clone())
             }
+            BrokerOperation::DeleteOwnMessage => self.handle_delete_own_message(
+                authority,
+                &operation_request_id,
+                frame.arguments.clone(),
+            ),
             BrokerOperation::Invite => {
                 self.handle_invite(authority, &operation_request_id, frame.arguments.clone())
             }
@@ -743,6 +766,52 @@ impl CommunicationBridgeCore {
             conversation.destination()?,
             operation,
         )
+    }
+
+    fn handle_delete_own_message(
+        &self,
+        authority: CommunicationTurnAuthoritySnapshot,
+        operation_request_id: &OpaqueId,
+        arguments: Value,
+    ) -> Result<String, BrokerFailure> {
+        let raw: RawDeleteOwnMessageParams = parse_arguments(arguments)?;
+        let conversation_id = raw
+            .conversation_id
+            .map(OpaqueId::parse)
+            .transpose()
+            .map_err(|_| BrokerFailure::invalid_arguments())?
+            .unwrap_or_else(|| authority.coordinates.source_conversation_id.clone());
+        let conversation = self
+            .backend
+            .conversation_authority(&read_scope(&authority), &conversation_id)?;
+        conversation.require_internal_write(&authority)?;
+        let target_event_id = parse_hex(raw.target_event_id)?;
+        let author = self
+            .backend
+            .message_author(&authority, &conversation_id, &target_event_id)?;
+        if author != authority.resident_pubkey {
+            return Err(BrokerFailure::authorship_denied());
+        }
+        let request = build_approved_action_request(
+            &authority,
+            operation_request_id,
+            conversation.destination()?,
+            CommunicationOperationV1::DeleteOwnMessage { target_event_id },
+        )?;
+
+        // Recheck once before opening the local one-shot decision. The concrete
+        // backend rechecks again after the owner decides and before staging.
+        let rechecked = self.recheck_exact_authority(&authority)?;
+        let staged = self
+            .backend
+            .approve_and_stage_action(request.clone(), &rechecked)?;
+        if staged.action_id != request.action_id
+            || staged.idempotency_key != request.idempotency_key
+            || !matches!(staged.state, "prepared" | "accepted" | "already_prepared")
+        {
+            return Err(BrokerFailure::outbox_unavailable());
+        }
+        Ok("Approved own-message deletion was durably staged.".into())
     }
 
     fn handle_invite(
@@ -1329,6 +1398,14 @@ struct RawReactParams {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawDeleteOwnMessageParams {
+    #[serde(default)]
+    conversation_id: Option<String>,
+    target_event_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawInviteParams {
     #[serde(default)]
     conversation_id: Option<String>,
@@ -1412,6 +1489,12 @@ impl BrokerFailure {
             "This communication requires owner approval.",
         )
     }
+    pub(crate) fn approval_denied() -> Self {
+        Self::new(
+            "approval_denied",
+            "The owner did not approve this communication action.",
+        )
+    }
     pub(crate) fn read_only() -> Self {
         Self::new("conversation_read_only", "This conversation is read-only.")
     }
@@ -1424,7 +1507,7 @@ impl BrokerFailure {
     pub(crate) fn authorship_denied() -> Self {
         Self::new(
             "authorship_denied",
-            "The resident may remove only its own reaction.",
+            "The resident may change only its own authored event.",
         )
     }
     pub(crate) fn outbox_unavailable() -> Self {
@@ -1499,6 +1582,37 @@ fn build_action_request(
     destination: CommunicationDestinationV1,
     operation: CommunicationOperationV1,
 ) -> Result<CommunicationActionRequestV1, BrokerFailure> {
+    build_action_request_with_approval(
+        authority,
+        operation_request_id,
+        destination,
+        operation,
+        false,
+    )
+}
+
+fn build_approved_action_request(
+    authority: &CommunicationTurnAuthoritySnapshot,
+    operation_request_id: &OpaqueId,
+    destination: CommunicationDestinationV1,
+    operation: CommunicationOperationV1,
+) -> Result<CommunicationActionRequestV1, BrokerFailure> {
+    build_action_request_with_approval(
+        authority,
+        operation_request_id,
+        destination,
+        operation,
+        true,
+    )
+}
+
+fn build_action_request_with_approval(
+    authority: &CommunicationTurnAuthoritySnapshot,
+    operation_request_id: &OpaqueId,
+    destination: CommunicationDestinationV1,
+    operation: CommunicationOperationV1,
+    include_approval: bool,
+) -> Result<CommunicationActionRequestV1, BrokerFailure> {
     let expiry = authority.expires_at.clone();
     let material = serde_json::json!({
         "domain": "luca.communication.bridge.action-id.v1",
@@ -1518,6 +1632,10 @@ fn build_action_request(
         .map_err(|_| BrokerFailure::invalid_arguments())?;
     let zero_hex = Hex64::parse("0".repeat(64)).map_err(|_| BrokerFailure::invalid_arguments())?;
     let zero_ref = Sha256Ref::parse(format!("sha256:{}", "0".repeat(64)))
+        .map_err(|_| BrokerFailure::invalid_arguments())?;
+    let approval_id = include_approval
+        .then(|| OpaqueId::parse(format!("communication-approval-{digest}")))
+        .transpose()
         .map_err(|_| BrokerFailure::invalid_arguments())?;
     let mut request = CommunicationActionRequestV1 {
         protocol: COMMUNICATION_ACTION_PROTOCOL.into(),
@@ -1543,7 +1661,7 @@ fn build_action_request(
         .map_err(|_| BrokerFailure::invalid_arguments())?,
         cancellation_epoch: authority.coordinates.cancellation_epoch,
         expires_at: expiry,
-        approval_id: None,
+        approval_id,
         operation,
     };
     request.action_fingerprint = request

@@ -504,21 +504,76 @@ fn mutation_kind_target_body_and_resident_binding_fail_closed() {
 
     let mut delete_request = request.clone();
     delete_request.operation = CommunicationOperationV1::DeleteOwnMessage {
-        target_event_id: target,
+        target_event_id: target.clone(),
     };
+    delete_request.approval_id = Some(opaque("delete-approval-1"));
     let delete_request = finalize_request(delete_request);
     let delete_event = signed(
         &keys,
         Kind::Custom(5),
         "",
-        vec![Tag::parse(["e", wrong_target.as_str()]).expect("delete tag")],
+        vec![
+            channel_tag(CONVERSATION),
+            Tag::parse(["e", target.as_str()]).expect("delete tag"),
+        ],
     );
-    assert_eq!(
-        vault(&dir.path().join("delete"), "vault-secret", resident)
-            .seal(&delete_request, &delete_event),
-        Err(CommunicationEventVaultError::Invalid),
-        "delete remains outside COM-104"
-    );
+    vault(
+        &dir.path().join("delete-valid"),
+        "vault-secret",
+        resident.clone(),
+    )
+    .seal(&delete_request, &delete_event)
+    .expect("exact approved deletion");
+
+    let invalid_deletions = [
+        signed(
+            &keys,
+            Kind::Custom(5),
+            "",
+            vec![
+                channel_tag(CONVERSATION),
+                Tag::parse(["e", wrong_target.as_str()]).expect("wrong delete target"),
+            ],
+        ),
+        signed(
+            &keys,
+            Kind::Custom(5),
+            "not empty",
+            vec![
+                channel_tag(CONVERSATION),
+                Tag::parse(["e", target.as_str()]).expect("delete target"),
+            ],
+        ),
+        signed(
+            &keys,
+            Kind::Custom(5),
+            "",
+            vec![
+                channel_tag("another-conversation"),
+                Tag::parse(["e", target.as_str()]).expect("delete target"),
+            ],
+        ),
+        signed(
+            &other,
+            Kind::Custom(5),
+            "",
+            vec![
+                channel_tag(CONVERSATION),
+                Tag::parse(["e", target.as_str()]).expect("delete target"),
+            ],
+        ),
+    ];
+    for (index, event) in invalid_deletions.into_iter().enumerate() {
+        assert_eq!(
+            vault(
+                &dir.path().join(format!("delete-invalid-{index}")),
+                "vault-secret",
+                resident.clone(),
+            )
+            .seal(&delete_request, &event),
+            Err(CommunicationEventVaultError::Invalid),
+        );
+    }
 }
 
 #[test]

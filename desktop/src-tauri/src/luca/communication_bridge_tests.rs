@@ -89,6 +89,13 @@ struct TestBackend {
             CommunicationTurnAuthoritySnapshot,
         )>,
     >,
+    approved: Mutex<
+        Vec<(
+            CommunicationActionRequestV1,
+            CommunicationTurnAuthoritySnapshot,
+        )>,
+    >,
+    approval_allowed: AtomicBool,
     inbox_scopes: Mutex<Vec<CommunicationReadScope>>,
     conversation_scopes: Mutex<Vec<CommunicationReadScope>>,
 }
@@ -260,6 +267,19 @@ impl CommunicationBrokerBackend for TestBackend {
         }
     }
 
+    fn message_author(
+        &self,
+        authority: &CommunicationTurnAuthoritySnapshot,
+        _conversation_id: &OpaqueId,
+        message_event_id: &Hex64,
+    ) -> Result<Hex64, BrokerFailure> {
+        if message_event_id == &hex64(EVENT) {
+            Ok(authority.resident_pubkey.clone())
+        } else {
+            Ok(hex64(OTHER_RESIDENT))
+        }
+    }
+
     fn stage_action(
         &self,
         request: CommunicationActionRequestV1,
@@ -268,6 +288,25 @@ impl CommunicationBrokerBackend for TestBackend {
         self.staged
             .lock()
             .expect("test staged actions")
+            .push((request.clone(), expected_authority.clone()));
+        Ok(StagedCommunicationAction {
+            action_id: request.action_id,
+            idempotency_key: request.idempotency_key,
+            state: "prepared",
+        })
+    }
+
+    fn approve_and_stage_action(
+        &self,
+        request: CommunicationActionRequestV1,
+        expected_authority: &CommunicationTurnAuthoritySnapshot,
+    ) -> Result<StagedCommunicationAction, BrokerFailure> {
+        if !self.approval_allowed.load(Ordering::SeqCst) {
+            return Err(BrokerFailure::approval_denied());
+        }
+        self.approved
+            .lock()
+            .expect("test approved actions")
             .push((request.clone(), expected_authority.clone()));
         Ok(StagedCommunicationAction {
             action_id: request.action_id,
@@ -293,6 +332,7 @@ impl Fixture {
         };
         let authority = Arc::new(TestAuthority::new(context.clone()));
         let backend = Arc::new(TestBackend::default());
+        backend.approval_allowed.store(true, Ordering::SeqCst);
         backend.insert_conversation(TestBackend::owner_visible_conversation());
         Self {
             core: CommunicationBridgeCore {
@@ -851,6 +891,72 @@ fn reactions_are_scoped_to_exact_events_and_only_own_reactions_are_removed() {
         staged[1].0.operation,
         CommunicationOperationV1::RemoveOwnReaction { .. }
     ));
+}
+
+#[test]
+fn own_message_deletion_requires_one_exact_approval_before_staging() {
+    let fixture = Fixture::new();
+    let response = fixture.response("delete_own_message", json!({"target_event_id": EVENT}));
+    assert!(response.ok);
+    assert!(fixture
+        .backend
+        .staged
+        .lock()
+        .expect("ordinary staging")
+        .is_empty());
+    let approved = fixture.backend.approved.lock().expect("approved staging");
+    assert_eq!(approved.len(), 1);
+    let request = &approved[0].0;
+    assert!(request.approval_id.is_some());
+    assert!(matches!(
+        &request.operation,
+        CommunicationOperationV1::DeleteOwnMessage { target_event_id }
+            if target_event_id == &hex64(EVENT)
+    ));
+}
+
+#[test]
+fn foreign_reject_and_cancellation_never_stage_a_deletion() {
+    let foreign = Fixture::new();
+    let response = foreign.response(
+        "delete_own_message",
+        json!({"target_event_id": OTHER_RESIDENT}),
+    );
+    assert!(!response.ok);
+    assert_eq!(response.receipt.diagnostic_code, Some("authorship_denied"));
+    assert!(foreign
+        .backend
+        .approved
+        .lock()
+        .expect("approved")
+        .is_empty());
+
+    let rejected = Fixture::new();
+    rejected
+        .backend
+        .approval_allowed
+        .store(false, Ordering::SeqCst);
+    let response = rejected.response("delete_own_message", json!({"target_event_id": EVENT}));
+    assert!(!response.ok);
+    assert_eq!(response.receipt.diagnostic_code, Some("approval_denied"));
+    assert!(rejected
+        .backend
+        .approved
+        .lock()
+        .expect("approved")
+        .is_empty());
+
+    let cancelled = Fixture::new();
+    cancelled.authority.fail_on_call(2);
+    let response = cancelled.response("delete_own_message", json!({"target_event_id": EVENT}));
+    assert!(!response.ok);
+    assert_eq!(response.receipt.diagnostic_code, Some("turn_not_active"));
+    assert!(cancelled
+        .backend
+        .approved
+        .lock()
+        .expect("approved")
+        .is_empty());
 }
 
 #[test]

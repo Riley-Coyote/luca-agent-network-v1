@@ -19,8 +19,8 @@ use buzz_core_pkg::kind::{EXPECTED_MEMBERSHIP_SNAPSHOT_VERSION, TAG_EXPECTED_MEM
 use chrono::{DateTime, SecondsFormat, Utc};
 use luca_protocol::{
     canonical_sha256, CanonicalTimestamp, CommunicationActionOutboxStateV1,
-    CommunicationActionRequestV1, CommunicationDestinationV1, CommunicationOperationV1, Hex64,
-    OpaqueId, SafeU53, Sha256Ref,
+    CommunicationActionRequestV1, CommunicationApprovalBindingV1, CommunicationDestinationV1,
+    CommunicationOperationV1, Hex64, OpaqueId, SafeU53, Sha256Ref,
 };
 use nostr::{Event, EventId, JsonUtil, Keys, Kind, Tag, Timestamp};
 use reqwest::{blocking::Client, Method, StatusCode};
@@ -473,6 +473,15 @@ impl ExistingConversationPublisher {
         Hex64::parse(event.pubkey.to_hex()).map_err(|_| CommunicationPublicationError::Membership)
     }
 
+    pub(crate) fn message_author(
+        &self,
+        conversation_id: &OpaqueId,
+        message_event_id: &Hex64,
+    ) -> Result<Hex64, CommunicationPublicationError> {
+        let event = query_message(self.relay.as_ref(), conversation_id, message_event_id)?;
+        Hex64::parse(event.pubkey.to_hex()).map_err(|_| CommunicationPublicationError::Membership)
+    }
+
     /// Reconcile at most one frozen action before exposing a new broker lease.
     ///
     /// A Prepared action from an older resident session is proven unsent and
@@ -813,6 +822,26 @@ impl ExistingConversationPublisher {
         expected_authority: &CommunicationTurnAuthoritySnapshot,
     ) -> Result<StagedCommunicationAction, BrokerFailure> {
         validate_narrow_request(&request, expected_authority).map_err(map_publication_failure)?;
+        self.stage_validated_request(request, expected_authority)
+    }
+
+    pub(crate) fn stage_approved_and_publish(
+        &self,
+        request: CommunicationActionRequestV1,
+        approval: &CommunicationApprovalBindingV1,
+        expected_authority: &CommunicationTurnAuthoritySnapshot,
+    ) -> Result<StagedCommunicationAction, BrokerFailure> {
+        let now = now_timestamp().map_err(map_publication_failure)?;
+        validate_approved_delete_request(&request, approval, expected_authority, &now)
+            .map_err(map_publication_failure)?;
+        self.stage_validated_request(request, expected_authority)
+    }
+
+    fn stage_validated_request(
+        &self,
+        request: CommunicationActionRequestV1,
+        expected_authority: &CommunicationTurnAuthoritySnapshot,
+    ) -> Result<StagedCommunicationAction, BrokerFailure> {
         if self.resident_keys.public_key().to_hex() != expected_authority.resident_pubkey.as_str() {
             return Err(BrokerFailure::custody_denied());
         }
@@ -1299,6 +1328,41 @@ fn validate_narrow_request(
     Ok(())
 }
 
+fn validate_approved_delete_request(
+    request: &CommunicationActionRequestV1,
+    approval: &CommunicationApprovalBindingV1,
+    authority: &CommunicationTurnAuthoritySnapshot,
+    now: &CanonicalTimestamp,
+) -> Result<(), CommunicationPublicationError> {
+    request
+        .validate_at(now)
+        .map_err(|_| CommunicationPublicationError::InvalidRequest)?;
+    approval
+        .validate_request(request, now)
+        .map_err(|_| CommunicationPublicationError::Authority)?;
+    if request.owner_pubkey != authority.owner_pubkey
+        || request.resident_pubkey != authority.resident_pubkey
+        || request.actor_pubkey != authority.resident_pubkey
+        || request.session_epoch != authority.session_epoch
+        || request.runtime_binding_ref != authority.runtime_binding_ref
+        || request.source_conversation_id != authority.coordinates.source_conversation_id
+        || request.turn_id != authority.coordinates.turn_id
+        || request.dispatch_receipt_id != authority.coordinates.dispatch_receipt_id
+        || request.cancellation_epoch != authority.coordinates.cancellation_epoch
+        || !matches!(
+            &request.destination,
+            CommunicationDestinationV1::ExistingConversation { .. }
+        )
+        || !matches!(
+            &request.operation,
+            CommunicationOperationV1::DeleteOwnMessage { .. }
+        )
+    {
+        return Err(CommunicationPublicationError::Authority);
+    }
+    Ok(())
+}
+
 fn existing_conversation_id(
     request: &CommunicationActionRequestV1,
 ) -> Result<&OpaqueId, CommunicationPublicationError> {
@@ -1686,6 +1750,17 @@ fn build_exact_communication_event(
                 &[],
             )?
         }
+        CommunicationOperationV1::DeleteOwnMessage { target_event_id } => {
+            let target = query_message(relay, &membership.conversation_id, target_event_id)?;
+            if target.pubkey != keys.public_key() {
+                return Err(CommunicationPublicationError::Authority);
+            }
+            crate::events::build_delete_compat(
+                channel_id,
+                EventId::from_hex(target_event_id.as_str())
+                    .map_err(|_| CommunicationPublicationError::InvalidRequest)?,
+            )?
+        }
         _ => return Err(CommunicationPublicationError::Unsupported),
     };
     let event = builder
@@ -2034,6 +2109,54 @@ mod tests {
         request
     }
 
+    fn approved_delete_request(
+        request: &CommunicationActionRequestV1,
+        suffix: &str,
+        target_event_id: Hex64,
+    ) -> CommunicationActionRequestV1 {
+        let mut request = request.clone();
+        request.action_id = OpaqueId::parse(format!("communication-action-{suffix}")).unwrap();
+        request.approval_id =
+            Some(OpaqueId::parse(format!("communication-approval-{suffix}")).unwrap());
+        request.operation = CommunicationOperationV1::DeleteOwnMessage { target_event_id };
+        request.action_fingerprint = request.derive_action_fingerprint().unwrap();
+        request.idempotency_key = request.derive_idempotency_key().unwrap();
+        request.validate().unwrap();
+        request
+    }
+
+    fn exact_test_approval(
+        request: &CommunicationActionRequestV1,
+    ) -> CommunicationApprovalBindingV1 {
+        let approved_at = now_timestamp().expect("current timestamp");
+        CommunicationApprovalBindingV1 {
+            protocol: luca_protocol::COMMUNICATION_APPROVAL_PROTOCOL.into(),
+            approval_id: request.approval_id.clone().expect("approval id"),
+            action_id: request.action_id.clone(),
+            action_fingerprint: request.action_fingerprint.clone(),
+            content_ref: request.content_ref().expect("content ref"),
+            artifact_set_ref: request.artifact_set_ref().expect("artifact ref"),
+            destination_ref: request.destination_ref().expect("destination ref"),
+            participant_set_ref: request.destination.participant_set_ref().clone(),
+            operation: request.operation.kind(),
+            actor_pubkey: request.actor_pubkey.clone(),
+            owner_pubkey: request.owner_pubkey.clone(),
+            resident_pubkey: request.resident_pubkey.clone(),
+            session_epoch: request.session_epoch,
+            runtime_binding_ref: request.runtime_binding_ref.clone(),
+            source_conversation_id: request.source_conversation_id.clone(),
+            turn_id: request.turn_id.clone(),
+            dispatch_receipt_id: request.dispatch_receipt_id.clone(),
+            causal_root_id: request.causal_root_id.clone(),
+            causal_parent_action_id: request.causal_parent_action_id.clone(),
+            causal_depth: request.causal_depth,
+            idempotency_key: request.idempotency_key.clone(),
+            cancellation_epoch: request.cancellation_epoch,
+            approved_at,
+            expires_at: request.expires_at.clone(),
+        }
+    }
+
     #[test]
     fn newest_membership_is_deterministic_and_owner_visible() {
         let relay = keys("11");
@@ -2317,6 +2440,128 @@ mod tests {
         assert!(submitted
             .iter()
             .all(|event| event.pubkey.to_hex() == resident_pubkey));
+    }
+
+    #[test]
+    fn approved_own_delete_reuses_exact_compat_builder_and_vault_path() {
+        let fixture = publisher_fixture([FakeSubmitResult::Accepted]);
+        let resident_pubkey = fixture.request.resident_pubkey.as_str();
+        let target = fixture
+            .relay
+            .events()
+            .into_iter()
+            .find(|event| {
+                event.kind == Kind::Custom(MESSAGE_KIND) && event.pubkey.to_hex() == resident_pubkey
+            })
+            .expect("resident message");
+        let target_id = Hex64::parse(target.id.to_hex()).unwrap();
+        let request = approved_delete_request(&fixture.request, "delete-own", target_id.clone());
+        let approval = exact_test_approval(&request);
+        let staged = fixture
+            .publisher
+            .stage_approved_and_publish(request, &approval, &fixture.authority)
+            .expect("approved deletion");
+        assert_eq!(staged.state, "accepted");
+
+        let submitted = fixture.relay.submitted();
+        assert_eq!(submitted.len(), 1);
+        let event = Event::from_json(&submitted[0]).expect("delete event");
+        assert_eq!(event.kind, Kind::Custom(5));
+        assert!(event.content.is_empty());
+        assert_eq!(
+            exact_tag_values(&event, "h"),
+            vec![existing_conversation_id(&fixture.request)
+                .unwrap()
+                .as_str()
+                .to_owned()]
+        );
+        assert_eq!(
+            exact_tag_values(&event, "e"),
+            vec![target_id.as_str().to_owned()]
+        );
+        assert_eq!(event.pubkey.to_hex(), resident_pubkey);
+    }
+
+    #[test]
+    fn foreign_delete_and_changed_approval_fail_before_signing_or_staging() {
+        let fixture = publisher_fixture([FakeSubmitResult::Accepted]);
+        let resident_pubkey = fixture.request.resident_pubkey.as_str();
+        let events = fixture.relay.events();
+        let own = events
+            .iter()
+            .find(|event| {
+                event.kind == Kind::Custom(MESSAGE_KIND) && event.pubkey.to_hex() == resident_pubkey
+            })
+            .expect("own message");
+        let foreign = events
+            .iter()
+            .find(|event| {
+                event.kind == Kind::Custom(MESSAGE_KIND) && event.pubkey.to_hex() != resident_pubkey
+            })
+            .expect("foreign message");
+
+        let foreign_request = approved_delete_request(
+            &fixture.request,
+            "delete-foreign",
+            Hex64::parse(foreign.id.to_hex()).unwrap(),
+        );
+        let foreign_approval = exact_test_approval(&foreign_request);
+        assert!(fixture
+            .publisher
+            .stage_approved_and_publish(foreign_request, &foreign_approval, &fixture.authority,)
+            .is_err());
+        assert!(fixture.relay.submitted().is_empty());
+
+        let request = approved_delete_request(
+            &fixture.request,
+            "delete-changed",
+            Hex64::parse(own.id.to_hex()).unwrap(),
+        );
+        let mut stale_approval = exact_test_approval(&request);
+        stale_approval.cancellation_epoch = SafeU53::new(3).unwrap();
+        assert!(fixture
+            .publisher
+            .stage_approved_and_publish(request, &stale_approval, &fixture.authority)
+            .is_err());
+        assert!(fixture.relay.submitted().is_empty());
+    }
+
+    #[test]
+    fn approved_delete_retry_and_restart_reuse_one_frozen_event() {
+        let fixture = publisher_fixture([FakeSubmitResult::Unknown, FakeSubmitResult::Accepted]);
+        let target = fixture
+            .relay
+            .events()
+            .into_iter()
+            .find(|event| {
+                event.kind == Kind::Custom(MESSAGE_KIND)
+                    && event.pubkey.to_hex() == fixture.request.resident_pubkey.as_str()
+            })
+            .expect("resident message");
+        let request = approved_delete_request(
+            &fixture.request,
+            "delete-restart",
+            Hex64::parse(target.id.to_hex()).unwrap(),
+        );
+        let approval = exact_test_approval(&request);
+        assert!(fixture
+            .publisher
+            .stage_approved_and_publish(request.clone(), &approval, &fixture.authority)
+            .is_err());
+        fixture
+            .publisher
+            .reconcile_one_on_start()
+            .expect("restart reconciliation");
+        let submitted = fixture.relay.submitted();
+        assert_eq!(submitted.len(), 2);
+        assert_eq!(submitted[0], submitted[1]);
+
+        let replay = fixture
+            .publisher
+            .stage_approved_and_publish(request, &approval, &fixture.authority)
+            .expect("accepted replay");
+        assert_eq!(replay.state, "accepted");
+        assert_eq!(fixture.relay.submitted().len(), 2);
     }
 
     #[test]
