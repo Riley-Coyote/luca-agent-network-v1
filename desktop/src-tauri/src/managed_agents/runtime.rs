@@ -1885,63 +1885,69 @@ pub fn spawn_agent_child(
         crate::relay::relay_http_base_url(&effective_relay_url).trim_end_matches('/')
     );
     #[cfg(unix)]
-    let communication_broker_lease = 'communication_lease: {
-        let (outbox_path, vault_directory) =
-            communication_storage_paths(&app_data_dir, &resident_pubkey);
-        let backend =
-            crate::luca::communication_action_backend::DesktopCommunicationActionBackend::open(
-                crate::luca::communication_action_backend::DesktopCommunicationBackendConfig {
-                    app: app.clone(),
-                    resident_keys: resident_keys.clone(),
-                    resident_auth_tag: record.auth_tag.clone(),
-                    relay_url: effective_relay_url.clone(),
-                    installation_session_id: installation_session_id.clone(),
-                    session_epoch,
-                    outbox_path,
-                    vault_directory,
-                },
-            );
-        match backend {
-            Ok(backend) if backend.resident_pubkey() == &resident_pubkey => {
-                if let Err(error) = backend.reconcile_one_on_start() {
+    let communication_broker_lease = if !super::advanced_communications_eligible(
+        record.native_runtime_binding.as_ref(),
+    ) {
+        None
+    } else {
+        'communication_lease: {
+            let (outbox_path, vault_directory) =
+                communication_storage_paths(&app_data_dir, &resident_pubkey);
+            let backend =
+                crate::luca::communication_action_backend::DesktopCommunicationActionBackend::open(
+                    crate::luca::communication_action_backend::DesktopCommunicationBackendConfig {
+                        app: app.clone(),
+                        resident_keys: resident_keys.clone(),
+                        resident_auth_tag: record.auth_tag.clone(),
+                        relay_url: effective_relay_url.clone(),
+                        installation_session_id: installation_session_id.clone(),
+                        session_epoch,
+                        outbox_path,
+                        vault_directory,
+                    },
+                );
+            match backend {
+                Ok(backend) if backend.resident_pubkey() == &resident_pubkey => {
+                    if let Err(error) = backend.reconcile_one_on_start() {
+                        eprintln!(
+                            "luca-communications: managed communication tools are unavailable ({})",
+                            error.diagnostic_code()
+                        );
+                        break 'communication_lease None;
+                    }
+                    let context = crate::luca::communication_bridge::CommunicationBrokerContext {
+                        owner_pubkey: owner_pubkey.clone(),
+                        resident_pubkey: resident_pubkey.clone(),
+                        session_epoch,
+                        binding_ref: runtime_binding_ref.clone(),
+                    };
+                    match crate::luca::communication_bridge::create_communication_broker_lease(
+                        app,
+                        context,
+                        backend.broker_backend(),
+                    ) {
+                        Ok(lease) => Some(lease),
+                        Err(_) => {
+                            eprintln!(
+                            "luca-communications: managed communication tools are unavailable (communication-broker-unavailable)"
+                        );
+                            None
+                        }
+                    }
+                }
+                Ok(_) => {
+                    eprintln!(
+                    "luca-communications: managed communication tools are unavailable (communication-resident-mismatch)"
+                );
+                    None
+                }
+                Err(error) => {
                     eprintln!(
                         "luca-communications: managed communication tools are unavailable ({})",
                         error.diagnostic_code()
                     );
-                    break 'communication_lease None;
+                    None
                 }
-                let context = crate::luca::communication_bridge::CommunicationBrokerContext {
-                    owner_pubkey: owner_pubkey.clone(),
-                    resident_pubkey: resident_pubkey.clone(),
-                    session_epoch,
-                    binding_ref: runtime_binding_ref.clone(),
-                };
-                match crate::luca::communication_bridge::create_communication_broker_lease(
-                    app,
-                    context,
-                    backend.broker_backend(),
-                ) {
-                    Ok(lease) => Some(lease),
-                    Err(_) => {
-                        eprintln!(
-                            "luca-communications: managed communication tools are unavailable (communication-broker-unavailable)"
-                        );
-                        None
-                    }
-                }
-            }
-            Ok(_) => {
-                eprintln!(
-                    "luca-communications: managed communication tools are unavailable (communication-resident-mismatch)"
-                );
-                None
-            }
-            Err(error) => {
-                eprintln!(
-                    "luca-communications: managed communication tools are unavailable ({})",
-                    error.diagnostic_code()
-                );
-                None
             }
         }
     };
