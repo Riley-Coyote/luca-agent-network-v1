@@ -292,6 +292,43 @@ impl CommunicationRelayTransport for HttpCommunicationRelay {
 struct RelayInformationDocument {
     #[serde(default, rename = "self")]
     self_: Option<String>,
+    #[serde(default)]
+    push: Option<RelayPushInformation>,
+}
+
+#[derive(Deserialize)]
+struct RelayPushInformation {
+    #[serde(default)]
+    keys: Vec<RelayAdvertisedKey>,
+}
+
+#[derive(Deserialize)]
+struct RelayAdvertisedKey {
+    #[serde(default)]
+    current: bool,
+    pubkey: String,
+}
+
+fn advertised_relay_self_pubkey(
+    document: RelayInformationDocument,
+) -> Result<Hex64, CommunicationPublicationError> {
+    if let Some(pubkey) = document.self_ {
+        return Hex64::parse(pubkey.to_ascii_lowercase())
+            .map_err(|_| CommunicationPublicationError::RelayUnavailable);
+    }
+
+    let current = document
+        .push
+        .into_iter()
+        .flat_map(|push| push.keys)
+        .filter(|key| key.current)
+        .map(|key| key.pubkey)
+        .collect::<Vec<_>>();
+    let [pubkey] = current.as_slice() else {
+        return Err(CommunicationPublicationError::RelayUnavailable);
+    };
+    Hex64::parse(pubkey.to_ascii_lowercase())
+        .map_err(|_| CommunicationPublicationError::RelayUnavailable)
 }
 
 fn fetch_relay_self_pubkey(
@@ -309,13 +346,7 @@ fn fetch_relay_self_pubkey(
     let document = response
         .json::<RelayInformationDocument>()
         .map_err(|_| CommunicationPublicationError::RelayUnavailable)?;
-    Hex64::parse(
-        document
-            .self_
-            .ok_or(CommunicationPublicationError::RelayUnavailable)?
-            .to_ascii_lowercase(),
-    )
-    .map_err(|_| CommunicationPublicationError::RelayUnavailable)
+    advertised_relay_self_pubkey(document)
 }
 
 #[derive(Deserialize)]
@@ -1826,6 +1857,35 @@ mod tests {
 
     fn keys(byte: &str) -> Keys {
         Keys::parse(&byte.repeat(32)).expect("keys")
+    }
+
+    #[test]
+    fn relay_self_pubkey_accepts_current_advertised_push_key() {
+        let pubkey = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+        let document = serde_json::from_str::<RelayInformationDocument>(&format!(
+            r#"{{"self":null,"push":{{"keys":[{{"id":"relay-v1","pubkey":"{pubkey}","current":true}}]}}}}"#
+        ))
+        .unwrap();
+
+        assert_eq!(
+            advertised_relay_self_pubkey(document).unwrap().as_str(),
+            pubkey
+        );
+    }
+
+    #[test]
+    fn relay_self_pubkey_rejects_ambiguous_current_keys() {
+        let first = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+        let second = "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5";
+        let document = serde_json::from_str::<RelayInformationDocument>(&format!(
+            r#"{{"push":{{"keys":[{{"pubkey":"{first}","current":true}},{{"pubkey":"{second}","current":true}}]}}}}"#
+        ))
+        .unwrap();
+
+        assert_eq!(
+            advertised_relay_self_pubkey(document),
+            Err(CommunicationPublicationError::RelayUnavailable)
+        );
     }
 
     fn membership_event(
