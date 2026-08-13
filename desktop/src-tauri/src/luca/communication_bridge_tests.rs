@@ -916,6 +916,68 @@ fn own_message_deletion_requires_one_exact_approval_before_staging() {
 }
 
 #[test]
+fn own_message_edit_uses_exact_authorship_and_ordinary_durable_staging() {
+    let fixture = Fixture::new();
+    let response = fixture.response(
+        "edit_own_message",
+        json!({
+            "conversation_id": "conversation-1",
+            "target_event_id": EVENT,
+            "replacement_body": "Corrected resident message",
+        }),
+    );
+    assert!(response.ok);
+    assert!(fixture
+        .backend
+        .approved
+        .lock()
+        .expect("approved edits")
+        .is_empty());
+    let staged = fixture.backend.staged.lock().expect("staged edit");
+    assert_eq!(staged.len(), 1);
+    assert!(matches!(
+        &staged[0].0.operation,
+        CommunicationOperationV1::EditOwnMessage {
+            target_event_id,
+            replacement_body,
+            artifact_handles,
+        } if target_event_id == &hex64(EVENT)
+            && replacement_body == "Corrected resident message"
+            && artifact_handles.is_empty()
+    ));
+}
+
+#[test]
+fn foreign_empty_and_artifact_shaped_edits_never_stage() {
+    let foreign = Fixture::new();
+    let response = foreign.response(
+        "edit_own_message",
+        json!({
+            "target_event_id": OTHER_RESIDENT,
+            "replacement_body": "must fail",
+        }),
+    );
+    assert!(!response.ok);
+    assert_eq!(response.receipt.diagnostic_code, Some("authorship_denied"));
+    assert!(foreign.backend.staged.lock().expect("staged").is_empty());
+
+    for arguments in [
+        json!({"target_event_id": EVENT, "replacement_body": ""}),
+        json!({
+            "target_event_id": EVENT,
+            "replacement_body": "must fail",
+            "artifact_handle_ids": ["artifact-1"],
+        }),
+    ] {
+        let invalid = Fixture::new();
+        let response = invalid.response("edit_own_message", arguments);
+        assert!(!response.ok);
+        assert_eq!(response.receipt.diagnostic_code, Some("invalid_arguments"));
+        assert!(invalid.backend.staged.lock().expect("staged").is_empty());
+    }
+}
+
+#[test]
 fn foreign_reject_and_cancellation_never_stage_a_deletion() {
     let foreign = Fixture::new();
     let response = foreign.response(

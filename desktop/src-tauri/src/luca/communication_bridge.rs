@@ -80,6 +80,7 @@ enum BrokerOperation {
     Conversation,
     Send,
     React,
+    EditOwnMessage,
     DeleteOwnMessage,
     Invite,
     CreatePrivateRoom,
@@ -92,6 +93,7 @@ impl BrokerOperation {
             "conversation" => Ok(Self::Conversation),
             "send" => Ok(Self::Send),
             "react" => Ok(Self::React),
+            "edit_own_message" => Ok(Self::EditOwnMessage),
             "delete_own_message" => Ok(Self::DeleteOwnMessage),
             "invite" => Ok(Self::Invite),
             "create_private_room" => Ok(Self::CreatePrivateRoom),
@@ -105,6 +107,7 @@ impl BrokerOperation {
             Self::Conversation => "conversation",
             Self::Send => "send",
             Self::React => "react",
+            Self::EditOwnMessage => "edit_own_message",
             Self::DeleteOwnMessage => "delete_own_message",
             Self::Invite => "invite",
             Self::CreatePrivateRoom => "create_private_room",
@@ -552,6 +555,11 @@ impl CommunicationBridgeCore {
             BrokerOperation::React => {
                 self.handle_react(authority, &operation_request_id, frame.arguments.clone())
             }
+            BrokerOperation::EditOwnMessage => self.handle_edit_own_message(
+                authority,
+                &operation_request_id,
+                frame.arguments.clone(),
+            ),
             BrokerOperation::DeleteOwnMessage => self.handle_delete_own_message(
                 authority,
                 &operation_request_id,
@@ -812,6 +820,43 @@ impl CommunicationBridgeCore {
             return Err(BrokerFailure::outbox_unavailable());
         }
         Ok("Approved own-message deletion was durably staged.".into())
+    }
+
+    fn handle_edit_own_message(
+        &self,
+        authority: CommunicationTurnAuthoritySnapshot,
+        operation_request_id: &OpaqueId,
+        arguments: Value,
+    ) -> Result<String, BrokerFailure> {
+        let raw: RawEditOwnMessageParams = parse_arguments(arguments)?;
+        let conversation_id = raw
+            .conversation_id
+            .map(OpaqueId::parse)
+            .transpose()
+            .map_err(|_| BrokerFailure::invalid_arguments())?
+            .unwrap_or_else(|| authority.coordinates.source_conversation_id.clone());
+        let conversation = self
+            .backend
+            .conversation_authority(&read_scope(&authority), &conversation_id)?;
+        conversation.require_internal_write(&authority)?;
+        let target_event_id = parse_hex(raw.target_event_id)?;
+        validate_message_body(&raw.replacement_body, &[])?;
+        let author = self
+            .backend
+            .message_author(&authority, &conversation_id, &target_event_id)?;
+        if author != authority.resident_pubkey {
+            return Err(BrokerFailure::authorship_denied());
+        }
+        self.stage_request(
+            authority,
+            operation_request_id,
+            conversation.destination()?,
+            CommunicationOperationV1::EditOwnMessage {
+                target_event_id,
+                replacement_body: raw.replacement_body,
+                artifact_handles: Vec::new(),
+            },
+        )
     }
 
     fn handle_invite(
@@ -1402,6 +1447,15 @@ struct RawDeleteOwnMessageParams {
     #[serde(default)]
     conversation_id: Option<String>,
     target_event_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawEditOwnMessageParams {
+    #[serde(default)]
+    conversation_id: Option<String>,
+    target_event_id: String,
+    replacement_body: String,
 }
 
 #[derive(Deserialize)]

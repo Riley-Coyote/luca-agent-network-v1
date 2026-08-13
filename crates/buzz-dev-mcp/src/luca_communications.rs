@@ -43,6 +43,7 @@ enum BrokerOperation {
     Conversation,
     Send,
     React,
+    EditOwnMessage,
     DeleteOwnMessage,
     Invite,
     CreatePrivateRoom,
@@ -55,6 +56,7 @@ impl BrokerOperation {
             Self::Conversation => "conversation",
             Self::Send => "send",
             Self::React => "react",
+            Self::EditOwnMessage => "edit_own_message",
             Self::DeleteOwnMessage => "delete_own_message",
             Self::Invite => "invite",
             Self::CreatePrivateRoom => "create_private_room",
@@ -528,6 +530,36 @@ pub(crate) struct CommunicationsDeleteOwnMessageParams {
     target_event_id: String,
 }
 
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CommunicationsEditOwnMessageParams {
+    /// Authorized conversation containing the target. Omit for the current
+    /// conversation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    conversation_id: Option<String>,
+    /// Exact kind-9 message authored by this resident.
+    target_event_id: String,
+    /// Bounded nonempty replacement text. Attachments cannot be changed here.
+    replacement_body: String,
+}
+
+impl CommunicationsEditOwnMessageParams {
+    fn validate(&self) -> Result<(), String> {
+        if !is_hex64(&self.target_event_id)
+            || self.replacement_body.is_empty()
+            || self.replacement_body.len() > MAX_MESSAGE_BYTES
+            || self.replacement_body.contains('\0')
+            || self
+                .conversation_id
+                .as_ref()
+                .is_some_and(|value| !is_opaque_id(value))
+        {
+            return Err("own-message edit request is invalid".into());
+        }
+        Ok(())
+    }
+}
+
 impl CommunicationsDeleteOwnMessageParams {
     fn validate(&self) -> Result<(), String> {
         if !is_hex64(&self.target_event_id)
@@ -697,6 +729,20 @@ impl LucaCommunicationsMcp {
     }
 
     #[tool(
+        name = "communications_edit_own_message",
+        description = "Edit this resident's exact message through Luca's existing durable communication path. Another author's message cannot be edited."
+    )]
+    async fn communications_edit_own_message(
+        &self,
+        Parameters(params): Parameters<CommunicationsEditOwnMessageParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        params.validate().map_err(invalid_params)?;
+        self.client
+            .call(BrokerOperation::EditOwnMessage, params)
+            .await
+    }
+
+    #[tool(
         name = "communications_delete_own_message",
         description = "Request one-shot owner confirmation to delete this resident's exact message. Another author's message cannot be deleted."
     )]
@@ -830,7 +876,7 @@ mod tests {
     }
 
     #[test]
-    fn exposes_only_the_seven_semantic_communication_tools() {
+    fn exposes_only_the_eight_semantic_communication_tools() {
         let mut names = LucaCommunicationsMcp::tool_router()
             .list_all()
             .into_iter()
@@ -843,6 +889,7 @@ mod tests {
                 "communications_conversation",
                 "communications_create_private_room",
                 "communications_delete_own_message",
+                "communications_edit_own_message",
                 "communications_inbox",
                 "communications_invite",
                 "communications_react",
@@ -850,7 +897,7 @@ mod tests {
             ]
         );
         assert!(!names.iter().any(|name| {
-            ["raw", "nostr", "shell", "sign", "edit", "admin"]
+            ["raw", "nostr", "shell", "sign", "admin"]
                 .iter()
                 .any(|forbidden| name.contains(forbidden))
         }));
@@ -980,6 +1027,40 @@ mod tests {
             serde_json::from_value::<CommunicationsDeleteOwnMessageParams>(serde_json::json!({
                 "target_event_id": event_id('b'),
                 "participant_pubkeys": [event_id('c')],
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn own_message_edit_is_exact_bounded_and_artifact_free() {
+        let exact: CommunicationsEditOwnMessageParams = serde_json::from_value(serde_json::json!({
+            "conversation_id": "conversation-1",
+            "target_event_id": event_id('a'),
+            "replacement_body": "Corrected text",
+        }))
+        .expect("exact edit");
+        assert!(exact.validate().is_ok());
+
+        for invalid in [
+            serde_json::json!({
+                "target_event_id": "not-an-event",
+                "replacement_body": "Corrected text",
+            }),
+            serde_json::json!({
+                "target_event_id": event_id('a'),
+                "replacement_body": "",
+            }),
+        ] {
+            let params: CommunicationsEditOwnMessageParams =
+                serde_json::from_value(invalid).expect("syntactic edit");
+            assert!(params.validate().is_err());
+        }
+        assert!(
+            serde_json::from_value::<CommunicationsEditOwnMessageParams>(serde_json::json!({
+                "target_event_id": event_id('a'),
+                "replacement_body": "Corrected text",
+                "artifact_handle_ids": ["artifact-1"],
             }))
             .is_err()
         );
