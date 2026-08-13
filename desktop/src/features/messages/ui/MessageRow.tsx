@@ -33,6 +33,11 @@ import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { useChannelNavigation } from "@/shared/context/ChannelNavigationContext";
 import { parseImetaTags } from "@/features/messages/lib/parseImeta";
+import { managedOperationalCopy } from "@/features/messages/lib/managedOperationalStatus";
+import {
+  getManagedOperationalReceiptSnapshot,
+  subscribeManagedOperationalReceipts,
+} from "@/features/messages/managedPresentationStore";
 import { useMessageEmoji } from "@/features/messages/lib/useMessageEmoji";
 import { parseWaveMessageContent } from "@/features/messages/lib/waveMessage";
 import { resolveSnapshotSharedBy } from "@/features/messages/lib/snapshotSharedBy";
@@ -50,6 +55,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
 const DiffMessage = React.lazy(() => import("./DiffMessage"));
 const DiffMessageExpanded = React.lazy(() => import("./DiffMessageExpanded"));
+const EMPTY_INTERRUPTED_RECEIPTS: ReadonlySet<string> = new Set();
 
 export type ThreadDepthGuideAction = {
   active?: boolean;
@@ -255,6 +261,23 @@ export const MessageRow = React.memo(
     const bodyOffsetClass = emojiOnly ? "mt-1" : "-mt-0.5";
 
     const { nonDmChannelNames: channelNames } = useChannelNavigation();
+    const interruptedReceipts = React.useSyncExternalStore(
+      React.useCallback(
+        (listener) =>
+          channelId
+            ? subscribeManagedOperationalReceipts(channelId, listener)
+            : () => undefined,
+        [channelId],
+      ),
+      React.useCallback(
+        () =>
+          channelId
+            ? getManagedOperationalReceiptSnapshot(channelId)
+            : EMPTY_INTERRUPTED_RECEIPTS,
+        [channelId],
+      ),
+    );
+    const interruptedOwnerReceipt = interruptedReceipts.has(message.id);
 
     const indentRem = getThreadReplyIndentRem(message.depth);
     const descendantGuideOffsetRem = connectDescendants
@@ -470,30 +493,36 @@ export const MessageRow = React.memo(
       ) : null;
 
     const managedStatusNode = (() => {
-      const managed = message.managedPresentation;
-      if (!managed) return null;
-      if (managed.phase === "stopped") {
+      if (interruptedOwnerReceipt) {
         return (
           <p
             className="mt-1 text-xs text-muted-foreground"
-            data-testid="managed-response-status"
-          >
-            Stopped · Response may be incomplete
-          </p>
-        );
-      }
-      if (managed.phase === "failed" || managed.phase === "needs_attention") {
-        return (
-          <p
-            className="mt-1 text-xs text-destructive"
-            data-testid="managed-response-status"
+            data-testid="managed-interrupted-status"
             role="status"
           >
-            Couldn’t finish
+            Previous resident response interrupted after restart
           </p>
         );
       }
-      return null;
+      const managed = message.managedPresentation;
+      if (!managed) return null;
+      if (managed.phase === "finalizing") return null;
+      const status = managedOperationalCopy(managed.phase, managed.failure);
+      if (!status) return null;
+      return (
+        <p
+          className={cn(
+            "mt-1 text-xs",
+            status.tone === "attention"
+              ? "text-destructive"
+              : "text-muted-foreground",
+          )}
+          data-testid="managed-response-status"
+          role="status"
+        >
+          {status.label}
+        </p>
+      );
     })();
 
     const inlineMetadataNode = (

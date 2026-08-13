@@ -5,6 +5,7 @@ export type ConversationActivityState =
   | "finalizing"
   | "stopping"
   | "stopped"
+  | "interrupted"
   | "needs-attention";
 
 export type ActivityShelfRetryTarget = {
@@ -47,7 +48,11 @@ export const EMPTY_ACTIVITY_SHELF_SLOTS: ActivityShelfSlotState = {
 export function isTerminalConversationActivity(
   state: ConversationActivityState,
 ): boolean {
-  return state === "stopped" || state === "needs-attention";
+  return (
+    state === "stopped" ||
+    state === "interrupted" ||
+    state === "needs-attention"
+  );
 }
 
 export function conversationActivityLabel(
@@ -66,6 +71,8 @@ export function conversationActivityLabel(
       return "Stopping";
     case "stopped":
       return "Stopped";
+    case "interrupted":
+      return "Interrupted after restart";
     case "needs-attention":
       return "Needs attention";
   }
@@ -118,6 +125,8 @@ export function activityAnnouncementDelta(
     if (prior?.state === item.state) continue;
     if (item.state === "stopped") {
       announcements.push(`${item.name} stopped`);
+    } else if (item.state === "interrupted") {
+      announcements.push(`${item.name} was interrupted after restart`);
     } else if (item.state === "needs-attention") {
       announcements.push(`${item.name} failed`);
     } else if (item.state === "writing") {

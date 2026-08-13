@@ -651,9 +651,12 @@ test("cancellation preserves visible partial text without affecting another resi
     sequence: 3,
     turnId: "claude-cancel",
   });
+  const stoppedResponse = managedResponseRows(page).filter({
+    hasText: "Discard this partial.",
+  });
   await expect(
-    page.getByText("Stopped · Response may be incomplete", { exact: true }),
-  ).toBeVisible();
+    stoppedResponse.getByTestId("managed-response-status"),
+  ).toHaveText("Stopped · Response may be incomplete");
   await expect(page.getByText("Discard this partial.")).toBeVisible();
   await expect(page.getByText("Keep this text.")).toBeVisible();
 

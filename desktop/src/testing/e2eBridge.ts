@@ -195,6 +195,26 @@ type E2eConfig = {
       mcp?: MockCommandAvailability;
     };
     managedAgents?: MockManagedAgentSeed[];
+    /** Body-free UX-203A restart outcomes returned for operational presentation. */
+    managedOperationalStatuses?: Array<{
+      dispatchReceiptId: string;
+      status: "interrupted_after_restart";
+    }>;
+    managedPermissions?: Array<{
+      pendingId: string;
+      request: {
+        protocol: "luca.managed.permission.v1";
+        resident_pubkey: string;
+        conversation_id: string;
+        session_epoch: number;
+        turn_id: string;
+        acp_request_id: string;
+        title: string;
+        tool_call_id?: string | null;
+        options: Array<{ option_id: string; name: string; kind: string }>;
+      };
+    }>;
+    uploadError?: string;
     nativeResidentDiscovery?: NativeResidentDiscoveryOutcome;
     nativeResidentDiscoveryError?: string;
     createManagedAgentErrors?: (string | null)[];
@@ -1048,6 +1068,18 @@ declare global {
     __BUZZ_E2E_SET_RELAY_CONNECTION_STATE__?: (state: ConnectionState) => void;
     __BUZZ_E2E_GET_RELAY_CONNECTION_STATE__?: () => ConnectionState;
     __BUZZ_E2E_SET_STALL_WEBSOCKET_SENDS__?: (stall: boolean) => void;
+    __BUZZ_E2E_SET_OPERATIONAL_STATUSES__?: (
+      statuses: Array<{
+        dispatchReceiptId: string;
+        status: "interrupted_after_restart";
+      }>,
+    ) => void;
+    __BUZZ_E2E_SET_MANAGED_PERMISSIONS__?: (
+      permissions: NonNullable<
+        NonNullable<E2eConfig["mock"]>["managedPermissions"]
+      >,
+    ) => void;
+    __BUZZ_E2E_SET_UPLOAD_ERROR__?: (message: string | null) => void;
     __BUZZ_E2E_DISCONNECT_MOCK_WEBSOCKETS__?: () => number;
     __BUZZ_E2E_SET_MESH__?: (mesh: {
       admitted?: boolean;
@@ -9543,6 +9575,20 @@ export function maybeInstallE2eTauriMocks() {
     config.mock.stallWebsocketSends = stall;
     if (!stall) mockWebsocketSendMutexWedged = false;
   };
+  window.__BUZZ_E2E_SET_OPERATIONAL_STATUSES__ = (statuses) => {
+    const activeConfig = getConfig();
+    if (activeConfig?.mock)
+      activeConfig.mock.managedOperationalStatuses = statuses;
+  };
+  window.__BUZZ_E2E_SET_MANAGED_PERMISSIONS__ = (permissions) => {
+    const activeConfig = getConfig();
+    if (activeConfig?.mock) activeConfig.mock.managedPermissions = permissions;
+  };
+  window.__BUZZ_E2E_SET_UPLOAD_ERROR__ = (message) => {
+    const activeConfig = getConfig();
+    if (activeConfig?.mock)
+      activeConfig.mock.uploadError = message ?? undefined;
+  };
   window.__BUZZ_E2E_DISCONNECT_MOCK_WEBSOCKETS__ = () => {
     const socketIds = [...mockSockets.keys()];
     for (const socketId of socketIds) disconnectMockSocket(socketId);
@@ -11631,6 +11677,38 @@ export function maybeInstallE2eTauriMocks() {
           controlEventId: null,
         };
       }
+      case "list_managed_conversation_operational_status":
+        return activeConfig?.mock?.managedOperationalStatuses ?? [];
+      case "list_pending_managed_permissions":
+        return activeConfig?.mock?.managedPermissions ?? [];
+      case "resolve_managed_permission": {
+        const input = payload as {
+          pendingId: string;
+          optionId: string | null;
+        };
+        const pending = activeConfig?.mock?.managedPermissions?.find(
+          (candidate) => candidate.pendingId === input.pendingId,
+        );
+        const selected = pending?.request.options.find(
+          (option) => option.option_id === input.optionId,
+        );
+        const outcome = selected?.kind.startsWith("reject")
+          ? "rejected"
+          : selected
+            ? "approved"
+            : "cancelled";
+        if (activeConfig?.mock?.managedPermissions) {
+          activeConfig.mock.managedPermissions =
+            activeConfig.mock.managedPermissions.filter(
+              (candidate) => candidate.pendingId !== input.pendingId,
+            );
+        }
+        window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.("managed-permission-resolved", {
+          pendingId: input.pendingId,
+          outcome,
+        });
+        return undefined;
+      }
       case "set_agent_managed_profiles":
         return undefined;
       case "set_managed_agent_auto_restart":
@@ -11970,10 +12048,16 @@ export function maybeInstallE2eTauriMocks() {
       case "get_media_proxy_port":
         return MOCK_MEDIA_PROXY_PORT;
       case "pick_and_upload_media":
+        if (activeConfig?.mock?.uploadError) {
+          throw new Error(activeConfig.mock.uploadError);
+        }
         return await resolveMockUploadDescriptors(activeConfig);
       case "pick_and_upload_image":
         return (await resolveMockUploadDescriptors(activeConfig))[0] ?? null;
       case "upload_media_bytes":
+        if (activeConfig?.mock?.uploadError) {
+          throw new Error(activeConfig.mock.uploadError);
+        }
         return (await resolveMockUploadDescriptors(activeConfig))[0];
       case "fetch_media_bytes": {
         // The real command fetches relay media through Rust reqwest and

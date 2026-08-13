@@ -26,6 +26,7 @@ import {
   useMediaUpload,
 } from "@/features/messages/lib/useMediaUpload";
 import { useAudioAttachmentRecorder } from "@/features/messages/lib/useAudioAttachmentRecorder";
+import { sanitizedAttachmentFailure } from "@/features/messages/lib/managedOperationalStatus";
 import { useMentions } from "@/features/messages/lib/useMentions";
 import { diffAddedMentionPubkeys } from "@/features/messages/lib/threading";
 import { getPersistentAgentAudienceScope } from "@/features/messages/lib/persistentAgentAudience";
@@ -1032,8 +1033,11 @@ function MessageComposerImpl({
               suggestions={mentions.isMentionOpen ? mentions.suggestions : []}
             />
             {media.uploadState.status === "error" ? (
-              <div className="mb-2 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                Upload failed: {media.uploadState.message}
+              <div
+                className="mb-2 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                role="alert"
+              >
+                {sanitizedAttachmentFailure()}
                 <button
                   className="ml-2 underline"
                   onClick={() => media.setUploadState({ status: "idle" })}

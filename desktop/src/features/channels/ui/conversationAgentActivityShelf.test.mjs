@@ -93,10 +93,15 @@ describe("conversationAgentActivityShelf", () => {
     assert.equal(conversationActivityLabel("stopping"), "Stopping");
     assert.equal(conversationActivityLabel("stopped"), "Stopped");
     assert.equal(
+      conversationActivityLabel("interrupted"),
+      "Interrupted after restart",
+    );
+    assert.equal(
       conversationActivityLabel("needs-attention"),
       "Needs attention",
     );
     assert.equal(isTerminalConversationActivity("stopped"), true);
+    assert.equal(isTerminalConversationActivity("interrupted"), true);
     assert.equal(isTerminalConversationActivity("needs-attention"), true);
     assert.equal(isTerminalConversationActivity("writing"), false);
   });
@@ -121,6 +126,17 @@ describe("conversationAgentActivityShelf", () => {
   });
 
   it("offers retry only for an exact terminal presentation", () => {
+    assert.deepEqual(
+      activityShelfRetryTarget(
+        "interrupted",
+        "resident",
+        "managed:resident:restart",
+      ),
+      {
+        residentPubkey: "resident",
+        uiKey: "managed:resident:restart",
+      },
+    );
     assert.deepEqual(
       activityShelfRetryTarget("stopped", "resident", "managed:resident:1"),
       { residentPubkey: "resident", uiKey: "managed:resident:1" },
@@ -170,6 +186,16 @@ describe("conversationAgentActivityShelf", () => {
       ["codex", { name: "Codex", state: "working" }],
     ]);
     assert.equal(activityAnnouncementDelta(writing, stopped), "Luca stopped");
+    assert.equal(
+      activityAnnouncementDelta(
+        writing,
+        new Map([
+          ["luca", { name: "Luca", state: "interrupted" }],
+          ["codex", { name: "Codex", state: "working" }],
+        ]),
+      ),
+      "Luca was interrupted after restart",
+    );
     assert.equal(
       activityAnnouncementDelta(
         stopped,

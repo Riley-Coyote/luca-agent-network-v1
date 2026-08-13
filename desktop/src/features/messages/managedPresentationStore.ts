@@ -25,6 +25,8 @@ import {
   withinManagedPresentationPublicTextLimit,
 } from "@/features/messages/managedPresentationProtocol";
 import { classifyManagedFinalReconciliation } from "@/features/messages/managedPresentationReconciliation";
+import { dedupeManagedOperationalStatuses } from "@/features/messages/lib/managedOperationalStatus";
+import type { ManagedConversationOperationalStatus } from "@/shared/api/types";
 import { ManagedPresentationScheduler } from "@/features/messages/managedPresentationScheduler";
 import {
   managedPresentationUiKey,
@@ -45,6 +47,7 @@ const creationOrdinals = new Map<string, number>();
 const terminalUiKeys = new Set<string>();
 const completedLookupKeys = new Set<string>();
 const terminalFrameLookupKeys = new Set<string>();
+const durableInterruptedUiKeys = new Set<string>();
 const nextSlotOrdinal = new Map<string, number>();
 const stagedTurnUiKeys = new Set<string>();
 const stagedLegacyConversationIds = new Set<string>();
@@ -53,12 +56,15 @@ const stagedTerminalActivityUntil = new Map<string, number>();
 const turnListeners = new Map<string, Set<() => void>>();
 const topologyListeners = new Map<string, Set<() => void>>();
 const legacyListeners = new Map<string, Set<() => void>>();
+const operationalStatusListeners = new Map<string, Set<() => void>>();
 const turnKeySnapshots = new Map<string, readonly string[]>();
 const responseSlotSnapshots = new Map<string, readonly ManagedResponseSlot[]>();
 const legacySnapshots = new Map<string, readonly ManagedPresentationRow[]>();
+const operationalReceiptSnapshots = new Map<string, ReadonlySet<string>>();
 const EMPTY_KEYS: readonly string[] = [];
 const EMPTY_SLOTS: readonly ManagedResponseSlot[] = [];
 const EMPTY_LEGACY: readonly ManagedPresentationRow[] = [];
+const EMPTY_OPERATIONAL_RECEIPTS: ReadonlySet<string> = new Set();
 
 let unlisten: UnlistenFn | null = null;
 let listenerPromise: Promise<void> | null = null;
@@ -417,6 +423,7 @@ function removeTurn(uiKey: string): void {
   clearPending(uiKey);
   creationOrdinals.delete(uiKey);
   terminalUiKeys.delete(uiKey);
+  durableInterruptedUiKeys.delete(uiKey);
   removeManagedPresentationActivity(uiKey, current.conversationId);
   for (const [key, value] of lookupToUiKey) {
     if (value === uiKey) lookupToUiKey.delete(key);
@@ -426,6 +433,23 @@ function removeTurn(uiKey: string): void {
   rebuildLegacySnapshot(current.conversationId);
   notifyLegacy(current.conversationId);
   scheduleNearestDeadline();
+}
+
+function consumeSupersededInterruptedActivity(
+  conversationId: string,
+  residentPubkey: string,
+): void {
+  for (const uiKey of durableInterruptedUiKeys) {
+    const interrupted = turns.get(uiKey);
+    if (
+      interrupted?.conversationId !== conversationId ||
+      interrupted.residentPubkey !== residentPubkey
+    ) {
+      continue;
+    }
+    durableInterruptedUiKeys.delete(uiKey);
+    removeManagedPresentationActivity(uiKey, conversationId);
+  }
 }
 
 function ingestPublicChunk(
@@ -588,6 +612,7 @@ export function seedManagedPresentations(
     const residentPubkey = pubkey.toLowerCase();
     const key = lookupKey(residentPubkey, dispatchReceiptId);
     if (lookupToUiKey.has(key) || completedLookupKeys.has(key)) continue;
+    consumeSupersededInterruptedActivity(conversationId, residentPubkey);
     registerTurn(
       createTurn(
         conversationId,
@@ -597,6 +622,78 @@ export function seedManagedPresentations(
       ),
     );
   }
+}
+
+/**
+ * Rehydrate durable, body-free restart outcomes into already seeded optimistic
+ * turns. The UX-203A response deliberately has no resident identity, so an
+ * exact receipt may update every sibling seeded by the same owner send while
+ * preserving any visible partial text and completed sibling result.
+ */
+export function hydrateManagedOperationalStatuses(
+  conversationId: string,
+  statuses: readonly ManagedConversationOperationalStatus[],
+): void {
+  const deduped = dedupeManagedOperationalStatuses(statuses);
+  operationalReceiptSnapshots.set(
+    conversationId,
+    new Set(deduped.map((status) => status.dispatchReceiptId)),
+  );
+  notifyListeners(operationalStatusListeners.get(conversationId));
+  for (const status of deduped) {
+    for (const current of turns.values()) {
+      if (
+        current.conversationId !== conversationId ||
+        current.dispatchReceiptId !== status.dispatchReceiptId ||
+        current.finalMessageId !== null ||
+        (current.phase === "needs_attention" && current.failure === "runtime")
+      ) {
+        continue;
+      }
+      clearPending(current.uiKey);
+      const next = activateTerminalResponseSlot(
+        {
+          ...current,
+          bufferedText: "",
+          deadlineAt: null,
+          failure: "runtime",
+          phase: "needs_attention",
+          receivedText: current.visibleText,
+        },
+        Date.now(),
+      );
+      terminalUiKeys.add(next.uiKey);
+      removeManagedPresentationActivity(next.uiKey, conversationId);
+      durableInterruptedUiKeys.add(next.uiKey);
+      publishTurn(
+        next,
+        current.slotOrdinal === null && next.slotOrdinal !== null,
+      );
+    }
+  }
+  scheduleNearestDeadline();
+}
+
+export function getManagedOperationalReceiptSnapshot(
+  conversationId: string,
+): ReadonlySet<string> {
+  return (
+    operationalReceiptSnapshots.get(conversationId) ??
+    EMPTY_OPERATIONAL_RECEIPTS
+  );
+}
+
+export function subscribeManagedOperationalReceipts(
+  conversationId: string,
+  listener: () => void,
+): () => void {
+  const active = operationalStatusListeners.get(conversationId) ?? new Set();
+  active.add(listener);
+  operationalStatusListeners.set(conversationId, active);
+  return () => {
+    active.delete(listener);
+    if (active.size === 0) operationalStatusListeners.delete(conversationId);
+  };
 }
 
 function mergeReceiptRace(
@@ -972,6 +1069,7 @@ export function resetManagedPresentationStore(): void {
   const activeTurnListeners = [...turnListeners.values()];
   const activeTopologyListeners = [...topologyListeners.values()];
   const activeLegacyListeners = [...legacyListeners.values()];
+  const activeOperationalListeners = [...operationalStatusListeners.values()];
   turns.clear();
   pendingGraphemes.clear();
   terminalDrainDeadlines.clear();
@@ -980,6 +1078,7 @@ export function resetManagedPresentationStore(): void {
   terminalUiKeys.clear();
   completedLookupKeys.clear();
   terminalFrameLookupKeys.clear();
+  durableInterruptedUiKeys.clear();
   nextSlotOrdinal.clear();
   stagedTurnUiKeys.clear();
   stagedLegacyConversationIds.clear();
@@ -990,10 +1089,12 @@ export function resetManagedPresentationStore(): void {
   turnKeySnapshots.clear();
   responseSlotSnapshots.clear();
   legacySnapshots.clear();
+  operationalReceiptSnapshots.clear();
   creationCounter = 0;
   paintCommitCount = 0;
   legacySnapshotRebuildCount = 0;
   for (const active of activeTurnListeners) notifyListeners(active);
   for (const active of activeTopologyListeners) notifyListeners(active);
   for (const active of activeLegacyListeners) notifyListeners(active);
+  for (const active of activeOperationalListeners) notifyListeners(active);
 }

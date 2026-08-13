@@ -1,9 +1,14 @@
 import * as React from "react";
+import { listen } from "@tauri-apps/api/event";
 import { ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { resolveManagedPermission } from "@/shared/api/managedPermissions";
-import type { PendingManagedPermission } from "@/shared/api/types";
+import { managedPermissionOutcomeCopy } from "@/features/messages/lib/managedOperationalStatus";
+import type {
+  ManagedPermissionResolvedEvent,
+  PendingManagedPermission,
+} from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
 
 type ManagedPermissionCardProps = {
@@ -17,6 +22,27 @@ export function ManagedPermissionCard({
 }: ManagedPermissionCardProps) {
   const [resolving, setResolving] = React.useState<string | null>(null);
   const request = pending.request;
+
+  React.useEffect(() => {
+    let dispose: (() => void) | null = null;
+    let active = true;
+    void listen<ManagedPermissionResolvedEvent>(
+      "managed-permission-resolved",
+      ({ payload: resolution }) => {
+        if (!active || resolution.pendingId !== pending.pendingId) return;
+        const message = managedPermissionOutcomeCopy(resolution.outcome);
+        if (resolution.outcome === "approved") toast.success(message);
+        else toast(message);
+      },
+    ).then((unlisten) => {
+      if (active) dispose = unlisten;
+      else unlisten();
+    });
+    return () => {
+      active = false;
+      dispose?.();
+    };
+  }, [pending.pendingId]);
 
   async function decide(optionId?: string) {
     setResolving(optionId ?? "cancel");

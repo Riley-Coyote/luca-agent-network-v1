@@ -12,7 +12,9 @@ import {
   getManagedPresentationSnapshot,
   getManagedPresentationTurn,
   getManagedPresentationTurnKeysSnapshot,
+  getManagedOperationalReceiptSnapshot,
   getManagedResponseSlotsSnapshot,
+  hydrateManagedOperationalStatuses,
   ingestManagedPresentationFrame,
   reconcileManagedPresentationFinal,
   releaseManagedPresentationFinals,
@@ -64,6 +66,111 @@ function flushAll() {
 afterEach(resetManagedPresentationStore);
 
 describe("managedPresentationStore", () => {
+  it("hydrates body-free restart outcomes once and preserves sibling partials", () => {
+    const sibling = "33".repeat(32);
+    seedManagedPresentations(conversationId, receiptId, [
+      residentPubkey,
+      sibling,
+    ]);
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 2, { public_chunk: "Keep this partial." }),
+    );
+    flushAll();
+
+    const status = {
+      dispatchReceiptId: receiptId,
+      status: "interrupted_after_restart",
+    };
+    hydrateManagedOperationalStatuses(conversationId, [status, status]);
+
+    const rows = getManagedPresentationSnapshot(conversationId);
+    assert.deepEqual(
+      [...getManagedOperationalReceiptSnapshot(conversationId)],
+      [receiptId],
+    );
+    assert.equal(rows.length, 2);
+    assert.ok(rows.every((row) => row.phase === "failed"));
+    assert.equal(
+      rows.find((row) => row.residentPubkey === residentPubkey).publicText,
+      "Keep this partial.",
+    );
+    assert.equal(
+      getManagedPresentationTurn(
+        getManagedPresentationTurnKeysSnapshot(conversationId)[0],
+      ).phase,
+      "needs_attention",
+    );
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).size,
+      2,
+    );
+    expireManagedPresentationDeadlinesForTests(Date.now() + 60_000);
+    flushManagedPresentationSchedulerForTests(Date.now() + 60_000);
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).size,
+      2,
+      "restart interruption remains actionable instead of briefly expiring",
+    );
+  });
+
+  it("consumes only the retried resident interruption without resurfacing", () => {
+    const sibling = "33".repeat(32);
+    seedManagedPresentations(conversationId, receiptId, [
+      residentPubkey,
+      sibling,
+    ]);
+    hydrateManagedOperationalStatuses(conversationId, [
+      {
+        dispatchReceiptId: receiptId,
+        status: "interrupted_after_restart",
+      },
+    ]);
+
+    const retryReceipt = "retry:exact-resident";
+    seedManagedPresentations(conversationId, retryReceipt, [residentPubkey]);
+    const activity = getManagedPresentationActivitySnapshot(conversationId);
+    assert.equal(activity.size, 2);
+    assert.equal(activity.get(sibling).phase, "needs_attention");
+    assert.equal(activity.get(residentPubkey).phase, "thinking");
+    assert.ok(activity.get(residentPubkey).uiKey.endsWith(`:${retryReceipt}`));
+
+    reconcileManagedPresentationFinal(
+      residentPubkey,
+      retryReceipt,
+      conversationId,
+      "retry-final",
+      "Retried response",
+    );
+    const settled = getManagedPresentationActivitySnapshot(conversationId);
+    assert.equal(settled.size, 1);
+    assert.equal(settled.get(sibling).phase, "needs_attention");
+    assert.equal(settled.has(residentPubkey), false);
+  });
+
+  it("a same-resident new turn supersedes durable interrupted activity", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    hydrateManagedOperationalStatuses(conversationId, [
+      {
+        dispatchReceiptId: receiptId,
+        status: "interrupted_after_restart",
+      },
+    ]);
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).get(residentPubkey)
+        .phase,
+      "needs_attention",
+    );
+
+    const nextReceipt = "new:managed-turn";
+    seedManagedPresentations(conversationId, nextReceipt, [residentPubkey]);
+    const replacement = getManagedPresentationActivitySnapshot(conversationId);
+    assert.equal(replacement.size, 1);
+    assert.equal(replacement.get(residentPubkey).phase, "thinking");
+    assert.ok(
+      replacement.get(residentPubkey).uiKey.endsWith(`:${nextReceipt}`),
+    );
+  });
   it("rejects unseeded frames before and after a community reset", () => {
     ingestManagedPresentationFrame(frame("turn_started", 1));
     assert.deepEqual(

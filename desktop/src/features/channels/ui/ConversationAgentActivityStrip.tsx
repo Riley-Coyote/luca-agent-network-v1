@@ -7,6 +7,7 @@ import type { BotActivityAgent } from "@/features/channels/ui/BotActivityBar";
 import type { ChannelAgentSessionAgent } from "@/features/channels/ui/useChannelAgentSessions";
 import { getManagedPresentationTurn } from "@/features/messages/managedPresentationStore";
 import type { ManagedConversationActivity } from "@/features/messages/managedPresentationTypes";
+import { managedOperationalCopy } from "@/features/messages/lib/managedOperationalStatus";
 import {
   cancelManagedAgentTurn,
   listCancellableManagedTurns,
@@ -60,6 +61,7 @@ type ActivityShelfItem = {
   retryTarget: ActivityShelfRetryTarget | null;
   state: ConversationActivityState;
   canStop: boolean;
+  detail: string | null;
 };
 
 const TERMINAL_SETTLE_MS = 3_200;
@@ -131,7 +133,10 @@ function ActivityItem({
   replacement?: boolean;
 }) {
   const terminal = isTerminalConversationActivity(item.state);
-  const stateLabel = conversationActivityLabel(item.state);
+  const stateLabel =
+    item.state === "interrupted"
+      ? conversationActivityLabel(item.state)
+      : (item.detail ?? conversationActivityLabel(item.state));
   return (
     <div
       className={cn(
@@ -393,6 +398,13 @@ export function ConversationAgentActivityStrip({
           Boolean(channelId) &&
           Boolean(processActivity?.uiKey) &&
           isStoppableState(state),
+        detail:
+          state === "interrupted"
+            ? "The previous response ended when Luca restarted. Retry is an owner action."
+            : (managedOperationalCopy(
+                processActivity?.phase ?? "thinking",
+                processActivity?.failure ?? null,
+              )?.label ?? null),
       });
     }
     return items;
