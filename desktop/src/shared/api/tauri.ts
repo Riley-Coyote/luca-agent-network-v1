@@ -684,6 +684,8 @@ export type BlobDescriptor = {
   image?: string;
   /** Original filename captured client-side. */
   filename?: string;
+  /** Non-secret desktop-local reference for a managed resident attachment. */
+  artifactHandleId?: string;
 };
 
 export async function uploadMedia(

@@ -11,7 +11,7 @@ use std::{
 use atomic_write_file::AtomicWriteFile;
 use luca_protocol::{
     canonical_sha256, Hex64, ManagedMessagePublishRequestV1, ManagedResponseSurfaceV1, OpaqueId,
-    Sha256Ref,
+    SafeU53, Sha256Ref,
 };
 use nostr::{Event, EventId};
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,8 @@ use super::managed_dispatch_routing::routing_from_event;
 
 const STORE_SCHEMA_V1: &str = "luca.managed-dispatch-store.v1";
 const STORE_SCHEMA_V2: &str = "luca.managed-dispatch-store.v2";
-const STORE_SCHEMA: &str = "luca.managed-dispatch-store.v3";
+const STORE_SCHEMA_V3: &str = "luca.managed-dispatch-store.v3";
+const STORE_SCHEMA: &str = "luca.managed-dispatch-store.v4";
 const MAX_DISPATCHES: usize = 512;
 const DISPATCH_TTL_SECONDS: u64 = 30 * 60;
 const CONTINUITY_DISPATCH_DOMAIN: &str = "luca.continuity.dispatch-set.v1";
@@ -98,6 +99,23 @@ pub(crate) struct ActiveDispatch {
     pub published_event_id: Option<String>,
     #[serde(default)]
     pub outbox_finalized: bool,
+    /// Immutable upload descriptors admitted by the trusted desktop for this
+    /// exact owner trigger. The opaque handle is not sufficient authority;
+    /// resolution also requires this row's resident, conversation, session,
+    /// and lifetime tuple.
+    #[serde(default)]
+    pub(crate) artifact_bindings: Vec<ManagedArtifactBinding>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct ManagedArtifactBinding {
+    pub(crate) handle_id: String,
+    pub(crate) url: String,
+    pub(crate) content_sha256: String,
+    pub(crate) byte_length: u64,
+    pub(crate) media_type: String,
+    pub(crate) display_name: Option<String>,
+    pub(crate) expires_at: u64,
 }
 
 /// Durable decision for one exact encrypted-outbox restart entry.
@@ -216,7 +234,7 @@ impl ManagedDispatchStore {
                 .map_err(|error| format!("parse managed dispatch store: {error}"))?;
             if !matches!(
                 persisted.schema.as_str(),
-                STORE_SCHEMA_V1 | STORE_SCHEMA_V2 | STORE_SCHEMA
+                STORE_SCHEMA_V1 | STORE_SCHEMA_V2 | STORE_SCHEMA_V3 | STORE_SCHEMA
             ) || persisted.dispatches.len() > MAX_DISPATCHES
             {
                 return Err("managed dispatch store schema or row count is invalid".into());
@@ -499,10 +517,24 @@ impl ManagedDispatchStore {
     }
 
     /// Atomically stage rows for all managed residents named by one exact owner event.
+    #[cfg(test)]
     pub(crate) fn stage_owner_event(
         &mut self,
         event: &Event,
         managed_residents: &[String],
+        now_unix_secs: u64,
+    ) -> Result<Vec<(String, String)>, String> {
+        self.stage_owner_event_with_artifacts(event, managed_residents, &[], now_unix_secs)
+    }
+
+    /// Atomically stage owner dispatches with desktop-issued immutable upload
+    /// bindings. This is additive to v3; callers without attachments continue
+    /// without attachments retain the same staging behavior.
+    pub(crate) fn stage_owner_event_with_artifacts(
+        &mut self,
+        event: &Event,
+        managed_residents: &[String],
+        artifact_bindings: &[ManagedArtifactBinding],
         now_unix_secs: u64,
     ) -> Result<Vec<(String, String)>, String> {
         if event.kind != nostr::Kind::Custom(9)
@@ -511,6 +543,17 @@ impl ManagedDispatchStore {
             || event.created_at.as_secs() > now_unix_secs + 60
         {
             return Err("managed dispatch trigger event is invalid".into());
+        }
+        let mut artifact_bindings = artifact_bindings.to_vec();
+        artifact_bindings.sort_by(|left, right| left.handle_id.cmp(&right.handle_id));
+        if artifact_bindings
+            .windows(2)
+            .any(|pair| pair[0].handle_id == pair[1].handle_id)
+        {
+            return Err("managed dispatch contains duplicate artifact handles".into());
+        }
+        for binding in &artifact_bindings {
+            validate_artifact_binding(binding, now_unix_secs)?;
         }
         let routing = routing_from_event(event)?;
         let requested: HashSet<String> = managed_residents
@@ -553,6 +596,7 @@ impl ManagedDispatchStore {
                 submitted_event_id: None,
                 published_event_id: None,
                 outbox_finalized: false,
+                artifact_bindings: artifact_bindings.clone(),
             };
             if let Some(existing) = self.dispatches.get(&key) {
                 if existing.trigger_event_id != candidate.trigger_event_id
@@ -566,6 +610,7 @@ impl ManagedDispatchStore {
                     || existing.resolved_p_tags != candidate.resolved_p_tags
                     || existing.submitted_event_id != candidate.submitted_event_id
                     || existing.outbox_finalized != candidate.outbox_finalized
+                    || existing.artifact_bindings != candidate.artifact_bindings
                 {
                     return Err("managed dispatch id collision".into());
                 }
@@ -692,6 +737,7 @@ impl ManagedDispatchStore {
                 submitted_event_id: None,
                 published_event_id: None,
                 outbox_finalized: false,
+                artifact_bindings: Vec::new(),
             };
             if let Some(existing) = self.dispatches.get(&key) {
                 if existing != &candidate {
@@ -713,6 +759,40 @@ impl ManagedDispatchStore {
             return Err(error);
         }
         Ok(staged)
+    }
+
+    /// Resolve exact artifact metadata only for the currently active resident
+    /// turn. Unknown, expired, cross-resident, cross-conversation, cancelled,
+    /// restarted, or already-terminal coordinates fail closed.
+    pub(crate) fn resolve_artifact_bindings(
+        &self,
+        trigger_event_id: &str,
+        resident_pubkey: &str,
+        conversation_id: &str,
+        session_epoch: u64,
+        handle_ids: &[OpaqueId],
+        now_unix_secs: u64,
+    ) -> Result<Vec<ManagedArtifactBinding>, DispatchAuthorizationError> {
+        let dispatch = self.recheck_communication_turn(
+            trigger_event_id,
+            resident_pubkey,
+            conversation_id,
+            session_epoch,
+            now_unix_secs,
+        )?;
+        let mut resolved = Vec::with_capacity(handle_ids.len());
+        for handle_id in handle_ids {
+            let binding = dispatch
+                .artifact_bindings
+                .iter()
+                .find(|binding| binding.handle_id == handle_id.as_str())
+                .ok_or(DispatchAuthorizationError::Unknown)?;
+            if now_unix_secs > binding.expires_at {
+                return Err(DispatchAuthorizationError::Expired);
+            }
+            resolved.push(binding.clone());
+        }
+        Ok(resolved)
     }
 
     /// Cancel matching pending/active rows before the local cancel event is submitted.
@@ -1603,6 +1683,45 @@ fn validate_dispatch(dispatch: &ActiveDispatch) -> Result<(), String> {
         && dispatch.interruption_reason.is_some()
     {
         return Err("managed dispatch interruption reason is incoherent".into());
+    }
+    let mut previous_handle = None;
+    for binding in &dispatch.artifact_bindings {
+        validate_artifact_binding(binding, dispatch.created_at)?;
+        if binding.expires_at > dispatch.expires_at
+            || previous_handle.is_some_and(|previous| previous >= binding.handle_id.as_str())
+        {
+            return Err("managed dispatch artifact tuple is invalid".into());
+        }
+        previous_handle = Some(binding.handle_id.as_str());
+    }
+    Ok(())
+}
+
+fn validate_artifact_binding(
+    binding: &ManagedArtifactBinding,
+    minimum_lifetime: u64,
+) -> Result<(), String> {
+    OpaqueId::parse(binding.handle_id.clone())
+        .map_err(|_| "managed artifact handle is invalid".to_string())?;
+    Hex64::parse(binding.content_sha256.clone())
+        .map_err(|_| "managed artifact digest is invalid".to_string())?;
+    SafeU53::new(binding.byte_length)
+        .map_err(|_| "managed artifact size is invalid".to_string())?;
+    if binding.url.is_empty()
+        || binding.url.len() > 4096
+        || binding.media_type.is_empty()
+        || binding.media_type.len() > 127
+        || binding.expires_at < minimum_lifetime
+        || binding.display_name.as_ref().is_some_and(|name| {
+            name.is_empty()
+                || name.len() > 255
+                || name.contains('/')
+                || name.contains('\\')
+                || name == "."
+                || name == ".."
+        })
+    {
+        return Err("managed artifact metadata is invalid".into());
     }
     Ok(())
 }
@@ -2566,7 +2685,7 @@ mod tests {
 
         let base: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).expect("read")).expect("json");
-        for legacy_schema in [STORE_SCHEMA_V1, STORE_SCHEMA_V2] {
+        for legacy_schema in [STORE_SCHEMA_V1, STORE_SCHEMA_V2, STORE_SCHEMA_V3] {
             let mut legacy = base.clone();
             legacy["schema"] = serde_json::json!(legacy_schema);
             let row = legacy["dispatches"][0].as_object_mut().expect("row");
@@ -3060,6 +3179,80 @@ mod tests {
                 103,
             ),
             Err(DispatchAuthorizationError::Cancelled)
+        );
+    }
+
+    #[test]
+    fn artifact_bindings_are_exact_turn_scoped_and_restart_durable() {
+        let owner = Keys::parse(&"c1".repeat(32)).expect("owner");
+        let resident = Keys::parse(&"c2".repeat(32)).expect("resident");
+        let trigger = event(&owner, &resident, CHANNEL_ONE, "prompt");
+        let temp = tempfile::tempdir().expect("temp");
+        let path = temp.path().join("dispatches.json");
+        let binding = ManagedArtifactBinding {
+            handle_id: "artifact-upload-1".to_owned(),
+            url: "https://relay.invalid/blob".to_owned(),
+            content_sha256: "a".repeat(64),
+            byte_length: 42,
+            media_type: "text/plain".to_owned(),
+            display_name: Some("notes.txt".to_owned()),
+            expires_at: 1_000,
+        };
+        let mut store = ManagedDispatchStore::load(path.clone()).expect("store");
+        store
+            .stage_owner_event_with_artifacts(
+                &trigger,
+                &[resident.public_key().to_hex()],
+                std::slice::from_ref(&binding),
+                100,
+            )
+            .expect("stage");
+        store
+            .activate_session(&resident.public_key().to_hex(), 7)
+            .expect("session");
+        store
+            .bind_communication_turn_start(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_ONE,
+                7,
+                101,
+            )
+            .expect("bind");
+        let ids = [OpaqueId::parse("artifact-upload-1").expect("handle")];
+        assert_eq!(
+            store
+                .resolve_artifact_bindings(
+                    &trigger.id.to_hex(),
+                    &resident.public_key().to_hex(),
+                    CHANNEL_ONE,
+                    7,
+                    &ids,
+                    102,
+                )
+                .expect("exact resolution"),
+            vec![binding.clone()]
+        );
+        assert_eq!(
+            store.resolve_artifact_bindings(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_TWO,
+                7,
+                &ids,
+                102,
+            ),
+            Err(DispatchAuthorizationError::WrongConversation)
+        );
+
+        let reloaded = ManagedDispatchStore::load(path).expect("reload v4");
+        assert_eq!(
+            reloaded
+                .dispatches
+                .get(&(trigger.id.to_hex(), resident.public_key().to_hex()))
+                .expect("durable row")
+                .artifact_bindings,
+            vec![binding]
         );
     }
 }

@@ -57,6 +57,13 @@ export function imetaMediaFromTags(
   const out: ImetaMedia[] = [];
   for (const entry of entries.values()) {
     if (!entry.url) continue;
+    const sourceTag = tags.find(
+      (tag) =>
+        tag[0] === "imeta" && tag.some((field) => field === `url ${entry.url}`),
+    );
+    const artifactHandleId = sourceTag
+      ?.find((field) => field.startsWith("luca_handle "))
+      ?.slice("luca_handle ".length);
     out.push({
       url: entry.url,
       type: entry.m ?? "image/jpeg",
@@ -69,6 +76,7 @@ export function imetaMediaFromTags(
       ...(entry.duration != null ? { duration: entry.duration } : {}),
       ...(entry.image ? { image: entry.image } : {}),
       ...(entry.filename ? { filename: entry.filename } : {}),
+      ...(artifactHandleId ? { artifactHandleId } : {}),
     });
   }
   return out;
@@ -101,6 +109,7 @@ export function buildImetaTags(
     ...(d.duration != null ? [`duration ${d.duration}`] : []),
     ...(d.image ? [`image ${d.image}`] : []),
     ...(d.filename ? [`filename ${d.filename}`] : []),
+    ...(d.artifactHandleId ? [`luca_handle ${d.artifactHandleId}`] : []),
   ]);
 }
 

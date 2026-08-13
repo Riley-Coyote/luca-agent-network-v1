@@ -39,6 +39,7 @@ use super::{
     communication_event_vault::{
         CommunicationEventVault, CommunicationEventVaultError, CommunicationEventVaultTerminal,
     },
+    managed_dispatch_store::ManagedArtifactBinding,
 };
 
 const MESSAGE_KIND: u16 = 9;
@@ -748,6 +749,64 @@ impl ExistingConversationPublisher {
         }
     }
 
+    fn resolve_private_artifact_bindings(
+        &self,
+        request: &CommunicationActionRequestV1,
+        authority: &CommunicationTurnAuthoritySnapshot,
+    ) -> Result<Vec<ManagedArtifactBinding>, BrokerFailure> {
+        let CommunicationOperationV1::SendMessage {
+            artifact_handles, ..
+        } = &request.operation
+        else {
+            return Ok(Vec::new());
+        };
+        if artifact_handles.is_empty() {
+            return Ok(Vec::new());
+        }
+        let app = self
+            .app
+            .as_ref()
+            .ok_or_else(BrokerFailure::artifact_denied)?;
+        let CommunicationDestinationV1::ExistingConversation {
+            conversation_id, ..
+        } = &request.destination
+        else {
+            return Err(BrokerFailure::artifact_denied());
+        };
+        let ids = artifact_handles
+            .iter()
+            .map(|handle| handle.handle_id.clone())
+            .collect::<Vec<_>>();
+        let store = super::managed_dispatch_store::global_dispatch_store(app)
+            .map_err(|_| BrokerFailure::artifact_denied())?;
+        let bindings = store
+            .lock()
+            .map_err(|_| BrokerFailure::artifact_denied())?
+            .resolve_artifact_bindings(
+                authority.coordinates.dispatch_receipt_id.as_str(),
+                authority.resident_pubkey.as_str(),
+                conversation_id.as_str(),
+                authority.session_epoch.get(),
+                &ids,
+                chrono::Utc::now().timestamp().max(0) as u64,
+            )
+            .map_err(|_| BrokerFailure::artifact_denied())?;
+        let exact = artifact_handles
+            .iter()
+            .zip(&bindings)
+            .all(|(handle, binding)| {
+                handle.handle_id.as_str() == binding.handle_id
+                    && handle.content_sha256.as_str() == binding.content_sha256
+                    && handle.byte_length.get() == binding.byte_length
+                    && handle.media_type == binding.media_type
+                    && handle.display_name == binding.display_name
+            });
+        if !exact || bindings.len() != artifact_handles.len() {
+            return Err(BrokerFailure::artifact_denied());
+        }
+        Ok(bindings)
+    }
+
     pub(crate) fn stage_and_publish(
         &self,
         request: CommunicationActionRequestV1,
@@ -818,12 +877,15 @@ impl ExistingConversationPublisher {
         validate_membership(&request, expected_authority, &first_membership)
             .map_err(map_publication_failure)?;
         let signed_event = if recovered_sealed.is_none() {
+            let artifact_bindings =
+                self.resolve_private_artifact_bindings(&request, expected_authority)?;
             Some(
                 build_exact_communication_event(
                     &request,
                     &self.resident_keys,
                     &first_membership,
                     self.relay.as_ref(),
+                    &artifact_bindings,
                 )
                 .map_err(map_publication_failure)?,
             )
@@ -1208,20 +1270,18 @@ fn validate_narrow_request(
     match &request.operation {
         CommunicationOperationV1::SendMessage {
             activation_pubkeys,
-            artifact_handles,
             mention_pubkeys,
             ..
         } => {
-            if !artifact_handles.is_empty()
-                || (!activation_pubkeys.is_empty()
-                    && (request.causal_depth.get() != 0
-                        || request.causal_parent_action_id.is_some()
-                        || activation_pubkeys.iter().any(|target| {
-                            target == &authority.owner_pubkey
-                                || target == &authority.resident_pubkey
-                                || !authority.owned_resident_pubkeys.contains(target)
-                                || mention_pubkeys.binary_search(target).is_err()
-                        })))
+            if !activation_pubkeys.is_empty()
+                && (request.causal_depth.get() != 0
+                    || request.causal_parent_action_id.is_some()
+                    || activation_pubkeys.iter().any(|target| {
+                        target == &authority.owner_pubkey
+                            || target == &authority.resident_pubkey
+                            || !authority.owned_resident_pubkeys.contains(target)
+                            || mention_pubkeys.binary_search(target).is_err()
+                    }))
             {
                 return Err(CommunicationPublicationError::Unsupported);
             }
@@ -1479,6 +1539,7 @@ fn build_exact_communication_event(
     keys: &Keys,
     membership: &ExistingConversationMembership,
     relay: &dyn CommunicationRelayTransport,
+    artifact_bindings: &[ManagedArtifactBinding],
 ) -> Result<String, CommunicationPublicationError> {
     let channel_id = Uuid::parse_str(membership.conversation_id.as_str())
         .map_err(|_| CommunicationPublicationError::InvalidRequest)?;
@@ -1490,8 +1551,19 @@ fn build_exact_communication_event(
             activation_pubkeys: _,
             artifact_handles,
         } => {
-            if !artifact_handles.is_empty() {
-                return Err(CommunicationPublicationError::Unsupported);
+            if artifact_handles.len() != artifact_bindings.len()
+                || artifact_handles
+                    .iter()
+                    .zip(artifact_bindings)
+                    .any(|(handle, binding)| {
+                        handle.handle_id.as_str() != binding.handle_id
+                            || handle.content_sha256.as_str() != binding.content_sha256
+                            || handle.byte_length.get() != binding.byte_length
+                            || handle.media_type != binding.media_type
+                            || handle.display_name != binding.display_name
+                    })
+            {
+                return Err(CommunicationPublicationError::Authority);
             }
             let thread_ref = reply_to_event_id
                 .as_ref()
@@ -1528,12 +1600,28 @@ fn build_exact_communication_event(
                 request.action_id.as_str().to_owned(),
                 membership.membership_event_id.as_str().to_owned(),
             ]];
+            let media_tags = artifact_bindings
+                .iter()
+                .map(|binding| {
+                    let mut tag = vec![
+                        "imeta".to_owned(),
+                        format!("url {}", binding.url),
+                        format!("m {}", binding.media_type),
+                        format!("x {}", binding.content_sha256),
+                        format!("size {}", binding.byte_length),
+                    ];
+                    if let Some(name) = &binding.display_name {
+                        tag.push(format!("filename {name}"));
+                    }
+                    tag
+                })
+                .collect::<Vec<_>>();
             crate::events::build_message_with_client_tags(
                 channel_id,
                 body,
                 thread_ref.as_ref(),
                 &mention_refs,
-                &[],
+                &media_tags,
                 &[],
                 &[],
                 &client_tags,
@@ -1656,7 +1744,9 @@ mod tests {
     use super::*;
     use std::{collections::VecDeque, sync::Mutex};
 
-    use luca_protocol::{CommunicationDestinationV1, COMMUNICATION_ACTION_PROTOCOL};
+    use luca_protocol::{
+        CommunicationDestinationV1, OpaqueArtifactHandleV1, COMMUNICATION_ACTION_PROTOCOL,
+    };
     use nostr::{EventBuilder, Tag};
     use tempfile::TempDir;
 
@@ -2066,6 +2156,66 @@ mod tests {
             .unwrap();
         assert_eq!(repeated.state, "accepted");
         assert_eq!(fixture.relay.submitted().len(), 1);
+    }
+
+    #[test]
+    fn exact_resident_message_uses_only_dispatch_bound_imeta_metadata() {
+        let fixture = publisher_fixture([FakeSubmitResult::Accepted]);
+        let artifact = OpaqueArtifactHandleV1 {
+            handle_id: OpaqueId::parse("artifact-upload-1").unwrap(),
+            content_sha256: Hex64::parse("a".repeat(64)).unwrap(),
+            byte_length: SafeU53::new(42).unwrap(),
+            media_type: "text/plain".to_owned(),
+            display_name: Some("notes.txt".to_owned()),
+        };
+        let request = request_with_operation(
+            &fixture.request,
+            "attachment",
+            CommunicationOperationV1::SendMessage {
+                body: "attached".to_owned(),
+                reply_to_event_id: None,
+                mention_pubkeys: Vec::new(),
+                activation_pubkeys: Vec::new(),
+                artifact_handles: vec![artifact],
+            },
+        );
+        let membership = fixture
+            .publisher
+            .membership(existing_conversation_id(&request).unwrap())
+            .unwrap();
+        let binding = ManagedArtifactBinding {
+            handle_id: "artifact-upload-1".to_owned(),
+            url: "https://relay.invalid/blob".to_owned(),
+            content_sha256: "a".repeat(64),
+            byte_length: 42,
+            media_type: "text/plain".to_owned(),
+            display_name: Some("notes.txt".to_owned()),
+            expires_at: u64::MAX,
+        };
+        let event = Event::from_json(
+            build_exact_communication_event(
+                &request,
+                &fixture.publisher.resident_keys,
+                &membership,
+                fixture.publisher.relay.as_ref(),
+                &[binding],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let imeta = event
+            .tags
+            .iter()
+            .find(|tag| tag.as_slice().first().map(String::as_str) == Some("imeta"))
+            .expect("imeta")
+            .as_slice();
+        assert!(imeta.contains(&"url https://relay.invalid/blob".to_owned()));
+        assert!(imeta.contains(&format!("x {}", "a".repeat(64))));
+        assert!(imeta.contains(&"size 42".to_owned()));
+        assert!(imeta.contains(&"filename notes.txt".to_owned()));
+        assert!(imeta
+            .iter()
+            .all(|field| !field.contains("artifact-upload-1")));
     }
 
     #[test]
@@ -2606,6 +2756,7 @@ mod tests {
             &fixture.publisher.resident_keys,
             &membership,
             fixture.publisher.relay.as_ref(),
+            &[],
         )
         .expect("sign once");
         fixture

@@ -181,6 +181,31 @@ test("buildImetaTags keeps media filenames in imeta", () => {
   );
 });
 
+test("managed artifact handle round-trips as non-rendered imeta metadata", () => {
+  const media = {
+    url: "https://relay.invalid/blob",
+    type: "text/plain",
+    sha256: "a".repeat(64),
+    size: 42,
+    uploaded: 1,
+    filename: "notes.txt",
+    artifactHandleId: "artifact-upload-1",
+  };
+  const tags = buildImetaTags([media]);
+  assert.deepEqual(tags[0].slice(-2), [
+    "filename notes.txt",
+    "luca_handle artifact-upload-1",
+  ]);
+  assert.equal(
+    imetaMediaFromTags(tags)[0].artifactHandleId,
+    media.artifactHandleId,
+  );
+  assert.equal(
+    buildOutgoingMessage("attached", [media]).content,
+    "attached\n[notes.txt](https://relay.invalid/blob)",
+  );
+});
+
 test("formatImetaMediaLine: video mime → ![video] line (regardless of URL suffix)", () => {
   assert.equal(
     formatImetaMediaLine({ url: "https://cdn/blob/xyz", type: "video/mp4" }),

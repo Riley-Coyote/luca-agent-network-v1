@@ -32,6 +32,26 @@ const MANAGED_ROOM_NAMESPACE: Uuid = uuid::uuid!("c20e259b-1685-5e1d-9141-55ea33
 const MEMBERSHIP_RECONCILE_ATTEMPTS: usize = 6;
 const MEMBERSHIP_RECONCILE_DELAY: Duration = Duration::from_millis(100);
 
+fn protocol_artifact_handles(
+    bindings: Vec<super::managed_dispatch_store::ManagedArtifactBinding>,
+) -> Result<Vec<OpaqueArtifactHandleV1>, BrokerFailure> {
+    bindings
+        .into_iter()
+        .map(|binding| {
+            Ok(OpaqueArtifactHandleV1 {
+                handle_id: OpaqueId::parse(binding.handle_id)
+                    .map_err(|_| BrokerFailure::artifact_denied())?,
+                content_sha256: Hex64::parse(binding.content_sha256)
+                    .map_err(|_| BrokerFailure::artifact_denied())?,
+                byte_length: SafeU53::new(binding.byte_length)
+                    .map_err(|_| BrokerFailure::artifact_denied())?,
+                media_type: binding.media_type,
+                display_name: binding.display_name,
+            })
+        })
+        .collect()
+}
+
 /// Trusted construction inputs supplied by the managed-runtime lifecycle.
 ///
 /// The resident key never crosses the desktop process. Independent encrypted
@@ -339,15 +359,33 @@ impl CommunicationBrokerBackend for DesktopCommunicationActionBackend {
     fn resolve_artifact_handles(
         &self,
         authority: &CommunicationTurnAuthoritySnapshot,
-        _conversation_id: Option<&OpaqueId>,
+        conversation_id: Option<&OpaqueId>,
         handle_ids: &[OpaqueId],
     ) -> Result<Vec<OpaqueArtifactHandleV1>, BrokerFailure> {
         self.require_authority(authority)?;
         if handle_ids.is_empty() {
-            Ok(Vec::new())
-        } else {
-            Err(BrokerFailure::artifact_denied())
+            return Ok(Vec::new());
         }
+        let conversation_id = conversation_id.ok_or_else(BrokerFailure::artifact_denied)?;
+        if conversation_id != &authority.coordinates.source_conversation_id {
+            return Err(BrokerFailure::artifact_denied());
+        }
+        let store = super::managed_dispatch_store::global_dispatch_store(&self.app)
+            .map_err(|_| BrokerFailure::artifact_denied())?;
+        let now = chrono::Utc::now().timestamp().max(0) as u64;
+        let bindings = store
+            .lock()
+            .map_err(|_| BrokerFailure::artifact_denied())?
+            .resolve_artifact_bindings(
+                authority.coordinates.dispatch_receipt_id.as_str(),
+                authority.resident_pubkey.as_str(),
+                conversation_id.as_str(),
+                authority.session_epoch.get(),
+                handle_ids,
+                now,
+            )
+            .map_err(|_| BrokerFailure::artifact_denied())?;
+        protocol_artifact_handles(bindings)
     }
 
     fn require_event_in_conversation(

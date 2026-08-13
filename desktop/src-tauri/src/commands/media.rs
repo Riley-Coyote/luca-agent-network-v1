@@ -2,6 +2,10 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use nostr::{EventBuilder, JsonUtil, Keys, Kind, Tag, Timestamp};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+};
 use tauri::State;
 
 use crate::app_state::AppState;
@@ -36,6 +40,68 @@ pub struct BlobDescriptor {
     /// emoji upload uses it to suggest a shortcode.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
+    /// Non-secret desktop-local reference used only to bind this exact
+    /// successful upload to a managed resident turn. It is never a path or a
+    /// bearer capability; the dispatch store rechecks conversation, resident,
+    /// session, and lifetime before resolving it.
+    #[serde(rename = "artifactHandleId", skip_serializing_if = "Option::is_none")]
+    pub artifact_handle_id: Option<String>,
+}
+
+const MANAGED_ARTIFACT_TTL_SECONDS: u64 = 30 * 60;
+const MAX_ISSUED_MANAGED_ARTIFACTS: usize = 512;
+
+#[derive(Debug, Clone)]
+pub(crate) struct IssuedManagedArtifact {
+    pub(crate) descriptor: BlobDescriptor,
+    pub(crate) expires_at: u64,
+}
+
+static ISSUED_MANAGED_ARTIFACTS: OnceLock<Mutex<HashMap<String, IssuedManagedArtifact>>> =
+    OnceLock::new();
+
+fn issued_managed_artifacts() -> &'static Mutex<HashMap<String, IssuedManagedArtifact>> {
+    ISSUED_MANAGED_ARTIFACTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn issue_managed_artifact_handle(descriptor: &mut BlobDescriptor) -> Result<(), String> {
+    let now = chrono::Utc::now().timestamp().max(0) as u64;
+    let handle_id = format!("artifact-{}", uuid::Uuid::new_v4());
+    descriptor.artifact_handle_id = Some(handle_id.clone());
+    let mut issued = issued_managed_artifacts()
+        .lock()
+        .map_err(|_| "managed artifact registry is unavailable".to_string())?;
+    issued.retain(|_, artifact| artifact.expires_at >= now);
+    if issued.len() >= MAX_ISSUED_MANAGED_ARTIFACTS {
+        descriptor.artifact_handle_id = None;
+        return Err("managed artifact registry has no capacity".to_string());
+    }
+    issued.insert(
+        handle_id,
+        IssuedManagedArtifact {
+            descriptor: descriptor.clone(),
+            expires_at: now.saturating_add(MANAGED_ARTIFACT_TTL_SECONDS),
+        },
+    );
+    Ok(())
+}
+
+pub(crate) fn resolve_issued_managed_artifacts(
+    handle_ids: &[String],
+    now: u64,
+) -> Result<Vec<IssuedManagedArtifact>, String> {
+    let mut issued = issued_managed_artifacts()
+        .lock()
+        .map_err(|_| "managed artifact registry is unavailable".to_string())?;
+    issued.retain(|_, artifact| artifact.expires_at >= now);
+    let mut resolved = Vec::with_capacity(handle_ids.len());
+    for handle_id in handle_ids {
+        let artifact = issued
+            .get(handle_id)
+            .ok_or_else(|| "managed artifact handle is unknown or expired".to_string())?;
+        resolved.push(artifact.clone());
+    }
+    Ok(resolved)
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -493,7 +559,9 @@ pub async fn upload_media(
 
     let mime = detect_and_validate_mime(&body)?;
     let body = sanitize_image_for_upload(body, &mime)?;
-    do_upload(body, &mime, &state, None).await
+    let mut descriptor = do_upload(body, &mime, &state, None).await?;
+    issue_managed_artifact_handle(&mut descriptor)?;
+    Ok(descriptor)
 }
 
 /// Read a picked path through the TOCTOU-safe pipeline (fd pin → sniff →
@@ -586,6 +654,8 @@ async fn process_picked_path(
         .file_name()
         .and_then(|n| n.to_str())
         .map(sanitize_filename);
+
+    issue_managed_artifact_handle(&mut descriptor)?;
 
     Ok(descriptor)
 }
@@ -744,6 +814,8 @@ pub async fn upload_media_bytes(
     }
 
     descriptor.filename = filename.as_deref().map(sanitize_filename);
+
+    issue_managed_artifact_handle(&mut descriptor)?;
 
     Ok(descriptor)
 }
@@ -933,5 +1005,35 @@ mod tests {
         assert_eq!(sanitize_filename("/"), "file");
         // Control chars removed.
         assert_eq!(sanitize_filename("a\nb\tc.txt"), "abc.txt");
+    }
+
+    #[test]
+    fn managed_artifact_handle_is_opaque_and_resolves_exact_upload_metadata() {
+        let mut descriptor = BlobDescriptor {
+            url: "https://relay.invalid/blob".to_owned(),
+            sha256: "a".repeat(64),
+            size: 42,
+            mime_type: "text/plain".to_owned(),
+            uploaded: 1,
+            dim: None,
+            blurhash: None,
+            thumb: None,
+            duration: None,
+            image: None,
+            filename: Some("notes.txt".to_owned()),
+            artifact_handle_id: None,
+        };
+        issue_managed_artifact_handle(&mut descriptor).expect("issue");
+        let handle = descriptor
+            .artifact_handle_id
+            .clone()
+            .expect("opaque handle");
+        assert!(!handle.contains('/'));
+        assert!(!handle.contains("relay.invalid"));
+        let resolved = resolve_issued_managed_artifacts(&[handle], 1).expect("resolve");
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].descriptor.url, descriptor.url);
+        assert_eq!(resolved[0].descriptor.sha256, descriptor.sha256);
+        assert_eq!(resolved[0].descriptor.filename, descriptor.filename);
     }
 }

@@ -217,6 +217,14 @@ impl CommunicationBrokerBackend for TestBackend {
     ) -> Result<Vec<OpaqueArtifactHandleV1>, BrokerFailure> {
         if handle_ids.is_empty() {
             Ok(Vec::new())
+        } else if handle_ids == [opaque("artifact-upload-1")] {
+            Ok(vec![OpaqueArtifactHandleV1 {
+                handle_id: opaque("artifact-upload-1"),
+                content_sha256: hex64(&"a".repeat(64)),
+                byte_length: safe(42),
+                media_type: "text/plain".to_owned(),
+                display_name: Some("notes.txt".to_owned()),
+            }])
         } else {
             Err(BrokerFailure::artifact_denied())
         }
@@ -436,6 +444,47 @@ fn raw_paths_and_raw_events_are_not_representable() {
         assert_eq!(response.receipt.diagnostic_code, Some("invalid_arguments"));
     }
     assert!(fixture.backend.staged.lock().expect("staged").is_empty());
+}
+
+#[test]
+fn desktop_issued_artifact_handle_becomes_exact_semantic_attachment() {
+    let fixture = Fixture::new();
+    let response = fixture.response(
+        "send",
+        json!({
+            "destination": {"destination_type": "current_conversation"},
+            "body": "attached",
+            "artifact_handle_ids": ["artifact-upload-1"],
+        }),
+    );
+    assert!(response.ok);
+    let staged = fixture.backend.staged.lock().expect("staged");
+    let CommunicationOperationV1::SendMessage {
+        artifact_handles, ..
+    } = &staged[0].0.operation
+    else {
+        panic!("send operation");
+    };
+    assert_eq!(artifact_handles.len(), 1);
+    assert_eq!(artifact_handles[0].handle_id, opaque("artifact-upload-1"));
+    assert_eq!(artifact_handles[0].content_sha256, hex64(&"a".repeat(64)));
+    assert_eq!(artifact_handles[0].byte_length, safe(42));
+    assert_eq!(
+        artifact_handles[0].display_name.as_deref(),
+        Some("notes.txt")
+    );
+
+    drop(staged);
+    let denied = fixture.response(
+        "send",
+        json!({
+            "destination": {"destination_type": "current_conversation"},
+            "body": "denied",
+            "artifact_handle_ids": ["artifact-unknown"],
+        }),
+    );
+    assert!(!denied.ok);
+    assert_eq!(denied.receipt.diagnostic_code, Some("artifact_denied"));
 }
 
 #[test]

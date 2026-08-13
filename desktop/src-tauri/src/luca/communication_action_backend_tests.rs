@@ -88,6 +88,31 @@ fn managed_room_uuid_is_independent_of_participant_insertion_order() {
     );
 }
 
+#[test]
+fn durable_artifact_binding_projects_only_path_free_semantic_metadata() {
+    let handles = protocol_artifact_handles(vec![
+        crate::luca::managed_dispatch_store::ManagedArtifactBinding {
+            handle_id: "artifact-upload-1".to_owned(),
+            url: "https://relay.invalid/private-blob".to_owned(),
+            content_sha256: "a".repeat(64),
+            byte_length: 42,
+            media_type: "text/plain".to_owned(),
+            display_name: Some("notes.txt".to_owned()),
+            expires_at: 1_000,
+        },
+    ])
+    .expect("semantic handle");
+    assert_eq!(handles.len(), 1);
+    assert_eq!(handles[0].handle_id, opaque("artifact-upload-1"));
+    assert_eq!(handles[0].content_sha256, hex64(&"a".repeat(64)));
+    assert_eq!(handles[0].byte_length, SafeU53::new(42).unwrap());
+    assert_eq!(handles[0].media_type, "text/plain");
+    assert_eq!(handles[0].display_name.as_deref(), Some("notes.txt"));
+    let serialized = serde_json::to_string(&handles).expect("serialize");
+    assert!(!serialized.contains("relay.invalid"));
+    assert!(!serialized.contains("private-blob"));
+}
+
 fn hex64(value: &str) -> Hex64 {
     Hex64::parse(value.to_owned()).expect("hex64")
 }

@@ -18,6 +18,65 @@ use crate::{
     relay::{query_relay, submit_signed_event},
 };
 
+fn exact_imeta_field<'a>(tag: &'a [String], field: &str) -> Result<Option<&'a str>, String> {
+    let mut found = None;
+    for value in tag.iter().skip(1) {
+        let Some((name, contents)) = value.split_once(' ') else {
+            continue;
+        };
+        if name == field && (contents.is_empty() || found.replace(contents).is_some()) {
+            return Err(format!("managed attachment has invalid {field} metadata"));
+        }
+    }
+    Ok(found)
+}
+
+fn resolve_managed_artifact_bindings(
+    media: &[Vec<String>],
+    now: u64,
+) -> Result<Vec<crate::luca::managed_dispatch_store::ManagedArtifactBinding>, String> {
+    let mut handle_ids = Vec::with_capacity(media.len());
+    for tag in media {
+        if tag.first().map(String::as_str) != Some("imeta") {
+            return Err("managed attachment metadata is not imeta".into());
+        }
+        handle_ids.push(
+            exact_imeta_field(tag, "luca_handle")?
+                .ok_or_else(|| "managed attachment is missing its desktop handle".to_string())?
+                .to_owned(),
+        );
+    }
+    let issued = super::media::resolve_issued_managed_artifacts(&handle_ids, now)?;
+    let mut bindings = Vec::with_capacity(issued.len());
+    for (tag, artifact) in media.iter().zip(issued) {
+        let descriptor = artifact.descriptor;
+        let expected_size = descriptor.size.to_string();
+        let exact = exact_imeta_field(tag, "url")? == Some(descriptor.url.as_str())
+            && exact_imeta_field(tag, "m")? == Some(descriptor.mime_type.as_str())
+            && exact_imeta_field(tag, "x")? == Some(descriptor.sha256.as_str())
+            && exact_imeta_field(tag, "size")? == Some(expected_size.as_str())
+            && exact_imeta_field(tag, "filename")? == descriptor.filename.as_deref()
+            && exact_imeta_field(tag, "luca_handle")? == descriptor.artifact_handle_id.as_deref();
+        if !exact {
+            return Err("managed attachment metadata changed after upload".into());
+        }
+        bindings.push(
+            crate::luca::managed_dispatch_store::ManagedArtifactBinding {
+                handle_id: descriptor
+                    .artifact_handle_id
+                    .ok_or_else(|| "managed attachment handle is unavailable".to_string())?,
+                url: descriptor.url,
+                content_sha256: descriptor.sha256,
+                byte_length: descriptor.size,
+                media_type: descriptor.mime_type,
+                display_name: descriptor.filename,
+                expires_at: artifact.expires_at,
+            },
+        );
+    }
+    Ok(bindings)
+}
+
 fn normalized_managed_audience(
     intent: Option<ManagedAudienceIntentV1>,
     mentions: &[String],
@@ -241,10 +300,13 @@ pub async fn send_channel_message(
             )?;
             Vec::new()
         } else {
-            store.stage_owner_event(
+            let now = chrono::Utc::now().timestamp().max(0) as u64;
+            let artifact_bindings = resolve_managed_artifact_bindings(&media, now)?;
+            store.stage_owner_event_with_artifacts(
                 &event,
                 &managed_residents,
-                chrono::Utc::now().timestamp().max(0) as u64,
+                &artifact_bindings,
+                now,
             )?
         }
     } else {
