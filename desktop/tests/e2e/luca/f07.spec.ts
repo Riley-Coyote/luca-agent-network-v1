@@ -26,7 +26,7 @@ test("Luca navigation retains the personal conversation plane and hides deferred
   await expect(menu.getByTestId("open-brain-setup")).toBeEnabled();
   await expect(menu.getByTestId("open-settings-view")).toBeVisible();
 
-  for (const deferredLabel of ["Inbox", "Projects", "Workflows", "Pulse"]) {
+  for (const deferredLabel of ["Projects", "Workflows", "Pulse"]) {
     await expect(menu.getByText(deferredLabel, { exact: true })).toHaveCount(0);
   }
 

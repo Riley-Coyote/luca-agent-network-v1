@@ -11,7 +11,7 @@ import {
   profilePanelTabFromSearch,
   profilePanelViewFromSearch,
 } from "@/features/profile/ui/UserProfilePanelUtils";
-import { PulseView } from "@/features/pulse/ui/PulseView";
+import { LucaActivityView } from "@/features/pulse/ui/LucaActivityView";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { ProfilePanelProvider } from "@/shared/context/ProfilePanelContext";
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
@@ -64,7 +64,7 @@ export function PulseScreen() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            <PulseView currentPubkey={identityQuery.data?.pubkey} />
+            <LucaActivityView />
           </div>
           {profilePanelPubkey ? (
             <UserProfilePanel
