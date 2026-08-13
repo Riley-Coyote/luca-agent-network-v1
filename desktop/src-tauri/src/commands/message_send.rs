@@ -31,6 +31,26 @@ fn exact_imeta_field<'a>(tag: &'a [String], field: &str) -> Result<Option<&'a st
     Ok(found)
 }
 
+/// Remove desktop-only attachment authorization handles before constructing
+/// the public Nostr event. The original tags remain available to the trusted
+/// command for exact managed-dispatch binding below, while the relay receives
+/// only standard NIP-92 metadata.
+fn relay_media_tags(media: &[Vec<String>]) -> Vec<Vec<String>> {
+    media
+        .iter()
+        .map(|tag| {
+            tag.iter()
+                .filter(|value| {
+                    value
+                        .split_once(' ')
+                        .is_none_or(|(name, _)| name != "luca_handle")
+                })
+                .cloned()
+                .collect()
+        })
+        .collect()
+}
+
 fn resolve_managed_artifact_bindings(
     media: &[Vec<String>],
     now: u64,
@@ -186,6 +206,7 @@ pub async fn send_channel_message(
     let mentions = mention_pubkeys.unwrap_or_default();
     let mention_refs: Vec<&str> = mentions.iter().map(String::as_str).collect();
     let media = media_tags.unwrap_or_default();
+    let relay_media = relay_media_tags(&media);
     let emoji = emoji_tags.unwrap_or_default();
     let mention_refs_only = mention_tags.unwrap_or_default();
     let kind_num = kind.unwrap_or(buzz_core_pkg::kind::KIND_STREAM_MESSAGE);
@@ -202,7 +223,7 @@ pub async fn send_channel_message(
             channel_uuid,
             content.trim(),
             &mention_refs,
-            &media,
+            &relay_media,
             &mention_refs_only,
         )?,
         buzz_core_pkg::kind::KIND_FORUM_COMMENT => {
@@ -216,7 +237,7 @@ pub async fn send_channel_message(
                 content.trim(),
                 &thread_ref,
                 &mention_refs,
-                &media,
+                &relay_media,
                 &mention_refs_only,
             )?
         }
@@ -234,7 +255,7 @@ pub async fn send_channel_message(
                 content.trim(),
                 thread_ref.as_ref(),
                 &mention_refs,
-                &media,
+                &relay_media,
                 &emoji,
                 &mention_refs_only,
             )?;
@@ -404,5 +425,34 @@ mod tests {
             Some(&HashSet::new()),
         )
         .is_err());
+    }
+
+    #[test]
+    fn relay_media_omits_private_handle_and_preserves_standard_imeta() {
+        let media = vec![vec![
+            "imeta".to_owned(),
+            "url http://localhost:3000/media/file.bin".to_owned(),
+            "m application/octet-stream".to_owned(),
+            "x aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
+            "size 6".to_owned(),
+            "filename file.bin".to_owned(),
+            "luca_handle artifact-upload-1".to_owned(),
+        ]];
+
+        assert_eq!(
+            relay_media_tags(&media),
+            vec![vec![
+                "imeta".to_owned(),
+                "url http://localhost:3000/media/file.bin".to_owned(),
+                "m application/octet-stream".to_owned(),
+                "x aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
+                "size 6".to_owned(),
+                "filename file.bin".to_owned(),
+            ]]
+        );
+        assert_eq!(
+            exact_imeta_field(&media[0], "luca_handle").unwrap(),
+            Some("artifact-upload-1")
+        );
     }
 }
