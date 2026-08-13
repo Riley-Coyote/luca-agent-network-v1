@@ -49,6 +49,7 @@ const MAX_READ_RESULT_BYTES: usize = 512 * 1024;
 const MAX_PAGE_ITEMS: usize = 256;
 const MAX_CONCURRENT_CONNECTIONS: usize = 16;
 const MAX_DM_PARTICIPANTS: usize = 9;
+const MAX_RESIDENT_NAME_BYTES: usize = 256;
 
 static NEXT_CAPABILITY_GENERATION: AtomicU64 = AtomicU64::new(1);
 
@@ -79,6 +80,7 @@ enum BrokerOperation {
     Inbox,
     Conversation,
     Send,
+    MessageResident,
     React,
     EditOwnMessage,
     DeleteOwnMessage,
@@ -92,6 +94,7 @@ impl BrokerOperation {
             "inbox" => Ok(Self::Inbox),
             "conversation" => Ok(Self::Conversation),
             "send" => Ok(Self::Send),
+            "message_resident" => Ok(Self::MessageResident),
             "react" => Ok(Self::React),
             "edit_own_message" => Ok(Self::EditOwnMessage),
             "delete_own_message" => Ok(Self::DeleteOwnMessage),
@@ -106,6 +109,7 @@ impl BrokerOperation {
             Self::Inbox => "inbox",
             Self::Conversation => "conversation",
             Self::Send => "send",
+            Self::MessageResident => "message_resident",
             Self::React => "react",
             Self::EditOwnMessage => "edit_own_message",
             Self::DeleteOwnMessage => "delete_own_message",
@@ -312,6 +316,14 @@ pub(crate) trait CommunicationBrokerBackend: Send + Sync + 'static {
         authority: &CommunicationTurnAuthoritySnapshot,
         participant_pubkeys: &BTreeSet<Hex64>,
     ) -> Result<CommunicationConversationAuthority, BrokerFailure>;
+
+    /// Resolve one unique same-owner local resident by display name or alias.
+    /// The resulting public key never crosses into the MCP request surface.
+    fn resolve_owned_resident_name(
+        &self,
+        authority: &CommunicationTurnAuthoritySnapshot,
+        requested_name: &str,
+    ) -> Result<Hex64, BrokerFailure>;
 
     /// Create or recover one deterministic owner-visible private room through
     /// the existing owner channel and membership operations.
@@ -552,6 +564,11 @@ impl CommunicationBridgeCore {
             BrokerOperation::Send => {
                 self.handle_send(authority, &operation_request_id, frame.arguments.clone())
             }
+            BrokerOperation::MessageResident => self.handle_message_resident(
+                authority,
+                &operation_request_id,
+                frame.arguments.clone(),
+            ),
             BrokerOperation::React => {
                 self.handle_react(authority, &operation_request_id, frame.arguments.clone())
             }
@@ -706,6 +723,50 @@ impl CommunicationBridgeCore {
             artifact_handles,
         };
         self.stage_request(authority, operation_request_id, destination, operation)
+    }
+
+    fn handle_message_resident(
+        &self,
+        authority: CommunicationTurnAuthoritySnapshot,
+        operation_request_id: &OpaqueId,
+        arguments: Value,
+    ) -> Result<String, BrokerFailure> {
+        let raw: RawMessageResidentParams = parse_arguments(arguments)?;
+        validate_bounded_text(&raw.resident_name, MAX_RESIDENT_NAME_BYTES)?;
+        validate_message_body(&raw.body, &[])?;
+        if authority.causal_root_id != authority.coordinates.dispatch_receipt_id {
+            return Err(BrokerFailure::approval_required());
+        }
+        let target = self
+            .backend
+            .resolve_owned_resident_name(&authority, &raw.resident_name)?;
+        if target == authority.owner_pubkey
+            || target == authority.resident_pubkey
+            || !authority.owned_resident_pubkeys.contains(&target)
+        {
+            return Err(BrokerFailure::same_owner_required());
+        }
+        let (destination, _, participants) = self.resolve_send_destination(
+            &authority,
+            RawDestination::DirectParticipants {
+                participant_pubkeys: vec![target.as_str().to_owned()],
+            },
+        )?;
+        if !participants.contains(&target) {
+            return Err(BrokerFailure::membership_denied());
+        }
+        self.stage_request(
+            authority,
+            operation_request_id,
+            destination,
+            CommunicationOperationV1::SendMessage {
+                body: raw.body,
+                reply_to_event_id: None,
+                mention_pubkeys: vec![target.clone()],
+                activation_pubkeys: vec![target],
+                artifact_handles: Vec::new(),
+            },
+        )
     }
 
     fn handle_react(
@@ -1421,6 +1482,13 @@ struct RawSendParams {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawMessageResidentParams {
+    resident_name: String,
+    body: String,
+}
+
+#[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 enum RawReactionMutation {
     Add {
@@ -1535,6 +1603,18 @@ impl BrokerFailure {
         Self::new(
             "same_owner_required",
             "The recipient is not a verified same-owner agent.",
+        )
+    }
+    pub(crate) fn resident_not_found() -> Self {
+        Self::new(
+            "resident_not_found",
+            "No same-owner local resident matches that name.",
+        )
+    }
+    pub(crate) fn resident_name_ambiguous() -> Self {
+        Self::new(
+            "resident_name_ambiguous",
+            "More than one same-owner local resident matches that name.",
         )
     }
     pub(crate) fn approval_required() -> Self {

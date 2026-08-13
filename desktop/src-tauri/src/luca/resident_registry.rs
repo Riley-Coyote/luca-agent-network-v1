@@ -15,7 +15,7 @@ use std::{
 
 use luca_protocol::Hex64;
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use zeroize::Zeroize;
 
 use crate::{
@@ -32,6 +32,14 @@ const REGISTRY_SCHEMA: &str = "luca.resident-registry.v1";
 const MAX_RESIDENTS: usize = 256;
 const MAX_DISPLAY_NAME_BYTES: usize = 256;
 const MAX_BINDING_BYTES: usize = 512;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ResidentNameResolutionError {
+    Invalid,
+    Unavailable,
+    NotFound,
+    Ambiguous,
+}
 
 /// Public persona and runtime bindings for one durable resident identity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -133,6 +141,64 @@ pub(crate) fn load_resident_registry(
         })
         .collect::<Result<HashMap<_, _>, _>>()?;
     registry_from_records(&records, &statuses)
+}
+
+/// Resolve one durable same-owner resident from its local display name or
+/// alias. The public key remains inside the trusted desktop process.
+pub(crate) fn resolve_owned_resident_name(
+    app: &AppHandle,
+    owned_resident_pubkeys: &std::collections::BTreeSet<Hex64>,
+    requested_name: &str,
+) -> Result<Hex64, ResidentNameResolutionError> {
+    if requested_name.is_empty()
+        || requested_name.trim() != requested_name
+        || requested_name.len() > MAX_DISPLAY_NAME_BYTES
+        || requested_name.contains('\0')
+    {
+        return Err(ResidentNameResolutionError::Invalid);
+    }
+    let state = app.state::<AppState>();
+    let _store_guard = state
+        .managed_agents_store_lock
+        .lock()
+        .map_err(|_| ResidentNameResolutionError::Unavailable)?;
+    let records = load_managed_agents(app).map_err(|_| ResidentNameResolutionError::Unavailable)?;
+    resolve_owned_resident_name_from_records(&records, owned_resident_pubkeys, requested_name)
+}
+
+fn resolve_owned_resident_name_from_records(
+    records: &[ManagedAgentRecord],
+    owned_resident_pubkeys: &std::collections::BTreeSet<Hex64>,
+    requested_name: &str,
+) -> Result<Hex64, ResidentNameResolutionError> {
+    let requested = requested_name.to_lowercase();
+    let mut matches = records
+        .iter()
+        .filter_map(|record| {
+            let pubkey = Hex64::parse(record.pubkey.to_ascii_lowercase()).ok()?;
+            if !owned_resident_pubkeys.contains(&pubkey) {
+                return None;
+            }
+            let aliases = [
+                Some(record.name.as_str()),
+                record.display_name.as_deref(),
+                record.slug.as_deref(),
+                record.backend_agent_id.as_deref(),
+            ];
+            aliases
+                .into_iter()
+                .flatten()
+                .any(|alias| alias.trim().to_lowercase() == requested)
+                .then_some(pubkey)
+        })
+        .collect::<Vec<_>>();
+    matches.sort();
+    matches.dedup();
+    match matches.as_slice() {
+        [] => Err(ResidentNameResolutionError::NotFound),
+        [resident] => Ok(resident.clone()),
+        _ => Err(ResidentNameResolutionError::Ambiguous),
+    }
 }
 
 /// Return the key-safe resident registry to renderer consumers.
@@ -619,6 +685,55 @@ mod tests {
         assert!(registry_from_records(&invalid, &invalid_statuses)
             .expect_err("uppercase key must fail")
             .contains("invalid public key"));
+    }
+
+    #[test]
+    fn resident_name_resolution_is_case_insensitive_unique_and_owned() {
+        let mut main = record(&"a".repeat(64), "Main", "persona:main");
+        main.display_name = Some("OpenClaw Main".into());
+        main.slug = Some("main-agent".into());
+        main.backend_agent_id = Some("native-main".into());
+        let other = record(&"b".repeat(64), "Other", "persona:other");
+        let records = vec![main, other];
+        let owned = [Hex64::parse("a".repeat(64)).expect("owned")]
+            .into_iter()
+            .collect();
+
+        for alias in ["main", "OPENCLAW MAIN", "Main-Agent", "NATIVE-MAIN"] {
+            assert_eq!(
+                resolve_owned_resident_name_from_records(&records, &owned, alias)
+                    .expect("unique alias"),
+                Hex64::parse("a".repeat(64)).expect("main")
+            );
+        }
+        assert_eq!(
+            resolve_owned_resident_name_from_records(&records, &owned, "Other"),
+            Err(ResidentNameResolutionError::NotFound)
+        );
+    }
+
+    #[test]
+    fn resident_name_resolution_rejects_missing_and_ambiguous_aliases() {
+        let mut first = record(&"c".repeat(64), "Main", "persona:first");
+        first.display_name = Some("Shared".into());
+        let mut second = record(&"d".repeat(64), "Other", "persona:second");
+        second.slug = Some("shared".into());
+        let records = vec![first, second];
+        let owned = [
+            Hex64::parse("c".repeat(64)).expect("first"),
+            Hex64::parse("d".repeat(64)).expect("second"),
+        ]
+        .into_iter()
+        .collect();
+
+        assert_eq!(
+            resolve_owned_resident_name_from_records(&records, &owned, "Shared"),
+            Err(ResidentNameResolutionError::Ambiguous)
+        );
+        assert_eq!(
+            resolve_owned_resident_name_from_records(&records, &owned, "Missing"),
+            Err(ResidentNameResolutionError::NotFound)
+        );
     }
 
     #[test]

@@ -298,6 +298,33 @@ impl CommunicationBrokerBackend for DesktopCommunicationActionBackend {
         self.wait_for_membership(&conversation_id, participant_pubkeys)
     }
 
+    fn resolve_owned_resident_name(
+        &self,
+        authority: &CommunicationTurnAuthoritySnapshot,
+        requested_name: &str,
+    ) -> Result<Hex64, BrokerFailure> {
+        self.require_authority(authority)?;
+        super::resident_registry::resolve_owned_resident_name(
+            &self.app,
+            &authority.owned_resident_pubkeys,
+            requested_name,
+        )
+        .map_err(|error| match error {
+            super::resident_registry::ResidentNameResolutionError::Invalid => {
+                BrokerFailure::invalid_arguments()
+            }
+            super::resident_registry::ResidentNameResolutionError::Unavailable => {
+                BrokerFailure::custody_unavailable()
+            }
+            super::resident_registry::ResidentNameResolutionError::NotFound => {
+                BrokerFailure::resident_not_found()
+            }
+            super::resident_registry::ResidentNameResolutionError::Ambiguous => {
+                BrokerFailure::resident_name_ambiguous()
+            }
+        })
+    }
+
     fn create_private_room(
         &self,
         authority: &CommunicationTurnAuthoritySnapshot,

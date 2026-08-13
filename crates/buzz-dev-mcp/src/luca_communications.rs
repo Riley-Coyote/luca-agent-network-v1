@@ -30,6 +30,7 @@ const MAX_REACTION_BYTES: usize = 64;
 const MAX_PARTICIPANTS: usize = 64;
 const MAX_ROOM_LABEL_BYTES: usize = 120;
 const MAX_ROOM_METADATA_BYTES: usize = 1_024;
+const MAX_RESIDENT_NAME_BYTES: usize = 256;
 const MAX_ARTIFACTS: usize = 16;
 const MAX_PAGE_ITEMS: usize = 256;
 const MAX_SAFE_U53: u64 = 9_007_199_254_740_991;
@@ -48,6 +49,7 @@ enum BrokerOperation {
     Inbox,
     Conversation,
     Send,
+    MessageResident,
     React,
     EditOwnMessage,
     DeleteOwnMessage,
@@ -61,6 +63,7 @@ impl BrokerOperation {
             Self::Inbox => "inbox",
             Self::Conversation => "conversation",
             Self::Send => "send",
+            Self::MessageResident => "message_resident",
             Self::React => "react",
             Self::EditOwnMessage => "edit_own_message",
             Self::DeleteOwnMessage => "delete_own_message",
@@ -474,6 +477,28 @@ pub(crate) struct CommunicationsSendParams {
     artifact_handle_ids: Vec<String>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CommunicationsMessageResidentParams {
+    /// Unique local resident display name or alias. Luca resolves the public
+    /// key internally and never asks the model or owner to provide it.
+    resident_name: String,
+    /// Ordinary UTF-8 message text to send in the owner-visible private
+    /// conversation before requesting one-hop activation.
+    body: String,
+}
+
+impl CommunicationsMessageResidentParams {
+    fn validate(&self) -> Result<(), String> {
+        if !valid_bounded_text(&self.resident_name, MAX_RESIDENT_NAME_BYTES)
+            || !valid_bounded_text(&self.body, MAX_MESSAGE_BYTES)
+        {
+            return Err("resident message request is invalid".into());
+        }
+        Ok(())
+    }
+}
+
 impl CommunicationsSendParams {
     fn validate(&self) -> Result<(), String> {
         self.destination.validate()?;
@@ -723,6 +748,20 @@ impl LucaCommunicationsMcp {
     }
 
     #[tool(
+        name = "communications_message_resident",
+        description = "Resolve one unique same-owner local resident by display name or alias, open or reuse the owner-visible private conversation, send the message, and request that resident's activation atomically. Use this when the owner names a resident; never ask for a public key."
+    )]
+    async fn communications_message_resident(
+        &self,
+        Parameters(params): Parameters<CommunicationsMessageResidentParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        params.validate().map_err(invalid_params)?;
+        self.client
+            .call(BrokerOperation::MessageResident, params)
+            .await
+    }
+
+    #[tool(
         name = "communications_react",
         description = "Add a reaction or remove this resident's exact reaction through a typed semantic request."
     )]
@@ -882,7 +921,7 @@ mod tests {
     }
 
     #[test]
-    fn exposes_only_the_eight_semantic_communication_tools() {
+    fn exposes_only_the_nine_semantic_communication_tools() {
         let mut names = LucaCommunicationsMcp::tool_router()
             .list_all()
             .into_iter()
@@ -898,6 +937,7 @@ mod tests {
                 "communications_edit_own_message",
                 "communications_inbox",
                 "communications_invite",
+                "communications_message_resident",
                 "communications_react",
                 "communications_send",
             ]
@@ -907,6 +947,34 @@ mod tests {
                 .iter()
                 .any(|forbidden| name.contains(forbidden))
         }));
+    }
+
+    #[test]
+    fn resident_message_shape_accepts_a_name_but_not_identity_or_route_overrides() {
+        let exact: CommunicationsMessageResidentParams =
+            serde_json::from_value(serde_json::json!({
+                "resident_name": "Main",
+                "body": "Please reply here.",
+            }))
+            .expect("name-resolved resident message");
+        assert!(exact.validate().is_ok());
+
+        for invalid in [
+            serde_json::json!({"resident_name": " ", "body": "hello"}),
+            serde_json::json!({"resident_name": "Main", "body": ""}),
+        ] {
+            let params: CommunicationsMessageResidentParams =
+                serde_json::from_value(invalid).expect("syntactic request");
+            assert!(params.validate().is_err());
+        }
+        assert!(
+            serde_json::from_value::<CommunicationsMessageResidentParams>(serde_json::json!({
+                "resident_name": "Main",
+                "body": "hello",
+                "resident_pubkey": event_id('f'),
+            }))
+            .is_err()
+        );
     }
 
     #[test]

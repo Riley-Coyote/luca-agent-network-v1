@@ -82,6 +82,7 @@ type CreatedRoomRecord = (OpaqueId, String, Option<String>, BTreeSet<Hex64>);
 #[derive(Default)]
 struct TestBackend {
     conversations: Mutex<HashMap<String, CommunicationConversationAuthority>>,
+    resident_names: Mutex<HashMap<String, Vec<Hex64>>>,
     direct_resolutions: Mutex<Vec<BTreeSet<Hex64>>>,
     created_rooms: Mutex<Vec<CreatedRoomRecord>>,
     invitations: Mutex<Vec<(OpaqueId, Hex64)>>,
@@ -123,6 +124,13 @@ impl TestBackend {
                 conversation.conversation_id.as_str().to_owned(),
                 conversation,
             );
+    }
+
+    fn insert_resident_name(&self, name: &str, pubkeys: Vec<Hex64>) {
+        self.resident_names
+            .lock()
+            .expect("resident names")
+            .insert(name.to_lowercase(), pubkeys);
     }
 }
 
@@ -180,6 +188,28 @@ impl CommunicationBrokerBackend for TestBackend {
             agent_may_invite_same_owner: true,
             read_only: false,
         })
+    }
+
+    fn resolve_owned_resident_name(
+        &self,
+        authority: &CommunicationTurnAuthoritySnapshot,
+        requested_name: &str,
+    ) -> Result<Hex64, BrokerFailure> {
+        let matches = self
+            .resident_names
+            .lock()
+            .expect("resident names")
+            .get(&requested_name.to_lowercase())
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|pubkey| authority.owned_resident_pubkeys.contains(pubkey))
+            .collect::<BTreeSet<_>>();
+        match matches.into_iter().collect::<Vec<_>>().as_slice() {
+            [] => Err(BrokerFailure::resident_not_found()),
+            [resident] => Ok(resident.clone()),
+            _ => Err(BrokerFailure::resident_name_ambiguous()),
+        }
     }
 
     fn create_private_room(
@@ -335,6 +365,7 @@ impl Fixture {
         let authority = Arc::new(TestAuthority::new(context.clone()));
         let backend = Arc::new(TestBackend::default());
         backend.approval_allowed.store(true, Ordering::SeqCst);
+        backend.insert_resident_name("main", vec![hex64(OTHER_RESIDENT)]);
         backend.insert_conversation(TestBackend::owner_visible_conversation());
         Self {
             core: CommunicationBridgeCore {
@@ -612,6 +643,88 @@ fn direct_agent_message_is_forced_owner_visible_and_external_delivery_is_denied(
         response.receipt.diagnostic_code,
         Some("same_owner_required")
     );
+}
+
+#[test]
+fn named_resident_message_atomically_resolves_dm_sends_and_activates_twice() {
+    let fixture = Fixture::new();
+    for (request_id, name) in [("operation-1", "MAIN"), ("operation-2", "main")] {
+        let mut frame = fixture.frame(
+            "message_resident",
+            json!({
+                "resident_name": name,
+                "body": "Please reply here.",
+            }),
+        );
+        frame.operation_request_id = request_id.into();
+        let response = fixture.core.handle_frame(frame);
+        assert!(response.ok);
+        assert!(response.content.contains("activation"));
+    }
+
+    let expected_participants = [hex64(OWNER), hex64(RESIDENT), hex64(OTHER_RESIDENT)]
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let resolutions = fixture
+        .backend
+        .direct_resolutions
+        .lock()
+        .expect("direct resolutions");
+    assert_eq!(
+        resolutions.as_slice(),
+        &[expected_participants.clone(), expected_participants]
+    );
+    drop(resolutions);
+
+    let staged = fixture.backend.staged.lock().expect("staged");
+    assert_eq!(staged.len(), 2);
+    assert_ne!(staged[0].0.action_id, staged[1].0.action_id);
+    for (request, authority) in staged.iter() {
+        assert_eq!(authority.resident_pubkey, hex64(RESIDENT));
+        let CommunicationOperationV1::SendMessage {
+            mention_pubkeys,
+            activation_pubkeys,
+            artifact_handles,
+            ..
+        } = &request.operation
+        else {
+            panic!("named resident send operation");
+        };
+        assert_eq!(mention_pubkeys, &[hex64(OTHER_RESIDENT)]);
+        assert_eq!(activation_pubkeys, &[hex64(OTHER_RESIDENT)]);
+        assert!(artifact_handles.is_empty());
+    }
+}
+
+#[test]
+fn named_resident_message_fails_clearly_when_missing_or_ambiguous() {
+    let fixture = Fixture::new();
+    let missing = fixture.response(
+        "message_resident",
+        json!({"resident_name": "Missing", "body": "hello"}),
+    );
+    assert!(!missing.ok);
+    assert_eq!(missing.receipt.diagnostic_code, Some("resident_not_found"));
+
+    fixture
+        .backend
+        .insert_resident_name("shared", vec![hex64(RESIDENT), hex64(OTHER_RESIDENT)]);
+    let ambiguous = fixture.response(
+        "message_resident",
+        json!({"resident_name": "Shared", "body": "hello"}),
+    );
+    assert!(!ambiguous.ok);
+    assert_eq!(
+        ambiguous.receipt.diagnostic_code,
+        Some("resident_name_ambiguous")
+    );
+    assert!(fixture
+        .backend
+        .direct_resolutions
+        .lock()
+        .expect("direct")
+        .is_empty());
+    assert!(fixture.backend.staged.lock().expect("staged").is_empty());
 }
 
 #[test]
