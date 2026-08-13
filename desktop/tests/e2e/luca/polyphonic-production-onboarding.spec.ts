@@ -91,6 +91,19 @@ async function expectFirstUsefulDestination(
   await expect(page.getByTestId("new-message-to-field")).toBeVisible();
 }
 
+async function continueFromAgents(page: import("@playwright/test").Page) {
+  await page.getByRole("button", { name: "Continue" }).click();
+  const nativeReview = page.getByText(
+    "Press Continue again to approve these exact changes.",
+  );
+  if (await nativeReview.isVisible()) {
+    await page.getByRole("button", { name: "Continue" }).click();
+  }
+  await expect(
+    page.getByRole("heading", { name: "Connect your work" }),
+  ).toBeFocused();
+}
+
 test("clean onboarding resumes, completes fail-soft, and returns to a useful destination", async ({
   context,
   page,
@@ -112,7 +125,7 @@ test("clean onboarding resumes, completes fail-soft, and returns to a useful des
   await page.getByRole("button", { name: "Back" }).click();
   await expect(page.getByLabel("Display name")).toHaveValue("Riley");
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByRole("button", { name: "Continue" }).click();
+  await continueFromAgents(page);
 
   await expect(
     page.getByRole("heading", { name: "Connect your work" }),
@@ -251,7 +264,7 @@ test("the last safe chapter survives a relaunch", async ({ page }) => {
     page.getByRole("heading", { name: "Bring your agents together" }),
   ).toBeFocused();
 
-  await page.getByRole("button", { name: "Continue" }).click();
+  await continueFromAgents(page);
   await page.reload();
   await expect(
     page.getByRole("heading", { name: "Connect your work" }),
@@ -273,7 +286,7 @@ test("no agents and no selected sources remain valid", async ({ page }) => {
   await page.getByLabel("Display name").fill("Riley");
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByText("No agents found yet.")).toBeVisible();
-  await page.getByRole("button", { name: "Continue" }).click();
+  await continueFromAgents(page);
 
   for (const label of ["Repositories", "Codex", "Claude Code"]) {
     const category = page.getByRole("button", { name: new RegExp(label) });
@@ -300,7 +313,7 @@ test("Brain preview requires confirmation and first connection requires consent"
   await beginFreshSetup(page);
   await page.getByLabel("Display name").fill("Riley");
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByRole("button", { name: "Continue" }).click();
+  await continueFromAgents(page);
 
   await page.getByRole("button", { name: "Add file…" }).click();
   await expect(
@@ -341,7 +354,7 @@ test("partial resident and Brain failures are body-free, reviewable outcomes", a
   await expect(
     page.getByRole("button", { name: /^OpenClaw OpenClaw/ }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Continue" }).click();
+  await continueFromAgents(page);
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Connect for all residents" }).click();
   await expect(
@@ -357,7 +370,7 @@ test("partial resident and Brain failures are body-free, reviewable outcomes", a
   ).toHaveLength(2);
   expect(
     commands.filter((command) => command === "set_resident_continuity_enabled"),
-  ).toHaveLength(1);
+  ).toHaveLength(2);
   expect(commands).toContain("connect_connected_brain_source");
 });
 
@@ -375,7 +388,7 @@ test("native discovery failure remains visible in final readiness", async ({
     page.getByText("Native resident discovery unavailable"),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Scan again" })).toBeVisible();
-  await page.getByRole("button", { name: "Continue" }).click();
+  await continueFromAgents(page);
 
   for (const label of ["Repositories", "Codex", "Claude Code"]) {
     const category = page.getByRole("button", { name: new RegExp(label) });

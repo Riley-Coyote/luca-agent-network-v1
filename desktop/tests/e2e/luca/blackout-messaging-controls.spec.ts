@@ -439,8 +439,11 @@ test("blackout cancellation preserves partial text and offers a directed retry",
 
   await emitManagedFrame(page, { kind: "cancelled", receiptId, sequence: 3 });
   await expect(
-    page.getByText("Stopped · Response may be incomplete", { exact: true }),
-  ).toBeVisible();
+    page
+      .locator("[data-managed-response-ui-key]")
+      .filter({ hasText: "Keep this partial response." })
+      .getByTestId("managed-response-status"),
+  ).toHaveText("Stopped · Response may be incomplete");
   await expect(page.getByText("Keep this partial response.")).toBeVisible();
   await page.getByRole("button", { name: "Retry fizz" }).click();
   await expect(
