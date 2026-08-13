@@ -13,8 +13,8 @@ use crate::thumbnail::generate_image_metadata_sync;
 use crate::types::BlobDescriptor;
 use crate::upload_record::{record_upload_event, UploadAttribution, UploadEventFacts};
 use crate::validation::{
-    looks_like_mp4_iso_bmff, mime_to_ext, validate_content, validate_file_content,
-    validate_video_file,
+    looks_like_mp4_iso_bmff, mime_to_ext, validate_audio_file, validate_content,
+    validate_file_content, validate_video_file,
 };
 
 /// Shared buffered-upload pipeline for the image and generic-file paths.
@@ -273,6 +273,54 @@ pub async fn process_file_upload(
                 duration_secs: None,
             };
             Ok(meta)
+        },
+    )
+    .await
+}
+
+/// Process one canonical browser-recorded AAC M4A through the existing exact-
+/// byte buffered upload pipeline. No request MIME or filename participates in
+/// admission; the validator parses the stored bytes and returns duration only.
+pub async fn process_audio_upload(
+    storage: &MediaStorage,
+    config: &MediaConfig,
+    ctx: &TenantContext,
+    auth_event: &nostr::Event,
+    body: Bytes,
+    attribution: Option<UploadAttribution>,
+) -> Result<BlobDescriptor, MediaError> {
+    process_buffered_upload(
+        BufferedUploadInput {
+            storage,
+            config,
+            ctx,
+            auth_event,
+            body,
+            attribution,
+        },
+        |bytes, cfg| {
+            let tmp = tempfile::NamedTempFile::new()
+                .map_err(|error| MediaError::Io(error.to_string()))?;
+            std::fs::write(tmp.path(), bytes).map_err(|error| MediaError::Io(error.to_string()))?;
+            validate_audio_file(tmp.path(), cfg)?;
+            Ok(("audio/mp4".to_string(), "m4a".to_string()))
+        },
+        |input| async move {
+            let tmp = tempfile::NamedTempFile::new()
+                .map_err(|error| MediaError::Io(error.to_string()))?;
+            std::fs::write(tmp.path(), &input.body)
+                .map_err(|error| MediaError::Io(error.to_string()))?;
+            let audio_meta = validate_audio_file(tmp.path(), config)?;
+            Ok(BlobMeta {
+                dim: String::new(),
+                blurhash: String::new(),
+                thumb_url: String::new(),
+                size: input.body.len() as u64,
+                ext: input.ext,
+                mime_type: input.mime,
+                uploaded_at: input.uploaded_at,
+                duration_secs: Some(audio_meta.duration_secs),
+            })
         },
     )
     .await

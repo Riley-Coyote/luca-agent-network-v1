@@ -68,6 +68,9 @@ pub enum MediaError {
     /// Video duration exceeds the 600-second limit.
     #[error("video too long: duration exceeds 600 seconds")]
     DurationTooLong,
+    /// Recorded-audio duration exceeds the 600-second limit.
+    #[error("audio too long: duration exceeds 600 seconds")]
+    AudioDurationTooLong,
     /// Video resolution exceeds 3840×2160.
     #[error("video resolution too high: maximum is 3840x2160")]
     ResolutionTooHigh,
@@ -80,6 +83,9 @@ pub enum MediaError {
     /// MP4 metadata could not be parsed.
     #[error("invalid video data")]
     InvalidVideo,
+    /// M4A metadata could not be parsed as the bounded recorded-audio shape.
+    #[error("invalid audio data")]
+    InvalidAudio,
     /// I/O error during streaming upload.
     #[error("io error: {0}")]
     Io(String),
@@ -146,9 +152,11 @@ impl IntoResponse for MediaError {
                 (StatusCode::UNSUPPORTED_MEDIA_TYPE, self.to_string())
             }
             Self::DurationTooLong
+            | Self::AudioDurationTooLong
             | Self::ResolutionTooHigh
             | Self::MoovNotAtFront
             | Self::InvalidVideo
+            | Self::InvalidAudio
             | Self::InvalidImage
             | Self::MetadataForbidden => (StatusCode::UNPROCESSABLE_ENTITY, self.to_string()),
             Self::Io(_) | Self::StorageError(_) | Self::Internal => {
@@ -187,7 +195,9 @@ mod tests {
             MediaError::MetadataForbidden,
             MediaError::MoovNotAtFront,
             MediaError::DurationTooLong,
+            MediaError::AudioDurationTooLong,
             MediaError::ResolutionTooHigh,
+            MediaError::InvalidAudio,
         ] {
             assert_eq!(
                 error.into_response().status(),

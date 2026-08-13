@@ -1,4 +1,4 @@
-//! Content validation — magic bytes, allowlist, size, image bomb protection, video metadata.
+//! Content validation — magic bytes, allowlists, size, image bombs, and bounded media metadata.
 
 use std::io::{BufReader, Seek, SeekFrom};
 use std::path::Path;
@@ -13,6 +13,11 @@ use crate::error::MediaError;
 /// through the image path (Content-Type spoofing), `infer::get()` detects
 /// `video/mp4` and `validate_content()` rejects it here.
 const ALLOWED_MIME_TYPES: &[&str] = &["image/jpeg", "image/png", "image/gif", "image/webp"];
+
+/// Hard ceiling for recorded voice notes. Ten minutes of 128-kbit/s AAC is
+/// about 9.6 MiB; 25 MiB leaves ample container and variable-bitrate headroom
+/// without inheriting the generic attachment path's 100 MiB default.
+pub const MAX_RECORDED_AUDIO_BYTES: u64 = 25 * 1024 * 1024;
 
 const MP4_BRANDS: &[[u8; 4]] = &[
     *b"isom", *b"iso2", *b"iso3", *b"iso4", *b"iso5", *b"iso6", *b"iso7", *b"iso8", *b"iso9",
@@ -214,7 +219,7 @@ pub fn validate_file_content(
 /// PDF is intentionally *not* inline yet — inline PDF preview is a planned
 /// fast-follow; until the renderer handles it, force download like any other file.
 pub fn serve_inline(mime: &str) -> bool {
-    mime.starts_with("image/") || mime.starts_with("video/")
+    mime.starts_with("image/") || mime.starts_with("video/") || mime == "audio/mp4"
 }
 
 /// Metadata extracted from a validated MP4 file.
@@ -228,6 +233,401 @@ pub struct VideoMeta {
     pub height: u32,
     /// Whether the file contains at least one audio track.
     pub has_audio: bool,
+}
+
+/// Metadata extracted from a canonical recorded-audio M4A.
+#[derive(Debug, Clone)]
+pub struct AudioMeta {
+    /// Duration in seconds from the sole AAC track.
+    pub duration_secs: f64,
+}
+
+/// Validate an M4A recorded-audio file on disk.
+///
+/// The accepted shape is intentionally narrow: ISO-BMFF/MP4, exactly one AAC
+/// audio track, no video or auxiliary tracks, a finite duration in `(0, 600]`,
+/// and no metadata/location/private boxes under the shared strict MP4 walker.
+/// The request MIME type and filename are not inputs to this decision.
+pub fn validate_audio_file(path: &Path, config: &MediaConfig) -> Result<AudioMeta, MediaError> {
+    check_moov_before_mdat(path)?;
+
+    let file = std::fs::File::open(path).map_err(|e| MediaError::Io(e.to_string()))?;
+    let size = file
+        .metadata()
+        .map_err(|e| MediaError::Io(e.to_string()))?
+        .len();
+    let max = MAX_RECORDED_AUDIO_BYTES.min(config.max_file_bytes);
+    if size > max {
+        return Err(MediaError::FileTooLarge { size, max });
+    }
+
+    validate_audio_mp4_metadata_free(path)?;
+
+    let reader = BufReader::new(file);
+    let mp4 = mp4::Mp4Reader::read_header(reader, size).map_err(|_| MediaError::InvalidAudio)?;
+    if *mp4.major_brand() == mp4::FourCC::from(*b"qt  ") {
+        return Err(MediaError::UnsupportedContainer);
+    }
+
+    if mp4.tracks().len() != 1 {
+        return Err(MediaError::MetadataForbidden);
+    }
+    let (track_id, track) = mp4.tracks().iter().next().ok_or(MediaError::InvalidAudio)?;
+    if track.track_type().map_err(|_| MediaError::InvalidAudio)? != mp4::TrackType::Audio {
+        return Err(MediaError::MetadataForbidden);
+    }
+    if track.media_type().map_err(|_| MediaError::WrongCodec)? != mp4::MediaType::AAC {
+        return Err(MediaError::WrongCodec);
+    }
+    let timescale = track.timescale();
+    if timescale == 0 {
+        return Err(MediaError::InvalidAudio);
+    }
+
+    let bytes = std::fs::read(path).map_err(|error| MediaError::Io(error.to_string()))?;
+    let ftyp = iso_bmff_ftyp_payload(&bytes).ok_or(MediaError::UnsupportedContainer)?;
+    let has_m4a_brand =
+        ftyp[..4] == *b"M4A " || ftyp[8..].chunks_exact(4).any(|brand| brand == b"M4A ");
+    if !has_m4a_brand {
+        return Err(MediaError::UnsupportedContainer);
+    }
+    let duration_units = match fragmented_audio_duration(&bytes, *track_id)? {
+        Some(duration) => duration,
+        None => (track.duration().as_secs_f64() * f64::from(timescale)) as u64,
+    };
+    let duration_secs = duration_units as f64 / f64::from(timescale);
+    if !duration_secs.is_finite() || duration_secs <= 0.0 {
+        return Err(MediaError::InvalidAudio);
+    }
+    if duration_secs > 600.0 {
+        return Err(MediaError::AudioDurationTooLong);
+    }
+    Ok(AudioMeta { duration_secs })
+}
+
+#[derive(Clone, Copy)]
+struct Mp4BoxView<'a> {
+    kind: [u8; 4],
+    payload: &'a [u8],
+}
+
+fn read_u32(bytes: &[u8], offset: &mut usize) -> Result<u32, MediaError> {
+    let end = offset.checked_add(4).ok_or(MediaError::InvalidAudio)?;
+    let value = bytes
+        .get(*offset..end)
+        .ok_or(MediaError::InvalidAudio)?
+        .try_into()
+        .map(u32::from_be_bytes)
+        .map_err(|_| MediaError::InvalidAudio)?;
+    *offset = end;
+    Ok(value)
+}
+
+fn read_u64(bytes: &[u8], offset: &mut usize) -> Result<u64, MediaError> {
+    let end = offset.checked_add(8).ok_or(MediaError::InvalidAudio)?;
+    let value = bytes
+        .get(*offset..end)
+        .ok_or(MediaError::InvalidAudio)?
+        .try_into()
+        .map(u64::from_be_bytes)
+        .map_err(|_| MediaError::InvalidAudio)?;
+    *offset = end;
+    Ok(value)
+}
+
+fn skip_bytes(bytes: &[u8], offset: &mut usize, count: usize) -> Result<(), MediaError> {
+    let end = offset
+        .checked_add(count)
+        .filter(|end| *end <= bytes.len())
+        .ok_or(MediaError::InvalidAudio)?;
+    *offset = end;
+    Ok(())
+}
+
+fn parse_mp4_boxes(bytes: &[u8]) -> Result<Vec<Mp4BoxView<'_>>, MediaError> {
+    const MAX_BOXES_PER_LEVEL: usize = 100_000;
+    let mut boxes = Vec::new();
+    let mut offset = 0usize;
+    while offset < bytes.len() {
+        if boxes.len() >= MAX_BOXES_PER_LEVEL || bytes.len() - offset < 8 {
+            return Err(MediaError::InvalidAudio);
+        }
+        let mut cursor = offset;
+        let compact = read_u32(bytes, &mut cursor)? as u64;
+        let kind: [u8; 4] = bytes
+            .get(cursor..cursor + 4)
+            .ok_or(MediaError::InvalidAudio)?
+            .try_into()
+            .map_err(|_| MediaError::InvalidAudio)?;
+        cursor += 4;
+        let (size, header) = if compact == 1 {
+            (read_u64(bytes, &mut cursor)?, 16usize)
+        } else if compact == 0 {
+            // An EOF-sized box makes following structure ambiguous. Recorder
+            // output uses explicit sizes, so reject rather than infer.
+            return Err(MediaError::InvalidAudio);
+        } else {
+            (compact, 8usize)
+        };
+        let size = usize::try_from(size).map_err(|_| MediaError::InvalidAudio)?;
+        let end = offset
+            .checked_add(size)
+            .filter(|end| *end <= bytes.len())
+            .ok_or(MediaError::InvalidAudio)?;
+        if size < header {
+            return Err(MediaError::InvalidAudio);
+        }
+        boxes.push(Mp4BoxView {
+            kind,
+            payload: &bytes[offset + header..end],
+        });
+        offset = end;
+    }
+    Ok(boxes)
+}
+
+fn parse_full_box(payload: &[u8]) -> Result<(u8, u32, &[u8]), MediaError> {
+    let header = payload.get(..4).ok_or(MediaError::InvalidAudio)?;
+    let version = header[0];
+    let flags = u32::from_be_bytes([0, header[1], header[2], header[3]]);
+    Ok((version, flags, &payload[4..]))
+}
+
+fn trex_default_duration(moov: &[u8], track_id: u32) -> Result<Option<u32>, MediaError> {
+    let mut found = None;
+    let mut mvex_count = 0usize;
+    for child in parse_mp4_boxes(moov)? {
+        if child.kind != *b"mvex" {
+            continue;
+        }
+        mvex_count += 1;
+        for trex in parse_mp4_boxes(child.payload)? {
+            if trex.kind != *b"trex" {
+                return Err(MediaError::InvalidAudio);
+            }
+            let (version, flags, body) = parse_full_box(trex.payload)?;
+            if version != 0 || flags != 0 || body.len() != 20 {
+                return Err(MediaError::InvalidAudio);
+            }
+            let mut offset = 0;
+            let id = read_u32(body, &mut offset)?;
+            let _description_index = read_u32(body, &mut offset)?;
+            let duration = read_u32(body, &mut offset)?;
+            let _sample_size = read_u32(body, &mut offset)?;
+            let _sample_flags = read_u32(body, &mut offset)?;
+            if id != track_id || found.is_some() {
+                return Err(MediaError::InvalidAudio);
+            }
+            found = Some(duration);
+        }
+    }
+    if mvex_count != 1 || found.is_none() {
+        return Err(MediaError::InvalidAudio);
+    }
+    Ok(found)
+}
+
+fn parse_tfhd(payload: &[u8], track_id: u32) -> Result<Option<u32>, MediaError> {
+    const KNOWN_FLAGS: u32 = 0x000001 | 0x000002 | 0x000008 | 0x000010 | 0x000020 | 0x020000;
+    let (version, flags, body) = parse_full_box(payload)?;
+    if version != 0 || flags & !KNOWN_FLAGS != 0 {
+        return Err(MediaError::InvalidAudio);
+    }
+    let mut offset = 0;
+    if read_u32(body, &mut offset)? != track_id {
+        return Err(MediaError::InvalidAudio);
+    }
+    if flags & 0x000001 != 0 {
+        skip_bytes(body, &mut offset, 8)?;
+    }
+    if flags & 0x000002 != 0 {
+        skip_bytes(body, &mut offset, 4)?;
+    }
+    let default_duration = if flags & 0x000008 != 0 {
+        Some(read_u32(body, &mut offset)?)
+    } else {
+        None
+    };
+    if flags & 0x000010 != 0 {
+        skip_bytes(body, &mut offset, 4)?;
+    }
+    if flags & 0x000020 != 0 {
+        skip_bytes(body, &mut offset, 4)?;
+    }
+    if offset != body.len() {
+        return Err(MediaError::InvalidAudio);
+    }
+    Ok(default_duration)
+}
+
+fn parse_tfdt(payload: &[u8]) -> Result<u64, MediaError> {
+    let (version, flags, body) = parse_full_box(payload)?;
+    if flags != 0 {
+        return Err(MediaError::InvalidAudio);
+    }
+    let mut offset = 0;
+    let value = match version {
+        0 if body.len() == 4 => u64::from(read_u32(body, &mut offset)?),
+        1 if body.len() == 8 => read_u64(body, &mut offset)?,
+        _ => return Err(MediaError::InvalidAudio),
+    };
+    Ok(value)
+}
+
+fn parse_trun_duration(
+    payload: &[u8],
+    default_duration: Option<u32>,
+    total_samples: &mut u64,
+) -> Result<u64, MediaError> {
+    const KNOWN_FLAGS: u32 = 0x000001 | 0x000004 | 0x000100 | 0x000200 | 0x000400 | 0x000800;
+    const MAX_AUDIO_SAMPLES: u64 = 10_000_000;
+    let (version, flags, body) = parse_full_box(payload)?;
+    if !matches!(version, 0 | 1) || flags & !KNOWN_FLAGS != 0 {
+        return Err(MediaError::InvalidAudio);
+    }
+    let mut offset = 0;
+    let sample_count = u64::from(read_u32(body, &mut offset)?);
+    *total_samples = total_samples
+        .checked_add(sample_count)
+        .filter(|count| *count <= MAX_AUDIO_SAMPLES)
+        .ok_or(MediaError::InvalidAudio)?;
+    if flags & 0x000001 != 0 {
+        skip_bytes(body, &mut offset, 4)?;
+    }
+    if flags & 0x000004 != 0 {
+        skip_bytes(body, &mut offset, 4)?;
+    }
+
+    let mut duration = 0u64;
+    for _ in 0..sample_count {
+        let sample_duration = if flags & 0x000100 != 0 {
+            read_u32(body, &mut offset)?
+        } else {
+            default_duration.ok_or(MediaError::InvalidAudio)?
+        };
+        if sample_duration == 0 {
+            return Err(MediaError::InvalidAudio);
+        }
+        duration = duration
+            .checked_add(u64::from(sample_duration))
+            .ok_or(MediaError::InvalidAudio)?;
+        if flags & 0x000200 != 0 {
+            skip_bytes(body, &mut offset, 4)?;
+        }
+        if flags & 0x000400 != 0 {
+            skip_bytes(body, &mut offset, 4)?;
+        }
+        if flags & 0x000800 != 0 {
+            skip_bytes(body, &mut offset, 4)?;
+        }
+    }
+    if offset != body.len() {
+        return Err(MediaError::InvalidAudio);
+    }
+    Ok(duration)
+}
+
+/// Return the fragmented duration in track timescale units, or `None` for a
+/// classic non-fragmented M4A. The parser accepts only the recorder-shaped
+/// `moof(mfhd,traf(tfhd,tfdt,trun+)) + mdat` sequence and consumes every byte
+/// of every index box, preventing unknown flags or hidden trailing fields.
+fn fragmented_audio_duration(bytes: &[u8], track_id: u32) -> Result<Option<u64>, MediaError> {
+    let top = parse_mp4_boxes(bytes)?;
+    if top.len() < 3
+        || top[0].kind != *b"ftyp"
+        || top[1].kind != *b"moov"
+        || top.iter().filter(|entry| entry.kind == *b"ftyp").count() != 1
+        || top.iter().filter(|entry| entry.kind == *b"moov").count() != 1
+    {
+        return Err(MediaError::InvalidAudio);
+    }
+    let has_fragments = top.iter().any(|entry| entry.kind == *b"moof");
+    if !has_fragments {
+        if top.len() != 3 || top[2].kind != *b"mdat" || top[2].payload.is_empty() {
+            return Err(MediaError::InvalidAudio);
+        }
+        return Ok(None);
+    }
+    if top.len() < 4 {
+        return Err(MediaError::InvalidAudio);
+    }
+    for pair in top[2..].chunks_exact(2) {
+        if pair[0].kind != *b"moof" || pair[1].kind != *b"mdat" {
+            return Err(MediaError::InvalidAudio);
+        }
+    }
+    if !(top.len() - 2).is_multiple_of(2) {
+        return Err(MediaError::InvalidAudio);
+    }
+    let moov = &top[1];
+    let trex_duration = trex_default_duration(moov.payload, track_id)?;
+    let mut previous_sequence = 0u32;
+    let mut expected_decode_time = 0u64;
+    let mut total_samples = 0u64;
+    let mut index = 0usize;
+    while index < top.len() {
+        let entry = top[index];
+        if entry.kind != *b"moof" {
+            index += 1;
+            continue;
+        }
+        let media = top.get(index + 1).ok_or(MediaError::InvalidAudio)?;
+        if media.kind != *b"mdat" || media.payload.is_empty() {
+            return Err(MediaError::InvalidAudio);
+        }
+        let children = parse_mp4_boxes(entry.payload)?;
+        if children.len() != 2 || children[0].kind != *b"mfhd" || children[1].kind != *b"traf" {
+            return Err(MediaError::InvalidAudio);
+        }
+        let (version, flags, mfhd) = parse_full_box(children[0].payload)?;
+        let mut mfhd_offset = 0;
+        let sequence = read_u32(mfhd, &mut mfhd_offset)?;
+        if version != 0 || flags != 0 || mfhd_offset != mfhd.len() || sequence <= previous_sequence
+        {
+            return Err(MediaError::InvalidAudio);
+        }
+        previous_sequence = sequence;
+
+        let traf = parse_mp4_boxes(children[1].payload)?;
+        let tfhd = traf
+            .iter()
+            .filter(|entry| entry.kind == *b"tfhd")
+            .collect::<Vec<_>>();
+        let tfdt = traf
+            .iter()
+            .filter(|entry| entry.kind == *b"tfdt")
+            .collect::<Vec<_>>();
+        let truns = traf
+            .iter()
+            .filter(|entry| entry.kind == *b"trun")
+            .collect::<Vec<_>>();
+        if tfhd.len() != 1 || tfdt.len() != 1 || truns.is_empty() || traf.len() != truns.len() + 2 {
+            return Err(MediaError::InvalidAudio);
+        }
+        let default_duration = parse_tfhd(tfhd[0].payload, track_id)?.or(trex_duration);
+        let decode_time = parse_tfdt(tfdt[0].payload)?;
+        if decode_time != expected_decode_time {
+            return Err(MediaError::InvalidAudio);
+        }
+        let mut fragment_duration = 0u64;
+        for trun in truns {
+            fragment_duration = fragment_duration
+                .checked_add(parse_trun_duration(
+                    trun.payload,
+                    default_duration,
+                    &mut total_samples,
+                )?)
+                .ok_or(MediaError::InvalidAudio)?;
+        }
+        expected_decode_time = decode_time
+            .checked_add(fragment_duration)
+            .ok_or(MediaError::InvalidAudio)?;
+        index += 2;
+    }
+    (previous_sequence > 0 && expected_decode_time > 0)
+        .then_some(expected_decode_time)
+        .ok_or(MediaError::InvalidAudio)
+        .map(Some)
 }
 
 /// Validate uploaded bytes for the **image** upload path.
@@ -756,6 +1156,23 @@ fn validate_gif_metadata_free(bytes: &[u8]) -> Result<(), MediaError> {
 }
 
 fn validate_mp4_metadata_free(path: &Path) -> Result<(), MediaError> {
+    validate_mp4_metadata_free_inner(path, false)
+}
+
+/// Recorded browser audio is fragmented MP4. Admit only its fixed indexing
+/// boxes here; [`fragmented_audio_duration`] separately parses their flags,
+/// track IDs, sample durations, ordering, and complete payload lengths.
+fn validate_audio_mp4_metadata_free(path: &Path) -> Result<(), MediaError> {
+    validate_mp4_metadata_free_inner(path, true).map_err(|error| match error {
+        MediaError::InvalidVideo => MediaError::InvalidAudio,
+        other => other,
+    })
+}
+
+fn validate_mp4_metadata_free_inner(
+    path: &Path,
+    allow_audio_fragments: bool,
+) -> Result<(), MediaError> {
     const MAX_BOXES: usize = 100_000;
     const MAX_BOX_DEPTH: usize = 32;
     const EMPTY_FFMPEG_UDTA: &[u8] = &[
@@ -779,6 +1196,10 @@ fn validate_mp4_metadata_free(path: &Path) -> Result<(), MediaError> {
     const CONTAINERS: &[[u8; 4]] = &[
         *b"moov", *b"trak", *b"mdia", *b"minf", *b"stbl", *b"edts", *b"dinf", *b"sinf", *b"schi",
     ];
+    const AUDIO_FRAGMENT_CONTAINERS: &[[u8; 4]] = &[*b"mvex", *b"moof", *b"traf"];
+    const AUDIO_FRAGMENT_BOXES: &[[u8; 4]] = &[
+        *b"mvex", *b"trex", *b"moof", *b"mfhd", *b"traf", *b"tfhd", *b"tfdt", *b"trun",
+    ];
     // Constrained H.264/AAC MP4 produced by our client encoders. Unknown boxes
     // are rejected rather than guessed safe because private boxes can carry GPS.
     const ALLOWED: &[[u8; 4]] = &[
@@ -793,6 +1214,7 @@ fn validate_mp4_metadata_free(path: &Path) -> Result<(), MediaError> {
         end: u64,
         count: &mut usize,
         depth: usize,
+        allow_audio_fragments: bool,
     ) -> Result<(), MediaError> {
         use std::io::{Read, Seek, SeekFrom};
         if depth > MAX_BOX_DEPTH {
@@ -824,10 +1246,14 @@ fn validate_mp4_metadata_free(path: &Path) -> Result<(), MediaError> {
             if size < header || off.checked_add(size).filter(|&v| v <= end).is_none() {
                 return Err(MediaError::InvalidVideo);
             }
-            if FORBIDDEN.contains(&kind) || !ALLOWED.contains(&kind) {
+            let is_audio_fragment = allow_audio_fragments && AUDIO_FRAGMENT_BOXES.contains(&kind);
+            if FORBIDDEN.contains(&kind) || (!ALLOWED.contains(&kind) && !is_audio_fragment) {
                 return Err(MediaError::MetadataForbidden);
             }
             if kind == *b"udta" {
+                if allow_audio_fragments {
+                    return Err(MediaError::MetadataForbidden);
+                }
                 if size != header + EMPTY_FFMPEG_UDTA.len() as u64 {
                     return Err(MediaError::MetadataForbidden);
                 }
@@ -837,8 +1263,17 @@ fn validate_mp4_metadata_free(path: &Path) -> Result<(), MediaError> {
                 if body != EMPTY_FFMPEG_UDTA {
                     return Err(MediaError::MetadataForbidden);
                 }
-            } else if CONTAINERS.contains(&kind) {
-                walk(file, off + header, off + size, count, depth + 1)?;
+            } else if CONTAINERS.contains(&kind)
+                || (is_audio_fragment && AUDIO_FRAGMENT_CONTAINERS.contains(&kind))
+            {
+                walk(
+                    file,
+                    off + header,
+                    off + size,
+                    count,
+                    depth + 1,
+                    allow_audio_fragments,
+                )?;
             }
             off += size;
         }
@@ -850,7 +1285,7 @@ fn validate_mp4_metadata_free(path: &Path) -> Result<(), MediaError> {
         .map_err(|e| MediaError::Io(e.to_string()))?
         .len();
     let mut count = 0;
-    walk(&mut file, 0, end, &mut count, 0)
+    walk(&mut file, 0, end, &mut count, 0, allow_audio_fragments)
 }
 
 /// Map MIME type to file extension.
@@ -861,6 +1296,7 @@ pub fn mime_to_ext(mime: &str) -> &'static str {
         "image/gif" => "gif",
         "image/webp" => "webp",
         "video/mp4" => "mp4",
+        "audio/mp4" => "m4a",
         _ => "bin",
     }
 }
@@ -1432,6 +1868,7 @@ mod tests {
         assert_eq!(mime_to_ext("image/gif"), "gif");
         assert_eq!(mime_to_ext("image/webp"), "webp");
         assert_eq!(mime_to_ext("video/mp4"), "mp4");
+        assert_eq!(mime_to_ext("audio/mp4"), "m4a");
         assert_eq!(mime_to_ext("application/pdf"), "bin");
     }
 
@@ -1500,6 +1937,234 @@ mod tests {
     /// Build an MP4 with audio track.
     fn build_mp4_with_audio() -> Vec<u8> {
         build_mp4_bytes(true, b"avc1", 1_000, 320, 240, true)
+    }
+
+    /// Convert the existing two-track fixture into a single-track AAC M4A.
+    fn build_audio_only_m4a(duration_ms: u32) -> Vec<u8> {
+        const FTYP_SIZE: usize = 20;
+        let mut bytes = build_mp4_bytes(true, b"avc1", duration_ms, 320, 240, true);
+        bytes[8..12].copy_from_slice(b"M4A ");
+        bytes[16..20].copy_from_slice(b"M4A ");
+
+        let moov_size =
+            u32::from_be_bytes(bytes[FTYP_SIZE..FTYP_SIZE + 4].try_into().unwrap()) as usize;
+        let moov_end = FTYP_SIZE + moov_size;
+        let mut offset = FTYP_SIZE + 8;
+        let mut first_track = None;
+        while offset < moov_end {
+            let size = u32::from_be_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize;
+            if &bytes[offset + 4..offset + 8] == b"trak" {
+                first_track = Some((offset, offset + size));
+                break;
+            }
+            offset += size;
+        }
+        let (start, end) = first_track.expect("video track");
+        bytes.drain(start..end);
+        let new_size = (moov_size - (end - start)) as u32;
+        bytes[FTYP_SIZE..FTYP_SIZE + 4].copy_from_slice(&new_size.to_be_bytes());
+        let mdat = bytes.len() - 8;
+        bytes[mdat..mdat + 4].copy_from_slice(&12u32.to_be_bytes());
+        bytes.extend_from_slice(&[0xff, 0xf1, 0x50, 0x80]);
+        bytes
+    }
+
+    /// Browser MediaRecorder on WebKit emits AAC in fragmented ISO-BMFF:
+    /// `ftyp | moov(mvex/trex) | moof(mfhd/traf) | mdat`.
+    fn build_webkit_style_fragmented_m4a(duration_units: u32) -> Vec<u8> {
+        let mut bytes = build_audio_only_m4a(0);
+        let moov_size = u32::from_be_bytes(bytes[20..24].try_into().unwrap()) as usize;
+        bytes.truncate(20 + moov_size);
+
+        let mut trex_payload = vec![0u8; 4];
+        trex_payload.extend_from_slice(&2u32.to_be_bytes());
+        trex_payload.extend_from_slice(&1u32.to_be_bytes());
+        trex_payload.extend_from_slice(&duration_units.to_be_bytes());
+        trex_payload.extend_from_slice(&0u32.to_be_bytes());
+        trex_payload.extend_from_slice(&0u32.to_be_bytes());
+        let mvex = box_wrap(b"mvex", &box_wrap(b"trex", &trex_payload));
+        bytes = append_box_to_moov(bytes, &mvex);
+
+        let mut mfhd_payload = vec![0u8; 4];
+        mfhd_payload.extend_from_slice(&1u32.to_be_bytes());
+        let mfhd = box_wrap(b"mfhd", &mfhd_payload);
+
+        let mut tfhd_payload = vec![0u8, 0x02, 0x00, 0x08];
+        tfhd_payload.extend_from_slice(&2u32.to_be_bytes());
+        tfhd_payload.extend_from_slice(&duration_units.to_be_bytes());
+        let tfhd = box_wrap(b"tfhd", &tfhd_payload);
+
+        let mut tfdt_payload = vec![1u8, 0, 0, 0];
+        tfdt_payload.extend_from_slice(&0u64.to_be_bytes());
+        let tfdt = box_wrap(b"tfdt", &tfdt_payload);
+
+        let mut trun_payload = vec![0u8; 4];
+        trun_payload.extend_from_slice(&1u32.to_be_bytes());
+        let trun = box_wrap(b"trun", &trun_payload);
+        let traf = box_wrap(b"traf", &[tfhd, tfdt, trun].concat());
+        bytes.extend_from_slice(&box_wrap(b"moof", &[mfhd, traf].concat()));
+        bytes.extend_from_slice(&box_wrap(b"mdat", &[0xff, 0xf1, 0x50, 0x80]));
+        bytes
+    }
+
+    fn validate_audio_bytes(bytes: &[u8]) -> Result<AudioMeta, MediaError> {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), bytes).unwrap();
+        validate_audio_file(tmp.path(), &test_config())
+    }
+
+    #[test]
+    fn test_validate_audio_accepts_classic_aac_m4a() {
+        let meta = validate_audio_bytes(&build_audio_only_m4a(1_000)).unwrap();
+        assert!((meta.duration_secs - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_validate_audio_accepts_webkit_style_fragmented_aac_m4a() {
+        let bytes = build_webkit_style_fragmented_m4a(1_000);
+        assert!(bytes.windows(4).any(|window| window == b"mvex"));
+        assert!(bytes.windows(4).any(|window| window == b"moof"));
+        assert!(bytes.windows(4).any(|window| window == b"tfdt"));
+        let meta = validate_audio_bytes(&bytes).unwrap();
+        assert!((meta.duration_secs - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_validate_audio_accepts_encoded_webkit_style_fixture() {
+        // A real AAC/fMP4 encode with the same box topology emitted by WebKit
+        // MediaRecorder. Its encoder metadata was stripped before embedding;
+        // the encoded AAC media bytes and fragment indexes are unchanged.
+        const FIXTURE: &str = "0000001c667479704d344120000002004d34412069736f3669736f35000002476d6f6f760000006c6d766864000000000000000000000000000003e8000000000001000001000000000000000000000000010000000000000000000000000000000100000000000000000000000000004000000000000000000000000000000000000000000000000000000000000002000001ab7472616b0000005c746b6864000000030000000000000000000000010000000000000000000000000000000000000001010000000001000000000000000000000000000000010000000000000000000000000000400000000000000000000000000001476d646961000000206d6468640000000000000000000000000000ac440000000055c400000000002d68646c720000000000000000736f756e000000000000000000000000536f756e6448616e646c657200000000f26d696e6600000010736d686400000000000000000000002464696e660000001c6472656600000000000000010000000c75726c2000000001000000b67374626c0000006a7374736400000000000000010000005a6d703461000000000000000100000000000000000001001000000000ac44000000000036657364730000000003808080250001000480808017401500000000007d0000007d000580808005120856e5000680808001020000001073747473000000000000000000000010737473630000000000000000000000147374737a000000000000000000000000000000107374636f0000000000000000000000286d7665780000002074726578000000000000000100000001000000000000000000000000000000846d6f6f66000000106d66686400000000000000010000006c747261660000001c7466686400020038000000010000040000000081020000000000001474666474010000000000000000000000000000347472756e00000301000000040000008c0000040000000081000004000000009e00000400000000570000009d00000005000001836d646174012850ad94743e9d2bc757b9e35352e8b789d6e0f8912416d5b398b30e258ab534db588f3576ee5ed7bd55e9b4d623fde226293c161eb28d68868604fa0a181bc769769ebdb4e55c2f1ed773ab8cf5663a3639abf3554a5546b67d6ca552954a5519540c0c0c0c0c0df26f937c9be4c0c0c0c0c0c0c0c0c8914b2cb2cb2cb2cb2f011294daca5d964bab25ce9b25d3ffe9fff7f8eb4f0d5defffeb7feff5d71c6b57fd3ffeafff3f7eb8f37c7b7f7fffabffdbe3ad71d4e03b7b498641818181a7afd4c57b09c5b02323188d44546b8a8fa5114541be9bb89506fa6be31197f4d74658a2a0cbd66fa718a176861cdc6a7e48de94c04da88cc8a36451bd11461e64514e1e7a28ba03cc8a24001e63d01ae84c54f3cea9e7f9737328f3d5cdc0011495b2ca5d9647a0ec3b7ffd3ffe7ebad3bf57adfffd5ff6f3c4bd5e839b915dbd34d5af73c9bc995dd64e1506092b7418904d382f174c86cee822088469e0e11346343d6d1e80f5f30f84030e003c393181e6c59780011881b470";
+        let bytes = hex::decode(FIXTURE).unwrap();
+        let meta = validate_audio_bytes(&bytes).unwrap();
+        assert!(meta.duration_secs > 0.0 && meta.duration_secs < 1.0);
+    }
+
+    #[test]
+    fn test_validate_audio_enforces_duration_bounds() {
+        assert!(matches!(
+            validate_audio_bytes(&build_webkit_style_fragmented_m4a(0)),
+            Err(MediaError::InvalidAudio)
+        ));
+        assert!(validate_audio_bytes(&build_webkit_style_fragmented_m4a(600_000)).is_ok());
+        assert!(matches!(
+            validate_audio_bytes(&build_webkit_style_fragmented_m4a(600_001)),
+            Err(MediaError::AudioDurationTooLong)
+        ));
+    }
+
+    #[test]
+    fn test_validate_audio_enforces_hard_size_cap() {
+        assert_eq!(MAX_RECORDED_AUDIO_BYTES, 25 * 1024 * 1024);
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.as_file().set_len(MAX_RECORDED_AUDIO_BYTES + 1).unwrap();
+        assert!(matches!(
+            validate_audio_file(tmp.path(), &test_config()),
+            Err(MediaError::FileTooLarge { max, .. }) if max == MAX_RECORDED_AUDIO_BYTES
+        ));
+    }
+
+    #[test]
+    fn test_validate_audio_rejects_non_m4a_brand_and_extra_tracks() {
+        let mut wrong_brand = build_audio_only_m4a(1_000);
+        wrong_brand[8..12].copy_from_slice(b"isom");
+        wrong_brand[16..20].copy_from_slice(b"isom");
+        assert!(matches!(
+            validate_audio_bytes(&wrong_brand),
+            Err(MediaError::UnsupportedContainer)
+        ));
+
+        let mut video_and_audio = build_mp4_with_audio();
+        video_and_audio[8..12].copy_from_slice(b"M4A ");
+        video_and_audio[16..20].copy_from_slice(b"M4A ");
+        assert!(matches!(
+            validate_audio_bytes(&video_and_audio),
+            Err(MediaError::MetadataForbidden)
+        ));
+
+        let second_audio = build_audio_trak(3, 1_000, 1_000);
+        let two_audio = append_box_to_moov(build_audio_only_m4a(1_000), &second_audio);
+        assert!(matches!(
+            validate_audio_bytes(&two_audio),
+            Err(MediaError::MetadataForbidden)
+        ));
+    }
+
+    #[test]
+    fn test_validate_audio_rejects_location_metadata_and_trailing_bytes() {
+        let coordinates = b"+37.7750-122.4183+015.000/";
+        let location = box_wrap(b"\xa9xyz", coordinates);
+        let udta = box_wrap(b"udta", &location);
+        let with_location = append_box_to_moov(build_audio_only_m4a(1_000), &udta);
+        assert!(matches!(
+            validate_audio_bytes(&with_location),
+            Err(MediaError::MetadataForbidden)
+        ));
+
+        let empty_ffmpeg_udta = hex::decode(
+            "000000356d657461000000000000002168646c7200000000000000006d6469726170706c00000000000000000000000008696c7374",
+        )
+        .unwrap();
+        let empty_metadata = append_box_to_moov(
+            build_audio_only_m4a(1_000),
+            &box_wrap(b"udta", &empty_ffmpeg_udta),
+        );
+        assert!(matches!(
+            validate_audio_bytes(&empty_metadata),
+            Err(MediaError::MetadataForbidden)
+        ));
+
+        let mut trailing = build_webkit_style_fragmented_m4a(1_000);
+        trailing.extend_from_slice(b"trailing");
+        assert!(matches!(
+            validate_audio_bytes(&trailing),
+            Err(MediaError::InvalidAudio)
+        ));
+    }
+
+    #[test]
+    fn test_validate_audio_rejects_malformed_or_extra_fragment_structure() {
+        let mut malformed_flags = build_webkit_style_fragmented_m4a(1_000);
+        let tfhd = malformed_flags
+            .windows(4)
+            .position(|window| window == b"tfhd")
+            .unwrap();
+        malformed_flags[tfhd + 5] |= 0x40;
+        assert!(matches!(
+            validate_audio_bytes(&malformed_flags),
+            Err(MediaError::InvalidAudio)
+        ));
+
+        let mut extra_track_fragment = build_webkit_style_fragmented_m4a(1_000);
+        let moof = extra_track_fragment
+            .windows(4)
+            .position(|window| window == b"moof")
+            .unwrap()
+            - 4;
+        let moof_size =
+            u32::from_be_bytes(extra_track_fragment[moof..moof + 4].try_into().unwrap()) as usize;
+        let extra_traf = box_wrap(b"traf", b"");
+        extra_track_fragment.splice(
+            moof + moof_size..moof + moof_size,
+            extra_traf.iter().copied(),
+        );
+        extra_track_fragment[moof..moof + 4]
+            .copy_from_slice(&((moof_size + extra_traf.len()) as u32).to_be_bytes());
+        assert!(matches!(
+            validate_audio_bytes(&extra_track_fragment),
+            Err(MediaError::InvalidAudio)
+        ));
+
+        let mut nonzero_start = build_webkit_style_fragmented_m4a(1_000);
+        let tfdt = nonzero_start
+            .windows(4)
+            .position(|window| window == b"tfdt")
+            .unwrap();
+        nonzero_start[tfdt + 11] = 1;
+        assert!(matches!(
+            validate_audio_bytes(&nonzero_start),
+            Err(MediaError::InvalidAudio)
+        ));
     }
 
     /// Insert a child box at the end of the top-level `moov` box.
@@ -2409,6 +3074,7 @@ mod tests {
         assert!(serve_inline("image/jpeg"));
         assert!(serve_inline("image/png"));
         assert!(serve_inline("video/mp4"));
+        assert!(serve_inline("audio/mp4"));
         // Generic files force download.
         assert!(!serve_inline("application/pdf"));
         assert!(!serve_inline("application/zip"));

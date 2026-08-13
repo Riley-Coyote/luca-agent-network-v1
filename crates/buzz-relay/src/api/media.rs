@@ -47,8 +47,13 @@ enum UploadRouteMode {
 }
 
 fn should_stream_as_video(sniff: &[u8]) -> bool {
-    infer::get(sniff).is_some_and(|kind| kind.mime_type() == "video/mp4")
-        || buzz_media::looks_like_iso_bmff(sniff)
+    !should_buffer_as_audio(sniff)
+        && (infer::get(sniff).is_some_and(|kind| kind.mime_type() == "video/mp4")
+            || buzz_media::looks_like_iso_bmff(sniff))
+}
+
+fn should_buffer_as_audio(sniff: &[u8]) -> bool {
+    infer::get(sniff).is_some_and(|kind| matches!(kind.mime_type(), "audio/mp4" | "audio/m4a"))
 }
 
 fn upload_route_mode(path: &str) -> Result<UploadRouteMode, MediaError> {
@@ -335,7 +340,21 @@ pub async fn upload_blob(
     }
     let replay = futures_util::stream::iter(replay_chunks.into_iter().map(Ok)).chain(source);
 
-    let mut descriptor = if should_stream_as_video(&sniff) {
+    let mut descriptor = if should_buffer_as_audio(&sniff) {
+        let max = buzz_media::MAX_RECORDED_AUDIO_BYTES.min(state.config.media.max_file_bytes);
+        let bytes = axum::body::to_bytes(axum::body::Body::from_stream(replay), max as usize)
+            .await
+            .map_err(|_| MediaError::FileTooLarge { size: 0, max })?;
+        buzz_media::process_audio_upload(
+            &state.media_storage,
+            &state.config.media,
+            &auth.tenant,
+            &auth.auth_event,
+            bytes,
+            attribution,
+        )
+        .await?
+    } else if should_stream_as_video(&sniff) {
         // Video path: stream body directly to disk — never fully buffered in RAM.
         let content_length = headers
             .get("content-length")
@@ -407,7 +426,7 @@ pub async fn upload_blob(
 
     // Normalize MIME to a known set to bound label cardinality.
     let mime_label = match descriptor.mime_type.as_str() {
-        "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "video/mp4" => {
+        "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "video/mp4" | "audio/mp4" => {
             &descriptor.mime_type
         }
         _ => "other",
@@ -945,6 +964,17 @@ mod tests {
         assert!(should_stream_as_video(bytes));
     }
 
+    #[test]
+    fn sniffed_m4a_uses_only_the_bounded_audio_pipeline() {
+        let bytes = b"\x00\x00\x00\x1cftypM4A \x00\x00\x02\x00M4A isomiso5";
+        assert_eq!(
+            infer::get(bytes).map(|kind| kind.mime_type()),
+            Some("audio/m4a")
+        );
+        assert!(should_buffer_as_audio(bytes));
+        assert!(!should_stream_as_video(bytes));
+    }
+
     async fn test_state() -> Arc<AppState> {
         test_state_with_media_get_auth(false).await
     }
@@ -1178,7 +1208,7 @@ mod tests {
 
     #[test]
     fn test_validate_media_path_hash_ext() {
-        for ext in &["jpg", "png", "gif", "webp", "mp4"] {
+        for ext in &["jpg", "png", "gif", "webp", "mp4", "m4a"] {
             assert!(validate_media_path(&format!("{VALID_HASH}.{ext}")).is_ok());
         }
     }

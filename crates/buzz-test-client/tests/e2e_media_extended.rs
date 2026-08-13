@@ -68,6 +68,25 @@ async fn upload_to_path(
         .expect("upload request")
 }
 
+async fn upload_with_claimed_type(
+    client: &Client,
+    keys: &Keys,
+    body: &[u8],
+    claimed_type: &str,
+) -> reqwest::Response {
+    let sha256 = hex::encode(Sha256::digest(body));
+    let auth = sign_blossom_auth(keys, &sha256);
+    client
+        .put(format!("{}/upload", relay_http_url()))
+        .header("Authorization", blossom_auth_header(&auth))
+        .header("X-SHA-256", &sha256)
+        .header("Content-Type", claimed_type)
+        .body(body.to_vec())
+        .send()
+        .await
+        .expect("upload request")
+}
+
 fn tiny_jpeg() -> Vec<u8> {
     vec![
         0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00,
@@ -130,6 +149,13 @@ fn tiny_webp() -> Vec<u8> {
         0xf0, 0xe8, 0xf7, 0xff, 0x20, 0xb9, 0x61, 0x75, 0xc8, 0xd7, 0xff, 0x20, 0x3f, 0xe4, 0x07,
         0xfc, 0x80, 0xff, 0xf8, 0xf2, 0x00, 0x00, 0x00,
     ]
+}
+
+fn webkit_style_recorded_m4a() -> Vec<u8> {
+    // A real AAC/fMP4 encode with WebKit MediaRecorder's
+    // ftyp|moov(mvex)|moof|mdat topology. Encoder metadata was stripped while
+    // preserving the AAC media bytes and fragment indexes.
+    hex::decode("0000001c667479704d344120000002004d34412069736f3669736f35000002476d6f6f760000006c6d766864000000000000000000000000000003e8000000000001000001000000000000000000000000010000000000000000000000000000000100000000000000000000000000004000000000000000000000000000000000000000000000000000000000000002000001ab7472616b0000005c746b6864000000030000000000000000000000010000000000000000000000000000000000000001010000000001000000000000000000000000000000010000000000000000000000000000400000000000000000000000000001476d646961000000206d6468640000000000000000000000000000ac440000000055c400000000002d68646c720000000000000000736f756e000000000000000000000000536f756e6448616e646c657200000000f26d696e6600000010736d686400000000000000000000002464696e660000001c6472656600000000000000010000000c75726c2000000001000000b67374626c0000006a7374736400000000000000010000005a6d703461000000000000000100000000000000000001001000000000ac44000000000036657364730000000003808080250001000480808017401500000000007d0000007d000580808005120856e5000680808001020000001073747473000000000000000000000010737473630000000000000000000000147374737a000000000000000000000000000000107374636f0000000000000000000000286d7665780000002074726578000000000000000100000001000000000000000000000000000000846d6f6f66000000106d66686400000000000000010000006c747261660000001c7466686400020038000000010000040000000081020000000000001474666474010000000000000000000000000000347472756e00000301000000040000008c0000040000000081000004000000009e00000400000000570000009d00000005000001836d646174012850ad94743e9d2bc757b9e35352e8b789d6e0f8912416d5b398b30e258ab534db588f3576ee5ed7bd55e9b4d623fde226293c161eb28d68868604fa0a181bc769769ebdb4e55c2f1ed773ab8cf5663a3639abf3554a5546b67d6ca552954a5519540c0c0c0c0c0df26f937c9be4c0c0c0c0c0c0c0c0c8914b2cb2cb2cb2cb2f011294daca5d964bab25ce9b25d3ffe9fff7f8eb4f0d5defffeb7feff5d71c6b57fd3ffeafff3f7eb8f37c7b7f7fffabffdbe3ad71d4e03b7b498641818181a7afd4c57b09c5b02323188d44546b8a8fa5114541be9bb89506fa6be31197f4d74658a2a0cbd66fa718a176861cdc6a7e48de94c04da88cc8a36451bd11461e64514e1e7a28ba03cc8a24001e63d01ae84c54f3cea9e7f9737328f3d5cdc0011495b2ca5d9647a0ec3b7ffd3ffe7ebad3bf57adfffd5ff6f3c4bd5e839b915dbd34d5af73c9bc995dd64e1506092b7418904d382f174c86cee822088469e0e11346343d6d1e80f5f30f84030e003c393181e6c59780011881b470").unwrap()
 }
 
 fn sign_custom_auth(keys: &Keys, kind: u16, content: &str, tags: Vec<Tag>) -> nostr::Event {
@@ -442,7 +468,7 @@ async fn test_legacy_media_route_still_accepts_canonical_media() {
 
 #[tokio::test]
 #[ignore]
-async fn test_standard_upload_rejects_recognized_audio() {
+async fn test_standard_upload_rejects_non_m4a_audio() {
     let client = http_client();
     let keys = Keys::generate();
     let mp3 = b"ID3\x04\x00\x00\x00\x00\x00\x00";
@@ -450,8 +476,48 @@ async fn test_standard_upload_rejects_recognized_audio() {
     assert_eq!(
         resp.status(),
         reqwest::StatusCode::UNSUPPORTED_MEDIA_TYPE,
-        "recognized audio must not bypass the location policy as an attachment"
+        "non-M4A audio must not bypass the recorded-audio allowlist as an attachment"
     );
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_webkit_style_recorded_m4a_roundtrip_and_range() {
+    let client = http_client();
+    let keys = Keys::generate();
+    let audio = webkit_style_recorded_m4a();
+    // A spoofed request header cannot change admission or stored type; only
+    // the parsed bytes determine the canonical M4A result.
+    let resp = upload_with_claimed_type(&client, &keys, &audio, "image/jpeg").await;
+    assert_eq!(resp.status(), reqwest::StatusCode::OK);
+    let desc: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(desc["type"], "audio/mp4");
+    assert_eq!(desc["size"], audio.len() as u64);
+    assert!(desc["url"].as_str().unwrap().ends_with(".m4a"));
+    assert!(desc["duration"].as_f64().is_some_and(|value| value > 0.0));
+
+    let url = desc["url"].as_str().unwrap();
+    let get = client.get(url).send().await.unwrap();
+    assert_eq!(get.status(), reqwest::StatusCode::OK);
+    assert_eq!(get.headers()["content-type"], "audio/mp4");
+    assert_eq!(get.headers()["x-content-type-options"], "nosniff");
+    assert!(get.headers().contains_key("content-security-policy"));
+    assert_eq!(get.bytes().await.unwrap().as_ref(), audio.as_slice());
+
+    let range = client
+        .get(url)
+        .header("Range", "bytes=0-31")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(range.status(), reqwest::StatusCode::PARTIAL_CONTENT);
+    assert_eq!(range.headers()["accept-ranges"], "bytes");
+    assert_eq!(range.bytes().await.unwrap().as_ref(), &audio[..32]);
+
+    let head = client.head(url).send().await.unwrap();
+    assert_eq!(head.status(), reqwest::StatusCode::OK);
+    assert_eq!(head.headers()["content-type"], "audio/mp4");
+    assert_eq!(head.headers()["content-length"], audio.len().to_string());
 }
 
 #[tokio::test]

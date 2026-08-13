@@ -16,9 +16,12 @@ pub use config::MediaConfig;
 pub use error::MediaError;
 pub use storage::{BlobHeadMeta, BlobMeta, ByteStream, MediaStorage};
 pub use types::BlobDescriptor;
-pub use upload::{process_file_upload, process_upload, process_video_upload};
+pub use upload::{process_audio_upload, process_file_upload, process_upload, process_video_upload};
 pub use upload_record::{
     parse_port, parse_public_ip, upload_record_key, UploadAttribution, UploadNetworkInfo,
     UploadRecord, UPLOAD_RECORD_VERSION,
 };
-pub use validation::{looks_like_iso_bmff, serve_inline, validate_video_file, VideoMeta};
+pub use validation::{
+    looks_like_iso_bmff, serve_inline, validate_audio_file, validate_video_file, AudioMeta,
+    VideoMeta, MAX_RECORDED_AUDIO_BYTES,
+};
