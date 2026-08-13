@@ -436,11 +436,10 @@ impl ExistingConversationPublisher {
                 .map_err(|_| CommunicationPublicationError::Persistence);
         }
         #[cfg(test)]
-        {
-            return Ok(self.test_dispatch_store.clone());
-        }
+        let dispatch_store = self.test_dispatch_store.clone();
         #[cfg(not(test))]
-        Ok(None)
+        let dispatch_store = None;
+        Ok(dispatch_store)
     }
 
     pub(crate) fn membership(

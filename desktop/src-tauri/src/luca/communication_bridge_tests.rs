@@ -77,11 +77,13 @@ impl CommunicationTurnAuthority for TestAuthority {
     }
 }
 
+type CreatedRoomRecord = (OpaqueId, String, Option<String>, BTreeSet<Hex64>);
+
 #[derive(Default)]
 struct TestBackend {
     conversations: Mutex<HashMap<String, CommunicationConversationAuthority>>,
     direct_resolutions: Mutex<Vec<BTreeSet<Hex64>>>,
-    created_rooms: Mutex<Vec<(OpaqueId, String, Option<String>, BTreeSet<Hex64>)>>,
+    created_rooms: Mutex<Vec<CreatedRoomRecord>>,
     invitations: Mutex<Vec<(OpaqueId, Hex64)>>,
     staged: Mutex<
         Vec<(

@@ -648,6 +648,7 @@ impl ManagedDispatchStore {
     /// activation. The signed resident event is the target's exact trigger;
     /// the retained owner and causal coordinates prevent relay replay from
     /// broadening that authority after restart.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn stage_descendant_event(
         &mut self,
         event: &Event,
@@ -733,7 +734,7 @@ impl ManagedDispatchStore {
                 causal_root_event_id: Some(causal_root_event_id.to_ascii_lowercase()),
                 causal_parent_action_id: Some(parent_action_id.to_owned()),
                 descendant_depth: 1,
-                response_surface: Some(routing.response_surface.clone()),
+                response_surface: Some(routing.response_surface),
                 resolved_p_tags: vec![event.pubkey.to_hex()],
                 created_at: event.created_at.as_secs(),
                 expires_at: event
