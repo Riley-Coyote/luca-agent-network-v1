@@ -32,6 +32,7 @@ const MAX_PROMPT_BYTES: usize = 256 * 1024;
 const MAX_STDOUT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_STDERR_BYTES: usize = 64 * 1024;
 const REPOSITORY_SERVER_NAME: &str = "luca-repositories";
+const COMMUNICATIONS_SERVER_NAME: &str = "luca-communications";
 const OPENCLAW_BOOTSTRAP_ENV_KEYS: [&str; 4] = [
     "LUCA_OPENCLAW_AGENT_ID",
     "LUCA_OPENCLAW_COMMAND",
@@ -43,6 +44,16 @@ const REPOSITORY_ENV_KEYS: [&str; 4] = [
     "LUCA_REPOSITORY_ENDPOINT",
     "LUCA_REPOSITORY_CAPABILITY",
     "LUCA_REPOSITORY_CONVERSATION_ID",
+];
+const COMMUNICATIONS_ENV_KEYS: [&str; 8] = [
+    "LUCA_COMMUNICATIONS_MODE",
+    "LUCA_COMMUNICATIONS_ENDPOINT",
+    "LUCA_COMMUNICATIONS_CAPABILITY",
+    "LUCA_COMMUNICATIONS_CAPABILITY_GENERATION",
+    "LUCA_COMMUNICATIONS_CONVERSATION_ID",
+    "LUCA_COMMUNICATIONS_TURN_ID",
+    "LUCA_COMMUNICATIONS_DISPATCH_RECEIPT_ID",
+    "LUCA_COMMUNICATIONS_CANCELLATION_EPOCH",
 ];
 
 #[derive(Clone)]
@@ -288,39 +299,71 @@ fn validate_mcp_servers(servers: &[McpServerStdio]) -> Result<(), String> {
     if servers.is_empty() {
         return Ok(());
     }
-    if servers.len() != 1 {
+    if servers.len() > 2 {
         return Err("unsupported MCP projection".into());
     }
-    let server = &servers[0];
-    if server.name != REPOSITORY_SERVER_NAME
-        || !server.args.is_empty()
-        || !Path::new(&server.command).is_absolute()
-        || server.env.len() != REPOSITORY_ENV_KEYS.len()
-    {
-        return Err("unsupported MCP projection".into());
-    }
-    let env = server
-        .env
-        .iter()
-        .map(|entry| (entry.name.as_str(), entry.value.as_str()))
-        .collect::<BTreeMap<_, _>>();
-    if env.get("LUCA_REPOSITORY_MODE") != Some(&"1")
-        || env
-            .get("LUCA_REPOSITORY_ENDPOINT")
-            .is_none_or(|value| !valid_repository_endpoint(value))
-        || env
-            .get("LUCA_REPOSITORY_CAPABILITY")
-            .is_none_or(|value| !is_sha256_ref(value))
-        || env
-            .get("LUCA_REPOSITORY_CONVERSATION_ID")
-            .is_none_or(|value| !is_uuid(value))
-    {
-        return Err("unsupported MCP projection".into());
+    let mut names = std::collections::BTreeSet::new();
+    for server in servers {
+        if !names.insert(server.name.as_str())
+            || !server.args.is_empty()
+            || !Path::new(&server.command).is_absolute()
+        {
+            return Err("unsupported MCP projection".into());
+        }
+        let env = server
+            .env
+            .iter()
+            .map(|entry| (entry.name.as_str(), entry.value.as_str()))
+            .collect::<BTreeMap<_, _>>();
+        let valid = match server.name.as_str() {
+            REPOSITORY_SERVER_NAME => {
+                server.env.len() == REPOSITORY_ENV_KEYS.len()
+                    && env.get("LUCA_REPOSITORY_MODE") == Some(&"1")
+                    && env
+                        .get("LUCA_REPOSITORY_ENDPOINT")
+                        .is_some_and(|value| valid_broker_endpoint(value, "luca-rb-"))
+                    && env
+                        .get("LUCA_REPOSITORY_CAPABILITY")
+                        .is_some_and(|value| is_sha256_ref(value))
+                    && env
+                        .get("LUCA_REPOSITORY_CONVERSATION_ID")
+                        .is_some_and(|value| is_uuid(value))
+            }
+            COMMUNICATIONS_SERVER_NAME => {
+                server.env.len() == COMMUNICATIONS_ENV_KEYS.len()
+                    && env.get("LUCA_COMMUNICATIONS_MODE") == Some(&"1")
+                    && env
+                        .get("LUCA_COMMUNICATIONS_ENDPOINT")
+                        .is_some_and(|value| valid_broker_endpoint(value, "luca-cb-"))
+                    && env
+                        .get("LUCA_COMMUNICATIONS_CAPABILITY")
+                        .is_some_and(|value| is_sha256_ref(value))
+                    && env
+                        .get("LUCA_COMMUNICATIONS_CAPABILITY_GENERATION")
+                        .is_some_and(|value| is_safe_positive_u53(value))
+                    && env
+                        .get("LUCA_COMMUNICATIONS_CONVERSATION_ID")
+                        .is_some_and(|value| is_uuid(value))
+                    && env
+                        .get("LUCA_COMMUNICATIONS_TURN_ID")
+                        .is_some_and(|value| is_opaque_id(value))
+                    && env
+                        .get("LUCA_COMMUNICATIONS_DISPATCH_RECEIPT_ID")
+                        .is_some_and(|value| is_opaque_id(value))
+                    && env
+                        .get("LUCA_COMMUNICATIONS_CANCELLATION_EPOCH")
+                        .is_some_and(|value| is_safe_positive_u53(value))
+            }
+            _ => false,
+        };
+        if !valid {
+            return Err("unsupported MCP projection".into());
+        }
     }
     Ok(())
 }
 
-fn valid_repository_endpoint(value: &str) -> bool {
+fn valid_broker_endpoint(value: &str, directory_prefix: &str) -> bool {
     let path = Path::new(value);
     let Some(directory_name) = path
         .parent()
@@ -332,7 +375,7 @@ fn valid_repository_endpoint(value: &str) -> bool {
     let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
         return false;
     };
-    let Some(directory_nonce) = directory_name.strip_prefix("luca-rb-") else {
+    let Some(directory_nonce) = directory_name.strip_prefix(directory_prefix) else {
         return false;
     };
     let Some(endpoint) = file_name
@@ -354,6 +397,20 @@ fn valid_repository_endpoint(value: &str) -> bool {
         && session_epoch.bytes().all(|byte| byte.is_ascii_digit())
         && endpoint_nonce.len() == 16
         && endpoint_nonce.bytes().all(is_lower_hex)
+}
+
+fn is_safe_positive_u53(value: &str) -> bool {
+    value
+        .parse::<u64>()
+        .is_ok_and(|number| (1..=9_007_199_254_740_991).contains(&number))
+}
+
+fn is_opaque_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
 }
 
 fn is_lower_hex(byte: u8) -> bool {
@@ -551,6 +608,9 @@ fn build_command(
     for key in REPOSITORY_ENV_KEYS {
         command.env_remove(key);
     }
+    for key in COMMUNICATIONS_ENV_KEYS {
+        command.env_remove(key);
+    }
     command
 }
 
@@ -575,13 +635,17 @@ fn write_overlay(
             }),
         );
     }
+    let also_allow = projected
+        .keys()
+        .map(|name| format!("{name}__*"))
+        .collect::<Vec<_>>();
     let overlay = if projected.is_empty() {
         json!({ "$include": native_config_path })
     } else {
         json!({
             "$include": native_config_path,
             "mcp": { "servers": projected },
-            "tools": { "alsoAllow": ["luca-repositories__*"] }
+            "tools": { "alsoAllow": also_allow }
         })
     };
     let bytes = serde_json::to_vec(&overlay).map_err(|_| "turn overlay invalid".to_owned())?;
@@ -709,6 +773,49 @@ mod tests {
         }
     }
 
+    fn communications_server(capability: &str) -> McpServerStdio {
+        McpServerStdio {
+            name: COMMUNICATIONS_SERVER_NAME.into(),
+            command: "/opt/luca/buzz-dev-mcp".into(),
+            args: Vec::new(),
+            env: vec![
+                EnvVar {
+                    name: "LUCA_COMMUNICATIONS_MODE".into(),
+                    value: "1".into(),
+                },
+                EnvVar {
+                    name: "LUCA_COMMUNICATIONS_ENDPOINT".into(),
+                    value: "/tmp/luca-cb-11111111111111111111111111111111/e7-2222222222222222.sock"
+                        .into(),
+                },
+                EnvVar {
+                    name: "LUCA_COMMUNICATIONS_CAPABILITY".into(),
+                    value: capability.into(),
+                },
+                EnvVar {
+                    name: "LUCA_COMMUNICATIONS_CAPABILITY_GENERATION".into(),
+                    value: "9".into(),
+                },
+                EnvVar {
+                    name: "LUCA_COMMUNICATIONS_CONVERSATION_ID".into(),
+                    value: "c590e1d2-f77a-4da3-aa91-679dcf381b03".into(),
+                },
+                EnvVar {
+                    name: "LUCA_COMMUNICATIONS_TURN_ID".into(),
+                    value: "turn-1".into(),
+                },
+                EnvVar {
+                    name: "LUCA_COMMUNICATIONS_DISPATCH_RECEIPT_ID".into(),
+                    value: "dispatch-1".into(),
+                },
+                EnvVar {
+                    name: "LUCA_COMMUNICATIONS_CANCELLATION_EPOCH".into(),
+                    value: "7".into(),
+                },
+            ],
+        }
+    }
+
     #[test]
     fn repository_projection_is_exact_and_scoped() {
         assert!(validate_mcp_servers(&[]).is_ok());
@@ -726,18 +833,41 @@ mod tests {
     }
 
     #[test]
+    fn repository_and_communications_projections_are_exact_and_scoped() {
+        let repository = repository_server(&format!("sha256:{}", "a".repeat(64)));
+        let communications = communications_server(&format!("sha256:{}", "b".repeat(64)));
+        assert!(validate_mcp_servers(&[repository.clone(), communications.clone()]).is_ok());
+        assert!(validate_mcp_servers(std::slice::from_ref(&communications)).is_ok());
+        assert!(validate_mcp_servers(&[communications.clone(), communications]).is_err());
+
+        let mut invalid = communications_server(&format!("sha256:{}", "b".repeat(64)));
+        invalid
+            .env
+            .iter_mut()
+            .find(|entry| entry.name == "LUCA_COMMUNICATIONS_ENDPOINT")
+            .unwrap()
+            .value =
+            "/tmp/luca-rb-11111111111111111111111111111111/e7-2222222222222222.sock".into();
+        assert!(validate_mcp_servers(&[invalid]).is_err());
+    }
+
+    #[test]
     fn repository_endpoint_matches_only_the_desktop_broker_shape() {
-        assert!(valid_repository_endpoint(
-            "/tmp/luca-rb-11111111111111111111111111111111/e9007199254740991-abcdef0123456789.sock"
+        assert!(valid_broker_endpoint(
+            "/tmp/luca-rb-11111111111111111111111111111111/e9007199254740991-abcdef0123456789.sock",
+            "luca-rb-"
         ));
-        assert!(!valid_repository_endpoint(
-            "/tmp/luca-rb-11111111111111111111111111111111/repository.sock"
+        assert!(!valid_broker_endpoint(
+            "/tmp/luca-rb-11111111111111111111111111111111/repository.sock",
+            "luca-rb-"
         ));
-        assert!(!valid_repository_endpoint(
-            "/tmp/luca-rb-11111111111111111111111111111111/e7-../../escape.sock"
+        assert!(!valid_broker_endpoint(
+            "/tmp/luca-rb-11111111111111111111111111111111/e7-../../escape.sock",
+            "luca-rb-"
         ));
-        assert!(!valid_repository_endpoint(
-            "/private/tmp/luca-rb-11111111111111111111111111111111/e7-2222222222222222.sock"
+        assert!(!valid_broker_endpoint(
+            "/private/tmp/luca-rb-11111111111111111111111111111111/e7-2222222222222222.sock",
+            "luca-rb-"
         ));
     }
 
@@ -763,6 +893,11 @@ mod tests {
                 .any(|(name, value)| name == key && value.is_none()));
         }
         for key in REPOSITORY_ENV_KEYS {
+            assert!(command
+                .get_envs()
+                .any(|(name, value)| name == key && value.is_none()));
+        }
+        for key in COMMUNICATIONS_ENV_KEYS {
             assert!(command
                 .get_envs()
                 .any(|(name, value)| name == key && value.is_none()));
