@@ -483,7 +483,7 @@ pub(crate) struct CommunicationsMessageResidentParams {
     /// Unique local resident display name or alias. Luca resolves the public
     /// key internally and never asks the model or owner to provide it.
     resident_name: String,
-    /// Ordinary UTF-8 message text to send in the owner-visible private
+    /// Ordinary UTF-8 message text to send in the current owner-visible
     /// conversation before requesting one-hop activation.
     body: String,
 }
@@ -749,7 +749,7 @@ impl LucaCommunicationsMcp {
 
     #[tool(
         name = "communications_message_resident",
-        description = "Resolve one unique same-owner local resident by display name or alias, open or reuse the owner-visible private conversation, send the message, and request that resident's activation atomically. Use this when the owner names a resident; never ask for a public key."
+        description = "Resolve one unique same-owner local resident by display name or alias, add it to the current owner-visible conversation if needed, send the message there, and request activation atomically. Use this when the owner names a resident; never ask for a public key and never create a separate conversation."
     )]
     async fn communications_message_resident(
         &self,

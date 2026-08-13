@@ -242,6 +242,22 @@ impl CommunicationBrokerBackend for TestBackend {
             .lock()
             .expect("invitations")
             .push((conversation_id.clone(), participant_pubkey.clone()));
+        let mut conversations = self.conversations.lock().expect("test conversations");
+        let conversation = conversations
+            .get_mut(conversation_id.as_str())
+            .ok_or_else(BrokerFailure::membership_denied)?;
+        if conversation
+            .participant_pubkeys
+            .insert(participant_pubkey.clone())
+        {
+            conversation.participant_set_version = safe(
+                conversation
+                    .participant_set_version
+                    .get()
+                    .checked_add(1)
+                    .expect("test membership version"),
+            );
+        }
         Ok(ManagedConversationMutation {
             conversation_id: conversation_id.clone(),
             state: "member_added_or_present",
@@ -646,8 +662,17 @@ fn direct_agent_message_is_forced_owner_visible_and_external_delivery_is_denied(
 }
 
 #[test]
-fn named_resident_message_atomically_resolves_dm_sends_and_activates_twice() {
+fn named_resident_message_adds_to_current_conversation_sends_and_activates_twice() {
     let fixture = Fixture::new();
+    fixture
+        .backend
+        .insert_conversation(CommunicationConversationAuthority {
+            conversation_id: opaque("conversation-1"),
+            participant_pubkeys: [hex64(OWNER), hex64(RESIDENT)].into_iter().collect(),
+            participant_set_version: safe(2),
+            agent_may_invite_same_owner: true,
+            read_only: false,
+        });
     for (request_id, name) in [("operation-1", "MAIN"), ("operation-2", "main")] {
         let mut frame = fixture.frame(
             "message_resident",
@@ -662,19 +687,21 @@ fn named_resident_message_atomically_resolves_dm_sends_and_activates_twice() {
         assert!(response.content.contains("activation"));
     }
 
-    let expected_participants = [hex64(OWNER), hex64(RESIDENT), hex64(OTHER_RESIDENT)]
-        .into_iter()
-        .collect::<BTreeSet<_>>();
-    let resolutions = fixture
+    assert!(fixture
         .backend
         .direct_resolutions
         .lock()
-        .expect("direct resolutions");
+        .expect("direct resolutions")
+        .is_empty());
     assert_eq!(
-        resolutions.as_slice(),
-        &[expected_participants.clone(), expected_participants]
+        fixture
+            .backend
+            .invitations
+            .lock()
+            .expect("invitations")
+            .as_slice(),
+        &[(opaque("conversation-1"), hex64(OTHER_RESIDENT))]
     );
-    drop(resolutions);
 
     let staged = fixture.backend.staged.lock().expect("staged");
     assert_eq!(staged.len(), 2);
@@ -693,7 +720,48 @@ fn named_resident_message_atomically_resolves_dm_sends_and_activates_twice() {
         assert_eq!(mention_pubkeys, &[hex64(OTHER_RESIDENT)]);
         assert_eq!(activation_pubkeys, &[hex64(OTHER_RESIDENT)]);
         assert!(artifact_handles.is_empty());
+        let CommunicationDestinationV1::ExistingConversation {
+            conversation_id, ..
+        } = &request.destination
+        else {
+            panic!("current conversation destination");
+        };
+        assert_eq!(conversation_id, &opaque("conversation-1"));
     }
+}
+
+#[test]
+fn named_resident_authority_failure_cannot_create_a_separate_conversation() {
+    let fixture = Fixture::new();
+    fixture
+        .backend
+        .insert_conversation(CommunicationConversationAuthority {
+            conversation_id: opaque("conversation-1"),
+            participant_pubkeys: [hex64(OWNER), hex64(RESIDENT)].into_iter().collect(),
+            participant_set_version: safe(2),
+            agent_may_invite_same_owner: true,
+            read_only: false,
+        });
+    fixture.authority.fail_on_call(2);
+    let response = fixture.response(
+        "message_resident",
+        json!({"resident_name": "Main", "body": "hello"}),
+    );
+    assert!(!response.ok);
+    assert_eq!(response.receipt.diagnostic_code, Some("turn_not_active"));
+    assert!(fixture
+        .backend
+        .direct_resolutions
+        .lock()
+        .expect("direct resolutions")
+        .is_empty());
+    assert!(fixture
+        .backend
+        .invitations
+        .lock()
+        .expect("invitations")
+        .is_empty());
+    assert!(fixture.backend.staged.lock().expect("staged").is_empty());
 }
 
 #[test]

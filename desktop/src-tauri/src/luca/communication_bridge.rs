@@ -746,19 +746,36 @@ impl CommunicationBridgeCore {
         {
             return Err(BrokerFailure::same_owner_required());
         }
-        let (destination, _, participants) = self.resolve_send_destination(
-            &authority,
-            RawDestination::DirectParticipants {
-                participant_pubkeys: vec![target.as_str().to_owned()],
-            },
-        )?;
-        if !participants.contains(&target) {
+        let source_conversation_id = authority.coordinates.source_conversation_id.clone();
+        let mut conversation = self
+            .backend
+            .conversation_authority(&read_scope(&authority), &source_conversation_id)?;
+        conversation.require_internal_write(&authority)?;
+        if !conversation.participant_pubkeys.contains(&target) {
+            if !conversation.agent_may_invite_same_owner {
+                return Err(BrokerFailure::membership_denied());
+            }
+            let rechecked = self.recheck_exact_authority(&authority)?;
+            let result = self.backend.invite_same_owner_resident(
+                &rechecked,
+                &source_conversation_id,
+                &target,
+            )?;
+            if !matches!(result.state, "member_added_or_present") {
+                return Err(BrokerFailure::managed_operation_failed());
+            }
+            conversation = self
+                .backend
+                .conversation_authority(&read_scope(&authority), &result.conversation_id)?;
+            conversation.require_internal_write(&authority)?;
+        }
+        if !conversation.participant_pubkeys.contains(&target) {
             return Err(BrokerFailure::membership_denied());
         }
         self.stage_request(
             authority,
             operation_request_id,
-            destination,
+            conversation.destination()?,
             CommunicationOperationV1::SendMessage {
                 body: raw.body,
                 reply_to_event_id: None,
