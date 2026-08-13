@@ -138,13 +138,7 @@ impl ManagedPresentationPublisher {
                 let Some(channel_id) = event.channel_id.as_deref() else {
                     return;
                 };
-                let Some(receipt_id) = event
-                    .payload
-                    .get("triggeringEventIds")
-                    .and_then(|value| value.as_array())
-                    .and_then(|values| values.last())
-                    .and_then(|value| value.as_str())
-                else {
+                let Some(receipt_id) = managed_dispatch_receipt_id(&event.payload) else {
                     return;
                 };
                 let Ok(conversation_id) = OpaqueId::parse(channel_id) else {
@@ -367,6 +361,19 @@ impl ManagedPresentationPublisher {
     }
 }
 
+fn managed_dispatch_receipt_id(payload: &serde_json::Value) -> Option<&str> {
+    payload
+        .get("managedDispatchReceiptId")
+        .and_then(|value| value.as_str())
+        .or_else(|| {
+            payload
+                .get("triggeringEventIds")
+                .and_then(|value| value.as_array())
+                .and_then(|values| values.last())
+                .and_then(|value| value.as_str())
+        })
+}
+
 fn bounded_chunks(value: &str) -> Vec<String> {
     let mut parts = Vec::new();
     let mut remaining = value;
@@ -406,5 +413,39 @@ mod tests {
             gate.push("Warning: a real answer"),
             Some("Warning: a real answer".into())
         );
+    }
+
+    #[test]
+    fn sequential_turns_use_each_exact_managed_dispatch_not_batch_tail() {
+        let owner_one = "11".repeat(32);
+        let resident_tail_one = "aa".repeat(32);
+        let owner_two = "22".repeat(32);
+        let resident_tail_two = "bb".repeat(32);
+
+        let first = serde_json::json!({
+            "triggeringEventIds": [owner_one, resident_tail_one],
+            "managedDispatchReceiptId": owner_one,
+        });
+        let second = serde_json::json!({
+            "triggeringEventIds": [owner_two, resident_tail_two],
+            "managedDispatchReceiptId": owner_two,
+        });
+
+        assert_eq!(
+            managed_dispatch_receipt_id(&first),
+            Some(owner_one.as_str())
+        );
+        assert_eq!(
+            managed_dispatch_receipt_id(&second),
+            Some(owner_two.as_str())
+        );
+    }
+
+    #[test]
+    fn legacy_turn_started_payload_keeps_last_event_fallback() {
+        let older = "33".repeat(32);
+        let latest = "44".repeat(32);
+        let payload = serde_json::json!({"triggeringEventIds": [older, latest]});
+        assert_eq!(managed_dispatch_receipt_id(&payload), Some(latest.as_str()));
     }
 }

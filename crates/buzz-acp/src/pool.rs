@@ -1900,6 +1900,10 @@ pub async fn run_prompt_task(
         turn_id.clone(),
         turn_started_at.clone(),
     ));
+    let communications_turn = match &source {
+        PromptSource::Channel(_) => managed_communications_turn(&ctx, batch.as_ref(), &turn_id),
+        PromptSource::Heartbeat | PromptSource::Continuity(_) => None,
+    };
     let triggering_event_ids: Vec<String> = batch
         .as_ref()
         .map(|b| b.events.iter().map(|be| be.event.id.to_hex()).collect())
@@ -1913,13 +1917,15 @@ pub async fn run_prompt_task(
                 PromptSource::Continuity(_) => "continuity",
             },
             "triggeringEventIds": triggering_event_ids,
+            // The batch can contain a resident event after the owner trigger.
+            // Freeze the same exact owner dispatch used by the per-turn MCP
+            // capability so presentation registration never guesses from
+            // batch order on later sessions.
+            "managedDispatchReceiptId": communications_turn
+                .as_ref()
+                .map(|turn| turn.dispatch_receipt_id.as_str()),
         }),
     );
-
-    let communications_turn = match &source {
-        PromptSource::Channel(_) => managed_communications_turn(&ctx, batch.as_ref(), &turn_id),
-        PromptSource::Heartbeat | PromptSource::Continuity(_) => None,
-    };
 
     // Emits `turn_completed` on any exit path. Captures observer handle and
     // metadata now, before the agent is moved into PromptResult. It must be
