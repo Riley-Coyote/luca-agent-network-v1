@@ -72,15 +72,13 @@ async function installAudioRecorder(
           },
         ],
       } as unknown as MediaStream;
-      Object.defineProperty(navigator, "mediaDevices", {
+      Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
         configurable: true,
-        value: {
-          getUserMedia: async () => {
-            if (permission === "denied") {
-              throw new DOMException("denied", "NotAllowedError");
-            }
-            return stream;
-          },
+        value: async () => {
+          if (permission === "denied") {
+            throw new DOMException("denied", "NotAllowedError");
+          }
+          return stream;
         },
       });
 
@@ -304,11 +302,29 @@ test("blackout composer sends, replies, mentions, invites, and activates through
   ).toBeVisible();
   await sent.hover();
   await sent.getByRole("button", { name: "Reply" }).click();
-  const thread = page.getByTestId("message-thread-panel");
-  await expect(thread).toBeVisible();
-  await thread.getByTestId("message-input").fill("Thread reply is visible");
-  await thread.getByTestId("send-message").click();
-  await expect(thread).toContainText("Thread reply is visible");
+  const composer = page.getByTestId("message-composer");
+  await expect(
+    page.getByText("Replying to You", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Loop in @fizz for the preview", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Cancel reply" }),
+  ).toBeVisible();
+  await composer.getByTestId("message-input").fill("Thread reply is visible");
+  await composer.getByTestId("send-message").click();
+  await expect(
+    page
+      .getByTestId("message-row")
+      .filter({ hasText: "Thread reply is visible" }),
+  ).toBeVisible();
+  await expect(page.getByText("Replying to You", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(page.getByRole("button", { name: "Cancel reply" })).toHaveCount(
+    0,
+  );
 });
 
 test("blackout owner controls react, remove, edit, attach, and confirm deletion", async ({
