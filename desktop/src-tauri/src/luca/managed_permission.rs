@@ -18,7 +18,31 @@ const RESOLVED_EVENT: &str = "managed-permission-resolved";
 
 struct Pending {
     request: ManagedPermissionRequestV1,
-    decision_tx: mpsc::Sender<ManagedPermissionDecisionV1>,
+    decision_tx: mpsc::Sender<ResolvedManagedPermission>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ManagedPermissionResolutionOutcome {
+    Approved,
+    Rejected,
+    Cancelled,
+    Expired,
+    SessionReplaced,
+    ApplicationClosed,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedManagedPermission {
+    decision: ManagedPermissionDecisionV1,
+    outcome: ManagedPermissionResolutionOutcome,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ManagedPermissionResolvedEvent {
+    pending_id: String,
+    outcome: ManagedPermissionResolutionOutcome,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -48,6 +72,32 @@ fn cancelled(request: &ManagedPermissionRequestV1) -> ManagedPermissionDecisionV
         acp_request_id: request.acp_request_id.clone(),
         disposition: ManagedPermissionDispositionV1::Cancelled,
         option_id: None,
+    }
+}
+
+fn cancelled_resolution(
+    request: &ManagedPermissionRequestV1,
+    outcome: ManagedPermissionResolutionOutcome,
+) -> ResolvedManagedPermission {
+    ResolvedManagedPermission {
+        decision: cancelled(request),
+        outcome,
+    }
+}
+
+fn selected_outcome(
+    request: &ManagedPermissionRequestV1,
+    option_id: &str,
+) -> ManagedPermissionResolutionOutcome {
+    // The option ID remains the only protocol decision. This classification
+    // reads the runtime-advertised semantic kind solely for local presentation
+    // and never infers authority from its display label.
+    if request.options.iter().any(|option| {
+        option.option_id == option_id && option.kind.to_ascii_lowercase().starts_with("reject")
+    }) {
+        ManagedPermissionResolutionOutcome::Rejected
+    } else {
+        ManagedPermissionResolutionOutcome::Approved
     }
 }
 
@@ -161,19 +211,29 @@ pub(crate) fn await_local_decision(
                 request: request.clone(),
             },
         );
-        rx.recv_timeout(Duration::from_secs(MANAGED_PERMISSION_TIMEOUT_SECS))
-            .unwrap_or_else(|_| cancelled(&request))
+        match rx.recv_timeout(Duration::from_secs(MANAGED_PERMISSION_TIMEOUT_SECS)) {
+            Ok(resolution) => resolution,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                cancelled_resolution(&request, ManagedPermissionResolutionOutcome::Expired)
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                cancelled_resolution(&request, ManagedPermissionResolutionOutcome::Cancelled)
+            }
+        }
     } else {
-        cancelled(&request)
+        cancelled_resolution(&request, ManagedPermissionResolutionOutcome::Cancelled)
     };
     if let Ok(mut entries) = pending().lock() {
         entries.remove(&id);
     }
     let _ = app.emit(
         RESOLVED_EVENT,
-        serde_json::json!({"pendingId": id, "disposition": decision.disposition}),
+        ManagedPermissionResolvedEvent {
+            pending_id: id,
+            outcome: decision.outcome,
+        },
     );
-    decision
+    decision.decision
 }
 
 pub(crate) fn list_pending() -> Result<Vec<PendingManagedPermission>, String> {
@@ -196,6 +256,11 @@ pub(crate) fn resolve(pending_id: &str, option_id: Option<String>) -> Result<(),
     let pending = entries.get(pending_id).ok_or_else(|| {
         "managed permission request is unknown, expired, or already resolved".to_string()
     })?;
+    let outcome = option_id
+        .as_deref()
+        .map_or(ManagedPermissionResolutionOutcome::Cancelled, |option_id| {
+            selected_outcome(&pending.request, option_id)
+        });
     let decision = ManagedPermissionDecisionV1 {
         protocol: MANAGED_PERMISSION_PROTOCOL.into(),
         resident_pubkey: pending.request.resident_pubkey.clone(),
@@ -218,14 +283,17 @@ pub(crate) fn resolve(pending_id: &str, option_id: Option<String>) -> Result<(),
         .ok_or_else(|| "managed permission request disappeared".to_string())?;
     pending
         .decision_tx
-        .send(decision)
+        .send(ResolvedManagedPermission { decision, outcome })
         .map_err(|_| "managed permission request is no longer waiting".to_string())
 }
 
 pub(crate) fn cancel_all() {
     if let Ok(mut entries) = pending().lock() {
         for (_, pending) in entries.drain() {
-            let _ = pending.decision_tx.send(cancelled(&pending.request));
+            let _ = pending.decision_tx.send(cancelled_resolution(
+                &pending.request,
+                ManagedPermissionResolutionOutcome::ApplicationClosed,
+            ));
         }
     }
 }
@@ -243,7 +311,10 @@ pub(crate) fn cancel_resident_session(resident_pubkey: &str, session_epoch: u64)
             .collect();
         for id in doomed {
             if let Some(pending) = entries.remove(&id) {
-                let _ = pending.decision_tx.send(cancelled(&pending.request));
+                let _ = pending.decision_tx.send(cancelled_resolution(
+                    &pending.request,
+                    ManagedPermissionResolutionOutcome::SessionReplaced,
+                ));
             }
         }
     }
@@ -308,7 +379,7 @@ mod tests {
 
     fn insert_pending(
         request: ManagedPermissionRequestV1,
-    ) -> (String, mpsc::Receiver<ManagedPermissionDecisionV1>) {
+    ) -> (String, mpsc::Receiver<ResolvedManagedPermission>) {
         let id = pending_id(&request);
         let (tx, rx) = mpsc::channel();
         pending().lock().expect("pending registry").insert(
@@ -345,9 +416,14 @@ mod tests {
         let (allow_id, allow_rx) = insert_pending(allow_request.clone());
         resolve(&allow_id, Some("runtime-allow".into())).expect("advertised allow resolves");
         let allow = allow_rx.recv().expect("allow decision delivered");
-        assert_eq!(allow.disposition, ManagedPermissionDispositionV1::Selected);
-        assert_eq!(allow.option_id.as_deref(), Some("runtime-allow"));
+        assert_eq!(allow.outcome, ManagedPermissionResolutionOutcome::Approved);
+        assert_eq!(
+            allow.decision.disposition,
+            ManagedPermissionDispositionV1::Selected
+        );
+        assert_eq!(allow.decision.option_id.as_deref(), Some("runtime-allow"));
         allow
+            .decision
             .validate_for(&allow_request)
             .expect("allow binds exact request");
         assert!(
@@ -359,9 +435,14 @@ mod tests {
         let (reject_id, reject_rx) = insert_pending(reject_request.clone());
         resolve(&reject_id, Some("runtime-reject".into())).expect("advertised reject resolves");
         let reject = reject_rx.recv().expect("reject decision delivered");
-        assert_eq!(reject.disposition, ManagedPermissionDispositionV1::Selected);
-        assert_eq!(reject.option_id.as_deref(), Some("runtime-reject"));
+        assert_eq!(reject.outcome, ManagedPermissionResolutionOutcome::Rejected);
+        assert_eq!(
+            reject.decision.disposition,
+            ManagedPermissionDispositionV1::Selected
+        );
+        assert_eq!(reject.decision.option_id.as_deref(), Some("runtime-reject"));
         reject
+            .decision
             .validate_for(&reject_request)
             .expect("reject binds exact request");
 
@@ -370,10 +451,15 @@ mod tests {
         resolve(&cancel_id, None).expect("explicit cancellation resolves");
         let cancellation = cancel_rx.recv().expect("cancellation delivered");
         assert_eq!(
-            cancellation.disposition,
+            cancellation.outcome,
+            ManagedPermissionResolutionOutcome::Cancelled
+        );
+        assert_eq!(
+            cancellation.decision.disposition,
             ManagedPermissionDispositionV1::Cancelled
         );
         cancellation
+            .decision
             .validate_for(&cancel_request)
             .expect("cancellation binds exact request");
 
@@ -392,10 +478,15 @@ mod tests {
         cancel_resident_session(&resident, 7);
         let session_cancellation = session_rx.recv().expect("matching epoch cancels");
         assert_eq!(
-            session_cancellation.disposition,
+            session_cancellation.outcome,
+            ManagedPermissionResolutionOutcome::SessionReplaced
+        );
+        assert_eq!(
+            session_cancellation.decision.disposition,
             ManagedPermissionDispositionV1::Cancelled
         );
         session_cancellation
+            .decision
             .validate_for(&session_request)
             .expect("session cancellation binds request");
         assert!(
@@ -403,6 +494,45 @@ mod tests {
             "cancelled ID is stale or unknown"
         );
         assert!(list_pending().expect("pending list").is_empty());
+
+        let close_request = request("close", 8);
+        let (_close_id, close_rx) = insert_pending(close_request.clone());
+        cancel_all();
+        let application_closed = close_rx.recv().expect("application close resolves");
+        assert_eq!(
+            application_closed.outcome,
+            ManagedPermissionResolutionOutcome::ApplicationClosed
+        );
+        application_closed
+            .decision
+            .validate_for(&close_request)
+            .expect("application close cancellation binds request");
+
+        assert_eq!(
+            cancelled_resolution(
+                &request("expired", 9),
+                ManagedPermissionResolutionOutcome::Expired,
+            )
+            .outcome,
+            ManagedPermissionResolutionOutcome::Expired
+        );
+        let safe_event = serde_json::to_value(ManagedPermissionResolvedEvent {
+            pending_id: "safe-id".into(),
+            outcome: ManagedPermissionResolutionOutcome::Rejected,
+        })
+        .expect("serialize safe resolution event");
+        assert_eq!(
+            safe_event,
+            serde_json::json!({"pendingId": "safe-id", "outcome": "rejected"})
+        );
+        assert_eq!(
+            safe_event
+                .as_object()
+                .expect("safe resolution object")
+                .len(),
+            2,
+            "resolution events never expose permission request metadata"
+        );
         // This test reaches only the private desktop registry and local decisions;
         // it neither creates a relay event nor calls publication/signing authority.
     }

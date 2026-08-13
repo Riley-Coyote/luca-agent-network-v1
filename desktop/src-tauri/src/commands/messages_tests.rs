@@ -1,6 +1,52 @@
 use super::*;
 
 #[test]
+fn managed_operational_status_requires_exact_conversation_and_is_body_free() {
+    let conversation_id = uuid::Uuid::new_v4().to_string();
+    assert_eq!(
+        validate_operational_status_conversation(&conversation_id),
+        Ok(())
+    );
+    assert_eq!(
+        validate_operational_status_conversation("not-a-conversation"),
+        Err("managed operational status requires an exact conversation UUID".to_string())
+    );
+
+    let serialized = serde_json::to_value(ManagedConversationOperationalStatus {
+        dispatch_receipt_id: "ab".repeat(32),
+        status: ManagedConversationOperationalState::InterruptedAfterRestart,
+    })
+    .expect("serialize body-free operational status");
+    assert_eq!(
+        serialized,
+        serde_json::json!({
+            "dispatchReceiptId": "ab".repeat(32),
+            "status": "interrupted_after_restart"
+        })
+    );
+    let object = serialized.as_object().expect("operational status object");
+    assert_eq!(
+        object.len(),
+        2,
+        "no sensitive or generalized history fields"
+    );
+    for forbidden in [
+        "ownerPubkey",
+        "residentPubkey",
+        "body",
+        "content",
+        "path",
+        "runtimeConfig",
+        "event",
+    ] {
+        assert!(
+            !object.contains_key(forbidden),
+            "forbidden field {forbidden}"
+        );
+    }
+}
+
+#[test]
 fn managed_cancel_status_never_claims_terminal_cancel_without_an_ack() {
     assert_eq!(
         completed_cancel_status(false, true),

@@ -196,6 +196,15 @@ pub(crate) struct CancellableManagedDispatch {
     pub session_epoch: u64,
 }
 
+/// Body-free durable outcome for an owner trigger interrupted by desktop restart.
+///
+/// Resident and owner keys, message content, runtime configuration, local paths,
+/// and raw event JSON deliberately remain inside the authority layer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InterruptedManagedDispatchSummary {
+    pub dispatch_receipt_id: String,
+}
+
 /// Body-free canonical dispatch authority for one exact resident pre-turn.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ContinuityDispatchAuthority {
@@ -908,6 +917,35 @@ impl ManagedDispatchStore {
                 .then_with(|| left.dispatch_receipt_id.cmp(&right.dispatch_receipt_id))
         });
         turns
+    }
+
+    /// List durable restart interruptions for exactly one owner conversation.
+    ///
+    /// Only the exact `Interrupted` + `Restart` terminal combination is
+    /// projected. The result intentionally omits resident and owner keys,
+    /// bodies, paths, runtime configuration, and raw event material.
+    pub(crate) fn interrupted_after_restart_for_conversation(
+        &self,
+        owner_pubkey: &str,
+        conversation_id: &str,
+    ) -> Vec<InterruptedManagedDispatchSummary> {
+        let owner_pubkey = owner_pubkey.to_ascii_lowercase();
+        let mut summaries = self
+            .dispatches
+            .values()
+            .filter(|dispatch| {
+                dispatch.owner_pubkey == owner_pubkey
+                    && dispatch.conversation_id == conversation_id
+                    && dispatch.state == ManagedDispatchState::Interrupted
+                    && dispatch.interruption_reason
+                        == Some(ManagedDispatchInterruptionReason::Restart)
+            })
+            .map(|dispatch| InterruptedManagedDispatchSummary {
+                dispatch_receipt_id: dispatch.trigger_event_id.clone(),
+            })
+            .collect::<Vec<_>>();
+        summaries.sort_by(|left, right| left.dispatch_receipt_id.cmp(&right.dispatch_receipt_id));
+        summaries
     }
 
     /// Persist cancellation of exactly one claimed resident turn before the
@@ -2771,6 +2809,24 @@ mod tests {
             Some(ManagedDispatchInterruptionReason::Restart)
         );
         assert!(row.outbox_finalized);
+        assert_eq!(
+            store.interrupted_after_restart_for_conversation(
+                &owner.public_key().to_hex(),
+                CHANNEL_ONE,
+            ),
+            vec![InterruptedManagedDispatchSummary {
+                dispatch_receipt_id: trigger.id.to_hex(),
+            }]
+        );
+        assert!(store
+            .interrupted_after_restart_for_conversation(
+                &Keys::generate().public_key().to_hex(),
+                CHANNEL_ONE,
+            )
+            .is_empty());
+        assert!(store
+            .interrupted_after_restart_for_conversation(&owner.public_key().to_hex(), CHANNEL_TWO,)
+            .is_empty());
         assert_eq!(
             store.authorize_reconciliation(&request, &event_id, 103),
             Err(DispatchAuthorizationError::Terminal),

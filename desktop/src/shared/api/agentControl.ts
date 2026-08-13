@@ -3,6 +3,7 @@ import { sendAgentObserverControl } from "@/shared/api/observerRelay";
 import type {
   CancelManagedAgentTurnResult,
   CancellableManagedTurn,
+  ManagedConversationOperationalStatus,
 } from "@/shared/api/types";
 
 export async function listCancellableManagedTurns(
@@ -10,6 +11,15 @@ export async function listCancellableManagedTurns(
 ): Promise<CancellableManagedTurn[]> {
   return invokeTauri<CancellableManagedTurn[]>(
     "list_cancellable_managed_turns",
+    { conversationId: channelId },
+  );
+}
+
+export async function listManagedConversationOperationalStatus(
+  channelId: string,
+): Promise<ManagedConversationOperationalStatus[]> {
+  return invokeTauri<ManagedConversationOperationalStatus[]>(
+    "list_managed_conversation_operational_status",
     { conversationId: channelId },
   );
 }

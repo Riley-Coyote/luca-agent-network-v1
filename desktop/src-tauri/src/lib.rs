@@ -758,6 +758,7 @@ pub fn run() {
             search_messages,
             send_channel_message,
             list_cancellable_managed_turns,
+            list_managed_conversation_operational_status,
             cancel_managed_turn,
             list_pending_managed_permissions,
             resolve_managed_permission,

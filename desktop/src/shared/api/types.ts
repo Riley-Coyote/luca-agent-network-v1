@@ -488,6 +488,11 @@ export type CancellableManagedTurn = {
   sessionEpoch: number;
 };
 
+export type ManagedConversationOperationalStatus = {
+  dispatchReceiptId: string;
+  status: "interrupted_after_restart";
+};
+
 export type ManagedPermissionOption = {
   optionId: string;
   name: string;
@@ -509,6 +514,19 @@ export type ManagedPermissionRequest = {
 export type PendingManagedPermission = {
   pendingId: string;
   request: ManagedPermissionRequest;
+};
+
+export type ManagedPermissionResolutionOutcome =
+  | "approved"
+  | "rejected"
+  | "cancelled"
+  | "expired"
+  | "session_replaced"
+  | "application_closed";
+
+export type ManagedPermissionResolvedEvent = {
+  pendingId: string;
+  outcome: ManagedPermissionResolutionOutcome;
 };
 
 /**

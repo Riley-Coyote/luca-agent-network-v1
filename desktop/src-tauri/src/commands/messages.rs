@@ -40,6 +40,21 @@ pub struct CancellableManagedTurn {
     pub session_epoch: u64,
 }
 
+/// Body-free durable operational result for a managed owner trigger.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedConversationOperationalStatus {
+    pub dispatch_receipt_id: String,
+    pub status: ManagedConversationOperationalState,
+}
+
+/// The only durable operational state exposed by this bounded read adapter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ManagedConversationOperationalState {
+    InterruptedAfterRestart,
+}
+
 /// Truthful terminal status for the local cleanup performed by a managed turn cancellation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -93,6 +108,38 @@ pub fn list_cancellable_managed_turns(
         })
         .collect();
     Ok(turns)
+}
+
+/// Return body-free durable restart interruptions for the signed-in owner's
+/// exact conversation. This command performs no relay query or write and does
+/// not expose resident keys, message bodies, paths, runtime configuration, or
+/// raw event JSON.
+#[tauri::command]
+pub fn list_managed_conversation_operational_status(
+    conversation_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<ManagedConversationOperationalStatus>, String> {
+    validate_operational_status_conversation(&conversation_id)?;
+    let owner_pubkey = state.signing_keys()?.public_key().to_hex();
+    let store = crate::luca::managed_dispatch_store::global_dispatch_store(&app)?;
+    let statuses = store
+        .lock()
+        .map_err(|_| "managed dispatch store lock is unavailable".to_string())?
+        .interrupted_after_restart_for_conversation(&owner_pubkey, &conversation_id)
+        .into_iter()
+        .map(|summary| ManagedConversationOperationalStatus {
+            dispatch_receipt_id: summary.dispatch_receipt_id,
+            status: ManagedConversationOperationalState::InterruptedAfterRestart,
+        })
+        .collect();
+    Ok(statuses)
+}
+
+fn validate_operational_status_conversation(conversation_id: &str) -> Result<(), String> {
+    uuid::Uuid::parse_str(conversation_id)
+        .map(|_| ())
+        .map_err(|_| "managed operational status requires an exact conversation UUID".to_string())
 }
 
 // ── Reads (pure-nostr) ──────────────────────────────────────────────────────

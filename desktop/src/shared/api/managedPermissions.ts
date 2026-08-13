@@ -3,6 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invokeTauri } from "@/shared/api/tauri";
 import type {
   ManagedPermissionRequest,
+  ManagedPermissionResolvedEvent,
   PendingManagedPermission,
 } from "@/shared/api/types";
 
@@ -72,12 +73,17 @@ export async function resolveManagedPermission(
 }
 
 export async function listenForManagedPermissionChanges(
-  onChange: () => void,
+  onChange: (resolution?: ManagedPermissionResolvedEvent) => void,
 ): Promise<UnlistenFn> {
-  const unlistenPending = await listen("managed-permission-pending", onChange);
+  const unlistenPending = await listen("managed-permission-pending", () =>
+    onChange(),
+  );
   let unlistenResolved: UnlistenFn;
   try {
-    unlistenResolved = await listen("managed-permission-resolved", onChange);
+    unlistenResolved = await listen<ManagedPermissionResolvedEvent>(
+      "managed-permission-resolved",
+      (event) => onChange(event.payload),
+    );
   } catch (error) {
     unlistenPending();
     throw error;
