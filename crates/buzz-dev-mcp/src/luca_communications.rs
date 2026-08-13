@@ -35,7 +35,13 @@ const MAX_PAGE_ITEMS: usize = 256;
 const MAX_SAFE_U53: u64 = 9_007_199_254_740_991;
 const BROKER_DEADLINE: Duration = Duration::from_secs(130);
 const TURN_REGISTRATION_RETRY_DELAY: Duration = Duration::from_millis(75);
-const TURN_REGISTRATION_RETRIES: usize = 2;
+// `turn_started` reaches the trusted desktop over a separate presentation
+// pipe from the model's MCP connection. On a warm native runtime the model can
+// invoke a Communications tool before that asynchronous frame is observed and
+// durably bound. Keep retrying only the exact fail-closed `turn_not_active`
+// response for a short startup window; every retry still performs the full
+// turn, session, membership, and cancellation recheck in the desktop broker.
+const TURN_REGISTRATION_RETRIES: usize = 40;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BrokerOperation {
@@ -1119,6 +1125,12 @@ mod tests {
 
     #[test]
     fn only_turn_not_active_gets_the_bounded_registration_retry() {
+        assert_eq!(TURN_REGISTRATION_RETRY_DELAY, Duration::from_millis(75));
+        assert_eq!(TURN_REGISTRATION_RETRIES, 40);
+        assert!(
+            TURN_REGISTRATION_RETRY_DELAY * TURN_REGISTRATION_RETRIES as u32
+                <= Duration::from_secs(3)
+        );
         let mut response = BrokerResponseV1 {
             protocol: BROKER_PROTOCOL.into(),
             ok: false,
