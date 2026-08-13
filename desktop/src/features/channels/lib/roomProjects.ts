@@ -460,11 +460,44 @@ function isProjectDemoRuntime(): boolean {
 }
 
 /**
- * Resolve each room's project. Keyed by channel id, with the demo map falling
- * back to channel NAME so it survives the mock's regenerated ids.
+ * Resolve projectable rooms without changing the catalog or stored assignment.
+ * Direct messages always remain canonical conversations, including when stale
+ * local state or mock fallback data contains an otherwise valid project id.
+ */
+export function resolveRoomProjects(
+  channels: readonly {
+    id: string;
+    name: string;
+    channelType: "stream" | "forum" | "dm";
+  }[],
+  projects: readonly RoomProject[],
+  assignments: Readonly<Record<string, string>>,
+  fallbackAssignments: Readonly<Record<string, string>> = {},
+): ReadonlyMap<string, RoomProject> {
+  const projectsById = new Map(
+    projects.map((project) => [project.id, project]),
+  );
+  const resolved = new Map<string, RoomProject>();
+  for (const channel of channels) {
+    if (channel.channelType === "dm") continue;
+    const projectId =
+      assignments[channel.id] ?? fallbackAssignments[channel.name];
+    const project = projectId ? projectsById.get(projectId) : undefined;
+    if (project) resolved.set(channel.id, project);
+  }
+  return resolved;
+}
+
+/**
+ * Resolve each projectable room's project. Keyed by channel id, with the demo
+ * map falling back to channel NAME so it survives the mock's regenerated ids.
  */
 export function useRoomProjects(
-  channels: readonly { id: string; name: string }[],
+  channels: readonly {
+    id: string;
+    name: string;
+    channelType: "stream" | "forum" | "dm";
+  }[],
   ownerPubkey?: string,
   relayUrl?: string,
 ): ReadonlyMap<string, RoomProject> {
@@ -473,22 +506,12 @@ export function useRoomProjects(
     void revision;
     const includeDemoProjects = isProjectDemoRuntime();
     const store = readRoomProjectStore(ownerPubkey, relayUrl);
-    const projects = new Map(
-      [...store.projects, ...(includeDemoProjects ? DEMO_PROJECTS : [])].map(
-        (project) => [project.id, project],
-      ),
+    return resolveRoomProjects(
+      channels,
+      [...store.projects, ...(includeDemoProjects ? DEMO_PROJECTS : [])],
+      store.assignments,
+      includeDemoProjects ? DEMO_ASSIGNMENT : {},
     );
-    const assignments = store.assignments;
-
-    const resolved = new Map<string, RoomProject>();
-    for (const channel of channels) {
-      const projectId =
-        assignments[channel.id] ??
-        (includeDemoProjects ? DEMO_ASSIGNMENT[channel.name] : undefined);
-      const project = projectId ? projects.get(projectId) : undefined;
-      if (project) resolved.set(channel.id, project);
-    }
-    return resolved;
   }, [channels, ownerPubkey, relayUrl, revision]);
 }
 

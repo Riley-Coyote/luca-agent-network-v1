@@ -9,6 +9,7 @@ import {
   parseRoomProjectStore,
   readRoomProjectStore,
   renameRoomProject,
+  resolveRoomProjects,
   roomProjectStorageKey,
   writeRoomProjectStore,
 } from "./roomProjects.ts";
@@ -137,6 +138,44 @@ test("assignRoomProject keeps one project per room", () => {
     globalThis.window = priorWindow;
     globalThis.localStorage = priorStorage;
   }
+});
+
+test("project resolution ignores direct-message assignments without rewriting input", () => {
+  const channels = [
+    { id: "room", name: "general", channelType: "stream" },
+    { id: "forum", name: "planning", channelType: "forum" },
+    { id: "dm", name: "alice-tyler", channelType: "dm" },
+    { id: "fallback-dm", name: "agent-dm", channelType: "dm" },
+  ];
+  const projects = [{ id: "luca", label: "Luca" }];
+  const assignments = { room: "luca", dm: "luca" };
+  const fallbackAssignments = {
+    planning: "luca",
+    "agent-dm": "luca",
+  };
+  const inputsBeforeResolution = structuredClone({
+    assignments,
+    channels,
+    fallbackAssignments,
+    projects,
+  });
+
+  const resolved = resolveRoomProjects(
+    channels,
+    projects,
+    assignments,
+    fallbackAssignments,
+  );
+
+  assert.deepEqual([...resolved.keys()], ["room", "forum"]);
+  assert.equal(resolved.get("room"), projects[0]);
+  assert.equal(resolved.get("forum"), projects[0]);
+  assert.equal(resolved.has("dm"), false);
+  assert.equal(resolved.has("fallback-dm"), false);
+  assert.deepEqual(
+    { assignments, channels, fallbackAssignments, projects },
+    inputsBeforeResolution,
+  );
 });
 
 test("createRoomProject stores opaque context ids and assigns its first room", () => {

@@ -67,6 +67,28 @@ async function markProjectContextMissing(
   }, projectId);
 }
 
+async function assignStoredProject(
+  page: import("@playwright/test").Page,
+  channelId: string,
+  projectId: string,
+) {
+  await page.evaluate(
+    ({ channelId: id, projectId: assignedProjectId }) => {
+      const key = Object.keys(window.localStorage).find((candidate) =>
+        candidate.startsWith("luca-room-projects.v1:"),
+      );
+      if (!key) throw new Error("Expected a local project store.");
+      const store = JSON.parse(window.localStorage.getItem(key) ?? "null") as {
+        assignments: Record<string, string>;
+      };
+      store.assignments[id] = assignedProjectId;
+      window.localStorage.setItem(key, JSON.stringify(store));
+      window.dispatchEvent(new Event("luca:room-projects-changed"));
+    },
+    { channelId, projectId },
+  );
+}
+
 test("projects open their room navigator and remember the selected room", async ({
   page,
 }) => {
@@ -87,6 +109,82 @@ test("projects open their room navigator and remember the selected room", async 
   await page.getByTestId("project-row-luca").click();
   await expect(page.getByTestId("chat-title")).toHaveText("engineering");
   await expect(navigator).toBeVisible();
+});
+
+test("a stale local assignment cannot project a direct message into a project", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock");
+
+  await page.getByTestId("create-room-project").click();
+  const dialog = page.getByTestId("create-room-project-dialog");
+  await dialog.getByTestId("create-project-name").fill("DM Trap");
+  await dialog.getByTestId("project-first-room-enabled").click();
+  await dialog.getByRole("button", { name: "Clear" }).click();
+  await dialog.getByRole("button", { name: "Create project" }).click();
+
+  const dm = page.getByTestId("channel-alice-tyler");
+  const dmId = await dm.getAttribute("data-channel-id");
+  if (!dmId) throw new Error("Expected the canonical DM channel id.");
+  await assignStoredProject(page, dmId, "dm-trap");
+
+  await expect(page.getByTestId("project-row-dm-trap")).toBeVisible();
+  await expect(dm).toBeVisible();
+  await dm.click();
+  await expect(page).toHaveURL(new RegExp(`#/channels/${dmId}$`));
+  await expect(page.getByTestId("chat-title")).toHaveText("alice-tyler");
+  await expect(page.getByTestId("project-room-navigator")).toHaveCount(0);
+  expect((await storedProjects(page))?.assignments[dmId]).toBe("dm-trap");
+
+  await page.reload();
+  await expect(page).toHaveURL(new RegExp(`#/channels/${dmId}$`));
+  await expect(page.getByTestId("chat-title")).toHaveText("alice-tyler");
+  await expect(page.getByTestId("project-room-navigator")).toHaveCount(0);
+  expect((await storedProjects(page))?.assignments[dmId]).toBe("dm-trap");
+});
+
+test("project loose-room and direct-message history stays route-derived", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock&projectDemo=1");
+
+  await page.getByTestId("project-row-luca").click();
+  const navigator = page.getByTestId("project-room-navigator");
+  await navigator.getByRole("button", { name: /engineering/i }).click();
+  await expect(page.getByTestId("chat-title")).toHaveText("engineering");
+  const projectRoomUrl = page.url();
+
+  await page.getByTestId("channel-all-replies").click();
+  await expect(page.getByTestId("chat-title")).toHaveText("all-replies");
+  await expect(navigator).toHaveCount(0);
+  const looseRoomUrl = page.url();
+
+  await page.getByTestId("channel-alice-tyler").click();
+  await expect(page.getByTestId("chat-title")).toHaveText("alice-tyler");
+  await expect(navigator).toHaveCount(0);
+  const dmUrl = page.url();
+
+  await page.goBack();
+  await expect(page).toHaveURL(looseRoomUrl);
+  await expect(page.getByTestId("chat-title")).toHaveText("all-replies");
+  await expect(navigator).toHaveCount(0);
+
+  await page.goBack();
+  await expect(page).toHaveURL(projectRoomUrl);
+  await expect(page.getByTestId("chat-title")).toHaveText("engineering");
+  await expect(navigator).toBeVisible();
+
+  await page.goForward();
+  await expect(page).toHaveURL(looseRoomUrl);
+  await expect(navigator).toHaveCount(0);
+
+  await page.goto(projectRoomUrl);
+  await expect(page.getByTestId("chat-title")).toHaveText("engineering");
+  await expect(navigator).toBeVisible();
+
+  await page.goto(dmUrl);
+  await expect(page.getByTestId("chat-title")).toHaveText("alice-tyler");
+  await expect(navigator).toHaveCount(0);
 });
 
 test("project search and empty-project navigation stay purposeful", async ({
