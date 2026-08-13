@@ -25,6 +25,7 @@ import {
   type MediaUploadController,
   useMediaUpload,
 } from "@/features/messages/lib/useMediaUpload";
+import { useAudioAttachmentRecorder } from "@/features/messages/lib/useAudioAttachmentRecorder";
 import { useMentions } from "@/features/messages/lib/useMentions";
 import { diffAddedMentionPubkeys } from "@/features/messages/lib/threading";
 import { getPersistentAgentAudienceScope } from "@/features/messages/lib/persistentAgentAudience";
@@ -232,6 +233,10 @@ function MessageComposerImpl({
   const internalMedia = useMediaUpload();
   const media = mediaController ?? internalMedia;
   const ownsDropZone = mediaController === undefined;
+  const audioRecorder = useAudioAttachmentRecorder({
+    disabled: disabled || media.isUploading,
+    uploadFile: media.uploadFile,
+  });
 
   // Draft-persist lifecycle: restore/clear content + imeta + spoilered urls on
   // key change, and persist the outgoing draft in the cleanup. The StrictMode
@@ -1038,6 +1043,21 @@ function MessageComposerImpl({
                 </button>
               </div>
             ) : null}
+            {audioRecorder.error ? (
+              <div
+                className="mb-2 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                role="alert"
+              >
+                {audioRecorder.error}
+                <button
+                  className="ml-2 underline"
+                  onClick={audioRecorder.dismissError}
+                  type="button"
+                >
+                  Dismiss
+                </button>
+              </div>
+            ) : null}
 
             {(media.pendingImeta.length > 0 || media.isUploading) && (
               <div className="mb-2 flex items-center gap-2">
@@ -1066,7 +1086,12 @@ function MessageComposerImpl({
               isFormattingOpen={isFormattingOpen}
               isSending={isSending}
               isUploading={media.isUploading}
+              audioRecordingElapsedSeconds={audioRecorder.elapsedSeconds}
+              audioRecordingStatus={audioRecorder.status}
               onCaptureSelection={handleCaptureSelection}
+              onAudioRecordCancel={audioRecorder.cancel}
+              onAudioRecordStart={audioRecorder.start}
+              onAudioRecordStop={audioRecorder.stop}
               onEmojiPickerOpenChange={setIsEmojiPickerOpen}
               onEmojiSelect={insertEmoji}
               onFormattingToggle={handleFormattingToggle}

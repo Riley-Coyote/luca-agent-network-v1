@@ -6,8 +6,15 @@ import {
   Mic,
   Paperclip,
   Plus,
+  Square,
+  X,
 } from "lucide-react";
 import * as React from "react";
+
+import {
+  type AudioAttachmentRecorderStatus,
+  formatAudioRecordingElapsed,
+} from "@/features/messages/lib/useAudioAttachmentRecorder";
 
 import {
   DropdownMenu,
@@ -24,6 +31,8 @@ import { SelectionFormattingTray } from "./SelectionFormattingTray";
 export const MessageComposerToolbar = React.memo(
   function MessageComposerToolbar({
     children,
+    audioRecordingElapsedSeconds = 0,
+    audioRecordingStatus = "idle",
     composerDisabled,
     editor,
     extraActions,
@@ -33,6 +42,9 @@ export const MessageComposerToolbar = React.memo(
     isSending,
     isUploading,
     onCaptureSelection,
+    onAudioRecordCancel,
+    onAudioRecordStart,
+    onAudioRecordStop,
     onEmojiPickerOpenChange,
     onEmojiSelect,
     onFormattingToggle,
@@ -42,6 +54,8 @@ export const MessageComposerToolbar = React.memo(
     sendDisabled,
   }: {
     children?: React.ReactNode;
+    audioRecordingElapsedSeconds?: number;
+    audioRecordingStatus?: AudioAttachmentRecorderStatus;
     composerDisabled: boolean;
     editor: Editor | null;
     extraActions?: React.ReactNode;
@@ -51,6 +65,9 @@ export const MessageComposerToolbar = React.memo(
     isSending: boolean;
     isUploading: boolean;
     onCaptureSelection: () => void;
+    onAudioRecordCancel?: () => void;
+    onAudioRecordStart?: () => Promise<void>;
+    onAudioRecordStop?: () => void;
     onEmojiPickerOpenChange: (open: boolean) => void;
     onEmojiSelect: (emoji: string) => void;
     onFormattingToggle: (pressed: boolean) => void;
@@ -59,6 +76,22 @@ export const MessageComposerToolbar = React.memo(
     onPaperclip: () => void;
     sendDisabled: boolean;
   }) {
+    const isRecording = audioRecordingStatus === "recording";
+    const isAudioAvailable = Boolean(onAudioRecordStart);
+    const isAudioBusy =
+      audioRecordingStatus === "requesting" ||
+      audioRecordingStatus === "preparing";
+    const audioButtonLabel =
+      audioRecordingStatus === "requesting"
+        ? "Requesting microphone access"
+        : audioRecordingStatus === "preparing"
+          ? "Preparing audio attachment"
+          : isRecording
+            ? "Stop recording"
+            : isAudioAvailable
+              ? "Record audio"
+              : "Audio recording is available in conversations";
+
     return (
       <div
         className="flex min-w-0 shrink-0 items-center gap-0.5"
@@ -145,23 +178,73 @@ export const MessageComposerToolbar = React.memo(
         {children}
         {extraActions}
 
+        {isRecording ? (
+          <div
+            className="flex items-center gap-0.5"
+            data-testid="audio-recording-state"
+          >
+            <span
+              aria-live="polite"
+              className="min-w-10 text-center font-mono text-xs text-destructive"
+            >
+              <span className="sr-only">Recording audio, </span>
+              {formatAudioRecordingElapsed(audioRecordingElapsedSeconds)}
+            </span>
+            <Tooltip disableHoverableContent>
+              <TooltipTrigger asChild>
+                <Button
+                  aria-label="Discard recording"
+                  className="size-8 rounded-full"
+                  data-testid="discard-audio-recording"
+                  onClick={onAudioRecordCancel}
+                  size="icon"
+                  type="button"
+                  variant="ghost"
+                >
+                  <X />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Discard recording (Esc)</TooltipContent>
+            </Tooltip>
+          </div>
+        ) : null}
+
         <Tooltip disableHoverableContent>
           <TooltipTrigger asChild>
             <span className="inline-grid">
               <Button
-                aria-label="Voice input is not available in this build"
+                aria-label={audioButtonLabel}
+                aria-pressed={isRecording}
                 className="size-8 rounded-full"
-                disabled
+                data-testid="record-audio"
+                disabled={
+                  composerDisabled ||
+                  isAudioBusy ||
+                  isUploading ||
+                  !isAudioAvailable
+                }
+                onClick={() => {
+                  if (isRecording) onAudioRecordStop?.();
+                  else void onAudioRecordStart?.();
+                }}
                 size="icon"
                 type="button"
-                variant="ghost"
+                variant={isRecording ? "destructive" : "ghost"}
               >
-                <Mic />
+                {isRecording ? <Square /> : <Mic />}
               </Button>
             </span>
           </TooltipTrigger>
-          <TooltipContent>Voice input is coming later</TooltipContent>
+          <TooltipContent>{audioButtonLabel}</TooltipContent>
         </Tooltip>
+
+        <span aria-live="polite" className="sr-only">
+          {audioRecordingStatus === "requesting"
+            ? "Requesting microphone access"
+            : audioRecordingStatus === "preparing"
+              ? "Preparing audio attachment"
+              : ""}
+        </span>
 
         <Button
           aria-label={isSending ? "Sending" : "Send message"}
