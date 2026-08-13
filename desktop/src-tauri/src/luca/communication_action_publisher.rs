@@ -124,7 +124,15 @@ pub(crate) trait CommunicationRelayTransport: Send + Sync + 'static {
         &self,
         filters: &[serde_json::Value],
     ) -> Result<Vec<Event>, CommunicationPublicationError>;
+    fn probe_exact(&self, signed_event_json: &str) -> ExactEventProbeOutcome;
     fn submit_exact(&self, signed_event_json: &str) -> RelaySubmitOutcome;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExactEventProbeOutcome {
+    Present,
+    Absent,
+    Unknown,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -215,6 +223,29 @@ impl CommunicationRelayTransport for HttpCommunicationRelay {
         response
             .json::<Vec<Event>>()
             .map_err(|_| CommunicationPublicationError::RelayUnavailable)
+    }
+
+    fn probe_exact(&self, signed_event_json: &str) -> ExactEventProbeOutcome {
+        let expected_event_id = match Event::from_json(signed_event_json) {
+            Ok(event) => event.id.to_hex(),
+            Err(_) => return ExactEventProbeOutcome::Unknown,
+        };
+        let response =
+            match self.post_exact("/events?mode=probe", signed_event_json.as_bytes().to_vec()) {
+                Ok(response) if response.status().is_success() => response,
+                _ => return ExactEventProbeOutcome::Unknown,
+            };
+        let response = match response.json::<RelaySubmitResponse>() {
+            Ok(response) if response.event_id.eq_ignore_ascii_case(&expected_event_id) => response,
+            _ => return ExactEventProbeOutcome::Unknown,
+        };
+        if response.accepted && response.message.starts_with("duplicate:") {
+            ExactEventProbeOutcome::Present
+        } else if !response.accepted && response.message.starts_with("absent:") {
+            ExactEventProbeOutcome::Absent
+        } else {
+            ExactEventProbeOutcome::Unknown
+        }
     }
 
     fn submit_exact(&self, signed_event_json: &str) -> RelaySubmitOutcome {
@@ -513,19 +544,68 @@ impl ExistingConversationPublisher {
             return Ok(());
         }
         let conversation_id = existing_conversation_id(&request)?;
-        if query_message(self.relay.as_ref(), conversation_id, &row.expected_event_id).is_ok() {
+        let exact_json = {
+            let stores = self
+                .stores
+                .lock()
+                .map_err(|_| CommunicationPublicationError::Persistence)?;
+            stores
+                .vault
+                .load_exact(
+                    &row.sealed_event_handle,
+                    &request,
+                    &row.expected_event_id,
+                    &row.exact_event_sha256,
+                )
+                .map_err(|_| CommunicationPublicationError::Persistence)?
+        };
+        match self.relay.probe_exact(exact_json.as_str()) {
+            ExactEventProbeOutcome::Present => {
+                let mut stores = self
+                    .stores
+                    .lock()
+                    .map_err(|_| CommunicationPublicationError::Persistence)?;
+                stores
+                    .outbox
+                    .mark_accepted(
+                        &request.idempotency_key,
+                        row.expected_event_id.clone(),
+                        reconciliation_receipt_id(&row.expected_event_id)?,
+                        now_timestamp()?,
+                    )
+                    .map_err(|_| CommunicationPublicationError::Persistence)?;
+                let cleanup = stores
+                    .outbox
+                    .terminal_cleanup_for_request(&request)
+                    .map_err(|_| CommunicationPublicationError::Persistence)?
+                    .ok_or(CommunicationPublicationError::Persistence)?;
+                cleanup_terminal_event(&mut stores, cleanup)?;
+                stores
+                    .outbox
+                    .advance_reconcile_cursor(entry.created_order)
+                    .map_err(|_| CommunicationPublicationError::Persistence)?;
+                return Ok(());
+            }
+            ExactEventProbeOutcome::Absent => {}
+            ExactEventProbeOutcome::Unknown => {
+                self.stores
+                    .lock()
+                    .map_err(|_| CommunicationPublicationError::Persistence)?
+                    .outbox
+                    .advance_reconcile_cursor(entry.created_order)
+                    .map_err(|_| CommunicationPublicationError::Persistence)?;
+                return Ok(());
+            }
+        }
+
+        if request.session_epoch != self.current_session_epoch {
             let mut stores = self
                 .stores
                 .lock()
                 .map_err(|_| CommunicationPublicationError::Persistence)?;
             stores
                 .outbox
-                .mark_accepted(
-                    &request.idempotency_key,
-                    row.expected_event_id.clone(),
-                    reconciliation_receipt_id(&row.expected_event_id)?,
-                    now_timestamp()?,
-                )
+                .cancel_after_proven_absence(&request.idempotency_key, now_timestamp()?)
                 .map_err(|_| CommunicationPublicationError::Persistence)?;
             let cleanup = stores
                 .outbox
@@ -542,21 +622,6 @@ impl ExistingConversationPublisher {
 
         let membership = self.membership(conversation_id)?;
         validate_restart_membership(&request, &membership)?;
-        let exact_json = {
-            let stores = self
-                .stores
-                .lock()
-                .map_err(|_| CommunicationPublicationError::Persistence)?;
-            stores
-                .vault
-                .load_exact(
-                    &row.sealed_event_handle,
-                    &request,
-                    &row.expected_event_id,
-                    &row.exact_event_sha256,
-                )
-                .map_err(|_| CommunicationPublicationError::Persistence)?
-        };
         {
             let mut stores = self
                 .stores
@@ -1088,7 +1153,7 @@ fn cleanup_terminal_event(
             CommunicationEventVaultTerminal::ExplicitlyRejected
         }
         CommunicationActionOutboxStateV1::Failed | CommunicationActionOutboxStateV1::Cancelled => {
-            CommunicationEventVaultTerminal::NeverSubmitted
+            CommunicationEventVaultTerminal::ProvenNotPublished
         }
         _ => return Err(CommunicationPublicationError::Persistence),
     };
@@ -1626,6 +1691,7 @@ mod tests {
     struct FakeRelay {
         relay_self_pubkey: Hex64,
         events: Vec<Event>,
+        probe_results: Mutex<VecDeque<ExactEventProbeOutcome>>,
         submit_results: Mutex<VecDeque<FakeSubmitResult>>,
         submitted: Mutex<Vec<String>>,
     }
@@ -1639,6 +1705,7 @@ mod tests {
             Arc::new(Self {
                 relay_self_pubkey: Hex64::parse(relay.public_key().to_hex()).unwrap(),
                 events,
+                probe_results: Mutex::new(VecDeque::new()),
                 submit_results: Mutex::new(submit_results.into_iter().collect()),
                 submitted: Mutex::new(Vec::new()),
             })
@@ -1650,6 +1717,10 @@ mod tests {
 
         fn events(&self) -> Vec<Event> {
             self.events.clone()
+        }
+
+        fn set_probe_results(&self, results: impl IntoIterator<Item = ExactEventProbeOutcome>) {
+            *self.probe_results.lock().unwrap() = results.into_iter().collect();
         }
     }
 
@@ -1679,6 +1750,24 @@ mod tests {
                 .filter(|event| requested_kinds.contains(&u64::from(event.kind.as_u16())))
                 .cloned()
                 .collect())
+        }
+
+        fn probe_exact(&self, signed_event_json: &str) -> ExactEventProbeOutcome {
+            if let Some(result) = self.probe_results.lock().unwrap().pop_front() {
+                return result;
+            }
+            let Ok(candidate) = Event::from_json(signed_event_json) else {
+                return ExactEventProbeOutcome::Unknown;
+            };
+            if self
+                .events
+                .iter()
+                .any(|event| event.id == candidate.id && event.as_json() == candidate.as_json())
+            {
+                ExactEventProbeOutcome::Present
+            } else {
+                ExactEventProbeOutcome::Absent
+            }
         }
 
         fn submit_exact(&self, signed_event_json: &str) -> RelaySubmitOutcome {
@@ -2384,6 +2473,125 @@ mod tests {
         let restart_submitted = restart_fixture.relay.submitted();
         assert_eq!(restart_submitted.len(), 2);
         assert_eq!(restart_submitted[0], restart_submitted[1]);
+    }
+
+    #[test]
+    fn restart_probe_accepts_an_already_published_reaction_without_resubmission() {
+        let fixture = publisher_fixture([FakeSubmitResult::Unknown]);
+        let target = fixture
+            .relay
+            .events()
+            .into_iter()
+            .find(|event| {
+                event.kind == Kind::Custom(MESSAGE_KIND)
+                    && event.pubkey.to_hex() == fixture.request.resident_pubkey.as_str()
+            })
+            .expect("resident message");
+        let reaction = request_with_operation(
+            &fixture.request,
+            "present-reaction",
+            CommunicationOperationV1::AddReaction {
+                target_event_id: Hex64::parse(target.id.to_hex()).unwrap(),
+                reaction: "+1".to_owned(),
+            },
+        );
+        assert!(fixture
+            .publisher
+            .stage_and_publish(reaction.clone(), &fixture.authority)
+            .is_err());
+        fixture
+            .relay
+            .set_probe_results([ExactEventProbeOutcome::Present]);
+        fixture
+            .publisher
+            .reconcile_one_on_start()
+            .expect("accept exact present reaction");
+        assert_eq!(fixture.relay.submitted().len(), 1);
+        let replay = fixture
+            .publisher
+            .stage_and_publish(reaction, &fixture.authority)
+            .expect("replay accepted receipt");
+        assert_eq!(replay.state, "accepted");
+        assert_eq!(fixture.relay.submitted().len(), 1);
+    }
+
+    #[test]
+    fn unknown_restart_probe_retains_the_frozen_reaction_without_resubmission() {
+        let fixture = publisher_fixture([FakeSubmitResult::Unknown]);
+        let target = fixture
+            .relay
+            .events()
+            .into_iter()
+            .find(|event| {
+                event.kind == Kind::Custom(MESSAGE_KIND)
+                    && event.pubkey.to_hex() == fixture.request.resident_pubkey.as_str()
+            })
+            .expect("resident message");
+        let reaction = request_with_operation(
+            &fixture.request,
+            "unknown-reaction",
+            CommunicationOperationV1::AddReaction {
+                target_event_id: Hex64::parse(target.id.to_hex()).unwrap(),
+                reaction: "+1".to_owned(),
+            },
+        );
+        assert!(fixture
+            .publisher
+            .stage_and_publish(reaction, &fixture.authority)
+            .is_err());
+        fixture
+            .relay
+            .set_probe_results([ExactEventProbeOutcome::Unknown]);
+        fixture
+            .publisher
+            .reconcile_one_on_start()
+            .expect("retain unknown exact reaction");
+        assert_eq!(fixture.relay.submitted().len(), 1);
+    }
+
+    #[test]
+    fn proven_absent_reaction_from_a_stale_session_is_cancelled_without_resubmission() {
+        let mut fixture = publisher_fixture([FakeSubmitResult::Unknown]);
+        let target = fixture
+            .relay
+            .events()
+            .into_iter()
+            .find(|event| {
+                event.kind == Kind::Custom(MESSAGE_KIND)
+                    && event.pubkey.to_hex() == fixture.request.resident_pubkey.as_str()
+            })
+            .expect("resident message");
+        let reaction = request_with_operation(
+            &fixture.request,
+            "cancelled-stale-reaction",
+            CommunicationOperationV1::AddReaction {
+                target_event_id: Hex64::parse(target.id.to_hex()).unwrap(),
+                reaction: "+1".to_owned(),
+            },
+        );
+        assert!(fixture
+            .publisher
+            .stage_and_publish(reaction, &fixture.authority)
+            .is_err());
+        fixture
+            .relay
+            .set_probe_results([ExactEventProbeOutcome::Absent]);
+        Arc::get_mut(&mut fixture.publisher)
+            .expect("fixture owns the publisher")
+            .current_session_epoch = SafeU53::new(5).unwrap();
+        fixture
+            .publisher
+            .reconcile_one_on_start()
+            .expect("cancel stale exact reaction after proven absence");
+        assert_eq!(fixture.relay.submitted().len(), 1);
+        assert!(fixture
+            .publisher
+            .stores
+            .lock()
+            .unwrap()
+            .outbox
+            .reconciliation_entries()
+            .is_empty());
     }
 
     #[test]

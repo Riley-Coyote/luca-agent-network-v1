@@ -14,7 +14,10 @@ use base64::Engine;
 use serde_json::Value;
 
 use buzz_auth::{LimitType, Nip98ReplayGuard, DEFAULT_REPLAY_TTL_SECS};
-use buzz_core::{kind::KIND_STREAM_MESSAGE, TenantContext};
+use buzz_core::{
+    kind::{KIND_DELETION, KIND_REACTION, KIND_STREAM_MESSAGE, KIND_STREAM_MESSAGE_EDIT},
+    TenantContext,
+};
 use nostr::JsonUtil;
 
 use crate::handlers::ingest::{IngestAuth, IngestError};
@@ -26,6 +29,13 @@ use super::{api_error, internal_error, not_found};
 enum EventSubmitMode {
     Ingest,
     Probe,
+}
+
+fn is_exact_communication_probe_kind(kind: u32) -> bool {
+    matches!(
+        kind,
+        KIND_STREAM_MESSAGE | KIND_REACTION | KIND_DELETION | KIND_STREAM_MESSAGE_EDIT
+    )
 }
 
 fn parse_event_submit_mode(
@@ -847,9 +857,8 @@ async fn submit_event_authed(
         }
     };
 
-    if mode == EventSubmitMode::Probe
-        && buzz_core::kind::event_kind_u32(&event) == KIND_STREAM_MESSAGE
-    {
+    let event_kind = buzz_core::kind::event_kind_u32(&event);
+    if mode == EventSubmitMode::Probe && is_exact_communication_probe_kind(event_kind) {
         if event.pubkey != pubkey {
             let e = api_error(
                 StatusCode::FORBIDDEN,
@@ -879,21 +888,20 @@ async fn submit_event_authed(
                             if stored.event == event
                                 && stored.event.as_json() == event.as_json()
                                 && crate::handlers::ingest::extract_channel_id(&event)
-                                    .is_some_and(|channel| stored.channel_id == Some(channel)) =>
+                                    .is_none_or(|channel| stored.channel_id == Some(channel)) =>
                         {
                             use crate::conformance::{
                                 channel_label, claimed_community_from_event, emit, msg_id_label,
                                 state_for_request, TraceAction,
                             };
-                            let channel = stored
-                                .channel_id
-                                .expect("exact kind-9 match requires a stored channel");
-                            let action = TraceAction::WriteDuplicate {
-                                msg_id: msg_id_label(event.id.as_bytes()),
-                                channel: channel_label(channel),
-                                claimed_community: claimed_community_from_event(&event),
-                            };
-                            emit(&state.tracer, action, state_for_request(tenant, &pubkey));
+                            if let Some(channel) = stored.channel_id {
+                                let action = TraceAction::WriteDuplicate {
+                                    msg_id: msg_id_label(event.id.as_bytes()),
+                                    channel: channel_label(channel),
+                                    claimed_community: claimed_community_from_event(&event),
+                                };
+                                emit(&state.tracer, action, state_for_request(tenant, &pubkey));
+                            }
                             return SubmitOutcome::Ok {
                                 accepted: true,
                                 response: Json(serde_json::json!({
@@ -905,7 +913,7 @@ async fn submit_event_authed(
                         }
                         Ok(Some(_)) => {
                             return SubmitOutcome::Rejected {
-                                kind: KIND_STREAM_MESSAGE,
+                                kind: event_kind,
                                 reason: "invalid: exact event collision".to_owned(),
                                 response: api_error(
                                     StatusCode::BAD_REQUEST,
@@ -913,7 +921,7 @@ async fn submit_event_authed(
                                 ),
                             };
                         }
-                        Ok(None) if mode == EventSubmitMode::Probe => {
+                        Ok(None) => {
                             return SubmitOutcome::Ok {
                                 accepted: false,
                                 response: Json(serde_json::json!({
@@ -923,7 +931,6 @@ async fn submit_event_authed(
                                 })),
                             };
                         }
-                        Ok(None) => {}
                         Err(_) => {
                             let e = internal_error("strict exact event lookup failed");
                             return SubmitOutcome::Err {
@@ -935,7 +942,7 @@ async fn submit_event_authed(
                 }
                 Ok(Err(_)) => {
                     return SubmitOutcome::Rejected {
-                        kind: KIND_STREAM_MESSAGE,
+                        kind: event_kind,
                         reason: "invalid: exact event verification failed".to_owned(),
                         response: api_error(
                             StatusCode::BAD_REQUEST,
@@ -955,10 +962,10 @@ async fn submit_event_authed(
     } else if mode == EventSubmitMode::Probe {
         return SubmitOutcome::Rejected {
             kind: buzz_core::kind::event_kind_u32(&event),
-            reason: "invalid: exact event probe requires kind 9".to_owned(),
+            reason: "invalid: unsupported exact communication event kind".to_owned(),
             response: api_error(
                 StatusCode::BAD_REQUEST,
-                "invalid: exact event probe requires kind 9",
+                "invalid: unsupported exact communication event kind",
             ),
         };
     }
@@ -2397,6 +2404,21 @@ mod tests {
                 parse_event_submit_mode(Some(invalid)).is_err(),
                 "{invalid} must fail closed"
             );
+        }
+    }
+
+    #[test]
+    fn exact_probe_kind_allowlist_is_closed_to_communication_events() {
+        for kind in [
+            KIND_STREAM_MESSAGE,
+            KIND_REACTION,
+            KIND_DELETION,
+            KIND_STREAM_MESSAGE_EDIT,
+        ] {
+            assert!(is_exact_communication_probe_kind(kind), "kind {kind}");
+        }
+        for kind in [0, 1, 6, 9007, 40002, 44_200] {
+            assert!(!is_exact_communication_probe_kind(kind), "kind {kind}");
         }
     }
 

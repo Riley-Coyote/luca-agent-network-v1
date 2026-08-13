@@ -325,6 +325,35 @@ async fn luca_f09_exact_duplicate_probe_is_author_bound_non_ingesting_and_revoca
             .expect("count absent event");
     assert_eq!(absent_count, 0, "probe absence must perform zero ingest");
 
+    for (kind, label) in [
+        (7, "reaction"),
+        (5, "reaction removal"),
+        (40_003, "message edit"),
+    ] {
+        let mutation = EventBuilder::new(Kind::Custom(kind), label)
+            .tags([Tag::parse(["e", stored.id.to_hex().as_str()]).expect("target tag")])
+            .sign_with_keys(&author)
+            .expect("sign communication mutation");
+        seed_exact_event_row(&host, &mutation, channel_id, false).await;
+        let mutation_body = serde_json::to_string(&mutation).expect("mutation body");
+        let response = invite_post(&author, "/events?mode=probe", &mutation_body).await;
+        assert_eq!(response.status(), reqwest::StatusCode::OK, "kind {kind}");
+        let response: serde_json::Value = response.json().await.expect("probe response");
+        assert_eq!(response["event_id"], mutation.id.to_hex());
+        assert_eq!(response["accepted"], true);
+        assert_eq!(response["message"], "duplicate:");
+    }
+
+    let unsupported = EventBuilder::new(Kind::TextNote, "not a communication mutation")
+        .sign_with_keys(&author)
+        .expect("sign unsupported event");
+    let unsupported_body = serde_json::to_string(&unsupported).expect("unsupported body");
+    let unsupported_response = invite_post(&author, "/events?mode=probe", &unsupported_body).await;
+    assert_eq!(
+        unsupported_response.status(),
+        reqwest::StatusCode::BAD_REQUEST
+    );
+
     let attacker = Keys::generate();
     let wrong_signer = invite_post(&attacker, "/events?mode=probe", &stored_body).await;
     assert_eq!(wrong_signer.status(), reqwest::StatusCode::FORBIDDEN);

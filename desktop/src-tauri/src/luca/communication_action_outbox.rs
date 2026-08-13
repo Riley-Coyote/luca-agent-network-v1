@@ -653,6 +653,34 @@ impl CommunicationActionOutbox {
         )
     }
 
+    /// Cancel a previously submitted action only after the author-bound relay
+    /// probe proves the one exact frozen event is absent. This transition must
+    /// never be used for an unknown probe outcome.
+    pub(crate) fn cancel_after_proven_absence(
+        &mut self,
+        idempotency_key: &Hex64,
+        cancelled_at: CanonicalTimestamp,
+    ) -> Result<CommunicationActionOutboxReceipt, CommunicationActionOutboxError> {
+        let entry = self
+            .entries
+            .get(idempotency_key.as_str())
+            .ok_or(CommunicationActionOutboxError::NotFound)?;
+        if !matches!(
+            entry.row.state,
+            CommunicationActionOutboxStateV1::Submitted
+                | CommunicationActionOutboxStateV1::PublicationUnknown
+        ) {
+            return Err(CommunicationActionOutboxError::InvalidTransition);
+        }
+        self.terminalize(
+            idempotency_key,
+            CommunicationActionOutboxStateV1::Cancelled,
+            cancelled_at,
+            "cancelled-after-proven-relay-absence",
+            true,
+        )
+    }
+
     /// Record that reconciliation could not prove publication or rejection.
     ///
     /// Relay absence is not a cancellation proof. The row remains eligible for

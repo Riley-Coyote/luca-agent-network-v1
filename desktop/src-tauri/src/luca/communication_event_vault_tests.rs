@@ -289,7 +289,7 @@ fn wrong_key_tamper_and_terminal_deletion_fail_closed() {
             &wrong_request,
             &sealed.event_id,
             &sealed.event_sha256,
-            CommunicationEventVaultTerminal::NeverSubmitted,
+            CommunicationEventVaultTerminal::ProvenNotPublished,
         ),
         Err(CommunicationEventVaultError::Collision)
     );

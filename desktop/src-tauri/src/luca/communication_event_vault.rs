@@ -65,8 +65,9 @@ pub(crate) struct SealedCommunicationEvent {
 /// callers must retain the one exact signed event in both cases.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CommunicationEventVaultTerminal {
-    /// The durable outbox proves the action never left `Prepared`.
-    NeverSubmitted,
+    /// Durable state plus an author-bound exact-event probe proves the frozen
+    /// event was not published.
+    ProvenNotPublished,
     /// The relay or exact probe returned one explicit deterministic rejection.
     ExplicitlyRejected,
     /// Acceptance and every downstream recovery receipt are durably finalized.

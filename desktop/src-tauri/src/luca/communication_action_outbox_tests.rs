@@ -151,6 +151,49 @@ fn cancellation_wins_before_submission_and_blocks_late_acceptance() {
 }
 
 #[test]
+fn proven_relay_absence_cancels_only_a_submitted_unknown_action() {
+    let session = id("installation-1");
+    let request = request("proven absent event");
+    let mut outbox = CommunicationActionOutbox::new(session.clone());
+
+    prepare(&mut outbox, &request, &session);
+    assert!(matches!(
+        outbox.cancel_after_proven_absence(&request.idempotency_key, time("2026-08-11T12:00:01Z")),
+        Err(CommunicationActionOutboxError::InvalidTransition)
+    ));
+    outbox
+        .mark_submitted(
+            &request.idempotency_key,
+            &session,
+            2,
+            false,
+            time("2026-08-11T12:00:02Z"),
+        )
+        .expect("submit exact event");
+    outbox
+        .mark_publication_unknown(&request.idempotency_key)
+        .expect("mark outcome unknown");
+
+    let cancelled = outbox
+        .cancel_after_proven_absence(&request.idempotency_key, time("2026-08-11T12:00:03Z"))
+        .expect("cancel after exact absence proof");
+    assert_eq!(cancelled.state, CommunicationActionOutboxStateV1::Cancelled);
+    assert!(outbox
+        .terminal_cleanup_for_request(&request)
+        .expect("terminal cleanup lookup")
+        .is_some());
+    assert!(matches!(
+        outbox.mark_accepted(
+            &request.idempotency_key,
+            hex('b'),
+            id("late-receipt"),
+            time("2026-08-11T12:00:04Z")
+        ),
+        Err(CommunicationActionOutboxError::InvalidTransition)
+    ));
+}
+
+#[test]
 fn relay_absence_becomes_nonterminal_publication_unknown() {
     let session = id("installation-3");
     let request = request("submitted message sentinel");
