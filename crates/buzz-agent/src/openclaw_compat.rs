@@ -329,7 +329,7 @@ fn validate_mcp_servers(servers: &[McpServerStdio]) -> Result<(), String> {
                         .get("LUCA_REPOSITORY_CONVERSATION_ID")
                         .is_some_and(|value| is_uuid(value))
             }
-            COMMUNICATIONS_SERVER_NAME => {
+            name if valid_communications_server_name(name) => {
                 server.env.len() == COMMUNICATIONS_ENV_KEYS.len()
                     && env.get("LUCA_COMMUNICATIONS_MODE") == Some(&"1")
                     && env
@@ -361,6 +361,19 @@ fn validate_mcp_servers(servers: &[McpServerStdio]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn valid_communications_server_name(name: &str) -> bool {
+    if name == COMMUNICATIONS_SERVER_NAME {
+        return true;
+    }
+    let Some(suffix) = name.strip_prefix("luca-communications-") else {
+        return false;
+    };
+    suffix.len() == 12
+        && suffix
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 fn valid_broker_endpoint(value: &str, directory_prefix: &str) -> bool {
@@ -849,6 +862,33 @@ mod tests {
             .value =
             "/tmp/luca-rb-11111111111111111111111111111111/e7-2222222222222222.sock".into();
         assert!(validate_mcp_servers(&[invalid]).is_err());
+    }
+
+    #[test]
+    fn communications_server_name_accepts_bounded_turn_names_only() {
+        let capability = format!("sha256:{}", "b".repeat(64));
+        let exact = communications_server(&capability);
+        assert!(validate_mcp_servers(&[exact]).is_ok());
+
+        let mut per_turn = communications_server(&capability);
+        per_turn.name = "luca-communications-0123abcdef45".into();
+        assert!(validate_mcp_servers(&[per_turn]).is_ok());
+
+        for lookalike in [
+            "luca-communications-0123abcdef4",
+            "luca-communications-0123abcdef456",
+            "luca-communications-0123abcdeg45",
+            "luca-communications-0123ABCDEF45",
+            "luca-communications--0123abcdef45",
+            "other-communications-0123abcdef45",
+        ] {
+            let mut invalid = communications_server(&capability);
+            invalid.name = lookalike.into();
+            assert!(
+                validate_mcp_servers(&[invalid]).is_err(),
+                "accepted unsafe lookalike: {lookalike}"
+            );
+        }
     }
 
     #[test]
