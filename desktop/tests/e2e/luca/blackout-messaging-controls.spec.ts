@@ -2,6 +2,55 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { installMockBridge } from "../../helpers/bridge";
 
+const CHANNEL_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
+const MANAGED_AGENT_PUBKEY = "b".repeat(64);
+const PRESENTATION_EVENT = "luca://managed-presentation";
+
+async function commandLog(page: Page) {
+  return page.evaluate(
+    () =>
+      (
+        window as Window & {
+          __BUZZ_E2E_COMMANDS__?: string[];
+        }
+      ).__BUZZ_E2E_COMMANDS__ ?? [],
+  );
+}
+
+function commandCount(commands: string[], command: string) {
+  return commands.filter((entry) => entry === command).length;
+}
+
+async function emitManagedFrame(
+  page: Page,
+  input: {
+    kind: "turn_started" | "public_chunk" | "cancelled";
+    receiptId: string;
+    sequence: number;
+    publicChunk?: string;
+  },
+) {
+  await page.evaluate(
+    ({ eventName, frame }) => {
+      window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.(eventName, frame);
+    },
+    {
+      eventName: PRESENTATION_EVENT,
+      frame: {
+        protocol: "luca.managed.presentation.v1",
+        kind: input.kind,
+        resident_pubkey: MANAGED_AGENT_PUBKEY,
+        conversation_id: CHANNEL_ID,
+        turn_id: "blackout-cancellation",
+        dispatch_receipt_id: input.receiptId,
+        session_epoch: 7,
+        sequence: input.sequence,
+        ...(input.publicChunk ? { public_chunk: input.publicChunk } : {}),
+      },
+    },
+  );
+}
+
 async function installAudioRecorder(
   page: Page,
   permission: "granted" | "denied" = "granted",
@@ -192,4 +241,195 @@ test("microphone denial is clear and leaves ordinary messaging available", async
   );
   await expect(page.getByTestId("message-input")).toBeEditable();
   await expect(page.getByTestId("send-message")).toBeDisabled();
+});
+
+test("blackout composer sends, replies, mentions, invites, and activates through ordinary controls", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    managedAgents: [
+      {
+        pubkey: MANAGED_AGENT_PUBKEY,
+        name: "fizz",
+        status: "stopped",
+      },
+    ],
+  });
+  await openGeneral(page);
+
+  await expect(page.getByTestId("record-audio")).toHaveAccessibleName(
+    "Record audio",
+  );
+  await expect(page.getByTestId("send-message")).toBeDisabled();
+  await page.getByTestId("message-composer-add").click();
+  await expect(
+    page.getByRole("menuitem", { name: "Mention someone" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Attach files" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Formatting" }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  const before = await commandLog(page);
+  const input = page.getByTestId("message-input");
+  await input.fill("Loop in @fizz");
+  const suggestion = page
+    .getByTestId("mention-autocomplete")
+    .locator("button", { hasText: "fizz" });
+  await expect(suggestion.getByText("not in channel")).toBeVisible();
+  await input.press("Enter");
+  await page.keyboard.type(" for the preview");
+  await page.getByTestId("send-message").click();
+
+  await expect
+    .poll(async () =>
+      commandCount(await commandLog(page), "add_channel_members"),
+    )
+    .toBeGreaterThan(commandCount(before, "add_channel_members"));
+  await expect
+    .poll(async () =>
+      commandCount(await commandLog(page), "start_managed_agent"),
+    )
+    .toBeGreaterThan(commandCount(before, "start_managed_agent"));
+
+  const sent = page
+    .getByTestId("message-row")
+    .filter({ hasText: "for the preview" })
+    .last();
+  await expect(
+    sent.locator("[data-mention].agent-mention-highlight", { hasText: "fizz" }),
+  ).toBeVisible();
+  await sent.hover();
+  await sent.getByRole("button", { name: "Reply" }).click();
+  const thread = page.getByTestId("message-thread-panel");
+  await expect(thread).toBeVisible();
+  await thread.getByTestId("message-input").fill("Thread reply is visible");
+  await thread.getByTestId("send-message").click();
+  await expect(thread).toContainText("Thread reply is visible");
+});
+
+test("blackout owner controls react, remove, edit, attach, and confirm deletion", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    uploadDescriptors: [
+      {
+        url: `https://mock.relay/media/${"a".repeat(64)}.pdf`,
+        sha256: "a".repeat(64),
+        size: 42,
+        type: "application/pdf",
+        uploaded: 1_800_000_000,
+        filename: "blackout-proof.pdf",
+      },
+    ],
+  });
+  await openGeneral(page);
+
+  await page.getByTestId("message-composer-add").click();
+  await page.getByRole("menuitem", { name: "Attach files" }).click();
+  await expect(page.getByTestId("message-composer")).toContainText(
+    "blackout-proof.pdf",
+  );
+  await page.getByTestId("message-input").fill("Owner control proof");
+  await page.getByTestId("send-message").click();
+
+  let row = page
+    .getByTestId("message-row")
+    .filter({ hasText: "Owner control proof" })
+    .last();
+  await expect(row).toBeVisible();
+  await row.hover();
+  await row.getByRole("button", { name: "React with :+1:" }).click();
+  const reaction = row.getByLabel("Toggle 👍 reaction");
+  await expect(reaction).toBeVisible();
+  await reaction.click();
+  await expect(reaction).toHaveCount(0);
+
+  await row.hover();
+  await row.getByLabel("More actions").click();
+  await page.getByRole("menuitem", { name: "Edit message" }).click();
+  const input = page.getByTestId("message-input");
+  await expect(page.getByTestId("edit-target")).toBeVisible();
+  await input.click();
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.type("Owner control proof edited");
+  await page.getByTestId("send-message").click();
+  row = page
+    .getByTestId("message-row")
+    .filter({ hasText: "Owner control proof edited" })
+    .last();
+  await expect(row).toBeVisible();
+
+  await row.hover();
+  await row.getByLabel("More actions").click();
+  await page.getByRole("menuitem", { name: "Delete message" }).click();
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(row).toBeVisible();
+
+  await row.hover();
+  await row.getByLabel("More actions").click();
+  await page.getByRole("menuitem", { name: "Delete message" }).click();
+  await dialog.getByRole("button", { name: "Delete" }).click();
+  await expect(row).toBeHidden();
+});
+
+test("blackout cancellation preserves partial text and offers a directed retry", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    managedAgents: [
+      {
+        channelNames: ["general"],
+        name: "fizz",
+        pubkey: MANAGED_AGENT_PUBKEY,
+        status: "running",
+      },
+    ],
+  });
+  await openGeneral(page);
+
+  await page.getByTestId("message-input").fill("Start cancellable work");
+  await page.getByTestId("send-message").click();
+  const ownerRow = page
+    .getByTestId("message-row")
+    .filter({ hasText: "Start cancellable work" })
+    .last();
+  const receiptId = await ownerRow.getAttribute("data-message-id");
+  if (!receiptId) throw new Error("Expected an owner dispatch receipt.");
+
+  await emitManagedFrame(page, {
+    kind: "turn_started",
+    receiptId,
+    sequence: 1,
+  });
+  await emitManagedFrame(page, {
+    kind: "public_chunk",
+    publicChunk: "Keep this partial response.",
+    receiptId,
+    sequence: 2,
+  });
+  await expect(page.getByText("Keep this partial response.")).toBeVisible();
+  await page.getByRole("button", { name: "Stop fizz" }).click();
+  await expect
+    .poll(async () =>
+      commandCount(await commandLog(page), "cancel_managed_turn"),
+    )
+    .toBeGreaterThan(0);
+
+  await emitManagedFrame(page, { kind: "cancelled", receiptId, sequence: 3 });
+  await expect(
+    page.getByText("Stopped · Response may be incomplete", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Keep this partial response.")).toBeVisible();
+  await page.getByRole("button", { name: "Retry fizz" }).click();
+  await expect(
+    page
+      .getByTestId("message-row")
+      .filter({ hasText: "Start cancellable work" }),
+  ).toHaveCount(2);
 });
