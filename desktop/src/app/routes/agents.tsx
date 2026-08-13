@@ -14,6 +14,7 @@ type AgentsRouteSearch = {
   profilePersona?: string;
   profileTab?: ProfilePanelTab;
   profileView?: ProfilePanelView;
+  section?: "notebook" | "settings";
 };
 
 function nonEmptyString(value: unknown): string | undefined {
@@ -23,11 +24,16 @@ function nonEmptyString(value: unknown): string | undefined {
 function validateAgentsSearch(
   search: Record<string, unknown>,
 ): AgentsRouteSearch {
+  const section =
+    search.section === "notebook" || search.section === "settings"
+      ? search.section
+      : undefined;
   return {
     profile: nonEmptyString(search.profile),
     profilePersona: nonEmptyString(search.profilePersona),
     profileTab: parseProfilePanelTab(search.profileTab) ?? undefined,
     profileView: parseProfilePanelView(search.profileView) ?? undefined,
+    section,
   };
 }
 

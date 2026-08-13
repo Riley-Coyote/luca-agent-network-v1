@@ -1,6 +1,8 @@
 import * as React from "react";
 
 import type { AgentLibrarySection } from "@/features/agents/ui/AgentLibraryWorkspace";
+import { useRouter } from "@tanstack/react-router";
+
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
@@ -29,11 +31,22 @@ function sectionFromSearch(
   return "overview";
 }
 
+function sectionFromBrowserLocation(): string | null {
+  const query = window.location.hash.split("?", 2)[1];
+  return query ? new URLSearchParams(query).get("section") : null;
+}
+
 export function AgentsScreen() {
+  const router = useRouter();
   const { applyPatch, values } = useHistorySearchState(
     AGENT_LIBRARY_SEARCH_KEYS,
   );
-  const section = sectionFromSearch(values.section, values.profileTab);
+  const currentLocationSection = React.useSyncExternalStore(
+    (onStoreChange) => router.history.subscribe(() => onStoreChange()),
+    sectionFromBrowserLocation,
+    () => null,
+  );
+  const section = sectionFromSearch(currentLocationSection, values.profileTab);
 
   const selectResident = React.useCallback(
     (pubkey: string) => {

@@ -50,6 +50,7 @@ export function AgentLibraryWorkspace({
   persona,
   resident,
   section,
+  showBackButton = false,
 }: {
   actionErrorMessage: string | null;
   actionNoticeMessage: string | null;
@@ -68,6 +69,7 @@ export function AgentLibraryWorkspace({
   persona: AgentPersona | null;
   resident: ResidentSummaryViewModel;
   section: AgentLibrarySection;
+  showBackButton?: boolean;
 }) {
   const isRunning =
     managedAgent?.status === "running" || managedAgent?.status === "deployed";
@@ -78,7 +80,7 @@ export function AgentLibraryWorkspace({
         <div className="flex min-w-0 items-start gap-4">
           <Button
             aria-label="Back to agents"
-            className="mt-0.5 md:hidden"
+            className={cn("mt-0.5", !showBackButton && "hidden")}
             onClick={onBack}
             size="icon"
             variant="ghost"

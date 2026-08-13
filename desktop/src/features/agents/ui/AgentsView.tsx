@@ -36,6 +36,7 @@ import {
 } from "@/shared/ui/dialog";
 import type { ManagedAgent } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import { useElementWidth } from "@/shared/hooks/use-mobile";
 import {
   AgentLibraryRoster,
   type AgentLibraryFilter,
@@ -48,6 +49,8 @@ import {
   buildResidentLibrary,
   type ResidentSummaryViewModel,
 } from "./agentLibraryViewModel";
+
+const AGENT_LIBRARY_SINGLE_PANE_BREAKPOINT_PX = 600;
 
 export function AgentsView({
   onClearSelection,
@@ -81,8 +84,18 @@ export function AgentsView({
   const [showMobileRoster, setShowMobileRoster] = React.useState(
     !selectedPubkey && !selectedPersonaId,
   );
+  const [libraryContentRef, libraryContentWidthPx] =
+    useElementWidth<HTMLDivElement>();
+  const isSinglePaneLibrary =
+    libraryContentWidthPx > 0 &&
+    libraryContentWidthPx < AGENT_LIBRARY_SINGLE_PANE_BREAKPOINT_PX;
   const [instanceToEdit, setInstanceToEdit] =
     React.useState<ManagedAgent | null>(null);
+
+  React.useEffect(() => {
+    if (!isSinglePaneLibrary) return;
+    setShowMobileRoster(!selectedPubkey && !selectedPersonaId);
+  }, [isSinglePaneLibrary, selectedPersonaId, selectedPubkey]);
   // Exclusivity: create never sets `personaDialogState` (edit/dup/import do),
   // so the create-mode and definition-edit AgentDialog mounts never coexist.
   const [isCreateDialogOpen, setIsCreateDialogOpen] = React.useState(false);
@@ -159,7 +172,15 @@ export function AgentsView({
   );
 
   React.useEffect(() => {
-    if (selectedPubkey || selectedPersonaId || !selectedResident) return;
+    if (
+      libraryContentWidthPx === 0 ||
+      isSinglePaneLibrary ||
+      selectedPubkey ||
+      selectedPersonaId ||
+      !selectedResident
+    ) {
+      return;
+    }
     if (selectedResident.pubkey) {
       onSelectResident(selectedResident.pubkey);
     } else if (selectedResident.personaId) {
@@ -168,6 +189,8 @@ export function AgentsView({
   }, [
     onSelectPersona,
     onSelectResident,
+    isSinglePaneLibrary,
+    libraryContentWidthPx,
     selectedPersonaId,
     selectedPubkey,
     selectedResident,
@@ -203,12 +226,17 @@ export function AgentsView({
 
   return (
     <>
-      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-[inherit] bg-card/40">
+      <div
+        className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-[inherit] bg-card/40"
+        ref={libraryContentRef}
+      >
         <div
           className={
-            showMobileRoster
-              ? "flex min-h-0 w-full md:w-auto"
-              : "hidden min-h-0 md:flex"
+            isSinglePaneLibrary
+              ? showMobileRoster
+                ? "flex min-h-0 w-full"
+                : "hidden min-h-0"
+              : "flex min-h-0"
           }
         >
           <AgentLibraryRoster
@@ -231,8 +259,8 @@ export function AgentsView({
         {selectedResident ? (
           <div
             className={
-              showMobileRoster
-                ? "hidden min-h-0 min-w-0 flex-1 md:flex"
+              isSinglePaneLibrary && showMobileRoster
+                ? "hidden min-h-0 min-w-0 flex-1"
                 : "flex min-h-0 min-w-0 flex-1"
             }
           >
@@ -297,6 +325,7 @@ export function AgentsView({
               persona={selectedPersona}
               resident={selectedResident}
               section={section}
+              showBackButton={isSinglePaneLibrary}
             />
           </div>
         ) : (
