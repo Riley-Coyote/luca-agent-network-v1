@@ -59,6 +59,8 @@ export function PolyphonicOnboardingFlow({
     pendingProfile?.displayName ?? initialProfile.profile?.displayName ?? "",
   );
   const [busy, setBusy] = React.useState(false);
+  const [agentsContinueLabel, setAgentsContinueLabel] =
+    React.useState("Continue");
   const [error, setError] = React.useState<string | null>(null);
   const [profileNeedsAttention, setProfileNeedsAttention] = React.useState(
     pendingProfile !== null,
@@ -128,9 +130,11 @@ export function PolyphonicOnboardingFlow({
       continueLabel={
         transaction.chapter === "ready"
           ? "Start a conversation"
-          : busy
-            ? "Working…"
-            : "Continue"
+          : transaction.chapter === "agents"
+            ? agentsContinueLabel
+            : busy
+              ? "Working…"
+              : "Continue"
       }
       onBack={() => persist({ chapter: previousChapter[transaction.chapter] })}
       onContinue={() => void continueForward()}
@@ -146,7 +150,11 @@ export function PolyphonicOnboardingFlow({
         />
       ) : null}
       {transaction.chapter === "agents" ? (
-        <PolyphonicAgentsStep onBusyChange={setBusy} ref={agentsRef} />
+        <PolyphonicAgentsStep
+          onBusyChange={setBusy}
+          onContinueLabelChange={setAgentsContinueLabel}
+          ref={agentsRef}
+        />
       ) : null}
       {transaction.chapter === "brain" ? (
         <PolyphonicBrainStep onBusyChange={setBusy} ref={brainRef} />

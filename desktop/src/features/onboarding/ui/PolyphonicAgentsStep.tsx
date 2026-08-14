@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Check, LoaderCircle, Plus, RefreshCw, Terminal } from "lucide-react";
+import { Check, Plus, Terminal } from "lucide-react";
 
 import {
   managedAgentsQueryKey,
@@ -31,18 +31,24 @@ import {
 import { setResidentContinuityEnabled } from "@/shared/api/tauriContinuity";
 import type {
   DiscoveredResidentCandidate,
+  NativeRuntimeDiscoveryOutcome,
   RuntimeBinding,
 } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
-import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import { Button } from "@/shared/ui/button";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  PolyphonicNotice,
-  PolyphonicStepHeading,
-} from "./PolyphonicSetupFrame";
-
-type CandidateResult = "idle" | "importing" | "ready" | "failed";
+  clearAgentImportSelection,
+  createEmptyAgentImportSelection,
+  isSelectableAgentImportCandidate,
+  reconcileAgentImportSelection,
+  selectAllReadyAgentImports,
+} from "../onboardingAgentImport";
+import {
+  PolyphonicAgentImportPane,
+  type PolyphonicAgentImportRowStatus,
+} from "./PolyphonicAgentImportPane";
+import { PolyphonicStepHeading } from "./PolyphonicSetupFrame";
 
 export type PolyphonicAgentsStepHandle = {
   commit: () => Promise<
@@ -60,8 +66,11 @@ function bindingIdentity(binding: RuntimeBinding): string {
 
 export const PolyphonicAgentsStep = React.forwardRef<
   PolyphonicAgentsStepHandle,
-  { onBusyChange: (busy: boolean) => void }
->(function PolyphonicAgentsStep({ onBusyChange }, ref) {
+  {
+    onBusyChange: (busy: boolean) => void;
+    onContinueLabelChange: (label: string) => void;
+  }
+>(function PolyphonicAgentsStep({ onBusyChange, onContinueLabelChange }, ref) {
   const queryClient = useQueryClient();
   const managedQuery = useManagedAgentsQuery();
   const createMutation = useCreateManagedAgentMutation();
@@ -73,13 +82,24 @@ export const PolyphonicAgentsStep = React.forwardRef<
   const [candidates, setCandidates] = React.useState<
     DiscoveredResidentCandidate[]
   >([]);
-  const [selected, setSelected] = React.useState(new Set<string>());
-  const [results, setResults] = React.useState<Record<string, CandidateResult>>(
-    {},
+  const [sourceOutcomes, setSourceOutcomes] = React.useState<
+    NativeRuntimeDiscoveryOutcome[]
+  >([]);
+  const [selected, setSelected] = React.useState(
+    createEmptyAgentImportSelection,
   );
+  const [results, setResults] = React.useState<
+    Record<string, PolyphonicAgentImportRowStatus>
+  >({});
   const [errors, setErrors] = React.useState<Record<string, string>>({});
+  const errorsRef = React.useRef(errors);
   const [isScanning, setIsScanning] = React.useState(true);
   const [scanError, setScanError] = React.useState<string | null>(null);
+  const [importProgress, setImportProgress] = React.useState<{
+    current: number;
+    total: number;
+  } | null>(null);
+  const [continueAnyway, setContinueAnyway] = React.useState(false);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [runtimeTarget, setRuntimeTarget] =
     React.useState<AgentRuntimeTargetV1 | null>(null);
@@ -88,6 +108,15 @@ export const PolyphonicAgentsStep = React.forwardRef<
     React.useState<NativeProvisioningPreviewV1 | null>(null);
   const [lucaRequest, setLucaRequest] =
     React.useState<NativeProvisioningRequestV1 | null>(null);
+
+  const replaceErrors = React.useCallback(
+    (update: (current: Record<string, string>) => Record<string, string>) => {
+      const next = update(errorsRef.current);
+      errorsRef.current = next;
+      setErrors(next);
+    },
+    [],
+  );
 
   React.useEffect(() => {
     if (!operatorSettings.data) return;
@@ -102,7 +131,7 @@ export const PolyphonicAgentsStep = React.forwardRef<
     (resident) => resident.personaId === LUCA_PERSONA_ID,
   );
 
-  const importedBindings = React.useMemo(
+  const importedBindingIdentities = React.useMemo(
     () =>
       new Set(
         (managedQuery.data ?? [])
@@ -112,40 +141,178 @@ export const PolyphonicAgentsStep = React.forwardRef<
       ),
     [managedQuery.data],
   );
+  const importedCandidateIds = React.useMemo(
+    () =>
+      new Set(
+        candidates
+          .filter((candidate) =>
+            importedBindingIdentities.has(
+              bindingIdentity(candidate.bindingPreview),
+            ),
+          )
+          .map((candidate) => candidate.semanticId),
+      ),
+    [candidates, importedBindingIdentities],
+  );
+  const importedSemanticIdsRef = React.useRef(importedCandidateIds);
+  React.useEffect(() => {
+    importedSemanticIdsRef.current = importedCandidateIds;
+  }, [importedCandidateIds]);
 
-  const scan = React.useCallback(async () => {
+  const scan = React.useCallback(async (preserveSelection: boolean) => {
     setIsScanning(true);
     setScanError(null);
     try {
       const outcome = await discoverNativeResidents();
       const found = outcome.runtimes.flatMap((runtime) => runtime.candidates);
+      setSourceOutcomes(outcome.runtimes);
       setCandidates(found);
-      setSelected(
-        new Set(
-          found
-            .filter(
-              (candidate) =>
-                candidate.readiness.status === "ready" &&
-                !importedBindings.has(
-                  bindingIdentity(candidate.bindingPreview),
-                ),
+      setSelected((current) =>
+        preserveSelection
+          ? reconcileAgentImportSelection(
+              current,
+              found,
+              importedSemanticIdsRef.current,
             )
-            .map((candidate) => candidate.semanticId),
-        ),
+          : createEmptyAgentImportSelection(),
       );
     } catch (cause) {
       setScanError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setIsScanning(false);
     }
-  }, [importedBindings]);
+  }, []);
 
   React.useEffect(() => {
-    void scan();
+    void scan(false);
   }, [scan]);
 
+  const allResidents = managedQuery.data ?? [];
+  const visibleCandidates = React.useMemo(
+    () =>
+      candidates.filter(
+        (candidate) =>
+          !importedCandidateIds.has(candidate.semanticId) ||
+          results[candidate.semanticId] !== undefined,
+      ),
+    [candidates, importedCandidateIds, results],
+  );
+  const selectedImportCandidates = React.useMemo(
+    () =>
+      visibleCandidates.filter(
+        (candidate) =>
+          selected.has(candidate.semanticId) &&
+          isSelectableAgentImportCandidate(candidate) &&
+          results[candidate.semanticId] !== "imported",
+      ),
+    [results, selected, visibleCandidates],
+  );
+
+  React.useEffect(() => {
+    if (importProgress) {
+      onContinueLabelChange(
+        `Importing ${importProgress.current} of ${importProgress.total}`,
+      );
+    } else if (continueAnyway) {
+      onContinueLabelChange("Continue anyway");
+    } else if (selectedImportCandidates.length > 0) {
+      onContinueLabelChange(
+        `Import ${selectedImportCandidates.length} and continue`,
+      );
+    } else {
+      onContinueLabelChange("Continue");
+    }
+  }, [
+    continueAnyway,
+    importProgress,
+    onContinueLabelChange,
+    selectedImportCandidates.length,
+  ]);
+
+  const refreshResidents = React.useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: managedAgentsQueryKey });
+    return managedQuery.refetch();
+  }, [managedQuery, queryClient]);
+
+  const importCandidate = React.useCallback(
+    async (candidate: DiscoveredResidentCandidate): Promise<boolean> => {
+      setResults((current) => ({
+        ...current,
+        [candidate.semanticId]: "importing",
+      }));
+      replaceErrors((current) => {
+        const next = { ...current };
+        delete next[candidate.semanticId];
+        return next;
+      });
+      try {
+        const created = await createMutation.mutateAsync({
+          name: candidate.displayName,
+          agentCommand: candidate.bindingPreview.executablePath,
+          agentArgs: ["acp"],
+          harnessOverride: true,
+          parallelism: 1,
+          nativeRuntimeBinding: candidate.bindingPreview,
+          spawnAfterCreate: false,
+          startOnAppLaunch: false,
+        });
+        await setResidentContinuityEnabled(created.agent.pubkey, true);
+        if (created.spawnError || created.profileSyncError) {
+          throw new Error(
+            created.spawnError ??
+              created.profileSyncError ??
+              "Import needs attention",
+          );
+        }
+        setResults((current) => ({
+          ...current,
+          [candidate.semanticId]: "imported",
+        }));
+        setSelected((current) => {
+          const next = new Set(current);
+          next.delete(candidate.semanticId);
+          return next;
+        });
+        return true;
+      } catch (cause) {
+        setResults((current) => ({
+          ...current,
+          [candidate.semanticId]: "needs-attention",
+        }));
+        replaceErrors((current) => ({
+          ...current,
+          [candidate.semanticId]:
+            cause instanceof Error ? cause.message : String(cause),
+        }));
+        setSelected((current) => {
+          const next = new Set(current);
+          next.delete(candidate.semanticId);
+          return next;
+        });
+        return false;
+      }
+    },
+    [createMutation, replaceErrors],
+  );
+
   const commit = React.useCallback(async () => {
+    if (continueAnyway) {
+      onBusyChange(true);
+      try {
+        const residents = await refreshResidents();
+        return {
+          issueCount:
+            Object.keys(errorsRef.current).length + (scanError ? 1 : 0),
+          residentCount:
+            residents.data?.length ?? managedQuery.data?.length ?? 0,
+        };
+      } finally {
+        onBusyChange(false);
+      }
+    }
+
     let issueCount = scanError ? 1 : 0;
+    let importFailed = false;
     onBusyChange(true);
     try {
       await saveOperatorSettings.mutateAsync({
@@ -159,7 +326,7 @@ export const PolyphonicAgentsStep = React.forwardRef<
         );
         if (!lucaPersona) {
           issueCount += 1;
-          setErrors((current) => ({
+          replaceErrors((current) => ({
             ...current,
             luca: "Luca's built-in definition is unavailable.",
           }));
@@ -178,7 +345,7 @@ export const PolyphonicAgentsStep = React.forwardRef<
             await createLucaResident(input);
           } catch (cause) {
             issueCount += 1;
-            setErrors((current) => ({
+            replaceErrors((current) => ({
               ...current,
               luca: cause instanceof Error ? cause.message : String(cause),
             }));
@@ -210,102 +377,57 @@ export const PolyphonicAgentsStep = React.forwardRef<
             setLucaPreview(null);
           } catch (cause) {
             issueCount += 1;
-            setErrors((current) => ({
+            replaceErrors((current) => ({
               ...current,
               luca: cause instanceof Error ? cause.message : String(cause),
             }));
           }
         }
       }
-      for (const candidate of candidates) {
-        if (
-          !selected.has(candidate.semanticId) ||
-          results[candidate.semanticId] === "ready" ||
-          importedBindings.has(bindingIdentity(candidate.bindingPreview))
-        ) {
-          continue;
-        }
-        setResults((current) => ({
-          ...current,
-          [candidate.semanticId]: "importing",
-        }));
-        setErrors((current) => {
-          const next = { ...current };
-          delete next[candidate.semanticId];
-          return next;
-        });
-        try {
-          const created = await createMutation.mutateAsync({
-            name: candidate.displayName,
-            agentCommand: candidate.bindingPreview.executablePath,
-            agentArgs: ["acp"],
-            harnessOverride: true,
-            parallelism: 1,
-            nativeRuntimeBinding: candidate.bindingPreview,
-            spawnAfterCreate: true,
-            startOnAppLaunch: true,
-          });
-          await setResidentContinuityEnabled(created.agent.pubkey, true);
-          if (created.spawnError || created.profileSyncError) {
-            throw new Error(
-              created.spawnError ??
-                created.profileSyncError ??
-                "Import needs attention",
-            );
-          }
-          setResults((current) => ({
-            ...current,
-            [candidate.semanticId]: "ready",
-          }));
-        } catch (cause) {
+
+      const importQueue = [...selectedImportCandidates];
+      for (const [index, candidate] of importQueue.entries()) {
+        setImportProgress({ current: index + 1, total: importQueue.length });
+        const imported = await importCandidate(candidate);
+        if (!imported) {
           issueCount += 1;
-          setResults((current) => ({
-            ...current,
-            [candidate.semanticId]: "failed",
-          }));
-          setErrors((current) => ({
-            ...current,
-            [candidate.semanticId]:
-              cause instanceof Error ? cause.message : String(cause),
-          }));
+          importFailed = true;
         }
       }
-      await queryClient.invalidateQueries({ queryKey: managedAgentsQueryKey });
-      const residents = await managedQuery.refetch();
+      setImportProgress(null);
+      const residents = await refreshResidents();
+      if (importFailed) {
+        setContinueAnyway(true);
+        return undefined;
+      }
       return {
         issueCount,
         residentCount: residents.data?.length ?? managedQuery.data?.length ?? 0,
       };
     } finally {
+      setImportProgress(null);
       onBusyChange(false);
     }
   }, [
-    candidates,
-    createMutation,
+    continueAnyway,
     existingLuca,
-    importedBindings,
+    importCandidate,
     lucaPreview,
     lucaRequest,
     lucaSelected,
     managedQuery,
     onBusyChange,
     personasQuery.data,
-    queryClient,
-    results,
+    refreshResidents,
+    replaceErrors,
     runtimeTarget,
     runtimesQuery,
     scanError,
     saveOperatorSettings,
-    selected,
+    selectedImportCandidates,
   ]);
 
   React.useImperativeHandle(ref, () => ({ commit }), [commit]);
-
-  const allResidents = managedQuery.data ?? [];
-  const visibleCandidates = candidates.filter(
-    (candidate) =>
-      !importedBindings.has(bindingIdentity(candidate.bindingPreview)),
-  );
 
   return (
     <>
@@ -380,109 +502,68 @@ export const PolyphonicAgentsStep = React.forwardRef<
           </section>
         ) : null}
       </div>
-      <div className="mt-6 overflow-hidden rounded-lg border border-[hsl(var(--mn-border))] bg-[hsl(var(--mn-surface))]">
-        {allResidents.map((resident) => (
-          <div
-            className="flex min-h-14 items-center gap-3 border-b border-[hsl(var(--mn-border))] px-3.5 py-2 last:border-b-0"
-            key={resident.pubkey}
-          >
-            <AgentIdentitySpecimen
-              accessibleName={resident.name}
-              publicKey={resident.pubkey}
-              size={36}
-            />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm text-white/88">
-                {resident.name}
-              </span>
-              <span className="block text-xs text-white/46">Connected</span>
-            </span>
-            <Check aria-label="Connected" className="h-4 w-4 text-white/72" />
-          </div>
-        ))}
-        {visibleCandidates.map((candidate) => {
-          const isSelected = selected.has(candidate.semanticId);
-          const result = results[candidate.semanticId] ?? "idle";
-          const unavailable = candidate.readiness.status === "unavailable";
-          return (
-            <button
-              aria-pressed={isSelected}
-              className="group flex min-h-14 w-full items-center gap-3 border-b border-[hsl(var(--mn-border))] px-3.5 py-2 text-left last:border-b-0 hover:bg-[hsl(var(--mn-hover))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60"
-              disabled={unavailable || result === "importing"}
-              key={candidate.semanticId}
-              onClick={() =>
-                setSelected((current) => {
-                  const next = new Set(current);
-                  if (next.has(candidate.semanticId))
-                    next.delete(candidate.semanticId);
-                  else next.add(candidate.semanticId);
-                  return next;
-                })
+      <div className="mt-6">
+        <PolyphonicAgentImportPane
+          candidates={visibleCandidates}
+          connectedAgents={allResidents.map((resident) => ({
+            id: resident.pubkey,
+            name: resident.name,
+          }))}
+          disabled={importProgress !== null}
+          isScanning={isScanning}
+          onClear={() => {
+            setContinueAnyway(false);
+            setSelected(clearAgentImportSelection());
+          }}
+          onRescan={() => void scan(true)}
+          onRetryCandidate={(candidate) => {
+            void (async () => {
+              onBusyChange(true);
+              setImportProgress({ current: 1, total: 1 });
+              try {
+                const imported = await importCandidate(candidate);
+                await refreshResidents();
+                const remainingErrors = Object.keys(errorsRef.current).filter(
+                  (key) => key !== "luca",
+                );
+                setContinueAnyway(!imported || remainingErrors.length > 0);
+              } finally {
+                setImportProgress(null);
+                onBusyChange(false);
               }
-              type="button"
-            >
-              <span className="flex h-9 w-9 items-center justify-center border border-[hsl(var(--mn-border))] text-white/52">
-                {result === "importing" ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Terminal className="h-4 w-4" />
-                )}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm text-white/88">
-                  {candidate.displayName}
-                </span>
-                <span className="block truncate text-xs text-white/46">
-                  {candidate.nativeType === "hermes" ? "Hermes" : "OpenClaw"}
-                  {result === "failed" ? " · Needs attention" : ""}
-                </span>
-              </span>
-              <span
-                aria-hidden
-                className={cn(
-                  "flex h-5 w-5 items-center justify-center rounded-full border",
-                  isSelected
-                    ? "border-white bg-white text-black"
-                    : "border-white/20 text-transparent",
-                )}
-              >
-                <Check className="h-3 w-3" />
-              </span>
-            </button>
-          );
-        })}
-        {!isScanning &&
-        allResidents.length === 0 &&
-        visibleCandidates.length === 0 ? (
-          <div className="px-4 py-6 text-center text-sm text-white/52">
-            No agents found yet. You can create one now or continue without
-            agents.
-          </div>
-        ) : null}
+            })();
+          }}
+          onSelectAllReady={() => {
+            setContinueAnyway(false);
+            setSelected(
+              selectAllReadyAgentImports(
+                visibleCandidates,
+                importedCandidateIds,
+              ),
+            );
+          }}
+          onToggleCandidate={(candidate) => {
+            setContinueAnyway(false);
+            setSelected((current) => {
+              const next = new Set(current);
+              if (next.has(candidate.semanticId))
+                next.delete(candidate.semanticId);
+              else next.add(candidate.semanticId);
+              return next;
+            });
+          }}
+          rowErrors={errors}
+          rowStatuses={results}
+          scanError={scanError}
+          selectedIds={selected}
+          sourceOutcomes={sourceOutcomes}
+        />
       </div>
-      {isScanning ? (
-        <p
-          className="mt-3 flex items-center gap-2 text-sm text-white/52"
-          role="status"
-        >
-          <LoaderCircle className="h-4 w-4 animate-spin" /> Looking for agents…
+      {errors.luca ? (
+        <p className="mt-4 text-sm text-destructive" role="alert">
+          {errors.luca}
         </p>
       ) : null}
-      {scanError ? (
-        <PolyphonicNotice kind="error">
-          <div className="flex items-center justify-between gap-3">
-            <span>{scanError}</span>
-            <Button onClick={() => void scan()} size="sm" variant="ghost">
-              <RefreshCw /> Scan again
-            </Button>
-          </div>
-        </PolyphonicNotice>
-      ) : null}
-      {Object.entries(errors).map(([id, message]) => (
-        <PolyphonicNotice key={id} kind="error">
-          {message}
-        </PolyphonicNotice>
-      ))}
       <Button
         className="mt-2 h-10 gap-2 rounded-lg px-2.5 text-sm text-white/60 hover:bg-white/[0.04] hover:text-white"
         onClick={() => {

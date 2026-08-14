@@ -38,7 +38,7 @@ export function PolyphonicSetupFrame({
   const step = chapterDetails[stage];
   return (
     <div
-      className="max-h-dvh min-h-dvh overflow-x-hidden overflow-y-auto bg-[hsl(var(--mn-navigator))] text-[hsl(var(--mn-ink))]"
+      className="h-dvh overflow-hidden bg-[hsl(var(--mn-navigator))] text-[hsl(var(--mn-ink))]"
       data-stage={stage}
       data-testid="polyphonic-onboarding"
       style={{
@@ -52,7 +52,7 @@ export function PolyphonicSetupFrame({
       </p>
       <motion.main
         animate={{ opacity: 1, y: 0 }}
-        className="polyphonic-onboarding-main flex min-h-dvh items-center justify-center px-4 pb-6 pt-14 sm:px-6 sm:pb-8 sm:pt-16"
+        className="polyphonic-onboarding-main flex h-dvh min-h-0 items-center justify-center overflow-hidden px-4 pb-6 pt-14 sm:px-6 sm:pb-8 sm:pt-16"
         initial={reduceMotion ? false : { opacity: 0, y: 10 }}
         transition={
           reduceMotion
@@ -62,10 +62,10 @@ export function PolyphonicSetupFrame({
       >
         <section
           aria-labelledby={`polyphonic-${stage}-heading`}
-          className="relative w-full max-w-[38rem] rounded-2xl border border-[hsl(var(--mn-border))] bg-[hsl(var(--mn-raised))] shadow-[0_1px_1px_rgba(0,0,0,0.5),0_18px_50px_rgba(0,0,0,0.4)]"
+          className="relative flex max-h-[calc(100dvh-5rem)] min-h-0 w-full max-w-[38rem] flex-col overflow-hidden rounded-2xl border border-[hsl(var(--mn-border))] bg-[hsl(var(--mn-raised))] shadow-[0_1px_1px_rgba(0,0,0,0.5),0_18px_50px_rgba(0,0,0,0.4)]"
           data-testid="polyphonic-setup-assistant"
         >
-          <header className="polyphonic-onboarding-header flex items-center justify-between px-5 pt-5 sm:px-8 sm:pt-7">
+          <header className="polyphonic-onboarding-header flex shrink-0 items-center justify-between px-5 pt-5 sm:px-8 sm:pt-7">
             <div className="flex items-center gap-2.5">
               <span aria-hidden>
                 <PolyphonicBrandMark />
@@ -78,10 +78,10 @@ export function PolyphonicSetupFrame({
               Step {step.current} of 5
             </span>
           </header>
-          <div className="polyphonic-onboarding-body px-5 pb-4 pt-7 sm:px-8 sm:pb-5 sm:pt-8">
+          <div className="polyphonic-onboarding-body min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-4 pt-7 [scrollbar-gutter:stable] sm:px-8 sm:pb-5 sm:pt-8">
             {children}
           </div>
-          <footer className="polyphonic-onboarding-footer flex items-center justify-between gap-4 px-5 pb-5 sm:px-8 sm:pb-7">
+          <footer className="polyphonic-onboarding-footer flex shrink-0 items-center justify-between gap-4 border-t border-[hsl(var(--mn-border))] bg-[hsl(var(--mn-raised))] px-5 py-4 sm:px-8 sm:pb-6 sm:pt-4">
             <Button
               className="h-9 rounded-lg px-3 text-sm text-white/64 hover:bg-white/[0.05] hover:text-white"
               disabled={backDisabled}
