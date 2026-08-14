@@ -9,7 +9,12 @@ import {
   relayAgentsQueryKey,
   useAcpRuntimesQuery,
   useManagedAgentsQuery,
+  useStartManagedAgentMutation,
 } from "@/features/agents/hooks";
+import {
+  isManagedAgentActive,
+  startManagedAgentWithRules,
+} from "@/features/agents/lib/managedAgentControlActions";
 import {
   useOpenDmMutation,
   useUpsertCachedChannel,
@@ -52,6 +57,7 @@ export function NewMessageScreen() {
   const currentPubkey = identityQuery.data?.pubkey;
   const runtimesQuery = useAcpRuntimesQuery();
   const managedAgentsQuery = useManagedAgentsQuery();
+  const startManagedAgentMutation = useStartManagedAgentMutation();
   const openDmMutation = useOpenDmMutation();
   const upsertCachedChannel = useUpsertCachedChannel();
   const sendMessageMutation = useSendMessageMutation(null, identityQuery.data);
@@ -76,11 +82,13 @@ export function NewMessageScreen() {
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const toFieldRef = React.useRef<HTMLDivElement>(null);
   const preparedDirectMessageRef = React.useRef<Channel | null>(null);
+  const startedForFirstUseRef = React.useRef(new Set<string>());
   const isMountedRef = React.useRef(false);
   const isPending =
     isPreparingMentionSend ||
     creatingDirectRuntimeId !== null ||
     openDmMutation.isPending ||
+    startManagedAgentMutation.isPending ||
     sendMessageMutation.isPending;
 
   const {
@@ -256,6 +264,27 @@ export function NewMessageScreen() {
     [currentPubkey, goSettings, handleResultSelect, queryClient],
   );
 
+  const ensureSelectedAgentsRunning = React.useCallback(
+    async (requestedPubkeys: readonly string[]) => {
+      const requested = new Set(requestedPubkeys.map(normalizePubkey));
+      const stoppedAgents = (managedAgentsQuery.data ?? []).filter(
+        (agent) =>
+          requested.has(normalizePubkey(agent.pubkey)) &&
+          !isManagedAgentActive(agent) &&
+          !startedForFirstUseRef.current.has(normalizePubkey(agent.pubkey)),
+      );
+
+      for (const agent of stoppedAgents) {
+        await startManagedAgentWithRules({
+          agent,
+          startManagedAgent: startManagedAgentMutation.mutateAsync,
+        });
+        startedForFirstUseRef.current.add(normalizePubkey(agent.pubkey));
+      }
+    },
+    [managedAgentsQuery.data, startManagedAgentMutation.mutateAsync],
+  );
+
   const openDirectMessage = React.useCallback(
     async (additionalParticipantPubkeys: string[] = []) => {
       const requestedPubkeys = [
@@ -282,7 +311,17 @@ export function NewMessageScreen() {
           preparedParticipantPubkeys.has(pubkey),
         )
       ) {
-        return preparedDirectMessage;
+        try {
+          await ensureSelectedAgentsRunning(requestedPubkeys);
+          return preparedDirectMessage;
+        } catch (error) {
+          setSubmitErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "Failed to start the selected agent.",
+          );
+          return null;
+        }
       }
 
       if (
@@ -300,6 +339,7 @@ export function NewMessageScreen() {
           pubkeys: requestedPubkeys,
         });
         preparedDirectMessageRef.current = directMessage;
+        await ensureSelectedAgentsRunning(requestedPubkeys);
         return directMessage;
       } catch (error) {
         setSubmitErrorMessage(
@@ -312,6 +352,7 @@ export function NewMessageScreen() {
     },
     [
       currentPubkey,
+      ensureSelectedAgentsRunning,
       openDmMutation.isPending,
       openDmMutation.mutateAsync,
       selectedUsers,

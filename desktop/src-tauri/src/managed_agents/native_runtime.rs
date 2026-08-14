@@ -12,6 +12,7 @@ use std::{
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     process::{Command, ExitStatus, Stdio},
+    thread,
     time::{Duration, Instant},
 };
 
@@ -890,14 +891,58 @@ pub fn discover_native_resident_candidates() -> Vec<DiscoveredResidentCandidate>
 /// Per-runtime result preserves absent, degraded, and failed states instead of
 /// conflating them with an empty successful scan.
 pub fn discover_native_resident_outcome() -> NativeResidentDiscoveryOutcome {
-    NativeResidentDiscoveryOutcome {
-        runtimes: vec![discover_hermes(), discover_openclaw()],
+    discover_native_resident_outcome_with(discover_hermes, discover_openclaw)
+}
+
+fn discovery_panic_outcome(
+    native_type: NativeRuntimeKind,
+    runtime_name: &str,
+) -> NativeRuntimeDiscoveryOutcome {
+    NativeRuntimeDiscoveryOutcome {
+        native_type,
+        status: NativeDiscoveryStatus::Failed,
+        message: Some(format!(
+            "{runtime_name} discovery stopped unexpectedly. Scan again to retry."
+        )),
+        candidates: Vec::new(),
     }
+}
+
+fn discover_native_resident_outcome_with<H, O>(
+    discover_hermes_runtime: H,
+    discover_openclaw_runtime: O,
+) -> NativeResidentDiscoveryOutcome
+where
+    H: FnOnce() -> NativeRuntimeDiscoveryOutcome + Send,
+    O: FnOnce() -> NativeRuntimeDiscoveryOutcome + Send,
+{
+    let runtimes = thread::scope(|scope| {
+        let hermes = scope.spawn(discover_hermes_runtime);
+        let openclaw = scope.spawn(discover_openclaw_runtime);
+
+        // Join in the product's stable display order, not completion order.
+        let hermes = match hermes.join() {
+            Ok(outcome) => outcome,
+            Err(_) => discovery_panic_outcome(NativeRuntimeKind::Hermes, "Hermes"),
+        };
+        let openclaw = match openclaw.join() {
+            Ok(outcome) => outcome,
+            Err(_) => discovery_panic_outcome(NativeRuntimeKind::Openclaw, "OpenClaw"),
+        };
+
+        vec![hermes, openclaw]
+    });
+
+    NativeResidentDiscoveryOutcome { runtimes }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc,
+    };
 
     #[cfg(unix)]
     fn executable_fixture(directory: &Path, name: &str) -> PathBuf {
@@ -1062,6 +1107,72 @@ mod tests {
         let json = serde_json::to_value(&outcome).expect("outcome serializes");
         assert_eq!(json["runtimes"][0]["status"], "absent");
         assert_eq!(json["runtimes"][1]["status"], "failed");
+    }
+
+    #[test]
+    fn native_runtime_discovery_runs_in_parallel_and_keeps_product_order() {
+        let started = Arc::new(AtomicUsize::new(0));
+        let hermes_observed_peer = Arc::new(AtomicBool::new(false));
+        let openclaw_observed_peer = Arc::new(AtomicBool::new(false));
+
+        let probe = |native_type: NativeRuntimeKind,
+                     runtime_name: &'static str,
+                     observed_peer: Arc<AtomicBool>,
+                     started: Arc<AtomicUsize>| {
+            move || {
+                started.fetch_add(1, Ordering::SeqCst);
+                let deadline = Instant::now() + Duration::from_millis(500);
+                while started.load(Ordering::SeqCst) < 2 && Instant::now() < deadline {
+                    thread::yield_now();
+                }
+                observed_peer.store(started.load(Ordering::SeqCst) == 2, Ordering::SeqCst);
+                NativeRuntimeDiscoveryOutcome {
+                    native_type,
+                    status: NativeDiscoveryStatus::Available,
+                    message: Some(runtime_name.into()),
+                    candidates: Vec::new(),
+                }
+            }
+        };
+
+        let outcome = discover_native_resident_outcome_with(
+            probe(
+                NativeRuntimeKind::Hermes,
+                "Hermes",
+                Arc::clone(&hermes_observed_peer),
+                Arc::clone(&started),
+            ),
+            probe(
+                NativeRuntimeKind::Openclaw,
+                "OpenClaw",
+                Arc::clone(&openclaw_observed_peer),
+                Arc::clone(&started),
+            ),
+        );
+
+        assert!(hermes_observed_peer.load(Ordering::SeqCst));
+        assert!(openclaw_observed_peer.load(Ordering::SeqCst));
+        assert_eq!(outcome.runtimes[0].native_type, NativeRuntimeKind::Hermes);
+        assert_eq!(outcome.runtimes[1].native_type, NativeRuntimeKind::Openclaw);
+    }
+
+    #[test]
+    fn one_runtime_discovery_panic_does_not_hide_the_other_runtime() {
+        let outcome = discover_native_resident_outcome_with(
+            || panic!("Hermes fixture panic"),
+            || NativeRuntimeDiscoveryOutcome {
+                native_type: NativeRuntimeKind::Openclaw,
+                status: NativeDiscoveryStatus::Available,
+                message: None,
+                candidates: Vec::new(),
+            },
+        );
+
+        assert_eq!(outcome.runtimes.len(), 2);
+        assert_eq!(outcome.runtimes[0].native_type, NativeRuntimeKind::Hermes);
+        assert_eq!(outcome.runtimes[0].status, NativeDiscoveryStatus::Failed);
+        assert_eq!(outcome.runtimes[1].native_type, NativeRuntimeKind::Openclaw);
+        assert_eq!(outcome.runtimes[1].status, NativeDiscoveryStatus::Available);
     }
 
     #[test]
