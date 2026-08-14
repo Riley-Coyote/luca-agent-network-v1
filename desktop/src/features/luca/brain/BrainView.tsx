@@ -41,6 +41,7 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 import { PageHeader } from "@/shared/ui/PageHeader";
+import { NavigationTransition } from "@/shared/ui/NavigationTransition";
 
 type BrainCategory = ConnectedBrainSourceKind | "files";
 type ViewMode = "connections" | "activity";
@@ -189,72 +190,74 @@ export function BrainView() {
           </div>
         ) : null}
 
-        {mode === "connections" ? (
-          <section
-            aria-label="Brain connections"
-            className="mt-6 grid gap-4 md:grid-cols-2"
-          >
-            {cards.map((card) => {
-              const hasDetails = card.connectedCount > 0;
-              const hasFound = card.discoveryCount > 0;
-              const onAction = () => {
-                if (card.kind === "files" || hasDetails) {
-                  setDetailCategory(card.kind);
-                } else if (hasFound) {
-                  requestConnection(card.kind);
-                } else if (card.kind === "repository") {
-                  void run(() => actions.addRoot.mutateAsync());
-                } else {
-                  void connectedQuery.refetch();
-                }
-              };
-              return (
-                <BrainConnectionCard
-                  actionLabel={
-                    hasDetails
-                      ? "Details"
-                      : hasFound
-                        ? card.kind === "repository"
-                          ? "Connect repositories"
-                          : "Connect sessions"
-                        : card.kind === "files"
-                          ? "Add files"
-                          : card.kind === "repository"
-                            ? "Add folder"
-                            : "Scan again"
+        <NavigationTransition transitionKey={mode} variant="section">
+          {mode === "connections" ? (
+            <section
+              aria-label="Brain connections"
+              className="mt-6 grid gap-4 md:grid-cols-2"
+            >
+              {cards.map((card) => {
+                const hasDetails = card.connectedCount > 0;
+                const hasFound = card.discoveryCount > 0;
+                const onAction = () => {
+                  if (card.kind === "files" || hasDetails) {
+                    setDetailCategory(card.kind);
+                  } else if (hasFound) {
+                    requestConnection(card.kind);
+                  } else if (card.kind === "repository") {
+                    void run(() => actions.addRoot.mutateAsync());
+                  } else {
+                    void connectedQuery.refetch();
                   }
-                  description={card.description}
-                  detail={card.detail}
-                  disabled={mutating}
-                  icon={card.icon}
-                  key={card.kind}
-                  onAction={onAction}
-                  onSecondaryAction={
-                    card.kind === "repository" && hasDetails
-                      ? () => void run(() => actions.addRoot.mutateAsync())
-                      : undefined
-                  }
-                  secondaryActionLabel={
-                    card.kind === "repository" && hasDetails
-                      ? "Add folder"
-                      : undefined
-                  }
-                  state={card.state}
-                  testId={`brain-card-${card.kind}`}
-                  title={card.title}
-                />
-              );
-            })}
-          </section>
-        ) : (
-          <div className="mt-6">
-            <BrainActivity
-              connected={inventory}
-              imported={ownerQuery.data}
-              residents={residents}
-            />
-          </div>
-        )}
+                };
+                return (
+                  <BrainConnectionCard
+                    actionLabel={
+                      hasDetails
+                        ? "Details"
+                        : hasFound
+                          ? card.kind === "repository"
+                            ? "Connect repositories"
+                            : "Connect sessions"
+                          : card.kind === "files"
+                            ? "Add files"
+                            : card.kind === "repository"
+                              ? "Add folder"
+                              : "Scan again"
+                    }
+                    description={card.description}
+                    detail={card.detail}
+                    disabled={mutating}
+                    icon={card.icon}
+                    key={card.kind}
+                    onAction={onAction}
+                    onSecondaryAction={
+                      card.kind === "repository" && hasDetails
+                        ? () => void run(() => actions.addRoot.mutateAsync())
+                        : undefined
+                    }
+                    secondaryActionLabel={
+                      card.kind === "repository" && hasDetails
+                        ? "Add folder"
+                        : undefined
+                    }
+                    state={card.state}
+                    testId={`brain-card-${card.kind}`}
+                    title={card.title}
+                  />
+                );
+              })}
+            </section>
+          ) : (
+            <div className="mt-6">
+              <BrainActivity
+                connected={inventory}
+                imported={ownerQuery.data}
+                residents={residents}
+              />
+            </div>
+          )}
+        </NavigationTransition>
       </main>
 
       <BrainConsentDialog

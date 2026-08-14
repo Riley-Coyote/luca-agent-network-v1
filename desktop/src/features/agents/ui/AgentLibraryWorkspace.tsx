@@ -22,6 +22,7 @@ import { truncatePubkey } from "@/shared/lib/pubkey";
 import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import { Button } from "@/shared/ui/button";
 import { Switch } from "@/shared/ui/switch";
+import { NavigationTransition } from "@/shared/ui/NavigationTransition";
 import { ResidentHandoffPanel } from "@/features/profile/ui/ResidentContinuityPanel";
 import { ResidentNotebookPanel } from "@/features/profile/ui/notebook/ResidentNotebookPanel";
 import {
@@ -194,7 +195,12 @@ export function AgentLibraryWorkspace({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-7">
-        <div className="mx-auto w-full max-w-4xl">
+        <NavigationTransition
+          className="mx-auto w-full max-w-4xl"
+          contentClassName="w-full"
+          transitionKey={section}
+          variant="section"
+        >
           {actionErrorMessage ? (
             <div
               className="mb-5 flex items-start gap-3 border border-destructive/35 bg-destructive/8 px-4 py-3 text-sm text-destructive"
@@ -237,7 +243,7 @@ export function AgentLibraryWorkspace({
               resident={resident}
             />
           ) : null}
-        </div>
+        </NavigationTransition>
       </div>
     </main>
   );

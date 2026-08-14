@@ -90,6 +90,7 @@ import { useMessageDeepLinks } from "@/shared/useMessageDeepLinks";
 import { SidebarInset, SidebarProvider } from "@/shared/ui/sidebar";
 import { RelayConnectionOverlay } from "@/app/RelayConnectionOverlay";
 import { useSidebarRelayConnectionCard } from "@/features/sidebar/ui/useSidebarRelayConnectionCard";
+import { NavigationTransition } from "@/shared/ui/NavigationTransition";
 
 const LazySettingsScreen = React.lazy(async () => {
   const module = await import("@/features/settings/ui/SettingsScreen");
@@ -930,7 +931,16 @@ export function AppShell() {
                             style={chromeCssVarDefaults as React.CSSProperties}
                           >
                             <BuzzTheme.ContentSurface>
-                              <Outlet />
+                              <NavigationTransition
+                                className="flex min-h-0 flex-1 flex-col"
+                                contentClassName="flex min-h-0 flex-1 flex-col"
+                                transitionKey={location.pathname}
+                                variant={
+                                  selectedChannelId ? "conversation" : "route"
+                                }
+                              >
+                                <Outlet />
+                              </NavigationTransition>
                             </BuzzTheme.ContentSurface>
                           </SidebarInset>
                         </MainInsetProvider>

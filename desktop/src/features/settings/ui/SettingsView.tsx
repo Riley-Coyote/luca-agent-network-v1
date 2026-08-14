@@ -19,6 +19,7 @@ import {
   useSidebar,
 } from "@/shared/ui/sidebar";
 import { SidebarMenuLabel } from "@/shared/ui/sidebar-menu-label";
+import { NavigationTransition } from "@/shared/ui/NavigationTransition";
 import {
   renderSettingsSection,
   settingsSections,
@@ -294,28 +295,32 @@ export function SettingsView({
             className="min-h-0 flex-1 overflow-y-auto px-5 pb-12 pt-6 sm:px-6"
             data-testid="settings-content-scroll"
           >
-            <div
+            <NavigationTransition
               className={cn(
-                "mx-auto flex min-h-full w-full flex-col gap-4",
+                "mx-auto min-h-full w-full",
                 section === "agents" ? "max-w-6xl" : "max-w-4xl",
               )}
-              data-testid={`settings-panel-${section}`}
+              contentClassName="flex min-h-full w-full flex-col gap-4"
+              transitionKey={section}
+              variant="section"
             >
-              {renderSettingsSection(section, {
-                currentPubkey,
-                fallbackDisplayName,
-                isUpdatingDesktopNotifications,
-                notificationErrorMessage,
-                notificationPermission,
-                notificationSettings,
-                onSetDesktopNotificationsEnabled,
-                onSetHomeBadgeEnabled,
-                onSetSlotAlertsEnabled,
-                onSetNotifyWhileViewing,
-                onSetAllSlotAlertsEnabled,
-                onSetSoundForSlot,
-              })}
-            </div>
+              <div data-testid={`settings-panel-${section}`}>
+                {renderSettingsSection(section, {
+                  currentPubkey,
+                  fallbackDisplayName,
+                  isUpdatingDesktopNotifications,
+                  notificationErrorMessage,
+                  notificationPermission,
+                  notificationSettings,
+                  onSetDesktopNotificationsEnabled,
+                  onSetHomeBadgeEnabled,
+                  onSetSlotAlertsEnabled,
+                  onSetNotifyWhileViewing,
+                  onSetAllSlotAlertsEnabled,
+                  onSetSoundForSlot,
+                })}
+              </div>
+            </NavigationTransition>
           </section>
         </div>
       </SidebarInset>
