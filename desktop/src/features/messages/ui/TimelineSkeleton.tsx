@@ -1,4 +1,5 @@
 import * as React from "react";
+import { motion, useReducedMotion } from "motion/react";
 
 import type { TimelineMessage } from "@/features/messages/types";
 import { cn } from "@/shared/lib/cn";
@@ -23,6 +24,7 @@ const timelineSkeletonWidthClasses = [
 ] as const;
 const timelineSkeletonActionKeys = ["reply", "react", "more"] as const;
 const timelineSkeletonBodyLineKeys = ["primary", "secondary", "tertiary"];
+const timelineSkeletonRevealDelaySeconds = 0.25;
 
 type TimelineSkeletonWidthClass = (typeof timelineSkeletonWidthClasses)[number];
 
@@ -204,9 +206,19 @@ type TimelineSkeletonProps = {
 
 export function TimelineSkeleton({ rows }: TimelineSkeletonProps) {
   const skeletonRows = rows?.length ? rows : fallbackTimelineSkeletonRows;
+  const shouldReduceMotion = useReducedMotion();
 
   return (
-    <>
+    <motion.div
+      animate={{ opacity: 1 }}
+      className="flex flex-col gap-2"
+      initial={{ opacity: 0 }}
+      transition={{
+        delay: timelineSkeletonRevealDelaySeconds,
+        duration: shouldReduceMotion ? 0.01 : 0.1,
+        ease: [0.25, 1, 0.5, 1],
+      }}
+    >
       {skeletonRows.map((row) => (
         <article
           className="relative mx-1 flex items-start gap-2.5 rounded-2xl px-2 py-2"
@@ -238,6 +250,6 @@ export function TimelineSkeleton({ rows }: TimelineSkeletonProps) {
           </div>
         </article>
       ))}
-    </>
+    </motion.div>
   );
 }
