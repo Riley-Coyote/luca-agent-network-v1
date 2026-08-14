@@ -1,4 +1,4 @@
-import { Check, CircleAlert } from "lucide-react";
+import { Check, ChevronDown, CircleAlert } from "lucide-react";
 
 import type {
   AgentRuntimeTargetV1,
@@ -13,17 +13,70 @@ export function runtimeTargetKey(target: AgentRuntimeTargetV1): string {
 }
 
 export function AgentRuntimeTargetSelector({
+  appearance = "cards",
   disabled = false,
   onChange,
   options,
   value,
 }: {
+  appearance?: "cards" | "onboarding";
   disabled?: boolean;
   onChange: (target: AgentRuntimeTargetV1 | null) => void;
   options: RuntimeTargetOptionV1[];
   value: AgentRuntimeTargetV1 | null;
 }) {
   const selectedKey = value ? runtimeTargetKey(value) : null;
+  const selectedOption = selectedKey
+    ? options.find((option) => runtimeTargetKey(option.target) === selectedKey)
+    : null;
+
+  if (appearance === "onboarding") {
+    return (
+      <fieldset disabled={disabled}>
+        <legend className="mb-2 text-xs font-medium text-white/54">
+          Default runtime
+        </legend>
+        <div className="relative">
+          <select
+            aria-label="Default runtime"
+            className="h-10 w-full appearance-none rounded-lg border border-white/[0.09] bg-white/[0.035] px-3.5 pr-10 text-sm text-white/88 outline-none transition-colors hover:bg-white/[0.055] focus:border-white/20 focus:ring-2 focus:ring-white/35 disabled:cursor-not-allowed disabled:opacity-50"
+            onChange={(event) => {
+              const next = options.find(
+                (option) =>
+                  runtimeTargetKey(option.target) === event.target.value,
+              );
+              onChange(next?.target ?? null);
+            }}
+            value={selectedKey ?? ""}
+          >
+            <option value="">No default runtime</option>
+            {options.map((option) => (
+              <option
+                disabled={option.readiness === "unavailable"}
+                key={runtimeTargetKey(option.target)}
+                value={runtimeTargetKey(option.target)}
+              >
+                {option.label}
+                {option.recommended ? " — Recommended" : ""}
+              </option>
+            ))}
+          </select>
+          <ChevronDown
+            aria-hidden
+            className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/38"
+          />
+        </div>
+        <p className="mt-1.5 min-h-4 text-xs leading-4 text-white/40">
+          {selectedOption
+            ? selectedOption.readiness === "ready"
+              ? `${selectedOption.label} is ready${selectedOption.recommended ? " and recommended for this Mac" : ""}.`
+              : (selectedOption.reason ?? "This runtime needs attention.")
+            : "You can choose a runtime later in Settings."}
+        </p>
+      </fieldset>
+    );
+  }
+
   return (
     <fieldset className="space-y-2" disabled={disabled}>
       <legend className="mb-2 text-xs font-medium text-white/62">

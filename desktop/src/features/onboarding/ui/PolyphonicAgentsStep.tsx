@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Check, Plus, Terminal } from "lucide-react";
+import { Check, Plus } from "lucide-react";
 
 import {
   managedAgentsQueryKey,
@@ -49,6 +49,7 @@ import {
   type PolyphonicAgentImportRowStatus,
 } from "./PolyphonicAgentImportPane";
 import { PolyphonicStepHeading } from "./PolyphonicSetupFrame";
+import { PolyphonicBrandMark } from "./PolyphonicThresholdField";
 
 export type PolyphonicAgentsStepHandle = {
   commit: () => Promise<
@@ -436,9 +437,10 @@ export const PolyphonicAgentsStep = React.forwardRef<
         stage="agents"
         title="Bring your agents together"
       />
-      <div className="mt-6 space-y-5">
+      <div className="mt-7 space-y-4">
         {operatorSettings.data ? (
           <AgentRuntimeTargetSelector
+            appearance="onboarding"
             disabled={saveOperatorSettings.isPending}
             onChange={(target) => {
               setRuntimeTarget(target);
@@ -454,17 +456,20 @@ export const PolyphonicAgentsStep = React.forwardRef<
         )}
         <button
           aria-pressed={existingLuca ? true : lucaSelected}
-          className="flex w-full items-center gap-3 rounded-lg border border-[hsl(var(--mn-border))] bg-[hsl(var(--mn-surface))] px-3.5 py-3 text-left hover:bg-[hsl(var(--mn-hover))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+          className="group flex w-full items-center gap-3 rounded-xl bg-white/[0.025] px-3 py-2.5 text-left shadow-[inset_0_0_0_1px_rgb(255_255_255/0.035)] transition-colors hover:bg-white/[0.045] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45"
           disabled={Boolean(existingLuca)}
           onClick={() => setLucaSelected((current) => !current)}
           type="button"
         >
-          <span className="flex h-9 w-9 items-center justify-center border border-[hsl(var(--mn-border))] text-white/62">
-            <Terminal className="h-4 w-4" />
+          <span
+            aria-hidden
+            className="flex h-8 w-8 shrink-0 items-center justify-center text-white/70"
+          >
+            <PolyphonicBrandMark />
           </span>
           <span className="min-w-0 flex-1">
             <span className="block text-sm text-white/88">Luca</span>
-            <span className="block text-xs text-white/46">
+            <span className="mt-0.5 block text-xs leading-4 text-white/42">
               Can help organize your Luca home and prepare agent creation for
               your review.
             </span>
@@ -472,10 +477,10 @@ export const PolyphonicAgentsStep = React.forwardRef<
           <span
             aria-hidden
             className={cn(
-              "flex h-5 w-5 items-center justify-center rounded-full border",
+              "flex h-[1.125rem] w-[1.125rem] items-center justify-center rounded-[0.3rem] border transition-colors",
               existingLuca || lucaSelected
                 ? "border-white bg-white text-black"
-                : "border-white/20 text-transparent",
+                : "border-white/18 text-transparent group-hover:border-white/32",
             )}
           >
             <Check className="h-3 w-3" />
@@ -502,7 +507,7 @@ export const PolyphonicAgentsStep = React.forwardRef<
           </section>
         ) : null}
       </div>
-      <div className="mt-6">
+      <div className="mt-5">
         <PolyphonicAgentImportPane
           candidates={visibleCandidates}
           connectedAgents={allResidents.map((resident) => ({
@@ -565,7 +570,7 @@ export const PolyphonicAgentsStep = React.forwardRef<
         </p>
       ) : null}
       <Button
-        className="mt-2 h-10 gap-2 rounded-lg px-2.5 text-sm text-white/60 hover:bg-white/[0.04] hover:text-white"
+        className="mt-2 h-9 gap-2 rounded-lg px-2 text-sm font-normal text-white/48 hover:bg-white/[0.035] hover:text-white/82"
         onClick={() => {
           personas.prepareCreate();
           setCreateOpen(true);

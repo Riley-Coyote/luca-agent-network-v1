@@ -1,4 +1,4 @@
-import { AlertCircle, Check } from "lucide-react";
+import { AlertCircle, Check, ChevronRight } from "lucide-react";
 
 import { useManagedAgentsQuery } from "@/features/agents/hooks";
 import { useOperatorForgeSettingsQuery } from "@/features/agents/operatorForgeQueries";
@@ -66,17 +66,17 @@ export function PolyphonicReadyStep({
         stage="ready"
         title="Luca is ready"
       />
-      <div className="mt-6 overflow-hidden rounded-lg border border-[hsl(var(--mn-border))] bg-[hsl(var(--mn-surface))]">
+      <div className="mt-7 space-y-1 rounded-xl bg-white/[0.018] p-1 shadow-[inset_0_0_0_1px_rgb(255_255_255/0.035)]">
         {rows.map((row) => (
           <button
-            className="flex min-h-14 w-full items-center gap-3 border-b border-[hsl(var(--mn-border))] px-4 text-left last:border-b-0 hover:bg-[hsl(var(--mn-hover))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60"
+            className="group flex min-h-12 w-full items-center gap-3 rounded-lg px-3 text-left transition-colors hover:bg-white/[0.045] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/40"
             key={row.label}
             onClick={() => onReview(row.review)}
             type="button"
           >
-            <span className="w-16 text-xs text-white/42">{row.label}</span>
-            <span className="flex-1 text-sm text-white/82">{row.value}</span>
-            <span className="text-xs text-white/40">Review</span>
+            <span className="w-16 text-xs text-white/36">{row.label}</span>
+            <span className="flex-1 text-sm text-white/80">{row.value}</span>
+            <ChevronRight className="h-3.5 w-3.5 text-white/24 transition-transform group-hover:translate-x-0.5 group-hover:text-white/44" />
           </button>
         ))}
       </div>

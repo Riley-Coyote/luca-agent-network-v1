@@ -103,21 +103,21 @@ export const PolyphonicYouStep = React.forwardRef<
         stage="you"
         title="Make it yours"
       />
-      <div className="mt-6 flex items-center gap-4 rounded-lg border border-[hsl(var(--mn-border))] bg-[hsl(var(--mn-surface))] p-4">
+      <div className="mt-7 flex items-center gap-4">
         <AgentIdentitySpecimen
           accessibleName="Your owner identity"
           publicKey={pubkey}
-          size={48}
+          size={44}
         />
         <label
-          className="min-w-0 flex-1 text-xs text-white/48"
+          className="min-w-0 flex-1 text-xs text-white/46"
           htmlFor="polyphonic-owner-name"
         >
           Display name
           <Input
             autoComplete="name"
             autoFocus
-            className="mt-1.5 h-10 border-[hsl(var(--mn-border))] bg-[hsl(var(--mn-raised))] text-sm text-white placeholder:text-white/28"
+            className="mt-1.5 h-10 border-transparent bg-black/20 text-sm text-white shadow-[inset_0_0_0_1px_rgb(255_255_255/0.045)] placeholder:text-white/28 hover:bg-black/25 focus-visible:border-white/10 focus-visible:ring-white/35"
             data-testid="polyphonic-owner-name"
             id="polyphonic-owner-name"
             maxLength={80}
@@ -127,26 +127,26 @@ export const PolyphonicYouStep = React.forwardRef<
           />
         </label>
       </div>
-      <p className="mt-3 font-mono text-xs text-white/38">
+      <p className="ml-[3.75rem] mt-2.5 font-mono text-2xs leading-4 text-white/30">
         Identity mark derived from your public key · {truncatePubkey(pubkey)}
       </p>
 
-      <div className="mt-5 rounded-lg border border-[hsl(var(--mn-border))] bg-[hsl(var(--mn-surface))]">
+      <div className="mt-6 rounded-xl bg-white/[0.025] shadow-[inset_0_0_0_1px_rgb(255_255_255/0.035)]">
         <button
           aria-expanded={backupOpen}
-          className="flex min-h-12 w-full items-center gap-3 px-3.5 text-left text-sm text-white/72 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60"
+          className="flex min-h-12 w-full items-center gap-3 rounded-xl px-3.5 text-left text-sm text-white/68 transition-colors hover:bg-white/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/40"
           onClick={() => setBackupOpen((current) => !current)}
           type="button"
         >
           <ShieldCheck className="h-4 w-4 text-white/48" />
           <span className="flex-1">Create a protected recovery backup</span>
-          <span className="text-xs text-white/38">Optional</span>
+          <span className="text-xs text-white/32">Optional</span>
           <ChevronDown
             className={`h-4 w-4 transition-transform ${backupOpen ? "rotate-180" : ""}`}
           />
         </button>
         {backupOpen ? (
-          <div className="space-y-3 border-t border-[hsl(var(--mn-border))] px-3.5 pb-4 pt-3">
+          <div className="mx-2 mb-2 space-y-3 rounded-lg bg-black/15 px-3.5 pb-4 pt-3">
             <p className="text-xs leading-5 text-white/48">
               Choose a unique passphrase and keep it separately from the saved
               file.

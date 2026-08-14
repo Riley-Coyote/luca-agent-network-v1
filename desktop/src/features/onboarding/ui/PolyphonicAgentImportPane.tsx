@@ -70,7 +70,10 @@ function searchableText(candidate: DiscoveredResidentCandidate): string {
 }
 
 function detailText(candidate: DiscoveredResidentCandidate): string {
-  if (candidate.readiness.status !== "ready") {
+  if (
+    candidate.readiness.status === "degraded" ||
+    candidate.readiness.status === "unavailable"
+  ) {
     return candidate.readiness.message;
   }
   return (
@@ -159,36 +162,36 @@ export function PolyphonicAgentImportPane({
   return (
     <section
       aria-labelledby="polyphonic-agent-import-title"
-      className="overflow-hidden rounded-lg border border-[hsl(var(--mn-border))] bg-[hsl(var(--mn-surface))]"
+      className="overflow-hidden rounded-xl bg-white/[0.018] shadow-[inset_0_0_0_1px_rgb(255_255_255/0.035)]"
       data-testid="onboarding-agent-import-pane"
     >
-      <header className="space-y-3 border-b border-[hsl(var(--mn-border))] px-3.5 py-3">
+      <header className="space-y-2.5 px-3 py-3">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
               <h2
-                className="text-sm font-medium text-white/88"
+                className="text-sm font-medium text-white/86"
                 id="polyphonic-agent-import-title"
               >
                 Agents found on this Mac
               </h2>
-              <span className="text-xs tabular-nums text-white/42">
+              <span className="text-xs tabular-nums text-white/36">
                 {selectedIds.size} selected
               </span>
             </div>
             {alreadyConnected ? (
-              <p className="mt-1 truncate text-xs text-white/42">
+              <p className="mt-1 truncate text-xs text-white/38">
                 Already in Luca · {alreadyConnected}
               </p>
             ) : (
-              <p className="mt-1 text-xs text-white/42">
+              <p className="mt-1 text-xs text-white/38">
                 Choose only the agents you want to bring in.
               </p>
             )}
           </div>
           <span
             aria-live="polite"
-            className="flex shrink-0 items-center gap-1.5 text-xs text-white/46"
+            className="flex shrink-0 items-center gap-1.5 text-xs tabular-nums text-white/38"
             role="status"
           >
             {isScanning ? (
@@ -208,16 +211,16 @@ export function PolyphonicAgentImportPane({
           />
           <Input
             aria-label="Search agents"
-            className="h-8 border-[hsl(var(--mn-border))] bg-[hsl(var(--mn-raised))] pl-8 text-sm text-white/84 placeholder:text-white/36 focus-visible:ring-white/50"
+            className="h-8 border-transparent bg-black/20 pl-8 text-sm text-white/82 shadow-[inset_0_0_0_1px_rgb(255_255_255/0.035)] placeholder:text-white/32 hover:bg-black/25 focus-visible:border-white/10 focus-visible:ring-white/35"
             disabled={disabled}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search agents"
             value={query}
           />
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <Button
-            className="h-7 rounded-md px-2 text-xs font-normal text-white/58 hover:bg-white/[0.05] hover:text-white/88"
+            className="h-7 rounded-md px-2 text-xs font-normal text-white/54 hover:bg-white/[0.045] hover:text-white/86"
             disabled={disabled || isScanning || everyReadySelected}
             onClick={onSelectAllReady}
             size="sm"
@@ -227,7 +230,7 @@ export function PolyphonicAgentImportPane({
             Select all ready
           </Button>
           <Button
-            className="h-7 rounded-md px-2 text-xs font-normal text-white/46 hover:bg-white/[0.05] hover:text-white/80"
+            className="h-7 rounded-md px-2 text-xs font-normal text-white/38 hover:bg-white/[0.045] hover:text-white/78"
             disabled={disabled || selectedIds.size === 0}
             onClick={onClear}
             size="sm"
@@ -237,7 +240,7 @@ export function PolyphonicAgentImportPane({
             Clear
           </Button>
           <Button
-            className="ml-auto h-7 rounded-md px-2 text-xs font-normal text-white/46 hover:bg-white/[0.05] hover:text-white/80"
+            className="ml-auto h-7 rounded-md px-2 text-xs font-normal text-white/38 hover:bg-white/[0.045] hover:text-white/78"
             disabled={disabled || isScanning}
             onClick={onRescan}
             size="sm"
@@ -258,7 +261,7 @@ export function PolyphonicAgentImportPane({
       <section
         aria-busy={isScanning}
         aria-label="Discovered agents"
-        className="h-[clamp(14rem,34dvh,22rem)] overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
+        className="mx-1 mb-1 h-[clamp(13rem,30dvh,19rem)] overflow-y-auto overscroll-contain rounded-lg bg-black/15 pb-1 [scroll-padding-block:0.5rem] [scrollbar-gutter:stable] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/30"
         data-testid="onboarding-agent-import-list"
         // biome-ignore lint/a11y/noNoninteractiveTabindex: the independently scrollable inventory must be reachable by keyboard
         tabIndex={0}
@@ -271,7 +274,7 @@ export function PolyphonicAgentImportPane({
                 key={group.nativeType}
               >
                 <h3
-                  className="sticky top-0 z-10 border-b border-[hsl(var(--mn-border))] bg-[hsl(var(--mn-surface))] px-3.5 py-1.5 font-mono text-[0.625rem] uppercase tracking-[0.12em] text-white/36"
+                  className="sticky top-0 z-10 bg-[hsl(var(--mn-surface)/0.95)] px-3 pb-1 pt-2 font-mono text-2xs uppercase tracking-[0.12em] text-white/32 backdrop-blur-sm"
                   id={`polyphonic-agent-source-${group.nativeType}`}
                 >
                   {group.label}
@@ -291,19 +294,22 @@ export function PolyphonicAgentImportPane({
 
                     return (
                       <div
-                        className="flex min-h-14 items-center gap-2 border-b border-[hsl(var(--mn-border))] px-2 py-1 last:border-b-0"
+                        className="flex min-h-12 items-center gap-1 px-1 py-0.5"
                         data-testid={`onboarding-agent-row-${candidate.semanticId}`}
                         key={candidate.semanticId}
                       >
                         <button
                           aria-describedby={reasonId}
                           aria-pressed={selected}
-                          className="group flex min-w-0 flex-1 items-center gap-3 rounded-md px-1.5 py-1.5 text-left hover:bg-[hsl(var(--mn-hover))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
+                          className={cn(
+                            "group flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-white/[0.045] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/40 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent",
+                            (selected || imported) && "bg-white/[0.06]",
+                          )}
                           disabled={rowDisabled}
                           onClick={() => onToggleCandidate(candidate)}
                           type="button"
                         >
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center border border-[hsl(var(--mn-border))] text-white/48">
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center text-white/38">
                             {busy ? (
                               <LoaderCircle className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
                             ) : imported ? (
@@ -311,17 +317,17 @@ export function PolyphonicAgentImportPane({
                             ) : needsAttention ? (
                               <TriangleAlert className="h-3.5 w-3.5" />
                             ) : (
-                              <Terminal className="h-3.5 w-3.5" />
+                              <Terminal className="h-4 w-4" strokeWidth={1.5} />
                             )}
                           </span>
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm text-white/86">
+                            <span className="block truncate text-sm text-white/84">
                               {candidate.displayName}
                             </span>
                             <span
                               className={cn(
-                                "block text-xs text-white/42",
-                                candidate.readiness.status === "ready" &&
+                                "block text-xs text-white/38",
+                                isReadyAgentImportCandidate(candidate) &&
                                   !needsAttention
                                   ? "truncate"
                                   : "line-clamp-2 leading-4",
@@ -349,10 +355,10 @@ export function PolyphonicAgentImportPane({
                             <span
                               aria-hidden="true"
                               className={cn(
-                                "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border",
+                                "flex h-[1.125rem] w-[1.125rem] shrink-0 items-center justify-center rounded-[0.3rem] border transition-colors",
                                 selected || imported
                                   ? "border-white bg-white text-black"
-                                  : "border-white/20 text-transparent",
+                                  : "border-white/18 text-transparent group-hover:border-white/32",
                               )}
                             >
                               <Check className="h-3 w-3" />
@@ -376,7 +382,7 @@ export function PolyphonicAgentImportPane({
                   })}
                   {group.outcome?.status !== "available" &&
                   group.outcome?.message ? (
-                    <div className="flex items-start gap-2 border-b border-[hsl(var(--mn-border))] px-3.5 py-2.5 text-xs leading-5 text-white/46 last:border-b-0">
+                    <div className="mx-2 my-1 flex items-start gap-2 rounded-md bg-white/[0.025] px-2.5 py-2 text-xs leading-5 text-white/42">
                       <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                       <span>{group.outcome.message}</span>
                     </div>
@@ -386,7 +392,7 @@ export function PolyphonicAgentImportPane({
             ))}
           </div>
         ) : (
-          <div className="flex h-full min-h-[14rem] items-center justify-center px-6 text-center">
+          <div className="flex h-full min-h-[13rem] items-center justify-center px-6 text-center">
             <div>
               {isScanning ? (
                 <LoaderCircle className="mx-auto h-4 w-4 animate-spin text-white/42 motion-reduce:animate-none" />
@@ -410,7 +416,7 @@ export function PolyphonicAgentImportPane({
 
       {scanError ? (
         <div
-          className="flex items-start justify-between gap-3 border-t border-[hsl(var(--mn-border))] px-3.5 py-2.5"
+          className="mx-3 mb-3 mt-2 flex items-start justify-between gap-3 rounded-md bg-destructive/5 px-3 py-2.5"
           role="alert"
         >
           <span className="min-w-0 text-xs leading-5 text-destructive">
