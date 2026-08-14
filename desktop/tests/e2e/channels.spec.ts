@@ -785,14 +785,26 @@ test("routes an agent mention from an existing DM to the expanded conversation",
   const baselineCommands = await readCommandPayloadLog(page);
   await page.getByTestId("send-message").click();
 
-  await expect
-    .poll(async () => readOutgoingChannelId(page, messageTail))
-    .not.toBeNull();
-  const sentChannelId = await readOutgoingChannelId(page, messageTail);
-  expect(sentChannelId).not.toBe(sourceDmId);
   await expect(
-    page.locator("[data-active='true'][data-channel-id]"),
-  ).toHaveAttribute("data-channel-id", sentChannelId ?? "");
+    page.getByText("Create a group DM?", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("This conversation stays unchanged."),
+  ).toBeVisible();
+  expect(await readOutgoingChannelId(page, messageTail)).toBeNull();
+  await page.getByRole("button", { name: "Create group DM" }).click();
+
+  await expect(page.getByTestId("message-timeline")).toContainText(messageTail);
+  const activeConversation = page.locator(
+    "[data-active='true'][data-channel-id]",
+  );
+  const sentChannelId =
+    await activeConversation.getAttribute("data-channel-id");
+  expect(sentChannelId).not.toBe(sourceDmId);
+  await expect(activeConversation).toHaveAttribute(
+    "data-channel-id",
+    sentChannelId ?? "",
+  );
   await expect(page.getByTestId("chat-title")).toContainText("alice");
   await expect(page.getByTestId("chat-title")).toContainText("Fizz");
   await expect(sourceDm).not.toContainText("Fizz");
@@ -854,14 +866,22 @@ test("routes a managed relay-agent mention from an existing DM to the expanded c
   const baselineCommands = await readCommandPayloadLog(page);
   await page.getByTestId("send-message").click();
 
-  await expect
-    .poll(async () => readOutgoingChannelId(page, messageTail))
-    .not.toBeNull();
-  const sentChannelId = await readOutgoingChannelId(page, messageTail);
-  expect(sentChannelId).not.toBe(sourceDmId);
   await expect(
-    page.locator("[data-active='true'][data-channel-id]"),
-  ).toHaveAttribute("data-channel-id", sentChannelId ?? "");
+    page.getByText("Create a group DM?", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Create group DM" }).click();
+
+  await expect(page.getByTestId("message-timeline")).toContainText(messageTail);
+  const activeConversation = page.locator(
+    "[data-active='true'][data-channel-id]",
+  );
+  const sentChannelId =
+    await activeConversation.getAttribute("data-channel-id");
+  expect(sentChannelId).not.toBe(sourceDmId);
+  await expect(activeConversation).toHaveAttribute(
+    "data-channel-id",
+    sentChannelId ?? "",
+  );
   await expect(page.getByTestId("chat-title")).toContainText("alice");
   await expect(page.getByTestId("chat-title")).toContainText("quinn");
 
@@ -900,6 +920,11 @@ test("does not reroute an expanded DM after the user navigates away", async ({
   await page.keyboard.type(" while I leave");
   await page.getByTestId("send-message").click();
 
+  await expect(
+    page.getByText("Create a group DM?", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Create group DM" }).click();
+
   await page.getByTestId("channel-general").click();
   await expect(page.getByTestId("chat-title")).toHaveText("general");
   await page.waitForTimeout(1_250);
@@ -931,6 +956,11 @@ test("does not reroute an expanded DM after the channel pane unmounts", async ({
   await input.press("Enter");
   await page.keyboard.type(" while I open settings");
   await page.getByTestId("send-message").click();
+
+  await expect(
+    page.getByText("Create a group DM?", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Create group DM" }).click();
 
   await page.getByTestId("open-settings").click();
   await page.getByTestId("profile-popover-settings").click();
@@ -968,6 +998,11 @@ test("drops an expanded DM after the first message fails", async ({ page }) => {
   await input.press("Enter");
   await page.keyboard.type(" for a hand");
   await page.getByTestId("send-message").click();
+
+  await expect(
+    page.getByText("Create a group DM?", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Create group DM" }).click();
 
   await expect(page.getByText(sendError)).toBeVisible();
   await expect(input).toContainText("Fizz");
@@ -1056,6 +1091,11 @@ test("drops an expanded DM after agent startup fails", async ({ page }) => {
   await input.press("Enter");
   await page.keyboard.type(" before startup fails");
   await page.getByTestId("send-message").click();
+
+  await expect(
+    page.getByText("Create a group DM?", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Create group DM" }).click();
 
   await expect(
     page.getByText(startError, { exact: false }).first(),

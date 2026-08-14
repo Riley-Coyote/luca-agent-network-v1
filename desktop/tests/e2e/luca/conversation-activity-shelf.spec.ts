@@ -121,7 +121,7 @@ test("activity shelf collapses and settles motion at compact Mac size", async ({
   ).toBeHidden();
 
   const animationName = await page
-    .locator(".luca-activity-lattice__cell")
+    .locator(".luca-activity-pulse")
     .first()
     .evaluate((cell) => getComputedStyle(cell).animationName);
   expect(animationName).toBe("none");

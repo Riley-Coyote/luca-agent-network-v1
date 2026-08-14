@@ -10,7 +10,10 @@ use luca_protocol::{
 use tokio::io::AsyncWriteExt;
 
 use crate::{
-    luca_final_publisher::CODEX_SKILL_CONTEXT_NOTICE,
+    luca_final_publisher::{
+        CODEX_SKILL_BUDGET_NOTICE_PREFIX, CODEX_SKILL_BUDGET_NOTICE_SUFFIX,
+        CODEX_SKILL_CONTEXT_NOTICE, SILENT_ACTION_SENTINEL,
+    },
     observer::{ObserverEvent, ObserverHandle},
 };
 
@@ -45,22 +48,49 @@ impl RuntimeNoticeGate {
             return (!chunk.is_empty()).then(|| chunk.to_owned());
         }
         self.buffered.push_str(chunk);
-        if CODEX_SKILL_CONTEXT_NOTICE.starts_with(&self.buffered) {
-            return None;
-        }
-        if let Some(remainder) = self.buffered.strip_prefix(CODEX_SKILL_CONTEXT_NOTICE) {
-            if remainder.is_empty() {
+        loop {
+            if SILENT_ACTION_SENTINEL.starts_with(&self.buffered) {
                 return None;
             }
-            if remainder.starts_with('\n') {
-                let public = remainder.trim_start().to_owned();
-                self.buffered.clear();
+            if self.buffered.starts_with(SILENT_ACTION_SENTINEL) {
                 self.decided = true;
-                return (!public.is_empty()).then_some(public);
+                return Some(std::mem::take(&mut self.buffered));
             }
+            if CODEX_SKILL_CONTEXT_NOTICE.starts_with(&self.buffered) {
+                return None;
+            }
+            if let Some(remainder) = self.buffered.strip_prefix(CODEX_SKILL_CONTEXT_NOTICE) {
+                if remainder.is_empty() {
+                    return None;
+                }
+                if remainder.starts_with('\n') || remainder == SILENT_ACTION_SENTINEL {
+                    self.buffered = remainder.trim_start().to_owned();
+                    continue;
+                }
+            }
+            if CODEX_SKILL_BUDGET_NOTICE_PREFIX.starts_with(&self.buffered) {
+                return None;
+            }
+            if self.buffered.starts_with(CODEX_SKILL_BUDGET_NOTICE_PREFIX) {
+                let Some(suffix_start) = self.buffered.find(CODEX_SKILL_BUDGET_NOTICE_SUFFIX)
+                else {
+                    return None;
+                };
+                let remainder = self.buffered
+                    [suffix_start + CODEX_SKILL_BUDGET_NOTICE_SUFFIX.len()..]
+                    .to_owned();
+                if remainder.is_empty() {
+                    self.buffered.clear();
+                    return None;
+                }
+                if remainder.starts_with('\n') || remainder == SILENT_ACTION_SENTINEL {
+                    self.buffered = remainder.trim_start().to_owned();
+                    continue;
+                }
+            }
+            self.decided = true;
+            return Some(std::mem::take(&mut self.buffered));
         }
-        self.decided = true;
-        Some(std::mem::take(&mut self.buffered))
     }
 }
 
@@ -263,25 +293,37 @@ impl ManagedPresentationPublisher {
                     return;
                 }
                 state.terminal_emitted = true;
-                if event.payload.get("status").and_then(|value| value.as_str()) == Some("cancelled")
-                {
-                    self.emit(
-                        state,
-                        ManagedPresentationKindV1::Cancelled,
-                        None,
-                        None,
-                        None,
-                    )
-                    .await;
-                } else {
-                    self.emit(
-                        state,
-                        ManagedPresentationKindV1::Failed,
-                        None,
-                        None,
-                        Some(ManagedPresentationFailureV1::Publication),
-                    )
-                    .await;
+                match event.payload.get("status").and_then(|value| value.as_str()) {
+                    Some("completed") => {
+                        self.emit(
+                            state,
+                            ManagedPresentationKindV1::Completed,
+                            None,
+                            None,
+                            None,
+                        )
+                        .await;
+                    }
+                    Some("cancelled") => {
+                        self.emit(
+                            state,
+                            ManagedPresentationKindV1::Cancelled,
+                            None,
+                            None,
+                            None,
+                        )
+                        .await;
+                    }
+                    _ => {
+                        self.emit(
+                            state,
+                            ManagedPresentationKindV1::Failed,
+                            None,
+                            None,
+                            Some(ManagedPresentationFailureV1::Publication),
+                        )
+                        .await;
+                    }
                 }
             }
             "turn_completed" => {
@@ -413,6 +455,24 @@ mod tests {
             gate.push("Warning: a real answer"),
             Some("Warning: a real answer".into())
         );
+    }
+
+    #[test]
+    fn silent_action_marker_is_never_exposed_as_public_text() {
+        let mut gate = RuntimeNoticeGate::default();
+        let split = SILENT_ACTION_SENTINEL.len() / 2;
+        assert_eq!(gate.push(&SILENT_ACTION_SENTINEL[..split]), None);
+        assert_eq!(gate.push(&SILENT_ACTION_SENTINEL[split..]), None);
+    }
+
+    #[test]
+    fn variable_skill_budget_notice_then_silent_marker_are_both_suppressed() {
+        let mut gate = RuntimeNoticeGate::default();
+        assert_eq!(
+            gate.push("Warning: Exceeded skills context budget of 2%. All skill descriptions were removed and 1 additional skill was not included in the model-visible skills list."),
+            None
+        );
+        assert_eq!(gate.push(SILENT_ACTION_SENTINEL), None);
     }
 
     #[test]

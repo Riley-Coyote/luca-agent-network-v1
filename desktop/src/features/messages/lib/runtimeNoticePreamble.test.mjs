@@ -24,3 +24,13 @@ test("preserves ordinary warnings and quoted runtime text", () => {
     `Here is the notice:\n${notice}`,
   );
 });
+
+test("removes the variable Codex skills-budget notice", () => {
+  const variableNotice =
+    "Warning: Exceeded skills context budget of 2%. All skill descriptions were removed and 1 additional skill was not included in the model-visible skills list.";
+  assert.equal(stripRuntimeNoticePreamble(variableNotice), "");
+  assert.equal(
+    stripRuntimeNoticePreamble(`${variableNotice}\n\nThe actual answer.`),
+    "The actual answer.",
+  );
+});

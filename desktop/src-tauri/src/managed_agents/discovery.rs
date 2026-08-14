@@ -16,6 +16,8 @@ pub(crate) use runtime_metadata::KnownAcpRuntime;
 const GOOSE_AVATAR_URL: &str = "https://goose-docs.ai/img/logo_dark.png";
 const CLAUDE_CODE_AVATAR_URL: &str = "https://anthropic.gallerycdn.vsassets.io/extensions/anthropic/claude-code/2.1.77/1773707456892/Microsoft.VisualStudio.Services.Icons.Default";
 const CODEX_AVATAR_URL: &str = "https://openai.gallerycdn.vsassets.io/extensions/openai/chatgpt/26.5313.41514/1773706730621/Microsoft.VisualStudio.Services.Icons.Default";
+const KIMI_AVATAR_URL: &str = "https://moonshotai.github.io/Branding-Guide/scenarios/03-icon-without-kimi/kimi-icon-rounded-corner.png";
+const GROK_AVATAR_URL: &str = "https://grok.com/images/android-chrome-512x512.png";
 const BUZZ_AGENT_AVATAR_URL: &str =
     "https://raw.githubusercontent.com/block/buzz/refs/heads/main/crates/buzz-agent/buzz-agent.png";
 
@@ -38,6 +40,8 @@ fn common_binary_paths() -> &'static [PathBuf] {
             paths.extend([
                 home.join(".local/share/mise/shims"),
                 home.join(".local/bin"),
+                home.join(".kimi-code/bin"),
+                home.join(".grok/bin"),
                 home.join(".volta/bin"),
                 home.join(".asdf/shims"),
             ]);
@@ -156,6 +160,68 @@ const KNOWN_ACP_RUNTIMES: &[KnownAcpRuntime] = &[
         login_hint: Some("Run `codex login` to authenticate."),
         // Verified: `codex login status` exits 0 when logged in, non-zero otherwise.
         auth_probe_args: Some(&["codex", "login", "status"]),
+    },
+    KnownAcpRuntime {
+        id: "kimi",
+        label: "Kimi Code",
+        commands: &["kimi"],
+        aliases: &["kimi-code"],
+        avatar_url: KIMI_AVATAR_URL,
+        mcp_command: Some("buzz-dev-mcp"),
+        mcp_hooks: false,
+        underlying_cli: Some("kimi"),
+        cli_install_commands: &["curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash"],
+        cli_install_commands_windows: &[],
+        adapter_install_commands: &[],
+        install_instructions_url: "https://moonshotai.github.io/kimi-code/",
+        cli_install_hint: "Install Kimi Code via the official install script.",
+        adapter_install_hint: "",
+        skill_dir: None,
+        supports_acp_model_switching: false,
+        model_env_var: None,
+        provider_env_var: None,
+        provider_locked: false,
+        default_env: &[],
+        config_file_path: Some("~/.kimi-code/config.toml"),
+        config_file_format: Some("toml"),
+        supports_acp_native_config: false,
+        thinking_env_var: None,
+        max_tokens_env_var: None,
+        context_limit_env_var: None,
+        required_normalized_fields: &[],
+        login_hint: Some("Run `kimi` to complete authentication."),
+        auth_probe_args: None,
+    },
+    KnownAcpRuntime {
+        id: "grok",
+        label: "Grok",
+        commands: &["grok"],
+        aliases: &["grok-build"],
+        avatar_url: GROK_AVATAR_URL,
+        mcp_command: Some("buzz-dev-mcp"),
+        mcp_hooks: false,
+        underlying_cli: Some("grok"),
+        cli_install_commands: &["curl -fsSL https://x.ai/cli/install.sh | bash"],
+        cli_install_commands_windows: &[],
+        adapter_install_commands: &[],
+        install_instructions_url: "https://docs.x.ai/build/overview",
+        cli_install_hint: "Install Grok Build via the official install script.",
+        adapter_install_hint: "",
+        skill_dir: None,
+        supports_acp_model_switching: false,
+        model_env_var: None,
+        provider_env_var: None,
+        provider_locked: false,
+        default_env: &[],
+        config_file_path: Some("~/.grok/config.toml"),
+        config_file_format: Some("toml"),
+        supports_acp_native_config: false,
+        thinking_env_var: None,
+        max_tokens_env_var: None,
+        context_limit_env_var: None,
+        required_normalized_fields: &[],
+        login_hint: Some("Run `grok` to complete authentication."),
+        auth_probe_args: None,
     },
     KnownAcpRuntime {
         id: "buzz-agent",
@@ -343,6 +409,8 @@ pub use overrides::{apply_agent_command_update, create_time_agent_command_overri
 fn default_agent_args(command: &str) -> Option<Vec<String>> {
     match normalize_command_identity(command).as_str() {
         "goose" => Some(vec!["acp".to_string()]),
+        "kimi" | "kimi-code" => Some(vec!["acp".to_string()]),
+        "grok" | "grok-build" => Some(vec!["agent".to_string(), "stdio".to_string()]),
         "codex" | "codex-acp" | "claude-agent-acp" | "claude-code-acp" | "claude-code"
         | "claudecode" | "buzz-agent" => Some(Vec::new()),
         _ => None,

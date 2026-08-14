@@ -3,17 +3,28 @@
   border-top: 1px solid transparent;
   container-name: luca-activity-shelf;
   container-type: inline-size;
-  flex: 0 0 38px;
-  height: 38px;
-  min-height: 38px;
+  flex: 0 0 0;
+  height: 0;
+  min-height: 0;
+  opacity: 0;
+  overflow: hidden;
   position: relative;
   pointer-events: none;
+  transition:
+    flex-basis 160ms ease,
+    height 160ms ease,
+    min-height 160ms ease,
+    opacity 120ms ease;
   z-index: 12;
 }
 
-:root[data-luca-shell] .luca-activity-shelf[data-state="idle"] {
-  border-top-color: transparent;
-  pointer-events: none;
+:root[data-luca-shell] .luca-activity-shelf[data-state="active"],
+:root[data-luca-shell] .luca-activity-shelf[data-state="typing"] {
+  flex-basis: 32px;
+  height: 32px;
+  min-height: 32px;
+  opacity: 1;
+  overflow: visible;
 }
 
 :root[data-luca-shell] .luca-activity-shelf__inner {
@@ -50,12 +61,12 @@
 
 :root[data-luca-shell] .luca-activity-item {
   align-items: center;
-  animation: luca-activity-item-enter 220ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  animation: luca-activity-item-enter 140ms ease-out both;
   border-radius: 6px;
   color: hsl(var(--mn-ink-muted));
   display: flex;
-  gap: 7px;
-  height: 30px;
+  gap: 6px;
+  height: 28px;
   min-width: 0;
   padding: 0 6px;
   transition:
@@ -84,7 +95,7 @@
   align-items: baseline;
   display: flex;
   flex: 1 1 auto;
-  gap: 7px;
+  gap: 6px;
   min-height: 28px;
   min-width: 0;
   outline: none;
@@ -114,30 +125,16 @@
 }
 
 :root[data-luca-shell] .luca-activity-item__state {
-  color: hsl(var(--mn-ink-faint));
+  color: hsl(var(--mn-ink-muted) / 0.72);
   flex: 1 1 auto;
   font-family: var(--font-mono);
   font-size: 0.6875rem;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.015em;
   line-height: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-:root[data-luca-shell] .luca-activity-item__state[data-sweeping="true"] {
-  animation: luca-activity-text-sweep 4.4s linear infinite;
-  background-image: linear-gradient(
-    102deg,
-    hsl(var(--mn-ink-faint) / 0.62) 16%,
-    hsl(var(--mn-ink-muted) / 0.88) 43%,
-    hsl(var(--mn-ink-faint) / 0.62) 70%
-  );
-  background-position: 120% 50%;
-  background-size: 240% 100%;
-  background-clip: text;
-  color: transparent;
 }
 
 :root[data-luca-shell] .luca-activity-item__action,
@@ -174,98 +171,26 @@
   opacity: 0.48;
 }
 
-:root[data-luca-shell] .luca-activity-lattice {
-  display: grid;
-  flex: 0 0 13px;
-  gap: 1.5px;
-  grid-template-columns: repeat(3, 3px);
-  grid-template-rows: repeat(3, 3px);
-  height: 12px;
-  place-content: center;
-  width: 13px;
-}
-
-:root[data-luca-shell] .luca-activity-lattice__cell {
-  animation: luca-activity-murmuration 4.8s ease-in-out infinite;
+:root[data-luca-shell] .luca-activity-pulse {
   background: currentColor;
-  border-radius: 1px;
-  height: 3px;
-  opacity: 0.26;
-  transform: scale(0.72);
-  width: 3px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px hsl(var(--mn-border-strong) / 0.5);
+  color: hsl(var(--mn-ink-muted));
+  flex: 0 0 5px;
+  height: 5px;
+  opacity: 0.68;
+  width: 5px;
 }
 
 :root[data-luca-shell]
-  .luca-activity-lattice[data-state="thinking"]
-  .luca-activity-lattice__cell {
-  animation-duration: 5.2s;
+  .luca-activity-pulse:not([data-state="stopped"]):not(
+    [data-state="interrupted"]
+  ):not([data-state="needs-attention"]) {
+  animation: luca-activity-pulse 1.8s ease-in-out infinite;
 }
 
-:root[data-luca-shell]
-  .luca-activity-lattice[data-state="working"]
-  .luca-activity-lattice__cell {
-  animation-duration: 3.35s;
-}
-
-:root[data-luca-shell]
-  .luca-activity-lattice[data-state="writing"]
-  .luca-activity-lattice__cell {
-  animation-duration: 4.1s;
-}
-
-:root[data-luca-shell]
-  .luca-activity-lattice[data-state="finalizing"]
-  .luca-activity-lattice__cell {
-  animation-duration: 3.7s;
-}
-
-:root[data-luca-shell]
-  .luca-activity-lattice[data-state="stopping"]
-  .luca-activity-lattice__cell {
-  animation-duration: 2.8s;
-}
-
-:root[data-luca-shell]
-  .luca-activity-lattice[data-state="stopped"]
-  .luca-activity-lattice__cell,
-:root[data-luca-shell]
-  .luca-activity-lattice[data-state="needs-attention"]
-  .luca-activity-lattice__cell {
-  animation: none;
-  opacity: 0.46;
-  transform: scale(0.8);
-}
-
-:root[data-luca-shell] .luca-activity-lattice__cell:nth-child(2) {
-  animation-delay: -1.73s;
-}
-
-:root[data-luca-shell] .luca-activity-lattice__cell:nth-child(3) {
-  animation-delay: -3.1s;
-}
-
-:root[data-luca-shell] .luca-activity-lattice__cell:nth-child(4) {
-  animation-delay: -0.91s;
-}
-
-:root[data-luca-shell] .luca-activity-lattice__cell:nth-child(5) {
-  animation-delay: -2.54s;
-}
-
-:root[data-luca-shell] .luca-activity-lattice__cell:nth-child(6) {
-  animation-delay: -4.07s;
-}
-
-:root[data-luca-shell] .luca-activity-lattice__cell:nth-child(7) {
-  animation-delay: -1.29s;
-}
-
-:root[data-luca-shell] .luca-activity-lattice__cell:nth-child(8) {
-  animation-delay: -3.68s;
-}
-
-:root[data-luca-shell] .luca-activity-lattice__cell:nth-child(9) {
-  animation-delay: -2.16s;
+:root[data-luca-shell] .luca-activity-pulse[data-state="needs-attention"] {
+  color: hsl(var(--destructive) / 0.84);
 }
 
 :root[data-luca-shell] .luca-activity-shelf__overflow,
@@ -351,7 +276,7 @@
 @keyframes luca-activity-item-enter {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(2px);
   }
   to {
     opacity: 1;
@@ -368,28 +293,13 @@
   }
 }
 
-@keyframes luca-activity-murmuration {
+@keyframes luca-activity-pulse {
   0%,
   100% {
-    opacity: 0.24;
-    transform: translate3d(0, 0.35px, 0) scale(0.68);
-  }
-  38% {
-    opacity: 0.9;
-    transform: translate3d(0, -0.4px, 0) scale(1);
-  }
-  68% {
     opacity: 0.42;
-    transform: translate3d(0.25px, 0, 0) scale(0.8);
   }
-}
-
-@keyframes luca-activity-text-sweep {
-  from {
-    background-position: 120% 50%;
-  }
-  to {
-    background-position: -120% 50%;
+  50% {
+    opacity: 0.86;
   }
 }
 
@@ -433,20 +343,11 @@
 
 @media (prefers-reduced-motion: reduce) {
   :root[data-luca-shell] .luca-activity-item,
-  :root[data-luca-shell] .luca-activity-item__state[data-sweeping="true"],
-  :root[data-luca-shell] .luca-activity-lattice__cell {
+  :root[data-luca-shell] .luca-activity-shelf,
+  :root[data-luca-shell] .luca-activity-pulse {
     animation: none;
     transform: none;
     transition: none;
-  }
-
-  :root[data-luca-shell] .luca-activity-item__state[data-sweeping="true"] {
-    background-image: none;
-    color: hsl(var(--mn-ink-faint));
-  }
-
-  :root[data-luca-shell] .luca-activity-lattice__cell {
-    opacity: 0.62;
   }
 }
 
@@ -455,13 +356,8 @@
   :root[data-luca-shell] .luca-activity-item__state,
   :root[data-luca-shell] .luca-activity-item__action,
   :root[data-luca-shell] .luca-activity-disclosure,
-  :root[data-luca-shell] .luca-activity-shelf__stop-all {
-    color: hsl(var(--mn-ink));
-  }
-
-  :root[data-luca-shell] .luca-activity-item__state[data-sweeping="true"] {
-    animation: none;
-    background-image: none;
+  :root[data-luca-shell] .luca-activity-shelf__stop-all,
+  :root[data-luca-shell] .luca-activity-pulse {
     color: hsl(var(--mn-ink));
   }
 }

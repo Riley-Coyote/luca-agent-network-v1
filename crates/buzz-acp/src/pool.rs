@@ -1391,6 +1391,13 @@ async fn handoff_managed_final_after_end_turn(
             return;
         }
     };
+    if draft.trim() == crate::luca_final_publisher::SILENT_ACTION_SENTINEL {
+        agent.acp.observe(
+            "turn_publication_terminal",
+            serde_json::json!({"status": "completed"}),
+        );
+        return;
+    }
     let final_turn = match crate::luca_final_publisher::ManagedFinalTurn::from_triggering_event(
         context,
         turn_id,

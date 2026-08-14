@@ -435,6 +435,7 @@ export function useMentionSendFlow({
       draft: PendingNonMemberMentionSend,
       mentionPubkeys: string[],
       outgoingTags = draft.outgoingTags,
+      dmParticipantPubkeys: string[] = [],
     ) => {
       if (isCompleteSendPendingRef.current) {
         return;
@@ -467,8 +468,8 @@ export function useMentionSendFlow({
           ...agentMentionPubkeys,
         ]);
         let sendChannelId = draft.capturedChannelId;
-        if (preparedAgentPubkeys.length > 0 && onPrepareSendChannel) {
-          sendChannelId = await onPrepareSendChannel(preparedAgentPubkeys);
+        if (dmParticipantPubkeys.length > 0 && onPrepareSendChannel) {
+          sendChannelId = await onPrepareSendChannel(dmParticipantPubkeys);
           if (!sendChannelId) {
             return;
           }
@@ -482,7 +483,12 @@ export function useMentionSendFlow({
             (pubkey) => !readyAgentPubkeys.has(normalizePubkey(pubkey)),
           ),
           sendChannelId ?? "",
-          onPrepareSendChannel ? preparedAgentPubkeys : [],
+          dmParticipantPubkeys.length > 0
+            ? uniqueNormalizedPubkeys([
+                ...preparedAgentPubkeys,
+                ...dmParticipantPubkeys,
+              ])
+            : [],
           [...managedAgentsByPubkey.values()],
         );
         if (!isMountedRef.current) {
@@ -583,11 +589,7 @@ export function useMentionSendFlow({
 
   const getNonMemberMentionPubkeys = React.useCallback(
     (pubkeys: string[]) => {
-      if (
-        channelType === null ||
-        channelType === "dm" ||
-        !mentions.hasResolvedMembers
-      ) {
+      if (channelType === null || !mentions.hasResolvedMembers) {
         return [];
       }
 
@@ -714,13 +716,16 @@ export function useMentionSendFlow({
           buildCustomEmojiTags(finalContent, customEmoji),
         );
         const nonMemberPubkeys = getNonMemberMentionPubkeys(pubkeys);
-        let promptNonMemberPubkeys = nonMemberPubkeys.filter(
-          (pubkey) =>
-            !mentions.isManagedAgentPubkey(pubkey) &&
-            !createdPersonaAgentPubkeySet.has(normalizePubkey(pubkey)),
-        );
+        let promptNonMemberPubkeys =
+          channelType === "dm"
+            ? nonMemberPubkeys
+            : nonMemberPubkeys.filter(
+                (pubkey) =>
+                  !mentions.isManagedAgentPubkey(pubkey) &&
+                  !createdPersonaAgentPubkeySet.has(normalizePubkey(pubkey)),
+              );
 
-        if (promptNonMemberPubkeys.length > 0) {
+        if (channelType !== "dm" && promptNonMemberPubkeys.length > 0) {
           try {
             const managedAgentsByPubkey = await getManagedAgentsByPubkey();
             promptNonMemberPubkeys = promptNonMemberPubkeys.filter(
@@ -832,6 +837,20 @@ export function useMentionSendFlow({
 
     setNonMemberPromptError(null);
     void (async () => {
+      if (channelType === "dm") {
+        await completeSend(
+          {
+            ...pendingNonMemberSend,
+            mentionPubkeys,
+            outgoingTags,
+          },
+          mentionPubkeys,
+          outgoingTags,
+          pendingNonMemberSend.nonMemberPubkeys,
+        );
+        return;
+      }
+
       const managedAgentsByPubkey = await getManagedAgentsByPubkey();
       const peoplePubkeys: string[] = [];
       const relayAgentPubkeys: string[] = [];
@@ -885,11 +904,16 @@ export function useMentionSendFlow({
       );
     })().catch((error) => {
       setNonMemberPromptError(
-        error instanceof Error ? error.message : "Could not invite members.",
+        error instanceof Error
+          ? error.message
+          : channelType === "dm"
+            ? "Could not create the group DM."
+            : "Could not invite members.",
       );
     });
   }, [
     addMembersMutation,
+    channelType,
     completeSend,
     getManagedAgentsByPubkey,
     mentions.isAgentPubkey,

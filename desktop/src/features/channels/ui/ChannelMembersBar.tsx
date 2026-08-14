@@ -11,6 +11,8 @@ import {
 } from "@/features/agents/hooks";
 import { requestOpenCreateAgent } from "@/features/agents/openCreateAgentEvent";
 import { useChannelMembersQuery } from "@/features/channels/hooks";
+import { usePrepareDmSendChannel } from "@/features/channels/ui/usePrepareDmSendChannel";
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { canStartHuddleInChannel } from "@/features/channels/lib/huddleAvailability";
 import type { Channel } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
@@ -56,11 +58,13 @@ export function ChannelMembersBar({
     [isAddBotOpenProp, onAddBotOpenChange],
   );
   const { startHuddle, isStarting: isStartingHuddle } = useHuddle();
+  const { goChannel } = useAppNavigation();
   const queryClient = useQueryClient();
   const membersQuery = useChannelMembersQuery(channel.id);
   const providersQuery = useAvailableAcpRuntimes();
   const managedAgentsQuery = useManagedAgentsQuery();
   const relayAgentsQuery = useRelayAgentsQuery();
+  const prepareDmSendChannel = usePrepareDmSendChannel(channel, currentPubkey);
   const members = membersQuery.data ?? [];
   const memberCount = membersQuery.data?.length ?? channel.memberCount;
   const providers = React.useMemo(
@@ -216,11 +220,22 @@ export function ChannelMembersBar({
 
       <AddChannelBotDialog
         channelId={channel.id}
+        conversationMode={channel.channelType === "dm" ? "dm" : "channel"}
+        onGroupDmReady={async (pubkeys) => {
+          const groupDmId = await prepareDmSendChannel(pubkeys);
+          if (groupDmId && groupDmId !== channel.id) {
+            await goChannel(groupDmId);
+          }
+        }}
         onCreateAgent={() => {
-          requestOpenCreateAgent({
-            channelId: channel.id,
-            channelName: channel.name,
-          });
+          requestOpenCreateAgent(
+            channel.channelType === "dm"
+              ? {}
+              : {
+                  channelId: channel.id,
+                  channelName: channel.name,
+                },
+          );
         }}
         onOpenChange={setIsAddBotOpen}
         open={isAddBotOpen}

@@ -64,18 +64,7 @@ type ActivityShelfItem = {
   detail: string | null;
 };
 
-const TERMINAL_SETTLE_MS = 3_200;
-const LATTICE_CELL_KEYS = [
-  "north-west",
-  "north",
-  "north-east",
-  "west",
-  "center",
-  "east",
-  "south-west",
-  "south",
-  "south-east",
-] as const;
+const TERMINAL_SETTLE_MS = 800;
 
 function stateForActivity(activity: AgentActivity | null | undefined) {
   switch (activity?.phase) {
@@ -103,17 +92,13 @@ function isStoppableState(state: ConversationActivityState) {
   );
 }
 
-function MurmurationLattice({ state }: { state: ConversationActivityState }) {
+function ActivityPulse({ state }: { state: ConversationActivityState }) {
   return (
     <span
       aria-hidden="true"
-      className="luca-activity-lattice"
+      className="luca-activity-pulse"
       data-state={state}
-    >
-      {LATTICE_CELL_KEYS.map((key) => (
-        <span className="luca-activity-lattice__cell" key={key} />
-      ))}
-    </span>
+    />
   );
 }
 
@@ -148,7 +133,7 @@ function ActivityItem({
       data-resident-pubkey={item.key}
       data-testid={`resident-activity-${item.key}`}
     >
-      <MurmurationLattice state={item.state} />
+      <ActivityPulse state={item.state} />
       <button
         aria-label={`Open details for ${item.name}`}
         className="luca-activity-item__resident"
@@ -156,12 +141,7 @@ function ActivityItem({
         type="button"
       >
         <span className="luca-activity-item__name">{item.name}</span>
-        <span
-          className="luca-activity-item__state"
-          data-sweeping={!terminal && item.state !== "stopping"}
-        >
-          {stateLabel}
-        </span>
+        <span className="luca-activity-item__state">{stateLabel}</span>
       </button>
       {item.retryTarget && onRetryResident ? (
         <button
@@ -214,7 +194,7 @@ function ActivityDisclosure({
           className="luca-activity-disclosure"
           type="button"
         >
-          <MurmurationLattice state="working" />
+          <ActivityPulse state="working" />
           <span>{label}</span>
         </button>
       </PopoverTrigger>
@@ -639,7 +619,9 @@ export function ConversationAgentActivityStrip({
       aria-label="Resident activity"
       className="luca-activity-shelf"
       data-active-count={orderedItems.length}
-      data-state={orderedItems.length > 0 ? "active" : "idle"}
+      data-state={
+        orderedItems.length > 0 ? "active" : idleContent ? "typing" : "idle"
+      }
       data-testid="conversation-activity-shelf"
     >
       <div className="luca-activity-shelf__inner">

@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { groupChats, isMultiParticipantChat, sortChats } from "./ChatList.tsx";
+import {
+  groupChats,
+  isMultiParticipantChat,
+  partitionConversationItems,
+  sortChats,
+} from "./ChatList.tsx";
 
 const room = (id, lastMessageAt, label = id) => ({
   channel: { id, name: id, lastMessageAt },
@@ -135,5 +140,24 @@ test("rail icons distinguish one-to-one chats from group conversations", () => {
   assert.equal(
     isMultiParticipantChat({ markPubkeys: ["alice", "charlie"] }),
     true,
+  );
+});
+
+test("the rail keeps shared channels separate from durable DMs", () => {
+  const shared = room("shared", "2026-08-01T00:00:00Z");
+  shared.channel.channelType = "stream";
+  const direct = room("direct", "2026-08-03T00:00:00Z");
+  direct.channel.channelType = "dm";
+  const group = room("group", "2026-08-02T00:00:00Z");
+  group.channel.channelType = "dm";
+
+  const result = partitionConversationItems([shared, group, direct]);
+  assert.deepEqual(
+    result.channels.map((item) => item.channel.id),
+    ["shared"],
+  );
+  assert.deepEqual(
+    result.directMessages.map((item) => item.channel.id),
+    ["direct", "group"],
   );
 });

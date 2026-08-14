@@ -5,7 +5,7 @@ import type {
   UserSearchResult,
 } from "@/shared/api/types";
 
-export type DirectRuntimeContactId = "claude" | "codex";
+export type DirectRuntimeContactId = "claude" | "codex" | "kimi" | "grok";
 
 export type DirectRuntimeContactSpec = {
   displayName: string;
@@ -28,6 +28,16 @@ export const DIRECT_RUNTIME_CONTACTS: readonly DirectRuntimeContactSpec[] = [
     displayName: "Codex",
     personaId: "builtin:direct-runtime:codex",
     runtimeId: "codex",
+  },
+  {
+    displayName: "Kimi Code",
+    personaId: "builtin:direct-runtime:kimi",
+    runtimeId: "kimi",
+  },
+  {
+    displayName: "Grok",
+    personaId: "builtin:direct-runtime:grok",
+    runtimeId: "grok",
   },
 ];
 

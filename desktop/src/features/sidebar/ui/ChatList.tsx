@@ -33,6 +33,21 @@ export type ChatListItem = {
   markPubkeys: string[];
 };
 
+export function partitionConversationItems(items: readonly ChatListItem[]) {
+  const channels: ChatListItem[] = [];
+  const directMessages: ChatListItem[] = [];
+
+  for (const item of items) {
+    if (item.channel.channelType === "dm") directMessages.push(item);
+    else channels.push(item);
+  }
+
+  return {
+    channels,
+    directMessages: sortChats(directMessages),
+  };
+}
+
 /** Keep rail semantics binary: one counterpart or a group conversation. */
 export function isMultiParticipantChat(
   item: Pick<ChatListItem, "markPubkeys">,
@@ -305,7 +320,7 @@ export function ChatList({
   onMarkChannelUnread,
   onSelectProject,
   onCreateProject,
-  onCreateRoom,
+  onCreateDm,
   projects,
   selectedProjectId,
 }: {
@@ -326,11 +341,15 @@ export function ChatList({
   onMarkChannelUnread: (channelId: string) => void;
   onSelectProject: (projectId: string, preferredRoomId: string | null) => void;
   onCreateProject: () => void;
-  onCreateRoom: () => void;
+  onCreateDm: () => void;
 }) {
+  const { channels, directMessages } = React.useMemo(
+    () => partitionConversationItems(items),
+    [items],
+  );
   const groups = React.useMemo(
-    () => groupChats(items, projectByChannelId),
-    [items, projectByChannelId],
+    () => groupChats(channels, projectByChannelId),
+    [channels, projectByChannelId],
   );
   const rowProps = {
     selectedChannelId,
@@ -361,15 +380,15 @@ export function ChatList({
 
   return (
     <div className="flex flex-col px-2" data-testid="chat-list">
-      <div className="mt-2 flex flex-col" data-testid="chat-projects">
+      <div className="mt-2 flex flex-col" data-testid="chat-channels">
         <div className="flex items-center justify-between px-2 pb-1 text-2xs font-medium uppercase tracking-[0.1em] text-sidebar-foreground/35">
-          <span>Projects</span>
+          <span>Channels</span>
           <button
-            aria-label="New project"
+            aria-label="New channel"
             className="-mr-1 flex size-6 items-center justify-center rounded-md text-sidebar-foreground/45 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
-            data-testid="create-room-project"
+            data-testid="create-channel"
             onClick={onCreateProject}
-            title="New project"
+            title="New channel"
             type="button"
           >
             <Plus className="size-3.5" />
@@ -399,29 +418,29 @@ export function ChatList({
             <span className="flex size-5 items-center justify-center">
               <Plus className="size-3.5" />
             </span>
-            New project
+            New channel
           </button>
         ) : null}
+        {looseRooms?.items.map((item) => (
+          <ChatRow item={item} key={item.channel.id} {...rowProps} />
+        ))}
       </div>
 
-      <div
-        className={cn("flex flex-col", "mt-3")}
-        data-testid="chat-group-ungrouped"
-      >
+      <div className="mt-3 flex flex-col" data-testid="chat-direct-messages">
         <div className="flex items-center justify-between px-2 pb-1 text-2xs font-medium uppercase tracking-[0.1em] text-sidebar-foreground/35">
-          <span>Rooms</span>
+          <span>DMs</span>
           <button
-            aria-label="New room"
+            aria-label="New direct message"
             className="-mr-1 flex size-6 items-center justify-center rounded-md text-sidebar-foreground/45 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
-            data-testid="create-room"
-            onClick={onCreateRoom}
-            title="New room"
+            data-testid="create-direct-message"
+            onClick={onCreateDm}
+            title="New direct message"
             type="button"
           >
             <Plus className="size-3.5" />
           </button>
         </div>
-        {looseRooms?.items.map((item) => (
+        {directMessages.map((item) => (
           <ChatRow item={item} key={item.channel.id} {...rowProps} />
         ))}
       </div>

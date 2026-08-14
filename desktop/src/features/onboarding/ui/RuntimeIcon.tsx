@@ -7,11 +7,15 @@ import { useTheme } from "@/shared/theme/ThemeProvider";
 import chatgptLogoUrl from "../assets/harness-logos/chatgpt.png?inline";
 import claudeLogoUrl from "../assets/harness-logos/claude.png?inline";
 import gooseLogoUrl from "../assets/harness-logos/goose.png?inline";
+import grokLogoUrl from "../assets/harness-logos/grok-mark.svg?inline";
+import kimiLogoUrl from "../assets/harness-logos/kimi-mark.svg?inline";
 
 const RUNTIME_LOGOS: Record<string, string> = {
   claude: claudeLogoUrl,
   codex: chatgptLogoUrl,
   goose: gooseLogoUrl,
+  grok: grokLogoUrl,
+  kimi: kimiLogoUrl,
 };
 
 function isBuzzRuntime(runtime: AcpRuntimeCatalogEntry): boolean {

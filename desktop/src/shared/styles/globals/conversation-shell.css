@@ -541,10 +541,10 @@
 }
 
 :root[data-luca-shell] [data-testid="message-thread-summary"] {
-  color: hsl(var(--mn-ink-faint));
+  color: hsl(var(--mn-ink-muted) / 0.78);
   font-family: var(--font-mono);
-  font-size: var(--mn-text-micro);
-  letter-spacing: 0.08em;
+  font-size: 0.6875rem;
+  letter-spacing: 0.025em;
 }
 
 :root[data-luca-shell] [data-testid="message-composer"] {

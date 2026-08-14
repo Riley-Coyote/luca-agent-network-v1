@@ -4,6 +4,7 @@ import * as React from "react";
 import {
   useCreateChannelManagedAgentsMutation,
   usePersonasQuery,
+  useProvisionChannelManagedAgentMutation,
   useTeamsQuery,
   type CreateChannelManagedAgentResult,
 } from "@/features/agents/hooks";
@@ -20,11 +21,13 @@ import { Dialog } from "@/shared/ui/dialog";
 
 type AddChannelBotDialogProps = {
   channelId: string | null;
+  conversationMode?: "channel" | "dm";
   open: boolean;
   providers: AcpRuntime[];
   providersErrorMessage?: string | null;
   providersLoading?: boolean;
   onAdded?: (result: CreateChannelManagedAgentResult) => void;
+  onGroupDmReady?: (pubkeys: string[]) => Promise<void>;
   onCreateAgent: () => void;
   onOpenChange: (open: boolean) => void;
 };
@@ -54,11 +57,13 @@ function formatBatchFailureSummary(
 
 export function AddChannelBotDialog({
   channelId,
+  conversationMode = "channel",
   open,
   providers,
   providersErrorMessage,
   providersLoading = false,
   onAdded,
+  onGroupDmReady,
   onCreateAgent,
   onOpenChange,
 }: AddChannelBotDialogProps) {
@@ -69,6 +74,8 @@ export function AddChannelBotDialog({
     open && channelId !== null,
   );
   const createBotsMutation = useCreateChannelManagedAgentsMutation(channelId);
+  const provisionBotMutation =
+    useProvisionChannelManagedAgentMutation(channelId);
   const personas = React.useMemo(
     () => getActivePersonas(personasQuery.data ?? []),
     [personasQuery.data],
@@ -107,6 +114,7 @@ export function AddChannelBotDialog({
     setSubmissionNotice(null);
     setSubmissionError(null);
     createBotsMutation.reset();
+    provisionBotMutation.reset();
   }
 
   function handleOpenChange(next: boolean) {
@@ -161,6 +169,45 @@ export function AddChannelBotDialog({
     setSubmissionError(null);
 
     try {
+      if (conversationMode === "dm") {
+        const provisionedPubkeys: string[] = [];
+        const failures: Array<{ name: string; error: string }> = [];
+        for (const input of inputs) {
+          try {
+            const result = await provisionBotMutation.mutateAsync({
+              ...input,
+              channelId: channelId ?? undefined,
+            });
+            provisionedPubkeys.push(result.agent.pubkey);
+          } catch (error) {
+            failures.push({
+              name: input.name,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Could not prepare agent.",
+            });
+          }
+        }
+
+        if (provisionedPubkeys.length > 0) {
+          await onGroupDmReady?.(provisionedPubkeys);
+        }
+        if (failures.length === 0) {
+          handleOpenChange(false);
+          return;
+        }
+        if (provisionedPubkeys.length > 0) {
+          setSubmissionNotice(
+            `Added ${provisionedPubkeys.length} ${formatAgentCountLabel(
+              provisionedPubkeys.length,
+            )}.`,
+          );
+        }
+        setSubmissionError(formatBatchFailureSummary(failures));
+        return;
+      }
+
       const result = await createBotsMutation.mutateAsync(inputs);
       if (result.failures.length === 0) {
         if (result.successes[0]) onAdded?.(result.successes[0]);
@@ -193,21 +240,32 @@ export function AddChannelBotDialog({
     providers.length > 0 &&
     selectedPersonas.length > 0 &&
     !providersLoading &&
-    !createBotsMutation.isPending;
-  const addButtonLabel = createBotsMutation.isPending
+    !createBotsMutation.isPending &&
+    !provisionBotMutation.isPending;
+  const isSubmitting =
+    createBotsMutation.isPending || provisionBotMutation.isPending;
+  const addButtonLabel = isSubmitting
     ? selectedPersonas.length > 1
       ? `Adding ${selectedPersonas.length}…`
       : "Adding…"
     : selectedPersonas.length > 1
-      ? `Add ${selectedPersonas.length} agents`
-      : "Add agent";
+      ? `${conversationMode === "dm" ? "Start group DM with" : "Add"} ${
+          selectedPersonas.length
+        } agents`
+      : conversationMode === "dm"
+        ? "Start group DM"
+        : "Add agent";
 
   return (
     <Dialog onOpenChange={handleOpenChange} open={open}>
       <ChooserDialogContent
         className="max-w-xl"
         data-testid="add-channel-bot-dialog"
-        description="Choose from your agents, or create a new one."
+        description={
+          conversationMode === "dm"
+            ? "Choose agents for a separate group DM. This conversation stays unchanged."
+            : "Choose from your agents, or create a new one."
+        }
         footer={
           <>
             <Button
@@ -233,10 +291,10 @@ export function AddChannelBotDialog({
         headerTestId="add-channel-bot-dialog-header"
         scrollAreaClassName="space-y-5"
         scrollAreaTestId="add-channel-bot-dialog-scroll-area"
-        title="Add agents"
+        title={conversationMode === "dm" ? "Start a group DM" : "Add agents"}
       >
         <AddChannelBotPersonasSection
-          canToggleSelections={!createBotsMutation.isPending}
+          canToggleSelections={!isSubmitting}
           inChannelPersonaIds={inChannelPersonaIds}
           isLoading={personasQuery.isLoading}
           onCreateAgent={handleCreateAgent}
@@ -251,7 +309,7 @@ export function AddChannelBotDialog({
 
         {teams.length > 0 ? (
           <AddChannelBotTeamsSection
-            canToggleSelections={!createBotsMutation.isPending}
+            canToggleSelections={!isSubmitting}
             inChannelPersonaIds={inChannelPersonaIds}
             isLoading={teamsQuery.isLoading}
             onToggleTeam={handleToggleTeam}

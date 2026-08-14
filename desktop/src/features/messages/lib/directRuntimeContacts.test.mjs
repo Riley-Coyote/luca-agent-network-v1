@@ -37,11 +37,13 @@ function runtime({
 
 const CLAUDE = runtime({ id: "claude", label: "Claude Code" });
 const CODEX = runtime({ id: "codex", label: "Codex" });
+const KIMI = runtime({ id: "kimi", label: "Kimi Code" });
+const GROK = runtime({ id: "grok", label: "Grok" });
 
 test("offers familiar direct contacts in the intended order", () => {
   const contacts = getUnmaterializedDirectRuntimeContacts({
     managedAgents: [],
-    runtimes: [CODEX, CLAUDE],
+    runtimes: [GROK, CODEX, KIMI, CLAUDE],
   });
 
   assert.deepEqual(
@@ -64,6 +66,18 @@ test("offers familiar direct contacts in the intended order", () => {
         readiness: "ready",
         runtimeId: "codex",
       },
+      {
+        displayName: "Kimi Code",
+        personaId: "builtin:direct-runtime:kimi",
+        readiness: "ready",
+        runtimeId: "kimi",
+      },
+      {
+        displayName: "Grok",
+        personaId: "builtin:direct-runtime:grok",
+        readiness: "ready",
+        runtimeId: "grok",
+      },
     ],
   );
 });
@@ -75,12 +89,12 @@ test("materialized runtime identities disappear from quick start", () => {
         personaId: "builtin:direct-runtime:codex",
       },
     ],
-    runtimes: [CLAUDE, CODEX],
+    runtimes: [CLAUDE, CODEX, KIMI, GROK],
   });
 
   assert.deepEqual(
     contacts.map(({ runtimeId }) => runtimeId),
-    ["claude"],
+    ["claude", "kimi", "grok"],
   );
 });
 
@@ -103,7 +117,7 @@ test("unavailable and signed-out runtimes fail closed", () => {
 
   assert.deepEqual(
     contacts.map(({ readiness }) => readiness),
-    ["needs-setup", "needs-setup"],
+    ["needs-setup", "needs-setup", "needs-setup", "needs-setup"],
   );
   assert.throws(
     () => buildDirectRuntimeResidentInput(contacts[0]),
@@ -137,13 +151,15 @@ test("resident input is stable, local, and contains no authority or secrets", ()
   );
 });
 
-test("search recognizes both product labels and runtime ids", () => {
-  const [claude, codex] = getUnmaterializedDirectRuntimeContacts({
+test("search recognizes product labels and runtime ids", () => {
+  const [claude, codex, kimi, grok] = getUnmaterializedDirectRuntimeContacts({
     managedAgents: [],
-    runtimes: [CLAUDE, CODEX],
+    runtimes: [CLAUDE, CODEX, KIMI, GROK],
   });
 
   assert.equal(directRuntimeContactMatches(claude, "code"), true);
   assert.equal(directRuntimeContactMatches(codex, "CODEX"), true);
+  assert.equal(directRuntimeContactMatches(kimi, "KIMI"), true);
+  assert.equal(directRuntimeContactMatches(grok, "GROK"), true);
   assert.equal(directRuntimeContactMatches(codex, "claude"), false);
 });

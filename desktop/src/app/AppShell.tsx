@@ -909,7 +909,9 @@ export function AppShell() {
                           }
                           selectedChannelId={selectedChannelId}
                           selectedProjectId={selectedProjectId}
-                          selectedView={selectedView}
+                          selectedView={
+                            selectedChannelId ? "channel" : selectedView
+                          }
                           unreadChannelIds={unreadChannelIds}
                           unreadChannelCounts={unreadChannelCounts}
                           mutedChannelIds={mutedChannelIds}

@@ -8,7 +8,7 @@ use super::{
     is_login_shell_path_uninit, is_safe_nvm_tag, managed_agent_avatar_url, normalize_agent_args,
     parse_semver_tag, probe_codex_acp_major_version, record_agent_command,
     refresh_login_shell_path, BUZZ_AGENT_AVATAR_URL, CLAUDE_CODE_AVATAR_URL, CODEX_AVATAR_URL,
-    GOOSE_AVATAR_URL,
+    GOOSE_AVATAR_URL, GROK_AVATAR_URL, KIMI_AVATAR_URL,
 };
 use crate::managed_agents::AcpAvailabilityStatus;
 
@@ -69,6 +69,26 @@ fn normalizes_claude_and_codex_args_to_empty() {
     assert_eq!(
         normalize_agent_args("codex-acp", vec!["acp".into()]),
         Vec::<String>::new()
+    );
+}
+
+#[test]
+fn resolves_kimi_and_grok_native_acp_commands() {
+    assert_eq!(
+        normalize_agent_args("kimi", Vec::new()),
+        vec!["acp".to_string()]
+    );
+    assert_eq!(
+        normalize_agent_args("grok", Vec::new()),
+        vec!["agent".to_string(), "stdio".to_string()]
+    );
+    assert_eq!(
+        managed_agent_avatar_url("kimi-code"),
+        Some(KIMI_AVATAR_URL.to_string())
+    );
+    assert_eq!(
+        managed_agent_avatar_url("grok-build"),
+        Some(GROK_AVATAR_URL.to_string())
     );
 }
 

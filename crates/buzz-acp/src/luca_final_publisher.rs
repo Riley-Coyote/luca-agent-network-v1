@@ -18,18 +18,36 @@ use nostr::Event;
 use uuid::Uuid;
 
 pub(crate) const CODEX_SKILL_CONTEXT_NOTICE: &str = "Warning: Skill descriptions were shortened to fit the 2% skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.";
+pub(crate) const CODEX_SKILL_BUDGET_NOTICE_PREFIX: &str =
+    "Warning: Exceeded skills context budget of 2%.";
+pub(crate) const CODEX_SKILL_BUDGET_NOTICE_SUFFIX: &str = "model-visible skills list.";
+
+/// Exact acknowledgement for a successful, action-only Buzz tool turn. The
+/// managed presentation and final publisher consume it locally; it is never
+/// rendered or submitted to the relay.
+pub(crate) const SILENT_ACTION_SENTINEL: &str = "LUCA_ACTION_COMPLETE";
 
 fn strip_runtime_notice_preamble(final_draft: String) -> String {
-    let Some(remainder) = final_draft.strip_prefix(CODEX_SKILL_CONTEXT_NOTICE) else {
-        return final_draft;
-    };
-    if remainder.is_empty() {
-        return String::new();
+    if let Some(remainder) = final_draft.strip_prefix(CODEX_SKILL_CONTEXT_NOTICE) {
+        if remainder.is_empty() {
+            return String::new();
+        }
+        if remainder.starts_with('\n') || remainder == SILENT_ACTION_SENTINEL {
+            return remainder.trim_start().to_owned();
+        }
     }
-    if !remainder.starts_with('\n') {
-        return final_draft;
+    if final_draft.starts_with(CODEX_SKILL_BUDGET_NOTICE_PREFIX) {
+        if let Some(suffix_start) = final_draft.find(CODEX_SKILL_BUDGET_NOTICE_SUFFIX) {
+            let remainder = &final_draft[suffix_start + CODEX_SKILL_BUDGET_NOTICE_SUFFIX.len()..];
+            if remainder.is_empty() {
+                return String::new();
+            }
+            if remainder.starts_with('\n') || remainder == SILENT_ACTION_SENTINEL {
+                return remainder.trim_start().to_owned();
+            }
+        }
     }
-    remainder.trim_start().to_owned()
+    final_draft
 }
 
 /// Managed-only broker capability retained by the ACP host, never an ACP
@@ -419,6 +437,26 @@ mod tests {
             .push_agent_message_chunk(&quoted)
             .expect("quoted notice");
         assert_eq!(chunks.finish(false).expect("final"), quoted);
+    }
+
+    #[test]
+    fn luca_f09_silent_action_marker_survives_capture_for_local_consumption() {
+        let mut chunks = FinalChunkAccumulator::default();
+        chunks
+            .push_agent_message_chunk(SILENT_ACTION_SENTINEL)
+            .expect("silent marker");
+        assert_eq!(
+            chunks.finish(false).expect("captured marker"),
+            SILENT_ACTION_SENTINEL
+        );
+    }
+
+    #[test]
+    fn luca_f09_variable_skill_budget_notice_is_removed_before_silent_completion() {
+        let draft = format!(
+            "Warning: Exceeded skills context budget of 2%. All skill descriptions were removed and 1 additional skill was not included in the model-visible skills list.{SILENT_ACTION_SENTINEL}"
+        );
+        assert_eq!(strip_runtime_notice_preamble(draft), SILENT_ACTION_SENTINEL);
     }
 
     #[test]
