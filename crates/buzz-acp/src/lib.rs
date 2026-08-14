@@ -1609,6 +1609,7 @@ async fn tokio_main() -> Result<()> {
     let base_prompt_content = config.base_prompt_content.take();
     let ctx = Arc::new(PromptContext {
         mcp_servers: build_mcp_servers(&config),
+        direct_buzz_mcp: build_direct_buzz_mcp_server(&config),
         repository_mcp: config.repository_mcp.clone(),
         communications_mcp: config.communications_mcp.clone(),
         initial_message: config.initial_message.clone(),
@@ -4120,6 +4121,49 @@ fn build_mcp_servers(config: &Config) -> Vec<McpServer> {
     }]
 }
 
+/// Reuse Buzz's original CLI-backed MCP for ordinary managed conversation
+/// turns. The harness remains managed for inbound delivery and final replies;
+/// this server supplies the resident's existing Buzz communication commands.
+fn build_direct_buzz_mcp_server(config: &Config) -> Option<McpServer> {
+    if !config.identity.is_managed() || config.mcp_command.is_empty() {
+        return None;
+    }
+    let keys = config.direct_mcp_keys.as_ref()?;
+    let mut env = vec![
+        EnvVar {
+            name: "BUZZ_RELAY_URL".into(),
+            value: config.relay_url.clone(),
+        },
+        EnvVar {
+            name: "BUZZ_ACP_DIRECT_PRIVATE_KEY".into(),
+            value: keys
+                .secret_key()
+                .to_bech32()
+                .expect("secret key bech32 encoding should never fail"),
+        },
+    ];
+    if let Ok(auth_tag) = std::env::var("BUZZ_AUTH_TAG") {
+        if !auth_tag.is_empty() {
+            env.push(EnvVar {
+                name: "BUZZ_AUTH_TAG".into(),
+                value: auth_tag,
+            });
+        }
+    }
+    if let Some(owner) = config.agent_owner.as_deref() {
+        env.push(EnvVar {
+            name: "BUZZ_ACP_AGENT_OWNER".into(),
+            value: owner.to_owned(),
+        });
+    }
+    Some(McpServer {
+        name: "buzz".into(),
+        command: config.mcp_command.clone(),
+        args: vec![],
+        env,
+    })
+}
+
 #[cfg(test)]
 mod heartbeat_base_prompt_tests {
     use super::*;
@@ -4650,6 +4694,7 @@ mod build_mcp_servers_tests {
     fn test_config() -> Config {
         Config {
             identity: config::IdentityConfig::Legacy(nostr::Keys::generate()),
+            direct_mcp_keys: None,
             relay_url: "ws://localhost:3000".into(),
             agent_command: "goose".into(),
             agent_args: vec!["acp".into()],
@@ -4814,6 +4859,7 @@ mod error_outcome_emission_tests {
     fn test_config() -> Config {
         Config {
             identity: config::IdentityConfig::Legacy(nostr::Keys::generate()),
+            direct_mcp_keys: None,
             relay_url: "ws://localhost:3000".into(),
             // `true` exits cleanly, so the async respawn fails fast and
             // harmlessly off the JoinSet — irrelevant to the synchronous

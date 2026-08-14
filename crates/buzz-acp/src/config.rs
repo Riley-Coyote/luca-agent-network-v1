@@ -370,6 +370,11 @@ pub struct CliArgs {
     #[arg(long, env = "BUZZ_PRIVATE_KEY")]
     pub private_key: Option<String>,
 
+    /// Existing resident identity used only by the ordinary Buzz MCP child in
+    /// Luca managed mode. This does not select the harness identity mode.
+    #[arg(long, env = "BUZZ_ACP_DIRECT_PRIVATE_KEY", hide = true)]
+    pub direct_private_key: Option<String>,
+
     /// Public identity for a Luca-managed resident. Presence selects managed
     /// mode and requires the exclusive broker stream on this process's stdin.
     #[arg(long, env = "LUCA_MANAGED_RESIDENT_PUBKEY")]
@@ -641,6 +646,7 @@ pub struct ChannelFilter {
 #[derive(Debug)]
 pub struct Config {
     pub identity: IdentityConfig,
+    pub(crate) direct_mcp_keys: Option<Keys>,
     pub relay_url: String,
     pub agent_command: String,
     pub agent_args: Vec<String>,
@@ -943,6 +949,27 @@ impl Config {
             }
         };
 
+        let direct_mcp_keys = args
+            .direct_private_key
+            .as_mut()
+            .map(|private_key| {
+                if !identity.is_managed() {
+                    return Err(ConfigError::ConfigFile(
+                        "direct Buzz MCP identity requires Luca managed mode".into(),
+                    ));
+                }
+                let keys = Keys::parse(private_key.as_str())?;
+                if keys.public_key() != identity.public_key() {
+                    return Err(ConfigError::ConfigFile(
+                        "direct Buzz MCP identity does not match managed resident".into(),
+                    ));
+                }
+                private_key.replace_range(.., &"0".repeat(private_key.len()));
+                private_key.clear();
+                Ok(keys)
+            })
+            .transpose()?;
+
         let system_prompt = if let Some(text) = args.system_prompt {
             Some(text)
         } else if let Some(ref path) = args.system_prompt_file {
@@ -1187,6 +1214,7 @@ impl Config {
         .map_err(ConfigError::ConfigFile)?;
         let config = Config {
             identity,
+            direct_mcp_keys,
             relay_url: args.relay_url,
             agent_command,
             agent_args,
@@ -1605,6 +1633,7 @@ mod tests {
     fn test_config(mode: SubscribeMode) -> Config {
         Config {
             identity: IdentityConfig::Legacy(nostr::Keys::generate()),
+            direct_mcp_keys: None,
             relay_url: "ws://localhost:3000".into(),
             agent_command: "goose".into(),
             agent_args: vec!["acp".into()],

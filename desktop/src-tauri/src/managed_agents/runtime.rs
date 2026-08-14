@@ -333,22 +333,6 @@ pub(crate) fn current_instance_id(app: &AppHandle) -> String {
     app.config().identifier.clone()
 }
 
-#[cfg(unix)]
-fn communication_storage_paths(
-    app_data_dir: &std::path::Path,
-    resident_pubkey: &luca_protocol::Hex64,
-) -> (std::path::PathBuf, std::path::PathBuf) {
-    let luca_root = app_data_dir.join("luca");
-    (
-        luca_root
-            .join("communication-actions")
-            .join(format!("{}.age", resident_pubkey.as_str())),
-        luca_root
-            .join("communication-events")
-            .join(resident_pubkey.as_str()),
-    )
-}
-
 /// Build the full `BUZZ_MANAGED_AGENT=<instance-id>` env entry we match
 /// against when scanning processes. Kept here so the spawn stamp and the sweep
 /// matcher can never drift apart.
@@ -1749,25 +1733,21 @@ pub fn spawn_agent_child(
         )?;
     let resolved_acp_command = resolve_command(&record.acp_command)
         .ok_or_else(|| missing_command_message(&record.acp_command, "ACP harness command"))?;
-    let effective_mcp_command = known_acp_runtime(&effective_command)
-        .and_then(|r| r.mcp_command)
-        .unwrap_or("");
-    let resolved_mcp_command: Option<std::path::PathBuf> = if effective_mcp_command.is_empty() {
-        None
+    // Every ACP-compatible resident receives Buzz's existing CLI-backed MCP.
+    // Hermes and OpenClaw are native runtimes and remain ordinary-chat-only.
+    let resolved_mcp_command = if native_runtime.is_none() {
+        Some(
+            resolve_command("buzz-dev-mcp")
+                .ok_or_else(|| missing_command_message("buzz-dev-mcp", "Buzz MCP sidecar"))?,
+        )
     } else {
-        match resolve_command(effective_mcp_command) {
-            Some(path) => Some(path),
-            None => {
-                eprintln!(
-                    "buzz-desktop: mcp_command {effective_mcp_command:?} not found, skipping"
-                );
-                None
-            }
-        }
+        None
     };
     #[cfg(unix)]
-    let repository_mcp_command = resolve_command("buzz-dev-mcp")
-        .ok_or_else(|| missing_command_message("buzz-dev-mcp", "repository MCP sidecar"))?;
+    let repository_mcp_command = resolved_mcp_command.clone().unwrap_or_else(|| {
+        resolve_command("buzz-dev-mcp")
+            .expect("bundled repository MCP sidecar was already required for managed startup")
+    });
     // The agent's effective relay drives both the child's relay connection
     // (BUZZ_RELAY_URL) and git credential-helper URL: an explicit per-agent
     // relay wins; an empty one falls back to the active workspace relay.
@@ -1884,74 +1864,6 @@ pub fn spawn_agent_child(
         "{}/query",
         crate::relay::relay_http_base_url(&effective_relay_url).trim_end_matches('/')
     );
-    #[cfg(unix)]
-    let communication_broker_lease = if !super::advanced_communications_eligible(
-        record.native_runtime_binding.as_ref(),
-    ) {
-        None
-    } else {
-        'communication_lease: {
-            let (outbox_path, vault_directory) =
-                communication_storage_paths(&app_data_dir, &resident_pubkey);
-            let backend =
-                crate::luca::communication_action_backend::DesktopCommunicationActionBackend::open(
-                    crate::luca::communication_action_backend::DesktopCommunicationBackendConfig {
-                        app: app.clone(),
-                        resident_keys: resident_keys.clone(),
-                        resident_auth_tag: record.auth_tag.clone(),
-                        relay_url: effective_relay_url.clone(),
-                        installation_session_id: installation_session_id.clone(),
-                        session_epoch,
-                        outbox_path,
-                        vault_directory,
-                    },
-                );
-            match backend {
-                Ok(backend) if backend.resident_pubkey() == &resident_pubkey => {
-                    if let Err(error) = backend.reconcile_one_on_start() {
-                        eprintln!(
-                            "luca-communications: managed communication tools are unavailable ({})",
-                            error.diagnostic_code()
-                        );
-                        break 'communication_lease None;
-                    }
-                    let context = crate::luca::communication_bridge::CommunicationBrokerContext {
-                        owner_pubkey: owner_pubkey.clone(),
-                        resident_pubkey: resident_pubkey.clone(),
-                        session_epoch,
-                        binding_ref: runtime_binding_ref.clone(),
-                    };
-                    match crate::luca::communication_bridge::create_communication_broker_lease(
-                        app,
-                        context,
-                        backend.broker_backend(),
-                    ) {
-                        Ok(lease) => Some(lease),
-                        Err(_) => {
-                            eprintln!(
-                            "luca-communications: managed communication tools are unavailable (communication-broker-unavailable)"
-                        );
-                            None
-                        }
-                    }
-                }
-                Ok(_) => {
-                    eprintln!(
-                    "luca-communications: managed communication tools are unavailable (communication-resident-mismatch)"
-                );
-                    None
-                }
-                Err(error) => {
-                    eprintln!(
-                        "luca-communications: managed communication tools are unavailable ({})",
-                        error.diagnostic_code()
-                    );
-                    None
-                }
-            }
-        }
-    };
-
     let mut command = std::process::Command::new(&resolved_acp_command);
     if let Some(home) = native_runtime
         .as_ref()
@@ -2012,6 +1924,7 @@ pub fn spawn_agent_child(
     // successfully created lease may expose the communications broker.
     command.env_remove("BUZZ_ACP_COMMUNICATIONS_MCP_COMMAND");
     command.env_remove("BUZZ_ACP_COMMUNICATIONS_MCP_CONFIG");
+    command.env_remove("BUZZ_ACP_DIRECT_PRIVATE_KEY");
     #[cfg(unix)]
     {
         command.env("BUZZ_ACP_REPOSITORY_MCP_COMMAND", &repository_mcp_command);
@@ -2019,13 +1932,6 @@ pub fn spawn_agent_child(
             "BUZZ_ACP_REPOSITORY_MCP_CONFIG",
             repository_broker_lease.bootstrap_json(),
         );
-        if let Some(lease) = &communication_broker_lease {
-            command.env(
-                "BUZZ_ACP_COMMUNICATIONS_MCP_COMMAND",
-                &repository_mcp_command,
-            );
-            command.env("BUZZ_ACP_COMMUNICATIONS_MCP_CONFIG", lease.bootstrap_json());
-        }
     }
     // Enable MCP hook tools (_Stop, _PostCompact) for agents that need them.
     // Uses "*" because build_mcp_servers() hard-codes the server name to "buzz-mcp".
@@ -2288,6 +2194,12 @@ pub fn spawn_agent_child(
         }
     } else {
         command.env_remove("LUCA_OPENCLAW_AGENT_ID");
+        if resolved_mcp_command.is_some() {
+            command.env("BUZZ_ACP_DIRECT_PRIVATE_KEY", &record.private_key_nsec);
+            if let Some(auth_tag) = record.auth_tag.as_deref() {
+                command.env("BUZZ_AUTH_TAG", auth_tag);
+            }
+        }
     }
     configure_runtime_cli(&mut command, runtime_meta);
 
@@ -2495,14 +2407,6 @@ pub fn spawn_agent_child(
         let _ = join_managed_signing_broker(&record.pubkey);
         abort_spawned_child(&mut child);
         return Err(format!("failed to register repository broker: {error}"));
-    }
-    #[cfg(unix)]
-    if let Some(lease) = communication_broker_lease {
-        if let Err(error) = lease.commit() {
-            let _ = join_managed_signing_broker(&record.pubkey);
-            abort_spawned_child(&mut child);
-            return Err(format!("failed to register communications broker: {error}"));
-        }
     }
 
     // Stamp the adapter availability for runtimes with a version gate (codex

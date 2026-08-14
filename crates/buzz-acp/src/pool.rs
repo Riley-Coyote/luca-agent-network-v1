@@ -444,6 +444,7 @@ pub enum PromptOutcome {
 /// into every task.
 pub struct PromptContext {
     pub mcp_servers: Vec<McpServer>,
+    pub(crate) direct_buzz_mcp: Option<McpServer>,
     pub(crate) repository_mcp: Option<crate::repository_mcp::RepositoryMcpConfig>,
     pub(crate) communications_mcp: Option<crate::communications_mcp::CommunicationsMcpConfig>,
     pub initial_message: Option<String>,
@@ -811,6 +812,11 @@ async fn create_session_and_apply_model(
     } else {
         ctx.mcp_servers.clone()
     };
+    if let (PromptSource::Channel(_), Some(direct_buzz_mcp)) =
+        (source, ctx.direct_buzz_mcp.as_ref())
+    {
+        mcp_servers.push(direct_buzz_mcp.clone());
+    }
     let privileged_policy = privileged_session_mcp_policy(
         source,
         ctx.repository_mcp.is_some(),
@@ -6797,6 +6803,7 @@ mod tests {
         use crate::relay::RestClient;
         PromptContext {
             mcp_servers: vec![],
+            direct_buzz_mcp: None,
             repository_mcp: None,
             communications_mcp: None,
             initial_message: None,

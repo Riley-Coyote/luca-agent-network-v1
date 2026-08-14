@@ -169,6 +169,14 @@ async fn async_main(cmd: String) -> Result<(), Box<dyn std::error::Error>> {
     // repeated installation is harmless.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
+    // Managed ACP processes receive the resident key under a private internal
+    // name. Translate it only at the existing Buzz MCP boundary so the normal
+    // Buzz CLI and media helpers keep using their established environment.
+    if let Some(private_key) = std::env::var_os("BUZZ_ACP_DIRECT_PRIVATE_KEY") {
+        std::env::remove_var("BUZZ_ACP_DIRECT_PRIVATE_KEY");
+        std::env::set_var("BUZZ_PRIVATE_KEY", private_key);
+    }
+
     // buzz CLI needs tokio (async HTTP client).
     if cmd == "buzz" {
         std::process::exit(buzz_cli::run_from_args(std::env::args()).await);
