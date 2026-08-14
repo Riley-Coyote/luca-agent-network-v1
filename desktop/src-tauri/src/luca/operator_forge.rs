@@ -277,10 +277,28 @@ fn load_store(app: &AppHandle) -> Result<OperatorForgeStoreV1, String> {
     let bytes = std::fs::read(&path).map_err(|_| "operator settings could not be read")?;
     let store: OperatorForgeStoreV1 =
         serde_json::from_slice(&bytes).map_err(|_| "operator settings are invalid")?;
-    if store.schema_version != SCHEMA_VERSION {
-        return Err("operator settings use an unsupported schema version".into());
+    migrate_store(store)
+}
+
+fn migrate_store(mut store: OperatorForgeStoreV1) -> Result<OperatorForgeStoreV1, String> {
+    match store.schema_version {
+        SCHEMA_VERSION => Ok(store),
+        0 => {
+            store.schema_version = SCHEMA_VERSION;
+            for preferences in &mut store.owners {
+                if preferences.schema_version == 0 {
+                    preferences.schema_version = SCHEMA_VERSION;
+                }
+            }
+            for transaction in &mut store.transactions {
+                if transaction.schema_version == 0 {
+                    transaction.schema_version = SCHEMA_VERSION;
+                }
+            }
+            Ok(store)
+        }
+        _ => Err("operator settings use an unsupported schema version".into()),
     }
-    Ok(store)
 }
 
 fn save_store(app: &AppHandle, store: &OperatorForgeStoreV1) -> Result<(), String> {
@@ -564,6 +582,42 @@ mod tests {
         assert_eq!(
             serde_json::to_value(store).unwrap()["schemaVersion"],
             SCHEMA_VERSION
+        );
+    }
+
+    #[test]
+    fn legacy_schema_zero_is_upgraded_without_losing_preferences() {
+        let mut store = OperatorForgeStoreV1::default();
+        store.schema_version = 0;
+        let mut preferences = OperatorPreferencesV1::new("owner".into());
+        preferences.schema_version = 0;
+        preferences.default_runtime_target = Some(AgentRuntimeTargetV1::Managed {
+            runtime_id: "codex".into(),
+        });
+        preferences.runtime_confirmed = true;
+        store.owners.push(preferences);
+
+        let migrated = migrate_store(store).expect("legacy store should migrate");
+
+        assert_eq!(migrated.schema_version, SCHEMA_VERSION);
+        assert_eq!(migrated.owners[0].schema_version, SCHEMA_VERSION);
+        assert_eq!(
+            migrated.owners[0].default_runtime_target,
+            Some(AgentRuntimeTargetV1::Managed {
+                runtime_id: "codex".into()
+            })
+        );
+        assert!(migrated.owners[0].runtime_confirmed);
+    }
+
+    #[test]
+    fn future_operator_store_schema_still_fails_closed() {
+        let mut store = OperatorForgeStoreV1::default();
+        store.schema_version = SCHEMA_VERSION + 1;
+
+        assert_eq!(
+            migrate_store(store).unwrap_err(),
+            "operator settings use an unsupported schema version"
         );
     }
 
