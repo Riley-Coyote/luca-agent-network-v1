@@ -1,7 +1,8 @@
 import { expect, test } from "@playwright/test";
 
 import { waitForAnimations } from "../../helpers/animations";
-import { installMockBridge } from "../../helpers/bridge";
+import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
+import { seedActiveIdentity } from "../../helpers/onboarding";
 
 const LUCA_PUBKEY = "11".repeat(32);
 const MARA_PUBKEY = "22".repeat(32);
@@ -25,7 +26,28 @@ const residents = [
 ];
 
 test.beforeEach(async ({ page }) => {
+  await seedActiveIdentity(page, TEST_IDENTITIES.tyler);
   await installMockBridge(page, { managedAgents: residents });
+});
+
+test("an empty Brain opens as a usable clean-profile state", async ({
+  page,
+}) => {
+  await page.goto(
+    "/?e2e=mock#/brain?brainFixture=empty&brainConnections=empty",
+  );
+
+  await expect(page.getByRole("heading", { name: "Brain" })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByTestId("brain-card-files")).toContainText("Not found");
+  await page
+    .getByTestId("brain-card-files")
+    .getByRole("button", { name: "Add files" })
+    .click();
+  await expect(page.getByText("No private sources yet")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Choose folder" }),
+  ).toBeEnabled();
 });
 
 test("Brain connects work while keeping controls and provenance quiet", async ({

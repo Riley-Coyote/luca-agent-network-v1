@@ -8,6 +8,7 @@ import type { LucideIcon } from "lucide-react";
 import * as React from "react";
 
 import { BrainAccessPanel } from "./BrainAccessPanel";
+import { readableOwnerBrainError } from "./brainErrors";
 import { BrainImportPanel, type ImportActivity } from "./BrainImportPanel";
 import { BrainSourceList, BrainSourceSummary } from "./BrainSourcePanel";
 import { useOwnerBrainActions, useOwnerBrainStateQuery } from "./hooks";
@@ -19,21 +20,6 @@ import type {
 import { Button } from "@/shared/ui/button";
 
 type GrantAction = "grant" | "revoke" | "reconfirm";
-
-function readableBrainError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  const labels: Record<string, string> = {
-    "owner-brain-cancelled": "The import was cancelled before it committed.",
-    "owner-brain-invalid": "The source changed or the preview expired.",
-    "owner-brain-locked": "Unlock Luca, then try this operation again.",
-    "owner-brain-runtime-unavailable":
-      "This resident needs a valid runtime before access can be changed.",
-    "owner-brain-stale": "The source changed after preview. Preview it again.",
-    "owner-brain-timeout": "The operation timed out without a partial write.",
-    "owner-brain-unavailable": "The private Brain store is unavailable.",
-  };
-  return labels[message] ?? message.replaceAll("-", " ");
-}
 
 export function BrainFilesDetails() {
   const stateQuery = useOwnerBrainStateQuery();
@@ -83,7 +69,7 @@ export function BrainFilesDetails() {
           setActivity({ state: "idle" });
         }
       } catch (error) {
-        setOperationError(readableBrainError(error));
+        setOperationError(readableOwnerBrainError(error, "preview"));
       }
     },
     [actions.pickSource],
@@ -119,7 +105,7 @@ export function BrainFilesDetails() {
       }
     } catch (error) {
       if (!cancelRequestedRef.current) {
-        const label = readableBrainError(error);
+        const label = readableOwnerBrainError(error, "preview");
         setOperationError(label);
         setActivity({ state: "failed", label });
       }
@@ -143,7 +129,7 @@ export function BrainFilesDetails() {
         );
       }
     } catch (error) {
-      setOperationError(readableBrainError(error));
+      setOperationError(readableOwnerBrainError(error, "preview"));
     }
   }, [actions.cancelImport, preview]);
 
@@ -162,7 +148,7 @@ export function BrainFilesDetails() {
         await actions[action].mutateAsync(input);
       } catch (error) {
         setOperationError(
-          `${resident.displayName}: ${readableBrainError(error)}`,
+          `${resident.displayName}: ${readableOwnerBrainError(error, "access")}`,
         );
       }
     },

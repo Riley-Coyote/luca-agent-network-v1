@@ -434,18 +434,18 @@ pub(crate) fn read_catalog(
     let _guard = lifecycle
         .lock()
         .map_err(|_| OwnerBrainStoreError::Unavailable)?;
-    let root = load_root_key()?;
     let state = runtime_state
         .lock()
         .map_err(|_| OwnerBrainStoreError::Unavailable)?;
     let runtime = ready_runtime(&state, owner_pubkey)?;
-    let key_version = runtime
-        .store
-        .active_owner_key_version(owner_pubkey)
-        .map_err(map_store_read_error)?;
-    let namespace = owner_brain_namespace(owner_pubkey, key_version)?;
-    let namespace_key =
-        derive_namespace_key(&root, &namespace).map_err(|_| OwnerBrainStoreError::Invalid)?;
+    read_catalog_with_runtime(runtime, owner_pubkey, load_root_key)
+}
+
+fn read_catalog_with_runtime(
+    runtime: &ContinuityRuntime,
+    owner_pubkey: &Hex64,
+    load_root: impl FnOnce() -> Result<ContinuityMasterKey, OwnerBrainStoreError>,
+) -> Result<OwnerBrainCatalogV1, OwnerBrainStoreError> {
     let Some(generation) = runtime
         .store
         .load_revision_generation(owner_pubkey)
@@ -456,6 +456,14 @@ pub(crate) fn read_catalog(
             grants: Vec::new(),
         });
     };
+    let root = load_root()?;
+    let key_version = runtime
+        .store
+        .active_owner_key_version(owner_pubkey)
+        .map_err(map_store_read_error)?;
+    let namespace = owner_brain_namespace(owner_pubkey, key_version)?;
+    let namespace_key =
+        derive_namespace_key(&root, &namespace).map_err(|_| OwnerBrainStoreError::Invalid)?;
     read_catalog_from_generation(&generation, &namespace, namespace_key.as_bytes())
 }
 

@@ -53,6 +53,56 @@ fn import_test_source(
         .unwrap()
 }
 
+#[test]
+fn absent_owner_catalogs_are_empty_without_loading_custody_or_writing_state() {
+    let temp = tempfile::tempdir().unwrap();
+    let runtime = runtime(&temp);
+    assert!(runtime
+        .store
+        .load_revision_generation(&owner())
+        .unwrap()
+        .is_none());
+
+    let catalog = read_catalog_with_runtime(&runtime, &owner(), || {
+        panic!("an absent owner catalog must not load key custody")
+    })
+    .unwrap();
+    assert!(catalog.sources.is_empty());
+    assert!(catalog.grants.is_empty());
+
+    let connected = super::connected::read_connected_catalog_with_runtime(&runtime, || {
+        panic!("an absent connected catalog must not load key custody")
+    })
+    .unwrap();
+    assert!(connected.sources.is_empty());
+    assert!(connected.recall_grants.is_empty());
+    assert!(connected.repository_grants.is_empty());
+    assert!(runtime
+        .store
+        .load_revision_generation(&owner())
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn owner_mismatch_remains_invalid_and_does_not_initialize_a_catalog() {
+    let temp = tempfile::tempdir().unwrap();
+    let runtime = runtime(&temp);
+    let state = ContinuityRuntimeState::Ready(runtime);
+    assert!(matches!(
+        ready_runtime(&state, &resident('b')),
+        Err(OwnerBrainStoreError::Invalid)
+    ));
+    let ContinuityRuntimeState::Ready(runtime) = state else {
+        unreachable!()
+    };
+    assert!(runtime
+        .store
+        .load_revision_generation(&owner())
+        .unwrap()
+        .is_none());
+}
+
 fn connected_candidate(
     path: &Path,
 ) -> crate::luca::connected_brain::ConnectedBrainDiscoveryCandidateV1 {

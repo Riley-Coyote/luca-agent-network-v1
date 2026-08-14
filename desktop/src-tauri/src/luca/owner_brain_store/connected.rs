@@ -138,14 +138,32 @@ pub(crate) fn read_connected_catalog(
     let _guard = lifecycle
         .lock()
         .map_err(|_| OwnerBrainStoreError::Unavailable)?;
-    let root = load_root_key()?;
     let state = runtime_state
         .lock()
         .map_err(|_| OwnerBrainStoreError::Unavailable)?;
     let runtime = ready_runtime(&state, owner_pubkey)?;
-    let Some((generation, namespace, namespace_key)) = connected_generation(&root, runtime)? else {
+    read_connected_catalog_with_runtime(runtime, load_root_key)
+}
+
+pub(super) fn read_connected_catalog_with_runtime(
+    runtime: &ContinuityRuntime,
+    load_root: impl FnOnce() -> Result<ContinuityMasterKey, OwnerBrainStoreError>,
+) -> Result<ConnectedBrainCatalogV1, OwnerBrainStoreError> {
+    let Some(generation) = runtime
+        .store
+        .load_revision_generation(&runtime.owner_pubkey)
+        .map_err(map_store_read_error)?
+    else {
         return Ok(ConnectedBrainCatalogV1::default());
     };
+    let root = load_root()?;
+    let key_version = runtime
+        .store
+        .active_owner_key_version(&runtime.owner_pubkey)
+        .map_err(map_store_read_error)?;
+    let namespace = owner_brain_namespace(&runtime.owner_pubkey, key_version)?;
+    let namespace_key =
+        derive_namespace_key(&root, &namespace).map_err(|_| OwnerBrainStoreError::Invalid)?;
     catalog_from_generation(&generation, &namespace, namespace_key.as_bytes())
 }
 
