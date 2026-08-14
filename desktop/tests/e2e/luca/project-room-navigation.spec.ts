@@ -116,12 +116,11 @@ test("a stale local assignment cannot project a direct message into a project", 
 }) => {
   await page.goto("/?e2e=mock");
 
-  await page.getByTestId("create-room-project").click();
+  await page.getByTestId("create-channel").click();
   const dialog = page.getByTestId("create-room-project-dialog");
   await dialog.getByTestId("create-project-name").fill("DM Trap");
   await dialog.getByTestId("project-first-room-enabled").click();
-  await dialog.getByRole("button", { name: "Clear" }).click();
-  await dialog.getByRole("button", { name: "Create project" }).click();
+  await dialog.getByRole("button", { name: "Create channel" }).click();
 
   const dm = page.getByTestId("channel-alice-tyler");
   const dmId = await dm.getAttribute("data-channel-id");
@@ -265,13 +264,15 @@ test("a new project creates its first real room with chosen connected context", 
 }) => {
   await page.goto("/?e2e=mock");
 
-  await page.getByTestId("create-room-project").click();
+  await page.getByTestId("create-channel").click();
   const dialog = page.getByTestId("create-room-project-dialog");
   await expect(dialog).toBeVisible();
   await dialog.getByTestId("create-project-name").fill("Launch Work");
   await dialog.getByTestId("create-project-room-name").fill("planning");
+  await dialog.getByRole("button", { name: /Context/ }).click();
+  await dialog.getByRole("button", { name: "Select all" }).click();
   await expect(dialog.getByText("luca-agent-network")).toBeVisible();
-  await dialog.getByRole("button", { name: "Create project" }).click();
+  await dialog.getByRole("button", { name: "Create channel" }).click();
 
   await expect(page.getByTestId("project-row-launch-work")).toBeVisible();
   await expect(page.getByTestId("chat-title")).toHaveText("planning");
@@ -293,12 +294,11 @@ test("a project can begin empty with no room residents or sources", async ({
 }) => {
   await page.goto("/?e2e=mock");
 
-  await page.getByTestId("create-room-project").click();
+  await page.getByTestId("create-channel").click();
   const dialog = page.getByTestId("create-room-project-dialog");
   await dialog.getByTestId("create-project-name").fill("Quiet Research");
   await dialog.getByTestId("project-first-room-enabled").click();
-  await dialog.getByRole("button", { name: "Clear" }).click();
-  await dialog.getByRole("button", { name: "Create project" }).click();
+  await dialog.getByRole("button", { name: "Create channel" }).click();
 
   await expect(page.getByTestId("project-row-quiet-research")).toBeVisible();
   const store = await storedProjects(page);
@@ -318,12 +318,11 @@ test("project details rename, reopen, recover missing context, and remove an emp
 }) => {
   await page.goto("/?e2e=mock");
 
-  await page.getByTestId("create-room-project").click();
+  await page.getByTestId("create-channel").click();
   const createDialog = page.getByTestId("create-room-project-dialog");
   await createDialog.getByTestId("create-project-name").fill("Quiet Research");
   await createDialog.getByTestId("project-first-room-enabled").click();
-  await createDialog.getByRole("button", { name: "Clear" }).click();
-  await createDialog.getByRole("button", { name: "Create project" }).click();
+  await createDialog.getByRole("button", { name: "Create channel" }).click();
 
   await page.getByTestId("project-row-quiet-research").click();
   const navigator = page.getByTestId("project-room-navigator");
@@ -416,11 +415,11 @@ test("removing a populated project keeps its room, message, and native state int
 }) => {
   await page.goto("/?e2e=mock");
 
-  await page.getByTestId("create-room-project").click();
+  await page.getByTestId("create-channel").click();
   const createDialog = page.getByTestId("create-room-project-dialog");
   await createDialog.getByTestId("create-project-name").fill("Launch Work");
   await createDialog.getByTestId("create-project-room-name").fill("planning");
-  await createDialog.getByRole("button", { name: "Create project" }).click();
+  await createDialog.getByRole("button", { name: "Create channel" }).click();
   await expect(page.getByTestId("chat-title")).toHaveText("planning");
 
   await page
@@ -470,13 +469,14 @@ test("a first room attaches selected existing residents as membership only", asy
 }) => {
   await page.goto("/?e2e=mock");
 
-  await page.getByTestId("create-room-project").click();
+  await page.getByTestId("create-channel").click();
   const dialog = page.getByTestId("create-room-project-dialog");
   await dialog.getByTestId("create-project-name").fill("Resident Work");
   await dialog.getByTestId("create-project-room-name").fill("resident-room");
+  await dialog.getByRole("button", { name: /People/ }).click();
   await dialog.getByTestId("project-resident-mode-existing").click();
   await dialog.getByText("Atlas", { exact: true }).click();
-  await dialog.getByRole("button", { name: "Create project" }).click();
+  await dialog.getByRole("button", { name: "Create channel" }).click();
 
   await expect(page.getByTestId("chat-title")).toHaveText("resident-room");
   const membershipCalls = (await commandLog(page)).filter(
@@ -509,12 +509,13 @@ test("a new resident handoff contains only the exact created room identity", asy
   });
   await page.goto("/?e2e=mock");
 
-  await page.getByTestId("create-room-project").click();
+  await page.getByTestId("create-channel").click();
   const dialog = page.getByTestId("create-room-project-dialog");
   await dialog.getByTestId("create-project-name").fill("Agent Handoff");
   await dialog.getByTestId("create-project-room-name").fill("agent-room");
+  await dialog.getByRole("button", { name: /People/ }).click();
   await dialog.getByTestId("project-resident-mode-new").click();
-  await dialog.getByRole("button", { name: "Create project" }).click();
+  await dialog.getByRole("button", { name: "Create channel" }).click();
 
   const request = await page.evaluate(
     () =>
@@ -539,11 +540,11 @@ test("a room failure retains one empty project and retry creates one room", asyn
 }) => {
   await page.goto("/?e2e=mock");
 
-  await page.getByTestId("create-room-project").click();
+  await page.getByTestId("create-channel").click();
   const dialog = page.getByTestId("create-room-project-dialog");
   await dialog.getByTestId("create-project-name").fill("Recovery Plan");
   await dialog.getByTestId("create-project-room-name").fill("recovery-room");
-  await dialog.getByRole("button", { name: "Create project" }).click();
+  await dialog.getByRole("button", { name: "Create channel" }).click();
 
   await expect(dialog.getByRole("alert")).toContainText(
     "The empty project is saved",
@@ -569,13 +570,14 @@ test("a membership failure retries membership without another project or room", 
 }) => {
   await page.goto("/?e2e=mock");
 
-  await page.getByTestId("create-room-project").click();
+  await page.getByTestId("create-channel").click();
   const dialog = page.getByTestId("create-room-project-dialog");
   await dialog.getByTestId("create-project-name").fill("Membership Recovery");
   await dialog.getByTestId("create-project-room-name").fill("membership-room");
+  await dialog.getByRole("button", { name: /People/ }).click();
   await dialog.getByTestId("project-resident-mode-existing").click();
   await dialog.getByText("Atlas", { exact: true }).click();
-  await dialog.getByRole("button", { name: "Create project" }).click();
+  await dialog.getByRole("button", { name: "Create channel" }).click();
 
   await expect(dialog.getByRole("alert")).toContainText(
     "Retry to add only the remaining residents",

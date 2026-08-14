@@ -1,4 +1,5 @@
 import {
+  ChevronDown,
   Files,
   GitBranch,
   LoaderCircle,
@@ -104,29 +105,18 @@ export function CreateRoomProjectDialog({
     new Set(),
   );
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [showPeople, setShowPeople] = React.useState(false);
+  const [showContext, setShowContext] = React.useState(false);
   const [checkpoint, setCheckpoint] =
     React.useState<ProjectCreationCheckpoint | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const initializedRef = React.useRef(false);
 
   React.useEffect(() => {
     if (!open) {
-      initializedRef.current = false;
       setSelected(new Set());
-      return;
     }
-    if (!initializedRef.current && options.length > 0) {
-      initializedRef.current = true;
-      setSelected(
-        new Set(
-          options
-            .filter((option) => option.available)
-            .map((option) => option.id),
-        ),
-      );
-    }
-  }, [open, options]);
+  }, [open]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -135,6 +125,8 @@ export function CreateRoomProjectDialog({
     setIncludeFirstRoom(true);
     setResidentMode("none");
     setSelectedResidents(new Set());
+    setShowPeople(false);
+    setShowContext(false);
     setCheckpoint(null);
     setIsSubmitting(false);
     setError(null);
@@ -177,7 +169,7 @@ export function CreateRoomProjectDialog({
         setCheckpoint(cause.checkpoint);
       }
       setError(
-        cause instanceof Error ? cause.message : "Couldn’t create the project.",
+        cause instanceof Error ? cause.message : "Couldn’t create the channel.",
       );
     } finally {
       setIsSubmitting(false);
@@ -188,22 +180,21 @@ export function CreateRoomProjectDialog({
   return (
     <Dialog open={open} onOpenChange={(next) => !isBusy && onOpenChange(next)}>
       <DialogContent
-        className="max-h-[min(90vh,48rem)] max-w-2xl gap-5 overflow-y-auto"
+        className="flex max-h-[min(88vh,42rem)] max-w-xl flex-col gap-0 overflow-hidden p-0"
         data-testid="create-room-project-dialog"
       >
-        <DialogHeader>
-          <DialogTitle>New project</DialogTitle>
+        <DialogHeader className="border-b border-border/55 px-6 pb-5 pt-6">
+          <DialogTitle>New channel</DialogTitle>
           <DialogDescription>
-            Start with the work itself, then add one conversation and the
-            residents or context it needs.
+            Create a shared space for related conversations and work.
           </DialogDescription>
         </DialogHeader>
         <form
-          className="space-y-5"
+          className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5"
           id="create-room-project-form"
           onSubmit={submit}
         >
-          <Field htmlFor="create-project-name" label="Project name">
+          <Field htmlFor="create-project-name" label="Channel name">
             <Input
               autoFocus
               data-testid="create-project-name"
@@ -217,7 +208,7 @@ export function CreateRoomProjectDialog({
 
           <section
             aria-labelledby="project-first-room-label"
-            className="rounded-xl border border-border/65 bg-muted/15 p-4"
+            className="space-y-3 rounded-lg border border-border/55 bg-muted/10 p-4"
           >
             <label
               className="flex cursor-pointer items-start gap-3"
@@ -242,17 +233,17 @@ export function CreateRoomProjectDialog({
                   className="block text-sm font-medium"
                   id="project-first-room-label"
                 >
-                  Create a first room now
+                  Start with a room
                 </span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">
-                  Turn this project into a working conversation immediately, or
-                  leave it empty and add a room later.
+                  Open the channel with its first conversation, or add one
+                  later.
                 </span>
               </span>
             </label>
             {includeFirstRoom ? (
               <Field htmlFor="create-project-room-name" label="Room name">
-                <div className="relative mt-4">
+                <div className="relative">
                   <MessagesSquare className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/55" />
                   <Input
                     className="pl-9"
@@ -268,27 +259,24 @@ export function CreateRoomProjectDialog({
           </section>
 
           {includeFirstRoom ? (
-            <section
-              aria-labelledby="project-residents-label"
-              className="space-y-3"
+            <DisclosureSection
+              description="Choose who begins in the first room."
+              label="People"
+              open={showPeople}
+              onToggle={() => setShowPeople((current) => !current)}
+              summary={
+                residentMode === "existing" && selectedResidents.size > 0
+                  ? `${selectedResidents.size} selected`
+                  : residentMode === "new"
+                    ? "Create a new agent"
+                    : "Add later"
+              }
             >
-              <div>
-                <div
-                  className="text-sm font-medium"
-                  id="project-residents-label"
-                >
-                  Residents
-                </div>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Optional. This changes room membership only; it grants no new
-                  tools, models, credentials, or Brain access.
-                </p>
-              </div>
               <div className="grid gap-2 sm:grid-cols-3">
                 <ResidentModeButton
                   active={residentMode === "none"}
                   disabled={isBusy || isCheckpointed}
-                  label="No resident"
+                  label="Add later"
                   onClick={() => {
                     setResidentMode("none");
                     setSelectedResidents(new Set());
@@ -298,14 +286,14 @@ export function CreateRoomProjectDialog({
                 <ResidentModeButton
                   active={residentMode === "existing"}
                   disabled={isBusy || isCheckpointed}
-                  label="Existing"
+                  label="Existing agents"
                   onClick={() => setResidentMode("existing")}
                   testId="project-resident-mode-existing"
                 />
                 <ResidentModeButton
                   active={residentMode === "new"}
                   disabled={isBusy || isCheckpointed}
-                  label="New resident"
+                  label="New agent"
                   onClick={() => {
                     setResidentMode("new");
                     setSelectedResidents(new Set());
@@ -363,17 +351,26 @@ export function CreateRoomProjectDialog({
                 <div className="flex items-start gap-2 rounded-xl border border-border/65 bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
                   <UserPlus className="mt-0.5 size-4 shrink-0" />
                   <span>
-                    After the room is ready, Luca opens the existing reviewed
-                    resident setup for this exact room.
+                    After the channel is ready, Luca will open agent setup for
+                    this room.
                   </span>
                 </div>
               ) : null}
-            </section>
+              <p className="text-xs leading-5 text-muted-foreground">
+                Room membership does not grant tools, models, credentials, or
+                Brain access.
+              </p>
+            </DisclosureSection>
           ) : null}
 
-          <section
-            aria-labelledby="project-context-label"
-            className="space-y-2"
+          <DisclosureSection
+            description="Attach existing Brain sources to this channel."
+            label="Context"
+            open={showContext}
+            onToggle={() => setShowContext((current) => !current)}
+            summary={
+              selected.size > 0 ? `${selected.size} connected` : "Not connected"
+            }
           >
             <div className="flex items-end justify-between gap-3">
               <div>
@@ -381,7 +378,7 @@ export function CreateRoomProjectDialog({
                   Connected context
                 </div>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Optional. Resident access still follows Brain permissions.
+                  Agent access still follows Brain permissions.
                 </p>
               </div>
               {options.length > 0 ? (
@@ -458,14 +455,14 @@ export function CreateRoomProjectDialog({
                 ))
               )}
             </div>
-          </section>
+          </DisclosureSection>
           {error ? (
             <p className="text-sm text-destructive" role="alert">
               {error}
             </p>
           ) : null}
         </form>
-        <DialogFooter>
+        <DialogFooter className="shrink-0 border-t border-border/55 px-6 py-4">
           <Button
             disabled={isBusy}
             onClick={() => onOpenChange(false)}
@@ -483,11 +480,60 @@ export function CreateRoomProjectDialog({
               ? "Creating…"
               : isCheckpointed
                 ? "Retry setup"
-                : "Create project"}
+                : "Create channel"}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function DisclosureSection({
+  children,
+  description,
+  label,
+  onToggle,
+  open,
+  summary,
+}: {
+  children: React.ReactNode;
+  description: string;
+  label: string;
+  onToggle: () => void;
+  open: boolean;
+  summary: string;
+}) {
+  return (
+    <section className="overflow-hidden rounded-lg border border-border/55 bg-muted/10">
+      <button
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 px-4 py-3.5 text-left outline-none transition-colors hover:bg-muted/25 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+        onClick={onToggle}
+        type="button"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-medium">{label}</span>
+          <span className="mt-0.5 block text-xs text-muted-foreground">
+            {description}
+          </span>
+        </span>
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {summary}
+        </span>
+        <ChevronDown
+          aria-hidden
+          className={cn(
+            "size-4 shrink-0 text-muted-foreground transition-transform duration-150",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+      {open ? (
+        <div className="space-y-3 border-t border-border/45 px-4 pb-4 pt-3">
+          {children}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
