@@ -260,22 +260,24 @@ fn resident_authorities(
     app: &AppHandle,
     state: &AppState,
 ) -> Result<Vec<owner_brain_store::ConnectedBrainResidentAuthorityV1>, String> {
-    resident_registry::load_resident_registry(app, state)?
+    Ok(resident_registry::load_resident_registry(app, state)?
         .residents
         .into_iter()
-        .map(|resident| {
-            let (binding_ref, provider_egress) =
-                crate::managed_agents::current_owner_brain_runtime_authority(
-                    app,
-                    &resident.resident_pubkey,
-                )?;
-            Ok(owner_brain_store::ConnectedBrainResidentAuthorityV1 {
-                resident_pubkey: resident.resident_pubkey,
-                binding_ref,
-                provider_egress,
+        .filter_map(|resident| {
+            crate::managed_agents::current_owner_brain_runtime_authority(
+                app,
+                &resident.resident_pubkey,
+            )
+            .ok()
+            .map(|(binding_ref, provider_egress)| {
+                owner_brain_store::ConnectedBrainResidentAuthorityV1 {
+                    resident_pubkey: resident.resident_pubkey,
+                    binding_ref,
+                    provider_egress,
+                }
             })
         })
-        .collect()
+        .collect())
 }
 
 fn load_inventory(
@@ -410,10 +412,23 @@ pub async fn refresh_connected_brain_source(
         let candidate = state
             .read_connected_brain_candidate(&owner, &source_id)
             .map_err(|error| error.code().to_owned())?;
+        let watch_root = candidate.canonical_root.clone();
         let build = connected_brain::build_index(&source_id, &candidate)?;
         let result = state
-            .connect_brain_source(owner, candidate, build, &authorities)
+            .connect_brain_source(owner.clone(), candidate, build, &authorities)
             .map_err(|error| error.code().to_owned())?;
+        if connected_brain::register_connected_source(&state, source_id.clone(), &watch_root)
+            .is_err()
+        {
+            state
+                .set_connected_brain_status(
+                    &owner,
+                    &source_id,
+                    ConnectedBrainSourceStatusV1::NeedsAttention,
+                )
+                .map_err(|error| error.code().to_owned())?;
+            return Err("connected-source-watch-unavailable".to_owned());
+        }
         Ok(ConnectedBrainMutationResultV1 {
             sources: vec![source_view(result.source)],
             replayed: result.replayed,

@@ -228,22 +228,26 @@ fn resident_authorities(
     app: &AppHandle,
     state: &AppState,
 ) -> Result<Vec<owner_brain_store::ConnectedBrainResidentAuthorityV1>, String> {
-    crate::luca::resident_registry::load_resident_registry(app, state)?
-        .residents
-        .into_iter()
-        .map(|resident| {
-            let (binding_ref, provider_egress) =
+    Ok(
+        crate::luca::resident_registry::load_resident_registry(app, state)?
+            .residents
+            .into_iter()
+            .filter_map(|resident| {
                 crate::managed_agents::current_owner_brain_runtime_authority(
                     app,
                     &resident.resident_pubkey,
-                )?;
-            Ok(owner_brain_store::ConnectedBrainResidentAuthorityV1 {
-                resident_pubkey: resident.resident_pubkey,
-                binding_ref,
-                provider_egress,
+                )
+                .ok()
+                .map(|(binding_ref, provider_egress)| {
+                    owner_brain_store::ConnectedBrainResidentAuthorityV1 {
+                        resident_pubkey: resident.resident_pubkey,
+                        binding_ref,
+                        provider_egress,
+                    }
+                })
             })
-        })
-        .collect()
+            .collect(),
+    )
 }
 
 fn active_owner(state: &AppState) -> Result<Hex64, String> {

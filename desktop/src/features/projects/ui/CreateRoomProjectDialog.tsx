@@ -449,7 +449,9 @@ export function CreateRoomProjectDialog({
                         {option.label}
                       </span>
                       <span className="block text-xs text-muted-foreground">
-                        {option.available ? option.detail : "Needs attention"}
+                        {option.available
+                          ? option.detail
+                          : "Source needs attention"}
                       </span>
                     </span>
                   </label>

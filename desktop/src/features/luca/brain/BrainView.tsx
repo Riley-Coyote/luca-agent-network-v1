@@ -498,6 +498,8 @@ function BrainUnavailable({ onRetry }: { onRetry: () => void }) {
 function readableConnectionError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   const values: Record<string, string> = {
+    "connected-source-watch-unavailable":
+      "Luca can read this source, but could not keep its connection active. Check that the original location is available, then retry the source.",
     "owner-brain-locked": "Unlock Luca, then try this operation again.",
     "owner-brain-stale": "The source changed. Scan again and retry.",
     "owner-brain-unavailable": "The private Brain store is unavailable.",

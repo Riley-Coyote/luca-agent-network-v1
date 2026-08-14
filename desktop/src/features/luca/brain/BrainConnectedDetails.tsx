@@ -96,7 +96,10 @@ export function BrainConnectedDetails({
                   type="button"
                   variant="ghost"
                 >
-                  <RefreshCw /> Refresh
+                  <RefreshCw />
+                  {sourceNeedsAttention(source.status)
+                    ? "Retry source"
+                    : "Refresh"}
                 </Button>
                 <Button
                   disabled={isMutating}
@@ -109,6 +112,15 @@ export function BrainConnectedDetails({
                 </Button>
               </div>
             </div>
+            {sourceNeedsAttention(source.status) ? (
+              <div
+                className="border-b border-amber-400/15 bg-amber-400/[0.035] px-4 py-3 text-xs leading-relaxed text-muted-foreground"
+                data-testid={`connected-source-recovery-${source.sourceId}`}
+              >
+                The source connection needs attention. Retry the source above;
+                resident access below is separate and may already be ready.
+              </div>
+            ) : null}
             <div>
               {residents.map((resident) => (
                 <ResidentAccessRow
@@ -215,9 +227,11 @@ function ResidentAccessRow({
           <GrantStatus state={state} />
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
-          {source.sourceKind === "repository"
-            ? `Recall and repository work · ${work?.state === "active" ? "ready" : "review needed"}`
-            : "Recall access"}
+          {sourceNeedsAttention(source.status)
+            ? "Resident access saved · source reconnect required"
+            : source.sourceKind === "repository"
+              ? `Recall and repository work · ${work?.state === "active" ? "ready" : "review needed"}`
+              : "Recall access"}
         </p>
       </div>
       {state === "active" ? (
@@ -238,7 +252,7 @@ function ResidentAccessRow({
           type="button"
           variant="outline"
         >
-          {state === "stale" ? "Reconfirm" : "Restore access"}
+          {state === "stale" ? "Reconfirm resident" : "Restore resident access"}
         </Button>
       )}
     </div>
@@ -246,7 +260,7 @@ function ResidentAccessRow({
 }
 
 function SourceStatus({ status }: { status: ConnectedBrainSource["status"] }) {
-  const attention = status === "needs_attention" || status === "unavailable";
+  const attention = sourceNeedsAttention(status);
   return (
     <span
       className={cn(
@@ -259,9 +273,17 @@ function SourceStatus({ status }: { status: ConnectedBrainSource["status"] }) {
       ) : (
         <Check className="h-3 w-3" />
       )}
-      {attention ? "Needs attention" : "Current"}
+      {status === "unavailable"
+        ? "Source unavailable"
+        : attention
+          ? "Source needs attention"
+          : "Current"}
     </span>
   );
+}
+
+function sourceNeedsAttention(status: ConnectedBrainSource["status"]) {
+  return status === "needs_attention" || status === "unavailable";
 }
 
 function GrantStatus({ state }: { state: "active" | "revoked" | "stale" }) {

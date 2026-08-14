@@ -148,6 +148,53 @@ test("Brain connects work while keeping controls and provenance quiet", async ({
   expect(errors).toEqual([]);
 });
 
+test("Brain separates source recovery from resident access", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock#/brain?brainConnections=attention");
+
+  const repositoryCard = page.getByTestId("brain-card-repository");
+  await expect(repositoryCard).toContainText("Needs attention");
+  await repositoryCard.getByRole("button", { name: "Details" }).click();
+
+  const source = page.getByTestId("connected-source-connected-repository-luca");
+  await expect(source).toContainText("Source needs attention");
+  await expect(
+    page.getByTestId("connected-source-recovery-connected-repository-luca"),
+  ).toContainText("resident access below is separate");
+  await expect(
+    page.getByTestId(
+      `connected-grant-connected-repository-luca-${LUCA_PUBKEY}`,
+    ),
+  ).toContainText("Included");
+
+  await source.getByRole("button", { name: "Retry source" }).click();
+  await expect(source).toContainText("Current");
+
+  const commandLog = await page.evaluate(
+    () =>
+      (
+        window as typeof window & {
+          __BUZZ_E2E_COMMAND_PAYLOADS__?: unknown[];
+        }
+      ).__BUZZ_E2E_COMMAND_PAYLOADS__ ?? [],
+  );
+  expect(
+    commandLog.filter(
+      (entry) =>
+        (entry as { command?: string }).command ===
+        "refresh_connected_brain_source",
+    ),
+  ).toHaveLength(1);
+  expect(
+    commandLog.filter(
+      (entry) =>
+        (entry as { command?: string }).command ===
+        "reconfirm_connected_brain_source",
+    ),
+  ).toHaveLength(0);
+});
+
 test("Brain first connection asks once and remains usable in compact layouts", async ({
   page,
 }) => {

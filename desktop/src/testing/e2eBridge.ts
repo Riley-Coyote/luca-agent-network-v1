@@ -9927,6 +9927,11 @@ export function maybeInstallE2eTauriMocks() {
       connectedSources = [];
       connectedRecallGrants = [];
       connectedRepositoryGrants = [];
+    } else if (connectedBrainFixtureMode() === "attention") {
+      connectedSources = connectedSources.map((source) => ({
+        ...source,
+        status: "needs_attention",
+      }));
     }
   };
   const connectedBrainInventory = () => {
