@@ -872,6 +872,7 @@ function MessageRowItem({
   const canDelete = canManage && onDelete ? onDelete : undefined;
   const canEdit = canManage && onEdit ? onEdit : undefined;
   const TurnRow = message.managedPresentation ? ManagedResponseRow : MessageRow;
+  const isFocusedThreadLayout = Boolean(expandedThreadHeadId);
 
   if (summary && onToggleThread) {
     const isHighlighted = message.id === highlightedMessageId;
@@ -896,6 +897,7 @@ function MessageRowItem({
           }
           isUnread={isUnread}
           isContinuation={isContinuation}
+          layoutVariant={isFocusedThreadLayout ? "thread-reply" : "default"}
           playEntrance={playEntrance}
           onEntranceComplete={onEntranceComplete}
           message={message}
@@ -919,11 +921,11 @@ function MessageRowItem({
           }
           profiles={profiles}
           residentMarksEnabled={residentMarksEnabled}
-          showDepthGuides={false}
+          showDepthGuides={isFocusedThreadLayout}
           videoReviewContext={videoReviewContext}
         />
         <MessageThreadSummaryRow
-          depth={message.depth}
+          depth={isFocusedThreadLayout ? message.depth : 0}
           message={message}
           expanded={message.id === expandedThreadHeadId}
           onOpenThread={
@@ -958,6 +960,7 @@ function MessageRowItem({
         huddleMemberPubkeysPending={huddleMemberPubkeysPending}
         isContinuation={isContinuation}
         isUnread={isUnread}
+        layoutVariant={isFocusedThreadLayout ? "thread-reply" : "default"}
         playEntrance={playEntrance}
         onEntranceComplete={onEntranceComplete}
         message={message}
@@ -974,7 +977,7 @@ function MessageRowItem({
         residentMarksEnabled={residentMarksEnabled}
         quotedParent={quotedParent}
         searchQuery={isSearchMatch ? searchQuery : undefined}
-        showDepthGuides={false}
+        showDepthGuides={isFocusedThreadLayout}
         videoReviewContext={videoReviewContext}
       />
       {footer}

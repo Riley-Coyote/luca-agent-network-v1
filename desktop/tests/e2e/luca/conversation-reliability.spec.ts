@@ -459,6 +459,11 @@ test("ordinary Reply is directed while Reply in thread remains explicit", async 
   const receiptId = await ownerRow.getAttribute("data-message-id");
   if (!receiptId) throw new Error("Expected a directed event ID.");
   await expect(ownerRow.getByTestId("quoted-parent")).toHaveCount(1);
+  const [timelineOrigin, replyOrigin] = await Promise.all([
+    claudeMessage.evaluate((element) => element.getBoundingClientRect().left),
+    ownerRow.evaluate((element) => element.getBoundingClientRect().left),
+  ]);
+  expect(replyOrigin).toBeCloseTo(timelineOrigin, 0);
   const payload = await lastSendPayload(page);
   expect(payload?.managedAudience).toEqual({
     mode: "directed",
@@ -517,6 +522,21 @@ test("ordinary Reply is directed while Reply in thread remains explicit", async 
   await expect
     .poll(async () => (await lastSendPayload(page))?.responseSurface)
     .toBe("thread");
+  const threadHeadRow = page
+    .getByTestId("message-timeline")
+    .getByTestId("message-row")
+    .first();
+  const threadReplyRow = page.locator(`[data-message-id="${threadReceiptId}"]`);
+  await expect(threadReplyRow).toBeVisible();
+  // The explicit thread surface keeps the existing reply anchor/branch
+  // geometry. Direct children use an anchor rather than an additional row
+  // offset; deeper descendants receive the branch indentation.
+  await expect(threadHeadRow.locator(":scope > span[aria-hidden]")).toHaveCount(
+    1,
+  );
+  await expect(
+    threadReplyRow.locator(":scope > span[aria-hidden]"),
+  ).toHaveCount(1);
   await emitFrame(page, {
     kind: "turn_started",
     receiptId: threadReceiptId,

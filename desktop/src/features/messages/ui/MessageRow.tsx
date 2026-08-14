@@ -629,12 +629,14 @@ export const MessageRow = React.memo(
       <div
         className="relative"
         style={
-          indentRem > 0
+          isThreadReplyLayout && indentRem > 0
             ? { paddingLeft: threadReplyLength(indentRem) }
             : undefined
         }
       >
-        {showDepthGuides && depthGuideItems.length > 0 ? (
+        {isThreadReplyLayout &&
+        showDepthGuides &&
+        depthGuideItems.length > 0 ? (
           <div
             aria-hidden={
               collapseDepthGuideActionsByDepth.size > 0 ? undefined : true
@@ -729,7 +731,9 @@ export const MessageRow = React.memo(
             })}
           </div>
         ) : null}
-        {showDepthGuides && descendantGuideOffsetRem !== null ? (
+        {isThreadReplyLayout &&
+        showDepthGuides &&
+        descendantGuideOffsetRem !== null ? (
           <>
             <div
               aria-hidden
@@ -766,7 +770,7 @@ export const MessageRow = React.memo(
             ) : null}
           </>
         ) : null}
-        {showDepthGuides && replyConnector ? (
+        {isThreadReplyLayout && showDepthGuides && replyConnector ? (
           <div
             aria-hidden
             className={cn(
