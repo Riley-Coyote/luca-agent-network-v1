@@ -5,6 +5,13 @@ import type {
   RuntimeTargetOptionV1,
 } from "@/shared/api/tauriOperatorForge";
 import { cn } from "@/shared/lib/cn";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu";
 
 export function runtimeTargetKey(target: AgentRuntimeTargetV1): string {
   return target.kind === "managed"
@@ -36,36 +43,69 @@ export function AgentRuntimeTargetSelector({
         <legend className="mb-1.5 text-xs font-medium text-white/52">
           Default runtime
         </legend>
-        <div className="relative">
-          <select
-            aria-label="Default runtime"
-            className="h-9 w-full appearance-none rounded-md border border-white/[0.09] bg-white/[0.03] px-3 pr-9 text-sm text-white/88 outline-none transition-colors hover:bg-white/[0.05] focus:border-white/20 focus:ring-2 focus:ring-white/35 disabled:cursor-not-allowed disabled:opacity-50"
-            onChange={(event) => {
-              const next = options.find(
-                (option) =>
-                  runtimeTargetKey(option.target) === event.target.value,
-              );
-              onChange(next?.target ?? null);
-            }}
-            value={selectedKey ?? ""}
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger asChild>
+            <button
+              aria-label="Default runtime"
+              className="flex h-9 w-full items-center rounded-md border border-white/[0.09] bg-white/[0.03] px-3 text-left text-sm text-white/88 outline-none transition-colors hover:bg-white/[0.05] focus-visible:border-white/20 focus-visible:ring-2 focus-visible:ring-white/35 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={disabled}
+              type="button"
+            >
+              <span className="min-w-0 flex-1 truncate">
+                {selectedOption
+                  ? `${selectedOption.label}${selectedOption.recommended ? " — Recommended" : ""}`
+                  : "No default runtime"}
+              </span>
+              <ChevronDown
+                aria-hidden
+                className="ml-3 h-3.5 w-3.5 shrink-0 text-white/38"
+              />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-0 rounded-lg border-white/[0.11] bg-[#151516] p-1 text-white shadow-[0_14px_36px_rgba(0,0,0,0.46)]"
+            sideOffset={5}
           >
-            <option value="">No default runtime</option>
-            {options.map((option) => (
-              <option
-                disabled={option.readiness === "unavailable"}
-                key={runtimeTargetKey(option.target)}
-                value={runtimeTargetKey(option.target)}
+            <DropdownMenuRadioGroup
+              onValueChange={(nextKey) => {
+                if (nextKey === "") {
+                  onChange(null);
+                  return;
+                }
+                const next = options.find(
+                  (option) => runtimeTargetKey(option.target) === nextKey,
+                );
+                onChange(next?.target ?? null);
+              }}
+              value={selectedKey ?? ""}
+            >
+              <DropdownMenuRadioItem
+                className="min-h-8 rounded-md py-1.5 text-[13px] text-white/70 focus:bg-white/[0.08] focus:text-white"
+                value=""
               >
-                {option.label}
-                {option.recommended ? " — Recommended" : ""}
-              </option>
-            ))}
-          </select>
-          <ChevronDown
-            aria-hidden
-            className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/38"
-          />
-        </div>
+                No default runtime
+              </DropdownMenuRadioItem>
+              {options.map((option) => (
+                <DropdownMenuRadioItem
+                  className="min-h-8 rounded-md py-1.5 text-[13px] text-white/88 focus:bg-white/[0.08] focus:text-white data-[disabled]:text-white/30"
+                  disabled={option.readiness === "unavailable"}
+                  key={runtimeTargetKey(option.target)}
+                  value={runtimeTargetKey(option.target)}
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    {option.label}
+                  </span>
+                  {option.recommended ? (
+                    <span className="ml-3 shrink-0 text-2xs uppercase tracking-[0.1em] text-white/38">
+                      Recommended
+                    </span>
+                  ) : null}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <p className="mt-1 min-h-4 text-xs leading-4 text-white/38">
           {selectedOption
             ? selectedOption.readiness === "ready"
