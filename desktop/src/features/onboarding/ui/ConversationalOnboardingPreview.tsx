@@ -438,43 +438,45 @@ function sameRect(
 
 function PrototypeThresholdContinuity({
   appearance,
+  hold,
   opening,
   onThresholdSettled,
   sourceRef,
   state,
-  targetRef,
   thresholdEpoch,
 }: {
   appearance: "light" | "dark";
+  hold: boolean;
   opening: boolean;
   onThresholdSettled: (epoch: number) => void;
   sourceRef: React.RefObject<HTMLDivElement | null>;
   state: PrototypeState;
-  targetRef: React.RefObject<HTMLDivElement | null>;
   thresholdEpoch: number;
 }) {
   const reduceMotion = useReducedMotion();
   const [sourceRect, setSourceRect] = React.useState<PrototypeRect | null>(
     null,
   );
-  const [targetRect, setTargetRect] = React.useState<PrototypeRect | null>(
+  const [viewportRect, setViewportRect] = React.useState<PrototypeRect | null>(
     null,
   );
-  const shouldMeasureTarget = state !== "threshold";
 
   React.useLayoutEffect(() => {
     let frame = 0;
     const update = () => {
       frame = 0;
       const nextSource = measuredRect(sourceRef.current);
-      const nextTarget = shouldMeasureTarget
-        ? measuredRect(targetRef.current)
-        : null;
+      const nextViewport = {
+        height: window.innerHeight,
+        width: window.innerWidth,
+        x: 0,
+        y: 0,
+      };
       setSourceRect((current) =>
         sameRect(current, nextSource) ? current : nextSource,
       );
-      setTargetRect((current) =>
-        sameRect(current, nextTarget) ? current : nextTarget,
+      setViewportRect((current) =>
+        sameRect(current, nextViewport) ? current : nextViewport,
       );
     };
     const scheduleUpdate = () => {
@@ -483,9 +485,6 @@ function PrototypeThresholdContinuity({
     };
     const observer = new ResizeObserver(scheduleUpdate);
     if (sourceRef.current) observer.observe(sourceRef.current);
-    if (shouldMeasureTarget && targetRef.current) {
-      observer.observe(targetRef.current);
-    }
     window.addEventListener("resize", scheduleUpdate);
     update();
     return () => {
@@ -493,24 +492,37 @@ function PrototypeThresholdContinuity({
       window.removeEventListener("resize", scheduleUpdate);
       if (frame) window.cancelAnimationFrame(frame);
     };
-  }, [shouldMeasureTarget, sourceRef, targetRef]);
+  }, [sourceRef]);
 
   const isThreshold = state === "threshold";
   const isThresholdOpening = state === "threshold-opening";
   const isHome = state === "conversation" || state === "proposal";
-  const destinationRect = isThreshold ? sourceRect : (targetRect ?? sourceRect);
+  const destinationRect = isThreshold
+    ? sourceRect
+    : (viewportRect ?? sourceRect);
   if (!destinationRect || isHome) return null;
 
-  const settledOpacity = appearance === "dark" ? 0.17 : 0.24;
+  const immersiveScale = sourceRect
+    ? Math.max(
+        (viewportRect?.width ?? sourceRect.width) / sourceRect.width,
+        (viewportRect?.height ?? sourceRect.height) / sourceRect.height,
+      ) * 1.12
+    : 2.4;
+  const passagePeak = appearance === "dark" ? 0.88 : 0.8;
+  const heldPassageOpacity = appearance === "dark" ? 0.34 : 0.28;
   const visibleOpacity = isThreshold
     ? 1
-    : opening
-      ? 0
-      : targetRect && targetRect.width >= 128
-        ? settledOpacity
+    : isThresholdOpening
+      ? reduceMotion
+        ? [1, hold ? heldPassageOpacity : 0]
+        : [1, 1, passagePeak, hold ? heldPassageOpacity : 0]
+      : opening
+        ? reduceMotion
+          ? 0
+          : [0, appearance === "dark" ? 0.34 : 0.24, 0]
         : 0;
-  const geometryDuration = reduceMotion || !isThresholdOpening ? 0 : 0.46;
-  const geometryDelay = reduceMotion || !isThresholdOpening ? 0 : 0.04;
+  const geometryDuration = reduceMotion || !isThresholdOpening ? 0 : 1.08;
+  const geometryDelay = reduceMotion || !isThresholdOpening ? 0 : 0.02;
   const geometryTransition = {
     delay: geometryDelay,
     duration: geometryDuration,
@@ -518,17 +530,31 @@ function PrototypeThresholdContinuity({
   };
   const opacityTransition = isThresholdOpening
     ? {
-        delay: reduceMotion ? 0 : 0.08,
-        duration: reduceMotion ? 0.12 : 0.3,
-        ease: "easeOut" as const,
+        delay: 0,
+        duration: reduceMotion ? 0.12 : 1.14,
+        ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
+        times: reduceMotion ? undefined : [0, 0.28, 0.76, 1],
       }
     : opening
       ? {
-          delay: reduceMotion ? 0 : 0.22,
-          duration: reduceMotion ? 0.12 : 0.08,
-          ease: "easeOut" as const,
+          delay: 0,
+          duration: reduceMotion ? 0.12 : 0.38,
+          ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
+          times: reduceMotion ? undefined : [0, 0.42, 1],
         }
       : { duration: 0 };
+  const fieldScale = isThreshold
+    ? 1
+    : isThresholdOpening && !reduceMotion
+      ? [1, Math.min(immersiveScale * 0.58, 1.75), immersiveScale]
+      : opening && !reduceMotion
+        ? [immersiveScale * 0.94, immersiveScale * 1.08]
+        : immersiveScale;
+  const fieldFilter = isThreshold
+    ? "brightness(1) contrast(1)"
+    : appearance === "dark"
+      ? "brightness(1.28) contrast(1.12)"
+      : "brightness(0.54) contrast(1.38)";
 
   return (
     <motion.div
@@ -540,23 +566,18 @@ function PrototypeThresholdContinuity({
         width: destinationRect.width,
       }}
       aria-hidden
-      className="pointer-events-none fixed z-40 overflow-hidden"
-      data-testid="prototype-threshold-trace"
+      className={cn(
+        "pointer-events-none fixed overflow-hidden",
+        isThreshold || isThresholdOpening ? "z-40" : "z-0",
+      )}
+      data-testid="prototype-threshold-passage"
       initial={false}
       onAnimationComplete={() => {
-        if (isThresholdOpening && targetRect) {
+        if (isThresholdOpening && viewportRect) {
           onThresholdSettled(thresholdEpoch);
         }
       }}
-      style={{
-        borderRadius: isThreshold ? 0 : 10,
-        WebkitMaskImage: isThreshold
-          ? undefined
-          : "linear-gradient(90deg, transparent 0%, black 24%, black 100%)",
-        maskImage: isThreshold
-          ? undefined
-          : "linear-gradient(90deg, transparent 0%, black 24%, black 100%)",
-      }}
+      style={{ borderRadius: 0 }}
       transition={{
         height: geometryTransition,
         left: geometryTransition,
@@ -565,7 +586,27 @@ function PrototypeThresholdContinuity({
         width: geometryTransition,
       }}
     >
-      <PolyphonicThresholdDendrite ambient={isThreshold} />
+      <motion.div
+        animate={{ filter: fieldFilter, scale: fieldScale }}
+        className="absolute inset-0 origin-center transform-gpu"
+        initial={false}
+        transition={{
+          filter: {
+            delay: isThresholdOpening && !reduceMotion ? 0.24 : 0,
+            duration: isThresholdOpening && !reduceMotion ? 0.58 : 0.12,
+            ease: "easeOut",
+          },
+          scale: {
+            delay: isThresholdOpening && !reduceMotion ? 0.02 : 0,
+            duration: isThresholdOpening && !reduceMotion ? 1.08 : 0.38,
+            ease: [0.22, 1, 0.36, 1],
+            times:
+              isThresholdOpening && !reduceMotion ? [0, 0.64, 1] : undefined,
+          },
+        }}
+      >
+        <PolyphonicThresholdDendrite ambient={isThreshold} />
+      </motion.div>
       <motion.div
         animate={{ opacity: isThreshold ? 1 : 0 }}
         className="absolute left-1/2 top-1/2 flex h-20 w-20 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
@@ -610,8 +651,8 @@ function PrototypeThresholdStage({
           backgroundSize: "24px 24px",
         }}
         transition={{
-          delay: transitioning && !reduceMotion ? 0.08 : 0,
-          duration: transitioning ? (reduceMotion ? 0.12 : 0.24) : 0,
+          delay: transitioning && !reduceMotion ? 0.1 : 0,
+          duration: transitioning ? (reduceMotion ? 0.12 : 0.72) : 0,
           ease: "easeOut",
         }}
       />
@@ -621,7 +662,7 @@ function PrototypeThresholdStage({
         data-testid="prototype-threshold-copy"
         initial={false}
         transition={{
-          duration: transitioning ? (reduceMotion ? 0.12 : 0.1) : 0,
+          duration: transitioning ? (reduceMotion ? 0.12 : 0.14) : 0,
           ease: "easeOut",
         }}
       >
@@ -659,11 +700,7 @@ function PrototypeThresholdStage({
   );
 }
 
-function PrototypeHeader({
-  traceTargetRef,
-}: {
-  traceTargetRef: React.RefObject<HTMLDivElement | null>;
-}) {
+function PrototypeHeader() {
   return (
     <header
       className="flex h-full min-w-0 items-center"
@@ -672,12 +709,6 @@ function PrototypeHeader({
       <span className="text-sm font-semibold tracking-[-0.015em]">
         Polyphonic
       </span>
-      <div
-        aria-hidden
-        className="ml-auto h-14 w-[clamp(8rem,32vw,10.5rem)] shrink"
-        data-testid="prototype-threshold-trace-target"
-        ref={traceTargetRef}
-      />
     </header>
   );
 }
@@ -726,12 +757,10 @@ function PrototypeSetupShell({
   children,
   footer,
   state,
-  traceTargetRef,
 }: {
   children: React.ReactNode;
   footer: React.ReactNode;
   state: PrototypeState;
-  traceTargetRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const shellRef = React.useRef<HTMLDivElement>(null);
   const [contentOverflows, setContentOverflows] = React.useState(false);
@@ -784,7 +813,7 @@ function PrototypeSetupShell({
       ref={shellRef}
     >
       <div className="px-[36px]">
-        <PrototypeHeader traceTargetRef={traceTargetRef} />
+        <PrototypeHeader />
       </div>
       <div
         className={cn(
@@ -1578,7 +1607,6 @@ export function ConversationalOnboardingPreview() {
   const [state, setState] = React.useState<PrototypeState>(readPrototypeState);
   const stateRef = React.useRef(state);
   const thresholdSourceRef = React.useRef<HTMLDivElement>(null);
-  const thresholdTargetRef = React.useRef<HTMLDivElement>(null);
   const thresholdEpochRef = React.useRef(state === "threshold-opening" ? 1 : 0);
   const [thresholdEpoch, setThresholdEpoch] = React.useState(
     thresholdEpochRef.current,
@@ -1839,11 +1867,16 @@ export function ConversationalOnboardingPreview() {
       <main className="relative grid h-full place-items-center p-4">
         <motion.section
           animate={{
+            clipPath:
+              state === "threshold"
+                ? "inset(48% 48% 48% 48% round 24px)"
+                : "inset(0% 0% 0% 0% round 15px)",
             opacity: state === "threshold" ? 0 : 1,
-            y: state === "threshold" && !reduceMotion ? 3 : 0,
+            y: 0,
           }}
           className={cn(
             "relative overflow-hidden border border-[var(--prototype-hairline)] bg-[color-mix(in_srgb,var(--prototype-field)_96%,transparent)]",
+            state === "threshold-opening" ? "z-50" : "z-10",
             homeSized
               ? "h-[min(42rem,calc(100dvh-2rem))] w-[min(62rem,calc(100vw-2rem))] rounded-[16px]"
               : "h-[min(34.5rem,calc(100dvh-2rem))] w-[min(37rem,calc(100vw-2rem))] rounded-[15px]",
@@ -1860,17 +1893,21 @@ export function ConversationalOnboardingPreview() {
               duration: 0.36,
               ease: [0.22, 1, 0.36, 1],
             },
-            opacity: {
-              delay: state === "threshold-opening" && !reduceMotion ? 0.18 : 0,
+            clipPath: {
+              delay: state === "threshold-opening" && !reduceMotion ? 0.34 : 0,
               duration:
-                state === "threshold-opening" ? (reduceMotion ? 0.12 : 0.2) : 0,
-              ease: "easeOut",
+                state === "threshold-opening" && !reduceMotion ? 0.58 : 0,
+              ease: [0.22, 1, 0.36, 1],
             },
-            y: {
-              delay: state === "threshold-opening" && !reduceMotion ? 0.18 : 0,
+            opacity: {
+              delay: state === "threshold-opening" && !reduceMotion ? 0.34 : 0,
               duration:
-                state === "threshold-opening" && !reduceMotion ? 0.2 : 0,
-              ease: [0.2, 0, 0, 1],
+                state === "threshold-opening"
+                  ? reduceMotion
+                    ? 0.12
+                    : 0.42
+                  : 0,
+              ease: "easeOut",
             },
           }}
         >
@@ -1892,7 +1929,7 @@ export function ConversationalOnboardingPreview() {
                 transition={{
                   delay:
                     state === "threshold-opening" && !reduceMotion
-                      ? 0.18
+                      ? 0.52
                       : activeOpening && !reduceMotion
                         ? 0.22
                         : 0,
@@ -1900,17 +1937,13 @@ export function ConversationalOnboardingPreview() {
                     state === "threshold-opening"
                       ? reduceMotion
                         ? 0.12
-                        : 0.2
+                        : 0.3
                       : activeOpening && reduceMotion
                         ? 0.12
                         : 0.08,
                 }}
               >
-                <PrototypeSetupShell
-                  footer={setupFooter}
-                  state={state}
-                  traceTargetRef={thresholdTargetRef}
-                >
+                <PrototypeSetupShell footer={setupFooter} state={state}>
                   <AnimatePresence initial={false} mode="wait">
                     <motion.div
                       animate={{ opacity: 1, x: 0 }}
@@ -2008,11 +2041,11 @@ export function ConversationalOnboardingPreview() {
       </main>
       <PrototypeThresholdContinuity
         appearance={resolvedAppearance}
+        hold={holdReviewState.current}
         onThresholdSettled={completeThresholdOpening}
         opening={activeOpening}
         sourceRef={thresholdSourceRef}
         state={state}
-        targetRef={thresholdTargetRef}
         thresholdEpoch={thresholdEpoch}
       />
     </div>

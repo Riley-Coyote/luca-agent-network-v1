@@ -60,14 +60,15 @@ First launch begins on the existing production threshold, unchanged in appearanc
 - primary action: **Begin setup**;
 - quiet action: **Set up manually**.
 
-The threshold is not a separate brand or decorative splash. It establishes Luca as the first presence inside Polyphonic. The center glyph belongs to Luca, while the surrounding dendrite becomes a restrained continuity trace during setup.
+The threshold is not a separate brand or decorative splash. It establishes Luca as the first presence inside Polyphonic. The center glyph belongs to Luca, while the surrounding dendrite becomes the full-canvas passage into setup.
 
 Rules:
 
 - Reuse the production threshold's seed, DotSigil scenes, cell sizes, color values, bloom, dimensions, and ambient timing. The Exploration Lab specimen is not a substitute.
 - The threshold canvas and copy retain their production appearance.
-- Begin gives one brief tonal response, then the center glyph and copy fade while the outer dendrite condenses into the setup header.
-- The outer dendrite is one persistent rendered instance through threshold and setup. It is clipped and repositioned, not recreated or replaced with a screenshot.
+- Begin gives one brief tonal response, then the center glyph and copy fade while the outer dendrite propagates across the complete canvas.
+- The outer dendrite is one persistent rendered instance through the handoff. It expands from its measured production rectangle rather than being recreated, replaced with a screenshot, or reduced to a decorative header mark.
+- The setup surface resolves from the field's central negative space while the field remains visibly present around it, then the field recedes completely during ordinary setup.
 - **Set up manually** opens the existing manual path and does not run the continuity transition.
 
 ### 2. Welcome
@@ -194,7 +195,7 @@ Any action that creates, imports, connects, grants, invites, or otherwise change
 
 ## Appearance and layout
 
-- The full-canvas threshold precedes the setup window. Once Begin is accepted, the production dendrite contracts into a trailing trace inside the fixed setup header while the setup surface resolves beneath it.
+- The full-canvas threshold precedes the setup window. Once Begin is accepted, the production dendrite expands into an immersive full-window field while the setup surface resolves from its central negative space.
 - One centered content column inside a persistent setup window with width `min(592px, calc(100vw - 32px))` and height `min(552px, calc(100dvh - 32px))`.
 - The setup window is a fixed three-row grid: 56 px header, `minmax(0, 1fr)` body, and 56 px footer. It uses 36 px horizontal insets, a 16 px body top inset, and 24 px body bottom clearance.
 - Welcome, runtime selection, agent summary, agent selection, and preparation share this surface. Its position, width, header, footer, content leading edge, and primary-action position do not remount or move between ordinary steps.
@@ -214,14 +215,14 @@ Any action that creates, imports, connects, grants, invites, or otherwise change
 - Inner transitions use 160–200 ms opacity changes and at most 2–3 px of directional movement. Reduced Motion uses a 100–120 ms opacity-only change.
 - The supported 800×500 desktop minimum must keep the outer frame and footer visible.
 
-### Threshold continuity trace
+### Threshold continuity passage
 
-- The trace occupies the trailing edge of the fixed 56 px header: approximately 168×56 px normally, 128 px on constrained widths, and hidden when the header cannot preserve both the wordmark and that minimum aperture.
-- It retains the production dendrite's structure and neutral color, with a quiet leading alpha mask and no tile, border, label, hover state, or control semantics.
-- It is `aria-hidden`, ignores pointer input, and remains visually subordinate at approximately 0.24 opacity in Light and 0.17 in Dark.
-- Ambient threshold breathing stops after Begin and settles at its midpoint. The setup trace is static; it does not grow, react, or encode progress as the owner moves between steps.
-- Its measured source and destination rectangles use whole-pixel geometry and update with ResizeObserver when the setup surface or viewport changes. The DotSigil's intrinsic drawing size remains unchanged; only its clipping aperture and outer position change.
-- The trace's rectangle remains fixed across Welcome, Runtime, Agent Summary, Agent Selection, and Preparation.
+- The exact production dendrite expands from its measured threshold rectangle to the complete viewport using whole-pixel geometry that updates through ResizeObserver.
+- Its structure remains recognizable during the first portion of the expansion, then grows beyond the setup surface so the field reads spatially rather than as an enlarged logo.
+- Light uses a graphite treatment with sufficient contrast; Dark uses the production neutral light treatment. Neither appearance introduces a semantic color, glow, particle layer, or moving grid.
+- The passage is `aria-hidden` and ignores pointer input. It never becomes a header ornament, control, progress meter, or persistent distraction during ordinary setup.
+- The setup material begins resolving while the passage is still visible. There is no empty canvas or blank setup card between the threshold and Welcome.
+- After Welcome settles, the full-canvas passage remains mounted but invisible so the same field can briefly reactivate behind the final setup-to-home handoff.
 
 ### Neutral palette and typography
 
@@ -267,12 +268,12 @@ The threshold-to-setup handoff is one coordinated motion with no blank or interm
 
 1. From 0–90 ms the accepted button receives a restrained tonal response.
 2. From 0–110 ms the threshold copy and Luca's center glyph fade.
-3. From 40–500 ms the existing outer dendrite contracts and translates into the measured header aperture using `[0.22, 1, 0.36, 1]` with no overshoot.
-4. From 80–320 ms the threshold backdrop crossfades to the selected setup appearance.
-5. From 180–380 ms the setup surface, Polyphonic wordmark, and Welcome content resolve with opacity and no more than 3 px of movement.
-6. At the dendrite animation's completion, Welcome becomes the settled state.
+3. From approximately 20–1,100 ms the existing outer dendrite expands into the measured full viewport using `[0.22, 1, 0.36, 1]` with no overshoot. Its internal scale stages once so its branching structure remains legible before becoming environmental.
+4. From approximately 100–820 ms the threshold backdrop crossfades to the selected setup appearance while the dendrite remains visible.
+5. From approximately 340–920 ms the setup surface opens from the center of the field; its wordmark and Welcome content begin resolving at approximately 520 ms.
+6. The field recedes only after setup material and content are visible. At the coordinated animation's completion, Welcome becomes the settled state.
 
-The canvas remains still and text is never scaled. Reduced Motion removes the spatial tween: setup uses its final geometry immediately while threshold and setup crossfade over approximately 120 ms. The Luca center glyph remains visible until setup has begun resolving.
+The base canvas and dot grid remain still and text is never scaled. Reduced Motion removes the spatial propagation: setup uses its final geometry immediately while threshold and setup crossfade over approximately 120 ms. The Luca center glyph remains visible until setup has begun resolving.
 
 ### Setup becomes home
 
@@ -284,11 +285,11 @@ Normal opening is one coordinated animation timeline, not independent timers:
 2. From 0–100 ms preparation copy fades while Luca's setup glyph and the Polyphonic header remain.
 3. From 110–310 ms application chrome resolves.
 4. From 160–240 ms Luca's destination glyph appears.
-5. From 220–300 ms the setup glyph and restrained header trace fade only after the destination glyph is established.
+5. From 220–300 ms the setup glyph fades only after the destination glyph is established. The dormant full-canvas dendrite briefly reactivates behind the expanding surface, then recedes.
 6. From 220–380 ms the canonical greeting resolves.
 7. At animation completion, the prototype enters conversation, focuses the composer, and announces readiness once.
 
-At every rendered frame, setup content, Luca's setup anchor, or destination chrome remains visible. The canvas and dot field never move, and text and live controls are never scaled. Reduced Motion switches immediately to final home geometry and crossfades the layers over 120 ms while retaining Luca's glyph; focus and announcement wait for that crossfade to complete.
+At every rendered frame, setup content, Luca's setup anchor, the continuity field, or destination chrome remains visible. The base canvas and grid remain still; text and live controls are never scaled. Reduced Motion switches immediately to final home geometry and crossfades the layers over 120 ms while retaining Luca's glyph; focus and announcement wait for that crossfade to complete.
 
 The prototype explicitly excludes particles, animated grids, moving gradients, glow sweeps, fake glass, icon flight, parallax, sound, bounce, and artificial delays.
 
@@ -322,9 +323,9 @@ The deterministic prototype uses preview-local state only:
 - `conversation`
 - `proposal`
 
-Direct visual review uses `prototypeState` and `prototypeScenario` query parameters. The default prototype entry is `threshold`; `prototypeState=threshold-opening&prototypeHold=1` holds the dendrite at its setup target while both continuity layers remain mounted. `prototypeHold=1` also holds preparation or the deterministic home-opening review state. Fixtures cover mixed readiness, Codex and Claude authentication, automatic installation, Hermes-only, OpenClaw-only, no-ready-runtime, setup success and failure, agents found, no agents, delayed discovery, and failed discovery.
+Direct visual review uses `prototypeState` and `prototypeScenario` query parameters. The default prototype entry is `threshold`; `prototypeState=threshold-opening&prototypeHold=1` holds the expanded full-canvas passage while both continuity layers remain mounted. `prototypeHold=1` also holds preparation or the deterministic home-opening review state. Fixtures cover mixed readiness, Codex and Claude authentication, automatic installation, Hermes-only, OpenClaw-only, no-ready-runtime, setup success and failure, agents found, no agents, delayed discovery, and failed discovery.
 
-Preview-local inspection hooks are `prototype-threshold-stage`, `prototype-threshold-field-origin`, `prototype-threshold-sigil`, `prototype-threshold-copy`, `prototype-threshold-trace`, `prototype-threshold-trace-target`, `prototype-step-origin`, `prototype-step-scroll`, `prototype-runtime-scroll`, `prototype-footer`, `prototype-setup-layer`, and `prototype-home-layer`. They define no production interface.
+Preview-local inspection hooks are `prototype-threshold-stage`, `prototype-threshold-field-origin`, `prototype-threshold-sigil`, `prototype-threshold-copy`, `prototype-threshold-passage`, `prototype-step-origin`, `prototype-step-scroll`, `prototype-runtime-scroll`, `prototype-footer`, `prototype-setup-layer`, and `prototype-home-layer`. They define no production interface.
 
 The prototype invokes no production installation, authentication, provisioning, import, or messaging command. Production connection is a separate implementation package after journey approval.
 
@@ -333,8 +334,9 @@ The prototype invokes no production installation, authentication, provisioning, 
 ### Threshold continuity
 
 - The prototype opens on the production-identical threshold, not the Exploration Lab specimen.
-- One dendrite instance moves from its production source rectangle into the setup header trace without a blank frame.
-- The trace remains fixed and subordinate through every ordinary setup state, then leaves only after Luca's destination glyph is established.
+- One dendrite instance expands from its production source rectangle into a complete full-canvas passage without a blank frame.
+- Setup material and content overlap the still-visible passage before it recedes; no tiny corner trace or other persistent setup ornament remains.
+- The dormant field briefly reactivates behind the setup-to-home expansion and leaves only after destination chrome is established.
 - Threshold-to-setup and setup-to-home each have a purposeful Reduced Motion alternative with no spatial tween.
 - Production onboarding behavior and the default `PolyphonicThresholdField` appearance remain unchanged.
 
