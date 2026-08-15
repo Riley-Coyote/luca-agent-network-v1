@@ -85,16 +85,16 @@ type PrototypePalette = React.CSSProperties &
 const lightPalette: PrototypePalette = {
   "--prototype-accent": "#30312d",
   "--prototype-accent-ink": "#ffffff",
-  "--prototype-canvas": "#efeee9",
-  "--prototype-field": "#deddd8",
+  "--prototype-canvas": "#e9e8e3",
+  "--prototype-field": "#f1f0ec",
   "--prototype-hairline": "rgba(34, 35, 31, 0.11)",
   "--prototype-hairline-soft": "rgba(34, 35, 31, 0.065)",
   "--prototype-ink": "#242521",
   "--prototype-muted": "#777871",
   "--prototype-muted-strong": "#575852",
-  "--prototype-raised": "#efeee9",
-  "--prototype-selection": "rgba(38, 39, 34, 0.06)",
-  "--prototype-shadow": "rgba(27, 28, 24, 0.1)",
+  "--prototype-raised": "#f6f5f1",
+  "--prototype-selection": "rgba(38, 39, 34, 0.055)",
+  "--prototype-shadow": "rgba(27, 28, 24, 0.09)",
   colorScheme: "light",
 };
 
