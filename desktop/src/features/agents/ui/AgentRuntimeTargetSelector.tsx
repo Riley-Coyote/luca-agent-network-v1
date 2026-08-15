@@ -33,13 +33,13 @@ export function AgentRuntimeTargetSelector({
   if (appearance === "onboarding") {
     return (
       <fieldset disabled={disabled}>
-        <legend className="mb-2 text-xs font-medium text-white/54">
+        <legend className="mb-1.5 text-xs font-medium text-white/52">
           Default runtime
         </legend>
         <div className="relative">
           <select
             aria-label="Default runtime"
-            className="h-10 w-full appearance-none rounded-lg border border-white/[0.09] bg-white/[0.035] px-3.5 pr-10 text-sm text-white/88 outline-none transition-colors hover:bg-white/[0.055] focus:border-white/20 focus:ring-2 focus:ring-white/35 disabled:cursor-not-allowed disabled:opacity-50"
+            className="h-9 w-full appearance-none rounded-md border border-white/[0.09] bg-white/[0.03] px-3 pr-9 text-sm text-white/88 outline-none transition-colors hover:bg-white/[0.05] focus:border-white/20 focus:ring-2 focus:ring-white/35 disabled:cursor-not-allowed disabled:opacity-50"
             onChange={(event) => {
               const next = options.find(
                 (option) =>
@@ -63,10 +63,10 @@ export function AgentRuntimeTargetSelector({
           </select>
           <ChevronDown
             aria-hidden
-            className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/38"
+            className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/38"
           />
         </div>
-        <p className="mt-1.5 min-h-4 text-xs leading-4 text-white/40">
+        <p className="mt-1 min-h-4 text-xs leading-4 text-white/38">
           {selectedOption
             ? selectedOption.readiness === "ready"
               ? `${selectedOption.label} is ready${selectedOption.recommended ? " and recommended for this Mac" : ""}.`

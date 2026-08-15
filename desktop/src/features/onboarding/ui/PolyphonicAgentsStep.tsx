@@ -437,7 +437,7 @@ export const PolyphonicAgentsStep = React.forwardRef<
         stage="agents"
         title="Bring your agents together"
       />
-      <div className="mt-7 space-y-4">
+      <div className="mt-6 space-y-3">
         {operatorSettings.data ? (
           <AgentRuntimeTargetSelector
             appearance="onboarding"
@@ -456,14 +456,14 @@ export const PolyphonicAgentsStep = React.forwardRef<
         )}
         <button
           aria-pressed={existingLuca ? true : lucaSelected}
-          className="group flex w-full items-center gap-3 rounded-xl bg-white/[0.025] px-3 py-2.5 text-left shadow-[inset_0_0_0_1px_rgb(255_255_255/0.035)] transition-colors hover:bg-white/[0.045] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45"
+          className="group flex w-full items-center gap-3 border-y border-white/[0.055] px-1 py-2.5 text-left transition-colors hover:bg-white/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/40"
           disabled={Boolean(existingLuca)}
           onClick={() => setLucaSelected((current) => !current)}
           type="button"
         >
           <span
             aria-hidden
-            className="flex h-8 w-8 shrink-0 items-center justify-center text-white/70"
+            className="flex h-7 w-7 shrink-0 items-center justify-center text-white/70"
           >
             <PolyphonicBrandMark />
           </span>
@@ -488,7 +488,7 @@ export const PolyphonicAgentsStep = React.forwardRef<
         </button>
         {lucaPreview ? (
           <section
-            className="rounded-lg border border-white/16 bg-white/[0.035] p-3"
+            className="rounded-md bg-white/[0.035] px-3 py-2.5 shadow-[inset_0_0_0_1px_rgb(255_255_255/0.07)]"
             aria-label="Review Luca native creation"
           >
             <p className="text-sm font-medium text-white/88">
@@ -507,7 +507,7 @@ export const PolyphonicAgentsStep = React.forwardRef<
           </section>
         ) : null}
       </div>
-      <div className="mt-5">
+      <div className="mt-4">
         <PolyphonicAgentImportPane
           candidates={visibleCandidates}
           connectedAgents={allResidents.map((resident) => ({
@@ -570,7 +570,7 @@ export const PolyphonicAgentsStep = React.forwardRef<
         </p>
       ) : null}
       <Button
-        className="mt-2 h-9 gap-2 rounded-lg px-2 text-sm font-normal text-white/48 hover:bg-white/[0.035] hover:text-white/82"
+        className="mt-1.5 h-8 gap-2 rounded-md px-1.5 text-xs font-normal text-white/46 hover:bg-white/[0.035] hover:text-white/82"
         onClick={() => {
           personas.prepareCreate();
           setCreateOpen(true);

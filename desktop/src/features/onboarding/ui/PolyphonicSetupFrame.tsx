@@ -1,5 +1,5 @@
-import * as React from "react";
 import { motion, useReducedMotion } from "motion/react";
+import { type ReactNode, useEffect, useRef } from "react";
 
 import { cn } from "@/shared/lib/cn";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
@@ -27,7 +27,7 @@ export function PolyphonicSetupFrame({
   stage,
 }: {
   backDisabled?: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
   continueDisabled?: boolean;
   continueLabel?: string;
   onBack: () => void;
@@ -38,7 +38,7 @@ export function PolyphonicSetupFrame({
   const step = chapterDetails[stage];
   return (
     <div
-      className="h-dvh overflow-hidden bg-[hsl(var(--mn-floor))] text-[hsl(var(--mn-ink))]"
+      className="buzz-onboarding-neutral-theme buzz-startup-shell h-dvh overflow-hidden text-foreground"
       data-stage={stage}
       data-testid="polyphonic-onboarding"
       style={{
@@ -52,7 +52,7 @@ export function PolyphonicSetupFrame({
       </p>
       <motion.main
         animate={{ opacity: 1, y: 0 }}
-        className="polyphonic-onboarding-main flex h-dvh min-h-0 items-center justify-center overflow-hidden px-4 pb-4 pt-12 sm:px-6 sm:pb-6 sm:pt-14"
+        className="polyphonic-onboarding-main flex h-dvh min-h-0 items-center justify-center overflow-hidden px-5 pb-5 pt-11 sm:px-8 sm:pb-8 sm:pt-14"
         initial={reduceMotion ? false : { opacity: 0, y: 10 }}
         transition={
           reduceMotion
@@ -62,10 +62,10 @@ export function PolyphonicSetupFrame({
       >
         <section
           aria-labelledby={`polyphonic-${stage}-heading`}
-          className="relative flex max-h-[calc(100dvh-4rem)] min-h-0 w-full max-w-[42rem] flex-col overflow-hidden rounded-[1.125rem] border border-white/[0.055] bg-[hsl(var(--mn-raised))] shadow-[inset_0_1px_0_rgb(255_255_255/0.025),0_24px_80px_rgb(0_0_0/0.46),0_2px_10px_rgb(0_0_0/0.28)]"
+          className="relative flex max-h-[calc(100dvh-4.5rem)] min-h-0 w-full max-w-[38rem] flex-col overflow-hidden rounded-[0.875rem] border border-white/[0.065] bg-[hsl(var(--mn-raised))] shadow-[inset_0_1px_0_rgb(255_255_255/0.025),0_18px_56px_rgb(0_0_0/0.38),0_2px_8px_rgb(0_0_0/0.22)]"
           data-testid="polyphonic-setup-assistant"
         >
-          <header className="polyphonic-onboarding-header flex shrink-0 items-center justify-between px-5 pt-5 sm:px-8 sm:pt-7">
+          <header className="polyphonic-onboarding-header flex shrink-0 items-center justify-between px-6 pt-5 sm:px-7 sm:pt-6">
             <div className="flex items-center gap-2.5">
               <span aria-hidden>
                 <PolyphonicBrandMark />
@@ -78,12 +78,12 @@ export function PolyphonicSetupFrame({
               Step {step.current} of 5
             </span>
           </header>
-          <div className="polyphonic-onboarding-body min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-6 pt-6 [scrollbar-gutter:stable] sm:px-8 sm:pb-7 sm:pt-7">
+          <div className="polyphonic-onboarding-body min-h-0 overflow-y-auto overscroll-contain px-6 pb-5 pt-5 [scrollbar-gutter:stable] sm:px-7 sm:pb-6 sm:pt-5">
             {children}
           </div>
-          <footer className="polyphonic-onboarding-footer relative z-10 flex shrink-0 items-center justify-between gap-4 bg-[hsl(var(--mn-raised))] px-5 py-4 before:pointer-events-none before:absolute before:inset-x-0 before:-top-6 before:h-6 before:bg-gradient-to-t before:from-[hsl(var(--mn-raised))] before:to-transparent sm:px-8 sm:pb-6 sm:pt-4">
+          <footer className="polyphonic-onboarding-footer relative z-10 flex shrink-0 items-center justify-between gap-4 border-t border-white/[0.045] bg-[hsl(var(--mn-raised))] px-6 py-3 sm:px-7 sm:py-3.5">
             <Button
-              className="h-9 rounded-lg px-3 text-sm font-normal text-white/54 hover:bg-white/[0.045] hover:text-white/88"
+              className="h-8 rounded-md px-2.5 text-sm font-normal text-white/50 hover:bg-white/[0.045] hover:text-white/88"
               disabled={backDisabled}
               onClick={onBack}
               type="button"
@@ -92,7 +92,7 @@ export function PolyphonicSetupFrame({
               Back
             </Button>
             <Button
-              className="h-9 min-w-24 rounded-lg border border-white/90 bg-white px-4 text-sm font-medium text-black shadow-[0_1px_2px_rgb(0_0_0/0.28)] hover:bg-white/[0.92] focus-visible:ring-2 focus-visible:ring-white/65 focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(var(--mn-raised))]"
+              className="h-8 min-w-24 rounded-md border border-white/90 bg-white px-4 text-sm font-medium text-black shadow-[0_1px_2px_rgb(0_0_0/0.28)] hover:bg-white/[0.92] focus-visible:ring-2 focus-visible:ring-white/65 focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(var(--mn-raised))]"
               data-testid="polyphonic-setup-continue"
               disabled={continueDisabled}
               onClick={onContinue}
@@ -116,22 +116,23 @@ export function PolyphonicStepHeading({
   stage: PolyphonicOnboardingChapter;
   title: string;
 }) {
-  const ref = React.useRef<HTMLHeadingElement>(null);
-  React.useEffect(() => {
-    const frame = window.requestAnimationFrame(() => ref.current?.focus());
-    return () => window.cancelAnimationFrame(frame);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true });
   }, []);
+
   return (
     <header>
       <h1
-        className="text-3xl font-normal tracking-[-0.038em] text-white/96 outline-none"
+        className="text-[1.625rem] font-normal leading-[1.16] tracking-[-0.035em] text-white/96 outline-none focus-visible:!outline-none"
         id={`polyphonic-${stage}-heading`}
-        ref={ref}
+        ref={headingRef}
         tabIndex={-1}
       >
         {title}
       </h1>
-      <p className="mt-2.5 max-w-[34rem] text-sm leading-6 text-white/52">
+      <p className="mt-1.5 max-w-[32rem] text-sm leading-5 text-white/50">
         {description}
       </p>
     </header>
@@ -142,13 +143,13 @@ export function PolyphonicNotice({
   children,
   kind = "status",
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   kind?: "error" | "status";
 }) {
   return (
     <div
       className={cn(
-        "mt-4 rounded-lg px-3.5 py-3 text-sm leading-5",
+        "mt-3 rounded-md px-3 py-2.5 text-sm leading-5",
         kind === "error"
           ? "border border-destructive/35 bg-destructive/5 text-destructive"
           : "bg-white/[0.035] text-white/58",

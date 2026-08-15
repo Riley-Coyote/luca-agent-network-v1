@@ -66,10 +66,10 @@ export function PolyphonicReadyStep({
         stage="ready"
         title="Luca is ready"
       />
-      <div className="mt-7 space-y-1 rounded-xl bg-white/[0.018] p-1 shadow-[inset_0_0_0_1px_rgb(255_255_255/0.035)]">
+      <div className="mt-6 divide-y divide-white/[0.05] border-y border-white/[0.055]">
         {rows.map((row) => (
           <button
-            className="group flex min-h-12 w-full items-center gap-3 rounded-lg px-3 text-left transition-colors hover:bg-white/[0.045] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/40"
+            className="group flex min-h-11 w-full items-center gap-3 px-1 text-left transition-colors hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/40"
             key={row.label}
             onClick={() => onReview(row.review)}
             type="button"
@@ -81,7 +81,7 @@ export function PolyphonicReadyStep({
         ))}
       </div>
       <p
-        className="mt-4 flex items-center gap-2 text-xs text-white/48"
+        className="mt-3 flex items-center gap-2 text-xs text-white/46"
         role="status"
       >
         {issueCount ? (

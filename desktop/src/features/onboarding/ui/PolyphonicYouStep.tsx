@@ -103,7 +103,7 @@ export const PolyphonicYouStep = React.forwardRef<
         stage="you"
         title="Make it yours"
       />
-      <div className="mt-7 flex items-center gap-4">
+      <div className="mt-6 flex items-center gap-4">
         <AgentIdentitySpecimen
           accessibleName="Your owner identity"
           publicKey={pubkey}
@@ -131,10 +131,10 @@ export const PolyphonicYouStep = React.forwardRef<
         Identity mark derived from your public key · {truncatePubkey(pubkey)}
       </p>
 
-      <div className="mt-6 rounded-xl bg-white/[0.025] shadow-[inset_0_0_0_1px_rgb(255_255_255/0.035)]">
+      <div className="mt-5 border-y border-white/[0.055]">
         <button
           aria-expanded={backupOpen}
-          className="flex min-h-12 w-full items-center gap-3 rounded-xl px-3.5 text-left text-sm text-white/68 transition-colors hover:bg-white/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/40"
+          className="flex min-h-11 w-full items-center gap-3 px-1 text-left text-sm text-white/68 transition-colors hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/40"
           onClick={() => setBackupOpen((current) => !current)}
           type="button"
         >
@@ -146,7 +146,7 @@ export const PolyphonicYouStep = React.forwardRef<
           />
         </button>
         {backupOpen ? (
-          <div className="mx-2 mb-2 space-y-3 rounded-lg bg-black/15 px-3.5 pb-4 pt-3">
+          <div className="space-y-3 border-t border-white/[0.045] px-1 pb-3 pt-3">
             <p className="text-xs leading-5 text-white/48">
               Choose a unique passphrase and keep it separately from the saved
               file.

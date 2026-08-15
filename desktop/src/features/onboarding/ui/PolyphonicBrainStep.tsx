@@ -214,7 +214,7 @@ export const PolyphonicBrainStep = React.forwardRef<
           <LoaderCircle className="h-4 w-4 animate-spin" /> Finding your work…
         </p>
       ) : (
-        <div className="mt-7 space-y-1 rounded-xl bg-white/[0.018] p-1 shadow-[inset_0_0_0_1px_rgb(255_255_255/0.035)]">
+        <div className="mt-6 divide-y divide-white/[0.05] border-y border-white/[0.055]">
           {categories.map((category) => {
             const SourceIcon = category.icon;
             const connected =
@@ -239,8 +239,8 @@ export const PolyphonicBrainStep = React.forwardRef<
               <button
                 aria-pressed={isSelected}
                 className={cn(
-                  "group flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-white/[0.045] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/40 disabled:cursor-default disabled:hover:bg-transparent",
-                  isSelected && "bg-white/[0.055]",
+                  "group flex min-h-11 w-full items-center gap-3 px-1 py-1.5 text-left transition-colors hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/40 disabled:cursor-default disabled:hover:bg-transparent",
+                  isSelected && "bg-white/[0.035]",
                 )}
                 disabled={connected.length > 0 || found.length === 0}
                 key={category.kind}
@@ -283,9 +283,9 @@ export const PolyphonicBrainStep = React.forwardRef<
         </div>
       )}
 
-      <div className="mt-2 flex flex-wrap gap-1">
+      <div className="mt-2 flex flex-wrap gap-0.5">
         <Button
-          className="h-9 gap-2 px-2.5 text-sm font-normal text-white/50 hover:bg-white/[0.035] hover:text-white/82"
+          className="h-8 gap-1.5 px-2 text-xs font-normal text-white/46 hover:bg-white/[0.035] hover:text-white/82"
           onClick={() => void addRepositoryRoot()}
           type="button"
           variant="ghost"
@@ -293,7 +293,7 @@ export const PolyphonicBrainStep = React.forwardRef<
           <FolderPlus className="h-3.5 w-3.5" /> Add repository folder…
         </Button>
         <Button
-          className="h-9 gap-2 px-2.5 text-sm font-normal text-white/50 hover:bg-white/[0.035] hover:text-white/82"
+          className="h-8 gap-1.5 px-2 text-xs font-normal text-white/46 hover:bg-white/[0.035] hover:text-white/82"
           onClick={() => void pick("file")}
           type="button"
           variant="ghost"
@@ -301,7 +301,7 @@ export const PolyphonicBrainStep = React.forwardRef<
           <FilePlus2 className="h-3.5 w-3.5" /> Add file…
         </Button>
         <Button
-          className="h-9 gap-2 px-2.5 text-sm font-normal text-white/50 hover:bg-white/[0.035] hover:text-white/82"
+          className="h-8 gap-1.5 px-2 text-xs font-normal text-white/46 hover:bg-white/[0.035] hover:text-white/82"
           onClick={() => void pick("folder")}
           type="button"
           variant="ghost"
@@ -311,7 +311,7 @@ export const PolyphonicBrainStep = React.forwardRef<
       </div>
 
       {preview ? (
-        <div className="mt-3 rounded-xl bg-white/[0.025] p-4 shadow-[inset_0_0_0_1px_rgb(255_255_255/0.035)]">
+        <div className="mt-3 rounded-md bg-white/[0.025] p-3 shadow-[inset_0_0_0_1px_rgb(255_255_255/0.055)]">
           <p className="text-sm text-white/88">{preview.displayName}</p>
           <p className="mt-1 text-xs leading-5 text-white/50">
             {preview.rows.filter((row) => row.status === "accepted").length}{" "}
@@ -358,7 +358,7 @@ export const PolyphonicBrainStep = React.forwardRef<
           {error.replaceAll("-", " ")}
         </PolyphonicNotice>
       ) : null}
-      <p className="mt-4 flex items-start gap-2.5 text-xs leading-5 text-white/40">
+      <p className="mt-3 flex items-start gap-2.5 text-xs leading-5 text-white/38">
         <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-white/34" />
         <span>
           Luca keeps a private local index. Residents may send only relevant
