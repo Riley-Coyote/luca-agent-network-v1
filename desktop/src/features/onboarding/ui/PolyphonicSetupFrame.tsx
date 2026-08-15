@@ -78,7 +78,7 @@ export function PolyphonicSetupFrame({
               Step {step.current} of 5
             </span>
           </header>
-          <div className="polyphonic-onboarding-body min-h-0 overflow-y-auto overscroll-contain px-6 pb-5 pt-5 [scrollbar-gutter:stable] sm:px-7 sm:pb-6 sm:pt-5">
+          <div className="polyphonic-onboarding-body min-h-0 overflow-y-auto overscroll-contain px-6 pb-5 pt-5 [scrollbar-gutter:stable_both-edges] sm:px-7 sm:pb-6 sm:pt-5">
             {children}
           </div>
           <footer className="polyphonic-onboarding-footer relative z-10 flex shrink-0 items-center justify-between gap-4 border-t border-white/[0.045] bg-[hsl(var(--mn-raised))] px-6 py-3 sm:px-7 sm:py-3.5">
