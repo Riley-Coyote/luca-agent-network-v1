@@ -1,4 +1,4 @@
-# Luca conversational onboarding contract
+# Polyphonic conversational onboarding contract
 
 Status: decision-complete product contract
 
@@ -15,7 +15,7 @@ Onboarding follows this hierarchy, in order:
 5. Luca's production shell for tokens, iconography, typography, and interaction continuity.
 6. Linear, Vercel, and Stripe as secondary references for restraint, density, tonal hierarchy, and precise state copy, not as substitutes for macOS conventions.
 
-The Riley design-language guide is explicitly excluded from this onboarding work. This contract and the platform guidance above are authoritative.
+The general Riley design-language guide is explicitly excluded from this onboarding work. This contract and the platform guidance above are authoritative. The supplied Riley and Polyphonic references govern only the exact neutral palette and atmospheric tone enumerated below; they do not override Apple interaction, layout, accessibility, or motion guidance.
 
 Application-level onboarding chrome is branded **Polyphonic**. **Luca** names the canonical native agent and concierge, so Luca appears as the participant identity inside conversation and in copy describing that agent, not as the application title.
 
@@ -174,25 +174,78 @@ Any action that creates, imports, connects, grants, invites, or otherwise change
 
 ## Appearance and layout
 
-- One centered content column, approximately 560–640 px wide.
-- Welcome, runtime selection, agent summary, agent selection, and preparation share one persistent setup window. Its width, header, footer, and content leading edge do not remount or move between ordinary steps.
-- The prototype setup window is approximately 592 px wide and no taller than `min(552px, calc(100dvh - 32px))`.
+- One centered content column inside a persistent setup window with width `min(592px, calc(100vw - 32px))` and height `min(552px, calc(100dvh - 32px))`.
+- The setup window is a fixed three-row grid: 56 px header, `minmax(0, 1fr)` body, and 56 px footer. It uses 36 px horizontal insets, a 16 px body top inset, and 24 px body bottom clearance.
+- Welcome, runtime selection, agent summary, agent selection, and preparation share this surface. Its position, width, header, footer, content leading edge, and primary-action position do not remount or move between ordinary steps.
+- Runtime, agent summary, agent selection, and preparation use one common task origin within 4 px. Welcome begins exactly 24 px below that origin.
+- The runtime heading and explanation stay fixed while one runtime region owns scrolling. Agent selection keeps its heading, search, and selection controls fixed while only the inventory scrolls. Welcome and agent summary use the step viewport only when text scaling creates overflow. Preparation does not scroll.
+- A footer divider appears only when adjacent content genuinely overflows and can scroll beneath it. The final instruction or action in a scrolled region ends at least 24 px above the footer.
 - One dominant action per state.
 - Use SF system typography and existing Luca runtime icons.
 - Use spacing, tonal surfaces, and typography before borders or dividers.
 - Do not stack cards or draw a border around every group.
 - Light uses a warm neutral foundation; Dark remains intentional rather than mechanically inverted.
 - Color is reserved for semantic status.
-- Header and footer stay stable. Only a long agent inventory introduces a local scroll region.
+- Agent summary presents Hermes and OpenClaw counts in one quiet recessed region. **Choose agents** is the dominant footer action, **Not now** remains quiet beside it, and Back stays on the left.
+- Runtime choices use one vertical radio list at every supported size. Each row is at least 52 px high, uses a 20 px icon cell, 14 px title, 13 px status, and 16 px indicator, and grows when text scales. Selected explanation and inline recovery follow the list inside the same scroll region.
+- Each state uses one setup-window material and at most one recessed region. A selected runtime is a neutral raised row; keyboard focus is a separate two-pixel system focus ring.
 - There is no step counter because the import screen is conditional.
 - Inner transitions use 160–200 ms opacity changes and at most 2–3 px of directional movement. Reduced Motion uses a 100–120 ms opacity-only change.
 - The supported 800×500 desktop minimum must keep the outer frame and footer visible.
 
+### Neutral palette and typography
+
+Dark appearance uses these exact structural roles:
+
+| Role | Value |
+|---|---|
+| Canvas | `#060608` |
+| Recessed | `#0a0a0c` |
+| Field | `#0e0e10` |
+| Raised | `#141416` |
+| Elevated | `#222224` |
+| Accent | `rgba(244, 243, 240, 0.93)` |
+| Accent ink | `#0e0e10` |
+| Ink | `rgba(244, 243, 240, 0.93)` |
+| Muted strong | `rgba(210, 208, 204, 0.78)` |
+| Muted | `rgba(210, 208, 204, 0.68)` |
+| Hairline | `rgba(220, 219, 216, 0.08)` |
+| Soft hairline | `rgba(220, 219, 216, 0.045)` |
+| Selection | `rgba(220, 219, 216, 0.07)` |
+| Shadow | `rgba(0, 0, 0, 0.42)` |
+
+The dark dot grid uses `rgba(220, 219, 216, 0.035)`. Green and olive structural tones, including `#11120f`, `#1b1c18`, and `#171814`, are forbidden. Green is reserved for genuine readiness or success.
+
+Light appearance retains the approved palette. Meaningful muted copy uses `#686963` and stronger support copy uses `#575852`, preserving at least 4.5:1 contrast across the canvas, field, and raised surfaces.
+
+Meaningful typography is rem-based so application text scaling works. The wordmark is 14 px semibold; headings are 28 px at 1.15 line height and `-0.018em` tracking; primary body copy is 15/22 px; runtime titles and controls are 14 px; supporting, status, recovery, and disabled-reason copy is at least 13/18 px. Sizes from 11–12 px are reserved for nonessential group labels, timestamps, and metadata. Rows and controls use minimum heights so wrapping does not clip them.
+
+Runtime icons are normalized optically rather than forced to one identical drawing size: Codex 17 px, Claude Code 16 px, Kimi Code 18 px, Grok 17 px, and Hermes/OpenClaw 16 px.
+
+### Focus and announcements
+
+- Runtime choices remain real radio inputs inside a labeled radiogroup, with native arrow-key selection, Space activation, and full-row pointer targets.
+- Status and selected detail copy are connected through `aria-describedby`.
+- `:focus-visible` uses the macOS/WebKit system focus color. Selection never substitutes for focus.
+- Recovery changes are polite live updates. A real setup failure is announced as an alert once.
+- Disclosure and recovery do not move focus.
+- Focus moves to the composer only after the home transition completes, when the interface announces “Polyphonic is ready. Luca is ready.” once.
+
 ### Setup becomes home
 
-Preparation remains inside the persistent window and introduces Luca's glyph independently from the selected runtime logo. When Luca is ready, setup content fades, the empty surface expands into the representative Polyphonic shell, app chrome resolves during the expansion, and Luca's single greeting appears after the shell is stable. The canvas and dot field never move.
+Preparation remains inside the persistent window and introduces Luca's glyph independently from the selected runtime logo. Prototype preparation resolves after one painted frame; there is no completion delay. The activity indicator appears only when work remains pending beyond 300 ms, while `prototypeHold=1` preserves a deterministic review state.
 
-Normal motion uses a 340–380 ms surface expansion with easing `[0.22, 1, 0.36, 1]`; Reduced Motion uses a direct 120 ms crossfade. Text and live controls are never scaled. Focus moves to the composer when the conversation becomes ready, and readiness is announced through the existing live-status path.
+Normal opening is one coordinated animation timeline, not independent timers:
+
+1. At 0 ms the surface begins a 360 ms expansion using `[0.22, 1, 0.36, 1]`; the full setup layer remains visible while the home layer mounts beneath it.
+2. From 0–100 ms preparation copy fades while Luca's setup glyph and the Polyphonic header remain.
+3. From 110–310 ms application chrome resolves.
+4. From 160–240 ms Luca's destination glyph appears.
+5. From 220–300 ms the setup glyph fades only after the destination glyph is established.
+6. From 220–380 ms the canonical greeting resolves.
+7. At animation completion, the prototype enters conversation, focuses the composer, and announces readiness once.
+
+At every rendered frame, setup content, Luca's setup anchor, or destination chrome remains visible. The canvas and dot field never move, and text and live controls are never scaled. Reduced Motion switches immediately to final home geometry and crossfades the layers over 120 ms while retaining Luca's glyph; focus and announcement wait for that crossfade to complete.
 
 The prototype explicitly excludes particles, animated grids, moving gradients, glow sweeps, fake glass, icon flight, parallax, sound, bounce, and artificial delays.
 
@@ -226,6 +279,8 @@ The deterministic prototype uses preview-local state only:
 
 Direct visual review uses `prototypeState` and `prototypeScenario` query parameters. `prototypeHold=1` holds preparation or the deterministic opening review state. Fixtures cover mixed readiness, Codex and Claude authentication, automatic installation, Hermes-only, OpenClaw-only, no-ready-runtime, setup success and failure, agents found, no agents, delayed discovery, and failed discovery.
 
+Preview-local inspection hooks are `prototype-step-origin`, `prototype-step-scroll`, `prototype-runtime-scroll`, `prototype-footer`, `prototype-setup-layer`, and `prototype-home-layer`. They define no production interface.
+
 The prototype invokes no production installation, authentication, provisioning, import, or messaging command. Production connection is a separate implementation package after journey approval.
 
 ## Acceptance criteria
@@ -257,6 +312,7 @@ The prototype invokes no production installation, authentication, provisioning, 
 - System follows current macOS appearance; Light and Dark remain complete.
 - Every state works at 1440×900, 1024×768, and 800×500.
 - Keyboard-only navigation, focus order, labels, live status, and reduced motion are correct.
+- Application zoom at 125% and rem text scaling at 150% preserve containment, wrapping, internal scrolling, and footer access.
 - No blank transition or theme flash occurs.
 - Luca's glyph never appears as the Polyphonic product mark and no runtime logo morphs into it.
 - Normal and Reduced Motion setup-to-home transitions preserve one greeting, transfer focus to the composer, and invoke no production command.

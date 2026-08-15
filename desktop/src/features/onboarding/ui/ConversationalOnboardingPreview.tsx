@@ -86,32 +86,44 @@ type PrototypePalette = React.CSSProperties &
 const lightPalette: PrototypePalette = {
   "--prototype-accent": "#30312d",
   "--prototype-accent-ink": "#ffffff",
+  "--prototype-body-size": "0.9375rem",
   "--prototype-canvas": "#e9e8e3",
+  "--prototype-elevated": "#ffffff",
   "--prototype-field": "#f1f0ec",
+  "--prototype-focus": "-webkit-focus-ring-color",
   "--prototype-hairline": "rgba(34, 35, 31, 0.11)",
   "--prototype-hairline-soft": "rgba(34, 35, 31, 0.065)",
+  "--prototype-heading-size": "1.75rem",
   "--prototype-ink": "#242521",
-  "--prototype-muted": "#777871",
+  "--prototype-muted": "#686963",
   "--prototype-muted-strong": "#575852",
   "--prototype-raised": "#f6f5f1",
+  "--prototype-recessed": "#e3e2dd",
   "--prototype-selection": "rgba(38, 39, 34, 0.055)",
   "--prototype-shadow": "rgba(27, 28, 24, 0.09)",
+  "--prototype-support-size": "0.8125rem",
   colorScheme: "light",
 };
 
 const darkPalette: PrototypePalette = {
-  "--prototype-accent": "#f1f1ed",
-  "--prototype-accent-ink": "#171815",
-  "--prototype-canvas": "#11120f",
-  "--prototype-field": "#1b1c18",
-  "--prototype-hairline": "rgba(244, 244, 238, 0.13)",
-  "--prototype-hairline-soft": "rgba(244, 244, 238, 0.07)",
-  "--prototype-ink": "#f0f0ec",
-  "--prototype-muted": "#95968f",
-  "--prototype-muted-strong": "#b2b3ac",
-  "--prototype-raised": "#171814",
-  "--prototype-selection": "rgba(244, 244, 238, 0.075)",
+  "--prototype-accent": "rgba(244, 243, 240, 0.93)",
+  "--prototype-accent-ink": "#0e0e10",
+  "--prototype-body-size": "0.9375rem",
+  "--prototype-canvas": "#060608",
+  "--prototype-elevated": "#222224",
+  "--prototype-field": "#0e0e10",
+  "--prototype-focus": "-webkit-focus-ring-color",
+  "--prototype-hairline": "rgba(220, 219, 216, 0.08)",
+  "--prototype-hairline-soft": "rgba(220, 219, 216, 0.045)",
+  "--prototype-heading-size": "1.75rem",
+  "--prototype-ink": "rgba(244, 243, 240, 0.93)",
+  "--prototype-muted": "rgba(210, 208, 204, 0.68)",
+  "--prototype-muted-strong": "rgba(210, 208, 204, 0.78)",
+  "--prototype-raised": "#141416",
+  "--prototype-recessed": "#0a0a0c",
+  "--prototype-selection": "rgba(220, 219, 216, 0.07)",
   "--prototype-shadow": "rgba(0, 0, 0, 0.42)",
+  "--prototype-support-size": "0.8125rem",
   colorScheme: "dark",
 };
 
@@ -330,28 +342,55 @@ function LucaMark({
   );
 }
 
-function RuntimeMark({ runtime }: { runtime: RuntimeChoice }) {
+function RuntimeMark({
+  appearance,
+  runtime,
+}: {
+  appearance: "light" | "dark";
+  runtime: RuntimeChoice;
+}) {
+  const opticalSize = {
+    claude: 16,
+    codex: 17,
+    grok: 17,
+    hermes: 16,
+    kimi: 18,
+    openclaw: 16,
+  }[runtime.id];
   if (runtime.iconUrl) {
     return (
-      <img
-        alt=""
-        className={cn(
-          "object-contain",
-          runtime.id === "kimi"
-            ? "size-[21px]"
-            : runtime.id === "claude"
-              ? "size-[18px]"
-              : "size-[19px]",
-        )}
-        src={runtime.iconUrl}
-      />
+      <span className="relative grid size-5 place-items-center">
+        <img
+          alt=""
+          className="object-contain"
+          src={runtime.iconUrl}
+          style={{
+            filter:
+              runtime.id === "codex" && appearance === "dark"
+                ? "brightness(0) invert(1)"
+                : (runtime.id === "grok" || runtime.id === "kimi") &&
+                    appearance === "light"
+                  ? "brightness(0)"
+                  : undefined,
+            height: opticalSize,
+            width: opticalSize,
+          }}
+        />
+        {runtime.id === "kimi" && appearance === "light" ? (
+          <span
+            aria-hidden
+            className="absolute right-px top-px size-[3px] rounded-full bg-[#147cf3]"
+          />
+        ) : null}
+      </span>
     );
   }
   return (
     <TerminalSquare
       aria-hidden
-      className="size-[18px] text-[var(--prototype-muted-strong)]"
+      className="text-[var(--prototype-muted-strong)]"
       strokeWidth={1.35}
+      style={{ height: opticalSize, width: opticalSize }}
     />
   );
 }
@@ -359,7 +398,7 @@ function RuntimeMark({ runtime }: { runtime: RuntimeChoice }) {
 function PrototypeHeader() {
   return (
     <header className="flex h-full items-center" data-testid="prototype-header">
-      <span className="text-[14px] font-semibold tracking-[-0.015em]">
+      <span className="text-sm font-semibold tracking-[-0.015em]">
         Polyphonic
       </span>
     </header>
@@ -377,7 +416,7 @@ function PrimaryButton({
 }) {
   return (
     <button
-      className="inline-flex h-9 items-center justify-center gap-2 rounded-[9px] bg-[var(--prototype-accent)] px-4 text-[13px] font-semibold text-[var(--prototype-accent-ink)] shadow-[0_1px_2px_var(--prototype-shadow)] transition-[background-color,box-shadow,opacity] duration-[80ms] hover:opacity-90 active:shadow-[inset_0_1px_2px_color-mix(in_srgb,var(--prototype-canvas)_28%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--prototype-ink)_28%,transparent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--prototype-field)] disabled:pointer-events-none disabled:opacity-35"
+      className="inline-flex min-h-9 items-center justify-center gap-2 rounded-[9px] bg-[var(--prototype-accent)] px-4 py-2 text-[length:var(--prototype-support-size)] font-semibold text-[var(--prototype-accent-ink)] shadow-[0_1px_2px_var(--prototype-shadow)] transition-[background-color,box-shadow,opacity] duration-[80ms] hover:opacity-90 active:shadow-[inset_0_1px_2px_color-mix(in_srgb,var(--prototype-canvas)_28%,transparent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)] disabled:pointer-events-none disabled:opacity-35"
       data-testid="prototype-primary-action"
       disabled={disabled}
       onClick={onClick}
@@ -397,7 +436,7 @@ function QuietButton({
 }) {
   return (
     <button
-      className="rounded-[7px] px-1 py-1 text-[13px] text-[var(--prototype-muted)] transition-colors hover:text-[var(--prototype-ink)]"
+      className="rounded-[7px] px-1 py-1 text-[length:var(--prototype-support-size)] text-[var(--prototype-muted)] transition-colors hover:text-[var(--prototype-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
       onClick={onClick}
       type="button"
     >
@@ -505,7 +544,7 @@ function AppearanceControl({
   ];
   return (
     <fieldset>
-      <legend className="mb-2 text-[12px] font-medium text-[var(--prototype-muted-strong)]">
+      <legend className="mb-2 text-xs font-medium text-[var(--prototype-muted-strong)]">
         Appearance
       </legend>
       <div className="inline-flex rounded-[9px] bg-[var(--prototype-selection)] p-[3px]">
@@ -516,7 +555,7 @@ function AppearanceControl({
             <button
               aria-pressed={active}
               className={cn(
-                "flex h-8 items-center gap-1.5 rounded-[7px] px-3 text-[12px] font-medium transition-[background-color,color,box-shadow] duration-150",
+                "flex min-h-8 items-center gap-1.5 rounded-[7px] px-3 py-1.5 text-xs font-medium transition-[background-color,color,box-shadow] duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]",
                 active
                   ? "bg-[var(--prototype-field)] text-[var(--prototype-ink)] shadow-[0_1px_2px_var(--prototype-shadow)]"
                   : "text-[var(--prototype-muted)] hover:text-[var(--prototype-ink)]",
@@ -555,28 +594,28 @@ function WelcomeState({
       data-testid="conversational-onboarding-welcome"
     >
       <div data-testid="prototype-step-origin">
-        <p className="mb-3 text-[11px] font-semibold tracking-[0.09em] text-[var(--prototype-muted)] uppercase">
+        <p className="mb-3 text-2xs font-semibold tracking-[0.09em] text-[var(--prototype-muted)] uppercase">
           Your personal agent home
         </p>
         <h1
-          className="max-w-[31rem] text-[2rem] font-medium leading-[1.08] tracking-[-0.018em]"
+          className="max-w-[31rem] text-[length:var(--prototype-heading-size)] font-medium leading-[1.15] tracking-[-0.018em]"
           id="conversational-welcome-heading"
         >
           Bring your agents together.
         </h1>
-        <p className="mt-3 max-w-[32rem] text-[15px] leading-6 text-[var(--prototype-muted-strong)]">
+        <p className="mt-3 max-w-[32rem] text-[length:var(--prototype-body-size)] leading-[1.375rem] text-[var(--prototype-muted-strong)]">
           Luca gives you one calm place to talk with the AI agents already on
           your Mac—and helps you set up the rest as you go.
         </p>
       </div>
       <div className="mt-7 grid gap-5">
         <label className="grid gap-2">
-          <span className="text-[12px] font-medium text-[var(--prototype-muted-strong)]">
+          <span className="text-xs font-medium text-[var(--prototype-muted-strong)]">
             What should Luca call you?
           </span>
           <input
             autoComplete="name"
-            className="h-10 rounded-[9px] border border-[var(--prototype-hairline)] bg-[var(--prototype-field)] px-3 text-[14px] shadow-[inset_0_1px_1px_var(--prototype-shadow)] outline-none placeholder:text-[var(--prototype-muted)] focus:border-[color-mix(in_srgb,var(--prototype-ink)_35%,transparent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--prototype-ink)_12%,transparent)]"
+            className="min-h-10 rounded-[9px] border border-[var(--prototype-hairline)] bg-[var(--prototype-field)] px-3 py-2 text-sm shadow-[inset_0_1px_1px_var(--prototype-shadow)] outline-none placeholder:text-[var(--prototype-muted)] focus-visible:border-[color-mix(in_srgb,var(--prototype-ink)_35%,transparent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
             onChange={(event) => onNameChange(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && name.trim()) onBegin();
@@ -595,12 +634,14 @@ function WelcomeState({
 }
 
 function RuntimeState({
+  appearance,
   error,
   onRecover,
   onSelect,
   runtimes,
   selectedId,
 }: {
+  appearance: "light" | "dark";
   error: string | null;
   onRecover: (runtime: RuntimeChoice) => void;
   onSelect: (id: RuntimeId) => void;
@@ -640,24 +681,24 @@ function RuntimeState({
     <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0" data-testid="prototype-step-origin">
         <h1
-          className="text-[1.75rem] font-medium tracking-[-0.018em]"
+          className="text-[length:var(--prototype-heading-size)] font-medium leading-[1.15] tracking-[-0.018em]"
           id="runtime-heading"
         >
           Choose what powers Luca
         </h1>
-        <p className="mt-2 max-w-[34rem] text-[14px] leading-5 text-[var(--prototype-muted-strong)]">
+        <p className="mt-2 max-w-[34rem] text-[length:var(--prototype-body-size)] leading-[1.375rem] text-[var(--prototype-muted-strong)]">
           Pick the AI Luca should use on this Mac. You can change it later
           without changing who Luca is.
         </p>
       </div>
       <div
-        className="mt-5 min-h-0 flex-1 overflow-y-auto"
+        className="mt-5 min-h-0 flex-1 overflow-y-auto pb-1"
         data-prototype-scroll-owner="true"
         data-testid="prototype-runtime-scroll"
       >
         <div
           aria-labelledby="runtime-heading"
-          className="grid grid-cols-1 rounded-[10px] bg-[var(--prototype-selection)] p-1"
+          className="grid grid-cols-1 rounded-[10px] bg-[var(--prototype-recessed)] p-1"
           role="radiogroup"
         >
           {visibleRuntimes.map((runtime) => {
@@ -667,10 +708,10 @@ function RuntimeState({
             return (
               <label
                 className={cn(
-                  "group flex min-h-[52px] w-full cursor-pointer items-center gap-3 rounded-[8px] px-3 py-2 text-left outline-none transition-[background-color,box-shadow] duration-[90ms] focus-within:ring-0 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[color-mix(in_srgb,var(--prototype-ink)_28%,transparent)]",
+                  "group flex min-h-[52px] w-full cursor-pointer items-center gap-3 rounded-[8px] px-3 py-2 text-left outline-none transition-[background-color,box-shadow] duration-[90ms] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-[-2px] has-[:focus-visible]:outline-[var(--prototype-focus)]",
                   active
-                    ? "bg-[var(--prototype-field)] shadow-[0_1px_2px_var(--prototype-shadow)]"
-                    : "hover:bg-[color-mix(in_srgb,var(--prototype-field)_45%,transparent)]",
+                    ? "bg-[var(--prototype-raised)] shadow-[0_1px_2px_var(--prototype-shadow)]"
+                    : "hover:bg-[var(--prototype-selection)]",
                 )}
                 data-testid={`runtime-choice-${runtime.id}`}
                 key={runtime.id}
@@ -685,14 +726,14 @@ function RuntimeState({
                   value={runtime.id}
                 />
                 <span className="grid size-5 shrink-0 place-items-center">
-                  <RuntimeMark runtime={runtime} />
+                  <RuntimeMark appearance={appearance} runtime={runtime} />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[13px] font-medium">
+                  <span className="block text-sm font-medium">
                     {runtime.name}
                   </span>
                   <span
-                    className="mt-0.5 block text-[11px] leading-4 text-[var(--prototype-muted)]"
+                    className="mt-0.5 block text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]"
                     id={statusId}
                   >
                     {runtime.status === "ready"
@@ -719,7 +760,7 @@ function RuntimeState({
         {unreadyRuntimes.length > 0 && !revealAll ? (
           <button
             aria-expanded="false"
-            className="mt-2.5 w-fit rounded-[6px] py-1 text-[12px] text-[var(--prototype-muted)] outline-none hover:text-[var(--prototype-ink)] focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--prototype-ink)_28%,transparent)]"
+            className="mt-2.5 w-fit rounded-[6px] py-1 text-xs text-[var(--prototype-muted)] outline-none hover:text-[var(--prototype-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
             onClick={() => setShowOtherRuntimes(true)}
             type="button"
           >
@@ -727,7 +768,7 @@ function RuntimeState({
           </button>
         ) : null}
         <p
-          className="mt-3 text-[12px] leading-5 text-[var(--prototype-muted-strong)]"
+          className="mt-3 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted-strong)]"
           id={`runtime-${selected.id}-detail`}
         >
           {selected.detail}
@@ -741,10 +782,10 @@ function RuntimeState({
             <div className="flex items-start gap-3">
               <CircleAlert className="mt-0.5 size-4 shrink-0 text-[var(--prototype-muted-strong)]" />
               <div className="min-w-0 flex-1">
-                <p className="text-[12px] font-medium">
+                <p className="text-[length:var(--prototype-support-size)] font-medium leading-[1.125rem]">
                   {selected.name} needs attention
                 </p>
-                <p className="mt-1 text-[11px] leading-4 text-[var(--prototype-muted)]">
+                <p className="mt-1 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
                   {selected.status === "unavailable"
                     ? "This runtime cannot be used in this fixture. Choose another option."
                     : selected.id === "hermes" || selected.id === "openclaw"
@@ -752,14 +793,17 @@ function RuntimeState({
                       : "Complete the existing setup, then let Luca check readiness again."}
                 </p>
                 {error ? (
-                  <p className="mt-2 text-[11px] text-red-600 dark:text-red-400">
+                  <p
+                    className="mt-2 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-red-600 dark:text-red-400"
+                    role="alert"
+                  >
                     {error}
                   </p>
                 ) : null}
               </div>
               {selected.status !== "unavailable" ? (
                 <button
-                  className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-[8px] border border-[var(--prototype-hairline)] bg-[var(--prototype-field)] px-3 py-1 text-[11px] font-medium hover:bg-[var(--prototype-raised)] disabled:opacity-50"
+                  className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-[8px] border border-[var(--prototype-hairline)] bg-[var(--prototype-field)] px-3 py-1 text-[length:var(--prototype-support-size)] font-medium hover:bg-[var(--prototype-raised)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)] disabled:opacity-50"
                   disabled={selected.status === "checking"}
                   onClick={() => onRecover(selected)}
                   type="button"
@@ -789,24 +833,24 @@ function AgentsSummaryState() {
   return (
     <div className="min-h-full" data-testid="agents-summary">
       <div data-testid="prototype-step-origin">
-        <h1 className="text-[1.75rem] font-medium tracking-[-0.018em]">
+        <h1 className="text-[length:var(--prototype-heading-size)] font-medium leading-[1.15] tracking-[-0.018em]">
           Bring in agents you already use
         </h1>
-        <p className="mt-2 max-w-[32rem] text-[14px] leading-5 text-[var(--prototype-muted-strong)]">
+        <p className="mt-2 max-w-[32rem] text-[length:var(--prototype-body-size)] leading-[1.375rem] text-[var(--prototype-muted-strong)]">
           We found {agentCandidates.length} agents on this Mac. Nothing is
           imported unless you choose it.
         </p>
       </div>
-      <div className="mt-7 grid grid-cols-2 gap-5 rounded-[10px] bg-[var(--prototype-selection)] px-4 py-3.5">
+      <div className="mt-7 grid grid-cols-2 gap-5 rounded-[10px] bg-[var(--prototype-recessed)] px-4 py-3.5">
         <div>
-          <p className="text-[12px] font-medium">Hermes</p>
-          <p className="mt-1 text-[11px] text-[var(--prototype-muted)]">
+          <p className="text-sm font-medium">Hermes</p>
+          <p className="mt-1 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
             4 profiles found
           </p>
         </div>
         <div>
-          <p className="text-[12px] font-medium">OpenClaw</p>
-          <p className="mt-1 text-[11px] text-[var(--prototype-muted)]">
+          <p className="text-sm font-medium">OpenClaw</p>
+          <p className="mt-1 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
             4 agents found
           </p>
         </div>
@@ -831,25 +875,25 @@ function AgentsSelectState({
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="agents-select">
       <div className="shrink-0" data-testid="prototype-step-origin">
-        <h1 className="text-[1.6rem] font-medium tracking-[-0.018em]">
+        <h1 className="text-[length:var(--prototype-heading-size)] font-medium leading-[1.15] tracking-[-0.018em]">
           Choose agents
         </h1>
-        <p className="mt-1 text-[13px] text-[var(--prototype-muted)]">
+        <p className="mt-1 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
           Nothing is imported unless you select it.
         </p>
         <label className="relative mt-4 block">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[var(--prototype-muted)]" />
           <input
             aria-label="Search agents"
-            className="h-9 w-full rounded-[8px] border border-[var(--prototype-hairline)] bg-[var(--prototype-field)] pl-9 pr-3 text-[13px] outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--prototype-ink)_12%,transparent)]"
+            className="min-h-9 w-full rounded-[8px] border border-[var(--prototype-hairline)] bg-[var(--prototype-field)] py-2 pl-9 pr-3 text-[length:var(--prototype-support-size)] outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search agents"
             value={query}
           />
         </label>
-        <div className="mt-2.5 flex items-center gap-5 text-[11px]">
+        <div className="mt-2.5 flex items-center gap-5 text-xs">
           <button
-            className="text-[var(--prototype-muted-strong)] hover:text-[var(--prototype-ink)]"
+            className="rounded-[4px] text-[var(--prototype-muted-strong)] hover:text-[var(--prototype-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
             onClick={() =>
               agentCandidates
                 .filter((agent) => !agent.disabledReason)
@@ -862,7 +906,7 @@ function AgentsSelectState({
             Select all ready
           </button>
           <button
-            className="text-[var(--prototype-muted)] hover:text-[var(--prototype-ink)]"
+            className="rounded-[4px] text-[var(--prototype-muted)] hover:text-[var(--prototype-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
             onClick={() => Array.from(selectedIds).forEach(onToggle)}
             type="button"
           >
@@ -875,7 +919,7 @@ function AgentsSelectState({
       </div>
       <section
         aria-label="Discovered agents"
-        className="mt-3 min-h-0 flex-1 overflow-y-auto rounded-[9px] bg-[var(--prototype-selection)] p-1"
+        className="mt-3 min-h-0 flex-1 overflow-y-auto rounded-[9px] bg-[var(--prototype-recessed)] p-1"
         data-prototype-scroll-owner="true"
         data-testid="prototype-agent-inventory"
       >
@@ -884,7 +928,7 @@ function AgentsSelectState({
           if (!group.length) return null;
           return (
             <div key={source}>
-              <p className="px-3 pb-1 pt-2 text-[9px] font-semibold tracking-[0.12em] text-[var(--prototype-muted)] uppercase">
+              <p className="px-3 pb-1 pt-2 text-2xs font-semibold tracking-[0.12em] text-[var(--prototype-muted)] uppercase">
                 {source}
               </p>
               {group.map((agent) => {
@@ -892,7 +936,10 @@ function AgentsSelectState({
                 return (
                   <button
                     aria-pressed={selected}
-                    className="flex min-h-11 w-full items-center gap-3 rounded-[7px] px-3 py-2 text-left hover:bg-[var(--prototype-field)] disabled:cursor-not-allowed disabled:opacity-45"
+                    className={cn(
+                      "flex min-h-11 w-full items-center gap-3 rounded-[7px] px-3 py-2 text-left hover:bg-[var(--prototype-selection)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--prototype-focus)] disabled:cursor-not-allowed disabled:opacity-45",
+                      selected && "bg-[var(--prototype-raised)]",
+                    )}
                     data-testid={`prototype-agent-${agent.id}`}
                     disabled={Boolean(agent.disabledReason)}
                     key={agent.id}
@@ -905,10 +952,10 @@ function AgentsSelectState({
                       strokeWidth={1.2}
                     />
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[12px] font-medium">
+                      <span className="block text-sm font-medium">
                         {agent.name}
                       </span>
-                      <span className="block truncate text-[10px] text-[var(--prototype-muted)]">
+                      <span className="block text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
                         {agent.disabledReason ?? `${source} agent`}
                       </span>
                     </span>
@@ -929,7 +976,7 @@ function AgentsSelectState({
           );
         })}
         {!filtered.length ? (
-          <p className="px-3 py-8 text-center text-[12px] text-[var(--prototype-muted)]">
+          <p className="px-3 py-8 text-center text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
             No matching agents
           </p>
         ) : null}
@@ -940,9 +987,11 @@ function AgentsSelectState({
 
 function PreparingState({
   appearance,
+  opening,
   showIndicator,
 }: {
   appearance: "light" | "dark";
+  opening: boolean;
   showIndicator: boolean;
 }) {
   const reduceMotion = useReducedMotion();
@@ -953,19 +1002,30 @@ function PreparingState({
       data-testid="conversational-onboarding-preparing"
     >
       <div data-testid="prototype-step-origin">
-        <LucaMark appearance={appearance} size={30} />
-        <h1 className="mt-5 text-[23px] font-medium tracking-[-0.018em]">
-          Getting Luca ready…
-        </h1>
-        <div className="mt-4 grid h-5 place-items-center text-[var(--prototype-muted-strong)]">
-          {showIndicator ? (
-            reduceMotion ? (
-              <span className="size-2 rounded-full bg-current" />
-            ) : (
-              <LoaderCircle className="size-5 animate-spin" strokeWidth={1.4} />
-            )
-          ) : null}
+        <div data-testid="prototype-setup-luca-glyph">
+          <LucaMark appearance={appearance} size={30} />
         </div>
+        <motion.div
+          animate={{ opacity: opening ? 0 : 1 }}
+          data-testid="prototype-preparation-copy"
+          transition={{ duration: reduceMotion ? 0.12 : 0.1 }}
+        >
+          <h1 className="mt-5 text-[length:var(--prototype-heading-size)] font-medium leading-[1.15] tracking-[-0.018em]">
+            Getting Luca ready…
+          </h1>
+          <div className="mt-4 grid h-5 place-items-center text-[var(--prototype-muted-strong)]">
+            {showIndicator ? (
+              reduceMotion ? (
+                <span className="size-2 rounded-full bg-current" />
+              ) : (
+                <LoaderCircle
+                  className="size-5 animate-spin"
+                  strokeWidth={1.4}
+                />
+              )
+            ) : null}
+          </div>
+        </motion.div>
       </div>
     </section>
   );
@@ -979,32 +1039,34 @@ function ProposalCard() {
     >
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-[13px] font-semibold">Create a Polyphonic Agent</p>
-          <p className="mt-1 text-[12px] leading-5 text-[var(--prototype-muted-strong)]">
+          <p className="text-[length:var(--prototype-support-size)] font-semibold">
+            Create a Polyphonic Agent
+          </p>
+          <p className="mt-1 text-[length:var(--prototype-support-size)] leading-5 text-[var(--prototype-muted-strong)]">
             A research partner named Atlas, using Codex on this Mac.
           </p>
         </div>
-        <span className="rounded-full bg-[var(--prototype-field)] px-2 py-1 text-[10px] font-medium tracking-[0.06em] text-[var(--prototype-muted)] uppercase">
+        <span className="rounded-full bg-[var(--prototype-field)] px-2 py-1 text-badge font-medium tracking-[0.06em] text-[var(--prototype-muted)] uppercase">
           Review
         </span>
       </div>
       <div className="mt-4 flex items-center gap-2">
         <button
-          className="inline-flex h-8 items-center gap-1.5 rounded-[8px] bg-[var(--prototype-accent)] px-3 text-[12px] font-semibold text-[var(--prototype-accent-ink)]"
+          className="inline-flex min-h-8 items-center gap-1.5 rounded-[8px] bg-[var(--prototype-accent)] px-3 py-1 text-sm font-semibold text-[var(--prototype-accent-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
           type="button"
         >
           <Check className="size-3.5" />
           Approve
         </button>
         <button
-          className="inline-flex h-8 items-center gap-1.5 rounded-[8px] px-2.5 text-[12px] text-[var(--prototype-muted-strong)] hover:bg-[var(--prototype-field)]"
+          className="inline-flex min-h-8 items-center gap-1.5 rounded-[8px] px-2.5 py-1 text-sm text-[var(--prototype-muted-strong)] hover:bg-[var(--prototype-field)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
           type="button"
         >
           <Pencil className="size-3.5" />
           Edit
         </button>
         <button
-          className="inline-flex h-8 items-center gap-1.5 rounded-[8px] px-2.5 text-[12px] text-[var(--prototype-muted-strong)] hover:bg-[var(--prototype-field)]"
+          className="inline-flex min-h-8 items-center gap-1.5 rounded-[8px] px-2.5 py-1 text-sm text-[var(--prototype-muted-strong)] hover:bg-[var(--prototype-field)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
           type="button"
         >
           <X className="size-3.5" />
@@ -1020,14 +1082,18 @@ function ConversationState({
   autoFocus,
   forceProposal,
   name,
+  onOpeningComplete,
   onShowProposal,
+  opening,
   showGreeting,
 }: {
   appearance: "light" | "dark";
   autoFocus: boolean;
   forceProposal: boolean;
   name: string;
+  onOpeningComplete?: () => void;
   onShowProposal: () => void;
+  opening: boolean;
   showGreeting: boolean;
 }) {
   const reduceMotion = useReducedMotion();
@@ -1045,12 +1111,14 @@ function ConversationState({
   };
   React.useEffect(() => {
     if (!autoFocus) return;
-    const timeout = window.setTimeout(
-      () => composerRef.current?.focus(),
-      reduceMotion ? 0 : 180,
-    );
-    return () => window.clearTimeout(timeout);
-  }, [autoFocus, reduceMotion]);
+    composerRef.current?.focus();
+  }, [autoFocus]);
+  const chromeTransition = opening
+    ? {
+        delay: reduceMotion ? 0 : 0.11,
+        duration: reduceMotion ? 0.12 : 0.2,
+      }
+    : { duration: 0 };
   return (
     <div
       className="flex h-full w-full overflow-hidden"
@@ -1059,17 +1127,16 @@ function ConversationState({
       <motion.aside
         animate={{ opacity: 1 }}
         className="hidden w-[13rem] shrink-0 flex-col bg-[color-mix(in_srgb,var(--prototype-canvas)_70%,var(--prototype-raised))] p-3 md:flex"
-        initial={{ opacity: 0 }}
-        transition={{
-          delay: reduceMotion ? 0 : 0.11,
-          duration: reduceMotion ? 0.12 : 0.2,
-        }}
+        initial={{ opacity: opening ? 0 : 1 }}
+        transition={chromeTransition}
       >
         <div className="flex items-center gap-2.5 px-2 py-1.5">
           <LucaMark appearance={appearance} size={17} />
-          <span className="text-[13px] font-semibold">Luca</span>
+          <span className="text-[length:var(--prototype-support-size)] font-semibold">
+            Luca
+          </span>
         </div>
-        <nav className="mt-5 grid gap-0.5 text-[12px] text-[var(--prototype-muted-strong)]">
+        <nav className="mt-5 grid gap-0.5 text-xs text-[var(--prototype-muted-strong)]">
           {["New conversation", "Inbox", "Agents", "Brain"].map((item) => (
             <button
               className="flex h-8 items-center justify-between rounded-[7px] px-2 text-left hover:bg-[var(--prototype-selection)]"
@@ -1077,22 +1144,22 @@ function ConversationState({
               type="button"
             >
               {item}
-              {item === "Inbox" ? <span className="text-[10px]">1</span> : null}
+              {item === "Inbox" ? <span className="text-badge">1</span> : null}
             </button>
           ))}
         </nav>
-        <p className="mb-2 mt-7 px-2 text-[10px] font-medium tracking-[0.09em] text-[var(--prototype-muted)] uppercase">
+        <p className="mb-2 mt-7 px-2 text-badge font-medium tracking-[0.09em] text-[var(--prototype-muted)] uppercase">
           Direct messages
         </p>
         <button
-          className="flex h-9 items-center gap-2 rounded-[8px] bg-[var(--prototype-selection)] px-2 text-left text-[12px] font-medium"
+          className="flex h-9 items-center gap-2 rounded-[8px] bg-[var(--prototype-selection)] px-2 text-left text-xs font-medium"
           type="button"
         >
           <LucaMark appearance={appearance} size={14} />
           Luca
         </button>
         <button
-          className="mt-auto flex h-8 items-center justify-between rounded-[7px] px-2 text-left text-[12px] text-[var(--prototype-muted)] hover:bg-[var(--prototype-selection)]"
+          className="mt-auto flex h-8 items-center justify-between rounded-[7px] px-2 text-left text-xs text-[var(--prototype-muted)] hover:bg-[var(--prototype-selection)]"
           type="button"
         >
           Settings
@@ -1102,17 +1169,30 @@ function ConversationState({
       <motion.div
         animate={{ opacity: 1 }}
         className="flex min-w-0 flex-1 flex-col bg-[var(--prototype-field)]"
-        initial={{ opacity: 0 }}
-        transition={{
-          delay: reduceMotion ? 0 : 0.11,
-          duration: reduceMotion ? 0.12 : 0.2,
-        }}
+        initial={{ opacity: opening ? 0 : 1 }}
+        transition={chromeTransition}
       >
         <header className="flex h-12 shrink-0 items-center gap-2.5 border-b border-[var(--prototype-hairline-soft)] px-5">
-          <LucaMark appearance={appearance} size={16} />
+          <motion.span
+            animate={{ opacity: 1 }}
+            data-testid="prototype-destination-luca-glyph"
+            initial={{ opacity: opening ? 0 : 1 }}
+            transition={
+              opening
+                ? {
+                    delay: reduceMotion ? 0 : 0.16,
+                    duration: reduceMotion ? 0.12 : 0.08,
+                  }
+                : { duration: 0 }
+            }
+          >
+            <LucaMark appearance={appearance} size={16} />
+          </motion.span>
           <div>
-            <p className="text-[13px] font-semibold">Luca</p>
-            <p className="text-[10px] text-[var(--prototype-muted)]">Ready</p>
+            <p className="text-[length:var(--prototype-support-size)] font-semibold">
+              Luca
+            </p>
+            <p className="text-badge text-[var(--prototype-muted)]">Ready</p>
           </div>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 sm:px-9">
@@ -1121,20 +1201,25 @@ function ConversationState({
               <motion.div
                 animate={{ opacity: 1 }}
                 className="flex gap-3"
-                initial={{ opacity: 0 }}
+                data-testid="prototype-canonical-greeting"
+                initial={{ opacity: opening ? 0 : 1 }}
+                onAnimationComplete={opening ? onOpeningComplete : undefined}
                 transition={{
-                  duration: reduceMotion ? 0.12 : 0.16,
+                  delay: opening && !reduceMotion ? 0.22 : 0,
+                  duration: opening && reduceMotion ? 0.12 : 0.16,
                 }}
               >
                 <LucaMark appearance={appearance} size={20} />
                 <div className="pt-0.5">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-[13px] font-semibold">Luca</span>
-                    <span className="text-[10px] text-[var(--prototype-muted)]">
+                    <span className="text-[length:var(--prototype-support-size)] font-semibold">
+                      Luca
+                    </span>
+                    <span className="text-badge text-[var(--prototype-muted)]">
                       now
                     </span>
                   </div>
-                  <p className="mt-1 text-[14px] leading-6">
+                  <p className="mt-1 text-sm leading-6">
                     Hi, {name || "Riley"} — I’m Luca. I’m ready. What would you
                     like help with first?
                   </p>
@@ -1144,20 +1229,22 @@ function ConversationState({
             {sentMessage ? (
               <div className="mt-7 pl-[3rem]">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-[13px] font-semibold">
+                  <span className="text-[length:var(--prototype-support-size)] font-semibold">
                     {name || "Riley"}
                   </span>
-                  <span className="text-[10px] text-[var(--prototype-muted)]">
+                  <span className="text-badge text-[var(--prototype-muted)]">
                     now
                   </span>
                 </div>
-                <p className="mt-1 text-[14px] leading-6">{sentMessage}</p>
+                <p className="mt-1 text-sm leading-6">{sentMessage}</p>
                 {forceProposal ? (
                   <div className="mt-7 flex gap-3">
                     <LucaMark appearance={appearance} size={20} />
                     <div className="min-w-0 flex-1 pt-0.5">
-                      <span className="text-[13px] font-semibold">Luca</span>
-                      <p className="mt-1 text-[14px] leading-6">
+                      <span className="text-[length:var(--prototype-support-size)] font-semibold">
+                        Luca
+                      </span>
+                      <p className="mt-1 text-sm leading-6">
                         Yes. I can set up a focused research partner for you.
                         Here’s what I’d create:
                       </p>
@@ -1173,7 +1260,7 @@ function ConversationState({
           <div className="mx-auto flex max-w-[40rem] items-end gap-2 rounded-[12px] border border-[var(--prototype-hairline)] bg-[var(--prototype-raised)] p-2 shadow-[0_4px_18px_var(--prototype-shadow)] focus-within:border-[color-mix(in_srgb,var(--prototype-ink)_30%,transparent)]">
             <textarea
               aria-label="Message Luca"
-              className="max-h-32 min-h-8 flex-1 resize-none bg-transparent px-2 py-1.5 text-[13px] leading-5 outline-none placeholder:text-[var(--prototype-muted)]"
+              className="max-h-32 min-h-8 flex-1 resize-none bg-transparent px-2 py-1.5 text-[length:var(--prototype-support-size)] leading-5 outline-none placeholder:text-[var(--prototype-muted)]"
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
@@ -1229,9 +1316,6 @@ export function ConversationalOnboardingPreview() {
   const [transitionDirection, setTransitionDirection] = React.useState(1);
   const [showPreparingIndicator, setShowPreparingIndicator] =
     React.useState(false);
-  const [openingExpanded, setOpeningExpanded] = React.useState(false);
-  const [showHomeChrome, setShowHomeChrome] = React.useState(false);
-  const [showGreeting, setShowGreeting] = React.useState(false);
   const holdReviewState = React.useRef(
     new URL(window.location.href).searchParams.get("prototypeHold") === "1",
   );
@@ -1257,47 +1341,14 @@ export function ConversationalOnboardingPreview() {
     if (holdReviewState.current) {
       return () => window.clearTimeout(indicatorTimeout);
     }
-    const completionTimeout = window.setTimeout(() => navigate("opening"), 260);
+    const completionFrame = window.requestAnimationFrame(() =>
+      navigate("opening"),
+    );
     return () => {
       window.clearTimeout(indicatorTimeout);
-      window.clearTimeout(completionTimeout);
+      window.cancelAnimationFrame(completionFrame);
     };
   }, [navigate, state]);
-
-  React.useEffect(() => {
-    if (state !== "opening") return;
-    if (holdReviewState.current) {
-      setOpeningExpanded(true);
-      setShowHomeChrome(true);
-      setShowGreeting(false);
-      return;
-    }
-    setOpeningExpanded(Boolean(reduceMotion));
-    setShowHomeChrome(false);
-    setShowGreeting(false);
-    const expansionTimeout = window.setTimeout(
-      () => setOpeningExpanded(true),
-      reduceMotion ? 0 : 100,
-    );
-    const chromeTimeout = window.setTimeout(
-      () => setShowHomeChrome(true),
-      reduceMotion ? 0 : 210,
-    );
-    const greetingTimeout = window.setTimeout(
-      () => setShowGreeting(true),
-      reduceMotion ? 0 : 320,
-    );
-    const readyTimeout = window.setTimeout(
-      () => navigate("conversation"),
-      reduceMotion ? 120 : 480,
-    );
-    return () => {
-      window.clearTimeout(expansionTimeout);
-      window.clearTimeout(chromeTimeout);
-      window.clearTimeout(greetingTimeout);
-      window.clearTimeout(readyTimeout);
-    };
-  }, [navigate, reduceMotion, state]);
 
   const continueFromRuntime = () => {
     navigate(discoveryStatus === "found" ? "agents-summary" : "preparing");
@@ -1361,14 +1412,12 @@ export function ConversationalOnboardingPreview() {
     });
   };
 
-  const setupState =
-    state !== "opening" && state !== "conversation" && state !== "proposal";
+  const setupState = state !== "conversation" && state !== "proposal";
   const homeSized =
-    state === "conversation" || state === "proposal" || openingExpanded;
+    state === "opening" || state === "conversation" || state === "proposal";
   const renderHome =
-    state === "conversation" ||
-    state === "proposal" ||
-    (state === "opening" && showHomeChrome);
+    state === "opening" || state === "conversation" || state === "proposal";
+  const activeOpening = state === "opening" && !holdReviewState.current;
 
   const setupFooter = (() => {
     if (state === "welcome") {
@@ -1448,7 +1497,7 @@ export function ConversationalOnboardingPreview() {
         ...palette,
         backgroundImage:
           resolvedAppearance === "dark"
-            ? "radial-gradient(circle, rgba(255,255,255,0.035) 1px, transparent 1px)"
+            ? "radial-gradient(circle, rgba(220,219,216,0.035) 1px, transparent 1px)"
             : "radial-gradient(circle, rgba(33,34,30,0.05) 1px, transparent 1px)",
         backgroundSize: "24px 24px",
         fontFamily:
@@ -1486,15 +1535,22 @@ export function ConversationalOnboardingPreview() {
             },
           }}
         >
-          <AnimatePresence initial={false} mode="wait">
+          <AnimatePresence initial={false}>
             {setupState ? (
               <motion.div
-                animate={{ opacity: 1 }}
-                className="absolute inset-0"
+                animate={{ opacity: activeOpening ? 0 : 1 }}
+                className={cn(
+                  "absolute inset-0 z-10",
+                  state === "opening" && "pointer-events-none",
+                )}
+                data-testid="prototype-setup-layer"
                 exit={{ opacity: 0 }}
-                initial={{ opacity: 0 }}
+                initial={{ opacity: state === "opening" ? 1 : 0 }}
                 key="setup-shell"
-                transition={{ duration: reduceMotion ? 0.1 : 0.1 }}
+                transition={{
+                  delay: activeOpening && !reduceMotion ? 0.22 : 0,
+                  duration: activeOpening && reduceMotion ? 0.12 : 0.08,
+                }}
               >
                 <PrototypeSetupShell footer={setupFooter} state={state}>
                   <AnimatePresence initial={false} mode="wait">
@@ -1526,6 +1582,7 @@ export function ConversationalOnboardingPreview() {
                       ) : null}
                       {state === "runtime" ? (
                         <RuntimeState
+                          appearance={resolvedAppearance}
                           error={runtimeError}
                           onRecover={recoverRuntime}
                           onSelect={(id) => {
@@ -1545,9 +1602,10 @@ export function ConversationalOnboardingPreview() {
                           selectedIds={selectedAgentIds}
                         />
                       ) : null}
-                      {state === "preparing" ? (
+                      {state === "preparing" || state === "opening" ? (
                         <PreparingState
                           appearance={resolvedAppearance}
+                          opening={activeOpening}
                           showIndicator={showPreparingIndicator}
                         />
                       ) : null}
@@ -1558,14 +1616,29 @@ export function ConversationalOnboardingPreview() {
             ) : null}
           </AnimatePresence>
           {renderHome ? (
-            <ConversationState
-              appearance={resolvedAppearance}
-              autoFocus={state === "conversation" || state === "proposal"}
-              forceProposal={state === "proposal"}
-              name={name}
-              onShowProposal={() => navigate("proposal")}
-              showGreeting={state !== "opening" || showGreeting}
-            />
+            <motion.div
+              animate={{ opacity: 1 }}
+              className="absolute inset-0 z-0"
+              data-testid="prototype-home-layer"
+              initial={{ opacity: state === "opening" ? 0 : 1 }}
+              transition={{
+                delay: state === "opening" && !reduceMotion ? 0.11 : 0,
+                duration: state === "opening" ? (reduceMotion ? 0.12 : 0.2) : 0,
+              }}
+            >
+              <ConversationState
+                appearance={resolvedAppearance}
+                autoFocus={state === "conversation" || state === "proposal"}
+                forceProposal={state === "proposal"}
+                name={name}
+                onOpeningComplete={
+                  activeOpening ? () => navigate("conversation") : undefined
+                }
+                onShowProposal={() => navigate("proposal")}
+                opening={state === "opening"}
+                showGreeting={state !== "opening" || activeOpening}
+              />
+            </motion.div>
           ) : null}
           <span aria-live="polite" className="sr-only">
             {state === "conversation" || state === "proposal"
