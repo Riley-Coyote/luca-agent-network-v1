@@ -5,6 +5,59 @@ import { DotSigil } from "@/shared/ui/dot-display/DotSigil";
 export const POLYPHONIC_IDENTITY_SEED =
   "9dee6768a16dc99a2f399672eabffe3d1c2d30cd9daaeda8ae0c36074751b9f2";
 
+export function PolyphonicThresholdDendrite({
+  ambient = true,
+}: {
+  ambient?: boolean;
+}) {
+  const reduceMotion = useReducedMotion();
+
+  return (
+    <motion.div
+      animate={
+        ambient
+          ? reduceMotion
+            ? undefined
+            : { opacity: [0.64, 0.84, 0.64] }
+          : { opacity: 0.74 }
+      }
+      className="absolute left-1/2 top-1/2 h-[36rem] w-[36rem] -translate-x-1/2 -translate-y-1/2 scale-[0.58] sm:scale-[0.72]"
+      transition={
+        ambient
+          ? reduceMotion
+            ? undefined
+            : {
+                duration: 12,
+                ease: "easeInOut",
+                repeat: Number.POSITIVE_INFINITY,
+              }
+          : { duration: reduceMotion ? 0 : 0.12, ease: "easeOut" }
+      }
+    >
+      <DotSigil
+        bloom={0.02}
+        cell={4}
+        dot="164,167,173"
+        scene="recall"
+        seed={`${POLYPHONIC_IDENTITY_SEED}:threshold`}
+        size={576}
+      />
+    </motion.div>
+  );
+}
+
+export function LucaThresholdGlyph() {
+  return (
+    <DotSigil
+      cell={7}
+      dot="240,240,242"
+      scene="sigil"
+      seed={POLYPHONIC_IDENTITY_SEED}
+      size={66}
+    />
+  );
+}
+
 export function PolyphonicThresholdField() {
   const reduceMotion = useReducedMotion();
 
@@ -18,37 +71,10 @@ export function PolyphonicThresholdField() {
         reduceMotion ? { duration: 0 } : { duration: 1.1, ease: [0.2, 0, 0, 1] }
       }
     >
-      <motion.div
-        animate={reduceMotion ? undefined : { opacity: [0.64, 0.84, 0.64] }}
-        className="absolute left-1/2 top-1/2 h-[36rem] w-[36rem] -translate-x-1/2 -translate-y-1/2 scale-[0.58] sm:scale-[0.72]"
-        transition={
-          reduceMotion
-            ? undefined
-            : {
-                duration: 12,
-                ease: "easeInOut",
-                repeat: Number.POSITIVE_INFINITY,
-              }
-        }
-      >
-        <DotSigil
-          bloom={0.02}
-          cell={4}
-          dot="164,167,173"
-          scene="recall"
-          seed={`${POLYPHONIC_IDENTITY_SEED}:threshold`}
-          size={576}
-        />
-      </motion.div>
+      <PolyphonicThresholdDendrite />
 
       <div className="relative flex h-20 w-20 items-center justify-center">
-        <DotSigil
-          cell={7}
-          dot="240,240,242"
-          scene="sigil"
-          seed={POLYPHONIC_IDENTITY_SEED}
-          size={66}
-        />
+        <LucaThresholdGlyph />
       </div>
     </motion.div>
   );
