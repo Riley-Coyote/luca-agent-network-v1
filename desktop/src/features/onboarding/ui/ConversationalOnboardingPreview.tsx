@@ -83,18 +83,18 @@ type PrototypePalette = React.CSSProperties &
   Record<`--prototype-${string}`, string>;
 
 const lightPalette: PrototypePalette = {
-  "--prototype-accent": "#292a26",
+  "--prototype-accent": "#30312d",
   "--prototype-accent-ink": "#ffffff",
-  "--prototype-canvas": "#eeede8",
-  "--prototype-field": "#fbfaf7",
-  "--prototype-hairline": "rgba(34, 35, 31, 0.13)",
-  "--prototype-hairline-soft": "rgba(34, 35, 31, 0.075)",
+  "--prototype-canvas": "#e9e8e3",
+  "--prototype-field": "#f1f0ec",
+  "--prototype-hairline": "rgba(34, 35, 31, 0.11)",
+  "--prototype-hairline-soft": "rgba(34, 35, 31, 0.065)",
   "--prototype-ink": "#242521",
   "--prototype-muted": "#777871",
   "--prototype-muted-strong": "#575852",
-  "--prototype-raised": "#f5f4ef",
-  "--prototype-selection": "rgba(38, 39, 34, 0.065)",
-  "--prototype-shadow": "rgba(27, 28, 24, 0.12)",
+  "--prototype-raised": "#f6f5f1",
+  "--prototype-selection": "rgba(38, 39, 34, 0.055)",
+  "--prototype-shadow": "rgba(27, 28, 24, 0.09)",
   colorScheme: "light",
 };
 
@@ -348,7 +348,7 @@ function PrototypeHeader({ appearance }: { appearance: "light" | "dark" }) {
     <header className="flex h-9 items-center gap-2.5">
       <LucaMark appearance={appearance} size={20} />
       <span className="text-[14px] font-semibold tracking-[-0.015em]">
-        Luca
+        Polyphonic
       </span>
     </header>
   );

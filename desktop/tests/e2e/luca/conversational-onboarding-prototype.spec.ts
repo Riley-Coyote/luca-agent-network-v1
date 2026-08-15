@@ -21,6 +21,7 @@ test("runtime-ready journey reaches Luca without invoking production commands", 
 }) => {
   await page.setViewportSize({ width: 1024, height: 768 });
   await page.goto(prototypeUrl("agents-found"));
+  await expect(page.getByText("Polyphonic", { exact: true })).toBeVisible();
 
   await expect(
     page.getByRole("heading", { name: "Bring your agents together." }),
@@ -52,6 +53,12 @@ test("runtime-ready journey reaches Luca without invoking production commands", 
   ).toContainText(
     "Hi, Riley — I’m Luca. I’m ready. What would you like help with first?",
   );
+  await expect(
+    page
+      .getByTestId("conversational-onboarding-conversation")
+      .getByText("Luca", { exact: true })
+      .first(),
+  ).toBeVisible();
 
   const commands = await page.evaluate(
     () =>

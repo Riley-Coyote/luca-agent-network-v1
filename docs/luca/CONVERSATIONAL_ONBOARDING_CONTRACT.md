@@ -17,6 +17,8 @@ Onboarding follows this hierarchy, in order:
 
 The Riley design-language guide is explicitly excluded from this onboarding work. This contract and the platform guidance above are authoritative.
 
+Application-level onboarding chrome is branded **Polyphonic**. **Luca** names the canonical native agent and concierge, so Luca appears as the participant identity inside conversation and in copy describing that agent, not as the application title.
+
 ## Product decision
 
 Luca's default onboarding is a short path into a real conversation with the canonical Luca resident. It asks for the owner's name and requires the owner to confirm one ready runtime that will power Luca. Runtime selection is separate from optional import of native Hermes and OpenClaw agents.
