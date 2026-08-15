@@ -32,6 +32,7 @@ type OpeningSample = {
   setupOpacity: number;
   surfaceHeight: number;
   surfaceWidth: number;
+  thresholdTraceOpacity: number;
 };
 
 function linearChannel(value: number): number {
@@ -82,6 +83,9 @@ async function installOpeningSampler(page: Page): Promise<void> {
       const destinationGlyph = document.querySelector<HTMLElement>(
         '[data-testid="prototype-destination-luca-glyph"]',
       );
+      const thresholdTrace = document.querySelector<HTMLElement>(
+        '[data-testid="prototype-threshold-trace"]',
+      );
       if (surface) {
         const box = surface.getBoundingClientRect();
         const opacity = (element: HTMLElement | null) =>
@@ -100,6 +104,7 @@ async function installOpeningSampler(page: Page): Promise<void> {
           setupOpacity: opacity(setupLayer),
           surfaceHeight: box.height,
           surfaceWidth: box.width,
+          thresholdTraceOpacity: opacity(thresholdTrace),
         });
       }
       if (performance.now() - startedAt < 800) requestAnimationFrame(sample);
@@ -168,6 +173,22 @@ test("runtime-ready journey reaches Luca without invoking production commands", 
 }) => {
   await page.setViewportSize({ width: 1024, height: 768 });
   await page.goto(prototypeUrl("agents-found"));
+  await expect(page.getByTestId("prototype-threshold-stage")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Luca" })).toBeVisible();
+  await expect(
+    page.getByText(
+      "A private home for your agents and the work that makes them useful.",
+    ),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Begin setup" }).click();
+
+  await expect(
+    page.getByRole("heading", { name: "Bring your agents together." }),
+  ).toBeVisible();
+  await expect(page.getByTestId("prototype-home-surface")).toHaveAttribute(
+    "data-phase",
+    "welcome",
+  );
   await expect(page.getByText("Polyphonic", { exact: true })).toBeVisible();
   await expect(page.getByTestId("prototype-header")).toContainText(
     "Polyphonic",
@@ -176,9 +197,6 @@ test("runtime-ready journey reaches Luca without invoking production commands", 
     page.getByTestId("prototype-header").getByTestId("luca-glyph"),
   ).toHaveCount(0);
 
-  await expect(
-    page.getByRole("heading", { name: "Bring your agents together." }),
-  ).toBeVisible();
   await expect(page.getByText(/Step \d/)).toHaveCount(0);
   await expect(
     page.getByTestId("conversational-onboarding-preview"),
@@ -238,6 +256,7 @@ test("runtime-ready journey reaches Luca without invoking production commands", 
   await expect(
     page.getByRole("textbox", { name: "Message Luca" }),
   ).toBeFocused();
+  await expect(page.getByTestId("prototype-threshold-trace")).toHaveCount(0);
 
   const commands = await page.evaluate(
     () =>
@@ -254,6 +273,78 @@ test("runtime-ready journey reaches Luca without invoking production commands", 
       ),
     ),
   ).toEqual([]);
+});
+
+test("the production threshold condenses into one stable setup trace", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.goto(prototypeUrl("mixed"));
+
+  const trace = page.getByTestId("prototype-threshold-trace");
+  const source = page.getByTestId("prototype-threshold-field-origin");
+  await expect(trace).toBeVisible();
+  expectRectNear(await rect(trace), await rect(source));
+  const originalTrace = await trace.elementHandle();
+  if (!originalTrace) throw new Error("Expected the production dendrite node");
+
+  await page.getByRole("button", { name: "Begin setup" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Bring your agents together." }),
+  ).toBeVisible();
+  await expect(page.getByTestId("prototype-home-surface")).toHaveAttribute(
+    "data-phase",
+    "welcome",
+  );
+  expect(
+    await trace.evaluate((node, previous) => node === previous, originalTrace),
+  ).toBe(true);
+
+  const traceTarget = page.getByTestId("prototype-threshold-trace-target");
+  const settledTrace = await rect(trace);
+  const settledTarget = await rect(traceTarget);
+  expectRectNear(settledTrace, settledTarget);
+
+  const stableTraceRects = [settledTrace];
+  await page.getByRole("button", { name: "Begin" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Choose what powers Luca" }),
+  ).toBeVisible();
+  stableTraceRects.push(await rect(trace));
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByTestId("agents-summary")).toBeVisible();
+  stableTraceRects.push(await rect(trace));
+  await page.getByRole("button", { name: "Choose agents" }).click();
+  await expect(page.getByTestId("agents-select")).toBeVisible();
+  stableTraceRects.push(await rect(trace));
+  for (const traceRect of stableTraceRects) {
+    expectRectNear(traceRect, settledTarget);
+  }
+
+  await page.goto(prototypeUrl("mixed", "threshold-opening", true));
+  await expect(page.getByTestId("prototype-threshold-stage")).toBeVisible();
+  await expect(page.getByTestId("prototype-setup-layer")).toBeVisible();
+  await page.waitForTimeout(520);
+  await expect(page.getByTestId("prototype-home-surface")).toHaveAttribute(
+    "data-phase",
+    "threshold-opening",
+  );
+  expectRectNear(
+    await rect(page.getByTestId("prototype-threshold-trace")),
+    await rect(page.getByTestId("prototype-threshold-trace-target")),
+  );
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto(prototypeUrl("mixed", undefined, true));
+  await page.getByRole("button", { name: "Begin setup" }).click();
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+  );
+  expectRectNear(
+    await rect(page.getByTestId("prototype-threshold-trace")),
+    await rect(page.getByTestId("prototype-threshold-trace-target")),
+  );
 });
 
 test("runtime recovery is truthful and blocks entry until readiness", async ({
@@ -315,7 +406,7 @@ test("appearance, keyboard radio behavior, reduced motion, and compact layout ar
   page,
 }) => {
   await page.setViewportSize({ width: 800, height: 500 });
-  await page.goto(prototypeUrl("mixed"));
+  await page.goto(prototypeUrl("mixed", "welcome"));
   await page.getByRole("button", { name: "Light" }).click();
   await expect(
     page.getByTestId("conversational-onboarding-preview"),
@@ -363,7 +454,7 @@ test("palette, focus, zoom, and rem text scaling remain legible", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1024, height: 768 });
-  await page.goto(prototypeUrl("mixed"));
+  await page.goto(prototypeUrl("mixed", "welcome"));
   await page.getByRole("button", { name: "Dark" }).click();
   const darkTokens = await page
     .getByTestId("conversational-onboarding-preview")
@@ -674,6 +765,11 @@ test("the persistent surface opens into home and greets once", async ({
         sample.setupGlyphOpacity + sample.destinationGlyphOpacity,
       ).toBeGreaterThan(0.01);
     }
+    if (sample.thresholdTraceOpacity < 0.08) {
+      expect(
+        sample.destinationGlyphOpacity + sample.homeOpacity,
+      ).toBeGreaterThan(0.01);
+    }
   }
   const openingWidths = openingSamples.map((sample) => sample.surfaceWidth);
   expect(Math.max(...openingWidths)).toBeGreaterThan(
@@ -683,6 +779,7 @@ test("the persistent surface opens into home and greets once", async ({
   await expect(
     page.getByRole("textbox", { name: "Message Luca" }),
   ).toBeFocused();
+  await expect(page.getByTestId("prototype-threshold-trace")).toHaveCount(0);
   await expect(
     page.getByText("Polyphonic is ready. Luca is ready."),
   ).toHaveCount(1);
@@ -712,6 +809,11 @@ test("the persistent surface opens into home and greets once", async ({
   for (const sample of reducedOpening) {
     expect(sample.setupOpacity + sample.homeOpacity).toBeGreaterThan(0.01);
     expect(sample.activeLabel).not.toBe("Message Luca");
+    if (sample.thresholdTraceOpacity < 0.08) {
+      expect(
+        sample.destinationGlyphOpacity + sample.homeOpacity,
+      ).toBeGreaterThan(0.01);
+    }
   }
   await expect(
     page.getByRole("textbox", { name: "Message Luca" }),
