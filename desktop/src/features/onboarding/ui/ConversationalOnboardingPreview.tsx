@@ -36,6 +36,7 @@ type PrototypeState =
   | "agents-summary"
   | "agents-select"
   | "preparing"
+  | "opening"
   | "conversation"
   | "proposal";
 type PrototypeScenario =
@@ -120,6 +121,7 @@ const prototypeStates = new Set<PrototypeState>([
   "agents-summary",
   "agents-select",
   "preparing",
+  "opening",
   "conversation",
   "proposal",
 ]);
@@ -199,12 +201,11 @@ function baseRuntimeChoices(): RuntimeChoice[] {
       status: "ready",
     },
     {
-      action: "sign-in",
       detail: "Full conversations and collaboration with Luca.",
       iconUrl: claudeLogoUrl,
       id: "claude",
       name: "Claude Code",
-      status: "sign-in",
+      status: "ready",
     },
     {
       action: "install",
@@ -215,11 +216,11 @@ function baseRuntimeChoices(): RuntimeChoice[] {
       status: "set-up",
     },
     {
-      detail: "This runtime is not available in the current fixture.",
+      detail: "Full conversations and collaboration with Luca.",
       iconUrl: grokLogoUrl,
       id: "grok",
       name: "Grok",
-      status: "unavailable",
+      status: "ready",
     },
     {
       action: "guide",
@@ -315,6 +316,7 @@ function LucaMark({
     <span
       aria-hidden
       className="grid shrink-0 place-items-center"
+      data-testid="luca-glyph"
       style={{ height: size, width: size }}
     >
       <DotSigil
@@ -331,22 +333,32 @@ function LucaMark({
 function RuntimeMark({ runtime }: { runtime: RuntimeChoice }) {
   if (runtime.iconUrl) {
     return (
-      <img alt="" className="size-5 object-contain" src={runtime.iconUrl} />
+      <img
+        alt=""
+        className={cn(
+          "object-contain",
+          runtime.id === "kimi"
+            ? "size-[21px]"
+            : runtime.id === "claude"
+              ? "size-[18px]"
+              : "size-[19px]",
+        )}
+        src={runtime.iconUrl}
+      />
     );
   }
   return (
     <TerminalSquare
       aria-hidden
-      className="size-5 text-[var(--prototype-muted-strong)]"
+      className="size-[18px] text-[var(--prototype-muted-strong)]"
       strokeWidth={1.35}
     />
   );
 }
 
-function PrototypeHeader({ appearance }: { appearance: "light" | "dark" }) {
+function PrototypeHeader() {
   return (
-    <header className="flex h-9 items-center gap-2.5">
-      <LucaMark appearance={appearance} size={20} />
+    <header className="flex h-9 items-center" data-testid="prototype-header">
       <span className="text-[14px] font-semibold tracking-[-0.015em]">
         Polyphonic
       </span>
@@ -365,7 +377,7 @@ function PrimaryButton({
 }) {
   return (
     <button
-      className="inline-flex h-9 items-center justify-center gap-2 rounded-[9px] bg-[var(--prototype-accent)] px-4 text-[13px] font-semibold text-[var(--prototype-accent-ink)] shadow-[0_1px_2px_var(--prototype-shadow)] transition-[opacity,transform] duration-150 hover:opacity-90 active:translate-y-px disabled:pointer-events-none disabled:opacity-35"
+      className="inline-flex h-9 items-center justify-center gap-2 rounded-[9px] bg-[var(--prototype-accent)] px-4 text-[13px] font-semibold text-[var(--prototype-accent-ink)] shadow-[0_1px_2px_var(--prototype-shadow)] transition-[background-color,box-shadow,opacity] duration-[80ms] hover:opacity-90 active:shadow-[inset_0_1px_2px_color-mix(in_srgb,var(--prototype-canvas)_28%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--prototype-ink)_28%,transparent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--prototype-field)] disabled:pointer-events-none disabled:opacity-35"
       disabled={disabled}
       onClick={onClick}
       type="button"
@@ -393,27 +405,33 @@ function QuietButton({
   );
 }
 
-function SetupFrame({
-  appearance,
+function PrototypeSetupShell({
   children,
   footer,
+  showFooterDivider = false,
 }: {
-  appearance: "light" | "dark";
   children: React.ReactNode;
   footer: React.ReactNode;
+  showFooterDivider?: boolean;
 }) {
   return (
-    <section className="flex h-[calc(100dvh-2rem)] min-h-[22rem] w-full max-w-[39rem] flex-col overflow-hidden rounded-[15px] border border-[var(--prototype-hairline)] bg-[color-mix(in_srgb,var(--prototype-field)_96%,transparent)] shadow-[0_24px_70px_var(--prototype-shadow)] sm:max-h-[38rem]">
-      <div className="shrink-0 px-8 pt-6 sm:px-10">
-        <PrototypeHeader appearance={appearance} />
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 px-8 pt-5 sm:px-9">
+        <PrototypeHeader />
       </div>
-      <div className="min-h-0 flex-1 overflow-hidden px-8 pb-5 pt-5 sm:px-10">
+      <div className="min-h-0 flex-1 overflow-hidden px-8 pb-4 pt-4 sm:px-9">
         {children}
       </div>
-      <footer className="flex min-h-14 shrink-0 items-center justify-between border-t border-[var(--prototype-hairline-soft)] px-8 sm:px-10">
+      <footer
+        className={cn(
+          "flex min-h-14 shrink-0 items-center justify-between px-8 sm:px-9",
+          showFooterDivider &&
+            "border-t border-[var(--prototype-hairline-soft)]",
+        )}
+      >
         {footer}
       </footer>
-    </section>
+    </div>
   );
 }
 
@@ -466,31 +484,26 @@ function WelcomeState({
   name,
   onAppearanceChange,
   onBegin,
-  onManualSetup,
   onNameChange,
-  resolvedAppearance,
 }: {
   appearance: Appearance;
   name: string;
   onAppearanceChange: (appearance: Appearance) => void;
   onBegin: () => void;
-  onManualSetup: () => void;
   onNameChange: (value: string) => void;
-  resolvedAppearance: "light" | "dark";
 }) {
   return (
     <section
       aria-labelledby="conversational-welcome-heading"
-      className="w-full max-w-[35rem]"
+      className="flex h-full w-full flex-col justify-center"
       data-testid="conversational-onboarding-welcome"
     >
-      <PrototypeHeader appearance={resolvedAppearance} />
-      <div className="pb-8 pt-12">
+      <div className="pb-7">
         <p className="mb-3 text-[11px] font-semibold tracking-[0.09em] text-[var(--prototype-muted)] uppercase">
           Your personal agent home
         </p>
         <h1
-          className="max-w-[31rem] text-[2rem] font-medium leading-[1.08] tracking-[-0.045em]"
+          className="max-w-[31rem] text-[2rem] font-medium leading-[1.08] tracking-[-0.018em]"
           id="conversational-welcome-heading"
         >
           Bring your agents together.
@@ -521,39 +534,40 @@ function WelcomeState({
           onChange={onAppearanceChange}
         />
       </div>
-      <div className="mt-10 flex items-center justify-between">
-        <QuietButton onClick={onManualSetup}>Set up manually</QuietButton>
-        <PrimaryButton disabled={!name.trim()} onClick={onBegin}>
-          Begin
-          <ArrowRight className="size-3.5" />
-        </PrimaryButton>
-      </div>
     </section>
   );
 }
 
 function RuntimeState({
-  appearance,
   error,
-  onBack,
-  onContinue,
   onRecover,
   onSelect,
   runtimes,
   selectedId,
 }: {
-  appearance: "light" | "dark";
   error: string | null;
-  onBack: () => void;
-  onContinue: () => void;
   onRecover: (runtime: RuntimeChoice) => void;
   onSelect: (id: RuntimeId) => void;
   runtimes: RuntimeChoice[];
   selectedId: RuntimeId;
 }) {
+  const [showOtherRuntimes, setShowOtherRuntimes] = React.useState(false);
   const selected =
     runtimes.find((runtime) => runtime.id === selectedId) ?? runtimes[0];
   const ready = selected.status === "ready";
+  const readyRuntimes = [...runtimes]
+    .filter((runtime) => runtime.status === "ready")
+    .sort(
+      (left, right) =>
+        Number(Boolean(right.recommended)) - Number(Boolean(left.recommended)),
+    );
+  const unreadyRuntimes = runtimes.filter(
+    (runtime) => runtime.status !== "ready",
+  );
+  const revealAll = showOtherRuntimes || readyRuntimes.length === 0 || !ready;
+  const visibleRuntimes = revealAll
+    ? [...readyRuntimes, ...unreadyRuntimes]
+    : readyRuntimes;
 
   const actionLabel =
     selected.status === "checking"
@@ -567,225 +581,187 @@ function RuntimeState({
             : "Check again";
 
   return (
-    <SetupFrame
-      appearance={appearance}
-      footer={
-        <>
-          <QuietButton onClick={onBack}>Back</QuietButton>
-          <PrimaryButton disabled={!ready} onClick={onContinue}>
-            Continue
-          </PrimaryButton>
-        </>
-      }
-    >
-      <div className="flex h-full min-h-0 flex-col">
-        <div className="shrink-0">
-          <h1
-            className="text-[1.75rem] font-medium tracking-[-0.04em]"
-            id="runtime-heading"
-          >
-            Choose what powers Luca
-          </h1>
-          <p className="mt-2 max-w-[34rem] text-[14px] leading-5 text-[var(--prototype-muted-strong)]">
-            Pick the AI Luca should use on this Mac. You can change it later
-            without changing who Luca is.
-          </p>
-        </div>
-        <div
-          aria-labelledby="runtime-heading"
-          className="mt-6 min-h-0 overflow-y-auto rounded-[10px] bg-[var(--prototype-selection)] p-1"
-          role="radiogroup"
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0">
+        <h1
+          className="text-[1.75rem] font-medium tracking-[-0.018em]"
+          id="runtime-heading"
         >
-          {runtimes.map((runtime) => {
-            const active = runtime.id === selected.id;
-            return (
-              <label
-                className={cn(
-                  "group flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-[8px] px-3 py-2 text-left outline-none transition-[background-color,box-shadow] duration-150 focus-within:ring-2 focus-within:ring-[color-mix(in_srgb,var(--prototype-ink)_25%,transparent)]",
-                  active
-                    ? "bg-[var(--prototype-field)] shadow-[0_1px_2px_var(--prototype-shadow)]"
-                    : "hover:bg-[color-mix(in_srgb,var(--prototype-field)_45%,transparent)]",
-                )}
-                data-testid={`runtime-choice-${runtime.id}`}
-                key={runtime.id}
-              >
-                <input
-                  checked={active}
-                  className="sr-only"
-                  name="luca-runtime"
-                  onChange={() => onSelect(runtime.id)}
-                  type="radio"
-                  value={runtime.id}
-                />
-                <span className="grid size-7 shrink-0 place-items-center">
-                  <RuntimeMark runtime={runtime} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-baseline gap-2">
-                    <span className="text-[13px] font-medium">
-                      {runtime.name}
-                    </span>
-                    {runtime.recommended ? (
-                      <span className="text-[9px] font-semibold tracking-[0.08em] text-[var(--prototype-muted)] uppercase">
-                        Recommended
-                      </span>
-                    ) : null}
+          Choose what powers Luca
+        </h1>
+        <p className="mt-2 max-w-[34rem] text-[14px] leading-5 text-[var(--prototype-muted-strong)]">
+          Pick the AI Luca should use on this Mac. You can change it later
+          without changing who Luca is.
+        </p>
+      </div>
+      <div
+        aria-labelledby="runtime-heading"
+        className="mt-5 grid shrink-0 grid-cols-1 rounded-[10px] bg-[var(--prototype-selection)] p-1 [@media(max-height:560px)]:mt-3 [@media(max-height:560px)]:grid-cols-2"
+        role="radiogroup"
+      >
+        {visibleRuntimes.map((runtime) => {
+          const active = runtime.id === selected.id;
+          return (
+            <label
+              className={cn(
+                "group flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-[8px] px-3 py-2 text-left outline-none transition-[background-color,box-shadow] duration-[90ms] focus-within:ring-0 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[color-mix(in_srgb,var(--prototype-ink)_28%,transparent)] [@media(max-height:560px)]:min-h-10 [@media(max-height:560px)]:py-1",
+                active
+                  ? "bg-[var(--prototype-field)] shadow-[0_1px_2px_var(--prototype-shadow)]"
+                  : "hover:bg-[color-mix(in_srgb,var(--prototype-field)_45%,transparent)]",
+              )}
+              data-testid={`runtime-choice-${runtime.id}`}
+              key={runtime.id}
+            >
+              <input
+                checked={active}
+                className="sr-only"
+                name="luca-runtime"
+                onChange={() => onSelect(runtime.id)}
+                type="radio"
+                value={runtime.id}
+              />
+              <span className="grid size-7 shrink-0 place-items-center">
+                <RuntimeMark runtime={runtime} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-baseline gap-2">
+                  <span className="text-[13px] font-medium">
+                    {runtime.name}
                   </span>
+                </span>
+                <span className="mt-0.5 block text-[11px] leading-4 text-[var(--prototype-muted)]">
+                  {runtime.status === "ready"
+                    ? `Ready on this Mac${runtime.recommended ? " · Recommended" : ""}`
+                    : statusLabels[runtime.status]}
                   {active ? (
-                    <span className="mt-0.5 block text-[11px] leading-4 text-[var(--prototype-muted)]">
-                      {runtime.detail}
+                    <span className="[@media(max-height:560px)]:hidden">
+                      {` · ${runtime.detail}`}
                     </span>
                   ) : null}
                 </span>
-                <span
-                  className={cn(
-                    "shrink-0 text-[11px]",
-                    runtime.status === "ready"
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-[var(--prototype-muted)]",
-                  )}
-                >
-                  {statusLabels[runtime.status]}
-                </span>
-                <span
-                  className={cn(
-                    "grid size-4 shrink-0 place-items-center rounded-full border",
-                    active
-                      ? "border-[var(--prototype-ink)]"
-                      : "border-[var(--prototype-hairline)]",
-                  )}
-                >
-                  {active ? (
-                    <span className="size-1.5 rounded-full bg-[var(--prototype-ink)]" />
-                  ) : null}
-                </span>
-              </label>
-            );
-          })}
-        </div>
-        {!ready ? (
-          <div
-            aria-live="polite"
-            className="mt-4 shrink-0 rounded-[10px] bg-[var(--prototype-selection)] px-3.5 py-3"
-            data-testid="runtime-recovery"
-          >
-            <div className="flex items-start gap-3">
-              <CircleAlert className="mt-0.5 size-4 shrink-0 text-[var(--prototype-muted-strong)]" />
-              <div className="min-w-0 flex-1">
-                <p className="text-[12px] font-medium">
-                  {selected.name} needs attention
-                </p>
-                <p className="mt-1 text-[11px] leading-4 text-[var(--prototype-muted)]">
-                  {selected.status === "unavailable"
-                    ? "This runtime cannot be used in this fixture. Choose another option."
-                    : selected.id === "hermes" || selected.id === "openclaw"
-                      ? "Finish setup in its native system. Existing provider settings, including OpenRouter, stay there."
-                      : "Complete the existing setup, then let Luca check readiness again."}
-                </p>
-                {error ? (
-                  <p className="mt-2 text-[11px] text-red-600 dark:text-red-400">
-                    {error}
-                  </p>
+              </span>
+              <span
+                className={cn(
+                  "grid size-4 shrink-0 place-items-center rounded-full border",
+                  active
+                    ? "border-[var(--prototype-ink)]"
+                    : "border-[var(--prototype-hairline)]",
+                )}
+              >
+                {active ? (
+                  <span className="size-1.5 rounded-full bg-[var(--prototype-ink)]" />
                 ) : null}
-              </div>
-              {selected.status !== "unavailable" ? (
-                <button
-                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[8px] border border-[var(--prototype-hairline)] bg-[var(--prototype-field)] px-3 text-[11px] font-medium hover:bg-[var(--prototype-raised)] disabled:opacity-50"
-                  disabled={selected.status === "checking"}
-                  onClick={() => onRecover(selected)}
-                  type="button"
-                >
-                  {selected.status === "checking" ? (
-                    <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" />
-                  ) : selected.action === "guide" ? (
-                    <ExternalLink className="size-3" />
-                  ) : (
-                    <RefreshCw className="size-3" />
-                  )}
-                  {actionLabel}
-                </button>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      {unreadyRuntimes.length > 0 && !revealAll ? (
+        <button
+          aria-expanded="false"
+          className="mt-2.5 w-fit rounded-[6px] py-1 text-[12px] text-[var(--prototype-muted)] outline-none hover:text-[var(--prototype-ink)] focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--prototype-ink)_28%,transparent)]"
+          onClick={() => setShowOtherRuntimes(true)}
+          type="button"
+        >
+          Choose another runtime
+        </button>
+      ) : null}
+      {!ready ? (
+        <div
+          aria-live="polite"
+          className="mt-4 shrink-0 rounded-[10px] bg-[var(--prototype-selection)] px-3.5 py-3 [@media(max-height:560px)]:mt-2 [@media(max-height:560px)]:py-2"
+          data-testid="runtime-recovery"
+        >
+          <div className="flex items-start gap-3">
+            <CircleAlert className="mt-0.5 size-4 shrink-0 text-[var(--prototype-muted-strong)]" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-medium">
+                {selected.name} needs attention
+              </p>
+              <p className="mt-1 text-[11px] leading-4 text-[var(--prototype-muted)] [@media(max-height:560px)]:hidden">
+                {selected.status === "unavailable"
+                  ? "This runtime cannot be used in this fixture. Choose another option."
+                  : selected.id === "hermes" || selected.id === "openclaw"
+                    ? "Finish setup in its native system. Existing provider settings, including OpenRouter, stay there."
+                    : "Complete the existing setup, then let Luca check readiness again."}
+              </p>
+              {error ? (
+                <p className="mt-2 text-[11px] text-red-600 dark:text-red-400">
+                  {error}
+                </p>
               ) : null}
             </div>
+            {selected.status !== "unavailable" ? (
+              <button
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[8px] border border-[var(--prototype-hairline)] bg-[var(--prototype-field)] px-3 text-[11px] font-medium hover:bg-[var(--prototype-raised)] disabled:opacity-50"
+                disabled={selected.status === "checking"}
+                onClick={() => onRecover(selected)}
+                type="button"
+              >
+                {selected.status === "checking" ? (
+                  <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" />
+                ) : selected.action === "guide" ? (
+                  <ExternalLink className="size-3" />
+                ) : (
+                  <RefreshCw className="size-3" />
+                )}
+                {actionLabel}
+              </button>
+            ) : null}
           </div>
-        ) : null}
-        <span className="sr-only" aria-live="polite">
-          {selected.name}: {statusLabels[selected.status]}
-        </span>
-      </div>
-    </SetupFrame>
+        </div>
+      ) : null}
+      <span className="sr-only" aria-live="polite">
+        {selected.name}: {statusLabels[selected.status]}
+      </span>
+    </div>
   );
 }
 
-function AgentsSummaryState({
-  appearance,
-  onBack,
-  onChoose,
-  onSkip,
-}: {
-  appearance: "light" | "dark";
-  onBack: () => void;
-  onChoose: () => void;
-  onSkip: () => void;
-}) {
+function AgentsSummaryState({ onChoose }: { onChoose: () => void }) {
   return (
-    <SetupFrame
-      appearance={appearance}
-      footer={
-        <>
-          <QuietButton onClick={onBack}>Back</QuietButton>
-          <QuietButton onClick={onSkip}>Not now</QuietButton>
-        </>
-      }
+    <div
+      className="flex h-full flex-col justify-center py-4"
+      data-testid="agents-summary"
     >
-      <div
-        className="flex h-full flex-col justify-center py-4"
-        data-testid="agents-summary"
-      >
-        <p className="text-[11px] font-semibold tracking-[0.09em] text-[var(--prototype-muted)] uppercase">
-          Optional
-        </p>
-        <h1 className="mt-3 text-[1.75rem] font-medium tracking-[-0.04em]">
-          Bring in agents you already use
-        </h1>
-        <p className="mt-2 max-w-[32rem] text-[14px] leading-5 text-[var(--prototype-muted-strong)]">
-          We found {agentCandidates.length} agents on this Mac. Nothing is
-          imported unless you choose it.
-        </p>
-        <div className="mt-7 grid grid-cols-2 gap-3">
-          <div className="rounded-[10px] bg-[var(--prototype-selection)] px-4 py-3">
-            <p className="text-[12px] font-medium">Hermes</p>
-            <p className="mt-1 text-[11px] text-[var(--prototype-muted)]">
-              4 profiles found
-            </p>
-          </div>
-          <div className="rounded-[10px] bg-[var(--prototype-selection)] px-4 py-3">
-            <p className="text-[12px] font-medium">OpenClaw</p>
-            <p className="mt-1 text-[11px] text-[var(--prototype-muted)]">
-              4 agents found
-            </p>
-          </div>
+      <p className="text-[11px] font-semibold tracking-[0.09em] text-[var(--prototype-muted)] uppercase">
+        Optional
+      </p>
+      <h1 className="mt-3 text-[1.75rem] font-medium tracking-[-0.018em]">
+        Bring in agents you already use
+      </h1>
+      <p className="mt-2 max-w-[32rem] text-[14px] leading-5 text-[var(--prototype-muted-strong)]">
+        We found {agentCandidates.length} agents on this Mac. Nothing is
+        imported unless you choose it.
+      </p>
+      <div className="mt-7 grid grid-cols-2 gap-3">
+        <div className="rounded-[10px] bg-[var(--prototype-selection)] px-4 py-3">
+          <p className="text-[12px] font-medium">Hermes</p>
+          <p className="mt-1 text-[11px] text-[var(--prototype-muted)]">
+            4 profiles found
+          </p>
         </div>
-        <div className="mt-7">
-          <PrimaryButton onClick={onChoose}>
-            Choose agents
-            <ArrowRight className="size-3.5" />
-          </PrimaryButton>
+        <div className="rounded-[10px] bg-[var(--prototype-selection)] px-4 py-3">
+          <p className="text-[12px] font-medium">OpenClaw</p>
+          <p className="mt-1 text-[11px] text-[var(--prototype-muted)]">
+            4 agents found
+          </p>
         </div>
       </div>
-    </SetupFrame>
+      <div className="mt-7">
+        <PrimaryButton onClick={onChoose}>
+          Choose agents
+          <ArrowRight className="size-3.5" />
+        </PrimaryButton>
+      </div>
+    </div>
   );
 }
 
 function AgentsSelectState({
-  appearance,
-  onBack,
-  onContinue,
   onToggle,
   selectedIds,
 }: {
-  appearance: "light" | "dark";
-  onBack: () => void;
-  onContinue: () => void;
   onToggle: (id: string) => void;
   selectedIds: Set<string>;
 }) {
@@ -796,152 +772,141 @@ function AgentsSelectState({
   );
   const selectedCount = selectedIds.size;
   return (
-    <SetupFrame
-      appearance={appearance}
-      footer={
-        <>
-          <QuietButton onClick={onBack}>
-            <span className="inline-flex items-center gap-1">
-              <ArrowLeft className="size-3" />
-              Back
-            </span>
-          </QuietButton>
-          <PrimaryButton onClick={onContinue}>
-            {selectedCount
-              ? `Import ${selectedCount} and continue`
-              : "Continue"}
-          </PrimaryButton>
-        </>
-      }
-    >
-      <div className="flex h-full min-h-0 flex-col" data-testid="agents-select">
-        <div className="shrink-0">
-          <h1 className="text-[1.6rem] font-medium tracking-[-0.04em]">
-            Choose agents
-          </h1>
-          <p className="mt-1 text-[13px] text-[var(--prototype-muted)]">
-            Nothing is imported unless you select it.
-          </p>
-          <label className="relative mt-4 block">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[var(--prototype-muted)]" />
-            <input
-              aria-label="Search agents"
-              className="h-9 w-full rounded-[8px] border border-[var(--prototype-hairline)] bg-[var(--prototype-field)] pl-9 pr-3 text-[13px] outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--prototype-ink)_12%,transparent)]"
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search agents"
-              value={query}
-            />
-          </label>
-          <div className="mt-2.5 flex items-center gap-5 text-[11px]">
-            <button
-              className="text-[var(--prototype-muted-strong)] hover:text-[var(--prototype-ink)]"
-              onClick={() =>
-                agentCandidates
-                  .filter((agent) => !agent.disabledReason)
-                  .forEach((agent) => {
-                    if (!selectedIds.has(agent.id)) onToggle(agent.id);
-                  })
-              }
-              type="button"
-            >
-              Select all ready
-            </button>
-            <button
-              className="text-[var(--prototype-muted)] hover:text-[var(--prototype-ink)]"
-              onClick={() => Array.from(selectedIds).forEach(onToggle)}
-              type="button"
-            >
-              Clear
-            </button>
-            <span className="ml-auto text-[var(--prototype-muted)]">
-              {selectedCount} selected
-            </span>
-          </div>
+    <div className="flex h-full min-h-0 flex-col" data-testid="agents-select">
+      <div className="shrink-0">
+        <h1 className="text-[1.6rem] font-medium tracking-[-0.018em]">
+          Choose agents
+        </h1>
+        <p className="mt-1 text-[13px] text-[var(--prototype-muted)]">
+          Nothing is imported unless you select it.
+        </p>
+        <label className="relative mt-4 block">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[var(--prototype-muted)]" />
+          <input
+            aria-label="Search agents"
+            className="h-9 w-full rounded-[8px] border border-[var(--prototype-hairline)] bg-[var(--prototype-field)] pl-9 pr-3 text-[13px] outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--prototype-ink)_12%,transparent)]"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search agents"
+            value={query}
+          />
+        </label>
+        <div className="mt-2.5 flex items-center gap-5 text-[11px]">
+          <button
+            className="text-[var(--prototype-muted-strong)] hover:text-[var(--prototype-ink)]"
+            onClick={() =>
+              agentCandidates
+                .filter((agent) => !agent.disabledReason)
+                .forEach((agent) => {
+                  if (!selectedIds.has(agent.id)) onToggle(agent.id);
+                })
+            }
+            type="button"
+          >
+            Select all ready
+          </button>
+          <button
+            className="text-[var(--prototype-muted)] hover:text-[var(--prototype-ink)]"
+            onClick={() => Array.from(selectedIds).forEach(onToggle)}
+            type="button"
+          >
+            Clear
+          </button>
+          <span className="ml-auto text-[var(--prototype-muted)]">
+            {selectedCount} selected
+          </span>
         </div>
-        <section
-          aria-label="Discovered agents"
-          className="mt-3 min-h-0 flex-1 overflow-y-auto rounded-[9px] bg-[var(--prototype-selection)] p-1"
-          data-testid="prototype-agent-inventory"
-        >
-          {(["Hermes", "OpenClaw"] as const).map((source) => {
-            const group = filtered.filter((agent) => agent.source === source);
-            if (!group.length) return null;
-            return (
-              <div key={source}>
-                <p className="px-3 pb-1 pt-2 text-[9px] font-semibold tracking-[0.12em] text-[var(--prototype-muted)] uppercase">
-                  {source}
-                </p>
-                {group.map((agent) => {
-                  const selected = selectedIds.has(agent.id);
-                  return (
-                    <button
-                      aria-pressed={selected}
-                      className="flex min-h-11 w-full items-center gap-3 rounded-[7px] px-3 py-2 text-left hover:bg-[var(--prototype-field)] disabled:cursor-not-allowed disabled:opacity-45"
-                      data-testid={`prototype-agent-${agent.id}`}
-                      disabled={Boolean(agent.disabledReason)}
-                      key={agent.id}
-                      onClick={() => onToggle(agent.id)}
-                      title={agent.disabledReason}
-                      type="button"
-                    >
-                      <TerminalSquare
-                        className="size-4 shrink-0 text-[var(--prototype-muted)]"
-                        strokeWidth={1.2}
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[12px] font-medium">
-                          {agent.name}
-                        </span>
-                        <span className="block truncate text-[10px] text-[var(--prototype-muted)]">
-                          {agent.disabledReason ?? `${source} agent`}
-                        </span>
-                      </span>
-                      <span
-                        className={cn(
-                          "grid size-4 shrink-0 place-items-center rounded-[5px] border",
-                          selected
-                            ? "border-[var(--prototype-ink)] bg-[var(--prototype-ink)] text-[var(--prototype-field)]"
-                            : "border-[var(--prototype-hairline)]",
-                        )}
-                      >
-                        {selected ? <Check className="size-3" /> : null}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            );
-          })}
-          {!filtered.length ? (
-            <p className="px-3 py-8 text-center text-[12px] text-[var(--prototype-muted)]">
-              No matching agents
-            </p>
-          ) : null}
-        </section>
       </div>
-    </SetupFrame>
+      <section
+        aria-label="Discovered agents"
+        className="mt-3 min-h-0 flex-1 overflow-y-auto rounded-[9px] bg-[var(--prototype-selection)] p-1"
+        data-testid="prototype-agent-inventory"
+      >
+        {(["Hermes", "OpenClaw"] as const).map((source) => {
+          const group = filtered.filter((agent) => agent.source === source);
+          if (!group.length) return null;
+          return (
+            <div key={source}>
+              <p className="px-3 pb-1 pt-2 text-[9px] font-semibold tracking-[0.12em] text-[var(--prototype-muted)] uppercase">
+                {source}
+              </p>
+              {group.map((agent) => {
+                const selected = selectedIds.has(agent.id);
+                return (
+                  <button
+                    aria-pressed={selected}
+                    className="flex min-h-11 w-full items-center gap-3 rounded-[7px] px-3 py-2 text-left hover:bg-[var(--prototype-field)] disabled:cursor-not-allowed disabled:opacity-45"
+                    data-testid={`prototype-agent-${agent.id}`}
+                    disabled={Boolean(agent.disabledReason)}
+                    key={agent.id}
+                    onClick={() => onToggle(agent.id)}
+                    title={agent.disabledReason}
+                    type="button"
+                  >
+                    <TerminalSquare
+                      className="size-4 shrink-0 text-[var(--prototype-muted)]"
+                      strokeWidth={1.2}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[12px] font-medium">
+                        {agent.name}
+                      </span>
+                      <span className="block truncate text-[10px] text-[var(--prototype-muted)]">
+                        {agent.disabledReason ?? `${source} agent`}
+                      </span>
+                    </span>
+                    <span
+                      className={cn(
+                        "grid size-4 shrink-0 place-items-center rounded-[5px] border",
+                        selected
+                          ? "border-[var(--prototype-ink)] bg-[var(--prototype-ink)] text-[var(--prototype-field)]"
+                          : "border-[var(--prototype-hairline)]",
+                      )}
+                    >
+                      {selected ? <Check className="size-3" /> : null}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })}
+        {!filtered.length ? (
+          <p className="px-3 py-8 text-center text-[12px] text-[var(--prototype-muted)]">
+            No matching agents
+          </p>
+        ) : null}
+      </section>
+    </div>
   );
 }
 
-function PreparingState({ appearance }: { appearance: "light" | "dark" }) {
+function PreparingState({
+  appearance,
+  showIndicator,
+}: {
+  appearance: "light" | "dark";
+  showIndicator: boolean;
+}) {
   const reduceMotion = useReducedMotion();
   return (
     <section
       aria-live="polite"
-      className="flex w-full max-w-[31rem] flex-col items-center text-center"
+      className="flex h-full w-full flex-col items-center justify-center text-center"
       data-testid="conversational-onboarding-preparing"
     >
       <LucaMark appearance={appearance} size={30} />
-      <div className="mt-6 grid size-5 place-items-center text-[var(--prototype-muted-strong)]">
-        {reduceMotion ? (
-          <span className="size-2 rounded-full bg-current" />
-        ) : (
-          <LoaderCircle className="size-5 animate-spin" strokeWidth={1.4} />
-        )}
-      </div>
-      <h1 className="mt-4 text-[23px] font-medium tracking-[-0.035em]">
+      <h1 className="mt-5 text-[23px] font-medium tracking-[-0.018em]">
         Getting Luca ready…
       </h1>
+      <div className="mt-4 grid h-5 place-items-center text-[var(--prototype-muted-strong)]">
+        {showIndicator ? (
+          reduceMotion ? (
+            <span className="size-2 rounded-full bg-current" />
+          ) : (
+            <LoaderCircle className="size-5 animate-spin" strokeWidth={1.4} />
+          )
+        ) : null}
+      </div>
     </section>
   );
 }
@@ -992,15 +957,21 @@ function ProposalCard() {
 
 function ConversationState({
   appearance,
+  autoFocus,
   forceProposal,
   name,
   onShowProposal,
+  showGreeting,
 }: {
   appearance: "light" | "dark";
+  autoFocus: boolean;
   forceProposal: boolean;
   name: string;
   onShowProposal: () => void;
+  showGreeting: boolean;
 }) {
+  const reduceMotion = useReducedMotion();
+  const composerRef = React.useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = React.useState("");
   const [sentMessage, setSentMessage] = React.useState<string | null>(
     forceProposal ? "Can you create a research agent for me?" : null,
@@ -1012,12 +983,28 @@ function ConversationState({
     setDraft("");
     if (/agent|research|create/i.test(message)) onShowProposal();
   };
+  React.useEffect(() => {
+    if (!autoFocus) return;
+    const timeout = window.setTimeout(
+      () => composerRef.current?.focus(),
+      reduceMotion ? 0 : 180,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [autoFocus, reduceMotion]);
   return (
-    <section
-      className="flex h-[calc(100dvh-4rem)] min-h-[22rem] w-[min(62rem,calc(100vw-4rem))] max-h-[42rem] overflow-hidden rounded-[16px] border border-[var(--prototype-hairline)] bg-[var(--prototype-raised)] shadow-[0_24px_80px_var(--prototype-shadow)]"
+    <div
+      className="flex h-full w-full overflow-hidden"
       data-testid="conversational-onboarding-conversation"
     >
-      <aside className="hidden w-[13rem] shrink-0 flex-col bg-[color-mix(in_srgb,var(--prototype-canvas)_70%,var(--prototype-raised))] p-3 md:flex">
+      <motion.aside
+        animate={{ opacity: 1 }}
+        className="hidden w-[13rem] shrink-0 flex-col bg-[color-mix(in_srgb,var(--prototype-canvas)_70%,var(--prototype-raised))] p-3 md:flex"
+        initial={{ opacity: 0 }}
+        transition={{
+          delay: reduceMotion ? 0 : 0.11,
+          duration: reduceMotion ? 0.12 : 0.2,
+        }}
+      >
         <div className="flex items-center gap-2.5 px-2 py-1.5">
           <LucaMark appearance={appearance} size={17} />
           <span className="text-[13px] font-semibold">Luca</span>
@@ -1051,8 +1038,16 @@ function ConversationState({
           Settings
           <ChevronRight className="size-3" />
         </button>
-      </aside>
-      <div className="flex min-w-0 flex-1 flex-col bg-[var(--prototype-field)]">
+      </motion.aside>
+      <motion.div
+        animate={{ opacity: 1 }}
+        className="flex min-w-0 flex-1 flex-col bg-[var(--prototype-field)]"
+        initial={{ opacity: 0 }}
+        transition={{
+          delay: reduceMotion ? 0 : 0.11,
+          duration: reduceMotion ? 0.12 : 0.2,
+        }}
+      >
         <header className="flex h-12 shrink-0 items-center gap-2.5 border-b border-[var(--prototype-hairline-soft)] px-5">
           <LucaMark appearance={appearance} size={16} />
           <div>
@@ -1062,21 +1057,30 @@ function ConversationState({
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 sm:px-9">
           <div className="mx-auto max-w-[38rem]">
-            <div className="flex gap-3">
-              <LucaMark appearance={appearance} size={20} />
-              <div className="pt-0.5">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-[13px] font-semibold">Luca</span>
-                  <span className="text-[10px] text-[var(--prototype-muted)]">
-                    now
-                  </span>
+            {showGreeting ? (
+              <motion.div
+                animate={{ opacity: 1 }}
+                className="flex gap-3"
+                initial={{ opacity: 0 }}
+                transition={{
+                  duration: reduceMotion ? 0.12 : 0.16,
+                }}
+              >
+                <LucaMark appearance={appearance} size={20} />
+                <div className="pt-0.5">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-[13px] font-semibold">Luca</span>
+                    <span className="text-[10px] text-[var(--prototype-muted)]">
+                      now
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[14px] leading-6">
+                    Hi, {name || "Riley"} — I’m Luca. I’m ready. What would you
+                    like help with first?
+                  </p>
                 </div>
-                <p className="mt-1 text-[14px] leading-6">
-                  Hi, {name || "Riley"} — I’m Luca. I’m ready. What would you
-                  like help with first?
-                </p>
-              </div>
-            </div>
+              </motion.div>
+            ) : null}
             {sentMessage ? (
               <div className="mt-7 pl-[3rem]">
                 <div className="flex items-baseline gap-2">
@@ -1118,6 +1122,7 @@ function ConversationState({
                 }
               }}
               placeholder="Message Luca"
+              ref={composerRef}
               rows={1}
               value={draft}
             />
@@ -1132,8 +1137,8 @@ function ConversationState({
             </button>
           </div>
         </div>
-      </div>
-    </section>
+      </motion.div>
+    </div>
   );
 }
 
@@ -1161,19 +1166,81 @@ export function ConversationalOnboardingPreview() {
   const [selectedAgentIds, setSelectedAgentIds] = React.useState<Set<string>>(
     () => new Set(),
   );
+  const [transitionDirection, setTransitionDirection] = React.useState(1);
+  const [showPreparingIndicator, setShowPreparingIndicator] =
+    React.useState(false);
+  const [openingExpanded, setOpeningExpanded] = React.useState(false);
+  const [showHomeChrome, setShowHomeChrome] = React.useState(false);
+  const [showGreeting, setShowGreeting] = React.useState(false);
+  const holdReviewState = React.useRef(
+    new URL(window.location.href).searchParams.get("prototypeHold") === "1",
+  );
   const resolvedAppearance =
     appearance === "system" ? systemColorScheme : appearance;
   const palette = resolvedAppearance === "dark" ? darkPalette : lightPalette;
   const discoveryStatus = discoveryForScenario(scenario);
+  const selectedRuntime =
+    runtimes.find((runtime) => runtime.id === selectedRuntimeId) ?? runtimes[0];
+
+  const navigate = React.useCallback((next: PrototypeState, direction = 1) => {
+    setTransitionDirection(direction);
+    setState(next);
+  }, []);
 
   React.useEffect(() => {
     if (state !== "preparing") return;
-    const timeout = window.setTimeout(() => setState("conversation"), 720);
-    return () => window.clearTimeout(timeout);
-  }, [state]);
+    setShowPreparingIndicator(false);
+    const indicatorTimeout = window.setTimeout(
+      () => setShowPreparingIndicator(true),
+      300,
+    );
+    if (holdReviewState.current) {
+      return () => window.clearTimeout(indicatorTimeout);
+    }
+    const completionTimeout = window.setTimeout(() => navigate("opening"), 260);
+    return () => {
+      window.clearTimeout(indicatorTimeout);
+      window.clearTimeout(completionTimeout);
+    };
+  }, [navigate, state]);
+
+  React.useEffect(() => {
+    if (state !== "opening") return;
+    if (holdReviewState.current) {
+      setOpeningExpanded(true);
+      setShowHomeChrome(true);
+      setShowGreeting(false);
+      return;
+    }
+    setOpeningExpanded(Boolean(reduceMotion));
+    setShowHomeChrome(false);
+    setShowGreeting(false);
+    const expansionTimeout = window.setTimeout(
+      () => setOpeningExpanded(true),
+      reduceMotion ? 0 : 100,
+    );
+    const chromeTimeout = window.setTimeout(
+      () => setShowHomeChrome(true),
+      reduceMotion ? 0 : 210,
+    );
+    const greetingTimeout = window.setTimeout(
+      () => setShowGreeting(true),
+      reduceMotion ? 0 : 320,
+    );
+    const readyTimeout = window.setTimeout(
+      () => navigate("conversation"),
+      reduceMotion ? 120 : 480,
+    );
+    return () => {
+      window.clearTimeout(expansionTimeout);
+      window.clearTimeout(chromeTimeout);
+      window.clearTimeout(greetingTimeout);
+      window.clearTimeout(readyTimeout);
+    };
+  }, [navigate, reduceMotion, state]);
 
   const continueFromRuntime = () => {
-    setState(discoveryStatus === "found" ? "agents-summary" : "preparing");
+    navigate(discoveryStatus === "found" ? "agents-summary" : "preparing");
   };
 
   const recoverRuntime = (runtime: RuntimeChoice) => {
@@ -1234,6 +1301,77 @@ export function ConversationalOnboardingPreview() {
     });
   };
 
+  const setupState =
+    state !== "opening" && state !== "conversation" && state !== "proposal";
+  const homeSized =
+    state === "conversation" || state === "proposal" || openingExpanded;
+  const renderHome =
+    state === "conversation" ||
+    state === "proposal" ||
+    (state === "opening" && showHomeChrome);
+
+  const setupFooter = (() => {
+    if (state === "welcome") {
+      return (
+        <>
+          <QuietButton onClick={openManualSetup}>Set up manually</QuietButton>
+          <PrimaryButton
+            disabled={!name.trim()}
+            onClick={() => navigate("runtime")}
+          >
+            Begin
+            <ArrowRight className="size-3.5" />
+          </PrimaryButton>
+        </>
+      );
+    }
+    if (state === "runtime") {
+      return (
+        <>
+          <QuietButton onClick={() => navigate("welcome", -1)}>
+            Back
+          </QuietButton>
+          <PrimaryButton
+            disabled={selectedRuntime.status !== "ready"}
+            onClick={continueFromRuntime}
+          >
+            Continue
+          </PrimaryButton>
+        </>
+      );
+    }
+    if (state === "agents-summary") {
+      return (
+        <>
+          <QuietButton onClick={() => navigate("runtime", -1)}>
+            Back
+          </QuietButton>
+          <QuietButton onClick={() => navigate("preparing")}>
+            Not now
+          </QuietButton>
+        </>
+      );
+    }
+    if (state === "agents-select") {
+      return (
+        <>
+          <QuietButton onClick={() => navigate("agents-summary", -1)}>
+            <span className="inline-flex items-center gap-1">
+              <ArrowLeft className="size-3" />
+              Back
+            </span>
+          </QuietButton>
+          <PrimaryButton onClick={() => navigate("preparing")}>
+            {selectedAgentIds.size
+              ? `Import ${selectedAgentIds.size} and continue`
+              : "Continue"}
+          </PrimaryButton>
+        </>
+      );
+    }
+    return <span aria-hidden />;
+  })();
+
   return (
     <div
       className="relative h-dvh overflow-hidden bg-[var(--prototype-canvas)] text-[var(--prototype-ink)]"
@@ -1252,75 +1390,128 @@ export function ConversationalOnboardingPreview() {
       }}
     >
       <StartupWindowDragRegion />
-      <main className="grid h-full place-items-center px-6 pb-6 pt-10 sm:px-8 sm:pb-8 sm:pt-12">
-        <AnimatePresence mode="wait">
-          <motion.div
-            animate={{ opacity: 1, y: 0 }}
-            className="grid w-full place-items-center"
-            initial={reduceMotion ? false : { opacity: 0, y: 5 }}
-            key={state}
-            transition={
-              reduceMotion
-                ? { duration: 0 }
-                : { duration: 0.19, ease: [0.2, 0, 0, 1] }
-            }
-          >
-            {state === "welcome" ? (
-              <WelcomeState
-                appearance={appearance}
-                name={name}
-                onAppearanceChange={setAppearance}
-                onBegin={() => setState("runtime")}
-                onManualSetup={openManualSetup}
-                onNameChange={setName}
-                resolvedAppearance={resolvedAppearance}
-              />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(circle at center, var(--prototype-canvas) 0%, color-mix(in srgb, var(--prototype-canvas) 94%, transparent) 34%, transparent 68%)",
+        }}
+      />
+      <main className="relative grid h-full place-items-center p-4">
+        <motion.section
+          className={cn(
+            "relative overflow-hidden border border-[var(--prototype-hairline)] bg-[color-mix(in_srgb,var(--prototype-field)_96%,transparent)]",
+            homeSized
+              ? "h-[min(42rem,calc(100dvh-2rem))] w-[min(62rem,calc(100vw-2rem))] rounded-[16px]"
+              : "h-[min(34.5rem,calc(100dvh-2rem))] w-[min(37rem,calc(100vw-2rem))] rounded-[15px]",
+          )}
+          data-phase={state}
+          data-testid="prototype-home-surface"
+          layout={reduceMotion ? false : "size"}
+          style={{
+            boxShadow:
+              "inset 0 1px 0 var(--prototype-hairline-soft), 0 1px 2px rgba(0,0,0,0.08), 0 22px 64px var(--prototype-shadow)",
+          }}
+          transition={{
+            layout: {
+              duration: 0.36,
+              ease: [0.22, 1, 0.36, 1],
+            },
+          }}
+        >
+          <AnimatePresence initial={false} mode="wait">
+            {setupState ? (
+              <motion.div
+                animate={{ opacity: 1 }}
+                className="absolute inset-0"
+                exit={{ opacity: 0 }}
+                initial={{ opacity: 0 }}
+                key="setup-shell"
+                transition={{ duration: reduceMotion ? 0.1 : 0.1 }}
+              >
+                <PrototypeSetupShell
+                  footer={setupFooter}
+                  showFooterDivider={state === "agents-select"}
+                >
+                  <AnimatePresence initial={false} mode="wait">
+                    <motion.div
+                      animate={{ opacity: 1, x: 0 }}
+                      className="h-full"
+                      exit={{
+                        opacity: 0,
+                        x: reduceMotion ? 0 : transitionDirection * -3,
+                      }}
+                      initial={{
+                        opacity: 0,
+                        x: reduceMotion ? 0 : transitionDirection * 3,
+                      }}
+                      key={state}
+                      transition={{
+                        duration: reduceMotion ? 0.11 : 0.18,
+                        ease: [0.2, 0, 0, 1],
+                      }}
+                    >
+                      {state === "welcome" ? (
+                        <WelcomeState
+                          appearance={appearance}
+                          name={name}
+                          onAppearanceChange={setAppearance}
+                          onBegin={() => navigate("runtime")}
+                          onNameChange={setName}
+                        />
+                      ) : null}
+                      {state === "runtime" ? (
+                        <RuntimeState
+                          error={runtimeError}
+                          onRecover={recoverRuntime}
+                          onSelect={(id) => {
+                            setSelectedRuntimeId(id);
+                            setRuntimeError(null);
+                          }}
+                          runtimes={runtimes}
+                          selectedId={selectedRuntimeId}
+                        />
+                      ) : null}
+                      {state === "agents-summary" ? (
+                        <AgentsSummaryState
+                          onChoose={() => navigate("agents-select")}
+                        />
+                      ) : null}
+                      {state === "agents-select" ? (
+                        <AgentsSelectState
+                          onToggle={toggleAgent}
+                          selectedIds={selectedAgentIds}
+                        />
+                      ) : null}
+                      {state === "preparing" ? (
+                        <PreparingState
+                          appearance={resolvedAppearance}
+                          showIndicator={showPreparingIndicator}
+                        />
+                      ) : null}
+                    </motion.div>
+                  </AnimatePresence>
+                </PrototypeSetupShell>
+              </motion.div>
             ) : null}
-            {state === "runtime" ? (
-              <RuntimeState
-                appearance={resolvedAppearance}
-                error={runtimeError}
-                onBack={() => setState("welcome")}
-                onContinue={continueFromRuntime}
-                onRecover={recoverRuntime}
-                onSelect={(id) => {
-                  setSelectedRuntimeId(id);
-                  setRuntimeError(null);
-                }}
-                runtimes={runtimes}
-                selectedId={selectedRuntimeId}
-              />
-            ) : null}
-            {state === "agents-summary" ? (
-              <AgentsSummaryState
-                appearance={resolvedAppearance}
-                onBack={() => setState("runtime")}
-                onChoose={() => setState("agents-select")}
-                onSkip={() => setState("preparing")}
-              />
-            ) : null}
-            {state === "agents-select" ? (
-              <AgentsSelectState
-                appearance={resolvedAppearance}
-                onBack={() => setState("agents-summary")}
-                onContinue={() => setState("preparing")}
-                onToggle={toggleAgent}
-                selectedIds={selectedAgentIds}
-              />
-            ) : null}
-            {state === "preparing" ? (
-              <PreparingState appearance={resolvedAppearance} />
-            ) : null}
-            {state === "conversation" || state === "proposal" ? (
-              <ConversationState
-                appearance={resolvedAppearance}
-                forceProposal={state === "proposal"}
-                name={name}
-                onShowProposal={() => setState("proposal")}
-              />
-            ) : null}
-          </motion.div>
-        </AnimatePresence>
+          </AnimatePresence>
+          {renderHome ? (
+            <ConversationState
+              appearance={resolvedAppearance}
+              autoFocus={state === "conversation" || state === "proposal"}
+              forceProposal={state === "proposal"}
+              name={name}
+              onShowProposal={() => navigate("proposal")}
+              showGreeting={state !== "opening" || showGreeting}
+            />
+          ) : null}
+          <span aria-live="polite" className="sr-only">
+            {state === "conversation" || state === "proposal"
+              ? "Polyphonic is ready. Luca is ready."
+              : ""}
+          </span>
+        </motion.section>
       </main>
     </div>
   );

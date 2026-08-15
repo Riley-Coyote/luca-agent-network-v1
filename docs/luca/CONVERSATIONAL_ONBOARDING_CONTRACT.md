@@ -19,6 +19,8 @@ The Riley design-language guide is explicitly excluded from this onboarding work
 
 Application-level onboarding chrome is branded **Polyphonic**. **Luca** names the canonical native agent and concierge, so Luca appears as the participant identity inside conversation and in copy describing that agent, not as the application title.
 
+The exposed dot glyph belongs exclusively to Luca. The setup window uses a restrained text-only **Polyphonic** wordmark; it does not borrow Luca's identity mark or invent a product symbol. Luca's glyph first appears during preparation and remains the same participant mark in the first conversation.
+
 ## Product decision
 
 Luca's default onboarding is a short path into a real conversation with the canonical Luca resident. It asks for the owner's name and requires the owner to confirm one ready runtime that will power Luca. Runtime selection is separate from optional import of native Hermes and OpenClaw agents.
@@ -52,7 +54,7 @@ There is no temporary onboarding bot. The Luca who greets the owner is the same 
 
 The first screen contains:
 
-- Luca's exposed dot glyph and name;
+- a text-only Polyphonic wordmark;
 - a short explanation of the product;
 - the owner's display-name field;
 - **System**, **Light**, and **Dark** appearance choices;
@@ -93,6 +95,9 @@ Capability truth:
 Behavior:
 
 - A recommended ready runtime may be preselected.
+- Every detected, genuinely ready runtime appears in the primary list, with the best recommendation first and exactly one choice marked Recommended.
+- Supported runtimes that are not ready remain behind **Choose another runtime** unless the user opens it, the recommendation needs attention, or no runtime is ready.
+- If no runtime is ready, every supported choice and its truthful recovery path are visible automatically.
 - Continue is disabled until the selected runtime is Ready.
 - Selecting an unready runtime reveals one inline recovery area, never a separate error page.
 - Use **Sign in** only when a supported auth action exists.
@@ -170,6 +175,8 @@ Any action that creates, imports, connects, grants, invites, or otherwise change
 ## Appearance and layout
 
 - One centered content column, approximately 560–640 px wide.
+- Welcome, runtime selection, agent summary, agent selection, and preparation share one persistent setup window. Its width, header, footer, and content leading edge do not remount or move between ordinary steps.
+- The prototype setup window is approximately 592 px wide and no taller than `min(552px, calc(100dvh - 32px))`.
 - One dominant action per state.
 - Use SF system typography and existing Luca runtime icons.
 - Use spacing, tonal surfaces, and typography before borders or dividers.
@@ -178,8 +185,16 @@ Any action that creates, imports, connects, grants, invites, or otherwise change
 - Color is reserved for semantic status.
 - Header and footer stay stable. Only a long agent inventory introduces a local scroll region.
 - There is no step counter because the import screen is conditional.
-- Transitions use brief 160–220 ms fades or small positional changes. Reduced Motion removes translation.
+- Inner transitions use 160–200 ms opacity changes and at most 2–3 px of directional movement. Reduced Motion uses a 100–120 ms opacity-only change.
 - The supported 800×500 desktop minimum must keep the outer frame and footer visible.
+
+### Setup becomes home
+
+Preparation remains inside the persistent window and introduces Luca's glyph independently from the selected runtime logo. When Luca is ready, setup content fades, the empty surface expands into the representative Polyphonic shell, app chrome resolves during the expansion, and Luca's single greeting appears after the shell is stable. The canvas and dot field never move.
+
+Normal motion uses a 340–380 ms surface expansion with easing `[0.22, 1, 0.36, 1]`; Reduced Motion uses a direct 120 ms crossfade. Text and live controls are never scaled. Focus moves to the composer when the conversation becomes ready, and readiness is announced through the existing live-status path.
+
+The prototype explicitly excludes particles, animated grids, moving gradients, glow sweeps, fake glass, icon flight, parallax, sound, bounce, and artificial delays.
 
 ## State and recovery
 
@@ -205,10 +220,11 @@ The deterministic prototype uses preview-local state only:
 - `agents-summary`
 - `agents-select`
 - `preparing`
+- `opening`
 - `conversation`
 - `proposal`
 
-Direct visual review uses `prototypeState` and `prototypeScenario` query parameters. Fixtures cover mixed readiness, Codex and Claude authentication, automatic installation, Hermes-only, OpenClaw-only, no-ready-runtime, setup success and failure, agents found, no agents, delayed discovery, and failed discovery.
+Direct visual review uses `prototypeState` and `prototypeScenario` query parameters. `prototypeHold=1` holds preparation or the deterministic opening review state. Fixtures cover mixed readiness, Codex and Claude authentication, automatic installation, Hermes-only, OpenClaw-only, no-ready-runtime, setup success and failure, agents found, no agents, delayed discovery, and failed discovery.
 
 The prototype invokes no production installation, authentication, provisioning, import, or messaging command. Production connection is a separate implementation package after journey approval.
 
@@ -217,6 +233,7 @@ The prototype invokes no production installation, authentication, provisioning, 
 ### Runtime
 
 - A ready recommendation is preselected and still requires owner confirmation.
+- Mixed-ready fixtures show every detected ready runtime and only one recommendation; unready runtimes remain discoverable through disclosure.
 - Native radio behavior, keyboard focus, and status announcements are correct.
 - Sign-in, install, guide, checking, unavailable, retry, success, and failure states preserve layout.
 - Hermes-only and OpenClaw-only fixtures can reach the conversation.
@@ -241,6 +258,8 @@ The prototype invokes no production installation, authentication, provisioning, 
 - Every state works at 1440×900, 1024×768, and 800×500.
 - Keyboard-only navigation, focus order, labels, live status, and reduced motion are correct.
 - No blank transition or theme flash occurs.
+- Luca's glyph never appears as the Polyphonic product mark and no runtime logo morphs into it.
+- Normal and Reduced Motion setup-to-home transitions preserve one greeting, transfer focus to the composer, and invoke no production command.
 
 ## Deferred
 
