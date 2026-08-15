@@ -1,5 +1,11 @@
 # Onboarding and Source Adapters
 
+> **Product-onboarding authority:**
+> [`../CONVERSATIONAL_ONBOARDING_CONTRACT.md`](../CONVERSATIONAL_ONBOARDING_CONTRACT.md)
+> defines Luca's default first-run journey. The Brain Setup flow below is an
+> optional, reopenable advanced surface and is not a prerequisite for entering
+> Luca or starting a conversation.
+
 ## Reopenable Brain Setup experience
 
 This flow lives inside Brain Setup after Luca owner onboarding. It is optional,
