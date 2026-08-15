@@ -643,8 +643,6 @@ function MachineBootstrap({ sharedIdentity }: { sharedIdentity: boolean }) {
   });
   const [machineInitialPage, setMachineInitialPage] =
     useState<MachineOnboardingPage>();
-  const [onboardingPreviewDismissed, setOnboardingPreviewDismissed] =
-    useState(false);
   const polyphonicOnboardingPreview = readPolyphonicOnboardingPreviewStage();
 
   const reopenMachineConfig = useCallback(() => {
@@ -691,11 +689,11 @@ function MachineBootstrap({ sharedIdentity }: { sharedIdentity: boolean }) {
     };
   }, [communityOnboarding.start, openAddCommunity]);
 
-  if (polyphonicOnboardingPreview && !onboardingPreviewDismissed) {
+  if (polyphonicOnboardingPreview) {
     return (
       <PolyphonicOnboardingPreview
         initialStage={polyphonicOnboardingPreview}
-        onComplete={() => setOnboardingPreviewDismissed(true)}
+        queryClient={machine.queryClient}
       />
     );
   }

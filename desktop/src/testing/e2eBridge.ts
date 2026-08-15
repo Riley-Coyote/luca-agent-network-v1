@@ -3430,6 +3430,59 @@ function getConfig(): E2eConfig | undefined {
   return window.__BUZZ_E2E__;
 }
 
+function getOnboardingLabNativeDiscovery(): NativeResidentDiscoveryOutcome | null {
+  const preview = new URL(window.location.href).searchParams.get(
+    "polyphonicOnboardingPreview",
+  );
+  if (!preview) return null;
+
+  const hermes = ["default", "axiom", "bobby", "cortex"].map((name) => ({
+    nativeType: "hermes" as const,
+    nativeId: name,
+    semanticId: `hermes:${name}`,
+    bindingFingerprint: `sha256:onboarding-lab-hermes-${name}`,
+    displayName: name,
+    readiness: { status: "ready" as const },
+    warnings: [],
+    bindingPreview: {
+      kind: "hermes" as const,
+      schemaVersion: 1 as const,
+      profileName: name,
+      hermesHome: `/fixture/hermes/${name}`,
+      executablePath: "hermes",
+      runtimeVersion: "1.0.0",
+    },
+  }));
+  const openclaw = ["main", "Anima", "iris", "flux"].map((name) => ({
+    nativeType: "openclaw" as const,
+    nativeId: name.toLowerCase(),
+    semanticId: `openclaw:${name.toLowerCase()}`,
+    bindingFingerprint: `sha256:onboarding-lab-openclaw-${name.toLowerCase()}`,
+    displayName: name,
+    readiness: { status: "ready" as const },
+    warnings: [],
+    bindingPreview: {
+      kind: "openclaw" as const,
+      schemaVersion: 1 as const,
+      agentId: name.toLowerCase(),
+      executablePath: "openclaw",
+      runtimeVersion: "1.0.0",
+      gatewayIdentity: "onboarding-lab",
+      gatewayUrlRef: {
+        provider: "native_store" as const,
+        locator: `onboarding-lab-${name.toLowerCase()}`,
+      },
+    },
+  }));
+
+  return {
+    runtimes: [
+      { nativeType: "hermes", status: "available", candidates: hermes },
+      { nativeType: "openclaw", status: "available", candidates: openclaw },
+    ],
+  };
+}
+
 function readStoredIdentityOverride(): TestIdentity | undefined {
   try {
     const rawValue = window.localStorage.getItem(
@@ -11080,7 +11133,8 @@ export function maybeInstallE2eTauriMocks() {
           throw new Error(activeConfig.mock.nativeResidentDiscoveryError);
         }
         return (
-          activeConfig?.mock?.nativeResidentDiscovery ?? {
+          activeConfig?.mock?.nativeResidentDiscovery ??
+          getOnboardingLabNativeDiscovery() ?? {
             runtimes: [
               {
                 nativeType: "hermes",
