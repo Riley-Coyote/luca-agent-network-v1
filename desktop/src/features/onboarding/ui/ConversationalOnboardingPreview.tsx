@@ -502,26 +502,24 @@ function PrototypeThresholdContinuity({
     : (viewportRect ?? sourceRect);
   if (!destinationRect || isHome) return null;
 
-  const immersiveScale = sourceRect
-    ? Math.max(
-        (viewportRect?.width ?? sourceRect.width) / sourceRect.width,
-        (viewportRect?.height ?? sourceRect.height) / sourceRect.height,
-      ) * 1.12
-    : 2.4;
-  const passagePeak = appearance === "dark" ? 0.88 : 0.8;
-  const heldPassageOpacity = appearance === "dark" ? 0.34 : 0.28;
+  const viewportWidth = viewportRect?.width ?? sourceRect?.width ?? 1024;
+  const viewportHeight = viewportRect?.height ?? sourceRect?.height ?? 768;
+  const growthFieldSize = Math.min(
+    1600,
+    Math.ceil(Math.hypot(viewportWidth, viewportHeight)),
+  );
   const visibleOpacity = isThreshold
     ? 1
     : isThresholdOpening
       ? reduceMotion
-        ? [1, hold ? heldPassageOpacity : 0]
-        : [1, 1, passagePeak, hold ? heldPassageOpacity : 0]
+        ? [1, hold ? 1 : 0]
+        : [1, 1, hold ? 1 : 0]
       : opening
         ? reduceMotion
           ? 0
-          : [0, appearance === "dark" ? 0.34 : 0.24, 0]
+          : [0, 1, 0]
         : 0;
-  const geometryDuration = reduceMotion || !isThresholdOpening ? 0 : 1.08;
+  const geometryDuration = reduceMotion || !isThresholdOpening ? 0 : 1.78;
   const geometryDelay = reduceMotion || !isThresholdOpening ? 0 : 0.02;
   const geometryTransition = {
     delay: geometryDelay,
@@ -531,30 +529,41 @@ function PrototypeThresholdContinuity({
   const opacityTransition = isThresholdOpening
     ? {
         delay: 0,
-        duration: reduceMotion ? 0.12 : 1.14,
+        duration: reduceMotion ? 0.12 : 1.78,
         ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
-        times: reduceMotion ? undefined : [0, 0.28, 0.76, 1],
+        times: reduceMotion ? undefined : [0, 0.88, 1],
       }
     : opening
       ? {
           delay: 0,
-          duration: reduceMotion ? 0.12 : 0.38,
+          duration: reduceMotion ? 0.12 : 0.44,
           ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
-          times: reduceMotion ? undefined : [0, 0.42, 1],
+          times: reduceMotion ? undefined : [0, 0.34, 1],
         }
       : { duration: 0 };
-  const fieldScale = isThreshold
+  // The production core remains spatially fixed. The sense of expansion comes
+  // from new DLA growth around it, never from enlarging the existing artwork.
+  const coreScale = 1;
+  const coreOpacity = isThreshold
     ? 1
-    : isThresholdOpening && !reduceMotion
-      ? [1, Math.min(immersiveScale * 0.58, 1.75), immersiveScale]
-      : opening && !reduceMotion
-        ? [immersiveScale * 0.94, immersiveScale * 1.08]
-        : immersiveScale;
+    : isThresholdOpening
+      ? reduceMotion
+        ? [1, 0]
+        : [1, 1, 0.82, hold ? 0.34 : 0]
+      : 0;
   const fieldFilter = isThreshold
     ? "brightness(1) contrast(1)"
     : appearance === "dark"
       ? "brightness(1.28) contrast(1.12)"
-      : "brightness(0.54) contrast(1.38)";
+      : "brightness(0.22) contrast(1.72)";
+  // In light mode, keep the field luminous while the room is still dark. Its
+  // polarity changes only as the surrounding canvas itself changes tone.
+  const fieldFilterDelay =
+    isThresholdOpening && !reduceMotion && appearance === "light" ? 1.16 : 0;
+  // Let the full field accrete invisibly while the threshold is being read,
+  // then reveal its existing branches through an expanding feathered mask.
+  // The canvas never scales, and it keeps growing throughout the handoff.
+  const showGrowthField = isThreshold || isThresholdOpening || opening;
 
   return (
     <motion.div
@@ -587,26 +596,106 @@ function PrototypeThresholdContinuity({
       }}
     >
       <motion.div
-        animate={{ filter: fieldFilter, scale: fieldScale }}
+        animate={{
+          filter: fieldFilter,
+          opacity: coreOpacity,
+          scale: coreScale,
+        }}
         className="absolute inset-0 origin-center transform-gpu"
+        data-testid="prototype-threshold-core"
         initial={false}
         transition={{
           filter: {
-            delay: isThresholdOpening && !reduceMotion ? 0.24 : 0,
-            duration: isThresholdOpening && !reduceMotion ? 0.58 : 0.12,
+            delay: fieldFilterDelay,
+            duration: isThresholdOpening && !reduceMotion ? 0.48 : 0.12,
             ease: "easeOut",
           },
           scale: {
             delay: isThresholdOpening && !reduceMotion ? 0.02 : 0,
-            duration: isThresholdOpening && !reduceMotion ? 1.08 : 0.38,
+            duration: isThresholdOpening && !reduceMotion ? 0.78 : 0.38,
             ease: [0.22, 1, 0.36, 1],
             times:
-              isThresholdOpening && !reduceMotion ? [0, 0.64, 1] : undefined,
+              isThresholdOpening && !reduceMotion ? [0, 0.52, 1] : undefined,
+          },
+          opacity: {
+            delay: 0,
+            duration: reduceMotion ? 0.12 : 1.6,
+            ease: [0.22, 1, 0.36, 1],
+            times:
+              isThresholdOpening && !reduceMotion
+                ? [0, 0.2, 0.58, 1]
+                : undefined,
           },
         }}
       >
         <PolyphonicThresholdDendrite ambient={isThreshold} />
       </motion.div>
+      {showGrowthField && !reduceMotion ? (
+        <div
+          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+          style={{ height: growthFieldSize, width: growthFieldSize }}
+        >
+          <motion.div
+            animate={{
+              filter: fieldFilter,
+              maskSize: isThreshold
+                ? "12% 12%"
+                : isThresholdOpening
+                  ? ["12% 12%", "44% 44%", "106% 106%", "160% 160%"]
+                  : "160% 160%",
+              opacity: isThreshold
+                ? 0
+                : isThresholdOpening
+                  ? [0, 0.98, 0.94, hold ? 0.58 : 0]
+                  : [0, appearance === "dark" ? 0.34 : 0.24, 0],
+            }}
+            className="h-full w-full"
+            data-testid="prototype-threshold-growth-field"
+            initial={false}
+            style={{
+              maskImage:
+                "radial-gradient(circle at center, #000 0%, #000 54%, transparent 74%)",
+              maskPosition: "center",
+              maskRepeat: "no-repeat",
+              WebkitMaskImage:
+                "radial-gradient(circle at center, #000 0%, #000 54%, transparent 74%)",
+              WebkitMaskPosition: "center",
+              WebkitMaskRepeat: "no-repeat",
+            }}
+            transition={{
+              filter: {
+                delay: fieldFilterDelay,
+                duration: 0.48,
+              },
+              maskSize: {
+                delay: isThresholdOpening ? 0.04 : 0,
+                duration: isThresholdOpening ? 1.42 : 0,
+                ease: [0.22, 1, 0.36, 1],
+                times: isThresholdOpening ? [0, 0.2, 0.64, 1] : undefined,
+              },
+              opacity: {
+                delay: isThresholdOpening ? 0.04 : 0,
+                duration: isThresholdOpening ? 1.72 : opening ? 0.44 : 0,
+                ease: [0.22, 1, 0.36, 1],
+                times: isThresholdOpening
+                  ? [0, 0.1, 0.84, 1]
+                  : opening
+                    ? [0, 0.4, 1]
+                    : undefined,
+              },
+            }}
+          >
+            <DotSigil
+              bloom={0.03}
+              cell={8}
+              dot="164,167,173"
+              scene="recall"
+              seed={`${POLYPHONIC_IDENTITY_SEED}:threshold`}
+              size={growthFieldSize}
+            />
+          </motion.div>
+        </div>
+      ) : null}
       <motion.div
         animate={{ opacity: isThreshold ? 1 : 0 }}
         className="absolute left-1/2 top-1/2 flex h-20 w-20 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
@@ -651,8 +740,8 @@ function PrototypeThresholdStage({
           backgroundSize: "24px 24px",
         }}
         transition={{
-          delay: transitioning && !reduceMotion ? 0.1 : 0,
-          duration: transitioning ? (reduceMotion ? 0.12 : 0.72) : 0,
+          delay: transitioning && !reduceMotion ? 1.3 : 0,
+          duration: transitioning ? (reduceMotion ? 0.12 : 0.38) : 0,
           ease: "easeOut",
         }}
       />
@@ -1869,7 +1958,7 @@ export function ConversationalOnboardingPreview() {
           animate={{
             clipPath:
               state === "threshold"
-                ? "inset(48% 48% 48% 48% round 24px)"
+                ? "inset(41% 36% 41% 36% round 24px)"
                 : "inset(0% 0% 0% 0% round 15px)",
             opacity: state === "threshold" ? 0 : 1,
             y: 0,
@@ -1894,18 +1983,18 @@ export function ConversationalOnboardingPreview() {
               ease: [0.22, 1, 0.36, 1],
             },
             clipPath: {
-              delay: state === "threshold-opening" && !reduceMotion ? 0.34 : 0,
+              delay: state === "threshold-opening" && !reduceMotion ? 0.94 : 0,
               duration:
-                state === "threshold-opening" && !reduceMotion ? 0.58 : 0,
+                state === "threshold-opening" && !reduceMotion ? 0.62 : 0,
               ease: [0.22, 1, 0.36, 1],
             },
             opacity: {
-              delay: state === "threshold-opening" && !reduceMotion ? 0.34 : 0,
+              delay: state === "threshold-opening" && !reduceMotion ? 0.88 : 0,
               duration:
                 state === "threshold-opening"
                   ? reduceMotion
                     ? 0.12
-                    : 0.42
+                    : 0.52
                   : 0,
               ease: "easeOut",
             },
@@ -1929,7 +2018,7 @@ export function ConversationalOnboardingPreview() {
                 transition={{
                   delay:
                     state === "threshold-opening" && !reduceMotion
-                      ? 0.52
+                      ? 0.82
                       : activeOpening && !reduceMotion
                         ? 0.22
                         : 0,
@@ -1937,7 +2026,7 @@ export function ConversationalOnboardingPreview() {
                     state === "threshold-opening"
                       ? reduceMotion
                         ? 0.12
-                        : 0.3
+                        : 0.34
                       : activeOpening && reduceMotion
                         ? 0.12
                         : 0.08,

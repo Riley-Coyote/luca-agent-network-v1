@@ -26,6 +26,7 @@ type OpeningSample = {
   activeLabel: string | null;
   destinationGlyphOpacity: number;
   greetingCount: number;
+  growthCoverage: number;
   homeOpacity: number;
   phase: string | null;
   setupGlyphOpacity: number;
@@ -86,6 +87,15 @@ async function installOpeningSampler(page: Page): Promise<void> {
       const thresholdTrace = document.querySelector<HTMLElement>(
         '[data-testid="prototype-threshold-passage"]',
       );
+      const growthField = document.querySelector<HTMLElement>(
+        '[data-testid="prototype-threshold-growth-field"]',
+      );
+      const growthStyle = growthField ? getComputedStyle(growthField) : null;
+      const growthCoverage = Number.parseFloat(
+        (growthStyle?.maskSize || growthStyle?.webkitMaskSize || "").match(
+          /([\d.]+)%/,
+        )?.[1] ?? "0",
+      );
       if (surface) {
         const box = surface.getBoundingClientRect();
         const opacity = (element: HTMLElement | null) =>
@@ -98,6 +108,7 @@ async function installOpeningSampler(page: Page): Promise<void> {
           greetingCount: document.querySelectorAll(
             '[data-testid="prototype-canonical-greeting"]',
           ).length,
+          growthCoverage,
           homeOpacity: opacity(homeLayer),
           phase: surface.dataset.phase ?? null,
           setupGlyphOpacity: opacity(setupLayer) * opacity(setupGlyph),
@@ -338,6 +349,9 @@ test("the production threshold becomes one full-canvas passage into setup", asyn
     passageSamples.some((sample) => sample.thresholdPassageOpacity > 0.5),
   ).toBe(true);
   expect(
+    Math.max(...passageSamples.map((sample) => sample.growthCoverage)),
+  ).toBeGreaterThan(70);
+  expect(
     passageSamples.some(
       (sample) =>
         sample.thresholdPassageOpacity > 0.1 && sample.setupOpacity > 0.1,
@@ -379,6 +393,19 @@ test("the production threshold becomes one full-canvas passage into setup", asyn
         .evaluate((element) => getComputedStyle(element).opacity),
     ),
   ).toBeGreaterThan(0.15);
+  const heldGrowthField = page.getByTestId("prototype-threshold-growth-field");
+  await expect(heldGrowthField).toHaveCount(1);
+  const heldGrowthRect = await rect(heldGrowthField);
+  expect(heldGrowthRect.width).toBeGreaterThanOrEqual(1024);
+  const heldCoverage = await heldGrowthField.evaluate((element) =>
+    Number.parseFloat(
+      (
+        getComputedStyle(element).maskSize ||
+        getComputedStyle(element).webkitMaskSize
+      ).match(/([\d.]+)%/)?.[1] ?? "0",
+    ),
+  );
+  expect(heldCoverage).toBeGreaterThan(70);
 
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto(prototypeUrl("mixed", undefined, true));

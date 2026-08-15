@@ -66,8 +66,8 @@ Rules:
 
 - Reuse the production threshold's seed, DotSigil scenes, cell sizes, color values, bloom, dimensions, and ambient timing. The Exploration Lab specimen is not a substitute.
 - The threshold canvas and copy retain their production appearance.
-- Begin gives one brief tonal response, then the center glyph and copy fade while the outer dendrite propagates across the complete canvas.
-- The outer dendrite is one persistent rendered instance through the handoff. It expands from its measured production rectangle rather than being recreated, replaced with a screenshot, or reduced to a decorative header mark.
+- Begin gives one brief tonal response, then the copy recedes while the fixed center and outer dendrite propagate across the complete canvas.
+- The production dendrite remains the visual source through the handoff. A full-canvas lattice using the same production DLA scene, seed, cell language, colour law, and physics remains alive invisibly while the threshold is being read, then reveals through a feathered outward-growing mask while the simulation continues accreting. Neither the source artwork nor the full field scales, so the movement cannot read as a camera push. No replacement illustration, screenshot, or decorative header mark is introduced.
 - The setup surface resolves from the field's central negative space while the field remains visibly present around it, then the field recedes completely during ordinary setup.
 - **Set up manually** opens the existing manual path and does not run the continuity transition.
 
@@ -195,7 +195,7 @@ Any action that creates, imports, connects, grants, invites, or otherwise change
 
 ## Appearance and layout
 
-- The full-canvas threshold precedes the setup window. Once Begin is accepted, the production dendrite expands into an immersive full-window field while the setup surface resolves from its central negative space.
+- The full-canvas threshold precedes the setup window. Once Begin is accepted, the production dendrite unfolds into an immersive full-window field while the setup surface resolves from its central negative space.
 - One centered content column inside a persistent setup window with width `min(592px, calc(100vw - 32px))` and height `min(552px, calc(100dvh - 32px))`.
 - The setup window is a fixed three-row grid: 56 px header, `minmax(0, 1fr)` body, and 56 px footer. It uses 36 px horizontal insets, a 16 px body top inset, and 24 px body bottom clearance.
 - Welcome, runtime selection, agent summary, agent selection, and preparation share this surface. Its position, width, header, footer, content leading edge, and primary-action position do not remount or move between ordinary steps.
@@ -218,11 +218,12 @@ Any action that creates, imports, connects, grants, invites, or otherwise change
 ### Threshold continuity passage
 
 - The exact production dendrite expands from its measured threshold rectangle to the complete viewport using whole-pixel geometry that updates through ResizeObserver.
-- Its structure remains recognizable during the first portion of the expansion, then grows beyond the setup surface so the field reads spatially rather than as an enlarged logo.
+- Its intact, unscaled center remains recognizable during the first portion of the passage while the already-running full-canvas lattice reveals progressively farther from the same origin through a soft mask. New branches continue accreting during the reveal, so the motion reads as growth into a surrounding field rather than a camera enlarging one image.
+- The setup surface resolves from the field's newly cleared central space while the live outer growth remains visible around it.
 - Light uses a graphite treatment with sufficient contrast; Dark uses the production neutral light treatment. Neither appearance introduces a semantic color, glow, particle layer, or moving grid.
 - The passage is `aria-hidden` and ignores pointer input. It never becomes a header ornament, control, progress meter, or persistent distraction during ordinary setup.
 - The setup material begins resolving while the passage is still visible. There is no empty canvas or blank setup card between the threshold and Welcome.
-- After Welcome settles, the full-canvas passage remains mounted but invisible so the same field can briefly reactivate behind the final setup-to-home handoff.
+- After Welcome settles, the full-canvas passage is removed from ordinary setup. A brief, independently mounted continuation may reactivate behind the final setup-to-home handoff and recedes once destination chrome is established.
 
 ### Neutral palette and typography
 
@@ -267,11 +268,11 @@ Runtime icons are normalized optically rather than forced to one identical drawi
 The threshold-to-setup handoff is one coordinated motion with no blank or intermediate splash:
 
 1. From 0–90 ms the accepted button receives a restrained tonal response.
-2. From 0–110 ms the threshold copy and Luca's center glyph fade.
-3. From approximately 20–1,100 ms the existing outer dendrite expands into the measured full viewport using `[0.22, 1, 0.36, 1]` with no overshoot. Its internal scale stages once so its branching structure remains legible before becoming environmental.
-4. From approximately 100–820 ms the threshold backdrop crossfades to the selected setup appearance while the dendrite remains visible.
-5. From approximately 340–920 ms the setup surface opens from the center of the field; its wordmark and Welcome content begin resolving at approximately 520 ms.
-6. The field recedes only after setup material and content are visible. At the coordinated animation's completion, Welcome becomes the settled state.
+2. From 0–140 ms the threshold copy and standalone center glyph fade, while the intact production dendrite remains spatially fixed.
+3. From approximately 40–1,460 ms the source frame expands to the viewport while a pre-running full-canvas production DLA lattice reveals through a feathered mask from the exact center using `[0.22, 1, 0.36, 1]` with no overshoot. Neither canvas scales; its branches continue physically accreting throughout the reveal.
+4. From approximately 820–1,560 ms the setup surface and Welcome content form together from the field's central negative space, while the growing field remains visible around the perimeter.
+5. From approximately 1,300–1,680 ms the threshold backdrop quietly crossfades to the selected setup appearance. The field recedes by approximately 1,760 ms, after the setup surface and content are established.
+6. The live field recedes only after setup material and content are visible. At the coordinated animation's completion, Welcome becomes the settled state.
 
 The base canvas and dot grid remain still and text is never scaled. Reduced Motion removes the spatial propagation: setup uses its final geometry immediately while threshold and setup crossfade over approximately 120 ms. The Luca center glyph remains visible until setup has begun resolving.
 
@@ -334,7 +335,7 @@ The prototype invokes no production installation, authentication, provisioning, 
 ### Threshold continuity
 
 - The prototype opens on the production-identical threshold, not the Exploration Lab specimen.
-- One dendrite instance expands from its production source rectangle into a complete full-canvas passage without a blank frame.
+- The production dendrite remains intact and unscaled at the start, then a pre-running full-canvas instance of the same DLA physics reveals through a feathered outward-growing mask while it continues accreting, forming a complete passage without a blank frame or a camera-zoom effect.
 - Setup material and content overlap the still-visible passage before it recedes; no tiny corner trace or other persistent setup ornament remains.
 - The dormant field briefly reactivates behind the setup-to-home expansion and leaves only after destination chrome is established.
 - Threshold-to-setup and setup-to-home each have a purposeful Reduced Motion alternative with no spatial tween.
