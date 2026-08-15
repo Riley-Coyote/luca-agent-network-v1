@@ -23,27 +23,25 @@ test("transaction resumes at the last safe chapter without sensitive fields", ()
   const storage = memoryStorage();
   const started = createPolyphonicOnboardingTransaction("owner-pubkey");
   savePolyphonicOnboardingTransaction(
-    { ...started, chapter: "brain", agentsReviewed: true },
+    { ...started, chapter: "agents", runtimeConfirmed: true },
     storage,
   );
 
   const resumed = readPolyphonicOnboardingTransaction("owner-pubkey", storage);
-  assert.equal(resumed?.chapter, "brain");
-  assert.equal(resumed?.agentsReviewed, true);
+  assert.equal(resumed?.chapter, "agents");
+  assert.equal(resumed?.runtimeConfirmed, true);
   assert.deepEqual(Object.keys(resumed ?? {}).sort(), [
-    "agentsNeedAttention",
     "agentsReviewed",
-    "brainNeedsAttention",
-    "brainReviewed",
     "chapter",
     "profileSaved",
     "pubkey",
+    "runtimeConfirmed",
     "updatedAt",
     "version",
   ]);
 });
 
-test("version one outcomes migrate without inventing attention state", () => {
+test("version one later chapters migrate back to required runtime confirmation", () => {
   const storage = memoryStorage({
     "polyphonic-onboarding-transaction.v1:owner-pubkey": JSON.stringify({
       version: 1,
@@ -56,9 +54,9 @@ test("version one outcomes migrate without inventing attention state", () => {
     }),
   });
   const migrated = readPolyphonicOnboardingTransaction("owner-pubkey", storage);
-  assert.equal(migrated?.version, 2);
-  assert.equal(migrated?.agentsNeedAttention, false);
-  assert.equal(migrated?.brainNeedsAttention, false);
+  assert.equal(migrated?.version, 3);
+  assert.equal(migrated?.chapter, "runtime");
+  assert.equal(migrated?.runtimeConfirmed, false);
 });
 
 test("invalid, unknown, and cross-owner transactions fail closed", () => {

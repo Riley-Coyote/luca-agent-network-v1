@@ -18,7 +18,7 @@ test("normal first launch uses the already-persisted identity", async ({
   await expect(page.getByText("Polyphonic", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Begin setup" }).click();
   await expect(
-    page.getByRole("heading", { name: "Make it yours" }),
+    page.getByRole("heading", { name: "Bring your agents together." }),
   ).toBeVisible();
   const commands = await page.evaluate(
     () =>
