@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { installMockBridge } from "../../helpers/bridge";
 
@@ -20,6 +20,63 @@ const prototypeUrl = (
 test.beforeEach(async ({ page }) => {
   await installMockBridge(page);
 });
+
+type Rect = { height: number; width: number; x: number; y: number };
+
+async function rect(locator: Locator): Promise<Rect> {
+  await expect(locator).toBeVisible();
+  const box = await locator.boundingBox();
+  if (!box) throw new Error("Expected a rendered rectangle");
+  return box;
+}
+
+function expectRectNear(actual: Rect, expected: Rect, tolerance = 1): void {
+  expect(Math.abs(actual.x - expected.x)).toBeLessThanOrEqual(tolerance);
+  expect(Math.abs(actual.y - expected.y)).toBeLessThanOrEqual(tolerance);
+  expect(Math.abs(actual.width - expected.width)).toBeLessThanOrEqual(
+    tolerance,
+  );
+  expect(Math.abs(actual.height - expected.height)).toBeLessThanOrEqual(
+    tolerance,
+  );
+}
+
+async function expectPageContained(page: Page): Promise<void> {
+  const containment = await page.evaluate(() => ({
+    bodyHeight: document.body.scrollHeight,
+    bodyWidth: document.body.scrollWidth,
+    documentHeight: document.documentElement.scrollHeight,
+    documentWidth: document.documentElement.scrollWidth,
+    viewportHeight: window.innerHeight,
+    viewportWidth: window.innerWidth,
+  }));
+  expect(containment.bodyWidth).toBeLessThanOrEqual(containment.viewportWidth);
+  expect(containment.documentWidth).toBeLessThanOrEqual(
+    containment.viewportWidth,
+  );
+  expect(containment.bodyHeight).toBeLessThanOrEqual(
+    containment.viewportHeight,
+  );
+  expect(containment.documentHeight).toBeLessThanOrEqual(
+    containment.viewportHeight,
+  );
+}
+
+async function expectBottomClearance(
+  scrollOwner: Locator,
+  lastItem: Locator,
+  footer: Locator,
+): Promise<void> {
+  await scrollOwner.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect(lastItem).toBeVisible();
+  const [lastBox, footerBox] = await Promise.all([
+    rect(lastItem),
+    rect(footer),
+  ]);
+  expect(footerBox.y - (lastBox.y + lastBox.height)).toBeGreaterThanOrEqual(24);
+}
 
 test("runtime-ready journey reaches Luca without invoking production commands", async ({
   page,
@@ -215,6 +272,111 @@ test("appearance, keyboard radio behavior, reduced motion, and compact layout ar
   ).toBeVisible();
   await page.waitForTimeout(350);
   await expect(page.locator(".animate-spin")).toHaveCount(0);
+});
+
+test("setup geometry, task origins, and scroll ownership stay stable", async ({
+  page,
+}) => {
+  const viewports = [
+    { height: 900, width: 1440 },
+    { height: 768, width: 1024 },
+    { height: 500, width: 800 },
+  ];
+
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport);
+    const frames: Array<{
+      footer: Rect;
+      header: Rect;
+      origin: Rect;
+      primaryRight?: number;
+      primaryY?: number;
+      state: string;
+      surface: Rect;
+    }> = [];
+    for (const state of [
+      "welcome",
+      "runtime",
+      "agents-summary",
+      "agents-select",
+      "preparing",
+    ]) {
+      await page.goto(prototypeUrl("mixed", state, state === "preparing"));
+      const surface = await rect(page.getByTestId("prototype-home-surface"));
+      const header = await rect(page.getByTestId("prototype-header"));
+      const footer = await rect(page.getByTestId("prototype-footer"));
+      const origin = await rect(page.getByTestId("prototype-step-origin"));
+      const primary = page.getByTestId("prototype-primary-action");
+      const primaryBox = (await primary.count()) ? await rect(primary) : null;
+      frames.push({
+        footer,
+        header,
+        origin,
+        primaryRight: primaryBox ? primaryBox.x + primaryBox.width : undefined,
+        primaryY: primaryBox?.y,
+        state,
+        surface,
+      });
+      await expectPageContained(page);
+    }
+
+    const runtime = frames.find((frame) => frame.state === "runtime");
+    const welcome = frames.find((frame) => frame.state === "welcome");
+    if (!(runtime && welcome)) throw new Error("Missing geometry fixtures");
+    for (const frame of frames) {
+      expectRectNear(frame.surface, runtime.surface);
+      expectRectNear(frame.header, runtime.header);
+      expectRectNear(frame.footer, runtime.footer);
+      if (frame.state !== "welcome") {
+        expect(Math.abs(frame.origin.x - runtime.origin.x)).toBeLessThanOrEqual(
+          4,
+        );
+        expect(Math.abs(frame.origin.y - runtime.origin.y)).toBeLessThanOrEqual(
+          4,
+        );
+      }
+      if (frame.primaryRight !== undefined) {
+        expect(
+          Math.abs(frame.primaryRight - (runtime.primaryRight ?? 0)),
+        ).toBeLessThanOrEqual(1);
+        expect(
+          Math.abs((frame.primaryY ?? 0) - (runtime.primaryY ?? 0)),
+        ).toBeLessThanOrEqual(1);
+      }
+    }
+    expect(welcome.origin.y - runtime.origin.y).toBeCloseTo(24, 0);
+  }
+
+  await page.setViewportSize({ height: 500, width: 800 });
+  await page.goto(prototypeUrl("none-ready", "runtime"));
+  const runtimeScroll = page.getByTestId("prototype-runtime-scroll");
+  await expect(runtimeScroll).toHaveJSProperty(
+    "scrollHeight",
+    await runtimeScroll.evaluate((element) => element.scrollHeight),
+  );
+  expect(
+    await runtimeScroll.evaluate(
+      (element) => element.scrollHeight > element.clientHeight,
+    ),
+  ).toBe(true);
+  await expectBottomClearance(
+    runtimeScroll,
+    page.getByTestId("runtime-recovery"),
+    page.getByTestId("prototype-footer"),
+  );
+
+  await page.goto(prototypeUrl("mixed", "agents-select"));
+  await expectBottomClearance(
+    page.getByTestId("prototype-agent-inventory"),
+    page.getByTestId("prototype-agent-openclaw-flux"),
+    page.getByTestId("prototype-footer"),
+  );
+  for (const row of await page
+    .locator('[data-testid^="prototype-agent-"]')
+    .all()) {
+    const rowBox = await rect(row);
+    expect(rowBox.height).toBeGreaterThanOrEqual(44);
+  }
 });
 
 test("the persistent surface opens into home and greets once", async ({

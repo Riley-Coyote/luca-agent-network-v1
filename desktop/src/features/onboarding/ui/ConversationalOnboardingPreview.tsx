@@ -358,7 +358,7 @@ function RuntimeMark({ runtime }: { runtime: RuntimeChoice }) {
 
 function PrototypeHeader() {
   return (
-    <header className="flex h-9 items-center" data-testid="prototype-header">
+    <header className="flex h-full items-center" data-testid="prototype-header">
       <span className="text-[14px] font-semibold tracking-[-0.015em]">
         Polyphonic
       </span>
@@ -378,6 +378,7 @@ function PrimaryButton({
   return (
     <button
       className="inline-flex h-9 items-center justify-center gap-2 rounded-[9px] bg-[var(--prototype-accent)] px-4 text-[13px] font-semibold text-[var(--prototype-accent-ink)] shadow-[0_1px_2px_var(--prototype-shadow)] transition-[background-color,box-shadow,opacity] duration-[80ms] hover:opacity-90 active:shadow-[inset_0_1px_2px_color-mix(in_srgb,var(--prototype-canvas)_28%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--prototype-ink)_28%,transparent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--prototype-field)] disabled:pointer-events-none disabled:opacity-35"
+      data-testid="prototype-primary-action"
       disabled={disabled}
       onClick={onClick}
       type="button"
@@ -408,26 +409,81 @@ function QuietButton({
 function PrototypeSetupShell({
   children,
   footer,
-  showFooterDivider = false,
+  state,
 }: {
   children: React.ReactNode;
   footer: React.ReactNode;
-  showFooterDivider?: boolean;
+  state: PrototypeState;
 }) {
+  const shellRef = React.useRef<HTMLDivElement>(null);
+  const [contentOverflows, setContentOverflows] = React.useState(false);
+  const stepOwnsScroll = state === "welcome" || state === "agents-summary";
+
+  React.useLayoutEffect(() => {
+    const shell = shellRef.current;
+    const selector =
+      state === "runtime"
+        ? '[data-testid="prototype-runtime-scroll"]'
+        : state === "agents-select"
+          ? '[data-testid="prototype-agent-inventory"]'
+          : state === "welcome" || state === "agents-summary"
+            ? '[data-testid="prototype-step-scroll"]'
+            : null;
+    const scrollOwner = selector
+      ? shell?.querySelector<HTMLElement>(selector)
+      : null;
+    if (!(shell && scrollOwner)) {
+      setContentOverflows(false);
+      return;
+    }
+
+    const updateOverflow = () =>
+      setContentOverflows(
+        scrollOwner.scrollHeight > scrollOwner.clientHeight + 1,
+      );
+    updateOverflow();
+    const resizeObserver = new ResizeObserver(updateOverflow);
+    resizeObserver.observe(scrollOwner);
+    const mutationObserver = new MutationObserver(updateOverflow);
+    mutationObserver.observe(scrollOwner, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    window.addEventListener("resize", updateOverflow);
+    return () => {
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+      window.removeEventListener("resize", updateOverflow);
+    };
+  }, [state]);
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 px-8 pt-5 sm:px-9">
+    <div
+      className="grid h-full min-h-0 grid-rows-[56px_minmax(0,1fr)_56px]"
+      ref={shellRef}
+    >
+      <div className="px-[36px]">
         <PrototypeHeader />
       </div>
-      <div className="min-h-0 flex-1 overflow-hidden px-8 pb-4 pt-4 sm:px-9">
+      <div
+        className={cn(
+          "min-h-0 px-[36px] pb-6 pt-4",
+          stepOwnsScroll ? "overflow-y-auto" : "overflow-hidden",
+        )}
+        data-prototype-scroll-owner={stepOwnsScroll ? "true" : undefined}
+        data-testid="prototype-step-scroll"
+      >
         {children}
       </div>
       <footer
         className={cn(
-          "flex min-h-14 shrink-0 items-center justify-between px-8 sm:px-9",
-          showFooterDivider &&
+          "flex h-full items-center justify-between px-[36px]",
+          contentOverflows &&
             "border-t border-[var(--prototype-hairline-soft)]",
         )}
+        data-overflow-divider={contentOverflows ? "true" : "false"}
+        data-testid="prototype-footer"
       >
         {footer}
       </footer>
@@ -495,10 +551,10 @@ function WelcomeState({
   return (
     <section
       aria-labelledby="conversational-welcome-heading"
-      className="flex h-full w-full flex-col justify-center"
+      className="min-h-full w-full pt-6"
       data-testid="conversational-onboarding-welcome"
     >
-      <div className="pb-7">
+      <div data-testid="prototype-step-origin">
         <p className="mb-3 text-[11px] font-semibold tracking-[0.09em] text-[var(--prototype-muted)] uppercase">
           Your personal agent home
         </p>
@@ -513,7 +569,7 @@ function WelcomeState({
           your Mac—and helps you set up the rest as you go.
         </p>
       </div>
-      <div className="grid gap-5">
+      <div className="mt-7 grid gap-5">
         <label className="grid gap-2">
           <span className="text-[12px] font-medium text-[var(--prototype-muted-strong)]">
             What should Luca call you?
@@ -582,7 +638,7 @@ function RuntimeState({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0">
+      <div className="shrink-0" data-testid="prototype-step-origin">
         <h1
           className="text-[1.75rem] font-medium tracking-[-0.018em]"
           id="runtime-heading"
@@ -595,122 +651,133 @@ function RuntimeState({
         </p>
       </div>
       <div
-        aria-labelledby="runtime-heading"
-        className="mt-5 grid shrink-0 grid-cols-1 rounded-[10px] bg-[var(--prototype-selection)] p-1 [@media(max-height:560px)]:mt-3 [@media(max-height:560px)]:grid-cols-2"
-        role="radiogroup"
+        className="mt-5 min-h-0 flex-1 overflow-y-auto"
+        data-prototype-scroll-owner="true"
+        data-testid="prototype-runtime-scroll"
       >
-        {visibleRuntimes.map((runtime) => {
-          const active = runtime.id === selected.id;
-          return (
-            <label
-              className={cn(
-                "group flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-[8px] px-3 py-2 text-left outline-none transition-[background-color,box-shadow] duration-[90ms] focus-within:ring-0 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[color-mix(in_srgb,var(--prototype-ink)_28%,transparent)] [@media(max-height:560px)]:min-h-10 [@media(max-height:560px)]:py-1",
-                active
-                  ? "bg-[var(--prototype-field)] shadow-[0_1px_2px_var(--prototype-shadow)]"
-                  : "hover:bg-[color-mix(in_srgb,var(--prototype-field)_45%,transparent)]",
-              )}
-              data-testid={`runtime-choice-${runtime.id}`}
-              key={runtime.id}
-            >
-              <input
-                checked={active}
-                className="sr-only"
-                name="luca-runtime"
-                onChange={() => onSelect(runtime.id)}
-                type="radio"
-                value={runtime.id}
-              />
-              <span className="grid size-7 shrink-0 place-items-center">
-                <RuntimeMark runtime={runtime} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="flex items-baseline gap-2">
-                  <span className="text-[13px] font-medium">
+        <div
+          aria-labelledby="runtime-heading"
+          className="grid grid-cols-1 rounded-[10px] bg-[var(--prototype-selection)] p-1"
+          role="radiogroup"
+        >
+          {visibleRuntimes.map((runtime) => {
+            const active = runtime.id === selected.id;
+            const statusId = `runtime-${runtime.id}-status`;
+            const detailId = `runtime-${runtime.id}-detail`;
+            return (
+              <label
+                className={cn(
+                  "group flex min-h-[52px] w-full cursor-pointer items-center gap-3 rounded-[8px] px-3 py-2 text-left outline-none transition-[background-color,box-shadow] duration-[90ms] focus-within:ring-0 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[color-mix(in_srgb,var(--prototype-ink)_28%,transparent)]",
+                  active
+                    ? "bg-[var(--prototype-field)] shadow-[0_1px_2px_var(--prototype-shadow)]"
+                    : "hover:bg-[color-mix(in_srgb,var(--prototype-field)_45%,transparent)]",
+                )}
+                data-testid={`runtime-choice-${runtime.id}`}
+                key={runtime.id}
+              >
+                <input
+                  aria-describedby={`${statusId}${active ? ` ${detailId}` : ""}`}
+                  checked={active}
+                  className="sr-only"
+                  name="luca-runtime"
+                  onChange={() => onSelect(runtime.id)}
+                  type="radio"
+                  value={runtime.id}
+                />
+                <span className="grid size-5 shrink-0 place-items-center">
+                  <RuntimeMark runtime={runtime} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] font-medium">
                     {runtime.name}
                   </span>
+                  <span
+                    className="mt-0.5 block text-[11px] leading-4 text-[var(--prototype-muted)]"
+                    id={statusId}
+                  >
+                    {runtime.status === "ready"
+                      ? `Ready on this Mac${runtime.recommended ? " · Recommended" : ""}`
+                      : statusLabels[runtime.status]}
+                  </span>
                 </span>
-                <span className="mt-0.5 block text-[11px] leading-4 text-[var(--prototype-muted)]">
-                  {runtime.status === "ready"
-                    ? `Ready on this Mac${runtime.recommended ? " · Recommended" : ""}`
-                    : statusLabels[runtime.status]}
+                <span
+                  className={cn(
+                    "grid size-4 shrink-0 place-items-center rounded-full border",
+                    active
+                      ? "border-[var(--prototype-ink)]"
+                      : "border-[var(--prototype-hairline)]",
+                  )}
+                >
                   {active ? (
-                    <span className="[@media(max-height:560px)]:hidden">
-                      {` · ${runtime.detail}`}
-                    </span>
+                    <span className="size-1.5 rounded-full bg-[var(--prototype-ink)]" />
                   ) : null}
                 </span>
-              </span>
-              <span
-                className={cn(
-                  "grid size-4 shrink-0 place-items-center rounded-full border",
-                  active
-                    ? "border-[var(--prototype-ink)]"
-                    : "border-[var(--prototype-hairline)]",
-                )}
-              >
-                {active ? (
-                  <span className="size-1.5 rounded-full bg-[var(--prototype-ink)]" />
-                ) : null}
-              </span>
-            </label>
-          );
-        })}
-      </div>
-      {unreadyRuntimes.length > 0 && !revealAll ? (
-        <button
-          aria-expanded="false"
-          className="mt-2.5 w-fit rounded-[6px] py-1 text-[12px] text-[var(--prototype-muted)] outline-none hover:text-[var(--prototype-ink)] focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--prototype-ink)_28%,transparent)]"
-          onClick={() => setShowOtherRuntimes(true)}
-          type="button"
+              </label>
+            );
+          })}
+        </div>
+        {unreadyRuntimes.length > 0 && !revealAll ? (
+          <button
+            aria-expanded="false"
+            className="mt-2.5 w-fit rounded-[6px] py-1 text-[12px] text-[var(--prototype-muted)] outline-none hover:text-[var(--prototype-ink)] focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--prototype-ink)_28%,transparent)]"
+            onClick={() => setShowOtherRuntimes(true)}
+            type="button"
+          >
+            Choose another runtime
+          </button>
+        ) : null}
+        <p
+          className="mt-3 text-[12px] leading-5 text-[var(--prototype-muted-strong)]"
+          id={`runtime-${selected.id}-detail`}
         >
-          Choose another runtime
-        </button>
-      ) : null}
-      {!ready ? (
-        <div
-          aria-live="polite"
-          className="mt-4 shrink-0 rounded-[10px] bg-[var(--prototype-selection)] px-3.5 py-3 [@media(max-height:560px)]:mt-2 [@media(max-height:560px)]:py-2"
-          data-testid="runtime-recovery"
-        >
-          <div className="flex items-start gap-3">
-            <CircleAlert className="mt-0.5 size-4 shrink-0 text-[var(--prototype-muted-strong)]" />
-            <div className="min-w-0 flex-1">
-              <p className="text-[12px] font-medium">
-                {selected.name} needs attention
-              </p>
-              <p className="mt-1 text-[11px] leading-4 text-[var(--prototype-muted)] [@media(max-height:560px)]:hidden">
-                {selected.status === "unavailable"
-                  ? "This runtime cannot be used in this fixture. Choose another option."
-                  : selected.id === "hermes" || selected.id === "openclaw"
-                    ? "Finish setup in its native system. Existing provider settings, including OpenRouter, stay there."
-                    : "Complete the existing setup, then let Luca check readiness again."}
-              </p>
-              {error ? (
-                <p className="mt-2 text-[11px] text-red-600 dark:text-red-400">
-                  {error}
+          {selected.detail}
+        </p>
+        {!ready ? (
+          <div
+            aria-live="polite"
+            className="mt-4 pb-px"
+            data-testid="runtime-recovery"
+          >
+            <div className="flex items-start gap-3">
+              <CircleAlert className="mt-0.5 size-4 shrink-0 text-[var(--prototype-muted-strong)]" />
+              <div className="min-w-0 flex-1">
+                <p className="text-[12px] font-medium">
+                  {selected.name} needs attention
                 </p>
+                <p className="mt-1 text-[11px] leading-4 text-[var(--prototype-muted)]">
+                  {selected.status === "unavailable"
+                    ? "This runtime cannot be used in this fixture. Choose another option."
+                    : selected.id === "hermes" || selected.id === "openclaw"
+                      ? "Finish setup in its native system. Existing provider settings, including OpenRouter, stay there."
+                      : "Complete the existing setup, then let Luca check readiness again."}
+                </p>
+                {error ? (
+                  <p className="mt-2 text-[11px] text-red-600 dark:text-red-400">
+                    {error}
+                  </p>
+                ) : null}
+              </div>
+              {selected.status !== "unavailable" ? (
+                <button
+                  className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-[8px] border border-[var(--prototype-hairline)] bg-[var(--prototype-field)] px-3 py-1 text-[11px] font-medium hover:bg-[var(--prototype-raised)] disabled:opacity-50"
+                  disabled={selected.status === "checking"}
+                  onClick={() => onRecover(selected)}
+                  type="button"
+                >
+                  {selected.status === "checking" ? (
+                    <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" />
+                  ) : selected.action === "guide" ? (
+                    <ExternalLink className="size-3" />
+                  ) : (
+                    <RefreshCw className="size-3" />
+                  )}
+                  {actionLabel}
+                </button>
               ) : null}
             </div>
-            {selected.status !== "unavailable" ? (
-              <button
-                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[8px] border border-[var(--prototype-hairline)] bg-[var(--prototype-field)] px-3 text-[11px] font-medium hover:bg-[var(--prototype-raised)] disabled:opacity-50"
-                disabled={selected.status === "checking"}
-                onClick={() => onRecover(selected)}
-                type="button"
-              >
-                {selected.status === "checking" ? (
-                  <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" />
-                ) : selected.action === "guide" ? (
-                  <ExternalLink className="size-3" />
-                ) : (
-                  <RefreshCw className="size-3" />
-                )}
-                {actionLabel}
-              </button>
-            ) : null}
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
       <span className="sr-only" aria-live="polite">
         {selected.name}: {statusLabels[selected.status]}
       </span>
@@ -718,41 +785,31 @@ function RuntimeState({
   );
 }
 
-function AgentsSummaryState({ onChoose }: { onChoose: () => void }) {
+function AgentsSummaryState() {
   return (
-    <div
-      className="flex h-full flex-col justify-center py-4"
-      data-testid="agents-summary"
-    >
-      <p className="text-[11px] font-semibold tracking-[0.09em] text-[var(--prototype-muted)] uppercase">
-        Optional
-      </p>
-      <h1 className="mt-3 text-[1.75rem] font-medium tracking-[-0.018em]">
-        Bring in agents you already use
-      </h1>
-      <p className="mt-2 max-w-[32rem] text-[14px] leading-5 text-[var(--prototype-muted-strong)]">
-        We found {agentCandidates.length} agents on this Mac. Nothing is
-        imported unless you choose it.
-      </p>
-      <div className="mt-7 grid grid-cols-2 gap-3">
-        <div className="rounded-[10px] bg-[var(--prototype-selection)] px-4 py-3">
+    <div className="min-h-full" data-testid="agents-summary">
+      <div data-testid="prototype-step-origin">
+        <h1 className="text-[1.75rem] font-medium tracking-[-0.018em]">
+          Bring in agents you already use
+        </h1>
+        <p className="mt-2 max-w-[32rem] text-[14px] leading-5 text-[var(--prototype-muted-strong)]">
+          We found {agentCandidates.length} agents on this Mac. Nothing is
+          imported unless you choose it.
+        </p>
+      </div>
+      <div className="mt-7 grid grid-cols-2 gap-5 rounded-[10px] bg-[var(--prototype-selection)] px-4 py-3.5">
+        <div>
           <p className="text-[12px] font-medium">Hermes</p>
           <p className="mt-1 text-[11px] text-[var(--prototype-muted)]">
             4 profiles found
           </p>
         </div>
-        <div className="rounded-[10px] bg-[var(--prototype-selection)] px-4 py-3">
+        <div>
           <p className="text-[12px] font-medium">OpenClaw</p>
           <p className="mt-1 text-[11px] text-[var(--prototype-muted)]">
             4 agents found
           </p>
         </div>
-      </div>
-      <div className="mt-7">
-        <PrimaryButton onClick={onChoose}>
-          Choose agents
-          <ArrowRight className="size-3.5" />
-        </PrimaryButton>
       </div>
     </div>
   );
@@ -773,7 +830,7 @@ function AgentsSelectState({
   const selectedCount = selectedIds.size;
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="agents-select">
-      <div className="shrink-0">
+      <div className="shrink-0" data-testid="prototype-step-origin">
         <h1 className="text-[1.6rem] font-medium tracking-[-0.018em]">
           Choose agents
         </h1>
@@ -819,6 +876,7 @@ function AgentsSelectState({
       <section
         aria-label="Discovered agents"
         className="mt-3 min-h-0 flex-1 overflow-y-auto rounded-[9px] bg-[var(--prototype-selection)] p-1"
+        data-prototype-scroll-owner="true"
         data-testid="prototype-agent-inventory"
       >
         {(["Hermes", "OpenClaw"] as const).map((source) => {
@@ -891,21 +949,23 @@ function PreparingState({
   return (
     <section
       aria-live="polite"
-      className="flex h-full w-full flex-col items-center justify-center text-center"
+      className="flex min-h-full w-full flex-col items-start"
       data-testid="conversational-onboarding-preparing"
     >
-      <LucaMark appearance={appearance} size={30} />
-      <h1 className="mt-5 text-[23px] font-medium tracking-[-0.018em]">
-        Getting Luca ready…
-      </h1>
-      <div className="mt-4 grid h-5 place-items-center text-[var(--prototype-muted-strong)]">
-        {showIndicator ? (
-          reduceMotion ? (
-            <span className="size-2 rounded-full bg-current" />
-          ) : (
-            <LoaderCircle className="size-5 animate-spin" strokeWidth={1.4} />
-          )
-        ) : null}
+      <div data-testid="prototype-step-origin">
+        <LucaMark appearance={appearance} size={30} />
+        <h1 className="mt-5 text-[23px] font-medium tracking-[-0.018em]">
+          Getting Luca ready…
+        </h1>
+        <div className="mt-4 grid h-5 place-items-center text-[var(--prototype-muted-strong)]">
+          {showIndicator ? (
+            reduceMotion ? (
+              <span className="size-2 rounded-full bg-current" />
+            ) : (
+              <LoaderCircle className="size-5 animate-spin" strokeWidth={1.4} />
+            )
+          ) : null}
+        </div>
       </div>
     </section>
   );
@@ -1346,9 +1406,15 @@ export function ConversationalOnboardingPreview() {
           <QuietButton onClick={() => navigate("runtime", -1)}>
             Back
           </QuietButton>
-          <QuietButton onClick={() => navigate("preparing")}>
-            Not now
-          </QuietButton>
+          <div className="flex items-center gap-4">
+            <QuietButton onClick={() => navigate("preparing")}>
+              Not now
+            </QuietButton>
+            <PrimaryButton onClick={() => navigate("agents-select")}>
+              Choose agents
+              <ArrowRight className="size-3.5" />
+            </PrimaryButton>
+          </div>
         </>
       );
     }
@@ -1430,10 +1496,7 @@ export function ConversationalOnboardingPreview() {
                 key="setup-shell"
                 transition={{ duration: reduceMotion ? 0.1 : 0.1 }}
               >
-                <PrototypeSetupShell
-                  footer={setupFooter}
-                  showFooterDivider={state === "agents-select"}
-                >
+                <PrototypeSetupShell footer={setupFooter} state={state}>
                   <AnimatePresence initial={false} mode="wait">
                     <motion.div
                       animate={{ opacity: 1, x: 0 }}
@@ -1474,9 +1537,7 @@ export function ConversationalOnboardingPreview() {
                         />
                       ) : null}
                       {state === "agents-summary" ? (
-                        <AgentsSummaryState
-                          onChoose={() => navigate("agents-select")}
-                        />
+                        <AgentsSummaryState />
                       ) : null}
                       {state === "agents-select" ? (
                         <AgentsSelectState
