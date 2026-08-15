@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 export type NativeRuntimeFamilyV1 = "hermes" | "openclaw";
 
 export type AgentRuntimeTargetV1 =
-  | { kind: "managed"; runtimeId: "codex" | "claude" }
+  | { kind: "managed"; runtimeId: string }
   | { kind: "native"; runtime: NativeRuntimeFamilyV1 };
 
 export type AgentProvisioningModeV1 = "fresh" | "template" | "advanced";

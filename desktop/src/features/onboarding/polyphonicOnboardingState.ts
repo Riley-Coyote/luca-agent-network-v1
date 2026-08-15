@@ -1,14 +1,16 @@
-export type PolyphonicOnboardingChapter = "you" | "agents" | "brain" | "ready";
+export type PolyphonicOnboardingChapter =
+  | "welcome"
+  | "runtime"
+  | "agents"
+  | "preparing";
 
 export type PolyphonicOnboardingTransaction = {
-  version: 2;
+  version: 3;
   pubkey: string;
   chapter: PolyphonicOnboardingChapter;
   profileSaved: boolean;
   agentsReviewed: boolean;
-  brainReviewed: boolean;
-  agentsNeedAttention: boolean;
-  brainNeedsAttention: boolean;
+  runtimeConfirmed: boolean;
   updatedAt: string;
 };
 
@@ -24,7 +26,7 @@ function sessionSkipKey(pubkey: string) {
 }
 
 function isChapter(value: unknown): value is PolyphonicOnboardingChapter {
-  return ["you", "agents", "brain", "ready"].includes(String(value));
+  return ["welcome", "runtime", "agents", "preparing"].includes(String(value));
 }
 
 function isTransaction(
@@ -34,14 +36,12 @@ function isTransaction(
   if (!value || typeof value !== "object") return false;
   const transaction = value as Partial<PolyphonicOnboardingTransaction>;
   return (
-    transaction.version === 2 &&
+    transaction.version === 3 &&
     transaction.pubkey === pubkey &&
     isChapter(transaction.chapter) &&
     typeof transaction.profileSaved === "boolean" &&
     typeof transaction.agentsReviewed === "boolean" &&
-    typeof transaction.brainReviewed === "boolean" &&
-    typeof transaction.agentsNeedAttention === "boolean" &&
-    typeof transaction.brainNeedsAttention === "boolean" &&
+    typeof transaction.runtimeConfirmed === "boolean" &&
     typeof transaction.updatedAt === "string"
   );
 }
@@ -50,14 +50,12 @@ export function createPolyphonicOnboardingTransaction(
   pubkey: string,
 ): PolyphonicOnboardingTransaction {
   return {
-    version: 2,
+    version: 3,
     pubkey,
-    chapter: "you",
+    chapter: "welcome",
     profileSaved: false,
     agentsReviewed: false,
-    brainReviewed: false,
-    agentsNeedAttention: false,
-    brainNeedsAttention: false,
+    runtimeConfirmed: false,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -71,17 +69,24 @@ export function readPolyphonicOnboardingTransaction(
     const parsed: unknown = JSON.parse(
       storage.getItem(transactionKey(pubkey)) ?? "null",
     );
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      (parsed as { version?: unknown }).version === 1
-    ) {
+    if (parsed && typeof parsed === "object") {
       const legacy = parsed as Record<string, unknown>;
-      const migrated = {
-        ...legacy,
-        version: 2 as const,
-        agentsNeedAttention: false,
-        brainNeedsAttention: false,
+      const version = legacy.version;
+      if (version !== 1 && version !== 2) {
+        return isTransaction(parsed, pubkey) ? parsed : null;
+      }
+      if (legacy.pubkey !== pubkey) return null;
+      const migrated: PolyphonicOnboardingTransaction = {
+        version: 3,
+        pubkey,
+        chapter: legacy.chapter === "you" ? "welcome" : "runtime",
+        profileSaved: legacy.profileSaved === true,
+        runtimeConfirmed: false,
+        agentsReviewed: false,
+        updatedAt:
+          typeof legacy.updatedAt === "string"
+            ? legacy.updatedAt
+            : new Date().toISOString(),
       };
       if (isTransaction(migrated, pubkey)) {
         storage.setItem(transactionKey(pubkey), JSON.stringify(migrated));

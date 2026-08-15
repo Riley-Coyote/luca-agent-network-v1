@@ -1,5 +1,8 @@
 import * as React from "react";
 
+import { discoverNativeResidents } from "@/shared/api/tauri";
+import type { NativeResidentDiscoveryOutcome } from "@/shared/api/types";
+import { isSelectableAgentImportCandidate } from "../onboardingAgentImport";
 import type { OnboardingActions, OnboardingProfileSeed } from "./types";
 import {
   createPolyphonicOnboardingTransaction,
@@ -7,34 +10,42 @@ import {
   readPolyphonicOnboardingTransaction,
   savePolyphonicOnboardingTransaction,
 } from "../polyphonicOnboardingState";
+import { readPendingPolyphonicProfile } from "../polyphonicProfileSync";
 import {
-  POLYPHONIC_PROFILE_SYNCED_EVENT,
-  readPendingPolyphonicProfile,
-} from "../polyphonicProfileSync";
+  PolyphonicAgentImportStep,
+  type PolyphonicAgentImportStepHandle,
+} from "./PolyphonicAgentImportStep";
+import { PolyphonicPreparingStep } from "./PolyphonicPreparingStep";
 import {
-  PolyphonicAgentsStep,
-  type PolyphonicAgentsStepHandle,
-} from "./PolyphonicAgentsStep";
-import {
-  PolyphonicBrainStep,
-  type PolyphonicBrainStepHandle,
-} from "./PolyphonicBrainStep";
+  PolyphonicRuntimeStep,
+  type PolyphonicRuntimeStepHandle,
+} from "./PolyphonicRuntimeStep";
 import { PolyphonicSetupFrame } from "./PolyphonicSetupFrame";
 import {
   PolyphonicYouStep,
   type PolyphonicYouStepHandle,
 } from "./PolyphonicYouStep";
-import { PolyphonicReadyStep } from "./PolyphonicReadyStep";
 
 const previousChapter: Record<
   PolyphonicOnboardingChapter,
   PolyphonicOnboardingChapter
 > = {
-  you: "you",
-  agents: "you",
-  brain: "agents",
-  ready: "brain",
+  welcome: "welcome",
+  runtime: "welcome",
+  agents: "runtime",
+  preparing: "runtime",
 };
+
+function candidateCount(outcome: NativeResidentDiscoveryOutcome | null) {
+  return (
+    outcome?.runtimes.reduce(
+      (count, runtime) =>
+        count +
+        runtime.candidates.filter(isSelectableAgentImportCandidate).length,
+      0,
+    ) ?? 0
+  );
+}
 
 export function PolyphonicOnboardingFlow({
   actions,
@@ -59,21 +70,26 @@ export function PolyphonicOnboardingFlow({
     pendingProfile?.displayName ?? initialProfile.profile?.displayName ?? "",
   );
   const [busy, setBusy] = React.useState(false);
+  const [runtimeReady, setRuntimeReady] = React.useState(false);
   const [agentsContinueLabel, setAgentsContinueLabel] =
     React.useState("Continue");
   const [error, setError] = React.useState<string | null>(null);
-  const [profileNeedsAttention, setProfileNeedsAttention] = React.useState(
-    pendingProfile !== null,
-  );
-  React.useEffect(() => {
-    const synced = () => setProfileNeedsAttention(false);
-    window.addEventListener(POLYPHONIC_PROFILE_SYNCED_EVENT, synced);
-    return () =>
-      window.removeEventListener(POLYPHONIC_PROFILE_SYNCED_EVENT, synced);
-  }, []);
+  const [discovery, setDiscovery] =
+    React.useState<NativeResidentDiscoveryOutcome | null>(null);
   const youRef = React.useRef<PolyphonicYouStepHandle>(null);
-  const agentsRef = React.useRef<PolyphonicAgentsStepHandle>(null);
-  const brainRef = React.useRef<PolyphonicBrainStepHandle>(null);
+  const runtimeRef = React.useRef<PolyphonicRuntimeStepHandle>(null);
+  const agentsRef = React.useRef<PolyphonicAgentImportStepHandle>(null);
+
+  const scan = React.useCallback(async () => {
+    const outcome = await discoverNativeResidents();
+    setDiscovery(outcome);
+    return outcome;
+  }, []);
+  React.useEffect(() => {
+    void scan().catch(() => {
+      // Native discovery is optional and must never block first run.
+    });
+  }, [scan]);
 
   function persist(patch: Partial<typeof transaction>) {
     const next = savePolyphonicOnboardingTransaction({
@@ -87,60 +103,61 @@ export function PolyphonicOnboardingFlow({
     if (busy) return;
     setError(null);
     try {
-      if (transaction.chapter === "you") {
+      if (transaction.chapter === "welcome") {
         const outcome = await youRef.current?.commit();
         if (!outcome) return;
         setDisplayName(outcome.displayName);
-        setProfileNeedsAttention(outcome.needsAttention);
-        persist({ chapter: "agents", profileSaved: true });
+        persist({ chapter: "runtime", profileSaved: true });
+        return;
+      }
+      if (transaction.chapter === "runtime") {
+        const target = await runtimeRef.current?.commit();
+        if (!target) return;
+        persist({
+          chapter: candidateCount(discovery) > 0 ? "agents" : "preparing",
+          runtimeConfirmed: true,
+        });
         return;
       }
       if (transaction.chapter === "agents") {
         const outcome = await agentsRef.current?.commit();
         if (!outcome) return;
-        persist({
-          chapter: "brain",
-          agentsReviewed: true,
-          agentsNeedAttention: outcome.issueCount > 0,
-        });
-        return;
+        persist({ chapter: "preparing", agentsReviewed: true });
       }
-      if (transaction.chapter === "brain") {
-        const outcome = await brainRef.current?.commit();
-        if (!outcome || outcome.cancelled) return;
-        persist({
-          chapter: "ready",
-          brainReviewed: true,
-          brainNeedsAttention: outcome.issueCount > 0,
-        });
-        return;
-      }
-      actions.complete();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
   }
 
+  const enterLucaDm = React.useCallback(
+    (channelId: string) => {
+      actions.complete();
+      window.location.hash = `/channels/${encodeURIComponent(channelId)}`;
+    },
+    [actions.complete],
+  );
+
   return (
     <PolyphonicSetupFrame
-      backDisabled={transaction.chapter === "you" || busy}
+      backDisabled={transaction.chapter === "welcome" || busy}
       continueDisabled={
-        busy || (transaction.chapter === "you" && !displayName.trim())
+        busy ||
+        (transaction.chapter === "welcome" && !displayName.trim()) ||
+        (transaction.chapter === "runtime" && !runtimeReady)
       }
       continueLabel={
-        transaction.chapter === "ready"
-          ? "Start a conversation"
-          : transaction.chapter === "agents"
-            ? agentsContinueLabel
-            : busy
-              ? "Working…"
-              : "Continue"
+        transaction.chapter === "agents"
+          ? agentsContinueLabel
+          : busy
+            ? "Working…"
+            : "Continue"
       }
       onBack={() => persist({ chapter: previousChapter[transaction.chapter] })}
       onContinue={() => void continueForward()}
+      showFooter={transaction.chapter !== "preparing"}
       stage={transaction.chapter}
     >
-      {transaction.chapter === "you" ? (
+      {transaction.chapter === "welcome" ? (
         <PolyphonicYouStep
           displayName={displayName}
           onBusyChange={setBusy}
@@ -149,23 +166,25 @@ export function PolyphonicOnboardingFlow({
           ref={youRef}
         />
       ) : null}
-      {transaction.chapter === "agents" ? (
-        <PolyphonicAgentsStep
+      {transaction.chapter === "runtime" ? (
+        <PolyphonicRuntimeStep
+          onReadyChange={setRuntimeReady}
+          ref={runtimeRef}
+        />
+      ) : null}
+      {transaction.chapter === "agents" && discovery ? (
+        <PolyphonicAgentImportStep
+          discovery={discovery}
           onBusyChange={setBusy}
           onContinueLabelChange={setAgentsContinueLabel}
+          onRescan={scan}
           ref={agentsRef}
         />
       ) : null}
-      {transaction.chapter === "brain" ? (
-        <PolyphonicBrainStep onBusyChange={setBusy} ref={brainRef} />
-      ) : null}
-      {transaction.chapter === "ready" ? (
-        <PolyphonicReadyStep
-          agentsNeedAttention={transaction.agentsNeedAttention}
-          brainNeedsAttention={transaction.brainNeedsAttention}
+      {transaction.chapter === "preparing" ? (
+        <PolyphonicPreparingStep
           displayName={displayName}
-          onReview={(chapter) => persist({ chapter })}
-          profileNeedsAttention={profileNeedsAttention}
+          onComplete={enterLucaDm}
         />
       ) : null}
       {error ? (

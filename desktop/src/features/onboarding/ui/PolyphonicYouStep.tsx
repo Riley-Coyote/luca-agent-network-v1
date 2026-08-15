@@ -1,15 +1,9 @@
 import * as React from "react";
-import { Check, ChevronDown, LoaderCircle, ShieldCheck } from "lucide-react";
+import { Monitor, Moon, Sun } from "lucide-react";
 
 import { useUpdateProfileMutation } from "@/features/profile/hooks";
-import {
-  exportProtectedOwnerIdentity,
-  isValidOwnerBackupPassphrase,
-  ownerBackupPassphraseByteLength,
-} from "@/shared/api/tauriIdentity";
-import { truncatePubkey } from "@/shared/lib/pubkey";
-import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
-import { Button } from "@/shared/ui/button";
+import { cn } from "@/shared/lib/cn";
+import { useTheme } from "@/shared/theme/ThemeProvider";
 import { Input } from "@/shared/ui/input";
 import {
   clearPendingPolyphonicProfile,
@@ -24,6 +18,8 @@ export type PolyphonicYouStepHandle = {
   commit: () => Promise<{ displayName: string; needsAttention: boolean }>;
 };
 
+type Appearance = "system" | "light" | "dark";
+
 export const PolyphonicYouStep = React.forwardRef<
   PolyphonicYouStepHandle,
   {
@@ -37,13 +33,13 @@ export const PolyphonicYouStep = React.forwardRef<
   ref,
 ) {
   const updateProfile = useUpdateProfileMutation();
+  const theme = useTheme();
   const [syncNotice, setSyncNotice] = React.useState<string | null>(null);
-  const [backupOpen, setBackupOpen] = React.useState(false);
-  const [passphrase, setPassphrase] = React.useState("");
-  const [confirmation, setConfirmation] = React.useState("");
-  const [backupStatus, setBackupStatus] = React.useState<string | null>(null);
-  const [backupError, setBackupError] = React.useState<string | null>(null);
-  const [isExporting, setIsExporting] = React.useState(false);
+  const appearance: Appearance = theme.followSystem
+    ? "system"
+    : theme.themeName === "buzz-dark"
+      ? "dark"
+      : "light";
 
   const commit = React.useCallback(async () => {
     const name = displayName.trim();
@@ -55,13 +51,9 @@ export const PolyphonicYouStep = React.forwardRef<
       clearPendingPolyphonicProfile(pubkey);
       return { displayName: name, needsAttention: false };
     } catch {
-      savePendingPolyphonicProfile({
-        version: 1,
-        pubkey,
-        displayName: name,
-      });
+      savePendingPolyphonicProfile({ version: 1, pubkey, displayName: name });
       setSyncNotice(
-        "Your name is saved on this Mac. Luca will try to sync it once on the next launch.",
+        "Your name is saved on this Mac. Luca will sync it when the connection is available.",
       );
       return { displayName: name, needsAttention: true };
     } finally {
@@ -71,53 +63,33 @@ export const PolyphonicYouStep = React.forwardRef<
 
   React.useImperativeHandle(ref, () => ({ commit }), [commit]);
 
-  const passphraseBytes = ownerBackupPassphraseByteLength(passphrase);
-  const canExport =
-    isValidOwnerBackupPassphrase(passphrase) &&
-    passphrase === confirmation &&
-    !isExporting;
-
-  async function exportBackup() {
-    setIsExporting(true);
-    setBackupError(null);
-    try {
-      const result = await exportProtectedOwnerIdentity(passphrase);
-      setBackupStatus(`Protected backup saved as ${result.fileName}`);
-      setPassphrase("");
-      setConfirmation("");
-    } catch (cause) {
-      setBackupError(
-        cause instanceof Error
-          ? cause.message
-          : "The protected backup could not be created.",
-      );
-    } finally {
-      setIsExporting(false);
+  function chooseAppearance(next: Appearance) {
+    if (next === "system") {
+      theme.setTheme("buzz");
+      theme.setFollowSystem(true);
+      return;
     }
+    theme.setFollowSystem(false);
+    theme.setTheme(next === "dark" ? "buzz-dark" : "buzz");
   }
 
   return (
     <>
       <PolyphonicStepHeading
-        description="This is how you appear to your agents. Your private owner key stays secured by macOS."
-        stage="you"
-        title="Make it yours"
+        description="Luca gives you one calm place to talk with the AI agents already on your Mac—and helps you set up the rest as you go."
+        stage="welcome"
+        title="Bring your agents together."
       />
-      <div className="mt-6 flex items-center gap-4">
-        <AgentIdentitySpecimen
-          accessibleName="Your owner identity"
-          publicKey={pubkey}
-          size={44}
-        />
+      <div className="mt-8 space-y-6">
         <label
-          className="min-w-0 flex-1 text-xs text-white/46"
+          className="block text-sm text-foreground/70"
           htmlFor="polyphonic-owner-name"
         >
-          Display name
+          What should Luca call you?
           <Input
             autoComplete="name"
             autoFocus
-            className="mt-1.5 h-10 border-transparent bg-black/20 text-sm text-white shadow-[inset_0_0_0_1px_rgb(255_255_255/0.045)] placeholder:text-white/28 hover:bg-black/25 focus-visible:border-white/10 focus-visible:ring-white/35"
+            className="mt-2 h-11"
             data-testid="polyphonic-owner-name"
             id="polyphonic-owner-name"
             maxLength={80}
@@ -126,80 +98,34 @@ export const PolyphonicYouStep = React.forwardRef<
             value={displayName}
           />
         </label>
-      </div>
-      <p className="ml-[3.75rem] mt-2.5 font-mono text-2xs leading-4 text-white/30">
-        Identity mark derived from your public key · {truncatePubkey(pubkey)}
-      </p>
-
-      <div className="mt-5 border-y border-white/[0.055]">
-        <button
-          aria-expanded={backupOpen}
-          className="flex min-h-11 w-full items-center gap-3 px-1 text-left text-sm text-white/68 transition-colors hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/40"
-          onClick={() => setBackupOpen((current) => !current)}
-          type="button"
-        >
-          <ShieldCheck className="h-4 w-4 text-white/48" />
-          <span className="flex-1">Create a protected recovery backup</span>
-          <span className="text-xs text-white/32">Optional</span>
-          <ChevronDown
-            className={`h-4 w-4 transition-transform ${backupOpen ? "rotate-180" : ""}`}
-          />
-        </button>
-        {backupOpen ? (
-          <div className="space-y-3 border-t border-white/[0.045] px-1 pb-3 pt-3">
-            <p className="text-xs leading-5 text-white/48">
-              Choose a unique passphrase and keep it separately from the saved
-              file.
-            </p>
-            <Input
-              aria-label="Backup passphrase"
-              autoComplete="new-password"
-              onChange={(event) => setPassphrase(event.target.value)}
-              placeholder="Passphrase (12–1024 UTF-8 bytes)"
-              type="password"
-              value={passphrase}
-            />
-            <Input
-              aria-label="Confirm backup passphrase"
-              autoComplete="new-password"
-              onChange={(event) => setConfirmation(event.target.value)}
-              placeholder="Confirm passphrase"
-              type="password"
-              value={confirmation}
-            />
-            {passphrase && !isValidOwnerBackupPassphrase(passphrase) ? (
-              <p className="text-xs text-destructive" role="alert">
-                Passphrase is {passphraseBytes} UTF-8 bytes; use 12–1024.
-              </p>
-            ) : null}
-            {confirmation && passphrase !== confirmation ? (
-              <p className="text-xs text-destructive" role="alert">
-                Passphrases do not match.
-              </p>
-            ) : null}
-            <Button
-              className="h-9"
-              disabled={!canExport}
-              onClick={() => void exportBackup()}
-              type="button"
-              variant="outline"
-            >
-              {isExporting ? <LoaderCircle className="animate-spin" /> : null}
-              Save encrypted backup…
-            </Button>
-            {backupStatus ? (
-              <p
-                className="flex items-center gap-2 text-xs text-white/62"
-                role="status"
+        <fieldset>
+          <legend className="mb-2 text-sm text-foreground/70">
+            Appearance
+          </legend>
+          <div className="inline-flex rounded-lg bg-foreground/[0.055] p-1">
+            {(
+              [
+                ["system", Monitor, "System"],
+                ["light", Sun, "Light"],
+                ["dark", Moon, "Dark"],
+              ] as const
+            ).map(([value, Icon, label]) => (
+              <button
+                aria-pressed={appearance === value}
+                className={cn(
+                  "flex h-9 items-center gap-2 rounded-md px-3 text-sm text-foreground/55 transition-colors",
+                  appearance === value &&
+                    "bg-background text-foreground shadow-sm ring-1 ring-foreground/10",
+                )}
+                key={value}
+                onClick={() => chooseAppearance(value)}
+                type="button"
               >
-                <Check className="h-3.5 w-3.5" /> {backupStatus}
-              </p>
-            ) : null}
-            {backupError ? (
-              <PolyphonicNotice kind="error">{backupError}</PolyphonicNotice>
-            ) : null}
+                <Icon className="h-3.5 w-3.5" /> {label}
+              </button>
+            ))}
           </div>
-        ) : null}
+        </fieldset>
       </div>
       {syncNotice ? <PolyphonicNotice>{syncNotice}</PolyphonicNotice> : null}
     </>

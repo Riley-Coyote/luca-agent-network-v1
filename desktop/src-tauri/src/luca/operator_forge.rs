@@ -408,6 +408,8 @@ fn runtime_options() -> Vec<RuntimeTargetOptionV1> {
     let mut options = vec![
         managed_option("codex", "Codex", &managed),
         managed_option("claude", "Claude Code", &managed),
+        managed_option("kimi", "Kimi Code", &managed),
+        managed_option("grok", "Grok", &managed),
     ];
     for (family, kind, label) in [
         (
@@ -460,18 +462,6 @@ fn choose_recommendation(
                 .iter()
                 .find(|option| {
                     option.target == *current && option.readiness == RuntimeReadinessV1::Ready
-                })
-                .map(|option| option.target.clone())
-        })
-        .or_else(|| {
-            options
-                .iter()
-                .find(|option| {
-                    option.target
-                        == (AgentRuntimeTargetV1::Native {
-                            runtime: NativeRuntimeFamilyV1::Hermes,
-                        })
-                        && option.readiness == RuntimeReadinessV1::Ready
                 })
                 .map(|option| option.target.clone())
         })
@@ -663,20 +653,20 @@ mod tests {
         let hermes = AgentRuntimeTargetV1::Native {
             runtime: NativeRuntimeFamilyV1::Hermes,
         };
-        let options = vec![option(codex, true), option(hermes.clone(), true)];
+        let options = vec![option(codex.clone(), true), option(hermes.clone(), true)];
         assert_eq!(choose_recommendation(Some(&hermes), &options), Some(hermes));
     }
 
     #[test]
-    fn recommendation_prefers_ready_hermes_for_an_unconfirmed_profile() {
+    fn recommendation_uses_catalog_order_for_an_unconfirmed_profile() {
         let codex = AgentRuntimeTargetV1::Managed {
             runtime_id: "codex".into(),
         };
         let hermes = AgentRuntimeTargetV1::Native {
             runtime: NativeRuntimeFamilyV1::Hermes,
         };
-        let options = vec![option(codex, true), option(hermes.clone(), true)];
-        assert_eq!(choose_recommendation(None, &options), Some(hermes));
+        let options = vec![option(codex.clone(), true), option(hermes.clone(), true)];
+        assert_eq!(choose_recommendation(None, &options), Some(codex));
     }
 
     #[test]
@@ -714,7 +704,12 @@ mod tests {
                 option(hermes.clone(), true),
             ],
         );
-        assert_eq!(settings.recommendation, Some(hermes));
+        assert_eq!(
+            settings.recommendation,
+            Some(AgentRuntimeTargetV1::Managed {
+                runtime_id: "codex".into(),
+            })
+        );
     }
 
     #[test]

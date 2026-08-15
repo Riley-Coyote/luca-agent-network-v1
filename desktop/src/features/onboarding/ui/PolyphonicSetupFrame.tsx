@@ -4,18 +4,7 @@ import { type ReactNode, useEffect, useRef } from "react";
 import { cn } from "@/shared/lib/cn";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 import { Button } from "@/shared/ui/button";
-import { PolyphonicBrandMark } from "./PolyphonicThresholdField";
 import type { PolyphonicOnboardingChapter } from "../polyphonicOnboardingState";
-
-const chapterDetails: Record<
-  PolyphonicOnboardingChapter,
-  { current: number; label: string }
-> = {
-  you: { current: 2, label: "You" },
-  agents: { current: 3, label: "Your agents" },
-  brain: { current: 4, label: "Your Brain" },
-  ready: { current: 5, label: "Ready" },
-};
 
 export function PolyphonicSetupFrame({
   backDisabled = false,
@@ -24,6 +13,7 @@ export function PolyphonicSetupFrame({
   continueLabel = "Continue",
   onBack,
   onContinue,
+  showFooter = true,
   stage,
 }: {
   backDisabled?: boolean;
@@ -32,10 +22,10 @@ export function PolyphonicSetupFrame({
   continueLabel?: string;
   onBack: () => void;
   onContinue: () => void;
+  showFooter?: boolean;
   stage: PolyphonicOnboardingChapter;
 }) {
   const reduceMotion = useReducedMotion();
-  const step = chapterDetails[stage];
   return (
     <div
       className="buzz-onboarding-neutral-theme buzz-startup-shell h-dvh overflow-hidden text-foreground"
@@ -48,11 +38,11 @@ export function PolyphonicSetupFrame({
     >
       <StartupWindowDragRegion />
       <p aria-live="polite" className="sr-only" role="status">
-        Step {step.current} of 5: {step.label}
+        {stage === "preparing" ? "Getting Luca ready" : "Polyphonic setup"}
       </p>
       <motion.main
         animate={{ opacity: 1, y: 0 }}
-        className="polyphonic-onboarding-main flex h-dvh min-h-0 items-center justify-center overflow-hidden px-5 pb-5 pt-11 sm:px-8 sm:pb-8 sm:pt-14"
+        className="polyphonic-onboarding-main flex h-dvh min-h-0 items-center justify-center overflow-hidden p-4 pt-10"
         initial={reduceMotion ? false : { opacity: 0, y: 10 }}
         transition={
           reduceMotion
@@ -62,44 +52,40 @@ export function PolyphonicSetupFrame({
       >
         <section
           aria-labelledby={`polyphonic-${stage}-heading`}
-          className="relative flex max-h-[calc(100dvh-4.5rem)] min-h-0 w-full max-w-[38rem] flex-col overflow-hidden rounded-[0.875rem] border border-white/[0.065] bg-[hsl(var(--mn-raised))] shadow-[inset_0_1px_0_rgb(255_255_255/0.025),0_18px_56px_rgb(0_0_0/0.38),0_2px_8px_rgb(0_0_0/0.22)]"
+          className="relative grid h-[min(34.5rem,calc(100dvh-2rem))] min-h-0 w-[min(37rem,calc(100vw-2rem))] grid-rows-[3.5rem_minmax(0,1fr)_3.5rem] overflow-hidden rounded-2xl border border-foreground/10 bg-[hsl(var(--mn-raised))] shadow-[inset_0_1px_0_rgb(255_255_255/0.04),0_20px_60px_rgb(0_0_0/0.22),0_2px_8px_rgb(0_0_0/0.12)]"
           data-testid="polyphonic-setup-assistant"
         >
-          <header className="polyphonic-onboarding-header flex shrink-0 items-center justify-between px-6 pt-5 sm:px-7 sm:pt-6">
-            <div className="flex items-center gap-2.5">
-              <span aria-hidden>
-                <PolyphonicBrandMark />
-              </span>
-              <span className="text-sm font-medium tracking-[-0.01em] text-white/86">
-                Luca
-              </span>
-            </div>
-            <span className="text-xs tabular-nums text-white/38">
-              Step {step.current} of 5
+          <header className="polyphonic-onboarding-header flex items-center px-9">
+            <span className="text-sm font-semibold tracking-[-0.01em] text-foreground">
+              Polyphonic
             </span>
           </header>
-          <div className="polyphonic-onboarding-body min-h-0 overflow-y-auto overscroll-contain px-6 pb-5 pt-5 [scrollbar-gutter:stable_both-edges] sm:px-7 sm:pb-6 sm:pt-5">
+          <div className="polyphonic-onboarding-body min-h-0 overflow-y-auto overscroll-contain px-9 pb-6 pt-4 [scrollbar-gutter:stable_both-edges]">
             {children}
           </div>
-          <footer className="polyphonic-onboarding-footer relative z-10 flex shrink-0 items-center justify-between gap-4 border-t border-white/[0.045] bg-[hsl(var(--mn-raised))] px-6 py-3 sm:px-7 sm:py-3.5">
-            <Button
-              className="h-8 rounded-md px-2.5 text-sm font-normal text-white/50 hover:bg-white/[0.045] hover:text-white/88"
-              disabled={backDisabled}
-              onClick={onBack}
-              type="button"
-              variant="ghost"
-            >
-              Back
-            </Button>
-            <Button
-              className="h-8 min-w-24 rounded-md border border-white/90 bg-white px-4 text-sm font-medium text-black shadow-[0_1px_2px_rgb(0_0_0/0.28)] hover:bg-white/[0.92] focus-visible:ring-2 focus-visible:ring-white/65 focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(var(--mn-raised))]"
-              data-testid="polyphonic-setup-continue"
-              disabled={continueDisabled}
-              onClick={onContinue}
-              type="button"
-            >
-              {continueLabel}
-            </Button>
+          <footer className="polyphonic-onboarding-footer relative z-10 flex items-center justify-between gap-4 px-9">
+            {showFooter ? (
+              <>
+                <Button
+                  className="h-9 rounded-md px-1 text-sm font-normal text-foreground/55 hover:bg-foreground/[0.045] hover:text-foreground"
+                  disabled={backDisabled}
+                  onClick={onBack}
+                  type="button"
+                  variant="ghost"
+                >
+                  Back
+                </Button>
+                <Button
+                  className="h-10 min-w-24 rounded-lg bg-foreground px-4 text-sm font-medium text-background shadow-sm hover:bg-foreground/90 focus-visible:ring-2 focus-visible:ring-ring"
+                  data-testid="polyphonic-setup-continue"
+                  disabled={continueDisabled}
+                  onClick={onContinue}
+                  type="button"
+                >
+                  {continueLabel}
+                </Button>
+              </>
+            ) : null}
           </footer>
         </section>
       </motion.main>
@@ -113,7 +99,7 @@ export function PolyphonicStepHeading({
   title,
 }: {
   description: string;
-  stage: PolyphonicOnboardingChapter;
+  stage: PolyphonicOnboardingChapter | "you" | "brain" | "ready";
   title: string;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -125,14 +111,14 @@ export function PolyphonicStepHeading({
   return (
     <header>
       <h1
-        className="text-[1.625rem] font-normal leading-[1.16] tracking-[-0.035em] text-white/96 outline-none focus-visible:!outline-none"
+        className="text-[1.75rem] font-medium leading-[1.15] tracking-[-0.018em] text-foreground outline-none focus-visible:!outline-none"
         id={`polyphonic-${stage}-heading`}
         ref={headingRef}
         tabIndex={-1}
       >
         {title}
       </h1>
-      <p className="mt-1.5 max-w-[32rem] text-sm leading-5 text-white/50">
+      <p className="mt-2 max-w-[32rem] text-[0.9375rem] leading-[1.375rem] text-foreground/60">
         {description}
       </p>
     </header>
@@ -152,7 +138,7 @@ export function PolyphonicNotice({
         "mt-3 rounded-md px-3 py-2.5 text-sm leading-5",
         kind === "error"
           ? "border border-destructive/35 bg-destructive/5 text-destructive"
-          : "bg-white/[0.035] text-white/58",
+          : "bg-foreground/[0.04] text-foreground/60",
       )}
       role={kind === "error" ? "alert" : "status"}
     >

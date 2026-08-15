@@ -17,15 +17,21 @@ const PREVIEW_PUBKEY = "f".repeat(64);
 export type PolyphonicOnboardingPreviewStage =
   | "threshold"
   | "prototype"
+  | "you"
+  | "brain"
+  | "ready"
   | PolyphonicOnboardingChapter;
 
 const stages = new Set<PolyphonicOnboardingPreviewStage>([
   "threshold",
   "prototype",
   "you",
+  "welcome",
+  "runtime",
   "agents",
   "brain",
   "ready",
+  "preparing",
 ]);
 
 export function readPolyphonicOnboardingPreviewStage(): PolyphonicOnboardingPreviewStage | null {
@@ -40,14 +46,22 @@ export function readPolyphonicOnboardingPreviewStage(): PolyphonicOnboardingPrev
     : null;
 }
 
-function prepareProductionFlow(stage: PolyphonicOnboardingChapter) {
+function prepareProductionFlow(
+  stage: Exclude<PolyphonicOnboardingPreviewStage, "threshold" | "prototype">,
+) {
+  const chapter: PolyphonicOnboardingChapter =
+    stage === "you"
+      ? "welcome"
+      : stage === "brain" || stage === "ready"
+        ? "runtime"
+        : stage;
   clearPolyphonicOnboardingTransaction(PREVIEW_PUBKEY);
   savePolyphonicOnboardingTransaction({
     ...createPolyphonicOnboardingTransaction(PREVIEW_PUBKEY),
-    chapter: stage,
-    profileSaved: stage !== "you",
-    agentsReviewed: stage === "brain" || stage === "ready",
-    brainReviewed: stage === "ready",
+    chapter,
+    profileSaved: chapter !== "welcome",
+    runtimeConfirmed: chapter !== "welcome" && chapter !== "runtime",
+    agentsReviewed: chapter === "preparing",
   });
 }
 
@@ -92,7 +106,7 @@ function LegacyPolyphonicOnboardingPreview({
   const [flowKey, setFlowKey] = React.useState(0);
 
   const beginPersonalHome = React.useCallback(() => {
-    prepareProductionFlow("you");
+    prepareProductionFlow("welcome");
     setFlowKey((current) => current + 1);
     setMode("personal-home");
   }, []);

@@ -16,7 +16,7 @@ export function PolyphonicReadyStep({
   agentsNeedAttention: boolean;
   brainNeedsAttention: boolean;
   displayName: string;
-  onReview: (chapter: PolyphonicOnboardingChapter) => void;
+  onReview: (chapter: PolyphonicOnboardingChapter | "you" | "brain") => void;
   profileNeedsAttention: boolean;
 }) {
   const residents = useManagedAgentsQuery();
