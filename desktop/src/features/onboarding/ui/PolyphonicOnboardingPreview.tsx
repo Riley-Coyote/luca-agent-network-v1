@@ -8,6 +8,7 @@ import {
   savePolyphonicOnboardingTransaction,
 } from "../polyphonicOnboardingState";
 import { MachineOnboardingFlow } from "./MachineOnboardingFlow";
+import { ConversationalOnboardingPreview } from "./ConversationalOnboardingPreview";
 import { PolyphonicOnboardingFlow } from "./PolyphonicOnboardingFlow";
 
 const PREVIEW_PARAM = "polyphonicOnboardingPreview";
@@ -15,10 +16,12 @@ const PREVIEW_PUBKEY = "f".repeat(64);
 
 export type PolyphonicOnboardingPreviewStage =
   | "threshold"
+  | "prototype"
   | PolyphonicOnboardingChapter;
 
 const stages = new Set<PolyphonicOnboardingPreviewStage>([
   "threshold",
+  "prototype",
   "you",
   "agents",
   "brain",
@@ -31,6 +34,7 @@ export function readPolyphonicOnboardingPreviewStage(): PolyphonicOnboardingPrev
   const value = new URL(window.location.href).searchParams.get(PREVIEW_PARAM);
   if (!value) return null;
   if (value === "1" || value === "welcome") return "threshold";
+  if (value === "conversational") return "prototype";
   return stages.has(value as PolyphonicOnboardingPreviewStage)
     ? (value as PolyphonicOnboardingPreviewStage)
     : null;
@@ -56,6 +60,25 @@ export function PolyphonicOnboardingPreview({
   queryClient,
 }: {
   initialStage: PolyphonicOnboardingPreviewStage;
+  queryClient: QueryClient;
+}) {
+  if (initialStage === "prototype") {
+    return <ConversationalOnboardingPreview />;
+  }
+
+  return (
+    <LegacyPolyphonicOnboardingPreview
+      initialStage={initialStage}
+      queryClient={queryClient}
+    />
+  );
+}
+
+function LegacyPolyphonicOnboardingPreview({
+  initialStage,
+  queryClient,
+}: {
+  initialStage: Exclude<PolyphonicOnboardingPreviewStage, "prototype">;
   queryClient: QueryClient;
 }) {
   const [mode, setMode] = React.useState<"machine" | "personal-home">(() => {
