@@ -2,15 +2,23 @@ import { motion, useReducedMotion } from "motion/react";
 import { type ReactNode, useEffect, useRef } from "react";
 
 import { cn } from "@/shared/lib/cn";
+import { useTheme } from "@/shared/theme/ThemeProvider";
+import { useSystemColorScheme } from "@/shared/theme/useSystemColorScheme";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 import { Button } from "@/shared/ui/button";
 import type { PolyphonicOnboardingChapter } from "../polyphonicOnboardingState";
+import {
+  polyphonicDarkPalette,
+  polyphonicLightPalette,
+  PolyphonicPresentationHeading,
+} from "./PolyphonicOnboardingPresentation";
 
 export function PolyphonicSetupFrame({
   backDisabled = false,
   children,
   continueDisabled = false,
   continueLabel = "Continue",
+  footerSecondary,
   onBack,
   onContinue,
   showFooter = true,
@@ -20,18 +28,32 @@ export function PolyphonicSetupFrame({
   children: ReactNode;
   continueDisabled?: boolean;
   continueLabel?: string;
+  footerSecondary?: ReactNode;
   onBack: () => void;
   onContinue: () => void;
   showFooter?: boolean;
   stage: PolyphonicOnboardingChapter;
 }) {
   const reduceMotion = useReducedMotion();
+  const theme = useTheme();
+  const systemColorScheme = useSystemColorScheme();
+  const onboardingColorScheme = theme.followSystem
+    ? systemColorScheme
+    : theme.selectedThemeName === "buzz-dark"
+      ? "dark"
+      : "light";
+  const palette =
+    onboardingColorScheme === "dark"
+      ? polyphonicDarkPalette
+      : polyphonicLightPalette;
   return (
     <div
-      className="buzz-onboarding-neutral-theme buzz-startup-shell h-dvh overflow-hidden text-foreground"
+      className="buzz-onboarding-neutral-theme buzz-startup-shell h-dvh overflow-hidden bg-[var(--prototype-canvas)] text-[var(--prototype-ink)]"
+      data-system-color-scheme={onboardingColorScheme}
       data-stage={stage}
       data-testid="polyphonic-onboarding"
       style={{
+        ...palette,
         fontFamily:
           '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif',
       }}
@@ -52,22 +74,22 @@ export function PolyphonicSetupFrame({
       >
         <section
           aria-labelledby={`polyphonic-${stage}-heading`}
-          className="relative grid h-[min(34.5rem,calc(100dvh-2rem))] min-h-0 w-[min(37rem,calc(100vw-2rem))] grid-rows-[3.5rem_minmax(0,1fr)_3.5rem] overflow-hidden rounded-2xl border border-foreground/10 bg-[hsl(var(--mn-raised))] shadow-[inset_0_1px_0_rgb(255_255_255/0.04),0_20px_60px_rgb(0_0_0/0.22),0_2px_8px_rgb(0_0_0/0.12)]"
+          className="relative grid h-[min(34.5rem,calc(100dvh-2rem))] min-h-0 w-[min(37rem,calc(100vw-2rem))] grid-rows-[3.5rem_minmax(0,1fr)_3.5rem] overflow-hidden rounded-[15px] border border-[var(--prototype-hairline)] bg-[var(--prototype-raised)] shadow-[inset_0_1px_0_var(--prototype-hairline-soft),0_1px_2px_rgb(0_0_0/0.08),0_22px_64px_var(--prototype-shadow)]"
           data-testid="polyphonic-setup-assistant"
         >
           <header className="polyphonic-onboarding-header flex items-center px-9">
-            <span className="text-sm font-semibold tracking-[-0.01em] text-foreground">
+            <span className="text-sm font-semibold tracking-[-0.01em] text-[var(--prototype-ink)]">
               Polyphonic
             </span>
           </header>
-          <div className="polyphonic-onboarding-body min-h-0 overflow-y-auto overscroll-contain px-9 pb-6 pt-4 [scrollbar-gutter:stable_both-edges]">
+          <div className="polyphonic-onboarding-body min-h-0 overflow-hidden px-9 pb-6 pt-4">
             {children}
           </div>
           <footer className="polyphonic-onboarding-footer relative z-10 flex items-center justify-between gap-4 px-9">
             {showFooter ? (
               <>
                 <Button
-                  className="h-9 rounded-md px-1 text-sm font-normal text-foreground/55 hover:bg-foreground/[0.045] hover:text-foreground"
+                  className="h-9 rounded-[7px] px-1 text-[length:var(--prototype-support-size)] font-normal text-[var(--prototype-muted)] hover:bg-[var(--prototype-selection)] hover:text-[var(--prototype-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
                   disabled={backDisabled}
                   onClick={onBack}
                   type="button"
@@ -75,15 +97,18 @@ export function PolyphonicSetupFrame({
                 >
                   Back
                 </Button>
-                <Button
-                  className="h-10 min-w-24 rounded-lg bg-foreground px-4 text-sm font-medium text-background shadow-sm hover:bg-foreground/90 focus-visible:ring-2 focus-visible:ring-ring"
-                  data-testid="polyphonic-setup-continue"
-                  disabled={continueDisabled}
-                  onClick={onContinue}
-                  type="button"
-                >
-                  {continueLabel}
-                </Button>
+                <div className="flex items-center gap-4">
+                  {footerSecondary}
+                  <Button
+                    className="min-h-9 min-w-24 rounded-[9px] bg-[var(--prototype-accent)] px-4 py-2 text-[length:var(--prototype-support-size)] font-semibold text-[var(--prototype-accent-ink)] shadow-[0_1px_2px_var(--prototype-shadow)] transition-[background-color,box-shadow,opacity] duration-[80ms] hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
+                    data-testid="polyphonic-setup-continue"
+                    disabled={continueDisabled}
+                    onClick={onContinue}
+                    type="button"
+                  >
+                    {continueLabel}
+                  </Button>
+                </div>
               </>
             ) : null}
           </footer>
@@ -109,19 +134,12 @@ export function PolyphonicStepHeading({
   }, []);
 
   return (
-    <header>
-      <h1
-        className="text-[1.75rem] font-medium leading-[1.15] tracking-[-0.018em] text-foreground outline-none focus-visible:!outline-none"
-        id={`polyphonic-${stage}-heading`}
-        ref={headingRef}
-        tabIndex={-1}
-      >
-        {title}
-      </h1>
-      <p className="mt-2 max-w-[32rem] text-[0.9375rem] leading-[1.375rem] text-foreground/60">
-        {description}
-      </p>
-    </header>
+    <PolyphonicPresentationHeading
+      description={description}
+      headingRef={headingRef}
+      id={`polyphonic-${stage}-heading`}
+      title={title}
+    />
   );
 }
 

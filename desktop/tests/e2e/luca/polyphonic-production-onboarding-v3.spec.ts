@@ -44,6 +44,41 @@ async function begin(page: import("@playwright/test").Page) {
   ).toBeFocused();
 }
 
+test("the production setup uses the approved onboarding appearance palettes", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await installMockBridge(
+    page,
+    {
+      acpRuntimesCatalog: [READY_CODEX_RUNTIME],
+      nativeResidentDiscovery: NO_AGENTS,
+    },
+    { skipCommunitySeed: true, skipOnboardingSeed: true },
+  );
+  await page.goto("/?e2e=mock&machineOnboarding=1");
+  await page.getByRole("button", { name: "Begin setup" }).click();
+
+  const onboarding = page.getByTestId("polyphonic-onboarding");
+  const surface = page.getByTestId("polyphonic-setup-assistant");
+  await expect(onboarding).toHaveAttribute("data-system-color-scheme", "dark");
+
+  await page.getByRole("button", { name: "Light" }).click();
+  await expect(onboarding).toHaveAttribute("data-system-color-scheme", "light");
+  await expect(onboarding).toHaveCSS("background-color", "rgb(233, 232, 227)");
+  await expect(surface).toHaveCSS("background-color", "rgb(246, 245, 241)");
+
+  await page.getByRole("button", { name: "Dark" }).click();
+  await expect(onboarding).toHaveAttribute("data-system-color-scheme", "dark");
+  await expect(onboarding).toHaveCSS("background-color", "rgb(6, 6, 8)");
+  await expect(surface).toHaveCSS("background-color", "rgb(20, 20, 22)");
+
+  await page.getByRole("button", { name: "System" }).click();
+  await expect(onboarding).toHaveAttribute("data-system-color-scheme", "dark");
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(onboarding).toHaveAttribute("data-system-color-scheme", "light");
+});
+
 test("a ready runtime enters the real Luca DM with one inert canonical greeting", async ({
   page,
 }) => {
@@ -110,7 +145,7 @@ test("the canonical Luca notice is trusted and published only once", async ({
   await expect(
     page.getByRole("heading", { name: "Bring in agents you already use" }),
   ).toBeFocused();
-  await page.getByTestId("polyphonic-setup-continue").click();
+  await page.getByRole("button", { name: "Not now" }).click();
 
   await expect(page).toHaveURL(/#\/channels\//);
   const channelId = decodeURIComponent(
@@ -223,8 +258,30 @@ test("large native inventories stay contained and imports do not start agents", 
   ).toBeFocused();
 
   const inventory = page.getByTestId("onboarding-agent-import-list");
+  await expect(inventory).toHaveCount(0);
+  await expect(page.getByText("21 profiles found")).toBeVisible();
+  await expect(page.getByText("21 agents found")).toBeVisible();
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await expect(
+    page.getByRole("heading", { name: "Choose agents" }),
+  ).toBeFocused();
   await expect(inventory).toBeVisible();
   await expect(page.getByTestId("polyphonic-setup-continue")).toBeVisible();
+  await expect(page.locator("h1:visible")).toHaveCount(1);
+  await expect(page.getByPlaceholder("Search agents")).toHaveCSS(
+    "background-color",
+    "rgb(241, 240, 236)",
+  );
+  await expect(inventory).toHaveCSS("background-color", "rgb(227, 226, 221)");
+  const pageOverflow = await page.evaluate(() => ({
+    horizontal:
+      document.documentElement.scrollWidth >
+      document.documentElement.clientWidth,
+    vertical:
+      document.documentElement.scrollHeight >
+      document.documentElement.clientHeight,
+  }));
+  expect(pageOverflow).toEqual({ horizontal: false, vertical: false });
   expect(
     await inventory.evaluate(
       (element) => element.scrollHeight > element.clientHeight,

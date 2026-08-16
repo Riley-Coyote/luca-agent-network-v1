@@ -154,6 +154,7 @@ export const PolyphonicRuntimeStep = React.forwardRef<
   const [selected, setSelected] = React.useState<AgentRuntimeTargetV1 | null>(
     null,
   );
+  const [showOtherRuntimes, setShowOtherRuntimes] = React.useState(false);
 
   React.useEffect(() => {
     if (!settings.data || selected) return;
@@ -185,84 +186,140 @@ export const PolyphonicRuntimeStep = React.forwardRef<
   React.useImperativeHandle(ref, () => ({ commit }), [commit]);
 
   const options = settings.data?.runtimeOptions ?? [];
+  const readyOptions = options
+    .filter((option) => option.readiness === "ready")
+    .sort(
+      (left, right) =>
+        Number(Boolean(right.recommended)) - Number(Boolean(left.recommended)),
+    );
+  const unreadyOptions = options.filter(
+    (option) => option.readiness !== "ready",
+  );
+  const revealAllRuntimes =
+    showOtherRuntimes ||
+    readyOptions.length === 0 ||
+    selectedOption?.readiness !== "ready";
+  const visibleOptions = revealAllRuntimes
+    ? [...readyOptions, ...unreadyOptions]
+    : readyOptions;
   return (
-    <>
+    <div className="flex h-full min-h-0 flex-col">
       <PolyphonicStepHeading
         description="Pick the AI Luca should use on this Mac. You can change it later without changing who Luca is."
         stage="runtime"
         title="Choose what powers Luca"
       />
       <div
-        aria-label="Luca runtime"
-        className="mt-7 overflow-hidden rounded-xl bg-foreground/[0.055] p-1"
-        role="radiogroup"
+        className="mt-5 min-h-0 flex-1 overflow-y-auto pb-1"
+        data-prototype-scroll-owner="true"
+        data-testid="polyphonic-runtime-scroll"
       >
-        {options.map((option) => {
-          const runtime = matchingRuntime(option, runtimes.data ?? []);
-          const checked = selected
-            ? targetKey(selected) === targetKey(option.target)
-            : false;
-          return (
-            <label
-              className={cn(
-                "flex min-h-[3.5rem] cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors",
-                checked && "bg-background shadow-sm ring-1 ring-foreground/10",
-              )}
-              key={targetKey(option.target)}
-            >
-              {runtime ? (
-                <RuntimeIcon
-                  className="h-[1.125rem] w-[1.125rem] rounded-none"
-                  runtime={runtime}
+        <div
+          aria-label="Luca runtime"
+          className="grid grid-cols-1 rounded-[10px] bg-[var(--prototype-recessed)] p-1"
+          role="radiogroup"
+        >
+          {visibleOptions.map((option) => {
+            const runtime = matchingRuntime(option, runtimes.data ?? []);
+            const checked = selected
+              ? targetKey(selected) === targetKey(option.target)
+              : false;
+            return (
+              <label
+                className={cn(
+                  "group relative flex min-h-[52px] w-full cursor-pointer items-center gap-3 rounded-[8px] px-3 py-2 text-left outline-none transition-[background-color,box-shadow] duration-[90ms] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-[-2px] has-[:focus-visible]:outline-[var(--prototype-focus)]",
+                  checked
+                    ? "bg-[var(--prototype-raised)] shadow-[0_1px_2px_var(--prototype-shadow)]"
+                    : "hover:bg-[var(--prototype-selection)]",
+                )}
+                key={targetKey(option.target)}
+              >
+                <span className="grid size-5 shrink-0 place-items-center">
+                  {runtime ? (
+                    <RuntimeIcon
+                      className="h-[1.125rem] w-[1.125rem] rounded-none"
+                      runtime={runtime}
+                    />
+                  ) : (
+                    <TerminalSquare className="h-4 w-4 text-[var(--prototype-muted)]" />
+                  )}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-[var(--prototype-ink)]">
+                    {option.label}
+                  </span>
+                  <span className="mt-0.5 block text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
+                    {option.readiness === "ready"
+                      ? option.recommended
+                        ? "Ready on this Mac · Recommended"
+                        : "Ready on this Mac"
+                      : (option.reason ??
+                        (option.readiness === "setup_required"
+                          ? "Set up"
+                          : "Unavailable"))}
+                  </span>
+                </span>
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "grid size-4 shrink-0 place-items-center rounded-full border",
+                    checked
+                      ? "border-[var(--prototype-ink)]"
+                      : "border-[var(--prototype-hairline)]",
+                  )}
+                >
+                  {checked ? (
+                    <span className="size-1.5 rounded-full bg-[var(--prototype-ink)]" />
+                  ) : null}
+                </span>
+                <input
+                  checked={checked}
+                  className="absolute inset-0 z-10 cursor-pointer opacity-0"
+                  name="polyphonic-runtime"
+                  onChange={() => setSelected(option.target)}
+                  type="radio"
                 />
-              ) : (
-                <TerminalSquare className="h-4 w-4 text-foreground/55" />
-              )}
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium text-foreground">
-                  {option.label}
-                </span>
-                <span className="block text-[0.8125rem] leading-[1.125rem] text-foreground/55">
-                  {option.readiness === "ready"
-                    ? option.recommended
-                      ? "Ready on this Mac · Recommended"
-                      : "Ready on this Mac"
-                    : (option.reason ??
-                      (option.readiness === "setup_required"
-                        ? "Set up"
-                        : "Unavailable"))}
-                </span>
-              </span>
-              <input
-                checked={checked}
-                className="h-4 w-4 accent-foreground"
-                name="polyphonic-runtime"
-                onChange={() => setSelected(option.target)}
-                type="radio"
-              />
-            </label>
-          );
-        })}
-      </div>
-      {selectedOption && selectedOption.readiness !== "ready" ? (
-        <div className="mt-4 flex items-center justify-between gap-4 text-sm text-foreground/60">
-          <span>
-            {selectedOption.reason ?? "This runtime needs attention."}
-          </span>
-          {selectedRuntime ? (
-            <ManagedRecovery runtime={selectedRuntime} />
-          ) : (
-            <Button
-              className="h-8"
-              onClick={() => void settings.refetch()}
-              type="button"
-              variant="outline"
-            >
-              Check again
-            </Button>
-          )}
+              </label>
+            );
+          })}
         </div>
-      ) : null}
-    </>
+        {unreadyOptions.length > 0 && !revealAllRuntimes ? (
+          <button
+            aria-expanded="false"
+            className="mt-2.5 w-fit rounded-[6px] py-1 text-xs text-[var(--prototype-muted)] outline-none hover:text-[var(--prototype-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
+            onClick={() => setShowOtherRuntimes(true)}
+            type="button"
+          >
+            Choose another runtime
+          </button>
+        ) : null}
+        {selectedOption ? (
+          <p className="mt-3 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted-strong)]">
+            {selectedOption.target.kind === "managed"
+              ? "Full conversations and collaboration with Luca."
+              : "Direct conversations and existing native-agent support. Advanced collaboration is limited."}
+          </p>
+        ) : null}
+        {selectedOption && selectedOption.readiness !== "ready" ? (
+          <div className="mt-4 flex items-start justify-between gap-4 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
+            <span>
+              {selectedOption.reason ?? "This runtime needs attention."}
+            </span>
+            {selectedRuntime ? (
+              <ManagedRecovery runtime={selectedRuntime} />
+            ) : (
+              <Button
+                className="h-8"
+                onClick={() => void settings.refetch()}
+                type="button"
+                variant="outline"
+              >
+                Check again
+              </Button>
+            )}
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 });

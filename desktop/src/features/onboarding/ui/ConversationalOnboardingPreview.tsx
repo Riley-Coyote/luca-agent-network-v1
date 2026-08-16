@@ -6,13 +6,9 @@ import {
   CircleAlert,
   ExternalLink,
   LoaderCircle,
-  Monitor,
-  Moon,
   Pencil,
   RefreshCw,
-  Search,
   Send,
-  Sun,
   TerminalSquare,
   X,
 } from "lucide-react";
@@ -23,6 +19,13 @@ import { cn } from "@/shared/lib/cn";
 import { useSystemColorScheme } from "@/shared/theme/useSystemColorScheme";
 import { DotSigil } from "@/shared/ui/dot-display/DotSigil";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
+import {
+  polyphonicDarkPalette,
+  polyphonicLightPalette,
+  PolyphonicPresentationAppearanceControl,
+  PolyphonicPresentationAgentSelector,
+  type PolyphonicPresentationPalette,
+} from "./PolyphonicOnboardingPresentation";
 import chatgptLogoUrl from "../assets/harness-logos/chatgpt.png?inline";
 import claudeLogoUrl from "../assets/harness-logos/claude.png?inline";
 import grokLogoUrl from "../assets/harness-logos/grok-mark.svg?inline";
@@ -86,52 +89,10 @@ type AgentCandidate = {
   source: "Hermes" | "OpenClaw";
 };
 
-type PrototypePalette = React.CSSProperties &
-  Record<`--prototype-${string}`, string>;
+type PrototypePalette = PolyphonicPresentationPalette;
 
-const lightPalette: PrototypePalette = {
-  "--prototype-accent": "#30312d",
-  "--prototype-accent-ink": "#ffffff",
-  "--prototype-body-size": "0.9375rem",
-  "--prototype-canvas": "#e9e8e3",
-  "--prototype-elevated": "#ffffff",
-  "--prototype-field": "#f1f0ec",
-  "--prototype-focus": "-webkit-focus-ring-color",
-  "--prototype-hairline": "rgba(34, 35, 31, 0.11)",
-  "--prototype-hairline-soft": "rgba(34, 35, 31, 0.065)",
-  "--prototype-heading-size": "1.75rem",
-  "--prototype-ink": "#242521",
-  "--prototype-muted": "#686963",
-  "--prototype-muted-strong": "#575852",
-  "--prototype-raised": "#f6f5f1",
-  "--prototype-recessed": "#e3e2dd",
-  "--prototype-selection": "rgba(38, 39, 34, 0.055)",
-  "--prototype-shadow": "rgba(27, 28, 24, 0.09)",
-  "--prototype-support-size": "0.8125rem",
-  colorScheme: "light",
-};
-
-const darkPalette: PrototypePalette = {
-  "--prototype-accent": "rgba(244, 243, 240, 0.93)",
-  "--prototype-accent-ink": "#0e0e10",
-  "--prototype-body-size": "0.9375rem",
-  "--prototype-canvas": "#060608",
-  "--prototype-elevated": "#222224",
-  "--prototype-field": "#0e0e10",
-  "--prototype-focus": "-webkit-focus-ring-color",
-  "--prototype-hairline": "rgba(220, 219, 216, 0.08)",
-  "--prototype-hairline-soft": "rgba(220, 219, 216, 0.045)",
-  "--prototype-heading-size": "1.75rem",
-  "--prototype-ink": "rgba(244, 243, 240, 0.93)",
-  "--prototype-muted": "rgba(210, 208, 204, 0.68)",
-  "--prototype-muted-strong": "rgba(210, 208, 204, 0.78)",
-  "--prototype-raised": "#141416",
-  "--prototype-recessed": "#0a0a0c",
-  "--prototype-selection": "rgba(220, 219, 216, 0.07)",
-  "--prototype-shadow": "rgba(0, 0, 0, 0.42)",
-  "--prototype-support-size": "0.8125rem",
-  colorScheme: "dark",
-};
+const lightPalette: PrototypePalette = polyphonicLightPalette;
+const darkPalette: PrototypePalette = polyphonicDarkPalette;
 
 const prototypeStates = new Set<PrototypeState>([
   "threshold",
@@ -936,40 +897,11 @@ function AppearanceControl({
   appearance: Appearance;
   onChange: (appearance: Appearance) => void;
 }) {
-  const options = [
-    { icon: Monitor, label: "System", value: "system" as const },
-    { icon: Sun, label: "Light", value: "light" as const },
-    { icon: Moon, label: "Dark", value: "dark" as const },
-  ];
   return (
-    <fieldset>
-      <legend className="mb-2 text-xs font-medium text-[var(--prototype-muted-strong)]">
-        Appearance
-      </legend>
-      <div className="inline-flex rounded-[9px] bg-[var(--prototype-selection)] p-[3px]">
-        {options.map((option) => {
-          const Icon = option.icon;
-          const active = appearance === option.value;
-          return (
-            <button
-              aria-pressed={active}
-              className={cn(
-                "flex min-h-8 items-center gap-1.5 rounded-[7px] px-3 py-1.5 text-xs font-medium transition-[background-color,color,box-shadow] duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]",
-                active
-                  ? "bg-[var(--prototype-field)] text-[var(--prototype-ink)] shadow-[0_1px_2px_var(--prototype-shadow)]"
-                  : "text-[var(--prototype-muted)] hover:text-[var(--prototype-ink)]",
-              )}
-              key={option.value}
-              onClick={() => onChange(option.value)}
-              type="button"
-            >
-              <Icon className="size-3.5" />
-              {option.label}
-            </button>
-          );
-        })}
-      </div>
-    </fieldset>
+    <PolyphonicPresentationAppearanceControl
+      appearance={appearance}
+      onChange={onChange}
+    />
   );
 }
 
@@ -1266,13 +1198,8 @@ function AgentsSelectState({
   selectedIds: Set<string>;
 }) {
   const [query, setQuery] = React.useState("");
-  const normalized = query.trim().toLowerCase();
-  const filtered = agentCandidates.filter((agent) =>
-    agent.name.toLowerCase().includes(normalized),
-  );
-  const selectedCount = selectedIds.size;
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="agents-select">
+    <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0" data-testid="prototype-step-origin">
         <h1 className="text-[length:var(--prototype-heading-size)] font-medium leading-[1.15] tracking-[-0.018em]">
           Choose agents
@@ -1280,106 +1207,32 @@ function AgentsSelectState({
         <p className="mt-1 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
           Nothing is imported unless you select it.
         </p>
-        <label className="relative mt-4 block">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[var(--prototype-muted)]" />
-          <input
-            aria-label="Search agents"
-            className="min-h-9 w-full rounded-[8px] border border-[var(--prototype-hairline)] bg-[var(--prototype-field)] py-2 pl-9 pr-3 text-[length:var(--prototype-support-size)] outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search agents"
-            value={query}
-          />
-        </label>
-        <div className="mt-2.5 flex items-center gap-5 text-xs">
-          <button
-            className="rounded-[4px] text-[var(--prototype-muted-strong)] hover:text-[var(--prototype-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
-            onClick={() =>
-              agentCandidates
-                .filter((agent) => !agent.disabledReason)
-                .forEach((agent) => {
-                  if (!selectedIds.has(agent.id)) onToggle(agent.id);
-                })
-            }
-            type="button"
-          >
-            Select all ready
-          </button>
-          <button
-            className="rounded-[4px] text-[var(--prototype-muted)] hover:text-[var(--prototype-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
-            onClick={() => Array.from(selectedIds).forEach(onToggle)}
-            type="button"
-          >
-            Clear
-          </button>
-          <span className="ml-auto text-[var(--prototype-muted)]">
-            {selectedCount} selected
-          </span>
-        </div>
       </div>
-      <section
-        aria-label="Discovered agents"
-        className="mt-3 min-h-0 flex-1 overflow-y-auto rounded-[9px] bg-[var(--prototype-recessed)] p-1"
-        data-prototype-scroll-owner="true"
-        data-testid="prototype-agent-inventory"
-      >
-        {(["Hermes", "OpenClaw"] as const).map((source) => {
-          const group = filtered.filter((agent) => agent.source === source);
-          if (!group.length) return null;
-          return (
-            <div key={source}>
-              <p className="px-3 pb-1 pt-2 text-2xs font-semibold tracking-[0.12em] text-[var(--prototype-muted)] uppercase">
-                {source}
-              </p>
-              {group.map((agent) => {
-                const selected = selectedIds.has(agent.id);
-                return (
-                  <button
-                    aria-pressed={selected}
-                    className={cn(
-                      "flex min-h-11 w-full items-center gap-3 rounded-[7px] px-3 py-2 text-left hover:bg-[var(--prototype-selection)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--prototype-focus)] disabled:cursor-not-allowed disabled:opacity-45",
-                      selected && "bg-[var(--prototype-raised)]",
-                    )}
-                    data-testid={`prototype-agent-${agent.id}`}
-                    disabled={Boolean(agent.disabledReason)}
-                    key={agent.id}
-                    onClick={() => onToggle(agent.id)}
-                    title={agent.disabledReason}
-                    type="button"
-                  >
-                    <TerminalSquare
-                      className="size-4 shrink-0 text-[var(--prototype-muted)]"
-                      strokeWidth={1.2}
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-medium">
-                        {agent.name}
-                      </span>
-                      <span className="block text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
-                        {agent.disabledReason ?? `${source} agent`}
-                      </span>
-                    </span>
-                    <span
-                      className={cn(
-                        "grid size-4 shrink-0 place-items-center rounded-[5px] border",
-                        selected
-                          ? "border-[var(--prototype-ink)] bg-[var(--prototype-ink)] text-[var(--prototype-field)]"
-                          : "border-[var(--prototype-hairline)]",
-                      )}
-                    >
-                      {selected ? <Check className="size-3" /> : null}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          );
-        })}
-        {!filtered.length ? (
-          <p className="px-3 py-8 text-center text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
-            No matching agents
-          </p>
-        ) : null}
-      </section>
+      <div className="mt-4 min-h-0 flex-1">
+        <PolyphonicPresentationAgentSelector
+          agents={agentCandidates.map((agent) => ({
+            detail: agent.disabledReason ?? `${agent.source} agent`,
+            disabled: Boolean(agent.disabledReason),
+            id: agent.id,
+            name: agent.name,
+            source: agent.source,
+          }))}
+          inventoryTestId="prototype-agent-inventory"
+          onClear={() => Array.from(selectedIds).forEach(onToggle)}
+          onQueryChange={setQuery}
+          onSelectAll={() =>
+            agentCandidates
+              .filter((agent) => !agent.disabledReason)
+              .forEach((agent) => {
+                if (!selectedIds.has(agent.id)) onToggle(agent.id);
+              })
+          }
+          onToggle={onToggle}
+          query={query}
+          rowTestIdPrefix="prototype-agent-"
+          selectedIds={selectedIds}
+        />
+      </div>
     </div>
   );
 }

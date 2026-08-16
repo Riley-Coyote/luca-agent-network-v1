@@ -13,6 +13,7 @@ import {
 import { readPendingPolyphonicProfile } from "../polyphonicProfileSync";
 import {
   PolyphonicAgentImportStep,
+  type PolyphonicAgentImportMode,
   type PolyphonicAgentImportStepHandle,
 } from "./PolyphonicAgentImportStep";
 import { PolyphonicPreparingStep } from "./PolyphonicPreparingStep";
@@ -73,6 +74,8 @@ export function PolyphonicOnboardingFlow({
   const [runtimeReady, setRuntimeReady] = React.useState(false);
   const [agentsContinueLabel, setAgentsContinueLabel] =
     React.useState("Continue");
+  const [agentsMode, setAgentsMode] =
+    React.useState<PolyphonicAgentImportMode>("summary");
   const [error, setError] = React.useState<string | null>(null);
   const [discovery, setDiscovery] =
     React.useState<NativeResidentDiscoveryOutcome | null>(null);
@@ -152,7 +155,26 @@ export function PolyphonicOnboardingFlow({
             ? "Working…"
             : "Continue"
       }
-      onBack={() => persist({ chapter: previousChapter[transaction.chapter] })}
+      footerSecondary={
+        transaction.chapter === "agents" && agentsMode === "summary" ? (
+          <button
+            className="rounded-[7px] px-1 py-1 text-[length:var(--prototype-support-size)] text-[var(--prototype-muted)] hover:text-[var(--prototype-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
+            onClick={() =>
+              persist({ chapter: "preparing", agentsReviewed: true })
+            }
+            type="button"
+          >
+            Not now
+          </button>
+        ) : null
+      }
+      onBack={() => {
+        if (transaction.chapter === "agents" && agentsMode === "select") {
+          agentsRef.current?.showSummary();
+          return;
+        }
+        persist({ chapter: previousChapter[transaction.chapter] });
+      }}
       onContinue={() => void continueForward()}
       showFooter={transaction.chapter !== "preparing"}
       stage={transaction.chapter}
@@ -177,6 +199,7 @@ export function PolyphonicOnboardingFlow({
           discovery={discovery}
           onBusyChange={setBusy}
           onContinueLabelChange={setAgentsContinueLabel}
+          onModeChange={setAgentsMode}
           onRescan={scan}
           ref={agentsRef}
         />

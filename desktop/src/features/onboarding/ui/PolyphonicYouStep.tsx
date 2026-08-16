@@ -1,10 +1,6 @@
 import * as React from "react";
-import { Monitor, Moon, Sun } from "lucide-react";
-
 import { useUpdateProfileMutation } from "@/features/profile/hooks";
-import { cn } from "@/shared/lib/cn";
 import { useTheme } from "@/shared/theme/ThemeProvider";
-import { Input } from "@/shared/ui/input";
 import {
   clearPendingPolyphonicProfile,
   savePendingPolyphonicProfile,
@@ -13,6 +9,7 @@ import {
   PolyphonicNotice,
   PolyphonicStepHeading,
 } from "./PolyphonicSetupFrame";
+import { PolyphonicPresentationAppearanceControl } from "./PolyphonicOnboardingPresentation";
 
 export type PolyphonicYouStepHandle = {
   commit: () => Promise<{ displayName: string; needsAttention: boolean }>;
@@ -74,22 +71,23 @@ export const PolyphonicYouStep = React.forwardRef<
   }
 
   return (
-    <>
+    <div
+      className="h-full overflow-y-auto overscroll-contain"
+      data-prototype-scroll-owner="true"
+    >
       <PolyphonicStepHeading
         description="Luca gives you one calm place to talk with the AI agents already on your Mac—and helps you set up the rest as you go."
         stage="welcome"
         title="Bring your agents together."
       />
-      <div className="mt-8 space-y-6">
-        <label
-          className="block text-sm text-foreground/70"
-          htmlFor="polyphonic-owner-name"
-        >
-          What should Luca call you?
-          <Input
+      <div className="mt-7 grid gap-5">
+        <label className="grid gap-2" htmlFor="polyphonic-owner-name">
+          <span className="text-xs font-medium text-[var(--prototype-muted-strong)]">
+            What should Luca call you?
+          </span>
+          <input
             autoComplete="name"
-            autoFocus
-            className="mt-2 h-11"
+            className="min-h-10 rounded-[9px] border border-[var(--prototype-hairline)] bg-[var(--prototype-field)] px-3 py-2 text-sm text-[var(--prototype-ink)] shadow-[inset_0_1px_1px_var(--prototype-shadow)] outline-none placeholder:text-[var(--prototype-muted)] focus-visible:border-[color-mix(in_srgb,var(--prototype-ink)_35%,transparent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
             data-testid="polyphonic-owner-name"
             id="polyphonic-owner-name"
             maxLength={80}
@@ -98,36 +96,12 @@ export const PolyphonicYouStep = React.forwardRef<
             value={displayName}
           />
         </label>
-        <fieldset>
-          <legend className="mb-2 text-sm text-foreground/70">
-            Appearance
-          </legend>
-          <div className="inline-flex rounded-lg bg-foreground/[0.055] p-1">
-            {(
-              [
-                ["system", Monitor, "System"],
-                ["light", Sun, "Light"],
-                ["dark", Moon, "Dark"],
-              ] as const
-            ).map(([value, Icon, label]) => (
-              <button
-                aria-pressed={appearance === value}
-                className={cn(
-                  "flex h-9 items-center gap-2 rounded-md px-3 text-sm text-foreground/55 transition-colors",
-                  appearance === value &&
-                    "bg-background text-foreground shadow-sm ring-1 ring-foreground/10",
-                )}
-                key={value}
-                onClick={() => chooseAppearance(value)}
-                type="button"
-              >
-                <Icon className="h-3.5 w-3.5" /> {label}
-              </button>
-            ))}
-          </div>
-        </fieldset>
+        <PolyphonicPresentationAppearanceControl
+          appearance={appearance}
+          onChange={chooseAppearance}
+        />
       </div>
       {syncNotice ? <PolyphonicNotice>{syncNotice}</PolyphonicNotice> : null}
-    </>
+    </div>
   );
 });

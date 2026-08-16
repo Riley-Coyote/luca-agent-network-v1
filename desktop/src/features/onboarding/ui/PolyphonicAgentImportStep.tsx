@@ -27,7 +27,10 @@ import { PolyphonicStepHeading } from "./PolyphonicSetupFrame";
 
 export type PolyphonicAgentImportStepHandle = {
   commit: () => Promise<{ issueCount: number } | undefined>;
+  showSummary: () => void;
 };
+
+export type PolyphonicAgentImportMode = "summary" | "select";
 
 function bindingIdentity(binding: RuntimeBinding): string {
   return binding.kind === "hermes"
@@ -41,10 +44,11 @@ export const PolyphonicAgentImportStep = React.forwardRef<
     discovery: NativeResidentDiscoveryOutcome;
     onBusyChange: (busy: boolean) => void;
     onContinueLabelChange: (label: string) => void;
+    onModeChange: (mode: PolyphonicAgentImportMode) => void;
     onRescan: () => Promise<NativeResidentDiscoveryOutcome>;
   }
 >(function PolyphonicAgentImportStep(
-  { discovery, onBusyChange, onContinueLabelChange, onRescan },
+  { discovery, onBusyChange, onContinueLabelChange, onModeChange, onRescan },
   ref,
 ) {
   const queryClient = useQueryClient();
@@ -66,6 +70,7 @@ export const PolyphonicAgentImportStep = React.forwardRef<
     total: number;
   } | null>(null);
   const [continueAnyway, setContinueAnyway] = React.useState(false);
+  const [mode, setMode] = React.useState<PolyphonicAgentImportMode>("summary");
 
   const candidates = React.useMemo(
     () => outcome.runtimes.flatMap((runtime) => runtime.candidates),
@@ -104,7 +109,9 @@ export const PolyphonicAgentImportStep = React.forwardRef<
   );
 
   React.useEffect(() => {
-    if (progress) {
+    if (mode === "summary") {
+      onContinueLabelChange("Choose agents");
+    } else if (progress) {
       onContinueLabelChange(
         `Importing ${progress.current} of ${progress.total}`,
       );
@@ -117,6 +124,7 @@ export const PolyphonicAgentImportStep = React.forwardRef<
     }
   }, [
     continueAnyway,
+    mode,
     onContinueLabelChange,
     progress,
     selectedCandidates.length,
@@ -194,6 +202,11 @@ export const PolyphonicAgentImportStep = React.forwardRef<
   );
 
   const commit = React.useCallback(async () => {
+    if (mode === "summary") {
+      setMode("select");
+      onModeChange("select");
+      return undefined;
+    }
     if (continueAnyway)
       return { issueCount: Object.keys(errorsRef.current).length };
     onBusyChange(true);
@@ -216,82 +229,121 @@ export const PolyphonicAgentImportStep = React.forwardRef<
   }, [
     continueAnyway,
     importCandidate,
+    mode,
     onBusyChange,
+    onModeChange,
     refreshResidents,
     selectedCandidates,
   ]);
-  React.useImperativeHandle(ref, () => ({ commit }), [commit]);
+  const showSummary = React.useCallback(() => {
+    setMode("summary");
+    onModeChange("summary");
+  }, [onModeChange]);
+  React.useImperativeHandle(ref, () => ({ commit, showSummary }), [
+    commit,
+    showSummary,
+  ]);
 
   return (
-    <>
+    <div className="flex h-full min-h-0 flex-col">
       <PolyphonicStepHeading
-        description={`We found ${candidates.length} agents on this Mac. Nothing is imported unless you choose it.`}
+        key={mode}
+        description={
+          mode === "summary"
+            ? `We found ${candidates.length} agents on this Mac. Nothing is imported unless you choose it.`
+            : "Nothing is imported unless you select it."
+        }
         stage="agents"
-        title="Bring in agents you already use"
+        title={
+          mode === "summary"
+            ? "Bring in agents you already use"
+            : "Choose agents"
+        }
       />
-      <div className="mt-6">
-        <PolyphonicAgentImportPane
-          candidates={visibleCandidates}
-          connectedAgents={(managedQuery.data ?? []).map((resident) => ({
-            id: resident.pubkey,
-            name: resident.name,
-          }))}
-          disabled={progress !== null}
-          isScanning={isScanning}
-          onClear={() => {
-            setContinueAnyway(false);
-            setSelected(clearAgentImportSelection());
-          }}
-          onRescan={() => {
-            void (async () => {
-              setIsScanning(true);
-              setScanError(null);
-              try {
-                const next = await onRescan();
-                setOutcome(next);
-                const nextCandidates = next.runtimes.flatMap(
-                  (runtime) => runtime.candidates,
-                );
-                setSelected((current) =>
-                  reconcileAgentImportSelection(
-                    current,
-                    nextCandidates,
-                    importedIds,
-                  ),
-                );
-              } catch (cause) {
-                setScanError(
-                  cause instanceof Error ? cause.message : String(cause),
-                );
-              } finally {
-                setIsScanning(false);
-              }
-            })();
-          }}
-          onRetryCandidate={(candidate) =>
-            void importCandidate(candidate).then(refreshResidents)
-          }
-          onSelectAllReady={() =>
-            setSelected(
-              selectAllReadyAgentImports(visibleCandidates, importedIds),
-            )
-          }
-          onToggleCandidate={(candidate) =>
-            setSelected((current) => {
-              const next = new Set(current);
-              if (next.has(candidate.semanticId))
-                next.delete(candidate.semanticId);
-              else next.add(candidate.semanticId);
-              return next;
-            })
-          }
-          rowErrors={errors}
-          rowStatuses={results}
-          scanError={scanError}
-          selectedIds={selected}
-          sourceOutcomes={outcome.runtimes}
-        />
-      </div>
-    </>
+      {mode === "summary" ? (
+        <div className="mt-7 grid grid-cols-2 gap-5 rounded-[10px] bg-[var(--prototype-recessed)] px-4 py-3.5">
+          {(["hermes", "openclaw"] as const).map((nativeType) => {
+            const runtime = outcome.runtimes.find(
+              (candidate) => candidate.nativeType === nativeType,
+            );
+            return (
+              <div key={nativeType}>
+                <p className="text-sm font-medium text-[var(--prototype-ink)]">
+                  {nativeType === "hermes" ? "Hermes" : "OpenClaw"}
+                </p>
+                <p className="mt-1 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
+                  {runtime?.candidates.length ?? 0}{" "}
+                  {nativeType === "hermes" ? "profiles" : "agents"} found
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="mt-4 min-h-0 flex-1">
+          <PolyphonicAgentImportPane
+            candidates={visibleCandidates}
+            connectedAgents={(managedQuery.data ?? []).map((resident) => ({
+              id: resident.pubkey,
+              name: resident.name,
+            }))}
+            disabled={progress !== null}
+            isScanning={isScanning}
+            onClear={() => {
+              setContinueAnyway(false);
+              setSelected(clearAgentImportSelection());
+            }}
+            onRescan={() => {
+              void (async () => {
+                setIsScanning(true);
+                setScanError(null);
+                try {
+                  const next = await onRescan();
+                  setOutcome(next);
+                  const nextCandidates = next.runtimes.flatMap(
+                    (runtime) => runtime.candidates,
+                  );
+                  setSelected((current) =>
+                    reconcileAgentImportSelection(
+                      current,
+                      nextCandidates,
+                      importedIds,
+                    ),
+                  );
+                } catch (cause) {
+                  setScanError(
+                    cause instanceof Error ? cause.message : String(cause),
+                  );
+                } finally {
+                  setIsScanning(false);
+                }
+              })();
+            }}
+            onRetryCandidate={(candidate) =>
+              void importCandidate(candidate).then(refreshResidents)
+            }
+            onSelectAllReady={() =>
+              setSelected(
+                selectAllReadyAgentImports(visibleCandidates, importedIds),
+              )
+            }
+            onToggleCandidate={(candidate) =>
+              setSelected((current) => {
+                const next = new Set(current);
+                if (next.has(candidate.semanticId))
+                  next.delete(candidate.semanticId);
+                else next.add(candidate.semanticId);
+                return next;
+              })
+            }
+            rowErrors={errors}
+            rowStatuses={results}
+            scanError={scanError}
+            selectedIds={selected}
+            sourceOutcomes={outcome.runtimes}
+          />
+        </div>
+      )}
+    </div>
   );
 });

@@ -150,16 +150,16 @@ export function PolyphonicPreparingStep({
   ]);
 
   return (
-    <div className="flex min-h-[18rem] flex-col justify-center" role="status">
+    <div className="flex h-full min-h-0 flex-col items-start" role="status">
       <PolyphonicBrandMark />
-      <h1 className="mt-5 text-[1.75rem] font-medium tracking-[-0.018em] text-foreground">
+      <h1 className="mt-5 text-[length:var(--prototype-heading-size)] font-medium leading-[1.15] tracking-[-0.018em] text-[var(--prototype-ink)]">
         Getting Luca ready…
       </h1>
-      <p className="mt-2 text-[0.9375rem] leading-6 text-foreground/60">
+      <p className="mt-2 text-[length:var(--prototype-body-size)] leading-[1.375rem] text-[var(--prototype-muted-strong)]">
         Preparing your resident and opening your conversation.
       </p>
       {working ? (
-        <LoaderCircle className="mt-6 h-4 w-4 animate-spin text-foreground/45" />
+        <LoaderCircle className="mt-6 h-4 w-4 animate-spin text-[var(--prototype-muted)] motion-reduce:animate-none" />
       ) : null}
       {error ? (
         <div
