@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, path::Path};
 
 use luca_protocol::{
     canonical_sha256, CanonicalTimestamp, ConnectedBrainIndexEntryV1, ConnectedBrainSourceKindV1,
-    OpaqueId, SafeU53, Sha256Ref, CONNECTED_BRAIN_PROTOCOL, MAX_CONNECTED_ENTRY_TOKEN_HASHES,
+    OpaqueId, SafeU53, Sha256Ref, CONNECTED_BRAIN_PROTOCOL,
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -11,6 +11,10 @@ use super::{repository, sessions, ConnectedBrainDiscoveryCandidateV1};
 
 const INDEX_CHUNK_BYTES: usize = 4096;
 const MAX_CONNECTED_INDEX_ENTRIES: usize = 16_384;
+// The protocol permits larger token sets, but real conversation messages do not need hundreds of
+// hashes to remain searchable. Keeping the generated index compact prevents encrypted continuity
+// generations from becoming expensive to validate each time resident access is granted.
+const MAX_INDEXED_TOKEN_HASHES_PER_ENTRY: usize = 16;
 
 pub(crate) struct ConnectedBrainIndexBuildV1 {
     pub entries: Vec<ConnectedBrainIndexEntryV1>,
@@ -231,7 +235,7 @@ fn hashed_tokens(text: &str) -> Result<Vec<Sha256Ref>, String> {
         .map(str::to_lowercase)
         .collect::<BTreeSet<_>>()
         .into_iter()
-        .take(MAX_CONNECTED_ENTRY_TOKEN_HASHES)
+        .take(MAX_INDEXED_TOKEN_HASHES_PER_ENTRY)
         .map(|token| content_hash(&token))
         .collect::<Result<Vec<_>, _>>()?;
     tokens.sort();
@@ -243,4 +247,22 @@ fn content_hash(text: &str) -> Result<Sha256Ref, String> {
     digest.update(text.as_bytes());
     Sha256Ref::parse(format!("sha256:{}", hex::encode(digest.finalize())))
         .map_err(|_| "connected Brain content hash is invalid".to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_token_metadata_stays_compact() {
+        let text = (0..256)
+            .map(|index| format!("searchable-token-{index:03}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        let hashes = hashed_tokens(&text).unwrap();
+
+        assert_eq!(hashes.len(), MAX_INDEXED_TOKEN_HASHES_PER_ENTRY);
+        assert!(hashes.windows(2).all(|pair| pair[0] < pair[1]));
+    }
 }

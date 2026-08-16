@@ -13,6 +13,9 @@ pub(super) const CONNECTED_SOURCE_RECORD: &str = "connected-brain-source";
 pub(super) const CONNECTED_BINDING_RECORD: &str = "connected-brain-binding";
 pub(super) const CONNECTED_INDEX_PAGE_RECORD: &str = "connected-brain-index-page";
 pub(super) const REPOSITORY_WORK_GRANT_RECORD: &str = "repository-work-grant";
+const MAX_CONNECTED_INDEX_PAGES: usize =
+    super::super::continuity_revision_authority::MAX_OWNER_BRAIN_IMPORT_TRANSITIONS - 2;
+const MAX_CONNECTED_INDEX_PAGE_PLAINTEXT_BYTES: usize = 768 * 1024;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -33,12 +36,13 @@ impl ConnectedBrainManifestV1 {
         self.policy
             .validate()
             .map_err(|_| OwnerBrainStoreError::Invalid)?;
-        let expected_pages =
+        let minimum_pages =
             (self.entry_count.get() as usize).div_ceil(MAX_CONNECTED_INDEX_PAGE_ENTRIES);
         if self.protocol != CONNECTED_BRAIN_PROTOCOL
             || self.source.protocol != CONNECTED_BRAIN_PROTOCOL
             || self.index_page_lineage_ids.is_empty()
-            || self.index_page_lineage_ids.len() != expected_pages
+            || self.index_page_lineage_ids.len() < minimum_pages
+            || self.index_page_lineage_ids.len() > MAX_CONNECTED_INDEX_PAGES
             || self.item_count.get() == 0
             || self.entry_count.get() == 0
             || self
@@ -243,6 +247,7 @@ pub(super) fn connect_source_with_runtime(
         .as_ref()
         .map(|(manifest, _)| manifest.source.source_id.clone())
         .unwrap_or(source_id_for_candidate(&candidate).map_err(|_| OwnerBrainStoreError::Invalid)?);
+    let (build, pages) = bounded_index_pages(&source_id, build)?;
     let replayed = existing.as_ref().is_some_and(|(manifest, _)| {
         manifest.source.index_revision == build.index_revision
             && manifest.source.status == ConnectedBrainSourceStatusV1::Current
@@ -257,6 +262,7 @@ pub(super) fn connect_source_with_runtime(
             source_id.clone(),
             &candidate,
             build,
+            pages,
             existing.as_ref().map(|(manifest, _)| manifest),
             key_version,
         )?;
@@ -282,6 +288,128 @@ pub(super) fn connect_source_with_runtime(
     })
 }
 
+fn bounded_index_pages(
+    source_id: &OpaqueId,
+    mut build: ConnectedBrainIndexBuildV1,
+) -> Result<(ConnectedBrainIndexBuildV1, Vec<ConnectedBrainIndexPageV1>), OwnerBrainStoreError> {
+    let input_entries = std::mem::take(&mut build.entries);
+    let mut entry_pages = Vec::<Vec<ConnectedBrainIndexEntryV1>>::new();
+    let mut current = Vec::new();
+    let mut current_bytes = 256_usize;
+
+    for entry in input_entries {
+        let entry_bytes = serde_json::to_vec(&entry)
+            .map_err(|_| OwnerBrainStoreError::Invalid)?
+            .len()
+            .saturating_add(1);
+        if entry_bytes.saturating_add(256) > MAX_CONNECTED_INDEX_PAGE_PLAINTEXT_BYTES {
+            return Err(OwnerBrainStoreError::Invalid);
+        }
+        if !current.is_empty()
+            && (current.len() == MAX_CONNECTED_INDEX_PAGE_ENTRIES
+                || current_bytes.saturating_add(entry_bytes)
+                    > MAX_CONNECTED_INDEX_PAGE_PLAINTEXT_BYTES)
+        {
+            entry_pages.push(std::mem::take(&mut current));
+            current_bytes = 256;
+            if entry_pages.len() == MAX_CONNECTED_INDEX_PAGES {
+                break;
+            }
+        }
+        current_bytes = current_bytes.saturating_add(entry_bytes);
+        current.push(entry);
+    }
+    if !current.is_empty() && entry_pages.len() < MAX_CONNECTED_INDEX_PAGES {
+        entry_pages.push(current);
+    }
+    let retained_entries = entry_pages
+        .iter()
+        .flat_map(|entries| entries.iter().cloned())
+        .collect::<Vec<_>>();
+    if retained_entries.is_empty() {
+        return Err(OwnerBrainStoreError::Invalid);
+    }
+    build.index_revision = sha_ref_for(&retained_entries)?;
+    build.refresh_cursor = build.index_revision.as_str().to_owned();
+    build.entries = retained_entries;
+
+    let pages = entry_pages
+        .into_iter()
+        .enumerate()
+        .map(|(page_index, entries)| {
+            let page = ConnectedBrainIndexPageV1 {
+                protocol: CONNECTED_BRAIN_PROTOCOL.to_owned(),
+                source_id: source_id.clone(),
+                page_index: SafeU53::new(page_index as u64)
+                    .map_err(|_| OwnerBrainStoreError::Invalid)?,
+                entries,
+            };
+            page.validate()?;
+            if serde_json::to_vec(&page)
+                .map_err(|_| OwnerBrainStoreError::Invalid)?
+                .len()
+                > MAX_CONNECTED_INDEX_PAGE_PLAINTEXT_BYTES
+            {
+                return Err(OwnerBrainStoreError::Invalid);
+            }
+            Ok(page)
+        })
+        .collect::<Result<Vec<_>, OwnerBrainStoreError>>()?;
+    Ok((build, pages))
+}
+
+#[cfg(test)]
+mod bounded_index_page_tests {
+    use super::*;
+    const REALISTIC_TOKEN_HASHES_PER_ENTRY: usize = 16;
+
+    fn hash(value: usize) -> Sha256Ref {
+        Sha256Ref::parse(format!("sha256:{value:064x}")).expect("valid test hash")
+    }
+
+    #[test]
+    fn large_session_indexes_fit_encrypted_record_and_revision_bounds() {
+        let source_id = OpaqueId::parse("connected-large-session-fixture").unwrap();
+        let token_hashes = (1..=REALISTIC_TOKEN_HASHES_PER_ENTRY)
+            .map(hash)
+            .collect::<Vec<_>>();
+        let entries = (0..16_384)
+            .map(|index| ConnectedBrainIndexEntryV1 {
+                protocol: CONNECTED_BRAIN_PROTOCOL.to_owned(),
+                entry_id: OpaqueId::parse(format!("connected-entry-{index}")).unwrap(),
+                source_id: source_id.clone(),
+                relative_locator: format!("sessions/{index:05}/conversation.jsonl"),
+                ordinal: SafeU53::new(index as u64).unwrap(),
+                content_hash: hash(index + REALISTIC_TOKEN_HASHES_PER_ENTRY + 1),
+                token_hashes: token_hashes.clone(),
+                captured_at: None,
+            })
+            .collect::<Vec<_>>();
+        let original_entry_count = entries.len();
+        let build = ConnectedBrainIndexBuildV1 {
+            index_revision: hash(0),
+            refresh_cursor: hash(0).as_str().to_owned(),
+            item_count: 2_048,
+            entries,
+        };
+
+        let (bounded, pages) = bounded_index_pages(&source_id, build).unwrap();
+
+        assert!(!bounded.entries.is_empty());
+        assert_eq!(bounded.entries.len(), original_entry_count);
+        assert_eq!(
+            pages.iter().map(|page| page.entries.len()).sum::<usize>(),
+            bounded.entries.len()
+        );
+        assert!(pages.len() <= MAX_CONNECTED_INDEX_PAGES);
+        assert!(pages.iter().all(|page| {
+            serde_json::to_vec(page).unwrap().len() <= MAX_CONNECTED_INDEX_PAGE_PLAINTEXT_BYTES
+        }));
+        assert_ne!(bounded.index_revision, hash(0));
+        assert_eq!(bounded.refresh_cursor, bounded.index_revision.as_str());
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn persist_connected_index(
     runtime: &mut ContinuityRuntime,
@@ -292,6 +420,7 @@ fn persist_connected_index(
     source_id: OpaqueId,
     candidate: &ConnectedBrainDiscoveryCandidateV1,
     build: ConnectedBrainIndexBuildV1,
+    pages: Vec<ConnectedBrainIndexPageV1>,
     existing: Option<&ConnectedBrainManifestV1>,
     key_version: SafeU53,
 ) -> Result<(), OwnerBrainStoreError> {
@@ -300,27 +429,6 @@ fn persist_connected_index(
     let created_at = existing
         .map(|manifest| manifest.source.created_at.clone())
         .unwrap_or_else(|| now.clone());
-    let pages = build
-        .entries
-        .chunks(MAX_CONNECTED_INDEX_PAGE_ENTRIES)
-        .enumerate()
-        .map(|(page_index, entries)| {
-            let page = ConnectedBrainIndexPageV1 {
-                protocol: CONNECTED_BRAIN_PROTOCOL.to_owned(),
-                source_id: source_id.clone(),
-                page_index: SafeU53::new(page_index as u64)
-                    .map_err(|_| OwnerBrainStoreError::Invalid)?,
-                entries: entries.to_vec(),
-            };
-            page.validate()?;
-            Ok(page)
-        })
-        .collect::<Result<Vec<_>, OwnerBrainStoreError>>()?;
-    if pages.len() + 2
-        > super::super::continuity_revision_authority::MAX_OWNER_BRAIN_IMPORT_TRANSITIONS
-    {
-        return Err(OwnerBrainStoreError::Invalid);
-    }
     let reconnect_generation = if existing.is_some_and(|manifest| {
         manifest.source.status == ConnectedBrainSourceStatusV1::Disconnected
     }) {

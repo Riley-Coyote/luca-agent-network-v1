@@ -374,7 +374,11 @@ pub async fn connect_connected_brain_source(
                 connected_brain::take_candidate(&state.connected_brain_discovery, &discovery_id)?;
             let source_id = connected_brain::source_id_for_candidate(&candidate)?;
             let watch_root = candidate.canonical_root.clone();
-            let build = connected_brain::build_index(&source_id, &candidate)?;
+            let build = match connected_brain::build_index(&source_id, &candidate) {
+                Ok(build) => build,
+                Err(error) if error == "connected source contains no indexable text" => continue,
+                Err(error) => return Err(error),
+            };
             let result = state
                 .connect_brain_source(owner.clone(), candidate, build, &authorities)
                 .map_err(|error| error.code().to_owned())?;
@@ -391,6 +395,9 @@ pub async fn connect_connected_brain_source(
                     .map_err(|error| error.code().to_owned())?;
             }
             sources.push(source_view(result.source));
+        }
+        if sources.is_empty() {
+            return Err("connected sources contain no indexable text".to_owned());
         }
         Ok(ConnectedBrainMutationResultV1 { sources, replayed })
     })

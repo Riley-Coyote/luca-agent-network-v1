@@ -28,7 +28,6 @@ impl Default for ConnectedBrainWatcherState {
 struct ConnectedBrainWatcherRuntime {
     _watcher: RecommendedWatcher,
     roots: Arc<Mutex<BTreeMap<PathBuf, OpaqueId>>>,
-    refresh_tx: mpsc::Sender<OpaqueId>,
 }
 
 pub(crate) fn start_connected_source_watcher(app: AppHandle) -> Result<(), String> {
@@ -77,7 +76,6 @@ pub(crate) fn start_connected_source_watcher(app: AppHandle) -> Result<(), Strin
     *runtime_guard = Some(ConnectedBrainWatcherRuntime {
         _watcher: watcher,
         roots,
-        refresh_tx,
     });
     drop(runtime_guard);
     reconcile_connected_sources(&app)
@@ -112,8 +110,11 @@ pub(crate) fn register_connected_source(
         ._watcher
         .watch(&canonical, RecursiveMode::Recursive)
         .map_err(|_| "connected source could not be watched".to_owned())?;
-    roots.insert(canonical, source_id.clone());
-    let _ = runtime.refresh_tx.send(source_id);
+    // The encrypted persisted index is already authoritative at startup and
+    // after an explicit connection/refresh. Registering its watcher must not
+    // immediately rebuild the entire source; real filesystem events below
+    // enqueue the next refresh when the source actually changes.
+    roots.insert(canonical, source_id);
     Ok(())
 }
 
