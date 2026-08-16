@@ -34,6 +34,7 @@ import { projectFocusedThreadTimeline } from "@/features/messages/lib/focusedThr
 import { ConversationAgentActivityStrip } from "@/features/channels/ui/ConversationAgentActivityStrip";
 import type { ActivityShelfRetryTarget } from "@/features/channels/ui/conversationAgentActivityShelf";
 import { useConversationPresentation } from "@/features/channels/ui/useConversationPresentation";
+import { useNativeAgentNotice } from "@/features/luca/useNativeAgentNotice";
 import { useManagedPermissions } from "@/features/agents/useManagedPermissions";
 import { ManagedPermissionCard } from "@/features/agents/ui/ManagedPermissionCard";
 import {
@@ -176,6 +177,7 @@ export const ChannelPane = React.memo(function ChannelPane({
     !activeChannel.archivedAt;
   const hasMainComposerOverlay = !isNonMemberView;
   const activeChannelId = activeChannel?.id ?? null;
+  useNativeAgentNotice({ activeChannel, currentPubkey, messages });
   const activePermissionRequests = React.useMemo(
     () =>
       pendingManagedPermissions.filter(

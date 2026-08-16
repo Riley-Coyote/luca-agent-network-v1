@@ -15,7 +15,7 @@ version: 1
 
 `BUZZ_RELAY_URL` defaults to `http://localhost:3000`. In development, the user may need to set this to a staging or production relay URL.
 
-`BUZZ_AUTH_TAG` is required for `buzz agents draft-create` and `buzz agents draft-update` because those commands send owner-reviewed Desktop drafts. If missing, explain that this managed agent cannot open owner-reviewed agent drafts from chat.
+`BUZZ_AUTH_TAG` is required for `buzz agents draft-create`, `buzz agents draft-update`, and `buzz brain draft-review` because those commands send owner-reviewed Desktop requests. If missing, explain that this managed agent cannot open owner-reviewed review surfaces from chat.
 
 Run the bundled CLI with `--help` and `<command> <subcommand> --help` to discover all flags, arguments, and usage. This skill documents only what `--help` cannot tell you.
 
@@ -40,6 +40,18 @@ buzz agents draft-update --channel <uuid> --agent-name "Current name" \
 ```
 
 Run `buzz agents draft-update --help` for optional runtime, provider, model, rename, and access changes. Prefer these CLI commands over any legacy MCP agent-management tools.
+
+## Conversational Brain Review
+
+When local repositories or prior Codex or Claude Code work may help, ask the owner for permission before opening Brain review. A concise offer is: “I can check for relevant repositories or past Codex or Claude Code sessions on this Mac. Want me to open a private review?”
+
+Only after an affirmative answer, run:
+
+```bash
+buzz brain draft-review --channel <current-channel-uuid>
+```
+
+Use the UUID from the current Buzz `[Context]`. This command only opens the existing private Brain discovery surface in Polyphonic. It does not connect, import, grant, or mutate any source; the owner must use the existing confirmation boundary before anything connects. Never run it before permission and never report that a source was connected.
 
 ## Git Repositories
 

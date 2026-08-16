@@ -10,6 +10,10 @@ import {
   parseAgentManagementRequest,
   type AgentManagementRequest,
 } from "./agentManagement";
+import {
+  parseBrainReviewRequest,
+  type BrainReviewRequest,
+} from "@/features/luca/brain/brainReviewRequest";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { useQueryClient } from "@tanstack/react-query";
 import { agentConfigSurfaceQueryKey } from "@/features/agents/hooks";
@@ -102,6 +106,13 @@ const controlResultListeners = new Map<
 
 const agentManagementListeners = new Set<
   (agentPubkey: string, request: AgentManagementRequest) => void
+>();
+const brainReviewListeners = new Set<
+  (
+    agentPubkey: string,
+    observerChannelId: string | null,
+    request: BrainReviewRequest,
+  ) => void
 >();
 
 // Normalized pubkeys of agents we are actively managing. Only events whose
@@ -397,6 +408,12 @@ async function handleRelayObserverEvent(
         listener(agentPubkey, managementRequest);
       }
     }
+    const brainReviewRequest = parseBrainReviewRequest(parsed.payload);
+    if (brainReviewRequest) {
+      for (const listener of brainReviewListeners) {
+        listener(agentPubkey, parsed.channelId, brainReviewRequest);
+      }
+    }
     if (parsed.kind === "session_config_captured") {
       void putAgentSessionConfig(agentPubkey, parsed.payload);
       onSessionConfigCaptured?.(agentPubkey);
@@ -512,6 +529,19 @@ export function subscribeAgentManagementRequests(
   agentManagementListeners.add(listener);
   return () => {
     agentManagementListeners.delete(listener);
+  };
+}
+
+export function subscribeBrainReviewRequests(
+  listener: (
+    agentPubkey: string,
+    observerChannelId: string | null,
+    request: BrainReviewRequest,
+  ) => void,
+) {
+  brainReviewListeners.add(listener);
+  return () => {
+    brainReviewListeners.delete(listener);
   };
 }
 
@@ -717,6 +747,12 @@ export function injectObserverEventsForE2E(
         listener(agentPubkey, managementRequest);
       }
     }
+    const brainReviewRequest = parseBrainReviewRequest(event.payload);
+    if (brainReviewRequest) {
+      for (const listener of brainReviewListeners) {
+        listener(agentPubkey, event.channelId, brainReviewRequest);
+      }
+    }
   }
   notifyListeners();
 }
@@ -749,6 +785,7 @@ export function resetAgentObserverStore() {
   pendingUnknownAgentFrames.length = 0;
   latestLiveSessionByAgentChannel.clear();
   agentManagementListeners.clear();
+  brainReviewListeners.clear();
   onSessionConfigCaptured = null;
   connectionState = "idle";
   errorMessage = null;

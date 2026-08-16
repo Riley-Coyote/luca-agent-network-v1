@@ -1,4 +1,5 @@
 pub mod agent_management;
+pub mod brain_review;
 mod client;
 mod commands;
 mod error;
@@ -164,6 +165,9 @@ enum Cmd {
     /// Draft owner-reviewed agent creation and updates
     #[command(subcommand)]
     Agents(AgentsCmd),
+    /// Ask the owner's Desktop to open private Brain review
+    #[command(subcommand)]
+    Brain(BrainCmd),
     /// Send, read, search, and manage messages
     #[command(subcommand)]
     Messages(MessagesCmd),
@@ -242,6 +246,16 @@ impl RespondToArg {
         }
         .to_string()
     }
+}
+
+#[derive(Subcommand)]
+pub enum BrainCmd {
+    /// Open Brain discovery for owner review without connecting a source
+    DraftReview {
+        /// Current conversation UUID
+        #[arg(long)]
+        channel: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1760,6 +1774,7 @@ async fn run(cli: Cli) -> Result<(), CliError> {
 
     match cli.command {
         Cmd::Agents(sub) => commands::agents::dispatch(sub, &client).await,
+        Cmd::Brain(sub) => commands::brain::dispatch(sub, &client).await,
         Cmd::Messages(sub) => commands::messages::dispatch(sub, &client, &cli.format).await,
         Cmd::Channels(sub) => commands::channels::dispatch(sub, &client, &cli.format).await,
         Cmd::Canvas(sub) => commands::channels::dispatch_canvas(sub, &client).await,

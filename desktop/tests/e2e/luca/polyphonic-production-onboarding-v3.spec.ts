@@ -5,6 +5,14 @@ import { installMockBridge } from "../../helpers/bridge";
 import { LARGE_NATIVE_RESIDENT_DISCOVERY } from "./onboarding-agent-import-fixture";
 
 const NO_AGENTS: NativeResidentDiscoveryOutcome = { runtimes: [] };
+const ONE_NATIVE_AGENT: NativeResidentDiscoveryOutcome = {
+  runtimes: LARGE_NATIVE_RESIDENT_DISCOVERY.runtimes.map((runtime) => ({
+    ...runtime,
+    candidates:
+      runtime.nativeType === "hermes" ? runtime.candidates.slice(0, 1) : [],
+  })),
+};
+const NATIVE_AGENT_NOTICE_MARKER = "polyphonic-native-agent-notice.v1";
 const READY_CODEX_RUNTIME = {
   id: "codex",
   label: "Codex",
@@ -83,6 +91,97 @@ test("a ready runtime enters the real Luca DM with one inert canonical greeting"
     marker: "polyphonic-onboarding.luca-greeting.v1",
     markerScope: "channel",
   });
+});
+
+test("the canonical Luca notice is trusted and published only once", async ({
+  page,
+}) => {
+  await installMockBridge(
+    page,
+    {
+      acpRuntimesCatalog: [READY_CODEX_RUNTIME],
+      nativeResidentDiscovery: ONE_NATIVE_AGENT,
+    },
+    { skipCommunitySeed: true, skipOnboardingSeed: true },
+  );
+  await begin(page);
+  await page.getByRole("radio", { name: /Codex/ }).check();
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await expect(
+    page.getByRole("heading", { name: "Bring in agents you already use" }),
+  ).toBeFocused();
+  await page.getByTestId("polyphonic-setup-continue").click();
+
+  await expect(page).toHaveURL(/#\/channels\//);
+  const channelId = decodeURIComponent(
+    page.url().match(/#\/channels\/([^?]+)/)?.[1] ?? "",
+  );
+  expect(channelId).not.toBe("");
+  const lucaPubkey = await page.evaluate(async () => {
+    const snapshot = (await window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.(
+      "list_luca_residents",
+    )) as {
+      residents: Array<{ personaId: string | null; residentPubkey: string }>;
+    };
+    return snapshot.residents.find(
+      (resident) => resident.personaId === "builtin:fizz",
+    )?.residentPubkey;
+  });
+  expect(lucaPubkey).toBeTruthy();
+
+  await page.evaluate(
+    async ({ currentChannelId, marker }) => {
+      await window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.("send_channel_message", {
+        channelId: currentChannelId,
+        content: "I found agents already on this Mac.",
+        mediaTags: [["client", marker]],
+      });
+    },
+    { currentChannelId: channelId, marker: NATIVE_AGENT_NOTICE_MARKER },
+  );
+  await expect(page.getByTestId("native-agent-notice")).toHaveCount(0);
+
+  await page.getByTestId("message-input").fill("Help me plan today.");
+  await page.getByTestId("message-input").press("Enter");
+  await page.evaluate(
+    async ({ agentPubkey, currentChannelId }) => {
+      await window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.(
+        "send_managed_agent_channel_message",
+        {
+          agentPubkey,
+          channelId: currentChannelId,
+          content: "I can help you choose the most important next step.",
+        },
+      );
+    },
+    { agentPubkey: lucaPubkey, currentChannelId: channelId },
+  );
+
+  await expect(page.getByTestId("native-agent-notice")).toHaveCount(1);
+  await page.getByRole("button", { name: "Review agents" }).click();
+  await expect(page).toHaveURL(/#\/agents/);
+  await expect(
+    page.getByRole("heading", { name: "Add an agent" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Agents already on this Mac" }),
+  ).toBeVisible();
+
+  await page.evaluate((currentChannelId) => {
+    window.location.hash = `#/channels/${currentChannelId}`;
+  }, channelId);
+  await expect(page.getByTestId("native-agent-notice")).toHaveCount(1);
+  await page.waitForTimeout(100);
+  const noticePublications = await page.evaluate(
+    (marker) =>
+      (window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? []).filter(
+        (entry) =>
+          entry.command === "send_managed_agent_channel_message" &&
+          (entry.payload as { marker?: string }).marker === marker,
+      ),
+    NATIVE_AGENT_NOTICE_MARKER,
+  );
+  expect(noticePublications).toHaveLength(1);
 });
 
 for (const runtime of ["Hermes", "OpenClaw"]) {

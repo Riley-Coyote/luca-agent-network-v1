@@ -133,6 +133,77 @@ test("an owned Luca chat proposal uses the same native review sheet", async ({
   expect(commands).not.toContain("execute_native_agent_provisioning");
 });
 
+test("an authenticated Brain review request opens discovery without connecting", async ({
+  page,
+}) => {
+  await installDefaultBridge(page);
+  await page.goto(`/?e2e=mock#/channels/${AGENTS_CHANNEL_ID}`);
+  await page.waitForFunction(
+    () => typeof window.__BUZZ_E2E_SEED_OBSERVER_EVENTS__ === "function",
+  );
+  await expect(page.getByRole("heading", { name: "agents" })).toBeVisible();
+
+  await page.evaluate(
+    ({ agentPubkey, channelId }) => {
+      window.__BUZZ_E2E_SEED_OBSERVER_EVENTS__?.({
+        agentPubkey,
+        events: [
+          {
+            seq: 1,
+            timestamp: new Date().toISOString(),
+            kind: "brain_review_request",
+            agentIndex: 0,
+            channelId: "feedf00d-0000-4000-8000-000000000007",
+            sessionId: null,
+            turnId: null,
+            payload: {
+              type: "brain_review_request",
+              requestId: "brain-review-mismatched-channel",
+              channelId,
+            },
+          },
+        ],
+      });
+    },
+    { agentPubkey: OWNED_AGENT_PUBKEY, channelId: AGENTS_CHANNEL_ID },
+  );
+  await page.waitForTimeout(100);
+  await expect(page).toHaveURL(new RegExp(`#/channels/${AGENTS_CHANNEL_ID}`));
+
+  await page.evaluate(
+    ({ agentPubkey, channelId }) => {
+      window.__BUZZ_E2E_SEED_OBSERVER_EVENTS__?.({
+        agentPubkey,
+        events: [
+          {
+            seq: 2,
+            timestamp: new Date().toISOString(),
+            kind: "brain_review_request",
+            agentIndex: 0,
+            channelId,
+            sessionId: null,
+            turnId: null,
+            payload: {
+              type: "brain_review_request",
+              requestId: "brain-review-request-1",
+              channelId,
+            },
+          },
+        ],
+      });
+    },
+    { agentPubkey: OWNED_AGENT_PUBKEY, channelId: AGENTS_CHANNEL_ID },
+  );
+
+  await expect(page).toHaveURL(/#\/brain/);
+  await expect(page.getByTestId("brain-view")).toBeVisible();
+  const commands = await page.evaluate(
+    () => window.__BUZZ_E2E_COMMANDS__ ?? [],
+  );
+  expect(commands).not.toContain("connect_connected_brain_source");
+  expect(commands).not.toContain("commit_owner_brain_import");
+});
+
 test("contextual creation consumes ready Hermes as the unconfirmed owner default and attaches the exact resident", async ({
   page,
 }) => {

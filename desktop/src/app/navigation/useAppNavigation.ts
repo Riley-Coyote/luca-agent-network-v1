@@ -60,10 +60,11 @@ export function useAppNavigation() {
   );
 
   const goAgents = React.useCallback(
-    (behavior?: NavigationBehavior) =>
+    (behavior?: NavigationBehavior & { reviewNative?: boolean }) =>
       commitNavigation(
         {
           to: "/agents",
+          search: behavior?.reviewNative ? { review: "native" } : undefined,
         },
         behavior,
       ),

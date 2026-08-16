@@ -16,6 +16,7 @@ const AGENT_LIBRARY_SEARCH_KEYS = [
   "profilePersona",
   "profileTab",
   "profileView",
+  "review",
   "section",
 ] as const;
 
@@ -97,10 +98,12 @@ export function AgentsScreen() {
       <React.Suspense fallback={<ViewLoadingFallback kind="agents" />}>
         <AgentsView
           onClearSelection={clearSelection}
+          onReviewNativeConsumed={() => applyPatch({ review: null })}
           onSectionChange={changeSection}
           onSelectPersona={selectPersona}
           onSelectResident={selectResident}
           section={section}
+          reviewNative={values.review === "native"}
           selectedPersonaId={values.profilePersona}
           selectedPubkey={values.profile}
         />

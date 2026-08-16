@@ -8,6 +8,8 @@ import {
 } from "@/features/messages/lib/messageRowEquality";
 import type { TimelineMessage } from "@/features/messages/types";
 import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
+import { NativeAgentNoticeCard } from "@/features/agents/ui/NativeAgentNoticeCard";
+import { NATIVE_AGENT_NOTICE_MARKER } from "@/features/luca/useNativeAgentNotice";
 import { HuddleAttachment } from "@/features/huddle/components/HuddleAttachment";
 import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMark";
 import { MessageReactions } from "@/features/messages/ui/MessageReactions";
@@ -341,6 +343,9 @@ export const MessageRow = React.memo(
     }, [collapseDepthGuideActions]);
     const getTag = (name: string) =>
       message.tags?.find((tag) => tag[0] === name)?.[1];
+    const hasNativeAgentNoticeMarker = message.tags?.some(
+      (tag) => tag[0] === "client" && tag[1] === NATIVE_AGENT_NOTICE_MARKER,
+    );
 
     const renderBody = () => {
       switch (message.kind) {
@@ -583,6 +588,9 @@ export const MessageRow = React.memo(
         ) : (
           renderBody()
         )}
+        {hasNativeAgentNoticeMarker ? (
+          <NativeAgentNoticeCard signerPubkey={message.signerPubkey} />
+        ) : null}
         {managedStatusNode}
         {continuationMetadataNode}
         <MessageReactions

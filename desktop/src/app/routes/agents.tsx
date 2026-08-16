@@ -14,6 +14,7 @@ type AgentsRouteSearch = {
   profilePersona?: string;
   profileTab?: ProfilePanelTab;
   profileView?: ProfilePanelView;
+  review?: "native";
   section?: "notebook" | "settings";
 };
 
@@ -33,6 +34,7 @@ function validateAgentsSearch(
     profilePersona: nonEmptyString(search.profilePersona),
     profileTab: parseProfilePanelTab(search.profileTab) ?? undefined,
     profileView: parseProfilePanelView(search.profileView) ?? undefined,
+    review: search.review === "native" ? "native" : undefined,
     section,
   };
 }

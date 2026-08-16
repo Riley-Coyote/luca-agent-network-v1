@@ -54,18 +54,22 @@ const AGENT_LIBRARY_SINGLE_PANE_BREAKPOINT_PX = 600;
 
 export function AgentsView({
   onClearSelection,
+  onReviewNativeConsumed,
   onSectionChange,
   onSelectPersona,
   onSelectResident,
   section,
+  reviewNative,
   selectedPersonaId,
   selectedPubkey,
 }: {
   onClearSelection: () => void;
+  onReviewNativeConsumed: () => void;
   onSectionChange: (section: AgentLibrarySection) => void;
   onSelectPersona: (personaId: string) => void;
   onSelectResident: (pubkey: string) => void;
   section: AgentLibrarySection;
+  reviewNative: boolean;
   selectedPersonaId: string | null;
   selectedPubkey: string | null;
 }) {
@@ -91,6 +95,12 @@ export function AgentsView({
     libraryContentWidthPx < AGENT_LIBRARY_SINGLE_PANE_BREAKPOINT_PX;
   const [instanceToEdit, setInstanceToEdit] =
     React.useState<ManagedAgent | null>(null);
+
+  React.useEffect(() => {
+    if (!reviewNative) return;
+    setIsAddOpen(true);
+    onReviewNativeConsumed();
+  }, [onReviewNativeConsumed, reviewNative]);
 
   React.useEffect(() => {
     if (!isSinglePaneLibrary) return;
