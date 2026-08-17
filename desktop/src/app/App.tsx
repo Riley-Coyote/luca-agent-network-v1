@@ -20,7 +20,6 @@ import {
   readPersonalHomeTenancyId,
   resolvePersonalHomeTenancyId,
 } from "@/app/personalHomeTenancy";
-import { ThemeGrainientBackground } from "@/app/ThemeGrainientBackground";
 import { useReloadShortcut } from "@/app/useReloadShortcut";
 import { KnownAgentPubkeysProvider } from "@/features/agents/useKnownAgentPubkeys";
 import { useAppOnboardingState } from "@/features/onboarding/hooks";
@@ -152,7 +151,6 @@ function AppLoadingGate() {
       role="status"
     >
       <StartupWindowDragRegion />
-      <ThemeGrainientBackground />
       <span className="sr-only">{LOADING_TEXT}</span>
       <LucaLoader className="relative z-10" />
     </div>
