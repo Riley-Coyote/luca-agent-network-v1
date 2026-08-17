@@ -87,6 +87,16 @@ export function shouldSettleVirtualizedBottom({
   );
 }
 
+export function shouldRepeatMountBottomPin({
+  currentScrollTop,
+  initialPinnedScrollTop,
+}: {
+  currentScrollTop: number;
+  initialPinnedScrollTop: number;
+}): boolean {
+  return Math.abs(currentScrollTop - initialPinnedScrollTop) <= 1;
+}
+
 type UseAnchoredScrollOptions = {
   /** Scroll container. Owned by the parent so external refs still compose. */
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -614,8 +624,21 @@ export function useAnchoredScroll({
       // the same first-frame behavior regardless of its surrounding animation.
       const pinToBottomOnMount = () => {
         scrollToBottomImperative("auto");
+        const initialPinnedScrollTop = container.scrollTop;
         mountPinRafIdRef.current = requestAnimationFrame(() => {
           mountPinRafIdRef.current = null;
+          // TanStack Router restores this keyed scroll container after the
+          // route subtree commits. If that restore moved the element between
+          // our layout pass and this settling frame, it is authoritative — a
+          // second bottom pin would erase the reader's saved position.
+          if (
+            !shouldRepeatMountBottomPin({
+              currentScrollTop: container.scrollTop,
+              initialPinnedScrollTop,
+            })
+          ) {
+            return;
+          }
           scrollToBottomImperative("auto");
         });
       };

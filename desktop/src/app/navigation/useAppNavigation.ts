@@ -38,11 +38,15 @@ export function useAppNavigation() {
         return false;
       }
 
-      await navigate({
-        ...next,
-        replace: behavior.replace,
-        resetScroll: behavior.resetScroll,
-      } as never);
+      let navigationPromise: ReturnType<typeof navigate> | undefined;
+      React.startTransition(() => {
+        navigationPromise = navigate({
+          ...next,
+          replace: behavior.replace,
+          resetScroll: behavior.resetScroll,
+        } as never);
+      });
+      await navigationPromise;
       return true;
     },
     [location.href, navigate, router],

@@ -5,9 +5,27 @@ import {
   getPinnedCenterDrift,
   settleProgrammaticBottomPin,
   shouldIgnorePinnedCenterScroll,
+  shouldRepeatMountBottomPin,
   shouldSettleForSplitPanel,
   shouldSettleVirtualizedBottom,
 } from "./useAnchoredScroll.ts";
+
+test("mount settle preserves a router-restored conversation position", () => {
+  assert.equal(
+    shouldRepeatMountBottomPin({
+      currentScrollTop: 420,
+      initialPinnedScrollTop: 1_800,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldRepeatMountBottomPin({
+      currentScrollTop: 1_800.5,
+      initialPinnedScrollTop: 1_800,
+    }),
+    true,
+  );
+});
 
 function fakeContainer({ clientHeight, scrollHeight, scrollTop }) {
   const writes = [];

@@ -68,12 +68,9 @@ import { Button } from "@/shared/ui/button";
 
 const LOADING_TEXT = "Opening Luca...";
 
-// Minimum time the cold-boot splash stays on screen. A real boot resolves the
-// community in well under 100ms, and the native window setup plus first paint
-// can take longer than that — without a hold, the bee is unmounted before it is
-// ever visible. The hold runs as an overlay above the already-mounted app, so
-// time-to-interactive is unchanged; only the reveal waits.
-const BOOT_SPLASH_MIN_VISIBLE_MS = 1_200;
+// The native window remains hidden until React commits its first coherent
+// surface, so production does not need an additional minimum-visible splash.
+// E2E can still opt into a hold to verify the overlay's visual contract.
 const BOOT_SPLASH_FADE_MS = 200;
 const INITIAL_RENDER_READY_EVENT = "initial-render-ready";
 
@@ -100,7 +97,7 @@ function bootSplashHoldMs(): number {
   if (e2e) {
     return e2e.bootSplashHoldMs ?? 0;
   }
-  return BOOT_SPLASH_MIN_VISIBLE_MS;
+  return 0;
 }
 
 function useBootSplashHold(): BootSplashPhase {

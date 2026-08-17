@@ -1,6 +1,12 @@
 import { Activity, Bot, Brain, Inbox, Plus, Settings } from "lucide-react";
 
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
+import {
+  preloadActivitySurface,
+  preloadAgentsSurface,
+  preloadBrainSurface,
+  preloadSettingsSurface,
+} from "@/app/navigation/preloadPrimarySurfaces";
 import type { Channel, SearchHit } from "@/shared/api/types";
 import {
   SidebarHeader,
@@ -135,7 +141,9 @@ export function AppSidebarPrimaryMenu({
           <SidebarMenuButton
             data-testid="open-agents-view"
             isActive={selectedView === "agents"}
+            onFocus={() => void preloadAgentsSurface()}
             onClick={onSelectAgents}
+            onPointerEnter={() => void preloadAgentsSurface()}
             tooltip="Agents"
             type="button"
           >
@@ -148,7 +156,9 @@ export function AppSidebarPrimaryMenu({
             aria-label="Activity"
             data-testid="open-activity-view"
             isActive={selectedView === "pulse"}
+            onFocus={() => void preloadActivitySurface()}
             onClick={onSelectPulse}
+            onPointerEnter={() => void preloadActivitySurface()}
             tooltip="Activity"
             type="button"
           >
@@ -160,7 +170,9 @@ export function AppSidebarPrimaryMenu({
           <SidebarMenuButton
             data-testid="open-brain-setup"
             isActive={selectedView === "brain"}
+            onFocus={() => void preloadBrainSurface()}
             onClick={onSelectBrain}
+            onPointerEnter={() => void preloadBrainSurface()}
             tooltip="Brain"
             type="button"
           >
@@ -171,7 +183,9 @@ export function AppSidebarPrimaryMenu({
         <SidebarMenuItem>
           <SidebarMenuButton
             data-testid="open-settings-view"
+            onFocus={() => void preloadSettingsSurface()}
             onClick={onSelectSettings}
+            onPointerEnter={() => void preloadSettingsSurface()}
             tooltip="Settings"
             type="button"
           >

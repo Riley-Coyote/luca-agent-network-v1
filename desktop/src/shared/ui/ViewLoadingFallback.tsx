@@ -1,3 +1,5 @@
+import * as React from "react";
+
 import { Card } from "@/shared/ui/card";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { cn } from "@/shared/lib/cn";
@@ -13,9 +15,12 @@ type ViewLoadingFallbackKind =
   | "workflows";
 
 type ViewLoadingFallbackProps = {
+  delayMs?: number;
   includeHeader?: boolean;
   kind: ViewLoadingFallbackKind;
 };
+
+const DEFAULT_LOADING_REVEAL_DELAY_MS = 250;
 
 function LoadingHeaderSkeleton() {
   return (
@@ -391,14 +396,35 @@ function ForumLoadingBody({ hasHeader = false }: { hasHeader?: boolean }) {
 }
 
 export function ViewLoadingFallback({
+  delayMs = DEFAULT_LOADING_REVEAL_DELAY_MS,
   includeHeader = false,
   kind,
 }: ViewLoadingFallbackProps) {
+  const [isVisible, setIsVisible] = React.useState(delayMs <= 0);
+
+  React.useEffect(() => {
+    if (delayMs <= 0) {
+      setIsVisible(true);
+      return;
+    }
+
+    const timer = window.setTimeout(() => setIsVisible(true), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [delayMs]);
+
   const shouldShowChannelHeader =
     includeHeader && (kind === "channel" || kind === "forum");
 
   return (
-    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+    <div
+      aria-hidden={!isVisible}
+      className={cn(
+        "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-opacity duration-100 motion-reduce:transition-none",
+        isVisible ? "opacity-100" : "pointer-events-none opacity-0",
+      )}
+      data-testid="view-loading-fallback"
+      data-visible={isVisible ? "true" : "false"}
+    >
       {shouldShowChannelHeader ? <LoadingHeaderSkeleton /> : null}
       {kind === "agents" ? <AgentsLoadingBody /> : null}
       {kind === "workflows" ? <CardListLoadingBody /> : null}

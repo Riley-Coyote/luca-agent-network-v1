@@ -8,6 +8,7 @@ import * as BuzzTheme from "@/app/BuzzThemeSurfaces";
 import { AppShellOverlays } from "@/app/AppShellOverlays";
 import { AppTopChrome } from "@/app/AppTopChrome";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { preloadPrimaryNavigationSurfaces } from "@/app/navigation/preloadPrimarySurfaces";
 import { useBackForwardControls } from "@/app/navigation/useBackForwardControls";
 import { useLiveHomeFeedActions } from "@/app/useLiveHomeFeedActions";
 import { useChannelBrowserDialog } from "@/app/useChannelBrowserDialog";
@@ -177,6 +178,10 @@ export function AppShell() {
     ? locationSearchSection
     : DEFAULT_SETTINGS_SECTION;
   const startupReady = useDeferredStartup();
+  React.useEffect(() => {
+    if (!startupReady) return;
+    void preloadPrimaryNavigationSurfaces();
+  }, [startupReady]);
 
   const identityQuery = useIdentityQuery();
   const { mutedChannelIds, muteChannel, unmuteChannel } = useChannelMutes(
