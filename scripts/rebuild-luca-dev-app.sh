@@ -8,7 +8,6 @@
 set -euo pipefail
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
-BUILD_APP="$REPO_ROOT/desktop/src-tauri/target/debug/bundle/macos/Luca Agent Network Dev.app"
 INSTALL_APP="${LUCA_DEV_INSTALL_APP:-$HOME/Applications/Luca Agent Network Dev.app}"
 APP_ID="com.luca.agent-network.dev"
 APP_NAME="Luca Agent Network Dev"
@@ -52,6 +51,7 @@ cargo build \
 TARGET=$(rustc -vV | /usr/bin/sed -n 's|host: ||p')
 TARGET_DIR=$(cargo metadata --format-version 1 --no-deps \
     | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).target_directory")
+BUILD_APP="$TARGET_DIR/debug/bundle/macos/Luca Agent Network Dev.app"
 BINARIES_DIR="$REPO_ROOT/desktop/src-tauri/binaries"
 mkdir -p "$BINARIES_DIR"
 for bin in buzz-acp buzz-agent buzz-dev-mcp git-credential-nostr buzz; do
