@@ -4,6 +4,10 @@ import { cn } from "@/shared/lib/cn";
 import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
 import { sigilPattern, type DotScene } from "@/shared/ui/dot-display/engine";
 import { DotSigil } from "@/shared/ui/dot-display/DotSigil";
+import {
+  residentGlyphSeed,
+  useCanonicalLucaPubkey,
+} from "@/features/luca/canonicalLucaResident";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { IdentityMark } from "@/shared/ui/dot-display/identity/IdentityMark";
 
@@ -88,7 +92,11 @@ export function AgentIdentitySpecimen({
   state?: AgentVisualState;
 }) {
   const { isDark } = useTheme();
-  const seed = React.useMemo(() => normalizePubkey(publicKey), [publicKey]);
+  const lucaPubkey = useCanonicalLucaPubkey();
+  const seed = React.useMemo(
+    () => residentGlyphSeed(publicKey, lucaPubkey),
+    [lucaPubkey, publicKey],
+  );
   const cell = Math.max(2, Math.floor(size / 8));
 
   return (

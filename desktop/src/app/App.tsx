@@ -38,6 +38,7 @@ import {
   type MachineOnboardingPage,
 } from "@/features/onboarding/ui/MachineOnboardingFlow";
 import { OnboardingFlow } from "@/features/onboarding/ui/OnboardingFlow";
+import { useRegisterCanonicalLuca } from "@/features/luca/canonicalLucaResident";
 import { usePolyphonicScene } from "@/features/onboarding/polyphonicOnboardingScene";
 import { PolyphonicOnboardingFieldLayer } from "@/features/onboarding/ui/PolyphonicOnboardingFieldLayer";
 import { PolyphonicOnboardingFlow } from "@/features/onboarding/ui/PolyphonicOnboardingFlow";
@@ -221,6 +222,7 @@ function AppReady({
   isCommunitySwitch: boolean;
 }) {
   const onboarding = useAppOnboardingState(isSharedIdentity);
+  useRegisterCanonicalLuca();
 
   if (onboarding.stage === "reset-failed") {
     return <ResetFailedScreen />;

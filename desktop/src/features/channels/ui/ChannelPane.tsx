@@ -34,6 +34,12 @@ import { projectFocusedThreadTimeline } from "@/features/messages/lib/focusedThr
 import { ConversationAgentActivityStrip } from "@/features/channels/ui/ConversationAgentActivityStrip";
 import type { ActivityShelfRetryTarget } from "@/features/channels/ui/conversationAgentActivityShelf";
 import { useConversationPresentation } from "@/features/channels/ui/useConversationPresentation";
+import {
+  isLucaGreeting,
+  ownerHasSpoken,
+} from "@/features/luca/canonicalLucaResident";
+import { useLucaArrival } from "@/features/luca/lucaArrival";
+import { LucaGreetingChoices } from "@/features/luca/ui/LucaGreetingChoices";
 import { useNativeAgentNotice } from "@/features/luca/useNativeAgentNotice";
 import { useManagedPermissions } from "@/features/agents/useManagedPermissions";
 import { ManagedPermissionCard } from "@/features/agents/ui/ManagedPermissionCard";
@@ -178,6 +184,11 @@ export const ChannelPane = React.memo(function ChannelPane({
   const hasMainComposerOverlay = !isNonMemberView;
   const activeChannelId = activeChannel?.id ?? null;
   useNativeAgentNotice({ activeChannel, currentPubkey, messages });
+  const lucaArrival = useLucaArrival({
+    activeChannel,
+    currentPubkey,
+    messages,
+  });
   const activePermissionRequests = React.useMemo(
     () =>
       pendingManagedPermissions.filter(
@@ -463,12 +474,30 @@ export const ChannelPane = React.memo(function ChannelPane({
     onWelcomeAddAgent: onAddAgent ? handleWelcomeAddAgent : undefined,
   });
   const visibleMessages = React.useMemo(() => {
+    const base = lucaArrival.visibleMessages;
     if (!isWelcomeExperience(activeChannel)) {
-      return messages;
+      return base;
     }
 
-    return messages.filter((message) => !isWelcomeSetupSystemMessage(message));
-  }, [activeChannel, messages]);
+    return base.filter((message) => !isWelcomeSetupSystemMessage(message));
+  }, [activeChannel, lucaArrival.visibleMessages]);
+  // Luca's opening offer stays until the owner has said anything at all.
+  const showLucaChoices =
+    lucaArrival.isLucaDm &&
+    !lucaArrival.arriving &&
+    lucaArrival.lucaPubkey !== null &&
+    currentPubkey !== undefined &&
+    messages.some((message) =>
+      isLucaGreeting(message, lucaArrival.lucaPubkey as string),
+    ) &&
+    !ownerHasSpoken(messages, currentPubkey);
+  const activityForStrip = React.useMemo(() => {
+    if (!lucaArrival.arrivalActivity) return pendingActivityByPubkey;
+    return new Map([
+      ...pendingActivityByPubkey,
+      ...lucaArrival.arrivalActivity,
+    ]);
+  }, [lucaArrival.arrivalActivity, pendingActivityByPubkey]);
   const projectedRoomMessages = React.useMemo(
     () =>
       projectManagedTimelineMessages(
@@ -740,6 +769,14 @@ export const ChannelPane = React.memo(function ChannelPane({
                     ))}
                   </div>
                 ) : null}
+                {showLucaChoices ? (
+                  <LucaGreetingChoices
+                    className="pointer-events-auto mx-auto w-full max-w-[48rem] px-1 pb-2"
+                    onChoose={(choice) =>
+                      onSendMessage(choice, [], undefined, activeChannelId)
+                    }
+                  />
+                ) : null}
                 {timeoutState.active ? (
                   <ComposerTimeoutBanner
                     expiresAtMs={timeoutState.expiresAtMs}
@@ -772,7 +809,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                   }
                   onRetryResident={(target) => void handleRetryResident(target)}
                   sessionAgents={agentSessionAgents}
-                  activityByPubkey={pendingActivityByPubkey}
+                  activityByPubkey={activityForStrip}
                   presentationActivityByPubkey={managedActivity}
                   presentationStateByPubkey={presentationStateByPubkey}
                   workingPubkeys={composerWorkingBotPubkeys}

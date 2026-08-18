@@ -11,6 +11,8 @@ import {
   buildInstanceInputForDefinition,
 } from "@/features/agents/lib/instanceInputForDefinition";
 import { useOperatorForgeSettingsQuery } from "@/features/agents/operatorForgeQueries";
+import { LUCA_GREETING_MARKER } from "@/features/luca/canonicalLucaResident";
+import { markLucaArrival } from "@/features/luca/lucaArrival";
 import { createLucaResident } from "@/features/luca/residents/api";
 import { openDm } from "@/shared/api/tauriChannels";
 import { hasManagedAgentChannelMessageMarker } from "@/shared/api/tauriManagedAgentMessageMarkers";
@@ -25,7 +27,14 @@ import { Button } from "@/shared/ui/button";
 import { PolyphonicBrandMark } from "./PolyphonicThresholdField";
 
 const LUCA_PERSONA_ID = "builtin:fizz";
-const GREETING_MARKER = "polyphonic-onboarding.luca-greeting.v1";
+const GREETING_MARKER = LUCA_GREETING_MARKER;
+
+/** Warm, particular, and honest about what has happened: a read-only look
+ *  around this Mac. Luca lives here; this is not an assistant clearing its
+ *  throat. */
+export function lucaGreeting(displayName: string): string {
+  return `Hey ${displayName.trim()} — I’m Luca. I’ve had a quiet look around this Mac, so whenever you’re ready, tell me what you’re working on, or pick a place to begin.`;
+}
 
 export function PolyphonicPreparingStep({
   displayName,
@@ -126,10 +135,13 @@ export function PolyphonicPreparingStep({
           await sendManagedAgentChannelMessage({
             agentPubkey: lucaPubkey,
             channelId: channel.id,
-            content: `Hi, ${displayName.trim()} — I’m Luca. I’m ready. What would you like help with first?`,
+            content: lucaGreeting(displayName),
             marker: GREETING_MARKER,
             markerScope: "channel",
           });
+          // The greeting is durable already; the conversation stages its
+          // arrival once so the owner sees Luca about to speak, then speak.
+          markLucaArrival(channel.id);
         }
         if (!cancelled) onComplete(channel.id);
       } catch (cause) {

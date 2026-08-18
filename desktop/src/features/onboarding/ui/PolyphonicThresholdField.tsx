@@ -1,10 +1,11 @@
 import { motion, useReducedMotion } from "motion/react";
 
+import { LUCA_IDENTITY_SEED } from "@/features/luca/canonicalLucaResident";
 import { DotSigil } from "@/shared/ui/dot-display/DotSigil";
 import { IdentityMark } from "@/shared/ui/dot-display/identity/IdentityMark";
 
-export const POLYPHONIC_IDENTITY_SEED =
-  "9dee6768a16dc99a2f399672eabffe3d1c2d30cd9daaeda8ae0c36074751b9f2";
+/** The doorway's field and mark are Luca's: one mark, everywhere Polyphonic runs. */
+export const POLYPHONIC_IDENTITY_SEED = LUCA_IDENTITY_SEED;
 
 export function PolyphonicThresholdDendrite({
   ambient = true,

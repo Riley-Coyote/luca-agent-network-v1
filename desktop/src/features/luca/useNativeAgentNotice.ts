@@ -9,37 +9,21 @@ import { sendManagedAgentChannelMessage } from "@/shared/api/tauriManagedAgentMe
 import type { Channel, RuntimeBinding } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
-import { canonicalLucaResidentPubkey } from "./canonicalLucaResident";
+import {
+  canonicalLucaResidentPubkey,
+  hasClientMarker,
+  isCanonicalLucaDm,
+  LUCA_GREETING_MARKER as GREETING_MARKER,
+} from "./canonicalLucaResident";
 
-const GREETING_MARKER = "polyphonic-onboarding.luca-greeting.v1";
 export const NATIVE_AGENT_NOTICE_MARKER = "polyphonic-native-agent-notice.v1";
 const NATIVE_AGENT_NOTICE_COPY =
   "I found agents already on this Mac. If you’d like, you can review them—nothing will be imported unless you choose it.";
-
-function hasClientMarker(message: TimelineMessage, marker: string) {
-  return message.tags?.some((tag) => tag[0] === "client" && tag[1] === marker);
-}
 
 function nativeBindingIdentity(binding: RuntimeBinding): string {
   return binding.kind === "hermes"
     ? `hermes:${binding.hermesHome}:${binding.profileName.trim()}`
     : `openclaw:${binding.gatewayIdentity.trim()}:${binding.agentId.trim()}`;
-}
-
-function isCanonicalLucaDm(
-  channel: Channel | null,
-  ownerPubkey: string | undefined,
-  lucaPubkey: string,
-) {
-  if (channel?.channelType !== "dm" || !ownerPubkey) return false;
-  const participants = new Set(
-    channel.participantPubkeys.map((pubkey) => normalizePubkey(pubkey)),
-  );
-  return (
-    participants.size === 2 &&
-    participants.has(normalizePubkey(ownerPubkey)) &&
-    participants.has(lucaPubkey)
-  );
 }
 
 function firstCompletedTaskResponse(

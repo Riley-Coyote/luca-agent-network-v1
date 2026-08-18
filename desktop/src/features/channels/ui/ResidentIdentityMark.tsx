@@ -4,6 +4,7 @@ import {
   residentIdentityPath,
   residentMarkKind,
 } from "@/features/channels/lib/residentIdentity";
+import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
 import chatgptLogoUrl from "@/features/onboarding/assets/harness-logos/chatgpt.png?inline";
 import claudeLogoUrl from "@/features/onboarding/assets/harness-logos/claude.png?inline";
 import { cn } from "@/shared/lib/cn";
@@ -40,9 +41,11 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
   "data-testid": dataTestId,
 }: ResidentIdentityMarkProps) {
   const kind = residentMarkKind(personaId);
+  const lucaPubkey = useCanonicalLucaPubkey();
   const path = React.useMemo(
-    () => (kind === "custom" ? residentIdentityPath(publicKey) : null),
-    [kind, publicKey],
+    () =>
+      kind === "custom" ? residentIdentityPath(publicKey, lucaPubkey) : null,
+    [kind, lucaPubkey, publicKey],
   );
   const accessibilityProps = decorative
     ? ({ "aria-hidden": true } as const)

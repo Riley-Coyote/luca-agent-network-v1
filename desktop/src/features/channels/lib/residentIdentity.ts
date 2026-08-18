@@ -1,4 +1,4 @@
-import { normalizePubkey } from "@/shared/lib/pubkey";
+import { residentGlyphSeed } from "@/features/luca/canonicalLucaResident";
 import {
   GLYPH_N,
   glyphLit,
@@ -27,8 +27,11 @@ export function residentMarkKind(personaId?: string | null): ResidentMarkKind {
  * Runtime binding is deliberately absent: a resident keeps this mark when its
  * provider or model changes.
  */
-export function residentIdentityMatrix(publicKey: string): boolean[][] {
-  const glyph = identityGlyph(normalizePubkey(publicKey));
+export function residentIdentityMatrix(
+  publicKey: string,
+  lucaPubkey?: string | null,
+): boolean[][] {
+  const glyph = identityGlyph(residentGlyphSeed(publicKey, lucaPubkey));
   return Array.from({ length: GLYPH_N }, (_, y) =>
     Array.from({ length: GLYPH_N }, (_, x) => glyphLit(glyph, x, y)),
   );
@@ -39,6 +42,11 @@ export function residentIdentityMatrix(publicKey: string): boolean[][] {
  * corners round only where they face empty space, so identity reads as a
  * continuous stroke — who — while live activity stays a dotted field — what.
  */
-export function residentIdentityPath(publicKey: string): string {
-  return glyphToSvgPath(identityGlyph(normalizePubkey(publicKey)));
+export function residentIdentityPath(
+  publicKey: string,
+  lucaPubkey?: string | null,
+): string {
+  return glyphToSvgPath(
+    identityGlyph(residentGlyphSeed(publicKey, lucaPubkey)),
+  );
 }
