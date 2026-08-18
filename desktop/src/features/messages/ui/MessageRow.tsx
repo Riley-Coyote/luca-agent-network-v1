@@ -113,6 +113,7 @@ export const MessageRow = React.memo(
     searchQuery,
     quotedParent = null,
     collapseLongBody = true,
+    quickReactions = true,
     residentMarksEnabled = true,
     showDepthGuides = true,
     videoReviewContext,
@@ -171,6 +172,8 @@ export const MessageRow = React.memo(
       resolved: boolean;
     } | null;
     collapseLongBody?: boolean;
+    /** One-tap emoji row in the hover bar; off in direct conversations. */
+    quickReactions?: boolean;
     residentMarksEnabled?: boolean;
     showDepthGuides?: boolean;
     videoReviewContext?: VideoReviewContext;
@@ -495,6 +498,7 @@ export const MessageRow = React.memo(
             onReply={onReply}
             onReplyInThread={onReplyInThread}
             onUnfollowThread={onUnfollowThread}
+            quickReactions={quickReactions}
             reactionErrorMessage={reactionErrorMessage}
             reactions={reactions}
           />
@@ -998,6 +1002,7 @@ export const MessageRow = React.memo(
       next.collapseDepthGuideActions,
     ) &&
     prev.collapseLongBody === next.collapseLongBody &&
+    prev.quickReactions === next.quickReactions &&
     prev.collapseDescendantsLabel === next.collapseDescendantsLabel &&
     prev.connectDescendants === next.connectDescendants &&
     numberArrayEqual(prev.depthGuideDepths, next.depthGuideDepths) &&

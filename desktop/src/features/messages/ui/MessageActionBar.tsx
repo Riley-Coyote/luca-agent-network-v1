@@ -396,6 +396,7 @@ export const MessageActionBar = React.memo(function MessageActionBar({
   reactions,
   isFollowingThread,
   isUnread,
+  quickReactions = true,
 }: {
   /** Channel UUID — required for the "Copy link" action; when omitted the
    *  action is hidden (callers like the home inbox that lack the context). */
@@ -418,6 +419,9 @@ export const MessageActionBar = React.memo(function MessageActionBar({
   /** Current read state of the clicked message, from the same predicate the
    *  unread badge uses. Drives the single mark-read/unread toggle label. */
   isUnread?: boolean;
+  /** Show the one-tap emoji row before the picker. Rooms keep it; a direct
+   *  conversation with a resident is quieter — reply, react, more. */
+  quickReactions?: boolean;
 }) {
   const [isReactionPickerOpen, setIsReactionPickerOpen] = React.useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = React.useState(false);
@@ -499,7 +503,9 @@ export const MessageActionBar = React.memo(function MessageActionBar({
     >
       <div className="overflow-hidden rounded-full border border-border/70 bg-background/95 shadow-xs backdrop-blur-sm supports-[backdrop-filter]:bg-background/85">
         <div className="flex items-center gap-0.5 p-1">
-          {hasReactionAction && quickReactionItems.length > 0 ? (
+          {hasReactionAction &&
+          quickReactions &&
+          quickReactionItems.length > 0 ? (
             <>
               <div className="hidden items-center gap-0.5 sm:flex">
                 {quickReactionItems.map(({ customEmojiUrl, emoji }) => (
