@@ -567,6 +567,8 @@ export const ChannelPane = React.memo(function ChannelPane({
                 residentStop.localStates.get(key) ??
                 presentationStateByPubkey?.get(key) ??
                 presentationStateByPubkey?.get(pubkey);
+              // A resident still being started has no turn to cancel yet.
+              if (state === "waking") return false;
               return state === undefined
                 ? true
                 : !isTerminalConversationActivity(state);

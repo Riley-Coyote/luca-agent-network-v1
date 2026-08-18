@@ -564,15 +564,24 @@ export const MessageRow = React.memo(
     const residentMarkLive: ResidentMarkLiveState = !message.managedPresentation
       ?.streaming
       ? null
-      : managedPhase === "thinking" || managedPhase === "working"
+      : managedPhase === "waking" ||
+          managedPhase === "thinking" ||
+          managedPhase === "working"
         ? "thinking"
         : managedPhase === "writing" || managedPhase === "finalizing"
           ? "writing"
           : null;
+    // "waking" is the honest word for a resident the desktop is starting on
+    // the owner's behalf: nothing is thinking yet, and saying so is what
+    // keeps a longer wait from reading as a broken one.
     const activityWord =
       residentMarkLive === "thinking"
         ? (message.managedPresentation?.activityLabel ??
-          (managedPhase === "working" ? "working" : "thinking"))
+          (managedPhase === "waking"
+            ? "waking"
+            : managedPhase === "working"
+              ? "working"
+              : "thinking"))
         : null;
 
     // In a direct conversation the row is where a reply is stopped: one quiet

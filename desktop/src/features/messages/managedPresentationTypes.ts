@@ -16,6 +16,9 @@ export type ManagedPresentationWirePhase =
 
 export type ManagedPresentationDisplayPhase =
   | ManagedPresentationWirePhase
+  /** Seeded locally when the resident's process was not running at send
+   *  time and the desktop is starting it; the first wire frame replaces it. */
+  | "waking"
   | "stopping"
   | "stopped"
   | "needs_attention"
@@ -94,6 +97,7 @@ export type ManagedPresentationRow = {
   failure: ManagedPresentationFailure | null;
   finalMessageId: string | null;
   phase:
+    | "waking"
     | "thinking"
     | "working"
     | "writing"

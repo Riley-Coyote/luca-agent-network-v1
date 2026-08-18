@@ -1,4 +1,5 @@
 export type ConversationActivityState =
+  | "waking"
   | "thinking"
   | "working"
   | "writing"
@@ -59,6 +60,8 @@ export function conversationActivityLabel(
   state: ConversationActivityState,
 ): string {
   switch (state) {
+    case "waking":
+      return "Waking";
     case "thinking":
       return "Thinking";
     case "working":

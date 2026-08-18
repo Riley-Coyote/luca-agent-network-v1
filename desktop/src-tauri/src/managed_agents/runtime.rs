@@ -191,6 +191,10 @@ fn terminalize_restart_dispatches_if_proven(
                 .terminalize_prior_epoch_after_outbox_reconciliation(
                     resident_pubkey,
                     replacement_session_epoch,
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|elapsed| elapsed.as_secs())
+                        .unwrap_or(0),
                 )
                 .map(Some)
         }

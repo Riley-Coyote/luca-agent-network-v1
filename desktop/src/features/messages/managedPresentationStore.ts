@@ -19,6 +19,7 @@ import {
   MANAGED_TERMINAL_DRAIN_TARGET_MS,
   MANAGED_TURN_LIVENESS_MS,
   MANAGED_TURN_START_TIMEOUT_MS,
+  MANAGED_TURN_WAKE_TIMEOUT_MS,
   MAX_MANAGED_PRESENTATION_ROWS,
   validManagedPresentationChunk,
   validManagedPresentationFrame,
@@ -90,6 +91,7 @@ function createTurn(
   receiptId: string,
   residentPubkey: string,
   responseSurface: ManagedResponseSurface,
+  waking = false,
 ): ManagedPresentationTurn {
   const normalizedPubkey = residentPubkey.toLowerCase();
   const now = Date.now();
@@ -98,14 +100,16 @@ function createTurn(
     anchorAt: 0,
     bufferedText: "",
     conversationId,
-    deadlineAt: now + MANAGED_TURN_START_TIMEOUT_MS,
+    deadlineAt:
+      now +
+      (waking ? MANAGED_TURN_WAKE_TIMEOUT_MS : MANAGED_TURN_START_TIMEOUT_MS),
     dispatchReceiptId: receiptId,
     durableReceiptId: null,
     failure: null,
     finalMessageId: null,
     finalReconciliation: null,
     lastFrameAt: now,
-    phase: "thinking",
+    phase: waking ? "waking" : "thinking",
     receivedText: "",
     residentPubkey: normalizedPubkey,
     responseSurface,
@@ -606,6 +610,11 @@ export function seedManagedPresentations(
   dispatchReceiptId: string,
   residentPubkeys: readonly string[],
   responseSurface: ManagedResponseSurface = "timeline",
+  options: {
+    /** Residents whose process was not running at send time. The desktop is
+     *  starting them; their row says so, and they get the longer deadline. */
+    wakingResidentPubkeys?: ReadonlySet<string>;
+  } = {},
 ): void {
   void ensureManagedPresentationListener();
   for (const pubkey of residentPubkeys) {
@@ -619,9 +628,49 @@ export function seedManagedPresentations(
         dispatchReceiptId,
         residentPubkey,
         responseSurface,
+        options.wakingResidentPubkeys?.has(residentPubkey) ?? false,
       ),
     );
   }
+}
+
+/**
+ * The desktop tried to start a sleeping resident for this send and could not.
+ * There is nothing to wait for, so the seeded turn goes straight to the
+ * unavailable outcome instead of holding "waking" for the full deadline.
+ */
+export function failManagedPresentationWake(
+  conversationId: string,
+  dispatchReceiptId: string,
+  residentPubkey: string,
+): void {
+  const uiKey = lookupToUiKey.get(
+    lookupKey(residentPubkey.toLowerCase(), dispatchReceiptId),
+  );
+  const current = uiKey ? turns.get(uiKey) : undefined;
+  if (
+    !current ||
+    current.conversationId !== conversationId ||
+    current.phase !== "waking"
+  ) {
+    return;
+  }
+  const now = Date.now();
+  const next = activateTerminalResponseSlot(
+    {
+      ...current,
+      deadlineAt: null,
+      failure: "unavailable",
+      phase: "needs_attention",
+    },
+    now,
+  );
+  stageTurnPublication(
+    next,
+    current.slotOrdinal === null && next.slotOrdinal !== null,
+    now + MANAGED_TERMINAL_ACTIVITY_MS,
+  );
+  scheduler.requestPaint();
 }
 
 /**

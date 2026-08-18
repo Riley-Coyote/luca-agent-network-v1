@@ -36,10 +36,14 @@ import {
 import {
   completeManagedPresentationForConversation,
   removeManagedPresentationByFinalMessageId,
+  failManagedPresentationWake,
   removeManagedPresentationsByReceipt,
   replaceManagedPresentationReceipt,
   seedManagedPresentations,
 } from "@/features/messages/managedPresentationStore";
+import { managedAgentsQueryKey } from "@/features/agents/hooks";
+import { normalizePubkey } from "@/shared/lib/pubkey";
+import { startManagedAgent } from "@/shared/api/tauriManagedAgents";
 import { managedDispatchReceiptIdFromTags } from "@/features/messages/managedPresentationProtocol";
 import {
   clearTimeoutState,
@@ -58,7 +62,12 @@ import {
   sendChannelMessage,
 } from "@/shared/api/tauri";
 import { getChannelWindowEvents } from "@/shared/api/channelWindow";
-import type { Channel, Identity, RelayEvent } from "@/shared/api/types";
+import type {
+  Channel,
+  Identity,
+  ManagedAgent,
+  RelayEvent,
+} from "@/shared/api/types";
 // Same .mjs the renderer uses, so the cache-update projection can't drift
 // from the on-render overlay.
 import { applyEditTagOverlay } from "@/features/messages/lib/applyEditTagOverlay.mjs";
@@ -439,6 +448,25 @@ export function useChannelSubscription(channel: Channel | null) {
   }, [channelId, channelType]);
 }
 
+/** Managed residents in the audience whose local process is not running. */
+function sleepingManagedResidents(
+  audiencePubkeys: readonly string[],
+  managedAgents: readonly ManagedAgent[] | undefined,
+): ReadonlySet<string> {
+  const byPubkey = new Map(
+    (managedAgents ?? []).map((agent) => [
+      normalizePubkey(agent.pubkey),
+      agent,
+    ]),
+  );
+  const sleeping = new Set<string>();
+  for (const pubkey of audiencePubkeys) {
+    const agent = byPubkey.get(normalizePubkey(pubkey));
+    if (agent?.status === "stopped") sleeping.add(normalizePubkey(pubkey));
+  }
+  return sleeping;
+}
+
 export function useSendMessageMutation(
   channel: Channel | null,
   identity: Identity | undefined,
@@ -654,12 +682,40 @@ export function useSendMessageMutation(
         responseSurface,
       );
       if (audience) {
+        // Wake-on-send. A resident whose process is not running cannot hear
+        // this message, and until now the row said "thinking" for twelve
+        // seconds before admitting nobody was home. Start it here, alongside
+        // the send: the harness's first subscription replays sends from just
+        // before its own start, so this message is exactly what the new
+        // session will answer. The row says "waking" — honest, and enough to
+        // carry a longer wait — and flips to "thinking" on the first frame.
+        const audiencePubkeys = managedAudiencePubkeys(audience);
+        const sleeping = sleepingManagedResidents(
+          audiencePubkeys,
+          queryClient.getQueryData<ManagedAgent[]>(managedAgentsQueryKey),
+        );
         seedManagedPresentations(
           effectiveChannel.id,
           optimisticMessage.id,
-          managedAudiencePubkeys(audience),
+          audiencePubkeys,
           responseSurface,
+          { wakingResidentPubkeys: sleeping },
         );
+        for (const pubkey of sleeping) {
+          void startManagedAgent(pubkey)
+            .then(() => {
+              void queryClient.invalidateQueries({
+                queryKey: managedAgentsQueryKey,
+              });
+            })
+            .catch(() => {
+              failManagedPresentationWake(
+                effectiveChannel.id,
+                optimisticMessage.id,
+                pubkey,
+              );
+            });
+        }
       }
 
       const nextWindow = mergeLiveChannelWindowEvent(

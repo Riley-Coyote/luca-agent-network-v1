@@ -63,6 +63,7 @@ export type TimelineMessage = {
       | null;
     finalMessageId: string | null;
     phase:
+      | "waking"
       | "thinking"
       | "working"
       | "writing"

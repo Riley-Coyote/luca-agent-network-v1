@@ -45,7 +45,7 @@ export function pendingReplyRows({
 
   const add = (
     pubkey: string,
-    phase: "thinking" | "working",
+    phase: "waking" | "thinking" | "working",
     label: string | undefined,
     anchorAt: number,
   ) => {
@@ -83,7 +83,11 @@ export function pendingReplyRows({
   };
 
   for (const [pubkey, activity] of managedActivity ?? []) {
-    if (activity.phase === "thinking" || activity.phase === "working") {
+    if (
+      activity.phase === "waking" ||
+      activity.phase === "thinking" ||
+      activity.phase === "working"
+    ) {
       add(pubkey, activity.phase, undefined, now);
     }
   }

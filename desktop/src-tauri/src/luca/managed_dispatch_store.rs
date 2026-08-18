@@ -57,6 +57,12 @@ pub(crate) enum ManagedDispatchInterruptionReason {
     Restart,
 }
 
+/// Mirrors the harness's first-subscription replay grace: `buzz-acp` captures
+/// a startup watermark and subscribes from `watermark - 5s`, so an owner send
+/// created within this many seconds before a resident starts is replayed to
+/// the new session (crates/buzz-acp/src/lib.rs, `startup_watermark`).
+pub(crate) const WAKE_REPLAY_GRACE_SECS: u64 = 5;
+
 /// Public-only dispatch facts derived from one exact signed owner event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ActiveDispatch {
@@ -1041,10 +1047,19 @@ impl ManagedDispatchStore {
     /// Terminalize work that belonged to an earlier broker epoch, but only
     /// after that resident's encrypted outbox has reconciled its frozen exact
     /// events. This intentionally does not resume an ACP/native session.
+    ///
+    /// An owner send staged while the resident was not running has no epoch
+    /// yet. If it is fresh enough for the harness now starting to replay it —
+    /// the harness's first subscription runs from its own start minus
+    /// [`WAKE_REPLAY_GRACE_SECS`] — it is the very work this session was
+    /// started to answer, not prior-epoch work, and stays pending for the new
+    /// session to claim. Older epoch-less sends were never going to be
+    /// replayed and are interrupted like any other stale dispatch.
     pub(crate) fn terminalize_prior_epoch_after_outbox_reconciliation(
         &mut self,
         resident_pubkey: &str,
         replacement_session_epoch: u64,
+        now_unix_secs: u64,
     ) -> Result<usize, String> {
         if replacement_session_epoch == 0 {
             return Err("managed dispatch replacement session epoch must be nonzero".into());
@@ -1059,6 +1074,12 @@ impl ManagedDispatchStore {
                     ManagedDispatchState::Pending | ManagedDispatchState::Active
                 )
                 || dispatch.session_epoch == Some(replacement_session_epoch)
+            {
+                continue;
+            }
+            if dispatch.session_epoch.is_none()
+                && dispatch.state == ManagedDispatchState::Pending
+                && dispatch.created_at.saturating_add(WAKE_REPLAY_GRACE_SECS) >= now_unix_secs
             {
                 continue;
             }
@@ -2756,6 +2777,56 @@ mod tests {
     }
 
     #[test]
+    fn a_fresh_epochless_pending_send_survives_the_start_it_provoked() {
+        // Wake-on-send: the owner writes to a resident that is not running, the
+        // desktop starts it, and the harness replays sends from its start
+        // minus WAKE_REPLAY_GRACE_SECS. That send must still be Pending when
+        // the new session claims it; only stale epoch-less sends are interrupted.
+        let owner = Keys::parse(&"95".repeat(32)).expect("owner");
+        let resident = Keys::parse(&"96".repeat(32)).expect("resident");
+        let temp = tempfile::tempdir().expect("temp");
+        let mut store =
+            ManagedDispatchStore::load(temp.path().join("dispatches.json")).expect("store");
+        let fresh = event(&owner, &resident, CHANNEL_ONE, "wake me");
+        store
+            .stage_owner_event(&fresh, &[resident.public_key().to_hex()], 1_000)
+            .expect("stage fresh");
+        let key = (fresh.id.to_hex(), resident.public_key().to_hex());
+
+        assert_eq!(
+            store
+                .terminalize_prior_epoch_after_outbox_reconciliation(
+                    &resident.public_key().to_hex(),
+                    7,
+                    1_000 + WAKE_REPLAY_GRACE_SECS,
+                )
+                .expect("terminalize within grace"),
+            0
+        );
+        assert_eq!(
+            store.dispatches.get(&key).expect("row").state,
+            ManagedDispatchState::Pending
+        );
+
+        assert_eq!(
+            store
+                .terminalize_prior_epoch_after_outbox_reconciliation(
+                    &resident.public_key().to_hex(),
+                    7,
+                    1_000 + WAKE_REPLAY_GRACE_SECS + 1,
+                )
+                .expect("terminalize past grace"),
+            1
+        );
+        let row = store.dispatches.get(&key).expect("row");
+        assert_eq!(row.state, ManagedDispatchState::Interrupted);
+        assert_eq!(
+            row.interruption_reason,
+            Some(ManagedDispatchInterruptionReason::Restart)
+        );
+    }
+
+    #[test]
     fn restart_terminalization_waits_for_frozen_reconciliation_then_blocks_duplicates() {
         let owner = Keys::parse(&"93".repeat(32)).expect("owner");
         let resident = Keys::parse(&"94".repeat(32)).expect("resident");
@@ -2796,6 +2867,7 @@ mod tests {
                 .terminalize_prior_epoch_after_outbox_reconciliation(
                     &resident.public_key().to_hex(),
                     9,
+                    1_000_000,
                 )
                 .expect("terminalize old epoch"),
             1

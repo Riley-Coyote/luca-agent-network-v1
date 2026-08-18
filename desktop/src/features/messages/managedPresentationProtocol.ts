@@ -4,6 +4,10 @@ export const MANAGED_PRESENTATION_EVENT = "luca://managed-presentation";
 export const MANAGED_DISPATCH_RECEIPT_TAG = "luca-managed-dispatch";
 export const MAX_MANAGED_PRESENTATION_ROWS = 512;
 export const MANAGED_TURN_START_TIMEOUT_MS = 12_000;
+/** A resident that had to be started first gets long enough for the harness
+ *  to come up, replay the owner's message, and open a session before the
+ *  desktop concludes it is unavailable. */
+export const MANAGED_TURN_WAKE_TIMEOUT_MS = 60_000;
 export const MANAGED_TURN_LIVENESS_MS = 90_000;
 export const MANAGED_TERMINAL_DRAIN_TARGET_MS = 300;
 
