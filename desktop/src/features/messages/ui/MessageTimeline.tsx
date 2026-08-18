@@ -470,6 +470,11 @@ const MessageTimelineBase = React.forwardRef<
   // channel shows its own pill.
   const [isUnreadPillDismissed, setIsUnreadPillDismissed] =
     React.useState(false);
+  // The pill points up at unread history the reader cannot see, so it earns
+  // its place only once a settled look at the scroller has confirmed there is
+  // something above the fold to jump to. It is not shown before that look:
+  // the rows a fresh channel commits are not always the rows it settles with.
+  const [isUnreadPillEarned, setIsUnreadPillEarned] = React.useState(false);
   // Track whether the pill has been shown at least once this channel visit.
   // This prevents the dismiss effect from firing on mount (when isAtBottom
   // initializes as true) before the pill ever renders.
@@ -477,6 +482,7 @@ const MessageTimelineBase = React.forwardRef<
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset on channel switch only
   React.useEffect(() => {
     setIsUnreadPillDismissed(false);
+    setIsUnreadPillEarned(false);
     hasShownPillRef.current = false;
   }, [channelId]);
   React.useEffect(() => {
@@ -484,56 +490,60 @@ const MessageTimelineBase = React.forwardRef<
       setIsUnreadPillDismissed(true);
     }
   }, [isAtBottom]);
-  const showUnreadPill =
+  const unreadPillCandidate =
     !isUnreadPillDismissed &&
     unreadCount > 0 &&
     firstUnreadMessageId !== null &&
     !showTimelineSkeleton;
+  const showUnreadPill = unreadPillCandidate && isUnreadPillEarned;
   if (showUnreadPill) hasShownPillRef.current = true;
-  // The pill points up at unread history the reader cannot see. If the reader
-  // is at the floor and the oldest unread row is already on screen — a short
-  // conversation, or a few new lines at the tail of a long one — there is
-  // nothing to jump to and the pill is noise. The floor is measured live from
-  // the DOM, not taken from state: on a fresh channel the scroller sits at the
-  // top for a commit before the anchor pins it, and that moment must not
-  // count. Rows the virtualizer has not realized are, by construction, off
+  // The look itself. At the floor with the oldest unread row on screen — a
+  // short conversation, a few new lines at the tail of a long one, a reply
+  // taller than the fold that is being read — there is nothing to jump to
+  // and the pill is dismissed. At the floor with that row above the fold, or
+  // unrealized by the virtualizer (off screen by construction), or away from
+  // the floor altogether, the pill is earned. The floor is measured live from
+  // the DOM, after the anchor's own settle frame; the row is any part on
   // screen.
   // biome-ignore lint/correctness/useExhaustiveDependencies: virtualizerRenderVersion re-checks once the virtualizer realizes rows near the fold
   React.useLayoutEffect(() => {
-    if (!showUnreadPill || !firstUnreadMessageId) return;
+    if (!unreadPillCandidate || !firstUnreadMessageId) return;
     const container = activeScrollContainerRef.current;
     if (!container) return;
-    const dismissIfOldestUnreadVisible = () => {
-      if (container.clientHeight === 0 || !isAtBottomNow(container)) return;
+    const look = () => {
+      if (container.clientHeight === 0) return;
+      if (!isAtBottomNow(container)) {
+        setIsUnreadPillEarned(true);
+        return;
+      }
       const row = container.querySelector(
         `[data-message-id="${CSS.escape(firstUnreadMessageId)}"]`,
       );
-      if (!row) return;
+      if (!row) {
+        setIsUnreadPillEarned(true);
+        return;
+      }
       const rowRect = row.getBoundingClientRect();
       const fold = container.getBoundingClientRect();
       if (rowRect.height === 0) return;
-      // Any part of the row on screen counts: a reply taller than the fold
-      // is being read, not missed.
       if (rowRect.bottom > fold.top + 1 && rowRect.top < fold.bottom - 1) {
         setIsUnreadPillDismissed(true);
+      } else {
+        setIsUnreadPillEarned(true);
       }
     };
-    // The anchor pins the floor in its own layout pass and settles a frame
-    // later; check after that settle, never in the same commit.
     const settle = requestAnimationFrame(() => {
-      requestAnimationFrame(dismissIfOldestUnreadVisible);
+      requestAnimationFrame(look);
     });
-    container.addEventListener("scroll", dismissIfOldestUnreadVisible, {
-      passive: true,
-    });
+    container.addEventListener("scroll", look, { passive: true });
     return () => {
       cancelAnimationFrame(settle);
-      container.removeEventListener("scroll", dismissIfOldestUnreadVisible);
+      container.removeEventListener("scroll", look);
     };
   }, [
     activeScrollContainerRef,
     firstUnreadMessageId,
-    showUnreadPill,
+    unreadPillCandidate,
     virtualizerRenderVersion,
   ]);
   const handleJumpToOldestUnread = React.useCallback(() => {
