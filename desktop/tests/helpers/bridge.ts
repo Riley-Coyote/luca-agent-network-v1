@@ -204,6 +204,16 @@ type MockBridgeOptions = {
    * listing for any managed agent, or a pubkey-keyed record for per-agent data.
    */
   agentMemory?: MockAgentMemoryListing | Record<string, MockAgentMemoryListing>;
+  /**
+   * Seeded agent folders for the mocked `list_resident_documents` /
+   * `read_resident_document` / `write_resident_document` commands. Keyed by
+   * resident pubkey, then by file name — one of `soul.md`, `convictions.md`,
+   * `self-model.md`, `user-model.md`, `lessons.md`, `instructions.md`, or any
+   * extra file (e.g. `notes/todo.md`), which lands in the inspector's
+   * `extraFiles`. A resident with no entry has an empty folder: nothing
+   * written yet, not an error.
+   */
+  residentDocuments?: Record<string, Record<string, string>>;
   managedAgentPrereqs?: {
     acp?: MockCommandAvailability;
     mcp?: MockCommandAvailability;

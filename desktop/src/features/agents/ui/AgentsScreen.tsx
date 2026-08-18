@@ -29,7 +29,8 @@ function sectionFromSearch(
     return "notebook";
   }
   if (legacyTab === "runtime") return "settings";
-  return "overview";
+  // `documents` is the default and stays out of the URL; `overview` was its old name.
+  return "documents";
 }
 
 function sectionFromBrowserLocation(): string | null {
@@ -56,7 +57,7 @@ export function AgentsScreen() {
         profilePersona: null,
         profileTab: null,
         profileView: null,
-        section: "overview",
+        section: null,
       });
     },
     [applyPatch],
@@ -68,7 +69,7 @@ export function AgentsScreen() {
         profilePersona: personaId,
         profileTab: null,
         profileView: null,
-        section: "overview",
+        section: null,
       });
     },
     [applyPatch],
@@ -87,7 +88,7 @@ export function AgentsScreen() {
       applyPatch({
         profileTab: null,
         profileView: null,
-        section: next === "overview" ? null : next,
+        section: next === "documents" ? null : next,
       });
     },
     [applyPatch],

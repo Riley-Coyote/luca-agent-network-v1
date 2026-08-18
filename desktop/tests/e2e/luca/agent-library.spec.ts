@@ -110,7 +110,7 @@ test("agent library separates the roster, workspace, and notebook", async ({
     name: "Agent workspace",
   });
   await expect(
-    workspaceNavigation.getByRole("button", { name: "Overview" }),
+    workspaceNavigation.getByRole("button", { name: "Documents" }),
   ).toBeVisible();
   await expect(
     workspaceNavigation.getByRole("button", { name: "Notebook" }),
@@ -276,6 +276,6 @@ test("start on open promises a fresh relaunch session and preserves identity", a
   expect(after?.native_runtime_binding).toEqual(before?.native_runtime_binding);
   expect(after?.start_on_app_launch).toBe(true);
 
-  await page.getByRole("button", { name: "Edit configuration" }).click();
+  await page.getByRole("button", { name: "Advanced…" }).click();
   await expect(page.getByTestId("edit-agent-dialog")).toBeVisible();
 });

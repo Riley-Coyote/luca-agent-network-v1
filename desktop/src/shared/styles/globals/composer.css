@@ -46,6 +46,12 @@
   line-height: 1.68;
 }
 
+/* A resident's document editor is a writing surface like the composer: focus
+   is its own border brightening, never the shell's outline ring. */
+:root[data-luca-shell] .resident-document-textarea:focus-visible {
+  outline: none;
+}
+
 .rich-text-composer .tiptap p {
   margin: 0;
 }

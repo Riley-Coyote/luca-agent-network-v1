@@ -8,21 +8,30 @@ import {
   MoreHorizontal,
   Play,
   RotateCcw,
+  ScrollText,
   Settings2,
   Square,
 } from "lucide-react";
 
-import type { AgentPersona, ManagedAgent } from "@/shared/api/types";
+import { ResidentDocumentsSection } from "@/features/agents/documents/ResidentDocumentsSection";
 import {
-  getResidentContinuity,
-  type ResidentContinuityInspector,
-} from "@/shared/api/tauriContinuity";
+  useManagedAgentLogQuery,
+  useSetManagedAgentAutoRestartMutation,
+} from "@/features/agents/hooks";
+import type { AgentPersona, ManagedAgent } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import { Button } from "@/shared/ui/button";
 import { Switch } from "@/shared/ui/switch";
 import { NavigationTransition } from "@/shared/ui/NavigationTransition";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/shared/ui/sheet";
 import { ResidentHandoffPanel } from "@/features/profile/ui/ResidentContinuityPanel";
 import { ResidentNotebookPanel } from "@/features/profile/ui/notebook/ResidentNotebookPanel";
 import {
@@ -30,8 +39,16 @@ import {
   residentSourceLabel,
   type ResidentSummaryViewModel,
 } from "./agentLibraryViewModel";
+import { ManagedAgentLogPanel } from "./ManagedAgentLogPanel";
+import { ResidentModelMenu } from "./ResidentModelMenu";
 
-export type AgentLibrarySection = "overview" | "notebook" | "settings";
+/**
+ * A resident's own page: a status strip (who, how they are, what runs them,
+ * the controls), then Documents · Notebook · Settings. Documents is the
+ * agent folder and the default; Notebook is their memory as it reads;
+ * Settings is the machinery.
+ */
+export type AgentLibrarySection = "documents" | "notebook" | "settings";
 
 export function AgentLibraryWorkspace({
   actionErrorMessage,
@@ -74,10 +91,14 @@ export function AgentLibraryWorkspace({
 }) {
   const isRunning =
     managedAgent?.status === "running" || managedAgent?.status === "deployed";
+  const [logsOpen, setLogsOpen] = React.useState(false);
 
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-card/60">
-      <header className="border-b border-border/60 px-5 pb-5 pt-11 sm:px-7 md:py-5">
+      <header
+        className="border-b border-border/60 px-5 pb-5 pt-11 sm:px-7 md:py-5"
+        data-testid="agent-status-strip"
+      >
         <div className="flex min-w-0 items-start gap-4">
           <Button
             aria-label="Back to agents"
@@ -105,24 +126,56 @@ export function AgentLibraryWorkspace({
               <h2 className="truncate text-xl font-medium tracking-tight">
                 {resident.displayName}
               </h2>
-              <span className="font-mono text-2xs uppercase tracking-[0.12em] text-muted-foreground">
+              <span
+                className="flex items-center gap-2 text-2xs text-muted-foreground"
+                data-testid="agent-strip-state"
+              >
+                <span
+                  aria-hidden
+                  className={cn(
+                    "inline-block size-1.5 rounded-full",
+                    stateDotClass(resident),
+                  )}
+                />
                 {residentAvailabilityLabel(resident.availability)}
               </span>
             </div>
-            <p className="mt-1 truncate text-sm text-muted-foreground">
-              {[residentSourceLabel(resident), resident.modelLabel]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
-            {resident.pubkey ? (
-              <p className="mt-1 font-mono text-2xs uppercase tracking-[0.1em] text-muted-foreground/75">
-                {truncatePubkey(resident.pubkey)}
-              </p>
-            ) : (
-              <p className="mt-1 font-mono text-2xs uppercase tracking-[0.1em] text-muted-foreground/75">
-                Identity created when started
-              </p>
-            )}
+            <div
+              className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 text-sm text-muted-foreground"
+              data-testid="agent-strip-runtime"
+            >
+              <span>{residentSourceLabel(resident)}</span>
+              {managedAgent ? (
+                <>
+                  <Dot />
+                  <ResidentModelMenu
+                    agent={managedAgent}
+                    testId="agent-strip-model"
+                    variant="inline"
+                  />
+                </>
+              ) : resident.modelLabel ? (
+                <>
+                  <Dot />
+                  <span>{resident.modelLabel}</span>
+                </>
+              ) : null}
+              {resident.pubkey ? (
+                <>
+                  <Dot />
+                  <span className="font-mono text-2xs text-muted-foreground/75">
+                    {truncatePubkey(resident.pubkey)}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Dot />
+                  <span className="text-2xs text-muted-foreground/75">
+                    Identity created when started
+                  </span>
+                </>
+              )}
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {managedAgent ? (
@@ -156,6 +209,15 @@ export function AgentLibraryWorkspace({
                     <RotateCcw />
                   </Button>
                 ) : null}
+                <Button
+                  aria-label="Open logs"
+                  data-testid="agent-strip-logs"
+                  onClick={() => setLogsOpen(true)}
+                  size="icon"
+                  variant="outline"
+                >
+                  <ScrollText />
+                </Button>
               </>
             ) : (
               <Button disabled={isActionPending} onClick={onStart} size="sm">
@@ -175,21 +237,24 @@ export function AgentLibraryWorkspace({
 
         <nav aria-label="Agent workspace" className="mt-5 flex gap-6">
           <WorkspaceTab
-            active={section === "overview"}
-            label="Overview"
-            onClick={() => onSectionChange("overview")}
+            active={section === "documents"}
+            label="Documents"
+            onClick={() => onSectionChange("documents")}
+            testId="agent-tab-documents"
           />
           {managedAgent ? (
             <WorkspaceTab
               active={section === "notebook"}
               label="Notebook"
               onClick={() => onSectionChange("notebook")}
+              testId="agent-tab-notebook"
             />
           ) : null}
           <WorkspaceTab
             active={section === "settings"}
             label="Settings"
             onClick={() => onSectionChange("settings")}
+            testId="agent-tab-settings"
           />
         </nav>
       </header>
@@ -217,14 +282,20 @@ export function AgentLibraryWorkspace({
               {actionNoticeMessage}
             </div>
           ) : null}
-          {section === "overview" ? (
-            <OverviewSection
-              channels={channels}
-              managedAgent={managedAgent}
-              onOpenChannel={onOpenChannel}
-              persona={persona}
-              resident={resident}
-            />
+          {section === "documents" ? (
+            managedAgent ? (
+              <ResidentDocumentsSection
+                agent={managedAgent}
+                onRestart={onRestart}
+                residentName={resident.displayName}
+              />
+            ) : (
+              <DocumentsBeforeSetup
+                onStart={onStart}
+                persona={persona}
+                residentName={resident.displayName}
+              />
+            )
           ) : null}
           {section === "notebook" && managedAgent ? (
             <NotebookSection
@@ -234,8 +305,10 @@ export function AgentLibraryWorkspace({
           ) : null}
           {section === "settings" ? (
             <SettingsSection
+              channels={channels}
               managedAgent={managedAgent}
               onEdit={onEdit}
+              onOpenChannel={onOpenChannel}
               onRestart={onRestart}
               onStart={onStart}
               onToggleStartOnLaunch={onToggleStartOnLaunch}
@@ -245,7 +318,23 @@ export function AgentLibraryWorkspace({
           ) : null}
         </NavigationTransition>
       </div>
+
+      {managedAgent ? (
+        <LogsSheet
+          agent={managedAgent}
+          onOpenChange={setLogsOpen}
+          open={logsOpen}
+        />
+      ) : null}
     </main>
+  );
+}
+
+function Dot() {
+  return (
+    <span aria-hidden className="text-muted-foreground/40">
+      ·
+    </span>
   );
 }
 
@@ -253,10 +342,12 @@ function WorkspaceTab({
   active,
   label,
   onClick,
+  testId,
 }: {
   active: boolean;
   label: string;
   onClick: () => void;
+  testId?: string;
 }) {
   return (
     <button
@@ -267,6 +358,7 @@ function WorkspaceTab({
           ? "text-foreground"
           : "text-muted-foreground hover:text-foreground",
       )}
+      data-testid={testId}
       onClick={onClick}
       type="button"
     >
@@ -278,166 +370,69 @@ function WorkspaceTab({
   );
 }
 
-function OverviewSection({
-  channels,
-  managedAgent,
-  onOpenChannel,
-  persona,
-  resident,
+function LogsSheet({
+  agent,
+  onOpenChange,
+  open,
 }: {
-  channels: Array<{ id: string; name: string }>;
-  managedAgent: ManagedAgent | null;
-  onOpenChannel: (channelId: string) => void;
-  persona: AgentPersona | null;
-  resident: ResidentSummaryViewModel;
+  agent: ManagedAgent;
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
 }) {
-  const [continuity, setContinuity] =
-    React.useState<ResidentContinuityInspector | null>(null);
-  const [continuityUnavailable, setContinuityUnavailable] =
-    React.useState(false);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    setContinuity(null);
-    setContinuityUnavailable(false);
-    if (!managedAgent) return;
-    void getResidentContinuity(managedAgent.pubkey)
-      .then((next) => {
-        if (!cancelled) setContinuity(next);
-      })
-      .catch(() => {
-        if (!cancelled) setContinuityUnavailable(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [managedAgent]);
-
-  const nativeBinding = managedAgent?.nativeRuntimeBinding;
-  const workspace = nativeBinding?.defaultWorkspace;
-
+  const log = useManagedAgentLogQuery(open ? agent.pubkey : null, 400);
   return (
-    <div className="divide-y divide-border/55 border-y border-border/55">
-      <LedgerSection eyebrow="Status" title="Current state">
-        <LedgerRow
-          label="Availability"
-          value={residentAvailabilityLabel(resident.availability)}
-        />
-        {managedAgent?.lastError ? (
-          <LedgerRow danger label="Last error" value={managedAgent.lastError} />
-        ) : null}
-        {managedAgent?.needsRestart ? (
-          <LedgerRow label="Binding" value="Restart required" />
-        ) : null}
-      </LedgerSection>
-
-      <LedgerSection eyebrow="Native system" title="Runtime and model">
-        <LedgerRow label="Runtime" value={residentSourceLabel(resident)} />
-        {resident.modelLabel ? (
-          <LedgerRow label="Model" value={resident.modelLabel} />
-        ) : null}
-        {nativeBinding ? (
-          <LedgerRow
-            label={nativeBinding.kind === "hermes" ? "Profile" : "Agent ID"}
-            value={
-              nativeBinding.kind === "hermes"
-                ? nativeBinding.profileName
-                : nativeBinding.agentId
-            }
+    <Sheet onOpenChange={onOpenChange} open={open}>
+      <SheetContent
+        className="flex w-full flex-col gap-0 sm:max-w-2xl"
+        data-testid="agent-logs-sheet"
+        side="right"
+      >
+        <SheetHeader className="pb-3">
+          <SheetTitle className="text-base font-medium">
+            {agent.name} · logs
+          </SheetTitle>
+          <SheetDescription className="text-2xs text-muted-foreground">
+            The harness log for this resident. Newest lines at the bottom.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="min-h-0 flex-1">
+          <ManagedAgentLogPanel
+            chrome="bare"
+            error={log.error instanceof Error ? log.error : null}
+            isLoading={log.isPending}
+            logContent={log.data?.content ?? null}
+            selectedAgent={agent}
+            variant="inline"
           />
-        ) : null}
-        {managedAgent ? (
-          <LedgerRow
-            label="Version"
-            value={nativeBinding?.runtimeVersion ?? "Managed by Luca"}
-          />
-        ) : (
-          <LedgerRow label="Setup" value="Resident not started" />
-        )}
-      </LedgerSection>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
 
-      <LedgerSection eyebrow="Working context" title="Workspace">
-        <LedgerRow
-          icon={Folder}
-          label="Default location"
-          value={workspace ?? "No native workspace reported"}
-        />
-        {persona?.systemPrompt ? (
-          <LedgerRow label="Instructions" value="Configured" />
-        ) : null}
-      </LedgerSection>
-
-      {managedAgent ? (
-        <LedgerSection eyebrow="Continuity" title="Current handoff">
-          {continuity?.handoff ? (
-            <>
-              <p className="max-w-2xl text-sm leading-6 text-foreground/90">
-                {continuity.handoff.summary || "No summary recorded."}
-              </p>
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                <MiniMetric
-                  label="Unresolved"
-                  value={continuity.handoff.unresolvedThreads.length}
-                />
-                <MiniMetric
-                  label="Commitments"
-                  value={continuity.handoff.commitments.length}
-                />
-                <MiniMetric
-                  label="Preferences"
-                  value={continuity.handoff.explicitPreferences.length}
-                />
-              </div>
-            </>
-          ) : continuityUnavailable ? (
-            <p className="text-sm text-muted-foreground">
-              Continuity is unavailable. Messaging still works normally.
-            </p>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {continuity?.enabled === false
-                ? "Continuity is disabled."
-                : "No handoff has been recorded yet."}
-            </p>
-          )}
-        </LedgerSection>
-      ) : null}
-
-      <LedgerSection eyebrow="Conversations" title="Recent rooms">
-        {channels.length > 0 ? (
-          <div className="divide-y divide-border/45">
-            {channels.slice(0, 6).map((channel) => (
-              <button
-                className="flex w-full items-center justify-between gap-4 py-3 text-left text-sm transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-                key={channel.id}
-                onClick={() => onOpenChannel(channel.id)}
-                type="button"
-              >
-                <span>{channel.name}</span>
-                <span className="font-mono text-2xs uppercase tracking-[0.1em] text-muted-foreground">
-                  Open
-                </span>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            No shared conversations are available yet.
-          </p>
-        )}
-      </LedgerSection>
-
-      {managedAgent?.pubkey ? (
-        <LedgerSection eyebrow="Identity" title="Cryptographic identity">
-          <LedgerRow
-            icon={KeyRound}
-            label="Public key"
-            mono
-            value={managedAgent.pubkey}
-          />
-          <LedgerRow label="Custody" value="Held in local secure storage" />
-        </LedgerSection>
-      ) : null}
+function DocumentsBeforeSetup({
+  onStart,
+  persona,
+  residentName,
+}: {
+  onStart: () => void;
+  persona: AgentPersona | null;
+  residentName: string;
+}) {
+  return (
+    <div className="max-w-2xl" data-testid="resident-documents-before-setup">
+      <p className="text-sm leading-6 text-muted-foreground">
+        {residentName} doesn't have a folder yet. Their documents — soul,
+        convictions, self-model, user model, lessons, instructions — are laid
+        down when the resident is set up
+        {persona?.systemPrompt
+          ? ", starting from this definition's instructions"
+          : ""}
+        .
+      </p>
+      <Button className="mt-4" onClick={onStart} size="sm" variant="outline">
+        <Play /> Set up resident
+      </Button>
     </div>
   );
 }
@@ -476,43 +471,84 @@ function NotebookSection({
 }
 
 function SettingsSection({
+  channels,
   managedAgent,
   onEdit,
+  onOpenChannel,
   onRestart,
   onStart,
   onToggleStartOnLaunch,
   persona,
   resident,
 }: {
+  channels: Array<{ id: string; name: string }>;
   managedAgent: ManagedAgent | null;
   onEdit: () => void;
+  onOpenChannel: (channelId: string) => void;
   onRestart: () => void;
   onStart: () => void;
   onToggleStartOnLaunch: (enabled: boolean) => void;
   persona: AgentPersona | null;
   resident: ResidentSummaryViewModel;
 }) {
+  const autoRestart = useSetManagedAgentAutoRestartMutation();
+  const nativeBinding = managedAgent?.nativeRuntimeBinding;
+  const workspace = nativeBinding?.defaultWorkspace;
+
   return (
-    <div className="divide-y divide-border/55 border-y border-border/55">
-      <LedgerSection eyebrow="Runtime" title="Binding and model">
+    <div
+      className="divide-y divide-border/55 border-y border-border/55"
+      data-testid="agent-settings"
+    >
+      <LedgerSection eyebrow="Runtime" title="What runs them">
         <LedgerRow label="Runtime" value={residentSourceLabel(resident)} />
-        {resident.modelLabel ? (
+        {managedAgent ? (
+          <div className="grid min-w-0 gap-1 border-b border-border/40 py-3 first:pt-0 last:border-b-0 last:pb-0 sm:grid-cols-[140px_minmax(0,1fr)] sm:gap-5">
+            <span className="flex items-center text-xs text-muted-foreground">
+              Model
+            </span>
+            <div className="max-w-sm">
+              <ResidentModelMenu
+                agent={managedAgent}
+                testId="agent-settings-model"
+                variant="field"
+              />
+            </div>
+          </div>
+        ) : resident.modelLabel ? (
           <LedgerRow label="Model" value={resident.modelLabel} />
         ) : null}
-        {managedAgent?.nativeRuntimeBinding ? (
-          <LedgerRow
-            label="Executable"
-            mono
-            value={managedAgent.nativeRuntimeBinding.executablePath}
-          />
+        {nativeBinding ? (
+          <>
+            <LedgerRow
+              label={nativeBinding.kind === "hermes" ? "Profile" : "Agent ID"}
+              value={
+                nativeBinding.kind === "hermes"
+                  ? nativeBinding.profileName
+                  : nativeBinding.agentId
+              }
+            />
+            <LedgerRow label="Version" value={nativeBinding.runtimeVersion} />
+            <LedgerRow
+              label="Executable"
+              mono
+              value={nativeBinding.executablePath}
+            />
+          </>
         ) : null}
-        <Button className="mt-4" onClick={onEdit} size="sm" variant="outline">
-          <Settings2 /> Edit configuration
+        <Button
+          className="mt-4"
+          data-testid="agent-settings-advanced"
+          onClick={onEdit}
+          size="sm"
+          variant="outline"
+        >
+          <Settings2 /> Advanced…
         </Button>
       </LedgerSection>
 
       {managedAgent ? (
-        <LedgerSection eyebrow="Lifecycle" title="Startup behavior">
+        <LedgerSection eyebrow="Lifecycle" title="When they run">
           <div className="flex items-center justify-between gap-6 py-2">
             <div>
               <p className="text-sm">Start when Luca opens</p>
@@ -527,22 +563,83 @@ function SettingsSection({
               onCheckedChange={onToggleStartOnLaunch}
             />
           </div>
-          <LedgerRow
-            label="Automatic restart"
-            value={
-              managedAgent.autoRestartOnConfigChange ? "Enabled" : "Disabled"
-            }
-          />
+          <div className="flex items-center justify-between gap-6 border-t border-border/40 py-3">
+            <div>
+              <p className="text-sm">
+                Restart on their own when settings change
+              </p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                After a document or setting changes, restart once they are idle
+                so the new version takes effect without being asked.
+              </p>
+            </div>
+            <Switch
+              aria-label="Restart automatically when configuration changes"
+              checked={managedAgent.autoRestartOnConfigChange}
+              data-testid="agent-settings-auto-restart"
+              disabled={autoRestart.isPending}
+              onCheckedChange={(enabled) =>
+                autoRestart.mutate({
+                  pubkey: managedAgent.pubkey,
+                  autoRestartOnConfigChange: enabled,
+                })
+              }
+            />
+          </div>
           <LedgerRow label="Responds to" value={managedAgent.respondTo} />
         </LedgerSection>
       ) : null}
 
+      <LedgerSection eyebrow="Working context" title="Workspace">
+        <LedgerRow
+          icon={Folder}
+          label="Default location"
+          value={workspace ?? "No native workspace reported"}
+        />
+        {managedAgent?.documentsDir ? (
+          <LedgerRow
+            icon={Folder}
+            label="Documents"
+            mono
+            value={managedAgent.documentsDir}
+          />
+        ) : null}
+      </LedgerSection>
+
+      <LedgerSection eyebrow="Conversations" title="Recent rooms">
+        {channels.length > 0 ? (
+          <div className="divide-y divide-border/45">
+            {channels.slice(0, 6).map((channel) => (
+              <button
+                className="flex w-full items-center justify-between gap-4 py-3 text-left text-sm transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                key={channel.id}
+                onClick={() => onOpenChannel(channel.id)}
+                type="button"
+              >
+                <span>{channel.name}</span>
+                <span className="font-mono text-2xs uppercase tracking-[0.1em] text-muted-foreground">
+                  Open
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No shared conversations are available yet.
+          </p>
+        )}
+      </LedgerSection>
+
       <LedgerSection eyebrow="Identity" title="Custody and recovery">
         <LedgerRow
+          icon={KeyRound}
           label="Public identity"
           mono
           value={managedAgent?.pubkey ?? "Created when the resident starts"}
         />
+        {managedAgent?.pubkey ? (
+          <LedgerRow label="Custody" value="Held in local secure storage" />
+        ) : null}
         <LedgerRow
           label="Definition"
           value={persona ? "Editable Luca definition" : "Runtime-owned profile"}
@@ -636,13 +733,17 @@ function LedgerRow({
   );
 }
 
-function MiniMetric({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="border-l border-border/60 pl-3">
-      <p className="font-mono text-lg leading-none">{value}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{label}</p>
-    </div>
-  );
+function stateDotClass(resident: ResidentSummaryViewModel): string {
+  switch (resident.availability) {
+    case "failed":
+    case "degraded":
+      return "bg-destructive/80";
+    case "working":
+    case "ready":
+      return "bg-primary";
+    default:
+      return "bg-muted-foreground/40";
+  }
 }
 
 function identityState(resident: ResidentSummaryViewModel) {

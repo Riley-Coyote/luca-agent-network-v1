@@ -58,6 +58,17 @@ import type {
   LucaMcpRegistryV1,
   SaveLucaMcpConnectionInputV1,
 } from "@/shared/api/tauriMcp";
+import { RESIDENT_DOCUMENT_CONFLICT_PREFIX } from "@/shared/api/tauriResidentDocuments";
+import type {
+  ResidentDocumentContent,
+  ResidentDocumentEntry,
+  ResidentDocumentKind,
+  ResidentDocumentTarget,
+  ResidentDocumentWriteReceipt,
+  ResidentDocumentWriter,
+  ResidentDocumentsInspector,
+  ResidentExtraFileEntry,
+} from "@/shared/api/tauriResidentDocuments";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
 type TestIdentity = {
@@ -224,6 +235,8 @@ type E2eConfig = {
     relayAgents?: MockRelayAgentSeed[];
     agentListDelayMs?: number;
     agentMemory?: RawAgentMemoryListing | Record<string, RawAgentMemoryListing>;
+    /** Seeded agent folders: resident pubkey → file name → content. */
+    residentDocuments?: Record<string, Record<string, string>>;
     addChannelMembersDelayMs?: number;
     /** Sequenced add-member failures. A string fails that call; null succeeds. */
     addChannelMembersErrors?: (string | null)[];
@@ -758,6 +771,10 @@ type RawManagedAgent = {
   respond_to: "owner-only" | "allowlist" | "anyone";
   respond_to_allowlist: string[];
   native_runtime_binding?: RuntimeBinding | null;
+  /** Agent folder, relative to the app data dir. See `tauriResidentDocuments`. */
+  documents_dir?: string | null;
+  /** Content hash over the agent folder; changes on any document write. */
+  documents_hash?: string | null;
 };
 
 type RawCreateManagedAgentResponse = {
@@ -1497,6 +1514,10 @@ function cloneManagedAgent(agent: MockManagedAgent): RawManagedAgent {
     respond_to_allowlist: agent.respond_to_allowlist
       ? [...agent.respond_to_allowlist]
       : [],
+    // Derived from the live folder so a document write is reflected on the
+    // next `list_managed_agents` without touching the stored mock record.
+    documents_dir: residentDocumentsDir(agent.pubkey),
+    documents_hash: residentDocumentsFolderHash(agent.pubkey),
   };
 }
 
@@ -2108,6 +2129,221 @@ function resetMockManagedAgents(config?: E2eConfig) {
   }
 
   syncMockRelayAgentsFromManagedAgents();
+}
+
+// ── Resident documents (the agent folder) ──────────────────────────────────
+// An in-memory stand-in for `src-tauri/src/commands/resident_documents.rs`:
+// one folder per resident, a content hash the optimistic write check compares
+// against, and the needs-restart + `agents-data-changed` side effects the real
+// backend produces after a write. Wire contract:
+// `@/shared/api/tauriResidentDocuments` — keep the three in step.
+
+/** Slot order is the assembly order the inspector reports. */
+const RESIDENT_DOCUMENT_SLOTS: ReadonlyArray<{
+  kind: ResidentDocumentKind;
+  fileName: string;
+  writer: ResidentDocumentWriter;
+}> = [
+  { kind: "soul", fileName: "soul.md", writer: "owner" },
+  { kind: "convictions", fileName: "convictions.md", writer: "owner" },
+  { kind: "selfModel", fileName: "self-model.md", writer: "agent" },
+  { kind: "userModel", fileName: "user-model.md", writer: "agent" },
+  { kind: "lessons", fileName: "lessons.md", writer: "agent" },
+  { kind: "instructions", fileName: "instructions.md", writer: "owner" },
+];
+
+const RESIDENT_DOCUMENT_SLOT_FILE_NAMES = new Set(
+  RESIDENT_DOCUMENT_SLOTS.map((slot) => slot.fileName),
+);
+
+/** Fixed unix-seconds base so seeded mtimes are stable across runs. */
+const RESIDENT_DOCUMENT_EPOCH_SECONDS = 1_760_000_000;
+
+type MockResidentDocumentFile = { content: string; modifiedAt: number };
+
+/** Resident pubkey (lowercase) → file name → file. Absent = empty folder. */
+let mockResidentDocuments = new Map<
+  string,
+  Map<string, MockResidentDocumentFile>
+>();
+
+/** Bumped once per write so every save gets a later, deterministic mtime. */
+let mockResidentDocumentClock = RESIDENT_DOCUMENT_EPOCH_SECONDS;
+
+const residentDocumentEncoder = new TextEncoder();
+
+function resetMockResidentDocuments(config?: E2eConfig) {
+  mockResidentDocuments = new Map();
+  mockResidentDocumentClock = RESIDENT_DOCUMENT_EPOCH_SECONDS;
+
+  for (const [pubkey, files] of Object.entries(
+    config?.mock?.residentDocuments ?? {},
+  )) {
+    const folder = new Map<string, MockResidentDocumentFile>();
+    for (const [fileName, content] of Object.entries(files)) {
+      folder.set(fileName, {
+        content,
+        modifiedAt: RESIDENT_DOCUMENT_EPOCH_SECONDS,
+      });
+    }
+    mockResidentDocuments.set(pubkey.toLowerCase(), folder);
+  }
+}
+
+/** Read-only view. A resident with nothing written yet has an empty folder. */
+function residentDocumentFolder(
+  residentPubkey: string,
+): Map<string, MockResidentDocumentFile> {
+  return mockResidentDocuments.get(residentPubkey.toLowerCase()) ?? new Map();
+}
+
+function ensureResidentDocumentFolder(
+  residentPubkey: string,
+): Map<string, MockResidentDocumentFile> {
+  const key = residentPubkey.toLowerCase();
+  let folder = mockResidentDocuments.get(key);
+  if (!folder) {
+    folder = new Map();
+    mockResidentDocuments.set(key, folder);
+  }
+  return folder;
+}
+
+/** djb2 — deterministic and short; only ever compared against itself. */
+function residentDocumentHash(content: string): string {
+  let hash = 5381;
+  for (let index = 0; index < content.length; index += 1) {
+    hash = ((hash << 5) + hash + content.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+function residentDocumentBytes(content: string): number {
+  return residentDocumentEncoder.encode(content).length;
+}
+
+function residentDocumentsDir(residentPubkey: string): string {
+  return `residents/${residentPubkey}`;
+}
+
+function residentDocumentsFolderHash(residentPubkey: string): string {
+  const payload = [...residentDocumentFolder(residentPubkey).entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([fileName, file]) => `${fileName} ${file.content}`)
+    .join("");
+  return residentDocumentHash(payload);
+}
+
+function residentDocumentFileName(target: ResidentDocumentTarget): string {
+  if ("kind" in target) {
+    const slot = RESIDENT_DOCUMENT_SLOTS.find((it) => it.kind === target.kind);
+    if (!slot) {
+      throw new Error(
+        `mock resident documents: unknown kind ${String(target.kind)}`,
+      );
+    }
+    return slot.fileName;
+  }
+
+  const relPath = target.relPath ?? "";
+  if (!relPath || relPath.startsWith("/") || relPath.includes("..")) {
+    throw new Error(
+      `mock resident documents: invalid relative path ${relPath || "(empty)"}`,
+    );
+  }
+  return relPath;
+}
+
+function buildResidentDocumentsInspector(
+  residentPubkey: string,
+): ResidentDocumentsInspector {
+  const folder = residentDocumentFolder(residentPubkey);
+
+  const documents: ResidentDocumentEntry[] = RESIDENT_DOCUMENT_SLOTS.map(
+    (slot) => {
+      const file = folder.get(slot.fileName);
+      return {
+        kind: slot.kind,
+        fileName: slot.fileName,
+        writer: slot.writer,
+        exists: file !== undefined,
+        bytes: file ? residentDocumentBytes(file.content) : 0,
+        modifiedAt: file?.modifiedAt ?? null,
+      };
+    },
+  );
+
+  const extraFiles: ResidentExtraFileEntry[] = [...folder.entries()]
+    .filter(([fileName]) => !RESIDENT_DOCUMENT_SLOT_FILE_NAMES.has(fileName))
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([relPath, file]) => ({
+      relPath,
+      bytes: residentDocumentBytes(file.content),
+      modifiedAt: file.modifiedAt,
+    }));
+
+  return {
+    residentPubkey,
+    dir: residentDocumentsDir(residentPubkey),
+    source: "folder",
+    documents,
+    extraFiles,
+    hash: residentDocumentsFolderHash(residentPubkey),
+  };
+}
+
+function readMockResidentDocument(
+  residentPubkey: string,
+  target: ResidentDocumentTarget,
+): ResidentDocumentContent {
+  const file = residentDocumentFolder(residentPubkey).get(
+    residentDocumentFileName(target),
+  );
+  return {
+    target,
+    exists: file !== undefined,
+    content: file?.content ?? "",
+    hash: file ? residentDocumentHash(file.content) : null,
+    modifiedAt: file?.modifiedAt ?? null,
+  };
+}
+
+function writeMockResidentDocument(
+  residentPubkey: string,
+  target: ResidentDocumentTarget,
+  content: string,
+  expectedHash: string | null,
+): ResidentDocumentWriteReceipt {
+  const fileName = residentDocumentFileName(target);
+  const folder = ensureResidentDocumentFolder(residentPubkey);
+  const current = folder.get(fileName);
+  const currentHash = current ? residentDocumentHash(current.content) : null;
+
+  if (expectedHash !== currentHash) {
+    // Mirror the Rust command: the editor offers a reload instead of clobbering.
+    throw new Error(`${RESIDENT_DOCUMENT_CONFLICT_PREFIX}${currentHash ?? ""}`);
+  }
+
+  mockResidentDocumentClock += 1;
+  const modifiedAt = mockResidentDocumentClock;
+  folder.set(fileName, { content, modifiedAt });
+
+  // A running harness was spawned with the older folder, so it needs a restart.
+  const agent = mockManagedAgents.find(
+    (candidate) =>
+      candidate.pubkey.toLowerCase() === residentPubkey.toLowerCase(),
+  );
+  if (agent && agent.status === "running") {
+    agent.needs_restart = true;
+  }
+
+  return {
+    target,
+    hash: residentDocumentHash(content),
+    documentsHash: residentDocumentsFolderHash(residentPubkey),
+    bytes: residentDocumentBytes(content),
+    modifiedAt,
+  };
 }
 
 function resetMockPersonas(config?: E2eConfig) {
@@ -9429,6 +9665,7 @@ export function maybeInstallE2eTauriMocks() {
     : null;
   resetMockRelayMembers(config);
   resetMockRelayAgents(config);
+  resetMockResidentDocuments(config);
   resetMockManagedAgents(config);
   resetMockLucaMcpRegistry();
   resetMockPersonas(config);
@@ -10241,6 +10478,54 @@ export function maybeInstallE2eTauriMocks() {
           handoff: null,
           job: null,
         };
+      case "list_resident_documents": {
+        const args = (payload ?? {}) as { residentPubkey?: string };
+        if (!args.residentPubkey) {
+          throw new Error(
+            "mock list_resident_documents: missing residentPubkey",
+          );
+        }
+        return buildResidentDocumentsInspector(args.residentPubkey);
+      }
+      case "read_resident_document": {
+        const args = (payload ?? {}) as {
+          residentPubkey?: string;
+          target?: ResidentDocumentTarget;
+        };
+        if (!args.residentPubkey || !args.target) {
+          throw new Error(
+            "mock read_resident_document: missing residentPubkey or target",
+          );
+        }
+        return readMockResidentDocument(args.residentPubkey, args.target);
+      }
+      case "write_resident_document": {
+        const args = (payload ?? {}) as {
+          residentPubkey?: string;
+          target?: ResidentDocumentTarget;
+          content?: string;
+          expectedHash?: string | null;
+        };
+        if (!args.residentPubkey || !args.target) {
+          throw new Error(
+            "mock write_resident_document: missing residentPubkey or target",
+          );
+        }
+        const receipt = writeMockResidentDocument(
+          args.residentPubkey,
+          args.target,
+          args.content ?? "",
+          args.expectedHash ?? null,
+        );
+        // Mirror the real Rust backend: a folder write invalidates the agents
+        // queries. Reaches the app's `listen()` subscribers via the event
+        // plugin, and any test-registered `__TAURI_INTERNALS__.listen` callback.
+        window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.("agents-data-changed", null);
+        for (const cb of tauriEventListeners.get("agents-data-changed") ?? []) {
+          cb();
+        }
+        return receipt;
+      }
       case "list_resident_notebook_items":
         return {
           availability: "ready",
