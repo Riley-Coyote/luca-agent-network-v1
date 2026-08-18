@@ -20,13 +20,21 @@ type Appearance = "system" | "light" | "dark";
 export const PolyphonicYouStep = React.forwardRef<
   PolyphonicYouStepHandle,
   {
+    /** Show surface swatches on the appearance control (see the control). */
+    appearanceSwatches?: boolean;
     displayName: string;
     onBusyChange: (busy: boolean) => void;
     onDisplayNameChange: (value: string) => void;
     pubkey: string;
   }
 >(function PolyphonicYouStep(
-  { displayName, onBusyChange, onDisplayNameChange, pubkey },
+  {
+    appearanceSwatches = false,
+    displayName,
+    onBusyChange,
+    onDisplayNameChange,
+    pubkey,
+  },
   ref,
 ) {
   const updateProfile = useUpdateProfileMutation();
@@ -99,6 +107,7 @@ export const PolyphonicYouStep = React.forwardRef<
         <PolyphonicPresentationAppearanceControl
           appearance={appearance}
           onChange={chooseAppearance}
+          swatches={appearanceSwatches}
         />
       </div>
       {syncNotice ? <PolyphonicNotice>{syncNotice}</PolyphonicNotice> : null}

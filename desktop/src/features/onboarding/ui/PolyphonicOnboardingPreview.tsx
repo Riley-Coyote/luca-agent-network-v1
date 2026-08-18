@@ -10,6 +10,7 @@ import {
 import { MachineOnboardingFlow } from "./MachineOnboardingFlow";
 import { ConversationalOnboardingPreview } from "./ConversationalOnboardingPreview";
 import { PolyphonicOnboardingFlow } from "./PolyphonicOnboardingFlow";
+import { PolyphonicOnboardingV2Preview } from "./PolyphonicOnboardingV2Preview";
 
 const PREVIEW_PARAM = "polyphonicOnboardingPreview";
 const PREVIEW_PUBKEY = "f".repeat(64);
@@ -17,6 +18,7 @@ const PREVIEW_PUBKEY = "f".repeat(64);
 export type PolyphonicOnboardingPreviewStage =
   | "threshold"
   | "prototype"
+  | "v2"
   | "you"
   | "brain"
   | "ready"
@@ -25,6 +27,7 @@ export type PolyphonicOnboardingPreviewStage =
 const stages = new Set<PolyphonicOnboardingPreviewStage>([
   "threshold",
   "prototype",
+  "v2",
   "you",
   "welcome",
   "runtime",
@@ -47,7 +50,10 @@ export function readPolyphonicOnboardingPreviewStage(): PolyphonicOnboardingPrev
 }
 
 function prepareProductionFlow(
-  stage: Exclude<PolyphonicOnboardingPreviewStage, "threshold" | "prototype">,
+  stage: Exclude<
+    PolyphonicOnboardingPreviewStage,
+    "threshold" | "prototype" | "v2"
+  >,
 ) {
   const chapter: PolyphonicOnboardingChapter =
     stage === "you"
@@ -79,6 +85,9 @@ export function PolyphonicOnboardingPreview({
   if (initialStage === "prototype") {
     return <ConversationalOnboardingPreview />;
   }
+  if (initialStage === "v2") {
+    return <PolyphonicOnboardingV2Preview />;
+  }
 
   return (
     <LegacyPolyphonicOnboardingPreview
@@ -92,7 +101,7 @@ function LegacyPolyphonicOnboardingPreview({
   initialStage,
   queryClient,
 }: {
-  initialStage: Exclude<PolyphonicOnboardingPreviewStage, "prototype">;
+  initialStage: Exclude<PolyphonicOnboardingPreviewStage, "prototype" | "v2">;
   queryClient: QueryClient;
 }) {
   const [mode, setMode] = React.useState<"machine" | "personal-home">(() => {

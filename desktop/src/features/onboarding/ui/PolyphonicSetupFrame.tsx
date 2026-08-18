@@ -198,18 +198,33 @@ function useSmoothHeight(ref: RefObject<HTMLElement | null>, enabled: boolean) {
       });
     };
 
+    // A hidden document does not tick requestAnimationFrame, so a tween begun
+    // there would park the card at a clipped intermediate height until the
+    // window is seen again. Land immediately instead; nobody is watching.
+    const settle = () => {
+      running?.stop();
+      running = null;
+      element.style.height = "";
+      last = element.getBoundingClientRect().height;
+    };
+    const onVisibility = () => {
+      if (document.hidden && running) settle();
+    };
+
     const observer = new ResizeObserver(() => {
       if (running) return;
       const next = element.getBoundingClientRect().height;
       const from = last;
       last = next;
-      if (from === null || Math.abs(next - from) < 1) return;
+      if (from === null || document.hidden || Math.abs(next - from) < 1) return;
       element.style.height = `${from}px`;
       tween(from, next);
     });
     observer.observe(element);
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       observer.disconnect();
+      document.removeEventListener("visibilitychange", onVisibility);
       running?.stop();
       element.style.height = "";
     };

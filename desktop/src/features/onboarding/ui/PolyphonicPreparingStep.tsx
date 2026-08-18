@@ -30,9 +30,12 @@ const GREETING_MARKER = "polyphonic-onboarding.luca-greeting.v1";
 export function PolyphonicPreparingStep({
   displayName,
   onComplete,
+  showMark = true,
 }: {
   displayName: string;
   onComplete: (channelId: string) => void;
+  /** Hide the inline brand mark when the frame already shows the mark. */
+  showMark?: boolean;
 }) {
   const managed = useManagedAgentsQuery();
   const personas = usePersonasQuery();
@@ -151,7 +154,7 @@ export function PolyphonicPreparingStep({
 
   return (
     <div className="flex h-full min-h-0 flex-col items-start" role="status">
-      <PolyphonicBrandMark />
+      {showMark ? <PolyphonicBrandMark /> : null}
       <h1 className="mt-5 text-[length:var(--prototype-heading-size)] font-medium leading-[1.15] tracking-[-0.018em] text-[var(--prototype-ink)]">
         Getting Luca ready…
       </h1>

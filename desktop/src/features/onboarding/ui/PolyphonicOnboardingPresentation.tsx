@@ -92,12 +92,23 @@ export function PolyphonicPresentationHeading({
 
 export type PolyphonicAppearance = "system" | "light" | "dark";
 
+/** Tiny surface swatches: what the app will look like, not what this card looks like. */
+const APPEARANCE_SWATCH: Record<PolyphonicAppearance, string> = {
+  system: "linear-gradient(135deg, #f6f5f1 50%, #141416 50%)",
+  light: "#f6f5f1",
+  dark: "#141416",
+};
+
 export function PolyphonicPresentationAppearanceControl({
   appearance,
   onChange,
+  swatches = false,
 }: {
   appearance: PolyphonicAppearance;
   onChange: (appearance: PolyphonicAppearance) => void;
+  /** Show a surface swatch instead of an icon. Used where the card itself
+   *  does not change with the choice, so the choice needs a preview. */
+  swatches?: boolean;
 }) {
   const options = [
     { icon: Monitor, label: "System", value: "system" as const },
@@ -126,7 +137,15 @@ export function PolyphonicPresentationAppearanceControl({
               onClick={() => onChange(option.value)}
               type="button"
             >
-              <Icon className="size-3.5" />
+              {swatches ? (
+                <span
+                  aria-hidden="true"
+                  className="size-3 rounded-full border border-[var(--prototype-hairline)]"
+                  style={{ background: APPEARANCE_SWATCH[option.value] }}
+                />
+              ) : (
+                <Icon className="size-3.5" />
+              )}
               {option.label}
             </button>
           );
