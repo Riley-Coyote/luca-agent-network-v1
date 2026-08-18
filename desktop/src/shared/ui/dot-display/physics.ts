@@ -15,9 +15,11 @@ import type { DotPanel, SceneFn } from "./engine";
 
 // ---- colour --------------------------------------------------------------
 
-type Stop = [number, [number, number, number]];
+export type Stop = [number, [number, number, number]];
 
-function buildLut(stops: Stop[]): Uint8Array {
+/** Exported so the lab's readout ramps are built by the same code as the
+ *  production ones — two ramp builders would drift. */
+export function buildLut(stops: Stop[]): Uint8Array {
   const lut = new Uint8Array(256 * 3);
   for (let i = 0; i < 256; i++) {
     const t = i / 255;

@@ -5,6 +5,7 @@ import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
 import { sigilPattern, type DotScene } from "@/shared/ui/dot-display/engine";
 import { DotSigil } from "@/shared/ui/dot-display/DotSigil";
 import { useTheme } from "@/shared/theme/ThemeProvider";
+import { IdentityMark } from "@/shared/ui/dot-display/identity/IdentityMark";
 
 export type AgentVisualState =
   | "present"
@@ -22,12 +23,21 @@ export type AgentIdentityCustody = "managed" | "guest" | "owner";
  * back when the state ends. No corner lamp, no "typing…", no badge sitting
  * beside the avatar — at rest you see who, and while they are busy you see what.
  *
- * `present` is therefore the static sigil (breathing, but never re-lighting
+ * `present` is therefore the identity glyph (breathing, but never re-lighting
  * individual cells: a mark that twinkles is a mark you cannot recognise), and
- * every other state is a live scene.
+ * every other state is a live dot-matrix scene. `present` is handled by
+ * `IdentityMark`, so it is excluded from this table rather than sitting in it
+ * as an entry nothing reads.
+ *
+ * The two are rendered differently on purpose. Identity is a *joined* glyph —
+ * continuous strokes with rounded terminals — and activity is a *dotted* field.
+ * Joined means who; dotted means what they are doing, readable at a glance
+ * across a column where some residents are resting and some are working.
  */
-const SCENE_FOR_STATE: Record<AgentVisualState, DotScene> = {
-  present: "sigil",
+const SCENE_FOR_STATE: Record<
+  Exclude<AgentVisualState, "present">,
+  DotScene
+> = {
   idle: "listen",
   thinking: "think",
   working: "work",
@@ -91,17 +101,25 @@ export function AgentIdentitySpecimen({
       style={{ "--agent-specimen-size": `${size}px` } as React.CSSProperties}
       title={`${accessibleName} · ${shortAgentFingerprint(publicKey)}`}
     >
-      <DotSigil
-        // Roughly eight cells across gives the mirrored seven-cell emblem a
-        // narrow quiet zone without making it feel like a small icon inside an
-        // avatar box. Integer pitch keeps every edge crisp at every app scale.
-        breath={state === "present"}
-        cell={cell}
-        dot={isDark ? "239,239,237" : "22,23,22"}
-        scene={SCENE_FOR_STATE[state]}
-        seed={seed}
-        size={size}
-      />
+      {state === "present" ? (
+        // Identity is a joined glyph — continuous strokes with rounded
+        // terminals — and it fills its slot: the mark spans all seven cells by
+        // construction and the app's commonest placement is 20px. Frame-free,
+        // like the live scenes, so the silhouette is the mark's own.
+        <IdentityMark breath seed={seed} size={size} />
+      ) : (
+        <DotSigil
+          // Roughly eight cells across gives the seven-cell field a narrow
+          // quiet zone without making it feel like a small icon inside an
+          // avatar box. Integer pitch keeps every edge crisp at every app
+          // scale.
+          cell={cell}
+          dot={isDark ? "239,239,237" : "22,23,22"}
+          scene={SCENE_FOR_STATE[state]}
+          seed={seed}
+          size={size}
+        />
+      )}
     </span>
   );
 }
