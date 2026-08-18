@@ -227,6 +227,10 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
     profiles,
     reviewCommentsByRootId,
   ]);
+  // Long bodies collapse to keep one voice from owning a room. A direct
+  // conversation has one other voice, and reading it at length is the point —
+  // and a reply that streamed open must not fold up the moment it settles.
+  const collapseLongBodies = channelType !== "dm";
 
   // The flattened item stream, memoized on the entries and the unread boundary
   // (the unread divider is its own item, so it shifts subsequent rows).
@@ -296,6 +300,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
               onToggleReaction={onToggleReaction}
               profiles={profiles}
               residentMarksEnabled={residentMarksEnabled}
+              collapseLongBody={collapseLongBodies}
               searchActiveMessageId={searchActiveMessageId}
               searchMatchingMessageIds={searchMatchingMessageIds}
               searchQuery={searchQuery}
@@ -331,6 +336,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
       onToggleReaction,
       profiles,
       residentMarksEnabled,
+      collapseLongBodies,
       ownerProfiles,
       searchActiveMessageId,
       searchMatchingMessageIds,
@@ -822,6 +828,7 @@ type MessageRowItemProps = Pick<
 > & {
   entry: MainTimelineEntry;
   footer: React.ReactNode;
+  collapseLongBody?: boolean;
   isContinuation?: boolean;
   isFollowedByContinuation?: boolean;
   isUnread?: boolean;
@@ -856,6 +863,7 @@ function MessageRowItem({
   onToggleReaction,
   profiles,
   residentMarksEnabled = true,
+  collapseLongBody = true,
   searchActiveMessageId,
   searchMatchingMessageIds,
   searchQuery,
@@ -921,6 +929,7 @@ function MessageRowItem({
           }
           profiles={profiles}
           residentMarksEnabled={residentMarksEnabled}
+          collapseLongBody={collapseLongBody}
           showDepthGuides={isFocusedThreadLayout}
           videoReviewContext={videoReviewContext}
         />
@@ -975,6 +984,7 @@ function MessageRowItem({
         }
         profiles={profiles}
         residentMarksEnabled={residentMarksEnabled}
+        collapseLongBody={collapseLongBody}
         quotedParent={quotedParent}
         searchQuery={isSearchMatch ? searchQuery : undefined}
         showDepthGuides={isFocusedThreadLayout}
