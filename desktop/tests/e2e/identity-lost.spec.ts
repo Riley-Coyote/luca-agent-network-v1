@@ -14,8 +14,9 @@ test("normal first launch uses the already-persisted identity", async ({
 
   const gate = page.getByTestId("machine-onboarding-gate");
   await expect(gate).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Luca" })).toBeVisible();
-  await expect(page.getByText("Polyphonic", { exact: true })).toHaveCount(0);
+  // The door is the application; Luca is introduced inside it, one step later.
+  await expect(page.getByRole("heading", { name: "Polyphonic" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Luca" })).toHaveCount(0);
   await page.getByRole("button", { name: "Begin setup" }).click();
   await expect(
     page.getByRole("heading", { name: "Bring your agents together." }),

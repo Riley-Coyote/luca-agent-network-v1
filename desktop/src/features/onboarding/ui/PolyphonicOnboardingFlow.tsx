@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import { isIdentityKeyLabel } from "@/features/profile/lib/identity";
 import { discoverNativeResidents } from "@/shared/api/tauri";
 import type { NativeResidentDiscoveryOutcome } from "@/shared/api/types";
 import { isSelectableAgentImportCandidate } from "../onboardingAgentImport";
@@ -67,9 +68,14 @@ export function PolyphonicOnboardingFlow({
   );
   const pendingProfile = readPendingPolyphonicProfile(pubkey);
   const [transaction, setTransaction] = React.useState(initialTransaction);
-  const [displayName, setDisplayName] = React.useState(
-    pendingProfile?.displayName ?? initialProfile.profile?.displayName ?? "",
-  );
+  const [displayName, setDisplayName] = React.useState(() => {
+    // Native identity bootstrap ships a shortened npub as the display name
+    // until a real profile exists. That is transport metadata, not a name —
+    // seeding the field with it asks a new owner to delete their own key.
+    const seed =
+      pendingProfile?.displayName ?? initialProfile.profile?.displayName ?? "";
+    return isIdentityKeyLabel(seed, pubkey) ? "" : seed;
+  });
   const [busy, setBusy] = React.useState(false);
   const [runtimeReady, setRuntimeReady] = React.useState(false);
   const [agentsContinueLabel, setAgentsContinueLabel] =

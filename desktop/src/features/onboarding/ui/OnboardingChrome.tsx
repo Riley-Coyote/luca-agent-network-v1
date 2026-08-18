@@ -56,12 +56,12 @@ export function OnboardingChrome({
       className="pointer-events-none fixed inset-x-0 top-12 z-10 flex items-center px-6 text-foreground"
     >
       <span
-        className="block w-11"
+        className="block whitespace-nowrap"
         data-brand={brand}
         data-testid="onboarding-logo"
       >
         <span className="font-mono text-xs font-medium uppercase tracking-[0.22em]">
-          Luca
+          Polyphonic
         </span>
       </span>
       <div

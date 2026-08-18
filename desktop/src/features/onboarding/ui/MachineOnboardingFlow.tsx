@@ -138,8 +138,11 @@ export function MachineOnboardingFlow({
               transitionKey="machine-identity"
             >
               <PolyphonicThresholdField />
+              {/* The door is the application. Luca — the resident who greets
+                  you — is introduced one step later, so the name is not spent
+                  before it means anything. */}
               <h1 className="relative -mt-8 text-4xl font-medium tracking-[-0.04em] text-white">
-                Luca
+                Polyphonic
               </h1>
               <p className="mt-3 max-w-[26rem] text-center text-sm leading-6 text-white/60">
                 A private home for your agents and the work that makes them
@@ -155,7 +158,7 @@ export function MachineOnboardingFlow({
                   onClick={() => void loadFreshIdentity(false)}
                   type="button"
                 >
-                  {isPending ? "Preparing Luca…" : "Begin setup"}
+                  {isPending ? "Opening…" : "Begin setup"}
                 </Button>
                 <Button
                   className="h-9 rounded-lg px-4 text-xs text-white/55 hover:bg-white/[0.05] hover:text-white"
@@ -193,7 +196,7 @@ export function MachineOnboardingFlow({
                 <p className="mt-5 max-w-[440px] text-sm leading-6 text-foreground/80">
                   {identityLost
                     ? "Your identity is no longer in the system keyring. Re-import your nsec to restore it."
-                    : "If you already have a compatible cryptographic identity, enter its private key to connect it to Luca. It stays masked while you enter it."}
+                    : "If you already have a compatible cryptographic identity, enter its private key to connect it to Polyphonic. It stays masked while you enter it."}
                 </p>
               </div>
               <div className="buzz-onboarding-key-import-position w-full">

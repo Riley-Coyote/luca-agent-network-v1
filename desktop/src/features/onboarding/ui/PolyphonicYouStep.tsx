@@ -76,7 +76,7 @@ export const PolyphonicYouStep = React.forwardRef<
       data-prototype-scroll-owner="true"
     >
       <PolyphonicStepHeading
-        description="Luca gives you one calm place to talk with the AI agents already on your Mac—and helps you set up the rest as you go."
+        description="Polyphonic is one calm place to talk with the AI agents already on your Mac. Luca lives here, and helps you set up the rest as you go."
         stage="welcome"
         title="Bring your agents together."
       />
