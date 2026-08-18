@@ -732,7 +732,27 @@ pub struct UpdateTeamRequest {
 pub const DEFAULT_ACP_COMMAND: &str = "buzz-acp";
 /// ~5 min (320s) — matches the CLI harness default (BUZZ_ACP_IDLE_TIMEOUT).
 pub const DEFAULT_AGENT_TURN_TIMEOUT_SECONDS: u64 = 320;
-pub const DEFAULT_AGENT_PARALLELISM: u32 = 24;
+/// Size of the harness's agent-process pool (`BUZZ_ACP_AGENTS`) when neither
+/// the owner nor the linked definition picks a value.
+///
+/// One, because a Luca resident is a *personal* agent: the owner holds one
+/// conversation with it at a time, so a pool of one is the whole working set.
+/// Upstream Buzz defaulted to 24 — sized for a busy team channel where a
+/// shared agent fields many unrelated threads at once. On a personal agent
+/// that default is pure overhead: each pool slot is a full ACP subprocess, so
+/// 24 measured out at ~77 processes / ~4.5 GB RSS for a single resident, and
+/// ~3.8s of a 4.1s start was sequential per-slot init.
+///
+/// Owners who genuinely want concurrency still set it explicitly (instance
+/// edit dialog, or `parallelism` on an agent definition); this is only the
+/// unchosen fallback.
+pub const DEFAULT_AGENT_PARALLELISM: u32 = 1;
+
+/// The pre-Luca upstream default (busy-team-channel sizing). Retained solely
+/// so the boot migration in `crate::migration::right_size_agent_parallelism`
+/// can recognize records that were stamped with it and were never an actual
+/// owner choice. Do not use for new records.
+pub const LEGACY_TEAM_CHANNEL_PARALLELISM: u32 = 24;
 
 fn default_agent_parallelism() -> u32 {
     DEFAULT_AGENT_PARALLELISM

@@ -91,6 +91,49 @@ fn managed_agent_record_with_auth_tag_round_trips() {
     assert_eq!(record.auth_tag, record2.auth_tag);
 }
 
+// ── Agent-process pool default ───────────────────────────────────────
+
+use super::{DEFAULT_AGENT_PARALLELISM, LEGACY_TEAM_CHANNEL_PARALLELISM};
+
+/// A Luca resident is a personal agent — one conversation at a time — so the
+/// unchosen pool size is one subprocess, not upstream Buzz's team-channel 24.
+#[test]
+fn default_agent_parallelism_is_one() {
+    assert_eq!(DEFAULT_AGENT_PARALLELISM, 1);
+    assert_eq!(LEGACY_TEAM_CHANNEL_PARALLELISM, 24);
+}
+
+/// A record whose `parallelism` key is absent (never written, or written by a
+/// build predating the field) picks up the new default via serde rather than
+/// needing the boot migration.
+#[test]
+fn managed_agent_record_without_parallelism_uses_the_default() {
+    let record: ManagedAgentRecord = serde_json::from_str(
+        r#"{
+            "pubkey": "abcd1234",
+            "name": "test-agent",
+            "private_key_nsec": "nsec1fake",
+            "relay_url": "wss://localhost:3000",
+            "acp_command": "buzz-acp",
+            "agent_command": "goose",
+            "agent_args": [],
+            "mcp_command": "",
+            "turn_timeout_seconds": 320,
+            "system_prompt": null,
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+            "last_started_at": null,
+            "last_stopped_at": null,
+            "last_exit_code": null,
+            "last_error": null
+        }"#,
+    )
+    .expect("record without parallelism should deserialize");
+
+    assert_eq!(record.parallelism, DEFAULT_AGENT_PARALLELISM);
+    assert_eq!(record.definition_parallelism, None);
+}
+
 // ── Inbound author gate tests ────────────────────────────────────────
 
 use super::{validate_respond_to_allowlist, RespondTo};

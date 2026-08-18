@@ -186,6 +186,10 @@ fn run_boot_migrations_inner(app: &tauri::AppHandle, reset_completed: bool) {
     reconcile_provider_mcp_commands(app);
     reconcile_databricks_v1_to_v2(app);
     materialize_agent_runtimes(app);
+    // Must precede `restore_managed_agents_on_launch`: a record still carrying
+    // upstream Buzz's team-channel pool (24) would otherwise spawn 24 ACP
+    // subprocesses for one personal resident before anything could correct it.
+    right_size_agent_parallelism(app);
 }
 
 /// Copy one-time app state from the legacy app identifier directory to
@@ -1376,6 +1380,8 @@ mod backfill;
 pub use backfill::backfill_standalone_agents;
 mod detach;
 pub use detach::detach_directory_backed_teams;
+mod parallelism;
+pub use parallelism::right_size_agent_parallelism;
 
 #[cfg(test)]
 #[path = "migration_test_support.rs"]
