@@ -1106,7 +1106,7 @@ function MessageComposerImpl({
             >
               {/* biome-ignore lint/a11y/noStaticElementInteractions: keydown handler bridges Tiptap editor to autocomplete and submit */}
               <div
-                className="rich-text-composer relative max-h-32 min-w-0 flex-1 overflow-y-auto"
+                className="rich-text-composer relative max-h-40 min-w-0 flex-1 overflow-y-auto"
                 data-testid="message-input-scroll"
                 ref={composerScrollRef}
                 onKeyDown={handleEditorKeyDown}

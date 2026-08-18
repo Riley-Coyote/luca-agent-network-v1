@@ -37,11 +37,13 @@
   );
 }
 
+/* The composer sets type exactly as the message body does (text-base, 1.68):
+   what you write should look like what you sent. */
 .rich-text-composer .tiptap {
   outline: none;
   min-height: 1lh;
-  font-size: var(--text-sm);
-  line-height: var(--text-sm--line-height);
+  font-size: var(--text-base);
+  line-height: 1.68;
 }
 
 .rich-text-composer .tiptap p {
