@@ -4,6 +4,7 @@ import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import { resolveUserLabel } from "@/features/profile/lib/identity";
 import type { TimelineMessage } from "@/features/messages/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import { formatTime } from "./dateFormatters";
 import type {
   ManagedConversationActivity,
   ManagedResponseSlot,
@@ -21,13 +22,6 @@ import type {
  */
 
 const PENDING_PREFIX = "pending-reply:";
-
-function formatTime(at: number) {
-  return new Date(at).toLocaleTimeString([], {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 export function pendingReplyRows({
   managedActivity,
@@ -57,16 +51,19 @@ export function pendingReplyRows({
   ) => {
     const key = normalizePubkey(pubkey);
     if (!key || withText.has(key) || rows.has(key)) return;
+    // Timeline rows carry Nostr `created_at` (seconds); activity anchors are
+    // wall-clock ms. Convert here or the day divider lands in year 58598.
+    const createdAt = Math.floor(anchorAt / 1000);
     rows.set(key, {
       id: `${PENDING_PREFIX}${key}`,
       renderKey: `${PENDING_PREFIX}${key}`,
-      createdAt: anchorAt,
+      createdAt,
       pubkey: key,
       signerPubkey: key,
       author: resolveUserLabel({ pubkey: key, profiles }),
       isAgent: true,
       residentPersonaId: residentPersonaIdLookup?.get(key) ?? null,
-      time: formatTime(anchorAt),
+      time: formatTime(createdAt),
       body: "",
       parentId: null,
       rootId: null,

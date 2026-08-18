@@ -980,7 +980,10 @@ declare global {
       kind: number;
     }) => boolean;
     __BUZZ_E2E_EMIT_MOCK_MESSAGE__?: (input: {
-      channelName: string;
+      /** Mock channel name; DMs all share the name "DM", so pass
+       *  `channelId` to target one of those unambiguously. */
+      channelName?: string;
+      channelId?: string;
       content: string;
       parentEventId?: string | null;
       pubkey?: string;
@@ -9445,6 +9448,7 @@ export function maybeInstallE2eTauriMocks() {
   window.__BUZZ_E2E_WEBVIEW_ZOOM__ = 1;
   window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__ = ({
     channelName,
+    channelId,
     content,
     parentEventId,
     pubkey,
@@ -9454,11 +9458,13 @@ export function maybeInstallE2eTauriMocks() {
     createdAt,
     id,
   }) => {
-    const channel = mockChannels.find(
-      (candidate) => candidate.name === channelName,
+    const channel = mockChannels.find((candidate) =>
+      channelId ? candidate.id === channelId : candidate.name === channelName,
     );
     if (!channel) {
-      throw new Error(`Mock channel ${channelName} not found.`);
+      throw new Error(
+        `Mock channel ${channelId ?? channelName ?? "(unspecified)"} not found.`,
+      );
     }
 
     return emitMockChannelMessage(

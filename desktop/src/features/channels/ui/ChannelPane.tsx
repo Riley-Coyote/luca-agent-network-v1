@@ -41,6 +41,13 @@ import {
 import { useLucaArrival } from "@/features/luca/lucaArrival";
 import { pendingReplyRows } from "@/features/messages/lib/pendingReplyRows";
 import { LucaGreetingChoicesContext } from "@/features/luca/ui/lucaGreetingChoicesContext";
+import {
+  ResidentStopContext,
+  type ResidentStopContextValue,
+} from "@/features/messages/ui/residentStopContext";
+import { useResidentStopControl } from "@/features/channels/ui/useResidentStopControl";
+import { isTerminalConversationActivity } from "@/features/channels/ui/conversationAgentActivityShelf";
+import { normalizePubkey } from "@/shared/lib/pubkey";
 import { useNativeAgentNotice } from "@/features/luca/useNativeAgentNotice";
 import { useManagedPermissions } from "@/features/agents/useManagedPermissions";
 import { ManagedPermissionCard } from "@/features/agents/ui/ManagedPermissionCard";
@@ -495,15 +502,87 @@ export const ChannelPane = React.memo(function ChannelPane({
     ) &&
     !ownerHasSpoken(messages, currentPubkey);
   // In a direct conversation the reply row itself is the indicator — the
-  // resident's mark carries the state — so the activity strip carries no
-  // agent activity there. It remains for rooms with several residents.
+  // resident's mark carries the state and Stop sits on the row — so the
+  // activity strip carries no live agent activity there. It still surfaces
+  // the terminal states that need the owner (interrupted, needs attention),
+  // because a resident who failed before saying anything has no row. Rooms
+  // with several residents keep the full shelf.
   const isDirectConversation = activeChannel?.channelType === "dm";
   const stripActivity = isDirectConversation
     ? undefined
     : pendingActivityByPubkey;
-  const stripPresentationActivity = isDirectConversation
-    ? undefined
-    : managedActivity;
+  const attentionResidentKeys = React.useMemo(() => {
+    if (!isDirectConversation) return null;
+    const keys = new Set<string>();
+    for (const [pubkey, state] of presentationStateByPubkey ?? []) {
+      if (isTerminalConversationActivity(state)) {
+        keys.add(normalizePubkey(pubkey));
+      }
+    }
+    return keys;
+  }, [isDirectConversation, presentationStateByPubkey]);
+  const stripPresentationState = React.useMemo(() => {
+    if (!attentionResidentKeys) return presentationStateByPubkey;
+    return new Map(
+      [...(presentationStateByPubkey ?? [])].filter(([pubkey]) =>
+        attentionResidentKeys.has(normalizePubkey(pubkey)),
+      ),
+    );
+  }, [attentionResidentKeys, presentationStateByPubkey]);
+  const stripPresentationActivity = React.useMemo(() => {
+    if (!attentionResidentKeys) return managedActivity;
+    return new Map(
+      [...(managedActivity ?? [])].filter(([pubkey]) =>
+        attentionResidentKeys.has(normalizePubkey(pubkey)),
+      ),
+    );
+  }, [attentionResidentKeys, managedActivity]);
+  // Stop for the reply row. Keyed by normalized pubkey, as the row will ask.
+  const stoppablePresentationActivity = React.useMemo(
+    () =>
+      new Map(
+        [...(managedActivity ?? [])].map(([pubkey, activity]) => [
+          normalizePubkey(pubkey),
+          activity,
+        ]),
+      ),
+    [managedActivity],
+  );
+  const residentStop = useResidentStopControl({
+    channelId: activeChannelId,
+    presentationActivity: stoppablePresentationActivity,
+  });
+  const residentStopContext = React.useMemo<ResidentStopContextValue | null>(
+    () =>
+      isDirectConversation && activeChannelId
+        ? {
+            canStop: (pubkey) => {
+              const key = normalizePubkey(pubkey);
+              const activity = stoppablePresentationActivity.get(key);
+              if (!activity?.uiKey) return false;
+              const state =
+                residentStop.localStates.get(key) ??
+                presentationStateByPubkey?.get(key) ??
+                presentationStateByPubkey?.get(pubkey);
+              return state === undefined
+                ? true
+                : !isTerminalConversationActivity(state);
+            },
+            isStopping: (pubkey) =>
+              residentStop.localStates.get(normalizePubkey(pubkey)) ===
+              "stopping",
+            onStop: (pubkey) => void residentStop.stopResidents([pubkey]),
+          }
+        : null,
+    [
+      activeChannelId,
+      isDirectConversation,
+      presentationStateByPubkey,
+      residentStop.localStates,
+      residentStop.stopResidents,
+      stoppablePresentationActivity,
+    ],
+  );
   const lucaChoicesContext = React.useMemo(
     () => ({
       active: showLucaChoices,
@@ -639,416 +718,429 @@ export const ChannelPane = React.memo(function ChannelPane({
     );
   return (
     <LucaGreetingChoicesContext.Provider value={lucaChoicesContext}>
-      <div className="relative flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
-        {!isSinglePanelView ? (
-          <div
-            aria-hidden="true"
-            className={cn(
-              "pointer-events-none absolute inset-x-0 top-0 z-30 bg-background/80 backdrop-blur-md supports-backdrop-filter:bg-background/70 dark:bg-background/70 dark:backdrop-blur-xl dark:supports-backdrop-filter:bg-background/55",
-              channelChrome.headerHeight,
-            )}
-            data-testid="channel-shared-header-backdrop"
-          />
-        ) : null}
-
-        {!isSinglePanelView ? (
-          <section
-            aria-label="Channel messages and composer"
-            className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-            data-testid="channel-drop-zone"
-            onDragEnter={
-              canDropInMainColumn
-                ? mainComposerMedia.handleDragEnter
-                : undefined
-            }
-            onDragLeave={
-              canDropInMainColumn
-                ? mainComposerMedia.handleDragLeave
-                : undefined
-            }
-            onDragOver={
-              canDropInMainColumn ? mainComposerMedia.handleDragOver : undefined
-            }
-            onDrop={
-              canDropInMainColumn
-                ? (event) => {
-                    void mainComposerMedia.handleDrop(event);
-                  }
-                : undefined
-            }
-          >
-            {header}
-            {channelFind.isOpen ? (
-              <div className={cn("absolute inset-x-0 z-40", channelChrome.top)}>
-                <ChannelFindBar
-                  matchCount={channelFind.matchCount}
-                  matchIndex={channelFind.activeIndex}
-                  onClose={channelFind.close}
-                  onNext={channelFind.goToNext}
-                  onPrevious={channelFind.goToPrevious}
-                  onQueryChange={channelFind.setQuery}
-                  query={channelFind.query}
-                />
-              </div>
-            ) : null}
-            {focusedThreadHead ? (
-              <FocusedThreadBar
-                authorName={focusedThreadHead.author}
-                onExit={onCloseThread}
-                replyCount={Math.max(0, mainTimelineEntries.length - 1)}
-              />
-            ) : null}
-            <MessageTimeline
-              ref={messageTimelineRef}
-              channelId={activeChannel?.id}
-              // The channel intro is the top of the ROOM. In the focused view you
-              // are looking at one exchange, so showing "this is the beginning of
-              // #general" above it is simply false.
-              channelIntro={focusedThreadHead ? null : channelIntro}
-              directMessageIntro={focusedThreadHead ? null : directMessageIntro}
-              scrollContainerRef={timelineScrollRef}
-              currentPubkey={currentPubkey}
-              fetchOlder={fetchOlder}
-              followThreadById={followThreadById}
-              hasComposerOverlay={hasMainComposerOverlay}
-              hasOlderMessages={hasOlderMessages}
-              historyExhausted={historyExhausted}
-              huddleMemberPubkeys={huddleMemberPubkeys}
-              huddleMemberPubkeysPending={huddleMemberPubkeysPending}
-              isFetchingOlder={isFetchingOlder}
-              isFollowingThreadById={isFollowingThreadById}
-              isMessageUnreadById={isMessageUnreadById}
-              personaLookup={personaLookup}
-              profiles={profiles}
-              ownerProfiles={ownerProfiles}
-              unfollowThreadById={unfollowThreadById}
-              emptyDescription={
-                activeChannel?.channelType === "forum"
-                  ? "Select a stream or DM to load real message history in this first integration pass."
-                  : "Messages and sub-replies will appear here once the relay has history for this channel."
-              }
-              emptyTitle={
-                activeChannel
-                  ? activeChannel.channelType === "forum"
-                    ? "Forum channels are next"
-                    : "No messages yet"
-                  : "No channel selected"
-              }
-              isLoading={isTimelineLoading}
-              entranceMessageId={entranceMessageId}
-              onEntranceMessageComplete={onEntranceMessageComplete}
-              mainEntries={mainTimelineEntries}
-              threadSummaries={threadSummaries}
-              messages={projectedTimelineMessages}
-              firstUnreadMessageId={firstUnreadMessageId}
-              unreadCount={unreadCount}
-              onDelete={onDelete}
-              onEdit={onEdit}
-              onMarkUnread={onMarkUnread}
-              onMarkRead={onMarkRead}
-              expandedThreadHeadId={openThreadHeadId}
-              onExpandThreadReplies={onExpandThreadReplies}
-              onReply={
-                activeChannel?.archivedAt
-                  ? undefined
-                  : openThreadHeadId
-                    ? onSelectThreadReplyTarget
-                    : onSelectDirectedReplyTarget
-              }
-              onToggleThread={
-                activeChannel?.archivedAt ? undefined : onOpenThread
-              }
-              channelName={activeChannel?.name}
-              channelType={activeChannel?.channelType ?? null}
-              isSendingVideoReviewComment={isSending}
-              onSendVideoReviewComment={
-                activeChannel?.archivedAt ? undefined : onSendVideoReviewComment
-              }
-              onTargetReached={onTargetReached}
-              onToggleReaction={onToggleReaction}
-              searchActiveMessageId={channelFind.activeMatch?.messageId ?? null}
-              searchMatchingMessageIds={channelFind.matchingMessageIds}
-              searchQuery={channelFind.query}
-              targetMessageId={targetMessageId}
-              splitThreadPanelOpen={false}
-              threadUnreadCounts={threadUnreadCounts}
+      <ResidentStopContext.Provider value={residentStopContext}>
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
+          {!isSinglePanelView ? (
+            <div
+              aria-hidden="true"
+              className={cn(
+                "pointer-events-none absolute inset-x-0 top-0 z-30 bg-background/80 backdrop-blur-md supports-backdrop-filter:bg-background/70 dark:bg-background/70 dark:backdrop-blur-xl dark:supports-backdrop-filter:bg-background/55",
+                channelChrome.headerHeight,
+              )}
+              data-testid="channel-shared-header-backdrop"
             />
-            {isNonMemberView ? (
-              <div
-                data-testid="join-banner"
-                className="flex items-center gap-3 border-t border-border/80 bg-card/50 px-5 py-3"
-              >
-                <div className="flex min-w-0 flex-1 items-center gap-2 text-sm text-muted-foreground">
-                  <Hash className="h-4 w-4 shrink-0" />
-                  <span className="truncate">
-                    Viewing{" "}
-                    <span className="font-medium text-foreground">
-                      #{activeChannel?.name}
-                    </span>
-                  </span>
-                </div>
-                <Button
-                  disabled={isJoining}
-                  onClick={() => {
-                    void onJoinChannel?.();
-                  }}
-                  size="sm"
-                  variant="default"
-                >
-                  <LogIn className="mr-1.5 h-4 w-4" />
-                  {isJoining ? "Joining..." : "Join to participate"}
-                </Button>
-              </div>
-            ) : (
-              <div
-                className="pointer-events-none absolute inset-x-0 bottom-0 z-40 isolate"
-                data-testid="channel-composer-overlay"
-                ref={composerWrapperRef}
-              >
-                <div className="pointer-events-none">
-                  {activePermissionRequests.length > 0 ? (
-                    <div className="pointer-events-auto mx-auto mb-2 grid w-full max-w-[48rem] gap-2">
-                      {activePermissionRequests.map((pending) => (
-                        <ManagedPermissionCard
-                          key={pending.pendingId}
-                          pending={pending}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-                  {timeoutState.active ? (
-                    <ComposerTimeoutBanner
-                      expiresAtMs={timeoutState.expiresAtMs}
-                    />
-                  ) : isActiveWelcomeChannel ? (
-                    <div className="relative">
-                      {welcomeKickoffStage}
-                      <WelcomeComposerBanner
-                        settingUp={welcomeKickoffSettingUp}
-                        state={welcomeComposerBannerState}
-                      />
-                    </div>
-                  ) : null}
-                  <ConversationAgentActivityStrip
-                    agents={activityAgents}
-                    channelId={activeChannel?.id ?? null}
-                    idleContent={
-                      hasTypingActivity ? (
-                        <TypingIndicatorRow
-                          channel={activeChannel}
-                          className="min-w-0 flex-1 py-0 pl-[calc(0.75rem+1px)] pr-0 sm:pl-[calc(1rem+1px)]"
-                          currentPubkey={currentPubkey}
-                          profiles={profiles}
-                          typingPubkeys={typingPubkeys}
-                        />
-                      ) : null
-                    }
-                    onOpenResident={(pubkey) =>
-                      onOpenProfilePanel(pubkey, { tab: "continuity" })
-                    }
-                    onRetryResident={(target) =>
-                      void handleRetryResident(target)
-                    }
-                    sessionAgents={agentSessionAgents}
-                    activityByPubkey={stripActivity}
-                    presentationActivityByPubkey={stripPresentationActivity}
-                    presentationStateByPubkey={presentationStateByPubkey}
-                    workingPubkeys={stripWorkingPubkeys}
-                  />
-                  <MessageComposer
-                    channelId={activeChannel?.id ?? null}
-                    channelName={activeChannel?.name ?? "channel"}
-                    channelType={activeChannel?.channelType ?? null}
-                    containerClassName="pointer-events-auto mx-auto w-full max-w-[48rem] px-0"
-                    disabled={isComposerDisabled}
-                    editTarget={mainEditTarget}
-                    autoSubmitDraftKey={autoSendDraftKey}
-                    onAutoSubmitComplete={handleAutoSubmitComplete}
-                    isSending={false}
-                    mediaController={mainComposerMedia}
-                    onCancelEdit={onCancelEdit}
-                    onCancelReply={
-                      openThreadHeadId
-                        ? onCancelThreadReply
-                        : onCancelDirectedReply
-                    }
-                    onCaptureSendContext={
-                      openThreadHeadId
-                        ? () => ({
-                            parentEventId:
-                              threadReplyTargetMessage?.id ?? openThreadHeadId,
-                            threadHeadId: openThreadHeadId,
-                            replyAuthorPubkey:
-                              threadReplyTargetMessage?.pubkey ??
-                              threadHeadMessage?.pubkey ??
-                              null,
-                          })
-                        : undefined
-                    }
-                    onEditLastOwnMessage={handleEditLastOwnMainMessage}
-                    onEditSave={onEditSave}
-                    onPrepareSendChannel={
-                      activeChannel?.channelType === "dm"
-                        ? prepareDmSendChannel
-                        : undefined
-                    }
-                    onSend={
-                      openThreadHeadId
-                        ? onSendThreadReply
-                        : directedReplyTargetMessage
-                          ? handleSendDirectedMessage
-                          : handleSendMessage
-                    }
-                    profiles={profiles}
-                    replyTarget={
-                      openThreadHeadId
-                        ? threadReplyTargetMessage
-                        : directedReplyTargetMessage
-                    }
-                    placeholder={
-                      timeoutState.active
-                        ? "You're timed out by community moderators."
-                        : isModerationDmChannel
-                          ? "This channel is read-only."
-                          : activeChannel?.archivedAt
-                            ? "Archived channels are read-only."
-                            : activeChannel?.channelType === "forum"
-                              ? "Forum posting is not wired in this pass."
-                              : activeChannel
-                                ? activeChannel.channelType === "dm" &&
-                                  directMessageIntro
-                                  ? `Message ${directMessageIntro.displayName}`
-                                  : `Message ${activeChannel.name}`
-                                : "Select a channel"
-                    }
-                    showTopBorder={false}
-                    typingParentEventId={
-                      openThreadHeadId
-                        ? (threadReplyTargetMessage?.id ?? openThreadHeadId)
-                        : (directedReplyTargetMessage?.id ?? null)
-                    }
-                    typingRootEventId={openThreadHeadId ?? null}
-                  />
-                </div>
-              </div>
-            )}
-            {canDropInMainColumn && mainComposerMedia.isDragOver ? (
-              <DropZoneOverlay className="z-30 rounded-none" />
-            ) : null}
-          </section>
-        ) : null}
+          ) : null}
 
-        {channelManagementOpen && activeChannel ? (
-          <ChannelManagementAuxiliaryPanel
-            activeChannel={activeChannel}
-            canResetThreadPanelWidth={canResetThreadPanelWidth}
-            currentPubkey={currentPubkey}
-            isSinglePanelView={isSinglePanelView}
-            key="channel-management-panel"
-            onChannelManagementDeleted={onChannelManagementDeleted}
-            onCloseChannelManagement={onCloseChannelManagement}
-            onResetThreadPanelWidth={onResetThreadPanelWidth}
-            onThreadPanelResizeStart={onThreadPanelResizeStart}
-            threadPanelWidthPx={threadPanelWidthPx}
-            useSplitAuxiliaryPane={useSplitAuxiliaryPane}
-            transparentChrome={hasSplitAuxiliaryPane}
-          />
-        ) : conversationContextOpen && activeChannel ? (
-          (() => {
-            const panel = (
-              <ConversationContextPanel
-                agents={agentSessionAgents}
-                canResetWidth={canResetThreadPanelWidth}
-                channel={activeChannel}
+          {!isSinglePanelView ? (
+            <section
+              aria-label="Channel messages and composer"
+              className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+              data-testid="channel-drop-zone"
+              onDragEnter={
+                canDropInMainColumn
+                  ? mainComposerMedia.handleDragEnter
+                  : undefined
+              }
+              onDragLeave={
+                canDropInMainColumn
+                  ? mainComposerMedia.handleDragLeave
+                  : undefined
+              }
+              onDragOver={
+                canDropInMainColumn
+                  ? mainComposerMedia.handleDragOver
+                  : undefined
+              }
+              onDrop={
+                canDropInMainColumn
+                  ? (event) => {
+                      void mainComposerMedia.handleDrop(event);
+                    }
+                  : undefined
+              }
+            >
+              {header}
+              {channelFind.isOpen ? (
+                <div
+                  className={cn("absolute inset-x-0 z-40", channelChrome.top)}
+                >
+                  <ChannelFindBar
+                    matchCount={channelFind.matchCount}
+                    matchIndex={channelFind.activeIndex}
+                    onClose={channelFind.close}
+                    onNext={channelFind.goToNext}
+                    onPrevious={channelFind.goToPrevious}
+                    onQueryChange={channelFind.setQuery}
+                    query={channelFind.query}
+                  />
+                </div>
+              ) : null}
+              {focusedThreadHead ? (
+                <FocusedThreadBar
+                  authorName={focusedThreadHead.author}
+                  onExit={onCloseThread}
+                  replyCount={Math.max(0, mainTimelineEntries.length - 1)}
+                />
+              ) : null}
+              <MessageTimeline
+                ref={messageTimelineRef}
+                channelId={activeChannel?.id}
+                // The channel intro is the top of the ROOM. In the focused view you
+                // are looking at one exchange, so showing "this is the beginning of
+                // #general" above it is simply false.
+                channelIntro={focusedThreadHead ? null : channelIntro}
+                directMessageIntro={
+                  focusedThreadHead ? null : directMessageIntro
+                }
+                scrollContainerRef={timelineScrollRef}
                 currentPubkey={currentPubkey}
-                isSinglePanelView={
-                  useSplitAuxiliaryPane ? false : isSinglePanelView
-                }
-                layout={useSplitAuxiliaryPane ? "split" : "standalone"}
-                messages={visibleMessages}
-                onClose={onCloseConversationContext ?? (() => undefined)}
-                onManageParticipants={onOpenMembers ?? (() => undefined)}
-                onOpenResident={(pubkey) =>
-                  onOpenProfilePanel(pubkey, { tab: "continuity" })
-                }
-                onResetWidth={onResetThreadPanelWidth}
-                onResizeStart={onThreadPanelResizeStart}
+                fetchOlder={fetchOlder}
+                followThreadById={followThreadById}
+                hasComposerOverlay={hasMainComposerOverlay}
+                hasOlderMessages={hasOlderMessages}
+                historyExhausted={historyExhausted}
+                huddleMemberPubkeys={huddleMemberPubkeys}
+                huddleMemberPubkeysPending={huddleMemberPubkeysPending}
+                isFetchingOlder={isFetchingOlder}
+                isFollowingThreadById={isFollowingThreadById}
+                isMessageUnreadById={isMessageUnreadById}
+                personaLookup={personaLookup}
                 profiles={profiles}
-                transparentChrome={useSplitAuxiliaryPane}
-                widthPx={threadPanelWidthPx}
-              />
-            );
-            return wrapAux(panel, "conversation-context-panel-shell");
-          })()
-        ) : activeChannel && selectedAgent ? (
-          (() => {
-            // When the panel was opened from a different channel than the
-            // currently active one, re-scope it to the active channel so
-            // that both the content/header AND channel-backed actions (e.g.
-            // Stop current turn) operate on the same channel object.
-            const effectiveAgentSessionChannelId =
-              openAgentSessionChannelId &&
-              activeChannel.id !== openAgentSessionChannelId
-                ? activeChannelId
-                : openAgentSessionChannelId;
-            const panel = (
-              <AgentSessionThreadPanel
-                agent={selectedAgent}
-                canInterruptTurn={selectedAgent.canInterruptTurn}
-                channel={
-                  effectiveAgentSessionChannelId
-                    ? effectiveAgentSessionChannelId === activeChannel.id
-                      ? activeChannel
-                      : null
-                    : agentSessionSelection.isAgentInActivityList({
-                          activityAgents,
-                          selectedAgent,
-                        })
-                      ? activeChannel
-                      : null
+                ownerProfiles={ownerProfiles}
+                unfollowThreadById={unfollowThreadById}
+                emptyDescription={
+                  activeChannel?.channelType === "forum"
+                    ? "Select a stream or DM to load real message history in this first integration pass."
+                    : "Messages and sub-replies will appear here once the relay has history for this channel."
                 }
-                channelId={effectiveAgentSessionChannelId}
-                isSinglePanelView={
-                  useSplitAuxiliaryPane ? false : isSinglePanelView
+                emptyTitle={
+                  activeChannel
+                    ? activeChannel.channelType === "forum"
+                      ? "Forum channels are next"
+                      : "No messages yet"
+                    : "No channel selected"
                 }
-                layout={useSplitAuxiliaryPane ? "split" : "standalone"}
-                transparentChrome={useSplitAuxiliaryPane}
-                profiles={profiles}
-                onBack={onBackFromAgentSession}
-                onClose={onCloseAgentSession}
-                widthPx={threadPanelWidthPx}
-              />
-            );
-            return wrapAux(panel, "agent-session-thread-panel");
-          })()
-        ) : profilePanelPubkey ? (
-          (() => {
-            const panel = (
-              <UserProfilePanel
-                currentPubkey={currentPubkey}
-                callerChannelId={activeChannelId}
-                isSinglePanelView={
-                  useSplitAuxiliaryPane ? false : isSinglePanelView
+                isLoading={isTimelineLoading}
+                entranceMessageId={entranceMessageId}
+                onEntranceMessageComplete={onEntranceMessageComplete}
+                mainEntries={mainTimelineEntries}
+                threadSummaries={threadSummaries}
+                messages={projectedTimelineMessages}
+                firstUnreadMessageId={firstUnreadMessageId}
+                unreadCount={unreadCount}
+                onDelete={onDelete}
+                onEdit={onEdit}
+                onMarkUnread={onMarkUnread}
+                onMarkRead={onMarkRead}
+                expandedThreadHeadId={openThreadHeadId}
+                onExpandThreadReplies={onExpandThreadReplies}
+                onReply={
+                  activeChannel?.archivedAt
+                    ? undefined
+                    : openThreadHeadId
+                      ? onSelectThreadReplyTarget
+                      : onSelectDirectedReplyTarget
                 }
-                layout={useSplitAuxiliaryPane ? "split" : "standalone"}
-                transparentChrome={useSplitAuxiliaryPane}
-                onClose={onCloseProfilePanel}
-                onBackToConversation={onBackToConversation}
-                onOpenDm={onOpenDm}
-                onOpenProfile={onOpenProfilePanel}
-                onTabChange={onProfilePanelTabChange}
-                onViewChange={onProfilePanelViewChange}
-                pubkey={profilePanelPubkey}
-                splitPaneClamp
-                tab={profilePanelTab}
-                view={profilePanelView}
-                widthPx={threadPanelWidthPx}
+                onToggleThread={
+                  activeChannel?.archivedAt ? undefined : onOpenThread
+                }
+                channelName={activeChannel?.name}
+                channelType={activeChannel?.channelType ?? null}
+                isSendingVideoReviewComment={isSending}
+                onSendVideoReviewComment={
+                  activeChannel?.archivedAt
+                    ? undefined
+                    : onSendVideoReviewComment
+                }
+                onTargetReached={onTargetReached}
+                onToggleReaction={onToggleReaction}
+                searchActiveMessageId={
+                  channelFind.activeMatch?.messageId ?? null
+                }
+                searchMatchingMessageIds={channelFind.matchingMessageIds}
+                searchQuery={channelFind.query}
+                targetMessageId={targetMessageId}
+                splitThreadPanelOpen={false}
+                threadUnreadCounts={threadUnreadCounts}
               />
-            );
-            return wrapAux(panel, "user-profile-panel");
-          })()
-        ) : null}
-      </div>
+              {isNonMemberView ? (
+                <div
+                  data-testid="join-banner"
+                  className="flex items-center gap-3 border-t border-border/80 bg-card/50 px-5 py-3"
+                >
+                  <div className="flex min-w-0 flex-1 items-center gap-2 text-sm text-muted-foreground">
+                    <Hash className="h-4 w-4 shrink-0" />
+                    <span className="truncate">
+                      Viewing{" "}
+                      <span className="font-medium text-foreground">
+                        #{activeChannel?.name}
+                      </span>
+                    </span>
+                  </div>
+                  <Button
+                    disabled={isJoining}
+                    onClick={() => {
+                      void onJoinChannel?.();
+                    }}
+                    size="sm"
+                    variant="default"
+                  >
+                    <LogIn className="mr-1.5 h-4 w-4" />
+                    {isJoining ? "Joining..." : "Join to participate"}
+                  </Button>
+                </div>
+              ) : (
+                <div
+                  className="pointer-events-none absolute inset-x-0 bottom-0 z-40 isolate"
+                  data-testid="channel-composer-overlay"
+                  ref={composerWrapperRef}
+                >
+                  <div className="pointer-events-none">
+                    {activePermissionRequests.length > 0 ? (
+                      <div className="pointer-events-auto mx-auto mb-2 grid w-full max-w-[48rem] gap-2">
+                        {activePermissionRequests.map((pending) => (
+                          <ManagedPermissionCard
+                            key={pending.pendingId}
+                            pending={pending}
+                          />
+                        ))}
+                      </div>
+                    ) : null}
+                    {timeoutState.active ? (
+                      <ComposerTimeoutBanner
+                        expiresAtMs={timeoutState.expiresAtMs}
+                      />
+                    ) : isActiveWelcomeChannel ? (
+                      <div className="relative">
+                        {welcomeKickoffStage}
+                        <WelcomeComposerBanner
+                          settingUp={welcomeKickoffSettingUp}
+                          state={welcomeComposerBannerState}
+                        />
+                      </div>
+                    ) : null}
+                    <ConversationAgentActivityStrip
+                      agents={activityAgents}
+                      channelId={activeChannel?.id ?? null}
+                      idleContent={
+                        hasTypingActivity ? (
+                          <TypingIndicatorRow
+                            channel={activeChannel}
+                            className="min-w-0 flex-1 py-0 pl-[calc(0.75rem+1px)] pr-0 sm:pl-[calc(1rem+1px)]"
+                            currentPubkey={currentPubkey}
+                            profiles={profiles}
+                            typingPubkeys={typingPubkeys}
+                          />
+                        ) : null
+                      }
+                      onOpenResident={(pubkey) =>
+                        onOpenProfilePanel(pubkey, { tab: "continuity" })
+                      }
+                      onRetryResident={(target) =>
+                        void handleRetryResident(target)
+                      }
+                      sessionAgents={agentSessionAgents}
+                      activityByPubkey={stripActivity}
+                      presentationActivityByPubkey={stripPresentationActivity}
+                      presentationStateByPubkey={stripPresentationState}
+                      workingPubkeys={stripWorkingPubkeys}
+                    />
+                    <MessageComposer
+                      channelId={activeChannel?.id ?? null}
+                      channelName={activeChannel?.name ?? "channel"}
+                      channelType={activeChannel?.channelType ?? null}
+                      containerClassName="pointer-events-auto mx-auto w-full max-w-[48rem] px-0"
+                      disabled={isComposerDisabled}
+                      editTarget={mainEditTarget}
+                      autoSubmitDraftKey={autoSendDraftKey}
+                      onAutoSubmitComplete={handleAutoSubmitComplete}
+                      isSending={false}
+                      mediaController={mainComposerMedia}
+                      onCancelEdit={onCancelEdit}
+                      onCancelReply={
+                        openThreadHeadId
+                          ? onCancelThreadReply
+                          : onCancelDirectedReply
+                      }
+                      onCaptureSendContext={
+                        openThreadHeadId
+                          ? () => ({
+                              parentEventId:
+                                threadReplyTargetMessage?.id ??
+                                openThreadHeadId,
+                              threadHeadId: openThreadHeadId,
+                              replyAuthorPubkey:
+                                threadReplyTargetMessage?.pubkey ??
+                                threadHeadMessage?.pubkey ??
+                                null,
+                            })
+                          : undefined
+                      }
+                      onEditLastOwnMessage={handleEditLastOwnMainMessage}
+                      onEditSave={onEditSave}
+                      onPrepareSendChannel={
+                        activeChannel?.channelType === "dm"
+                          ? prepareDmSendChannel
+                          : undefined
+                      }
+                      onSend={
+                        openThreadHeadId
+                          ? onSendThreadReply
+                          : directedReplyTargetMessage
+                            ? handleSendDirectedMessage
+                            : handleSendMessage
+                      }
+                      profiles={profiles}
+                      replyTarget={
+                        openThreadHeadId
+                          ? threadReplyTargetMessage
+                          : directedReplyTargetMessage
+                      }
+                      placeholder={
+                        timeoutState.active
+                          ? "You're timed out by community moderators."
+                          : isModerationDmChannel
+                            ? "This channel is read-only."
+                            : activeChannel?.archivedAt
+                              ? "Archived channels are read-only."
+                              : activeChannel?.channelType === "forum"
+                                ? "Forum posting is not wired in this pass."
+                                : activeChannel
+                                  ? activeChannel.channelType === "dm" &&
+                                    directMessageIntro
+                                    ? `Message ${directMessageIntro.displayName}`
+                                    : `Message ${activeChannel.name}`
+                                  : "Select a channel"
+                      }
+                      showTopBorder={false}
+                      typingParentEventId={
+                        openThreadHeadId
+                          ? (threadReplyTargetMessage?.id ?? openThreadHeadId)
+                          : (directedReplyTargetMessage?.id ?? null)
+                      }
+                      typingRootEventId={openThreadHeadId ?? null}
+                    />
+                  </div>
+                </div>
+              )}
+              {canDropInMainColumn && mainComposerMedia.isDragOver ? (
+                <DropZoneOverlay className="z-30 rounded-none" />
+              ) : null}
+            </section>
+          ) : null}
+
+          {channelManagementOpen && activeChannel ? (
+            <ChannelManagementAuxiliaryPanel
+              activeChannel={activeChannel}
+              canResetThreadPanelWidth={canResetThreadPanelWidth}
+              currentPubkey={currentPubkey}
+              isSinglePanelView={isSinglePanelView}
+              key="channel-management-panel"
+              onChannelManagementDeleted={onChannelManagementDeleted}
+              onCloseChannelManagement={onCloseChannelManagement}
+              onResetThreadPanelWidth={onResetThreadPanelWidth}
+              onThreadPanelResizeStart={onThreadPanelResizeStart}
+              threadPanelWidthPx={threadPanelWidthPx}
+              useSplitAuxiliaryPane={useSplitAuxiliaryPane}
+              transparentChrome={hasSplitAuxiliaryPane}
+            />
+          ) : conversationContextOpen && activeChannel ? (
+            (() => {
+              const panel = (
+                <ConversationContextPanel
+                  agents={agentSessionAgents}
+                  canResetWidth={canResetThreadPanelWidth}
+                  channel={activeChannel}
+                  currentPubkey={currentPubkey}
+                  isSinglePanelView={
+                    useSplitAuxiliaryPane ? false : isSinglePanelView
+                  }
+                  layout={useSplitAuxiliaryPane ? "split" : "standalone"}
+                  messages={visibleMessages}
+                  onClose={onCloseConversationContext ?? (() => undefined)}
+                  onManageParticipants={onOpenMembers ?? (() => undefined)}
+                  onOpenResident={(pubkey) =>
+                    onOpenProfilePanel(pubkey, { tab: "continuity" })
+                  }
+                  onResetWidth={onResetThreadPanelWidth}
+                  onResizeStart={onThreadPanelResizeStart}
+                  profiles={profiles}
+                  transparentChrome={useSplitAuxiliaryPane}
+                  widthPx={threadPanelWidthPx}
+                />
+              );
+              return wrapAux(panel, "conversation-context-panel-shell");
+            })()
+          ) : activeChannel && selectedAgent ? (
+            (() => {
+              // When the panel was opened from a different channel than the
+              // currently active one, re-scope it to the active channel so
+              // that both the content/header AND channel-backed actions (e.g.
+              // Stop current turn) operate on the same channel object.
+              const effectiveAgentSessionChannelId =
+                openAgentSessionChannelId &&
+                activeChannel.id !== openAgentSessionChannelId
+                  ? activeChannelId
+                  : openAgentSessionChannelId;
+              const panel = (
+                <AgentSessionThreadPanel
+                  agent={selectedAgent}
+                  canInterruptTurn={selectedAgent.canInterruptTurn}
+                  channel={
+                    effectiveAgentSessionChannelId
+                      ? effectiveAgentSessionChannelId === activeChannel.id
+                        ? activeChannel
+                        : null
+                      : agentSessionSelection.isAgentInActivityList({
+                            activityAgents,
+                            selectedAgent,
+                          })
+                        ? activeChannel
+                        : null
+                  }
+                  channelId={effectiveAgentSessionChannelId}
+                  isSinglePanelView={
+                    useSplitAuxiliaryPane ? false : isSinglePanelView
+                  }
+                  layout={useSplitAuxiliaryPane ? "split" : "standalone"}
+                  transparentChrome={useSplitAuxiliaryPane}
+                  profiles={profiles}
+                  onBack={onBackFromAgentSession}
+                  onClose={onCloseAgentSession}
+                  widthPx={threadPanelWidthPx}
+                />
+              );
+              return wrapAux(panel, "agent-session-thread-panel");
+            })()
+          ) : profilePanelPubkey ? (
+            (() => {
+              const panel = (
+                <UserProfilePanel
+                  currentPubkey={currentPubkey}
+                  callerChannelId={activeChannelId}
+                  isSinglePanelView={
+                    useSplitAuxiliaryPane ? false : isSinglePanelView
+                  }
+                  layout={useSplitAuxiliaryPane ? "split" : "standalone"}
+                  transparentChrome={useSplitAuxiliaryPane}
+                  onClose={onCloseProfilePanel}
+                  onBackToConversation={onBackToConversation}
+                  onOpenDm={onOpenDm}
+                  onOpenProfile={onOpenProfilePanel}
+                  onTabChange={onProfilePanelTabChange}
+                  onViewChange={onProfilePanelViewChange}
+                  pubkey={profilePanelPubkey}
+                  splitPaneClamp
+                  tab={profilePanelTab}
+                  view={profilePanelView}
+                  widthPx={threadPanelWidthPx}
+                />
+              );
+              return wrapAux(panel, "user-profile-panel");
+            })()
+          ) : null}
+        </div>
+      </ResidentStopContext.Provider>
     </LucaGreetingChoicesContext.Provider>
   );
 });

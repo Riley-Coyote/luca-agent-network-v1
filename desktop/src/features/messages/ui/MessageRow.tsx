@@ -12,6 +12,7 @@ import { NativeAgentNoticeCard } from "@/features/agents/ui/NativeAgentNoticeCar
 import { LUCA_GREETING_MARKER } from "@/features/luca/canonicalLucaResident";
 import { LucaGreetingChoices } from "@/features/luca/ui/LucaGreetingChoices";
 import { LucaGreetingChoicesContext } from "@/features/luca/ui/lucaGreetingChoicesContext";
+import { ResidentStopContext } from "./residentStopContext";
 import { NATIVE_AGENT_NOTICE_MARKER } from "@/features/luca/useNativeAgentNotice";
 import { HuddleAttachment } from "@/features/huddle/components/HuddleAttachment";
 import {
@@ -355,6 +356,7 @@ export const MessageRow = React.memo(
     // Luca's opening offer is part of Luca's greeting: an option list under
     // the words, once they have all arrived, until the owner has said anything.
     const lucaChoices = React.useContext(LucaGreetingChoicesContext);
+    const residentStop = React.useContext(ResidentStopContext);
     const showLucaChoices =
       lucaChoices?.active === true &&
       !message.managedPresentation?.streaming &&
@@ -565,6 +567,20 @@ export const MessageRow = React.memo(
           (managedPhase === "working" ? "working" : "thinking"))
         : null;
 
+    // In a direct conversation the row is where a reply is stopped: one quiet
+    // word at the row's edge while the resident is live, gone once the reply
+    // has landed. Rooms carry Stop on the activity shelf instead.
+    const stopPubkey =
+      residentStop && message.managedPresentation?.streaming && message.pubkey
+        ? message.pubkey
+        : null;
+    const stopping =
+      residentStop && stopPubkey ? residentStop.isStopping(stopPubkey) : false;
+    const showStop =
+      residentStop !== null &&
+      stopPubkey !== null &&
+      (stopping || residentStop.canStop(stopPubkey));
+
     const inlineMetadataNode = (
       <div className="flex shrink-0 items-baseline gap-2 text-xs">
         <MessageTimestamp createdAt={message.createdAt} time={message.time} />
@@ -575,11 +591,24 @@ export const MessageRow = React.memo(
             data-testid="resident-activity-word"
             role="status"
           >
-            {activityWord}
+            {stopping ? "stopping" : activityWord}
           </span>
         ) : null}
       </div>
     );
+    const stopNode =
+      showStop && stopPubkey ? (
+        <button
+          aria-label={`Stop ${message.author}`}
+          className="ml-auto shrink-0 rounded text-xs leading-4 text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring active:text-foreground/80 disabled:cursor-default disabled:text-muted-foreground/40 disabled:hover:text-muted-foreground/40"
+          data-testid="resident-stop"
+          disabled={stopping}
+          onClick={() => residentStop?.onStop(stopPubkey)}
+          type="button"
+        >
+          {stopping ? "Stopping" : "Stop"}
+        </button>
+      ) : null;
 
     const continuationMetadataNode =
       isContinuation && statusMetadataNode ? (
@@ -613,6 +642,7 @@ export const MessageRow = React.memo(
             {message.personaDisplayName}
           </span>
         ) : null}
+        {stopNode}
       </MessageHeaderRow>
     );
     const bodyContainerClass = isContinuation ? "mt-0" : bodyOffsetClass;
