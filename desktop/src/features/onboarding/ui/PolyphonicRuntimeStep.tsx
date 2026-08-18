@@ -1,6 +1,6 @@
 import * as React from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { TerminalSquare } from "lucide-react";
+import { ChevronDown, TerminalSquare } from "lucide-react";
 
 import {
   useAcpAuthMethodsQuery,
@@ -215,10 +215,20 @@ export const PolyphonicRuntimeStep = React.forwardRef<
         data-testid="polyphonic-runtime-scroll"
       >
         <div
+          aria-busy={!settings.data}
           aria-label="Luca runtime"
-          className="grid grid-cols-1 rounded-[10px] bg-[var(--prototype-recessed)] p-1"
+          className={cn(
+            "grid grid-cols-1 rounded-[10px] bg-[var(--prototype-recessed)] p-1",
+            // Hold three rows' worth of height until the options resolve, so
+            // the card does not collapse and re-grow in the frames between
+            // this chapter mounting and its query returning.
+            !settings.data && "min-h-[10.25rem] place-items-center",
+          )}
           role="radiogroup"
         >
+          {!settings.data ? (
+            <Spinner className="h-4 w-4 text-[var(--prototype-muted)]" />
+          ) : null}
           {visibleOptions.map((option) => {
             const runtime = matchingRuntime(option, runtimes.data ?? []);
             const checked = selected
@@ -286,18 +296,19 @@ export const PolyphonicRuntimeStep = React.forwardRef<
         {unreadyOptions.length > 0 && !revealAllRuntimes ? (
           <button
             aria-expanded="false"
-            className="mt-2.5 w-fit rounded-[6px] py-1 text-xs text-[var(--prototype-muted)] outline-none hover:text-[var(--prototype-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
+            className="mt-2.5 flex w-fit items-center gap-1 rounded-[6px] py-1 text-xs text-[var(--prototype-muted-strong)] outline-none hover:text-[var(--prototype-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
             onClick={() => setShowOtherRuntimes(true)}
             type="button"
           >
-            Choose another runtime
+            Show other runtimes
+            <ChevronDown aria-hidden="true" className="size-3" />
           </button>
         ) : null}
         {selectedOption ? (
           <p className="mt-3 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted-strong)]">
             {selectedOption.target.kind === "managed"
-              ? "Full conversations and collaboration with Luca."
-              : "Direct conversations and existing native-agent support. Advanced collaboration is limited."}
+              ? "Direct conversations with Luca, plus every collaboration tool."
+              : "Direct conversations with Luca and the agents already on your Mac. Some collaboration tools aren’t available on this runtime yet."}
           </p>
         ) : null}
         {selectedOption && selectedOption.readiness !== "ready" ? (
