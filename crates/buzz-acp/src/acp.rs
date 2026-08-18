@@ -1160,6 +1160,15 @@ impl AcpClient {
         self.final_message_capture = Some(FinalChunkAccumulator::default());
     }
 
+    /// Note that a tool call or plan update interrupted the public message, so
+    /// text resuming afterwards starts a new paragraph. Mirrors the identical
+    /// marker in the managed presentation feed.
+    fn mark_final_message_boundary(&mut self) {
+        if let Some(capture) = self.final_message_capture.as_mut() {
+            capture.mark_public_text_boundary();
+        }
+    }
+
     /// Bind permission prompts observed during this ACP prompt to the exact
     /// harness turn. Cleared on every prompt return path.
     pub fn set_managed_turn_context(&mut self, turn_id: &str, conversation_id: Option<&str>) {
@@ -1934,6 +1943,7 @@ impl AcpClient {
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown");
                 tracing::info!(target: "acp::tool", "tool_call: {title} ({kind})");
+                self.mark_final_message_boundary();
                 true
             }
             "tool_call_update" => {
@@ -1943,10 +1953,12 @@ impl AcpClient {
                     .unwrap_or("?");
                 let status = update.get("status").and_then(|v| v.as_str()).unwrap_or("?");
                 tracing::info!(target: "acp::tool", "tool_call_update: {tool_id} → {status}");
+                self.mark_final_message_boundary();
                 false
             }
             "plan" => {
                 tracing::info!(target: "acp::plan", "plan update received");
+                self.mark_final_message_boundary();
                 false
             }
             "agent_thought_chunk" => {

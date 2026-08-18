@@ -11,7 +11,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::{
     luca_final_publisher::{
-        CODEX_SKILL_BUDGET_NOTICE_PREFIX, CODEX_SKILL_BUDGET_NOTICE_SUFFIX,
+        PublicTextJoiner, CODEX_SKILL_BUDGET_NOTICE_PREFIX, CODEX_SKILL_BUDGET_NOTICE_SUFFIX,
         CODEX_SKILL_CONTEXT_NOTICE, SILENT_ACTION_SENTINEL,
     },
     observer::{ObserverEvent, ObserverHandle},
@@ -32,8 +32,38 @@ struct TurnState {
     dispatch_receipt_id: OpaqueId,
     sequence: u64,
     phase: Option<ManagedPresentationPhaseV1>,
-    notice_gate: RuntimeNoticeGate,
+    public_text: PublicTextStream,
     terminal_emitted: bool,
+}
+
+/// One turn's public-text translation: the shared paragraph-boundary rule
+/// followed by the runtime-notice gate.
+///
+/// The boundary rule is applied to the raw chunk stream — exactly what
+/// [`FinalChunkAccumulator`](crate::luca_final_publisher::FinalChunkAccumulator)
+/// sees — so the streamed text and the signed final draft stay identical and
+/// the desktop's reconciliation never has to snap.
+#[derive(Default)]
+struct PublicTextStream {
+    joiner: PublicTextJoiner,
+    notice_gate: RuntimeNoticeGate,
+}
+
+impl PublicTextStream {
+    /// Record a `tool_call`, `tool_call_update`, or `plan` update.
+    fn mark_boundary(&mut self) {
+        self.joiner.mark_boundary();
+    }
+
+    /// Translate one `agent_message_chunk` into public text, if any.
+    fn push(&mut self, chunk: &str) -> Option<String> {
+        let separator = self.joiner.separator_for(chunk);
+        if separator.is_empty() {
+            self.notice_gate.push(chunk)
+        } else {
+            self.notice_gate.push(&format!("{separator}{chunk}"))
+        }
+    }
 }
 
 #[derive(Default)]
@@ -186,7 +216,7 @@ impl ManagedPresentationPublisher {
                     dispatch_receipt_id,
                     sequence: 0,
                     phase: None,
-                    notice_gate: RuntimeNoticeGate::default(),
+                    public_text: PublicTextStream::default(),
                     terminal_emitted: false,
                 };
                 self.emit(
@@ -216,7 +246,7 @@ impl ManagedPresentationPublisher {
                         };
                         self.emit_phase(state, ManagedPresentationPhaseV1::Writing)
                             .await;
-                        if let Some(public) = state.notice_gate.push(chunk) {
+                        if let Some(public) = state.public_text.push(chunk) {
                             for part in bounded_chunks(&public) {
                                 self.emit(
                                     state,
@@ -230,6 +260,10 @@ impl ManagedPresentationPublisher {
                         }
                     }
                     Some("tool_call" | "tool_call_update" | "plan") => {
+                        // Public text that resumes after this marker starts a
+                        // new paragraph instead of gluing onto the sentence
+                        // written before the tool call.
+                        state.public_text.mark_boundary();
                         self.emit_phase(state, ManagedPresentationPhaseV1::Working)
                             .await;
                     }
@@ -433,6 +467,120 @@ fn bounded_chunks(value: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::luca_final_publisher::FinalChunkAccumulator;
+
+    /// The only two `session/update` kinds that carry public-text ordering.
+    #[derive(Clone, Copy)]
+    enum PublicUpdate<'a> {
+        AgentMessageChunk(&'a str),
+        ToolCallOrPlan,
+    }
+
+    /// Text the desktop reconstructs from the streamed `PublicChunk` frames.
+    fn streamed_text(updates: &[PublicUpdate<'_>]) -> String {
+        let mut stream = PublicTextStream::default();
+        let mut streamed = String::new();
+        for update in updates {
+            match update {
+                PublicUpdate::AgentMessageChunk(chunk) => {
+                    if let Some(public) = stream.push(chunk) {
+                        for part in bounded_chunks(&public) {
+                            streamed.push_str(&part);
+                        }
+                    }
+                }
+                PublicUpdate::ToolCallOrPlan => stream.mark_boundary(),
+            }
+        }
+        streamed
+    }
+
+    /// Text the harness hands to the signing broker for the same updates.
+    fn signed_final_text(updates: &[PublicUpdate<'_>]) -> String {
+        let mut chunks = FinalChunkAccumulator::default();
+        for update in updates {
+            match update {
+                PublicUpdate::AgentMessageChunk(chunk) => {
+                    chunks.push_agent_message_chunk(chunk).expect("chunk")
+                }
+                PublicUpdate::ToolCallOrPlan => chunks.mark_public_text_boundary(),
+            }
+        }
+        chunks.finish(false).expect("final draft")
+    }
+
+    #[test]
+    fn text_resumed_after_a_tool_call_streams_as_a_new_paragraph() {
+        let updates = [
+            PublicUpdate::AgentMessageChunk("I'm checking the live local time."),
+            PublicUpdate::ToolCallOrPlan,
+            PublicUpdate::ToolCallOrPlan,
+            PublicUpdate::AgentMessageChunk("It's 3:55 AM CDT for me."),
+        ];
+        assert_eq!(
+            streamed_text(&updates),
+            "I'm checking the live local time.\n\nIt's 3:55 AM CDT for me."
+        );
+    }
+
+    #[test]
+    fn streamed_and_signed_text_stay_identical_across_boundaries() {
+        for updates in [
+            vec![
+                PublicUpdate::AgentMessageChunk("I'm checking the live local time."),
+                PublicUpdate::ToolCallOrPlan,
+                PublicUpdate::AgentMessageChunk("It's 3:55 AM CDT for me."),
+            ],
+            vec![
+                PublicUpdate::AgentMessageChunk("Streaming "),
+                PublicUpdate::AgentMessageChunk("one message."),
+            ],
+            vec![
+                PublicUpdate::AgentMessageChunk("Checking.\n"),
+                PublicUpdate::ToolCallOrPlan,
+                PublicUpdate::AgentMessageChunk("Done."),
+            ],
+            vec![
+                PublicUpdate::AgentMessageChunk("Checking."),
+                PublicUpdate::ToolCallOrPlan,
+                PublicUpdate::AgentMessageChunk("\n\nDone."),
+            ],
+            vec![
+                PublicUpdate::ToolCallOrPlan,
+                PublicUpdate::AgentMessageChunk("Only text, after a tool call."),
+            ],
+            vec![
+                PublicUpdate::AgentMessageChunk(CODEX_SKILL_CONTEXT_NOTICE),
+                PublicUpdate::ToolCallOrPlan,
+                PublicUpdate::AgentMessageChunk("The useful answer."),
+            ],
+            vec![
+                PublicUpdate::AgentMessageChunk("Looking."),
+                PublicUpdate::ToolCallOrPlan,
+                PublicUpdate::AgentMessageChunk("Still looking."),
+                PublicUpdate::ToolCallOrPlan,
+                PublicUpdate::ToolCallOrPlan,
+                PublicUpdate::AgentMessageChunk("Found "),
+                PublicUpdate::AgentMessageChunk("it."),
+            ],
+        ] {
+            assert_eq!(
+                streamed_text(&updates),
+                signed_final_text(&updates),
+                "streamed text must equal the signed final draft"
+            );
+        }
+    }
+
+    #[test]
+    fn a_boundary_before_the_silent_marker_never_streams_public_text() {
+        let updates = [
+            PublicUpdate::ToolCallOrPlan,
+            PublicUpdate::AgentMessageChunk(SILENT_ACTION_SENTINEL),
+        ];
+        assert_eq!(streamed_text(&updates), "");
+        assert_eq!(signed_final_text(&updates), SILENT_ACTION_SENTINEL);
+    }
 
     #[test]
     fn notice_is_withheld_until_exact_prefix_is_resolved() {

@@ -108,6 +108,75 @@ pub enum FinalPublicationError {
     Broker(String),
 }
 
+/// Paragraph break inserted when public text resumes after a tool call or plan.
+pub(crate) const PUBLIC_TEXT_PARAGRAPH_SEPARATOR: &str = "\n\n";
+
+/// The one shared rule for joining public `agent_message_chunk` text.
+///
+/// ACP adapters emit a resumed message as just another `agent_message_chunk`,
+/// with no boundary of its own, so text written before a tool call glues onto
+/// text written after it ("I'm checking.It's 3:55 AM."). A tool/plan update
+/// between two public chunks marks a boundary; the next non-empty public chunk
+/// consumes it and resumes as a new paragraph.
+///
+/// Both the signed final draft ([`FinalChunkAccumulator`]) and the streamed
+/// managed presentation drive this same type over the same raw update
+/// sequence, so the desktop's stream-versus-signed reconciliation still sees
+/// two identical texts.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct PublicTextJoiner {
+    /// Last character of the joined text so far. `None` before the first chunk.
+    tail: Option<char>,
+    /// A tool/plan update has been seen since the last public chunk.
+    boundary_pending: bool,
+}
+
+impl PublicTextJoiner {
+    /// Start a new turn.
+    pub(crate) fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Record a `tool_call`, `tool_call_update`, or `plan` update.
+    ///
+    /// Idempotent: repeated markers before the next public chunk are one
+    /// boundary. A marker before any public text is not a boundary at all —
+    /// nothing precedes it to separate from.
+    pub(crate) fn mark_boundary(&mut self) {
+        if self.tail.is_some() {
+            self.boundary_pending = true;
+        }
+    }
+
+    /// Separator to insert before `chunk`, consuming any pending boundary.
+    ///
+    /// Empty unless public text is resuming after a tool/plan boundary, and
+    /// even then empty when either side already supplies the break — so a
+    /// single blank line is the most this ever produces.
+    pub(crate) fn separator_for(&mut self, chunk: &str) -> &'static str {
+        if chunk.is_empty() {
+            return "";
+        }
+        let resumed = std::mem::take(&mut self.boundary_pending);
+        let tail = self.tail.replace(
+            chunk
+                .chars()
+                .next_back()
+                .expect("non-empty chunk has a last character"),
+        );
+        match tail {
+            Some(previous)
+                if resumed
+                    && !previous.is_whitespace()
+                    && !chunk.starts_with(char::is_whitespace) =>
+            {
+                PUBLIC_TEXT_PARAGRAPH_SEPARATOR
+            }
+            _ => "",
+        }
+    }
+}
+
 /// Bounded accumulator for one ACP `agent_message_chunk` stream.
 ///
 /// Call [`reset`](Self::reset) before each prompt. Thought, tool, and user
@@ -116,24 +185,37 @@ pub enum FinalPublicationError {
 #[derive(Debug, Default, Clone)]
 pub struct FinalChunkAccumulator {
     final_draft: String,
+    joiner: PublicTextJoiner,
 }
 
 impl FinalChunkAccumulator {
     /// Start a new accepted-turn accumulation.
     pub fn reset(&mut self) {
         self.final_draft.clear();
+        self.joiner.reset();
+    }
+
+    /// Record a tool/plan update observed between public chunks.
+    ///
+    /// The boundary is only consumed when public text actually resumes, so
+    /// silent turns and repeated status updates change nothing.
+    pub fn mark_public_text_boundary(&mut self) {
+        self.joiner.mark_boundary();
     }
 
     /// Record one `agent_message_chunk` exactly in observed order.
     pub fn push_agent_message_chunk(&mut self, chunk: &str) -> Result<(), FinalPublicationError> {
+        let separator = self.joiner.separator_for(chunk);
         let new_len = self
             .final_draft
             .len()
-            .checked_add(chunk.len())
+            .checked_add(separator.len())
+            .and_then(|length| length.checked_add(chunk.len()))
             .ok_or(FinalPublicationError::TooLarge)?;
         if new_len > MAX_FINAL_DRAFT_BYTES {
             return Err(FinalPublicationError::TooLarge);
         }
+        self.final_draft.push_str(separator);
         self.final_draft.push_str(chunk);
         Ok(())
     }
@@ -408,6 +490,127 @@ mod tests {
             .expect("chunk one");
         chunks.push_agent_message_chunk("world").expect("chunk two");
         assert_eq!(chunks.finish(false).expect("final"), "hello world");
+    }
+
+    #[test]
+    fn public_text_joiner_never_separates_consecutive_chunks_of_one_message() {
+        let mut joiner = PublicTextJoiner::default();
+        assert_eq!(joiner.separator_for("hello "), "");
+        assert_eq!(joiner.separator_for("world"), "");
+    }
+
+    #[test]
+    fn public_text_joiner_separates_text_resumed_after_a_tool_call() {
+        let mut joiner = PublicTextJoiner::default();
+        assert_eq!(
+            joiner.separator_for("I'm checking the live local time."),
+            ""
+        );
+        joiner.mark_boundary();
+        assert_eq!(
+            joiner.separator_for("It's 3:55 AM CDT for me."),
+            PUBLIC_TEXT_PARAGRAPH_SEPARATOR
+        );
+    }
+
+    #[test]
+    fn public_text_joiner_never_produces_more_than_one_blank_line() {
+        let mut trailing = PublicTextJoiner::default();
+        assert_eq!(trailing.separator_for("Checking.\n"), "");
+        trailing.mark_boundary();
+        assert_eq!(trailing.separator_for("Done."), "");
+
+        let mut leading = PublicTextJoiner::default();
+        assert_eq!(leading.separator_for("Checking."), "");
+        leading.mark_boundary();
+        assert_eq!(leading.separator_for("\n\nDone."), "");
+
+        let mut spaced = PublicTextJoiner::default();
+        assert_eq!(spaced.separator_for("Checking."), "");
+        spaced.mark_boundary();
+        assert_eq!(spaced.separator_for(" Done."), "");
+    }
+
+    #[test]
+    fn public_text_joiner_ignores_a_boundary_before_any_public_text() {
+        let mut joiner = PublicTextJoiner::default();
+        joiner.mark_boundary();
+        assert_eq!(joiner.separator_for("First words."), "");
+    }
+
+    #[test]
+    fn public_text_joiner_treats_repeated_markers_as_one_boundary() {
+        let mut joiner = PublicTextJoiner::default();
+        assert_eq!(joiner.separator_for("Working."), "");
+        joiner.mark_boundary();
+        joiner.mark_boundary();
+        joiner.mark_boundary();
+        assert_eq!(
+            joiner.separator_for("Done."),
+            PUBLIC_TEXT_PARAGRAPH_SEPARATOR
+        );
+        joiner.mark_boundary();
+        assert_eq!(joiner.separator_for(""), "");
+        assert_eq!(
+            joiner.separator_for("Still pending."),
+            PUBLIC_TEXT_PARAGRAPH_SEPARATOR
+        );
+    }
+
+    #[test]
+    fn luca_f09_text_resumed_after_a_tool_call_is_not_glued_to_the_previous_sentence() {
+        let mut chunks = FinalChunkAccumulator::default();
+        chunks
+            .push_agent_message_chunk("I'm checking the live local time.")
+            .expect("first sentence");
+        chunks.mark_public_text_boundary();
+        chunks
+            .push_agent_message_chunk("It's 3:55 AM CDT for me.")
+            .expect("resumed sentence");
+        assert_eq!(
+            chunks.finish(false).expect("final"),
+            "I'm checking the live local time.\n\nIt's 3:55 AM CDT for me."
+        );
+    }
+
+    #[test]
+    fn luca_f09_runtime_notice_is_still_stripped_when_a_tool_call_follows_it() {
+        let mut chunks = FinalChunkAccumulator::default();
+        chunks
+            .push_agent_message_chunk(CODEX_SKILL_CONTEXT_NOTICE)
+            .expect("notice");
+        chunks.mark_public_text_boundary();
+        chunks
+            .push_agent_message_chunk("The useful answer.")
+            .expect("answer");
+        assert_eq!(chunks.finish(false).expect("final"), "The useful answer.");
+    }
+
+    #[test]
+    fn luca_f09_reset_clears_the_pending_public_text_boundary() {
+        let mut chunks = FinalChunkAccumulator::default();
+        chunks.push_agent_message_chunk("Old turn.").expect("chunk");
+        chunks.mark_public_text_boundary();
+        chunks.reset();
+        chunks.push_agent_message_chunk("New turn.").expect("chunk");
+        assert_eq!(chunks.finish(false).expect("final"), "New turn.");
+    }
+
+    #[test]
+    fn luca_f09_boundary_separator_counts_against_the_final_draft_byte_limit() {
+        let filler = "a".repeat(MAX_FINAL_DRAFT_BYTES - 1);
+
+        let mut exact = FinalChunkAccumulator::default();
+        exact.push_agent_message_chunk(&filler).expect("filler");
+        exact.push_agent_message_chunk("b").expect("fits exactly");
+
+        let mut separated = FinalChunkAccumulator::default();
+        separated.push_agent_message_chunk(&filler).expect("filler");
+        separated.mark_public_text_boundary();
+        assert_eq!(
+            separated.push_agent_message_chunk("b"),
+            Err(FinalPublicationError::TooLarge)
+        );
     }
 
     #[test]
