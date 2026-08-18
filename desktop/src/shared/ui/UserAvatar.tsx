@@ -20,6 +20,9 @@ type UserAvatarProps = {
   size?: UserAvatarSize;
   accent?: boolean;
   className?: string;
+  /** Overrides the initials disc's fill, ink and type when the default
+   *  secondary surface would vanish into its background. */
+  fallbackClassName?: string;
   testId?: string;
 };
 
@@ -29,6 +32,7 @@ export function UserAvatar({
   size = "md",
   accent = false,
   className,
+  fallbackClassName,
   testId,
 }: UserAvatarProps) {
   const initials = getInitials(displayName);
@@ -65,6 +69,7 @@ export function UserAvatar({
           accent
             ? "bg-primary text-primary-foreground"
             : "bg-secondary text-secondary-foreground",
+          fallbackClassName,
         )}
         data-testid={testId ? `${testId}-fallback` : undefined}
         delayMs={200}

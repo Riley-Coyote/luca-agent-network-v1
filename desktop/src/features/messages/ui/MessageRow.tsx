@@ -61,6 +61,7 @@ import { QuotedParent } from "./QuotedParent";
 import { MessageTimestamp } from "./MessageTimestamp";
 import { WaveMessageAttachment } from "./WaveMessageAttachment";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
+import { UserAvatar } from "@/shared/ui/UserAvatar";
 
 const DiffMessage = React.lazy(() => import("./DiffMessage"));
 const DiffMessageExpanded = React.lazy(() => import("./DiffMessageExpanded"));
@@ -451,8 +452,11 @@ export const MessageRow = React.memo(
     };
 
     const isThreadReplyLayout = layoutVariant === "thread-reply";
+    // One gutter for everyone who speaks: residents wear their identity glyph,
+    // people wear the lettered circle they carry in the sidebar. Otherwise the
+    // owner's rows start a column early and read as a hole in the timeline.
     const showResidentMarkGutter = Boolean(
-      residentMarksEnabled && message.isAgent && message.pubkey,
+      residentMarksEnabled && message.pubkey,
     );
     const guideBleedRem = isThreadReplyLayout ? 0.25 : 0;
     const authorNode = message.pubkey ? (
@@ -914,7 +918,7 @@ export const MessageRow = React.memo(
             <span className="mt-0.5 flex w-5 shrink-0 justify-center">
               {isContinuation ? (
                 <span aria-hidden className="size-5" />
-              ) : (
+              ) : message.isAgent ? (
                 <ResidentIdentityMark
                   accessibleName={message.author}
                   decorative
@@ -922,6 +926,13 @@ export const MessageRow = React.memo(
                   personaId={message.residentPersonaId}
                   publicKey={message.pubkey}
                   size={20}
+                />
+              ) : (
+                <UserAvatar
+                  avatarUrl={message.avatarUrl ?? null}
+                  displayName={message.author}
+                  fallbackClassName="bg-primary/20 text-2xs font-medium text-primary"
+                  size="xs"
                 />
               )}
             </span>
