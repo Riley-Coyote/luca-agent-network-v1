@@ -651,7 +651,10 @@ function MachineBootstrap({ sharedIdentity }: { sharedIdentity: boolean }) {
   });
   const [machineInitialPage, setMachineInitialPage] =
     useState<MachineOnboardingPage>();
-  const polyphonicOnboardingPreview = readPolyphonicOnboardingPreviewStage();
+  const [previewExited, setPreviewExited] = useState(false);
+  const polyphonicOnboardingPreview = previewExited
+    ? null
+    : readPolyphonicOnboardingPreviewStage();
 
   const reopenMachineConfig = useCallback(() => {
     setMachineInitialPage("config");
@@ -701,6 +704,7 @@ function MachineBootstrap({ sharedIdentity }: { sharedIdentity: boolean }) {
     return (
       <PolyphonicOnboardingPreview
         initialStage={polyphonicOnboardingPreview}
+        onExit={() => setPreviewExited(true)}
         queryClient={machine.queryClient}
       />
     );

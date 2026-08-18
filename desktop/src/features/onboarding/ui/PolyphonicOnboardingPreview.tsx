@@ -74,9 +74,13 @@ function prepareProductionFlow(
  */
 export function PolyphonicOnboardingPreview({
   initialStage,
+  onExit,
   queryClient,
 }: {
   initialStage: PolyphonicOnboardingPreviewStage;
+  /** The flow finished for real (Luca exists, the DM is open): leave the lab
+   *  and let the app render the conversation. */
+  onExit?: () => void;
   queryClient: QueryClient;
 }) {
   if (initialStage === "prototype") {
@@ -86,16 +90,26 @@ export function PolyphonicOnboardingPreview({
   return (
     <LegacyPolyphonicOnboardingPreview
       initialStage={initialStage}
+      onExit={onExit}
       queryClient={queryClient}
     />
   );
 }
 
+/** Drop the preview param so a reload lands in the app, not back in the lab. */
+function leavePreviewUrl() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete(PREVIEW_PARAM);
+  window.history.replaceState(window.history.state, "", url);
+}
+
 function LegacyPolyphonicOnboardingPreview({
   initialStage,
+  onExit,
   queryClient,
 }: {
   initialStage: Exclude<PolyphonicOnboardingPreviewStage, "prototype">;
+  onExit?: () => void;
   queryClient: QueryClient;
 }) {
   const [mode, setMode] = React.useState<"machine" | "personal-home">(() => {
@@ -131,6 +145,13 @@ function LegacyPolyphonicOnboardingPreview({
       actions={{
         complete: () => {
           clearPolyphonicOnboardingTransaction(PREVIEW_PUBKEY);
+          if (onExit) {
+            // The flow already set the hash to Luca's DM; hand the page to
+            // the app so the first conversation is real, not a loop.
+            leavePreviewUrl();
+            onExit();
+            return;
+          }
           setMode("machine");
         },
         skipForNow: () => undefined,

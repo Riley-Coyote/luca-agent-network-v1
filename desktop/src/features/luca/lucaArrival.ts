@@ -62,12 +62,18 @@ export function useLucaArrival({
     null,
   );
 
+  // Two effects on purpose: the flag is consumed once, and the beat's timer
+  // is owned by the arriving state. A single effect that both consumed the
+  // flag and armed the timer would lose the timer to StrictMode's rerun (the
+  // flag is gone the second time) and leave the conversation arriving forever.
   React.useEffect(() => {
-    if (!channelId || !takeLucaArrival(channelId)) return;
-    setArrivingChannel(channelId);
+    if (channelId && takeLucaArrival(channelId)) setArrivingChannel(channelId);
+  }, [channelId]);
+  React.useEffect(() => {
+    if (!arrivingChannel) return;
     const timer = window.setTimeout(() => setArrivingChannel(null), ARRIVAL_MS);
     return () => window.clearTimeout(timer);
-  }, [channelId]);
+  }, [arrivingChannel]);
 
   const isLucaDm =
     lucaPubkey !== null &&
