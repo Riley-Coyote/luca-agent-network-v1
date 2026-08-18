@@ -29,6 +29,9 @@ export interface IdentityMarkProps {
    */
   breath?: boolean;
   mode?: GlyphRenderMode;
+  /** RGB triplet override. Defaults to the theme's ink; pass one where the
+   *  surface is fixed regardless of theme (the onboarding doorway is dark). */
+  ink?: string;
   className?: string;
   /** Accessible name; omit only when a parent already labels this. */
   accessibleName?: string;
@@ -46,13 +49,14 @@ export function IdentityMark({
   size = 28,
   breath = false,
   mode = "joined",
+  ink: inkOverride,
   className,
   accessibleName,
 }: IdentityMarkProps) {
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const { isDark } = useTheme();
   const glyph = React.useMemo(() => identityGlyph(seed), [seed]);
-  const ink = isDark ? INK_DARK : INK_LIGHT;
+  const ink = inkOverride ?? (isDark ? INK_DARK : INK_LIGHT);
 
   React.useEffect(() => {
     const canvas = canvasRef.current;

@@ -1,6 +1,7 @@
 import { motion, useReducedMotion } from "motion/react";
 
 import { DotSigil } from "@/shared/ui/dot-display/DotSigil";
+import { IdentityMark } from "@/shared/ui/dot-display/identity/IdentityMark";
 
 export const POLYPHONIC_IDENTITY_SEED =
   "9dee6768a16dc99a2f399672eabffe3d1c2d30cd9daaeda8ae0c36074751b9f2";
@@ -46,14 +47,15 @@ export function PolyphonicThresholdDendrite({
   );
 }
 
+/** The mark at the heart of the field: the application's identity glyph,
+ *  joined like every resident's, on the doorway's fixed dark surface. */
 export function LucaThresholdGlyph() {
   return (
-    <DotSigil
-      cell={7}
-      dot="240,240,242"
-      scene="sigil"
+    <IdentityMark
+      accessibleName="Polyphonic mark"
+      ink="240,240,242"
       seed={POLYPHONIC_IDENTITY_SEED}
-      size={66}
+      size={56}
     />
   );
 }
@@ -82,11 +84,8 @@ export function PolyphonicThresholdField() {
 
 export function PolyphonicBrandMark({ size = 26 }: { size?: number }) {
   return (
-    <DotSigil
+    <IdentityMark
       accessibleName="Polyphonic mark"
-      cell={3}
-      dot="236,236,239"
-      scene="sigil"
       seed={POLYPHONIC_IDENTITY_SEED}
       size={size}
     />

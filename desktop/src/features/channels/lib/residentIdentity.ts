@@ -1,5 +1,10 @@
 import { normalizePubkey } from "@/shared/lib/pubkey";
-import { sigilPattern } from "@/shared/ui/dot-display/engine";
+import {
+  GLYPH_N,
+  glyphLit,
+  identityGlyph,
+} from "@/shared/ui/dot-display/identity/glyph";
+import { glyphToSvgPath } from "@/shared/ui/dot-display/identity/render";
 
 export type ResidentMarkKind = "custom" | "codex" | "claude";
 
@@ -17,32 +22,23 @@ export function residentMarkKind(personaId?: string | null): ResidentMarkKind {
 }
 
 /**
- * Return the stable, mirrored 7x7 matrix used by custom resident marks.
+ * Return the stable 7x7 identity glyph used by custom resident marks — the
+ * same joined mark the dot-display identity system draws everywhere else.
  * Runtime binding is deliberately absent: a resident keeps this mark when its
  * provider or model changes.
  */
 export function residentIdentityMatrix(publicKey: string): boolean[][] {
-  const { grid } = sigilPattern(normalizePubkey(publicKey));
-  return grid.map((row) =>
-    [...row, ...row.slice(0, row.length - 1).reverse()].map(Boolean),
+  const glyph = identityGlyph(normalizePubkey(publicKey));
+  return Array.from({ length: GLYPH_N }, (_, y) =>
+    Array.from({ length: GLYPH_N }, (_, x) => glyphLit(glyph, x, y)),
   );
 }
 
-export type ResidentIdentityCell = Readonly<{
-  id: string;
-  x: number;
-  y: number;
-}>;
-
-/** Stable lit-cell coordinates for rendering the resident matrix as SVG. */
-export function residentIdentityCells(
-  publicKey: string,
-): ResidentIdentityCell[] {
-  const cells: ResidentIdentityCell[] = [];
-  for (const [y, row] of residentIdentityMatrix(publicKey).entries()) {
-    for (const [x, isLit] of row.entries()) {
-      if (isLit) cells.push({ id: `${x}:${y}`, x, y });
-    }
-  }
-  return cells;
+/**
+ * The same mark as one joined SVG path in a `0 0 7 7` viewBox: cells abut and
+ * corners round only where they face empty space, so identity reads as a
+ * continuous stroke — who — while live activity stays a dotted field — what.
+ */
+export function residentIdentityPath(publicKey: string): string {
+  return glyphToSvgPath(identityGlyph(normalizePubkey(publicKey)));
 }

@@ -5,10 +5,14 @@ import test from "node:test";
 import {
   DIRECT_CLAUDE_PERSONA_ID,
   DIRECT_CODEX_PERSONA_ID,
-  residentIdentityCells,
   residentIdentityMatrix,
+  residentIdentityPath,
   residentMarkKind,
 } from "./residentIdentity.ts";
+import {
+  identityGlyph,
+  isWellFormed,
+} from "../../../shared/ui/dot-display/identity/glyph.ts";
 
 test("only trusted direct runtime persona ids receive provider marks", () => {
   assert.equal(residentMarkKind(DIRECT_CODEX_PERSONA_ID), "codex");
@@ -28,23 +32,22 @@ test("only trusted direct runtime persona ids receive provider marks", () => {
   }
 });
 
-test("custom resident matrices are deterministic, mirrored, and 7 by 7", () => {
+test("custom resident marks are deterministic, well-formed identity glyphs, 7 by 7", () => {
   const matrix = residentIdentityMatrix("ABCDEF0123456789");
   assert.deepEqual(matrix, residentIdentityMatrix("abcdef0123456789"));
   assert.equal(matrix.length, 7);
-
-  for (const row of matrix) {
-    assert.equal(row.length, 7);
-    assert.deepEqual(row, [...row].reverse());
-    assert.ok(row.some(Boolean));
-  }
+  for (const row of matrix) assert.equal(row.length, 7);
+  assert.ok(matrix.some((row) => row.some(Boolean)));
+  // The mark is the identity glyph itself, so it obeys the glyph's rules:
+  // one connected piece, touching every rim, no solid 2x2, few loose ends.
+  assert.ok(isWellFormed(identityGlyph("abcdef0123456789")));
 
   assert.notDeepEqual(matrix, residentIdentityMatrix("different-resident"));
 
-  const cells = residentIdentityCells("ABCDEF0123456789");
-  assert.ok(cells.length > 0);
-  assert.equal(new Set(cells.map(({ id }) => id)).size, cells.length);
-  assert.ok(cells.every(({ x, y }) => x >= 0 && x < 7 && y >= 0 && y < 7));
+  const path = residentIdentityPath("ABCDEF0123456789");
+  assert.ok(path.length > 0);
+  assert.equal(path, residentIdentityPath("abcdef0123456789"));
+  assert.notEqual(path, residentIdentityPath("different-resident"));
 });
 
 test("provider marks reuse transparent source assets without baked tiles", async () => {

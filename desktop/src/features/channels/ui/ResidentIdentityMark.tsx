@@ -1,7 +1,7 @@
 import * as React from "react";
 
 import {
-  residentIdentityCells,
+  residentIdentityPath,
   residentMarkKind,
 } from "@/features/channels/lib/residentIdentity";
 import chatgptLogoUrl from "@/features/onboarding/assets/harness-logos/chatgpt.png?inline";
@@ -40,8 +40,8 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
   "data-testid": dataTestId,
 }: ResidentIdentityMarkProps) {
   const kind = residentMarkKind(personaId);
-  const cells = React.useMemo(
-    () => (kind === "custom" ? residentIdentityCells(publicKey) : null),
+  const path = React.useMemo(
+    () => (kind === "custom" ? residentIdentityPath(publicKey) : null),
     [kind, publicKey],
   );
   const accessibilityProps = decorative
@@ -62,24 +62,14 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
       style={{ height: size, width: size }}
       {...accessibilityProps}
     >
-      {kind === "custom" && cells ? (
+      {kind === "custom" && path ? (
         <svg
           aria-hidden="true"
           className="block size-full overflow-visible"
           focusable="false"
           viewBox="0 0 7 7"
         >
-          {cells.map((cell) => (
-            <rect
-              fill="currentColor"
-              height="0.78"
-              key={cell.id}
-              rx="0.18"
-              width="0.78"
-              x={cell.x + 0.11}
-              y={cell.y + 0.11}
-            />
-          ))}
+          <path d={path} fill="currentColor" />
         </svg>
       ) : (
         <img
