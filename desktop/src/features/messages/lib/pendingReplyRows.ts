@@ -13,12 +13,15 @@ import type {
 /**
  * "A reply is coming, here."
  *
- * A resident who is thinking or working but has not yet produced any public
- * text has no response slot, so nothing represents them in the timeline. This
- * projects one row per such resident at the tail of the conversation — the
- * same row their reply will stream into — with the phase on it, so the mark
- * carries the state and one quiet word beside the name says what. Tail
- * placement is correct by construction: replies are chronological.
+ * A resident who is waking, thinking, working — or already "writing" but
+ * whose first public chunk has not landed — has no response slot, so nothing
+ * represents them in the timeline. This projects one row per such resident at
+ * the tail of the conversation — the same row their reply will stream into —
+ * with the phase on it, so the mark carries the state and one quiet word
+ * beside the name says what. Tail placement is correct by construction:
+ * replies are chronological. The "writing" case matters: the phase frame
+ * arrives a beat before the first chunk, and without it the row blinked out
+ * between "thinking" and the first words.
  */
 
 const PENDING_PREFIX = "pending-reply:";
@@ -45,7 +48,7 @@ export function pendingReplyRows({
 
   const add = (
     pubkey: string,
-    phase: "waking" | "thinking" | "working",
+    phase: "waking" | "thinking" | "working" | "writing",
     label: string | undefined,
     anchorAt: number,
   ) => {
@@ -86,7 +89,8 @@ export function pendingReplyRows({
     if (
       activity.phase === "waking" ||
       activity.phase === "thinking" ||
-      activity.phase === "working"
+      activity.phase === "working" ||
+      activity.phase === "writing"
     ) {
       add(pubkey, activity.phase, undefined, now);
     }

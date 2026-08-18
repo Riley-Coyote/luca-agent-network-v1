@@ -582,7 +582,11 @@ export const MessageRow = React.memo(
             : managedPhase === "working"
               ? "working"
               : "thinking"))
-        : null;
+        : // The "writing" phase can arrive a beat before the first chunk;
+          // until words exist the row keeps a word rather than going bare.
+          residentMarkLive === "writing" && message.body === ""
+          ? "writing"
+          : null;
 
     // In a direct conversation the row is where a reply is stopped: one quiet
     // word at the row's edge while the resident is live, gone once the reply
