@@ -4,20 +4,33 @@ import {
   residentIdentityPath,
   residentMarkKind,
 } from "@/features/channels/lib/residentIdentity";
-import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
+import {
+  residentGlyphSeed,
+  useCanonicalLucaPubkey,
+} from "@/features/luca/canonicalLucaResident";
 import chatgptLogoUrl from "@/features/onboarding/assets/harness-logos/chatgpt.png?inline";
 import claudeLogoUrl from "@/features/onboarding/assets/harness-logos/claude.png?inline";
 import { cn } from "@/shared/lib/cn";
+import {
+  FilamentMark,
+  type FilamentMode,
+} from "@/shared/ui/dot-display/identity/FilamentMark";
 
 const PROVIDER_MARKS = {
   claude: claudeLogoUrl,
   codex: chatgptLogoUrl,
 } as const;
 
+/** What the resident is doing right now, if the mark should show it. */
+export type ResidentMarkLiveState = "thinking" | "writing" | null;
+
 export type ResidentIdentityMarkProps = {
   accessibleName: string;
   className?: string;
   decorative?: boolean;
+  /** While a reply is coming the mark is a filament: light travels the
+   *  stroke while thinking; the glyph holds lit while words arrive. */
+  live?: ResidentMarkLiveState;
   personaId?: string | null;
   publicKey: string;
   size?: number;
@@ -35,6 +48,7 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
   accessibleName,
   className,
   decorative = false,
+  live = null,
   personaId,
   publicKey,
   size = 20,
@@ -42,6 +56,12 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
 }: ResidentIdentityMarkProps) {
   const kind = residentMarkKind(personaId);
   const lucaPubkey = useCanonicalLucaPubkey();
+  const filamentMode: FilamentMode | null =
+    kind === "custom" && live
+      ? live === "thinking"
+        ? "current"
+        : "lit"
+      : null;
   const path = React.useMemo(
     () =>
       kind === "custom" ? residentIdentityPath(publicKey, lucaPubkey) : null,
@@ -61,11 +81,18 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
         className,
       )}
       data-resident-mark-kind={kind}
+      data-resident-mark-live={live ?? undefined}
       data-testid={dataTestId}
       style={{ height: size, width: size }}
       {...accessibilityProps}
     >
-      {kind === "custom" && path ? (
+      {filamentMode ? (
+        <FilamentMark
+          mode={filamentMode}
+          seed={residentGlyphSeed(publicKey, lucaPubkey)}
+          size={size}
+        />
+      ) : kind === "custom" && path ? (
         <svg
           aria-hidden="true"
           className="block size-full overflow-visible"

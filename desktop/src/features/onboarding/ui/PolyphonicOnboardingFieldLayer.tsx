@@ -7,7 +7,10 @@ import {
 import * as React from "react";
 
 import { DotSigil } from "@/shared/ui/dot-display/DotSigil";
-import { usePolyphonicScene } from "../polyphonicOnboardingScene";
+import {
+  setPolyphonicScene,
+  usePolyphonicScene,
+} from "../polyphonicOnboardingScene";
 import {
   LucaThresholdGlyph,
   POLYPHONIC_IDENTITY_SEED,
@@ -47,13 +50,37 @@ export function PolyphonicOnboardingFieldLayer() {
     }
   }, [animateField, fieldScope, reduceMotion, scene.stage]);
 
+  // Leaving: hold the veil while the conversation mounts beneath, then let go.
+  React.useEffect(() => {
+    if (scene.stage !== "leaving") return;
+    const timer = window.setTimeout(
+      () =>
+        setPolyphonicScene({ stage: "off", anchor: null, resolving: false }),
+      reduceMotion ? 0 : 420,
+    );
+    return () => window.clearTimeout(timer);
+  }, [reduceMotion, scene.stage]);
+
   const anchor = scene.anchor;
   const visible = scene.stage !== "off" && anchor !== null;
+  const leaving = scene.stage === "leaving";
   const scale = anchor ? anchor.width / POLYPHONIC_FIELD_SIZE : 1;
   const atDoor = scene.stage === "door";
 
   return (
     <AnimatePresence>
+      {leaving ? (
+        <motion.div
+          animate={{ opacity: 1 }}
+          aria-hidden
+          className="pointer-events-none fixed inset-0 z-[59] bg-[#060608]"
+          data-testid="polyphonic-onboarding-veil"
+          exit={{ opacity: 0, transition: { duration: 0.7, ease: EASE } }}
+          initial={{ opacity: 0 }}
+          key="veil"
+          transition={{ duration: reduceMotion ? 0 : 0.28, ease: EASE }}
+        />
+      ) : null}
       {visible && anchor ? (
         <motion.div
           animate={{
@@ -65,7 +92,7 @@ export function PolyphonicOnboardingFieldLayer() {
           aria-hidden
           className="pointer-events-none fixed left-0 top-0 z-[60] flex items-center justify-center"
           data-testid="polyphonic-onboarding-field"
-          exit={{ opacity: 0, transition: { duration: 0.4, ease: EASE } }}
+          exit={{ opacity: 0, transition: { duration: 0.7, ease: EASE } }}
           initial={{
             opacity: 0,
             x: anchor.x - POLYPHONIC_FIELD_SIZE / 2,

@@ -1,12 +1,8 @@
 import * as React from "react";
 
 import { useTheme } from "@/shared/theme/ThemeProvider";
-import {
-  glyphLit,
-  type IdentityGlyph,
-  identityGlyph,
-} from "@/shared/ui/dot-display/identity/glyph";
-import { glyphMetrics } from "@/shared/ui/dot-display/identity/render";
+import { glyphLit, type IdentityGlyph, identityGlyph } from "./glyph";
+import { glyphMetrics } from "./render";
 
 /**
  * The identity glyph as a filament: while a resident is thinking, light moves
@@ -15,8 +11,9 @@ import { glyphMetrics } from "@/shared/ui/dot-display/identity/render";
  * `motion` prop chooses which. When the reply starts the light arrives and the
  * glyph holds bright (or keeps a faint current, `speaking`).
  *
- * Lab-only for now (see ThinkingIndicatorLab). If it lands it belongs beside
- * IdentityMark in dot-display/identity.
+ * Chosen 2026-08-18 over state-replaces-identity, ellipsis, breath and embers;
+ * `traverse` is the production current (most legible at row size). The other
+ * currents are kept for the design lab (`?lab=thinking`).
  */
 
 const INK_DARK = "236,238,240";

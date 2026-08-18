@@ -5,7 +5,10 @@ import { LUCA_IDENTITY_SEED } from "@/features/luca/canonicalLucaResident";
 import { cn } from "@/shared/lib/cn";
 import { DotSigil } from "@/shared/ui/dot-display/DotSigil";
 import { IdentityMark } from "@/shared/ui/dot-display/identity/IdentityMark";
-import { FilamentMark, type FilamentMotion } from "./FilamentMark";
+import {
+  FilamentMark,
+  type FilamentMotion,
+} from "@/shared/ui/dot-display/identity/FilamentMark";
 
 /**
  * Design lab: how a resident's reply row should read while the reply is

@@ -1,9 +1,7 @@
 import * as React from "react";
 
-import type { AgentActivity } from "@/features/agents/lib/activityPhase";
 import type { TimelineMessage } from "@/features/messages/types";
 import type { Channel } from "@/shared/api/types";
-import { normalizePubkey } from "@/shared/lib/pubkey";
 import {
   isCanonicalLucaDm,
   isLucaGreeting,
@@ -11,15 +9,22 @@ import {
 } from "./canonicalLucaResident";
 
 /**
- * When the owner lands in the first conversation, Luca is about to speak: the
- * greeting is already durable, but for a beat the conversation shows Luca in
- * the thinking state and only then lets the greeting land. This session flag
- * carries that intent from the preparing step to the conversation; it is
- * consumed once and never survives a relaunch, so the greeting is an ordinary
- * past message from then on.
+ * When the owner lands in the first conversation, Luca is about to speak. The
+ * greeting is already durable, but the conversation stages its arrival once,
+ * through the same row a live reply uses: Luca's row appears with the mark
+ * thinking, then the words stream into it, then the durable message takes
+ * over. Nothing is faked about the message; only its arrival is paced.
+ *
+ * A session flag carries the intent from the preparing step; it is consumed
+ * once and never survives a relaunch, so from then on the greeting is an
+ * ordinary past message.
  */
 const ARRIVAL_KEY = "polyphonic-onboarding.luca-arrival.v1";
-const ARRIVAL_MS = 1600;
+/** Mark thinking, no words. */
+const THINK_MS = 1400;
+/** Words arriving, roughly at a reader's pace. */
+const STREAM_MS = 1900;
+const TICK_MS = 45;
 
 export function markLucaArrival(channelId: string) {
   try {
@@ -40,13 +45,23 @@ function takeLucaArrival(channelId: string): boolean {
   }
 }
 
-const THINKING: AgentActivity = { phase: "thinking", toolKind: null };
+/** Reveal a body word by word; graphemes inside a word arrive together. */
+function prefixOf(body: string, progress: number): string {
+  const words = body.split(/(\s+)/);
+  const total = words.filter((w) => w.trim().length > 0).length;
+  const target = Math.floor(Math.min(1, progress) * total);
+  let seen = 0;
+  const out: string[] = [];
+  for (const piece of words) {
+    if (piece.trim().length > 0) {
+      if (seen >= target) break;
+      seen += 1;
+    }
+    out.push(piece);
+  }
+  return out.join("");
+}
 
-/**
- * Stage Luca's arrival in the canonical DM. While arriving, the greeting is
- * withheld from `messages` and Luca is reported as thinking; after the beat,
- * both revert and the greeting lands as a new message.
- */
 export function useLucaArrival({
   activeChannel,
   currentPubkey,
@@ -61,36 +76,64 @@ export function useLucaArrival({
   const [arrivingChannel, setArrivingChannel] = React.useState<string | null>(
     null,
   );
+  const [startedAt, setStartedAt] = React.useState<number | null>(null);
+  const [now, setNow] = React.useState(0);
 
-  // Two effects on purpose: the flag is consumed once, and the beat's timer
-  // is owned by the arriving state. A single effect that both consumed the
-  // flag and armed the timer would lose the timer to StrictMode's rerun (the
-  // flag is gone the second time) and leave the conversation arriving forever.
+  // Two effects on purpose: the flag is consumed once, and the beat's clock is
+  // owned by the arriving state. Consuming and arming in one effect would lose
+  // the clock to StrictMode's rerun and leave the conversation arriving.
   React.useEffect(() => {
-    if (channelId && takeLucaArrival(channelId)) setArrivingChannel(channelId);
+    if (channelId && takeLucaArrival(channelId)) {
+      setArrivingChannel(channelId);
+      setStartedAt(performance.now());
+    }
   }, [channelId]);
   React.useEffect(() => {
     if (!arrivingChannel) return;
-    const timer = window.setTimeout(() => setArrivingChannel(null), ARRIVAL_MS);
-    return () => window.clearTimeout(timer);
+    const timer = window.setInterval(() => {
+      setNow(performance.now());
+    }, TICK_MS);
+    const done = window.setTimeout(() => {
+      window.clearInterval(timer);
+      setArrivingChannel(null);
+      setStartedAt(null);
+    }, THINK_MS + STREAM_MS);
+    return () => {
+      window.clearInterval(timer);
+      window.clearTimeout(done);
+    };
   }, [arrivingChannel]);
 
   const isLucaDm =
     lucaPubkey !== null &&
     isCanonicalLucaDm(activeChannel, currentPubkey, lucaPubkey);
   const arriving = isLucaDm && arrivingChannel === channelId;
+  const elapsed = startedAt === null ? 0 : Math.max(0, now - startedAt);
 
   const visibleMessages = React.useMemo<TimelineMessage[]>(() => {
     if (!arriving || !lucaPubkey) return messages;
-    return messages.filter((message) => !isLucaGreeting(message, lucaPubkey));
-  }, [arriving, lucaPubkey, messages]);
+    const greeting = messages.find((message) =>
+      isLucaGreeting(message, lucaPubkey),
+    );
+    if (!greeting) return messages;
+    const streaming = elapsed >= THINK_MS;
+    const progress = streaming ? (elapsed - THINK_MS) / STREAM_MS : 0;
+    const staged: TimelineMessage = {
+      ...greeting,
+      renderKey: `${greeting.id}:arrival`,
+      body: streaming ? prefixOf(greeting.body, progress) : "",
+      managedPresentation: {
+        canonicalPresent: false,
+        failure: null,
+        finalReconciliation: null,
+        finalMessageId: null,
+        phase: streaming ? "writing" : "thinking",
+        streaming: true,
+        uiKey: `${greeting.id}:arrival`,
+      },
+    };
+    return messages.map((message) => (message === greeting ? staged : message));
+  }, [arriving, elapsed, lucaPubkey, messages]);
 
-  const arrivalActivity = React.useMemo(() => {
-    if (!arriving || !lucaPubkey) return null;
-    return new Map<string, AgentActivity | null>([
-      [normalizePubkey(lucaPubkey), THINKING],
-    ]);
-  }, [arriving, lucaPubkey]);
-
-  return { arriving, arrivalActivity, isLucaDm, lucaPubkey, visibleMessages };
+  return { arriving, isLucaDm, lucaPubkey, visibleMessages };
 }

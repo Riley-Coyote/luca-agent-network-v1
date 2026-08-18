@@ -74,5 +74,8 @@ export type TimelineMessage = {
     /** True while public graphemes are still being revealed in this row. */
     streaming: boolean;
     uiKey: string;
+    /** Plain phrase for what the resident is doing while no text has arrived
+     *  yet — "thinking", "reading files" — shown beside the name. */
+    activityLabel?: string;
   };
 };

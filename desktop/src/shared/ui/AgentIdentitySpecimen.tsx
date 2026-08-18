@@ -9,6 +9,7 @@ import {
   useCanonicalLucaPubkey,
 } from "@/features/luca/canonicalLucaResident";
 import { useTheme } from "@/shared/theme/ThemeProvider";
+import { FilamentMark } from "@/shared/ui/dot-display/identity/FilamentMark";
 import { IdentityMark } from "@/shared/ui/dot-display/identity/IdentityMark";
 
 export type AgentVisualState =
@@ -39,13 +40,10 @@ export type AgentIdentityCustody = "managed" | "guest" | "owner";
  * across a column where some residents are resting and some are working.
  */
 const SCENE_FOR_STATE: Record<
-  Exclude<AgentVisualState, "present">,
+  Exclude<AgentVisualState, "present" | "thinking" | "working" | "responding">,
   DotScene
 > = {
   idle: "listen",
-  thinking: "think",
-  working: "work",
-  responding: "pulse",
   unavailable: "sleep",
   fault: "fault",
 };
@@ -115,6 +113,13 @@ export function AgentIdentitySpecimen({
         // construction and the app's commonest placement is 20px. Frame-free,
         // like the live scenes, so the silhouette is the mark's own.
         <IdentityMark breath seed={seed} size={size} />
+      ) : state === "thinking" || state === "working" ? (
+        // A reply is coming: light travels the stroke. Identity never leaves;
+        // the state lives inside it.
+        <FilamentMark mode="current" seed={seed} size={size} />
+      ) : state === "responding" ? (
+        // The light has arrived; the glyph holds lit while the words come.
+        <FilamentMark mode="lit" seed={seed} size={size} />
       ) : (
         <DotSigil
           // Roughly eight cells across gives the seven-cell field a narrow

@@ -11,7 +11,14 @@ import { useSyncExternalStore } from "react";
  * mounted at the top of the app draws it there. Loading gates read `stage`
  * and stay quiet while a passage is in flight, so the field is the loader.
  */
-export type PolyphonicSceneStage = "off" | "door" | "opening" | "card";
+export type PolyphonicSceneStage =
+  | "off"
+  | "door"
+  | "opening"
+  | "card"
+  /** The card is done and the conversation is mounting beneath: the layer
+   *  holds a canvas veil over the seam, then fades veil and field together. */
+  | "leaving";
 
 export interface PolyphonicSceneAnchor {
   /** Centre of the field, viewport px. */

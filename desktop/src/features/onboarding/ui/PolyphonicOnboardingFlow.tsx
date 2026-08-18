@@ -11,6 +11,7 @@ import {
   readPolyphonicOnboardingTransaction,
   savePolyphonicOnboardingTransaction,
 } from "../polyphonicOnboardingState";
+import { setPolyphonicScene } from "../polyphonicOnboardingScene";
 import { readPendingPolyphonicProfile } from "../polyphonicProfileSync";
 import {
   PolyphonicAgentImportStep,
@@ -158,6 +159,9 @@ export function PolyphonicOnboardingFlow({
 
   const enterLucaDm = React.useCallback(
     (channelId: string) => {
+      // The field layer carries a veil across the seam and fades it with the
+      // field once the conversation has mounted beneath.
+      setPolyphonicScene({ stage: "leaving" });
       actions.complete();
       window.location.hash = `/channels/${encodeURIComponent(channelId)}`;
     },

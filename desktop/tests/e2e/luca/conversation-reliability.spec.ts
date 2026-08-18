@@ -186,7 +186,11 @@ test("group activation streams independently and settles into linear signed turn
   const receiptId = await ownerRow.getAttribute("data-message-id");
   if (!receiptId) throw new Error("Expected an owner event ID.");
 
-  await expect(managedResponseRows(page)).toHaveCount(0);
+  // A reply is coming, here: each thinking resident already has its row at
+  // the tail — mark carrying the state, one word beside the name — which the
+  // reply will stream into. No text yet.
+  await expect(managedResponseRows(page)).toHaveCount(2);
+  await expect(page.getByTestId("resident-activity-word")).toHaveCount(2);
   await expect(page.getByTestId("conversation-activity-shelf")).toHaveAttribute(
     "data-active-count",
     "2",
@@ -470,7 +474,8 @@ test("ordinary Reply is directed while Reply in thread remains explicit", async 
     resident_pubkeys: [CLAUDE],
   });
   expect(payload?.responseSurface).toBe("timeline");
-  await expect(managedResponseRows(page)).toHaveCount(0);
+  // The named resident's reply row is already at the tail, thinking.
+  await expect(managedResponseRows(page)).toHaveCount(1);
   await expect(page.getByTestId("conversation-activity-shelf")).toHaveAttribute(
     "data-active-count",
     "1",
@@ -613,7 +618,8 @@ test("agent mentions activate exactly the named resident subset", async ({
     mode: "directed",
     resident_pubkeys: [CLAUDE, CODEX].sort(),
   });
-  await expect(managedResponseRows(page)).toHaveCount(0);
+  // Both named residents have their reply rows at the tail, thinking.
+  await expect(managedResponseRows(page)).toHaveCount(2);
   await expect(page.getByTestId("conversation-activity-shelf")).toHaveAttribute(
     "data-active-count",
     "2",

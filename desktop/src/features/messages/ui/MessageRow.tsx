@@ -9,9 +9,15 @@ import {
 import type { TimelineMessage } from "@/features/messages/types";
 import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
 import { NativeAgentNoticeCard } from "@/features/agents/ui/NativeAgentNoticeCard";
+import { LUCA_GREETING_MARKER } from "@/features/luca/canonicalLucaResident";
+import { LucaGreetingChoices } from "@/features/luca/ui/LucaGreetingChoices";
+import { LucaGreetingChoicesContext } from "@/features/luca/ui/lucaGreetingChoicesContext";
 import { NATIVE_AGENT_NOTICE_MARKER } from "@/features/luca/useNativeAgentNotice";
 import { HuddleAttachment } from "@/features/huddle/components/HuddleAttachment";
-import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMark";
+import {
+  ResidentIdentityMark,
+  type ResidentMarkLiveState,
+} from "@/features/channels/ui/ResidentIdentityMark";
 import { MessageReactions } from "@/features/messages/ui/MessageReactions";
 import { useReactionHandler } from "@/features/messages/ui/useReactionHandler";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
@@ -346,6 +352,17 @@ export const MessageRow = React.memo(
     const hasNativeAgentNoticeMarker = message.tags?.some(
       (tag) => tag[0] === "client" && tag[1] === NATIVE_AGENT_NOTICE_MARKER,
     );
+    // Luca's opening offer is part of Luca's greeting: an option list under
+    // the words, once they have all arrived, until the owner has said anything.
+    const lucaChoices = React.useContext(LucaGreetingChoicesContext);
+    const showLucaChoices =
+      lucaChoices?.active === true &&
+      !message.managedPresentation?.streaming &&
+      Boolean(
+        message.tags?.some(
+          (tag) => tag[0] === "client" && tag[1] === LUCA_GREETING_MARKER,
+        ),
+      );
 
     const renderBody = () => {
       switch (message.kind) {
@@ -530,10 +547,37 @@ export const MessageRow = React.memo(
       );
     })();
 
+    // While a reply is coming and no text has arrived, the mark carries the
+    // state and one quiet word beside the name says what — "thinking",
+    // "reading files". Once words stream, the mark holds lit and the word goes.
+    const managedPhase = message.managedPresentation?.phase;
+    const residentMarkLive: ResidentMarkLiveState = !message.managedPresentation
+      ?.streaming
+      ? null
+      : managedPhase === "thinking" || managedPhase === "working"
+        ? "thinking"
+        : managedPhase === "writing" || managedPhase === "finalizing"
+          ? "writing"
+          : null;
+    const activityWord =
+      residentMarkLive === "thinking"
+        ? (message.managedPresentation?.activityLabel ??
+          (managedPhase === "working" ? "working" : "thinking"))
+        : null;
+
     const inlineMetadataNode = (
       <div className="flex shrink-0 items-baseline gap-2 text-xs">
         <MessageTimestamp createdAt={message.createdAt} time={message.time} />
         {statusMetadataNode}
+        {activityWord ? (
+          <span
+            className="text-muted-foreground/70"
+            data-testid="resident-activity-word"
+            role="status"
+          >
+            {activityWord}
+          </span>
+        ) : null}
       </div>
     );
 
@@ -590,6 +634,9 @@ export const MessageRow = React.memo(
         )}
         {hasNativeAgentNoticeMarker ? (
           <NativeAgentNoticeCard signerPubkey={message.signerPubkey} />
+        ) : null}
+        {showLucaChoices && lucaChoices ? (
+          <LucaGreetingChoices onChoose={lucaChoices.onChoose} />
         ) : null}
         {managedStatusNode}
         {continuationMetadataNode}
@@ -841,6 +888,7 @@ export const MessageRow = React.memo(
                 <ResidentIdentityMark
                   accessibleName={message.author}
                   decorative
+                  live={residentMarkLive}
                   personaId={message.residentPersonaId}
                   publicKey={message.pubkey}
                   size={20}
