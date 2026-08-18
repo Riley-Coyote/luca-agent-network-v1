@@ -48,9 +48,10 @@
   <body>
     <h1>dot-display lab</h1>
     <p class="sub">
-      Every scene at 28 / 48 / 96 / 300px. 28px is the gate — the rail is where these live,
-      so a scene that only sings large has failed. Colour law is suspended: toggle
-      magnitude colour to see "how much just moved" as a live dial.
+      Every scene the engine knows — 10 production + 14 experimental — at 28 / 48 / 96 / 300px.
+      28px is the gate: the rail is where these live, so a scene that only sings large has
+      failed. Colour law is suspended here: toggle magnitude colour to see "how much just
+      moved" as a live dial.
     </p>
 
     <div class="bar">
@@ -76,17 +77,12 @@
       const CELL  = { 28: 2, 48: 2, 96: 4, 300: 6 };
 
       const GROUPS = [
-        ["Track 1 — repairs", "original above, rework below — same state, brought to the standard of pulse", [
-          ["work",     "original — clears the buffer every frame"],
-          ["workV2",   "advancing soft front, textured wake, quantised ticks"],
-          ["fault",    "original — one row of a fourteen-row lattice"],
-          ["faultV2",  "field losing charge from the edges, broken trace last to go"],
-          ["recall",   "original — points toggle 1.0 ↔ 0.2"],
-          ["recallV2", "gradient wedge, each memory flares then cools"],
-          ["net",      "original — nodes blink"],
-          ["netV2",    "charge travels along the links"],
-          ["sleep",    "original"],
-          ["sleepV2",  "slow dim swell under the twinkle"],
+        ["Track 1 — reworks not yet promoted", "the V2 pass on each state. Production has since moved on for some of these — see the production row at the bottom for what actually ships", [
+          ["workV2",   "advancing soft front, textured wake, quantised ticks · production `work` went sandpile instead"],
+          ["faultV2",  "collapsing horizon + afterglow · production `fault` is this without the scorch buffer"],
+          ["recallV2", "gradient wedge, each memory flares then cools · production `recall` went DLA instead"],
+          ["netV2",    "charge travels along the links · production `net` went sandpile instead"],
+          ["sleepV2",  "slow dim swell under the twinkle · production `sleep` is still the plain twinkle"],
         ]],
         ["Track 2 — one critical field, many forcings", "sandpile physics; only the pour point differs between states", [
           ["pileListen", "barely fed — micro-topples ARE the twinkle"],
@@ -101,8 +97,17 @@
           ["interference", "each participant is a source; talking = waves interfering"],
           ["flow",         "curl-noise advection — divergence-free current"],
         ]],
-        ["Reference — the ones that already work", "for direct comparison", [
-          ["listen", ""], ["think", ""], ["pulse", ""], ["sigil", "identity, static by design"],
+        ["Production table — all ten scenes the app can actually run", "the complete DotScene union from engine.ts. Five of these are now the same function as a lab tile above — that is the promotion, not a coincidence", [
+          ["sigil",  "identity, static by design"],
+          ["listen", "≡ pileListen"],
+          ["think",  "≡ pileThink"],
+          ["recall", "≡ dla"],
+          ["work",   "≡ pileWork"],
+          ["net",    "≡ pileNet"],
+          ["pulse",  "rings leaving the centre — still the most refined of the originals"],
+          ["sleep",  "the well nearly out, one dot every few seconds"],
+          ["fault",  "collapsing horizon; monochrome by law"],
+          ["fill",   "a held quantity, not a process — never animates. level = 0.5 here"],
         ]],
       ];
 
@@ -133,7 +138,7 @@
               sizes.appendChild(cv);
               const panel = registerPanel(cv, {
                 seed: SEED, cell: CELL[s], bloom: bloomOn ? 1 : 0,
-                breath: scene === "sigil",
+                breath: scene === "sigil", level: 0.5,
               });
               if (colorOn) panel.enableMagnitude(inkOn ? MAGNITUDE_LUT_INKFLOOR : MAGNITUDE_LUT);
               else panel.disableMagnitude();

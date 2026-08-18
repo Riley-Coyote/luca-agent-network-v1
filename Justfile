@@ -341,6 +341,18 @@ mesh-e2e-confidence:
     cargo run -p buzz-relay --example mesh_admission_smoke
     cargo run -p buzz-relay --example mesh_agent_e2e
 
+# Build the sandpile lab into one self-contained HTML file (no dev server)
+dot-lab:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    node {{desktop_dir}}/scripts/build-dot-lab.mjs
+
+# Build the identity-glyph lab into one self-contained HTML file (no dev server)
+glyph-lab:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    node {{desktop_dir}}/scripts/build-glyph-lab.mjs
+
 # Take desktop screenshots using the mock bridge
 desktop-screenshot *ARGS:
     #!/usr/bin/env bash
