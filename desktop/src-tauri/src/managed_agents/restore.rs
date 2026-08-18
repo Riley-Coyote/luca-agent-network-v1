@@ -62,7 +62,9 @@ pub fn backfill_persona_snapshots(app: &tauri::AppHandle) -> Result<(), String> 
         // persona leaves model/provider blank, the record's own configured
         // values are preserved — a blank persona must not clobber a
         // user-configured agent. See `apply_persona_snapshot`.
+        let old_pin = record.system_prompt.clone();
         super::persona_events::apply_persona_snapshot(record, persona);
+        super::persona_events::repin_soul(app, record, old_pin.as_deref());
         record.updated_at = util::now_iso();
         changed = true;
     }
@@ -180,7 +182,9 @@ pub async fn restore_managed_agents_on_launch(
             let Some(persona) = personas_for_snapshot.iter().find(|p| p.id == persona_id) else {
                 continue;
             };
+            let old_pin = record.system_prompt.clone();
             super::persona_events::apply_persona_snapshot(record, persona);
+            super::persona_events::repin_soul(app, record, old_pin.as_deref());
             record.updated_at = util::now_iso();
             changed = true;
         }

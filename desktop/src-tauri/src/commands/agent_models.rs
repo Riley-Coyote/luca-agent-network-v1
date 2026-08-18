@@ -813,7 +813,19 @@ pub async fn update_managed_agent(
             record.provider = provider_update;
         }
         if let Some(prompt_update) = input.system_prompt {
-            record.system_prompt = prompt_update;
+            // `system_prompt` stays the pin — it is what a runtime with no
+            // agent folder receives, and the basis the persona re-pin rule
+            // compares against. The same edit is mirrored into `soul.md` so
+            // the folder does not silently disagree with the dialog the owner
+            // just used.
+            record.system_prompt = prompt_update.clone();
+            if let Err(error) = crate::luca::resident_documents::apply_pin_edit(
+                &app,
+                record,
+                prompt_update.as_deref(),
+            ) {
+                eprintln!("buzz-desktop: resident-documents: pin edit failed: {error}");
+            }
         }
         if let Some(parallelism) = input.parallelism {
             record.parallelism = parallelism;

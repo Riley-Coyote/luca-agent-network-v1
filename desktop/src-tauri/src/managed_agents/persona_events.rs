@@ -507,5 +507,32 @@ pub fn apply_persona_snapshot(record: &mut ManagedAgentRecord, persona: &AgentDe
         .retain(|k, v| persona.env_vars.get(k) != Some(v));
     record.persona_source_version = Some(snapshot.source_version);
 }
+
+/// Carry a persona re-pin into the resident's agent folder.
+///
+/// [`apply_persona_snapshot`] is pure and `AppHandle`-free on purpose — it is
+/// also applied to a *clone* inside `spawn_hash::spawn_config_hash`, where
+/// touching the disk would be wrong. So the folder half is a separate call
+/// each real apply site makes right after it, passing the record's
+/// `system_prompt` from *before* the snapshot as `old_pin`.
+///
+/// The rule: rewrite `soul.md` from the new pin when the folder has no soul,
+/// or when its content is exactly the old pin — i.e. it is still the mirror
+/// of the pin that seeded it, so following the persona is what the owner
+/// expects. If it differs, the owner has edited it, and an owner's words
+/// outrank a definition's; the pin still updates, the soul does not.
+///
+/// Failures are logged, never propagated: a persona re-pin must not be able
+/// to block a spawn.
+pub fn repin_soul(app: &tauri::AppHandle, record: &mut ManagedAgentRecord, old_pin: Option<&str>) {
+    if let Err(error) = crate::luca::resident_documents::repin_soul_for_record(app, record, old_pin)
+    {
+        eprintln!(
+            "buzz-desktop: resident-documents: re-pin for {} failed: {error}",
+            record.name
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests;

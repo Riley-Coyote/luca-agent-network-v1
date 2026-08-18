@@ -108,8 +108,15 @@ pub(crate) fn spawn_config_hash(
     // resolved: a blank record relay spawns on the workspace relay, so a
     // workspace relay change must trip the badge.
     crate::relay::effective_agent_relay_url(&record.relay_url, workspace_relay).hash(&mut hasher);
-    // Prompt and runtime-layered team instructions use the same resolver as spawn.
-    effective_spawn_prompt(record).hash(&mut hasher);
+    // Prompt basis: a resident with an agent folder spawns on the assembled
+    // documents, so the folder's content hash is what can drift; a record
+    // without one still spawns on the pin (`system_prompt`), same resolver as
+    // spawn. Hashing the persisted `documents_hash` keeps this pure — the
+    // store refreshes it from disk on every write and right before spawn.
+    match record.documents_hash.as_deref() {
+        Some(documents_hash) => documents_hash.hash(&mut hasher),
+        None => effective_spawn_prompt(record).hash(&mut hasher),
+    }
     effective_team_instructions(record, teams).hash(&mut hasher);
     record.model.hash(&mut hasher);
     record.provider.hash(&mut hasher);

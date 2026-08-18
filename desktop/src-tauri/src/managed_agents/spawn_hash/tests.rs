@@ -56,6 +56,8 @@ fn record() -> ManagedAgentRecord {
         definition_respond_to_allowlist: Vec::new(),
         definition_parallelism: None,
         relay_mesh: None,
+        documents_dir: None,
+        documents_hash: None,
     }
 }
 
@@ -146,6 +148,52 @@ fn record_prompt_edit_changes_hash() {
     assert_ne!(
         spawn_config_hash(&rec, &[], &[], "wss://ws.example", &Default::default()),
         spawn_config_hash(&edited, &[], &[], "wss://ws.example", &Default::default())
+    );
+}
+
+#[test]
+fn documents_hash_is_the_prompt_basis_when_the_folder_exists() {
+    // A resident with an agent folder spawns on the folder, so the folder's
+    // content hash is what drifts — and the pin (`system_prompt`) no longer
+    // moves the badge on its own.
+    let mut with_folder = record();
+    with_folder.documents_dir = Some("residents/x".into());
+    with_folder.documents_hash = Some("aaaa".into());
+    let mut edited_docs = with_folder.clone();
+    edited_docs.documents_hash = Some("bbbb".into());
+    assert_ne!(
+        spawn_config_hash(
+            &with_folder,
+            &[],
+            &[],
+            "wss://ws.example",
+            &Default::default()
+        ),
+        spawn_config_hash(
+            &edited_docs,
+            &[],
+            &[],
+            "wss://ws.example",
+            &Default::default()
+        )
+    );
+    let mut edited_pin = with_folder.clone();
+    edited_pin.system_prompt = Some("Edited pin.".into());
+    assert_eq!(
+        spawn_config_hash(
+            &with_folder,
+            &[],
+            &[],
+            "wss://ws.example",
+            &Default::default()
+        ),
+        spawn_config_hash(
+            &edited_pin,
+            &[],
+            &[],
+            "wss://ws.example",
+            &Default::default()
+        )
     );
 }
 

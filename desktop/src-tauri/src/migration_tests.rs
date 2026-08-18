@@ -211,12 +211,20 @@ fn sync_files(canonical: &Path, worktree: &Path) -> u32 {
     synced
 }
 
+/// Every shared file plus every shared directory becomes one symlink, so the
+/// expected count is derived rather than hard-coded — adding an entry to
+/// either list must not require editing five assertions.
+#[cfg(unix)]
+fn expected_sync_count() -> u32 {
+    (SHARED_AGENT_FILES.len() + SHARED_AGENT_DIRS.len()) as u32
+}
+
 #[cfg(unix)]
 #[test]
 fn sync_creates_symlinks_to_fresh_worktree() {
     let (_parent, canonical, worktree) = setup_sync_layout();
     let synced = sync_files(&canonical, &worktree);
-    assert_eq!(synced, 4);
+    assert_eq!(synced, expected_sync_count());
     for rel in SHARED_AGENT_FILES {
         let dst = worktree.join(rel);
         assert!(dst.is_symlink(), "{rel} should be a symlink");
@@ -244,7 +252,7 @@ fn sync_replaces_existing_files_with_symlinks() {
 
     let synced = sync_files(&canonical, &worktree);
 
-    assert_eq!(synced, 4);
+    assert_eq!(synced, expected_sync_count());
     for rel in SHARED_AGENT_FILES {
         let dst = worktree.join(rel);
         assert!(
@@ -263,7 +271,7 @@ fn sync_replaces_existing_files_with_symlinks() {
 #[test]
 fn sync_preserves_correct_symlinks() {
     let (_parent, canonical, worktree) = setup_sync_layout();
-    assert_eq!(sync_files(&canonical, &worktree), 4);
+    assert_eq!(sync_files(&canonical, &worktree), expected_sync_count());
     assert_eq!(sync_files(&canonical, &worktree), 0);
     for rel in SHARED_AGENT_FILES {
         let dst = worktree.join(rel);
@@ -282,7 +290,7 @@ fn sync_replaces_wrong_symlinks() {
         std::os::unix::fs::symlink(&wrong_target, worktree.join(rel)).unwrap();
     }
     let synced = sync_files(&canonical, &worktree);
-    assert_eq!(synced, 4);
+    assert_eq!(synced, expected_sync_count());
     for rel in SHARED_AGENT_FILES {
         assert_eq!(
             std::fs::read_link(worktree.join(rel)).unwrap(),
@@ -301,7 +309,7 @@ fn sync_handles_broken_symlinks() {
         std::os::unix::fs::symlink(&broken_target, worktree.join(rel)).unwrap();
     }
     let synced = sync_files(&canonical, &worktree);
-    assert_eq!(synced, 4);
+    assert_eq!(synced, expected_sync_count());
     for rel in SHARED_AGENT_FILES {
         let dst = worktree.join(rel);
         assert!(dst.is_symlink());

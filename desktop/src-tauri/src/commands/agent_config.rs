@@ -659,6 +659,8 @@ mod tests {
             agent_command_override: None,
             persona_source_version: None,
             provider: None,
+            documents_dir: None,
+            documents_hash: None,
         }
     }
 

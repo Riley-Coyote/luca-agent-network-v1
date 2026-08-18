@@ -363,7 +363,11 @@ pub(super) async fn start_local_agent_with_preflight(
         let personas = load_personas(&app).unwrap_or_default();
         if let Some(persona_id) = record.persona_id.clone() {
             if let Some(persona) = personas.iter().find(|p| p.id == persona_id) {
+                let old_pin = record.system_prompt.clone();
                 crate::managed_agents::persona_events::apply_persona_snapshot(record, persona);
+                // Carry the new pin into `soul.md` unless the owner has
+                // edited it — see `persona_events::repin_soul`.
+                crate::managed_agents::persona_events::repin_soul(&app, record, old_pin.as_deref());
                 record.updated_at = crate::util::now_iso();
             }
         }
@@ -761,7 +765,7 @@ pub async fn create_managed_agent(
             linked_persona.as_ref(),
         )?;
 
-        let record = crate::managed_agents::ManagedAgentRecord {
+        let mut record = crate::managed_agents::ManagedAgentRecord {
             pubkey: pubkey.clone(),
             name: name.clone(),
             persona_id: requested_persona_id.clone(),
@@ -846,7 +850,22 @@ pub async fn create_managed_agent(
             } else {
                 relay_mesh.clone()
             },
+            documents_dir: None,
+            documents_hash: None,
         };
+
+        // Give the new resident its agent folder and seed `soul.md` from the
+        // prompt we just pinned, so the two agree from the first launch. A
+        // folder that cannot be created is not fatal to agent creation — the
+        // boot migration converges on it next launch.
+        let seed_prompt = record.system_prompt.clone();
+        if let Err(error) = crate::luca::resident_documents::seed_soul_if_absent(
+            &app,
+            &mut record,
+            seed_prompt.as_deref(),
+        ) {
+            eprintln!("buzz-desktop: resident-documents: seed on create failed: {error}");
+        }
 
         records.push(record);
 

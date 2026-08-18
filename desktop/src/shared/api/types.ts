@@ -382,6 +382,19 @@ export type ManagedAgent = {
   backendAgentId: string | null;
   /** Exact secret-free native identity bound to this resident, when imported. */
   nativeRuntimeBinding: RuntimeBinding | null;
+  /**
+   * This resident's agent folder, relative to the app data dir
+   * (`residents/<pubkey>`). `null` for key-less definitions and for records
+   * the boot migration has not materialized yet. See
+   * `shared/api/tauriResidentDocuments.ts`.
+   */
+  documentsDir: string | null;
+  /**
+   * Content hash over every document and extra file in `documentsDir`.
+   * Changes on any write, so a surface can react to the folder without
+   * re-reading it.
+   */
+  documentsHash: string | null;
   /** Who the agent should respond to. Maps to `buzz-acp --respond-to`. */
   respondTo: RespondToMode;
   /**

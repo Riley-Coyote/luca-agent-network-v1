@@ -426,7 +426,7 @@ pub async fn confirm_agent_snapshot_import(
 
         // Build the managed agent record — no machine-local commands, no
         // secrets, no lineage from the snapshot.
-        let record = ManagedAgentRecord {
+        let mut record = ManagedAgentRecord {
             pubkey: pubkey.clone(),
             name: display_name.clone(),
             display_name: None,
@@ -485,7 +485,20 @@ pub async fn confirm_agent_snapshot_import(
             relay_mesh: None,
             runtime: snapshot.definition.runtime.clone(),
             name_pool: snapshot.definition.name_pool.clone(),
+            documents_dir: None,
+            documents_hash: None,
         };
+
+        // Same seed as agent create: the imported definition's prompt becomes
+        // this resident's `soul.md` so the folder is populated on arrival.
+        let seed_prompt = record.system_prompt.clone();
+        if let Err(error) = crate::luca::resident_documents::seed_soul_if_absent(
+            &app,
+            &mut record,
+            seed_prompt.as_deref(),
+        ) {
+            eprintln!("buzz-desktop: resident-documents: seed on import failed: {error}");
+        }
 
         records.push(record.clone());
         save_managed_agents(&app, &records)?;

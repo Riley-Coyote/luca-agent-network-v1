@@ -220,6 +220,11 @@ export type RawManagedAgent = {
   backend: ManagedAgentBackend;
   backend_agent_id: string | null;
   native_runtime_binding?: RuntimeBinding | null;
+  // The agent folder (`residents/<pubkey>`) and its content hash. Optional:
+  // a record only gains them once the boot migration or a create has
+  // materialized the folder.
+  documents_dir?: string | null;
+  documents_hash?: string | null;
   // Optional: pre-feature mock fixtures may omit these. Mapped to
   // `"owner-only"` / `[]` in `fromRawManagedAgent`.
   respond_to?: ManagedAgent["respondTo"];
@@ -826,6 +831,8 @@ export function fromRawManagedAgent(agent: RawManagedAgent): ManagedAgent {
     backend: agent.backend,
     backendAgentId: agent.backend_agent_id,
     nativeRuntimeBinding: agent.native_runtime_binding ?? null,
+    documentsDir: agent.documents_dir ?? null,
+    documentsHash: agent.documents_hash ?? null,
     // Fallbacks for pre-feature mocks/fixtures that don't carry these fields.
     // Real agent records always include them (defaulted server-side).
     respondTo: agent.respond_to ?? "owner-only",

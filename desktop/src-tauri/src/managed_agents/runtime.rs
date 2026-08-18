@@ -1576,6 +1576,8 @@ pub fn build_managed_agent_summary(
         backend: record.backend.clone(),
         backend_agent_id: record.backend_agent_id.clone(),
         native_runtime_binding: record.native_runtime_binding.clone(),
+        documents_dir: record.documents_dir.clone(),
+        documents_hash: record.documents_hash.clone(),
         status,
         pid,
         created_at: record.created_at.clone(),
@@ -1686,6 +1688,33 @@ fn abort_spawned_child(child: &mut std::process::Child) {
 /// Returns the child process and log path on success. The caller is responsible
 /// for updating `ManagedAgentRecord` fields and inserting into the runtimes map.
 ///
+/// The system prompt a resident with an agent folder spawns on: the folder,
+/// loaded from disk and assembled in slot order. A folder that cannot be read
+/// (or says nothing) yields `None`, and the harness runs on its base prompt
+/// alone — the resident still starts.
+fn assembled_documents_prompt(app: &AppHandle, record: &ManagedAgentRecord) -> Option<String> {
+    let dir = match crate::luca::resident_documents::resident_dir(app, &record.pubkey) {
+        Ok(dir) => dir,
+        Err(error) => {
+            eprintln!(
+                "buzz-desktop: resident-documents: no folder path for {}: {error}",
+                record.name
+            );
+            return None;
+        }
+    };
+    match crate::luca::resident_documents::load(&dir) {
+        Ok(loaded) => crate::luca::resident_documents::assemble_system_prompt(&loaded),
+        Err(error) => {
+            eprintln!(
+                "buzz-desktop: resident-documents: could not read {}'s folder at spawn: {error}",
+                record.name
+            );
+            None
+        }
+    }
+}
+
 /// `owner_hex`: the workspace owner's pubkey, used as a fallback for legacy
 /// records that have no NIP-OA `auth_tag`. See `build_respond_to_env`.
 pub fn spawn_agent_child(
@@ -2089,7 +2118,13 @@ pub fn spawn_agent_child(
     // use the shared
     // resolver: agent → persona → global → None, so a global-default-only agent
     // spawns with the correct provider/model env.
-    let effective_prompt = super::spawn_hash::effective_spawn_prompt(record);
+    // A resident with an agent folder spawns on the folder — soul → convictions
+    // → self-model → user → instructions, assembled with caps — and the pin
+    // (`system_prompt`) is only what a record without a folder receives.
+    let effective_prompt = match record.documents_dir.as_deref() {
+        Some(_) => assembled_documents_prompt(app, record),
+        None => super::spawn_hash::effective_spawn_prompt(record),
+    };
     let (effective_model, effective_provider) =
         crate::managed_agents::resolve_effective_model_provider(record, &personas, &global);
 
@@ -2492,6 +2527,20 @@ pub fn start_managed_agent_process(
         }
 
         record.runtime_pid = None;
+    }
+
+    // The agent folder is what this spawn will actually read, so re-derive its
+    // hash from disk first: the stamped spawn hash then matches the current
+    // files, and an out-of-band edit before start does not badge the moment
+    // the resident comes up. Failure to read the folder is not fatal — the
+    // spawn falls back to the record's pin below.
+    if record.documents_dir.is_some() {
+        if let Err(error) = crate::luca::resident_documents::refresh_documents_hash(app, record) {
+            eprintln!(
+                "buzz-desktop: resident-documents: hash refresh for {} failed before spawn: {error}",
+                record.name
+            );
+        }
     }
 
     let process = spawn_agent_child(app, record, owner_hex)?;

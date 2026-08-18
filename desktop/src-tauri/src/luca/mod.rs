@@ -56,6 +56,7 @@ pub(crate) mod owner_identity_recovery;
 mod reliability_f10;
 #[cfg(unix)]
 pub(crate) mod repository_bridge;
+pub(crate) mod resident_documents;
 pub(crate) mod resident_notebook;
 pub(crate) mod resident_registry;
 pub(crate) mod signing_broker;

@@ -137,6 +137,8 @@ impl AgentDefinition {
             definition_respond_to_allowlist: self.respond_to_allowlist,
             definition_parallelism: self.parallelism,
             relay_mesh: None,
+            documents_dir: None,
+            documents_hash: None,
         }
     }
 }
@@ -403,6 +405,19 @@ pub struct ManagedAgentRecord {
     /// they are rewritten with this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relay_mesh: Option<RelayMeshConfig>,
+    /// This resident's agent folder, relative to the app data dir
+    /// (`residents/<pubkey>`). Relative on purpose: dev worktrees share one
+    /// `managed-agents.json` across differing absolute data dirs. `None` for
+    /// key-less definitions and for records the boot migration has not
+    /// materialized yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub documents_dir: Option<String>,
+    /// Content hash over every document and extra file in
+    /// [`Self::documents_dir`] (see `luca::resident_documents::documents_hash`).
+    /// Refreshed on every desktop write and at spawn, so a change to the folder
+    /// is visible without re-reading it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub documents_hash: Option<String>,
 }
 
 /// Typed relay-mesh configuration carried on a [`ManagedAgentRecord`].
@@ -506,6 +521,10 @@ pub struct ManagedAgentSummary {
     pub backend: BackendKind,
     pub backend_agent_id: Option<String>,
     pub native_runtime_binding: Option<super::RuntimeBinding>,
+    /// Relative agent-folder path (`residents/<pubkey>`), once the folder exists.
+    pub documents_dir: Option<String>,
+    /// Content hash of the folder; the spawn drift basis when set.
+    pub documents_hash: Option<String>,
     pub status: String,
     pub pid: Option<u32>,
     pub created_at: String,

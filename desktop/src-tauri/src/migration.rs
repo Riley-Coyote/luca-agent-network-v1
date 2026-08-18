@@ -37,7 +37,14 @@ const SHARED_AGENT_FILES: &[&str] = &[
 
 /// Directories symlinked from worktree data directories to the canonical
 /// dev data directory. Each entry becomes a single directory symlink.
-const SHARED_AGENT_DIRS: &[&str] = &["agents/teams"];
+///
+/// `residents` holds the agent folders (`luca::resident_documents`). It is
+/// shared for the same reason `agents/managed-agents.json` is: worktree dev
+/// instances run against one set of resident records, and a record's
+/// `documents_dir` points at a folder those records all expect to find.
+/// Without the link, a worktree would silently grow a second, empty folder
+/// per resident and its `documents_hash` would disagree with canonical's.
+const SHARED_AGENT_DIRS: &[&str] = &["agents/teams", "residents"];
 
 /// Returns `true` when `name` is a dev data dir name — i.e. it is exactly the
 /// canonical dev identifier or a worktree variant separated by a `.` (e.g.
@@ -190,6 +197,12 @@ fn run_boot_migrations_inner(app: &tauri::AppHandle, reset_completed: bool) {
     // upstream Buzz's team-channel pool (24) would otherwise spawn 24 ACP
     // subprocesses for one personal resident before anything could correct it.
     right_size_agent_parallelism(app);
+    // Must also precede `restore_managed_agents_on_launch`: the folder is what
+    // a spawn assembles the resident's prompt from, so it has to exist — and
+    // carry the seeded soul — before the first restore of the launch reads a
+    // record. Runs last because it reads `system_prompt`, which the persona
+    // and team reconciles above may still rewrite.
+    materialize_resident_documents(app);
 }
 
 /// Copy one-time app state from the legacy app identifier directory to
@@ -1380,6 +1393,8 @@ mod backfill;
 pub use backfill::backfill_standalone_agents;
 mod detach;
 pub use detach::detach_directory_backed_teams;
+mod documents;
+pub use documents::materialize_resident_documents;
 mod parallelism;
 pub use parallelism::right_size_agent_parallelism;
 

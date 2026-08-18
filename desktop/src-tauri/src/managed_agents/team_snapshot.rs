@@ -308,6 +308,8 @@ mod tests {
             definition_respond_to_allowlist: vec![],
             definition_parallelism: None,
             relay_mesh: None,
+            documents_dir: None,
+            documents_hash: None,
         }
     }
 
