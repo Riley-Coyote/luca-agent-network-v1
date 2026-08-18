@@ -528,7 +528,7 @@ export const MessageRow = React.memo(
       if (interruptedOwnerReceipt) {
         return (
           <p
-            className="mt-1 text-[0.6875rem] leading-4 text-muted-foreground/55"
+            className="mt-1 text-2xs leading-4 text-muted-foreground/55"
             data-testid="managed-interrupted-status"
             role="status"
           >
@@ -932,9 +932,12 @@ export const MessageRow = React.memo(
             <span aria-hidden className="w-4 shrink-0" />
           ) : null}
           {showResidentMarkGutter && message.pubkey ? (
-            <span className="mt-0.5 flex w-5 shrink-0 justify-center">
+            // 21 px: a multiple of the glyph's 7-cell edge, so the mark's cells
+            // sit on whole pixels at 1x and 2x and the live mark can redraw the
+            // resting glyph seamlessly. The person's disc shares the slot.
+            <span className="mt-0.5 flex w-[21px] shrink-0 justify-center">
               {isContinuation ? (
-                <span aria-hidden className="size-5" />
+                <span aria-hidden className="size-[21px]" />
               ) : message.isAgent ? (
                 <ResidentIdentityMark
                   accessibleName={message.author}
@@ -942,7 +945,7 @@ export const MessageRow = React.memo(
                   live={residentMarkLive}
                   personaId={message.residentPersonaId}
                   publicKey={message.pubkey}
-                  size={20}
+                  size={21}
                 />
               ) : (
                 <UserAvatar

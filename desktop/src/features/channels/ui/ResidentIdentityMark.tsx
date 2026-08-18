@@ -87,7 +87,12 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
       {...accessibilityProps}
     >
       {filamentMode ? (
+        // The live mark is the resting glyph — same box, same edge, same
+        // corners — with a light moving through it. No quiet zone, no bloom:
+        // nothing about the mark says "thinking" except the fill.
         <FilamentMark
+          bloom={false}
+          fit="box"
           mode={filamentMode}
           seed={residentGlyphSeed(publicKey, lucaPubkey)}
           size={size}

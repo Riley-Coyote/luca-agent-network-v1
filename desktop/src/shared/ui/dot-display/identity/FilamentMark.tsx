@@ -108,6 +108,32 @@ function opticalAlpha(base: number, size: number): number {
   return Math.min(1, base * (1 + 0.14 * lift));
 }
 
+/**
+ * How the glyph sits in its box.
+ *
+ * `quiet` is the lab's phosphor rendering: integer cells on a lattice with a
+ * one-cell quiet zone, rounded, bloomed. `box` is the conversation mark: the
+ * exact geometry of the resting SVG glyph — cells at box/edge, corner radius
+ * 0.3 cell, no quiet zone — so the mark does not change size or edge when it
+ * goes live; only the light inside it moves.
+ */
+export type FilamentFit = "quiet" | "box";
+
+/** Matches `CORNER_LARGE` in glyphToSvgPath: the resting glyph's outer corner. */
+const BOX_CORNER_RATIO = 0.3;
+
+/**
+ * Cells at exactly box/edge. Pick a size that is a multiple of the glyph edge
+ * (7) so cells land on whole device pixels at every common density — 21 px is
+ * 3 px cells at 1x and 6 px at 2x — and adjacent cells abut with no seam and
+ * no need for overlap. A fractional size still renders, with anti-aliased
+ * seams at the dim level.
+ */
+function boxMetrics(glyph: IdentityGlyph, size: number, dpr: number) {
+  const extent = Math.round(size * dpr);
+  return { cell: extent / glyph.edge, originX: 0, originY: 0, extent };
+}
+
 function paint(
   ctx: CanvasRenderingContext2D,
   glyph: IdentityGlyph,
@@ -116,23 +142,28 @@ function paint(
   ink: string,
   alphaFor: (k: number) => number,
   bloom: boolean,
+  fit: FilamentFit,
 ) {
-  const { cell, originX, originY, extent } = glyphMetrics(glyph, {
-    size,
-    dpr,
-  });
+  const { cell, originX, originY, extent } =
+    fit === "box"
+      ? boxMetrics(glyph, size, dpr)
+      : glyphMetrics(glyph, { size, dpr });
   ctx.clearRect(0, 0, extent, extent);
-  const radius = cell * cornerRatio(size);
+  const radius =
+    cell * (fit === "box" ? BOX_CORNER_RATIO : cornerRatio(size));
+  // Box fit lays cells on whole pixels, so neighbours meet exactly; the quiet
+  // lab fit keeps its half-pixel overlap to hide lattice seams.
+  const overlap = fit === "box" ? 0 : OVERLAP;
   const n = glyph.edge;
   const draw = (x: number, y: number, alpha: number, blur: number) => {
     const north = glyphLit(glyph, x, y - 1);
     const s = glyphLit(glyph, x, y + 1);
     const w = glyphLit(glyph, x - 1, y);
     const e = glyphLit(glyph, x + 1, y);
-    const left = originX + x * cell - (w ? OVERLAP : 0);
-    const top = originY + y * cell - (north ? OVERLAP : 0);
-    const right = originX + (x + 1) * cell + (e ? OVERLAP : 0);
-    const bottom = originY + (y + 1) * cell + (s ? OVERLAP : 0);
+    const left = originX + x * cell - (w ? overlap : 0);
+    const top = originY + y * cell - (north ? overlap : 0);
+    const right = originX + (x + 1) * cell + (e ? overlap : 0);
+    const bottom = originY + (y + 1) * cell + (s ? overlap : 0);
     const tl = !north && !w ? radius : 0;
     const tr = !north && !e ? radius : 0;
     const br = !s && !e ? radius : 0;
@@ -198,6 +229,7 @@ export function FilamentMark({
   mode = "current",
   motion = "traverse",
   bloom = true,
+  fit = "quiet",
   className,
 }: {
   seed: string;
@@ -205,6 +237,7 @@ export function FilamentMark({
   mode?: FilamentMode;
   motion?: FilamentMotion;
   bloom?: boolean;
+  fit?: FilamentFit;
   className?: string;
 }) {
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
@@ -219,7 +252,10 @@ export function FilamentMark({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const dpr = Math.max(1, Math.round(window.devicePixelRatio || 1));
-    const { extent } = glyphMetrics(glyph, { size, dpr });
+    const { extent } =
+      fit === "box"
+        ? boxMetrics(glyph, size, dpr)
+        : glyphMetrics(glyph, { size, dpr });
     canvas.width = extent;
     canvas.height = extent;
     canvas.style.width = `${size}px`;
@@ -388,12 +424,12 @@ export function FilamentMark({
           }
         }
       }
-      paint(ctx, glyph, size, dpr, ink, alphaFor, bloom);
+      paint(ctx, glyph, size, dpr, ink, alphaFor, bloom, fit);
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [bloom, glyph, graph, ink, mode, motion, size]);
+  }, [bloom, fit, glyph, graph, ink, mode, motion, size]);
 
   return (
     <canvas
