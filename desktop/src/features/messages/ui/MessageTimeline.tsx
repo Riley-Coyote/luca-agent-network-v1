@@ -22,7 +22,7 @@ import { ChannelIntroBlock, type ChannelIntro } from "./ChannelIntroBlock";
 import { TimelineSkeleton, useTimelineSkeletonRows } from "./TimelineSkeleton";
 import { TimelineMessageList } from "./TimelineMessageList";
 import type { TimelineVirtualizerApi } from "./TimelineMessageList";
-import { useAnchoredScroll } from "./useAnchoredScroll";
+import { isAtBottomNow, useAnchoredScroll } from "./useAnchoredScroll";
 import { useLoadOlderOnScroll } from "./useLoadOlderOnScroll";
 import { useBufferedTimelineMessages } from "./useBufferedTimelineMessages";
 import {
@@ -490,6 +490,50 @@ const MessageTimelineBase = React.forwardRef<
     firstUnreadMessageId !== null &&
     !showTimelineSkeleton;
   if (showUnreadPill) hasShownPillRef.current = true;
+  // The pill points up at unread history the reader cannot see. If the reader
+  // is at the floor and the oldest unread row is already on screen — a short
+  // conversation, or a few new lines at the tail of a long one — there is
+  // nothing to jump to and the pill is noise. The floor is measured live from
+  // the DOM, not taken from state: on a fresh channel the scroller sits at the
+  // top for a commit before the anchor pins it, and that moment must not
+  // count. Rows the virtualizer has not realized are, by construction, off
+  // screen.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: virtualizerRenderVersion re-checks once the virtualizer realizes rows near the fold
+  React.useLayoutEffect(() => {
+    if (!showUnreadPill || !firstUnreadMessageId) return;
+    const container = activeScrollContainerRef.current;
+    if (!container) return;
+    const dismissIfOldestUnreadVisible = () => {
+      if (container.clientHeight === 0 || !isAtBottomNow(container)) return;
+      const row = container.querySelector(
+        `[data-message-id="${CSS.escape(firstUnreadMessageId)}"]`,
+      );
+      if (!row) return;
+      const rowRect = row.getBoundingClientRect();
+      const fold = container.getBoundingClientRect();
+      if (rowRect.height === 0) return;
+      if (rowRect.top >= fold.top - 1 && rowRect.bottom <= fold.bottom + 1) {
+        setIsUnreadPillDismissed(true);
+      }
+    };
+    // The anchor pins the floor in its own layout pass and settles a frame
+    // later; check after that settle, never in the same commit.
+    const settle = requestAnimationFrame(() => {
+      requestAnimationFrame(dismissIfOldestUnreadVisible);
+    });
+    container.addEventListener("scroll", dismissIfOldestUnreadVisible, {
+      passive: true,
+    });
+    return () => {
+      cancelAnimationFrame(settle);
+      container.removeEventListener("scroll", dismissIfOldestUnreadVisible);
+    };
+  }, [
+    activeScrollContainerRef,
+    firstUnreadMessageId,
+    showUnreadPill,
+    virtualizerRenderVersion,
+  ]);
   const handleJumpToOldestUnread = React.useCallback(() => {
     setIsUnreadPillDismissed(true);
     if (firstUnreadMessageId) {

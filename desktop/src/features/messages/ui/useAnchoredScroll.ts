@@ -157,7 +157,8 @@ type UseAnchoredScrollResult = {
   onVirtualizerAtBottomStateChange: (atBottom: boolean) => void;
 };
 
-function isAtBottomNow(
+/** Live DOM measure: within `AT_BOTTOM_THRESHOLD_PX` of the scroll floor. */
+export function isAtBottomNow(
   container: Pick<
     HTMLDivElement,
     "scrollHeight" | "clientHeight" | "scrollTop"

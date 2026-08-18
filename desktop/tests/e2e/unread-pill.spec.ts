@@ -209,4 +209,26 @@ test.describe("unread pill & divider", () => {
     await expect(page.getByTestId("message-unread-pill")).toHaveCount(0);
     await expect(page.getByTestId("message-unread-divider")).toHaveCount(0);
   });
+
+  test("05-pill-hidden-when-oldest-unread-is-on-screen", async ({ page }) => {
+    await installMockBridge(page);
+    await page.goto("/");
+
+    await page.getByTestId("channel-general").click();
+    await expect(page.getByTestId("chat-title")).toHaveText("general");
+    await waitForMockLiveSubscription(page, "general");
+
+    await page.getByTestId("channel-random").click();
+    await expect(page.getByTestId("chat-title")).toHaveText("random");
+
+    // Two new lines at the tail of a short conversation: opening the channel
+    // lands at the floor with both on screen. The divider marks them; the
+    // "jump to oldest unread" pill has nothing above the fold to jump to.
+    await emitUnreadMessages(page, 2);
+
+    await page.getByTestId("channel-general").click();
+    await expect(page.getByTestId("chat-title")).toHaveText("general");
+    await expect(page.getByTestId("message-unread-divider")).toBeInViewport();
+    await expect(page.getByTestId("message-unread-pill")).toHaveCount(0);
+  });
 });
