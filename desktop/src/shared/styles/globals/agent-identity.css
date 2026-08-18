@@ -11,16 +11,63 @@
   align-items: center;
   background: hsl(var(--mn-glass, var(--mn-floor)));
   border: 1px solid hsl(var(--mn-border-strong));
-  /* Circular, matching the human avatars (Avatar is `rounded-full`). A mixed
-   * shape language across identity marks reads as two different systems bolted
-   * together; one shape reads as one product. */
-  border-radius: 999px;
+  /* A squircle, NOT a circle — this reverses an earlier decision, so here is
+   * the reasoning.
+   *
+   * The old rule was to match the human avatars (Avatar is `rounded-full`) on
+   * the grounds that a mixed shape language reads as two systems bolted
+   * together. That held while the mark inside was a loose dot field, which can
+   * be cropped anywhere without losing anything. The identity glyph cannot: it
+   * spans all seven cells to the rim on every side, which is exactly what makes
+   * a column of residents scan at one optical weight. The largest square inside
+   * a circle is only 0.707 of its diameter, so keeping the circle meant either
+   * clipping the mark's corners or shrinking it to ~52% of the chip — and the
+   * app's commonest placement is 20px, where that is a 10px mark.
+   *
+   * A percentage radius scales with the chip, so the shape is identical at 20px
+   * and 56px. The residual cost is that resident marks are now rounded squares
+   * where people are circles. That is worth having on its own terms: in a
+   * network of people and residents, telling the two apart at a glance is
+   * information, and the same split is what Slack and Discord use for apps and
+   * servers versus humans. Revert by putting `999px` back and wrapping the mark
+   * size in `Math.SQRT1_2`. */
+  border-radius: 30%;
   display: inline-flex;
   height: var(--agent-specimen-size);
   justify-content: center;
   overflow: hidden;
   position: relative;
   width: var(--agent-specimen-size);
+}
+
+/* An idle resident breathes.
+ *
+ * The whole mark dims and lifts together — never individual cells, because a
+ * mark that twinkles is a mark you cannot recognise. The swing is deliberately
+ * shallow: a deep one would read as one resident being MORE PRESENT than
+ * another when both are merely idle. The phase comes from an inline
+ * `animation-delay` derived from the seed, so a column never pulses in
+ * lockstep. */
+@keyframes luca-identity-breath {
+  0%,
+  100% {
+    opacity: 0.86;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.luca-identity-breath {
+  animation: luca-identity-breath 4.2s ease-in-out infinite;
+}
+
+/* The mark stays legible; only the motion stops. */
+@media (prefers-reduced-motion: reduce) {
+  .luca-identity-breath {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 .agent-identity-specimen[data-custody="guest"] {

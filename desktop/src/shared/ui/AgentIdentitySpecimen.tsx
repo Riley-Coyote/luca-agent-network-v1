@@ -4,6 +4,7 @@ import { cn } from "@/shared/lib/cn";
 import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
 import type { DotScene } from "@/shared/ui/dot-display/engine";
 import { DotSigil } from "@/shared/ui/dot-display/DotSigil";
+import { IdentityMark } from "@/shared/ui/dot-display/identity/IdentityMark";
 
 export type AgentVisualState =
   | "present"
@@ -21,12 +22,21 @@ export type AgentIdentityCustody = "managed" | "guest" | "owner";
  * back when the state ends. No corner lamp, no "typing…", no badge sitting
  * beside the avatar — at rest you see who, and while they are busy you see what.
  *
- * `present` is therefore the static sigil (breathing, but never re-lighting
+ * `present` is therefore the identity glyph (breathing, but never re-lighting
  * individual cells: a mark that twinkles is a mark you cannot recognise), and
- * every other state is a live scene.
+ * every other state is a live dot-matrix scene. `present` is handled by
+ * `IdentityMark`, so it is excluded from this table rather than sitting in it
+ * as an entry nothing reads.
+ *
+ * The two are rendered differently on purpose. Identity is a *joined* glyph —
+ * continuous strokes with rounded terminals — and activity is a *dotted* field.
+ * Joined means who; dotted means what they are doing, readable at a glance
+ * across a column where some residents are resting and some are working.
  */
-const SCENE_FOR_STATE: Record<AgentVisualState, DotScene> = {
-  present: "sigil",
+const SCENE_FOR_STATE: Record<
+  Exclude<AgentVisualState, "present">,
+  DotScene
+> = {
   idle: "listen",
   thinking: "think",
   working: "work",
@@ -75,17 +85,26 @@ export function AgentIdentitySpecimen({
       style={{ "--agent-specimen-size": `${size}px` } as React.CSSProperties}
       title={`${accessibleName} · ${shortAgentFingerprint(publicKey)}`}
     >
-      <DotSigil
-        // A 2px pitch is what the system is tuned for at avatar scale. The chip
-        // is border-box with a 1px border, so the panel is inset by 2 — which
-        // still leaves a 9-cell lattice in the smallest (20px) placement, the
-        // minimum the mirrored 7-wide emblem needs plus its quiet zone.
-        breath={state === "present"}
-        cell={2}
-        scene={SCENE_FOR_STATE[state]}
-        seed={seed}
-        size={size - 2}
-      />
+      {state === "present" ? (
+        // The chip is border-box with a 1px border, so the mark is inset by 2
+        // and otherwise fills its slot. It has to: the mark spans all seven
+        // cells by construction, and the app's commonest placement is 20px —
+        // shrinking it to fit inside a circle left a 10px mark in a 20px chip,
+        // which reads as a speck in a frame. See `agent-identity.css` for why
+        // the chip is a squircle rather than a circle.
+        <IdentityMark breath seed={seed} size={size - 2} />
+      ) : (
+        <DotSigil
+          // A 2px pitch is what the system is tuned for at avatar scale. The
+          // chip is border-box with a 1px border, so the panel is inset by 2 —
+          // which still leaves a 9-cell lattice in the smallest (20px)
+          // placement, the minimum the 7-wide field needs plus its quiet zone.
+          cell={2}
+          scene={SCENE_FOR_STATE[state]}
+          seed={seed}
+          size={size - 2}
+        />
+      )}
     </span>
   );
 }
