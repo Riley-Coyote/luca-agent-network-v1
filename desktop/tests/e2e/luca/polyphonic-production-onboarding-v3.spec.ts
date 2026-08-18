@@ -44,7 +44,7 @@ async function begin(page: import("@playwright/test").Page) {
   ).toBeFocused();
 }
 
-test("the production setup uses the approved onboarding appearance palettes", async ({
+test("the setup card stays dark whatever appearance is chosen for the app", async ({
   page,
 }) => {
   await page.emulateMedia({ colorScheme: "dark" });
@@ -63,10 +63,11 @@ test("the production setup uses the approved onboarding appearance palettes", as
   const surface = page.getByTestId("polyphonic-setup-assistant");
   await expect(onboarding).toHaveAttribute("data-system-color-scheme", "dark");
 
+  // The choice is recorded for the app; the doorway keeps one mood.
   await page.getByRole("button", { name: "Light" }).click();
   await expect(onboarding).toHaveAttribute("data-system-color-scheme", "light");
-  await expect(onboarding).toHaveCSS("background-color", "rgb(233, 232, 227)");
-  await expect(surface).toHaveCSS("background-color", "rgb(246, 245, 241)");
+  await expect(onboarding).toHaveCSS("background-color", "rgb(6, 6, 8)");
+  await expect(surface).toHaveCSS("background-color", "rgb(20, 20, 22)");
 
   await page.getByRole("button", { name: "Dark" }).click();
   await expect(onboarding).toHaveAttribute("data-system-color-scheme", "dark");
@@ -270,9 +271,9 @@ test("large native inventories stay contained and imports do not start agents", 
   await expect(page.locator("h1:visible")).toHaveCount(1);
   await expect(page.getByPlaceholder("Search agents")).toHaveCSS(
     "background-color",
-    "rgb(241, 240, 236)",
+    "rgb(14, 14, 16)",
   );
-  await expect(inventory).toHaveCSS("background-color", "rgb(227, 226, 221)");
+  await expect(inventory).toHaveCSS("background-color", "rgb(10, 10, 12)");
   const pageOverflow = await page.evaluate(() => ({
     horizontal:
       document.documentElement.scrollWidth >

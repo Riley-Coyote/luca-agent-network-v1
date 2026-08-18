@@ -20,25 +20,7 @@ const READY_CODEX_RUNTIME = {
   login_hint: "Sign in to Codex",
 };
 
-const CARD = '[data-testid="polyphonic-setup-assistant"]';
-
-async function beginSetup(page: import("@playwright/test").Page) {
-  await installMockBridge(
-    page,
-    {
-      acpRuntimesCatalog: [READY_CODEX_RUNTIME],
-      nativeResidentDiscovery: { runtimes: [] },
-    },
-    { skipCommunitySeed: true, skipOnboardingSeed: true },
-  );
-  await page.goto("/?e2e=mock&machineOnboarding=1");
-  await page.getByRole("button", { name: "Begin setup" }).click();
-  await expect(page.getByTestId("polyphonic-owner-name")).toBeVisible();
-}
-
-test("the threshold names the application and the name field never seeds a key label", async ({
-  page,
-}) => {
+async function openDoor(page: import("@playwright/test").Page) {
   await installMockBridge(
     page,
     {
@@ -49,52 +31,69 @@ test("the threshold names the application and the name field never seeds a key l
   );
   await page.goto("/?e2e=mock&machineOnboarding=1");
   await expect(page.getByRole("heading", { name: "Polyphonic" })).toBeVisible();
+}
+
+test("the door names the application and the name field never seeds a key label", async ({
+  page,
+}) => {
+  await openDoor(page);
   await expect(page.getByRole("heading", { name: "Luca" })).toHaveCount(0);
-  await page.getByRole("button", { name: "Begin setup" }).click();
+  await page.getByTestId("polyphonic-door-begin").click();
   // The mock identity's display name is a shortened npub; the field must not
   // ask a new owner to delete their own key.
   await expect(page.getByTestId("polyphonic-owner-name")).toHaveValue("");
 });
 
-test("the setup card is sized by its chapter and tweens between heights", async ({
+test("the field is one object: it does not move between the door and the card", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await beginSetup(page);
-  const height = () =>
-    page.locator(CARD).evaluate((el) => el.getBoundingClientRect().height);
-  const welcome = await height();
-  await page.getByTestId("polyphonic-owner-name").fill("Riley");
+  await openDoor(page);
+  const field = page.getByTestId("polyphonic-onboarding-field");
+  await expect(field).toHaveCount(1);
+  const before = await field.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width) };
+  });
 
-  // Sample the card while it moves from the welcome chapter to the runtime
-  // chapter. A snap would show only the two end values.
-  const samples = await page.evaluate(async (selector) => {
-    const card = document.querySelector(selector) as HTMLElement;
-    const next = document.querySelector(
-      '[data-testid="polyphonic-setup-continue"]',
-    ) as HTMLElement;
-    const out: number[] = [];
-    next.click();
-    for (let i = 0; i < 16; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 40));
-      out.push(Math.round(card.getBoundingClientRect().height));
-    }
-    return out;
-  }, CARD);
-  await expect(page.getByRole("radio", { name: /Codex/ })).toBeVisible();
-  const runtime = await height();
-
-  expect(runtime).toBeGreaterThan(welcome + 40);
-  const between = samples.filter((h) => h > welcome + 4 && h < runtime - 4);
-  expect(between.length).toBeGreaterThan(1);
-  // Monotonic: no dip toward the floor before the query resolves.
-  for (let i = 1; i < samples.length; i += 1) {
-    expect(samples[i]).toBeGreaterThanOrEqual(samples[i - 1] - 1);
-  }
-  // Released back to auto so later content growth is measured, not fought.
+  await page.getByTestId("polyphonic-door-begin").click();
+  await expect(page.getByTestId("polyphonic-owner-name")).toBeVisible();
+  // Never unmounted, never remounted: same element, same place.
+  await expect(field).toHaveCount(1);
   await expect
-    .poll(() =>
-      page.locator(CARD).evaluate((el) => (el as HTMLElement).style.height),
+    .poll(async () =>
+      field.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return {
+          x: Math.round(r.x),
+          y: Math.round(r.y),
+          w: Math.round(r.width),
+        };
+      }),
     )
-    .toBe("");
+    .toEqual(before);
+  // The card mounted around it, in the frame's own geometry.
+  const pane = page.getByTestId("polyphonic-setup-pane");
+  const paneRect = await pane.evaluate((el) => el.getBoundingClientRect());
+  expect(
+    Math.abs(paneRect.left + paneRect.width / 2 - (before.x + before.w / 2)),
+  ).toBeLessThan(2);
+});
+
+test("the setup card is dark whatever the system scheme, and reads in the app's type", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await openDoor(page);
+  await page.getByTestId("polyphonic-door-begin").click();
+  const card = page.getByTestId("polyphonic-setup-assistant");
+  await expect(card).toHaveCSS("background-color", "rgb(20, 20, 22)");
+  await expect(page.getByTestId("polyphonic-onboarding")).toHaveCSS(
+    "background-color",
+    "rgb(6, 6, 8)",
+  );
+  const family = await page
+    .getByRole("heading", { name: "Bring your agents together." })
+    .evaluate((el) => getComputedStyle(el).fontFamily);
+  expect(family).toMatch(/Instrument Sans/);
 });

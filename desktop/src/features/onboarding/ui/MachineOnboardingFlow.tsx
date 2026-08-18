@@ -5,7 +5,6 @@ import {
   importIdentity,
   persistCurrentIdentity,
 } from "@/shared/api/tauriIdentity";
-import { Button } from "@/shared/ui/button";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 import { BackupStep } from "./BackupStep";
 import { DefaultConfigStep } from "./DefaultConfigStep";
@@ -14,7 +13,7 @@ import { OnboardingChrome } from "./OnboardingChrome";
 import { OnboardingFooterProvider } from "./OnboardingFooter";
 import { OnboardingSlideTransition } from "./OnboardingSlideTransition";
 import { SetupStep } from "./SetupStep";
-import { PolyphonicThresholdField } from "./PolyphonicThresholdField";
+import { PolyphonicDoor } from "./PolyphonicDoor";
 import { skipPolyphonicOnboardingForSession } from "../polyphonicOnboardingState";
 
 export type MachineOnboardingPage =
@@ -109,10 +108,8 @@ export function MachineOnboardingFlow({
 
   return (
     <div
-      className={`buzz-onboarding-neutral-theme buzz-startup-shell flex max-h-dvh items-start justify-center overflow-x-hidden overflow-y-auto px-4 text-foreground ${
-        page === "identity"
-          ? "buzz-onboarding-welcome py-8"
-          : "pb-28 pt-[106px]"
+      className={`buzz-onboarding-neutral-theme buzz-startup-shell flex max-h-dvh items-start justify-center overflow-x-hidden overflow-y-auto text-foreground ${
+        page === "identity" ? "" : "px-4 pb-28 pt-[106px]"
       }`}
       data-testid="machine-onboarding-gate"
     >
@@ -126,60 +123,20 @@ export function MachineOnboardingFlow({
       ) : null}
       <OnboardingFooterProvider>
         <div
-          className={`relative flex w-full max-w-[1040px] flex-col items-center text-center ${
-            page === "identity" ? "my-auto" : "buzz-onboarding-step-frame"
+          className={`relative flex w-full flex-col items-center text-center ${
+            page === "identity"
+              ? ""
+              : "max-w-[1040px] buzz-onboarding-step-frame"
           }`}
         >
           {page === "identity" ? (
-            <OnboardingSlideTransition
-              className="flex w-full max-w-[720px] flex-col items-center text-center"
-              direction="forward"
-              effect="mask-reveal-up"
-              transitionKey="machine-identity"
-            >
-              <PolyphonicThresholdField />
-              {/* The door is the application. Luca — the resident who greets
-                  you — is introduced one step later, so the name is not spent
-                  before it means anything. */}
-              <h1 className="relative -mt-8 text-4xl font-medium tracking-[-0.04em] text-white">
-                Polyphonic
-              </h1>
-              <p className="mt-3 max-w-[26rem] text-center text-sm leading-6 text-white/60">
-                A private home for your agents and the work that makes them
-                useful.
-              </p>
-              {error ? (
-                <p className="mt-4 text-sm text-destructive">{error}</p>
-              ) : null}
-              <div className="mt-10 flex flex-col items-center gap-3">
-                <Button
-                  className="h-10 rounded-lg bg-white px-5 text-sm font-medium text-black hover:bg-white/90"
-                  disabled={isPending}
-                  onClick={() => void loadFreshIdentity(false)}
-                  type="button"
-                >
-                  {isPending ? "Opening…" : "Begin setup"}
-                </Button>
-                <Button
-                  className="h-9 rounded-lg px-4 text-xs text-white/55 hover:bg-white/[0.05] hover:text-white"
-                  disabled={isPending}
-                  onClick={() => setPage("key-import")}
-                  type="button"
-                  variant="ghost"
-                >
-                  Use an existing identity…
-                </Button>
-                <Button
-                  className="h-8 rounded-lg px-3 text-xs text-white/40 hover:bg-white/[0.04] hover:text-white/70"
-                  disabled={isPending}
-                  onClick={() => void loadFreshIdentity(true)}
-                  type="button"
-                  variant="ghost"
-                >
-                  Set up later
-                </Button>
-              </div>
-            </OnboardingSlideTransition>
+            <PolyphonicDoor
+              error={error}
+              isPending={isPending}
+              onBegin={() => void loadFreshIdentity(false)}
+              onExistingIdentity={() => setPage("key-import")}
+              onSetUpLater={() => void loadFreshIdentity(true)}
+            />
           ) : page === "key-import" ? (
             <OnboardingSlideTransition
               className="flex min-h-[calc(100dvh-13.25rem)] w-full max-w-[837px] flex-col items-center text-center"

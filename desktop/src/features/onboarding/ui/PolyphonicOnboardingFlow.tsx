@@ -68,6 +68,8 @@ export function PolyphonicOnboardingFlow({
   );
   const pendingProfile = readPendingPolyphonicProfile(pubkey);
   const [transaction, setTransaction] = React.useState(initialTransaction);
+  /** -1 back, +1 forward, 0 arriving from the door. Drives chapter motion. */
+  const [direction, setDirection] = React.useState(0);
   const [displayName, setDisplayName] = React.useState(() => {
     // Native identity bootstrap ships a shortened npub as the display name
     // until a real profile exists. That is transport metadata, not a name —
@@ -100,13 +102,29 @@ export function PolyphonicOnboardingFlow({
     });
   }, [scan]);
 
-  function persist(patch: Partial<typeof transaction>) {
+  function persist(patch: Partial<typeof transaction>, dir = 1) {
+    setDirection(dir);
     const next = savePolyphonicOnboardingTransaction({
       ...transaction,
       ...patch,
     });
     setTransaction(next);
   }
+
+  const chapters: PolyphonicOnboardingChapter[] = [
+    "welcome",
+    "runtime",
+    ...(candidateCount(discovery) > 0
+      ? (["agents"] as PolyphonicOnboardingChapter[])
+      : []),
+  ];
+  const steps = {
+    current:
+      transaction.chapter === "preparing"
+        ? chapters.length
+        : chapters.indexOf(transaction.chapter),
+    total: chapters.length,
+  };
 
   async function continueForward() {
     if (busy) return;
@@ -179,14 +197,17 @@ export function PolyphonicOnboardingFlow({
           agentsRef.current?.showSummary();
           return;
         }
-        persist({ chapter: previousChapter[transaction.chapter] });
+        persist({ chapter: previousChapter[transaction.chapter] }, -1);
       }}
+      direction={direction}
       onContinue={() => void continueForward()}
       showFooter={transaction.chapter !== "preparing"}
       stage={transaction.chapter}
+      steps={steps}
     >
       {transaction.chapter === "welcome" ? (
         <PolyphonicYouStep
+          appearanceSwatches
           displayName={displayName}
           onBusyChange={setBusy}
           onDisplayNameChange={setDisplayName}
@@ -214,6 +235,7 @@ export function PolyphonicOnboardingFlow({
         <PolyphonicPreparingStep
           displayName={displayName}
           onComplete={enterLucaDm}
+          showMark={false}
         />
       ) : null}
       {error ? (

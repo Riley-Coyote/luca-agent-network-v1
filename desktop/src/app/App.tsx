@@ -38,6 +38,8 @@ import {
   type MachineOnboardingPage,
 } from "@/features/onboarding/ui/MachineOnboardingFlow";
 import { OnboardingFlow } from "@/features/onboarding/ui/OnboardingFlow";
+import { usePolyphonicScene } from "@/features/onboarding/polyphonicOnboardingScene";
+import { PolyphonicOnboardingFieldLayer } from "@/features/onboarding/ui/PolyphonicOnboardingFieldLayer";
 import { PolyphonicOnboardingFlow } from "@/features/onboarding/ui/PolyphonicOnboardingFlow";
 import { PendingInviteGate } from "@/features/onboarding/ui/PendingInviteGate";
 import { KeyringLockedScreen } from "@/features/onboarding/ui/KeyringLockedScreen";
@@ -141,15 +143,24 @@ function LucaLoader({ className }: { className?: string }) {
 
 // The tenancy is internal; first-run never introduces Buzz infrastructure.
 function AppLoadingGate() {
+  // While an onboarding passage is in flight the field itself is the loader:
+  // the gate keeps the canvas but shows no spinner, so the door → card
+  // handoff reads as one motion however many gates it crosses.
+  const passage = usePolyphonicScene().stage !== "off";
   return (
     <div
-      className="buzz-setup-loading-shell flex min-h-dvh flex-col items-center justify-center overflow-hidden px-6 py-10"
+      className={cn(
+        "flex min-h-dvh flex-col items-center justify-center overflow-hidden px-6 py-10",
+        passage
+          ? "buzz-onboarding-neutral-theme buzz-startup-shell"
+          : "buzz-setup-loading-shell",
+      )}
       data-testid="app-loading-gate"
       role="status"
     >
       <StartupWindowDragRegion />
       <span className="sr-only">{LOADING_TEXT}</span>
-      <LucaLoader className="relative z-10" />
+      {passage ? null : <LucaLoader className="relative z-10" />}
     </div>
   );
 }
@@ -759,6 +770,9 @@ export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <MachineBootstrap sharedIdentity={sharedIdentity} />
+      {/* The onboarding field is drawn above every onboarding tree and gate,
+          so it survives the machine-gate → personal-home boundary. */}
+      <PolyphonicOnboardingFieldLayer />
     </QueryClientProvider>
   );
 }
