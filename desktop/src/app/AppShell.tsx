@@ -84,6 +84,7 @@ import { useWebviewScrollBoundaryLock } from "@/shared/hooks/useWebviewScrollBou
 import { joinChannel } from "@/shared/api/tauri";
 import type { ChannelVisibility, SearchHit } from "@/shared/api/types";
 import { ChannelNavigationProvider } from "@/shared/context/ChannelNavigationContext";
+import { useInboxSurfaceEnabled } from "@/shared/features/useInboxSurfaceEnabled";
 import { MainInsetProvider } from "@/shared/layout/MainInsetContext";
 import { chromeCssVarDefaults } from "@/shared/layout/chromeLayout";
 import { cn } from "@/shared/lib/cn";
@@ -159,9 +160,17 @@ export function AppShell() {
       communitiesHook.switchCommunity,
     ],
   );
+  // Product decision (owner, 2026-08-18): the Inbox is disabled for now — see
+  // shared/features/inboxSurface.ts for the single value that turns it back
+  // on. While it is off the nav item, the `/inbox` route, and every
+  // inbox-derived badge count are suppressed; nothing else changes.
+  const inboxSurfaceEnabled = useInboxSurfaceEnabled();
   const { selectedChannelId, selectedView } = React.useMemo(
-    () => deriveShellRoute(location.pathname),
-    [location.pathname],
+    () =>
+      deriveShellRoute(location.pathname, {
+        inboxEnabled: inboxSurfaceEnabled,
+      }),
+    [inboxSurfaceEnabled, location.pathname],
   );
   const selectedProjectId = React.useMemo(() => {
     if (!location.pathname.startsWith("/projects/")) return null;
@@ -401,6 +410,17 @@ export function AppShell() {
     identityQuery.data?.pubkey,
     notificationSettings.settings.homeBadgeEnabled,
   );
+  // Both counts below are inbox-derived: they are rendered on the Inbox nav
+  // item and folded into the app/dock badge. With the Inbox off there is
+  // nowhere to act on them, so they must not inflate any badge. Channel and
+  // DM unread state is tracked separately (useUnreadChannels) and is
+  // untouched by this gate.
+  const inboxSidebarBadgeCount = inboxSurfaceEnabled
+    ? homeBadgeCount + dueReminderBadge
+    : 0;
+  const inboxAppBadgeCount = inboxSurfaceEnabled
+    ? homeBadgeCountExcludingHighPriority
+    : 0;
   const isNotifiedForThread = React.useCallback(
     (rootId: string) =>
       !mutedRootIds.has(rootId) &&
@@ -610,7 +630,7 @@ export function AppShell() {
   );
 
   useAppShellLifecycleEffects({
-    homeBadgeCountExcludingHighPriority,
+    homeBadgeCountExcludingHighPriority: inboxAppBadgeCount,
     unreadChannelIds,
     unreadChannelNotificationCount,
   });
@@ -827,7 +847,7 @@ export function AppShell() {
                           currentPubkey={identityQuery.data?.pubkey}
                           errorMessage={channelsErrorMessage}
                           fallbackDisplayName={identityQuery.data?.displayName}
-                          homeBadgeCount={homeBadgeCount + dueReminderBadge}
+                          homeBadgeCount={inboxSidebarBadgeCount}
                           addCommunityPrefill={addCommunityDialog.prefill}
                           isAddCommunityOpen={addCommunityDialog.open}
                           relayConnectionCard={relayConnectionCard}
@@ -890,7 +910,9 @@ export function AppShell() {
                           searchChannels={channels}
                           searchFocusRequest={searchFocusRequest}
                           onSelectHome={() => void goHome()}
-                          onSelectInbox={() => void goInbox()}
+                          onSelectInbox={() =>
+                            void (inboxSurfaceEnabled ? goInbox() : goHome())
+                          }
                           onSelectProjects={() => void goProjects()}
                           onSelectPulse={() => void goPulse()}
                           onSelectSettings={handleOpenSettings}

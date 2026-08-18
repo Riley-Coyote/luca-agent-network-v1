@@ -3,7 +3,11 @@ import type {
   NativeResidentDiscoveryOutcome,
   RuntimeBinding,
 } from "../../src/shared/api/types";
-import { FEATURE_OVERRIDES_STORAGE_KEY, PREVIEW_FEATURE_IDS } from "./features";
+import {
+  FEATURE_OVERRIDES_STORAGE_KEY,
+  INBOX_SURFACE_FEATURE_ID,
+  PREVIEW_FEATURE_IDS,
+} from "./features";
 
 export const TEST_IDENTITIES = {
   tyler: {
@@ -447,6 +451,16 @@ type BridgeOptions = {
    * that exercise the Experiments toggle UI itself.
    */
   seedPreviewFeatures?: boolean;
+  /**
+   * When true (default), also seed the Inbox surface flag as enabled.
+   *
+   * The Inbox ships DISABLED — see `src/shared/features/inboxSurface.ts` for
+   * the product decision and the single value that flips it. E2E keeps it on
+   * by default so the large body of existing inbox coverage keeps exercising
+   * the flag-on path unchanged. Pass `false` in specs that assert the shipped
+   * default (no Inbox nav item, `/inbox` redirecting to the landing).
+   */
+  inboxSurface?: boolean;
   user?: keyof typeof TEST_IDENTITIES;
 };
 
@@ -652,14 +666,25 @@ async function seedDefaultCommunity(
   );
 }
 
-async function seedPreviewFeaturesEnabled(page: Page) {
+async function seedFeatureOverrides(
+  page: Page,
+  ids: readonly string[],
+): Promise<void> {
   await page.addInitScript(
-    ({ key, ids }) => {
-      const overrides: Record<string, boolean> = {};
-      for (const id of ids) overrides[id] = true;
+    ({ key, ids: idsToSeed }) => {
+      // Merge rather than replace: the preview-feature seed and the Inbox
+      // seed both write this key, and either may be skipped by a spec.
+      let overrides: Record<string, boolean> = {};
+      try {
+        const raw = window.localStorage.getItem(key);
+        if (raw) overrides = JSON.parse(raw) as Record<string, boolean>;
+      } catch {
+        overrides = {};
+      }
+      for (const id of idsToSeed) overrides[id] = true;
       window.localStorage.setItem(key, JSON.stringify(overrides));
     },
-    { key: FEATURE_OVERRIDES_STORAGE_KEY, ids: PREVIEW_FEATURE_IDS },
+    { key: FEATURE_OVERRIDES_STORAGE_KEY, ids: [...ids] },
   );
 }
 
@@ -685,7 +710,13 @@ export async function installBridge(page: Page, options: BridgeOptions) {
   // Default to opting every preview feature in. Specs that exercise the
   // Experiments toggle UI itself pass `seedPreviewFeatures: false`.
   if (options.seedPreviewFeatures !== false) {
-    await seedPreviewFeaturesEnabled(page);
+    await seedFeatureOverrides(page, PREVIEW_FEATURE_IDS);
+  }
+  // The Inbox surface ships disabled; E2E opts in by default so existing
+  // inbox coverage keeps running. Specs asserting the shipped default pass
+  // `inboxSurface: false`.
+  if (options.inboxSurface !== false) {
+    await seedFeatureOverrides(page, [INBOX_SURFACE_FEATURE_ID]);
   }
 
   await page.addInitScript(
@@ -780,6 +811,8 @@ export async function installMockBridge(
     skipOnboardingSeed?: boolean;
     skipCommunitySeed?: boolean;
     seedPreviewFeatures?: boolean;
+    /** Pass `false` to assert the shipped (Inbox-disabled) product default. */
+    inboxSurface?: boolean;
   },
 ) {
   await installBridge(page, {
@@ -789,17 +822,19 @@ export async function installMockBridge(
     skipOnboardingSeed: options?.skipOnboardingSeed,
     skipCommunitySeed: options?.skipCommunitySeed,
     seedPreviewFeatures: options?.seedPreviewFeatures,
+    inboxSurface: options?.inboxSurface,
   });
 }
 
 export async function installRelayBridge(
   page: Page,
   user: keyof typeof TEST_IDENTITIES = "tyler",
-  options?: { seedPreviewFeatures?: boolean },
+  options?: { seedPreviewFeatures?: boolean; inboxSurface?: boolean },
 ) {
   await installBridge(page, {
     mode: "relay",
     user,
+    inboxSurface: options?.inboxSurface,
     // Thread BUZZ_E2E_RELAY_URL into BOTH transports. The app defaults these to
     // :3000 in relay mode; without explicit wiring HTTP queries (channel list,
     // feed) miss an isolated relay and surface as "Failed to fetch".

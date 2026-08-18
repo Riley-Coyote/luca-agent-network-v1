@@ -108,14 +108,24 @@ export function toSearchHit(
   };
 }
 
-export function deriveShellRoute(pathname: string): {
+export function deriveShellRoute(
+  pathname: string,
+  /**
+   * The Inbox surface is gated off by default
+   * (`shared/features/inboxSurface.ts`). While it is off, `/inbox` is a
+   * redirect to the normal landing, so the shell must never report the
+   * `inbox` view for it — otherwise the sidebar would highlight a nav item
+   * that is not rendered.
+   */
+  options: { inboxEnabled?: boolean } = {},
+): {
   selectedChannelId: string | null;
   selectedView: AppView;
 } {
   if (pathname === "/inbox") {
     return {
       selectedChannelId: null,
-      selectedView: "inbox",
+      selectedView: options.inboxEnabled ? "inbox" : "home",
     };
   }
 

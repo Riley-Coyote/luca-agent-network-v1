@@ -35,3 +35,13 @@ export const PREVIEW_FEATURE_IDS: string[] = manifest.features
  * version bump flows through to E2E seeding without manual updates.
  */
 export const FEATURE_OVERRIDES_STORAGE_KEY = `buzz-feature-overrides-v${manifest.version}`;
+
+/**
+ * The Inbox surface flag (`src/shared/features/inboxSurface.ts`).
+ *
+ * It is deliberately NOT in `preview-features.json` — it is a product-scope
+ * lock, not a user-facing experiment — so it is seeded separately from
+ * `PREVIEW_FEATURE_IDS`. It resolves through the same override key, so
+ * writing `{ inbox: true }` here is all it takes to turn the surface on.
+ */
+export const INBOX_SURFACE_FEATURE_ID = "inbox";

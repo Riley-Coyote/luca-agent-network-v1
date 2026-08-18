@@ -8,6 +8,7 @@ import {
   preloadSettingsSurface,
 } from "@/app/navigation/preloadPrimarySurfaces";
 import type { Channel, SearchHit } from "@/shared/api/types";
+import { useInboxSurfaceEnabled } from "@/shared/features/useInboxSurfaceEnabled";
 import {
   SidebarHeader,
   SidebarMenu,
@@ -98,6 +99,11 @@ export function AppSidebarPrimaryMenu({
   onSelectSettings,
   selectedView,
 }: AppSidebarPrimaryMenuProps) {
+  // The Inbox is gated off by default — see shared/features/inboxSurface.ts.
+  // Nothing here is deleted; the whole nav item (and its unread badge) simply
+  // does not mount while the flag is off.
+  const inboxEnabled = useInboxSurfaceEnabled();
+
   return (
     <SidebarHeader
       className="cursor-default select-none px-2 pb-0 pt-0"
@@ -117,26 +123,28 @@ export function AppSidebarPrimaryMenu({
             <SidebarMenuLabel>New conversation</SidebarMenuLabel>
           </SidebarMenuButton>
         </SidebarMenuItem>
-        <SidebarMenuItem>
-          <SidebarMenuButton
-            data-testid="open-inbox-view"
-            isActive={selectedView === "inbox"}
-            onClick={onSelectInbox}
-            tooltip="Inbox"
-            type="button"
-          >
-            <Inbox className="h-4 w-4" />
-            <SidebarMenuLabel>Inbox</SidebarMenuLabel>
-          </SidebarMenuButton>
-          {homeBadgeCount > 0 ? (
-            <SidebarMenuBadge
-              className="right-2 rounded-full bg-primary/15 px-1.5 text-2xs text-primary peer-data-[active=true]/menu-button:bg-sidebar-active-foreground/20 peer-data-[active=true]/menu-button:text-sidebar-active-foreground"
-              data-testid="sidebar-home-count"
+        {inboxEnabled ? (
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              data-testid="open-inbox-view"
+              isActive={selectedView === "inbox"}
+              onClick={onSelectInbox}
+              tooltip="Inbox"
+              type="button"
             >
-              {Math.min(homeBadgeCount, 99)}
-            </SidebarMenuBadge>
-          ) : null}
-        </SidebarMenuItem>
+              <Inbox className="h-4 w-4" />
+              <SidebarMenuLabel>Inbox</SidebarMenuLabel>
+            </SidebarMenuButton>
+            {homeBadgeCount > 0 ? (
+              <SidebarMenuBadge
+                className="right-2 rounded-full bg-primary/15 px-1.5 text-2xs text-primary peer-data-[active=true]/menu-button:bg-sidebar-active-foreground/20 peer-data-[active=true]/menu-button:text-sidebar-active-foreground"
+                data-testid="sidebar-home-count"
+              >
+                {Math.min(homeBadgeCount, 99)}
+              </SidebarMenuBadge>
+            ) : null}
+          </SidebarMenuItem>
+        ) : null}
         <SidebarMenuItem>
           <SidebarMenuButton
             data-testid="open-agents-view"
