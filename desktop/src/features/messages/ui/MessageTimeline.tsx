@@ -512,7 +512,9 @@ const MessageTimelineBase = React.forwardRef<
       const rowRect = row.getBoundingClientRect();
       const fold = container.getBoundingClientRect();
       if (rowRect.height === 0) return;
-      if (rowRect.top >= fold.top - 1 && rowRect.bottom <= fold.bottom + 1) {
+      // Any part of the row on screen counts: a reply taller than the fold
+      // is being read, not missed.
+      if (rowRect.bottom > fold.top + 1 && rowRect.top < fold.bottom - 1) {
         setIsUnreadPillDismissed(true);
       }
     };
