@@ -9,7 +9,14 @@ import {
 } from "lucide-react";
 import * as React from "react";
 
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import {
+  useManagedAgentsQuery,
+  usePersonasQuery,
+} from "@/features/agents/hooks";
 import { useChannelMembersQuery } from "@/features/channels/hooks";
+import { ResidentDrawer } from "@/features/channels/ui/ResidentDrawer";
+import { useManagedPresentationActivity } from "@/features/messages/managedPresentationHooks";
 import type { ChannelAgentSessionAgent } from "@/features/channels/ui/useChannelAgentSessions";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import {
@@ -93,6 +100,36 @@ export function ConversationContextPanel({
 }: ConversationContextPanelProps) {
   const membersQuery = useChannelMembersQuery(channel.id);
   const members = membersQuery.data ?? [];
+  // A direct conversation with one managed resident is about the resident,
+  // not the room: the drawer becomes their card. Rooms and human DMs keep
+  // the conversation view below.
+  const managedAgentsQuery = useManagedAgentsQuery();
+  const personasQuery = usePersonasQuery();
+  const { goAgent } = useAppNavigation();
+  const managedActivity = useManagedPresentationActivity(channel.id);
+  const drawerResident = React.useMemo(() => {
+    if (channel.channelType !== "dm") return null;
+    const me = currentPubkey ? normalizePubkey(currentPubkey) : null;
+    const others = channel.participantPubkeys
+      .map((pubkey) => normalizePubkey(pubkey))
+      .filter((pubkey) => pubkey !== me);
+    if (others.length !== 1) return null;
+    const resident = (managedAgentsQuery.data ?? []).find(
+      (candidate) => normalizePubkey(candidate.pubkey) === others[0],
+    );
+    if (!resident) return null;
+    const persona =
+      (personasQuery.data ?? []).find(
+        (candidate) => candidate.id === resident.personaId,
+      ) ?? null;
+    return { agent: resident, persona };
+  }, [
+    channel.channelType,
+    channel.participantPubkeys,
+    currentPubkey,
+    managedAgentsQuery.data,
+    personasQuery.data,
+  ]);
   const agentByPubkey = React.useMemo(
     () =>
       new Map(
@@ -159,180 +196,218 @@ export function ConversationContextPanel({
           surface={isSinglePanelView ? "transparent" : "default"}
         >
           <AuxiliaryPanelHeaderGroup>
-            <AuxiliaryPanelHeaderTitleBlock title="Conversation" />
+            <AuxiliaryPanelHeaderTitleBlock
+              title={
+                drawerResident ? drawerResident.agent.name : "Conversation"
+              }
+            />
           </AuxiliaryPanelHeaderGroup>
           <AuxiliaryPanelHeaderActions />
         </AuxiliaryPanelHeader>
       }
     >
-      <div
-        className={cn(
-          layout === "split" && channelChrome.contentPadding,
-          layout !== "split" && isSinglePanelView && "pt-13",
-        )}
-      >
-        <ConversationDrawerNavigation
-          agents={drawerAgents}
-          onOpenAgent={onOpenResident}
-          onOpenConversation={() => undefined}
-        />
-      </div>
-      <AuxiliaryPanelBody className="overflow-y-auto px-4 pb-6">
-        <div className="space-y-7 pt-5">
-          <section className="space-y-2 border-b border-border/55 pb-5">
-            <div className="flex items-center gap-2 text-2xs uppercase tracking-[0.14em] text-muted-foreground">
-              <MessageCircle className="h-3.5 w-3.5" />
-              {channel.channelType === "dm" ? "Direct message" : "Room"}
-            </div>
-            <h2 className="text-xl font-medium tracking-[-0.025em] text-foreground">
-              {channel.name}
-            </h2>
-            <p className="max-w-[34rem] text-sm leading-6 text-muted-foreground">
-              {channelSummary}
-            </p>
-          </section>
-
-          <section aria-labelledby="conversation-at-a-glance">
-            <SectionLabel id="conversation-at-a-glance">
-              At a glance
-            </SectionLabel>
-            <div className="grid grid-cols-3 divide-x divide-border/55 border-y border-border/55">
-              <Metric icon={Users} label="Present" value={members.length} />
-              <Metric icon={Activity} label="Agents" value={agentCount} />
-              <Metric icon={Paperclip} label="Files" value={attachmentCount} />
-            </div>
-          </section>
-
-          <section aria-labelledby="conversation-agents">
-            <div className="flex items-center justify-between gap-3">
-              <SectionLabel id="conversation-agents">Agents</SectionLabel>
-              <span className="font-mono text-2xs tracking-[0.12em] text-muted-foreground/70">
-                {agentMembers.length || agents.length}
-              </span>
-            </div>
-            <div className="divide-y divide-border/50 border-y border-border/50">
-              {(agentMembers.length > 0
-                ? agentMembers
-                : agents.map<ChannelMember>((agent) => ({
-                    displayName: agent.name,
-                    isAgent: true,
-                    joinedAt: "",
-                    pubkey: agent.pubkey,
-                    role: "bot",
-                  }))
-              ).map((member) => {
-                const agent = agentByPubkey.get(normalizePubkey(member.pubkey));
-                const label = resolveUserLabel({
-                  currentPubkey,
-                  fallbackName: member.displayName ?? agent?.name,
-                  profiles,
-                  pubkey: member.pubkey,
-                });
-                return (
-                  <button
-                    className="group flex w-full items-center gap-3 px-1 py-3 text-left transition-colors duration-150 hover:bg-muted/25 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-                    data-testid={`conversation-resident-${normalizePubkey(member.pubkey)}`}
-                    key={normalizePubkey(member.pubkey)}
-                    onClick={() => onOpenResident(member.pubkey)}
-                    type="button"
-                  >
-                    <AgentIdentitySpecimen
-                      accessibleName={label}
-                      publicKey={member.pubkey}
-                      size={32}
-                      state={residentState(agent)}
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-foreground">
-                        {label}
-                      </span>
-                      <span className="mt-0.5 block truncate font-mono text-2xs uppercase tracking-[0.1em] text-muted-foreground">
-                        {agent?.agentSource === "managed"
-                          ? "Resident · Notebook available"
-                          : "External agent"}
-                      </span>
-                    </span>
-                    <ArrowUpRight className="h-4 w-4 text-muted-foreground/45 transition-colors group-hover:text-foreground" />
-                  </button>
-                );
-              })}
-              {!membersQuery.isLoading &&
-              agentMembers.length === 0 &&
-              agents.length === 0 ? (
-                <p className="px-1 py-4 text-sm text-muted-foreground">
-                  No resident agents are currently attached to this
-                  conversation.
-                </p>
-              ) : null}
-            </div>
-          </section>
-
-          {people.length > 0 ? (
-            <section aria-labelledby="conversation-people">
-              <SectionLabel id="conversation-people">People</SectionLabel>
-              <div className="divide-y divide-border/45 border-y border-border/45">
-                {people.map((member) => (
-                  <div
-                    className="flex items-center gap-3 px-1 py-2.5"
-                    key={normalizePubkey(member.pubkey)}
-                  >
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/60 bg-muted/20 text-xs text-muted-foreground">
-                      {resolveIdentityDisplayName({
-                        displayName: member.displayName,
-                        isAgent: member.isAgent || member.role === "bot",
-                        pubkey: member.pubkey,
-                      })
-                        .slice(0, 1)
-                        .toUpperCase()}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">
-                      {resolveUserLabel({
-                        currentPubkey,
-                        fallbackName: member.displayName,
-                        profiles,
-                        pubkey: member.pubkey,
-                      })}
-                    </span>
-                    <span className="font-mono text-2xs uppercase tracking-[0.1em] text-muted-foreground/60">
-                      {member.role}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          <section aria-labelledby="conversation-working-context">
-            <SectionLabel id="conversation-working-context">
-              Working context
-            </SectionLabel>
-            <div className="border-y border-border/50 py-3">
-              <div className="flex items-start gap-3">
-                <FolderGit2 className="mt-0.5 h-4 w-4 text-muted-foreground/55" />
-                <div>
-                  <p className="text-sm text-foreground/90">
-                    No shared workspace attached
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    A project, folder, or repository will appear here only when
-                    the runtime exposes one.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <Button
-            className="w-full justify-start gap-2"
-            data-testid="conversation-manage-participants"
-            onClick={onManageParticipants}
-            variant="ghost"
+      {drawerResident ? (
+        <AuxiliaryPanelBody
+          className={cn(
+            "overflow-y-auto px-4 pb-6",
+            layout === "split" && channelChrome.contentPadding,
+            layout !== "split" && isSinglePanelView && "pt-13",
+          )}
+        >
+          <ResidentDrawer
+            agent={drawerResident.agent}
+            onOpenAgent={(section) =>
+              goAgent(drawerResident.agent.pubkey, { section })
+            }
+            persona={drawerResident.persona}
+            replying={[...managedActivity.values()].some(
+              (activity) =>
+                normalizePubkey(activity.residentPubkey) ===
+                  normalizePubkey(drawerResident.agent.pubkey) &&
+                !["stopped", "failed", "needs_attention"].includes(
+                  activity.phase,
+                ),
+            )}
+          />
+        </AuxiliaryPanelBody>
+      ) : (
+        <>
+          <div
+            className={cn(
+              layout === "split" && channelChrome.contentPadding,
+              layout !== "split" && isSinglePanelView && "pt-13",
+            )}
           >
-            <Settings2 className="h-4 w-4" />
-            Manage participants
-          </Button>
-        </div>
-      </AuxiliaryPanelBody>
+            <ConversationDrawerNavigation
+              agents={drawerAgents}
+              onOpenAgent={onOpenResident}
+              onOpenConversation={() => undefined}
+            />
+          </div>
+          <AuxiliaryPanelBody className="overflow-y-auto px-4 pb-6">
+            <div className="space-y-7 pt-5">
+              <section className="space-y-2 border-b border-border/55 pb-5">
+                <div className="flex items-center gap-2 text-2xs uppercase tracking-[0.14em] text-muted-foreground">
+                  <MessageCircle className="h-3.5 w-3.5" />
+                  {channel.channelType === "dm" ? "Direct message" : "Room"}
+                </div>
+                <h2 className="text-xl font-medium tracking-[-0.025em] text-foreground">
+                  {channel.name}
+                </h2>
+                <p className="max-w-[34rem] text-sm leading-6 text-muted-foreground">
+                  {channelSummary}
+                </p>
+              </section>
+
+              <section aria-labelledby="conversation-at-a-glance">
+                <SectionLabel id="conversation-at-a-glance">
+                  At a glance
+                </SectionLabel>
+                <div className="grid grid-cols-3 divide-x divide-border/55 border-y border-border/55">
+                  <Metric icon={Users} label="Present" value={members.length} />
+                  <Metric icon={Activity} label="Agents" value={agentCount} />
+                  <Metric
+                    icon={Paperclip}
+                    label="Files"
+                    value={attachmentCount}
+                  />
+                </div>
+              </section>
+
+              <section aria-labelledby="conversation-agents">
+                <div className="flex items-center justify-between gap-3">
+                  <SectionLabel id="conversation-agents">Agents</SectionLabel>
+                  <span className="font-mono text-2xs tracking-[0.12em] text-muted-foreground/70">
+                    {agentMembers.length || agents.length}
+                  </span>
+                </div>
+                <div className="divide-y divide-border/50 border-y border-border/50">
+                  {(agentMembers.length > 0
+                    ? agentMembers
+                    : agents.map<ChannelMember>((agent) => ({
+                        displayName: agent.name,
+                        isAgent: true,
+                        joinedAt: "",
+                        pubkey: agent.pubkey,
+                        role: "bot",
+                      }))
+                  ).map((member) => {
+                    const agent = agentByPubkey.get(
+                      normalizePubkey(member.pubkey),
+                    );
+                    const label = resolveUserLabel({
+                      currentPubkey,
+                      fallbackName: member.displayName ?? agent?.name,
+                      profiles,
+                      pubkey: member.pubkey,
+                    });
+                    return (
+                      <button
+                        className="group flex w-full items-center gap-3 px-1 py-3 text-left transition-colors duration-150 hover:bg-muted/25 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                        data-testid={`conversation-resident-${normalizePubkey(member.pubkey)}`}
+                        key={normalizePubkey(member.pubkey)}
+                        onClick={() => onOpenResident(member.pubkey)}
+                        type="button"
+                      >
+                        <AgentIdentitySpecimen
+                          accessibleName={label}
+                          publicKey={member.pubkey}
+                          size={32}
+                          state={residentState(agent)}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-foreground">
+                            {label}
+                          </span>
+                          <span className="mt-0.5 block truncate font-mono text-2xs uppercase tracking-[0.1em] text-muted-foreground">
+                            {agent?.agentSource === "managed"
+                              ? "Resident · Notebook available"
+                              : "External agent"}
+                          </span>
+                        </span>
+                        <ArrowUpRight className="h-4 w-4 text-muted-foreground/45 transition-colors group-hover:text-foreground" />
+                      </button>
+                    );
+                  })}
+                  {!membersQuery.isLoading &&
+                  agentMembers.length === 0 &&
+                  agents.length === 0 ? (
+                    <p className="px-1 py-4 text-sm text-muted-foreground">
+                      No resident agents are currently attached to this
+                      conversation.
+                    </p>
+                  ) : null}
+                </div>
+              </section>
+
+              {people.length > 0 ? (
+                <section aria-labelledby="conversation-people">
+                  <SectionLabel id="conversation-people">People</SectionLabel>
+                  <div className="divide-y divide-border/45 border-y border-border/45">
+                    {people.map((member) => (
+                      <div
+                        className="flex items-center gap-3 px-1 py-2.5"
+                        key={normalizePubkey(member.pubkey)}
+                      >
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/60 bg-muted/20 text-xs text-muted-foreground">
+                          {resolveIdentityDisplayName({
+                            displayName: member.displayName,
+                            isAgent: member.isAgent || member.role === "bot",
+                            pubkey: member.pubkey,
+                          })
+                            .slice(0, 1)
+                            .toUpperCase()}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">
+                          {resolveUserLabel({
+                            currentPubkey,
+                            fallbackName: member.displayName,
+                            profiles,
+                            pubkey: member.pubkey,
+                          })}
+                        </span>
+                        <span className="font-mono text-2xs uppercase tracking-[0.1em] text-muted-foreground/60">
+                          {member.role}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              <section aria-labelledby="conversation-working-context">
+                <SectionLabel id="conversation-working-context">
+                  Working context
+                </SectionLabel>
+                <div className="border-y border-border/50 py-3">
+                  <div className="flex items-start gap-3">
+                    <FolderGit2 className="mt-0.5 h-4 w-4 text-muted-foreground/55" />
+                    <div>
+                      <p className="text-sm text-foreground/90">
+                        No shared workspace attached
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        A project, folder, or repository will appear here only
+                        when the runtime exposes one.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <Button
+                className="w-full justify-start gap-2"
+                data-testid="conversation-manage-participants"
+                onClick={onManageParticipants}
+                variant="ghost"
+              >
+                <Settings2 className="h-4 w-4" />
+                Manage participants
+              </Button>
+            </div>
+          </AuxiliaryPanelBody>
+        </>
+      )}
     </AuxiliaryPanel>
   );
 }
