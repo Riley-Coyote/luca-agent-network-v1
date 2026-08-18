@@ -4,7 +4,10 @@ import {
   resolveUserLabel,
   type UserProfileLookup,
 } from "@/features/profile/lib/identity";
-import { isBroadcastReply } from "@/features/messages/lib/threading";
+import {
+  getThreadReference,
+  isBroadcastReply,
+} from "@/features/messages/lib/threading";
 import { KIND_HUDDLE_STARTED } from "@/shared/constants/kinds";
 
 type ThreadPanelData = {
@@ -474,10 +477,22 @@ export function buildMainTimelineEntries(
   // the loaded window, prefer the exact local non-broadcast count for that
   // root. Showing a smaller verified count is better than manufacturing a
   // thread from ordinary linear agent turns.
+  // The live response slot that stands in for a timeline final deliberately
+  // carries no parentId/rootId (so it is never indented), but it still
+  // carries the signed event's tags — read the causal root from those, or the
+  // owner's message keeps its "1 reply" summary until the slot settles.
   const rootsWithBroadcastChildren = new Set(
     messages
       .filter((message) => isBroadcastReply(message.tags ?? []))
-      .map((message) => message.rootId ?? message.parentId)
+      .map((message) => {
+        const reference = getThreadReference(message.tags ?? []);
+        return (
+          message.rootId ??
+          message.parentId ??
+          reference.rootId ??
+          reference.parentId
+        );
+      })
       .filter((id): id is string => id != null),
   );
 

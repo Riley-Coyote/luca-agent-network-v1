@@ -209,6 +209,28 @@ test("broadcast fan-out ignores legacy relay counters for the causal anchor", ()
     summaries,
   );
   assert.equal(rootEntry.summary, null);
+
+  // While a timeline final is still standing in as its live response slot,
+  // the row carries the signed tags but no parentId/rootId (so it is never
+  // indented). The owner's message must not grow a "1 reply" summary for the
+  // few seconds until the slot settles.
+  const liveSlot = message({
+    id: "broadcast-reply",
+    createdAt: 2,
+    parentId: null,
+    rootId: null,
+    tags: [
+      ["e", "root", "", "root"],
+      ["e", "root", "", "reply"],
+      ["broadcast", "1"],
+    ],
+  });
+  const [rootEntryWhileLive] = buildMainTimelineEntries(
+    [root, liveSlot],
+    new Set(),
+    summaries,
+  );
+  assert.equal(rootEntryWhileLive.summary, null);
 });
 
 test("intentional replies still carry context and create a thread summary", () => {
