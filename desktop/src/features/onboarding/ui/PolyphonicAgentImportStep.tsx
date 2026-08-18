@@ -32,6 +32,11 @@ export type PolyphonicAgentImportStepHandle = {
 
 export type PolyphonicAgentImportMode = "summary" | "select";
 
+/** "1 profile" / "3 profiles" — the summary counts are read aloud, not scanned. */
+function countLabel(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
 function bindingIdentity(binding: RuntimeBinding): string {
   return binding.kind === "hermes"
     ? `hermes:${binding.hermesHome}:${binding.profileName.trim()}`
@@ -250,7 +255,7 @@ export const PolyphonicAgentImportStep = React.forwardRef<
         key={mode}
         description={
           mode === "summary"
-            ? `We found ${candidates.length} agents on this Mac. Nothing is imported unless you choose it.`
+            ? `We found ${candidates.length === 1 ? "one agent" : `${candidates.length} agents`} on this Mac. Nothing is imported unless you choose it.`
             : "Nothing is imported unless you select it."
         }
         stage="agents"
@@ -272,8 +277,11 @@ export const PolyphonicAgentImportStep = React.forwardRef<
                   {nativeType === "hermes" ? "Hermes" : "OpenClaw"}
                 </p>
                 <p className="mt-1 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
-                  {runtime?.candidates.length ?? 0}{" "}
-                  {nativeType === "hermes" ? "profiles" : "agents"} found
+                  {countLabel(
+                    runtime?.candidates.length ?? 0,
+                    nativeType === "hermes" ? "profile" : "agent",
+                  )}{" "}
+                  found
                 </p>
               </div>
             );
