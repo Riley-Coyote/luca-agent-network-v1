@@ -39,6 +39,7 @@ import {
 } from "@/features/onboarding/ui/MachineOnboardingFlow";
 import { OnboardingFlow } from "@/features/onboarding/ui/OnboardingFlow";
 import { useRegisterCanonicalLuca } from "@/features/luca/canonicalLucaResident";
+import { ThinkingIndicatorLab } from "@/features/messages/lab/ThinkingIndicatorLab";
 import { usePolyphonicScene } from "@/features/onboarding/polyphonicOnboardingScene";
 import { PolyphonicOnboardingFieldLayer } from "@/features/onboarding/ui/PolyphonicOnboardingFieldLayer";
 import { PolyphonicOnboardingFlow } from "@/features/onboarding/ui/PolyphonicOnboardingFlow";
@@ -143,6 +144,12 @@ function LucaLoader({ className }: { className?: string }) {
 }
 
 // The tenancy is internal; first-run never introduces Buzz infrastructure.
+/** Dev-only design labs, reachable by `?lab=<name>`; never in production builds. */
+function readDevLab(): string | null {
+  if (!(import.meta.env.DEV || import.meta.env.MODE === "e2e")) return null;
+  return new URL(window.location.href).searchParams.get("lab");
+}
+
 function AppLoadingGate() {
   // While an onboarding passage is in flight the field itself is the loader:
   // the gate keeps the canvas but shows no spinner, so the door → card
@@ -699,6 +706,10 @@ function MachineBootstrap({ sharedIdentity }: { sharedIdentity: boolean }) {
       void unlisten.then((fn) => fn());
     };
   }, [communityOnboarding.start, openAddCommunity]);
+
+  if (readDevLab() === "thinking") {
+    return <ThinkingIndicatorLab />;
+  }
 
   if (polyphonicOnboardingPreview) {
     return (
