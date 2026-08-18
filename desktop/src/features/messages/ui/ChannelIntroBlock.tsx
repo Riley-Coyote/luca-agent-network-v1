@@ -45,9 +45,15 @@ export function ChannelIntroBlock({
     return (
       <ConversationIntro
         className={className}
-        markSeeds={
-          intro.markSeeds?.length ? intro.markSeeds : [intro.channelName]
-        }
+        marks={(intro.markSeeds?.length
+          ? intro.markSeeds
+          : [intro.channelName]
+        ).map((seed) => ({
+          kind: "glyph",
+          key: seed,
+          seed,
+          label: intro.channelName,
+        }))}
         subtitle={intro.description}
         title={intro.channelName}
       />

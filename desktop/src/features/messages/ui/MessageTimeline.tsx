@@ -25,10 +25,8 @@ import type { TimelineVirtualizerApi } from "./TimelineMessageList";
 import { isAtBottomNow, useAnchoredScroll } from "./useAnchoredScroll";
 import { useLoadOlderOnScroll } from "./useLoadOlderOnScroll";
 import { useBufferedTimelineMessages } from "./useBufferedTimelineMessages";
-import {
-  DirectMessageIntroAvatarStack,
-  type DirectMessageIntroParticipant,
-} from "./DirectMessageIntroAvatarStack";
+import type { DirectMessageIntro } from "@/features/channels/lib/dmParticipantDisplay";
+import { DirectMessageIntroBlock } from "./DirectMessageIntroBlock";
 import { useSettleGatedPrependMessages } from "./useSettleGatedPrependMessages";
 
 function newResponseLabel(count: number): string {
@@ -51,10 +49,7 @@ type MessageTimelineProps = {
   /** Relay thread summaries (root id → summary) for the deferred-pass entry
    *  fallback, so badge rows survive while a scrollback page commits. */
   threadSummaries?: ReadonlyMap<string, ChannelWindowThreadSummary>;
-  directMessageIntro?: {
-    displayName: string;
-    participants: DirectMessageIntroParticipant[];
-  } | null;
+  directMessageIntro?: DirectMessageIntro | null;
   isLoading?: boolean;
   entranceMessageId?: string | null;
   onEntranceMessageComplete?: (messageId: string) => void;
@@ -650,24 +645,10 @@ const MessageTimelineBase = React.forwardRef<
       activeChannelIntro ? (
         <ChannelIntroBlock className="pb-4 pt-2" intro={activeChannelIntro} />
       ) : activeDirectMessageIntro ? (
-        <div
-          className="mb-2 flex w-full flex-col items-start px-3 pb-2 pt-2 text-left"
-          data-testid="message-dm-intro"
-        >
-          <DirectMessageIntroAvatarStack
-            participants={activeDirectMessageIntro.participants}
-          />
-          <p className="mt-4 max-w-full truncate text-xl font-semibold leading-7 tracking-tight text-foreground">
-            {activeDirectMessageIntro.displayName}
-          </p>
-          <p className="mt-1 max-w-full truncate whitespace-nowrap text-sm leading-5 text-muted-foreground">
-            This is the beginning of your direct message with{" "}
-            <span className="font-medium text-foreground">
-              {activeDirectMessageIntro.displayName}
-            </span>
-            .
-          </p>
-        </div>
+        <DirectMessageIntroBlock
+          className="mb-2"
+          intro={activeDirectMessageIntro}
+        />
       ) : null,
     [activeChannelIntro, activeDirectMessageIntro],
   );
@@ -833,24 +814,9 @@ const MessageTimelineBase = React.forwardRef<
                   <TimelineSkeleton rows={timelineSkeletonRows} />
                 ) : null}
                 {activeDirectMessageIntro ? (
-                  <div
-                    className="mt-auto flex w-full flex-col items-start px-3 py-2 text-left"
-                    data-testid="message-dm-intro"
-                  >
-                    <DirectMessageIntroAvatarStack
-                      participants={activeDirectMessageIntro.participants}
-                    />
-                    <p className="mt-4 max-w-full truncate text-xl font-semibold leading-7 tracking-tight text-foreground">
-                      {activeDirectMessageIntro.displayName}
-                    </p>
-                    <p className="mt-1 max-w-full truncate whitespace-nowrap text-sm leading-5 text-muted-foreground">
-                      This is the beginning of your direct message with{" "}
-                      <span className="font-medium text-foreground">
-                        {activeDirectMessageIntro.displayName}
-                      </span>
-                      .
-                    </p>
-                  </div>
+                  /* Top-anchored like the channel intro, so the first
+                     message arrives below with zero layout shift. */
+                  <DirectMessageIntroBlock intro={activeDirectMessageIntro} />
                 ) : null}
 
                 {activeChannelIntro ? (

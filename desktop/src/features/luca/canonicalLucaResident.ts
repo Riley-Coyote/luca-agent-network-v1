@@ -20,6 +20,8 @@ export const LUCA_IDENTITY_SEED =
 
 /** The once-only greeting Luca publishes when the owner arrives. */
 export const LUCA_GREETING_MARKER = "polyphonic-onboarding.luca-greeting.v1";
+/** The line under Luca's name at the threshold of the owner's DM with Luca. */
+export const LUCA_INTRO_ROLE = "Resident concierge";
 
 /**
  * Resolve Luca's durable resident identity only when the owner registry has one

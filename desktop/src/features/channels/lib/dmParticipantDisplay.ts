@@ -20,6 +20,8 @@ export type DirectMessageIntroParticipant = {
 export type DirectMessageIntro = {
   displayName: string;
   participants: DirectMessageIntroParticipant[];
+  /** One line for what the other side is, when known — e.g. Luca's role. */
+  role?: string | null;
 };
 
 export function getDmParticipantPreview<T>(participants: readonly T[]) {

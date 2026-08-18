@@ -2212,8 +2212,11 @@ test("sidebar clears unread indicator after opening a DM", async ({ page }) => {
   await page.getByTestId("channel-alice-tyler").click();
   await expect(page.getByTestId("chat-title")).toHaveText("alice-tyler");
   await expect(page.getByTestId("message-dm-intro")).toBeVisible();
-  await expect(page.getByTestId("message-dm-intro")).toContainText(
-    "This is the beginning of your direct message with",
+  // The threshold names who is on the other side and nothing more — no
+  // boilerplate about beginnings.
+  await expect(page.getByTestId("message-dm-intro")).toContainText("alice");
+  await expect(page.getByTestId("message-dm-intro")).not.toContainText(
+    "This is the beginning",
   );
   await expect(page.getByTestId("message-timeline-day-divider")).toBeVisible();
   await expect(page.getByTestId("message-timeline")).toContainText(

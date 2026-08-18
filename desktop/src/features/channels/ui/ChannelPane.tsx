@@ -36,6 +36,7 @@ import type { ActivityShelfRetryTarget } from "@/features/channels/ui/conversati
 import { useConversationPresentation } from "@/features/channels/ui/useConversationPresentation";
 import {
   isLucaGreeting,
+  LUCA_INTRO_ROLE,
   ownerHasSpoken,
 } from "@/features/luca/canonicalLucaResident";
 import { useLucaArrival } from "@/features/luca/lucaArrival";
@@ -446,15 +447,17 @@ export const ChannelPane = React.memo(function ChannelPane({
     },
     [activeChannelId, currentPubkey, handleSendMessage, messages],
   );
-  const directMessageIntro = React.useMemo(
-    () =>
-      buildDirectMessageIntro({
-        channel: activeChannel,
-        currentPubkey,
-        profiles,
-      }),
-    [activeChannel, currentPubkey, profiles],
-  );
+  const directMessageIntro = React.useMemo(() => {
+    const intro = buildDirectMessageIntro({
+      channel: activeChannel,
+      currentPubkey,
+      profiles,
+    });
+    if (!intro) return null;
+    // The one resident whose role the app can vouch for. Other residents and
+    // people carry their name alone; nothing is invented for them.
+    return lucaArrival.isLucaDm ? { ...intro, role: LUCA_INTRO_ROLE } : intro;
+  }, [activeChannel, currentPubkey, lucaArrival.isLucaDm, profiles]);
   const handleWelcomeAddAgent = React.useCallback(() => {
     onAddAgent?.({
       beforeSend: () =>
