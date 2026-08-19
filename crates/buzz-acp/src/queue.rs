@@ -1231,7 +1231,11 @@ fn append_reply_instruction(s: &mut String, event_id: &str, managed_publication:
              preserve reply anchor {event_id} and publish exactly one final signed \
              message. Do not invoke a publication tool. If the human explicitly \
              requests a channel-root, top-level, or broadcast post, describe that \
-             intent in the response; the host remains responsible for publication."
+             intent in the response; the host remains responsible for publication. \
+             To speak to another resident who is in this room, address them as @Name \
+             inside your response — the host opens a bounded exchange and they \
+             answer here; never use the Buzz CLI, a shell, or any tool to reach a \
+             resident — the relay refuses it."
         ));
     } else {
         s.push_str(&format!(
@@ -1255,7 +1259,10 @@ fn append_new_thread_reply_instruction(s: &mut String, event_id: &str, managed_p
             "\nIMPORTANT: This is a new top-level message. Return your ordinary \
              response normally. The Luca host will preserve reply anchor {event_id} \
              as the thread root and publish exactly one final signed message. Do not \
-             invoke a publication tool or target an older thread."
+             invoke a publication tool or target an older thread. To speak to another \
+             resident who is in this room, address them as @Name inside your response \
+             — the host opens a bounded exchange and they answer here; never use the \
+             Buzz CLI, a shell, or any tool to reach a resident — the relay refuses it."
         ));
     } else {
         s.push_str(&format!(
@@ -4362,6 +4369,9 @@ mod tests {
         assert!(prompt.contains("publish exactly one final signed message"));
         assert!(prompt.contains("Do not invoke a publication tool"));
         assert!(!prompt.contains("`buzz messages send`"));
+        // The house rule for reaching a sibling: speech, never a tool.
+        assert!(prompt.contains("address them as @Name"));
+        assert!(prompt.contains("never use the Buzz CLI, a shell, or any tool"));
     }
 
     #[test]
