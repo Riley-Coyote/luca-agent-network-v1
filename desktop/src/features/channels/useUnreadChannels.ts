@@ -16,6 +16,8 @@ import {
   type ObservedUnreadEvent,
 } from "@/features/channels/unreadChannelCounts";
 import { useReadState } from "@/features/channels/readState/useReadState";
+import { usePausedExchangeChannelIds } from "@/features/exchange/exchangeStore";
+import { hasExchangeTurnTag } from "@/features/exchange/exchangeTags";
 import { makeRootIdStore } from "@/features/channels/unreadRootIdStore";
 import {
   forcedUnreadStore,
@@ -416,6 +418,7 @@ export function useUnreadChannels(
           highPriority: isHighPriority,
           channelType: channel?.channelType,
           isThreadedReply,
+          isExchangeVolley: hasExchangeTurnTag(event.tags),
         }),
       );
       const current = latestByChannelRef.current.get(channelId) ?? 0;
@@ -705,6 +708,7 @@ export function useUnreadChannels(
                 highPriority: isHighPriority,
                 channelType: chType,
                 isThreadedReply,
+                isExchangeVolley: hasExchangeTurnTag(event.tags),
               }),
             );
             if (isThreadedReply) {
@@ -817,13 +821,19 @@ export function useUnreadChannels(
     relayClient,
   ]);
 
+  // Rooms whose exchange is paused: the residents spent the bucket and the
+  // decision is the owner's. Read here so the same memo that scores unread can
+  // treat a waiting exchange as the badge its own volleys deliberately are not.
+  const pausedExchangeChannelIds = usePausedExchangeChannelIds();
+
   // Unread = channels (excluding active) that have either been manually
   // marked unread this session, or whose observed latest external trigger
   // timestamp is strictly newer than their NIP-RS read marker.
   // High-priority unread = DMs or channels with a mention/broadcast newer
-  // than the read marker. Forced-unread channels are dot tier only (not
-  // high-priority). Both sets share identical deps and always invalidate
-  // together, so they are computed in a single memo.
+  // than the read marker, or a paused exchange waiting on a decision.
+  // Forced-unread channels are dot tier only (not high-priority). Both sets
+  // share identical deps and always invalidate together, so they are computed
+  // in a single memo.
   const rawUnread =
     // biome-ignore lint/correctness/useExhaustiveDependencies: readStateVersion and latestVersion are intentional invalidation signals
     React.useMemo(() => {
@@ -844,11 +854,22 @@ export function useUnreadChannels(
       for (const channel of channels) {
         if (channel.id === activeChannelId) continue;
 
+        // A paused exchange is the one exchange signal that asks for the
+        // owner, so it badges even when nothing else in the room does.
+        if (pausedExchangeChannelIds.has(channel.id)) {
+          unread.add(channel.id);
+          highPriority.add(channel.id);
+          counts.set(channel.id, 1);
+          unreadChannelNotificationCount += 1;
+        }
+
         if (Object.hasOwn(forcedUnreadRef.current, channel.id)) {
           // Forced-unread is dot tier only — not high-priority.
           unread.add(channel.id);
-          counts.set(channel.id, 1);
-          unreadChannelNotificationCount += 1;
+          if (!counts.has(channel.id)) {
+            counts.set(channel.id, 1);
+            unreadChannelNotificationCount += 1;
+          }
           continue;
         }
 
@@ -877,7 +898,12 @@ export function useUnreadChannels(
           observedEvents,
           readAtForObservedEvent,
         );
-        counts.set(channel.id, badgeCount);
+        // A paused exchange already claimed this room's badge; never let a
+        // volley-only count (0) overwrite it back to a dot.
+        counts.set(
+          channel.id,
+          Math.max(badgeCount, counts.get(channel.id) ?? 0),
+        );
         unreadChannelNotificationCount += countUnreadAppBadgeObservedEvents(
           observedEvents,
           readAtForObservedEvent,
@@ -911,6 +937,7 @@ export function useUnreadChannels(
       getOwnTimestamp,
       isReadStateReady,
       latestVersion,
+      pausedExchangeChannelIds,
       readStateVersion,
     ]);
 

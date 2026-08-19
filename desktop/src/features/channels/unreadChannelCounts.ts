@@ -16,16 +16,32 @@ export function makeObservedUnreadEvent(input: {
   highPriority: boolean;
   channelType: string | undefined;
   isThreadedReply: boolean;
+  /**
+   * A resident-authored turn inside an exchange (it carries the
+   * `["exchange", <id>, <turn>]` tag). Residents talking to each other is
+   * speech the owner can watch, not a summons: the volley is still recorded —
+   * so the room keeps its quiet unread dot — but it badges nothing, here or on
+   * the app icon. What does ask for the owner is the exchange PAUSING, and
+   * that is derived from the exchange itself, not from any one message.
+   *
+   * This overrides the `isDm` short-circuit below: a volley in a DM must not
+   * badge either.
+   */
+  isExchangeVolley?: boolean;
 }): ObservedUnreadEvent {
   const isDm = input.channelType === "dm";
+  const isExchangeVolley = input.isExchangeVolley === true;
   return {
     id: input.id,
     createdAt: input.createdAt,
     rootId: input.rootId,
     highPriority: input.highPriority,
-    countsTowardBadge: isDm || input.isThreadedReply || input.highPriority,
+    countsTowardBadge:
+      !isExchangeVolley &&
+      (isDm || input.isThreadedReply || input.highPriority),
     countsTowardAppBadge:
-      isDm || (!input.isThreadedReply && input.highPriority),
+      !isExchangeVolley &&
+      (isDm || (!input.isThreadedReply && input.highPriority)),
   };
 }
 

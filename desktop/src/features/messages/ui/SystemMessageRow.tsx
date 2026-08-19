@@ -48,6 +48,13 @@ type SystemMessagePayload = {
   public_reason?: string;
   reason_code?: string;
   action_id?: string;
+  // Exchange note fields (kind:40099 "exchange-note"). Owner-authored: one
+  // sentence the room is shown when an exchange did something the people in it
+  // should know about. The sentence is written by the backend and rendered
+  // as-is; `resident` and `exchange_id` are provenance, not copy.
+  exchange_id?: string | null;
+  resident?: string;
+  text?: string;
 };
 
 type SystemMessageDescription = {
@@ -497,6 +504,17 @@ function describeSystemEvent(
         title: actorName,
         action: "unarchived this channel",
       };
+    case "exchange-note": {
+      // One sentence, already whole (it names the residents it is about), so
+      // it renders like a moderation notice: a house label and the line.
+      if (typeof payload.text !== "string" || payload.text.trim() === "") {
+        return null;
+      }
+      return {
+        title: "Exchange",
+        action: payload.text,
+      };
+    }
     case "message_deleted": {
       // Room-facing tombstone. When a moderator removed the message, the relay
       // stamps a sanitized public_reason; a plain self-delete carries none. The

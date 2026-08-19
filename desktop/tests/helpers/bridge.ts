@@ -50,6 +50,31 @@ type MockCommandAvailability = {
   resolvedPath?: string | null;
 };
 
+/** One seeded exchange head. Only `members` is required. */
+export type MockExchangeSeed = {
+  exchangeId?: string;
+  /** Defaults to the active mock identity — the relay accepts no other author. */
+  owner?: string;
+  /** Resident members, excluding the owner. Sorted by the mock. */
+  members: string[];
+  /** Channel the exchange lives in; `channelName` resolves one by name. */
+  conversationId?: string;
+  channelName?: string;
+  rootEventId?: string;
+  parentExchangeId?: string | null;
+  depth?: number;
+  /** Turns the exchange may spend in total. Defaults to 3, ceiling 10. */
+  bucket?: number;
+  state?: "open" | "closed";
+  /** Unix seconds. Defaults to 30 minutes after the page loads. */
+  deadline?: number;
+  openedBy?: string;
+  /** Turns already spoken before this page loaded. Defaults to 0. */
+  spent?: number;
+  /** Pin the phase instead of deriving it. Cleared by Stop/Go. */
+  phase?: "open" | "paused" | "closed" | "expired";
+};
+
 type MockManagedAgentSeed = {
   pubkey: string;
   name: string;
@@ -219,6 +244,17 @@ type MockBridgeOptions = {
     mcp?: MockCommandAvailability;
   };
   managedAgents?: MockManagedAgentSeed[];
+  /**
+   * Seeded exchange heads (kind 30178). The mock relay serves them to the
+   * exchange sync's backfill/live REQ and answers `get_exchange` /
+   * `resolve_exchange` from them. `spent` is a HEAD START, not a stored count:
+   * the mock adds the turn-tagged messages it has accepted on top, so a spec
+   * that emits volleys with `extraTags: [["exchange", id, "2"]]` watches the
+   * counter move the way the relay would move it. `resolve_exchange` mutates
+   * the seed (stop → closed, go → bucket + 3 capped at 10) and emits
+   * `exchange-updated`.
+   */
+  exchanges?: MockExchangeSeed[];
   nativeResidentDiscovery?: NativeResidentDiscoveryOutcome;
   nativeResidentDiscoveryError?: string;
   createManagedAgentErrors?: (string | null)[];

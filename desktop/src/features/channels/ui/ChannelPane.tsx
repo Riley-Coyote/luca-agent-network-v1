@@ -52,6 +52,9 @@ import { normalizePubkey } from "@/shared/lib/pubkey";
 import { useNativeAgentNotice } from "@/features/luca/useNativeAgentNotice";
 import { useManagedPermissions } from "@/features/agents/useManagedPermissions";
 import { ManagedPermissionCard } from "@/features/agents/ui/ManagedPermissionCard";
+import { useRoomExchanges } from "@/features/exchange/exchangeStore";
+import { useExchangeTurnRefresh } from "@/features/exchange/useExchangeSync";
+import { ExchangeStrip } from "@/features/exchange/ui/ExchangeStrip";
 import {
   containsWelcomePersonaMention,
   WelcomeComposerBanner,
@@ -205,6 +208,10 @@ export const ChannelPane = React.memo(function ChannelPane({
       ),
     [activeChannelId, pendingManagedPermissions],
   );
+  // Live exchanges belonging to this room, plus a re-read of the relay's spent
+  // count whenever a turn-tagged message lands here.
+  const roomExchanges = useRoomExchanges(activeChannelId);
+  useExchangeTurnRefresh(messages);
   const activeChannelIdRef = React.useRef(activeChannelId);
   const channelPaneMountedRef = React.useRef(false);
   activeChannelIdRef.current = activeChannelId;
@@ -901,6 +908,18 @@ export const ChannelPane = React.memo(function ChannelPane({
                   ref={composerWrapperRef}
                 >
                   <div className="pointer-events-none">
+                    {roomExchanges.length > 0 ? (
+                      <div className="pointer-events-auto mx-auto mb-2 grid w-full max-w-[48rem] gap-1">
+                        {roomExchanges.map((exchange) => (
+                          <ExchangeStrip
+                            exchange={exchange}
+                            key={exchange.record.exchangeId}
+                            profiles={profiles}
+                            residentPersonaIdLookup={residentPersonaIdLookup}
+                          />
+                        ))}
+                      </div>
+                    ) : null}
                     {activePermissionRequests.length > 0 ? (
                       <div className="pointer-events-auto mx-auto mb-2 grid w-full max-w-[48rem] gap-2">
                         {activePermissionRequests.map((pending) => (

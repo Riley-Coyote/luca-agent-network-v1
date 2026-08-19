@@ -41,6 +41,7 @@ import { requestOpenCreateAgent } from "@/features/agents/openCreateAgentEvent";
 import { useAgentsDataRefresh } from "@/features/agents/lib/useAgentsDataRefresh";
 import { useAutoRestartPolicy } from "@/features/agents/lib/useAutoRestartPolicy";
 import { usePersonaSync } from "@/features/agents/lib/usePersonaSync";
+import { useExchangeSync } from "@/features/exchange/useExchangeSync";
 import { useAgentObserverIngestion } from "@/features/agents/useAgentObserverIngestion";
 import { useBrainReviewNavigation } from "@/features/luca/brain/useBrainReviewNavigation";
 import { AgentManagementDialogs } from "@/features/agents/ui/AgentManagementDialogs";
@@ -200,6 +201,9 @@ export function AppShell() {
     identityQuery.data?.pubkey,
   );
   usePersonaSync(identityQuery.data?.pubkey);
+  // Owner-authored exchange records (kind 30178) — same lifecycle as the
+  // persona sync, and reset with it on a community switch.
+  useExchangeSync(identityQuery.data?.pubkey);
   useAgentsDataRefresh();
   // Chunk F: auto-restart drifted idle agents (per-agent opt-out, default ON).
   useAutoRestartPolicy();

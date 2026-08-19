@@ -37,6 +37,7 @@ import {
   KIND_GIT_STATUS_MERGED,
   KIND_GIT_STATUS_OPEN,
   KIND_HUDDLE_STARTED,
+  KIND_LUCA_EXCHANGE,
   KIND_MEMBER_ADDED_NOTIFICATION,
   KIND_MEMBER_REMOVED_NOTIFICATION,
   KIND_REPO_ANNOUNCEMENT,
@@ -45,6 +46,8 @@ import {
   KIND_SYSTEM_MESSAGE,
   KIND_TEXT_NOTE,
   KIND_USER_STATUS,
+  EXCHANGE_BUCKET_CEILING,
+  EXCHANGE_TAG,
 } from "@/shared/constants/kinds";
 import type {
   RawAcpAuthMethodsResult,
@@ -147,6 +150,28 @@ type MockSearchProfileSeed = {
   isAgent?: boolean;
 };
 
+/** One seeded kind-30178 head. Only `members` is required. */
+type MockExchangeSeed = {
+  exchangeId?: string;
+  owner?: string;
+  members: string[];
+  /** Channel the exchange lives in; `channelName` resolves one by name. */
+  conversationId?: string;
+  channelName?: string;
+  rootEventId?: string;
+  parentExchangeId?: string | null;
+  depth?: number;
+  bucket?: number;
+  state?: "open" | "closed";
+  /** Unix seconds. Defaults to 30 minutes after the page loads. */
+  deadline?: number;
+  openedBy?: string;
+  /** Turns already spoken before this page loaded. Defaults to 0. */
+  spent?: number;
+  /** Pin the phase instead of deriving it. Cleared by Stop/Go. */
+  phase?: "open" | "paused" | "closed" | "expired";
+};
+
 type E2eConfig = {
   mode?: "mock" | "relay";
   mock?: {
@@ -206,6 +231,8 @@ type E2eConfig = {
       mcp?: MockCommandAvailability;
     };
     managedAgents?: MockManagedAgentSeed[];
+    /** Seeded exchange heads — see tests/helpers/bridge.ts:MockExchangeSeed. */
+    exchanges?: MockExchangeSeed[];
     /** Body-free UX-203A restart outcomes returned for operational presentation. */
     managedOperationalStatuses?: Array<{
       dispatchReceiptId: string;
@@ -3064,6 +3091,136 @@ const mockChannels: MockChannel[] = [
 ];
 
 const mockMessages = new Map<string, RelayEvent[]>();
+
+// ── Exchange objects (kind 30178) ──────────────────────────────────────────
+// One head per exchange, owner-authored, exactly as the relay would hold it.
+// `spent` is NOT stored here either: it is counted from the turn-tagged
+// messages the mock relay has accepted, unioned with the seed's head start —
+// the same derivation `luca_protocol::ExchangeRecordV1` documents, so a spec
+// that emits volleys watches the number move for the right reason.
+type MockExchangeRecord = {
+  protocol: "luca.exchange.v1";
+  exchange_id: string;
+  owner: string;
+  members: string[];
+  conversation_id: string;
+  root_event_id: string;
+  parent_exchange_id: string | null;
+  depth: number;
+  bucket: number;
+  state: "open" | "closed";
+  deadline: number;
+  opened_by: string;
+};
+
+type MockExchange = {
+  record: MockExchangeRecord;
+  /** Turns already spoken before this page loaded (turns 1..seededSpent). */
+  seededSpent: number;
+  /** Seed override; cleared the moment the owner decides anything. */
+  forcedPhase: MockExchangePhase | null;
+};
+
+type MockExchangePhase = "open" | "paused" | "closed" | "expired";
+
+const EXCHANGE_GO_INCREMENT = 3;
+const EXCHANGE_TTL_SECONDS = 30 * 60;
+
+let mockExchanges: MockExchange[] = [];
+
+function resetMockExchanges(config?: E2eConfig) {
+  const owner = getMockMemberPubkey(config);
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  mockExchanges = (config?.mock?.exchanges ?? []).map((seed) => {
+    const members = [...(seed.members ?? [])]
+      .map((member) => member.toLowerCase())
+      .sort();
+    const conversationId =
+      seed.conversationId ??
+      mockChannels.find((channel) => channel.name === seed.channelName)?.id ??
+      STARTER_GENERAL_CHANNEL_ID;
+    return {
+      record: {
+        protocol: "luca.exchange.v1",
+        exchange_id: (seed.exchangeId ?? mockEventId()).toLowerCase(),
+        owner: (seed.owner ?? owner).toLowerCase(),
+        members,
+        conversation_id: conversationId,
+        root_event_id: (seed.rootEventId ?? mockEventId()).toLowerCase(),
+        parent_exchange_id: seed.parentExchangeId ?? null,
+        depth: seed.depth ?? 1,
+        bucket: seed.bucket ?? 3,
+        state: seed.state ?? "open",
+        deadline: seed.deadline ?? nowSeconds + EXCHANGE_TTL_SECONDS,
+        opened_by: (seed.openedBy ?? members[0] ?? owner).toLowerCase(),
+      },
+      seededSpent: seed.spent ?? 0,
+      forcedPhase: seed.phase ?? null,
+    };
+  });
+}
+
+function findMockExchange(exchangeId: unknown): MockExchange | undefined {
+  if (typeof exchangeId !== "string") return undefined;
+  const wanted = exchangeId.toLowerCase();
+  return mockExchanges.find(
+    (exchange) => exchange.record.exchange_id === wanted,
+  );
+}
+
+/** Turns the mock relay has accepted for this exchange (resident-authored). */
+function mockExchangeSpent(exchange: MockExchange): number {
+  const turns = new Set<number>();
+  for (let turn = 1; turn <= exchange.seededSpent; turn += 1) turns.add(turn);
+  for (const events of mockMessages.values()) {
+    for (const event of events) {
+      if (event.pubkey.toLowerCase() === exchange.record.owner) continue;
+      for (const tag of event.tags) {
+        if (tag[0] !== EXCHANGE_TAG) continue;
+        if (tag[1]?.toLowerCase() !== exchange.record.exchange_id) continue;
+        const turn = Number.parseInt(tag[2] ?? "", 10);
+        if (Number.isInteger(turn) && turn > 0) turns.add(turn);
+      }
+    }
+  }
+  return turns.size;
+}
+
+function mockExchangePhase(
+  exchange: MockExchange,
+  spent: number,
+): MockExchangePhase {
+  if (exchange.forcedPhase) return exchange.forcedPhase;
+  if (exchange.record.state === "closed") return "closed";
+  if (Math.floor(Date.now() / 1000) > exchange.record.deadline) {
+    return "expired";
+  }
+  return spent >= exchange.record.bucket ? "paused" : "open";
+}
+
+/** The `ExchangeSnapshot` shape both exchange commands return. */
+function mockExchangeSnapshot(exchange: MockExchange) {
+  const spent = mockExchangeSpent(exchange);
+  return {
+    record: exchange.record,
+    spent,
+    remaining: Math.max(0, exchange.record.bucket - spent),
+    phase: mockExchangePhase(exchange, spent),
+  };
+}
+
+function mockExchangeHeadEvent(exchange: MockExchange): RelayEvent {
+  return createMockEvent(
+    KIND_LUCA_EXCHANGE,
+    JSON.stringify(exchange.record),
+    [
+      ["d", exchange.record.exchange_id],
+      ...exchange.record.members.map((member) => ["p", member]),
+    ],
+    exchange.record.owner,
+  );
+}
+
 const mockUserStatuses: RelayEvent[] = [];
 const mockReminderEvents: RelayEvent[] = [];
 let mockRelayMembers: RawRelayMember[] = [];
@@ -9504,6 +9661,22 @@ function sendToMockSocket(args: {
       return;
     }
 
+    if (filter.kinds?.includes(KIND_LUCA_EXCHANGE)) {
+      // Owner-authored exchange heads. `authors` is honoured because the sync
+      // filters on the owner key, exactly as the relay's validator requires.
+      const authors = filter.authors?.map((a) => a.toLowerCase());
+      for (const exchange of mockExchanges) {
+        if (authors && !authors.includes(exchange.record.owner)) continue;
+        sendWsText(socket.handler, [
+          "EVENT",
+          subId,
+          mockExchangeHeadEvent(exchange),
+        ]);
+      }
+      sendWsText(socket.handler, ["EOSE", subId]);
+      return;
+    }
+
     if (filter.kinds?.includes(KIND_EVENT_REMINDER)) {
       const authors = filter.authors?.map((a) => a.toLowerCase());
       for (const event of mockReminderEvents) {
@@ -9723,6 +9896,7 @@ export function maybeInstallE2eTauriMocks() {
   resetMockRelayAgents(config);
   resetMockResidentDocuments(config);
   resetMockManagedAgents(config);
+  resetMockExchanges(config);
   resetMockLucaMcpRegistry();
   resetMockPersonas(config);
   resetMockTeams(config);
@@ -12680,6 +12854,55 @@ export function maybeInstallE2eTauriMocks() {
       case "plugin:event|listen":
         // Tauri event system (pairing, huddle) — no-op in e2e, return unlisten fn ID
         return Math.floor(Math.random() * 1_000_000);
+      // ── Exchange objects ────────────────────────────────────────────────
+      // Both commands land in `__BUZZ_E2E_COMMAND_LOG__` through the generic
+      // logger at the top of this handler, so specs can assert the exact call.
+      case "get_exchange": {
+        const exchange = findMockExchange(
+          (payload as { exchangeId?: unknown } | null)?.exchangeId,
+        );
+        return exchange ? mockExchangeSnapshot(exchange) : null;
+      }
+      case "resolve_exchange": {
+        const args = (payload ?? {}) as {
+          exchangeId?: unknown;
+          action?: unknown;
+        };
+        const exchange = findMockExchange(args.exchangeId);
+        if (!exchange) {
+          throw new Error("that exchange is not one of ours");
+        }
+        if (args.action === "stop") {
+          exchange.record = { ...exchange.record, state: "closed" };
+        } else if (args.action === "go") {
+          if (exchange.record.bucket >= EXCHANGE_BUCKET_CEILING) {
+            throw new Error("at the ceiling");
+          }
+          exchange.record = {
+            ...exchange.record,
+            bucket: Math.min(
+              exchange.record.bucket + EXCHANGE_GO_INCREMENT,
+              EXCHANGE_BUCKET_CEILING,
+            ),
+            deadline: Math.floor(Date.now() / 1000) + EXCHANGE_TTL_SECONDS,
+          };
+        } else {
+          throw new Error(`unknown exchange action: ${String(args.action)}`);
+        }
+        // A decision always settles the phase from the record from here on.
+        exchange.forcedPhase = null;
+        const snapshot = mockExchangeSnapshot(exchange);
+        // Mirror the real command: emit the re-signed head to live REQs, then
+        // hand the settled snapshot to the strip through the Tauri event.
+        emitMockGlobalEvent(mockExchangeHeadEvent(exchange));
+        window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.("exchange-updated", {
+          exchangeId: exchange.record.exchange_id,
+          record: snapshot.record,
+          spent: snapshot.spent,
+          phase: snapshot.phase,
+        });
+        return snapshot;
+      }
       // ── NIP-IA identity archival ────────────────────────────────────────
       // These mocks drive the archive-button gate matrix in
       // tests/e2e/identity-archive.spec.ts. Defaults keep the button hidden

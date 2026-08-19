@@ -1,0 +1,46 @@
+/* The owner's two decisions, and only their five states.
+ *
+ * Layout and type stay on Tailwind tokens in ExchangeStrip.tsx; what lives
+ * here is the part a utility class cannot win. The shell's global rule
+ * (`:root[data-luca-shell] :focus-visible`) paints an offset 2px ring and is
+ * unlayered, so it outranks every Tailwind utility no matter the specificity.
+ * This control follows the house rule instead — the element's own border
+ * brightens in place, never a second ring — which needs a selector that can
+ * say `outline: none` and mean it. Same technique the activity shelf beside it
+ * uses (see conversationAgentActivityShelf.css); no new visual language.
+ */
+:root[data-luca-shell] .luca-exchange-strip .luca-exchange-strip__action {
+  border-color: hsl(var(--mn-border) / 0.72);
+  color: hsl(var(--mn-ink-faint));
+  outline: none;
+}
+
+:root[data-luca-shell]
+  .luca-exchange-strip
+  .luca-exchange-strip__action:hover:not(:disabled) {
+  border-color: hsl(var(--mn-border-strong) / 0.84);
+  color: hsl(var(--mn-ink));
+}
+
+:root[data-luca-shell]
+  .luca-exchange-strip
+  .luca-exchange-strip__action:focus-visible {
+  border-color: hsl(var(--mn-ink) / 0.5);
+  color: hsl(var(--mn-ink));
+  outline: none;
+}
+
+:root[data-luca-shell]
+  .luca-exchange-strip
+  .luca-exchange-strip__action:active:not(:disabled) {
+  border-color: hsl(var(--mn-ink) / 0.34);
+  color: hsl(var(--mn-ink));
+}
+
+:root[data-luca-shell]
+  .luca-exchange-strip
+  .luca-exchange-strip__action:disabled {
+  border-color: hsl(var(--mn-border) / 0.4);
+  color: hsl(var(--mn-ink-faint) / 0.5);
+  cursor: default;
+}

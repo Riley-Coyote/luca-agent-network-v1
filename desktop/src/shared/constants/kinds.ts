@@ -59,6 +59,9 @@ export const KIND_MANAGED_AGENT = 30177;
 // carry the tag ["exchange", <id>, <turn>].
 export const KIND_LUCA_EXCHANGE = 30178;
 export const EXCHANGE_TAG = "exchange";
+// The hard ceiling on an exchange's turn bucket. Speech cannot raise it and
+// neither can an owner signature — mirror of `EXCHANGE_BUCKET_CEILING`.
+export const EXCHANGE_BUCKET_CEILING = 10;
 export const KIND_USER_STATUS = 30315;
 export const KIND_AGENT_OBSERVER_FRAME = 24200;
 export const KIND_AGENT_TURN_METRIC = 44200;
