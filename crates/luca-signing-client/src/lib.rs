@@ -526,6 +526,8 @@ mod unix {
                 final_draft: "managed final".to_owned(),
                 dispatch_receipt_id: dispatch,
                 cancellation_epoch: SafeU53::new(1).expect("valid cancellation epoch"),
+                exchange: None,
+                bucket_hint: None,
             };
             let server_request = request.clone();
             let server_task = tokio::spawn(async move {

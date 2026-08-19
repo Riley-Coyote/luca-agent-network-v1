@@ -99,6 +99,8 @@ fn fixture() -> Fixture {
         final_draft: "exact resident final".to_owned(),
         dispatch_receipt_id: receipt,
         cancellation_epoch: SafeU53::new(7).expect("epoch"),
+        exchange: None,
+        bucket_hint: None,
     };
     let final_event = EventBuilder::new(Kind::Custom(9), request.final_draft.clone())
         .tags([

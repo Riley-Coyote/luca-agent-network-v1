@@ -321,6 +321,8 @@ impl ManagedFinalTurn {
             final_draft,
             dispatch_receipt_id: self.dispatch_receipt_id.clone(),
             cancellation_epoch: self.cancellation_epoch,
+            exchange: None,
+            bucket_hint: None,
         };
         request
             .validate()

@@ -291,6 +291,8 @@ mod tests {
             final_draft: final_draft.to_owned(),
             dispatch_receipt_id,
             cancellation_epoch: SafeU53::new(SESSION_EPOCH).expect("synthetic epoch"),
+            exchange: None,
+            bucket_hint: None,
         }
     }
 

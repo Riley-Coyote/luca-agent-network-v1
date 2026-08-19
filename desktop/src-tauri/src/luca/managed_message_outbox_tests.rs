@@ -31,6 +31,8 @@ fn request(keys: &Keys) -> ManagedMessagePublishRequestV1 {
         final_draft: "A bounded final answer.".to_owned(),
         dispatch_receipt_id,
         cancellation_epoch: SafeU53::new(3).expect("valid cancellation epoch"),
+        exchange: None,
+        bucket_hint: None,
     }
 }
 

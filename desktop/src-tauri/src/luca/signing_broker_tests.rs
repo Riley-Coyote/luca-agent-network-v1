@@ -146,6 +146,8 @@ fn publish_request(broker: &ResidentSigningBroker) -> ManagedMessagePublishReque
         final_draft: "A managed final answer.".to_owned(),
         dispatch_receipt_id,
         cancellation_epoch: SafeU53::new(3).expect("valid cancellation epoch"),
+        exchange: None,
+        bucket_hint: None,
     }
 }
 

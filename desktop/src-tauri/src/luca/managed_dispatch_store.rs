@@ -1897,6 +1897,8 @@ mod tests {
             final_draft: "final answer".into(),
             dispatch_receipt_id: receipt,
             cancellation_epoch: SafeU53::new(epoch).expect("epoch"),
+            exchange: None,
+            bucket_hint: None,
         }
     }
 
