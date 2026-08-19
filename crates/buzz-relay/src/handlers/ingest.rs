@@ -21,12 +21,12 @@ use buzz_core::kind::{
     KIND_GIT_REPO_ANNOUNCEMENT, KIND_GIT_REPO_STATE, KIND_GIT_STATUS_CLOSED, KIND_GIT_STATUS_DRAFT,
     KIND_GIT_STATUS_MERGED, KIND_GIT_STATUS_OPEN, KIND_HUDDLE_ENDED, KIND_HUDDLE_GUIDELINES,
     KIND_HUDDLE_PARTICIPANT_JOINED, KIND_HUDDLE_PARTICIPANT_LEFT, KIND_HUDDLE_STARTED,
-    KIND_IA_ARCHIVE_REQUEST, KIND_IA_UNARCHIVE_REQUEST, KIND_LONG_FORM, KIND_MANAGED_AGENT,
-    KIND_MEMBER_ADDED_NOTIFICATION, KIND_MEMBER_REMOVED_NOTIFICATION, KIND_MODERATION_BAN,
-    KIND_MODERATION_RESOLVE_REPORT, KIND_MODERATION_TIMEOUT, KIND_MODERATION_UNBAN,
-    KIND_MODERATION_UNTIMEOUT, KIND_MUTE_LIST, KIND_NIP29_CREATE_GROUP, KIND_NIP29_DELETE_EVENT,
-    KIND_NIP29_DELETE_GROUP, KIND_NIP29_EDIT_METADATA, KIND_NIP29_JOIN_REQUEST,
-    KIND_NIP29_LEAVE_REQUEST, KIND_NIP29_PUT_USER, KIND_NIP29_REMOVE_USER,
+    KIND_IA_ARCHIVE_REQUEST, KIND_IA_UNARCHIVE_REQUEST, KIND_LONG_FORM, KIND_LUCA_EXCHANGE,
+    KIND_MANAGED_AGENT, KIND_MEMBER_ADDED_NOTIFICATION, KIND_MEMBER_REMOVED_NOTIFICATION,
+    KIND_MODERATION_BAN, KIND_MODERATION_RESOLVE_REPORT, KIND_MODERATION_TIMEOUT,
+    KIND_MODERATION_UNBAN, KIND_MODERATION_UNTIMEOUT, KIND_MUTE_LIST, KIND_NIP29_CREATE_GROUP,
+    KIND_NIP29_DELETE_EVENT, KIND_NIP29_DELETE_GROUP, KIND_NIP29_EDIT_METADATA,
+    KIND_NIP29_JOIN_REQUEST, KIND_NIP29_LEAVE_REQUEST, KIND_NIP29_PUT_USER, KIND_NIP29_REMOVE_USER,
     KIND_NIP43_LEAVE_REQUEST, KIND_NIP65_RELAY_LIST_METADATA, KIND_PERSONA, KIND_PIN_LIST,
     KIND_PRESENCE_UPDATE, KIND_PRODUCT_FEEDBACK, KIND_PROFILE, KIND_REACTION, KIND_READ_STATE,
     KIND_REPORT, KIND_STREAM_MESSAGE, KIND_STREAM_MESSAGE_BOOKMARKED, KIND_STREAM_MESSAGE_DIFF,
@@ -201,6 +201,9 @@ fn required_scope_for_kind(kind: u32, event: &Event) -> Result<Scope, &'static s
         KIND_TEXT_NOTE | KIND_LONG_FORM => Ok(Scope::MessagesWrite),
         KIND_CONTACT_LIST | KIND_READ_STATE | KIND_USER_STATUS | KIND_AGENT_ENGRAM
         | KIND_EVENT_REMINDER | KIND_PERSONA | KIND_TEAM | KIND_MANAGED_AGENT
+        // Luca exchange records (30178) are owner-authored, user-scoped state
+        // keyed by (pubkey, kind, d_tag) — same shape as persona/team/agent.
+        | KIND_LUCA_EXCHANGE
         | super::push_lease::KIND_PUSH_LEASE => {
             Ok(Scope::UsersWrite)
         }
@@ -457,6 +460,10 @@ pub(crate) fn is_global_only_kind(kind: u32) -> bool {
             // keyed by (pubkey, kind, d_tag). A stray `h` tag must not channel-scope them.
             | KIND_TEAM
             | KIND_MANAGED_AGENT
+            // Luca exchange record (30178): owner-authored, keyed by
+            // (pubkey, kind, d_tag). Residents read it by `#p`, never by room,
+            // so a stray `h` tag must not channel-scope it.
+            | KIND_LUCA_EXCHANGE
             // NIP-34: git events use `a` tags (repo reference), not `h` tags (channel scope).
             // Parameterized replaceable kinds are keyed by (pubkey, kind, d_tag).
             | KIND_GIT_REPO_ANNOUNCEMENT
@@ -2081,6 +2088,24 @@ async fn ingest_event_inner(
             .map_err(|e| IngestError::Rejected(format!("invalid: {e}")))?;
     }
 
+    // Luca exchange record (R1): only the owner of every listed resident may
+    // mint or re-sign the head, and a depth-2 record needs a real parent.
+    if kind_u32 == KIND_LUCA_EXCHANGE {
+        super::exchange::validate_exchange_record(state, tenant, &event).await?;
+    }
+
+    // Luca exchange speech (R2/R3): a turn tag must name an open exchange the
+    // author is a member of, inside its bucket and its room, mentioning nobody
+    // outside its members; and a resident may not reach for a sibling without
+    // one — on any kind that wakes a sibling, not just kind:9. `Some(claim)`
+    // routes the insert through the advisory-locked uniqueness guard below.
+    let exchange_turn_claim = if super::exchange::is_exchange_mention_gate_kind(kind_u32) {
+        super::exchange::authorize_exchange_message(state, tenant, &event, kind_u32, channel_id)
+            .await?
+    } else {
+        None
+    };
+
     // Track pre-created channel UUID for compensation on insert failure.
     let mut pre_created_channel: Option<Uuid> = None;
 
@@ -2440,7 +2465,52 @@ async fn ingest_event_inner(
             .map_err(|e| IngestError::Internal(format!("error: {e}")))?
     } else {
         let thread_params = thread_meta.as_ref().map(|m| m.as_params());
-        let insert_result = if let Some(expected_snapshot_id) = expected_membership_snapshot {
+        let insert_result = if let Some(claim) = exchange_turn_claim.as_ref() {
+            // A turn is spoken once. The uniqueness probe and the insert share
+            // one advisory-locked transaction, so two residents racing for the
+            // same turn cannot both land.
+            let Some(ch_id) = channel_id else {
+                return Err(IngestError::Rejected(
+                    "invalid: an exchange turn requires channel scope".into(),
+                ));
+            };
+            if expected_membership_snapshot.is_some() {
+                // Two compare-and-store guards would each need the other's lock
+                // to stay atomic. Rather than silently dropping one, refuse.
+                return Err(IngestError::Rejected(
+                    "invalid: expected_membership cannot be combined with an exchange turn".into(),
+                ));
+            }
+            match state
+                .db
+                .insert_event_if_exchange_turn_unclaimed(
+                    tenant.community(),
+                    &event,
+                    ch_id,
+                    &claim.exchange_id,
+                    claim.turn,
+                    &super::exchange::EXCHANGE_SPEECH_KINDS,
+                    &claim.members,
+                    super::exchange::tags_claim_turn,
+                    thread_params,
+                )
+                .await
+                .map_err(map_event_insert_error)?
+            {
+                buzz_db::ExchangeTurnGuardedInsertOutcome::Inserted {
+                    stored_event,
+                    was_inserted,
+                } => Ok((*stored_event, was_inserted)),
+                buzz_db::ExchangeTurnGuardedInsertOutcome::TurnAlreadySpoken => Err(
+                    IngestError::Rejected("restricted: exchange turn already spoken".into()),
+                ),
+                buzz_db::ExchangeTurnGuardedInsertOutcome::ProbeOverflow => {
+                    Err(IngestError::Rejected(
+                        "restricted: exchange turn could not be verified as unspoken".into(),
+                    ))
+                }
+            }
+        } else if let Some(expected_snapshot_id) = expected_membership_snapshot {
             let Some(ch_id) = channel_id else {
                 return Err(IngestError::Rejected(
                     "invalid: expected_membership requires kind:9 channel scope".into(),
@@ -2996,6 +3066,43 @@ mod tests {
                 "kind {kind} must not require an h-tag channel scope"
             );
         }
+    }
+
+    #[test]
+    fn luca_exchange_record_is_in_scope_allowlist() {
+        // Before this arm existed, 30178 fell to the catch-all and every mint
+        // was refused "restricted: unknown event kind". It is owner-authored,
+        // user-scoped state keyed by (pubkey, kind, d_tag) — same shape as
+        // persona / team / managed agent.
+        let dummy = make_dummy_event();
+        assert_eq!(
+            required_scope_for_kind(KIND_LUCA_EXCHANGE, &dummy).unwrap(),
+            Scope::UsersWrite,
+        );
+    }
+
+    #[test]
+    fn luca_exchange_record_is_global_only_and_never_channel_scoped() {
+        // Residents find their exchanges by `#p`, never by room. A stray `h`
+        // tag must not channel-scope the record, or a resident who cannot see
+        // the room could not read the exchange that governs their own turn.
+        assert!(is_global_only_kind(KIND_LUCA_EXCHANGE));
+        assert!(!requires_h_channel_scope(KIND_LUCA_EXCHANGE));
+    }
+
+    #[test]
+    fn luca_exchange_record_is_readable_by_its_members() {
+        // Deliberately in neither gate: p-gating would be redundant (members
+        // are the `p` tags) but author-only would hide the record from the
+        // very residents whose budget it bounds.
+        assert!(
+            !buzz_core::kind::P_GATED_KINDS.contains(&KIND_LUCA_EXCHANGE),
+            "30178 must not be p-gated for reads"
+        );
+        assert!(
+            !buzz_core::kind::AUTHOR_ONLY_KINDS.contains(&KIND_LUCA_EXCHANGE),
+            "30178 must not be author-only — members must be able to REQ it"
+        );
     }
 
     #[test]

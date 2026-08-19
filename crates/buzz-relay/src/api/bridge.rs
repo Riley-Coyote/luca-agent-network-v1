@@ -317,6 +317,33 @@ fn extract_before_id(raw: &Value) -> BeforeId {
     }
 }
 
+/// May this filter carry the Luca `#exchange` sidecar on `POST /query`?
+///
+/// The sidecar is only honored on the plain catch-all read path, which fetches
+/// candidate rows and re-checks each one's turn tag. Every specialised path
+/// (`top_level` channel windows, `feed_types`, `depth_limit` threads, NIP-50
+/// search, presence synthesis) answers from its own query shape and would drop
+/// the constraint silently, so those combinations are refused instead. The
+/// sidecar is also pinned to the two room-speech kinds that can carry a turn
+/// tag at all — an unbounded `#exchange` scan is not a thing we offer.
+fn exchange_sidecar_supported(raw: &Value, filter: &nostr::Filter) -> bool {
+    if extension_flag(raw, "top_level")
+        || extract_feed_types(raw).is_some()
+        || extract_depth_limit(raw).is_some()
+        || filter.search.is_some()
+    {
+        return false;
+    }
+    filter.kinds.as_ref().is_some_and(|kinds| {
+        !kinds.is_empty()
+            && kinds.iter().all(|k| {
+                let k = k.as_u16() as u32;
+                k == buzz_core::kind::KIND_STREAM_MESSAGE
+                    || k == buzz_core::kind::KIND_STREAM_MESSAGE_V2
+            })
+    })
+}
+
 /// True when the raw filter opts into a bridge extension flag (`top_level`,
 /// `include_summaries`, `include_aux`). Absent or non-boolean = false.
 fn extension_flag(raw: &Value, key: &str) -> bool {
@@ -1150,6 +1177,22 @@ async fn query_events_authed(
         .collect::<Result<_, _>>()
         .map_err(|e| api_error(StatusCode::BAD_REQUEST, &format!("invalid filters: {e}")))?;
 
+    // Luca `#exchange` sidecar — invisible to `nostr::Filter`, so read from the
+    // raw JSON and refused wherever it could not be honored exactly.
+    let exchange_sidecars: Vec<Option<Vec<String>>> = raw_filters
+        .iter()
+        .map(crate::protocol::extract_exchange_sidecar)
+        .collect::<std::result::Result<_, _>>()
+        .map_err(|e| api_error(StatusCode::BAD_REQUEST, &e.to_string()))?;
+    for (idx, sidecar) in exchange_sidecars.iter().enumerate() {
+        if sidecar.is_some() && !exchange_sidecar_supported(&raw_filters[idx], &filters[idx]) {
+            return Err(api_error(
+                StatusCode::BAD_REQUEST,
+                crate::protocol::EXCHANGE_FILTER_UNSUPPORTED,
+            ));
+        }
+    }
+
     // P-gated kinds (gift wraps, member notifications, observer frames) require
     // the caller's own pubkey in the #p tag — same enforcement as WS REQ handler.
     let authed_pubkey_hex = pubkey.to_hex();
@@ -1399,6 +1442,8 @@ async fn query_events_authed(
             extract_channel_from_filter(filter),
             &accessible_channels,
         );
+        // Containment prefilter only — Phase 3 re-parses each row's turn tag.
+        query.exchange_ids = exchange_sidecars[idx].clone();
 
         match extract_before_id(raw) {
             BeforeId::Malformed => {
@@ -1448,6 +1493,7 @@ async fn query_events_authed(
     // Phase 3 — post-processing, strictly in filter order.
     while let Some((idx, filter_events)) = catchall_results.next().await {
         let filter = &filters[idx];
+        let exchange = exchange_sidecars[idx].as_deref();
         match filter_events {
             Ok(stored_events) => {
                 for se in stored_events {
@@ -1456,6 +1502,13 @@ async fn query_events_authed(
                     }
                     if !buzz_core::filter::filters_match(std::slice::from_ref(filter), &se) {
                         continue;
+                    }
+                    // JSONB containment is set-like: only the contract's own
+                    // positional turn-tag parse decides membership.
+                    if let Some(ids) = exchange {
+                        if !crate::handlers::exchange::event_matches_exchange_ids(&se.event, ids) {
+                            continue;
+                        }
                     }
                     // Result-level read auth: never hand a viewer-private snapshot
                     // (kind:30622) to anyone but its owner, even via kindless `ids`.
@@ -1571,8 +1624,21 @@ async fn count_events_authed(
     )
     .await?;
 
-    let filters: Vec<nostr::Filter> = serde_json::from_slice(body)
+    // Two-pass parse: the Luca `#exchange` key is a multi-character filter key,
+    // which `nostr::Filter` discards at deserialize time, so it is read from the
+    // raw JSON and carried beside the parsed filters.
+    let raw_filters: Vec<Value> = serde_json::from_slice(body)
         .map_err(|e| api_error(StatusCode::BAD_REQUEST, &format!("invalid filters: {e}")))?;
+    let filters: Vec<nostr::Filter> = raw_filters
+        .iter()
+        .map(|v| serde_json::from_value(v.clone()))
+        .collect::<std::result::Result<_, _>>()
+        .map_err(|e| api_error(StatusCode::BAD_REQUEST, &format!("invalid filters: {e}")))?;
+    let exchange_sidecars: Vec<Option<Vec<String>>> = raw_filters
+        .iter()
+        .map(crate::protocol::extract_exchange_sidecar)
+        .collect::<std::result::Result<_, _>>()
+        .map_err(|e| api_error(StatusCode::BAD_REQUEST, &e.to_string()))?;
 
     // P-gated kinds enforcement — same as WS REQ and /query.
     let authed_pubkey_hex = pubkey.to_hex();
@@ -1602,7 +1668,11 @@ async fn count_events_authed(
         .map_err(|e| internal_error(&format!("channel access lookup: {e}")))?;
 
     let mut total: u64 = 0;
-    for filter in &filters {
+    for (idx, filter) in filters.iter().enumerate() {
+        // A `#exchange` COUNT never takes the SQL fast path — containment is
+        // set-like, so each candidate's turn tag is re-parsed before it counts.
+        let exchange = exchange_sidecars[idx].as_deref();
+        let needs_exchange_filtering = exchange.is_some();
         let needs_author_only_filtering =
             crate::handlers::req::filter_can_match_author_only_kinds(filter);
         // Same result-gated guard as the WS COUNT handler: force the per-event
@@ -1621,13 +1691,14 @@ async fn count_events_authed(
                 continue; // Skip filters targeting inaccessible channels.
             }
             // Channel is accessible — count with pushability check.
-            let query = crate::handlers::req::build_event_query_from_filter(
+            let mut query = crate::handlers::req::build_event_query_from_filter(
                 filter,
                 &pubkey_bytes,
                 state,
                 tenant.community(),
             )
             .await;
+            query.exchange_ids = exchange.map(<[String]>::to_vec);
             let author_is_self = filter.authors.as_ref().is_some_and(|authors| {
                 !authors.is_empty()
                     && authors
@@ -1637,6 +1708,7 @@ async fn count_events_authed(
             if crate::handlers::req::filter_fully_pushable(filter)
                 && (!needs_author_only_filtering || author_is_self)
                 && !needs_result_gated_filtering
+                && !needs_exchange_filtering
             {
                 match state.db.count_events(&query).await {
                     Ok(n) => total += n as u64,
@@ -1661,6 +1733,13 @@ async fn count_events_authed(
                             if !buzz_core::filter::filters_match(std::slice::from_ref(filter), &se)
                             {
                                 continue;
+                            }
+                            if let Some(ids) = exchange {
+                                if !crate::handlers::exchange::event_matches_exchange_ids(
+                                    &se.event, ids,
+                                ) {
+                                    continue;
+                                }
                             }
                             if crate::handlers::req::is_author_only_event(&se.event, &pubkey_bytes)
                             {
@@ -1691,6 +1770,7 @@ async fn count_events_authed(
             )
             .await;
             query.channel_ids = Some(accessible_channels.to_vec());
+            query.exchange_ids = exchange.map(<[String]>::to_vec);
 
             let author_is_self = filter.authors.as_ref().is_some_and(|authors| {
                 !authors.is_empty()
@@ -1701,6 +1781,7 @@ async fn count_events_authed(
             if crate::handlers::req::filter_fully_pushable(filter)
                 && (!needs_author_only_filtering || author_is_self)
                 && !needs_result_gated_filtering
+                && !needs_exchange_filtering
             {
                 query.limit = None;
                 match state.db.count_events(&query).await {
@@ -1725,6 +1806,13 @@ async fn count_events_authed(
                             if !buzz_core::filter::filters_match(std::slice::from_ref(filter), &se)
                             {
                                 continue;
+                            }
+                            if let Some(ids) = exchange {
+                                if !crate::handlers::exchange::event_matches_exchange_ids(
+                                    &se.event, ids,
+                                ) {
+                                    continue;
+                                }
                             }
                             if crate::handlers::req::is_author_only_event(&se.event, &pubkey_bytes)
                             {

@@ -11,6 +11,70 @@ const MAX_SUB_ID_LENGTH: usize = 256;
 /// NIP-11 advertised limit: REQ messages with more filters than this are rejected.
 const MAX_FILTERS_PER_REQ: usize = 10;
 
+/// Maximum exchange ids one `#exchange` sidecar may carry.
+///
+/// The strip counts a handful of live exchanges in one room; anything past this
+/// is a scan dressed up as a filter.
+const MAX_EXCHANGE_FILTER_VALUES: usize = 16;
+
+/// The refusal a caller gets when it asks for `#exchange` on a surface that
+/// cannot honor it. Shared so REQ and `POST /query`'s specialised paths say the
+/// same sentence.
+pub const EXCHANGE_FILTER_UNSUPPORTED: &str =
+    "unsupported: #exchange is only supported on COUNT and POST /query";
+
+/// Extract the Luca `#exchange` filter key from a filter's **raw JSON**.
+///
+/// `nostr` 0.44 deserializes `generic_tags` with a visitor that keeps a `#key`
+/// only when the key is `#` plus exactly one character; every multi-character
+/// key is silently discarded (`nostr-0.44/src/filter.rs`). So `#exchange` never
+/// reaches `nostr::Filter` at all, and a handler working from the parsed filter
+/// would answer as though the constraint were absent — a silent fail-**open** on
+/// the exact number the exchange strip renders as `spent`.
+///
+/// The sidecar therefore travels beside the parsed filter, read from the raw
+/// JSON that every entry point already has. It is honored on COUNT and one-shot
+/// `POST /query` (both of which re-check candidate rows against the protocol's
+/// turn-tag parse) and refused on live REQ, whose fan-out leg matches against
+/// `nostr::Filter` alone and would over-deliver.
+///
+/// Returns `Ok(None)` when absent, `Err` when present but not a bounded array
+/// of lowercase 64-hex ids.
+pub fn extract_exchange_sidecar(filter: &Value) -> Result<Option<Vec<String>>> {
+    let Some(raw) = filter.get("#exchange") else {
+        return Ok(None);
+    };
+    let Some(values) = raw.as_array() else {
+        return Err(RelayError::InvalidMessage(
+            "#exchange must be an array of exchange ids".to_string(),
+        ));
+    };
+    if values.is_empty() || values.len() > MAX_EXCHANGE_FILTER_VALUES {
+        return Err(RelayError::InvalidMessage(format!(
+            "#exchange must carry 1..={MAX_EXCHANGE_FILTER_VALUES} exchange ids"
+        )));
+    }
+    let mut ids = Vec::with_capacity(values.len());
+    for value in values {
+        let Some(id) = value.as_str() else {
+            return Err(RelayError::InvalidMessage(
+                "#exchange ids must be strings".to_string(),
+            ));
+        };
+        if id.len() != 64
+            || !id
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err(RelayError::InvalidMessage(
+                "#exchange ids must be 64 lowercase hex characters".to_string(),
+            ));
+        }
+        ids.push(id.to_string());
+    }
+    Ok(Some(ids))
+}
+
 /// A message sent by a NIP-01 client to the relay.
 #[derive(Debug, Clone)]
 pub enum ClientMessage {
@@ -22,6 +86,9 @@ pub enum ClientMessage {
         sub_id: String,
         /// The filters that determine which events are delivered.
         filters: Vec<Filter>,
+        /// Per-filter Luca `#exchange` sidecar, parallel to `filters`.
+        /// See [`extract_exchange_sidecar`].
+        exchange_ids: Vec<Option<Vec<String>>>,
     },
     /// A CLOSE message cancelling an active subscription.
     Close(String),
@@ -31,6 +98,9 @@ pub enum ClientMessage {
         sub_id: String,
         /// The filters to count against.
         filters: Vec<Filter>,
+        /// Per-filter Luca `#exchange` sidecar, parallel to `filters`.
+        /// See [`extract_exchange_sidecar`].
+        exchange_ids: Vec<Option<Vec<String>>>,
     },
     /// An AUTH message responding to a NIP-42 challenge.
     Auth(Event),
@@ -103,7 +173,15 @@ impl ClientMessage {
                             .map_err(|e| RelayError::InvalidMessage(format!("invalid filter: {e}")))
                     })
                     .collect::<Result<Vec<_>>>()?;
-                Ok(ClientMessage::Req { sub_id, filters })
+                let exchange_ids = filter_values
+                    .iter()
+                    .map(extract_exchange_sidecar)
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(ClientMessage::Req {
+                    sub_id,
+                    filters,
+                    exchange_ids,
+                })
             }
             "COUNT" => {
                 if arr.len() < 2 {
@@ -141,7 +219,15 @@ impl ClientMessage {
                             .map_err(|e| RelayError::InvalidMessage(format!("invalid filter: {e}")))
                     })
                     .collect::<Result<Vec<_>>>()?;
-                Ok(ClientMessage::Count { sub_id, filters })
+                let exchange_ids = filter_values
+                    .iter()
+                    .map(extract_exchange_sidecar)
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(ClientMessage::Count {
+                    sub_id,
+                    filters,
+                    exchange_ids,
+                })
             }
             "CLOSE" => {
                 if arr.len() < 2 {
@@ -252,9 +338,14 @@ mod tests {
                 &serde_json::json!(["REQ", "sub1", serde_json::to_value(&filter).unwrap()])
                     .to_string(),
                 Box::new(|m| match m {
-                    ClientMessage::Req { sub_id, filters } => {
+                    ClientMessage::Req {
+                        sub_id,
+                        filters,
+                        exchange_ids,
+                    } => {
                         assert_eq!(sub_id, "sub1");
                         assert_eq!(filters.len(), 1);
+                        assert_eq!(exchange_ids, vec![None]);
                     }
                     _ => panic!("expected Req"),
                 }),
@@ -294,11 +385,123 @@ mod tests {
         ])
         .to_string();
         match ClientMessage::parse(&raw).unwrap() {
-            ClientMessage::Req { sub_id, filters } => {
+            ClientMessage::Req {
+                sub_id,
+                filters,
+                exchange_ids,
+            } => {
                 assert_eq!(sub_id, "sub2");
                 assert_eq!(filters.len(), 2);
+                assert_eq!(exchange_ids, vec![None, None]);
             }
             _ => panic!("expected Req"),
+        }
+    }
+
+    /// The failure this whole sidecar exists to prevent: `nostr::Filter` throws
+    /// `#exchange` away at deserialize time, so a handler reading only the
+    /// parsed filter answers a *wider* question than was asked — and `spent`
+    /// would read as every message in the room.
+    #[test]
+    fn nostr_filter_silently_drops_the_multi_char_exchange_key() {
+        let raw = serde_json::json!({
+            "kinds": [9],
+            "#exchange": ["ab".repeat(32)],
+        });
+        let filter: Filter = serde_json::from_value(raw.clone()).expect("filter parses");
+        assert!(
+            !serde_json::to_string(&filter)
+                .expect("filter re-serializes")
+                .contains("exchange"),
+            "if nostr ever starts keeping #exchange, the sidecar can be retired"
+        );
+        // The sidecar reads it from the raw JSON that parse threw away.
+        assert_eq!(
+            extract_exchange_sidecar(&raw).expect("sidecar parses"),
+            Some(vec!["ab".repeat(32)])
+        );
+    }
+
+    #[test]
+    fn exchange_sidecar_is_absent_when_the_key_is_absent() {
+        let raw = serde_json::json!({ "kinds": [9], "#h": ["room"] });
+        assert_eq!(extract_exchange_sidecar(&raw).expect("no sidecar"), None);
+    }
+
+    #[test]
+    fn exchange_sidecar_refuses_every_shape_that_is_not_bounded_hex64() {
+        let id = "ab".repeat(32);
+        let cases = [
+            serde_json::json!({ "#exchange": id.clone() }), // not an array
+            serde_json::json!({ "#exchange": [] }),         // empty
+            serde_json::json!({ "#exchange": [1234] }),     // not a string
+            serde_json::json!({ "#exchange": ["ab"] }),     // too short
+            serde_json::json!({ "#exchange": [id.to_uppercase()] }), // not lowercase
+            serde_json::json!({ "#exchange": ["zz".repeat(32)] }), // not hex
+            serde_json::json!({ "#exchange": vec![id.clone(); MAX_EXCHANGE_FILTER_VALUES + 1] }),
+        ];
+        for raw in cases {
+            assert!(
+                extract_exchange_sidecar(&raw).is_err(),
+                "should have refused: {raw}"
+            );
+        }
+        // The boundary itself is allowed.
+        let at_limit =
+            serde_json::json!({ "#exchange": vec![id.clone(); MAX_EXCHANGE_FILTER_VALUES] });
+        assert_eq!(
+            extract_exchange_sidecar(&at_limit)
+                .expect("at the limit is fine")
+                .map(|ids| ids.len()),
+            Some(MAX_EXCHANGE_FILTER_VALUES)
+        );
+    }
+
+    #[test]
+    fn req_and_count_carry_the_sidecar_parallel_to_their_filters() {
+        let id = "ab".repeat(32);
+        for verb in ["REQ", "COUNT"] {
+            let raw = serde_json::json!([
+                verb,
+                "sub1",
+                { "kinds": [9] },
+                { "kinds": [9], "#exchange": [id.clone()] },
+            ])
+            .to_string();
+            let (filters, exchange_ids) = match ClientMessage::parse(&raw).expect("parses") {
+                ClientMessage::Req {
+                    filters,
+                    exchange_ids,
+                    ..
+                }
+                | ClientMessage::Count {
+                    filters,
+                    exchange_ids,
+                    ..
+                } => (filters, exchange_ids),
+                other => panic!("expected {verb}, got {other:?}"),
+            };
+            // Parallel and index-aligned: the connection layer and the COUNT
+            // handler both index the sidecar by filter position.
+            assert_eq!(filters.len(), 2, "{verb}");
+            assert_eq!(exchange_ids, vec![None, Some(vec![id.clone()])], "{verb}");
+        }
+    }
+
+    #[test]
+    fn a_malformed_exchange_sidecar_fails_the_whole_message() {
+        // Fail closed: a filter whose `#exchange` cannot be read must not be
+        // answered as though it carried no constraint at all.
+        for verb in ["REQ", "COUNT"] {
+            let raw = serde_json::json!([verb, "sub1", { "kinds": [9], "#exchange": ["nope"] }])
+                .to_string();
+            assert!(
+                matches!(
+                    ClientMessage::parse(&raw),
+                    Err(RelayError::InvalidMessage(_))
+                ),
+                "{verb} with a malformed #exchange must be refused"
+            );
         }
     }
 

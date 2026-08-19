@@ -71,6 +71,36 @@ pub enum MembershipSnapshotGuardedInsertOutcome {
     SnapshotChanged,
 }
 
+/// Outcome of a room-message insertion guarded by an exchange turn claim.
+///
+/// See [`Database::insert_event_if_exchange_turn_unclaimed`].
+#[derive(Debug)]
+pub enum ExchangeTurnGuardedInsertOutcome {
+    /// The turn was unclaimed and the event transaction committed.
+    Inserted {
+        /// Canonical stored event returned by the committed transaction.
+        stored_event: Box<StoredEvent>,
+        /// Whether this transaction inserted a new row rather than observing
+        /// an exact idempotent duplicate.
+        was_inserted: bool,
+    },
+    /// An already-accepted event holds this exact `(exchange_id, turn)`.
+    TurnAlreadySpoken,
+    /// The containment prefilter returned more candidate rows than the probe
+    /// will inspect, so uniqueness could not be decided. Callers must refuse.
+    ProbeOverflow,
+}
+
+/// How many containment-prefilter candidates the exchange-turn probe inspects
+/// before it refuses to decide.
+///
+/// JSONB containment on `tags` is set-like, so an unrelated tag can enter the
+/// candidate set (see `buzz-relay/src/handlers/exchange.rs`). A real exchange
+/// can hold at most the ceiling (10) turns; this leaves two orders of magnitude
+/// of slack before the probe gives up — and giving up refuses the write rather
+/// than guessing.
+pub const EXCHANGE_TURN_PROBE_LIMIT: i64 = 1_000;
+
 use chrono::{DateTime, Utc};
 use sqlx::postgres::{PgConnection, PgPoolOptions};
 use sqlx::{Connection, PgPool, QueryBuilder, Row};
@@ -99,6 +129,26 @@ fn event_replacement_lock_key(
     }
     if let Some(coordinate) = coordinate {
         for byte in coordinate {
+            hash ^= *byte as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+    }
+    hash as i64
+}
+
+/// Advisory-lock key for one exchange's turn ledger.
+///
+/// Same FNV-1a construction as [`event_replacement_lock_key`], but seeded with
+/// its own domain string so an exchange lock can never collide with a real
+/// NIP-33 replacement lock for some coincidental coordinate.
+fn exchange_turn_lock_key(community_id: CommunityId, exchange_id: &str) -> i64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for bytes in [
+        b"luca.exchange.turn\0".as_slice(),
+        community_id.as_uuid().as_bytes().as_slice(),
+        exchange_id.as_bytes(),
+    ] {
+        for byte in bytes {
             hash ^= *byte as u64;
             hash = hash.wrapping_mul(0x100000001b3);
         }
@@ -1492,6 +1542,128 @@ impl Db {
         }
 
         Ok(MembershipSnapshotGuardedInsertOutcome::Inserted {
+            stored_event: Box::new(stored_event),
+            was_inserted,
+        })
+    }
+
+    /// Atomically claim one turn of a Luca exchange and insert the message.
+    ///
+    /// A turn is spoken once. Two residents (or one resident on two devices)
+    /// racing for turn *N* must not both land, so the uniqueness probe and the
+    /// insert share a transaction held under
+    /// `pg_advisory_xact_lock(exchange_turn_lock_key(...))`.
+    ///
+    /// Two deliberate properties:
+    ///
+    /// - **The prefilter is not the decision.** `tags @> [["exchange", <id>]]`
+    ///   is a GIN-indexed *candidate* filter and nothing more: JSONB array
+    ///   containment is set-like, so an unrelated tag whose elements happen to
+    ///   include `"exchange"` and the id matches too. Every candidate is
+    ///   re-checked by `claims_turn`, which the caller supplies from the
+    ///   protocol contract's own positional parse.
+    /// - **A deleted turn stays spent.** `deleted_at` is deliberately not
+    ///   filtered: deleting your own turn must not refund budget.
+    ///
+    /// The candidate set is scoped to the exchange's own ground so a stranger
+    /// cannot inflate it: `kinds` bounds it to the room-speech kinds that may
+    /// carry a turn tag, `members` to the exchange's resident members, and
+    /// `channel_id` to the conversation the exchange lives in. Without that
+    /// scoping any community member could paste containment-matching junk into
+    /// a room and drive the probe past its limit, which refuses every further
+    /// turn — killing the exchange from the outside. The overflow guard stays
+    /// as the last resort. Returns
+    /// [`ExchangeTurnGuardedInsertOutcome::ProbeOverflow`] rather than a guess
+    /// when more than [`EXCHANGE_TURN_PROBE_LIMIT`] candidates exist.
+    ///
+    /// The incoming event's own row is skipped by id, so a byte-identical
+    /// resubmission of an already-accepted turn falls through to the ordinary
+    /// idempotent insert (`was_inserted == false` ⇒ `duplicate:`) instead of
+    /// being told the turn is already spoken. The distinction matters: the
+    /// desktop treats "already spoken" as a signal to re-sign the reply under
+    /// a fresh turn, so answering it for a plain retry would double-post.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn insert_event_if_exchange_turn_unclaimed(
+        &self,
+        community_id: CommunityId,
+        event: &nostr::Event,
+        channel_id: Uuid,
+        exchange_id: &str,
+        turn: u8,
+        kinds: &[i32],
+        members: &[Vec<u8>],
+        claims_turn: fn(&[Vec<String>], &str, u8) -> bool,
+        thread_meta: Option<event::ThreadMetadataParams<'_>>,
+    ) -> Result<ExchangeTurnGuardedInsertOutcome> {
+        let lock_key = exchange_turn_lock_key(community_id, exchange_id);
+        let containment = serde_json::json!([["exchange", exchange_id]]);
+        let event_id = event.id.as_bytes().to_vec();
+
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(lock_key)
+            .execute(&mut *tx)
+            .await?;
+
+        let candidates: Vec<(Vec<u8>, serde_json::Value)> = sqlx::query_as(
+            "SELECT id, tags FROM events \
+             WHERE community_id = $1 AND kind = ANY($2) AND pubkey = ANY($3) \
+               AND channel_id = $4 AND tags @> $5 \
+             LIMIT $6",
+        )
+        .bind(community_id.as_uuid())
+        .bind(kinds)
+        .bind(members)
+        .bind(channel_id)
+        .bind(&containment)
+        .bind(EXCHANGE_TURN_PROBE_LIMIT + 1)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        if candidates.len() as i64 > EXCHANGE_TURN_PROBE_LIMIT {
+            tx.rollback().await?;
+            return Ok(ExchangeTurnGuardedInsertOutcome::ProbeOverflow);
+        }
+
+        for (candidate_id, candidate) in &candidates {
+            // This exact event already landed: a retry, not a second claim.
+            if candidate_id == &event_id {
+                continue;
+            }
+            let tags: Vec<Vec<String>> = match serde_json::from_value(candidate.clone()) {
+                Ok(tags) => tags,
+                // A row whose `tags` are not an array of string arrays cannot be
+                // read as a claim; treating it as unclaimed would be a fail-open,
+                // so refuse the write instead.
+                Err(_) => {
+                    tx.rollback().await?;
+                    return Ok(ExchangeTurnGuardedInsertOutcome::ProbeOverflow);
+                }
+            };
+            if claims_turn(&tags, exchange_id, turn) {
+                tx.rollback().await?;
+                return Ok(ExchangeTurnGuardedInsertOutcome::TurnAlreadySpoken);
+            }
+        }
+
+        let (stored_event, was_inserted) = event::insert_event_with_thread_metadata_tx(
+            &mut tx,
+            community_id,
+            event,
+            Some(channel_id),
+            thread_meta,
+        )
+        .await?;
+        tx.commit().await?;
+
+        if was_inserted {
+            if let Err(e) = insert_mentions(&self.pool, community_id, event, Some(channel_id)).await
+            {
+                tracing::warn!(event_id = %event.id, "Failed to insert mentions: {e}");
+            }
+        }
+
+        Ok(ExchangeTurnGuardedInsertOutcome::Inserted {
             stored_event: Box::new(stored_event),
             was_inserted,
         })
@@ -4159,6 +4331,241 @@ mod tests {
             .expect("guarded wrong-channel insert"),
             MembershipSnapshotGuardedInsertOutcome::SnapshotChanged
         ));
+    }
+
+    /// Positional turn-tag predicate, mirroring the relay's
+    /// `handlers::exchange::tags_claim_turn`. Duplicated here rather than
+    /// imported because `buzz-db` must not depend on the relay; the relay's
+    /// own unit tests pin the same shape against the protocol contract.
+    fn test_claims_turn(tags: &[Vec<String>], exchange_id: &str, turn: u8) -> bool {
+        tags.iter().any(|tag| {
+            tag.len() == 3
+                && tag[0] == "exchange"
+                && tag[1] == exchange_id
+                && tag[2].parse::<u8>().is_ok_and(|parsed| parsed == turn)
+        })
+    }
+
+    /// The guard is the whole reason a turn is spoken once. Six properties,
+    /// all of which have a way to fail silently and none of which the type
+    /// system catches:
+    ///
+    /// 1. A free turn lands.
+    /// 2. Resubmitting the *same signed event* is a retry, not a second claim —
+    ///    it must answer `duplicate:` (`was_inserted == false`), because the
+    ///    desktop reads "already spoken" as "re-sign under a fresh turn" and
+    ///    would double-post.
+    /// 3. A different event racing for the same turn is refused.
+    /// 4. A *deleted* turn stays spent — otherwise deleting your own message
+    ///    refunds budget and the bucket is unbounded.
+    /// 5. A junk tag that satisfies the JSONB containment prefilter but is not
+    ///    a positional turn tag does NOT block the turn — otherwise any
+    ///    resident could phantom-occupy a sibling's turn with one crafted tag.
+    /// 6. A *non-member's* row never enters the candidate set at all, so an
+    ///    outsider cannot occupy a turn — nor pile up junk until the probe
+    ///    overflows and the exchange dies from the outside.
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
+    async fn exchange_turn_guard_claims_once_survives_deletion_and_ignores_containment_junk() {
+        let db = setup_db().await;
+        let community = CommunityId::from_uuid(make_community(&db.pool).await);
+        let author = Keys::generate();
+        let outsider = Keys::generate();
+        let creator = author.public_key().to_bytes();
+        let members = vec![author.public_key().to_bytes().to_vec()];
+        let channel = db
+            .create_channel(
+                community,
+                "exchange-turns",
+                ChannelType::Stream,
+                ChannelVisibility::Open,
+                None,
+                &creator,
+                None,
+            )
+            .await
+            .expect("create channel");
+        let exchange_id = "ab".repeat(32);
+        let kinds = [9i32, 40002i32];
+
+        let signed_by = |keys: &Keys, content: &str, tags: Vec<Vec<String>>| {
+            let nostr_tags: Vec<Tag> = tags
+                .iter()
+                .map(|t| Tag::parse(t.iter().map(String::as_str)).expect("tag parses"))
+                .collect();
+            EventBuilder::new(Kind::Custom(9), content)
+                .tags(nostr_tags)
+                .sign_with_keys(keys)
+                .expect("sign message")
+        };
+        let message = |content: &str, tags: Vec<Vec<String>>| signed_by(&author, content, tags);
+        let turn_tags = |turn: u8| {
+            vec![
+                vec!["h".to_owned(), channel.id.to_string()],
+                vec!["exchange".to_owned(), exchange_id.clone(), turn.to_string()],
+            ]
+        };
+        // A plain async fn rather than a closure: an async closure capturing
+        // `db` by move can only be called once, and this test calls it many
+        // times.
+        #[allow(clippy::too_many_arguments)]
+        async fn claim(
+            db: &Db,
+            community: CommunityId,
+            channel_id: Uuid,
+            exchange_id: &str,
+            kinds: &[i32],
+            members: &[Vec<u8>],
+            event: &nostr::Event,
+            turn: u8,
+        ) -> ExchangeTurnGuardedInsertOutcome {
+            db.insert_event_if_exchange_turn_unclaimed(
+                community,
+                event,
+                channel_id,
+                exchange_id,
+                turn,
+                kinds,
+                members,
+                test_claims_turn,
+                None,
+            )
+            .await
+            .expect("guarded insert")
+        }
+
+        let go = async |event: &nostr::Event, turn: u8| {
+            claim(
+                &db,
+                community,
+                channel.id,
+                &exchange_id,
+                &kinds,
+                &members,
+                event,
+                turn,
+            )
+            .await
+        };
+
+        // 1. Turn 1 is free.
+        let first = message("turn one", turn_tags(1));
+        assert!(matches!(
+            go(&first, 1).await,
+            ExchangeTurnGuardedInsertOutcome::Inserted {
+                was_inserted: true,
+                ..
+            }
+        ));
+
+        // 2. The SAME event again is a retry. It must fall through to the
+        //    ordinary idempotent insert, not be told the turn is taken.
+        assert!(
+            matches!(
+                go(&first, 1).await,
+                ExchangeTurnGuardedInsertOutcome::Inserted {
+                    was_inserted: false,
+                    ..
+                }
+            ),
+            "a byte-identical resubmission is a duplicate, not a collision"
+        );
+
+        // 3. A *different* event racing for turn 1 is refused — the row, not the
+        //    signature, holds the claim.
+        assert!(matches!(
+            go(&message("turn one again", turn_tags(1)), 1).await,
+            ExchangeTurnGuardedInsertOutcome::TurnAlreadySpoken
+        ));
+
+        // ...while the next turn is still free.
+        assert!(matches!(
+            go(&message("turn two", turn_tags(2)), 2).await,
+            ExchangeTurnGuardedInsertOutcome::Inserted { .. }
+        ));
+
+        // 4. Deleting turn 1 must not refund it.
+        assert!(
+            db.soft_delete_event(community, first.id.as_bytes())
+                .await
+                .expect("soft delete"),
+            "turn 1 should have been deletable"
+        );
+        assert!(
+            matches!(
+                go(&message("turn one, reborn", turn_tags(1)), 1).await,
+                ExchangeTurnGuardedInsertOutcome::TurnAlreadySpoken
+            ),
+            "a deleted turn must stay spent"
+        );
+
+        // 5. Junk that satisfies `tags @> [["exchange", <id>]]` positionally
+        //    means nothing. Both shapes below match the containment prefilter
+        //    yet claim no turn.
+        for junk in [
+            vec![
+                "e".to_owned(),
+                exchange_id.clone(),
+                "exchange".to_owned(),
+                "3".to_owned(),
+            ],
+            vec!["exchange".to_owned(), "3".to_owned(), exchange_id.clone()],
+        ] {
+            let event = message(
+                "junk",
+                vec![vec!["h".to_owned(), channel.id.to_string()], junk],
+            );
+            // Turn 9 is unrelated and free, so the insert itself succeeds; what
+            // matters is that neither row registers a claim on turn 3.
+            assert!(matches!(
+                go(&event, 9).await,
+                ExchangeTurnGuardedInsertOutcome::Inserted { .. }
+            ));
+        }
+        assert!(
+            matches!(
+                go(&message("turn three", turn_tags(3)), 3).await,
+                ExchangeTurnGuardedInsertOutcome::Inserted { .. }
+            ),
+            "containment false positives must not phantom-occupy turn 3"
+        );
+
+        // 6. An outsider writing a perfectly-formed turn tag for turn 5 is not
+        //    a member, so the probe never sees the row and turn 5 stays free.
+        //    Without the member scoping, anyone in the community could occupy
+        //    every turn of every exchange they can name.
+        let squatter = signed_by(&outsider, "not my exchange", turn_tags(5));
+        db.insert_event_with_thread_metadata(community, &squatter, Some(channel.id), None)
+            .await
+            .expect("outsider row lands as ordinary speech");
+        assert!(
+            matches!(
+                go(&message("turn five", turn_tags(5)), 5).await,
+                ExchangeTurnGuardedInsertOutcome::Inserted { .. }
+            ),
+            "a non-member's tag must not occupy a member's turn"
+        );
+
+        // And the ledger a client can read agrees with the one the guard
+        // enforces: the deleted turn 1 is still there, still counted.
+        let ledger = EventQuery {
+            kinds: Some(vec![9]),
+            channel_id: Some(channel.id),
+            exchange_ids: Some(vec![exchange_id.clone()]),
+            limit: Some(100),
+            ..EventQuery::for_community(community)
+        };
+        let rows = db.query_events(&ledger).await.expect("read the ledger");
+        assert!(
+            rows.iter().any(|se| se.event.id == first.id),
+            "a deleted turn must still be visible to an #exchange read, or the \
+             desktop's turn picker strands on a hole it can never fill"
+        );
+        assert_eq!(
+            db.count_events(&ledger).await.expect("count the ledger") as usize,
+            rows.len(),
+            "COUNT and query must agree about what is spent"
+        );
     }
 
     #[tokio::test]

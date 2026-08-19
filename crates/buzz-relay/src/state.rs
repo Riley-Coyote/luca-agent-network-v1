@@ -553,6 +553,17 @@ pub struct AppState {
     /// first-write-wins and set during auth before an agent's first event,
     /// so a short TTL only bounds staleness for the rare backfill race.
     pub author_type_cache: Arc<moka::sync::Cache<(CommunityId, Vec<u8>), bool>>,
+    /// Positive-only agent→owner map used by Luca exchange authorization.
+    ///
+    /// Key: (community_id, agent pubkey bytes). Value: `users.agent_owner_pubkey`.
+    /// Deliberately NOT [`Self::author_type_cache`]: that one caches `false`
+    /// too, so a resident registered seconds ago would read as "human" for up
+    /// to a TTL and slip the sibling-mention gate — and its own contract says
+    /// metric-labeling only, never authorization. A miss here is never cached;
+    /// only a resolved owner is, because `agent_owner_pubkey` is immutable
+    /// inside a community.
+    #[allow(clippy::type_complexity)]
+    pub agent_owner_cache: Arc<moka::sync::Cache<(CommunityId, Vec<u8>), Vec<u8>>>,
 
     /// Runtime conformance tracer. Production binds [`crate::conformance::NoopTracer`]
     /// (zero cost). Conformance tests bind [`crate::conformance::JsonlTracer`] to
@@ -725,6 +736,12 @@ impl AppState {
                     .build(),
             ),
             author_type_cache: Arc::new(
+                moka::sync::Cache::builder()
+                    .max_capacity(10_000)
+                    .time_to_live(std::time::Duration::from_secs(300))
+                    .build(),
+            ),
+            agent_owner_cache: Arc::new(
                 moka::sync::Cache::builder()
                     .max_capacity(10_000)
                     .time_to_live(std::time::Duration::from_secs(300))

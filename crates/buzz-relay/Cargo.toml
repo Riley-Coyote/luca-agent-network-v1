@@ -24,6 +24,9 @@ buzz-pubsub = { workspace = true }
 buzz-audit = { workspace = true }
 buzz-search = { workspace = true }
 buzz-relay-mesh = { workspace = true }
+# Luca exchange contract (kind:30178 record + the ["exchange", id, turn] tag).
+# `luca-protocol` depends only on buzz-sdk → buzz-core, so this adds no cycle.
+luca-protocol = { workspace = true }
 async-trait = "0.1"
 postcard = { workspace = true }
 axum = { workspace = true }

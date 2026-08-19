@@ -63,6 +63,23 @@ pub struct EventQuery {
     /// Restrict results to events with an `e` tag referencing any of these event IDs (hex).
     /// Uses JSONB containment (`tags @> ...`) against the `tags` column.
     pub e_tags: Option<Vec<String>>,
+    /// Restrict results to events carrying a Luca `["exchange", <id>, <turn>]`
+    /// tag for any of these exchange ids (hex).
+    ///
+    /// **Prefilter only.** This is JSONB containment (`tags @> [["exchange",
+    /// <id>]]`), which is set-like rather than positional: an unrelated tag
+    /// whose elements happen to include `"exchange"` and the id matches too.
+    /// Callers must re-check every returned row against the protocol's own
+    /// turn-tag parse before counting or returning it — the relay's
+    /// `handlers::exchange::event_matches_exchange_ids` does exactly that, and
+    /// the COUNT path is forced onto the fetch-and-recheck fallback for this
+    /// reason. Never use this as a SQL-only `COUNT(*)` predicate.
+    ///
+    /// Setting this also lifts the `deleted_at IS NULL` clause: a spent turn
+    /// stays spent even after its message is deleted, so the ledger the relay
+    /// enforces and the ledger a client can read have to agree. See
+    /// [`includes_deleted_turns`].
+    pub exchange_ids: Option<Vec<String>>,
     /// Restrict results to events in any of these channels, while retaining
     /// channel-less global events. Applied before SQL `LIMIT` so access-filtered
     /// historical pages have exact exhaustion semantics.
@@ -97,6 +114,7 @@ impl EventQuery {
             authors: None,
             ids: None,
             e_tags: None,
+            exchange_ids: None,
             channel_ids: None,
             max_limit: None,
         }
@@ -295,6 +313,40 @@ pub async fn insert_event(
     ))
 }
 
+/// Does this query read an exchange's turn ledger rather than a room timeline?
+///
+/// A deleted turn stays spent: the relay's uniqueness probe never refunds it,
+/// so a `#exchange` read must see it too. If it did not, a resident could
+/// delete their own turn and the desktop's turn picker would then choose a
+/// number the relay still refuses — a hole it could never fill. The exemption
+/// is scoped as tightly as the sidecar that reaches it: only a query that
+/// explicitly names exchange ids sees soft-deleted rows, and that surface is
+/// itself pinned to the two room-speech kinds that can carry a turn tag.
+fn includes_deleted_turns(q: &EventQuery) -> bool {
+    q.exchange_ids.as_deref().is_some_and(|ids| !ids.is_empty())
+}
+
+/// Push the Luca `#exchange` containment *prefilter* onto a query builder.
+///
+/// Served by `idx_events_tags_gin` (GIN, `jsonb_path_ops`), same as the `#e`
+/// clause above it. This narrows candidate rows; it does not decide membership
+/// — see [`EventQuery::exchange_ids`].
+fn push_exchange_containment(qb: &mut QueryBuilder<Postgres>, q: &EventQuery, col_prefix: &str) {
+    let Some(ids) = q.exchange_ids.as_ref().filter(|ids| !ids.is_empty()) else {
+        return;
+    };
+    qb.push(" AND (");
+    for (i, exchange_id) in ids.iter().enumerate() {
+        if i > 0 {
+            qb.push(" OR ");
+        }
+        let containment = serde_json::json!([["exchange", exchange_id]]);
+        qb.push(format!("{col_prefix}tags @> "));
+        qb.push_bind(containment);
+    }
+    qb.push(")");
+}
+
 /// Query events with optional filters. Results ordered by `created_at DESC`.
 ///
 /// Uses `QueryBuilder` for dynamic filter composition — avoids string concatenation
@@ -327,10 +379,14 @@ pub async fn query_events(pool: &PgPool, q: &EventQuery) -> Result<Vec<StoredEve
     if q.e_tags.as_deref().is_some_and(|e| e.is_empty()) {
         return Ok(vec![]);
     }
+    if q.exchange_ids.as_deref().is_some_and(|e| e.is_empty()) {
+        return Ok(vec![]);
+    }
 
     let clamp = q.max_limit.unwrap_or(1000);
     let limit_val = q.limit.unwrap_or(100).min(clamp);
     let offset_val = q.offset.unwrap_or(0);
+    let include_deleted = includes_deleted_turns(q);
 
     let mut qb: QueryBuilder<sqlx::Postgres> = if let Some(ref p_hex) = q.p_tag_hex {
         // Join against event_mentions for #p-filtered queries (indexed).
@@ -345,7 +401,10 @@ pub async fn query_events(pool: &PgPool, q: &EventQuery) -> Result<Vec<StoredEve
         b.push_bind(q.community_id.as_uuid());
         b.push(" AND m.community_id = ");
         b.push_bind(q.community_id.as_uuid());
-        b.push(" AND e.deleted_at IS NULL AND m.pubkey_hex = ");
+        if !include_deleted {
+            b.push(" AND e.deleted_at IS NULL");
+        }
+        b.push(" AND m.pubkey_hex = ");
         b.push_bind(p_hex.to_ascii_lowercase());
         b
     } else {
@@ -354,7 +413,9 @@ pub async fn query_events(pool: &PgPool, q: &EventQuery) -> Result<Vec<StoredEve
              FROM events WHERE community_id = ",
         );
         b.push_bind(q.community_id.as_uuid());
-        b.push(" AND deleted_at IS NULL");
+        if !include_deleted {
+            b.push(" AND deleted_at IS NULL");
+        }
         b
     };
 
@@ -448,6 +509,8 @@ pub async fn query_events(pool: &PgPool, q: &EventQuery) -> Result<Vec<StoredEve
             qb.push(")");
         }
     }
+
+    push_exchange_containment(&mut qb, q, col_prefix);
 
     if let Some(s) = q.since {
         qb.push(format!(" AND {col_prefix}created_at >= "))
@@ -568,6 +631,11 @@ pub async fn count_events(pool: &PgPool, q: &EventQuery) -> Result<i64> {
     if q.e_tags.as_deref().is_some_and(|e| e.is_empty()) {
         return Ok(0);
     }
+    if q.exchange_ids.as_deref().is_some_and(|e| e.is_empty()) {
+        return Ok(0);
+    }
+
+    let include_deleted = includes_deleted_turns(q);
 
     let mut qb: QueryBuilder<sqlx::Postgres> = if let Some(ref p_hex) = q.p_tag_hex {
         let mut b = QueryBuilder::new(
@@ -579,13 +647,18 @@ pub async fn count_events(pool: &PgPool, q: &EventQuery) -> Result<i64> {
         b.push_bind(q.community_id.as_uuid());
         b.push(" AND m.community_id = ");
         b.push_bind(q.community_id.as_uuid());
-        b.push(" AND e.deleted_at IS NULL AND m.pubkey_hex = ");
+        if !include_deleted {
+            b.push(" AND e.deleted_at IS NULL");
+        }
+        b.push(" AND m.pubkey_hex = ");
         b.push_bind(p_hex.to_ascii_lowercase());
         b
     } else {
         let mut b = QueryBuilder::new("SELECT COUNT(*) as cnt FROM events WHERE community_id = ");
         b.push_bind(q.community_id.as_uuid());
-        b.push(" AND deleted_at IS NULL");
+        if !include_deleted {
+            b.push(" AND deleted_at IS NULL");
+        }
         b
     };
 
@@ -665,6 +738,8 @@ pub async fn count_events(pool: &PgPool, q: &EventQuery) -> Result<i64> {
             qb.push(")");
         }
     }
+
+    push_exchange_containment(&mut qb, q, col_prefix);
 
     if let Some(s) = q.since {
         qb.push(format!(" AND {col_prefix}created_at >= "))

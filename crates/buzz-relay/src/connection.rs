@@ -535,7 +535,22 @@ async fn handle_text_message(text: String, conn: Arc<ConnectionState>, state: Ar
                 .instrument(span),
             );
         }
-        ClientMessage::Req { sub_id, filters } => {
+        ClientMessage::Req {
+            sub_id,
+            filters,
+            exchange_ids,
+        } => {
+            // The live fan-out leg matches against `nostr::Filter` alone, which
+            // cannot see `#exchange`. Honoring the sidecar only on the historical
+            // leg would over-deliver on the live one, so REQ refuses outright
+            // rather than quietly answering a wider question than was asked.
+            if exchange_ids.iter().any(Option::is_some) {
+                conn.send(RelayMessage::closed(
+                    &sub_id,
+                    crate::protocol::EXCHANGE_FILTER_UNSUPPORTED,
+                ));
+                return;
+            }
             let conn = Arc::clone(&conn);
             let state = Arc::clone(&state);
             let permit = match state.handler_semaphore.clone().try_acquire_owned() {
@@ -557,7 +572,11 @@ async fn handle_text_message(text: String, conn: Arc<ConnectionState>, state: Ar
                 .instrument(span),
             );
         }
-        ClientMessage::Count { sub_id, filters } => {
+        ClientMessage::Count {
+            sub_id,
+            filters,
+            exchange_ids,
+        } => {
             let conn = Arc::clone(&conn);
             let state = Arc::clone(&state);
             let permit = match state.handler_semaphore.clone().try_acquire_owned() {
@@ -572,7 +591,7 @@ async fn handle_text_message(text: String, conn: Arc<ConnectionState>, state: Ar
             let span = tracing::info_span!("ws.count", conn_id = %conn.conn_id, sub_id = %sub_id);
             tokio::spawn(
                 async move {
-                    handlers::count::handle_count(sub_id, filters, conn, state).await;
+                    handlers::count::handle_count(sub_id, filters, exchange_ids, conn, state).await;
                     drop(permit);
                 }
                 .instrument(span),

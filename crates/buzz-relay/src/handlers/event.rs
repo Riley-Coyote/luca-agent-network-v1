@@ -38,7 +38,9 @@ pub(crate) fn bounded_kind_label(kind: u32) -> String {
         8000..=8003 | 9000..=9022 | 9030..=9036 => kind.to_string(),
         13534..=13535 => kind.to_string(),
         20000..=29999 => kind.to_string(),
-        30023 | 30315 | 39000..=39003 => kind.to_string(),
+        // 30178 is the Luca exchange record — a named kind, not "other", so
+        // exchange rejections are readable in the ingest metrics.
+        30023 | 30178 | 30315 | 39000..=39003 => kind.to_string(),
         40002..=40100 => kind.to_string(),
         41001 | 41010..=41012 => kind.to_string(),
         43001..=43006 => kind.to_string(),
@@ -1149,6 +1151,20 @@ mod tests {
     use tokio::sync::{mpsc, Mutex, RwLock};
     use tokio_util::sync::CancellationToken;
     use uuid::Uuid;
+
+    #[test]
+    fn luca_exchange_kind_is_labelled_by_number_not_bucketed_as_other() {
+        // Exchange rejections are the whole point of the R1/R2 gates; if 30178
+        // collapsed into "other" the ingest metrics could not tell an exchange
+        // refusal from any other 30xxx kind. Its neighbours 30175–30177 do
+        // still bucket, so this is a deliberate exception, not a range widening.
+        assert_eq!(
+            super::bounded_kind_label(buzz_core::kind::KIND_LUCA_EXCHANGE),
+            "30178"
+        );
+        assert_eq!(super::bounded_kind_label(30177), "other");
+        assert_eq!(super::bounded_kind_label(30179), "other");
+    }
 
     #[test]
     fn fanout_event_frame_matches_legacy_format_byte_for_byte() {

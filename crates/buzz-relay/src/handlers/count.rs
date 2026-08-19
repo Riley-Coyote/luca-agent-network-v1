@@ -29,9 +29,22 @@ fn extract_channel_from_filter(filter: &Filter) -> Option<uuid::Uuid> {
 pub async fn handle_count(
     sub_id: String,
     filters: Vec<Filter>,
+    exchange_ids: Vec<Option<Vec<String>>>,
     conn: Arc<ConnectionState>,
     state: Arc<AppState>,
 ) {
+    // The Luca `#exchange` sidecar rides parallel to `filters` (it cannot ride
+    // on `nostr::Filter` — see `protocol::extract_exchange_sidecar`). If the two
+    // ever fall out of step, a filter would silently lose its constraint, so
+    // refuse rather than count the wrong thing.
+    if exchange_ids.len() != filters.len() {
+        conn.send(RelayMessage::closed(
+            &sub_id,
+            "error: malformed COUNT filter set",
+        ));
+        return;
+    }
+
     // Require auth
     let (pubkey_bytes, token_channel_ids) = {
         let auth = conn.auth_state.read().await;
@@ -97,7 +110,12 @@ pub async fn handle_count(
 
     // For each filter, count matching events with channel access enforcement.
     let mut total: u64 = 0;
-    for filter in &filters {
+    for (idx, filter) in filters.iter().enumerate() {
+        // A `#exchange` COUNT never takes the SQL fast path: JSONB containment
+        // is set-like, so only a re-parse of each candidate's turn tag is an
+        // honest answer (`handlers::exchange::event_matches_exchange_ids`).
+        let exchange = exchange_ids[idx].as_deref();
+        let needs_exchange_filtering = exchange.is_some();
         // Determine if this filter can match author-only kinds — if so, the
         // fast-path count_events() cannot be used because it doesn't do
         // per-event author filtering.
@@ -144,13 +162,14 @@ pub async fn handle_count(
                 continue; // Skip filters targeting inaccessible channels.
             }
             // Channel is accessible — count with pushability check.
-            let query = super::req::build_event_query_from_filter(
+            let mut query = super::req::build_event_query_from_filter(
                 filter,
                 &pubkey_bytes,
                 &state,
                 conn.tenant.community(),
             )
             .await;
+            query.exchange_ids = exchange.map(<[String]>::to_vec);
             let author_is_self = filter.authors.as_ref().is_some_and(|authors| {
                 !authors.is_empty()
                     && authors
@@ -160,6 +179,7 @@ pub async fn handle_count(
             if super::req::filter_fully_pushable(filter)
                 && (!needs_author_only_filtering || author_is_self)
                 && !needs_result_gated_filtering
+                && !needs_exchange_filtering
             {
                 match state.db.count_events(&query).await {
                     Ok(n) => total += n as u64,
@@ -186,6 +206,11 @@ pub async fn handle_count(
                             if !buzz_core::filter::filters_match(std::slice::from_ref(filter), &se)
                             {
                                 continue;
+                            }
+                            if let Some(ids) = exchange {
+                                if !super::exchange::event_matches_exchange_ids(&se.event, ids) {
+                                    continue;
+                                }
                             }
                             if is_author_only_event(&se.event, &pubkey_bytes) {
                                 continue;
@@ -220,6 +245,7 @@ pub async fn handle_count(
             )
             .await;
             query.channel_ids = Some(accessible_channels.to_vec());
+            query.exchange_ids = exchange.map(<[String]>::to_vec);
 
             let author_is_self = filter.authors.as_ref().is_some_and(|authors| {
                 !authors.is_empty()
@@ -230,6 +256,7 @@ pub async fn handle_count(
             if super::req::filter_fully_pushable(filter)
                 && (!needs_author_only_filtering || author_is_self)
                 && !needs_result_gated_filtering
+                && !needs_exchange_filtering
             {
                 query.limit = None; // COUNT doesn't need a row limit
                 match state.db.count_events(&query).await {
@@ -256,6 +283,11 @@ pub async fn handle_count(
                             if !buzz_core::filter::filters_match(std::slice::from_ref(filter), &se)
                             {
                                 continue;
+                            }
+                            if let Some(ids) = exchange {
+                                if !super::exchange::event_matches_exchange_ids(&se.event, ids) {
+                                    continue;
+                                }
                             }
                             if is_author_only_event(&se.event, &pubkey_bytes) {
                                 continue;
