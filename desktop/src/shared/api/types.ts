@@ -543,6 +543,35 @@ export type ManagedPermissionResolvedEvent = {
 };
 
 /**
+ * One resident↔resident exchange in the owner's house — the content of a
+ * KIND_LUCA_EXCHANGE (30178) record, mirror of `luca_protocol::ExchangeRecordV1`
+ * (`luca.exchange.v1`). `spent` and `paused` are never stored: the relay counts
+ * accepted resident messages carrying `["exchange", <id>, <turn>]`, and
+ * paused = spent ≥ bucket while open. Written only by the owner, at mint,
+ * "Stop here" (state → closed) and "Let them go on" (bucket + 3, ceiling 10).
+ */
+export type ExchangeRecord = {
+  protocol: "luca.exchange.v1";
+  exchangeId: string;
+  owner: string;
+  /** Resident members, sorted, unique, never the owner. */
+  members: string[];
+  conversationId: string;
+  rootEventId: string;
+  parentExchangeId: string | null;
+  depth: 1 | 2;
+  /** 1..=10. */
+  bucket: number;
+  state: "open" | "closed";
+  /** Unix seconds. */
+  deadline: number;
+  openedBy: string;
+};
+
+/** Lived phase of an exchange, derived from the record plus the relay's count. */
+export type ExchangePhase = "open" | "paused" | "closed" | "expired";
+
+/**
  * Outcome of a live `switch_model` control frame, surfaced asynchronously via
  * the agent's `control_result` observer frame. Busy path: `sent` (cancel +
  * requeue on the new model) or `turn_ending` (oneshot already consumed this

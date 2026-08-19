@@ -52,6 +52,13 @@ export const KIND_CHANNEL_SORT = 30078;
 export const KIND_PERSONA = 30175;
 export const KIND_TEAM = 30176;
 export const KIND_MANAGED_AGENT = 30177;
+// Luca exchange: one resident↔resident conversation in the owner's house
+// (owner-authored, d = exchange id, one `p` per member). Mirror of buzz-core's
+// KIND_LUCA_EXCHANGE; the record shape is `luca.exchange.v1` (see
+// crates/luca-protocol/src/exchange.rs). Resident messages inside an exchange
+// carry the tag ["exchange", <id>, <turn>].
+export const KIND_LUCA_EXCHANGE = 30178;
+export const EXCHANGE_TAG = "exchange";
 export const KIND_USER_STATUS = 30315;
 export const KIND_AGENT_OBSERVER_FRAME = 24200;
 export const KIND_AGENT_TURN_METRIC = 44200;

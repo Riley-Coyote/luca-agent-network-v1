@@ -15,6 +15,7 @@ mod communications;
 mod connected_brain;
 mod continuity;
 mod diagnostic;
+mod exchange;
 mod frame;
 mod ids;
 mod managed_audience;
@@ -34,6 +35,12 @@ pub use communications::*;
 pub use connected_brain::*;
 pub use continuity::*;
 pub use diagnostic::{SafeDiagnosticV1, SAFE_DIAGNOSTIC_PROTOCOL};
+pub use exchange::{
+    derive_exchange_id, ExchangeError, ExchangePhase, ExchangeRecordV1, ExchangeStateV1,
+    ExchangeTurnTag, EXCHANGE_BUCKET_CEILING, EXCHANGE_DEFAULT_BUCKET, EXCHANGE_DEFAULT_TTL_SECS,
+    EXCHANGE_GO_INCREMENT, EXCHANGE_MAX_DEPTH, EXCHANGE_MAX_MEMBERS, EXCHANGE_MIN_MEMBERS,
+    EXCHANGE_PROTOCOL, EXCHANGE_TAG,
+};
 pub use frame::{
     decode_length_prefixed_frame, decode_length_prefixed_result_frame,
     encode_length_prefixed_frame, encode_length_prefixed_result_frame, BrokerOperationV1,

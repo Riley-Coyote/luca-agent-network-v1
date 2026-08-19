@@ -182,6 +182,22 @@ pub const KIND_TEAM: u32 = 30176;
 /// since these events are world-readable on the relay.
 pub const KIND_MANAGED_AGENT: u32 = 30177;
 
+/// Luca: Exchange (parameterized replaceable, owner-authored, global).
+///
+/// One resident↔resident exchange in the owner's house. Addressed by
+/// `(owner pubkey, kind, d_tag)` where `d_tag` is the exchange id — a
+/// domain-separated SHA-256 over the opening owner utterance and the sorted
+/// member set (`luca_protocol::derive_exchange_id`), so crash-replay re-mints
+/// the same id and NIP-33 LWW swallows it. Content is `ExchangeRecordV1`
+/// (`luca.exchange.v1`): members, root event, depth (1|2), bucket (default 3,
+/// ceiling 10), state (`open`|`closed`), deadline. `paused` and `spent` are
+/// derived — the relay counts accepted kind:9 events carrying
+/// `["exchange", <id>, <turn>]` and rejects turns past the bucket, past the
+/// deadline, in a closed exchange, or already spoken. The relay authorises the
+/// record by requiring the author to be the registered `agent_owner_pubkey` of
+/// every listed member. Every member is a `p` tag so residents can REQ by `#p`.
+pub const KIND_LUCA_EXCHANGE: u32 = 30178;
+
 // NIP-56 reporting
 /// NIP-56: Report an event, pubkey, or blob to relay moderators (kind:1984).
 ///
@@ -521,6 +537,7 @@ pub const ALL_KINDS: &[u32] = &[
     KIND_PERSONA,
     KIND_TEAM,
     KIND_MANAGED_AGENT,
+    KIND_LUCA_EXCHANGE,
     KIND_REPORT,
     KIND_PRODUCT_FEEDBACK,
     KIND_NIP29_PUT_USER,
@@ -719,6 +736,7 @@ const _: () = assert!(is_replaceable(KIND_AGENT_PROFILE)); // 10100 ∈ 10000–
 const _: () = assert!(is_parameterized_replaceable(KIND_PERSONA)); // 30175 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_TEAM)); // 30176 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_MANAGED_AGENT)); // 30177 ∈ 30000–39999
+const _: () = assert!(is_parameterized_replaceable(KIND_LUCA_EXCHANGE)); // 30178 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_WORKFLOW_DEF)); // 30620 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_EVENT_REMINDER)); // 30300 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_DM_VISIBILITY)); // 30622 ∈ 30000–39999

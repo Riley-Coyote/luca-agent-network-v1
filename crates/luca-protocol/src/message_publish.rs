@@ -1,7 +1,9 @@
 //! Typed managed-final-publication request and body-free result.
 
 use crate::frame::{sealed, BrokerOperationV1, OperationV1};
-use crate::{Hex64, OpaqueId, ProtocolValueError, SafeU53};
+use crate::{
+    ExchangeTurnTag, Hex64, OpaqueId, ProtocolValueError, SafeU53, EXCHANGE_BUCKET_CEILING,
+};
 use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -49,6 +51,9 @@ pub enum MessagePublishError {
     /// The provided idempotency key did not match the frozen derivation.
     #[error("idempotency_key does not match dispatch receipt and resident")]
     IdempotencyKey,
+    /// `bucket_hint` was outside 1..=10.
+    #[error("bucket_hint must be 1..=10")]
+    BucketHint,
 }
 
 /// A policy-checked request to publish one accepted final agent message.
@@ -88,6 +93,15 @@ pub struct ManagedMessagePublishRequestV1 {
     pub dispatch_receipt_id: OpaqueId,
     /// App-owned cancellation epoch.
     pub cancellation_epoch: SafeU53,
+    /// The exchange turn this final continues, when the trigger was a sibling's
+    /// message inside a speakable exchange: the harness proposes `(id, turn+1)`
+    /// and the desktop rechecks against the relay head before tagging.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exchange: Option<ExchangeTurnTag>,
+    /// Optional bucket the owner asked for ("spend 5 turns"), honored only when
+    /// this final *mints* an exchange; clamped to the ceiling by the desktop.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bucket_hint: Option<u8>,
 }
 
 impl sealed::Sealed for ManagedMessagePublishRequestV1 {}
@@ -113,6 +127,10 @@ struct RawManagedMessagePublishRequestV1 {
     final_draft: String,
     dispatch_receipt_id: OpaqueId,
     cancellation_epoch: SafeU53,
+    #[serde(default)]
+    exchange: Option<ExchangeTurnTag>,
+    #[serde(default)]
+    bucket_hint: Option<u8>,
 }
 
 impl ManagedMessagePublishRequestV1 {
@@ -140,6 +158,11 @@ impl ManagedMessagePublishRequestV1 {
         if self.idempotency_key != expected {
             return Err(MessagePublishError::IdempotencyKey);
         }
+        if let Some(hint) = self.bucket_hint {
+            if hint == 0 || hint > EXCHANGE_BUCKET_CEILING {
+                return Err(MessagePublishError::BucketHint);
+            }
+        }
         Ok(())
     }
 }
@@ -162,6 +185,8 @@ impl<'de> Deserialize<'de> for ManagedMessagePublishRequestV1 {
             final_draft: raw.final_draft,
             dispatch_receipt_id: raw.dispatch_receipt_id,
             cancellation_epoch: raw.cancellation_epoch,
+            exchange: raw.exchange,
+            bucket_hint: raw.bucket_hint,
         };
         request.validate().map_err(serde::de::Error::custom)?;
         Ok(request)
