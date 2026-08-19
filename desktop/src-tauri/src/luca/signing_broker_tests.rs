@@ -783,3 +783,6 @@ fn luca_signing_broker_desktop_restart_replays_exact_accepted_request_before_fre
     ));
     assert_eq!(*authorize_calls.lock().expect("counter"), 0);
 }
+
+#[path = "signing_broker_exchange_tests.rs"]
+mod signing_broker_exchange_tests;

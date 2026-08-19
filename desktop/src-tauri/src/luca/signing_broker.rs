@@ -502,6 +502,42 @@ impl ResidentSigningBroker {
         request: &ManagedMessagePublishRequestV1,
         now_unix_secs: u64,
     ) -> ManagedMessagePublishResultV1 {
+        // A final that already published is answered from the outbox and
+        // nowhere else. Its exchange was decided once, when it was published;
+        // re-deciding it now would refuse a reply that is already in the room
+        // the moment the decision or dispatch rows have been pruned beneath it.
+        if self.message_outbox.has_accepted(&request.idempotency_key) {
+            return self
+                .message_outbox
+                .accepted_result(&request.idempotency_key)
+                .unwrap_or_else(|_| {
+                    ManagedPublicationAuthorityError::Invalid.into_protocol_result()
+                });
+        }
+        // Otherwise the exchange decides before the outbox ever looks. The
+        // outbox compares whole requests, so the request it freezes must
+        // already be the effective one — a final that gained recipients or a
+        // turn tag afterwards would read as an idempotency collision on replay
+        // and a real reply would be lost.
+        let plan = match self
+            .publication_authority
+            .resolve_exchange(request, now_unix_secs)
+        {
+            Ok(plan) => plan,
+            Err(error) => return error.into_protocol_result(),
+        };
+        let effective = match plan.apply(request) {
+            Ok(effective) => effective,
+            Err(_) => return ManagedPublicationAuthorityError::Invalid.into_protocol_result(),
+        };
+        self.prepare_and_publish_effective(&effective, now_unix_secs)
+    }
+
+    fn prepare_and_publish_effective(
+        &mut self,
+        request: &ManagedMessagePublishRequestV1,
+        now_unix_secs: u64,
+    ) -> ManagedMessagePublishResultV1 {
         let prepared = match self.message_outbox.preflight_existing(request) {
             Ok(Some(existing)) => existing,
             Ok(None) => {
@@ -551,19 +587,89 @@ impl ResidentSigningBroker {
         }
 
         let installation_session_id = self.session.binding().installation_session_id.clone();
-        match self.publication_authority.publish_prepared(
-            request,
-            &mut self.message_outbox,
-            &installation_session_id,
-        ) {
-            Ok(()) => self
-                .message_outbox
-                .accepted_result(&request.idempotency_key)
-                .unwrap_or_else(|_| {
-                    ManagedPublicationAuthorityError::Invalid.into_protocol_result()
-                }),
-            Err(error) => error.into_protocol_result(),
+        let mut effective = request.clone();
+        // A turn collision is a race between two members of the same exchange,
+        // not a refusal of what was said. The bound is the ceiling: at most ten
+        // attempts, one per turn the bucket could ever hold, and each attempt
+        // re-reads the head from the relay, so a "Stop here" that lands
+        // mid-race ends the loop honestly instead of being retried around.
+        for _ in 0..=luca_protocol::EXCHANGE_BUCKET_CEILING {
+            match self.publication_authority.publish_prepared(
+                &effective,
+                &mut self.message_outbox,
+                &installation_session_id,
+            ) {
+                Ok(()) => {
+                    return self
+                        .message_outbox
+                        .accepted_result(&effective.idempotency_key)
+                        .unwrap_or_else(|_| {
+                            ManagedPublicationAuthorityError::Invalid.into_protocol_result()
+                        })
+                }
+                Err(ManagedPublicationAuthorityError::ExchangeTurnTaken) => {
+                    match self.refreeze_on_next_free_turn(
+                        &effective,
+                        now_unix_secs,
+                        &installation_session_id,
+                    ) {
+                        Ok(retuned) => effective = retuned,
+                        Err(error) => return error.into_protocol_result(),
+                    }
+                }
+                Err(error) => return error.into_protocol_result(),
+            }
         }
+        ManagedPublicationAuthorityError::ExchangeTurnTaken.into_protocol_result()
+    }
+
+    /// Re-sign the identical draft on the next unspoken turn of the same
+    /// exchange, after the relay refused these bytes for a turn collision.
+    ///
+    /// Nothing about what the resident said changes: same draft, same
+    /// recipients, same exchange, one different turn number. The dispatch's
+    /// binding to the refused event is released first, so the refrozen bytes
+    /// bind cleanly; the refused event is provably not stored, because the
+    /// relay is the one that refused it.
+    ///
+    /// The authority owns both outcomes. When it cannot find a free turn — a
+    /// Stop landed mid-race, the deadline passed, the bucket emptied — it takes
+    /// the entry terminal and tells the room before answering; nothing is left
+    /// suspended here.
+    fn refreeze_on_next_free_turn(
+        &mut self,
+        request: &ManagedMessagePublishRequestV1,
+        now_unix_secs: u64,
+        installation_session_id: &luca_protocol::OpaqueId,
+    ) -> Result<ManagedMessagePublishRequestV1, ManagedPublicationAuthorityError> {
+        let refused_event_id = self
+            .message_outbox
+            .frozen_event_id(&request.idempotency_key)
+            .map_err(|_| ManagedPublicationAuthorityError::Invalid)?;
+        let turn = self.publication_authority.retune_exchange_turn(
+            request,
+            refused_event_id.as_str(),
+            &mut self.message_outbox,
+            now_unix_secs,
+        )?;
+        if request.exchange.as_ref() == Some(&turn) {
+            // Unreachable through the desktop's own authority, which refuses a
+            // turn that cannot move before it answers. Kept because a loop that
+            // resubmits identical bytes would only lose the identical race.
+            return Err(ManagedPublicationAuthorityError::ExchangeDenied(
+                "exchange_exhausted",
+            ));
+        }
+        let mut retuned = request.clone();
+        retuned.exchange = Some(turn);
+        let event = self
+            .build_managed_message_event(&retuned, now_unix_secs)
+            .and_then(|event| FrozenManagedMessageEvent::parse(event, &retuned))
+            .map_err(|_| ManagedPublicationAuthorityError::Invalid)?;
+        self.message_outbox
+            .refreeze_exchange_turn(&retuned, event, installation_session_id)
+            .map_err(|_| ManagedPublicationAuthorityError::Invalid)?;
+        Ok(retuned)
     }
 
     fn build_managed_message_event(

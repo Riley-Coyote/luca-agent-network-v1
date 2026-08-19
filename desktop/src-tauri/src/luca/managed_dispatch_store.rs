@@ -1227,6 +1227,133 @@ impl ManagedDispatchStore {
         Ok(authorized)
     }
 
+    /// How far this dispatch sits from the owner's own utterance.
+    ///
+    /// Zero for an owner trigger, one for the single permitted resident
+    /// descendant. The exchange resolver reads it to keep a sibling-triggered
+    /// final from ever publishing outside an exchange.
+    pub(crate) fn descendant_depth(
+        &self,
+        trigger_event_id: &str,
+        resident_pubkey: &str,
+    ) -> Result<u8, DispatchAuthorizationError> {
+        self.dispatches
+            .get(&(trigger_event_id.to_owned(), resident_pubkey.to_owned()))
+            .map(|dispatch| dispatch.descendant_depth)
+            .ok_or(DispatchAuthorizationError::Unknown)
+    }
+
+    /// Widen one dispatch's reply audience to the members of a minted exchange.
+    ///
+    /// G1 pins a resident's reply to the author of its trigger, deliberately, so
+    /// a final can never wake a sibling by accident. The exchange record is the
+    /// authority that makes widening safe: every added recipient is a
+    /// same-owner resident inside a bucketed, deadlined, owner-stoppable
+    /// exchange, and the caller has already verified each one against the
+    /// resident registry.
+    ///
+    /// Idempotent (the union is taken), and refused once the dispatch has left
+    /// `Pending`/`Active` or has bound frozen bytes — widening after the event
+    /// is signed would change what the signature covers.
+    pub(crate) fn grant_exchange_recipients(
+        &mut self,
+        trigger_event_id: &str,
+        resident_pubkey: &str,
+        additional: &[String],
+        now_unix_secs: u64,
+    ) -> Result<Vec<String>, DispatchAuthorizationError> {
+        let key = (trigger_event_id.to_owned(), resident_pubkey.to_owned());
+        let previous = self.dispatches.clone();
+        let dispatch = self
+            .dispatches
+            .get_mut(&key)
+            .ok_or(DispatchAuthorizationError::Unknown)?;
+        if now_unix_secs > dispatch.expires_at {
+            return Err(DispatchAuthorizationError::Expired);
+        }
+        match dispatch.state {
+            ManagedDispatchState::Cancelled => return Err(DispatchAuthorizationError::Cancelled),
+            ManagedDispatchState::Rejected
+            | ManagedDispatchState::Published
+            | ManagedDispatchState::Interrupted => {
+                return Err(DispatchAuthorizationError::Terminal)
+            }
+            ManagedDispatchState::Pending | ManagedDispatchState::Active => {}
+        }
+        if dispatch.submitted_event_id.is_some() {
+            return Err(DispatchAuthorizationError::Terminal);
+        }
+        let mut resolved = dispatch.resolved_p_tags.clone();
+        for candidate in additional {
+            let candidate = candidate.to_ascii_lowercase();
+            Hex64::parse(candidate.clone())
+                .map_err(|_| DispatchAuthorizationError::WrongRecipients)?;
+            if candidate == dispatch.resident_pubkey || candidate == dispatch.owner_pubkey {
+                return Err(DispatchAuthorizationError::WrongRecipients);
+            }
+            resolved.push(candidate);
+        }
+        resolved.sort();
+        resolved.dedup();
+        if resolved.len() > luca_protocol::MAX_RESOLVED_P_TAGS {
+            return Err(DispatchAuthorizationError::WrongRecipients);
+        }
+        if resolved == dispatch.resolved_p_tags {
+            return Ok(resolved);
+        }
+        dispatch.resolved_p_tags.clone_from(&resolved);
+        if self.persist().is_err() {
+            self.dispatches = previous;
+            return Err(DispatchAuthorizationError::Persistence);
+        }
+        Ok(resolved)
+    }
+
+    /// Release one dispatch's binding to frozen bytes the relay refused for a
+    /// turn collision, so the identical draft can be re-signed on a free turn.
+    ///
+    /// Deliberately narrow: the dispatch must still be the live, uncancelled,
+    /// unpublished row that bound exactly `submitted_event_id`. A refusal the
+    /// relay gave for any other reason never reaches this path, and a dispatch
+    /// that already published cannot be unbound.
+    pub(crate) fn release_exchange_submission(
+        &mut self,
+        trigger_event_id: &str,
+        resident_pubkey: &str,
+        session_epoch: u64,
+        submitted_event_id: &str,
+    ) -> Result<(), DispatchAuthorizationError> {
+        let key = (trigger_event_id.to_owned(), resident_pubkey.to_owned());
+        let previous = self.dispatches.clone();
+        let dispatch = self
+            .dispatches
+            .get_mut(&key)
+            .ok_or(DispatchAuthorizationError::Unknown)?;
+        match dispatch.state {
+            ManagedDispatchState::Cancelled => return Err(DispatchAuthorizationError::Cancelled),
+            ManagedDispatchState::Active if dispatch.session_epoch == Some(session_epoch) => {}
+            ManagedDispatchState::Active | ManagedDispatchState::Pending => {
+                return Err(DispatchAuthorizationError::WrongSession)
+            }
+            ManagedDispatchState::Rejected
+            | ManagedDispatchState::Published
+            | ManagedDispatchState::Interrupted => {
+                return Err(DispatchAuthorizationError::Terminal)
+            }
+        }
+        if dispatch.published_event_id.is_some()
+            || dispatch.submitted_event_id.as_deref() != Some(submitted_event_id)
+        {
+            return Err(DispatchAuthorizationError::Terminal);
+        }
+        dispatch.submitted_event_id = None;
+        if self.persist().is_err() {
+            self.dispatches = previous;
+            return Err(DispatchAuthorizationError::Persistence);
+        }
+        Ok(())
+    }
+
     /// Recheck cancellation/session immediately before exact final submission.
     pub(crate) fn recheck_before_submit(
         &self,
@@ -1808,7 +1935,8 @@ pub(crate) fn global_dispatch_store(
     })?))
 }
 
-fn atomic_write_restricted(path: &Path, bytes: &[u8]) -> Result<(), String> {
+/// Replace a desktop-owned authority file atomically, owner-readable only.
+pub(super) fn atomic_write_restricted(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let mut file = AtomicWriteFile::open(path)
         .map_err(|error| format!("open managed dispatch store: {error}"))?;
     #[cfg(unix)]
@@ -3384,6 +3512,195 @@ mod tests {
                 .expect("durable row")
                 .artifact_bindings,
             vec![binding]
+        );
+    }
+
+    /// One staged owner dispatch, ready for the exchange to widen or unbind.
+    fn exchange_fixture() -> (tempfile::TempDir, ManagedDispatchStore, Event, Keys, Keys) {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let owner = Keys::generate();
+        let resident = Keys::generate();
+        let trigger = event(&owner, &resident, CHANNEL_ONE, "ask Vektor");
+        let mut store =
+            ManagedDispatchStore::load(directory.path().join("dispatches.json")).expect("store");
+        store
+            .stage_owner_event(&trigger, &[resident.public_key().to_hex()], 100)
+            .expect("stage");
+        store
+            .activate_session(&resident.public_key().to_hex(), 7)
+            .expect("session");
+        (directory, store, trigger, owner, resident)
+    }
+
+    #[test]
+    fn an_exchange_widens_the_pinned_reply_audience_idempotently_and_in_order() {
+        let (_directory, mut store, trigger, owner, resident) = exchange_fixture();
+        let sibling = Keys::generate().public_key().to_hex();
+        let granted = store
+            .grant_exchange_recipients(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                std::slice::from_ref(&sibling),
+                101,
+            )
+            .expect("grant");
+        let mut expected = vec![owner.public_key().to_hex(), sibling.clone()];
+        expected.sort();
+        assert_eq!(granted, expected);
+        assert_eq!(
+            store
+                .grant_exchange_recipients(
+                    &trigger.id.to_hex(),
+                    &resident.public_key().to_hex(),
+                    &[sibling],
+                    101,
+                )
+                .expect("idempotent"),
+            expected
+        );
+    }
+
+    #[test]
+    fn widening_refuses_the_owner_the_resident_and_anything_that_is_not_a_pubkey() {
+        let (_directory, mut store, trigger, owner, resident) = exchange_fixture();
+        for candidate in [
+            owner.public_key().to_hex(),
+            resident.public_key().to_hex(),
+            "not-a-pubkey".to_owned(),
+        ] {
+            assert_eq!(
+                store.grant_exchange_recipients(
+                    &trigger.id.to_hex(),
+                    &resident.public_key().to_hex(),
+                    &[candidate],
+                    101,
+                ),
+                Err(DispatchAuthorizationError::WrongRecipients)
+            );
+        }
+    }
+
+    #[test]
+    fn widening_is_refused_once_frozen_bytes_are_bound_or_the_row_is_terminal() {
+        let (_directory, mut store, trigger, _owner, resident) = exchange_fixture();
+        let request = request(&_owner, &resident, &trigger, CHANNEL_ONE, 7);
+        store.authorize_publication(&request, 101).expect("bind");
+        let event_id = "ab".repeat(32);
+        store
+            .begin_submission(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                7,
+                &event_id,
+            )
+            .expect("begin");
+        assert_eq!(
+            store.grant_exchange_recipients(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                &[Keys::generate().public_key().to_hex()],
+                101,
+            ),
+            Err(DispatchAuthorizationError::Terminal)
+        );
+    }
+
+    #[test]
+    fn a_lost_turn_race_releases_the_binding_so_identical_bytes_can_be_resigned() {
+        let (_directory, mut store, trigger, owner, resident) = exchange_fixture();
+        let request = request(&owner, &resident, &trigger, CHANNEL_ONE, 7);
+        store.authorize_publication(&request, 101).expect("bind");
+        let refused = "ab".repeat(32);
+        store
+            .begin_submission(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                7,
+                &refused,
+            )
+            .expect("begin");
+        // A binding to some other event is never released by this path.
+        assert_eq!(
+            store.release_exchange_submission(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                7,
+                &"cd".repeat(32),
+            ),
+            Err(DispatchAuthorizationError::Terminal)
+        );
+        store
+            .release_exchange_submission(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                7,
+                &refused,
+            )
+            .expect("release");
+        let retuned = "cd".repeat(32);
+        store
+            .begin_submission(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                7,
+                &retuned,
+            )
+            .expect("rebind");
+        assert_eq!(
+            store
+                .dispatches
+                .get(&(trigger.id.to_hex(), resident.public_key().to_hex()))
+                .expect("row")
+                .submitted_event_id
+                .as_deref(),
+            Some(retuned.as_str())
+        );
+    }
+
+    #[test]
+    fn a_published_dispatch_never_unbinds() {
+        let (_directory, mut store, trigger, owner, resident) = exchange_fixture();
+        let request = request(&owner, &resident, &trigger, CHANNEL_ONE, 7);
+        store.authorize_publication(&request, 101).expect("bind");
+        let event_id = "ab".repeat(32);
+        store
+            .begin_submission(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                7,
+                &event_id,
+            )
+            .expect("begin");
+        store
+            .mark_published(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                &event_id,
+            )
+            .expect("publish");
+        assert_eq!(
+            store.release_exchange_submission(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                7,
+                &event_id,
+            ),
+            Err(DispatchAuthorizationError::Terminal)
+        );
+    }
+
+    #[test]
+    fn descendant_depth_names_who_woke_this_turn() {
+        let (_directory, store, trigger, _owner, resident) = exchange_fixture();
+        assert_eq!(
+            store
+                .descendant_depth(&trigger.id.to_hex(), &resident.public_key().to_hex())
+                .expect("depth"),
+            0
+        );
+        assert_eq!(
+            store.descendant_depth(&"ff".repeat(32), &resident.public_key().to_hex()),
+            Err(DispatchAuthorizationError::Unknown)
         );
     }
 }

@@ -848,6 +848,8 @@ pub fn run() {
             create_managed_agent,
             luca::resident_registry::list_luca_residents,
             luca::resident_registry::create_luca_resident,
+            luca::exchange::resolve_exchange,
+            luca::exchange::get_exchange,
             luca::operator_forge::get_operator_forge_settings,
             luca::operator_forge::list_native_provisioning_transactions,
             luca::operator_forge::save_operator_forge_preferences,

@@ -10,12 +10,16 @@ use std::{
     time::Duration,
 };
 
-use luca_protocol::{ManagedMessagePublishRequestV1, OpaqueId, Sha256Ref};
+use luca_protocol::{ExchangeTurnTag, ManagedMessagePublishRequestV1, OpaqueId, Sha256Ref};
 use nostr::{Event, JsonUtil, Keys, Kind};
 use reqwest::Method;
 use tauri::AppHandle;
 
 use super::{
+    exchange::{classify_exchange_refusal, ExchangeDenial, ExchangeNote, ExchangeRefusal},
+    exchange_plan::{ExchangePlan, ExchangeResolver},
+    exchange_relay::{AppExchangeRelay, ExchangeRelay},
+    exchange_store::{global_exchange_store, ExchangeStore},
     managed_dispatch_store::{
         DispatchAuthorizationError, ManagedDispatchReconciliation, ManagedDispatchStore,
     },
@@ -32,8 +36,18 @@ const MAX_RELAY_RESPONSE_BYTES: u64 = 64 * 1024;
 #[derive(Debug)]
 enum ManagedRelaySubmitOutcome {
     Response(crate::relay::SubmitEventResponse),
-    TerminalRejected,
+    TerminalRejected {
+        /// The relay's own words, when it gave any. The exchange gates answer
+        /// with `restricted: exchange …`, and that sentence is the difference
+        /// between "re-sign on the next turn" and "this reply is held".
+        reason: Option<String>,
+    },
     Retryable,
+}
+/// The owner-key authority this publisher uses to mint, count, and explain.
+struct ExchangeAuthority {
+    relay: Box<dyn ExchangeRelay>,
+    store: Arc<Mutex<ExchangeStore>>,
 }
 
 #[derive(Debug)]
@@ -51,6 +65,12 @@ enum SerializedSubmission {
     Rejected,
     Retryable,
     Invalid,
+    /// The turn collided. The dispatch keeps its authority so the same draft can
+    /// be re-signed on a free turn.
+    ExchangeTurnTaken,
+    /// The exchange refused the reply outright. Terminal, and explained — the
+    /// denial travels so the room's sentence matches the resident's code.
+    ExchangeHeld(ExchangeDenial),
 }
 
 trait ManagedRelayTransport: Send {
@@ -133,6 +153,19 @@ impl HttpManagedRelayTransport {
         serde_json::from_slice(&bytes)
             .map_err(|_| "managed relay response was invalid JSON".to_owned())
     }
+
+    /// The relay's structured refusal string, when it gave one.
+    ///
+    /// Only the `error`/`message` field of a well-formed JSON body is read; a
+    /// non-JSON body is discarded rather than logged, so a refusal can never
+    /// carry event-controlled content into the desktop's own reasoning.
+    fn read_refusal_reason(response: reqwest::blocking::Response) -> Option<String> {
+        let body: serde_json::Value = Self::parse_bounded_json(response).ok()?;
+        body.get("error")
+            .or_else(|| body.get("message"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    }
 }
 
 impl ManagedRelayTransport for HttpManagedRelayTransport {
@@ -151,7 +184,9 @@ impl ManagedRelayTransport for HttpManagedRelayTransport {
             // conflict, throttling, timeout and server failures can recover or
             // may conceal prior acceptance, so they retain Submitted.
             return if response.status() == reqwest::StatusCode::BAD_REQUEST {
-                ManagedRelaySubmitOutcome::TerminalRejected
+                ManagedRelaySubmitOutcome::TerminalRejected {
+                    reason: Self::read_refusal_reason(response),
+                }
             } else {
                 ManagedRelaySubmitOutcome::Retryable
             };
@@ -206,6 +241,7 @@ pub(crate) struct ManagedMessagePublisher {
     dispatch_store: Arc<Mutex<ManagedDispatchStore>>,
     transport: Box<dyn ManagedRelayTransport>,
     handoff_scheduler: Option<HandoffScheduler>,
+    exchange: Option<ExchangeAuthority>,
 }
 
 #[derive(Clone)]
@@ -226,11 +262,16 @@ impl ManagedMessagePublisher {
     ) -> Result<Self, String> {
         let resident_pubkey = resident_keys.public_key().to_hex();
         let transport = HttpManagedRelayTransport::new(resident_keys, relay_url, auth_tag)?;
+        let exchange = ExchangeAuthority {
+            relay: Box::new(AppExchangeRelay::new(app.clone())),
+            store: global_exchange_store(&app)?,
+        };
         Ok(Self {
             resident_pubkey,
             dispatch_store,
             transport: Box::new(transport),
             handoff_scheduler: Some(HandoffScheduler { app, binding_ref }),
+            exchange: Some(exchange),
         })
     }
 
@@ -245,7 +286,20 @@ impl ManagedMessagePublisher {
             dispatch_store,
             transport,
             handoff_scheduler: None,
+            exchange: None,
         }
+    }
+
+    /// Bind an offline exchange authority so the mint/continue/refuse paths can
+    /// be exercised without a relay.
+    #[cfg(test)]
+    fn with_exchange(
+        mut self,
+        relay: Box<dyn ExchangeRelay>,
+        store: Arc<Mutex<ExchangeStore>>,
+    ) -> Self {
+        self.exchange = Some(ExchangeAuthority { relay, store });
+        self
     }
 
     fn map_dispatch_error(error: DispatchAuthorizationError) -> ManagedPublicationAuthorityError {
@@ -472,23 +526,15 @@ impl ManagedMessagePublisher {
                                     .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
                                 SerializedSubmission::Accepted
                             } else {
-                                store
-                                    .mark_rejected(&[(
-                                        entry.request.dispatch_receipt_id.as_str().to_owned(),
-                                        entry.request.resident_pubkey.as_str().to_owned(),
-                                    )])
-                                    .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
-                                SerializedSubmission::Rejected
+                                Self::settle_relay_refusal(&mut store, entry, &response.message)?
                             }
                         }
-                        ManagedRelaySubmitOutcome::TerminalRejected => {
-                            store
-                                .mark_rejected(&[(
-                                    entry.request.dispatch_receipt_id.as_str().to_owned(),
-                                    entry.request.resident_pubkey.as_str().to_owned(),
-                                )])
-                                .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
-                            SerializedSubmission::Rejected
+                        ManagedRelaySubmitOutcome::TerminalRejected { reason } => {
+                            Self::settle_relay_refusal(
+                                &mut store,
+                                entry,
+                                reason.as_deref().unwrap_or_default(),
+                            )?
                         }
                         ManagedRelaySubmitOutcome::Retryable => SerializedSubmission::Retryable,
                     }
@@ -506,6 +552,19 @@ impl ManagedMessagePublisher {
             SerializedSubmission::Rejected => {
                 self.reject(entry, outbox)?;
                 Err(ManagedPublicationAuthorityError::Denied)
+            }
+            SerializedSubmission::ExchangeHeld(denial) => {
+                self.reject(entry, outbox)?;
+                self.tell_the_room_the_reply_was_held(&entry.request, denial);
+                Err(ManagedPublicationAuthorityError::ExchangeDenied(
+                    denial.code(),
+                ))
+            }
+            // Deliberately not terminal, and deliberately not marked rejected:
+            // the dispatch keeps its authority so the broker can re-sign the
+            // identical draft on the next free turn.
+            SerializedSubmission::ExchangeTurnTaken => {
+                Err(ManagedPublicationAuthorityError::ExchangeTurnTaken)
             }
             SerializedSubmission::Retryable => Err(ManagedPublicationAuthorityError::Unavailable),
             SerializedSubmission::Invalid => Err(ManagedPublicationAuthorityError::Invalid),
@@ -695,6 +754,97 @@ impl ManagedMessagePublisher {
 }
 
 impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
+    fn resolve_exchange(
+        &mut self,
+        request: &ManagedMessagePublishRequestV1,
+        now_unix_secs: u64,
+    ) -> Result<ExchangePlan, ManagedPublicationAuthorityError> {
+        if request.resident_pubkey.as_str() != self.resident_pubkey {
+            return Err(ManagedPublicationAuthorityError::Denied);
+        }
+        let Some(exchange) = &self.exchange else {
+            return self.resolve_without_exchange_authority(request);
+        };
+        let decided = ExchangeResolver::new(
+            exchange.relay.as_ref(),
+            &exchange.store,
+            &self.dispatch_store,
+        )
+        .resolve(request, now_unix_secs);
+        match decided {
+            Ok(plan) => Ok(plan),
+            Err(denial) => {
+                eprintln!(
+                    "luca-exchange: {} — {denial}",
+                    request.resident_pubkey.as_str()
+                );
+                // The common held path is this one, not the relay's. A reply
+                // this desktop refuses before it is ever signed still owes the
+                // room the same sentence a relay-refused reply gets.
+                self.tell_the_room_the_reply_was_held(request, denial);
+                Err(ManagedPublicationAuthorityError::ExchangeDenied(
+                    denial.code(),
+                ))
+            }
+        }
+    }
+
+    fn retune_exchange_turn(
+        &mut self,
+        request: &ManagedMessagePublishRequestV1,
+        refused_event_id: &str,
+        outbox: &mut ManagedMessageOutbox,
+        now_unix_secs: u64,
+    ) -> Result<ExchangeTurnTag, ManagedPublicationAuthorityError> {
+        let Some(exchange) = &self.exchange else {
+            return Err(ManagedPublicationAuthorityError::ExchangeDenied(
+                ExchangeDenial::Unavailable.code(),
+            ));
+        };
+        let retuned = ExchangeResolver::new(
+            exchange.relay.as_ref(),
+            &exchange.store,
+            &self.dispatch_store,
+        )
+        .retune_turn(request, now_unix_secs);
+        let tag = match retuned {
+            // A turn that cannot move is a bucket with nothing left in it, and
+            // resubmitting the same bytes would only lose the same race again.
+            Ok(tag) if request.exchange.as_ref() == Some(&tag) => {
+                return Err(self.hold_after_failed_retune(
+                    request,
+                    refused_event_id,
+                    outbox,
+                    ExchangeDenial::Exhausted,
+                ))
+            }
+            Ok(tag) => tag,
+            Err(denial) => {
+                eprintln!(
+                    "luca-exchange: {} — {denial}",
+                    request.resident_pubkey.as_str()
+                );
+                return Err(self.hold_after_failed_retune(
+                    request,
+                    refused_event_id,
+                    outbox,
+                    denial,
+                ));
+            }
+        };
+        self.dispatch_store
+            .lock()
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+            .release_exchange_submission(
+                request.dispatch_receipt_id.as_str(),
+                request.resident_pubkey.as_str(),
+                request.cancellation_epoch.get(),
+                refused_event_id,
+            )
+            .map_err(Self::map_dispatch_error)?;
+        Ok(tag)
+    }
+
     fn authorize_request(
         &mut self,
         request: &ManagedMessagePublishRequestV1,
@@ -795,6 +945,9 @@ impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
         Ok(())
     }
 }
+
+#[path = "managed_message_publisher_exchange.rs"]
+mod managed_message_publisher_exchange;
 
 #[cfg(test)]
 #[path = "managed_message_publisher_tests.rs"]

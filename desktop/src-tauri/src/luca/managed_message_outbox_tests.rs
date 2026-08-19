@@ -654,3 +654,159 @@ fn luca_signing_outbox_reconciliation_cursor_rotates_after_failed_early_row() {
         .collect();
     assert_eq!(rotated, vec![3, 4, 1, 2]);
 }
+
+// ── the one narrow hole in the frozen-bytes invariant ───────────────────────
+
+fn exchange_request(keys: &Keys, turn: u8) -> ManagedMessagePublishRequestV1 {
+    let mut request = request(keys);
+    request.exchange =
+        Some(luca_protocol::ExchangeTurnTag::new(hex('9'), turn).expect("valid turn"));
+    request
+}
+
+fn exchange_frozen_event(
+    keys: &Keys,
+    request: &ManagedMessagePublishRequestV1,
+) -> FrozenManagedMessageEvent {
+    let tags = crate::luca::managed_message_event::managed_message_tags(request)
+        .expect("tags for an in-exchange final");
+    let event = EventBuilder::new(Kind::Custom(9), request.final_draft.clone())
+        .tags(tags)
+        .sign_with_keys(keys)
+        .expect("sign fixture event");
+    let canonical =
+        String::from_utf8(canonicalize(&event).expect("canonical event")).expect("UTF-8 event");
+    FrozenManagedMessageEvent::parse(canonical, request).expect("valid frozen event")
+}
+
+#[test]
+fn a_refreeze_moves_the_turn_and_nothing_else() {
+    let keys = Keys::parse(&"02".repeat(32)).expect("valid fixture key");
+    let session = OpaqueId::parse("installation-1").expect("valid installation ID");
+    let mut outbox = ManagedMessageOutbox::new(session.clone());
+    let first = exchange_request(&keys, 2);
+    outbox
+        .prepare(
+            &first,
+            exchange_frozen_event(&keys, &first),
+            &session,
+            3,
+            false,
+        )
+        .expect("prepare");
+    outbox
+        .mark_submitted(&first.idempotency_key, &session, false)
+        .expect("submit");
+
+    let second = exchange_request(&keys, 3);
+    let receipt = outbox
+        .refreeze_exchange_turn(&second, exchange_frozen_event(&keys, &second), &session)
+        .expect("refreeze onto a free turn");
+    assert_eq!(
+        receipt.state,
+        ManagedOutboxState::Prepared,
+        "the refrozen row is unsent again"
+    );
+    let stored = outbox
+        .entries
+        .get(second.idempotency_key.as_str())
+        .expect("retained entry");
+    assert_eq!(stored.request, second);
+    assert!(stored.publication_receipt_id.is_none());
+}
+
+#[test]
+fn a_refreeze_that_changes_anything_else_is_an_idempotency_collision() {
+    let keys = Keys::parse(&"02".repeat(32)).expect("valid fixture key");
+    let session = OpaqueId::parse("installation-1").expect("valid installation ID");
+    let mut outbox = ManagedMessageOutbox::new(session.clone());
+    let frozen = exchange_request(&keys, 2);
+    outbox
+        .prepare(
+            &frozen,
+            exchange_frozen_event(&keys, &frozen),
+            &session,
+            3,
+            false,
+        )
+        .expect("prepare");
+
+    // A different draft under the same key.
+    let mut rewritten = exchange_request(&keys, 3);
+    rewritten.final_draft = "Something else entirely.".to_owned();
+    assert!(matches!(
+        outbox.refreeze_exchange_turn(
+            &rewritten,
+            exchange_frozen_event(&keys, &rewritten),
+            &session
+        ),
+        Err(ManagedMessageOutboxError::IdempotencyCollision)
+    ));
+
+    // A different exchange under the same key.
+    let mut elsewhere = exchange_request(&keys, 3);
+    elsewhere.exchange =
+        Some(luca_protocol::ExchangeTurnTag::new(hex('7'), 3).expect("valid turn"));
+    assert!(matches!(
+        outbox.refreeze_exchange_turn(
+            &elsewhere,
+            exchange_frozen_event(&keys, &elsewhere),
+            &session
+        ),
+        Err(ManagedMessageOutboxError::IdempotencyCollision)
+    ));
+
+    // The same turn is not a move.
+    assert!(matches!(
+        outbox.refreeze_exchange_turn(&frozen, exchange_frozen_event(&keys, &frozen), &session),
+        Err(ManagedMessageOutboxError::IdempotencyCollision)
+    ));
+
+    // A final that was never inside an exchange cannot acquire a turn this way.
+    let plain = request(&keys);
+    assert!(matches!(
+        outbox.refreeze_exchange_turn(&plain, frozen_event(&keys, &plain), &session),
+        Err(ManagedMessageOutboxError::IdempotencyCollision)
+    ));
+
+    // The frozen bytes are untouched by every refusal.
+    assert_eq!(
+        outbox
+            .entries
+            .get(frozen.idempotency_key.as_str())
+            .expect("retained entry")
+            .request,
+        frozen
+    );
+}
+
+#[test]
+fn a_terminal_row_is_never_refrozen() {
+    let keys = Keys::parse(&"02".repeat(32)).expect("valid fixture key");
+    let session = OpaqueId::parse("installation-1").expect("valid installation ID");
+    let mut outbox = ManagedMessageOutbox::new(session.clone());
+    let first = exchange_request(&keys, 2);
+    outbox
+        .prepare(
+            &first,
+            exchange_frozen_event(&keys, &first),
+            &session,
+            3,
+            false,
+        )
+        .expect("prepare");
+    outbox
+        .mark_submitted(&first.idempotency_key, &session, false)
+        .expect("submit");
+    outbox
+        .mark_accepted(
+            &first.idempotency_key,
+            OpaqueId::parse("publication-1").expect("valid receipt"),
+        )
+        .expect("accept");
+    let second = exchange_request(&keys, 3);
+    assert!(matches!(
+        outbox.refreeze_exchange_turn(&second, exchange_frozen_event(&keys, &second), &session),
+        Err(ManagedMessageOutboxError::InvalidTransition)
+    ));
+}

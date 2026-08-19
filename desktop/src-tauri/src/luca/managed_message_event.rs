@@ -22,6 +22,12 @@ fn managed_message_tags_inner(
     for pubkey in &request.resolved_p_tags {
         tags.push(Tag::parse(["p", pubkey.as_str()]).map_err(|_| ())?);
     }
+    // The turn tag sits in one fixed place — after the recipients, before the
+    // receipt — because `event_tags_match_request` compares tag sequences
+    // exactly and both builders must agree on the order.
+    if let Some(exchange) = &request.exchange {
+        tags.push(Tag::parse(exchange.to_tag()).map_err(|_| ())?);
+    }
     if include_receipt && request.response_surface.is_some() {
         tags.push(
             Tag::parse([

@@ -292,6 +292,14 @@ pub(crate) enum ManagedPublicationAuthorityError {
     Cancelled,
     /// The authority could not reconcile the exact prepared event.
     Invalid,
+    /// Exchange policy refused this final. The payload is the resident-facing
+    /// reason code (`exchange_closed`, `exchange_exhausted`, …).
+    ExchangeDenied(&'static str),
+    /// The relay refused the frozen bytes because that turn of the exchange was
+    /// already spoken. This is not a terminal answer: the broker re-signs the
+    /// identical draft on the next free turn. A reply is never dropped for a
+    /// turn collision.
+    ExchangeTurnTaken,
 }
 
 impl ManagedPublicationAuthorityError {
@@ -301,11 +309,16 @@ impl ManagedPublicationAuthorityError {
             Self::Denied => "publication-policy-denied",
             Self::Cancelled => "publication-cancelled",
             Self::Invalid => "publication-reconciliation-invalid",
+            Self::ExchangeDenied(code) => code,
+            // Only reachable if every bounded refreeze attempt collided.
+            Self::ExchangeTurnTaken => "exchange_exhausted",
         };
         let code = OpaqueId::parse(code).expect("fixed publication status code is valid");
         match self {
             Self::Unavailable => ManagedMessagePublishResultV1::Unavailable { code },
-            Self::Denied => ManagedMessagePublishResultV1::Denied { code },
+            Self::Denied | Self::ExchangeDenied(_) | Self::ExchangeTurnTaken => {
+                ManagedMessagePublishResultV1::Denied { code }
+            }
             Self::Cancelled => ManagedMessagePublishResultV1::Cancelled { code },
             Self::Invalid => ManagedMessagePublishResultV1::Invalid { code },
         }
@@ -321,6 +334,44 @@ impl ManagedPublicationAuthorityError {
 /// success this method must leave the entry accepted; the broker derives the
 /// body-free protocol result from the outbox rather than trusting the adapter.
 pub(crate) trait ManagedMessagePublicationAuthority: Send {
+    /// Decide this final's exchange placement — mint, continue, or refuse —
+    /// before any event is constructed.
+    ///
+    /// This runs ahead of the outbox preflight on purpose. The outbox compares
+    /// whole requests, so the request the outbox freezes must already be the
+    /// effective one; augmenting it afterwards would make a replay of the
+    /// original look like an idempotency collision and lose a real reply.
+    ///
+    /// The default answer leaves the final untouched, which is correct for the
+    /// authorities that have no exchange authority attached.
+    fn resolve_exchange(
+        &mut self,
+        _request: &ManagedMessagePublishRequestV1,
+        _now_unix_secs: u64,
+    ) -> Result<super::exchange_plan::ExchangePlan, ManagedPublicationAuthorityError> {
+        Ok(super::exchange_plan::ExchangePlan::unchanged())
+    }
+
+    /// Choose the next unspoken turn after the relay refused the frozen bytes
+    /// with `exchange turn already spoken`, and release the dispatch's binding
+    /// to the refused event so identical bytes can be re-signed on that turn.
+    ///
+    /// The outbox is passed in because the answer can be "no turn at all": a
+    /// Stop landing mid-race ends the retune, and the entry it ends must reach
+    /// a terminal state here rather than being left Submitted against bytes the
+    /// relay already refused.
+    fn retune_exchange_turn(
+        &mut self,
+        _request: &ManagedMessagePublishRequestV1,
+        _refused_event_id: &str,
+        _outbox: &mut ManagedMessageOutbox,
+        _now_unix_secs: u64,
+    ) -> Result<luca_protocol::ExchangeTurnTag, ManagedPublicationAuthorityError> {
+        Err(ManagedPublicationAuthorityError::ExchangeDenied(
+            "exchange_exhausted",
+        ))
+    }
+
     /// Reauthorize the exact typed request against desktop-owned dispatch state
     /// before the resident event is constructed or signed.
     fn authorize_request(
@@ -671,6 +722,86 @@ impl ManagedMessageOutbox {
         Ok(receipt)
     }
 
+    /// Re-freeze one entry onto a different turn of the *same* exchange.
+    ///
+    /// The frozen-bytes invariant exists so a resident's final can never be
+    /// silently rewritten. This is the single, deliberately narrow hole in it,
+    /// and it is opened for exactly one situation: the relay refused these
+    /// bytes with `exchange turn already spoken`, which proves the refused
+    /// event is *not* stored anywhere, and the alternative is dropping a real
+    /// reply because two residents raced for the same turn number.
+    ///
+    /// The guard is total. The replacement request must be byte-identical to
+    /// the frozen one except for the turn inside the exchange tag, both must
+    /// name the same exchange, and the entry must still be pre-terminal. Every
+    /// other difference — a changed draft, changed recipients, a different
+    /// exchange, a missing tag — is an idempotency collision.
+    pub(crate) fn refreeze_exchange_turn(
+        &mut self,
+        request: &ManagedMessagePublishRequestV1,
+        event: FrozenManagedMessageEvent,
+        observed_installation_session_id: &OpaqueId,
+    ) -> Result<ManagedOutboxReceipt, ManagedMessageOutboxError> {
+        request
+            .validate()
+            .map_err(|_| ManagedMessageOutboxError::InvalidRequest)?;
+        if observed_installation_session_id != &self.installation_session_id {
+            return Err(ManagedMessageOutboxError::InactiveSession);
+        }
+        let Some(replacement_turn) = &request.exchange else {
+            return Err(ManagedMessageOutboxError::IdempotencyCollision);
+        };
+        let expected_content_sha256 =
+            Hex64::parse(hex::encode(Sha256::digest(request.final_draft.as_bytes())))
+                .map_err(|_| ManagedMessageOutboxError::Canonicalization)?;
+        if event.content_sha256 != expected_content_sha256 {
+            return Err(ManagedMessageOutboxError::InvalidEvent);
+        }
+        let request_sha256 = canonical_sha256(request)
+            .map_err(|_| ManagedMessageOutboxError::Canonicalization)
+            .and_then(|digest| {
+                Hex64::parse(digest).map_err(|_| ManagedMessageOutboxError::Canonicalization)
+            })?;
+        let key = request.idempotency_key.as_str().to_owned();
+        let previous = self.entries.clone();
+        let entry = self
+            .entries
+            .get_mut(&key)
+            .ok_or(ManagedMessageOutboxError::NotFound)?;
+        if !matches!(
+            entry.state,
+            ManagedOutboxState::Prepared | ManagedOutboxState::Submitted
+        ) {
+            return Err(ManagedMessageOutboxError::InvalidTransition);
+        }
+        let frozen_turn = entry
+            .request
+            .exchange
+            .as_ref()
+            .ok_or(ManagedMessageOutboxError::IdempotencyCollision)?;
+        if frozen_turn.exchange_id != replacement_turn.exchange_id
+            || frozen_turn.turn == replacement_turn.turn
+        {
+            return Err(ManagedMessageOutboxError::IdempotencyCollision);
+        }
+        let mut retuned = entry.request.clone();
+        retuned.exchange = Some(replacement_turn.clone());
+        if retuned != *request {
+            return Err(ManagedMessageOutboxError::IdempotencyCollision);
+        }
+        entry.request = request.clone();
+        entry.request_sha256 = request_sha256;
+        entry.event = event;
+        entry.state = ManagedOutboxState::Prepared;
+        entry.publication_receipt_id = None;
+        let receipt = receipt_for(&request.idempotency_key, entry);
+        if let Err(error) = self.persist() {
+            self.entries = previous;
+            return Err(error);
+        }
+        Ok(receipt)
+    }
+
     /// Return the exact frozen event for the desktop-authorized F09 publisher.
     pub(crate) fn event_for_submission(
         &self,
@@ -687,6 +818,29 @@ impl ManagedMessageOutbox {
             return Err(ManagedMessageOutboxError::InvalidTransition);
         }
         Ok(&entry.event.signed_event_json)
+    }
+
+    /// Whether this key already reached the durable accepted terminal state.
+    ///
+    /// A replay of a final that already published must be answered from here
+    /// and nowhere else. The stored request is the *effective* one — it may
+    /// carry a turn tag and recipients the caller's copy never had — so the
+    /// whole-request preflight would read the same reply as a collision.
+    pub(crate) fn has_accepted(&self, idempotency_key: &Hex64) -> bool {
+        self.entries
+            .get(idempotency_key.as_str())
+            .is_some_and(|entry| entry.state == ManagedOutboxState::Accepted)
+    }
+
+    /// The id of the exact event currently frozen under this key.
+    pub(crate) fn frozen_event_id(
+        &self,
+        idempotency_key: &Hex64,
+    ) -> Result<Hex64, ManagedMessageOutboxError> {
+        self.entries
+            .get(idempotency_key.as_str())
+            .map(|entry| entry.event.event_id.clone())
+            .ok_or(ManagedMessageOutboxError::NotFound)
     }
 
     /// Record that the exact retained event was submitted, without re-signing it.

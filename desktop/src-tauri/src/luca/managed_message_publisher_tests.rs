@@ -68,6 +68,12 @@ struct Fixture {
 }
 
 fn fixture() -> Fixture {
+    fixture_with(None)
+}
+
+/// The same fixture, optionally with the final already placed inside an
+/// exchange — request and frozen bytes both carrying the turn tag.
+fn fixture_with(exchange: Option<luca_protocol::ExchangeTurnTag>) -> Fixture {
     let owner = Keys::parse(&"91".repeat(32)).expect("owner");
     let resident = Keys::parse(&"92".repeat(32)).expect("resident");
     let trigger = EventBuilder::new(Kind::Custom(9), "owner trigger")
@@ -99,21 +105,11 @@ fn fixture() -> Fixture {
         final_draft: "exact resident final".to_owned(),
         dispatch_receipt_id: receipt,
         cancellation_epoch: SafeU53::new(7).expect("epoch"),
-        exchange: None,
+        exchange,
         bucket_hint: None,
     };
     let final_event = EventBuilder::new(Kind::Custom(9), request.final_draft.clone())
-        .tags([
-            Tag::parse(["h", CHANNEL]).expect("h"),
-            Tag::parse(["e", trigger.id.to_hex().as_str(), "", "reply"]).expect("reply"),
-            Tag::public_key(owner.public_key()),
-            Tag::parse([
-                luca_protocol::MANAGED_DISPATCH_RECEIPT_TAG,
-                request.dispatch_receipt_id.as_str(),
-            ])
-            .expect("managed dispatch receipt"),
-            Tag::parse(["broadcast", "1"]).expect("broadcast"),
-        ])
+        .tags(super::super::managed_message_event::managed_message_tags(&request).expect("tags"))
         .custom_created_at(Timestamp::from(101))
         .sign_with_keys(&resident)
         .expect("final");
@@ -312,7 +308,7 @@ fn managed_http_submit_classifies_only_bad_request_as_terminal() {
         HttpManagedRelayTransport::new(resident, &relay_url, None).expect("transport");
     assert!(matches!(
         transport.submit_exact("{}", Duration::from_secs(2)),
-        ManagedRelaySubmitOutcome::TerminalRejected
+        ManagedRelaySubmitOutcome::TerminalRejected { .. }
     ));
     server.join().expect("server");
 }
@@ -366,7 +362,9 @@ fn ambiguous_dispatch_lookup_is_denied_without_detail() {
 fn terminal_bad_request_rejects_and_finalizes_both_stores() {
     let mut fixture = fixture();
     let state = Arc::new(Mutex::new(FakeRelayState {
-        submit_results: VecDeque::from([ManagedRelaySubmitOutcome::TerminalRejected]),
+        submit_results: VecDeque::from([ManagedRelaySubmitOutcome::TerminalRejected {
+            reason: None,
+        }]),
         ..Default::default()
     }));
     let mut publisher = publisher(&fixture, state);
@@ -729,3 +727,6 @@ fn cancelled_outbox_can_finish_after_safely_compacted_dispatch() {
         .expect("finish retained cancellation");
     assert!(fixture.outbox.reconciliation_entries().is_empty());
 }
+
+#[path = "managed_message_publisher_exchange_tests.rs"]
+mod managed_message_publisher_exchange_tests;
