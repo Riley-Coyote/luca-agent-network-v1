@@ -52,6 +52,31 @@ const MAX_CACHED_HEADS: usize = 128;
 /// re-learn rather than grow without bound.
 const MAX_CACHED_REFUSALS: usize = 128;
 
+/// How many bounded head fetches a single author may cost the main loop inside
+/// [`GATE_FETCH_WINDOW`].
+///
+/// The negative cache is keyed per exchange id, so it only stops a sibling
+/// repeating *the same* unanswerable id. A sibling that fabricates a fresh id
+/// every message would still buy a serialized [`HEAD_REST_TIMEOUT`] of the main
+/// loop per message. This budget is the bound that closes that: after three
+/// fetches inside a minute, the fourth unknown exchange from that author is
+/// refused without touching the relay.
+const GATE_FETCH_BUDGET: usize = 3;
+
+/// The sliding window [`GATE_FETCH_BUDGET`] is measured over.
+const GATE_FETCH_WINDOW: Duration = Duration::from_secs(60);
+
+/// Maximum authors tracked for the fetch budget at once. Authors whose window
+/// has fully passed are dropped first; if the table is still full, a *new*
+/// author is refused rather than admitted for free — the gate fails closed.
+const MAX_TRACKED_FETCH_AUTHORS: usize = 128;
+
+/// The first eight characters of a pubkey — enough to name who a refusal
+/// happened to in a log line, without printing a whole key.
+fn author_prefix(pubkey: &str) -> &str {
+    pubkey.get(..8).unwrap_or(pubkey)
+}
+
 /// Whether the live kind-30178 subscription is currently carrying head
 /// replacements to this resident.
 ///
@@ -131,6 +156,9 @@ pub enum ExchangeRefusal {
     HeadUnverifiable,
     /// The wall clock could not be read, so no deadline or budget can be judged.
     ClockUnavailable,
+    /// This author has already spent its share of the main loop on exchanges
+    /// that could not be verified. Nothing is fetched and nothing is learned.
+    FetchBudgetExhausted,
 }
 
 impl ExchangeRefusal {
@@ -148,13 +176,18 @@ impl ExchangeRefusal {
             Self::Exhausted => "exchange exhausted — dropped",
             Self::HeadUnverifiable => "exchange record could not be verified — dropped",
             Self::ClockUnavailable => "clock unreadable — the exchange cannot be judged, dropped",
+            Self::FetchBudgetExhausted => {
+                "too many unverifiable exchanges from this sender — dropped"
+            }
         }
     }
 
     /// Whether this refusal cost a relay round-trip and is therefore worth
     /// remembering for [`NEGATIVE_TTL`]. State refusals decided from a head
     /// already held are cheap and are never cached — a live Go must take effect
-    /// on the next message, not thirty seconds later.
+    /// on the next message, not thirty seconds later. A
+    /// [`Self::FetchBudgetExhausted`] is not remembered either: it already cost
+    /// nothing, and caching it would keep refusing after the window has slid.
     fn is_worth_remembering(&self) -> bool {
         matches!(
             self,
@@ -179,8 +212,14 @@ enum HeadUpdate {
     Stored,
     /// The cache already held a head at least as new; its freshness was renewed.
     Confirmed,
-    /// The head was not the owner's word about an exchange this resident is in.
+    /// The head was not the owner's word at all — wrong owner, unreadable
+    /// record, or an unorderable body.
     Rejected,
+    /// The head *was* the owner's valid word about the exchange asked for, and
+    /// it does not list this resident. A different sentence from
+    /// [`Self::Rejected`]: nothing about it is suspect, the resident simply was
+    /// not invited.
+    NotAMember,
     /// The head was the owner's word, but about a *different* exchange than the
     /// one asked for. Nothing is learned about the exchange in question.
     WrongExchange,
@@ -197,6 +236,11 @@ pub struct ExchangeCache {
     /// Refusals that cost a fetch, remembered for [`NEGATIVE_TTL`] so a sibling
     /// cannot make the main loop pay the same 2 s twice.
     refusals: Mutex<HashMap<String, (ExchangeRefusal, Instant)>>,
+    /// When each author last spent a head fetch, so no one author can spend the
+    /// main loop on a stream of exchange ids the relay cannot answer for.
+    /// Keyed by the event's pubkey; entries older than [`GATE_FETCH_WINDOW`]
+    /// are dropped on every check.
+    fetch_budget: Mutex<HashMap<String, Vec<Instant>>>,
     /// Whether the live head subscription is carrying replacements right now.
     live_leg: ExchangeLiveLeg,
     /// Set once the first relay-attested (signature-stripped) head is accepted,
@@ -216,6 +260,7 @@ impl ExchangeCache {
             owner,
             heads: Mutex::new(HashMap::new()),
             refusals: Mutex::new(HashMap::new()),
+            fetch_budget: Mutex::new(HashMap::new()),
             live_leg: ExchangeLiveLeg::new(),
             attested_head_logged: AtomicBool::new(false),
         }
@@ -274,6 +319,11 @@ impl ExchangeCache {
     /// A head the cache already holds — the same event, or one the held head
     /// supersedes — is not stored again but does renew freshness: the relay has
     /// just re-confirmed what this resident believes.
+    ///
+    /// A valid owner-authored head that simply does not list this resident is
+    /// [`HeadUpdate::NotAMember`], not [`HeadUpdate::Rejected`]: nothing about
+    /// it failed to verify, so the resident is told it was not invited rather
+    /// than that the record could not be read.
     fn store_head(
         &self,
         record: ExchangeRecordV1,
@@ -292,7 +342,7 @@ impl ExchangeCache {
                 exchange_id = record.exchange_id.as_str(),
                 "exchange head ignored — this resident is not a member"
             );
-            return HeadUpdate::Rejected;
+            return HeadUpdate::NotAMember;
         }
         let Ok(mut heads) = self.heads.lock() else {
             tracing::warn!("exchange head cache is poisoned — head not stored");
@@ -386,6 +436,39 @@ impl ExchangeCache {
         }
     }
 
+    /// Charge one bounded head fetch to `author`, or refuse it.
+    ///
+    /// The per-exchange negative cache stops a sibling repeating one
+    /// unanswerable id; this stops it inventing a new one every message. At
+    /// most [`GATE_FETCH_BUDGET`] fetches per author per [`GATE_FETCH_WINDOW`],
+    /// sliding. Fails closed: a poisoned lock or a full table spends nothing
+    /// and refuses.
+    fn charge_fetch(&self, author: &str) -> Result<(), ExchangeRefusal> {
+        let Ok(mut budgets) = self.fetch_budget.lock() else {
+            tracing::warn!("exchange fetch budget is poisoned — refusing the fetch");
+            return Err(ExchangeRefusal::FetchBudgetExhausted);
+        };
+        // Authors whose whole window has passed are forgotten, so the table
+        // only ever holds who is spending right now.
+        budgets.retain(|_, spent| {
+            spent.retain(|at| at.elapsed() < GATE_FETCH_WINDOW);
+            !spent.is_empty()
+        });
+        if budgets.len() >= MAX_TRACKED_FETCH_AUTHORS && !budgets.contains_key(author) {
+            tracing::warn!(
+                author = author_prefix(author),
+                "exchange fetch budget table is full — refusing the fetch"
+            );
+            return Err(ExchangeRefusal::FetchBudgetExhausted);
+        }
+        let spent = budgets.entry(author.to_owned()).or_default();
+        if spent.len() >= GATE_FETCH_BUDGET {
+            return Err(ExchangeRefusal::FetchBudgetExhausted);
+        }
+        spent.push(Instant::now());
+        Ok(())
+    }
+
     /// Decide whether a sibling-authored event earns a turn.
     ///
     /// `now_unix` is the current wall clock in seconds — `None` means the clock
@@ -393,6 +476,11 @@ impl ExchangeCache {
     /// zero. `rest` is the HTTP bridge used for the bounded fallback fetch
     /// (pass `None` to forbid network access, in which case an unknown or stale
     /// head refuses).
+    ///
+    /// A fetch is charged to the event's author against
+    /// [`GATE_FETCH_BUDGET`]: past that, the turn is refused with
+    /// [`ExchangeRefusal::FetchBudgetExhausted`] before the relay is touched,
+    /// so a sibling inventing exchange ids cannot own the main loop.
     pub async fn admit(
         &self,
         event: &nostr::Event,
@@ -428,13 +516,29 @@ impl ExchangeCache {
             Some(record) => record,
             // Only the head that this refresh actually produced *for this id*
             // may grant the turn. A stale or unrelated head never does.
-            None => match self.refresh_head(&exchange_id, &owner, rest).await {
-                Ok(record) => record,
-                Err(refusal) => {
-                    self.note_refusal(&exchange_id, refusal);
-                    return Err(refusal);
+            None => {
+                // The fetch is the expensive half of this gate. A head arriving
+                // on the live leg costs nothing and is never charged; asking the
+                // relay about an id this resident has never heard of is, and one
+                // author may only do so a few times a minute.
+                if rest.is_some() {
+                    let author = event.pubkey.to_hex();
+                    if let Err(refusal) = self.charge_fetch(&author) {
+                        tracing::debug!(
+                            "too many unverifiable exchanges from {} — dropped",
+                            author_prefix(&author)
+                        );
+                        return Err(refusal);
+                    }
                 }
-            },
+                match self.refresh_head(&exchange_id, &owner, rest).await {
+                    Ok(record) => record,
+                    Err(refusal) => {
+                        self.note_refusal(&exchange_id, refusal);
+                        return Err(refusal);
+                    }
+                }
+            }
         };
 
         if !record.is_member(&self.self_pubkey) {
@@ -464,7 +568,9 @@ impl ExchangeCache {
     ///
     /// Returns the head that was stored (or re-confirmed) **for this exact
     /// exchange id**. Any timeout, transport error, empty answer, unverifiable
-    /// body, or a body naming a different exchange refuses the turn.
+    /// body, or a body naming a different exchange refuses the turn — as does a
+    /// perfectly valid head that does not list this resident, which refuses
+    /// with [`ExchangeRefusal::NotAMember`].
     async fn refresh_head(
         &self,
         exchange_id: &str,
@@ -501,6 +607,9 @@ impl ExchangeCache {
                 self.fresh_head(exchange_id).ok_or(ExchangeRefusal::Unknown)
             }
             HeadUpdate::WrongExchange => Err(ExchangeRefusal::Unknown),
+            // The owner's word arrived and it does not name this resident. Say
+            // that, rather than blaming the record.
+            HeadUpdate::NotAMember => Err(ExchangeRefusal::NotAMember),
             HeadUpdate::Rejected => Err(ExchangeRefusal::HeadUnverifiable),
         }
     }
@@ -737,6 +846,22 @@ mod tests {
         entry.1 = entry.1.checked_sub(by).expect("aged instant");
     }
 
+    /// The same, for one author's spent fetches, so the sliding window can be
+    /// exercised without waiting out a minute.
+    fn age_fetch_budget(cache: &ExchangeCache, author: &Hex64, by: Duration) {
+        let mut budgets = cache.fetch_budget.lock().expect("fetch budget");
+        let spent = budgets.get_mut(author.as_str()).expect("spent fetches");
+        for at in spent.iter_mut() {
+            *at = at.checked_sub(by).expect("aged instant");
+        }
+    }
+
+    /// A well-formed exchange id that no head will ever be found for. Distinct
+    /// per `seed`, so each one is a fresh miss in the negative cache.
+    fn fabricated_id(seed: u8) -> Hex64 {
+        Hex64::parse(format!("{seed:02x}").repeat(32)).expect("hex64")
+    }
+
     /// A one-shot local stand-in for the relay's HTTP bridge.
     ///
     /// `RestClient` talks plain HTTP/1.1 to `base_url`, so a raw TCP listener
@@ -744,6 +869,9 @@ mod tests {
     /// paths that have no answer at all.
     struct FakeRelay {
         base_url: String,
+        /// One per accepted connection. Every response closes the connection,
+        /// so the client never pools one and this counts requests exactly.
+        requests: Arc<std::sync::atomic::AtomicUsize>,
         _task: tokio::task::JoinHandle<()>,
     }
 
@@ -753,11 +881,14 @@ mod tests {
                 .await
                 .expect("bind fake relay");
             let address = listener.local_addr().expect("fake relay address");
+            let requests = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let counter = requests.clone();
             let task = tokio::spawn(async move {
                 loop {
                     let Ok((mut stream, _)) = listener.accept().await else {
                         return;
                     };
+                    counter.fetch_add(1, Ordering::Relaxed);
                     let behaviour = behaviour.clone();
                     tokio::spawn(async move {
                         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -772,11 +903,13 @@ mod tests {
                                 return;
                             }
                             FakeRelayBehaviour::Fail => {
-                                "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n".to_owned()
+                                "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\
+                                 Content-Length: 0\r\n\r\n"
+                                    .to_owned()
                             }
                             FakeRelayBehaviour::Respond(body) => format!(
                                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
-                                 Content-Length: {}\r\n\r\n{body}",
+                                 Connection: close\r\nContent-Length: {}\r\n\r\n{body}",
                                 body.len()
                             ),
                         };
@@ -787,8 +920,14 @@ mod tests {
             });
             Self {
                 base_url: format!("http://{address}"),
+                requests,
                 _task: task,
             }
+        }
+
+        /// How many HTTP requests this relay has been asked for so far.
+        fn request_count(&self) -> usize {
+            self.requests.load(Ordering::Relaxed)
         }
 
         async fn responding(body: &str) -> Self {
@@ -1368,6 +1507,130 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn a_fetched_head_that_leaves_this_resident_out_says_so_plainly() {
+        let elsewhere = record(
+            vec![hex_of(&sibling_keys()), hex_of(&stranger_keys())],
+            None,
+        );
+        // A perfectly valid, owner-authored head for exactly the exchange asked
+        // about — it simply does not list this resident.
+        let body = serde_json::to_string(&[attested_body(&elsewhere, NOW)]).expect("head array");
+        let server = FakeRelay::responding(&body).await;
+        let cache = resident_cache();
+        let event = turn_event(&sibling_keys(), vec![turn_tag(&elsewhere.exchange_id, 1)]);
+        assert_eq!(
+            cache
+                .admit(&event, Some(NOW), Some(&server.rest_client()))
+                .await
+                .unwrap_err(),
+            ExchangeRefusal::NotAMember,
+            "an uninvited resident must be told that, not that the record was unreadable"
+        );
+        // Remembered like any other refusal that cost a round-trip.
+        assert_eq!(
+            cache.cached_refusal(elsewhere.exchange_id.as_str()),
+            Some(ExchangeRefusal::NotAMember)
+        );
+        assert!(cache.any_head(elsewhere.exchange_id.as_str()).is_none());
+    }
+
+    #[tokio::test]
+    async fn one_author_may_only_spend_a_few_head_fetches_a_minute() {
+        // Every fetch is answered with "no such head", so each distinct id costs
+        // a full round-trip and teaches the cache nothing it can reuse.
+        let server = FakeRelay::responding("[]").await;
+        let rest = server.rest_client();
+        let cache = resident_cache();
+        let sibling = hex_of(&sibling_keys());
+
+        for seed in 0..GATE_FETCH_BUDGET as u8 {
+            let event = turn_event(
+                &sibling_keys(),
+                vec![turn_tag(&fabricated_id(0xa0 + seed), 1)],
+            );
+            assert_eq!(
+                cache
+                    .admit(&event, Some(NOW), Some(&rest))
+                    .await
+                    .unwrap_err(),
+                ExchangeRefusal::Unknown
+            );
+        }
+        assert_eq!(server.request_count(), GATE_FETCH_BUDGET);
+
+        // The next fabricated id from the same author is refused before the
+        // relay is touched — a fresh id per message must not buy a fresh 2 s.
+        let over = fabricated_id(0xa0 + GATE_FETCH_BUDGET as u8);
+        let flood = turn_event(&sibling_keys(), vec![turn_tag(&over, 1)]);
+        assert_eq!(
+            cache
+                .admit(&flood, Some(NOW), Some(&rest))
+                .await
+                .unwrap_err(),
+            ExchangeRefusal::FetchBudgetExhausted
+        );
+        assert_eq!(
+            server.request_count(),
+            GATE_FETCH_BUDGET,
+            "a budget refusal must cost the main loop nothing"
+        );
+        assert_eq!(
+            cache.cached_refusal(over.as_str()),
+            None,
+            "a budget refusal remembers nothing about the exchange"
+        );
+
+        // The budget is the author's own: a second sibling is unaffected.
+        let elsewhere = turn_event(&stranger_keys(), vec![turn_tag(&fabricated_id(0xb0), 1)]);
+        assert_eq!(
+            cache
+                .admit(&elsewhere, Some(NOW), Some(&rest))
+                .await
+                .unwrap_err(),
+            ExchangeRefusal::Unknown
+        );
+        assert_eq!(server.request_count(), GATE_FETCH_BUDGET + 1);
+
+        // And the window slides: once it has passed, the first author is heard
+        // again rather than being refused forever.
+        age_fetch_budget(&cache, &sibling, GATE_FETCH_WINDOW * 2);
+        let later = turn_event(&sibling_keys(), vec![turn_tag(&fabricated_id(0xc0), 1)]);
+        assert_eq!(
+            cache
+                .admit(&later, Some(NOW), Some(&rest))
+                .await
+                .unwrap_err(),
+            ExchangeRefusal::Unknown
+        );
+        assert_eq!(server.request_count(), GATE_FETCH_BUDGET + 2);
+    }
+
+    #[tokio::test]
+    async fn a_head_already_in_hand_is_never_charged_to_the_budget() {
+        let server = FakeRelay::responding("[]").await;
+        let rest = server.rest_client();
+        let cache = resident_cache();
+        let record = pair_record(None);
+        // Delivered on the live leg: no fetch, so no budget is spent however
+        // many turns the exchange runs.
+        assert!(cache.ingest_head(&head_event(&record, &owner_keys(), NOW)));
+        for turn in 1..=3 {
+            let event = turn_event(&sibling_keys(), vec![turn_tag(&record.exchange_id, turn)]);
+            assert!(cache.admit(&event, Some(NOW), Some(&rest)).await.is_ok());
+        }
+        assert_eq!(server.request_count(), 0);
+        assert!(
+            cache
+                .fetch_budget
+                .lock()
+                .expect("fetch budget")
+                .get(hex_of(&sibling_keys()).as_str())
+                .is_none(),
+            "a turn served from a stored head must not be charged"
+        );
+    }
+
     #[test]
     fn every_refusal_has_its_own_sentence() {
         let all = [
@@ -1381,6 +1644,7 @@ mod tests {
             ExchangeRefusal::Exhausted,
             ExchangeRefusal::HeadUnverifiable,
             ExchangeRefusal::ClockUnavailable,
+            ExchangeRefusal::FetchBudgetExhausted,
         ];
         let mut seen = std::collections::HashSet::new();
         for refusal in all {

@@ -3254,6 +3254,13 @@ async fn try_autonomous_reconnect(
 
     let mut attempt = 0usize;
     while attempt < backoffs.len() {
+        // Re-marked before *every* connect, not only on entry: an earlier
+        // attempt may have reached `resubscribe_after_reconnect` and got the REQ
+        // out — marking the leg healthy — only to fail further down and fall
+        // through to here. The socket that REQ was registered on is being
+        // replaced, so the gate must age stored heads out again until the new
+        // socket carries a subscription of its own.
+        state.exchange_live_leg.mark_down();
         info!(
             "autonomous reconnect attempt {}/{} to {relay_url}…",
             attempt + 1,
@@ -3398,6 +3405,13 @@ async fn wait_for_reconnect(
     ];
     let mut attempt = state.backoff_step;
     loop {
+        // Re-marked before *every* connect, for the same reason as the
+        // autonomous path: a previous attempt may have sent the exchange REQ
+        // (marking the leg healthy) and then failed on a later step, and this
+        // loop is unbounded — a leg left reading healthy would let the gate
+        // trust stored heads for the whole outage, with no socket to replace
+        // them.
+        state.exchange_live_leg.mark_down();
         info!("attempting relay reconnect to {relay_url}…");
         match do_connect_identity(relay_url, identity).await {
             Ok((new_ws, handshake_buffer)) => {
@@ -6257,6 +6271,115 @@ mod tests {
             !leg.is_healthy(),
             "an abandoned leg must put the gate back on REST refreshes"
         );
+    }
+
+    /// Which of the two retry loops a leg test is driving.
+    #[derive(Clone, Copy)]
+    enum ReconnectLoopUnderTest {
+        /// `try_autonomous_reconnect` — the bounded socket-loss ladder.
+        Autonomous,
+        /// `wait_for_reconnect` — the unbounded post-startup ladder.
+        Waiting,
+    }
+
+    /// Drive one retry loop against an address nothing listens on, mark the
+    /// exchange live leg healthy from inside a backoff sleep, and assert the
+    /// loop puts it back down before its next connect.
+    ///
+    /// Marking the leg healthy mid-loop is the test's stand-in for the real
+    /// sequence it guards: an attempt that reaches `resubscribe_after_reconnect`
+    /// and gets the exchange REQ out — which marks the leg healthy — and then
+    /// fails on a later step, returning `RetryConnection`. Whatever put the leg
+    /// up, the socket it was up on is gone, and the next attempt must say so.
+    async fn a_retrying_loop_re_marks_the_exchange_leg_down(which: ReconnectLoopUnderTest) {
+        let (client, _server) = test_ws_pair().await;
+        // Capacity 1 makes the channel a sync point: the second send only
+        // completes once the loop has taken the first command, and the only
+        // place either loop reads commands here is its backoff sleep.
+        let (cmd_tx, mut cmd_rx) = mpsc::channel::<RelayCommand>(1);
+        let mut state = BgState::new();
+        let leg = state.exchange_live_leg.clone();
+        let identity = RelayIdentity::Legacy {
+            keys: Box::new(Keys::generate()),
+            auth_tag: None,
+        };
+        let (event_tx, _event_rx) = mpsc::channel::<Option<BuzzEvent>>(1);
+        let (observer_tx, _observer_rx) = mpsc::channel::<Event>(1);
+        let (exchange_tx, _exchange_rx) = mpsc::channel::<Event>(1);
+
+        let task = tokio::spawn(async move {
+            let mut client = client;
+            // Nothing listens on port 1: every attempt fails and backs off.
+            let relay_url = "ws://127.0.0.1:1";
+            match which {
+                ReconnectLoopUnderTest::Autonomous => {
+                    try_autonomous_reconnect(
+                        &mut client,
+                        &mut cmd_rx,
+                        &mut state,
+                        &identity,
+                        relay_url,
+                        "agent-pubkey",
+                        &event_tx,
+                        &observer_tx,
+                        &exchange_tx,
+                    )
+                    .await;
+                }
+                ReconnectLoopUnderTest::Waiting => {
+                    wait_for_reconnect(
+                        &mut client,
+                        &mut cmd_rx,
+                        &mut state,
+                        &identity,
+                        relay_url,
+                        "agent-pubkey",
+                        &event_tx,
+                        &observer_tx,
+                        &exchange_tx,
+                        true,
+                    )
+                    .await;
+                }
+            }
+        });
+
+        cmd_tx
+            .send(RelayCommand::SetStartupWatermark { ts: 1 })
+            .await
+            .expect("queue first sync command");
+        cmd_tx
+            .send(RelayCommand::SetStartupWatermark { ts: 2 })
+            .await
+            .expect("queue second sync command");
+        // The first command was consumed, so the loop is inside a backoff sleep
+        // with no socket at all. Anything that lifts the flag from here is a lie
+        // the next attempt has to correct.
+        leg.mark_healthy();
+
+        let re_marked = timeout(Duration::from_secs(10), async {
+            while leg.is_healthy() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        task.abort();
+        assert!(
+            re_marked.is_ok(),
+            "a retrying reconnect must put the exchange leg back down before it \
+             connects again — otherwise the gate trusts stored heads for the \
+             whole outage with no socket to replace them"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_autonomous_reconnect_ladder_re_marks_the_exchange_leg_down() {
+        a_retrying_loop_re_marks_the_exchange_leg_down(ReconnectLoopUnderTest::Autonomous).await;
+    }
+
+    #[tokio::test]
+    async fn the_waiting_reconnect_ladder_re_marks_the_exchange_leg_down() {
+        a_retrying_loop_re_marks_the_exchange_leg_down(ReconnectLoopUnderTest::Waiting).await;
     }
 
     /// While the rate-limit gate is armed, an observer frame (kind 24200) is
