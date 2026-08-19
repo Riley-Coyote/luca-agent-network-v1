@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use crate::config::DedupMode;
+use crate::exchange_cache::AdmittedExchange;
 
 /// Maximum events queued per channel before oldest events are dropped.
 const MAX_PENDING_PER_CHANNEL: usize = 500;
@@ -56,6 +57,10 @@ pub struct QueuedEvent {
     pub received_at: Instant,
     /// Tag identifying which rule (or mode) matched this event.
     pub prompt_tag: String,
+    /// Set when the inbound exchange gate admitted this event as a sibling's
+    /// turn inside a live exchange. Bound to this event's id — never inferred
+    /// from tags downstream.
+    pub exchange: Option<AdmittedExchange>,
 }
 
 /// A single event inside a [`FlushBatch`].
@@ -64,6 +69,8 @@ pub struct BatchEvent {
     pub event: Event,
     pub prompt_tag: String,
     pub received_at: Instant,
+    /// The exchange turn this event spoke, when the inbound gate admitted one.
+    pub exchange: Option<AdmittedExchange>,
 }
 
 /// Why a batch's prior turn was cancelled — controls how `format_prompt`
@@ -348,6 +355,7 @@ impl EventQueue {
                 event: qe.event,
                 prompt_tag: qe.prompt_tag,
                 received_at: qe.received_at,
+                exchange: qe.exchange,
             })
             .collect();
         // Relay replay delivers stored events newest-first (`ORDER BY
@@ -487,6 +495,7 @@ impl EventQueue {
                 event: be.event,
                 prompt_tag: be.prompt_tag,
                 received_at: be.received_at, // preserve original timestamp (#46)
+                exchange: be.exchange,
             });
         }
         // Enforce per-channel cap: trim oldest (back) events if requeue pushed
@@ -522,6 +531,7 @@ impl EventQueue {
                 event: be.event,
                 prompt_tag: be.prompt_tag,
                 received_at: be.received_at,
+                exchange: be.exchange,
             });
         }
         // Enforce per-channel cap: trim newest (back) events if over limit.
@@ -1081,6 +1091,47 @@ fn format_prompt_actor(pubkey: &str, profile_lookup: Option<&PromptProfileLookup
     }
 }
 
+/// A speaker's display name, falling back to the first eight hex characters of
+/// their pubkey when no profile is at hand.
+fn prompt_label_or_prefix(
+    pubkey_hex: &str,
+    profile_lookup: Option<&PromptProfileLookup>,
+) -> String {
+    match resolve_prompt_label(pubkey_hex, profile_lookup) {
+        Some(label) => label,
+        None => pubkey_hex.chars().take(8).collect::<String>(),
+    }
+}
+
+/// The one line a resident reads when a message reaches it inside an exchange.
+///
+/// Says whose turn this is, how much of the budget it spends, where the
+/// exchange came from, and what happens when the budget runs out — so a
+/// resident is never inside a bounded conversation without being told it is
+/// bounded, and is never told the wrong story about who opened it.
+///
+/// A depth-1 exchange hangs off an owner utterance, so the line says so. A
+/// depth-2 exchange was delegated one hop further by a resident, and the line
+/// names that resident instead of claiming the owner spoke.
+pub(crate) fn exchange_prompt_line(
+    exchange: &AdmittedExchange,
+    author_pubkey_hex: &str,
+    profile_lookup: Option<&PromptProfileLookup>,
+) -> String {
+    let asker = prompt_label_or_prefix(author_pubkey_hex, profile_lookup);
+    let origin = if exchange.depth >= 2 {
+        let opener = prompt_label_or_prefix(exchange.opened_by.as_str(), profile_lookup);
+        format!("opened by {opener}")
+    } else {
+        "opened from your owner's message".to_owned()
+    };
+    format!(
+        "Exchange: this message is turn {} of {} in an exchange with {asker}, {origin}. Reply in \
+         words; when the budget is spent the exchange pauses for your owner to decide.",
+        exchange.turn, exchange.bucket,
+    )
+}
+
 /// Format the per-event `[Event]` block for a single [`BatchEvent`].
 ///
 /// Includes: event_id, channel (name + UUID), kind, sender (hex + npub),
@@ -1124,6 +1175,16 @@ pub(crate) fn format_event_block(
         },
         be.event.content,
     );
+
+    // The sentence for a turn inside an exchange. It sits with the event so it
+    // travels through every rendering — batched prompts, the cancelled-events
+    // section, and the native steer delta alike.
+    if let Some(exchange) = be.exchange.as_ref() {
+        block.push_str(&format!(
+            "\n{}",
+            exchange_prompt_line(exchange, &hex, profile_lookup)
+        ));
+    }
 
     // Always include tags — they carry structural information.
     let tags_json: Vec<&[String]> = be.event.tags.iter().map(|t| t.as_slice()).collect();
@@ -1754,6 +1815,131 @@ mod tests {
             .unwrap()
     }
 
+    /// A batch event carrying an admitted exchange turn, as the inbound gate
+    /// would have attached it.
+    fn make_exchange_batch_event(turn: u8, bucket: u8) -> BatchEvent {
+        make_exchange_batch_event_at_depth(turn, bucket, 1, "cd".repeat(32))
+    }
+
+    /// The same, with the record's depth and opener spelled out — the two
+    /// things that decide which origin sentence the resident reads.
+    fn make_exchange_batch_event_at_depth(
+        turn: u8,
+        bucket: u8,
+        depth: u8,
+        opened_by: String,
+    ) -> BatchEvent {
+        let event = make_event("ask");
+        BatchEvent {
+            exchange: Some(AdmittedExchange {
+                event_id: event.id,
+                exchange_id: luca_protocol::Hex64::parse("ab".repeat(32)).expect("exchange id"),
+                turn,
+                bucket,
+                opened_by: luca_protocol::Hex64::parse(opened_by).expect("opener"),
+                depth,
+            }),
+            event,
+            prompt_tag: "@mention".into(),
+            received_at: Instant::now(),
+        }
+    }
+
+    #[test]
+    fn a_turn_inside_an_exchange_is_told_so_in_its_event_block() {
+        let be = make_exchange_batch_event(2, 3);
+        let author = be.event.pubkey.to_hex();
+        let profiles = HashMap::from([(
+            author.clone(),
+            PromptProfile {
+                display_name: Some("Vektor".into()),
+                nip05_handle: None,
+                ..Default::default()
+            },
+        )]);
+        let block = format_event_block(Uuid::new_v4(), None, &be, Some(&profiles));
+        assert!(
+            block.contains("Exchange: this message is turn 2 of 3 in an exchange with Vektor"),
+            "the resident must be told whose turn this is and how much budget is left: {block}"
+        );
+        assert!(block.contains("the exchange pauses for your owner to decide"));
+
+        // With no profile to name the asker, the line still renders — with a
+        // pubkey prefix instead of a display name.
+        let anonymous = format_event_block(Uuid::new_v4(), None, &be, None);
+        assert!(anonymous.contains(&format!(
+            "in an exchange with {}",
+            author.chars().take(8).collect::<String>()
+        )));
+    }
+
+    #[test]
+    fn the_origin_sentence_matches_the_exchanges_depth() {
+        // Depth 1 hangs off an owner utterance, and says so.
+        let shallow = make_exchange_batch_event_at_depth(1, 3, 1, "cd".repeat(32));
+        let block = format_event_block(Uuid::new_v4(), None, &shallow, None);
+        assert!(
+            block.contains("opened from your owner's message"),
+            "a depth-1 exchange came from the owner: {block}"
+        );
+
+        // Depth 2 was delegated one hop further by a resident. Claiming the
+        // owner opened it would be a lie, so the opener is named instead.
+        let opener = "ef".repeat(32);
+        let deep = make_exchange_batch_event_at_depth(2, 3, 2, opener.clone());
+        let named = HashMap::from([(
+            opener.clone(),
+            PromptProfile {
+                display_name: Some("Mira".into()),
+                nip05_handle: None,
+                ..Default::default()
+            },
+        )]);
+        let block = format_event_block(Uuid::new_v4(), None, &deep, Some(&named));
+        assert!(
+            block.contains("opened by Mira"),
+            "a depth-2 exchange must name the resident who opened it: {block}"
+        );
+        assert!(!block.contains("your owner's message"));
+
+        // With no profile the opener still gets named, by pubkey prefix.
+        let anonymous = format_event_block(Uuid::new_v4(), None, &deep, None);
+        assert!(anonymous.contains(&format!(
+            "opened by {}",
+            opener.chars().take(8).collect::<String>()
+        )));
+        // Either way the line stays one sentence about turn, budget and origin.
+        assert!(anonymous.contains("this message is turn 2 of 3 in an exchange with"));
+    }
+
+    #[test]
+    fn an_ordinary_event_block_says_nothing_about_exchanges() {
+        let be = BatchEvent {
+            event: make_event("hello"),
+            prompt_tag: "@mention".into(),
+            received_at: Instant::now(),
+            exchange: None,
+        };
+        let block = format_event_block(Uuid::new_v4(), None, &be, None);
+        assert!(!block.contains("Exchange:"));
+    }
+
+    #[test]
+    fn the_exchange_line_travels_with_every_rendering_of_the_batch() {
+        let batch = FlushBatch {
+            channel_id: Uuid::new_v4(),
+            events: vec![make_exchange_batch_event(1, 3)],
+            cancelled_events: vec![make_exchange_batch_event(3, 3)],
+            cancel_reason: Some(CancelReason::Steer),
+        };
+        let prompt = format_prompt(&batch, &FormatPromptArgs::default()).join("\n");
+        assert!(prompt.contains("turn 1 of 3"));
+        assert!(
+            prompt.contains("turn 3 of 3"),
+            "a cancelled exchange turn must keep its sentence too: {prompt}"
+        );
+    }
+
     /// Build a QueuedEvent for the given channel.
     fn make_queued(channel_id: Uuid, content: &str) -> QueuedEvent {
         QueuedEvent {
@@ -1761,6 +1947,7 @@ mod tests {
             event: make_event(content),
             received_at: Instant::now(),
             prompt_tag: "test".into(),
+            exchange: None,
         }
     }
 
@@ -1771,6 +1958,7 @@ mod tests {
             event: make_event(content),
             received_at: Instant::now() - age,
             prompt_tag: "test".into(),
+            exchange: None,
         }
     }
 
@@ -1791,6 +1979,7 @@ mod tests {
             event,
             received_at: Instant::now(),
             prompt_tag: "test".into(),
+            exchange: None,
         }
     }
 
@@ -1985,6 +2174,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "@mention".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -2015,11 +2205,13 @@ mod tests {
             events: vec![BatchEvent {
                 event: make_event("the new message"),
                 prompt_tag: "@mention".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![BatchEvent {
                 event: make_event("the original task"),
                 prompt_tag: "@mention".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancel_reason: reason,
@@ -2147,17 +2339,20 @@ mod tests {
                 BatchEvent {
                     event: make_event("new one"),
                     prompt_tag: "@mention".into(),
+                    exchange: None,
                     received_at: Instant::now(),
                 },
                 BatchEvent {
                     event: make_event("new two"),
                     prompt_tag: "@mention".into(),
+                    exchange: None,
                     received_at: Instant::now(),
                 },
             ],
             cancelled_events: vec![BatchEvent {
                 event: make_event("original"),
                 prompt_tag: "@mention".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancel_reason: Some(CancelReason::Steer),
@@ -2203,11 +2398,13 @@ mod tests {
             events: vec![BatchEvent {
                 event: steering,
                 prompt_tag: "@mention".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![BatchEvent {
                 event: original,
                 prompt_tag: "@mention".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancel_reason: Some(CancelReason::Steer),
@@ -2296,16 +2493,19 @@ mod tests {
                 BatchEvent {
                     event: e1,
                     prompt_tag: "tag-a".into(),
+                    exchange: None,
                     received_at: Instant::now(),
                 },
                 BatchEvent {
                     event: e2,
                     prompt_tag: "tag-b".into(),
+                    exchange: None,
                     received_at: Instant::now(),
                 },
                 BatchEvent {
                     event: e3,
                     prompt_tag: "tag-c".into(),
+                    exchange: None,
                     received_at: Instant::now(),
                 },
             ],
@@ -2335,6 +2535,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -2358,6 +2559,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -2390,6 +2592,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -2420,6 +2623,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -2447,6 +2651,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -2471,6 +2676,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -2527,6 +2733,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -2565,6 +2772,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -2623,6 +2831,7 @@ mod tests {
             events: vec![BatchEvent {
                 event: make_event("trigger"),
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -2682,6 +2891,7 @@ mod tests {
             events: vec![BatchEvent {
                 event: make_event("same bytes"),
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -2879,6 +3089,7 @@ mod tests {
             event: make_event("old-msg"),
             received_at: old_time,
             prompt_tag: "test".into(),
+            exchange: None,
         });
 
         let batch = q.flush_next().expect("flush");
@@ -3166,6 +3377,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -3197,6 +3409,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "dm".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -3235,6 +3448,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "@mention".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -3263,6 +3477,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "@mention".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -3309,6 +3524,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "dm".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -3359,6 +3575,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "@mention".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -3567,6 +3784,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "dm".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -3625,6 +3843,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "dm".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -3665,6 +3884,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -3689,6 +3909,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -3712,6 +3933,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -4078,6 +4300,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "@mention".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -4119,6 +4342,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "@mention".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -4154,6 +4378,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "@mention".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -4188,6 +4413,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -4217,6 +4443,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -4259,6 +4486,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "@mention".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -4295,6 +4523,7 @@ mod tests {
             events: vec![BatchEvent {
                 event,
                 prompt_tag: "@mention".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -4331,11 +4560,13 @@ mod tests {
                 BatchEvent {
                     event: plain,
                     prompt_tag: "test".into(),
+                    exchange: None,
                     received_at: Instant::now(),
                 },
                 BatchEvent {
                     event: threaded,
                     prompt_tag: "@mention".into(),
+                    exchange: None,
                     received_at: Instant::now(),
                 },
             ],
@@ -4368,11 +4599,13 @@ mod tests {
                 BatchEvent {
                     event: threaded,
                     prompt_tag: "@mention".into(),
+                    exchange: None,
                     received_at: Instant::now(),
                 },
                 BatchEvent {
                     event: plain,
                     prompt_tag: "test".into(),
+                    exchange: None,
                     received_at: Instant::now(),
                 },
             ],
@@ -4400,6 +4633,7 @@ mod tests {
             events: vec![BatchEvent {
                 event: make_event(content),
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -4477,6 +4711,7 @@ mod tests {
         multi.events.push(BatchEvent {
             event: make_event("another message"),
             prompt_tag: "test".into(),
+            exchange: None,
             received_at: Instant::now(),
         });
         assert_eq!(slash_command_for_batch(&multi, &[]), None);
@@ -4486,6 +4721,7 @@ mod tests {
         cancelled.cancelled_events.push(BatchEvent {
             event: make_event("interrupted"),
             prompt_tag: "test".into(),
+            exchange: None,
             received_at: Instant::now(),
         });
         assert_eq!(slash_command_for_batch(&cancelled, &[]), None);
@@ -4694,6 +4930,7 @@ mod tests {
             events: vec![BatchEvent {
                 event: make_event("hi"),
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -4723,6 +4960,7 @@ mod tests {
             events: vec![BatchEvent {
                 event: make_event("hi"),
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],
@@ -4751,6 +4989,7 @@ mod tests {
             events: vec![BatchEvent {
                 event: make_event("hi"),
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: Instant::now(),
             }],
             cancelled_events: vec![],

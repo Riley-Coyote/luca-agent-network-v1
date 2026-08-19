@@ -5,6 +5,7 @@ mod communications_mcp;
 mod config;
 pub mod continuity_provider;
 mod engram_fetch;
+pub mod exchange_cache;
 mod filter;
 mod local_cognition;
 pub mod luca_final_publisher;
@@ -216,27 +217,96 @@ async fn is_owner_or_sibling(
     is_sibling
 }
 
-/// Inbound author gate decision: does this author's event fire a turn?
+/// How the inbound author gate classified an event's author.
+///
+/// The distinction matters past admission: a **sibling** is another resident of
+/// the same house, and speech between residents is budgeted — it must arrive
+/// inside an exchange, and it never interrupts an in-flight turn. An external
+/// human admitted by `Allowlist`/`Anyone` keeps upstream Buzz's behaviour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthorAdmission {
+    /// The configured owner of this resident.
+    Owner,
+    /// Another resident attested to the same owner (NIP-OA).
+    Sibling,
+    /// An external pubkey on the explicit allowlist.
+    Allowlisted,
+    /// Any author, because the gate is open (`RespondTo::Anyone`).
+    Anyone,
+    /// Not admitted — the event never reaches a rule, a queue, or the agent.
+    Denied,
+}
+
+/// Inbound author gate decision: does this author's event fire a turn, and as
+/// whom?
 ///
 /// Coarse security policy applied before subscription rules. Both `OwnerOnly`
 /// and `Allowlist` accept the owner and same-owner siblings; `Allowlist`
 /// additionally accepts the explicit external pubkey list.
-async fn author_allowed(
+///
+/// Order is owner → sibling → allowlist on purpose: a sibling that also appears
+/// on the allowlist must still classify as `Sibling`, or it would slip past the
+/// exchange gate. Under `Anyone` the sibling test is cache-only — that mode is
+/// an explicit decision to drop the gate, and paying a profile lookup per
+/// unknown author would be a new per-event cost for upstream Buzz.
+async fn classify_author(
     respond_to: &RespondTo,
     allowlist: &HashSet<String>,
     author: &str,
     owner_cache: &OwnerCache,
     rest_client: &relay::RestClient,
-) -> bool {
+) -> AuthorAdmission {
+    if matches!(respond_to, RespondTo::Nobody) {
+        return AuthorAdmission::Denied;
+    }
+    if owner_cache.get() == Some(author) {
+        return AuthorAdmission::Owner;
+    }
     match respond_to {
-        RespondTo::Anyone => true,
-        RespondTo::Nobody => false,
-        RespondTo::OwnerOnly => is_owner_or_sibling(author, owner_cache, rest_client).await,
+        RespondTo::Nobody => AuthorAdmission::Denied,
+        RespondTo::Anyone => match owner_cache.is_known_sibling(author) {
+            Some(true) => AuthorAdmission::Sibling,
+            _ => AuthorAdmission::Anyone,
+        },
+        RespondTo::OwnerOnly => {
+            if is_owner_or_sibling(author, owner_cache, rest_client).await {
+                AuthorAdmission::Sibling
+            } else {
+                AuthorAdmission::Denied
+            }
+        }
         RespondTo::Allowlist => {
-            allowlist.contains(author)
-                || is_owner_or_sibling(author, owner_cache, rest_client).await
+            if is_owner_or_sibling(author, owner_cache, rest_client).await {
+                AuthorAdmission::Sibling
+            } else if allowlist.contains(author) {
+                AuthorAdmission::Allowlisted
+            } else {
+                AuthorAdmission::Denied
+            }
         }
     }
+}
+
+/// Whose speech is budgeted.
+///
+/// Only another resident of the same house must arrive inside an exchange. The
+/// owner never carries a turn tag and never spends one; an external author
+/// admitted by `Allowlist`/`Anyone` is not in an exchange at all.
+fn requires_exchange(admission: AuthorAdmission) -> bool {
+    admission == AuthorAdmission::Sibling
+}
+
+/// Current wall clock in unix seconds — the `now` an exchange's deadline and
+/// turn budget are judged against.
+///
+/// `None` when the clock reads before the unix epoch. A defaulted zero would
+/// make every deadline comparison pass, so the gate refuses instead: an
+/// unreadable clock is a reason to say no, never a reason to say yes.
+fn unix_now_secs() -> Option<u64> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|since_epoch| since_epoch.as_secs())
 }
 
 /// Query an author's kind:0 profile and check if their NIP-OA auth tag
@@ -1459,6 +1529,61 @@ async fn tokio_main() -> Result<()> {
     }
     let owner_cache = OwnerCache::new(startup_owner.clone());
 
+    // What this resident knows about the exchanges it belongs to. Without a
+    // parseable self/owner identity every sibling turn refuses — the gate has
+    // nothing to check a turn against, so it grants nothing.
+    let exchange_cache = {
+        let self_pubkey = luca_protocol::Hex64::parse(pubkey_hex.to_ascii_lowercase());
+        let owner = startup_owner
+            .as_deref()
+            .map(|owner| luca_protocol::Hex64::parse(owner.to_ascii_lowercase()));
+        // Bound to the relay's live-leg flag: while the kind-30178 REQ is
+        // registered the relay pushes every head replacement, so a stored head
+        // needs no refresh. The moment that leg goes down, heads age out again.
+        let live_leg = relay.exchange_live_leg();
+        match (self_pubkey, owner) {
+            (Ok(self_pubkey), Some(Ok(owner))) => {
+                exchange_cache::ExchangeCache::new(self_pubkey, Some(owner)).with_live_leg(live_leg)
+            }
+            (Ok(self_pubkey), None) => {
+                tracing::debug!(
+                    "no owner resolved — resident-to-resident speech has no exchange to \
+                     belong to and will be refused"
+                );
+                exchange_cache::ExchangeCache::new(self_pubkey, None).with_live_leg(live_leg)
+            }
+            (Ok(self_pubkey), Some(Err(error))) => {
+                tracing::warn!(
+                    "owner pubkey is not valid hex ({error}) — every sibling turn will be refused"
+                );
+                exchange_cache::ExchangeCache::new(self_pubkey, None).with_live_leg(live_leg)
+            }
+            (Err(error), _) => {
+                return Err(anyhow::anyhow!(
+                    "agent pubkey is not valid hex: {error} — the exchange gate cannot be built"
+                ));
+            }
+        }
+    };
+
+    // Live exchange heads. The gate is correct without this leg — it re-reads
+    // the head over REST before admitting a turn — so a failure here is logged
+    // and the harness keeps running: it costs latency, never permission. What
+    // it buys is that a "Stop here" lands before the next turn rather than
+    // after a wake.
+    let mut relay_exchange_rx = None;
+    match relay.subscribe_exchanges().await {
+        Ok(()) => {
+            relay_exchange_rx = relay.take_exchange_rx();
+            tracing::info!("subscribed to exchange heads");
+        }
+        Err(error) => {
+            tracing::warn!(
+                "exchange head subscribe failed: {error} — the gate will read heads on demand"
+            );
+        }
+    }
+
     let mut relay_observer_control_rx = None;
     let mut relay_observer_publisher_task = None;
     let mut relay_observer_publisher = None;
@@ -1915,6 +2040,31 @@ async fn tokio_main() -> Result<()> {
                     let _ = result_rx;
                     Some(PoolEvent::Cognition(request))
                 }
+                head = async {
+                    match relay_exchange_rx.as_mut() {
+                        Some(rx) => rx.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    let _ = result_rx;
+                    match head {
+                        // Ingest validates the head itself — kind, signature,
+                        // owner authorship, membership — and applies
+                        // last-write-wins, so a Stop or a Go is in force before
+                        // the next turn is judged.
+                        Some(event) => {
+                            exchange_cache.ingest_head(&event);
+                        }
+                        None => {
+                            relay_exchange_rx = None;
+                            tracing::warn!(
+                                "exchange head channel closed — the gate falls back to \
+                                 reading heads on demand"
+                            );
+                        }
+                    }
+                    None
+                }
                 control_event = async {
                     match relay_observer_control_rx.as_mut() {
                         Some(rx) => rx.recv().await,
@@ -2183,9 +2333,9 @@ async fn tokio_main() -> Result<()> {
                             // launched by the same human). Allowlist adds the
                             // explicit pubkey list on top, for external people;
                             // it never revokes same-owner team bots.
-                            {
+                            let admission = {
                                 let author = buzz_event.event.pubkey.to_hex();
-                                let allowed = author_allowed(
+                                let admission = classify_author(
                                     &config.respond_to,
                                     &config.respond_to_allowlist,
                                     &author,
@@ -2193,17 +2343,25 @@ async fn tokio_main() -> Result<()> {
                                     &ctx.rest_client,
                                 )
                                 .await;
-                                if !allowed {
+                                if admission == AuthorAdmission::Denied {
                                     tracing::debug!(
                                         channel_id = %buzz_event.channel_id,
-                                        author = %buzz_event.event.pubkey.to_hex(),
+                                        author = %author,
                                         mode = %config.respond_to,
                                         "inbound author gate — dropping event"
                                     );
                                     continue;
                                 }
-                            }
+                                admission
+                            };
 
+                            // The subscription rules run BEFORE the exchange
+                            // gate on purpose: a message this resident was
+                            // never addressed in is dropped here, so it never
+                            // reaches the gate's bounded head fetch. Otherwise
+                            // any sibling could make the main loop pay two
+                            // seconds per message it wasn't even talking to us
+                            // with.
                             let matched = filter::match_event(&buzz_event.event, buzz_event.channel_id, &rules, &pubkey_hex).await;
                             let prompt_tag = match matched {
                                 Some(m) => m.prompt_tag,
@@ -2211,6 +2369,48 @@ async fn tokio_main() -> Result<()> {
                                     tracing::debug!(channel_id = %buzz_event.channel_id, kind = buzz_event.event.kind.as_u16(), "event matched no rule — dropping");
                                     continue;
                                 }
+                            };
+
+                            // The exchange gate. Speech between residents of the
+                            // same house is budgeted: a sibling's event fires a
+                            // turn only when it carries a well-formed exchange
+                            // turn tag whose owner-authored head still admits
+                            // that turn. Anything else is refused with the
+                            // sentence for its refusal — never a silent drop.
+                            // The owner never needs a tag, and an external
+                            // author is not in an exchange at all.
+                            let admitted_exchange = if requires_exchange(admission) {
+                                match exchange_cache
+                                    .admit(
+                                        &buzz_event.event,
+                                        unix_now_secs(),
+                                        Some(&ctx.rest_client),
+                                    )
+                                    .await
+                                {
+                                    Ok(admitted) => {
+                                        tracing::debug!(
+                                            channel_id = %buzz_event.channel_id,
+                                            author = %buzz_event.event.pubkey.to_hex(),
+                                            exchange_id = admitted.exchange_id.as_str(),
+                                            turn = admitted.turn,
+                                            bucket = admitted.bucket,
+                                            "exchange turn admitted"
+                                        );
+                                        Some(admitted)
+                                    }
+                                    Err(refusal) => {
+                                        tracing::debug!(
+                                            channel_id = %buzz_event.channel_id,
+                                            author = %buzz_event.event.pubkey.to_hex(),
+                                            "{}",
+                                            refusal.reason()
+                                        );
+                                        continue;
+                                    }
+                                }
+                            } else {
+                                None
                             };
                             // Capture author pubkey before queue.push() moves
                             // buzz_event.event (needed for mode gate below).
@@ -2228,11 +2428,13 @@ async fn tokio_main() -> Result<()> {
                             // backed payload) so the cost is negligible.
                             let event_for_steer = buzz_event.event.clone();
                             let prompt_tag_for_steer = prompt_tag.clone();
+                            let exchange_for_steer = admitted_exchange.clone();
                             let accepted = queue.push(QueuedEvent {
                                 channel_id: buzz_event.channel_id,
                                 event: buzz_event.event,
                                 received_at: std::time::Instant::now(),
                                 prompt_tag,
+                                exchange: admitted_exchange,
                             });
                             // 👀 — immediate "seen" reaction, only if the event
                             // was actually queued (not dropped by DedupMode::Drop).
@@ -2252,10 +2454,12 @@ async fn tokio_main() -> Result<()> {
                             if accepted && queue.is_channel_in_flight(buzz_event.channel_id) {
                                 // Author eligibility (owner ∪ allowlist ∪ siblings)
                                 // is already enforced by the inbound author gate
-                                // above, so the mid-turn signal fires for every
-                                // event that reaches here.
+                                // above. A sibling's admitted turn still only
+                                // ever queues — one resident does not cut
+                                // another off mid-sentence.
                                 let signal = mode_gate_signal(
                                     config.multiple_event_handling,
+                                    admission,
                                     &author_hex,
                                     owner_cache.get(),
                                 );
@@ -2279,6 +2483,7 @@ async fn tokio_main() -> Result<()> {
                                             buzz_event.channel_id,
                                             event_for_steer,
                                             prompt_tag_for_steer,
+                                            exchange_for_steer,
                                             &steer_ack_tx,
                                         );
                                     if !native_attempted {
@@ -2712,16 +2917,24 @@ fn is_owner_control_command(
 ///
 /// Returns `None` to leave the in-flight turn untouched (the event waits in the
 /// queue and is delivered when the turn completes). Author eligibility — owner
-/// ∪ allowlist ∪ siblings — is enforced upstream by the inbound author gate, so
-/// `Steer`/`Interrupt` apply to every event that reaches this point; only
-/// `OwnerInterrupt` re-checks authorship (owner-only) here.
+/// ∪ allowlist ∪ siblings — is enforced upstream by the inbound author gate.
+///
+/// A **sibling** never steers or interrupts, in any mode: another resident's
+/// admitted turn always waits in the queue. Resident-to-resident speech is
+/// budgeted and answered in order; only the owner (and, in upstream Buzz's open
+/// modes, an external human) may cut a turn short. `OwnerInterrupt`
+/// additionally re-checks authorship (owner-only) here.
 ///
 /// `owner` is the resolved owner pubkey hex, if known.
 fn mode_gate_signal(
     handling: MultipleEventHandling,
+    admission: AuthorAdmission,
     author_hex: &str,
     owner: Option<&str>,
 ) -> Option<ControlSignal> {
+    if admission == AuthorAdmission::Sibling {
+        return None;
+    }
     match handling {
         MultipleEventHandling::Queue => None,
         MultipleEventHandling::Steer => Some(ControlSignal::Steer),
@@ -2785,6 +2998,7 @@ fn try_native_steer(
     channel_id: uuid::Uuid,
     event: nostr::Event,
     prompt_tag: String,
+    exchange: Option<exchange_cache::AdmittedExchange>,
     steer_ack_tx: &mpsc::UnboundedSender<SteerAckEvent>,
 ) -> bool {
     // Build the steer body: framing strings come from
@@ -2806,6 +3020,7 @@ fn try_native_steer(
         event,
         prompt_tag: prompt_tag.clone(),
         received_at: std::time::Instant::now(),
+        exchange,
     };
     let event_block = queue::format_event_block(channel_id, None, &be, None);
     let body = format!("{header}\n\n[Buzz event: {prompt_tag}]\n{event_block}\n\n{closing}");
@@ -4251,38 +4466,124 @@ mod owner_control_command_tests {
         let other = "b".repeat(64);
 
         // Queue: never signals — events wait for the turn to finish.
-        assert!(mode_gate_signal(MultipleEventHandling::Queue, &owner, Some(&owner)).is_none());
+        assert!(mode_gate_signal(
+            MultipleEventHandling::Queue,
+            AuthorAdmission::Owner,
+            &owner,
+            Some(&owner)
+        )
+        .is_none());
 
         // Steer: always steers (eligibility already enforced upstream).
         assert!(matches!(
-            mode_gate_signal(MultipleEventHandling::Steer, &other, Some(&owner)),
+            mode_gate_signal(
+                MultipleEventHandling::Steer,
+                AuthorAdmission::Allowlisted,
+                &other,
+                Some(&owner)
+            ),
             Some(ControlSignal::Steer)
         ));
         // Steer even when owner is unknown — gate doesn't re-check authorship.
         assert!(matches!(
-            mode_gate_signal(MultipleEventHandling::Steer, &other, None),
+            mode_gate_signal(
+                MultipleEventHandling::Steer,
+                AuthorAdmission::Anyone,
+                &other,
+                None
+            ),
             Some(ControlSignal::Steer)
         ));
 
         // Interrupt: always interrupts for any eligible author.
         assert!(matches!(
-            mode_gate_signal(MultipleEventHandling::Interrupt, &other, Some(&owner)),
+            mode_gate_signal(
+                MultipleEventHandling::Interrupt,
+                AuthorAdmission::Allowlisted,
+                &other,
+                Some(&owner)
+            ),
             Some(ControlSignal::Interrupt)
         ));
 
         // OwnerInterrupt: interrupts only for the owner.
         assert!(matches!(
-            mode_gate_signal(MultipleEventHandling::OwnerInterrupt, &owner, Some(&owner)),
+            mode_gate_signal(
+                MultipleEventHandling::OwnerInterrupt,
+                AuthorAdmission::Owner,
+                &owner,
+                Some(&owner)
+            ),
             Some(ControlSignal::Interrupt)
         ));
         assert!(
-            mode_gate_signal(MultipleEventHandling::OwnerInterrupt, &other, Some(&owner)).is_none(),
+            mode_gate_signal(
+                MultipleEventHandling::OwnerInterrupt,
+                AuthorAdmission::Allowlisted,
+                &other,
+                Some(&owner)
+            )
+            .is_none(),
             "owner-interrupt must not fire for a non-owner author"
         );
         assert!(
-            mode_gate_signal(MultipleEventHandling::OwnerInterrupt, &owner, None).is_none(),
+            mode_gate_signal(
+                MultipleEventHandling::OwnerInterrupt,
+                AuthorAdmission::Owner,
+                &owner,
+                None
+            )
+            .is_none(),
             "owner-interrupt must not fire when the owner is unknown"
         );
+    }
+
+    #[test]
+    fn a_sibling_queues_under_every_handling_mode_while_the_owner_still_steers() {
+        let owner = "a".repeat(64);
+        let sibling = "b".repeat(64);
+
+        for handling in [
+            MultipleEventHandling::Queue,
+            MultipleEventHandling::Steer,
+            MultipleEventHandling::Interrupt,
+            MultipleEventHandling::OwnerInterrupt,
+        ] {
+            assert!(
+                mode_gate_signal(handling, AuthorAdmission::Sibling, &sibling, Some(&owner))
+                    .is_none(),
+                "a sibling must never cut a turn short under {handling:?}"
+            );
+        }
+
+        // The owner's own reach into an in-flight turn is untouched.
+        assert!(matches!(
+            mode_gate_signal(
+                MultipleEventHandling::Steer,
+                AuthorAdmission::Owner,
+                &owner,
+                Some(&owner)
+            ),
+            Some(ControlSignal::Steer)
+        ));
+        assert!(matches!(
+            mode_gate_signal(
+                MultipleEventHandling::Interrupt,
+                AuthorAdmission::Owner,
+                &owner,
+                Some(&owner)
+            ),
+            Some(ControlSignal::Interrupt)
+        ));
+        assert!(matches!(
+            mode_gate_signal(
+                MultipleEventHandling::OwnerInterrupt,
+                AuthorAdmission::Owner,
+                &owner,
+                Some(&owner)
+            ),
+            Some(ControlSignal::Interrupt)
+        ));
     }
 
     #[tokio::test]
@@ -4379,19 +4680,22 @@ mod author_gate_tests {
         cache
     }
 
+    async fn classify(
+        respond_to: RespondTo,
+        allowlist: &HashSet<String>,
+        author: &str,
+        cache: &OwnerCache,
+    ) -> AuthorAdmission {
+        classify_author(&respond_to, allowlist, author, cache, &dummy_rest_client()).await
+    }
+
     #[tokio::test]
     async fn test_allowlist_accepts_sibling_not_in_allowlist() {
         let cache = cache_with_sibling();
         let allowlist = HashSet::from([EXTERNAL.to_string()]);
-        assert!(
-            author_allowed(
-                &RespondTo::Allowlist,
-                &allowlist,
-                SIBLING,
-                &cache,
-                &dummy_rest_client()
-            )
-            .await,
+        assert_eq!(
+            classify(RespondTo::Allowlist, &allowlist, SIBLING, &cache).await,
+            AuthorAdmission::Sibling,
             "a same-owner sibling must fire a turn under Allowlist even when not listed"
         );
     }
@@ -4400,15 +4704,9 @@ mod author_gate_tests {
     async fn test_allowlist_accepts_explicit_external_pubkey() {
         let cache = cache_with_sibling();
         let allowlist = HashSet::from([EXTERNAL.to_string()]);
-        assert!(
-            author_allowed(
-                &RespondTo::Allowlist,
-                &allowlist,
-                EXTERNAL,
-                &cache,
-                &dummy_rest_client()
-            )
-            .await,
+        assert_eq!(
+            classify(RespondTo::Allowlist, &allowlist, EXTERNAL, &cache).await,
+            AuthorAdmission::Allowlisted,
             "an explicitly allowlisted external pubkey must still be accepted"
         );
     }
@@ -4417,15 +4715,9 @@ mod author_gate_tests {
     async fn test_allowlist_rejects_non_sibling_not_in_allowlist() {
         let cache = cache_with_sibling();
         let allowlist = HashSet::from([EXTERNAL.to_string()]);
-        assert!(
-            !author_allowed(
-                &RespondTo::Allowlist,
-                &allowlist,
-                STRANGER,
-                &cache,
-                &dummy_rest_client()
-            )
-            .await,
+        assert_eq!(
+            classify(RespondTo::Allowlist, &allowlist, STRANGER, &cache).await,
+            AuthorAdmission::Denied,
             "a non-sibling absent from the allowlist must be dropped"
         );
     }
@@ -4433,54 +4725,124 @@ mod author_gate_tests {
     #[tokio::test]
     async fn test_allowlist_accepts_owner() {
         let cache = cache_with_sibling();
-        let allowlist = HashSet::new();
-        assert!(
-            author_allowed(
-                &RespondTo::Allowlist,
-                &allowlist,
-                OWNER,
-                &cache,
-                &dummy_rest_client()
-            )
-            .await,
+        assert_eq!(
+            classify(RespondTo::Allowlist, &HashSet::new(), OWNER, &cache).await,
+            AuthorAdmission::Owner,
             "the owner must always be accepted under Allowlist"
         );
     }
 
+    #[tokio::test]
+    async fn an_allowlisted_sibling_is_still_a_sibling() {
+        let cache = cache_with_sibling();
+        let allowlist = HashSet::from([SIBLING.to_string(), EXTERNAL.to_string()]);
+        assert_eq!(
+            classify(RespondTo::Allowlist, &allowlist, SIBLING, &cache).await,
+            AuthorAdmission::Sibling,
+            "a sibling that also sits on the allowlist must not escape the exchange gate"
+        );
+    }
+
+    #[tokio::test]
+    async fn anyone_admits_without_a_profile_lookup_but_still_knows_a_cached_sibling() {
+        let cache = cache_with_sibling();
+        // `dummy_rest_client` points at a dead port: any REST attempt here
+        // would stall the test, which is the point — `Anyone` must not pay a
+        // profile lookup per unknown author.
+        assert_eq!(
+            classify(RespondTo::Anyone, &HashSet::new(), STRANGER, &cache).await,
+            AuthorAdmission::Anyone
+        );
+        assert_eq!(
+            classify(RespondTo::Anyone, &HashSet::new(), SIBLING, &cache).await,
+            AuthorAdmission::Sibling,
+            "a sibling already proven by the cache stays budgeted even under Anyone"
+        );
+        assert_eq!(
+            classify(RespondTo::Anyone, &HashSet::new(), OWNER, &cache).await,
+            AuthorAdmission::Owner
+        );
+    }
+
+    #[test]
+    fn the_clock_the_gate_judges_against_is_an_option_never_a_defaulted_zero() {
+        // On a working host the clock reads; what matters is that it is an
+        // `Option`, so an unreadable clock reaches the gate as `None` and the
+        // gate refuses (see `exchange_cache::tests::an_unreadable_clock_…`)
+        // instead of comparing every deadline against zero and passing.
+        let now = unix_now_secs().expect("host clock is readable");
+        assert!(
+            now > 1_700_000_000,
+            "a plausible unix time, not a defaulted zero: {now}"
+        );
+    }
+
+    #[test]
+    fn only_a_sibling_has_to_arrive_inside_an_exchange() {
+        assert!(requires_exchange(AuthorAdmission::Sibling));
+        for admission in [
+            AuthorAdmission::Owner,
+            AuthorAdmission::Allowlisted,
+            AuthorAdmission::Anyone,
+        ] {
+            assert!(
+                !requires_exchange(admission),
+                "{admission:?} must never be asked for a turn tag"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn nobody_denies_even_the_owner() {
+        let cache = cache_with_sibling();
+        for who in [OWNER, SIBLING, EXTERNAL, STRANGER] {
+            assert_eq!(
+                classify(RespondTo::Nobody, &HashSet::new(), who, &cache).await,
+                AuthorAdmission::Denied
+            );
+        }
+    }
+
     // The default `respond-to` is OwnerOnly. Under steering, "an ineligible
-    // author must NOT steer" is enforced *here* — author_allowed drops the
+    // author must NOT steer" is enforced *here* — classify_author drops the
     // event before it reaches the mode gate — not in the gate itself. These
     // pin that invariant against the default mode.
     #[tokio::test]
     async fn test_owner_only_rejects_stranger_so_no_steer() {
         let cache = cache_with_sibling();
-        assert!(
-            !author_allowed(
-                &RespondTo::OwnerOnly,
-                &HashSet::new(),
-                STRANGER,
-                &cache,
-                &dummy_rest_client()
-            )
-            .await,
+        assert_eq!(
+            classify(RespondTo::OwnerOnly, &HashSet::new(), STRANGER, &cache).await,
+            AuthorAdmission::Denied,
             "under the default OwnerOnly, a stranger must be dropped — so it can never reach the mode gate to steer"
         );
     }
 
     #[tokio::test]
-    async fn test_owner_only_admits_owner_and_sibling_to_steer() {
+    async fn test_owner_only_admits_owner_and_sibling_but_only_owner_steers() {
         let cache = cache_with_sibling();
-        for (who, label) in [(OWNER, "owner"), (SIBLING, "sibling")] {
+        let owner_admission = classify(RespondTo::OwnerOnly, &HashSet::new(), OWNER, &cache).await;
+        let sibling_admission =
+            classify(RespondTo::OwnerOnly, &HashSet::new(), SIBLING, &cache).await;
+        assert_eq!(owner_admission, AuthorAdmission::Owner);
+        assert_eq!(
+            sibling_admission,
+            AuthorAdmission::Sibling,
+            "a sibling is still admitted — its turn queues rather than being dropped"
+        );
+
+        // Admitted, but a sibling never cuts an in-flight turn short.
+        for handling in [
+            MultipleEventHandling::Steer,
+            MultipleEventHandling::Interrupt,
+            MultipleEventHandling::OwnerInterrupt,
+        ] {
             assert!(
-                author_allowed(
-                    &RespondTo::OwnerOnly,
-                    &HashSet::new(),
-                    who,
-                    &cache,
-                    &dummy_rest_client()
-                )
-                .await,
-                "under default OwnerOnly, the {label} must be admitted so steering can fire"
+                mode_gate_signal(handling, sibling_admission, SIBLING, Some(OWNER)).is_none(),
+                "the sibling must not steer or interrupt under {handling:?}"
+            );
+            assert!(
+                mode_gate_signal(handling, owner_admission, OWNER, Some(OWNER)).is_some(),
+                "the owner must still reach an in-flight turn under {handling:?}"
             );
         }
     }
@@ -5201,6 +5563,7 @@ mod error_outcome_emission_tests {
                 events: vec![BatchEvent {
                     event,
                     prompt_tag: "test".into(),
+                    exchange: None,
                     received_at: std::time::Instant::now(),
                 }],
                 cancelled_events: vec![],
@@ -5308,6 +5671,7 @@ mod error_outcome_emission_tests {
                 events: vec![BatchEvent {
                     event,
                     prompt_tag: "test".into(),
+                    exchange: None,
                     received_at: std::time::Instant::now(),
                 }],
                 cancelled_events: vec![],
@@ -5427,6 +5791,7 @@ mod error_outcome_emission_tests {
                     .sign_with_keys(&Keys::generate())
                     .unwrap(),
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: std::time::Instant::now(),
             }],
             cancelled_events: vec![],
@@ -5521,6 +5886,7 @@ mod error_outcome_emission_tests {
                     .sign_with_keys(&Keys::generate())
                     .unwrap(),
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: std::time::Instant::now(),
             }],
             cancelled_events: vec![],
@@ -5600,6 +5966,7 @@ mod error_outcome_emission_tests {
             events: vec![BatchEvent {
                 event: original_event.clone(),
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: std::time::Instant::now(),
             }],
             cancelled_events: vec![],
@@ -5630,6 +5997,7 @@ mod error_outcome_emission_tests {
             event: new_event.clone(),
             received_at: std::time::Instant::now(),
             prompt_tag: "test".into(),
+            exchange: None,
         });
         let config = test_config();
         let mut heartbeat_in_flight = false;

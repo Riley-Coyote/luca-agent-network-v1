@@ -25,7 +25,7 @@
 //!
 //! Connect → subscribe → on each matching event:
 //! 1. Apply `ignore_self` gate.
-//! 2. Apply `author_allowed` gate (same as normal mode) so the nudge goes
+//! 2. Apply the `classify_author` gate (same as normal mode) so the nudge goes
 //!    only to authors the real agent would answer.
 //! 3. Require an explicit @mention via `event_mentions_agent`.
 //! 4. Apply `filter::match_event` so channel/kind rules still constrain.
@@ -71,7 +71,7 @@ pub(crate) enum AcpAvailabilityStatus {
 }
 
 use crate::{
-    author_allowed,
+    classify_author,
     config::Config,
     event_mentions_agent, filter,
     relay::{HarnessRelay, RelayEventPublisher},
@@ -430,14 +430,18 @@ pub(crate) async fn run_setup_listener(config: Config, payload: SetupPayload) ->
         // Apply the same author gate as normal mode so the nudge only goes
         // to authors the real agent would have answered.
         let author_hex = buzz_event.event.pubkey.to_hex();
-        let allowed = author_allowed(
+        // The exchange gate does not apply here: setup mode never runs a turn,
+        // it only tells the author the resident is not configured yet. Being
+        // admitted at all is the whole test.
+        let allowed = classify_author(
             &config.respond_to,
             &config.respond_to_allowlist,
             &author_hex,
             &owner_cache,
             &rest_client,
         )
-        .await;
+        .await
+            != crate::AuthorAdmission::Denied;
 
         // Apply channel/kind filter rules.
         let filter_matched = filter::match_event(
@@ -484,7 +488,7 @@ pub(crate) async fn run_setup_listener(config: Config, payload: SetupPayload) ->
 
 /// Outcome of the pure per-event gate checks in setup mode.
 ///
-/// Callers compute the async gates (`author_allowed`, `filter::match_event`)
+/// Callers compute the async gates (`classify_author`, `filter::match_event`)
 /// up-front, then pass the boolean results here. This helper handles
 /// everything that is synchronous and stateful: the author gate verdict
 /// and event-id dedup.

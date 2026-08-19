@@ -111,6 +111,7 @@ fn final_turn() -> ManagedFinalTurn {
         reply_event_id: None,
         response_surface: ManagedResponseSurfaceV1::Timeline,
         resolved_p_tags: Vec::new(),
+        exchange: None,
     }
 }
 

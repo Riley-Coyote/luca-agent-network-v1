@@ -1365,7 +1365,9 @@ async fn handoff_managed_final_after_end_turn(
         );
         return;
     };
-    let Some(trigger) = last_eligible_managed_trigger(batch, &context.owner_pubkey) else {
+    let Some((trigger, admitted)) =
+        last_eligible_managed_trigger_with_exchange(batch, &context.owner_pubkey)
+    else {
         agent.acp.discard_final_message_capture();
         agent.acp.observe(
             "turn_publication_terminal",
@@ -1403,6 +1405,7 @@ async fn handoff_managed_final_after_end_turn(
         turn_id,
         batch.channel_id,
         trigger,
+        admitted,
     ) {
         Ok(turn) => turn,
         Err(error) => {
@@ -1456,6 +1459,12 @@ async fn handoff_managed_final_after_end_turn(
     }
 }
 
+/// The last owner event in the batch that may trigger a managed turn.
+///
+/// Owner-only on purpose: continuity retrieval and the communications MCP are
+/// the owner's authority, and a sibling's admitted turn must not quietly
+/// acquire either by speaking. Final publication uses
+/// [`last_eligible_managed_trigger_with_exchange`] instead.
 fn last_eligible_managed_trigger<'a>(
     batch: &'a FlushBatch,
     owner_pubkey: &luca_protocol::Hex64,
@@ -1464,8 +1473,50 @@ fn last_eligible_managed_trigger<'a>(
         crate::luca_final_publisher::ManagedFinalTurn::is_eligible_trigger(
             owner_pubkey,
             &batch_event.event,
+            None,
         )
         .then_some(&batch_event.event)
+    })
+}
+
+/// The event in the batch that may trigger a managed **final publication** —
+/// the owner's, or a sibling's turn the inbound exchange gate admitted. The
+/// admission travels with the batch event, bound to its id; it is never
+/// re-derived from tags here.
+///
+/// **The owner outranks a sibling inside one batch.** When any owner-authored
+/// eligible trigger is present the final is routed to the *last* one, exactly
+/// as before residents could trigger at all: p-tags = the owner, no exchange
+/// tag. Only a batch with no owner trigger at all routes to a sibling's
+/// admitted turn. Otherwise a resident arriving a moment after the owner would
+/// quietly capture the routing of the owner's own answer.
+fn last_eligible_managed_trigger_with_exchange<'a>(
+    batch: &'a FlushBatch,
+    owner_pubkey: &luca_protocol::Hex64,
+) -> Option<(
+    &'a nostr::Event,
+    Option<&'a crate::exchange_cache::AdmittedExchange>,
+)> {
+    if let Some(owner_trigger) = last_eligible_managed_trigger(batch, owner_pubkey) {
+        return Some((owner_trigger, None));
+    }
+    batch.events.iter().rev().find_map(|batch_event| {
+        let admitted = batch_event.exchange.as_ref()?;
+        crate::luca_final_publisher::ManagedFinalTurn::is_eligible_trigger(
+            owner_pubkey,
+            &batch_event.event,
+            Some(admitted),
+        )
+        .then(|| {
+            tracing::info!(
+                target: "luca::final",
+                sibling = %batch_event.event.pubkey.to_hex().chars().take(8).collect::<String>(),
+                exchange_id = admitted.exchange_id.as_str(),
+                turn = admitted.turn,
+                "final routed to sibling — this batch carried no owner trigger"
+            );
+            (&batch_event.event, Some(admitted))
+        })
     })
 }
 
@@ -1487,6 +1538,7 @@ fn managed_communications_turn(
         turn_id,
         batch.channel_id,
         trigger,
+        None,
     ) {
         Ok(final_turn) => Some(crate::communications_mcp::CommunicationsTurnBindingV1 {
             conversation_id: final_turn.conversation_id,
@@ -5235,6 +5287,7 @@ mod tests {
             events: vec![crate::queue::BatchEvent {
                 event,
                 prompt_tag: "test".to_string(),
+                exchange: None,
                 received_at: std::time::Instant::now(),
             }],
             cancelled_events: vec![],
@@ -5540,6 +5593,7 @@ mod tests {
             events: vec![crate::queue::BatchEvent {
                 event,
                 prompt_tag: "@mention".into(),
+                exchange: None,
                 received_at: std::time::Instant::now(),
             }],
             cancelled_events: vec![],
@@ -5882,6 +5936,7 @@ mod tests {
             events: vec![crate::queue::BatchEvent {
                 event,
                 prompt_tag: "test".into(),
+                exchange: None,
                 received_at: std::time::Instant::now(),
             }],
             cancelled_events: vec![],
@@ -5906,11 +5961,13 @@ mod tests {
                 crate::queue::BatchEvent {
                     event: eligible,
                     prompt_tag: "owner".into(),
+                    exchange: None,
                     received_at: std::time::Instant::now(),
                 },
                 crate::queue::BatchEvent {
                     event: trailing,
                     prompt_tag: "other".into(),
+                    exchange: None,
                     received_at: std::time::Instant::now(),
                 },
             ],
@@ -5975,11 +6032,13 @@ mod tests {
                 crate::queue::BatchEvent {
                     event: sibling_event,
                     prompt_tag: "sibling".into(),
+                    exchange: None,
                     received_at: std::time::Instant::now(),
                 },
                 crate::queue::BatchEvent {
                     event: invalid_kind,
                     prompt_tag: "wrong-kind".into(),
+                    exchange: None,
                     received_at: std::time::Instant::now(),
                 },
             ],
@@ -5989,6 +6048,158 @@ mod tests {
         let owner_pubkey =
             luca_protocol::Hex64::parse(owner.public_key().to_hex()).expect("owner pubkey");
         assert!(last_eligible_managed_trigger(&batch, &owner_pubkey).is_none());
+    }
+
+    /// An admission as the inbound exchange gate would have attached it —
+    /// bound to the event id it was earned by.
+    fn admitted_exchange(
+        event_id: nostr::EventId,
+        turn: u8,
+    ) -> crate::exchange_cache::AdmittedExchange {
+        crate::exchange_cache::AdmittedExchange {
+            event_id,
+            exchange_id: luca_protocol::Hex64::parse("ab".repeat(32)).expect("exchange id"),
+            turn,
+            bucket: 3,
+            opened_by: luca_protocol::Hex64::parse("cd".repeat(32)).expect("opener"),
+            depth: 1,
+        }
+    }
+
+    #[test]
+    fn final_publication_admits_an_admitted_sibling_turn_that_continuity_still_refuses() {
+        let owner = Keys::generate();
+        let sibling = Keys::generate();
+        let ungated = EventBuilder::new(Kind::Custom(9), "sibling with no exchange")
+            .sign_with_keys(&sibling)
+            .expect("ungated event");
+        let admitted_event = EventBuilder::new(Kind::Custom(9), "sibling inside an exchange")
+            .sign_with_keys(&sibling)
+            .expect("admitted event");
+        let admission = admitted_exchange(admitted_event.id, 1);
+        let expected_id = admitted_event.id;
+        let batch = FlushBatch {
+            channel_id: Uuid::new_v4(),
+            events: vec![
+                crate::queue::BatchEvent {
+                    event: admitted_event,
+                    prompt_tag: "sibling".into(),
+                    exchange: Some(admission.clone()),
+                    received_at: std::time::Instant::now(),
+                },
+                crate::queue::BatchEvent {
+                    event: ungated,
+                    prompt_tag: "sibling".into(),
+                    exchange: None,
+                    received_at: std::time::Instant::now(),
+                },
+            ],
+            cancelled_events: vec![],
+            cancel_reason: None,
+        };
+        let owner_pubkey =
+            luca_protocol::Hex64::parse(owner.public_key().to_hex()).expect("owner pubkey");
+
+        // Final publication skips the trailing untagged sibling event and picks
+        // the one the gate admitted, carrying its admission along.
+        let (event, admitted) = last_eligible_managed_trigger_with_exchange(&batch, &owner_pubkey)
+            .expect("admitted sibling trigger");
+        assert_eq!(event.id, expected_id);
+        assert_eq!(admitted, Some(&admission));
+
+        // Continuity retrieval and the communications MCP stay the owner's: a
+        // sibling's turn earns a reply, not the owner's authority.
+        assert!(last_eligible_managed_trigger(&batch, &owner_pubkey).is_none());
+    }
+
+    /// Build a batch out of `(keys, admitted?)` pairs, in arrival order.
+    fn trigger_batch(
+        parts: Vec<(&Keys, bool)>,
+    ) -> (FlushBatch, luca_protocol::Hex64, Vec<nostr::Event>) {
+        let mut events = Vec::new();
+        let mut batch_events = Vec::new();
+        for (index, (keys, admitted)) in parts.into_iter().enumerate() {
+            let event = EventBuilder::new(Kind::Custom(9), format!("message {index}"))
+                .sign_with_keys(keys)
+                .expect("trigger event");
+            events.push(event.clone());
+            batch_events.push(crate::queue::BatchEvent {
+                exchange: admitted.then(|| admitted_exchange(event.id, 1)),
+                event,
+                prompt_tag: "trigger".into(),
+                received_at: std::time::Instant::now(),
+            });
+        }
+        let owner_pubkey = luca_protocol::Hex64::parse("00".repeat(32)).expect("placeholder");
+        (
+            FlushBatch {
+                channel_id: Uuid::new_v4(),
+                events: batch_events,
+                cancelled_events: vec![],
+                cancel_reason: None,
+            },
+            owner_pubkey,
+            events,
+        )
+    }
+
+    #[test]
+    fn the_owner_outranks_a_sibling_inside_one_flush_batch() {
+        let owner = Keys::generate();
+        let sibling = Keys::generate();
+        let owner_pubkey =
+            luca_protocol::Hex64::parse(owner.public_key().to_hex()).expect("owner pubkey");
+
+        // A sibling arriving *before* the owner does not capture the routing.
+        let (batch, _, events) = trigger_batch(vec![(&sibling, true), (&owner, false)]);
+        let (event, admitted) = last_eligible_managed_trigger_with_exchange(&batch, &owner_pubkey)
+            .expect("owner trigger");
+        assert_eq!(event.id, events[1].id, "the owner's message must route");
+        assert_eq!(admitted, None, "an owner-routed final carries no exchange");
+
+        // Nor does one arriving *after* the owner — last-eligible-wins must not
+        // hand a resident the answer the owner asked for.
+        let (batch, _, events) = trigger_batch(vec![(&owner, false), (&sibling, true)]);
+        let (event, admitted) = last_eligible_managed_trigger_with_exchange(&batch, &owner_pubkey)
+            .expect("owner trigger");
+        assert_eq!(event.id, events[0].id, "the owner's message must route");
+        assert_eq!(admitted, None);
+
+        // Two owner messages: the last one still wins, exactly as before.
+        let (batch, _, events) = trigger_batch(vec![(&owner, false), (&owner, false)]);
+        let (event, _) = last_eligible_managed_trigger_with_exchange(&batch, &owner_pubkey)
+            .expect("owner trigger");
+        assert_eq!(event.id, events[1].id);
+
+        // Only a batch with no owner trigger at all routes to the sibling.
+        let (batch, _, events) = trigger_batch(vec![(&sibling, true)]);
+        let (event, admitted) = last_eligible_managed_trigger_with_exchange(&batch, &owner_pubkey)
+            .expect("sibling trigger");
+        assert_eq!(event.id, events[0].id);
+        assert_eq!(admitted.map(|admitted| admitted.turn), Some(1));
+    }
+
+    #[test]
+    fn final_publication_refuses_a_sibling_turn_the_gate_never_admitted() {
+        let owner = Keys::generate();
+        let sibling = Keys::generate();
+        let ungated = EventBuilder::new(Kind::Custom(9), "sibling with no exchange")
+            .sign_with_keys(&sibling)
+            .expect("ungated event");
+        let batch = FlushBatch {
+            channel_id: Uuid::new_v4(),
+            events: vec![crate::queue::BatchEvent {
+                event: ungated,
+                prompt_tag: "sibling".into(),
+                exchange: None,
+                received_at: std::time::Instant::now(),
+            }],
+            cancelled_events: vec![],
+            cancel_reason: None,
+        };
+        let owner_pubkey =
+            luca_protocol::Hex64::parse(owner.public_key().to_hex()).expect("owner pubkey");
+        assert!(last_eligible_managed_trigger_with_exchange(&batch, &owner_pubkey).is_none());
     }
 
     #[test]

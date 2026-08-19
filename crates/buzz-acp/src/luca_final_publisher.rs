@@ -9,10 +9,12 @@
 use std::sync::Arc;
 
 use luca_protocol::{
-    derive_message_publish_idempotency_key, Hex64, ManagedMessagePublishRequestV1,
+    derive_message_publish_idempotency_key, ExchangeTurnTag, Hex64, ManagedMessagePublishRequestV1,
     ManagedMessagePublishResultV1, ManagedResponseSurfaceV1, OpaqueId, SafeU53,
-    MAX_FINAL_DRAFT_BYTES, MESSAGE_PUBLISH_PROTOCOL,
+    EXCHANGE_BUCKET_CEILING, MAX_FINAL_DRAFT_BYTES, MESSAGE_PUBLISH_PROTOCOL,
 };
+
+use crate::exchange_cache::AdmittedExchange;
 use luca_signing_client::{ManagedSigningClient, SigningClientError};
 use nostr::Event;
 use uuid::Uuid;
@@ -86,6 +88,10 @@ pub struct ManagedFinalTurn {
     pub response_surface: ManagedResponseSurfaceV1,
     /// App-resolved recipient/mention identities.
     pub resolved_p_tags: Vec<Hex64>,
+    /// The turn this reply proposes to spend, when the trigger was a sibling's
+    /// admitted exchange turn. A proposal only — the desktop rechecks members,
+    /// state, deadline and the spent set before it tags anything.
+    pub exchange: Option<ExchangeTurnTag>,
 }
 
 /// Failure before the F14 typed broker receives a publication request.
@@ -237,14 +243,25 @@ impl FinalChunkAccumulator {
 }
 
 impl ManagedFinalTurn {
-    /// Frozen F09 admission rule for choosing a triggering event. F10 may
-    /// extend this to same-owner descendants; V1 intentionally admits only
-    /// the configured owner's valid signed kind:9 events.
-    pub fn is_eligible_trigger(owner_pubkey: &Hex64, event: &Event) -> bool {
-        event.verify_id()
-            && event.verify_signature()
-            && event.kind == nostr::Kind::Custom(9)
-            && event.pubkey.to_hex() == owner_pubkey.as_str()
+    /// Which events may trigger a managed final publication.
+    ///
+    /// The configured owner's valid signed kind:9 event always may. A sibling
+    /// resident's kind:9 may too, but only when the inbound exchange gate
+    /// already admitted *that exact event* as a turn: `admitted.event_id` must
+    /// equal the event's id, so trust earned by one message's tag can never be
+    /// transplanted onto another. Trust is never re-derived from tags here.
+    pub fn is_eligible_trigger(
+        owner_pubkey: &Hex64,
+        event: &Event,
+        admitted: Option<&AdmittedExchange>,
+    ) -> bool {
+        if !event.verify_id() || !event.verify_signature() || event.kind != nostr::Kind::Custom(9) {
+            return false;
+        }
+        if event.pubkey.to_hex() == owner_pubkey.as_str() {
+            return true;
+        }
+        admitted.is_some_and(|admitted| admitted.event_id == event.id)
     }
 
     /// Derive immutable routing from the exact last signed event accepted in
@@ -255,12 +272,41 @@ impl ManagedFinalTurn {
         turn_id: &str,
         conversation_id: Uuid,
         event: &Event,
+        admitted: Option<&AdmittedExchange>,
     ) -> Result<Self, FinalPublicationError> {
-        if !Self::is_eligible_trigger(&context.owner_pubkey, event) {
+        Self::from_triggering_event_parts(
+            &context.owner_pubkey,
+            &context.resident_pubkey,
+            context.session_epoch,
+            turn_id,
+            conversation_id,
+            event,
+            admitted,
+        )
+    }
+
+    /// The routing derivation itself, with the broker-bound identities passed
+    /// explicitly rather than through a live signing channel. Exists so routing
+    /// can be exercised without a broker socket; [`Self::from_triggering_event`]
+    /// is the only production entry point.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_triggering_event_parts(
+        owner_pubkey: &Hex64,
+        resident_pubkey: &Hex64,
+        session_epoch: SafeU53,
+        turn_id: &str,
+        conversation_id: Uuid,
+        event: &Event,
+        admitted: Option<&AdmittedExchange>,
+    ) -> Result<Self, FinalPublicationError> {
+        if !Self::is_eligible_trigger(owner_pubkey, event, admitted) {
             return Err(FinalPublicationError::Invalid(
-                "trigger must be the configured owner's valid signed kind:9 event".into(),
+                "trigger must be the configured owner's valid signed kind:9 event, or a \
+                 sibling's kind:9 event the exchange gate admitted"
+                    .into(),
             ));
         }
+        let is_owner_trigger = event.pubkey.to_hex() == owner_pubkey.as_str();
         let turn_id = OpaqueId::parse(turn_id)
             .map_err(|error| FinalPublicationError::Invalid(error.to_string()))?;
         let conversation_id = OpaqueId::parse(conversation_id.to_string())
@@ -269,7 +315,7 @@ impl ManagedFinalTurn {
             .map_err(|error| FinalPublicationError::Invalid(error.to_string()))?;
         let dispatch_receipt_id = OpaqueId::parse(event_id.as_str())
             .map_err(|error| FinalPublicationError::Invalid(error.to_string()))?;
-        let cancellation_epoch = context.session_epoch;
+        let cancellation_epoch = session_epoch;
         let (root_event_id, reply_event_id, response_surface) =
             strict_trigger_routing(&conversation_id, event, &event_id)?;
         let thread_id = root_event_id
@@ -277,22 +323,43 @@ impl ManagedFinalTurn {
             .map(|root| OpaqueId::parse(format!("thread:{}", root.as_str())))
             .transpose()
             .map_err(|error| FinalPublicationError::Invalid(error.to_string()))?;
-        // F09 owner-only routing deliberately ignores every trigger p-tag.
-        // Only the verified owner-author is retained, so an ACP/model child
-        // cannot expand recipients or invoke a same-owner descendant before F10.
-        let resolved_p_tags = owner_only_p_tags(event)?;
+        // Routing deliberately ignores every trigger p-tag: only the verified
+        // trigger *author* is retained, so an ACP/model child cannot expand
+        // recipients or wake a resident nobody addressed. For an owner trigger
+        // that is the owner; for a sibling's admitted turn it is the asker, and
+        // the reply goes back to exactly the resident who spoke.
+        let resolved_p_tags = trigger_author_p_tags(event)?;
+        // A sibling's turn answers with the next turn of the same exchange.
+        // Never past the ceiling: at the ceiling the turn still runs and the
+        // request still names the exchange, and the desktop refuses honestly
+        // rather than the harness inventing an eleventh turn.
+        let exchange = if is_owner_trigger {
+            None
+        } else {
+            let admitted = admitted.ok_or_else(|| {
+                FinalPublicationError::Invalid(
+                    "sibling trigger without an admitted exchange".into(),
+                )
+            })?;
+            let turn = admitted.turn.saturating_add(1).min(EXCHANGE_BUCKET_CEILING);
+            Some(
+                ExchangeTurnTag::new(admitted.exchange_id.clone(), turn)
+                    .map_err(|error| FinalPublicationError::Invalid(error.to_string()))?,
+            )
+        };
         Ok(Self {
             turn_id,
             dispatch_receipt_id,
             cancellation_epoch,
-            owner_pubkey: context.owner_pubkey.clone(),
-            resident_pubkey: context.resident_pubkey.clone(),
+            owner_pubkey: owner_pubkey.clone(),
+            resident_pubkey: resident_pubkey.clone(),
             conversation_id,
             thread_id,
             root_event_id,
             reply_event_id,
             response_surface,
             resolved_p_tags,
+            exchange,
         })
     }
 
@@ -321,7 +388,10 @@ impl ManagedFinalTurn {
             final_draft,
             dispatch_receipt_id: self.dispatch_receipt_id.clone(),
             cancellation_epoch: self.cancellation_epoch,
-            exchange: None,
+            exchange: self.exchange.clone(),
+            // No safe, trivial place exists to read an owner instruction like
+            // "spend 5 turns" out of a trigger, and guessing one would be
+            // inventing authority. The desktop mints at the default bucket.
             bucket_hint: None,
         };
         request
@@ -440,7 +510,9 @@ fn strict_trigger_routing(
     }
 }
 
-fn owner_only_p_tags(event: &Event) -> Result<Vec<Hex64>, FinalPublicationError> {
+/// The one recipient a managed final may name: the verified author of the
+/// triggering event. Never a p-tag the trigger carried.
+fn trigger_author_p_tags(event: &Event) -> Result<Vec<Hex64>, FinalPublicationError> {
     Ok(vec![Hex64::parse(event.pubkey.to_hex()).map_err(
         |error| FinalPublicationError::Invalid(error.to_string()),
     )?])
@@ -472,6 +544,7 @@ mod tests {
             reply_event_id: reply,
             response_surface: ManagedResponseSurfaceV1::Thread,
             resolved_p_tags: p_tags,
+            exchange: None,
         }
     }
 
@@ -783,11 +856,134 @@ mod tests {
         );
         let owner_hex = Hex64::parse(owner.public_key().to_hex()).expect("owner");
         let resident_hex = Hex64::parse(resident.public_key().to_hex()).expect("resident");
-        assert!(ManagedFinalTurn::is_eligible_trigger(&owner_hex, &trigger));
+        assert!(ManagedFinalTurn::is_eligible_trigger(
+            &owner_hex, &trigger, None
+        ));
         assert_ne!(owner_hex, resident_hex);
         assert_eq!(
-            owner_only_p_tags(&trigger).expect("owner-only routing"),
+            trigger_author_p_tags(&trigger).expect("trigger-author routing"),
             vec![owner_hex]
+        );
+    }
+
+    /// The conversation an exchange test routes through.
+    fn exchange_conversation() -> Uuid {
+        Uuid::parse_str("11111111-1111-4111-8111-111111111111").expect("conversation uuid")
+    }
+
+    fn admitted(event: &Event, turn: u8) -> AdmittedExchange {
+        AdmittedExchange {
+            event_id: event.id,
+            exchange_id: Hex64::parse("ab".repeat(32)).expect("exchange id"),
+            turn,
+            bucket: 3,
+            opened_by: Hex64::parse("cd".repeat(32)).expect("opener"),
+            depth: 1,
+        }
+    }
+
+    fn route(
+        owner: &Keys,
+        resident: &Keys,
+        trigger: &Event,
+        admitted: Option<&AdmittedExchange>,
+    ) -> Result<ManagedFinalTurn, FinalPublicationError> {
+        ManagedFinalTurn::from_triggering_event_parts(
+            &Hex64::parse(owner.public_key().to_hex()).expect("owner"),
+            &Hex64::parse(resident.public_key().to_hex()).expect("resident"),
+            SafeU53::new(7).expect("epoch"),
+            "turn-1",
+            exchange_conversation(),
+            trigger,
+            admitted,
+        )
+    }
+
+    #[test]
+    fn an_owner_trigger_proposes_no_exchange_turn() {
+        let owner = Keys::generate();
+        let resident = Keys::generate();
+        let trigger = signed_trigger(&owner, &exchange_conversation().to_string(), vec![]);
+        let turn = route(&owner, &resident, &trigger, None).expect("owner routing");
+        assert_eq!(turn.exchange, None);
+        assert_eq!(
+            turn.resolved_p_tags,
+            vec![Hex64::parse(owner.public_key().to_hex()).expect("owner")]
+        );
+        let request = turn.request("a reply".into()).expect("request");
+        assert_eq!(request.exchange, None);
+        assert_eq!(request.bucket_hint, None);
+    }
+
+    #[test]
+    fn a_siblings_admitted_turn_replies_to_the_asker_with_the_next_turn() {
+        let owner = Keys::generate();
+        let resident = Keys::generate();
+        let sibling = Keys::generate();
+        let trigger = signed_trigger(&sibling, &exchange_conversation().to_string(), vec![]);
+        let admission = admitted(&trigger, 2);
+        let turn = route(&owner, &resident, &trigger, Some(&admission)).expect("sibling routing");
+        // The reply goes back to exactly the resident who asked.
+        assert_eq!(
+            turn.resolved_p_tags,
+            vec![Hex64::parse(sibling.public_key().to_hex()).expect("sibling")]
+        );
+        let proposed = turn.exchange.clone().expect("exchange proposal");
+        assert_eq!(proposed.exchange_id, admission.exchange_id);
+        assert_eq!(proposed.turn, 3);
+        let request = turn.request("a reply".into()).expect("request");
+        assert_eq!(request.exchange, Some(proposed));
+        assert_eq!(request.bucket_hint, None);
+    }
+
+    #[test]
+    fn an_admission_bound_to_another_event_never_transfers() {
+        let owner = Keys::generate();
+        let resident = Keys::generate();
+        let sibling = Keys::generate();
+        let spoken = signed_trigger(&sibling, &exchange_conversation().to_string(), vec![]);
+        let other = signed_trigger(
+            &sibling,
+            &exchange_conversation().to_string(),
+            vec![Tag::parse(["p", &owner.public_key().to_hex()]).expect("p tag")],
+        );
+        assert_ne!(spoken.id, other.id);
+        let admission = admitted(&spoken, 1);
+        assert!(!ManagedFinalTurn::is_eligible_trigger(
+            &Hex64::parse(owner.public_key().to_hex()).expect("owner"),
+            &other,
+            Some(&admission),
+        ));
+        assert!(route(&owner, &resident, &other, Some(&admission)).is_err());
+    }
+
+    #[test]
+    fn a_sibling_without_an_admission_is_not_an_eligible_trigger() {
+        let owner = Keys::generate();
+        let resident = Keys::generate();
+        let sibling = Keys::generate();
+        let trigger = signed_trigger(&sibling, &exchange_conversation().to_string(), vec![]);
+        assert!(!ManagedFinalTurn::is_eligible_trigger(
+            &Hex64::parse(owner.public_key().to_hex()).expect("owner"),
+            &trigger,
+            None,
+        ));
+        assert!(route(&owner, &resident, &trigger, None).is_err());
+    }
+
+    #[test]
+    fn at_the_ceiling_the_proposal_stays_at_ten_and_the_desktop_refuses() {
+        let owner = Keys::generate();
+        let resident = Keys::generate();
+        let sibling = Keys::generate();
+        let trigger = signed_trigger(&sibling, &exchange_conversation().to_string(), vec![]);
+        let mut admission = admitted(&trigger, EXCHANGE_BUCKET_CEILING);
+        admission.bucket = EXCHANGE_BUCKET_CEILING;
+        let turn = route(&owner, &resident, &trigger, Some(&admission)).expect("ceiling routing");
+        let proposed = turn.exchange.expect("exchange proposal");
+        assert_eq!(
+            proposed.turn, EXCHANGE_BUCKET_CEILING,
+            "the ceiling is never raised — the turn still runs and the desktop refuses honestly"
         );
     }
 }

@@ -102,10 +102,7 @@ impl RuntimeNoticeGate {
                 return None;
             }
             if self.buffered.starts_with(CODEX_SKILL_BUDGET_NOTICE_PREFIX) {
-                let Some(suffix_start) = self.buffered.find(CODEX_SKILL_BUDGET_NOTICE_SUFFIX)
-                else {
-                    return None;
-                };
+                let suffix_start = self.buffered.find(CODEX_SKILL_BUDGET_NOTICE_SUFFIX)?;
                 let remainder = self.buffered
                     [suffix_start + CODEX_SKILL_BUDGET_NOTICE_SUFFIX.len()..]
                     .to_owned();

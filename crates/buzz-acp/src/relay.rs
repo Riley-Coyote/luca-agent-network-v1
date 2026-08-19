@@ -114,8 +114,8 @@ const GATED_OBSERVER_QUEUE_CAP: usize = 256;
 use std::time::Instant;
 
 use buzz_core::kind::{
-    KIND_AGENT_OBSERVER_FRAME, KIND_MEMBER_ADDED_NOTIFICATION, KIND_MEMBER_REMOVED_NOTIFICATION,
-    KIND_TYPING_INDICATOR,
+    KIND_AGENT_OBSERVER_FRAME, KIND_LUCA_EXCHANGE, KIND_MEMBER_ADDED_NOTIFICATION,
+    KIND_MEMBER_REMOVED_NOTIFICATION, KIND_TYPING_INDICATOR,
 };
 use futures_util::{SinkExt, StreamExt};
 use luca_protocol::{
@@ -133,6 +133,7 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::config::ChannelFilter;
+use crate::exchange_cache::ExchangeLiveLeg;
 
 /// Relay authentication authority available to the harness.
 ///
@@ -641,6 +642,11 @@ enum RelayMessage {
 const MEMBERSHIP_NOTIF_SUB_ID: &str = "membership-notif";
 /// Subscription ID for encrypted owner-to-agent observer control frames.
 const OBSERVER_CONTROL_SUB_ID: &str = "agent-observer-control";
+/// Subscription ID for owner-authored exchange records naming this resident.
+const EXCHANGE_SUB_ID: &str = "luca-exchange";
+/// How many CLOSED-driven resubscribes the exchange-head REQ gets before the
+/// live leg is abandoned in favour of on-demand head reads.
+const EXCHANGE_CLOSED_RETRY_LIMIT: u8 = 3;
 
 /// Commands sent from `HarnessRelay` to the background WebSocket task.
 enum RelayCommand {
@@ -660,6 +666,8 @@ enum RelayCommand {
     SubscribeMembership,
     /// Subscribe to encrypted observer control frames addressed to this agent.
     SubscribeObserverControls,
+    /// Subscribe to owner-authored exchange records naming this resident.
+    SubscribeExchanges,
     /// Publish a signed event to the relay (for typing indicators, etc.).
     PublishEvent { event: Box<Event> },
     /// Floor `since` for membership notification replay; events before startup are never re-delivered.
@@ -680,6 +688,11 @@ pub struct HarnessRelay {
     event_rx: mpsc::Receiver<Option<BuzzEvent>>,
     /// Receiver for encrypted observer control events addressed to this agent.
     observer_control_rx: Option<mpsc::Receiver<Event>>,
+    /// Receiver for owner-authored exchange records naming this resident.
+    exchange_rx: Option<mpsc::Receiver<Event>>,
+    /// Whether the live exchange-head REQ is currently registered. Shared with
+    /// the exchange gate so it knows when a stored head may be trusted.
+    exchange_live_leg: ExchangeLiveLeg,
     /// Sender for commands to the background task.
     cmd_tx: mpsc::Sender<RelayCommand>,
     /// HTTP client for HTTP bridge calls.
@@ -788,11 +801,14 @@ impl HarnessRelay {
         let (event_tx, event_rx) = mpsc::channel::<Option<BuzzEvent>>(event_channel_capacity());
         let (observer_control_tx, observer_control_rx) =
             mpsc::channel::<Event>(event_channel_capacity());
+        let (exchange_tx, exchange_rx) = mpsc::channel::<Event>(event_channel_capacity());
         let (cmd_tx, cmd_rx) = mpsc::channel::<RelayCommand>(CMD_CHANNEL_CAPACITY);
 
         let bg_identity = identity.clone();
         let bg_relay_url = relay_url.to_string();
         let bg_agent_pubkey_hex = agent_pubkey_hex.to_string();
+        let exchange_live_leg = ExchangeLiveLeg::new();
+        let bg_exchange_live_leg = exchange_live_leg.clone();
 
         let bg_handle = tokio::spawn(async move {
             run_background_task(
@@ -800,10 +816,12 @@ impl HarnessRelay {
                 handshake_buffer,
                 event_tx,
                 observer_control_tx,
+                exchange_tx,
                 cmd_rx,
                 bg_identity,
                 bg_relay_url,
                 bg_agent_pubkey_hex,
+                bg_exchange_live_leg,
             )
             .await;
         });
@@ -811,6 +829,8 @@ impl HarnessRelay {
         Ok(Self {
             event_rx,
             observer_control_rx: Some(observer_control_rx),
+            exchange_rx: Some(exchange_rx),
+            exchange_live_leg,
             cmd_tx,
             http: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
@@ -957,6 +977,31 @@ impl HarnessRelay {
     /// Take the observer-control receiver for polling outside this relay object.
     pub fn take_observer_control_rx(&mut self) -> Option<mpsc::Receiver<Event>> {
         self.observer_control_rx.take()
+    }
+
+    /// Subscribe to owner-authored exchange records naming this resident.
+    ///
+    /// Heads are parameterized-replaceable, so no `since` floor is used: the
+    /// resident wants whichever head is current, not a replay.
+    pub async fn subscribe_exchanges(&mut self) -> Result<(), RelayError> {
+        self.cmd_tx
+            .send(RelayCommand::SubscribeExchanges)
+            .await
+            .map_err(|_| RelayError::ConnectionClosed)?;
+        Ok(())
+    }
+
+    /// Take the exchange-head receiver for polling outside this relay object.
+    pub fn take_exchange_rx(&mut self) -> Option<mpsc::Receiver<Event>> {
+        self.exchange_rx.take()
+    }
+
+    /// The shared live-leg health flag for the exchange-head subscription.
+    ///
+    /// Hand this to the exchange gate: while it reads healthy, the relay is
+    /// pushing every head replacement and a stored head needs no refresh.
+    pub fn exchange_live_leg(&self) -> ExchangeLiveLeg {
+        self.exchange_live_leg.clone()
     }
 
     /// Return a cloneable publisher handle for signed relay events.
@@ -1169,6 +1214,17 @@ struct BgState {
     membership_sub_active: bool,
     /// Whether the observer control subscription is active.
     observer_control_sub_active: bool,
+    /// Whether the exchange-head subscription is active.
+    exchange_sub_active: bool,
+    /// Consecutive CLOSED-driven resubscribes of the exchange-head REQ.
+    ///
+    /// A relay that does not serve this subscription would otherwise be asked
+    /// forever. After [`EXCHANGE_CLOSED_RETRY_LIMIT`] the leg is given up and
+    /// the gate reads heads on demand instead — latency, never permission.
+    exchange_closed_retries: u8,
+    /// Shared with the exchange gate: whether the live head REQ is registered
+    /// on a live socket right now. Down means the gate ages stored heads out.
+    exchange_live_leg: ExchangeLiveLeg,
     /// Oldest dropped channel-event timestamp per channel, keyed by channel_id.
     /// Mirrors `membership_dropped_since` but for ordinary channel events.
     /// On reconnect resubscribe, `since` = min(last_seen, channel_dropped_since).
@@ -1209,6 +1265,9 @@ struct BgState {
     /// subscription. The main-loop drain re-sends the REQ once the gate clears,
     /// even when `rate_limited_pending` is empty.
     observer_resub_needed: bool,
+    /// Set when a rate-limited CLOSED arrives for the exchange-head
+    /// subscription. The main-loop drain re-sends the REQ once the gate clears.
+    exchange_resub_needed: bool,
     /// Observer telemetry frames (kind 24200) parked while the rate-limit gate
     /// is armed. Unlike typing indicators, these frames are durable telemetry:
     /// dropping them silently loses turn history in the Desktop observer.
@@ -1246,6 +1305,9 @@ impl BgState {
             membership_last_seen: None,
             membership_sub_active: false,
             observer_control_sub_active: false,
+            exchange_sub_active: false,
+            exchange_closed_retries: 0,
+            exchange_live_leg: ExchangeLiveLeg::new(),
             channel_dropped_since: HashMap::new(),
             proactive_resubscribe_needed: false,
             startup_watermark: None,
@@ -1254,6 +1316,7 @@ impl BgState {
             rate_limited_pending: HashMap::new(),
             membership_resub_needed: false,
             observer_resub_needed: false,
+            exchange_resub_needed: false,
             gated_observer_pending: VecDeque::new(),
             observer_in_flight: VecDeque::new(),
             gated_observer_dropped: 0,
@@ -1446,6 +1509,11 @@ fn apply_command_to_state(state: &mut BgState, cmd: RelayCommand) {
         }
         RelayCommand::SubscribeObserverControls => {
             state.observer_control_sub_active = true;
+        }
+        RelayCommand::SubscribeExchanges => {
+            state.exchange_sub_active = true;
+            // Intent recorded while disconnected — no REQ is registered yet.
+            state.exchange_live_leg.mark_down();
         }
         RelayCommand::SetStartupWatermark { ts } => {
             state.startup_watermark = Some(ts);
@@ -1641,6 +1709,25 @@ async fn execute_connected_command(
                 false
             }
         }
+        RelayCommand::SubscribeExchanges => {
+            state.exchange_sub_active = true;
+            if state.check_rate_gate().is_some() {
+                debug!("rate-gated: deferring exchange head subscription");
+                state.exchange_resub_needed = true;
+                state.exchange_live_leg.mark_down();
+                return true;
+            }
+            let sent =
+                send_exchange_subscribe(ws, agent_pubkey_hex, &state.exchange_live_leg).await;
+            if sent {
+                state.exchange_resub_needed = false;
+                true
+            } else {
+                warn!("exchange head subscribe REQ failed — recording intent for reconnect");
+                state.exchange_resub_needed = true;
+                false
+            }
+        }
         RelayCommand::PublishEvent { event } => {
             // Observer telemetry frames (kind 24200) are durable telemetry, not
             // droppable ephemera: park them while the rate-limit gate is armed —
@@ -1712,18 +1799,22 @@ async fn run_background_task(
     initial_handshake_buffer: std::collections::VecDeque<RelayMessage>,
     event_tx: mpsc::Sender<Option<BuzzEvent>>,
     observer_control_tx: mpsc::Sender<Event>,
+    exchange_tx: mpsc::Sender<Event>,
     mut cmd_rx: mpsc::Receiver<RelayCommand>,
     identity: RelayIdentity,
     relay_url: String,
     agent_pubkey_hex: String,
+    exchange_live_leg: ExchangeLiveLeg,
 ) {
     let mut state = BgState::new();
+    state.exchange_live_leg = exchange_live_leg;
 
     let handshake_ok = process_handshake_buffer(
         &mut ws,
         initial_handshake_buffer,
         &event_tx,
         &observer_control_tx,
+        &exchange_tx,
         &mut state,
         &identity,
         &relay_url,
@@ -1744,6 +1835,7 @@ async fn run_background_task(
             &agent_pubkey_hex,
             &event_tx,
             &observer_control_tx,
+            &exchange_tx,
         )
         .await
         {
@@ -1767,6 +1859,7 @@ async fn run_background_task(
                         &agent_pubkey_hex,
                         &event_tx,
                         &observer_control_tx,
+                        &exchange_tx,
                         true,
                     )
                     .await,
@@ -1825,6 +1918,7 @@ async fn run_background_task(
                         &agent_pubkey_hex,
                         &event_tx,
                         &observer_control_tx,
+                        &exchange_tx,
                     )
                     .await
                     {
@@ -1854,6 +1948,7 @@ async fn run_background_task(
                                     &agent_pubkey_hex,
                                     &event_tx,
                                     &observer_control_tx,
+                                    &exchange_tx,
                                     true,
                                 )
                                 .await,
@@ -1908,6 +2003,19 @@ async fn run_background_task(
                     } else {
                         warn!(
                             "observer control resub after rate-limit failed — will retry next drain"
+                        );
+                    }
+                }
+                if state.exchange_resub_needed && budget > 0 {
+                    if send_exchange_subscribe(&mut ws, &agent_pubkey_hex, &state.exchange_live_leg)
+                        .await
+                    {
+                        state.exchange_resub_needed = false;
+                        budget = budget.saturating_sub(1);
+                        any_sent = true;
+                    } else {
+                        warn!(
+                            "exchange head resub after rate-limit failed — will retry next drain"
                         );
                     }
                 }
@@ -1966,6 +2074,7 @@ async fn run_background_task(
                                        &mut ws,
                                        &event_tx,
                                        &observer_control_tx,
+                                       &exchange_tx,
                                        &mut state,
                                        &identity,
                                        &relay_url,
@@ -1998,6 +2107,7 @@ async fn run_background_task(
                                &agent_pubkey_hex,
                                &event_tx,
                            &observer_control_tx,
+                           &exchange_tx,
                            )
                            .await;
                            match outcome {
@@ -2017,7 +2127,7 @@ async fn run_background_task(
                                if matches!(
                                    wait_for_reconnect(
                                        &mut ws, &mut cmd_rx, &mut state, &identity, &relay_url,
-        &agent_pubkey_hex, &event_tx, &observer_control_tx, true,
+        &agent_pubkey_hex, &event_tx, &observer_control_tx, &exchange_tx, true,
                                    ).await,
                                    ReconnectOutcome::Shutdown
                                ) { return; }
@@ -2036,7 +2146,7 @@ async fn run_background_task(
                                if matches!(
                                    wait_for_reconnect(
                                        &mut ws, &mut cmd_rx, &mut state, &identity, &relay_url,
-        &agent_pubkey_hex, &event_tx, &observer_control_tx, true,
+        &agent_pubkey_hex, &event_tx, &observer_control_tx, &exchange_tx, true,
                                    ).await,
                                    ReconnectOutcome::Shutdown
                                ) { return; }
@@ -2071,6 +2181,7 @@ async fn run_background_task(
                                        &mut ws, &mut cmd_rx, &mut state, &identity, &relay_url,
         &agent_pubkey_hex, &event_tx,
                                    &observer_control_tx,
+                                   &exchange_tx,
                                    ).await {
                                        ReconnectOutcome::Shutdown => return,
                                        ReconnectOutcome::Ok => {
@@ -2083,7 +2194,7 @@ async fn run_background_task(
                                            if matches!(
                                                wait_for_reconnect(
                                                    &mut ws, &mut cmd_rx, &mut state, &identity, &relay_url,
-        &agent_pubkey_hex, &event_tx, &observer_control_tx, true,
+        &agent_pubkey_hex, &event_tx, &observer_control_tx, &exchange_tx, true,
                                                ).await,
                                                ReconnectOutcome::Shutdown
                                            ) { return; }
@@ -2108,6 +2219,7 @@ async fn run_background_task(
                                &mut ws, &mut cmd_rx, &mut state, &identity, &relay_url,
         &agent_pubkey_hex, &event_tx,
                            &observer_control_tx,
+                           &exchange_tx,
                            ).await {
                                ReconnectOutcome::Shutdown => return,
                                ReconnectOutcome::Ok => {
@@ -2120,7 +2232,7 @@ async fn run_background_task(
                                    if matches!(
                                        wait_for_reconnect(
                                            &mut ws, &mut cmd_rx, &mut state, &identity, &relay_url,
-        &agent_pubkey_hex, &event_tx, &observer_control_tx, true,
+        &agent_pubkey_hex, &event_tx, &observer_control_tx, &exchange_tx, true,
                                        ).await,
                                        ReconnectOutcome::Shutdown
                                    ) { return; }
@@ -2139,6 +2251,7 @@ async fn run_background_task(
                                    &mut ws, &mut cmd_rx, &mut state, &identity, &relay_url,
         &agent_pubkey_hex, &event_tx,
                                &observer_control_tx,
+                               &exchange_tx,
                                ).await {
                                    ReconnectOutcome::Shutdown => return,
                                    ReconnectOutcome::Ok => {
@@ -2151,7 +2264,7 @@ async fn run_background_task(
                                        if matches!(
                                            wait_for_reconnect(
                                                &mut ws, &mut cmd_rx, &mut state, &identity, &relay_url,
-        &agent_pubkey_hex, &event_tx, &observer_control_tx, true,
+        &agent_pubkey_hex, &event_tx, &observer_control_tx, &exchange_tx, true,
                                            ).await,
                                            ReconnectOutcome::Shutdown
                                        ) { return; }
@@ -2205,6 +2318,7 @@ async fn handle_ws_message(
     ws: &mut WsStream,
     event_tx: &mpsc::Sender<Option<BuzzEvent>>,
     observer_control_tx: &mpsc::Sender<Event>,
+    exchange_tx: &mpsc::Sender<Event>,
     state: &mut BgState,
     identity: &RelayIdentity,
     relay_url: &str,
@@ -2230,6 +2344,20 @@ async fn handle_ws_message(
                             Ok(()) => {}
                             Err(mpsc::error::TrySendError::Full(_)) => {
                                 warn!("observer control event dropped because control channel is full");
+                            }
+                            Err(mpsc::error::TrySendError::Closed(_)) => return false,
+                        }
+                    } else if subscription_id == EXCHANGE_SUB_ID {
+                        // A dropped head is not a silent loss of authority: the
+                        // gate's REST refresh re-reads the current head before
+                        // it admits a turn, so a full channel costs latency,
+                        // never permission.
+                        match exchange_tx.try_send(*event) {
+                            // A subscription that delivers has proven itself:
+                            // forget any earlier CLOSED streak.
+                            Ok(()) => state.exchange_closed_retries = 0,
+                            Err(mpsc::error::TrySendError::Full(_)) => {
+                                warn!("exchange head dropped because the exchange channel is full — the gate will re-fetch it");
                             }
                             Err(mpsc::error::TrySendError::Closed(_)) => return false,
                         }
@@ -2401,6 +2529,9 @@ async fn handle_ws_message(
                             state.membership_resub_needed = true;
                         } else if subscription_id == OBSERVER_CONTROL_SUB_ID {
                             state.observer_resub_needed = true;
+                        } else if subscription_id == EXCHANGE_SUB_ID {
+                            state.exchange_resub_needed = true;
+                            state.exchange_live_leg.mark_down();
                         }
                         return true; // keep the socket
                     }
@@ -2433,6 +2564,33 @@ async fn handle_ws_message(
                             state.observer_control_sub_active = true;
                         } else {
                             warn!("observer control resubscribe failed after CLOSED — triggering reconnect");
+                            return false;
+                        }
+                    } else if subscription_id == EXCHANGE_SUB_ID {
+                        // A relay that refuses this subscription must not be
+                        // asked forever. Give the leg up after a few tries; the
+                        // gate still reads every head over REST before it
+                        // admits a turn, so nothing becomes permitted.
+                        state.exchange_closed_retries =
+                            state.exchange_closed_retries.saturating_add(1);
+                        if state.exchange_closed_retries > EXCHANGE_CLOSED_RETRY_LIMIT {
+                            warn!(
+                                "exchange head subscription closed {} times — giving up the live \
+                                 leg; heads will be read on demand",
+                                state.exchange_closed_retries
+                            );
+                            state.exchange_sub_active = false;
+                            state.exchange_resub_needed = false;
+                            state.exchange_live_leg.mark_down();
+                            return true;
+                        }
+                        let sent =
+                            send_exchange_subscribe(ws, agent_pubkey_hex, &state.exchange_live_leg)
+                                .await;
+                        if sent {
+                            state.exchange_sub_active = true;
+                        } else {
+                            warn!("exchange head resubscribe failed after CLOSED — triggering reconnect");
                             return false;
                         }
                     } else if subscription_id == MEMBERSHIP_NOTIF_SUB_ID {
@@ -2554,6 +2712,7 @@ async fn process_handshake_buffer(
     buffer: std::collections::VecDeque<RelayMessage>,
     event_tx: &mpsc::Sender<Option<BuzzEvent>>,
     observer_control_tx: &mpsc::Sender<Event>,
+    exchange_tx: &mpsc::Sender<Event>,
     state: &mut BgState,
     identity: &RelayIdentity,
     relay_url: &str,
@@ -2596,6 +2755,7 @@ async fn process_handshake_buffer(
                 ws,
                 event_tx,
                 observer_control_tx,
+                exchange_tx,
                 state,
                 identity,
                 relay_url,
@@ -2751,6 +2911,24 @@ async fn resubscribe_after_reconnect(
                 return ResubscribeResult::RetryConnection;
             }
             state.observer_resub_needed = false;
+        }
+    }
+
+    if state.exchange_sub_active {
+        if state.check_rate_gate().is_some() {
+            debug!("rate-gated: parking exchange head resubscribe after reconnect");
+            state.exchange_resub_needed = true;
+            state.exchange_live_leg.mark_down();
+        } else {
+            if !pacing_sleep(cmd_rx, &mut deferred_commands, REQ_PACING_INTERVAL).await {
+                return ResubscribeResult::Shutdown;
+            }
+            if !send_exchange_subscribe(ws, agent_pubkey_hex, &state.exchange_live_leg).await {
+                warn!("failed to resubscribe exchange heads after reconnect");
+                retain_deferred_command_intent(state, &mut deferred_commands);
+                return ResubscribeResult::RetryConnection;
+            }
+            state.exchange_resub_needed = false;
         }
     }
 
@@ -3056,7 +3234,11 @@ async fn try_autonomous_reconnect(
     agent_pubkey_hex: &str,
     event_tx: &mpsc::Sender<Option<BuzzEvent>>,
     observer_control_tx: &mpsc::Sender<Event>,
+    exchange_tx: &mpsc::Sender<Event>,
 ) -> ReconnectOutcome {
+    // The socket this REQ lived on is gone: the gate must age stored heads out
+    // again until the subscription is actually re-registered.
+    state.exchange_live_leg.mark_down();
     state.requeue_observer_in_flight();
     // 5 attempts, up to 16s base backoff. Shares delay values with the
     // initial-connect retry in `HarnessRelay::connect()` (STARTUP_CONNECT_BACKOFFS) —
@@ -3086,6 +3268,7 @@ async fn try_autonomous_reconnect(
                     handshake_buffer,
                     event_tx,
                     observer_control_tx,
+                    exchange_tx,
                     state,
                     identity,
                     relay_url,
@@ -3183,8 +3366,11 @@ async fn wait_for_reconnect(
     agent_pubkey_hex: &str,
     event_tx: &mpsc::Sender<Option<BuzzEvent>>,
     observer_control_tx: &mpsc::Sender<Event>,
+    exchange_tx: &mpsc::Sender<Event>,
     skip_drain: bool,
 ) -> ReconnectOutcome {
+    // Same as the autonomous path: no live REQ until one is re-sent.
+    state.exchange_live_leg.mark_down();
     state.requeue_observer_in_flight();
     if !skip_drain {
         // Drain commands until we get Reconnect (or Shutdown).
@@ -3222,6 +3408,7 @@ async fn wait_for_reconnect(
                     handshake_buffer,
                     event_tx,
                     observer_control_tx,
+                    exchange_tx,
                     state,
                     identity,
                     relay_url,
@@ -3420,6 +3607,57 @@ async fn send_membership_subscribe(
             false
         }
     }
+}
+
+/// Send a NIP-01 REQ for the exchange records this resident is a member of.
+///
+/// No `since` floor: exchange heads are parameterized-replaceable, so the
+/// resident wants whichever head is current — including one minted before this
+/// process started. Membership is the relay-side scope (`#p` = this resident);
+/// authorship is re-checked locally before any head is trusted.
+///
+/// The outcome is published to `live_leg`: while the REQ is registered the gate
+/// may trust a stored head without ageing it out, because the relay pushes every
+/// replacement. The moment the REQ fails, the gate goes back to refreshing heads
+/// over REST.
+async fn send_exchange_subscribe(
+    ws: &mut WsStream,
+    agent_pubkey_hex: &str,
+    live_leg: &ExchangeLiveLeg,
+) -> bool {
+    let req = json!([
+        "REQ",
+        EXCHANGE_SUB_ID,
+        {
+            "kinds": [KIND_LUCA_EXCHANGE],
+            "#p": [agent_pubkey_hex],
+        }
+    ]);
+
+    let sent = match serde_json::to_string(&req) {
+        Ok(text) => {
+            match ws_send_timeout(ws, Message::Text(text.into()), WS_SEND_TIMEOUT_SECS).await {
+                Ok(()) => {
+                    debug!("subscribed to exchange heads");
+                    true
+                }
+                Err(e) => {
+                    warn!("failed to send exchange head REQ: {e}");
+                    false
+                }
+            }
+        }
+        Err(e) => {
+            warn!("failed to serialize exchange head REQ: {e}");
+            false
+        }
+    };
+    if sent {
+        live_leg.mark_healthy();
+    } else {
+        live_leg.mark_down();
+    }
+    sent
 }
 
 /// Send a NIP-01 REQ for owner-to-agent observer control frames.
@@ -5952,6 +6190,73 @@ mod tests {
         .expect("build test observer frame")
         .sign_with_keys(keys)
         .expect("sign test observer frame")
+    }
+
+    /// The exchange gate trusts a stored head without refreshing it only while
+    /// the live REQ is actually registered. This is the flag that says so.
+    #[tokio::test]
+    async fn the_exchange_live_leg_flag_follows_the_subscription() {
+        let (mut client, mut server) = test_ws_pair().await;
+        let mut state = BgState::new();
+        let leg = state.exchange_live_leg.clone();
+        assert!(
+            !leg.is_healthy(),
+            "nothing is subscribed yet — the gate must age heads out"
+        );
+
+        let ok = execute_connected_command(
+            &mut client,
+            &mut state,
+            "agent-pubkey",
+            RelayCommand::SubscribeExchanges,
+        )
+        .await;
+        assert!(ok);
+        let frame = next_test_frame(&mut server).await;
+        assert_eq!(frame[0], "REQ");
+        assert_eq!(frame[1], EXCHANGE_SUB_ID);
+        assert!(
+            leg.is_healthy(),
+            "the REQ is registered — the relay now pushes every replacement"
+        );
+
+        // A rate-limited CLOSED parks the REQ: the leg is down until it is
+        // re-sent, so heads age out again in the meantime.
+        state.exchange_live_leg.mark_down();
+        assert!(!leg.is_healthy());
+
+        // And a relay that refuses the subscription outright gives the leg up
+        // for good — the gate falls back to reading heads on demand.
+        state.exchange_live_leg.mark_healthy();
+        state.exchange_closed_retries = EXCHANGE_CLOSED_RETRY_LIMIT;
+        let (event_tx, _event_rx) = mpsc::channel::<Option<BuzzEvent>>(1);
+        let (observer_tx, _observer_rx) = mpsc::channel::<Event>(1);
+        let (exchange_tx, _exchange_rx) = mpsc::channel::<Event>(1);
+        let kept = handle_ws_message(
+            Message::Text(
+                serde_json::json!(["CLOSED", EXCHANGE_SUB_ID, "unsupported"])
+                    .to_string()
+                    .into(),
+            ),
+            &mut client,
+            &event_tx,
+            &observer_tx,
+            &exchange_tx,
+            &mut state,
+            &RelayIdentity::Legacy {
+                keys: Box::new(Keys::generate()),
+                auth_tag: None,
+            },
+            "ws://127.0.0.1:1",
+            "agent-pubkey",
+        )
+        .await;
+        assert!(kept, "giving up the leg must not tear down the socket");
+        assert!(!state.exchange_sub_active);
+        assert!(
+            !leg.is_healthy(),
+            "an abandoned leg must put the gate back on REST refreshes"
+        );
     }
 
     /// While the rate-limit gate is armed, an observer frame (kind 24200) is
