@@ -149,8 +149,7 @@ function paint(
       ? boxMetrics(glyph, size, dpr)
       : glyphMetrics(glyph, { size, dpr });
   ctx.clearRect(0, 0, extent, extent);
-  const radius =
-    cell * (fit === "box" ? BOX_CORNER_RATIO : cornerRatio(size));
+  const radius = cell * (fit === "box" ? BOX_CORNER_RATIO : cornerRatio(size));
   // Box fit lays cells on whole pixels, so neighbours meet exactly; the quiet
   // lab fit keeps its half-pixel overlap to hide lattice seams.
   const overlap = fit === "box" ? 0 : OVERLAP;

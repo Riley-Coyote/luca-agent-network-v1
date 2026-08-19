@@ -84,10 +84,10 @@ test("arms (does not fire) before the window elapses", () => {
   );
 });
 
-test("window is minutes-scale — far beyond the 25s turn-store prune", () => {
+test("window comfortably exceeds the 25s turn-store prune", () => {
   // A relay hiccup makes a mid-turn agent look idle after 25s; the window
-  // must dwarf that so the flicker resets it long before firing.
-  assert.ok(AUTO_RESTART_QUIESCENCE_MS >= 2 * 60 * 1000);
+  // must exceed that by a clear margin so the flicker resets it before firing.
+  assert.ok(AUTO_RESTART_QUIESCENCE_MS >= 2 * 25 * 1000);
 });
 
 // ── edge-trigger state machine ───────────────────────────────────────────────

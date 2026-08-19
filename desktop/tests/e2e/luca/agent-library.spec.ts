@@ -244,10 +244,10 @@ test("start on open promises a fresh relaunch session and preserves identity", a
     .getByRole("button", { name: "Settings" })
     .click();
   await expect(
-    page.getByText(/whenever Luca opens or relaunches/),
+    page.getByText(/Starts when Polyphonic opens/),
   ).toBeVisible();
   const startOnOpen = page.getByRole("switch", {
-    name: "Start resident when Luca opens",
+    name: "Wakes with the app",
   });
   if ((await startOnOpen.getAttribute("aria-checked")) === "true") {
     await startOnOpen.click();
@@ -260,7 +260,7 @@ test("start on open promises a fresh relaunch session and preserves identity", a
   await startOnOpen.click();
 
   await expect(page.getByRole("status")).toContainText(
-    "Will start Mara automatically when the desktop app opens.",
+    "Mara wakes with the app now.",
   );
   const commands = await page.evaluate(
     () => window.__BUZZ_E2E_COMMANDS__ ?? [],

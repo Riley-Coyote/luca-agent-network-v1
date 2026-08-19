@@ -203,6 +203,8 @@ fn run_boot_migrations_inner(app: &tauri::AppHandle, reset_completed: bool) {
     // record. Runs last because it reads `system_prompt`, which the persona
     // and team reconciles above may still rewrite.
     materialize_resident_documents(app);
+    // Luca wakes with the app: a one-shot default for installs that predate it.
+    luca_warm::warm_luca_on_launch(app);
 }
 
 /// Copy one-time app state from the legacy app identifier directory to
@@ -1395,6 +1397,7 @@ mod detach;
 pub use detach::detach_directory_backed_teams;
 mod documents;
 pub use documents::materialize_resident_documents;
+mod luca_warm;
 mod parallelism;
 pub use parallelism::right_size_agent_parallelism;
 

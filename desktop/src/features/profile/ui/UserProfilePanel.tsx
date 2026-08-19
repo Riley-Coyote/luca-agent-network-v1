@@ -491,8 +491,8 @@ export function UserProfilePanel({
       });
       toast.success(
         updated.startOnAppLaunch
-          ? `Will start ${updated.name} automatically.`
-          : `${updated.name} will stay manual-start only.`,
+          ? `${updated.name} wakes with the app now.`
+          : `${updated.name} wakes when you message them.`,
       );
     } catch (error) {
       toast.error(

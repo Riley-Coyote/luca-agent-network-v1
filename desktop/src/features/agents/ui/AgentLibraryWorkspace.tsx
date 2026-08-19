@@ -551,14 +551,14 @@ function SettingsSection({
         <LedgerSection eyebrow="Lifecycle" title="When they run">
           <div className="flex items-center justify-between gap-6 py-2">
             <div>
-              <p className="text-sm">Start when Luca opens</p>
+              <p className="text-sm">Wakes with the app</p>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                Restore this resident with a fresh runtime session whenever Luca
-                opens or relaunches.
+                Starts when Polyphonic opens, so the first message never waits
+                on a cold start. Everyone else wakes when you message them.
               </p>
             </div>
             <Switch
-              aria-label="Start resident when Luca opens"
+              aria-label="Wakes with the app"
               checked={managedAgent.startOnAppLaunch}
               onCheckedChange={onToggleStartOnLaunch}
             />

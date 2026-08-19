@@ -94,10 +94,12 @@ export function PolyphonicPreparingStep({
             persona,
             runtime,
           );
+          // Luca wakes with the app: the first message of a session should
+          // never wait on a cold start. Every other resident wakes on send.
           const created = await createLucaResident({
             ...baseInput,
             spawnAfterCreate: false,
-            startOnAppLaunch: false,
+            startOnAppLaunch: true,
           });
           if (created.profileSyncError)
             throw new Error(created.profileSyncError);

@@ -33,6 +33,8 @@ export type ResidentSummaryViewModel = {
   runtimeLabel: string | null;
   modelLabel: string | null;
   needsAttention: boolean;
+  /** Starts when the app opens (Luca by default); everyone else wakes on send. */
+  wakesWithApp: boolean;
   lastActiveAt: string | null;
 };
 
@@ -148,6 +150,7 @@ export function managedAgentSummary(
     runtimeLabel: runtime.label,
     modelLabel: agent.model,
     needsAttention: availability === "degraded" || availability === "failed",
+    wakesWithApp: agent.startOnAppLaunch,
     lastActiveAt:
       agent.lastStartedAt ?? agent.lastStoppedAt ?? agent.updatedAt ?? null,
   };
@@ -170,6 +173,7 @@ export function personaSummary(
     runtimeLabel: runtime.label,
     modelLabel: persona.model,
     needsAttention: true,
+    wakesWithApp: false,
     lastActiveAt: persona.updatedAt,
   };
 }

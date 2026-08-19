@@ -369,7 +369,7 @@ function AgentSettingsDetail({
             <SettingsOptionGroup>
               <SettingsOptionRow>
                 <div>
-                  <p className="text-sm font-medium">Start when Luca opens</p>
+                  <p className="text-sm font-medium">Wakes with the app</p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     Luca-managed overlay; native schedules remain untouched.
                   </p>

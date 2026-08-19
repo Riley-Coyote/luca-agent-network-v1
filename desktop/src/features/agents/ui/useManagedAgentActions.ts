@@ -361,8 +361,8 @@ export function useManagedAgentActions() {
       });
       setActionNoticeMessage(
         updated.startOnAppLaunch
-          ? `Will start ${updated.name} automatically when the desktop app opens.`
-          : `${updated.name} will stay manual-start only.`,
+          ? `${updated.name} wakes with the app now.`
+          : `${updated.name} wakes when you message them.`,
       );
     } catch (error) {
       setActionErrorMessage(

@@ -43,10 +43,12 @@ export type AutoRestartInputs = {
 };
 
 /** Continuity window: fire-conditions must hold this long uninterrupted.
- * 3 minutes = 18× the 10s turn-liveness cadence — comfortably beyond any
- * relay hiccup that could make a mid-turn agent look idle (the turn store
- * prunes after only 25s, which is why this window is minutes-scale). */
-export const AUTO_RESTART_QUIESCENCE_MS = 3 * 60 * 1000;
+ * 60 s = 6× the 10 s turn-liveness cadence and 2.4× the 25 s turn-store
+ * prune — enough that a relay hiccup making a mid-turn agent look idle
+ * resets the window before it fires, short enough that a document or model
+ * edit reaches a running resident within about a minute of them going quiet
+ * (it was 3 minutes; the wait read as "nothing happened"). */
+export const AUTO_RESTART_QUIESCENCE_MS = 60 * 1000;
 
 export function decideAutoRestart(
   inputs: AutoRestartInputs,

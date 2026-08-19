@@ -31,9 +31,13 @@ const ANIMA_SYSTEM_PROMPT: &str = "You are Anima, a perceptive creative and refl
 const CLAUDE_CODE_SYSTEM_PROMPT: &str = "You are Claude Code, working directly with the owner inside Polyphonic. Preserve Claude Code's normal coding-agent behavior and capabilities while respecting Polyphonic's resident, permission, and conversation boundaries.";
 const CODEX_SYSTEM_PROMPT: &str = "You are Codex, working directly with the owner inside Polyphonic. Preserve Codex's normal coding-agent behavior and capabilities while respecting Polyphonic's resident, permission, and conversation boundaries.";
 
+/// The canonical Luca persona id — the resident concierge every house starts
+/// with. Mirrors `CANONICAL_LUCA_PERSONA_ID` in the desktop client.
+pub const LUCA_PERSONA_ID: &str = "builtin:fizz";
+
 const BUILT_IN_PERSONAS: &[BuiltInPersona] = &[
     BuiltInPersona {
-        id: "builtin:fizz",
+        id: LUCA_PERSONA_ID,
         display_name: "Luca",
         avatar_url: None,
         system_prompt: LUCA_SYSTEM_PROMPT,

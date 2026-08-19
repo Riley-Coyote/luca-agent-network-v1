@@ -258,6 +258,15 @@ function ResidentRosterRow({
         <span className="mt-0.5 block truncate text-xs text-muted-foreground">
           {residentSourceLabel(resident)} ·{" "}
           {residentAvailabilityLabel(resident.availability)}
+          {resident.wakesWithApp ? (
+            <span
+              className="text-muted-foreground/70"
+              data-testid="agent-library-wakes-with-app"
+            >
+              {" "}
+              · wakes with the app
+            </span>
+          ) : null}
         </span>
       </span>
     </button>
