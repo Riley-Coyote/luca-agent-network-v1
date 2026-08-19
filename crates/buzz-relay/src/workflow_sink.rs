@@ -13,7 +13,7 @@ use buzz_core::tenant::CommunityId;
 use buzz_workflow::action_sink::{ActionSink, ActionSinkError};
 use chrono::Utc;
 use nostr::{EventBuilder, Kind, Tag};
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::handlers::event::dispatch_persistent_event;
@@ -146,6 +146,37 @@ fn resolve_mention_pubkeys(text: &str, members: &[(String, String)]) -> Vec<Stri
         }
     }
     out
+}
+
+/// May a workflow owned by `workflow_owner` wake the resident `mention_hex`?
+///
+/// The relay's sibling-mention rule (R3, `handlers::exchange`) is enforced at
+/// ingest, and a workflow's `SendMessage` never goes through ingest — it is
+/// signed with the relay's own key and inserted directly. So the same rule is
+/// restated here, on the only thing that does the waking: the `p` tag.
+///
+/// A mention that is not a registered agent is ordinary and passes. A mention
+/// that *is* a registered agent passes only when `workflow_owner` is that
+/// agent's `agent_owner_pubkey` — the workflow definer reaching for their own
+/// resident. Everything else is dropped, including a lookup failure: a wake we
+/// cannot justify is a wake we do not send.
+async fn workflow_owner_may_wake(
+    state: &Arc<AppState>,
+    tenant: &buzz_core::tenant::TenantContext,
+    mention_hex: &str,
+    workflow_owner: &[u8],
+) -> bool {
+    let Ok(mention_bytes) = hex::decode(mention_hex) else {
+        return false;
+    };
+    match crate::handlers::exchange::resolve_agent_owner(state, tenant, &mention_bytes).await {
+        Ok(None) => true, // not a registered agent — nothing to gate
+        Ok(Some(owner)) => owner == workflow_owner,
+        Err(e) => {
+            warn!("Workflow SendMessage: agent-owner lookup failed, dropping mention: {e:?}");
+            false
+        }
+    }
 }
 
 /// Relay-side action sink — executes workflow side-effects directly.
@@ -290,6 +321,24 @@ impl ActionSink for RelayActionSink {
                 .collect();
             for mentioned in resolve_mention_pubkeys(&text, &named_members) {
                 if mentioned == author_pubkey_hex {
+                    continue;
+                }
+                // R3 holds here too. This event is relay-signed and inserted
+                // below without passing through ingest, so the sibling-mention
+                // gate never sees it: without this check, anyone who can define
+                // a workflow could @-mention someone else's resident and wake
+                // it, unmetered and outside any exchange. A mention that
+                // resolves to a registered agent is kept only when the
+                // workflow's own owner is that agent's owner.
+                if !workflow_owner_may_wake(&state, &tenant, &mentioned, &author_pubkey_bytes).await
+                {
+                    warn!(
+                        channel_id = %channel_id_canonical,
+                        workflow_owner = %author_pubkey_hex,
+                        dropped_mention = %mentioned,
+                        "Workflow SendMessage: dropped an @-mention of an agent this \
+                         workflow's owner does not own — the message posts without waking it"
+                    );
                     continue;
                 }
                 tags.push(

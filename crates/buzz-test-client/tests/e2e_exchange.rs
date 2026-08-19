@@ -42,6 +42,10 @@ const KIND_CREATE_CHANNEL: u16 = 9007;
 /// honor it. Mirrors `buzz_relay::protocol::EXCHANGE_FILTER_UNSUPPORTED`.
 const EXCHANGE_FILTER_UNSUPPORTED: &str =
     "unsupported: #exchange is only supported on COUNT and POST /query";
+/// The refusal for a `#exchange` filter that leaves its kinds open. Mirrors
+/// `buzz_relay::protocol::EXCHANGE_FILTER_KINDS_UNPINNED`.
+const EXCHANGE_FILTER_KINDS_UNPINNED: &str =
+    "unsupported: #exchange requires kinds pinned to room speech (9, 40002)";
 
 fn relay_url() -> String {
     std::env::var("RELAY_URL").unwrap_or_else(|_| "ws://localhost:3000".to_string())
@@ -1254,4 +1258,54 @@ async fn exchange_sidecar_is_refused_on_live_req_and_on_specialised_query_paths(
     .await
     .expect_err("malformed #exchange must be refused");
     assert_eq!(err.0, 400, "got {err:?}");
+
+    // The kind pin is a property of the sidecar, not of `POST /query`. Both
+    // COUNT surfaces enforce it too — otherwise the cheapest way to run an
+    // unbounded `#exchange` scan is to ask for a count instead of a page.
+    for unpinned in [
+        json!({ "#h": [house.channel], "#exchange": ["ab".repeat(32)] }),
+        json!({ "kinds": [KIND_LUCA_EXCHANGE], "#exchange": ["ab".repeat(32)] }),
+    ] {
+        let err = count_raw(&house.http, &owner_hex, vec![unpinned.clone()])
+            .await
+            .expect_err("POST /count must refuse a kind-open #exchange");
+        assert_eq!(err.0, 400, "expected 400 for {unpinned}, got {err:?}");
+        assert_eq!(
+            err.1, EXCHANGE_FILTER_KINDS_UNPINNED,
+            "POST /count should say why: {err:?}"
+        );
+    }
+
+    // ...and the same on the WebSocket COUNT leg.
+    let mut ws = BuzzTestClient::connect(&relay_url(), &house.owner)
+        .await
+        .expect("connect + authenticate");
+    let sub = format!("e2e-exchange-count-{}", uuid::Uuid::new_v4());
+    ws.send_raw(&json!([
+        "COUNT",
+        sub,
+        { "#h": [house.channel], "#exchange": [exchange_id] },
+    ]))
+    .await
+    .expect("send COUNT");
+    let mut closed_reason = None;
+    for _ in 0..8 {
+        match ws.recv_event(Duration::from_secs(5)).await {
+            Ok(RelayMessage::Closed {
+                subscription_id,
+                message,
+            }) if subscription_id == sub => {
+                closed_reason = Some(message);
+                break;
+            }
+            Ok(_) => continue,
+            Err(e) => panic!("expected CLOSED for the kind-open #exchange COUNT, got {e}"),
+        }
+    }
+    assert_eq!(
+        closed_reason.as_deref(),
+        Some(EXCHANGE_FILTER_KINDS_UNPINNED),
+        "WS COUNT must refuse a kind-open #exchange, not answer it"
+    );
+    ws.disconnect().await.expect("disconnect");
 }

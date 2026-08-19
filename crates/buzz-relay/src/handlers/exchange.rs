@@ -145,6 +145,28 @@ pub fn tags_claim_turn(tags: &[Vec<String>], exchange_id: &str, turn: u8) -> boo
     })
 }
 
+/// May a `#exchange` sidecar ride on this filter's `kinds`?
+///
+/// The sidecar is pinned to the two room-speech kinds that can carry a turn tag
+/// at all ([`EXCHANGE_SPEECH_KINDS`]): a filter that omits `kinds`, or admits
+/// any other kind, is asking for an unbounded `#exchange` scan across every
+/// kind in the community, and every candidate row it turns up costs a tag
+/// re-parse outside SQL. Pinning is what keeps the ledger read a ledger read.
+///
+/// Every surface that honors the sidecar — WS COUNT, `POST /count` and
+/// `POST /query` — calls this one predicate, so the three cannot drift; the
+/// refusal they all say is [`crate::protocol::EXCHANGE_FILTER_KINDS_UNPINNED`].
+/// `POST /query` additionally refuses its own specialised read shapes (see
+/// `api::bridge::exchange_sidecar_supported`).
+pub fn exchange_sidecar_kinds_pinned(filter: &nostr::Filter) -> bool {
+    filter.kinds.as_ref().is_some_and(|kinds| {
+        !kinds.is_empty()
+            && kinds
+                .iter()
+                .all(|kind| is_exchange_speech_kind(u32::from(kind.as_u16())))
+    })
+}
+
 /// Does this event carry a well-formed turn tag for any of `exchange_ids`?
 ///
 /// The `#exchange` COUNT/query sidecar uses this to re-check the containment
@@ -821,6 +843,37 @@ mod tests {
             ],
         );
         assert!(!event_matches_exchange_ids(&doubled, &[ROOT.to_owned()]));
+    }
+
+    #[test]
+    fn the_sidecar_is_pinned_to_room_speech_on_every_surface_that_honors_it() {
+        use nostr::Filter;
+
+        let speech = || {
+            Filter::new().kinds([
+                Kind::Custom(KIND_STREAM_MESSAGE as u16),
+                Kind::Custom(KIND_STREAM_MESSAGE_V2 as u16),
+            ])
+        };
+        assert!(exchange_sidecar_kinds_pinned(&speech()));
+        assert!(exchange_sidecar_kinds_pinned(
+            &Filter::new().kind(Kind::Custom(KIND_STREAM_MESSAGE as u16))
+        ));
+        // Kinds omitted entirely: an unbounded `#exchange` scan. This is the
+        // shape WS COUNT and `POST /count` used to answer.
+        assert!(!exchange_sidecar_kinds_pinned(&Filter::new()));
+        // An empty kinds list matches nothing but still is not a pin.
+        assert!(!exchange_sidecar_kinds_pinned(
+            &Filter::new().kinds(Vec::<Kind>::new())
+        ));
+        // One stray kind widens the scan, so the whole filter is refused.
+        assert!(!exchange_sidecar_kinds_pinned(&Filter::new().kinds([
+            Kind::Custom(KIND_STREAM_MESSAGE as u16),
+            Kind::Custom(KIND_LUCA_EXCHANGE as u16),
+        ])));
+        assert!(!exchange_sidecar_kinds_pinned(
+            &Filter::new().kind(Kind::Custom(KIND_STREAM_REMINDER as u16))
+        ));
     }
 
     #[test]

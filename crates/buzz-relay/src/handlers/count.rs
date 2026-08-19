@@ -44,6 +44,19 @@ pub async fn handle_count(
         ));
         return;
     }
+    // A turn tag only ever rides on room speech, so a `#exchange` COUNT must
+    // name those kinds. Left open, it is an unbounded scan whose every
+    // containment hit costs a tag re-parse outside SQL. The same predicate
+    // guards `POST /count` and `POST /query`.
+    for (idx, sidecar) in exchange_ids.iter().enumerate() {
+        if sidecar.is_some() && !super::exchange::exchange_sidecar_kinds_pinned(&filters[idx]) {
+            conn.send(RelayMessage::closed(
+                &sub_id,
+                crate::protocol::EXCHANGE_FILTER_KINDS_UNPINNED,
+            ));
+            return;
+        }
+    }
 
     // Require auth
     let (pubkey_bytes, token_channel_ids) = {

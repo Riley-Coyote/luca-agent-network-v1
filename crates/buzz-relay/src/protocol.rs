@@ -23,6 +23,16 @@ const MAX_EXCHANGE_FILTER_VALUES: usize = 16;
 pub const EXCHANGE_FILTER_UNSUPPORTED: &str =
     "unsupported: #exchange is only supported on COUNT and POST /query";
 
+/// The refusal a caller gets when it asks for `#exchange` on a supported
+/// surface but leaves the kinds open.
+///
+/// A turn tag only ever rides on room speech, so the sidecar is pinned to those
+/// two kinds on every surface that honors it — WS COUNT, `POST /count` and
+/// `POST /query` all say this same sentence, via
+/// [`crate::handlers::exchange::exchange_sidecar_kinds_pinned`].
+pub const EXCHANGE_FILTER_KINDS_UNPINNED: &str =
+    "unsupported: #exchange requires kinds pinned to room speech (9, 40002)";
+
 /// Extract the Luca `#exchange` filter key from a filter's **raw JSON**.
 ///
 /// `nostr` 0.44 deserializes `generic_tags` with a visitor that keeps a `#key`

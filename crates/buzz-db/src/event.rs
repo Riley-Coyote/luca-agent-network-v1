@@ -322,8 +322,52 @@ pub async fn insert_event(
 /// is scoped as tightly as the sidecar that reaches it: only a query that
 /// explicitly names exchange ids sees soft-deleted rows, and that surface is
 /// itself pinned to the two room-speech kinds that can carry a turn tag.
+///
+/// **What a deleted turn comes back as is a tombstone, not an event.** The
+/// exemption exists to prove a turn number is *taken*, and nothing more, so
+/// [`query_events`] projects a deleted row's `content` as the empty string and
+/// its `sig` as [`TOMBSTONE_SIG_SQL`]. The reader learns `id`, `pubkey`,
+/// `created_at`, `kind` and `tags` — enough to see which turn is spent by whom
+/// — and cannot recover the deleted words or re-verify the row as a signed
+/// event. Counting is unaffected: `count_events` never projects columns, so it
+/// keeps counting the tombstone as spent.
 fn includes_deleted_turns(q: &EventQuery) -> bool {
     q.exchange_ids.as_deref().is_some_and(|ids| !ids.is_empty())
+}
+
+/// The signature a tombstoned turn carries in place of the deleted row's own.
+///
+/// Sixty-four zero bytes, not zero bytes: `nostr::Event` parses `sig` as a
+/// schnorr signature, so an empty column fails to deserialize and
+/// [`row_to_stored_event`] would drop the row entirely — the tombstone would
+/// vanish and the desktop's turn picker would strand on a number the relay
+/// still refuses. An all-zero signature keeps the row readable while never
+/// verifying against anything.
+const TOMBSTONE_SIG_SQL: &str = "decode(repeat('00', 64), 'hex')";
+
+/// The `SELECT` list [`query_events`] projects, optionally tombstoning deleted
+/// rows.
+///
+/// `prefix` is `"e."` when the query joins `event_mentions`, `""` otherwise.
+/// When `tombstone_deleted` is set, a soft-deleted row keeps its identity
+/// columns and loses its words and its signature — see [`includes_deleted_turns`].
+fn event_select_list(prefix: &str, tombstone_deleted: bool) -> String {
+    let content = if tombstone_deleted {
+        format!("CASE WHEN {prefix}deleted_at IS NULL THEN {prefix}content ELSE '' END AS content")
+    } else {
+        format!("{prefix}content")
+    };
+    let sig = if tombstone_deleted {
+        format!(
+            "CASE WHEN {prefix}deleted_at IS NULL THEN {prefix}sig ELSE {TOMBSTONE_SIG_SQL} END AS sig"
+        )
+    } else {
+        format!("{prefix}sig")
+    };
+    format!(
+        "{prefix}id, {prefix}pubkey, {prefix}created_at, {prefix}kind, {prefix}tags, \
+         {content}, {sig}, {prefix}received_at, {prefix}channel_id"
+    )
 }
 
 /// Push the Luca `#exchange` containment *prefilter* onto a query builder.
@@ -388,16 +432,19 @@ pub async fn query_events(pool: &PgPool, q: &EventQuery) -> Result<Vec<StoredEve
     let offset_val = q.offset.unwrap_or(0);
     let include_deleted = includes_deleted_turns(q);
 
+    // Use unqualified column names when no join, qualified when joined.
+    let col_prefix = if q.p_tag_hex.is_some() { "e." } else { "" };
+    let select_list = event_select_list(col_prefix, include_deleted);
+
     let mut qb: QueryBuilder<sqlx::Postgres> = if let Some(ref p_hex) = q.p_tag_hex {
         // Join against event_mentions for #p-filtered queries (indexed).
-        let mut b = QueryBuilder::new(
-            "SELECT e.id, e.pubkey, e.created_at, e.kind, e.tags, e.content, \
-             e.sig, e.received_at, e.channel_id \
+        let mut b = QueryBuilder::new(format!(
+            "SELECT {select_list} \
              FROM events e \
              INNER JOIN event_mentions m \
                 ON e.community_id = m.community_id AND e.id = m.event_id \
-             WHERE e.community_id = ",
-        );
+             WHERE e.community_id = "
+        ));
         b.push_bind(q.community_id.as_uuid());
         b.push(" AND m.community_id = ");
         b.push_bind(q.community_id.as_uuid());
@@ -408,19 +455,15 @@ pub async fn query_events(pool: &PgPool, q: &EventQuery) -> Result<Vec<StoredEve
         b.push_bind(p_hex.to_ascii_lowercase());
         b
     } else {
-        let mut b = QueryBuilder::new(
-            "SELECT id, pubkey, created_at, kind, tags, content, sig, received_at, channel_id \
-             FROM events WHERE community_id = ",
-        );
+        let mut b = QueryBuilder::new(format!(
+            "SELECT {select_list} FROM events WHERE community_id = "
+        ));
         b.push_bind(q.community_id.as_uuid());
         if !include_deleted {
             b.push(" AND deleted_at IS NULL");
         }
         b
     };
-
-    // Use unqualified column names when no join, qualified when joined.
-    let col_prefix = if q.p_tag_hex.is_some() { "e." } else { "" };
 
     if let Some(ch) = q.channel_id {
         qb.push(format!(" AND {col_prefix}channel_id = "))

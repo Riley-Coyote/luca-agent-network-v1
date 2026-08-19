@@ -317,31 +317,22 @@ fn extract_before_id(raw: &Value) -> BeforeId {
     }
 }
 
-/// May this filter carry the Luca `#exchange` sidecar on `POST /query`?
+/// Does this filter reach `POST /query`'s plain catch-all read path?
 ///
-/// The sidecar is only honored on the plain catch-all read path, which fetches
+/// The `#exchange` sidecar is only honored there, because that path fetches
 /// candidate rows and re-checks each one's turn tag. Every specialised path
 /// (`top_level` channel windows, `feed_types`, `depth_limit` threads, NIP-50
 /// search, presence synthesis) answers from its own query shape and would drop
-/// the constraint silently, so those combinations are refused instead. The
-/// sidecar is also pinned to the two room-speech kinds that can carry a turn
-/// tag at all — an unbounded `#exchange` scan is not a thing we offer.
-fn exchange_sidecar_supported(raw: &Value, filter: &nostr::Filter) -> bool {
-    if extension_flag(raw, "top_level")
+/// the constraint silently, so those combinations are refused instead.
+///
+/// This is `POST /query`'s half of the rule only; the kind pinning that applies
+/// to *every* surface honoring the sidecar lives in
+/// [`crate::handlers::exchange::exchange_sidecar_kinds_pinned`].
+fn exchange_sidecar_read_path_supported(raw: &Value, filter: &nostr::Filter) -> bool {
+    !(extension_flag(raw, "top_level")
         || extract_feed_types(raw).is_some()
         || extract_depth_limit(raw).is_some()
-        || filter.search.is_some()
-    {
-        return false;
-    }
-    filter.kinds.as_ref().is_some_and(|kinds| {
-        !kinds.is_empty()
-            && kinds.iter().all(|k| {
-                let k = k.as_u16() as u32;
-                k == buzz_core::kind::KIND_STREAM_MESSAGE
-                    || k == buzz_core::kind::KIND_STREAM_MESSAGE_V2
-            })
-    })
+        || filter.search.is_some())
 }
 
 /// True when the raw filter opts into a bridge extension flag (`top_level`,
@@ -1185,10 +1176,19 @@ async fn query_events_authed(
         .collect::<std::result::Result<_, _>>()
         .map_err(|e| api_error(StatusCode::BAD_REQUEST, &e.to_string()))?;
     for (idx, sidecar) in exchange_sidecars.iter().enumerate() {
-        if sidecar.is_some() && !exchange_sidecar_supported(&raw_filters[idx], &filters[idx]) {
+        if sidecar.is_none() {
+            continue;
+        }
+        if !exchange_sidecar_read_path_supported(&raw_filters[idx], &filters[idx]) {
             return Err(api_error(
                 StatusCode::BAD_REQUEST,
                 crate::protocol::EXCHANGE_FILTER_UNSUPPORTED,
+            ));
+        }
+        if !crate::handlers::exchange::exchange_sidecar_kinds_pinned(&filters[idx]) {
+            return Err(api_error(
+                StatusCode::BAD_REQUEST,
+                crate::protocol::EXCHANGE_FILTER_KINDS_UNPINNED,
             ));
         }
     }
@@ -1639,6 +1639,19 @@ async fn count_events_authed(
         .map(crate::protocol::extract_exchange_sidecar)
         .collect::<std::result::Result<_, _>>()
         .map_err(|e| api_error(StatusCode::BAD_REQUEST, &e.to_string()))?;
+    // The sidecar is pinned to room speech here exactly as it is on `POST
+    // /query` and WS COUNT — one predicate, so the three surfaces cannot drift
+    // into a kind-open `#exchange` scan on whichever one was forgotten.
+    for (idx, sidecar) in exchange_sidecars.iter().enumerate() {
+        if sidecar.is_some()
+            && !crate::handlers::exchange::exchange_sidecar_kinds_pinned(&filters[idx])
+        {
+            return Err(api_error(
+                StatusCode::BAD_REQUEST,
+                crate::protocol::EXCHANGE_FILTER_KINDS_UNPINNED,
+            ));
+        }
+    }
 
     // P-gated kinds enforcement — same as WS REQ and /query.
     let authed_pubkey_hex = pubkey.to_hex();

@@ -4556,10 +4556,39 @@ mod tests {
             ..EventQuery::for_community(community)
         };
         let rows = db.query_events(&ledger).await.expect("read the ledger");
-        assert!(
-            rows.iter().any(|se| se.event.id == first.id),
+        let tombstone = rows.iter().find(|se| se.event.id == first.id).expect(
             "a deleted turn must still be visible to an #exchange read, or the \
-             desktop's turn picker strands on a hole it can never fill"
+             desktop's turn picker strands on a hole it can never fill",
+        );
+        // ...but it comes back as a tombstone, not as the event. The exemption
+        // proves a turn number is taken; it must not hand a reader the words
+        // their author deleted, nor a signature that still verifies.
+        assert_eq!(
+            tombstone.event.content, "",
+            "a deleted turn's content must not survive the #exchange exemption"
+        );
+        assert_eq!(
+            tombstone.event.sig.to_string(),
+            "0".repeat(128),
+            "a deleted turn is a tombstone, not a re-verifiable event"
+        );
+        assert!(
+            tombstone
+                .event
+                .tags
+                .iter()
+                .any(|tag| tag.as_slice().first().is_some_and(|k| k == "exchange")),
+            "the tombstone must keep its turn tag — that is the whole point of it"
+        );
+        // A row that was never deleted is untouched by the same read.
+        let live = rows
+            .iter()
+            .find(|se| se.event.content == "turn two")
+            .expect("turn 2 is still live");
+        assert_ne!(
+            live.event.sig.to_string(),
+            "0".repeat(128),
+            "tombstoning must not reach a row that was never deleted"
         );
         assert_eq!(
             db.count_events(&ledger).await.expect("count the ledger") as usize,
