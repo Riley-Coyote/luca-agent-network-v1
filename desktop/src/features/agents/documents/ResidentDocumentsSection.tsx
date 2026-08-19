@@ -43,10 +43,21 @@ export function ResidentDocumentsSection({
   const [newFilePath, setNewFilePath] = React.useState("");
   const [newFileError, setNewFileError] = React.useState<string | null>(null);
 
+  const byKind = new Map<string, ResidentDocumentEntry>(
+    (documents.data?.documents ?? []).map((entry) => [entry.kind, entry]),
+  );
+  const extraFiles = documents.data?.extraFiles ?? [];
+  const isNative = documents.data?.source === "native";
+  const runtimeName = documents.data?.nativeRuntime ?? "Their runtime";
+
   if (selected) {
     return (
       <ResidentDocumentEditor
         agent={agent}
+        fileNameOverride={
+          "kind" in selected ? byKind.get(selected.kind)?.fileName : undefined
+        }
+        nativeRuntime={isNative ? runtimeName : null}
         onBack={() => setSelected(null)}
         onRestart={onRestart}
         residentName={residentName}
@@ -54,12 +65,6 @@ export function ResidentDocumentsSection({
       />
     );
   }
-
-  const byKind = new Map<string, ResidentDocumentEntry>(
-    (documents.data?.documents ?? []).map((entry) => [entry.kind, entry]),
-  );
-  const extraFiles = documents.data?.extraFiles ?? [];
-  const isNative = documents.data?.source === "native";
 
   const openNewFile = () => {
     const error = validateExtraFilePath(newFilePath);
@@ -84,11 +89,47 @@ export function ResidentDocumentsSection({
         </p>
       ) : null}
 
+      {isNative && documents.data ? (
+        <p
+          className="mb-5 text-sm leading-6 text-muted-foreground"
+          data-testid="resident-documents-native-note"
+        >
+          {runtimeName} keeps these files itself, in{" "}
+          <span className="font-mono text-xs text-muted-foreground/80">
+            {documents.data.dir}
+          </span>
+          . Edits go straight to them; {runtimeName} reads them when the
+          resident next starts.
+        </p>
+      ) : null}
+
       <ul className="divide-y divide-border/45 border-y border-border/55">
         {RESIDENT_DOCUMENT_KINDS.map((kind) => {
           const meta = documentKindMeta(kind);
           const entry = byKind.get(kind) ?? null;
           const exists = entry?.exists ?? false;
+          if (isNative && documents.data && !entry) {
+            return (
+              <li
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-6 gap-y-1 py-4"
+                data-testid={`resident-document-${kind}`}
+                key={kind}
+              >
+                <span className="text-base leading-6 text-foreground/45">
+                  {meta.label}
+                </span>
+                <span
+                  className="whitespace-nowrap text-2xs text-muted-foreground/70"
+                  data-testid={`resident-document-${kind}-status`}
+                >
+                  Not part of {runtimeName}
+                </span>
+                <span className="col-span-2 text-sm leading-5 text-muted-foreground/60">
+                  {meta.blurb}
+                </span>
+              </li>
+            );
+          }
           return (
             <li key={kind}>
               <button
@@ -111,7 +152,7 @@ export function ResidentDocumentsSection({
                     {meta.label}
                   </span>
                   <span className="hidden font-mono text-2xs text-muted-foreground/60 sm:inline">
-                    {meta.fileName}
+                    {entry?.fileName ?? meta.fileName}
                   </span>
                 </span>
                 <span

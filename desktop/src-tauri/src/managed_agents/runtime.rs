@@ -2121,9 +2121,13 @@ pub fn spawn_agent_child(
     // A resident with an agent folder spawns on the folder — soul → convictions
     // → self-model → user → instructions, assembled with caps — and the pin
     // (`system_prompt`) is only what a record without a folder receives.
+    // A native resident's runtime composes its own prompt from its own files
+    // (its SOUL.md is the soul); it keeps the pin, never an assembly of ours.
     let effective_prompt = match record.documents_dir.as_deref() {
-        Some(_) => assembled_documents_prompt(app, record),
-        None => super::spawn_hash::effective_spawn_prompt(record),
+        Some(_) if record.native_runtime_binding.is_none() => {
+            assembled_documents_prompt(app, record)
+        }
+        _ => super::spawn_hash::effective_spawn_prompt(record),
     };
     let (effective_model, effective_provider) =
         crate::managed_agents::resolve_effective_model_provider(record, &personas, &global);

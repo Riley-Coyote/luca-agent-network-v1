@@ -160,3 +160,74 @@ test("the conversation drawer's Open lands on Documents", async ({ page }) => {
   await expect(page.getByTestId("resident-documents")).toBeVisible();
   await expect(page.getByTestId("resident-document-soul")).toBeVisible();
 });
+
+test("a native resident's Documents are the runtime's own files", async ({
+  page,
+}) => {
+  const HERMES = "33".repeat(32);
+  await installMockBridge(page, {
+    managedAgents: [
+      {
+        agentCommand: "hermes",
+        channelNames: ["agents"],
+        name: "ziggy",
+        nativeRuntimeBinding: {
+          kind: "hermes",
+          schemaVersion: 1,
+          profileName: "ziggy",
+          hermesHome: "/Users/demo/.hermes/profiles/ziggy",
+          executablePath: "/Users/demo/.local/bin/hermes",
+          runtimeVersion: "1.9.0",
+          defaultWorkspace: "/Users/demo/Projects",
+        },
+        pubkey: HERMES,
+        status: "stopped",
+      },
+    ],
+    residentDocuments: {
+      [HERMES]: {
+        "SOUL.md": "# ziggy\n\nA quiet archivist.\n",
+        "memories/USER.md": "Riley: prefers plain answers.\n",
+        "OPERATIONS.md": "- back up nightly\n",
+      },
+    },
+  });
+  await page.goto("/?e2e=mock#/agents");
+  await page.getByTestId(`agent-library-row-${HERMES}`).click();
+  await expect(page.getByRole("heading", { name: "ziggy" })).toBeVisible();
+
+  const documents = page.getByTestId("resident-documents");
+  await expect(
+    documents.getByTestId("resident-documents-native-note"),
+  ).toContainText("Hermes keeps these files itself");
+  await expect(documents.getByTestId("resident-document-soul")).toContainText(
+    "SOUL.md",
+  );
+  await expect(
+    documents.getByTestId("resident-document-userModel"),
+  ).toContainText("memories/USER.md");
+  await expect(
+    documents.getByTestId("resident-document-instructions-status"),
+  ).toHaveText("Not part of Hermes");
+  await expect(
+    documents.getByTestId("resident-document-convictions-status"),
+  ).toHaveText("Not part of Hermes");
+  await expect(
+    documents.getByTestId("resident-extra-file-OPERATIONS.md"),
+  ).toBeVisible();
+  await expect(documents.getByTestId("resident-new-file")).toHaveCount(0);
+
+  await documents.getByTestId("resident-document-soul").click();
+  const editor = page.getByTestId("resident-document-editor");
+  await expect(editor).toContainText("SOUL.md");
+  await expect(
+    editor.getByTestId("resident-document-restart-note"),
+  ).toContainText("Hermes keeps this file");
+  await editor
+    .getByTestId("resident-document-textarea")
+    .fill("# ziggy\n\nA quiet archivist who keeps receipts.\n");
+  await editor.getByTestId("resident-document-save").click();
+  await expect(editor.getByTestId("resident-document-status")).toContainText(
+    "Saved",
+  );
+});

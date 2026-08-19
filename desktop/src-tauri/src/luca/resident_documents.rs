@@ -46,6 +46,9 @@ use tauri::{AppHandle, Manager as _};
 
 use crate::managed_agents::ManagedAgentRecord;
 
+#[path = "resident_documents/native.rs"]
+pub(crate) mod native;
+
 #[cfg(test)]
 #[path = "resident_documents/tests.rs"]
 mod tests;
@@ -236,8 +239,7 @@ pub(crate) enum DocumentsSource {
     /// The resident's own agent folder under the app data dir.
     Folder,
     /// A bound native runtime's own files, read in place (Hermes profile,
-    /// OpenClaw workspace). Not reachable in this chunk — see [`source_for`].
-    #[allow(dead_code)]
+    /// OpenClaw workspace). See [`native`].
     Native,
 }
 
@@ -296,6 +298,8 @@ pub(crate) struct DocumentsInspector {
     resident_pubkey: String,
     dir: String,
     source: DocumentsSource,
+    /// "Hermes" / "OpenClaw" when `source` is native; `None` for the folder.
+    native_runtime: Option<String>,
     documents: Vec<DocumentEntry>,
     extra_files: Vec<ExtraFileEntry>,
     hash: String,
@@ -602,13 +606,26 @@ fn collect_extra_files(dir: &Path) -> Vec<ExtraFile> {
 
 /// Which files back this resident's documents.
 ///
-/// Chunk 1 always answers [`DocumentsSource::Folder`]. The seam for
-/// [`DocumentsSource::Native`] is here: when a record carries a
-/// `native_runtime_binding`, the kinds resolve to that runtime's own files
-/// (Hermes profile, OpenClaw workspace) read in place, and there is no
-/// assembly because the runtime composes its own prompt.
-pub(crate) fn source_for(_record: Option<&ManagedAgentRecord>) -> DocumentsSource {
-    DocumentsSource::Folder
+/// A record bound to a native runtime whose binding tells us where its files
+/// live answers [`DocumentsSource::Native`]: the kinds resolve to that
+/// runtime's own files (Hermes profile, OpenClaw workspace), read and written
+/// in place, and there is no assembly because the runtime composes its own
+/// prompt. Everything else is the resident's folder.
+pub(crate) fn source_for(record: Option<&ManagedAgentRecord>) -> DocumentsSource {
+    match native_layout_for(record) {
+        Some(_) => DocumentsSource::Native,
+        None => DocumentsSource::Folder,
+    }
+}
+
+/// The native layout behind a record, when it has one we can locate.
+pub(crate) fn native_layout_for(
+    record: Option<&ManagedAgentRecord>,
+) -> Option<native::NativeLayout> {
+    record?
+        .native_runtime_binding
+        .as_ref()
+        .and_then(native::NativeLayout::from_binding)
 }
 
 /// Project one resident's folder for the frontend.
@@ -642,6 +659,7 @@ pub(crate) fn inspect(dir: &Path, pubkey: &str) -> Result<DocumentsInspector, St
         resident_pubkey: pubkey.to_owned(),
         dir: relative_dir(pubkey),
         source: DocumentsSource::Folder,
+        native_runtime: None,
         documents,
         extra_files,
         hash: documents_hash(&loaded),
@@ -773,7 +791,7 @@ pub(crate) fn write(
     let modified_at = std::fs::metadata(&path)
         .map(|metadata| modified_seconds(&metadata))
         .unwrap_or_else(|_| now_seconds());
-    append_journal(dir, &target, writer, bytes, &hash);
+    append_journal(dir, &target, writer, bytes, &hash, None);
     let loaded = load(dir).map_err(WriteError::Rejected)?;
     Ok(WriteReceipt {
         target,
@@ -846,14 +864,21 @@ fn append_journal(
     writer: DocumentWriter,
     bytes: u64,
     hash: &str,
+    native_path: Option<&Path>,
 ) {
-    let entry = serde_json::json!({
+    let mut entry = serde_json::json!({
         "at": now_seconds(),
         "target": target,
         "writer": writer,
         "bytes": bytes,
         "hash": hash,
     });
+    if let (Some(path), Some(object)) = (native_path, entry.as_object_mut()) {
+        object.insert(
+            "path".to_owned(),
+            serde_json::Value::String(path.display().to_string()),
+        );
+    }
     let Ok(mut line) = serde_json::to_vec(&entry) else {
         return;
     };
@@ -1040,7 +1065,12 @@ pub(crate) fn refresh_documents_hash(
     if !dir.is_dir() {
         return Ok(false);
     }
-    let hash = documents_hash(&load(&dir)?);
+    // A native resident's documents are the runtime's files; hash those, so
+    // an edit there is what moves the badge.
+    let hash = match native_layout_for(Some(record)) {
+        Some(layout) => documents_hash(&native::load(&layout)?),
+        None => documents_hash(&load(&dir)?),
+    };
     let relative = relative_dir(&record.pubkey);
     let changed = record.documents_hash.as_deref() != Some(&hash) || record.documents_dir.is_none();
     record.documents_hash = Some(hash);

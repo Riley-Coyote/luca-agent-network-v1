@@ -64,10 +64,10 @@ pub fn list_resident_documents(
     state: State<'_, AppState>,
 ) -> Result<DocumentsInspector, String> {
     let record = resident_authority(&app, &state, &resident_pubkey)?;
-    // Chunk 1 always reads the folder. When `record.native_runtime_binding`
-    // is `Some`, `resident_documents::source_for` is where the `native` branch
-    // lands: the slots then resolve to the bound runtime's own files.
-    let _ = resident_documents::source_for(Some(&record));
+    // A native resident's documents are the runtime's own files, in place.
+    if let Some(layout) = resident_documents::native_layout_for(Some(&record)) {
+        return resident_documents::native::inspect(&layout, &record.pubkey);
+    }
     let dir = resident_documents::resident_dir(&app, &record.pubkey)?;
     resident_documents::inspect(&dir, &record.pubkey)
 }
@@ -82,6 +82,9 @@ pub fn read_resident_document(
     state: State<'_, AppState>,
 ) -> Result<DocumentContent, String> {
     let record = resident_authority(&app, &state, &resident_pubkey)?;
+    if let Some(layout) = resident_documents::native_layout_for(Some(&record)) {
+        return resident_documents::native::read(&layout, target);
+    }
     let dir = resident_documents::resident_dir(&app, &record.pubkey)?;
     resident_documents::read(&dir, target)
 }
@@ -103,14 +106,25 @@ pub fn write_resident_document(
     let record = writable_resident(&app, &state, &resident_pubkey)?;
     let dir = resident_documents::ensure_resident_dir(&app, &record.pubkey)?;
     // The owner is the one editing from the desktop; the resident's own
-    // writes arrive through its runtime, not this command.
-    let receipt = resident_documents::write(
-        &dir,
-        target,
-        &content,
-        expected_hash.as_deref(),
-        DocumentWriter::Owner,
-    )?;
+    // writes arrive through its runtime, not this command. A native
+    // resident's write lands in the runtime's file, journalled in our folder.
+    let receipt = match resident_documents::native_layout_for(Some(&record)) {
+        Some(layout) => resident_documents::native::write(
+            &layout,
+            &dir,
+            target,
+            &content,
+            expected_hash.as_deref(),
+            DocumentWriter::Owner,
+        )?,
+        None => resident_documents::write(
+            &dir,
+            target,
+            &content,
+            expected_hash.as_deref(),
+            DocumentWriter::Owner,
+        )?,
+    };
     stamp_documents_hash(&app, &state, &record.pubkey)?;
     Ok(receipt)
 }

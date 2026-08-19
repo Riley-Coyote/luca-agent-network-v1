@@ -28,12 +28,18 @@ import { Button } from "@/shared/ui/button";
  */
 export function ResidentDocumentEditor({
   agent,
+  fileNameOverride,
+  nativeRuntime = null,
   onBack,
   onRestart,
   residentName,
   target,
 }: {
   agent: ManagedAgent;
+  /** The runtime's own file name for this kind (`SOUL.md`), when native. */
+  fileNameOverride?: string;
+  /** "Hermes" / "OpenClaw" when the file belongs to a native runtime. */
+  nativeRuntime?: string | null;
   onBack: () => void;
   onRestart: () => void;
   residentName: string;
@@ -44,7 +50,7 @@ export function ResidentDocumentEditor({
   const meta = "kind" in target ? documentKindMeta(target.kind) : null;
   const relPath = "relPath" in target ? target.relPath : null;
   const title = meta?.label ?? relPath ?? "";
-  const fileName = meta?.fileName ?? relPath ?? "";
+  const fileName = fileNameOverride ?? meta?.fileName ?? relPath ?? "";
 
   const [draft, setDraft] = React.useState<string | null>(null);
   const [conflictHash, setConflictHash] = React.useState<string | null>(null);
@@ -224,7 +230,28 @@ export function ResidentDocumentEditor({
         </div>
       </div>
 
-      {meta?.assembled ? (
+      {nativeRuntime ? (
+        <p
+          className="mt-4 border-t border-border/45 pt-3 text-2xs leading-4 text-muted-foreground"
+          data-testid="resident-document-restart-note"
+        >
+          {nativeRuntime} keeps this file; it reads it when {residentName} next
+          starts.
+          {agent.needsRestart && isRunning ? (
+            <>
+              {" "}
+              <button
+                className="text-foreground/80 underline decoration-foreground/30 underline-offset-2 transition-colors hover:text-foreground focus-visible:outline-hidden"
+                data-testid="resident-document-restart"
+                onClick={onRestart}
+                type="button"
+              >
+                Restart now
+              </button>
+            </>
+          ) : null}
+        </p>
+      ) : meta?.assembled ? (
         <p
           className="mt-4 border-t border-border/45 pt-3 text-2xs leading-4 text-muted-foreground"
           data-testid="resident-document-restart-note"

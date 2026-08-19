@@ -52,9 +52,15 @@ export type ResidentDocumentsSource = "folder" | "native";
 
 export type ResidentDocumentsInspector = {
   residentPubkey: string;
-  /** Relative to the app data dir, e.g. `residents/<pubkey>`. */
+  /**
+   * The folder: relative to the app data dir, e.g. `residents/<pubkey>`.
+   * Native: the runtime's own directory (a Hermes profile home, an OpenClaw
+   * workspace), as an absolute path.
+   */
   dir: string;
   source: ResidentDocumentsSource;
+  /** "Hermes" / "OpenClaw" when `source` is `native`; null for the folder. */
+  nativeRuntime: string | null;
   documents: ResidentDocumentEntry[];
   extraFiles: ResidentExtraFileEntry[];
   /** Content hash over every document and extra file; changes on any write. */

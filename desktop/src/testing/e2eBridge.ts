@@ -2156,6 +2156,51 @@ const RESIDENT_DOCUMENT_SLOT_FILE_NAMES = new Set(
   RESIDENT_DOCUMENT_SLOTS.map((slot) => slot.fileName),
 );
 
+/**
+ * A native resident's documents are the runtime's own files. Mirrors
+ * `resident_documents::native::NativeLayout::file_for` — kinds a runtime has
+ * no file for are absent, and the file names are the runtime's.
+ */
+function nativeDocumentLayout(residentPubkey: string): {
+  runtime: string;
+  dir: string;
+  slots: ReadonlyArray<{
+    kind: ResidentDocumentKind;
+    fileName: string;
+    writer: ResidentDocumentWriter;
+  }>;
+} | null {
+  const agent = mockManagedAgents.find(
+    (candidate) =>
+      candidate.pubkey.toLowerCase() === residentPubkey.toLowerCase(),
+  );
+  const binding = agent?.native_runtime_binding;
+  if (!binding) return null;
+  if (binding.kind === "hermes") {
+    return {
+      runtime: "Hermes",
+      dir: binding.hermesHome,
+      slots: [
+        { kind: "soul", fileName: "SOUL.md", writer: "owner" },
+        { kind: "selfModel", fileName: "IDENTITY.md", writer: "agent" },
+        { kind: "userModel", fileName: "memories/USER.md", writer: "agent" },
+      ],
+    };
+  }
+  return {
+    runtime: "OpenClaw",
+    dir:
+      binding.defaultWorkspace ??
+      `${binding.stateDirectory ?? "~/.openclaw"}/workspace-${binding.agentId}`,
+    slots: [
+      { kind: "soul", fileName: "SOUL.md", writer: "owner" },
+      { kind: "selfModel", fileName: "IDENTITY.md", writer: "agent" },
+      { kind: "userModel", fileName: "USER.md", writer: "agent" },
+      { kind: "instructions", fileName: "AGENTS.md", writer: "owner" },
+    ],
+  };
+}
+
 /** Fixed unix-seconds base so seeded mtimes are stable across runs. */
 const RESIDENT_DOCUMENT_EPOCH_SECONDS = 1_760_000_000;
 
@@ -2234,12 +2279,19 @@ function residentDocumentsFolderHash(residentPubkey: string): string {
   return residentDocumentHash(payload);
 }
 
-function residentDocumentFileName(target: ResidentDocumentTarget): string {
+function residentDocumentFileName(
+  residentPubkey: string,
+  target: ResidentDocumentTarget,
+): string {
   if ("kind" in target) {
-    const slot = RESIDENT_DOCUMENT_SLOTS.find((it) => it.kind === target.kind);
+    const native = nativeDocumentLayout(residentPubkey);
+    const slots = native ? native.slots : RESIDENT_DOCUMENT_SLOTS;
+    const slot = slots.find((it) => it.kind === target.kind);
     if (!slot) {
       throw new Error(
-        `mock resident documents: unknown kind ${String(target.kind)}`,
+        native
+          ? `${native.runtime} has no ${String(target.kind)} document`
+          : `mock resident documents: unknown kind ${String(target.kind)}`,
       );
     }
     return slot.fileName;
@@ -2258,23 +2310,26 @@ function buildResidentDocumentsInspector(
   residentPubkey: string,
 ): ResidentDocumentsInspector {
   const folder = residentDocumentFolder(residentPubkey);
+  const native = nativeDocumentLayout(residentPubkey);
+  const slots = native ? native.slots : RESIDENT_DOCUMENT_SLOTS;
+  const slotFileNames = native
+    ? new Set(native.slots.map((slot) => slot.fileName))
+    : RESIDENT_DOCUMENT_SLOT_FILE_NAMES;
 
-  const documents: ResidentDocumentEntry[] = RESIDENT_DOCUMENT_SLOTS.map(
-    (slot) => {
-      const file = folder.get(slot.fileName);
-      return {
-        kind: slot.kind,
-        fileName: slot.fileName,
-        writer: slot.writer,
-        exists: file !== undefined,
-        bytes: file ? residentDocumentBytes(file.content) : 0,
-        modifiedAt: file?.modifiedAt ?? null,
-      };
-    },
-  );
+  const documents: ResidentDocumentEntry[] = slots.map((slot) => {
+    const file = folder.get(slot.fileName);
+    return {
+      kind: slot.kind,
+      fileName: slot.fileName,
+      writer: slot.writer,
+      exists: file !== undefined,
+      bytes: file ? residentDocumentBytes(file.content) : 0,
+      modifiedAt: file?.modifiedAt ?? null,
+    };
+  });
 
   const extraFiles: ResidentExtraFileEntry[] = [...folder.entries()]
-    .filter(([fileName]) => !RESIDENT_DOCUMENT_SLOT_FILE_NAMES.has(fileName))
+    .filter(([fileName]) => !slotFileNames.has(fileName))
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([relPath, file]) => ({
       relPath,
@@ -2284,8 +2339,9 @@ function buildResidentDocumentsInspector(
 
   return {
     residentPubkey,
-    dir: residentDocumentsDir(residentPubkey),
-    source: "folder",
+    dir: native ? native.dir : residentDocumentsDir(residentPubkey),
+    source: native ? "native" : "folder",
+    nativeRuntime: native ? native.runtime : null,
     documents,
     extraFiles,
     hash: residentDocumentsFolderHash(residentPubkey),
@@ -2297,7 +2353,7 @@ function readMockResidentDocument(
   target: ResidentDocumentTarget,
 ): ResidentDocumentContent {
   const file = residentDocumentFolder(residentPubkey).get(
-    residentDocumentFileName(target),
+    residentDocumentFileName(residentPubkey, target),
   );
   return {
     target,
@@ -2314,7 +2370,7 @@ function writeMockResidentDocument(
   content: string,
   expectedHash: string | null,
 ): ResidentDocumentWriteReceipt {
-  const fileName = residentDocumentFileName(target);
+  const fileName = residentDocumentFileName(residentPubkey, target);
   const folder = ensureResidentDocumentFolder(residentPubkey);
   const current = folder.get(fileName);
   const currentHash = current ? residentDocumentHash(current.content) : null;
