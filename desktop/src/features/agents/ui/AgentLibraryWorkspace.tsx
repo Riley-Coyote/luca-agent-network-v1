@@ -99,7 +99,9 @@ export function AgentLibraryWorkspace({
         className="border-b border-border/60 px-5 pb-5 pt-11 sm:px-7 md:py-5"
         data-testid="agent-status-strip"
       >
-        <div className="flex min-w-0 items-start gap-4">
+        {/* Wraps at narrow widths: the controls drop below the name instead
+            of covering it. */}
+        <div className="flex min-w-0 flex-wrap items-start gap-x-4 gap-y-3">
           <Button
             aria-label="Back to agents"
             className={cn("mt-0.5", !showBackButton && "hidden")}
@@ -121,7 +123,7 @@ export function AgentLibraryWorkspace({
               {resident.displayName.slice(0, 1).toUpperCase()}
             </span>
           )}
-          <div className="min-w-0 flex-1">
+          <div className="min-w-[10rem] flex-1">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <h2 className="truncate text-xl font-medium tracking-tight">
                 {resident.displayName}
@@ -177,7 +179,7 @@ export function AgentLibraryWorkspace({
               )}
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             {managedAgent ? (
               <>
                 <Button
