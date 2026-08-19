@@ -4336,47 +4336,74 @@ fn build_mcp_servers(config: &Config) -> Vec<McpServer> {
     }]
 }
 
-/// Reuse Buzz's original CLI-backed MCP for ordinary managed conversation
-/// turns. The harness remains managed for inbound delivery and final replies;
-/// this server supplies the resident's existing Buzz communication commands.
+/// The resident's shell-and-files MCP for ordinary managed conversation turns.
+///
+/// This is Buzz's original CLI-backed MCP, but it carries **no relay
+/// credential**: not the resident's key, not the owner attestation, not the
+/// owner pubkey. A managed resident publishes through the host, and reaches a
+/// sibling by saying `@Name` in its reply — the house opens the exchange. The
+/// first live test showed a model, given a signing key here, explore the CLI,
+/// open a DM on its own, get refused by the relay's exchange gate, and route
+/// around it by deleting the `@`. Capability is the guard, not prose.
+///
+/// The desktop still opts in by supplying the direct identity (`direct_mcp_keys`);
+/// that opt-in now only decides whether the shell exists, never what it may sign.
 fn build_direct_buzz_mcp_server(config: &Config) -> Option<McpServer> {
     if !config.identity.is_managed() || config.mcp_command.is_empty() {
         return None;
     }
-    let keys = config.direct_mcp_keys.as_ref()?;
-    let mut env = vec![
-        EnvVar {
-            name: "BUZZ_RELAY_URL".into(),
-            value: config.relay_url.clone(),
-        },
-        EnvVar {
-            name: "BUZZ_ACP_DIRECT_PRIVATE_KEY".into(),
-            value: keys
-                .secret_key()
-                .to_bech32()
-                .expect("secret key bech32 encoding should never fail"),
-        },
-    ];
-    if let Ok(auth_tag) = std::env::var("BUZZ_AUTH_TAG") {
-        if !auth_tag.is_empty() {
-            env.push(EnvVar {
-                name: "BUZZ_AUTH_TAG".into(),
-                value: auth_tag,
-            });
-        }
-    }
-    if let Some(owner) = config.agent_owner.as_deref() {
-        env.push(EnvVar {
-            name: "BUZZ_ACP_AGENT_OWNER".into(),
-            value: owner.to_owned(),
-        });
-    }
+    config.direct_mcp_keys.as_ref()?;
     Some(McpServer {
         name: "buzz".into(),
         command: config.mcp_command.clone(),
         args: vec![],
-        env,
+        env: direct_buzz_mcp_env(&config.relay_url),
     })
+}
+
+/// The whole environment the managed shell receives: the relay URL and nothing
+/// that can sign. Kept as its own function so the test below can pin the
+/// invariant without standing up a managed identity.
+fn direct_buzz_mcp_env(relay_url: &str) -> Vec<EnvVar> {
+    vec![EnvVar {
+        name: "BUZZ_RELAY_URL".into(),
+        value: relay_url.to_owned(),
+    }]
+}
+
+#[cfg(test)]
+mod direct_buzz_mcp_tests {
+    use super::*;
+
+    /// The shell a managed resident gets must never carry a relay credential:
+    /// no resident key, no owner attestation, no owner pubkey. Only the relay
+    /// URL, so unauthenticated reads keep working and signed writes cannot.
+    #[test]
+    fn the_managed_shell_carries_no_relay_credential() {
+        std::env::set_var(
+            "BUZZ_AUTH_TAG",
+            "present-in-the-harness-but-never-forwarded",
+        );
+        let env = direct_buzz_mcp_env("ws://localhost:3000");
+        let names: Vec<&str> = env.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["BUZZ_RELAY_URL"],
+            "only the relay URL: {names:?}"
+        );
+        for forbidden in [
+            "BUZZ_PRIVATE_KEY",
+            "BUZZ_ACP_DIRECT_PRIVATE_KEY",
+            "BUZZ_AUTH_TAG",
+            "BUZZ_ACP_AGENT_OWNER",
+        ] {
+            assert!(
+                !names.contains(&forbidden),
+                "{forbidden} must not reach the shell"
+            );
+        }
+        std::env::remove_var("BUZZ_AUTH_TAG");
+    }
 }
 
 #[cfg(test)]
