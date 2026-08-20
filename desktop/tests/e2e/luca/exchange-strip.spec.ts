@@ -8,6 +8,9 @@ import {
 
 const OWNER_PUBKEY = "deadbeef".repeat(8);
 const GENERAL_CHANNEL_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
+// The mock bridge's "random" channel, standing in for a pair DM the note
+// points at — the door only needs a real room on the other side.
+const RANDOM_CHANNEL_ID = "9dae0116-799b-5071-a0a8-fdd30a91a35d";
 const EXCHANGE_ID = "ab".repeat(32);
 const OTHER_EXCHANGE_ID = "cd".repeat(32);
 
@@ -172,6 +175,43 @@ test("an exchange note reads as a sentence in the room", async ({ page }) => {
       "Luca mentioned Vektor, who isn't here — asking across rooms comes next.",
     ),
   ).toBeVisible();
+  await expect(page.getByTestId("exchange-note-room-link")).toHaveCount(0);
+});
+
+test("a placed exchange's note carries a door to the pair DM", async ({
+  page,
+}) => {
+  await openGeneral(page, [openExchange()]);
+  await waitForMockLiveSubscription(page, "general");
+
+  await page.evaluate(
+    ({ exchangeId, owner, luca, pairDmId }) => {
+      window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+        channelName: "general",
+        kind: 40099,
+        pubkey: owner,
+        content: JSON.stringify({
+          type: "exchange-note",
+          exchange_id: exchangeId,
+          resident: luca,
+          text: "Luca asked Vektor — in their DM.",
+          conversation_id: pairDmId,
+        }),
+      });
+    },
+    {
+      exchangeId: EXCHANGE_ID,
+      owner: OWNER_PUBKEY,
+      luca: LUCA.pubkey,
+      pairDmId: RANDOM_CHANNEL_ID,
+    },
+  );
+
+  await expect(page.getByText("Luca asked Vektor — in their DM.")).toBeVisible();
+  const door = page.getByTestId("exchange-note-room-link");
+  await expect(door).toBeVisible();
+  await door.click();
+  await expect(page.getByTestId("chat-title")).toHaveText("random");
 });
 
 test("no signature raises the ceiling", async ({ page }) => {
