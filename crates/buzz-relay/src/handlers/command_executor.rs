@@ -65,6 +65,7 @@ pub async fn handle_command(
         KIND_DM_OPEN => handle_dm_open(tenant, state, &event, &auth).await,
         KIND_DM_ADD_MEMBER => handle_dm_add_member(tenant, state, &event, &auth).await,
         KIND_DM_HIDE => handle_dm_hide(tenant, state, &event, &auth).await,
+        KIND_LUCA_EXCHANGE_NOTE => handle_exchange_note(tenant, state, &event, &auth).await,
         KIND_WORKFLOW_DEF => handle_workflow_def(tenant, state, &event, &auth).await,
         KIND_WORKFLOW_TRIGGER => handle_workflow_trigger(tenant, state, &event, &auth).await,
         KIND_APPROVAL_GRANT => handle_approval_grant(tenant, state, &event, &auth).await,
@@ -643,6 +644,153 @@ async fn handle_dm_hide(
     }
 
     // 6. Return response
+    Ok(IngestResult {
+        event_id: event.id.to_hex(),
+        accepted: true,
+        message: "{}".into(),
+    })
+}
+
+/// Longest sentence an exchange note may carry, in bytes.
+const MAX_EXCHANGE_NOTE_TEXT_BYTES: usize = 1024;
+
+/// The validated fields of one exchange-note command, rebuilt server-side so
+/// the room only ever renders a payload this handler chose to say.
+struct ExchangeNoteFields {
+    exchange_id: Option<String>,
+    resident_hex: String,
+    text: String,
+    conversation_id: Option<String>,
+}
+
+/// Validate an exchange-note command's content without touching the database.
+///
+/// Everything shape-checkable is checked here: the payload must be the one
+/// note type, the sentence must exist and fit, the resident must be a pubkey,
+/// and the optional exchange id and room pointer must look like what they
+/// claim to be. Ownership and membership stay with the handler.
+fn validate_exchange_note_content(content: &str) -> Result<ExchangeNoteFields, &'static str> {
+    let payload: serde_json::Value =
+        serde_json::from_str(content).map_err(|_| "exchange note is not JSON")?;
+    if payload.get("type").and_then(serde_json::Value::as_str) != Some("exchange-note") {
+        return Err("exchange note type must be exchange-note");
+    }
+    let text = payload
+        .get("text")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .ok_or("exchange note needs a sentence")?;
+    if text.len() > MAX_EXCHANGE_NOTE_TEXT_BYTES {
+        return Err("exchange note sentence is too long");
+    }
+    let resident_hex = payload
+        .get("resident")
+        .and_then(serde_json::Value::as_str)
+        .ok_or("exchange note needs a resident")?;
+    if !is_hex64(resident_hex) {
+        return Err("exchange note resident is not a pubkey");
+    }
+    let exchange_id = match payload.get("exchange_id") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(id)) if is_hex64(id) => Some(id.clone()),
+        Some(_) => return Err("exchange note exchange_id is not an exchange id"),
+    };
+    let conversation_id = match payload.get("conversation_id") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(id)) if Uuid::parse_str(id).is_ok() => Some(id.clone()),
+        Some(_) => return Err("exchange note conversation_id is not a channel id"),
+    };
+    Ok(ExchangeNoteFields {
+        exchange_id,
+        resident_hex: resident_hex.to_owned(),
+        text: text.to_owned(),
+        conversation_id,
+    })
+}
+
+fn is_hex64(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+/// Luca exchange note: the owner asks the house to say one sentence in a room.
+///
+/// The author must be a member of the room and must own the resident the
+/// sentence is about; the relay then answers with a relay-signed kind:40099
+/// carrying a payload rebuilt from the validated fields, so the room's system
+/// voice stays the relay's own. The command event is persisted for idempotency
+/// and never fanned out — a duplicate submission says nothing twice.
+async fn handle_exchange_note(
+    tenant: &TenantContext,
+    state: &Arc<AppState>,
+    event: &Event,
+    auth: &IngestAuth,
+) -> Result<IngestResult, IngestError> {
+    let self_bytes = auth.pubkey().to_bytes().to_vec();
+
+    let channel_id_str = extract_h_tag(event)
+        .ok_or_else(|| IngestError::Rejected("invalid: missing h tag (channel_id)".into()))?;
+    let channel_id = Uuid::parse_str(&channel_id_str)
+        .map_err(|_| IngestError::Rejected("invalid: bad channel_id format".into()))?;
+
+    let fields = validate_exchange_note_content(&event.content)
+        .map_err(|reason| IngestError::Rejected(format!("invalid: {reason}")))?;
+
+    let is_member = state
+        .is_member_cached(tenant.community(), channel_id, &self_bytes)
+        .await
+        .map_err(|e| IngestError::Internal(format!("error: membership check: {e}")))?;
+    if !is_member {
+        return Err(IngestError::Rejected(
+            "forbidden: not a member of this room".into(),
+        ));
+    }
+
+    let resident_bytes = decode_pubkey(&fields.resident_hex)?;
+    let owns = state
+        .db
+        .is_agent_owner(tenant.community(), &resident_bytes, &self_bytes)
+        .await
+        .map_err(|e| IngestError::Internal(format!("error: resident ownership lookup: {e}")))?;
+    if !owns {
+        return Err(IngestError::Rejected(
+            "forbidden: an exchange note may only speak about the author's own resident".into(),
+        ));
+    }
+
+    // Persist the command event (idempotency) — returns open transaction
+    let tx = match persist_command_event(state, tenant, event, Some(channel_id)).await? {
+        PersistResult::Duplicate => {
+            return Ok(IngestResult {
+                event_id: event.id.to_hex(),
+                accepted: true,
+                message: "duplicate: already processed".into(),
+            });
+        }
+        PersistResult::Inserted(tx) => tx,
+    };
+    tx.commit()
+        .await
+        .map_err(|e| IngestError::Internal(format!("error: commit transaction: {e}")))?;
+
+    // Post-commit, best-effort: the sentence itself, in the relay's voice.
+    if let Err(e) = emit_system_message(
+        tenant,
+        state,
+        channel_id,
+        serde_json::json!({
+            "type": "exchange-note",
+            "exchange_id": fields.exchange_id,
+            "resident": fields.resident_hex,
+            "text": fields.text,
+            "conversation_id": fields.conversation_id,
+        }),
+    )
+    .await
+    {
+        warn!("exchange note: system message failed: {e}");
+    }
+
     Ok(IngestResult {
         event_id: event.id.to_hex(),
         accepted: true,
@@ -1324,4 +1472,99 @@ async fn resume_workflow_after_approval(
     engine
         .finalize_run(community_id, run_id, result, existing_trace)
         .await;
+}
+
+#[cfg(test)]
+mod exchange_note_tests {
+    use super::{validate_exchange_note_content, MAX_EXCHANGE_NOTE_TEXT_BYTES};
+
+    fn note(extra: &str) -> String {
+        format!(
+            r#"{{"type":"exchange-note","resident":"{}","text":"Luca asked Vektor — in their DM."{}}}"#,
+            "ab".repeat(32),
+            extra
+        )
+    }
+
+    #[test]
+    fn a_whole_note_validates_and_keeps_its_fields() {
+        let fields = validate_exchange_note_content(&note(&format!(
+            r#","exchange_id":"{}","conversation_id":"9dae0116-799b-5071-a0a8-fdd30a91a35d""#,
+            "cd".repeat(32)
+        )))
+        .expect("a whole note validates");
+        assert_eq!(fields.resident_hex, "ab".repeat(32));
+        assert_eq!(fields.text, "Luca asked Vektor — in their DM.");
+        assert_eq!(
+            fields.exchange_id.as_deref(),
+            Some("cd".repeat(32).as_str())
+        );
+        assert_eq!(
+            fields.conversation_id.as_deref(),
+            Some("9dae0116-799b-5071-a0a8-fdd30a91a35d")
+        );
+    }
+
+    #[test]
+    fn the_pointer_and_exchange_are_optional() {
+        let fields = validate_exchange_note_content(&note("")).expect("a bare note validates");
+        assert_eq!(fields.exchange_id, None);
+        assert_eq!(fields.conversation_id, None);
+    }
+
+    #[test]
+    fn null_pointer_and_exchange_read_as_absent() {
+        let fields =
+            validate_exchange_note_content(&note(r#","exchange_id":null,"conversation_id":null"#))
+                .expect("nulls validate");
+        assert_eq!(fields.exchange_id, None);
+        assert_eq!(fields.conversation_id, None);
+    }
+
+    #[test]
+    fn everything_malformed_is_refused() {
+        for (content, why) in [
+            ("not json".to_owned(), "non-JSON"),
+            (
+                r#"{"type":"message_deleted","text":"x"}"#.to_owned(),
+                "wrong type",
+            ),
+            (
+                format!(
+                    r#"{{"type":"exchange-note","resident":"{}"}}"#,
+                    "ab".repeat(32)
+                ),
+                "missing text",
+            ),
+            (
+                format!(
+                    r#"{{"type":"exchange-note","resident":"{}","text":"   "}}"#,
+                    "ab".repeat(32)
+                ),
+                "blank text",
+            ),
+            (
+                r#"{"type":"exchange-note","resident":"tooshort","text":"x"}"#.to_owned(),
+                "bad resident",
+            ),
+            (note(r#","exchange_id":"nothex""#), "bad exchange id"),
+            (
+                note(r#","conversation_id":"not-a-uuid""#),
+                "bad conversation id",
+            ),
+            (
+                format!(
+                    r#"{{"type":"exchange-note","resident":"{}","text":"{}"}}"#,
+                    "ab".repeat(32),
+                    "x".repeat(MAX_EXCHANGE_NOTE_TEXT_BYTES + 1)
+                ),
+                "oversized text",
+            ),
+        ] {
+            assert!(
+                validate_exchange_note_content(&content).is_err(),
+                "{why} should be refused"
+            );
+        }
+    }
 }

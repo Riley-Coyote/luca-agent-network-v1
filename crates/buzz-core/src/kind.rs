@@ -400,6 +400,10 @@ pub const KIND_DM_OPEN: u32 = 41010;
 pub const KIND_DM_ADD_MEMBER: u32 = 41011;
 /// Hide DM from sidebar.
 pub const KIND_DM_HIDE: u32 = 41012;
+/// Luca exchange note: an owner asks the relay to say one system sentence in a
+/// room about the owner's own resident. The relay validates and answers with a
+/// relay-signed kind:40099; the command itself is never fanned out.
+pub const KIND_LUCA_EXCHANGE_NOTE: u32 = 41013;
 /// A new direct-message conversation was created.
 pub const KIND_DM_CREATED: u32 = 41001;
 
@@ -699,6 +703,7 @@ pub const fn is_command_kind(kind: u32) -> bool {
             | KIND_DM_OPEN
             | KIND_DM_ADD_MEMBER
             | KIND_DM_HIDE
+            | KIND_LUCA_EXCHANGE_NOTE
             | KIND_WORKFLOW_TRIGGER
             | KIND_APPROVAL_GRANT
             | KIND_APPROVAL_DENY
