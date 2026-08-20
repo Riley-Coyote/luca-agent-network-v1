@@ -265,6 +265,10 @@ impl ExchangeRelay for AppExchangeRelay {
         conversation_id: &OpaqueId,
         content: &str,
     ) -> Result<(), ExchangeRelayError> {
+        // NOTE(claude): Owner-signed kind-40099 exchange notes are rejected by
+        // relay ingest because KIND_SYSTEM_MESSAGE has no client-write scope.
+        // Admitting that kind requires the authority change this cleanup brief
+        // explicitly forbids, so the missing DM note cannot be fixed here.
         let tag = Tag::parse(["h", conversation_id.as_str()]).map_err(|error| {
             ExchangeRelayError::Unavailable(format!("exchange note tag is invalid: {error}"))
         })?;
