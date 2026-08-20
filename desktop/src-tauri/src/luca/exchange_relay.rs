@@ -265,15 +265,14 @@ impl ExchangeRelay for AppExchangeRelay {
         conversation_id: &OpaqueId,
         content: &str,
     ) -> Result<(), ExchangeRelayError> {
-        // NOTE(claude): Owner-signed kind-40099 exchange notes are rejected by
-        // relay ingest because KIND_SYSTEM_MESSAGE has no client-write scope.
-        // Admitting that kind requires the authority change this cleanup brief
-        // explicitly forbids, so the missing DM note cannot be fixed here.
+        // The room's system voice is relay-signed, so the note is a command:
+        // the relay validates it and answers with its own kind-40099. A
+        // duplicate submission says nothing twice.
         let tag = Tag::parse(["h", conversation_id.as_str()]).map_err(|error| {
             ExchangeRelayError::Unavailable(format!("exchange note tag is invalid: {error}"))
         })?;
         let builder = EventBuilder::new(
-            Kind::Custom(buzz_core_pkg::kind::KIND_SYSTEM_MESSAGE as u16),
+            Kind::Custom(buzz_core_pkg::kind::KIND_LUCA_EXCHANGE_NOTE as u16),
             content.to_owned(),
         )
         .tags([tag]);
