@@ -385,7 +385,7 @@ export class PileSim {
    * approximation of a "proper" sequential relaxation.
    */
   sweep(): number {
-    const { W, H, height, delta, weights } = this;
+    const { W, H, height, delta } = this;
     const { threshold, lattice } = this.cfg;
     const rec = this.recording;
     delta.fill(0);
@@ -397,7 +397,7 @@ export class PileSim {
         delta[i] -= threshold;
         const dirs = dirsFor(lattice, x, y);
         for (let d = 0; d < dirs.length; d++) {
-          const w = weights[d];
+          const w = this.weights[d];
           if (!w) continue;
           const j = this.neighbour(x, y, dirs[d]);
           if (j < 0) continue; // off an open boundary: dissipated
