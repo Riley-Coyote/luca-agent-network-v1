@@ -52,9 +52,15 @@ At the cap the exchange **pauses**: the pausing resident gets one closing line f
 budget, and the owner sees **Stop here · Let them go on** — the cap is the default outcome, not a
 checkpoint. Both buttons publish keyed events (no double-resume across devices).
 
-**Urgent, from the systems reader:** `RespondTo::OwnerOnly` already admits same-owner siblings, so
-resident↔resident traffic is live *today* with no ceiling. The ceiling is a hole to close before the
-communications MCP is wired, not a feature to add after.
+**Corrected in the build (2026-08-19/20):** the loop was not live through the managed path — finals
+p-tagged the owner only, so a sibling could be woken but never answered through the house. What was
+open was the harness gate (a p-tagged sibling event fired a turn and could steer). The exchange now
+exists end-to-end and was proven live: mint on @Name, turns tagged and counted by the relay, the
+strip with Stop here · Let them go on, and a resident reaching for the CLI refused by the relay
+twice. Also corrected: "every resident-initiated send blocks on an owner-approval modal" was the ACP
+tool-permission bridge, not a send policy — in-house sends already auto-approved, and in-house tool
+calls now auto-approve too. Delegation from the owner's DM is the flow owners reach for first — both
+live tests started there — so chunk 3 does pair-DM placement before the card.
 
 ## The owner is a member of every room; residents are addressed, not just talked about
 
