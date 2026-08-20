@@ -650,6 +650,98 @@ impl ManagedDispatchStore {
         Ok(staged)
     }
 
+    /// Whether a dispatch row exists for this exact (trigger, resident) pair.
+    pub(crate) fn has_dispatch(&self, key: &(String, String)) -> bool {
+        self.dispatches.contains_key(key)
+    }
+
+    /// Stage a dispatch for a turn this store never saw coming — a resident
+    /// woken by another resident's message inside an exchange, or an owner
+    /// message published from another device.
+    ///
+    /// The dispatch here is a receipt, not a gate: the signed trigger event is
+    /// the authority (verified below), the exchange rules at the relay are the
+    /// budget, and this row exists so routing, presentation, and crash-safety
+    /// keep working exactly as they do for locally staged turns. Idempotent:
+    /// re-staging the same (trigger, resident) pair returns the existing row.
+    ///
+    /// TODO(ship): we chose this permissive staging default for build velocity
+    /// (2026-08). Before shipping, review the app's security posture and
+    /// confirm we are happy with how turns acquire dispatch rows.
+    pub(crate) fn stage_wake_from_trigger(
+        &mut self,
+        event: &Event,
+        resident_pubkey: &str,
+        owner_pubkey: &str,
+        now_unix_secs: u64,
+    ) -> Result<(String, String), String> {
+        let resident = resident_pubkey.to_ascii_lowercase();
+        let key = (event.id.to_hex(), resident.clone());
+        if self.dispatches.contains_key(&key) {
+            return Ok(key);
+        }
+        if event.kind != nostr::Kind::Custom(9)
+            || !event.verify_id()
+            || !event.verify_signature()
+            || event.created_at.as_secs() > now_unix_secs + 60
+        {
+            return Err("wake trigger event is invalid".into());
+        }
+        let author = event.pubkey.to_hex();
+        if author == resident {
+            return Err("a resident cannot be woken by its own message".into());
+        }
+        Hex64::parse(resident.clone())
+            .map_err(|_| "wake resident pubkey is invalid".to_string())?;
+        let routing = routing_from_event(event)?;
+        if !routing
+            .trigger_p_tags
+            .iter()
+            .any(|recipient| recipient == &resident)
+        {
+            return Err("wake trigger does not address this resident".into());
+        }
+        let author_is_owner = author == owner_pubkey.to_ascii_lowercase();
+        let candidate = ActiveDispatch {
+            trigger_event_id: key.0.clone(),
+            owner_pubkey: owner_pubkey.to_ascii_lowercase(),
+            resident_pubkey: resident,
+            conversation_id: routing.conversation_id.clone(),
+            thread_id: routing.thread_id.clone(),
+            root_event_id: routing.root_event_id.clone(),
+            reply_event_id: routing.reply_event_id.clone(),
+            source_dispatch_id: Some(event.id.to_hex()),
+            causal_root_event_id: Some(event.id.to_hex()),
+            causal_parent_action_id: None,
+            descendant_depth: u8::from(!author_is_owner),
+            response_surface: Some(routing.response_surface),
+            // The reply addresses whoever asked. For a sibling wake the
+            // exchange resolver still decides whether that reply may publish.
+            resolved_p_tags: vec![author],
+            created_at: now_unix_secs,
+            expires_at: now_unix_secs.saturating_add(DISPATCH_TTL_SECONDS),
+            session_epoch: None,
+            state: ManagedDispatchState::Pending,
+            interruption_reason: None,
+            submitted_event_id: None,
+            published_event_id: None,
+            outbox_finalized: false,
+            artifact_bindings: Vec::new(),
+        };
+        let previous = self.dispatches.clone();
+        self.dispatches.insert(key.clone(), candidate);
+        self.prune(now_unix_secs);
+        if self.dispatches.len() > MAX_DISPATCHES {
+            self.dispatches = previous;
+            return Err("managed dispatch store has no terminal capacity".into());
+        }
+        if let Err(error) = self.persist() {
+            self.dispatches = previous;
+            return Err(error);
+        }
+        Ok(key)
+    }
+
     /// Atomically stage one visible, same-owner, current-member descendant
     /// activation. The signed resident event is the target's exact trigger;
     /// the retained owner and causal coordinates prevent relay replay from
@@ -2028,6 +2120,89 @@ mod tests {
             exchange: None,
             bucket_hint: None,
         }
+    }
+
+    #[test]
+    fn a_wake_is_staged_from_its_own_trigger_and_never_twice() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut store =
+            ManagedDispatchStore::load(dir.path().join("dispatches.json")).expect("load");
+        let owner = Keys::generate();
+        let asker = Keys::generate();
+        let woken = Keys::generate();
+        // A sibling-authored trigger that p-tags the woken resident.
+        let trigger = EventBuilder::new(Kind::Custom(9), "@woken — does §2 hold?")
+            .tags(vec![
+                Tag::parse(["h", CHANNEL_ONE]).expect("h tag"),
+                Tag::public_key(woken.public_key()),
+            ])
+            .custom_created_at(Timestamp::from(100))
+            .sign_with_keys(&asker)
+            .expect("sign sibling event");
+        let key = store
+            .stage_wake_from_trigger(
+                &trigger,
+                &woken.public_key().to_hex(),
+                &owner.public_key().to_hex(),
+                150,
+            )
+            .expect("stage wake");
+        let row = store.dispatches.get(&key).expect("row").clone();
+        assert_eq!(row.descendant_depth, 1, "a sibling wake is one hop out");
+        assert_eq!(row.resolved_p_tags, vec![asker.public_key().to_hex()]);
+        assert_eq!(row.conversation_id, CHANNEL_ONE);
+        // Idempotent: staging again returns the same key, changes nothing.
+        let again = store
+            .stage_wake_from_trigger(
+                &trigger,
+                &woken.public_key().to_hex(),
+                &owner.public_key().to_hex(),
+                160,
+            )
+            .expect("restage");
+        assert_eq!(again, key);
+        assert_eq!(store.dispatches.get(&key).expect("row").created_at, 150);
+        // An owner-authored trigger stages at depth zero.
+        let owner_trigger = event(&owner, &woken, CHANNEL_TWO, "hello");
+        let owner_key = store
+            .stage_wake_from_trigger(
+                &owner_trigger,
+                &woken.public_key().to_hex(),
+                &owner.public_key().to_hex(),
+                150,
+            )
+            .expect("stage owner wake");
+        assert_eq!(
+            store
+                .dispatches
+                .get(&owner_key)
+                .expect("row")
+                .descendant_depth,
+            0
+        );
+        // A trigger that does not address the resident is refused, as is a
+        // resident woken by its own message.
+        let unaddressed = EventBuilder::new(Kind::Custom(9), "nothing for you")
+            .tags(vec![Tag::parse(["h", CHANNEL_ONE]).expect("h tag")])
+            .custom_created_at(Timestamp::from(100))
+            .sign_with_keys(&asker)
+            .expect("sign");
+        assert!(store
+            .stage_wake_from_trigger(
+                &unaddressed,
+                &woken.public_key().to_hex(),
+                &owner.public_key().to_hex(),
+                150,
+            )
+            .is_err());
+        assert!(store
+            .stage_wake_from_trigger(
+                &trigger,
+                &asker.public_key().to_hex(),
+                &owner.public_key().to_hex(),
+                150,
+            )
+            .is_err());
     }
 
     #[test]

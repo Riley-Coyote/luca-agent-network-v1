@@ -251,6 +251,63 @@ struct HandoffScheduler {
 }
 
 impl ManagedMessagePublisher {
+    /// Stage a dispatch row for a turn this desktop never staged itself,
+    /// deriving it from the turn's own signed trigger event on the relay.
+    fn ensure_wake_dispatch(
+        &self,
+        exchange: &ExchangeAuthority,
+        request: &ManagedMessagePublishRequestV1,
+        now_unix_secs: u64,
+    ) {
+        let Ok(mut store) = self.dispatch_store.lock() else {
+            return;
+        };
+        let key = (
+            request.dispatch_receipt_id.as_str().to_owned(),
+            request.resident_pubkey.as_str().to_owned(),
+        );
+        if store.has_dispatch(&key) {
+            return;
+        }
+        let Ok(trigger_id) =
+            luca_protocol::Hex64::parse(request.dispatch_receipt_id.as_str().to_owned())
+        else {
+            return; // not an event-shaped receipt — nothing to derive from
+        };
+        let trigger = match exchange.relay.fetch_trigger(&trigger_id) {
+            Ok(Some(event)) => event,
+            Ok(None) => {
+                eprintln!(
+                    "luca-exchange: wake trigger {} is not on the relay — leaving the turn unstaged",
+                    trigger_id.as_str()
+                );
+                return;
+            }
+            Err(error) => {
+                eprintln!("luca-exchange: wake trigger fetch failed — {error}");
+                return;
+            }
+        };
+        let owner = match exchange.relay.owner() {
+            Ok(owner) => owner,
+            Err(error) => {
+                eprintln!("luca-exchange: owner lookup failed — {error}");
+                return;
+            }
+        };
+        if let Err(error) = store.stage_wake_from_trigger(
+            &trigger,
+            request.resident_pubkey.as_str(),
+            owner.as_str(),
+            now_unix_secs,
+        ) {
+            eprintln!(
+                "luca-exchange: could not stage a wake dispatch for {} — {error}",
+                request.resident_pubkey.as_str()
+            );
+        }
+    }
+
     /// Build the production exact-byte publisher.
     pub(crate) fn new(
         resident_keys: Keys,
@@ -765,6 +822,15 @@ impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
         let Some(exchange) = &self.exchange else {
             return self.resolve_without_exchange_authority(request);
         };
+        // A turn woken by another resident's message (or by an owner message
+        // published from another device) reaches this desktop with no staged
+        // dispatch. Stage it from the trigger event itself — the signed event
+        // is the authority, the row is bookkeeping. Failure here is not a
+        // refusal: the resolver below still decides, visibly.
+        // TODO(ship): permissive-staging default chosen for build velocity
+        // (2026-08); review the security posture before shipping and confirm
+        // we are happy with how turns acquire dispatch rows.
+        self.ensure_wake_dispatch(exchange, request, now_unix_secs);
         let decided = ExchangeResolver::new(
             exchange.relay.as_ref(),
             &exchange.store,

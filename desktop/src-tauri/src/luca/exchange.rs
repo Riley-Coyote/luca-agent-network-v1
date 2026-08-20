@@ -296,6 +296,56 @@ fn now_unix_secs() -> Result<u64, String> {
         .map(|elapsed| elapsed.as_secs())
 }
 
+/// Stage a dispatch for a turn the desktop never staged itself — a resident
+/// woken by a sibling's message inside an exchange, or by an owner message
+/// published from another device. Derives everything from the turn's own
+/// signed trigger event on the relay; the event is the authority, the row is
+/// bookkeeping. Quietly does nothing when the row already exists, and only
+/// logs on failure — downstream authority checks still decide, visibly.
+pub(crate) fn ensure_wake_dispatch(
+    app: &AppHandle,
+    dispatch_store: &Arc<Mutex<crate::luca::managed_dispatch_store::ManagedDispatchStore>>,
+    trigger_event_id: &str,
+    resident_pubkey: &str,
+    now_unix_secs: u64,
+) {
+    {
+        let Ok(store) = dispatch_store.lock() else {
+            return;
+        };
+        let key = (
+            trigger_event_id.to_ascii_lowercase(),
+            resident_pubkey.to_ascii_lowercase(),
+        );
+        if store.has_dispatch(&key) {
+            return;
+        }
+    }
+    let Ok(trigger_id) = Hex64::parse(trigger_event_id.to_ascii_lowercase()) else {
+        return; // not an event-shaped receipt — nothing to derive from
+    };
+    let relay = AppExchangeRelay::new(app.clone());
+    let trigger = match relay.fetch_trigger(&trigger_id) {
+        Ok(Some(event)) => event,
+        Ok(None) => return,
+        Err(error) => {
+            eprintln!("luca-exchange: wake trigger fetch failed — {error}");
+            return;
+        }
+    };
+    let Ok(owner) = owner_pubkey(app) else {
+        return;
+    };
+    let staged = dispatch_store.lock().map_err(|_| ()).and_then(|mut store| {
+        store
+            .stage_wake_from_trigger(&trigger, resident_pubkey, owner.as_str(), now_unix_secs)
+            .map_err(|error| {
+                eprintln!("luca-exchange: could not stage a wake dispatch — {error}");
+            })
+    });
+    let _ = staged;
+}
+
 fn owner_pubkey(app: &AppHandle) -> Result<Hex64, String> {
     let state = app.state::<crate::app_state::AppState>();
     let keys = state.signing_keys()?;

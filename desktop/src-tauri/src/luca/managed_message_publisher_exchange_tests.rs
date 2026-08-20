@@ -12,6 +12,21 @@ struct NoteRecordingExchangeRelay {
 }
 
 impl crate::luca::exchange_relay::ExchangeRelay for NoteRecordingExchangeRelay {
+    fn fetch_trigger(
+        &self,
+        _event_id: &luca_protocol::Hex64,
+    ) -> Result<Option<nostr::Event>, crate::luca::exchange_relay::ExchangeRelayError> {
+        Ok(None)
+    }
+
+    fn owner(
+        &self,
+    ) -> Result<luca_protocol::Hex64, crate::luca::exchange_relay::ExchangeRelayError> {
+        luca_protocol::Hex64::parse("ee".repeat(32)).map_err(|_| {
+            crate::luca::exchange_relay::ExchangeRelayError::Unavailable("owner".into())
+        })
+    }
+
     fn fetch_head(
         &self,
         _exchange_id: &Hex64,

@@ -177,6 +177,22 @@ fn serve(
         let now = chrono::Utc::now().timestamp().max(0) as u64;
         match frame.kind {
             ManagedPresentationKindV1::TurnStarted => {
+                // A turn woken by another resident (or by an owner message
+                // from another device) has no locally staged dispatch. Stage
+                // one from the trigger event itself so the turn presents and
+                // publishes like any other; failure is logged, never fatal —
+                // the binding below still decides, visibly.
+                // TODO(ship): permissive-staging default chosen for build
+                // velocity (2026-08); review the security posture before
+                // shipping and confirm we are happy with how turns acquire
+                // dispatch rows.
+                super::exchange::ensure_wake_dispatch(
+                    &app,
+                    &dispatch_store,
+                    frame.dispatch_receipt_id.as_str(),
+                    frame.resident_pubkey.as_str(),
+                    now,
+                );
                 // Reserve the exact process-memory tuple first. A broker action
                 // cannot use this brief reservation because every action also
                 // rechecks that the durable dispatch is Active. If durable

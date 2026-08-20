@@ -65,6 +65,15 @@ pub(crate) trait ExchangeRelay: Send {
     /// deleted turns stay spent, so a bare cardinality cannot answer it.
     fn spent_turns(&self, record: &ExchangeRecordV1) -> Result<BTreeSet<u8>, ExchangeRelayError>;
 
+    /// The exact signed kind-9 event `event_id`, when the relay holds it.
+    ///
+    /// Used to stage a wake dispatch from a turn's own trigger — the event is
+    /// the authority; the dispatch row is bookkeeping derived from it.
+    fn fetch_trigger(&self, event_id: &Hex64) -> Result<Option<nostr::Event>, ExchangeRelayError>;
+
+    /// The owner of this house.
+    fn owner(&self) -> Result<Hex64, ExchangeRelayError>;
+
     /// Publish the owner-signed exchange record and wait for the relay's OK.
     fn publish_record(
         &self,
@@ -167,6 +176,25 @@ impl ExchangeRelay for AppExchangeRelay {
             created_at: event.created_at.as_secs(),
             event_id,
         }))
+    }
+
+    fn fetch_trigger(&self, event_id: &Hex64) -> Result<Option<nostr::Event>, ExchangeRelayError> {
+        let events = self.query(&[serde_json::json!({
+            "ids": [event_id.as_str()],
+            "kinds": [buzz_core_pkg::kind::KIND_STREAM_MESSAGE],
+            "limit": 1,
+        })])?;
+        Ok(events.into_iter().next())
+    }
+
+    fn owner(&self) -> Result<Hex64, ExchangeRelayError> {
+        let state = self.app.state::<crate::app_state::AppState>();
+        let keys = state
+            .signing_keys()
+            .map_err(ExchangeRelayError::Unavailable)?;
+        Hex64::parse(keys.public_key().to_hex()).map_err(|error| {
+            ExchangeRelayError::Unavailable(format!("owner key is invalid: {error}"))
+        })
     }
 
     fn spent_turns(&self, record: &ExchangeRecordV1) -> Result<BTreeSet<u8>, ExchangeRelayError> {

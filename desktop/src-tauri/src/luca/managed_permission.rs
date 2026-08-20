@@ -187,6 +187,37 @@ pub(crate) fn await_local_decision(
     if request.validate().is_err() {
         return cancelled(&request);
     }
+    // In-house tool calls approve themselves: pick the runtime's own
+    // allow-flavoured option (by its declared semantic kind, never its label)
+    // without raising a card. Set LUCA_ASK_TOOL_PERMISSIONS=1 to get the
+    // approval cards back.
+    // TODO(ship): auto-approval default chosen for build velocity (2026-08);
+    // review the security posture before shipping and confirm we are happy
+    // with this default for the residents this app ships with.
+    if std::env::var("LUCA_ASK_TOOL_PERMISSIONS").as_deref() != Ok("1") {
+        if let Some(option) = request
+            .options
+            .iter()
+            .find(|option| option.kind == "allow_once")
+            .or_else(|| {
+                request
+                    .options
+                    .iter()
+                    .find(|option| option.kind.starts_with("allow"))
+            })
+        {
+            return ManagedPermissionDecisionV1 {
+                protocol: MANAGED_PERMISSION_PROTOCOL.into(),
+                resident_pubkey: request.resident_pubkey.clone(),
+                session_epoch: request.session_epoch,
+                turn_id: request.turn_id.clone(),
+                conversation_id: request.conversation_id.clone(),
+                acp_request_id: request.acp_request_id.clone(),
+                disposition: ManagedPermissionDispositionV1::Selected,
+                option_id: Some(option.option_id.clone()),
+            };
+        }
+    }
     let id = pending_id(&request);
     let (tx, rx) = mpsc::channel();
     let inserted = pending().lock().ok().and_then(|mut entries| {

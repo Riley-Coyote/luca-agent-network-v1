@@ -270,6 +270,14 @@ impl StubRelay {
 }
 
 impl ExchangeRelay for StubRelay {
+    fn fetch_trigger(&self, _event_id: &Hex64) -> Result<Option<nostr::Event>, ExchangeRelayError> {
+        Ok(None)
+    }
+
+    fn owner(&self) -> Result<Hex64, ExchangeRelayError> {
+        Hex64::parse("ee".repeat(32)).map_err(|_| ExchangeRelayError::Unavailable("owner".into()))
+    }
+
     fn fetch_head(
         &self,
         exchange_id: &Hex64,
