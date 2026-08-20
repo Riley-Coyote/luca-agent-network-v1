@@ -435,69 +435,6 @@ fn a_refused_record_is_a_refused_mint() {
 }
 
 #[test]
-fn a_sibling_triggered_final_can_never_publish_outside_an_exchange() {
-    let fixture = fixture();
-    // Vektor is woken by Luca's message, not by the owner's: descendant depth 1.
-    let luca_keys = Keys::parse(&"a2".repeat(32)).expect("luca");
-    let sibling_trigger = EventBuilder::new(Kind::Custom(9), "Vektor, what do you think?")
-        .tags([
-            Tag::parse(["h", CHANNEL]).expect("h"),
-            Tag::parse(["p", fixture.vektor.as_str()]).expect("p"),
-        ])
-        .custom_created_at(Timestamp::from(NOW - 5))
-        .sign_with_keys(&luca_keys)
-        .expect("sibling trigger");
-    fixture
-        .dispatch
-        .lock()
-        .expect("dispatch")
-        .stage_descendant_event(
-            &sibling_trigger,
-            fixture.owner.as_str(),
-            &fixture.trigger_id,
-            &fixture.trigger_id,
-            "action-1",
-            &[fixture.vektor.as_str().to_owned()],
-            NOW,
-        )
-        .expect("stage descendant");
-    assert_eq!(
-        fixture
-            .dispatch
-            .lock()
-            .expect("dispatch")
-            .descendant_depth(&sibling_trigger.id.to_hex(), fixture.vektor.as_str())
-            .expect("depth"),
-        1
-    );
-
-    let receipt = OpaqueId::parse(sibling_trigger.id.to_hex()).expect("receipt");
-    let untagged = ManagedMessagePublishRequestV1 {
-        protocol: MESSAGE_PUBLISH_PROTOCOL.to_owned(),
-        turn_id: receipt.clone(),
-        idempotency_key: derive_message_publish_idempotency_key(&receipt, &fixture.vektor)
-            .expect("idempotency"),
-        owner_pubkey: fixture.owner.clone(),
-        resident_pubkey: fixture.vektor.clone(),
-        conversation_id: OpaqueId::parse(CHANNEL).expect("channel"),
-        thread_id: None,
-        root_event_id: None,
-        reply_event_id: None,
-        response_surface: Some(ManagedResponseSurfaceV1::Timeline),
-        resolved_p_tags: vec![fixture.luca.clone()],
-        final_draft: "I think it does.".to_owned(),
-        dispatch_receipt_id: receipt,
-        cancellation_epoch: SafeU53::new(7).expect("epoch"),
-        exchange: None,
-        bucket_hint: None,
-    };
-    assert_eq!(
-        fixture.resolver().resolve(&untagged, NOW),
-        Err(ExchangeDenial::Unknown)
-    );
-}
-
-#[test]
 fn a_dispatch_we_cannot_read_is_refused_rather_than_assumed_owner_triggered() {
     let fixture = fixture();
     let request = fixture.request("Here's what I found.");

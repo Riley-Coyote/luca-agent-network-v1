@@ -93,16 +93,6 @@ pub enum RuntimeBinding {
     },
 }
 
-/// Advanced Luca Communications tools are currently supported only by the
-/// ACP-native harness tier. Imported native runtimes retain ordinary managed
-/// conversation behavior without receiving the per-turn Communications MCP.
-pub(crate) fn advanced_communications_eligible(binding: Option<&RuntimeBinding>) -> bool {
-    match binding {
-        None => true,
-        Some(RuntimeBinding::Hermes { .. } | RuntimeBinding::Openclaw { .. }) => false,
-    }
-}
-
 impl RuntimeBinding {
     pub(crate) fn launch_preview(&self) -> (String, Vec<String>) {
         let executable = match self {
@@ -1008,42 +998,6 @@ mod tests {
         assert!(!json.contains("secret-token-value"));
         let decoded: RuntimeBinding = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(decoded, binding);
-    }
-
-    #[test]
-    fn advanced_communications_are_limited_to_acp_native_harnesses() {
-        // Codex and Claude Code residents have no native runtime binding and
-        // retain the existing advanced Communications capability.
-        assert!(advanced_communications_eligible(None));
-
-        let hermes = RuntimeBinding::Hermes {
-            schema_version: 1,
-            profile_name: "default".into(),
-            hermes_home: PathBuf::from("/tmp/hermes/default"),
-            executable_path: PathBuf::from("/usr/local/bin/hermes"),
-            runtime_version: "1.0.0".into(),
-            default_workspace: None,
-        };
-        let openclaw = RuntimeBinding::Openclaw {
-            schema_version: 1,
-            agent_id: "main".into(),
-            executable_path: PathBuf::from("/usr/local/bin/openclaw"),
-            runtime_version: "1.0.0".into(),
-            gateway_identity: "gateway:abc".into(),
-            gateway_url_ref: SecretRef {
-                provider: SecretRefProvider::NativeStore,
-                locator: "openclaw:gateway:url".into(),
-                identity_hash: Some("gateway:abc".into()),
-            },
-            gateway_token_file_ref: None,
-            gateway_password_file_ref: None,
-            open_claw_profile: None,
-            state_directory: None,
-            default_workspace: None,
-        };
-
-        assert!(!advanced_communications_eligible(Some(&hermes)));
-        assert!(!advanced_communications_eligible(Some(&openclaw)));
     }
 
     #[test]
