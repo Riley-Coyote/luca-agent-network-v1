@@ -39,6 +39,19 @@ owner's to change.
    distrust our own code. What remains either allows, or refuses out loud where the owner can see
    it. Silence is never enforcement.
 
+## The house rule
+
+*(Added 2026-08-20, decided with Riley.)* **Inside the house, family is trusted by default; checks
+live at the door.** Every resident carries two things: their own name (their key — identity,
+attribution, the self that could one day walk out the door) and the **family crest** (the owner's
+attestation marking them a member of this household). Anything wearing the crest, acting inside the
+machine, is allowed by default — no new feature ever adds an interior gate. The only guards anyone
+writes are at the doors, one per kind of door, kept as a short explicit inventory: reaching the
+internet, messaging off this machine, and whatever door we add next. What comes IN through a door is
+untrusted content, always. And the owner's steering wheel — the visible budget and the Stop button on
+resident conversations — is not a gate; it is how the family notices. A different crest at the door
+is simply a guest: met there, not assumed.
+
 ## While we build
 
 Until we are gearing up to ship, velocity wins: this app carries the security any ordinary app has —
