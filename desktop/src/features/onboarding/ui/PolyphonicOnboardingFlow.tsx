@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { discoverNativeResidents } from "@/shared/api/tauri";
+import { setPolyphonicOnboardingStatus } from "@/shared/api/residentCapabilities";
 import type { NativeResidentDiscoveryOutcome } from "@/shared/api/types";
 import { isSelectableAgentImportCandidate } from "../onboardingAgentImport";
 import type { OnboardingActions, OnboardingProfileSeed } from "./types";
@@ -83,6 +84,13 @@ export function PolyphonicOnboardingFlow({
   const runtimeRef = React.useRef<PolyphonicRuntimeStepHandle>(null);
   const agentsRef = React.useRef<PolyphonicAgentImportStepHandle>(null);
 
+  React.useEffect(() => {
+    void setPolyphonicOnboardingStatus(transaction.chapter, false).catch(() => {
+      // Browser state remains canonical if the protected local mirror is
+      // temporarily unavailable; the next chapter transition repairs it.
+    });
+  }, [transaction.chapter]);
+
   const scan = React.useCallback(async () => {
     const outcome = await discoverNativeResidents();
     setDiscovery(outcome);
@@ -134,6 +142,9 @@ export function PolyphonicOnboardingFlow({
 
   const enterLucaDm = React.useCallback(
     (channelId: string) => {
+      void setPolyphonicOnboardingStatus("complete", true).catch(() => {
+        // Completion is not blocked by a best-effort local status mirror.
+      });
       actions.complete();
       window.location.hash = `/channels/${encodeURIComponent(channelId)}`;
     },

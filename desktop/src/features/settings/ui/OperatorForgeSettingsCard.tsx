@@ -22,6 +22,7 @@ import type { AgentRuntimeTargetV1 } from "@/shared/api/tauriOperatorForge";
 import { Button } from "@/shared/ui/button";
 import { Switch } from "@/shared/ui/switch";
 import { SectionHeader } from "@/shared/ui/PageHeader";
+import { HouseholdAccessLevelControl } from "./ResidentCapabilitySettings";
 
 const LUCA_PERSONA_ID = "builtin:fizz";
 
@@ -160,6 +161,7 @@ export function OperatorForgeSettingsCard() {
           Save default
         </Button>
       </div>
+      <HouseholdAccessLevelControl />
       {notice ? (
         <p
           className="flex items-center gap-2 text-xs text-muted-foreground"

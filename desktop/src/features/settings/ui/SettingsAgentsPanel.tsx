@@ -36,6 +36,7 @@ import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import type { ManagedAgent } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
 import { Switch } from "@/shared/ui/switch";
+import { ResidentAccessControl } from "./ResidentCapabilitySettings";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
 
 const SETTINGS_AGENT_SEARCH_KEYS = [
@@ -289,6 +290,7 @@ function AgentSettingsDetail({
                     ? "-mb-px border-b border-foreground pb-2 text-sm text-foreground"
                     : "-mb-px border-b border-transparent pb-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
                 }
+                data-testid={`settings-agent-tab-${entry}`}
                 key={entry}
                 onClick={() => onTabChange(entry)}
                 type="button"
@@ -338,6 +340,9 @@ function AgentSettingsDetail({
         ) : null}
         {tab === "capabilities" ? (
           <>
+            {resident.pubkey ? (
+              <ResidentAccessControl residentPubkey={resident.pubkey} />
+            ) : null}
             <AgentSettingBlock
               icon={ShieldCheck}
               label="Permission boundary"

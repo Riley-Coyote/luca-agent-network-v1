@@ -291,6 +291,18 @@ impl std::fmt::Display for PermissionMode {
     }
 }
 
+fn effective_managed_permission_mode(
+    managed_identity: bool,
+    resident_access: Option<&str>,
+    requested: PermissionMode,
+) -> PermissionMode {
+    if managed_identity && resident_access != Some("full") {
+        PermissionMode::Default
+    } else {
+        requested
+    }
+}
+
 /// CLI args for `buzz-acp models` — query available models from an agent.
 ///
 /// This is a standalone `Parser` (not a subcommand variant) because the
@@ -1249,13 +1261,16 @@ impl Config {
             typing_enabled: !args.no_typing && !managed_identity,
             memory_enabled: args.memory && !args.no_memory && !managed_identity,
             model,
-            // Managed permissions are mediated by the desktop-local channel;
-            // never ask a runtime to bypass that request flow.
-            permission_mode: if managed_identity {
-                PermissionMode::Default
-            } else {
-                args.permission_mode
-            },
+            // Standard and Restricted residents remain mediated through the
+            // desktop-local permission channel. Only the Desktop's protected
+            // launch marker may translate a resident to its native Full mode.
+            permission_mode: effective_managed_permission_mode(
+                managed_identity,
+                std::env::var("LUCA_MANAGED_RESIDENT_ACCESS")
+                    .ok()
+                    .as_deref(),
+                args.permission_mode,
+            ),
             respond_to: args.respond_to,
             respond_to_allowlist,
             allowed_respond_to,
@@ -2414,6 +2429,34 @@ channels = "ALL"
         assert!(!PermissionMode::AcceptEdits.is_default());
         assert!(!PermissionMode::DontAsk.is_default());
         assert!(!PermissionMode::Plan.is_default());
+    }
+
+    #[test]
+    fn managed_permission_mode_only_broadens_for_desktop_full_access() {
+        assert_eq!(
+            effective_managed_permission_mode(
+                true,
+                Some("standard"),
+                PermissionMode::BypassPermissions,
+            ),
+            PermissionMode::Default
+        );
+        assert_eq!(
+            effective_managed_permission_mode(
+                true,
+                Some("restricted"),
+                PermissionMode::AcceptEdits,
+            ),
+            PermissionMode::Default
+        );
+        assert_eq!(
+            effective_managed_permission_mode(
+                true,
+                Some("full"),
+                PermissionMode::BypassPermissions,
+            ),
+            PermissionMode::BypassPermissions
+        );
     }
 
     #[test]

@@ -1735,8 +1735,9 @@ pub fn spawn_agent_child(
         )?;
     let resolved_acp_command = resolve_command(&record.acp_command)
         .ok_or_else(|| missing_command_message(&record.acp_command, "ACP harness command"))?;
-    // Every ACP-compatible resident receives Buzz's existing CLI-backed MCP.
-    // Hermes and OpenClaw are native runtimes and remain ordinary-chat-only.
+    // ACP-native residents retain Buzz's direct CLI-backed MCP. Native Hermes
+    // and OpenClaw residents keep their own toolsets; desktop adds scoped
+    // repository, Communications, and owner-granted MCP leases below.
     let resolved_mcp_command = if native_runtime.is_none() {
         Some(
             resolve_command("buzz-dev-mcp")
@@ -1862,6 +1863,68 @@ pub fn spawn_agent_child(
             .app_data_dir()
             .map_err(|error| format!("resolve managed agent data directory: {error}"))?
     };
+    #[cfg(unix)]
+    let communication_broker_lease = if super::native_runtime::advanced_communications_eligible(
+        record.native_runtime_binding.as_ref(),
+    ) {
+        let config = crate::luca::communication_action_backend::DesktopCommunicationBackendConfig {
+            app: app.clone(),
+            resident_keys: resident_keys.clone(),
+            session_epoch,
+            resident_auth_tag: record.auth_tag.clone(),
+            relay_url: effective_relay_url.clone(),
+            installation_session_id: installation_session_id.clone(),
+            outbox_path: app_data_dir
+                .join("luca")
+                .join("communication-outbox")
+                .join(format!("{}.age", resident_pubkey.as_str())),
+            vault_directory: app_data_dir
+                .join("luca")
+                .join("communication-event-vault")
+                .join(resident_pubkey.as_str()),
+        };
+        match crate::luca::communication_action_backend::DesktopCommunicationActionBackend::open(
+            config,
+        ) {
+            Ok(backend) => {
+                if let Err(error) = backend.reconcile_one_on_start() {
+                    eprintln!(
+                        "luca-communications: startup reconciliation deferred for {}: {}",
+                        record.name,
+                        error.diagnostic_code()
+                    );
+                }
+                crate::luca::communication_bridge::create_communication_broker_lease(
+                    app,
+                    crate::luca::communication_bridge::CommunicationBrokerContext {
+                        owner_pubkey: owner_pubkey.clone(),
+                        resident_pubkey: resident_pubkey.clone(),
+                        session_epoch,
+                        binding_ref: runtime_binding_ref.clone(),
+                    },
+                    backend.broker_backend(),
+                )
+                .map_err(|error| {
+                    eprintln!(
+                        "luca-communications: tools unavailable for {}: {error}",
+                        record.name
+                    );
+                    error
+                })
+                .ok()
+            }
+            Err(error) => {
+                eprintln!(
+                    "luca-communications: backend unavailable for {}: {}",
+                    record.name,
+                    error.diagnostic_code()
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
     let relay_query_url = format!(
         "{}/query",
         crate::relay::relay_http_base_url(&effective_relay_url).trim_end_matches('/')
@@ -1912,8 +1975,43 @@ pub fn spawn_agent_child(
         command.env_remove("LUCA_MANAGED_OWNER_ATTESTATION");
     }
     command.env("BUZZ_RELAY_URL", &effective_relay_url);
+    let resident_access = crate::luca::resident_capability_authority::effective_access(
+        app,
+        owner_pubkey.as_str(),
+        resident_pubkey.as_str(),
+    )?;
+    let mut effective_agent_args = agent_args.clone();
+    if resident_access == luca_protocol::ResidentAccessLevel::Full
+        && matches!(
+            record.native_runtime_binding.as_ref(),
+            Some(super::native_runtime::RuntimeBinding::Hermes { .. })
+        )
+        && !effective_agent_args
+            .iter()
+            .any(|argument| argument == "--yolo")
+    {
+        // Hermes exposes Full Access as the global --yolo switch. Inject it
+        // only for this resident launch; native configuration is untouched.
+        effective_agent_args.insert(0, "--yolo".into());
+    }
     command.env("BUZZ_ACP_AGENT_COMMAND", &resolved_agent_command);
-    command.env("BUZZ_ACP_AGENT_ARGS", agent_args.join(","));
+    command.env("BUZZ_ACP_AGENT_ARGS", effective_agent_args.join(","));
+    command.env(
+        "BUZZ_ACP_PERMISSION_MODE",
+        match resident_access {
+            luca_protocol::ResidentAccessLevel::Full => "bypass-permissions",
+            luca_protocol::ResidentAccessLevel::Restricted
+            | luca_protocol::ResidentAccessLevel::Standard => "default",
+        },
+    );
+    command.env(
+        "LUCA_MANAGED_RESIDENT_ACCESS",
+        match resident_access {
+            luca_protocol::ResidentAccessLevel::Restricted => "restricted",
+            luca_protocol::ResidentAccessLevel::Standard => "standard",
+            luca_protocol::ResidentAccessLevel::Full => "full",
+        },
+    );
     match &resolved_mcp_command {
         Some(mcp_cmd) => {
             command.env("BUZZ_ACP_MCP_COMMAND", mcp_cmd);
@@ -1923,9 +2021,18 @@ pub fn spawn_agent_child(
         }
     }
     // Never inherit a stale desktop-shell bootstrap. Only this spawn's
-    // successfully created lease may expose the communications broker.
-    command.env_remove("BUZZ_ACP_COMMUNICATIONS_MCP_COMMAND");
-    command.env_remove("BUZZ_ACP_COMMUNICATIONS_MCP_CONFIG");
+    // successfully created lease may expose the Communications broker.
+    #[cfg(unix)]
+    if let Some(lease) = communication_broker_lease.as_ref() {
+        command.env(
+            "BUZZ_ACP_COMMUNICATIONS_MCP_COMMAND",
+            &repository_mcp_command,
+        );
+        command.env("BUZZ_ACP_COMMUNICATIONS_MCP_CONFIG", lease.bootstrap_json());
+    } else {
+        command.env_remove("BUZZ_ACP_COMMUNICATIONS_MCP_COMMAND");
+        command.env_remove("BUZZ_ACP_COMMUNICATIONS_MCP_CONFIG");
+    }
     command.env_remove("BUZZ_ACP_DIRECT_PRIVATE_KEY");
     #[cfg(unix)]
     {
@@ -2375,6 +2482,9 @@ pub fn spawn_agent_child(
                     resident_for_broker.as_str(),
                     epoch_for_broker.get(),
                 );
+                let _ = crate::luca::communication_bridge::stop_communication_broker(
+                    resident_for_broker.as_str(),
+                );
             }) {
             Ok(handle) => handle,
             Err(error) => {
@@ -2409,6 +2519,14 @@ pub fn spawn_agent_child(
         let _ = join_managed_signing_broker(&record.pubkey);
         abort_spawned_child(&mut child);
         return Err(format!("failed to register repository broker: {error}"));
+    }
+    #[cfg(unix)]
+    if let Some(lease) = communication_broker_lease {
+        if let Err(error) = lease.commit() {
+            let _ = join_managed_signing_broker(&record.pubkey);
+            abort_spawned_child(&mut child);
+            return Err(format!("failed to register Communications broker: {error}"));
+        }
     }
 
     // Stamp the adapter availability for runtimes with a version gate (codex

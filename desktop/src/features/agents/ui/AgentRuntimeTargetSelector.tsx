@@ -81,14 +81,14 @@ export function AgentRuntimeTargetSelector({
               value={selectedKey ?? ""}
             >
               <DropdownMenuRadioItem
-                className="min-h-8 rounded-md py-1.5 text-[13px] text-white/70 focus:bg-white/[0.08] focus:text-white"
+                className="min-h-8 rounded-md py-1.5 text-sm text-white/70 focus:bg-white/[0.08] focus:text-white"
                 value=""
               >
                 No default runtime
               </DropdownMenuRadioItem>
               {options.map((option) => (
                 <DropdownMenuRadioItem
-                  className="min-h-8 rounded-md py-1.5 text-[13px] text-white/88 focus:bg-white/[0.08] focus:text-white data-[disabled]:text-white/30"
+                  className="min-h-8 rounded-md py-1.5 text-sm text-white/88 focus:bg-white/[0.08] focus:text-white data-[disabled]:text-white/30"
                   disabled={option.readiness === "unavailable"}
                   key={runtimeTargetKey(option.target)}
                   value={runtimeTargetKey(option.target)}

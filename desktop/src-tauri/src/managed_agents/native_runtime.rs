@@ -93,14 +93,10 @@ pub enum RuntimeBinding {
     },
 }
 
-/// Advanced Luca Communications tools are currently supported only by the
-/// ACP-native harness tier. Imported native runtimes retain ordinary managed
-/// conversation behavior without receiving the per-turn Communications MCP.
-pub(crate) fn advanced_communications_eligible(binding: Option<&RuntimeBinding>) -> bool {
-    match binding {
-        None => true,
-        Some(RuntimeBinding::Hermes { .. } | RuntimeBinding::Openclaw { .. }) => false,
-    }
+/// Every supported runtime may receive the same scoped Communications lease.
+/// The lease carries the authority; runtime provenance must not reduce it.
+pub(crate) fn advanced_communications_eligible(_binding: Option<&RuntimeBinding>) -> bool {
+    true
 }
 
 impl RuntimeBinding {
@@ -1011,9 +1007,7 @@ mod tests {
     }
 
     #[test]
-    fn advanced_communications_are_limited_to_acp_native_harnesses() {
-        // Codex and Claude Code residents have no native runtime binding and
-        // retain the existing advanced Communications capability.
+    fn advanced_communications_are_available_to_every_supported_runtime() {
         assert!(advanced_communications_eligible(None));
 
         let hermes = RuntimeBinding::Hermes {
@@ -1042,8 +1036,8 @@ mod tests {
             default_workspace: None,
         };
 
-        assert!(!advanced_communications_eligible(Some(&hermes)));
-        assert!(!advanced_communications_eligible(Some(&openclaw)));
+        assert!(advanced_communications_eligible(Some(&hermes)));
+        assert!(advanced_communications_eligible(Some(&openclaw)));
     }
 
     #[test]

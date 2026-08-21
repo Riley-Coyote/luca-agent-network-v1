@@ -19,10 +19,11 @@ use std::{
 
 use chrono::Utc;
 use luca_protocol::{
-    canonical_sha256, CanonicalTimestamp, Hex64, ManagedPermissionOptionV1,
-    ManagedPermissionRequestV1, OpaqueId, RepositoryToolOperationV1, RepositoryToolReceiptStatusV1,
-    RepositoryToolReceiptV1, RepositoryToolRequestV1, SafeU53, Sha256Ref,
-    MANAGED_PERMISSION_PROTOCOL, REPOSITORY_WORK_PROTOCOL,
+    canonical_sha256, CanonicalTimestamp, CapabilityKind, CapabilityReceiptStatus,
+    CapabilityReceiptV1, CapabilityResourceV1, CapabilityRisk, Hex64, ManagedPermissionRequestV2,
+    OpaqueId, RepositoryToolOperationV1, RepositoryToolReceiptStatusV1, RepositoryToolReceiptV1,
+    RepositoryToolRequestV1, ResidentAccessLevel, SafeU53, Sha256Ref, CAPABILITY_RECEIPT_PROTOCOL,
+    MANAGED_PERMISSION_V2_PROTOCOL, REPOSITORY_WORK_PROTOCOL,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -34,9 +35,6 @@ mod operations;
 const BROKER_PROTOCOL: &str = "luca.repository.broker.v1";
 const MAX_BROKER_FRAME_BYTES: usize = 768 * 1024;
 const MAX_REPOSITORY_RECEIPTS: usize = 256;
-const ALLOW_ONCE: &str = "luca-repository-allow-once";
-const ALLOW_CONVERSATION: &str = "luca-repository-allow-conversation";
-const REJECT: &str = "luca-repository-reject";
 
 #[derive(Clone)]
 struct BrokerContext {
@@ -334,6 +332,16 @@ fn handle_frame(
     {
         return Err("repository broker capability is stale".into());
     }
+    if frame.operation == RepositoryToolOperationV1::OperatorStatus {
+        if frame
+            .arguments
+            .as_object()
+            .is_none_or(|arguments| !arguments.is_empty())
+        {
+            return Err("operator status arguments are invalid".into());
+        }
+        return operator_status(app, context);
+    }
     if frame.operation == RepositoryToolOperationV1::List {
         if frame
             .arguments
@@ -341,6 +349,20 @@ fn handle_frame(
             .is_none_or(|arguments| !arguments.is_empty())
         {
             return Err("repositories arguments are invalid".into());
+        }
+        if crate::luca::resident_capability_authority::effective_access(
+            app,
+            context.owner_pubkey.as_str(),
+            context.resident_pubkey.as_str(),
+        )? == ResidentAccessLevel::Restricted
+            && !inventory_permission_granted(app, context, &frame.conversation_id)?
+        {
+            return Ok(RepositoryBrokerResponseV1 {
+                protocol: BROKER_PROTOCOL,
+                ok: false,
+                content: "Repository inventory was not approved.".into(),
+                receipt: None,
+            });
         }
         return list_repositories(app, context);
     }
@@ -371,11 +393,29 @@ fn handle_frame(
         )
         .map_err(|error| error.code().to_owned())?;
 
-    if frame.operation.requires_permission()
-        && !permission_granted(app, &request, approvals, active)?
+    let access = crate::luca::resident_capability_authority::effective_access(
+        app,
+        context.owner_pubkey.as_str(),
+        context.resident_pubkey.as_str(),
+    )?;
+    if (frame.operation.requires_permission() || access == ResidentAccessLevel::Restricted)
+        && !permission_granted(
+            app,
+            context.owner_pubkey.as_str(),
+            &request,
+            approvals,
+            active,
+        )?
     {
         let receipt = receipt(&request, RepositoryToolReceiptStatusV1::Denied, 0)?;
         retain_receipt(&state, receipt.clone());
+        record_capability_receipt(
+            app,
+            context.owner_pubkey.as_str(),
+            &request,
+            CapabilityReceiptStatus::Cancelled,
+            "The repository operation was denied or cancelled.",
+        )?;
         return Ok(RepositoryBrokerResponseV1 {
             protocol: BROKER_PROTOCOL,
             ok: false,
@@ -386,6 +426,13 @@ fn handle_frame(
     if !active.load(Ordering::SeqCst) {
         return Err("repository broker capability is stale".into());
     }
+    record_capability_receipt(
+        app,
+        context.owner_pubkey.as_str(),
+        &request,
+        CapabilityReceiptStatus::Approved,
+        "The repository operation was approved for execution.",
+    )?;
     let _operation_guard = state
         .repository_work_lock
         .lock()
@@ -406,6 +453,13 @@ fn handle_frame(
                 result.changed_path_count,
             )?;
             retain_receipt(&state, receipt.clone());
+            record_capability_receipt(
+                app,
+                context.owner_pubkey.as_str(),
+                &request,
+                CapabilityReceiptStatus::Committed,
+                "The repository operation completed and was validated.",
+            )?;
             Ok(RepositoryBrokerResponseV1 {
                 protocol: BROKER_PROTOCOL,
                 ok: true,
@@ -416,6 +470,13 @@ fn handle_frame(
         Err(error) => {
             let receipt = receipt(&request, RepositoryToolReceiptStatusV1::Failed, 0)?;
             retain_receipt(&state, receipt.clone());
+            record_capability_receipt(
+                app,
+                context.owner_pubkey.as_str(),
+                &request,
+                CapabilityReceiptStatus::Failed,
+                "The repository operation failed without a committed success.",
+            )?;
             Ok(RepositoryBrokerResponseV1 {
                 protocol: BROKER_PROTOCOL,
                 ok: false,
@@ -456,6 +517,122 @@ fn list_repositories(
     })
 }
 
+fn operator_status(
+    app: &AppHandle,
+    context: &BrokerContext,
+) -> Result<RepositoryBrokerResponseV1, String> {
+    let records = crate::managed_agents::load_managed_agents(app)?;
+    let record = records
+        .iter()
+        .find(|record| {
+            record
+                .pubkey
+                .eq_ignore_ascii_case(context.resident_pubkey.as_str())
+        })
+        .ok_or_else(|| "managed resident is unavailable".to_string())?;
+    let (family, version, native_binding) = match record.native_runtime_binding.as_ref() {
+        Some(crate::managed_agents::RuntimeBinding::Hermes {
+            runtime_version, ..
+        }) => ("hermes", Some(runtime_version.clone()), true),
+        Some(crate::managed_agents::RuntimeBinding::Openclaw {
+            runtime_version, ..
+        }) => ("openclaw", Some(runtime_version.clone()), true),
+        None if record.agent_command.to_ascii_lowercase().contains("claude") => {
+            ("claude_code", None, false)
+        }
+        None if record.agent_command.to_ascii_lowercase().contains("codex") => {
+            ("codex", None, false)
+        }
+        None => ("codex", None, false),
+    };
+    let discovery = crate::managed_agents::discover_native_resident_outcome();
+    let hermes_candidates = discovery
+        .runtimes
+        .iter()
+        .filter(|runtime| runtime.native_type == crate::managed_agents::NativeRuntimeKind::Hermes)
+        .map(|runtime| runtime.candidates.len())
+        .sum::<usize>();
+    let openclaw_candidates = discovery
+        .runtimes
+        .iter()
+        .filter(|runtime| runtime.native_type == crate::managed_agents::NativeRuntimeKind::Openclaw)
+        .map(|runtime| runtime.candidates.len())
+        .sum::<usize>();
+    let state = app.state::<crate::app_state::AppState>();
+    let brain = match state.read_owner_brain_catalog(&context.owner_pubkey) {
+        Ok(catalog) => serde_json::json!({
+            "state": "ready",
+            "sourceCount": catalog.sources.len(),
+            "residentGrantCount": catalog.grants.iter().filter(|entry| {
+                entry.grant.resident_pubkey == context.resident_pubkey
+            }).count(),
+        }),
+        Err(error) => serde_json::json!({
+            "state": error.code(),
+            "sourceCount": 0,
+            "residentGrantCount": 0,
+        }),
+    };
+    let access = crate::luca::resident_capability_authority::effective_access(
+        app,
+        context.owner_pubkey.as_str(),
+        context.resident_pubkey.as_str(),
+    )?;
+    let onboarding = crate::luca::resident_capability_authority::onboarding_status(
+        app,
+        context.owner_pubkey.as_str(),
+    )?;
+    let capability_receipt_count = crate::luca::resident_capability_authority::receipt_count(
+        app,
+        context.owner_pubkey.as_str(),
+    )?;
+    let content = serde_json::to_string(&serde_json::json!({
+        "schemaVersion": 1,
+        "onboarding": {
+            "state": onboarding.as_ref().map(|status| if status.completed { "complete" } else { "incomplete" }).unwrap_or("unknown"),
+            "chapter": onboarding.as_ref().map(|status| status.chapter.as_str()),
+            "resumeAction": "open_onboarding",
+        },
+        "ownerProfile": { "available": true },
+        "runtime": {
+            "family": family,
+            "version": version,
+            "nativeBinding": native_binding,
+            "running": record.runtime_pid.is_some(),
+            "ready": record.last_error.is_none(),
+            "capabilityManifest": crate::luca::runtime_capabilities::manifest(family),
+        },
+        "nativeAgentCandidates": {
+            "hermes": hermes_candidates,
+            "openclaw": openclaw_candidates,
+        },
+        "brain": brain,
+        "recoveryBackup": {
+            "state": "not_observable",
+            "reason": "Polyphonic does not retain exported-backup destinations or passphrases."
+        },
+        "accessLevel": access,
+        "localCapabilityReceiptCount": capability_receipt_count,
+        "capabilityCategories": [
+            "filesystem_read", "filesystem_write", "process_execute", "network_access",
+            "harness_manage", "package_install", "external_communication",
+            "destructive_action", "credential_use"
+        ],
+        "availableActions": [
+            "open_onboarding", "review_native_agents", "create_or_update_agent",
+            "review_brain", "open_profile", "open_recovery", "open_access_settings",
+            "configure_runtime"
+        ],
+    }))
+    .map_err(|_| "operator status response is invalid".to_string())?;
+    Ok(RepositoryBrokerResponseV1 {
+        protocol: BROKER_PROTOCOL,
+        ok: true,
+        content,
+        receipt: None,
+    })
+}
+
 fn repository_request(
     context: &BrokerContext,
     conversation_id: OpaqueId,
@@ -483,71 +660,94 @@ fn repository_request(
 
 fn permission_granted(
     app: &AppHandle,
+    owner_pubkey: &str,
     request: &RepositoryToolRequestV1,
-    approvals: &Arc<Mutex<BTreeSet<String>>>,
+    _approvals: &Arc<Mutex<BTreeSet<String>>>,
     active: &Arc<AtomicBool>,
 ) -> Result<bool, String> {
-    let cache_key = canonical_sha256(&serde_json::json!({
-        "resident": request.resident_pubkey,
-        "session": request.session_epoch,
-        "conversation": request.conversation_id,
-        "source": request.source_id,
-        "binding": request.binding_ref,
-        "operation": request.operation,
-        "fingerprint": request.operation_fingerprint,
-    }))
-    .map_err(|_| "repository permission fingerprint is invalid".to_owned())?;
-    if approvals
-        .lock()
-        .map_err(|_| "repository permission cache is unavailable".to_owned())?
-        .contains(&cache_key)
-    {
-        return Ok(true);
-    }
-    let decision = crate::luca::managed_permission::await_local_decision(
+    let capability = repository_capability(request.operation);
+    let decision = crate::luca::managed_permission::await_capability_decision(
         app,
-        ManagedPermissionRequestV1 {
-            protocol: MANAGED_PERMISSION_PROTOCOL.into(),
+        owner_pubkey,
+        ManagedPermissionRequestV2 {
+            protocol: MANAGED_PERMISSION_V2_PROTOCOL.into(),
             resident_pubkey: request.resident_pubkey.clone(),
             session_epoch: request.session_epoch,
             turn_id: request.turn_id.clone(),
             conversation_id: request.conversation_id.clone(),
-            acp_request_id: request.operation_fingerprint.as_str().to_owned(),
-            title: request.display_summary.clone(),
-            tool_call_id: None,
-            options: vec![
-                ManagedPermissionOptionV1 {
-                    option_id: ALLOW_ONCE.into(),
-                    name: "Allow once".into(),
-                    kind: "allow_once".into(),
-                },
-                ManagedPermissionOptionV1 {
-                    option_id: ALLOW_CONVERSATION.into(),
-                    name: "Allow for this conversation".into(),
-                    kind: "allow_always".into(),
-                },
-                ManagedPermissionOptionV1 {
-                    option_id: REJECT.into(),
-                    name: "Reject".into(),
-                    kind: "reject_once".into(),
-                },
-            ],
+            request_id: request.request_id.clone(),
+            capability,
+            risk: repository_risk(request.operation),
+            operation: request.display_summary.clone(),
+            operation_fingerprint: request.operation_fingerprint.clone(),
+            resource: CapabilityResourceV1 {
+                kind: "repository".into(),
+                resource_ref: request.source_id.as_str().to_owned(),
+                display_name: "Connected repository".into(),
+            },
         },
     );
     if !active.load(Ordering::SeqCst) {
         return Ok(false);
     }
-    match decision.option_id.as_deref() {
-        Some(ALLOW_ONCE) => Ok(true),
-        Some(ALLOW_CONVERSATION) => {
-            approvals
-                .lock()
-                .map_err(|_| "repository permission cache is unavailable".to_owned())?
-                .insert(cache_key);
-            Ok(true)
+    Ok(decision != crate::luca::managed_permission::CapabilityPermissionDecision::Deny)
+}
+
+fn repository_capability(operation: RepositoryToolOperationV1) -> CapabilityKind {
+    match operation {
+        RepositoryToolOperationV1::ApplyPatch => CapabilityKind::FilesystemWrite,
+        RepositoryToolOperationV1::Run | RepositoryToolOperationV1::Commit => {
+            CapabilityKind::ProcessExecute
         }
-        Some(REJECT) | None | Some(_) => Ok(false),
+        _ => CapabilityKind::FilesystemRead,
     }
+}
+
+fn repository_risk(operation: RepositoryToolOperationV1) -> CapabilityRisk {
+    if operation.requires_permission() {
+        CapabilityRisk::Elevated
+    } else {
+        CapabilityRisk::Routine
+    }
+}
+
+fn inventory_permission_granted(
+    app: &AppHandle,
+    context: &BrokerContext,
+    conversation_id: &OpaqueId,
+) -> Result<bool, String> {
+    let fingerprint = Sha256Ref::parse(format!(
+        "sha256:{}",
+        canonical_sha256(&serde_json::json!({
+            "domain": "luca.repository.inventory.v1",
+            "resident": context.resident_pubkey,
+            "binding": context.binding_ref,
+        }))
+        .map_err(|_| "repository inventory fingerprint is invalid")?
+    ))
+    .map_err(|_| "repository inventory fingerprint is invalid".to_owned())?;
+    let decision = crate::luca::managed_permission::await_capability_decision(
+        app,
+        context.owner_pubkey.as_str(),
+        ManagedPermissionRequestV2 {
+            protocol: MANAGED_PERMISSION_V2_PROTOCOL.into(),
+            resident_pubkey: context.resident_pubkey.clone(),
+            session_epoch: context.session_epoch,
+            turn_id: opaque_id("repository-turn")?,
+            conversation_id: conversation_id.clone(),
+            request_id: opaque_id("repository-request")?,
+            capability: CapabilityKind::FilesystemRead,
+            risk: CapabilityRisk::Routine,
+            operation: "Inspect connected repositories".into(),
+            operation_fingerprint: fingerprint,
+            resource: CapabilityResourceV1 {
+                kind: "repository_inventory".into(),
+                resource_ref: context.owner_pubkey.as_str().to_owned(),
+                display_name: "Connected repositories".into(),
+            },
+        },
+    );
+    Ok(decision != crate::luca::managed_permission::CapabilityPermissionDecision::Deny)
 }
 
 fn operation_fingerprint(
@@ -590,6 +790,29 @@ fn receipt(
         .validate()
         .map_err(|_| "repository receipt is invalid".to_owned())?;
     Ok(receipt)
+}
+
+fn record_capability_receipt(
+    app: &AppHandle,
+    owner_pubkey: &str,
+    request: &RepositoryToolRequestV1,
+    status: CapabilityReceiptStatus,
+    summary: &str,
+) -> Result<(), String> {
+    crate::luca::resident_capability_authority::record_receipt(
+        app,
+        owner_pubkey,
+        CapabilityReceiptV1 {
+            protocol: CAPABILITY_RECEIPT_PROTOCOL.into(),
+            receipt_id: opaque_id("capability-receipt")?,
+            resident_pubkey: request.resident_pubkey.clone(),
+            conversation_id: request.conversation_id.clone(),
+            capability: repository_capability(request.operation),
+            operation_fingerprint: request.operation_fingerprint.clone(),
+            status,
+            summary: summary.into(),
+        },
+    )
 }
 
 fn retain_receipt(state: &crate::app_state::AppState, receipt: RepositoryToolReceiptV1) {

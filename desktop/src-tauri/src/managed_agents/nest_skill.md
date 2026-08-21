@@ -15,7 +15,7 @@ version: 1
 
 `BUZZ_RELAY_URL` defaults to `http://localhost:3000`. In development, the user may need to set this to a staging or production relay URL.
 
-`BUZZ_AUTH_TAG` is required for `buzz agents draft-create`, `buzz agents draft-update`, and `buzz brain draft-review` because those commands send owner-reviewed Desktop requests. If missing, explain that this managed agent cannot open owner-reviewed review surfaces from chat.
+`BUZZ_AUTH_TAG` is required for `buzz agents draft-create`, `buzz agents draft-update`, `buzz brain draft-review`, and `buzz polyphonic open` because those commands send owner-scoped Desktop requests. If missing, explain that this managed agent cannot open owner-reviewed surfaces from chat.
 
 Run the bundled CLI with `--help` and `<command> <subcommand> --help` to discover all flags, arguments, and usage. This skill documents only what `--help` cannot tell you.
 
@@ -52,6 +52,16 @@ buzz brain draft-review --channel <current-channel-uuid>
 ```
 
 Use the UUID from the current Buzz `[Context]`. This command only opens the existing private Brain discovery surface in Polyphonic. It does not connect, import, grant, or mutate any source; the owner must use the existing confirmation boundary before anything connects. Never run it before permission and never report that a source was connected.
+
+## Polyphonic Setup and Settings
+
+When the owner asks to continue setup or review an existing product surface, open it directly from the current conversation:
+
+```bash
+buzz polyphonic open --channel <current-channel-uuid> --surface onboarding
+```
+
+Supported surfaces are `onboarding`, `runtime`, `native-agents`, `brain`, `profile`, `appearance`, `recovery`, and `access`. Onboarding resumes its saved chapter; runtime and access open this resident's settings. Use the body-free `polyphonic_status` tool first when the request depends on current setup or capability state. Opening a surface does not approve or commit a change.
 
 ## Git Repositories
 

@@ -105,10 +105,6 @@ impl DesktopCommunicationActionBackend {
         self.clone()
     }
 
-    pub(crate) fn resident_pubkey(&self) -> &Hex64 {
-        &self.resident_pubkey
-    }
-
     /// Reconcile one frozen action before exposing this backend to an agent.
     /// Callers deliberately treat failure as communication-tool degradation;
     /// ordinary messaging and resident startup remain available.

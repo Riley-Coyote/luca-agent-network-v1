@@ -43,7 +43,7 @@ There is no temporary onboarding bot. The Luca who greets the owner is the same 
 
 - Do not introduce a second onboarding agent, public IPC schema, runtime catalog, setup store, or identity system.
 - Do not store direct-provider credentials or ask for an OpenRouter key. Hermes and OpenClaw keep provider configuration in their native systems.
-- Do not silently import agents, copy native credentials, change native configuration, connect sources, or grant Brain access.
+- Do not silently import agents, copy native credentials, change native configuration, connect sources, or grant Brain access. Explicit owner-requested native changes follow the reviewed, validated operator boundary in `CAPABILITY_PARITY_CONTRACT.md`.
 - Do not automatically create Vektor, Anima, or a starter team.
 - Do not require mobile, Activity, Mnemos, Notebook, or new security work.
 - Do not turn first conversation into a personality intake or mandatory commissioning interview.
@@ -191,7 +191,7 @@ Rules:
 - Never claim an agent, import, connection, project, room, or grant exists before the operation commits.
 - A declined suggestion changes nothing and is not repeated insistently.
 
-Any action that creates, imports, connects, grants, invites, or otherwise changes persistent product state displays the existing concise review before execution.
+Any action that creates, imports, connects, grants, invites, or otherwise changes persistent product state uses the applicable permission or concise review before execution. Routine work covered by an existing durable grant does not prompt again. High-impact actions retain confirmation in Full Access.
 
 ## Appearance and layout
 

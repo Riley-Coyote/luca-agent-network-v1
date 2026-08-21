@@ -1,18 +1,21 @@
 import { expect, test } from "@playwright/test";
 
 import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
+import { waitForAnimations } from "../../helpers/animations";
 import { seedActiveIdentity } from "../../helpers/onboarding";
 
 const POLYPHONIC_PUBKEY = "10".repeat(32);
 const HERMES_PUBKEY = "11".repeat(32);
 const OPENCLAW_PUBKEY = "22".repeat(32);
 
-function settingsUrl(section: string) {
-  // installMockBridge supplies the deterministic bridge before bootstrap, so
-  // no top-level `e2e=mock` query is needed. Keeping browser search empty lets
-  // TanStack hash history preserve route search through back/forward exactly as
-  // the installed app does.
-  return `/#/settings?section=${section}`;
+async function openSettingsSection(
+  page: import("@playwright/test").Page,
+  section: string,
+) {
+  await page.goto("/#/settings");
+  if (section !== "profile") {
+    await page.getByTestId(`settings-nav-${section}`).click();
+  }
 }
 
 test.beforeEach(async ({ page }) => {
@@ -69,7 +72,7 @@ test.beforeEach(async ({ page }) => {
 test("settings exposes only the Luca information architecture", async ({
   page,
 }) => {
-  await page.goto(settingsUrl("profile"));
+  await openSettingsSection(page, "profile");
 
   for (const label of [
     "Profile & identity",
@@ -97,8 +100,8 @@ test("settings exposes only the Luca information architecture", async ({
 
 test("one resident record agrees across settings, runtime, and MCP grants", async ({
   page,
-}) => {
-  await page.goto(settingsUrl("agents"));
+}, testInfo) => {
+  await openSettingsSection(page, "agents");
 
   await expect(page.getByTestId("settings-agents")).toBeVisible();
   await page.getByTestId(`agent-library-row-${HERMES_PUBKEY}`).click();
@@ -114,6 +117,13 @@ test("one resident record agrees across settings, runtime, and MCP grants", asyn
   await expect(page.getByText("Configuration authority")).toBeVisible();
 
   await page.getByRole("button", { name: "Capabilities" }).click();
+  await expect(page.getByTestId("resident-access-control")).toBeVisible();
+  await expect(page.getByRole("radio", { name: /Standard/ })).toBeChecked();
+  await expect(page.getByText("Remembered permissions")).toBeVisible();
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: testInfo.outputPath("capability-settings.png"),
+  });
   await page.getByRole("button", { name: "Manage MCP access" }).click();
   await expect(page).toHaveURL(/section=connections/);
   await expect(page.getByText("Hermes", { exact: true })).toBeVisible();
@@ -145,7 +155,7 @@ test("one resident record agrees across settings, runtime, and MCP grants", asyn
 test("MCP connections can be edited, disabled, tested, and granted", async ({
   page,
 }) => {
-  await page.goto(settingsUrl("connections"));
+  await openSettingsSection(page, "connections");
 
   await expect(page.getByText("Runtime connections")).toBeVisible();
   await expect(page.getByText("Local project tools")).toBeVisible();
@@ -178,7 +188,7 @@ test("MCP connections can be edited, disabled, tested, and granted", async ({
 test("native runtime readiness exposes degraded reason and refresh feedback", async ({
   page,
 }) => {
-  await page.goto(settingsUrl("connections"));
+  await openSettingsSection(page, "connections");
 
   await expect(page.getByText("Gateway is currently offline.")).toBeVisible();
 
@@ -187,7 +197,7 @@ test("native runtime readiness exposes degraded reason and refresh feedback", as
 });
 
 test("mobile pairing remains a real Luca companion flow", async ({ page }) => {
-  await page.goto(settingsUrl("mobile"));
+  await openSettingsSection(page, "mobile");
 
   await expect(
     page.getByRole("heading", { name: "Mobile & devices" }),

@@ -15,10 +15,13 @@ binding.
 - Offline or degraded bindings remain attached to the same resident. Luca never
   substitutes another profile, agent, gateway, or executable.
 
-Luca does not copy native credentials or mutate Hermes/OpenClaw configuration.
-Imported native processes receive their native-owned configuration, but not
-Luca owner keys, signing capabilities, relay credentials, or ambient provider
-credentials.
+Passive discovery and import do not copy native credentials or mutate
+Hermes/OpenClaw configuration. After an explicit owner request, any resident
+may operate a native harness through the local capability broker, preferring
+supported native commands and validating the result. Imported native processes
+receive their native-owned configuration, but not Luca owner keys, signing
+capabilities, relay credentials, copied provider credentials, or a desktop
+master capability.
 
 ## Relaunch behavior
 

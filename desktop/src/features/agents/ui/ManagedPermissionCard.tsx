@@ -22,6 +22,7 @@ export function ManagedPermissionCard({
 }: ManagedPermissionCardProps) {
   const [resolving, setResolving] = React.useState<string | null>(null);
   const request = pending.request;
+  const structured = request.protocol === "luca.managed.permission.v2";
 
   React.useEffect(() => {
     let dispose: (() => void) | null = null;
@@ -73,9 +74,15 @@ export function ManagedPermissionCard({
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">Permission required</p>
             <p className="mt-1 text-sm leading-5 text-muted-foreground">
-              {request.title || "An agent is waiting for your decision."}
+              {structured
+                ? request.operation
+                : request.title || "An agent is waiting for your decision."}
             </p>
-            {request.toolCallId ? (
+            {structured ? (
+              <p className="mt-2 truncate font-mono text-badge uppercase tracking-[0.14em] text-muted-foreground/70">
+                {request.resource.displayName}
+              </p>
+            ) : request.toolCallId ? (
               <p className="mt-2 truncate font-mono text-badge uppercase tracking-[0.14em] text-muted-foreground/70">
                 {request.toolCallId}
               </p>
@@ -92,18 +99,40 @@ export function ManagedPermissionCard({
           >
             Cancel
           </Button>
-          {request.options.map((option) => (
-            <Button
-              disabled={resolving !== null}
-              key={option.optionId}
-              onClick={() => void decide(option.optionId)}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              {resolving === option.optionId ? "Sending…" : option.name}
-            </Button>
-          ))}
+          {structured ? (
+            <>
+              <Button
+                disabled={resolving !== null}
+                onClick={() => void decide("allow_once")}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                {resolving === "allow_once" ? "Sending…" : "Allow once"}
+              </Button>
+              <Button
+                disabled={resolving !== null}
+                onClick={() => void decide("always_allow")}
+                size="sm"
+                type="button"
+              >
+                {resolving === "always_allow" ? "Saving…" : "Always allow"}
+              </Button>
+            </>
+          ) : (
+            request.options.map((option) => (
+              <Button
+                disabled={resolving !== null}
+                key={option.optionId}
+                onClick={() => void decide(option.optionId)}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                {resolving === option.optionId ? "Sending…" : option.name}
+              </Button>
+            ))
+          )}
         </div>
       </div>
     </section>

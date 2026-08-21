@@ -137,6 +137,8 @@ Authority rules:
 - A resident identity is separate from its mutable runtime binding.
 - Messages succeed without Mnemos, Capsule, or post-turn cognition.
 - Native discovery/import never edits Hermes or OpenClaw configuration.
+  Explicit owner-requested changes use the local capability-parity contract,
+  native commands, validation, and redacted receipts.
 - Raw reasoning stays private. Only final responses and explicit activity state
   belong in the conversation UX.
 

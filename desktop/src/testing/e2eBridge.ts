@@ -7349,6 +7349,18 @@ let mockOperatorPreferences = {
   lucaEnabled: true,
   updatedAt: new Date().toISOString(),
 };
+let mockResidentCapabilitySettings = {
+  householdDefault: "standard" as "restricted" | "standard" | "full",
+  residentAccess: {} as Record<string, "restricted" | "standard" | "full">,
+  grants: [] as Array<{
+    grantId: string;
+    residentPubkey: string;
+    capability: string;
+    resource: { kind: string; resourceRef: string; displayName: string };
+    createdAt: string;
+    revokedAt: string | null;
+  }>,
+};
 type MockNativeProvisioningTransaction = {
   schemaVersion: 1;
   transactionId: string;
@@ -11423,6 +11435,54 @@ export function maybeInstallE2eTauriMocks() {
       }
       case "list_managed_agents":
         return handleListManagedAgents(activeConfig);
+      case "get_resident_capability_settings":
+        return mockResidentCapabilitySettings;
+      case "set_polyphonic_onboarding_status":
+        return {
+          chapter: String(
+            (payload as { chapter?: unknown }).chapter ?? "welcome",
+          ),
+          completed: (payload as { completed?: unknown }).completed === true,
+          updatedAt: new Date().toISOString(),
+        };
+      case "set_household_access_level": {
+        const level = (
+          payload as {
+            level: typeof mockResidentCapabilitySettings.householdDefault;
+          }
+        ).level;
+        mockResidentCapabilitySettings = {
+          ...mockResidentCapabilitySettings,
+          householdDefault: level,
+        };
+        return mockResidentCapabilitySettings;
+      }
+      case "set_resident_access_level": {
+        const input = payload as {
+          residentPubkey: string;
+          level: typeof mockResidentCapabilitySettings.householdDefault | null;
+        };
+        const residentAccess = {
+          ...mockResidentCapabilitySettings.residentAccess,
+        };
+        if (input.level) residentAccess[input.residentPubkey] = input.level;
+        else delete residentAccess[input.residentPubkey];
+        mockResidentCapabilitySettings = {
+          ...mockResidentCapabilitySettings,
+          residentAccess,
+        };
+        return mockResidentCapabilitySettings;
+      }
+      case "revoke_resident_capability_grant": {
+        const grantId = (payload as { grantId: string }).grantId;
+        mockResidentCapabilitySettings = {
+          ...mockResidentCapabilitySettings,
+          grants: mockResidentCapabilitySettings.grants.filter(
+            (grant) => grant.grantId !== grantId,
+          ),
+        };
+        return mockResidentCapabilitySettings;
+      }
       case "get_operator_forge_settings": {
         const runtimeOptions = [
           {

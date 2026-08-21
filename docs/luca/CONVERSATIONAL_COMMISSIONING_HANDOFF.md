@@ -66,6 +66,8 @@ work.
 - Declining an offer changes nothing and must not produce repeated nagging.
 - Never silently connect knowledge, grant access, import an agent, create an
   agent, install a runtime, copy credentials, or mutate native configuration.
+  Explicit owner-requested native work is allowed through the inspected,
+  permissioned, validated transaction in `CAPABILITY_PARITY_CONTRACT.md`.
 - Persistent changes use the application's existing preview, review, grant,
   and commit surfaces. Luca never claims a change succeeded before the product
   confirms it.
@@ -135,9 +137,9 @@ path and Riley approves the resulting plan.
 ## Explicit boundaries
 
 - No onboarding visual redesign or new threshold animation.
-- No new communications broker, transport, outbox, security layer, encryption
-  scheme, identity model, credential store, public wire protocol, or runtime
-  abstraction.
+- Reuse and generalize the existing desktop-owned repository and permission
+  brokers; do not add a second communications transport, outbox, encryption
+  scheme, identity model, credential store, or public relay protocol.
 - No Brain rearchitecture, mandatory Brain setup, or automatic source grants.
 - No agent taxonomy overhaul unless an existing creation seam cannot express
   the approved experience; report that contradiction before expanding scope.

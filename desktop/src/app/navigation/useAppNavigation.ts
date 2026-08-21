@@ -280,11 +280,26 @@ export function useAppNavigation() {
   );
 
   const goSettings = React.useCallback(
-    (section?: string, behavior?: NavigationBehavior) =>
+    (
+      section?: string,
+      behavior?: NavigationBehavior & {
+        settingsAgent?: string;
+        settingsAgentTab?: "general" | "runtime" | "capabilities" | "advanced";
+      },
+    ) =>
       commitNavigation(
         {
           to: "/settings",
-          search: section ? { section } : {},
+          search: {
+            ...(section ? { section } : {}),
+            ...(behavior?.settingsAgent
+              ? { settingsAgent: behavior.settingsAgent }
+              : {}),
+            ...(behavior?.settingsAgentTab &&
+            behavior.settingsAgentTab !== "general"
+              ? { settingsAgentTab: behavior.settingsAgentTab }
+              : {}),
+          },
         },
         behavior,
       ),

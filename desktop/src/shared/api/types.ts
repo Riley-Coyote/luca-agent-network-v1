@@ -499,7 +499,7 @@ export type ManagedPermissionOption = {
   kind: string;
 };
 
-export type ManagedPermissionRequest = {
+export type RuntimeManagedPermissionRequest = {
   protocol: "luca.managed.permission.v1";
   residentPubkey: string;
   conversationId: string;
@@ -510,6 +510,32 @@ export type ManagedPermissionRequest = {
   toolCallId: string | null;
   options: ManagedPermissionOption[];
 };
+
+export type CapabilityRisk = "routine" | "elevated" | "high_impact";
+
+export type CapabilityResource = {
+  kind: string;
+  resourceRef: string;
+  displayName: string;
+};
+
+export type CapabilityManagedPermissionRequest = {
+  protocol: "luca.managed.permission.v2";
+  residentPubkey: string;
+  conversationId: string;
+  sessionEpoch: number;
+  turnId: string;
+  requestId: string;
+  capability: CapabilityKind;
+  risk: CapabilityRisk;
+  operation: string;
+  operationFingerprint: string;
+  resource: CapabilityResource;
+};
+
+export type ManagedPermissionRequest =
+  | RuntimeManagedPermissionRequest
+  | CapabilityManagedPermissionRequest;
 
 export type PendingManagedPermission = {
   pendingId: string;
@@ -527,6 +553,38 @@ export type ManagedPermissionResolutionOutcome =
 export type ManagedPermissionResolvedEvent = {
   pendingId: string;
   outcome: ManagedPermissionResolutionOutcome;
+};
+
+export type ResidentAccessLevel = "restricted" | "standard" | "full";
+
+export type CapabilityKind =
+  | "filesystem_read"
+  | "filesystem_write"
+  | "process_execute"
+  | "network_access"
+  | "harness_manage"
+  | "package_install"
+  | "external_communication"
+  | "destructive_action"
+  | "credential_use";
+
+export type DurableCapabilityGrant = {
+  grantId: string;
+  residentPubkey: string;
+  capability: CapabilityKind;
+  resource: {
+    kind: string;
+    resourceRef: string;
+    displayName: string;
+  };
+  createdAt: string;
+  revokedAt?: string | null;
+};
+
+export type ResidentCapabilitySettings = {
+  householdDefault: ResidentAccessLevel;
+  residentAccess: Record<string, ResidentAccessLevel>;
+  grants: DurableCapabilityGrant[];
 };
 
 /**

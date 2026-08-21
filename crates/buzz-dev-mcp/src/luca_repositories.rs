@@ -238,6 +238,17 @@ impl LucaRepositoriesMcp {
     }
 
     #[tool(
+        name = "polyphonic_status",
+        description = "Read body-free local setup, runtime, Brain, access, and capability status for this resident. Returns no paths, credentials, source bodies, or machine topology."
+    )]
+    async fn polyphonic_status(
+        &self,
+        Parameters(params): Parameters<RepositoriesParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.client.call("operator_status", params).await
+    }
+
+    #[tool(
         name = "repo_tree",
         description = "List safe repository-relative files. Excludes credentials, dependencies, build output, binaries, ignored files, and .git internals."
     )]
@@ -358,7 +369,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn exposes_only_the_nine_repository_tools() {
+    fn exposes_repository_tools_and_body_free_operator_status() {
         let mut names = LucaRepositoriesMcp::tool_router()
             .list_all()
             .into_iter()
@@ -368,6 +379,7 @@ mod tests {
         assert_eq!(
             names,
             vec![
+                "polyphonic_status",
                 "repo_apply_patch",
                 "repo_commit",
                 "repo_diff",

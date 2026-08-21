@@ -501,7 +501,7 @@ export const MessageRow = React.memo(
       if (interruptedOwnerReceipt) {
         return (
           <p
-            className="mt-1 text-[0.6875rem] leading-4 text-muted-foreground/55"
+            className="mt-1 text-2xs leading-4 text-muted-foreground/55"
             data-testid="managed-interrupted-status"
             role="status"
           >

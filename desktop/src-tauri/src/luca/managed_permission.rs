@@ -8,7 +8,8 @@ use std::{
 };
 
 use luca_protocol::{
-    ManagedPermissionDecisionV1, ManagedPermissionDispositionV1, ManagedPermissionRequestV1,
+    CapabilityKind, CapabilityRisk, ManagedPermissionDecisionV1, ManagedPermissionDispositionV1,
+    ManagedPermissionRequestV1, ManagedPermissionRequestV2, ResidentAccessLevel,
     MANAGED_PERMISSION_PROTOCOL, MANAGED_PERMISSION_TIMEOUT_SECS,
 };
 use tauri::{AppHandle, Emitter};
@@ -19,6 +20,19 @@ const RESOLVED_EVENT: &str = "managed-permission-resolved";
 struct Pending {
     request: ManagedPermissionRequestV1,
     decision_tx: mpsc::Sender<ResolvedManagedPermission>,
+}
+
+struct PendingCapability {
+    owner_pubkey: String,
+    request: ManagedPermissionRequestV2,
+    decision_tx: mpsc::Sender<CapabilityPermissionDecision>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CapabilityPermissionDecision {
+    AllowOnce,
+    AlwaysAllow,
+    Deny,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -49,13 +63,25 @@ struct ManagedPermissionResolvedEvent {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PendingManagedPermission {
     pub pending_id: String,
-    pub request: ManagedPermissionRequestV1,
+    pub request: PendingManagedPermissionRequest,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(untagged)]
+pub(crate) enum PendingManagedPermissionRequest {
+    Runtime(ManagedPermissionRequestV1),
+    Capability(ManagedPermissionRequestV2),
 }
 
 static PENDING: OnceLock<Mutex<HashMap<String, Pending>>> = OnceLock::new();
+static CAPABILITY_PENDING: OnceLock<Mutex<HashMap<String, PendingCapability>>> = OnceLock::new();
 
 fn pending() -> &'static Mutex<HashMap<String, Pending>> {
     PENDING.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn capability_pending() -> &'static Mutex<HashMap<String, PendingCapability>> {
+    CAPABILITY_PENDING.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn pending_id(request: &ManagedPermissionRequestV1) -> String {
@@ -208,7 +234,7 @@ pub(crate) fn await_local_decision(
             PENDING_EVENT,
             PendingManagedPermission {
                 pending_id: id.clone(),
-                request: request.clone(),
+                request: PendingManagedPermissionRequest::Runtime(request.clone()),
             },
         );
         match rx.recv_timeout(Duration::from_secs(MANAGED_PERMISSION_TIMEOUT_SECS)) {
@@ -240,13 +266,26 @@ pub(crate) fn list_pending() -> Result<Vec<PendingManagedPermission>, String> {
     let entries = pending()
         .lock()
         .map_err(|_| "managed permission registry unavailable".to_string())?;
-    Ok(entries
+    let mut result = entries
         .iter()
         .map(|(id, pending)| PendingManagedPermission {
             pending_id: id.clone(),
-            request: pending.request.clone(),
+            request: PendingManagedPermissionRequest::Runtime(pending.request.clone()),
         })
-        .collect())
+        .collect::<Vec<_>>();
+    drop(entries);
+    let capability_entries = capability_pending()
+        .lock()
+        .map_err(|_| "capability permission registry unavailable".to_string())?;
+    result.extend(
+        capability_entries
+            .iter()
+            .map(|(id, pending)| PendingManagedPermission {
+                pending_id: id.clone(),
+                request: PendingManagedPermissionRequest::Capability(pending.request.clone()),
+            }),
+    );
+    Ok(result)
 }
 
 pub(crate) fn resolve(pending_id: &str, option_id: Option<String>) -> Result<(), String> {
@@ -287,6 +326,138 @@ pub(crate) fn resolve(pending_id: &str, option_id: Option<String>) -> Result<(),
         .map_err(|_| "managed permission request is no longer waiting".to_string())
 }
 
+pub(crate) fn resolve_with_app(
+    app: &AppHandle,
+    pending_id: &str,
+    option_id: Option<String>,
+) -> Result<(), String> {
+    if pending()
+        .lock()
+        .map_err(|_| "managed permission registry unavailable".to_string())?
+        .contains_key(pending_id)
+    {
+        return resolve(pending_id, option_id);
+    }
+    let mut entries = capability_pending()
+        .lock()
+        .map_err(|_| "capability permission registry unavailable".to_string())?;
+    let pending = entries.remove(pending_id).ok_or_else(|| {
+        "managed permission request is unknown, expired, or already resolved".to_string()
+    })?;
+    let decision = match option_id.as_deref() {
+        Some("allow_once") => CapabilityPermissionDecision::AllowOnce,
+        Some("always_allow") => {
+            super::resident_capability_authority::grant(
+                app,
+                &pending.owner_pubkey,
+                pending.request.resident_pubkey.as_str(),
+                pending.request.capability,
+                pending.request.resource.clone(),
+            )?;
+            CapabilityPermissionDecision::AlwaysAllow
+        }
+        None | Some("deny") => CapabilityPermissionDecision::Deny,
+        Some(_) => return Err("capability permission decision is invalid".into()),
+    };
+    let outcome = if decision == CapabilityPermissionDecision::Deny {
+        ManagedPermissionResolutionOutcome::Rejected
+    } else {
+        ManagedPermissionResolutionOutcome::Approved
+    };
+    pending
+        .decision_tx
+        .send(decision)
+        .map_err(|_| "capability permission request is no longer waiting".to_string())?;
+    let _ = app.emit(
+        RESOLVED_EVENT,
+        ManagedPermissionResolvedEvent {
+            pending_id: pending_id.to_owned(),
+            outcome,
+        },
+    );
+    Ok(())
+}
+
+fn full_access_must_confirm(capability: CapabilityKind, risk: CapabilityRisk) -> bool {
+    risk == CapabilityRisk::HighImpact
+        || matches!(
+            capability,
+            CapabilityKind::ExternalCommunication
+                | CapabilityKind::DestructiveAction
+                | CapabilityKind::CredentialUse
+        )
+}
+
+/// Resolve one structured operator permission against resident access policy,
+/// an exact durable grant, or the existing inline conversation UI.
+pub(crate) fn await_capability_decision(
+    app: &AppHandle,
+    owner_pubkey: &str,
+    request: ManagedPermissionRequestV2,
+) -> CapabilityPermissionDecision {
+    if request.validate().is_err() {
+        return CapabilityPermissionDecision::Deny;
+    }
+    let level = super::resident_capability_authority::effective_access(
+        app,
+        owner_pubkey,
+        request.resident_pubkey.as_str(),
+    )
+    .unwrap_or(ResidentAccessLevel::Restricted);
+    if super::resident_capability_authority::is_granted(
+        app,
+        owner_pubkey,
+        request.resident_pubkey.as_str(),
+        request.capability,
+        &request.resource.kind,
+        &request.resource.resource_ref,
+    )
+    .unwrap_or(false)
+    {
+        return CapabilityPermissionDecision::AlwaysAllow;
+    }
+    if level == ResidentAccessLevel::Full
+        && !full_access_must_confirm(request.capability, request.risk)
+    {
+        return CapabilityPermissionDecision::AllowOnce;
+    }
+    let id = luca_protocol::canonical_sha256(&request)
+        .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
+    let (tx, rx) = mpsc::channel();
+    let inserted = capability_pending().lock().ok().and_then(|mut entries| {
+        if entries.contains_key(&id) {
+            None
+        } else {
+            entries.insert(
+                id.clone(),
+                PendingCapability {
+                    owner_pubkey: owner_pubkey.to_owned(),
+                    request: request.clone(),
+                    decision_tx: tx,
+                },
+            );
+            Some(())
+        }
+    });
+    if inserted.is_none() {
+        return CapabilityPermissionDecision::Deny;
+    }
+    let _ = app.emit(
+        PENDING_EVENT,
+        PendingManagedPermission {
+            pending_id: id.clone(),
+            request: PendingManagedPermissionRequest::Capability(request),
+        },
+    );
+    let decision = rx
+        .recv_timeout(Duration::from_secs(MANAGED_PERMISSION_TIMEOUT_SECS))
+        .unwrap_or(CapabilityPermissionDecision::Deny);
+    if let Ok(mut entries) = capability_pending().lock() {
+        entries.remove(&id);
+    }
+    decision
+}
+
 pub(crate) fn cancel_all() {
     if let Ok(mut entries) = pending().lock() {
         for (_, pending) in entries.drain() {
@@ -294,6 +465,11 @@ pub(crate) fn cancel_all() {
                 &pending.request,
                 ManagedPermissionResolutionOutcome::ApplicationClosed,
             ));
+        }
+    }
+    if let Ok(mut entries) = capability_pending().lock() {
+        for (_, pending) in entries.drain() {
+            let _ = pending.decision_tx.send(CapabilityPermissionDecision::Deny);
         }
     }
 }
@@ -315,6 +491,21 @@ pub(crate) fn cancel_resident_session(resident_pubkey: &str, session_epoch: u64)
                     &pending.request,
                     ManagedPermissionResolutionOutcome::SessionReplaced,
                 ));
+            }
+        }
+    }
+    if let Ok(mut entries) = capability_pending().lock() {
+        let doomed = entries
+            .iter()
+            .filter(|(_, pending)| {
+                pending.request.resident_pubkey.as_str() == resident_pubkey
+                    && pending.request.session_epoch.get() == session_epoch
+            })
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        for id in doomed {
+            if let Some(pending) = entries.remove(&id) {
+                let _ = pending.decision_tx.send(CapabilityPermissionDecision::Deny);
             }
         }
     }
@@ -350,6 +541,26 @@ mod tests {
             "/../../tests/luca-conformance/f10/continuity_absent.json"
         )))
         .expect("F10 fixture must be valid JSON")
+    }
+
+    #[test]
+    fn full_access_still_confirms_high_impact_operations() {
+        assert!(!full_access_must_confirm(
+            CapabilityKind::FilesystemWrite,
+            CapabilityRisk::Elevated
+        ));
+        assert!(full_access_must_confirm(
+            CapabilityKind::DestructiveAction,
+            CapabilityRisk::Routine
+        ));
+        assert!(full_access_must_confirm(
+            CapabilityKind::ExternalCommunication,
+            CapabilityRisk::Routine
+        ));
+        assert!(full_access_must_confirm(
+            CapabilityKind::ProcessExecute,
+            CapabilityRisk::HighImpact
+        ));
     }
 
     fn request(acp_request_id: &str, session_epoch: u64) -> ManagedPermissionRequestV1 {
