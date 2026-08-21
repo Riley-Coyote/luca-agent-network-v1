@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>the notch — polyphonic mini</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+@font-face{font-family:"Inter";src:url("inter.woff2") format("woff2");font-weight:100 900;font-display:swap}
+:root{
+  /* surfaces — cool near-black ladder */
+  --floor:#060608; --s1:#0a0a0d; --s2:#0e0f13; --s3:#131419; --s4:#191a20;
+  --notch:#030304;
+  /* ink — cool white cascade */
+  --ink:rgba(240,241,245,.92); --ink-1:rgba(240,241,245,.78); --ink-2:rgba(240,241,245,.56);
+  --ink-3:rgba(240,241,245,.38); --ink-4:rgba(240,241,245,.22); --ink-5:rgba(240,241,245,.12);
+  --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.11); --line-3:rgba(255,255,255,.18);
+  --lit:rgba(255,255,255,.06);
+  /* the one signal, and the one law */
+  --signal:#6d93c9; --signal-dim:rgba(109,147,201,.45);
+  --watch:#96e8ff;
+  /* type */
+  --display:"Inter Tight","Inter",system-ui,sans-serif;
+  --sans:"Inter",system-ui,-apple-system,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --t-xs:.6875rem; --t-sm:.75rem; --t-base:.8125rem; --t-md:.9375rem; --t-lg:1.25rem; --t-xl:2rem;
+  /* rhythm */
+  --u:8px; --r-ctl:6px; --r-card:12px; --r-plate:16px; --r-pill:999px;
+  --ease-enter:cubic-bezier(.2,.7,.2,1); --ease-settle:cubic-bezier(.34,1.4,.64,1); --ease-island:cubic-bezier(.32,1.18,.36,1);
+  --d-fast:220ms; --d-mid:420ms; --d-slow:640ms;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--floor);color:var(--ink-1);font-family:var(--sans);font-size:16px;-webkit-font-smoothing:antialiased;font-weight:400}
+body{padding:calc(var(--u)*7) calc(var(--u)*3) calc(var(--u)*12)}
+.page{max-width:1040px;margin:0 auto}
+a{color:inherit}
+
+/* ---------- page chrome ---------- */
+.hdr{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:calc(var(--u)*6);align-items:end;margin-bottom:calc(var(--u)*5)}
+.hdr h1{font-family:var(--display);font-weight:300;font-size:var(--t-xl);letter-spacing:-.02em;color:var(--ink);line-height:1.1}
+.hdr h1 small{display:block;font-family:var(--mono);font-size:var(--t-xs);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:calc(var(--u)*1.5);font-weight:400}
+.hdr p{font-size:var(--t-md);line-height:1.55;color:var(--ink-2);max-width:52ch}
+.hdr p b{color:var(--ink-1);font-weight:460}
+.idx{font-family:var(--mono);font-size:var(--t-xs);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+
+/* ---------- the desk ---------- */
+.desk{position:relative;height:460px;border-radius:var(--r-plate);overflow:hidden;border:1px solid var(--line);
+  background:
+    radial-gradient(120% 90% at 50% -10%, rgba(255,255,255,.035), transparent 60%),
+    linear-gradient(180deg,#0b0c11 0%,#08090c 55%,#060608 100%);
+  box-shadow:inset 0 1px 0 var(--lit)}
+.menubar{position:absolute;top:0;left:0;right:0;height:34px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 18px;font-family:var(--sans);font-size:var(--t-sm);color:var(--ink-2);z-index:2;
+  background:rgba(6,6,8,.55);backdrop-filter:blur(14px)}
+.menubar .l{display:flex;gap:16px;align-items:center}
+.menubar .l b{color:var(--ink-1);font-weight:520}
+.menubar .r{display:flex;gap:14px;align-items:center;font-variant-numeric:tabular-nums}
+.fakewin{position:absolute;border:1px solid var(--line);border-radius:10px;background:rgba(10,10,14,.55);box-shadow:inset 0 1px 0 var(--lit)}
+.fakewin .fbar{height:26px;border-bottom:1px solid var(--line)}
+.fakewin .fl{height:1px;background:var(--line);margin:14px 16px 0}
+.cursorhint{position:absolute;right:18px;bottom:14px;font-family:var(--mono);font-size:var(--t-xs);letter-spacing:.08em;color:var(--ink-4)}
+
+/* ---------- the island ---------- */
+.island{position:absolute;top:0;left:50%;transform:translateX(-50%);z-index:5;cursor:pointer;user-select:none;
+  background:var(--notch);border-radius:0 0 14px 14px;overflow:hidden;
+  width:190px;height:34px;
+  transition:width var(--d-slow) var(--ease-island),height var(--d-slow) var(--ease-island),border-radius var(--d-mid) var(--ease-enter),box-shadow var(--d-slow) ease}
+.island::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  box-shadow:inset 0 -1px 0 rgba(255,255,255,.05),inset 1px 0 0 rgba(255,255,255,.03),inset -1px 0 0 rgba(255,255,255,.03)}
+.desk[data-tier="compact"] .island{width:190px;height:34px}
+.desk[data-tier="compact"][data-busy="1"] .island,
+.desk[data-tier="compact"][data-unread="1"] .island{width:254px}
+.desk[data-tier="island"] .island{width:400px;height:112px;border-radius:0 0 24px 24px;box-shadow:0 18px 48px -18px rgba(0,0,0,.8)}
+.desk[data-tier="open"] .island{width:420px;height:372px;border-radius:0 0 26px 26px;box-shadow:0 30px 70px -24px rgba(0,0,0,.85)}
+.desk[data-state="watching"] .island{box-shadow:0 10px 44px -14px rgba(150,232,255,.22)}
+/* layers inside the island */
+.layer{position:absolute;inset:0;opacity:0;pointer-events:none;transition:opacity var(--d-mid) var(--ease-enter)}
+.layer.on{opacity:1;pointer-events:auto}
+
+/* compact layer */
+.compact{display:flex;align-items:center;padding:0 14px 0 0}
+.compact .face{width:190px;height:34px;flex:none}
+
+.compact .mini{display:flex;gap:6px;align-items:center;margin-left:-6px;opacity:0;transform:translateX(6px);transition:opacity var(--d-mid) var(--ease-enter),transform var(--d-mid) var(--ease-settle)}
+.desk[data-busy="1"] .compact .mini,.desk[data-unread="1"] .compact .mini{opacity:1;transform:none}
+.unread{width:5px;height:5px;border-radius:50%;background:var(--signal);box-shadow:0 0 0 3px rgba(109,147,201,.14);display:none;margin-left:4px}
+.desk[data-unread="1"] .unread{display:block}
+
+/* island (expanded) layer */
+.isl{display:grid;grid-template-columns:140px 1fr;grid-template-rows:1fr auto;height:100%}
+.isl .face{grid-row:1/3;height:100%;width:100%}
+.isl .now{padding:12px 16px 0 0;display:flex;flex-direction:column;gap:8px;min-width:0}
+.isl .line{grid-column:2;padding:0 16px 11px 0;font-size:var(--t-sm);color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4}
+.isl .line b{color:var(--ink-1);font-weight:480}
+
+/* open (mini app) layer */
+.app{display:grid;grid-template-rows:auto auto 1fr auto;height:100%}
+.app .top{display:grid;grid-template-columns:112px 1fr auto;align-items:center;height:64px;border-bottom:1px solid var(--line)}
+.app .top .face{height:64px}
+.app .top .who{min-width:0}
+.app .top .who b{display:block;font-size:var(--t-base);color:var(--ink);font-weight:500;letter-spacing:-.005em}
+.app .top .who span{display:block;font-family:var(--mono);font-size:.625rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-top:3px}
+.app .top .esc{font-family:var(--mono);font-size:.625rem;letter-spacing:.1em;color:var(--ink-4);padding:0 16px}
+.app .rail{display:flex;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.app .rail::-webkit-scrollbar{display:none}
+.app .thread{overflow-y:auto;padding:12px 16px 4px;display:flex;flex-direction:column;gap:10px;scrollbar-width:none}
+.app .thread::-webkit-scrollbar{display:none}
+.msg{max-width:86%;font-size:var(--t-base);line-height:1.5;color:var(--ink-1)}
+.msg .who{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:.625rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px}
+.msg .who .hm{width:10px;height:10px;opacity:.7}
+.msg.me{align-self:flex-end;color:var(--ink-2);text-align:right}
+.msg.me .who{justify-content:flex-end}
+.msg .t{word-wrap:break-word}
+.newline{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:.625rem;letter-spacing:.14em;text-transform:uppercase;color:var(--signal);margin:2px 0}
+.newline::before,.newline::after{content:"";flex:1;height:1px;background:rgba(109,147,201,.25)}
+.sysline{align-self:center;font-family:var(--mono);font-size:.625rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-4)}
+.composer{display:flex;align-items:center;gap:10px;padding:10px 12px 12px 16px;border-top:1px solid var(--line)}
+.composer input{flex:1;min-width:0;background:none;border:none;outline:none;color:var(--ink);font-family:var(--sans);font-size:var(--t-base);caret-color:var(--ink-1)}
+.composer input::placeholder{color:var(--ink-4)}
+.composer button{font-family:var(--mono);font-size:.625rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);background:var(--s3);border:1px solid var(--line-2);border-radius:var(--r-ctl);padding:6px 10px;cursor:pointer;box-shadow:inset 0 1px 0 var(--lit);transition:border-color var(--d-fast),color var(--d-fast)}
+.composer button:hover{border-color:var(--line-3);color:var(--ink)}
+.composer button:focus-visible{outline:none;border-color:rgba(255,255,255,.5)}
+
+/* agent chips (shared between island + app) */
+.chip{display:flex;align-items:center;gap:10px;min-width:0;opacity:.42;transition:opacity var(--d-mid) var(--ease-enter)}
+.chip.active,.chip.done{opacity:1}
+.chip .ring{position:relative;flex:none}
+.chip .ring svg.r{position:absolute;inset:0;transform:rotate(-90deg)}
+.chip .ring svg.r circle{fill:none;stroke-width:1.75;stroke-linecap:round}
+.chip .ring .track{stroke:rgba(255,255,255,.09)}
+.chip .ring .prog{stroke:var(--signal);stroke-dasharray:100;stroke-dashoffset:100;transition:stroke-dashoffset .38s var(--ease-enter),stroke .4s}
+.chip.done .ring .prog{stroke:var(--ink-2)}
+.chip.queued .ring .prog{stroke:var(--ink-4)}
+.chip .ring .hm{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+.chip .ring .hm svg{display:block;width:46%;height:46%}
+.chip .meta{min-width:0}
+.chip .meta b{display:block;font-size:var(--t-sm);color:var(--ink);font-weight:500;letter-spacing:-.005em;line-height:1.2}
+.chip .meta i{display:block;font-style:normal;font-family:var(--mono);font-size:.625rem;letter-spacing:.08em;color:var(--ink-3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.chip.active .meta i{color:var(--ink-2)}
+.chip .pct{margin-left:auto;font-family:var(--mono);font-size:.625rem;color:var(--ink-3);font-variant-numeric:tabular-nums;flex:none}
+/* sizes */
+.isl .chip .ring{width:28px;height:28px}
+.app .chip{flex:none;width:118px;background:var(--s1);border:1px solid var(--line);border-radius:10px;padding:8px 10px;box-shadow:inset 0 1px 0 var(--lit)}
+.app .chip .ring{width:30px;height:30px}
+.app .chip .pct{display:none}
+.mini .chip{gap:0}
+.mini .chip .ring{width:20px;height:20px}
+.mini .chip .meta,.mini .chip .pct{display:none}
+.hm svg path,.hm svg rect,.hm svg circle{fill:none;stroke:rgba(240,241,245,.82);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.hm svg .f{fill:rgba(240,241,245,.82);stroke:none}
+
+/* ---------- controls ---------- */
+.controls{margin-top:calc(var(--u)*4);display:grid;grid-template-columns:1fr 1fr;gap:calc(var(--u)*3) calc(var(--u)*6)}
+.grp{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.grp .idx{width:100%;margin-bottom:4px}
+.grp button{font-family:var(--mono);font-size:var(--t-xs);letter-spacing:.04em;color:var(--ink-2);background:var(--s2);border:1px solid var(--line);border-radius:var(--r-ctl);padding:7px 11px;cursor:pointer;box-shadow:inset 0 1px 0 var(--lit);transition:border-color var(--d-fast),color var(--d-fast),background var(--d-fast)}
+.grp button:hover{border-color:var(--line-3);color:var(--ink)}
+.grp button:focus-visible{outline:none;border-color:rgba(255,255,255,.5)}
+.grp button:active{background:var(--s3)}
+.grp button.on{color:var(--ink);border-color:var(--line-3);background:var(--s3)}
+.grp button.go{color:var(--ink);border-color:var(--signal-dim)}
+.grp button.go::before{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--signal);margin-right:8px;vertical-align:1px}
+.grp button:disabled{opacity:.4;cursor:default}
+.hint{grid-column:1/-1;font-family:var(--mono);font-size:var(--t-xs);color:var(--ink-4);letter-spacing:.02em;line-height:1.7}
+.hint b{color:var(--ink-3);font-weight:400}
+
+/* ---------- notes ---------- */
+.notes{margin-top:calc(var(--u)*8);display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:calc(var(--u)*6)}
+.notes h2{font-family:var(--display);font-weight:300;font-size:var(--t-lg);letter-spacing:-.01em;color:var(--ink);margin-bottom:calc(var(--u)*2)}
+.notes p{font-size:var(--t-base);line-height:1.65;color:var(--ink-2)}
+.notes p+p{margin-top:calc(var(--u)*1.5)}
+.notes p b{color:var(--ink-1);font-weight:480}
+.marks{display:flex;gap:18px;flex-wrap:wrap;margin-top:calc(var(--u)*2)}
+.marks .mk{display:flex;flex-direction:column;align-items:center;gap:8px;font-family:var(--mono);font-size:.625rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.marks .mk .hm{width:34px;height:34px;border-radius:50%;background:var(--s2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 1px 0 var(--lit)}
+.marks .mk .hm svg{width:16px;height:16px}
+.expr{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px;margin-top:calc(var(--u)*2)}
+.expr .ex{background:var(--s1);border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:inset 0 1px 0 var(--lit)}
+.expr .ex canvas{display:block;width:100%;height:56px}
+.expr .ex span{display:block;font-family:var(--mono);font-size:.625rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding:6px 8px 8px;border-top:1px solid var(--line)}
+canvas{display:block}
+@media (prefers-reduced-motion:reduce){.island,.layer,.chip,.compact .mini{transition:none}}
+@media (max-width:860px){.hdr,.notes,.controls{grid-template-columns:1fr}.desk{height:420px}}
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="hdr">
+  <div>
+    <h1><small>01 — the notch</small>polyphonic mini</h1>
+  </div>
+  <p>the place your agent lives, and the smallest door into the household. <b>asleep it's two dim dots.</b> it wakes when something needs you, shows who's working and how far along, and takes a message — like a music mini-player, except the thing playing is your agents.</p>
+</header>
+
+<section class="desk" id="desk" data-tier="compact" data-state="idle" data-busy="0" data-unread="0">
+  <div class="menubar">
+    <div class="l"><b></b><span>Polyphonic</span><span>File</span><span>Edit</span><span>View</span><span>Window</span></div>
+    <div class="r"><span>◐ 82%</span><span id="clock">Thu 11:42</span></div>
+  </div>
+  <div class="fakewin" style="top:72px;left:40px;width:340px;height:260px"><div class="fbar"></div><div class="fl"></div><div class="fl" style="width:60%"></div><div class="fl" style="width:80%"></div></div>
+  <div class="fakewin" style="top:110px;right:48px;width:380px;height:300px"><div class="fbar"></div><div class="fl"></div><div class="fl" style="width:70%"></div></div>
+  <div class="cursorhint">click the notch · ⌥ space opens · esc closes</div>
+
+  <div class="island" id="island" role="button" aria-label="Polyphonic notch" tabindex="0">
+    <!-- compact -->
+    <div class="layer compact on" id="L-compact">
+      <canvas class="face" id="cv-compact"></canvas>
+      <div class="mini" id="mini"></div>
+      <span class="unread"></span>
+    </div>
+    <!-- expanded island -->
+    <div class="layer isl" id="L-island">
+      <canvas class="face" id="cv-island"></canvas>
+      <div class="now" id="isl-now"></div>
+      <div class="line" id="isl-line"><b>luca</b> · nothing running. say the word.</div>
+    </div>
+    <!-- open mini app -->
+    <div class="layer app" id="L-open">
+      <div class="top">
+        <canvas class="face" id="cv-open"></canvas>
+        <div class="who"><b>Luca</b><span id="who-state">resting</span></div>
+        <span class="esc">esc</span>
+      </div>
+      <div class="rail" id="rail"></div>
+      <div class="thread" id="thread"></div>
+      <div class="composer">
+        <input id="inp" type="text" spellcheck="false" placeholder="message luca…" aria-label="message luca">
+        <button id="send">send</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="controls">
+  <div class="grp" id="g-tier"><span class="idx">tier</span>
+    <button data-tier="compact" class="on">compact</button><button data-tier="island">island</button><button data-tier="open">open</button>
+  </div>
+  <div class="grp" id="g-act"><span class="idx">events</span>
+    <button id="b-run" class="go">run the scenario</button><button id="b-incoming">an agent reaches out</button><button id="b-consent">screen consent</button><button id="b-reset">reset</button>
+  </div>
+  <div class="grp" id="g-expr"><span class="idx">expression</span></div>
+  <div class="hint">the eyes follow your cursor, glance on their own, and look at whichever agent is working. <b>white is the resting truth. the only colour the face ever wears is cold — and only while it reads your screen.</b></div>
+</section>
+
+<section class="notes">
+  <div>
+    <h2>the expression system</h2>
+    <p>one parametric eye pair on a phosphor lattice: width, openness, upper-lid angle, lower crescent, skew, pupil. every expression is a point in that space, so the face <b>morphs</b> between states instead of swapping frames, and the phosphor leaves a breath of trail behind every move.</p>
+    <p>what's new over the first studies: an angled upper lid (so it can look <i>uncertain</i> or <i>intent</i>, not just open/closed), a catchlight inside the pupil (one lit cell — it's what makes eyes read as wet and awake), two-speed gaze (fast saccade, slow settle), and a two-timescale phosphor — a bright front over a slow afterglow.</p>
+    <div class="expr" id="expr-gallery"></div>
+  </div>
+  <div>
+    <h2>the marks</h2>
+    <p>harnesses are shown nominatively, monochrome, small. the ring carries the state, not the logo — colour stays a signal.</p>
+    <div class="marks" id="marks"></div>
+    <h2 style="margin-top:32px">three tiers</h2>
+    <p><b>compact</b> — the hardware notch. eyes, and when something's running, tiny rings at the trailing edge. <b>island</b> — a hover or a wake: the face, who's working, one line. <b>open</b> — the mini app: agents, the thread with your agent, a composer. everything you need in the corner of your eye, nothing you don't.</p>
+  </div>
+</section>
+
+</div>
+
+<script>
+(() => {
+'use strict';
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)), lerp=(a,b,k)=>a+(b-a)*k, TAU=Math.PI*2;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const RM=matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ===================== harness marks (nominative, monochrome) ===================== */
+const MARKS={
+  codex:`<svg viewBox="-12 -12 24 24">${[0,1,2,3,4,5].map(i=>`<path d="M0 -9.2 L7.6 -4.9 L7.6 3.7" transform="rotate(${i*60})"/>`).join('')}</svg>`,
+  claude:`<svg viewBox="-12 -12 24 24">${[...Array(12)].map((_,i)=>`<rect class="f" x="-1" y="${-(i%2?6.2:9.4)}" width="2" height="${i%2?4.4:6}" rx="1" transform="rotate(${i*30})"/>`).join('')}</svg>`,
+  grok:`<svg viewBox="-12 -12 24 24"><path d="M-7.5 -8 L7.5 8"/><path d="M7.5 -8 L-1.5 2.2"/><path d="M-7.5 8 L-3.2 3.2"/></svg>`,
+  hermes:`<svg viewBox="-12 -12 24 24"><path d="M0 -9 V9"/><path d="M-6 -4 C-3 -7 3 -7 6 -4"/><path d="M-6 1 C-3 -2 3 -2 6 1"/><path d="M-4.5 6 C-2 4 2 4 4.5 6"/></svg>`,
+  openclaw:`<svg viewBox="-12 -12 24 24"><path d="M-7 7 C-7 -1 -3 -6 0 -9"/><path d="M0 8 C-1 1 1 -4 3 -8"/><path d="M7 6 C6 0 5 -3 2 -6"/></svg>`,
+  luca:`<svg viewBox="-12 -12 24 24"><circle cx="0" cy="0" r="8"/><circle class="f" cx="0" cy="0" r="1.6"/></svg>`
+};
+const HARNESS={codex:'codex',claude:'claude code',grok:'grok',hermes:'hermes',openclaw:'openclaw'};
+
+/* ===================== cast ===================== */
+const CAST={
+  otto:{name:'Otto',h:'codex'},
+  iris:{name:'Iris',h:'claude'},
+  rae:{name:'Rae',h:'openclaw'},
+  pip:{name:'Pip',h:'grok'}
+};
+
+/* ===================== phosphor (two timescales, integer pitch) ===================== */
+const DIM=[24,25,29];
+class Phosphor{
+  constructor(cv,cellCss,opts={}){
+    this.cv=cv; this.cellCss=cellCss; this.ink=opts.ink??.13; this.inkLit=opts.inkLit??.24;
+    this.dot=[240,241,245]; this.ok=false; this.resize();
+  }
+  resize(){
+    const r=this.cv.getBoundingClientRect();
+    if(r.width<4||r.height<4){this.ok=false;return false;}
+    const dpr=Math.min(devicePixelRatio||1,2);
+    this.pitch=Math.max(2,Math.round(this.cellCss*dpr));     // integer device pixels
+    this.W=Math.round(r.width*dpr); this.H=Math.round(r.height*dpr);
+    this.cv.width=this.W; this.cv.height=this.H;
+    this.ctx=this.cv.getContext('2d');
+    this.cw=r.width; this.ch=r.height;
+    this.cols=Math.max(1,Math.floor(this.W/this.pitch)); this.rows=Math.max(1,Math.floor(this.H/this.pitch));
+    this.ox=Math.floor((this.W-this.cols*this.pitch)/2); this.oy=Math.floor((this.H-this.rows*this.pitch)/2);
+    this.q=new Float32Array(this.cols*this.rows); this.g=new Float32Array(this.cols*this.rows);
+    this.ok=true; return true;
+  }
+  maybeResize(){ const r=this.cv.getBoundingClientRect(); if(Math.abs(r.width-this.cw)>1||Math.abs(r.height-this.ch)>1)this.resize(); }
+  fade(kf,kg){ if(!this.ok)return; const q=this.q,g=this.g;
+    for(let i=0;i<q.length;i++){ const v=q[i]; g[i]=Math.max(g[i]*kg, v*.55); q[i]=v*kf; } }
+  set(x,y,v){ if(!this.ok)return; x=Math.round(x); y=Math.round(y);
+    if(x<0||y<0||x>=this.cols||y>=this.rows)return; const i=y*this.cols+x; if(v>this.q[i])this.q[i]=v; }
+  draw(){
+    if(!this.ok)return;
+    const {ctx,pitch,cols,rows,ox,oy,q,g,ink,inkLit,dot}=this;
+    ctx.clearRect(0,0,this.W,this.H);
+    const half=pitch/2;
+    for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){
+      const i=y*cols+x; const c=clamp(q[i]+g[i]*.42,0,1);
+      const r=Math.round(DIM[0]+(dot[0]-DIM[0])*c), gg=Math.round(DIM[1]+(dot[1]-DIM[1])*c), b=Math.round(DIM[2]+(dot[2]-DIM[2])*c);
+      ctx.fillStyle=`rgb(${r},${gg},${b})`;
+      ctx.beginPath(); ctx.arc(ox+x*pitch+half, oy+y*pitch+half, pitch*(ink+inkLit*c), 0, TAU); ctx.fill();
+    }
+  }
+}
+
+/* ===================== expression space ===================== */
+/* params: w width · h openness · lidA upper-lid angle (+ = inner corner higher → uncertain; − = intent) · lidT upper lid lower amount · cres lower crescent · skew · pup pupil · look {x,y} override */
+const BASE={w:1,h:.5,lidA:0,lidT:0,cres:0,skew:0,pup:0};
+const EXPR={
+  asleep:   {L:{h:.14,cres:0,pup:0},R:{h:.14,cres:0,pup:0},br:.42},
+  idle:     {L:{h:.5,lidT:.1,pup:.2},R:{h:.5,lidT:.1,pup:.2},br:.86},
+  attentive:{L:{h:.95,pup:.26,cres:0},R:{h:.95,pup:.26,cres:0},br:1},
+  watching: {L:{h:1,w:1.04,pup:.42},R:{h:1,w:1.04,pup:.42},br:1,cold:true},
+  thinking: {L:{h:.62,pup:.2,lidT:.1},R:{h:.46,pup:.2,lidT:.24},br:.85,look:{x:-.7,y:-.8}},
+  speaking: {L:{h:.64,cres:.9},R:{h:.64,cres:.9},br:.95,talk:true},
+  working:  {L:{h:.6,pup:.3,lidT:.14,lidA:-.3},R:{h:.6,pup:.3,lidT:.14,lidA:-.3},br:.9,skewToGaze:true},
+  delighted:{L:{h:.78,cres:1.05,w:1.05},R:{h:.78,cres:1.05,w:1.05},br:1},
+  uncertain:{L:{h:.7,pup:.24,lidA:.5,lidT:.12},R:{h:.7,pup:.24,lidA:.5,lidT:.12},br:.82,wander:true},
+  intent:   {L:{h:.66,pup:.34,lidA:-.55,lidT:.2,cres:0},R:{h:.66,pup:.34,lidA:-.55,lidT:.2,cres:0},br:.95}
+};
+const WHITE=[240,241,245], COLD=[150,232,255];
+
+class Eyes{
+  constructor(ph,opts={}){
+    this.ph=ph; this.scale=opts.scale??1; this.expr='idle'; this.exprStart=performance.now();
+    this.L={...BASE}; this.R={...BASE}; this.tint=[...WHITE];
+    this.gaze={x:0,y:0}; this.gazeT={x:0,y:0}; this.sacc={x:0,y:0}; this.lookAt=null;
+    this.nextBlink=1.5+Math.random()*3; this.blinkUntil=0;
+    this.nextGlance=2+Math.random()*4; this.glanceUntil=0; this.gl={x:0,y:0};
+    this.nextSacc=1+Math.random(); this.ph1=Math.random()*TAU; this.ph2=Math.random()*TAU;
+  }
+  setExpr(e){ if(this.expr!==e){this.expr=e; this.exprStart=performance.now();} }
+  st(){ return (performance.now()-this.exprStart)/1000; }
+  step(t){
+    const ph=this.ph; if(!ph.ok)return;
+    const E=EXPR[this.expr]||EXPR.idle;
+    /* blink */
+    if(t>this.nextBlink && !E.cold){
+      this.blinkUntil=t+.12; this.nextBlink=t+2.4+Math.random()*3.6;
+      if(Math.random()<.18)this.nextBlink=t+.5;
+      if(this.expr==='asleep')this.nextBlink=t+9+Math.random()*6;
+    }
+    /* autonomous glance */
+    if(t>this.nextGlance){ this.glanceUntil=t+.45+Math.random()*.6; this.nextGlance=t+3+Math.random()*5;
+      const a=Math.random()*TAU; this.gl={x:Math.cos(a)*.9,y:Math.sin(a)*.5}; }
+    /* micro-saccade */
+    if(t>this.nextSacc){ this.sacc={x:(Math.random()-.5)*.18,y:(Math.random()-.5)*.12}; this.nextSacc=t+.9+Math.random()*2.1; }
+    this.sacc.x*=.9; this.sacc.y*=.9;
+    /* gaze target */
+    const r=ph.cv.getBoundingClientRect();
+    let px=mouse.x, py=mouse.y, la=this.lookAt;
+    if(la){ if(la.getBoundingClientRect){const b=la.getBoundingClientRect(); px=b.left+b.width/2; py=b.top+b.height/2;} else {px=la.x;py=la.y;} }
+    let tx=clamp((px-(r.left+r.width/2))/(Math.max(r.width,160)*.8),-1,1);
+    let ty=clamp((py-(r.top+r.height/2))/(Math.max(r.height,140)*.8),-1,1);
+    if(!la && t<this.glanceUntil && !E.cold){tx=this.gl.x;ty=this.gl.y;}
+    if(!la && E.look){tx=E.look.x;ty=E.look.y;}
+    if(!la && E.wander){tx=Math.sin(t*.9+this.ph1)*.6; ty=Math.cos(t*.7+this.ph2)*.35;}
+    if(this.expr==='asleep'){tx=0;ty=.2;}
+    /* two-speed gaze: fast toward a new target, slow settle */
+    const dx=tx-this.gazeT.x, dy=ty-this.gazeT.y; const far=Math.hypot(dx,dy)>.25;
+    this.gazeT.x=lerp(this.gazeT.x,tx,far?.28:.08); this.gazeT.y=lerp(this.gazeT.y,ty,far?.28:.08);
+    this.gaze.x=lerp(this.gaze.x,this.gazeT.x+this.sacc.x,.35); this.gaze.y=lerp(this.gaze.y,this.gazeT.y+this.sacc.y,.35);
+    /* tint law */
+    const target=E.cold?COLD:WHITE;
+    for(let i=0;i<3;i++)this.tint[i]=lerp(this.tint[i],target[i],.07);
+    ph.dot=this.tint;
+    /* morph */
+    const blink=t<this.blinkUntil;
+    const TL={...BASE,...E.L}, TR={...BASE,...E.R};
+    if(E.talk){ const env=(0.5+0.5*Math.sin(t*10.7))*(0.55+0.45*Math.sin(t*2.9)); TL.h*=1+.12*env; TR.h*=1+.12*env*.9; }
+    if(E.skewToGaze){ TL.skew=TR.skew=clamp(this.gaze.x,-1,1)*.28; }
+    for(const [cur,tgt] of [[this.L,TL],[this.R,TR]]) for(const k in cur) cur[k]=lerp(cur[k], blink&&k==='h'?.08:tgt[k], .17);
+    /* render */
+    ph.fade(.58,.9);
+    const rows=ph.rows, cols=ph.cols;
+    const eh=rows*.31*this.scale, ew=eh*.8;
+    const sep=Math.max(ew*2.7, cols*.17);
+    const breathB=1+.035*Math.sin(t*.73+this.ph1), breathH=1+.03*Math.sin(t*1.13+this.ph2);
+    const br=(E.br??.8)*breathB;
+    const ey=rows*.5+this.gaze.y*rows*.06;
+    [[-1,this.L],[1,this.R]].forEach(([side,p])=>{
+      const ecx=cols/2+side*sep/2+this.gaze.x*cols*.04;
+      const w=ew*p.w, h=Math.max(.9,eh*p.h*breathH);
+      const ppx=this.gaze.x*w*.4, ppy=this.gaze.y*h*.42;
+      for(let y=Math.floor(ey-h-2);y<=ey+h+2;y++)for(let x=Math.floor(ecx-w-2);x<=ecx+w+2;x++){
+        let nx=(x-ecx)/w + p.skew*((y-ey)/h); const ny=(y-ey)/h;
+        const se=Math.pow(Math.abs(nx),2.1)+Math.pow(Math.abs(ny),2.1);
+        let v=clamp((1-se)/.33,0,1); if(v<=0)continue;
+        /* upper lid: flat lowering + angle (inner corner = toward centre) */
+        const inner=-side*nx;               // +1 at inner corner, −1 at outer
+        const lidY=-1+p.lidT*1.6+p.lidA*inner*.55;
+        if(ny<lidY) v*=clamp(1-(lidY-ny)*3,0,1)*0;
+        /* lower crescent */
+        if(p.cres>.02){ const cy2=(y-(ey+p.cres*h*1.15))/h, cx2=nx/1.05; if(cx2*cx2+cy2*cy2<1.05) v=0; }
+        /* pupil hole + catchlight */
+        if(p.pup>.02){ const pdx=(x-ecx-ppx)/(w*p.pup), pdy=(y-ey-ppy)/(h*p.pup);
+          if(pdx*pdx+pdy*pdy<1){ v*=.05; if(pdx<-.2&&pdx>-.95&&pdy<-.2&&pdy>-.95) v=.85; } }
+        if(v>0)ph.set(x,y,v*br);
+      }
+    });
+    ph.draw();
+  }
+}
+
+/* ===================== instances ===================== */
+const mouse={x:innerWidth/2,y:innerHeight/3};
+addEventListener('mousemove',e=>{mouse.x=e.clientX;mouse.y=e.clientY;},{passive:true});
+const faces=[
+  new Eyes(new Phosphor(document.getElementById('cv-compact'),2,{ink:.15,inkLit:.3}),{scale:1.9}),
+  new Eyes(new Phosphor(document.getElementById('cv-island'),3),{scale:.88}),
+  new Eyes(new Phosphor(document.getElementById('cv-open'),3),{scale:.95})
+];
+function setExpr(e){ faces.forEach(f=>f.setExpr(e)); desk.dataset.state=e;
+  document.querySelectorAll('#g-expr button').forEach(b=>b.classList.toggle('on',b.dataset.e===e));
+  document.getElementById('who-state').textContent=({asleep:'asleep',idle:'resting',attentive:'listening',watching:'reading your screen',thinking:'thinking',speaking:'speaking',working:'supervising',delighted:'pleased',uncertain:'unsure',intent:'focused'})[e]||e; }
+function lookAt(el){ faces.forEach(f=>f.lookAt=el); }
+
+/* ===================== tiers ===================== */
+const desk=document.getElementById('desk'), island=document.getElementById('island');
+const layers={compact:document.getElementById('L-compact'),island:document.getElementById('L-island'),open:document.getElementById('L-open')};
+let tier='compact';
+function setTier(t){ tier=t; desk.dataset.tier=t;
+  for(const k in layers)layers[k].classList.toggle('on',k===t);
+  document.querySelectorAll('#g-tier button').forEach(b=>b.classList.toggle('on',b.dataset.tier===t));
+  if(t==='open'){ desk.dataset.unread='0'; setTimeout(()=>{thread.scrollTop=thread.scrollHeight;},60); }
+}
+island.addEventListener('click',e=>{ if(e.target.closest('.composer'))return; setTier(tier==='compact'?'island':tier==='island'?'open':'compact'); if(tier!=='compact'&&faces[0].expr==='asleep'||faces[0].expr==='idle')setExpr('attentive'); });
+addEventListener('keydown',e=>{
+  if(e.key==='Escape'){setTier('compact'); if(!running)setExpr('idle'); inp.blur();}
+  if(e.altKey&&e.code==='Space'){e.preventDefault(); setTier(tier==='open'?'compact':'open'); if(tier==='open'){setExpr('attentive'); setTimeout(()=>inp.focus(),420);} }
+});
+document.getElementById('g-tier').addEventListener('click',e=>{const b=e.target.closest('button');if(b)setTier(b.dataset.tier);});
+
+/* ===================== agents / chips ===================== */
+const agents={}; // id → {state, p, status}
+function chipHTML(id,cls){ const a=CAST[id]; return `<div class="chip ${cls}" data-id="${id}">
+  <div class="ring"><svg class="r" viewBox="0 0 36 36"><circle class="track" cx="18" cy="18" r="15.9"/><circle class="prog" cx="18" cy="18" r="15.9"/></svg><div class="hm">${MARKS[a.h]}</div></div>
+  <div class="meta"><b>${a.name}</b><i>${HARNESS[a.h]}</i></div><span class="pct"></span></div>`; }
+const rail=document.getElementById('rail'), islNow=document.getElementById('isl-now'), mini=document.getElementById('mini');
+function renderAgents(){
+  const ids=Object.keys(agents);
+  const active=ids.filter(i=>agents[i].state!=='idle');
+  desk.dataset.busy=active.some(i=>agents[i].state==='working'||agents[i].state==='queued')?'1':'0';
+  rail.innerHTML=ids.length?ids.map(i=>chipHTML(i,agents[i].state)).join(''):'';
+  islNow.innerHTML=active.slice(0,2).map(i=>chipHTML(i,agents[i].state)).join('');
+  mini.innerHTML=active.filter(i=>agents[i].state!=='done').slice(0,3).map(i=>chipHTML(i,agents[i].state)).join('');
+  ids.forEach(i=>paintChip(i));
+}
+function paintChip(id){ const a=agents[id];
+  document.querySelectorAll(`.chip[data-id="${id}"]`).forEach(el=>{
+    el.className='chip '+(a.state==='working'?'active':a.state);
+    const prog=el.querySelector('.prog'); if(prog)prog.style.strokeDashoffset=100*(1-(a.state==='done'?1:a.p||0));
+    const st=el.querySelector('.meta i'); if(st)st.textContent=a.status||HARNESS[CAST[id].h];
+    const pct=el.querySelector('.pct'); if(pct)pct.textContent=a.state==='working'?Math.round((a.p||0)*100)+'%':'';
+  }); }
+function setAgent(id,patch){ agents[id]={...(agents[id]||{state:'idle',p:0}),...patch}; }
+
+/* ===================== thread ===================== */
+const thread=document.getElementById('thread'), inp=document.getElementById('inp'), islLine=document.getElementById('isl-line');
+function addMsg(who,text,me=false,h=null){
+  const d=document.createElement('div'); d.className='msg'+(me?' me':'');
+  d.innerHTML=`<div class="who">${h?`<span class="hm">${MARKS[h]}</span>`:''}${who}</div><div class="t"></div>`;
+  d.querySelector('.t').textContent=text; thread.appendChild(d); thread.scrollTop=thread.scrollHeight; return d; }
+function addSys(t){ const d=document.createElement('div'); d.className='sysline'; d.textContent=t; thread.appendChild(d); thread.scrollTop=thread.scrollHeight; }
+function setLine(who,text){ islLine.innerHTML=`<b>${who}</b> · ${text}`; }
+async function lucaSay(text,{expr='speaking'}={}){
+  setExpr(expr); setLine('luca',text);
+  const d=addMsg('luca',''); const tEl=d.querySelector('.t');
+  // phosphor-style arrival: whole words settle in, not a typewriter
+  const words=text.split(' '); for(let i=0;i<words.length;i++){ tEl.textContent=words.slice(0,i+1).join(' '); thread.scrollTop=thread.scrollHeight; await sleep(RM?0:38); }
+}
+
+/* ===================== scenario ===================== */
+let running=false;
+const OTTO_ST=[[0,'reading the repo'],[.2,'scaffolding views'],[.46,'wiring sync'],[.72,'tests running'],[.93,'tests · 34/34']];
+const IRIS_ST=[[0,"reviewing otto's build"],[.24,'type & spacing'],[.52,'states & motion'],[.8,'final pass']];
+async function runAgent(id,nextId,dur,sts,doneTxt){
+  setAgent(id,{state:'working',p:0,status:sts[0][1]}); renderAgents();
+  const chip=()=>document.querySelector(`#${tier==='open'?'rail':'isl-now'} .chip[data-id="${id}"]`)||document.querySelector(`.chip[data-id="${id}"]`);
+  lookAt(chip()); setExpr('working');
+  let p=0; const t0=performance.now(); let nextSacc=performance.now()+1500+Math.random()*900;
+  while(p<1){
+    await sleep(RM?40:120+Math.random()*240);
+    const el=(performance.now()-t0)/dur;
+    p=clamp(p+Math.random()*.085*(el>.7?1.6:1),0,Math.min(1,el*1.15)); if(el>=1)p=1;
+    let status=sts[0][1]; for(const [th,tx] of sts) if(p>=th)status=tx;
+    setAgent(id,{p,status}); paintChip(id);
+    if(nextId&&performance.now()>nextSacc){ const o=document.querySelector(`.chip[data-id="${nextId}"]`); if(o){lookAt(o); setTimeout(()=>lookAt(chip()),380);} nextSacc=performance.now()+1700+Math.random()*1300; }
+  }
+  setAgent(id,{state:'done',p:1,status:doneTxt}); renderAgents();
+}
+async function scenario(userText){
+  if(running)return; running=true; bRun.disabled=true;
+  if(tier!=='open')setTier('open');
+  addMsg('you',userText,true); lookAt(null);
+  setExpr('thinking'); await sleep(1000);
+  await lucaSay("on it. otto takes the build; iris follows with the design polish once he ships.");
+  await sleep(250);
+  setAgent('otto',{state:'working',p:0,status:'starting'}); setAgent('iris',{state:'queued',p:0,status:'queued · after otto'}); renderAgents();
+  await sleep(500);
+  await runAgent('otto','iris',7000,OTTO_ST,'shipped · 4m 12s');
+  addSys('otto done — handing to iris'); setLine('otto','shipped · handing to iris');
+  await sleep(450);
+  await runAgent('iris',null,5600,IRIS_ST,'polish complete');
+  lookAt(null); await sleep(300);
+  await lucaSay("done. otto shipped the build, 34 of 34 green. iris finished the polish. preview's ready when you are.",{expr:'delighted'});
+  await sleep(1400); setExpr('idle');
+  bRun.disabled=false; running=false;
+}
+async function incoming(){
+  if(running)return; running=true;
+  // an agent reaches out while you're elsewhere: the notch wakes on its own
+  if(tier==='open'){ await deliverRae(); running=false; return; }
+  setTier('island'); setExpr('attentive');
+  setAgent('rae',{state:'active',p:0,status:'wants a word'}); renderAgents();
+  setLine('rae','deploy is green. tag the release, or hold?');
+  addMsg('rae','deploy is green. tag the release, or hold?',false,'openclaw');
+  await sleep(3800);
+  setTier('compact'); desk.dataset.unread='1'; setAgent('rae',{state:'idle'}); renderAgents(); setExpr('idle');
+  running=false;
+}
+async function deliverRae(){ setExpr('attentive'); setAgent('rae',{state:'active',p:0,status:'wants a word'}); renderAgents();
+  const n=document.createElement('div'); n.className='newline'; n.textContent='new'; thread.appendChild(n);
+  addMsg('rae','deploy is green. tag the release, or hold?',false,'openclaw'); await sleep(1200); setAgent('rae',{state:'idle'}); renderAgents(); setExpr('idle'); }
+async function consent(){
+  if(running)return; running=true;
+  if(tier==='compact')setTier('island');
+  setExpr('attentive'); setLine('luca','may i look at your screen for this?');
+  await sleep(RM?200:1300);
+  setExpr('watching'); setLine('luca','reading · the figma tab and the open pr');
+  await sleep(RM?400:3600);
+  setExpr('idle'); setLine('luca','got it. the spacing drifted in the header — want me to flag it to iris?');
+  running=false;
+}
+function send(){ const v=inp.value.trim(); if(!v||running)return; inp.value='';
+  if(/otto|iris|finish|build|ship/i.test(v)) return scenario(v);
+  addMsg('you',v,true); (async()=>{ setExpr('thinking'); await sleep(700); await lucaSay("noted. want it on the board, or should i just handle it quietly?"); await sleep(900); setExpr('idle'); })(); }
+document.getElementById('send').addEventListener('click',send);
+inp.addEventListener('keydown',e=>{ if(e.key==='Enter')send(); });
+inp.addEventListener('focus',()=>{ if(!running){lookAt(inp); setExpr('attentive');} });
+inp.addEventListener('blur',()=>{ if(!running){lookAt(null); setExpr('idle');} });
+const bRun=document.getElementById('b-run');
+bRun.addEventListener('click',async()=>{ if(running)return; setTier('open'); await sleep(500); inp.focus();
+  const line="have otto and iris finish the app — iris does the final design polish"; inp.value='';
+  for(let i=0;i<=line.length;i++){ inp.value=line.slice(0,i); await sleep(RM?0:14); } await sleep(240); inp.value=''; inp.blur(); scenario(line); });
+document.getElementById('b-incoming').addEventListener('click',incoming);
+document.getElementById('b-consent').addEventListener('click',consent);
+document.getElementById('b-reset').addEventListener('click',()=>{ for(const k in agents)delete agents[k]; renderAgents(); thread.innerHTML=''; seedThread(); desk.dataset.unread='0'; setTier('compact'); setExpr('idle'); lookAt(null); setLine('luca','nothing running. say the word.'); });
+
+/* expression buttons + gallery */
+const gExpr=document.getElementById('g-expr');
+Object.keys(EXPR).forEach(e=>{ const b=document.createElement('button'); b.dataset.e=e; b.textContent=e; b.addEventListener('click',()=>{ if(running)return; setExpr(e); if(tier==='compact'&&e!=='asleep'&&e!=='idle')setTier('island'); }); gExpr.appendChild(b); });
+const gal=document.getElementById('expr-gallery'); const galFaces=[];
+Object.keys(EXPR).forEach(e=>{ const d=document.createElement('div'); d.className='ex'; d.innerHTML=`<canvas></canvas><span>${e}</span>`; gal.appendChild(d);
+  const f=new Eyes(new Phosphor(d.querySelector('canvas'),3),{scale:1}); f.setExpr(e); f.lookAt={x:0,y:0}; f.fixed=true; galFaces.push(f); });
+/* marks strip */
+document.getElementById('marks').innerHTML=Object.keys(HARNESS).map(k=>`<div class="mk"><span class="hm">${MARKS[k]}</span>${HARNESS[k]}</div>`).join('');
+
+/* seed */
+function seedThread(){ addMsg('luca','morning. otto pushed the date-formatter fix overnight; iris has app-store copy waiting in #launch.'); addMsg('you','thanks — i\'ll read it after standup',true); }
+seedThread();
+setLine('luca','nothing running. say the word.');
+setExpr('idle'); setTier('compact');
+/* clock */
+const clock=document.getElementById('clock'); const tick=()=>{const d=new Date(); clock.textContent=d.toLocaleDateString(undefined,{weekday:'short'})+' '+d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});}; tick(); setInterval(tick,15000);
+
+/* loop */
+let last=0;
+function loop(now){
+  const t=now/1000;
+  if(!document.hidden){
+    faces.forEach(f=>{ f.ph.maybeResize(); if(f.ph.ok)f.step(t); });
+    galFaces.forEach(f=>{ f.ph.maybeResize(); if(f.ph.ok){ f.lookAt={x:f.ph.cv.getBoundingClientRect().left+40,y:f.ph.cv.getBoundingClientRect().top+28}; f.step(t);} });
+  }
+  if(!RM)requestAnimationFrame(loop); 
+}
+if(RM){ // settle one frame
+  faces.forEach(f=>{f.ph.resize(); for(let i=0;i<20;i++)f.step(i/30);}); galFaces.forEach(f=>{f.ph.resize(); for(let i=0;i<20;i++)f.step(i/30);});
+} else requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

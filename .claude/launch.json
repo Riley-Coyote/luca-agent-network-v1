@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "shell-lab",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "4790",
+        "-d",
+        "/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-canonical/design-lab"
+      ],
+      "port": 4790
+    },
+    {
+      "name": "notch-proto",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "4181",
+        "-d",
+        "/Users/rileycoyote/Documents/Repositories/luca-agent-network-v1/design-artifacts/notch"
+      ],
+      "port": 4181
+    }
+  ]
+}
