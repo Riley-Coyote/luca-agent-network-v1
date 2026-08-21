@@ -358,58 +358,6 @@ fn bounded_index_pages(
     Ok((build, pages))
 }
 
-#[cfg(test)]
-mod bounded_index_page_tests {
-    use super::*;
-    const REALISTIC_TOKEN_HASHES_PER_ENTRY: usize = 16;
-
-    fn hash(value: usize) -> Sha256Ref {
-        Sha256Ref::parse(format!("sha256:{value:064x}")).expect("valid test hash")
-    }
-
-    #[test]
-    fn large_session_indexes_fit_encrypted_record_and_revision_bounds() {
-        let source_id = OpaqueId::parse("connected-large-session-fixture").unwrap();
-        let token_hashes = (1..=REALISTIC_TOKEN_HASHES_PER_ENTRY)
-            .map(hash)
-            .collect::<Vec<_>>();
-        let entries = (0..16_384)
-            .map(|index| ConnectedBrainIndexEntryV1 {
-                protocol: CONNECTED_BRAIN_PROTOCOL.to_owned(),
-                entry_id: OpaqueId::parse(format!("connected-entry-{index}")).unwrap(),
-                source_id: source_id.clone(),
-                relative_locator: format!("sessions/{index:05}/conversation.jsonl"),
-                ordinal: SafeU53::new(index as u64).unwrap(),
-                content_hash: hash(index + REALISTIC_TOKEN_HASHES_PER_ENTRY + 1),
-                token_hashes: token_hashes.clone(),
-                captured_at: None,
-            })
-            .collect::<Vec<_>>();
-        let original_entry_count = entries.len();
-        let build = ConnectedBrainIndexBuildV1 {
-            index_revision: hash(0),
-            refresh_cursor: hash(0).as_str().to_owned(),
-            item_count: 2_048,
-            entries,
-        };
-
-        let (bounded, pages) = bounded_index_pages(&source_id, build).unwrap();
-
-        assert!(!bounded.entries.is_empty());
-        assert_eq!(bounded.entries.len(), original_entry_count);
-        assert_eq!(
-            pages.iter().map(|page| page.entries.len()).sum::<usize>(),
-            bounded.entries.len()
-        );
-        assert!(pages.len() <= MAX_CONNECTED_INDEX_PAGES);
-        assert!(pages.iter().all(|page| {
-            serde_json::to_vec(page).unwrap().len() <= MAX_CONNECTED_INDEX_PAGE_PLAINTEXT_BYTES
-        }));
-        assert_ne!(bounded.index_revision, hash(0));
-        assert_eq!(bounded.refresh_cursor, bounded.index_revision.as_str());
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn persist_connected_index(
     runtime: &mut ContinuityRuntime,
@@ -1095,5 +1043,57 @@ fn default_policy() -> ConnectedBrainPolicyV1 {
         remote_excerpt_egress: true,
         repository_read: true,
         repository_request_write: true,
+    }
+}
+
+#[cfg(test)]
+mod bounded_index_page_tests {
+    use super::*;
+    const REALISTIC_TOKEN_HASHES_PER_ENTRY: usize = 16;
+
+    fn hash(value: usize) -> Sha256Ref {
+        Sha256Ref::parse(format!("sha256:{value:064x}")).expect("valid test hash")
+    }
+
+    #[test]
+    fn large_session_indexes_fit_encrypted_record_and_revision_bounds() {
+        let source_id = OpaqueId::parse("connected-large-session-fixture").unwrap();
+        let token_hashes = (1..=REALISTIC_TOKEN_HASHES_PER_ENTRY)
+            .map(hash)
+            .collect::<Vec<_>>();
+        let entries = (0..16_384)
+            .map(|index| ConnectedBrainIndexEntryV1 {
+                protocol: CONNECTED_BRAIN_PROTOCOL.to_owned(),
+                entry_id: OpaqueId::parse(format!("connected-entry-{index}")).unwrap(),
+                source_id: source_id.clone(),
+                relative_locator: format!("sessions/{index:05}/conversation.jsonl"),
+                ordinal: SafeU53::new(index as u64).unwrap(),
+                content_hash: hash(index + REALISTIC_TOKEN_HASHES_PER_ENTRY + 1),
+                token_hashes: token_hashes.clone(),
+                captured_at: None,
+            })
+            .collect::<Vec<_>>();
+        let original_entry_count = entries.len();
+        let build = ConnectedBrainIndexBuildV1 {
+            index_revision: hash(0),
+            refresh_cursor: hash(0).as_str().to_owned(),
+            item_count: 2_048,
+            entries,
+        };
+
+        let (bounded, pages) = bounded_index_pages(&source_id, build).unwrap();
+
+        assert!(!bounded.entries.is_empty());
+        assert_eq!(bounded.entries.len(), original_entry_count);
+        assert_eq!(
+            pages.iter().map(|page| page.entries.len()).sum::<usize>(),
+            bounded.entries.len()
+        );
+        assert!(pages.len() <= MAX_CONNECTED_INDEX_PAGES);
+        assert!(pages.iter().all(|page| {
+            serde_json::to_vec(page).unwrap().len() <= MAX_CONNECTED_INDEX_PAGE_PLAINTEXT_BYTES
+        }));
+        assert_ne!(bounded.index_revision, hash(0));
+        assert_eq!(bounded.refresh_cursor, bounded.index_revision.as_str());
     }
 }
