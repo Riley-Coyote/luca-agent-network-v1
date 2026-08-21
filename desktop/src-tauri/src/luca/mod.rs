@@ -59,3 +59,4 @@ pub(crate) mod resident_notebook;
 pub(crate) mod resident_registry;
 pub(crate) mod signing_broker;
 pub(crate) mod signing_transport;
+pub(crate) mod visits;

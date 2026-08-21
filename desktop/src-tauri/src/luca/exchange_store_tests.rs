@@ -9,6 +9,7 @@ const KAI: &str = "4444444444444444444444444444444444444444444444444444444444444
 const ROOT: &str = "abababababababababababababababababababababababababababababababab";
 const OTHER_ROOT: &str = "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
 const LOWEST_ID: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+const CHANNEL: &str = "11111111-1111-4111-8111-111111111111";
 
 fn hex(value: &str) -> Hex64 {
     Hex64::parse(value).expect("fixture hex64")
@@ -138,6 +139,7 @@ fn the_first_decision_wins_and_a_replay_reads_it_back_verbatim() {
                 notes: vec!["a sentence".to_owned()],
                 notes_published: false,
                 order: 0,
+                ..ExchangeDecision::default()
             },
         )
         .expect("first decision");
@@ -150,6 +152,7 @@ fn the_first_decision_wins_and_a_replay_reads_it_back_verbatim() {
                 notes: Vec::new(),
                 notes_published: false,
                 order: 0,
+                ..ExchangeDecision::default()
             },
         )
         .expect("replay decision");
@@ -170,6 +173,7 @@ fn notes_are_marked_published_once() {
                 notes: vec!["a sentence".to_owned()],
                 notes_published: false,
                 order: 0,
+                ..ExchangeDecision::default()
             },
         )
         .expect("decision");
@@ -192,6 +196,7 @@ fn a_decision_may_change_its_turn_but_never_its_exchange() {
                 notes: Vec::new(),
                 notes_published: false,
                 order: 0,
+                ..ExchangeDecision::default()
             },
         )
         .expect("decision");
@@ -223,6 +228,7 @@ fn a_decision_that_never_had_a_turn_cannot_gain_one() {
                 notes: Vec::new(),
                 notes_published: false,
                 order: 0,
+                ..ExchangeDecision::default()
             },
         )
         .expect("decision");
@@ -251,9 +257,22 @@ fn durable_state_round_trips_through_the_owner_only_file() {
                     notes: Vec::new(),
                     notes_published: true,
                     order: 0,
+                    ..ExchangeDecision::default()
                 },
             )
             .expect("decision persists");
+        store
+            .record_visit(VisitGrant {
+                conversation_id: OpaqueId::parse(CHANNEL).expect("channel"),
+                resident: hex(KAI),
+                arrived_at: 9_001,
+                exchange_id: Some(id.clone()),
+                correlation_id: id.clone(),
+            })
+            .expect("visit persists");
+        store
+            .mark_visit_arrival_noted(&OpaqueId::parse(CHANNEL).expect("channel"), &hex(KAI))
+            .expect("arrival note persists");
     }
     let reloaded = ExchangeStore::load(path).expect("reload");
     assert_eq!(reloaded.head(&id).expect("head").record.bucket, 5);
@@ -262,6 +281,11 @@ fn durable_state_round_trips_through_the_owner_only_file() {
         .expect("decision");
     assert_eq!(decision.granted_p_tags, vec![hex(VEKTOR)]);
     assert!(decision.notes_published);
+    let visit = reloaded
+        .visit(&OpaqueId::parse(CHANNEL).expect("channel"), &hex(KAI))
+        .expect("visit");
+    assert_eq!(visit.grant.exchange_id, Some(id));
+    assert!(visit.arrival_noted);
 }
 
 #[test]

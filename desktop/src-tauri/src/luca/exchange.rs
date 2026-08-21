@@ -4,7 +4,6 @@
 //! The resolver that mints and tags lives in [`super::exchange_plan`]; this
 //! module holds the vocabulary it speaks and the two commands the owner drives.
 
-use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
 use luca_protocol::{ExchangePhase, ExchangeRecordV1, Hex64, OpaqueId};
@@ -13,6 +12,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use super::exchange_relay::{AppExchangeRelay, ExchangeRelay};
 use super::exchange_store::{global_exchange_store, ExchangeHead, ExchangeStore};
+use super::visits::{fade_visits, VisitFadeTrigger};
 
 /// Tauri event emitted whenever an exchange head changes under the owner's hand.
 pub(crate) const EXCHANGE_UPDATED_EVENT: &str = "exchange-updated";
@@ -143,68 +143,6 @@ pub(crate) fn classify_exchange_refusal(message: &str) -> Option<ExchangeRefusal
     Some(ExchangeRefusal::Held(denial))
 }
 
-/// Where an exchange between these people can actually live.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Placement {
-    /// Everyone addressed is already in the room the trigger arrived in.
-    InPlace {
-        /// The addressed residents, sorted and unique.
-        members: Vec<Hex64>,
-    },
-    /// One addressed resident is elsewhere; the owner, the resident who spoke,
-    /// and that addressed resident share a pair DM. This chunk turns the arm
-    /// into a sentence in the room instead of opening the DM.
-    PairDm {
-        /// The owner, the speaker and the addressed resident, sorted and
-        /// unique — everybody the pair DM would have to hold.
-        participants: Vec<Hex64>,
-    },
-    /// More than one addressed resident is elsewhere. A pair DM cannot hold
-    /// them; that needs a room, which is a later chunk.
-    NeedsProjectRoom {
-        /// The addressed residents outside the origin room, sorted and unique.
-        addressed: Vec<Hex64>,
-    },
-}
-
-/// Decide where an exchange addressed to `addressed` belongs, given the room it
-/// was spoken in and the resident who spoke.
-///
-/// Pure and deterministic — same inputs, same answer, in any order. Only the
-/// [`Placement::InPlace`] arm is wired in this chunk; the other two become the
-/// exchange-note the room sees.
-///
-/// `speaker` is the resident whose draft did the addressing. A pair DM that
-/// left them out would not be the conversation anybody asked for, so they are
-/// always among its participants.
-pub(crate) fn place_exchange(
-    origin_members: &BTreeSet<Hex64>,
-    addressed: &[Hex64],
-    owner: &Hex64,
-    speaker: &Hex64,
-) -> Placement {
-    let mut wanted: Vec<Hex64> = addressed.to_vec();
-    wanted.sort();
-    wanted.dedup();
-    let outside: Vec<Hex64> = wanted
-        .iter()
-        .filter(|pubkey| !origin_members.contains(*pubkey))
-        .cloned()
-        .collect();
-    match outside.len() {
-        0 => Placement::InPlace { members: wanted },
-        1 => {
-            let mut participants = outside;
-            participants.push(owner.clone());
-            participants.push(speaker.clone());
-            participants.sort();
-            participants.dedup();
-            Placement::PairDm { participants }
-        }
-        _ => Placement::NeedsProjectRoom { addressed: outside },
-    }
-}
-
 /// One sentence the room is shown when the exchange did something the people in
 /// it should know about.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -218,31 +156,6 @@ pub(crate) struct ExchangeNote {
 }
 
 impl ExchangeNote {
-    /// "<Resident> mentioned <Name>, who isn't here — asking across rooms comes next."
-    pub(crate) fn mentioned_someone_absent(resident: Hex64, speaker: &str, absent: &str) -> Self {
-        Self {
-            exchange_id: None,
-            resident,
-            text: format!(
-                "{speaker} mentioned {absent}, who isn't here — asking across rooms comes next."
-            ),
-        }
-    }
-
-    /// "<Resident> mentioned <Name> — one hop is the limit for now."
-    pub(crate) fn mentioned_a_third(
-        exchange_id: Option<Hex64>,
-        resident: Hex64,
-        speaker: &str,
-        third: &str,
-    ) -> Self {
-        Self {
-            exchange_id,
-            resident,
-            text: format!("{speaker} mentioned {third} — one hop is the limit for now."),
-        }
-    }
-
     /// "<Name>'s reply was held — <why>."
     ///
     /// The tail is chosen by the refusal itself, so the room hears the same
@@ -517,14 +430,24 @@ pub(crate) async fn resolve_exchange(
         let exchange_id = Hex64::parse(exchange_id)
             .map_err(|error| format!("exchange id is invalid: {error}"))?;
         let relay = AppExchangeRelay::new(app.clone());
+        let store = global_exchange_store(&app)?;
         let snapshot = apply_owner_decision(
             &relay,
-            &global_exchange_store(&app)?,
+            &store,
             &exchange_id,
             &owner_pubkey(&app)?,
             action.as_str(),
             now_unix_secs()?,
         )?;
+        if action == "stop" && snapshot.phase == ExchangePhase::Closed {
+            fade_visits(
+                &relay,
+                &store,
+                &snapshot.record.conversation_id,
+                VisitFadeTrigger::ExchangeStopped(&snapshot.record.exchange_id),
+            )
+            .map_err(|error| error.to_string())?;
+        }
         let _ = app.emit(
             EXCHANGE_UPDATED_EVENT,
             serde_json::json!({

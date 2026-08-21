@@ -1,9 +1,8 @@
 use std::collections::HashSet;
 
-#[cfg(test)]
-use luca_protocol::Hex64;
 use luca_protocol::{
-    ManagedAudienceIntentV1, ManagedResponseSurfaceV1, MAX_MANAGED_AUDIENCE_RESIDENTS,
+    Hex64, ManagedAudienceIntentV1, ManagedResponseSurfaceV1, OpaqueId,
+    MAX_MANAGED_AUDIENCE_RESIDENTS,
 };
 use nostr::Tag;
 use tauri::State;
@@ -277,6 +276,39 @@ pub async fn send_channel_message(
         .map_err(|error| error.to_string())?
         .clone()
         .ok_or_else(|| "application handle is unavailable".to_string())?;
+
+    // The owner event is signed before either visit authority or exact
+    // activation authority is staged. Neither model output nor a relay replay
+    // can alter this snapshot.
+    let event = state.signing_keys().and_then(|keys| {
+        builder
+            .sign_with_keys(&keys)
+            .map_err(|error| format!("failed to sign event: {error}"))
+    })?;
+    if kind_num == buzz_core_pkg::kind::KIND_STREAM_MESSAGE {
+        let visit_store = crate::luca::exchange_store::global_exchange_store(&app)?;
+        let visit_app = app.clone();
+        let visit_channel = OpaqueId::parse(channel_id.clone())
+            .map_err(|error| format!("invalid visit conversation id: {error}"))?;
+        let visit_event_id = Hex64::parse(event.id.to_hex())
+            .map_err(|error| format!("invalid owner message id: {error}"))?;
+        let visit_mentions = mentions.clone();
+        let visit_now = event.created_at.as_secs();
+        tauri::async_runtime::spawn_blocking(move || {
+            let relay = crate::luca::exchange_relay::AppExchangeRelay::new(visit_app);
+            crate::luca::visits::handle_owner_mentions(
+                &relay,
+                &visit_store,
+                &visit_channel,
+                &visit_mentions,
+                &visit_event_id,
+                visit_now,
+            )
+        })
+        .await
+        .map_err(|error| format!("visit task failed: {error}"))?
+        .map_err(|error| error.to_string())?;
+    }
     let registered: Vec<String> = load_managed_agents(&app)?
         .into_iter()
         .map(|record| record.pubkey)
@@ -296,13 +328,6 @@ pub async fn send_channel_message(
         conversation_members.as_ref(),
     )?;
 
-    // The owner event is signed before exact activation authority is staged.
-    // Neither model output nor a relay replay can alter this snapshot.
-    let event = state.signing_keys().and_then(|keys| {
-        builder
-            .sign_with_keys(&keys)
-            .map_err(|error| format!("failed to sign event: {error}"))
-    })?;
     let dispatch_store = if managed_residents.is_empty() {
         None
     } else {

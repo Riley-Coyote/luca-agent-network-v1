@@ -30,6 +30,7 @@ impl ExchangeAwareAuthority {
                     luca_protocol::ExchangeTurnTag::new(exchange_id, turn).expect("turn"),
                 ),
                 granted_p_tags: granted,
+                replace_p_tags: false,
             },
             collisions,
             submissions: Arc::new(Mutex::new(Vec::new())),
