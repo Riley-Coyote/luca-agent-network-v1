@@ -217,6 +217,44 @@ for (const theme of themes) {
     r.passageInset = spans.length
       ? spans.every((s) => s.padLeft >= 20 && s.padRight >= 20)
       : null;
+    // The connector must be dead-centre on the marks and meet them exactly:
+    // this is the check that catches a line drifting out of its column.
+    const speakerRows = qa("[data-visit-span]").filter(
+      (el) => el.dataset.visitSpan !== "quiet",
+    );
+    const lineAlign = speakerRows
+      .map((el) => {
+        const rowRect = rect(el);
+        const before = getComputedStyle(el, "::before");
+        const mark = el.querySelector("article > span");
+        if (!mark) return null;
+        const markRect = rect(mark);
+        const lineLeft = Number.parseFloat(before.left);
+        const lineWidth = Number.parseFloat(before.width);
+        return {
+          dx:
+            Math.round(
+              (rowRect.left +
+                lineLeft +
+                lineWidth / 2 -
+                (markRect.left + markRect.width / 2)) *
+                10,
+            ) / 10,
+          dyTop:
+            Math.round(
+              (rowRect.top + Number.parseFloat(before.height) - markRect.top) *
+                10,
+            ) / 10,
+        };
+      })
+      .filter(Boolean);
+    r.lineOffCentreBy = lineAlign.length
+      ? Math.max(...lineAlign.map((a) => Math.abs(a.dx)))
+      : null;
+    r.lineMeetsMarkBy = lineAlign.length
+      ? Math.max(...lineAlign.map((a) => Math.abs(a.dyTop)))
+      : null;
+
     const rail = q('[data-testid="visit-presence-rail"]');
     r.railPresent = rail ? rail.hasAttribute("data-visit-present") : null;
     const railMark = rail?.querySelector("[data-resident-mark-kind]");
@@ -280,6 +318,60 @@ for (const theme of themes) {
   await clip("composer", checks.clips.composer, 16);
   await clip("plate", checks.clips.plate, 16);
   await clip("header", checks.clips.header, 10);
+  // The detail shot: the visit at 3x, doors included. A 1px connector cannot
+  // be judged in a downscaled full-shell frame — this is the frame to look at.
+  const visitBox = await page.evaluate(() => {
+    const parts = [
+      ...document.querySelectorAll("[data-visit-span], [data-visit-threshold]"),
+    ]
+      .map((el) => el.getBoundingClientRect())
+      .filter((b) => b.bottom > 0 && b.top < 900);
+    if (!parts.length) return null;
+    const top = Math.min(...parts.map((b) => b.top));
+    const bottom = Math.max(...parts.map((b) => b.bottom));
+    const left = Math.min(...parts.map((b) => b.left));
+    const width = Math.max(...parts.map((b) => b.width));
+    return {
+      x: left,
+      y: Math.max(0, top),
+      width,
+      height: Math.min(bottom - top, 900 - Math.max(0, top)),
+    };
+  });
+  if (visitBox) {
+    const detail = await browser.newPage({
+      viewport: { width: 1440, height: 900 },
+      deviceScaleFactor: 3,
+    });
+    await detail.goto(`http://127.0.0.1:${port}/shell-lab.html?theme=${theme}`);
+    await detail.waitForSelector('[data-testid="message-author"]', {
+      timeout: 20000,
+    });
+    await detail.waitForTimeout(900);
+    const box = await detail.evaluate(() => {
+      const parts = [
+        ...document.querySelectorAll(
+          "[data-visit-span], [data-visit-threshold]",
+        ),
+      ]
+        .map((el) => el.getBoundingClientRect())
+        .filter((b) => b.bottom > 0 && b.top < 900);
+      if (!parts.length) return null;
+      const top = Math.min(...parts.map((b) => b.top));
+      const bottom = Math.max(...parts.map((b) => b.bottom));
+      const left = Math.min(...parts.map((b) => b.left));
+      const width = Math.max(...parts.map((b) => b.width));
+      return {
+        x: left - 8,
+        y: Math.max(0, top - 8),
+        width: width + 16,
+        height: Math.min(bottom - top + 16, 890 - Math.max(0, top - 8)),
+      };
+    });
+    if (box)
+      await detail.screenshot({ path: path.join(out, "visit.png"), clip: box });
+    await detail.close();
+  }
 
   // The other half of the drawer: a 1:1 with a resident turns it into their
   // card — model selector, instructions, last handoff, open-agent. Capture it
@@ -403,6 +495,16 @@ for (const theme of themes) {
     checks.doorsFullWidth,
   );
   expect("passage is inset from the plane", checks.passageInset);
+  expect(
+    "connector is centred on the marks",
+    checks.lineOffCentreBy !== null ? checks.lineOffCentreBy <= 0.5 : null,
+    `(off by ${checks.lineOffCentreBy}px)`,
+  );
+  expect(
+    "connector meets the mark exactly",
+    checks.lineMeetsMarkBy !== null ? checks.lineMeetsMarkBy <= 0.5 : null,
+    `(gap ${checks.lineMeetsMarkBy}px)`,
+  );
   expect("presence rail pins while a visit is on screen", checks.railPresent);
   expect("presence rail stays in the viewport", checks.railInView);
   expect("presence rail clears the message column", checks.railClearOfRows);

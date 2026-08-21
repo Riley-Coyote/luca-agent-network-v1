@@ -199,6 +199,20 @@
   position: relative;
 }
 
+/* Air inside the doors, so the passage is not pressed against them. Padding
+   moves the mark down with it, so the line's own offset has to follow — see
+   `--mn-visit-mark-top` below, which `lab-shots` checks against the live mark. */
+:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="first"],
+:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="only"] {
+  --mn-visit-mark-top: 10px;
+  padding-top: 2px;
+}
+
+:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="last"],
+:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="only"] {
+  padding-bottom: 4px;
+}
+
 /* THE LINE connects the marks of the people who spoke during the visit and
    nothing else. It is drawn per row in two segments — row top to the mark,
    mark to row bottom — so the first speaker omits its upper segment and the
@@ -209,25 +223,33 @@
    speaker in it. */
 :root[data-luca-shell] [data-luca-reading-plane][data-visit-span]::before,
 :root[data-luca-shell] [data-luca-reading-plane][data-visit-span]::after {
-  background: hsl(var(--mn-ink) / 0.17);
+  background: hsl(var(--mn-ink) / 0.2);
+  /* Rounded ends: where the line meets a mark it should stop like a drawn
+     stroke, not like a cut column. Half its own width, so it reads at any
+     line weight. */
+  border-radius: 1px;
   content: "";
-  /* Row padding (4px) + gutter centre (10.5px) inside the inset column. */
-  left: calc(var(--mn-visit-inset, 30px) + 14px);
+  /* Dead-centre on the mark, and the arithmetic is written down because it is
+     the difference between a connector and a stray line: from the inset edge,
+     the row's article adds `mx-1` (4px) and `px-2` (8px), then the mark column
+     is 21px wide — so its centre is +22.5px, and the 2px line starts half a
+     pixel-pair before that. Checked against the live mark by `lab-shots`. */
+  left: calc(var(--mn-visit-inset, 30px) + 21.5px);
   position: absolute;
-  width: 2px;
+  width: var(--mn-visit-line, 2px);
 }
 
-/* Row top → the mark. `--mn-visit-mark-top` is where the mark starts inside
-   the row: the row's own padding plus the gutter's. */
+/* Row top → the mark. The mark sits `py-1.5` (6px) + `mt-0.5` (2px) below the
+   row's top edge, and is 21px tall. */
 :root[data-luca-shell] [data-luca-reading-plane][data-visit-span]::before {
-  height: var(--mn-visit-mark-top, 10px);
+  height: var(--mn-visit-mark-top, 8px);
   top: 0;
 }
 
 /* The mark → row bottom. */
 :root[data-luca-shell] [data-luca-reading-plane][data-visit-span]::after {
   bottom: 0;
-  top: calc(var(--mn-visit-mark-top, 10px) + 21px);
+  top: calc(var(--mn-visit-mark-top, 8px) + var(--mn-visit-mark-size, 21px));
 }
 
 :root[data-luca-shell]
