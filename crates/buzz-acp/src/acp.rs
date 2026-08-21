@@ -2451,7 +2451,7 @@ fn public_tool_lifecycle_frame(
         }
     }
     serde_json::json!({
-        "jsonrpc": value.get("jsonrpc").cloned().unwrap_or(serde_json::Value::Null),
+        "jsonrpc": "2.0",
         "method": "session/update",
         "params": {
             "sessionId": safe_public_tool_metadata(value.pointer("/params/sessionId"), 128),
@@ -3893,12 +3893,13 @@ mod tests {
 
     #[test]
     fn artifact_enabled_observer_drops_unbounded_or_unsafe_tool_metadata() {
+        const ENVELOPE_SENTINEL: &str = "PRIVATE_ENVELOPE_SENTINEL";
         let mut artifact_state = ArtifactObserverState {
             guard_active: true,
             ..ArtifactObserverState::default()
         };
         let frame = serde_json::json!({
-            "jsonrpc": "2.0", "method": "session/update",
+            "jsonrpc": {"body": ENVELOPE_SENTINEL}, "method": "session/update",
             "params": {"sessionId": "session-1", "update": {
                 "sessionUpdate": "tool_call", "toolCallId": "ordinary-1",
                 "title": "x".repeat(161), "kind": "unsafe\nkind", "status": "pending\u{202e}",
@@ -3913,6 +3914,10 @@ mod tests {
         assert!(update.get("kind").is_none());
         assert!(update.get("status").is_none());
         assert!(update.get("rawInput").is_none());
+        assert_eq!(observed["jsonrpc"], "2.0");
+        assert!(!serde_json::to_string(&observed)
+            .unwrap()
+            .contains(ENVELOPE_SENTINEL));
     }
 
     #[test]
