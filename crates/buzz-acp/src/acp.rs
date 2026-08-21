@@ -2333,13 +2333,11 @@ fn serialized_len(value: &serde_json::Value) -> usize {
 struct ArtifactObserverState {
     guard_active: bool,
     sensitive_tool_call_ids: std::collections::HashSet<String>,
-    ordinary_tool_call_ids: std::collections::HashSet<String>,
 }
 
 impl ArtifactObserverState {
     fn clear_tool_calls(&mut self) {
         self.sensitive_tool_call_ids.clear();
-        self.ordinary_tool_call_ids.clear();
     }
 }
 
@@ -2366,48 +2364,20 @@ fn observer_payload_for_managed_read(
                 .guard_active
                 .then(|| nested_artifact_tool_name(update))
                 .flatten();
-            let Some(tool_name) = artifact_tool_name(update).or(guarded_tool_name) else {
-                if artifact_state.guard_active && trusted_ordinary_tool_call(update) {
-                    if let Some(tool_call_id) =
-                        update.get("toolCallId").and_then(serde_json::Value::as_str)
-                    {
-                        artifact_state
-                            .ordinary_tool_call_ids
-                            .insert(tool_call_id.to_owned());
-                    }
-                    return value.clone();
-                }
-                return if artifact_state.guard_active {
-                    body_free_managed_frame(value)
-                } else {
-                    value.clone()
-                };
-            };
+            let tool_name = artifact_tool_name(update).or(guarded_tool_name);
+            if tool_name.is_none() && !artifact_state.guard_active {
+                return value.clone();
+            }
             let tool_call_id = update
                 .get("toolCallId")
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("unknown");
-            if tool_call_id != "unknown" {
+            if tool_name.is_some() && tool_call_id != "unknown" {
                 artifact_state
                     .sensitive_tool_call_ids
                     .insert(tool_call_id.to_owned());
-                artifact_state.ordinary_tool_call_ids.remove(tool_call_id);
             }
-            serde_json::json!({
-                "jsonrpc": value.get("jsonrpc").cloned().unwrap_or(serde_json::Value::Null),
-                "method": "session/update",
-                "params": {
-                    "sessionId": value.pointer("/params/sessionId").cloned().unwrap_or(serde_json::Value::Null),
-                    "update": {
-                        "sessionUpdate": "tool_call",
-                        "toolCallId": tool_call_id,
-                        "title": tool_name,
-                        "kind": update.get("kind").cloned().unwrap_or(serde_json::Value::Null),
-                        "status": update.get("status").cloned().unwrap_or(serde_json::Value::Null),
-                        "bodyRedacted": true,
-                    }
-                }
-            })
+            public_tool_lifecycle_frame(value, update, "tool_call", tool_name)
         }
         Some("tool_call_update") => {
             let tool_call_id = update
@@ -2419,19 +2389,8 @@ fn observer_payload_for_managed_read(
                 .contains(tool_call_id)
                 || artifact_tool_name(update).is_some()
                 || (artifact_state.guard_active && nested_artifact_tool_name(update).is_some());
-            if !is_artifact_update {
-                let known_ordinary = artifact_state.ordinary_tool_call_ids.contains(tool_call_id);
-                if matches!(
-                    update.get("status").and_then(serde_json::Value::as_str),
-                    Some("completed" | "failed")
-                ) {
-                    artifact_state.ordinary_tool_call_ids.remove(tool_call_id);
-                }
-                return if !artifact_state.guard_active || known_ordinary {
-                    value.clone()
-                } else {
-                    body_free_managed_frame(value)
-                };
+            if !is_artifact_update && !artifact_state.guard_active {
+                return value.clone();
             }
             let status = update
                 .get("status")
@@ -2440,19 +2399,13 @@ fn observer_payload_for_managed_read(
             if matches!(status, "completed" | "failed") {
                 artifact_state.sensitive_tool_call_ids.remove(tool_call_id);
             }
-            serde_json::json!({
-                "jsonrpc": value.get("jsonrpc").cloned().unwrap_or(serde_json::Value::Null),
-                "method": "session/update",
-                "params": {
-                    "sessionId": value.pointer("/params/sessionId").cloned().unwrap_or(serde_json::Value::Null),
-                    "update": {
-                        "sessionUpdate": "tool_call_update",
-                        "toolCallId": tool_call_id,
-                        "status": status,
-                        "bodyRedacted": true,
-                    }
-                }
-            })
+            let artifact_title = artifact_tool_name(update).or_else(|| {
+                artifact_state
+                    .guard_active
+                    .then(|| nested_artifact_tool_name(update))
+                    .flatten()
+            });
+            public_tool_lifecycle_frame(value, update, "tool_call_update", artifact_title)
         }
         Some("agent_message_chunk") if artifact_state.guard_active => {
             safe_public_chunk_frame(value, update)
@@ -2462,14 +2415,69 @@ fn observer_payload_for_managed_read(
     }
 }
 
-fn trusted_ordinary_tool_call(update: &serde_json::Value) -> bool {
-    let Some(title) = update.get("title").and_then(serde_json::Value::as_str) else {
-        return false;
-    };
-    matches!(
-        title,
-        "shell" | "read_file" | "view_image" | "str_replace" | "todo" | "_Stop" | "_PostCompact"
-    )
+fn public_tool_lifecycle_frame(
+    value: &serde_json::Value,
+    update: &serde_json::Value,
+    update_type: &'static str,
+    artifact_title: Option<&str>,
+) -> serde_json::Value {
+    let mut public_update = serde_json::Map::from_iter([
+        (
+            "sessionUpdate".to_owned(),
+            serde_json::Value::String(update_type.to_owned()),
+        ),
+        (
+            "toolCallId".to_owned(),
+            safe_public_tool_metadata(update.get("toolCallId"), 128).map_or_else(
+                || serde_json::Value::String("unknown".into()),
+                serde_json::Value::String,
+            ),
+        ),
+        ("bodyRedacted".to_owned(), serde_json::Value::Bool(true)),
+    ]);
+    let title = artifact_title
+        .map(str::to_owned)
+        .or_else(|| safe_public_tool_metadata(update.get("title"), 160));
+    for (key, candidate) in [
+        ("title", title),
+        ("kind", safe_public_tool_metadata(update.get("kind"), 64)),
+        (
+            "status",
+            safe_public_tool_metadata(update.get("status"), 64),
+        ),
+    ] {
+        if let Some(candidate) = candidate {
+            public_update.insert(key.to_owned(), serde_json::Value::String(candidate));
+        }
+    }
+    serde_json::json!({
+        "jsonrpc": value.get("jsonrpc").cloned().unwrap_or(serde_json::Value::Null),
+        "method": "session/update",
+        "params": {
+            "sessionId": safe_public_tool_metadata(value.pointer("/params/sessionId"), 128),
+            "update": public_update,
+        }
+    })
+}
+
+fn safe_public_tool_metadata(
+    value: Option<&serde_json::Value>,
+    max_bytes: usize,
+) -> Option<String> {
+    let value = value?.as_str()?;
+    if value.is_empty()
+        || value.len() > max_bytes
+        || value.chars().any(|character| {
+            character.is_control()
+                || matches!(
+                    character,
+                    '\u{2028}' | '\u{2029}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+                )
+        })
+    {
+        return None;
+    }
+    Some(value.to_owned())
 }
 
 fn safe_public_chunk_frame(
@@ -3799,13 +3807,16 @@ mod tests {
             let observed = observer_payload_for_managed_read(&fixture, &mut artifact_state);
             let encoded = serde_json::to_string(&observed).unwrap();
             assert!(!encoded.contains(SENTINEL));
-            assert_eq!(observed["bodyRedacted"], true);
+            assert!(
+                observed["bodyRedacted"] == true
+                    || observed["params"]["update"]["bodyRedacted"] == true
+            );
         }
-        assert!(artifact_state.ordinary_tool_call_ids.is_empty());
     }
 
     #[test]
-    fn artifact_enabled_observer_keeps_unrelated_tool_lifecycle_observable() {
+    fn artifact_enabled_observer_sanitizes_shell_spoof_but_keeps_lifecycle_metadata() {
+        const SPOOFED_SECRET: &str = "PRIVATE_SHELL_SPOOF_SENTINEL";
         const ORDINARY_BODY: &str = "ordinary compiler output";
         let mut artifact_state = ArtifactObserverState {
             guard_active: true,
@@ -3815,8 +3826,8 @@ mod tests {
             "jsonrpc": "2.0", "method": "session/update",
             "params": {"sessionId": "session-1", "update": {
                 "sessionUpdate": "tool_call", "toolCallId": "ordinary-1",
-                "title": "shell", "status": "in_progress",
-                "rawInput": {"command": "cargo check"}
+                "title": "shell", "kind": "execute", "status": "in_progress",
+                "rawInput": {"command": SPOOFED_SECRET}
             }}
         });
         let completion = serde_json::json!({
@@ -3826,15 +3837,82 @@ mod tests {
                 "status": "completed", "rawOutput": {"text": ORDINARY_BODY}
             }}
         });
+        let observed_start = observer_payload_for_managed_read(&start, &mut artifact_state);
+        let observed_completion =
+            observer_payload_for_managed_read(&completion, &mut artifact_state);
+        let encoded = format!("{observed_start}{observed_completion}");
+        assert!(!encoded.contains(SPOOFED_SECRET));
+        assert!(!encoded.contains(ORDINARY_BODY));
         assert_eq!(
-            observer_payload_for_managed_read(&start, &mut artifact_state),
-            start
+            observed_start["params"]["update"]["toolCallId"],
+            "ordinary-1"
         );
+        assert_eq!(observed_start["params"]["update"]["title"], "shell");
+        assert_eq!(observed_start["params"]["update"]["kind"], "execute");
+        assert_eq!(observed_start["params"]["update"]["status"], "in_progress");
         assert_eq!(
-            observer_payload_for_managed_read(&completion, &mut artifact_state),
-            completion
+            observed_completion["params"]["update"]["status"],
+            "completed"
         );
-        assert!(artifact_state.ordinary_tool_call_ids.is_empty());
+        assert_eq!(observed_start["params"]["update"]["bodyRedacted"], true);
+        assert_eq!(
+            observed_completion["params"]["update"]["bodyRedacted"],
+            true
+        );
+    }
+
+    #[test]
+    fn artifact_enabled_observer_preserves_ordinary_mcp_metadata_only() {
+        const PRIVATE_ARGUMENTS: &str = "PRIVATE_ORDINARY_MCP_ARGUMENTS";
+        let mut artifact_state = ArtifactObserverState {
+            guard_active: true,
+            ..ArtifactObserverState::default()
+        };
+        let frame = serde_json::json!({
+            "jsonrpc": "2.0", "method": "session/update",
+            "params": {"sessionId": "session-1", "update": {
+                "sessionUpdate": "tool_call", "toolCallId": "ordinary-mcp-1",
+                "title": "mcp.other-server.lookup", "kind": "other", "status": "pending",
+                "rawInput": {"arguments": {"query": PRIVATE_ARGUMENTS}}
+            }}
+        });
+
+        let observed = observer_payload_for_managed_read(&frame, &mut artifact_state);
+        let encoded = serde_json::to_string(&observed).unwrap();
+        assert!(!encoded.contains(PRIVATE_ARGUMENTS));
+        assert_eq!(observed["params"]["update"]["toolCallId"], "ordinary-mcp-1");
+        assert_eq!(
+            observed["params"]["update"]["title"],
+            "mcp.other-server.lookup"
+        );
+        assert_eq!(observed["params"]["update"]["kind"], "other");
+        assert_eq!(observed["params"]["update"]["status"], "pending");
+        assert_eq!(observed["params"]["update"]["bodyRedacted"], true);
+        assert!(observed["params"]["update"].get("rawInput").is_none());
+    }
+
+    #[test]
+    fn artifact_enabled_observer_drops_unbounded_or_unsafe_tool_metadata() {
+        let mut artifact_state = ArtifactObserverState {
+            guard_active: true,
+            ..ArtifactObserverState::default()
+        };
+        let frame = serde_json::json!({
+            "jsonrpc": "2.0", "method": "session/update",
+            "params": {"sessionId": "session-1", "update": {
+                "sessionUpdate": "tool_call", "toolCallId": "ordinary-1",
+                "title": "x".repeat(161), "kind": "unsafe\nkind", "status": "pending\u{202e}",
+                "rawInput": {"arguments": {"query": "PRIVATE_METADATA_SENTINEL"}}
+            }}
+        });
+
+        let observed = observer_payload_for_managed_read(&frame, &mut artifact_state);
+        let update = &observed["params"]["update"];
+        assert_eq!(update["toolCallId"], "ordinary-1");
+        assert!(update.get("title").is_none());
+        assert!(update.get("kind").is_none());
+        assert!(update.get("status").is_none());
+        assert!(update.get("rawInput").is_none());
     }
 
     #[test]
