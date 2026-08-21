@@ -611,7 +611,7 @@ for (const [theme, r] of Object.entries(report)) {
 }
 if (failures.length) {
   console.log("\nFAILED CHECKS:");
-  for (const f of failures) console.log("  ✗ " + f);
+  for (const f of failures) console.log(`  ✗ ${f}`);
   process.exit(1);
 }
 console.log("\nall checks passed");
