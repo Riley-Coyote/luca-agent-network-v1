@@ -10874,18 +10874,22 @@ export function maybeInstallE2eTauriMocks() {
                 ? "unsupported"
                 : "text";
         const number = input.version ?? artifact.current_version;
+        const version = mockArtifactVersionView(
+          artifact,
+          artifact.versions.find(
+            (candidate) => Number(candidate.number) === number,
+          ) ?? { number },
+        );
         return {
-          artifactId: artifact.id,
-          version: number,
-          versionId: `${artifact.id}:v${number}`,
           previewType,
-          mediaType: artifact.media_type,
-          language: artifact.language,
+          artifact: mockArtifactView(artifact),
+          version,
           contentUtf8: artifact.preview.text ?? null,
           contentBase64: artifact.preview.content_base64 ?? null,
           truncated: false,
-          availability: artifact.availability,
-          safeMessage: null,
+          ...(previewType === "unsupported"
+            ? { reason: "No safe inline renderer is available." }
+            : {}),
         };
       }
       case "get_artifact_preview_state": {

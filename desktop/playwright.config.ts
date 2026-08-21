@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const nativeArtifactApp = process.env.LUCA_ARTIFACT_NATIVE_APP?.trim();
+
 export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 30_000,
@@ -18,6 +20,7 @@ export default defineConfig({
   projects: [
     {
       name: "smoke",
+      testIgnore: ["**/luca/artifact-native-security.spec.ts"],
       testMatch: [
         "**/luca/*.spec.ts",
         "**/smoke.spec.ts",
@@ -145,6 +148,14 @@ export default defineConfig({
         timeout: process.env.CI ? 15_000 : 10_000,
       },
     },
+    ...(nativeArtifactApp
+      ? [
+          {
+            name: "artifact-native-security",
+            testMatch: ["**/luca/artifact-native-security.spec.ts"],
+          },
+        ]
+      : []),
   ],
   webServer: {
     command: "python3 -m http.server 4173 -d dist",

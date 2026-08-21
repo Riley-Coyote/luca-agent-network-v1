@@ -6,6 +6,24 @@ import { seedActiveIdentity } from "../../helpers/onboarding";
 const POLYPHONIC_PUBKEY = "10".repeat(32);
 const HERMES_PUBKEY = "11".repeat(32);
 const OPENCLAW_PUBKEY = "22".repeat(32);
+const CODEX_RUNTIME = {
+  id: "codex",
+  label: "Codex",
+  avatar_url: "",
+  availability: "available" as const,
+  command: "codex",
+  binary_path: "/synthetic/bin/codex",
+  default_args: [],
+  mcp_command: null,
+  artifact_mcp_support: "supported" as const,
+  install_hint: "Install Codex",
+  install_instructions_url: "https://example.invalid/codex",
+  can_auto_install: false,
+  underlying_cli_path: null,
+  node_required: false,
+  auth_status: { status: "logged_in" as const },
+  login_hint: null,
+};
 
 function settingsUrl(section: string) {
   // installMockBridge supplies the deterministic bridge before bootstrap, so
@@ -15,9 +33,23 @@ function settingsUrl(section: string) {
   return `/#/settings?section=${section}`;
 }
 
+async function openSettingsSection(
+  page: import("@playwright/test").Page,
+  section: "agents" | "connections" | "mobile",
+) {
+  const labels = {
+    agents: "Agents",
+    connections: "Connections & MCP",
+    mobile: "Mobile & devices",
+  } as const;
+  await page.goto(settingsUrl("profile"));
+  await page.getByRole("button", { name: labels[section] }).click();
+}
+
 test.beforeEach(async ({ page }) => {
   await seedActiveIdentity(page, TEST_IDENTITIES.tyler);
   await installMockBridge(page, {
+    acpRuntimesCatalog: [CODEX_RUNTIME],
     managedAgents: [
       {
         agentCommand: "codex",
@@ -98,9 +130,18 @@ test("settings exposes only the Luca information architecture", async ({
 test("one resident record agrees across settings, runtime, and MCP grants", async ({
   page,
 }) => {
-  await page.goto(settingsUrl("agents"));
+  await openSettingsSection(page, "agents");
 
   await expect(page.getByTestId("settings-agents")).toBeVisible();
+  await page.getByTestId(`agent-library-row-${POLYPHONIC_PUBKEY}`).click();
+  await page.getByRole("button", { name: "Capabilities" }).click();
+  await expect(
+    page.getByTestId("agent-artifact-mcp-capability"),
+  ).toHaveAttribute("data-capability-state", "supported");
+  await expect(page.getByTestId("agent-artifact-mcp-capability")).toContainText(
+    "Available",
+  );
+
   await page.getByTestId(`agent-library-row-${HERMES_PUBKEY}`).click();
   await expect(page.getByRole("heading", { name: "Luca" })).toBeVisible();
   await expect(page.getByText("Hermes · Native-managed agent")).toBeVisible();
@@ -114,6 +155,12 @@ test("one resident record agrees across settings, runtime, and MCP grants", asyn
   await expect(page.getByText("Configuration authority")).toBeVisible();
 
   await page.getByRole("button", { name: "Capabilities" }).click();
+  await expect(
+    page.getByTestId("agent-artifact-mcp-capability"),
+  ).toHaveAttribute("data-capability-state", "not_reported");
+  await expect(page.getByTestId("agent-artifact-mcp-capability")).toContainText(
+    "Support not reported",
+  );
   await page.getByRole("button", { name: "Manage MCP access" }).click();
   await expect(page).toHaveURL(/section=connections/);
   await expect(page.getByText("Hermes", { exact: true })).toBeVisible();
@@ -145,7 +192,7 @@ test("one resident record agrees across settings, runtime, and MCP grants", asyn
 test("MCP connections can be edited, disabled, tested, and granted", async ({
   page,
 }) => {
-  await page.goto(settingsUrl("connections"));
+  await openSettingsSection(page, "connections");
 
   await expect(page.getByText("Runtime connections")).toBeVisible();
   await expect(page.getByText("Local project tools")).toBeVisible();
@@ -178,7 +225,7 @@ test("MCP connections can be edited, disabled, tested, and granted", async ({
 test("native runtime readiness exposes degraded reason and refresh feedback", async ({
   page,
 }) => {
-  await page.goto(settingsUrl("connections"));
+  await openSettingsSection(page, "connections");
 
   await expect(page.getByText("Gateway is currently offline.")).toBeVisible();
 
@@ -187,7 +234,7 @@ test("native runtime readiness exposes degraded reason and refresh feedback", as
 });
 
 test("mobile pairing remains a real Luca companion flow", async ({ page }) => {
-  await page.goto(settingsUrl("mobile"));
+  await openSettingsSection(page, "mobile");
 
   await expect(
     page.getByRole("heading", { name: "Mobile & devices" }),

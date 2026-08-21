@@ -2,6 +2,7 @@ import * as React from "react";
 import {
   ArrowLeft,
   ArrowUpRight,
+  FileCode2,
   Fingerprint,
   Info,
   LockKeyhole,
@@ -13,10 +14,15 @@ import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { cn } from "@/shared/lib/cn";
 import {
   useManagedAgentsQuery,
+  useAcpRuntimesQuery,
   usePersonasQuery,
   useSetManagedAgentAutoRestartMutation,
   useSetManagedAgentStartOnAppLaunchMutation,
 } from "@/features/agents/hooks";
+import {
+  artifactMcpCapabilityPresentation,
+  type ArtifactMcpCapabilityPresentation,
+} from "@/features/agents/lib/artifactMcpCapability";
 import { AgentConfigPanel } from "@/features/agents/ui/AgentConfigPanel";
 import {
   AgentLibraryRoster,
@@ -78,6 +84,7 @@ export function SettingsAgentsPanel() {
   const isMobile = useIsMobile();
   const managedQuery = useManagedAgentsQuery();
   const personasQuery = usePersonasQuery();
+  const runtimesQuery = useAcpRuntimesQuery();
   const { goAgent, goAgents, goSettings } = useAppNavigation();
   const { applyPatch, values } = useHistorySearchState(
     SETTINGS_AGENT_SEARCH_KEYS,
@@ -115,6 +122,34 @@ export function SettingsAgentsPanel() {
           ) ?? null)
         : null,
     [managedQuery.data, selected],
+  );
+  const selectedPersona = React.useMemo(
+    () =>
+      selected?.personaId
+        ? ((personasQuery.data ?? []).find(
+            (persona) => persona.id === selected.personaId,
+          ) ?? null)
+        : null,
+    [personasQuery.data, selected?.personaId],
+  );
+  const artifactMcp = React.useMemo(
+    () =>
+      artifactMcpCapabilityPresentation({
+        runtimeReference:
+          selectedManagedAgent?.agentCommand ??
+          selectedPersona?.runtime ??
+          null,
+        runtimes: runtimesQuery.data,
+        loading: runtimesQuery.isPending,
+        failed: runtimesQuery.isError,
+      }),
+    [
+      runtimesQuery.data,
+      runtimesQuery.isError,
+      runtimesQuery.isPending,
+      selectedManagedAgent?.agentCommand,
+      selectedPersona?.runtime,
+    ],
   );
   const tab: AgentSettingsTab =
     values.settingsAgentTab === "runtime" ||
@@ -180,6 +215,7 @@ export function SettingsAgentsPanel() {
                 </button>
               ) : null}
               <AgentSettingsDetail
+                artifactMcp={artifactMcp}
                 managedAgent={selectedManagedAgent}
                 onRevalidate={() => managedQuery.refetch()}
                 onOpenLibrary={() => {
@@ -217,6 +253,7 @@ export function SettingsAgentsPanel() {
 }
 
 function AgentSettingsDetail({
+  artifactMcp,
   managedAgent,
   onOpenLibrary,
   onOpenMcp,
@@ -225,6 +262,7 @@ function AgentSettingsDetail({
   resident,
   tab,
 }: {
+  artifactMcp: ArtifactMcpCapabilityPresentation;
   managedAgent: ManagedAgent | null;
   onOpenLibrary: () => void;
   onOpenMcp: () => void;
@@ -339,6 +377,14 @@ function AgentSettingsDetail({
         {tab === "capabilities" ? (
           <>
             <AgentSettingBlock
+              capabilityState={artifactMcp.state}
+              detail={artifactMcp.detail}
+              icon={FileCode2}
+              label="Artifact Canvas tools"
+              testId="agent-artifact-mcp-capability"
+              value={artifactMcp.value}
+            />
+            <AgentSettingBlock
               icon={ShieldCheck}
               label="Permission boundary"
               value="Fail closed"
@@ -434,18 +480,26 @@ function AgentSettingsDetail({
 }
 
 function AgentSettingBlock({
+  capabilityState,
   detail,
   icon: Icon,
   label,
+  testId,
   value,
 }: {
+  capabilityState?: string;
   detail?: string;
   icon: React.ComponentType<{ className?: string }>;
   label: string;
+  testId?: string;
   value: string;
 }) {
   return (
-    <div className="flex gap-3 border-b border-border/45 pb-5 last:border-b-0">
+    <div
+      className="flex gap-3 border-b border-border/45 pb-5 last:border-b-0"
+      data-capability-state={capabilityState}
+      data-testid={testId}
+    >
       <span className="grid size-9 shrink-0 place-items-center rounded-full bg-muted/50">
         <Icon className="size-4 text-muted-foreground" />
       </span>

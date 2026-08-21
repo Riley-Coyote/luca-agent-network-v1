@@ -12,16 +12,12 @@ import {
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 
 test.describe.configure({ mode: "serial" });
 test.setTimeout(240_000);
 
-const REPO_ROOT = resolve(import.meta.dirname, "../../../..");
-const APP_BUNDLE =
-  process.env.LUCA_ARTIFACT_NATIVE_APP ??
-  process.env.LUCA_F11_NATIVE_APP ??
-  join(REPO_ROOT, "desktop/src-tauri/target/debug/bundle/macos/Luca.app");
+const APP_BUNDLE = process.env.LUCA_ARTIFACT_NATIVE_APP ?? "";
 const APP_EXECUTABLE = join(APP_BUNDLE, "Contents/MacOS/buzz-desktop");
 const BLOCKED_VECTORS = [
   "FETCH",
@@ -595,8 +591,12 @@ test.beforeAll(() => {
     "darwin",
   );
   expect(
+    APP_BUNDLE,
+    "set LUCA_ARTIFACT_NATIVE_APP to opt into the exact-revision native proof",
+  ).not.toBe("");
+  expect(
     existsSync(APP_EXECUTABLE),
-    "build the exact-revision native Luca.app or set LUCA_ARTIFACT_NATIVE_APP",
+    "LUCA_ARTIFACT_NATIVE_APP must point to the exact-revision Luca.app",
   ).toBe(true);
 });
 

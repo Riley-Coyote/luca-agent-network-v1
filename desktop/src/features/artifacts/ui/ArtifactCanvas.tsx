@@ -20,7 +20,6 @@ import {
   useArtifactMutations,
   useArtifactPreview,
   useArtifactPreviewState,
-  usePreparedArtifactPreview,
   usePreviewSession,
 } from "@/features/artifacts/hooks";
 import type {
@@ -58,11 +57,6 @@ export function ArtifactCanvas() {
     artifact?.id ?? null,
     selectedVersion ?? artifact?.currentVersion ?? null,
     Boolean(artifact) && !isApp && (!isHtml || view === "source"),
-  );
-  const preparedPreviewQuery = usePreparedArtifactPreview(
-    artifact?.id ?? null,
-    selectedVersion ?? artifact?.currentVersion ?? null,
-    isHtml,
   );
   const previewStateQuery = useArtifactPreviewState(
     isApp ? (artifact?.id ?? null) : null,
@@ -115,6 +109,20 @@ export function ArtifactCanvas() {
     previewStateQuery.data?.lastPreview ?? artifact?.lastPreview ?? null;
   const currentVersion = selectedVersion ?? artifact?.currentVersion ?? null;
   const labels = artifact ? provenanceLabels(artifact.provenance) : null;
+  const exportCurrentArtifact = () => {
+    if (!artifact) return;
+    mutations.exportArtifact.mutate(
+      {
+        artifactId: artifact.id,
+        version: currentVersion ?? undefined,
+      },
+      {
+        onSuccess: (exported) =>
+          setActionMessage(exported ? "Artifact exported" : "Export cancelled"),
+        onError: () => setActionMessage("Artifact export failed"),
+      },
+    );
+  };
   const askAgentToRestart = () => {
     const conversationId =
       previewSession?.conversationId ?? presentation.conversationId;
@@ -187,22 +195,7 @@ export function ArtifactCanvas() {
           <button
             aria-label="Export artifact"
             disabled={!artifact}
-            onClick={() =>
-              artifact &&
-              mutations.exportArtifact.mutate(
-                {
-                  artifactId: artifact.id,
-                  version: currentVersion ?? undefined,
-                },
-                {
-                  onSuccess: (exported) =>
-                    setActionMessage(
-                      exported ? "Artifact exported" : "Export cancelled",
-                    ),
-                  onError: () => setActionMessage("Artifact export failed"),
-                },
-              )
-            }
+            onClick={exportCurrentArtifact}
             type="button"
           >
             <ArrowDownToLine aria-hidden />
@@ -301,9 +294,7 @@ export function ArtifactCanvas() {
             </button>
           </div>
         ) : null}
-        {view === "preview" &&
-        ((isHtml && preparedPreviewQuery.data?.uri) ||
-          (isApp && previewSession?.status === "ready")) ? (
+        {view === "preview" && isApp && previewSession?.status === "ready" ? (
           <button
             aria-label="Interact with artifact preview"
             className="artifact-preview-enter"
@@ -365,8 +356,8 @@ export function ArtifactCanvas() {
             lastPreview={lastPreview}
             payload={previewQuery.data}
             payloadError={previewQuery.error}
-            preparedPreview={preparedPreviewQuery.data}
-            preparedPreviewError={preparedPreviewQuery.error}
+            exportPending={mutations.exportArtifact.isPending}
+            onExport={exportCurrentArtifact}
             previewSession={previewSession}
             previewSessionError={sessionQuery.error ?? previewStateQuery.error}
             reloadKey={reloadKey}

@@ -271,11 +271,18 @@ export async function readArtifactPreview(
   artifactId: string,
   version?: number | null,
 ): Promise<ArtifactPreviewPayload> {
-  const raw = record(
-    await invokeTauri<unknown>("read_artifact_preview", {
-      input: { artifactId, version: version ?? null },
-    }),
-  );
+  const value = await invokeTauri<unknown>("read_artifact_preview", {
+    input: { artifactId, version: version ?? null },
+  });
+  return normalizeArtifactPreviewPayload(value, artifactId, version);
+}
+
+export function normalizeArtifactPreviewPayload(
+  value: unknown,
+  artifactId: string,
+  version?: number | null,
+): ArtifactPreviewPayload {
+  const raw = record(value);
   const artifact = record(raw.artifact);
   const versionRecord = record(raw.version);
   const mediaType = stringValue(
@@ -298,7 +305,8 @@ export async function readArtifactPreview(
     if (mediaType.includes("markdown")) return "markdown";
     if (mediaType === "application/pdf") return "pdf";
     if (mediaType.startsWith("image/")) return "image";
-    if (previewType === "text" && raw.language) return "code";
+    if (previewType === "text" && (raw.language ?? artifact.language))
+      return "code";
     if (previewType === "text") return "text";
     return enumValue<ArtifactPreviewCapability>(
       raw.capability,
@@ -310,34 +318,40 @@ export async function readArtifactPreview(
     artifactId: stringValue(
       raw.artifact_id ??
         raw.artifactId ??
+        artifact.id ??
         artifact.artifact_id ??
         artifact.artifactId,
       artifactId,
     ),
     version: numberValue(
-      typeof raw.version === "number" ? raw.version : versionRecord.version,
+      typeof raw.version === "number"
+        ? raw.version
+        : (versionRecord.number ?? versionRecord.version),
       version ?? 1,
     ),
     versionId: nullableString(
       raw.version_id ??
         raw.versionId ??
+        versionRecord.id ??
         versionRecord.version_id ??
         versionRecord.versionId,
     ),
     capability,
     mediaType,
-    language: nullableString(raw.language),
+    language: nullableString(raw.language ?? artifact.language),
     text: contentText,
     dataUrl:
       nullableString(raw.data_url ?? raw.dataUrl) ??
       (contentBase64 ? `data:${mediaType};base64,${contentBase64}` : null),
     truncated: booleanValue(raw.truncated),
     availability: enumValue<ArtifactAvailability>(
-      raw.availability,
+      raw.availability ?? artifact.availability,
       artifactAvailabilities,
       "ready",
     ),
-    safeMessage: nullableString(raw.safe_message ?? raw.safeMessage),
+    safeMessage: nullableString(
+      raw.safe_message ?? raw.safeMessage ?? raw.reason,
+    ),
   };
 }
 
