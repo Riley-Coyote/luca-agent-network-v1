@@ -9,24 +9,15 @@
 <style>
 @font-face{font-family:"Inter";src:url("inter.woff2") format("woff2");font-weight:100 900;font-display:swap}
 :root{
-  /* surfaces — cool near-black ladder */
-  --floor:#060608; --s1:#0a0a0d; --s2:#0e0f13; --s3:#131419; --s4:#191a20;
-  --notch:#030304;
-  /* ink — cool white cascade */
+  --floor:#060608; --s1:#0a0a0d; --s2:#0e0f13; --s3:#131419; --s4:#191a20; --notch:#030304;
   --ink:rgba(240,241,245,.92); --ink-1:rgba(240,241,245,.78); --ink-2:rgba(240,241,245,.56);
   --ink-3:rgba(240,241,245,.38); --ink-4:rgba(240,241,245,.22); --ink-5:rgba(240,241,245,.12);
-  --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.11); --line-3:rgba(255,255,255,.18);
-  --lit:rgba(255,255,255,.06);
-  /* the one signal, and the one law */
-  --signal:#6d93c9; --signal-dim:rgba(109,147,201,.45);
-  --watch:#96e8ff;
-  /* type */
-  --display:"Inter Tight","Inter",system-ui,sans-serif;
-  --sans:"Inter",system-ui,-apple-system,sans-serif;
-  --mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,monospace;
-  --t-xs:.6875rem; --t-sm:.75rem; --t-base:.8125rem; --t-md:.9375rem; --t-lg:1.25rem; --t-xl:2rem;
-  /* rhythm */
-  --u:8px; --r-ctl:6px; --r-card:12px; --r-plate:16px; --r-pill:999px;
+  --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.11); --line-3:rgba(255,255,255,.18); --lit:rgba(255,255,255,.06);
+  --signal:#6d93c9; --signal-dim:rgba(109,147,201,.45); --watch:#96e8ff;
+  --claude:#d97757;
+  --display:"Inter Tight","Inter",system-ui,sans-serif; --sans:"Inter",system-ui,-apple-system,sans-serif; --mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --t-2xs:.625rem; --t-xs:.6875rem; --t-sm:.75rem; --t-base:.8125rem; --t-md:.9375rem; --t-lg:1.25rem; --t-xl:2rem;
+  --u:8px; --r-ctl:6px; --r-card:12px; --r-plate:16px;
   --ease-enter:cubic-bezier(.2,.7,.2,1); --ease-settle:cubic-bezier(.34,1.4,.64,1); --ease-island:cubic-bezier(.32,1.18,.36,1);
   --d-fast:220ms; --d-mid:420ms; --d-slow:640ms;
 }
@@ -34,7 +25,7 @@
 html,body{background:var(--floor);color:var(--ink-1);font-family:var(--sans);font-size:16px;-webkit-font-smoothing:antialiased;font-weight:400}
 body{padding:calc(var(--u)*7) calc(var(--u)*3) calc(var(--u)*12)}
 .page{max-width:1040px;margin:0 auto}
-a{color:inherit}
+.idx{font-family:var(--mono);font-size:var(--t-xs);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
 
 /* ---------- page chrome ---------- */
 .hdr{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:calc(var(--u)*6);align-items:end;margin-bottom:calc(var(--u)*5)}
@@ -42,18 +33,14 @@ a{color:inherit}
 .hdr h1 small{display:block;font-family:var(--mono);font-size:var(--t-xs);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:calc(var(--u)*1.5);font-weight:400}
 .hdr p{font-size:var(--t-md);line-height:1.55;color:var(--ink-2);max-width:52ch}
 .hdr p b{color:var(--ink-1);font-weight:460}
-.idx{font-family:var(--mono);font-size:var(--t-xs);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
 
 /* ---------- the desk ---------- */
-.desk{position:relative;height:460px;border-radius:var(--r-plate);overflow:hidden;border:1px solid var(--line);
-  background:
-    radial-gradient(120% 90% at 50% -10%, rgba(255,255,255,.035), transparent 60%),
-    linear-gradient(180deg,#0b0c11 0%,#08090c 55%,#060608 100%);
+.desk{position:relative;height:500px;border-radius:var(--r-plate);overflow:hidden;border:1px solid var(--line);
+  background:radial-gradient(120% 90% at 50% -10%, rgba(255,255,255,.035), transparent 60%),linear-gradient(180deg,#0b0c11 0%,#08090c 55%,#060608 100%);
   box-shadow:inset 0 1px 0 var(--lit)}
-.menubar{position:absolute;top:0;left:0;right:0;height:34px;display:flex;align-items:center;justify-content:space-between;
-  padding:0 18px;font-family:var(--sans);font-size:var(--t-sm);color:var(--ink-2);z-index:2;
-  background:rgba(6,6,8,.55);backdrop-filter:blur(14px)}
+.menubar{position:absolute;top:0;left:0;right:0;height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;font-size:var(--t-sm);color:var(--ink-2);z-index:2;background:rgba(6,6,8,.55);backdrop-filter:blur(14px)}
 .menubar .l{display:flex;gap:16px;align-items:center}
+.menubar .l .apple{width:12px;height:14px;fill:var(--ink-1)}
 .menubar .l b{color:var(--ink-1);font-weight:520}
 .menubar .r{display:flex;gap:14px;align-items:center;font-variant-numeric:tabular-nums}
 .fakewin{position:absolute;border:1px solid var(--line);border-radius:10px;background:rgba(10,10,14,.55);box-shadow:inset 0 1px 0 var(--lit)}
@@ -62,93 +49,93 @@ a{color:inherit}
 .cursorhint{position:absolute;right:18px;bottom:14px;font-family:var(--mono);font-size:var(--t-xs);letter-spacing:.08em;color:var(--ink-4)}
 
 /* ---------- the island ---------- */
-.island{position:absolute;top:0;left:50%;transform:translateX(-50%);z-index:5;cursor:pointer;user-select:none;
-  background:var(--notch);border-radius:0 0 14px 14px;overflow:hidden;
-  width:190px;height:34px;
+.island{position:absolute;top:0;left:50%;transform:translateX(-50%);z-index:5;cursor:pointer;user-select:none;background:var(--notch);border-radius:0 0 14px 14px;overflow:hidden;width:190px;height:34px;
   transition:width var(--d-slow) var(--ease-island),height var(--d-slow) var(--ease-island),border-radius var(--d-mid) var(--ease-enter),box-shadow var(--d-slow) ease}
-.island::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
-  box-shadow:inset 0 -1px 0 rgba(255,255,255,.05),inset 1px 0 0 rgba(255,255,255,.03),inset -1px 0 0 rgba(255,255,255,.03)}
+.island::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;box-shadow:inset 0 -1px 0 rgba(255,255,255,.05),inset 1px 0 0 rgba(255,255,255,.03),inset -1px 0 0 rgba(255,255,255,.03)}
 .desk[data-tier="compact"] .island{width:190px;height:34px}
-.desk[data-tier="compact"][data-busy="1"] .island,
-.desk[data-tier="compact"][data-unread="1"] .island{width:254px}
-.desk[data-tier="island"] .island{width:400px;height:112px;border-radius:0 0 24px 24px;box-shadow:0 18px 48px -18px rgba(0,0,0,.8)}
-.desk[data-tier="open"] .island{width:420px;height:372px;border-radius:0 0 26px 26px;box-shadow:0 30px 70px -24px rgba(0,0,0,.85)}
+.desk[data-tier="compact"][data-busy="1"] .island,.desk[data-tier="compact"][data-unread="1"] .island{height:62px;border-radius:0 0 18px 18px}
+.desk[data-tier="island"] .island{width:380px;height:176px;}
+.desk[data-tier="island"][data-now="0"] .island{height:140px;}
+.desk[data-tier="island"] .island{border-radius:0 0 24px 24px;box-shadow:0 18px 48px -18px rgba(0,0,0,.8)}
+.desk[data-tier="open"] .island{width:420px;height:440px;border-radius:0 0 26px 26px;box-shadow:0 30px 70px -24px rgba(0,0,0,.85)}
 .desk[data-state="watching"] .island{box-shadow:0 10px 44px -14px rgba(150,232,255,.22)}
-/* layers inside the island */
 .layer{position:absolute;inset:0;opacity:0;pointer-events:none;transition:opacity var(--d-mid) var(--ease-enter)}
 .layer.on{opacity:1;pointer-events:auto}
 
-/* compact layer */
-.compact{display:flex;align-items:center;padding:0 14px 0 0}
+/* compact — eyes on top, indicators beneath */
+.compact{display:flex;flex-direction:column;align-items:center}
 .compact .face{width:190px;height:34px;flex:none}
-
-.compact .mini{display:flex;gap:6px;align-items:center;margin-left:-6px;opacity:0;transform:translateX(6px);transition:opacity var(--d-mid) var(--ease-enter),transform var(--d-mid) var(--ease-settle)}
+.compact .mini{display:flex;gap:10px;align-items:center;justify-content:center;height:26px;opacity:0;transform:translateY(-4px);transition:opacity var(--d-mid) var(--ease-enter) .1s,transform var(--d-mid) var(--ease-settle) .1s}
 .desk[data-busy="1"] .compact .mini,.desk[data-unread="1"] .compact .mini{opacity:1;transform:none}
-.unread{width:5px;height:5px;border-radius:50%;background:var(--signal);box-shadow:0 0 0 3px rgba(109,147,201,.14);display:none;margin-left:4px}
+.unread{width:5px;height:5px;border-radius:50%;background:var(--signal);box-shadow:0 0 0 3px rgba(109,147,201,.14);display:none}
 .desk[data-unread="1"] .unread{display:block}
 
-/* island (expanded) layer */
-.isl{display:grid;grid-template-columns:140px 1fr;grid-template-rows:1fr auto;height:100%}
-.isl .face{grid-row:1/3;height:100%;width:100%}
-.isl .now{padding:12px 16px 0 0;display:flex;flex-direction:column;gap:8px;min-width:0}
-.isl .line{grid-column:2;padding:0 16px 11px 0;font-size:var(--t-sm);color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4}
+/* island — face, then who's working, then one line */
+.isl{display:grid;grid-template-rows:92px auto 1fr;height:100%}
+.isl .face{width:100%;height:92px}
+.isl .now{display:flex;gap:14px;justify-content:center;align-items:center;padding:0 18px;min-height:38px}
+.isl .line{align-self:end;padding:0 18px 13px;font-size:var(--t-sm);color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4;text-align:center}
 .isl .line b{color:var(--ink-1);font-weight:480}
 
-/* open (mini app) layer */
-.app{display:grid;grid-template-rows:auto auto 1fr auto;height:100%}
-.app .top{display:grid;grid-template-columns:112px 1fr auto;align-items:center;height:64px;border-bottom:1px solid var(--line)}
-.app .top .face{height:64px}
-.app .top .who{min-width:0}
-.app .top .who b{display:block;font-size:var(--t-base);color:var(--ink);font-weight:500;letter-spacing:-.005em}
-.app .top .who span{display:block;font-family:var(--mono);font-size:.625rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-top:3px}
-.app .top .esc{font-family:var(--mono);font-size:.625rem;letter-spacing:.1em;color:var(--ink-4);padding:0 16px}
-.app .rail{display:flex;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+/* open — the mini app */
+.app{display:grid;grid-template-rows:84px auto auto 1fr auto;height:100%}
+.app .face{width:100%;height:84px}
+.app .who{display:flex;align-items:center;justify-content:space-between;padding:0 18px 10px;border-bottom:1px solid var(--line)}
+.app .who b{font-size:var(--t-base);color:var(--ink);font-weight:500;letter-spacing:-.005em}
+.app .who b span{font-family:var(--mono);font-size:var(--t-2xs);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-left:10px;font-weight:400}
+.app .who .esc{font-family:var(--mono);font-size:var(--t-2xs);letter-spacing:.1em;color:var(--ink-4)}
+.app .rail{display:flex;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none;min-height:0}
+.app .rail:empty{display:none}
 .app .rail::-webkit-scrollbar{display:none}
-.app .thread{overflow-y:auto;padding:12px 16px 4px;display:flex;flex-direction:column;gap:10px;scrollbar-width:none}
+.app .thread{overflow-y:auto;padding:12px 18px 4px;display:flex;flex-direction:column;gap:10px;scrollbar-width:none}
 .app .thread::-webkit-scrollbar{display:none}
 .msg{max-width:86%;font-size:var(--t-base);line-height:1.5;color:var(--ink-1)}
-.msg .who{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:.625rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px}
-.msg .who .hm{width:10px;height:10px;opacity:.7}
+.msg .who{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:var(--t-2xs);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px;padding:0;border:0}
+.msg .who .hm{width:11px;height:11px}
 .msg.me{align-self:flex-end;color:var(--ink-2);text-align:right}
 .msg.me .who{justify-content:flex-end}
-.msg .t{word-wrap:break-word}
-.newline{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:.625rem;letter-spacing:.14em;text-transform:uppercase;color:var(--signal);margin:2px 0}
+.newline{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:var(--t-2xs);letter-spacing:.14em;text-transform:uppercase;color:var(--signal);margin:2px 0}
 .newline::before,.newline::after{content:"";flex:1;height:1px;background:rgba(109,147,201,.25)}
-.sysline{align-self:center;font-family:var(--mono);font-size:.625rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-4)}
-.composer{display:flex;align-items:center;gap:10px;padding:10px 12px 12px 16px;border-top:1px solid var(--line)}
+.sysline{align-self:center;font-family:var(--mono);font-size:var(--t-2xs);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-4)}
+.composer{display:flex;align-items:center;gap:10px;padding:10px 12px 12px 18px;border-top:1px solid var(--line)}
 .composer input{flex:1;min-width:0;background:none;border:none;outline:none;color:var(--ink);font-family:var(--sans);font-size:var(--t-base);caret-color:var(--ink-1)}
 .composer input::placeholder{color:var(--ink-4)}
-.composer button{font-family:var(--mono);font-size:.625rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);background:var(--s3);border:1px solid var(--line-2);border-radius:var(--r-ctl);padding:6px 10px;cursor:pointer;box-shadow:inset 0 1px 0 var(--lit);transition:border-color var(--d-fast),color var(--d-fast)}
+.composer button{font-family:var(--mono);font-size:var(--t-2xs);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);background:var(--s3);border:1px solid var(--line-2);border-radius:var(--r-ctl);padding:6px 10px;cursor:pointer;box-shadow:inset 0 1px 0 var(--lit);transition:border-color var(--d-fast),color var(--d-fast)}
 .composer button:hover{border-color:var(--line-3);color:var(--ink)}
 .composer button:focus-visible{outline:none;border-color:rgba(255,255,255,.5)}
 
-/* agent chips (shared between island + app) */
+/* agent chips */
 .chip{display:flex;align-items:center;gap:10px;min-width:0;opacity:.42;transition:opacity var(--d-mid) var(--ease-enter)}
 .chip.active,.chip.done{opacity:1}
 .chip .ring{position:relative;flex:none}
 .chip .ring svg.r{position:absolute;inset:0;transform:rotate(-90deg)}
-.chip .ring svg.r circle{fill:none;stroke-width:1.75;stroke-linecap:round}
+.chip .ring svg.r circle{fill:none;stroke-width:1.6;stroke-linecap:round}
 .chip .ring .track{stroke:rgba(255,255,255,.09)}
 .chip .ring .prog{stroke:var(--signal);stroke-dasharray:100;stroke-dashoffset:100;transition:stroke-dashoffset .38s var(--ease-enter),stroke .4s}
 .chip.done .ring .prog{stroke:var(--ink-2)}
 .chip.queued .ring .prog{stroke:var(--ink-4)}
 .chip .ring .hm{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
-.chip .ring .hm svg{display:block;width:46%;height:46%}
 .chip .meta{min-width:0}
 .chip .meta b{display:block;font-size:var(--t-sm);color:var(--ink);font-weight:500;letter-spacing:-.005em;line-height:1.2}
-.chip .meta i{display:block;font-style:normal;font-family:var(--mono);font-size:.625rem;letter-spacing:.08em;color:var(--ink-3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.chip .meta i{display:block;font-style:normal;font-family:var(--mono);font-size:var(--t-2xs);letter-spacing:.06em;color:var(--ink-3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
 .chip.active .meta i{color:var(--ink-2)}
-.chip .pct{margin-left:auto;font-family:var(--mono);font-size:.625rem;color:var(--ink-3);font-variant-numeric:tabular-nums;flex:none}
-/* sizes */
-.isl .chip .ring{width:28px;height:28px}
-.app .chip{flex:none;width:118px;background:var(--s1);border:1px solid var(--line);border-radius:10px;padding:8px 10px;box-shadow:inset 0 1px 0 var(--lit)}
+.isl .chip .ring{width:30px;height:30px}
+.isl .chip .meta{max-width:96px}
+.app .chip{flex:none;width:120px;background:var(--s1);border:1px solid var(--line);border-radius:10px;padding:8px 10px;box-shadow:inset 0 1px 0 var(--lit)}
 .app .chip .ring{width:30px;height:30px}
-.app .chip .pct{display:none}
-.mini .chip{gap:0}
-.mini .chip .ring{width:20px;height:20px}
-.mini .chip .meta,.mini .chip .pct{display:none}
-.hm svg path,.hm svg rect,.hm svg circle{fill:none;stroke:rgba(240,241,245,.82);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-.hm svg .f{fill:rgba(240,241,245,.82);stroke:none}
+.mini .chip{gap:0;opacity:.55}
+.mini .chip.active{opacity:1}
+.mini .chip .ring{width:18px;height:18px}
+.mini .chip .ring svg.r circle{stroke-width:2}
+.mini .chip .meta{display:none}
+/* the marks — real brand marks, nominative */
+.hm svg{display:block;width:50%;height:50%}
+.hm svg.mk-openai{fill:rgba(240,241,245,.9)}
+.hm svg.mk-claude{fill:var(--claude)}
+.hm svg.mk-grok{fill:rgba(240,241,245,.9)}
+.hm svg.mk-line path{fill:none;stroke:rgba(240,241,245,.82);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.hm svg.mk-line .f{fill:rgba(240,241,245,.82);stroke:none}
+.mini .hm svg{width:56%;height:56%}
 
 /* ---------- controls ---------- */
 .controls{margin-top:calc(var(--u)*4);display:grid;grid-template-columns:1fr 1fr;gap:calc(var(--u)*3) calc(var(--u)*6)}
@@ -172,57 +159,48 @@ a{color:inherit}
 .notes p+p{margin-top:calc(var(--u)*1.5)}
 .notes p b{color:var(--ink-1);font-weight:480}
 .marks{display:flex;gap:18px;flex-wrap:wrap;margin-top:calc(var(--u)*2)}
-.marks .mk{display:flex;flex-direction:column;align-items:center;gap:8px;font-family:var(--mono);font-size:.625rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
-.marks .mk .hm{width:34px;height:34px;border-radius:50%;background:var(--s2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 1px 0 var(--lit)}
-.marks .mk .hm svg{width:16px;height:16px}
+.marks .mk{display:flex;flex-direction:column;align-items:center;gap:8px;font-family:var(--mono);font-size:var(--t-2xs);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.marks .mk .hm{width:38px;height:38px;border-radius:50%;background:var(--s2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 1px 0 var(--lit)}
+.marks .mk.ph{opacity:.55}
 .expr{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px;margin-top:calc(var(--u)*2)}
 .expr .ex{background:var(--s1);border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:inset 0 1px 0 var(--lit)}
-.expr .ex canvas{display:block;width:100%;height:56px}
-.expr .ex span{display:block;font-family:var(--mono);font-size:.625rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding:6px 8px 8px;border-top:1px solid var(--line)}
+.expr .ex canvas{display:block;width:100%;height:64px}
+.expr .ex span{display:block;font-family:var(--mono);font-size:var(--t-2xs);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding:6px 8px 8px;border-top:1px solid var(--line)}
 canvas{display:block}
 @media (prefers-reduced-motion:reduce){.island,.layer,.chip,.compact .mini{transition:none}}
-@media (max-width:860px){.hdr,.notes,.controls{grid-template-columns:1fr}.desk{height:420px}}
+@media (max-width:860px){.hdr,.notes,.controls{grid-template-columns:1fr}.desk{height:440px}}
 </style>
 </head>
 <body>
 <div class="page">
 
 <header class="hdr">
-  <div>
-    <h1><small>01 — the notch</small>polyphonic mini</h1>
-  </div>
+  <div><h1><small>01 — the notch</small>polyphonic mini</h1></div>
   <p>the place your agent lives, and the smallest door into the household. <b>asleep it's two dim dots.</b> it wakes when something needs you, shows who's working and how far along, and takes a message — like a music mini-player, except the thing playing is your agents.</p>
 </header>
 
-<section class="desk" id="desk" data-tier="compact" data-state="idle" data-busy="0" data-unread="0">
+<section class="desk" id="desk" data-tier="compact" data-state="idle" data-busy="0" data-now="0" data-unread="0">
   <div class="menubar">
-    <div class="l"><b></b><span>Polyphonic</span><span>File</span><span>Edit</span><span>View</span><span>Window</span></div>
+    <div class="l"><svg class="apple" viewBox="0 0 814 1000"><path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 250.8-297.5 66.1 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2zm-234-181.5c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z"/></svg><b>Polyphonic</b><span>File</span><span>Edit</span><span>View</span><span>Window</span></div>
     <div class="r"><span>◐ 82%</span><span id="clock">Thu 11:42</span></div>
   </div>
-  <div class="fakewin" style="top:72px;left:40px;width:340px;height:260px"><div class="fbar"></div><div class="fl"></div><div class="fl" style="width:60%"></div><div class="fl" style="width:80%"></div></div>
-  <div class="fakewin" style="top:110px;right:48px;width:380px;height:300px"><div class="fbar"></div><div class="fl"></div><div class="fl" style="width:70%"></div></div>
+  <div class="fakewin" style="top:72px;left:40px;width:340px;height:280px"><div class="fbar"></div><div class="fl"></div><div class="fl" style="width:60%"></div><div class="fl" style="width:80%"></div></div>
+  <div class="fakewin" style="top:110px;right:48px;width:380px;height:320px"><div class="fbar"></div><div class="fl"></div><div class="fl" style="width:70%"></div></div>
   <div class="cursorhint">click the notch · ⌥ space opens · esc closes</div>
 
   <div class="island" id="island" role="button" aria-label="Polyphonic notch" tabindex="0">
-    <!-- compact -->
     <div class="layer compact on" id="L-compact">
       <canvas class="face" id="cv-compact"></canvas>
       <div class="mini" id="mini"></div>
-      <span class="unread"></span>
     </div>
-    <!-- expanded island -->
     <div class="layer isl" id="L-island">
       <canvas class="face" id="cv-island"></canvas>
       <div class="now" id="isl-now"></div>
       <div class="line" id="isl-line"><b>luca</b> · nothing running. say the word.</div>
     </div>
-    <!-- open mini app -->
     <div class="layer app" id="L-open">
-      <div class="top">
-        <canvas class="face" id="cv-open"></canvas>
-        <div class="who"><b>Luca</b><span id="who-state">resting</span></div>
-        <span class="esc">esc</span>
-      </div>
+      <canvas class="face" id="cv-open"></canvas>
+      <div class="who"><b>Luca<span id="who-state">resting</span></b><span class="esc">esc</span></div>
       <div class="rail" id="rail"></div>
       <div class="thread" id="thread"></div>
       <div class="composer">
@@ -248,15 +226,15 @@ canvas{display:block}
   <div>
     <h2>the expression system</h2>
     <p>one parametric eye pair on a phosphor lattice: width, openness, upper-lid angle, lower crescent, skew, pupil. every expression is a point in that space, so the face <b>morphs</b> between states instead of swapping frames, and the phosphor leaves a breath of trail behind every move.</p>
-    <p>what's new over the first studies: an angled upper lid (so it can look <i>uncertain</i> or <i>intent</i>, not just open/closed), a catchlight inside the pupil (one lit cell — it's what makes eyes read as wet and awake), two-speed gaze (fast saccade, slow settle), and a two-timescale phosphor — a bright front over a slow afterglow.</p>
+    <p>v2: taller, softer eye shape on a finer lattice; an angled upper lid (so it can look <i>uncertain</i> or <i>intent</i>); a round pupil that sits low and follows the gaze, with a catchlight; two-speed gaze (fast saccade, slow settle); and a two-timescale phosphor — a bright front over a slow afterglow.</p>
     <div class="expr" id="expr-gallery"></div>
   </div>
   <div>
     <h2>the marks</h2>
-    <p>harnesses are shown nominatively, monochrome, small. the ring carries the state, not the logo — colour stays a signal.</p>
+    <p>real brand marks, nominative, small — the ring carries the state. openai, anthropic and grok are the vendors' own vectors; hermes and openclaw are placeholders until their files land.</p>
     <div class="marks" id="marks"></div>
     <h2 style="margin-top:32px">three tiers</h2>
-    <p><b>compact</b> — the hardware notch. eyes, and when something's running, tiny rings at the trailing edge. <b>island</b> — a hover or a wake: the face, who's working, one line. <b>open</b> — the mini app: agents, the thread with your agent, a composer. everything you need in the corner of your eye, nothing you don't.</p>
+    <p><b>compact</b> — the hardware notch: eyes only. when something's running, the notch grows down one row and the rings sit beneath the eyes. <b>island</b> — the face, then who's working, then one line. <b>open</b> — the mini app: face, name and state, agents, the thread, a composer. eyes always above; indicators always below.</p>
   </div>
 </section>
 
@@ -269,157 +247,117 @@ const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)), lerp=(a,b,k)=>a+(b-a)*k, TAU=Mat
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const RM=matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-/* ===================== harness marks (nominative, monochrome) ===================== */
+/* ===================== marks ===================== */
+const OPENAI="M9.205 8.658v-2.26c0-.19.072-.333.238-.428l4.543-2.616c.619-.357 1.356-.523 2.117-.523 2.854 0 4.662 2.212 4.662 4.566 0 .167 0 .357-.024.547l-4.71-2.759a.797.797 0 00-.856 0l-5.97 3.473zm10.609 8.8V12.06c0-.333-.143-.57-.429-.737l-5.97-3.473 1.95-1.118a.433.433 0 01.476 0l4.543 2.617c1.309.76 2.189 2.378 2.189 3.948 0 1.808-1.07 3.473-2.76 4.163zM7.802 12.703l-1.95-1.142c-.167-.095-.239-.238-.239-.428V5.899c0-2.545 1.95-4.472 4.591-4.472 1 0 1.927.333 2.712.928L8.23 5.067c-.285.166-.428.404-.428.737v6.898zM12 15.128l-2.795-1.57v-3.33L12 8.658l2.795 1.57v3.33L12 15.128zm1.796 7.23c-1 0-1.927-.332-2.712-.927l4.686-2.712c.285-.166.428-.404.428-.737v-6.898l1.974 1.142c.167.095.238.238.238.428v5.233c0 2.545-1.974 4.472-4.614 4.472zm-5.637-5.303l-4.544-2.617c-1.308-.761-2.188-2.378-2.188-3.948A4.482 4.482 0 014.21 6.327v5.423c0 .333.143.571.428.738l5.947 3.449-1.95 1.118a.432.432 0 01-.476 0zm-.262 3.9c-2.688 0-4.662-2.021-4.662-4.519 0-.19.024-.38.047-.57l4.686 2.71c.286.167.571.167.856 0l5.97-3.448v2.26c0 .19-.07.333-.237.428l-4.543 2.616c-.619.357-1.356.523-2.117.523zm5.899 2.83a5.947 5.947 0 005.827-4.756C22.287 18.339 24 15.84 24 13.296c0-1.665-.713-3.282-1.998-4.448.119-.5.19-.999.19-1.498 0-3.401-2.759-5.947-5.946-5.947-.642 0-1.26.095-1.88.31A5.962 5.962 0 0010.205 0a5.947 5.947 0 00-5.827 4.757C1.713 5.447 0 7.945 0 10.49c0 1.666.713 3.283 1.998 4.448-.119.5-.19 1-.19 1.499 0 3.401 2.759 5.946 5.946 5.946.642 0 1.26-.095 1.88-.309a5.96 5.96 0 004.162 1.713z";
+const CLAUDE="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z";
+const GROK_A="M210.484 312.759 343.465 210.383c6.519-5.019 15.837-3.061 18.943 4.734 16.35 41.114 9.046 90.523-23.483 124.446-32.528 33.924-77.788 41.364-119.157 24.42l-45.191 21.82c64.817 46.205 143.527 34.778 192.712-16.552 39.014-40.687 51.097-96.147 39.799-146.16l.102.107c-16.383-73.472 4.028-102.839 45.84-162.891.99-1.424 1.98-2.848 2.97-4.307l-55.022 57.382v-.178L210.45 312.794";
+const GROK_B="M183.042 337.641c-46.523-46.347-38.502-118.074 1.194-159.438 29.354-30.613 77.447-43.107 119.43-24.739l45.089-21.714c-8.123-6.123-18.534-12.708-30.48-17.336-53.998-23.173-118.645-11.64-162.54 34.102-42.222 44.033-55.499 111.738-32.699 169.511 17.033 43.179-10.888 73.721-39.013 104.548C74.056 433.503 64.055 444.431 56 456l127.007-118.323";
 const MARKS={
-  codex:`<svg viewBox="-12 -12 24 24">${[0,1,2,3,4,5].map(i=>`<path d="M0 -9.2 L7.6 -4.9 L7.6 3.7" transform="rotate(${i*60})"/>`).join('')}</svg>`,
-  claude:`<svg viewBox="-12 -12 24 24">${[...Array(12)].map((_,i)=>`<rect class="f" x="-1" y="${-(i%2?6.2:9.4)}" width="2" height="${i%2?4.4:6}" rx="1" transform="rotate(${i*30})"/>`).join('')}</svg>`,
-  grok:`<svg viewBox="-12 -12 24 24"><path d="M-7.5 -8 L7.5 8"/><path d="M7.5 -8 L-1.5 2.2"/><path d="M-7.5 8 L-3.2 3.2"/></svg>`,
-  hermes:`<svg viewBox="-12 -12 24 24"><path d="M0 -9 V9"/><path d="M-6 -4 C-3 -7 3 -7 6 -4"/><path d="M-6 1 C-3 -2 3 -2 6 1"/><path d="M-4.5 6 C-2 4 2 4 4.5 6"/></svg>`,
-  openclaw:`<svg viewBox="-12 -12 24 24"><path d="M-7 7 C-7 -1 -3 -6 0 -9"/><path d="M0 8 C-1 1 1 -4 3 -8"/><path d="M7 6 C6 0 5 -3 2 -6"/></svg>`,
-  luca:`<svg viewBox="-12 -12 24 24"><circle cx="0" cy="0" r="8"/><circle class="f" cx="0" cy="0" r="1.6"/></svg>`
+  codex:`<svg class="mk-openai" viewBox="0 0 24 24" role="img" aria-label="OpenAI"><path d="${OPENAI}"/></svg>`,
+  claude:`<svg class="mk-claude" viewBox="0 0 24 24" role="img" aria-label="Anthropic"><path d="${CLAUDE}"/></svg>`,
+  grok:`<svg class="mk-grok" viewBox="0 0 512 512" role="img" aria-label="Grok"><path d="${GROK_A}"/><path d="${GROK_B}"/></svg>`,
+  hermes:`<svg class="mk-line" viewBox="-12 -12 24 24" role="img" aria-label="Hermes (placeholder)"><path d="M0 -9 V9"/><path d="M-6 -4 C-3 -7 3 -7 6 -4"/><path d="M-6 1 C-3 -2 3 -2 6 1"/><path d="M-4.5 6 C-2 4 2 4 4.5 6"/></svg>`,
+  openclaw:`<svg class="mk-line" viewBox="-12 -12 24 24" role="img" aria-label="OpenClaw (placeholder)"><path d="M-7 7 C-7 -1 -3 -6 0 -9"/><path d="M0 8 C-1 1 1 -4 3 -8"/><path d="M7 6 C6 0 5 -3 2 -6"/></svg>`
 };
 const HARNESS={codex:'codex',claude:'claude code',grok:'grok',hermes:'hermes',openclaw:'openclaw'};
+const PLACEHOLDER={hermes:1,openclaw:1};
+const CAST={otto:{name:'Otto',h:'codex'},iris:{name:'Iris',h:'claude'},rae:{name:'Rae',h:'openclaw'},pip:{name:'Pip',h:'grok'}};
 
-/* ===================== cast ===================== */
-const CAST={
-  otto:{name:'Otto',h:'codex'},
-  iris:{name:'Iris',h:'claude'},
-  rae:{name:'Rae',h:'openclaw'},
-  pip:{name:'Pip',h:'grok'}
-};
-
-/* ===================== phosphor (two timescales, integer pitch) ===================== */
+/* ===================== phosphor — two timescales, integer device pitch ===================== */
 const DIM=[24,25,29];
 class Phosphor{
-  constructor(cv,cellCss,opts={}){
-    this.cv=cv; this.cellCss=cellCss; this.ink=opts.ink??.13; this.inkLit=opts.inkLit??.24;
-    this.dot=[240,241,245]; this.ok=false; this.resize();
-  }
+  constructor(cv,cellCss,opts={}){ this.cv=cv; this.cellCss=cellCss; this.ink=opts.ink??.14; this.inkLit=opts.inkLit??.26; this.dot=[240,241,245]; this.ok=false; this.resize(); }
   resize(){
-    const r=this.cv.getBoundingClientRect();
-    if(r.width<4||r.height<4){this.ok=false;return false;}
+    const r=this.cv.getBoundingClientRect(); if(r.width<4||r.height<4){this.ok=false;return false;}
     const dpr=Math.min(devicePixelRatio||1,2);
-    this.pitch=Math.max(2,Math.round(this.cellCss*dpr));     // integer device pixels
-    this.W=Math.round(r.width*dpr); this.H=Math.round(r.height*dpr);
-    this.cv.width=this.W; this.cv.height=this.H;
-    this.ctx=this.cv.getContext('2d');
-    this.cw=r.width; this.ch=r.height;
+    this.pitch=Math.max(2,Math.round(this.cellCss*dpr));
+    this.W=Math.round(r.width*dpr); this.H=Math.round(r.height*dpr); this.cv.width=this.W; this.cv.height=this.H;
+    this.ctx=this.cv.getContext('2d'); this.cw=r.width; this.ch=r.height;
     this.cols=Math.max(1,Math.floor(this.W/this.pitch)); this.rows=Math.max(1,Math.floor(this.H/this.pitch));
     this.ox=Math.floor((this.W-this.cols*this.pitch)/2); this.oy=Math.floor((this.H-this.rows*this.pitch)/2);
-    this.q=new Float32Array(this.cols*this.rows); this.g=new Float32Array(this.cols*this.rows);
-    this.ok=true; return true;
+    this.q=new Float32Array(this.cols*this.rows); this.g=new Float32Array(this.cols*this.rows); this.ok=true; return true;
   }
   maybeResize(){ const r=this.cv.getBoundingClientRect(); if(Math.abs(r.width-this.cw)>1||Math.abs(r.height-this.ch)>1)this.resize(); }
-  fade(kf,kg){ if(!this.ok)return; const q=this.q,g=this.g;
-    for(let i=0;i<q.length;i++){ const v=q[i]; g[i]=Math.max(g[i]*kg, v*.55); q[i]=v*kf; } }
-  set(x,y,v){ if(!this.ok)return; x=Math.round(x); y=Math.round(y);
-    if(x<0||y<0||x>=this.cols||y>=this.rows)return; const i=y*this.cols+x; if(v>this.q[i])this.q[i]=v; }
+  fade(kf,kg){ if(!this.ok)return; const q=this.q,g=this.g; for(let i=0;i<q.length;i++){ const v=q[i]; g[i]=Math.max(g[i]*kg, v*.5); q[i]=v*kf; } }
+  set(x,y,v){ if(!this.ok)return; x=Math.round(x); y=Math.round(y); if(x<0||y<0||x>=this.cols||y>=this.rows)return; const i=y*this.cols+x; if(v>this.q[i])this.q[i]=v; }
   draw(){
-    if(!this.ok)return;
-    const {ctx,pitch,cols,rows,ox,oy,q,g,ink,inkLit,dot}=this;
-    ctx.clearRect(0,0,this.W,this.H);
-    const half=pitch/2;
+    if(!this.ok)return; const {ctx,pitch,cols,rows,ox,oy,q,g,ink,inkLit,dot}=this;
+    ctx.clearRect(0,0,this.W,this.H); const half=pitch/2;
     for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){
-      const i=y*cols+x; const c=clamp(q[i]+g[i]*.42,0,1);
-      const r=Math.round(DIM[0]+(dot[0]-DIM[0])*c), gg=Math.round(DIM[1]+(dot[1]-DIM[1])*c), b=Math.round(DIM[2]+(dot[2]-DIM[2])*c);
-      ctx.fillStyle=`rgb(${r},${gg},${b})`;
+      const i=y*cols+x; const c=clamp(q[i]+g[i]*.38,0,1);
+      ctx.fillStyle=`rgb(${Math.round(DIM[0]+(dot[0]-DIM[0])*c)},${Math.round(DIM[1]+(dot[1]-DIM[1])*c)},${Math.round(DIM[2]+(dot[2]-DIM[2])*c)})`;
       ctx.beginPath(); ctx.arc(ox+x*pitch+half, oy+y*pitch+half, pitch*(ink+inkLit*c), 0, TAU); ctx.fill();
     }
   }
 }
 
 /* ===================== expression space ===================== */
-/* params: w width · h openness · lidA upper-lid angle (+ = inner corner higher → uncertain; − = intent) · lidT upper lid lower amount · cres lower crescent · skew · pup pupil · look {x,y} override */
-const BASE={w:1,h:.5,lidA:0,lidT:0,cres:0,skew:0,pup:0};
+const BASE={w:1,h:.55,lidA:0,lidT:0,cres:0,skew:0,pup:.22};
 const EXPR={
-  asleep:   {L:{h:.14,cres:0,pup:0},R:{h:.14,cres:0,pup:0},br:.42},
-  idle:     {L:{h:.5,lidT:.1,pup:.2},R:{h:.5,lidT:.1,pup:.2},br:.86},
-  attentive:{L:{h:.95,pup:.26,cres:0},R:{h:.95,pup:.26,cres:0},br:1},
-  watching: {L:{h:1,w:1.04,pup:.42},R:{h:1,w:1.04,pup:.42},br:1,cold:true},
-  thinking: {L:{h:.62,pup:.2,lidT:.1},R:{h:.46,pup:.2,lidT:.24},br:.85,look:{x:-.7,y:-.8}},
-  speaking: {L:{h:.64,cres:.9},R:{h:.64,cres:.9},br:.95,talk:true},
-  working:  {L:{h:.6,pup:.3,lidT:.14,lidA:-.3},R:{h:.6,pup:.3,lidT:.14,lidA:-.3},br:.9,skewToGaze:true},
-  delighted:{L:{h:.78,cres:1.05,w:1.05},R:{h:.78,cres:1.05,w:1.05},br:1},
-  uncertain:{L:{h:.7,pup:.24,lidA:.5,lidT:.12},R:{h:.7,pup:.24,lidA:.5,lidT:.12},br:.82,wander:true},
-  intent:   {L:{h:.66,pup:.34,lidA:-.55,lidT:.2,cres:0},R:{h:.66,pup:.34,lidA:-.55,lidT:.2,cres:0},br:.95}
+  asleep:   {L:{h:.12,pup:0},R:{h:.12,pup:0},br:.42},
+  idle:     {L:{h:.6,lidT:.08},R:{h:.6,lidT:.08},br:.96},
+  attentive:{L:{h:.95,pup:.26},R:{h:.95,pup:.26},br:1},
+  watching: {L:{h:1,w:1.04,pup:.4},R:{h:1,w:1.04,pup:.4},br:1,cold:true},
+  thinking: {L:{h:.7,pup:.2,lidT:.1},R:{h:.52,pup:.2,lidT:.26},br:.86,look:{x:-.7,y:-.8}},
+  speaking: {L:{h:.72,cres:.92,pup:0},R:{h:.72,cres:.92,pup:0},br:.95,talk:true},
+  working:  {L:{h:.68,pup:.28,lidT:.16,lidA:-.3},R:{h:.68,pup:.28,lidT:.16,lidA:-.3},br:.9,skewToGaze:true},
+  delighted:{L:{h:.82,cres:1.08,w:1.05,pup:0},R:{h:.82,cres:1.08,w:1.05,pup:0},br:1},
+  uncertain:{L:{h:.78,pup:.24,lidA:.55,lidT:.1},R:{h:.78,pup:.24,lidA:.55,lidT:.1},br:.84,wander:true},
+  intent:   {L:{h:.74,pup:.32,lidA:-.6,lidT:.22},R:{h:.74,pup:.32,lidA:-.6,lidT:.22},br:.95}
 };
 const WHITE=[240,241,245], COLD=[150,232,255];
-
 class Eyes{
   constructor(ph,opts={}){
     this.ph=ph; this.scale=opts.scale??1; this.expr='idle'; this.exprStart=performance.now();
     this.L={...BASE}; this.R={...BASE}; this.tint=[...WHITE];
     this.gaze={x:0,y:0}; this.gazeT={x:0,y:0}; this.sacc={x:0,y:0}; this.lookAt=null;
-    this.nextBlink=1.5+Math.random()*3; this.blinkUntil=0;
-    this.nextGlance=2+Math.random()*4; this.glanceUntil=0; this.gl={x:0,y:0};
+    this.nextBlink=1.5+Math.random()*3; this.blinkUntil=0; this.nextGlance=2+Math.random()*4; this.glanceUntil=0; this.gl={x:0,y:0};
     this.nextSacc=1+Math.random(); this.ph1=Math.random()*TAU; this.ph2=Math.random()*TAU;
   }
   setExpr(e){ if(this.expr!==e){this.expr=e; this.exprStart=performance.now();} }
-  st(){ return (performance.now()-this.exprStart)/1000; }
   step(t){
-    const ph=this.ph; if(!ph.ok)return;
-    const E=EXPR[this.expr]||EXPR.idle;
-    /* blink */
-    if(t>this.nextBlink && !E.cold){
-      this.blinkUntil=t+.12; this.nextBlink=t+2.4+Math.random()*3.6;
-      if(Math.random()<.18)this.nextBlink=t+.5;
-      if(this.expr==='asleep')this.nextBlink=t+9+Math.random()*6;
-    }
-    /* autonomous glance */
-    if(t>this.nextGlance){ this.glanceUntil=t+.45+Math.random()*.6; this.nextGlance=t+3+Math.random()*5;
-      const a=Math.random()*TAU; this.gl={x:Math.cos(a)*.9,y:Math.sin(a)*.5}; }
-    /* micro-saccade */
-    if(t>this.nextSacc){ this.sacc={x:(Math.random()-.5)*.18,y:(Math.random()-.5)*.12}; this.nextSacc=t+.9+Math.random()*2.1; }
+    const ph=this.ph; if(!ph.ok)return; const E=EXPR[this.expr]||EXPR.idle;
+    if(t>this.nextBlink && !E.cold){ this.blinkUntil=t+.12; this.nextBlink=t+2.4+Math.random()*3.6; if(Math.random()<.18)this.nextBlink=t+.5; if(this.expr==='asleep')this.nextBlink=t+9+Math.random()*6; }
+    if(t>this.nextGlance){ this.glanceUntil=t+.45+Math.random()*.6; this.nextGlance=t+3+Math.random()*5; const a=Math.random()*TAU; this.gl={x:Math.cos(a)*.9,y:Math.sin(a)*.5}; }
+    if(t>this.nextSacc){ this.sacc={x:(Math.random()-.5)*.16,y:(Math.random()-.5)*.1}; this.nextSacc=t+.9+Math.random()*2.1; }
     this.sacc.x*=.9; this.sacc.y*=.9;
-    /* gaze target */
-    const r=ph.cv.getBoundingClientRect();
-    let px=mouse.x, py=mouse.y, la=this.lookAt;
+    const r=ph.cv.getBoundingClientRect(); let px=mouse.x, py=mouse.y, la=this.lookAt;
     if(la){ if(la.getBoundingClientRect){const b=la.getBoundingClientRect(); px=b.left+b.width/2; py=b.top+b.height/2;} else {px=la.x;py=la.y;} }
-    let tx=clamp((px-(r.left+r.width/2))/(Math.max(r.width,160)*.8),-1,1);
-    let ty=clamp((py-(r.top+r.height/2))/(Math.max(r.height,140)*.8),-1,1);
+    let tx=clamp((px-(r.left+r.width/2))/(Math.max(r.width,200)*.8),-1,1);
+    let ty=clamp((py-(r.top+r.height/2))/(Math.max(r.height,120)*.9),-1,1);
     if(!la && t<this.glanceUntil && !E.cold){tx=this.gl.x;ty=this.gl.y;}
     if(!la && E.look){tx=E.look.x;ty=E.look.y;}
     if(!la && E.wander){tx=Math.sin(t*.9+this.ph1)*.6; ty=Math.cos(t*.7+this.ph2)*.35;}
-    if(this.expr==='asleep'){tx=0;ty=.2;}
-    /* two-speed gaze: fast toward a new target, slow settle */
-    const dx=tx-this.gazeT.x, dy=ty-this.gazeT.y; const far=Math.hypot(dx,dy)>.25;
+    if(this.expr==='asleep'){tx=0;ty=.3;}
+    const far=Math.hypot(tx-this.gazeT.x,ty-this.gazeT.y)>.25;
     this.gazeT.x=lerp(this.gazeT.x,tx,far?.28:.08); this.gazeT.y=lerp(this.gazeT.y,ty,far?.28:.08);
     this.gaze.x=lerp(this.gaze.x,this.gazeT.x+this.sacc.x,.35); this.gaze.y=lerp(this.gaze.y,this.gazeT.y+this.sacc.y,.35);
-    /* tint law */
-    const target=E.cold?COLD:WHITE;
-    for(let i=0;i<3;i++)this.tint[i]=lerp(this.tint[i],target[i],.07);
-    ph.dot=this.tint;
-    /* morph */
-    const blink=t<this.blinkUntil;
-    const TL={...BASE,...E.L}, TR={...BASE,...E.R};
+    const target=E.cold?COLD:WHITE; for(let i=0;i<3;i++)this.tint[i]=lerp(this.tint[i],target[i],.07); ph.dot=this.tint;
+    const blink=t<this.blinkUntil; const TL={...BASE,...E.L}, TR={...BASE,...E.R};
     if(E.talk){ const env=(0.5+0.5*Math.sin(t*10.7))*(0.55+0.45*Math.sin(t*2.9)); TL.h*=1+.12*env; TR.h*=1+.12*env*.9; }
-    if(E.skewToGaze){ TL.skew=TR.skew=clamp(this.gaze.x,-1,1)*.28; }
-    for(const [cur,tgt] of [[this.L,TL],[this.R,TR]]) for(const k in cur) cur[k]=lerp(cur[k], blink&&k==='h'?.08:tgt[k], .17);
-    /* render */
-    ph.fade(.58,.9);
+    if(E.skewToGaze){ TL.skew=TR.skew=clamp(this.gaze.x,-1,1)*.26; }
+    for(const [cur,tgt] of [[this.L,TL],[this.R,TR]]) for(const k in cur) cur[k]=lerp(cur[k], blink&&k==='h'?.07:tgt[k], .17);
+    ph.fade(.56,.9);
     const rows=ph.rows, cols=ph.cols;
-    const eh=rows*.31*this.scale, ew=eh*.8;
-    const sep=Math.max(ew*2.7, cols*.17);
-    const breathB=1+.035*Math.sin(t*.73+this.ph1), breathH=1+.03*Math.sin(t*1.13+this.ph2);
+    const eh=rows*.38*this.scale, ew=eh*.64;                 // portrait: taller than wide
+    const sep=Math.max(ew*2.9, Math.min(cols*.2, ew*3.6));
+    const breathB=1+.035*Math.sin(t*.73+this.ph1), breathH=1+.025*Math.sin(t*1.13+this.ph2);
     const br=(E.br??.8)*breathB;
-    const ey=rows*.5+this.gaze.y*rows*.06;
+    const ey=rows*.5+this.gaze.y*rows*.05;
     [[-1,this.L],[1,this.R]].forEach(([side,p])=>{
-      const ecx=cols/2+side*sep/2+this.gaze.x*cols*.04;
+      const ecx=cols/2+side*sep/2+this.gaze.x*cols*.03;
       const w=ew*p.w, h=Math.max(.9,eh*p.h*breathH);
-      const ppx=this.gaze.x*w*.4, ppy=this.gaze.y*h*.42;
+      const pr=w*p.pup*1.15;                                  // round pupil, radius in cells
+      const ppx=this.gaze.x*(w-pr)*.55, ppy=h*.1+this.gaze.y*(h-pr)*.45;
       for(let y=Math.floor(ey-h-2);y<=ey+h+2;y++)for(let x=Math.floor(ecx-w-2);x<=ecx+w+2;x++){
         let nx=(x-ecx)/w + p.skew*((y-ey)/h); const ny=(y-ey)/h;
-        const se=Math.pow(Math.abs(nx),2.1)+Math.pow(Math.abs(ny),2.1);
-        let v=clamp((1-se)/.33,0,1); if(v<=0)continue;
-        /* upper lid: flat lowering + angle (inner corner = toward centre) */
-        const inner=-side*nx;               // +1 at inner corner, −1 at outer
-        const lidY=-1+p.lidT*1.6+p.lidA*inner*.55;
-        if(ny<lidY) v*=clamp(1-(lidY-ny)*3,0,1)*0;
-        /* lower crescent */
-        if(p.cres>.02){ const cy2=(y-(ey+p.cres*h*1.15))/h, cx2=nx/1.05; if(cx2*cx2+cy2*cy2<1.05) v=0; }
-        /* pupil hole + catchlight */
-        if(p.pup>.02){ const pdx=(x-ecx-ppx)/(w*p.pup), pdy=(y-ey-ppy)/(h*p.pup);
-          if(pdx*pdx+pdy*pdy<1){ v*=.05; if(pdx<-.2&&pdx>-.95&&pdy<-.2&&pdy>-.95) v=.85; } }
+        const se=nx*nx+ny*ny;                                  // true ellipse
+        let v=clamp((1-se)/.3,0,1); if(v<=0)continue;
+        const inner=-side*nx; const lidY=-1+p.lidT*1.6+p.lidA*inner*.55;
+        if(ny<lidY) continue;
+        if(p.cres>.02){ const cy2=(y-(ey+p.cres*h*1.15))/h, cx2=nx/1.05; if(cx2*cx2+cy2*cy2<1.05) continue; }
+        if(p.pup>.02&&pr>.6){ const pdx=(x-ecx-ppx)/pr, pdy=(y-ey-ppy)/pr; const d=pdx*pdx+pdy*pdy;
+          if(d<1){ v*=.06; if(pdx<-.15&&pdx>-.8&&pdy<-.15&&pdy>-.8) v=.9; } }
         if(v>0)ph.set(x,y,v*br);
       }
     });
@@ -431,25 +369,25 @@ class Eyes{
 const mouse={x:innerWidth/2,y:innerHeight/3};
 addEventListener('mousemove',e=>{mouse.x=e.clientX;mouse.y=e.clientY;},{passive:true});
 const faces=[
-  new Eyes(new Phosphor(document.getElementById('cv-compact'),2,{ink:.15,inkLit:.3}),{scale:1.9}),
-  new Eyes(new Phosphor(document.getElementById('cv-island'),3),{scale:.88}),
-  new Eyes(new Phosphor(document.getElementById('cv-open'),3),{scale:.95})
+  new Eyes(new Phosphor(document.getElementById('cv-compact'),1.5,{ink:.16,inkLit:.32}),{scale:.86}),
+  new Eyes(new Phosphor(document.getElementById('cv-island'),2),{scale:.92}),
+  new Eyes(new Phosphor(document.getElementById('cv-open'),2),{scale:.92})
 ];
+const STATE_WORD={asleep:'asleep',idle:'resting',attentive:'listening',watching:'reading your screen',thinking:'thinking',speaking:'speaking',working:'supervising',delighted:'pleased',uncertain:'unsure',intent:'focused'};
 function setExpr(e){ faces.forEach(f=>f.setExpr(e)); desk.dataset.state=e;
   document.querySelectorAll('#g-expr button').forEach(b=>b.classList.toggle('on',b.dataset.e===e));
-  document.getElementById('who-state').textContent=({asleep:'asleep',idle:'resting',attentive:'listening',watching:'reading your screen',thinking:'thinking',speaking:'speaking',working:'supervising',delighted:'pleased',uncertain:'unsure',intent:'focused'})[e]||e; }
+  document.getElementById('who-state').textContent=STATE_WORD[e]||e; }
 function lookAt(el){ faces.forEach(f=>f.lookAt=el); }
 
 /* ===================== tiers ===================== */
 const desk=document.getElementById('desk'), island=document.getElementById('island');
 const layers={compact:document.getElementById('L-compact'),island:document.getElementById('L-island'),open:document.getElementById('L-open')};
 let tier='compact';
-function setTier(t){ tier=t; desk.dataset.tier=t;
-  for(const k in layers)layers[k].classList.toggle('on',k===t);
+function setTier(t){ tier=t; desk.dataset.tier=t; for(const k in layers)layers[k].classList.toggle('on',k===t);
   document.querySelectorAll('#g-tier button').forEach(b=>b.classList.toggle('on',b.dataset.tier===t));
-  if(t==='open'){ desk.dataset.unread='0'; setTimeout(()=>{thread.scrollTop=thread.scrollHeight;},60); }
-}
-island.addEventListener('click',e=>{ if(e.target.closest('.composer'))return; setTier(tier==='compact'?'island':tier==='island'?'open':'compact'); if(tier!=='compact'&&faces[0].expr==='asleep'||faces[0].expr==='idle')setExpr('attentive'); });
+  if(t==='open'){ desk.dataset.unread='0'; setTimeout(()=>{thread.scrollTop=thread.scrollHeight;},60); } }
+island.addEventListener('click',e=>{ if(e.target.closest('.composer'))return; setTier(tier==='compact'?'island':tier==='island'?'open':'compact');
+  if(tier!=='compact'&&(faces[0].expr==='asleep'||faces[0].expr==='idle'))setExpr('attentive'); if(tier==='compact'&&!running)setExpr('idle'); });
 addEventListener('keydown',e=>{
   if(e.key==='Escape'){setTier('compact'); if(!running)setExpr('idle'); inp.blur();}
   if(e.altKey&&e.code==='Space'){e.preventDefault(); setTier(tier==='open'?'compact':'open'); if(tier==='open'){setExpr('attentive'); setTimeout(()=>inp.focus(),420);} }
@@ -457,18 +395,17 @@ addEventListener('keydown',e=>{
 document.getElementById('g-tier').addEventListener('click',e=>{const b=e.target.closest('button');if(b)setTier(b.dataset.tier);});
 
 /* ===================== agents / chips ===================== */
-const agents={}; // id → {state, p, status}
+const agents={};
 function chipHTML(id,cls){ const a=CAST[id]; return `<div class="chip ${cls}" data-id="${id}">
   <div class="ring"><svg class="r" viewBox="0 0 36 36"><circle class="track" cx="18" cy="18" r="15.9"/><circle class="prog" cx="18" cy="18" r="15.9"/></svg><div class="hm">${MARKS[a.h]}</div></div>
-  <div class="meta"><b>${a.name}</b><i>${HARNESS[a.h]}</i></div><span class="pct"></span></div>`; }
+  <div class="meta"><b>${a.name}</b><i>${HARNESS[a.h]}</i></div></div>`; }
 const rail=document.getElementById('rail'), islNow=document.getElementById('isl-now'), mini=document.getElementById('mini');
 function renderAgents(){
-  const ids=Object.keys(agents);
-  const active=ids.filter(i=>agents[i].state!=='idle');
-  desk.dataset.busy=active.some(i=>agents[i].state==='working'||agents[i].state==='queued')?'1':'0';
-  rail.innerHTML=ids.length?ids.map(i=>chipHTML(i,agents[i].state)).join(''):'';
-  islNow.innerHTML=active.slice(0,2).map(i=>chipHTML(i,agents[i].state)).join('');
-  mini.innerHTML=active.filter(i=>agents[i].state!=='done').slice(0,3).map(i=>chipHTML(i,agents[i].state)).join('');
+  const ids=Object.keys(agents); const active=ids.filter(i=>agents[i].state!=='idle');
+  desk.dataset.busy=active.some(i=>agents[i].state==='working'||agents[i].state==='queued')?'1':'0'; desk.dataset.now=active.length?'1':'0';
+  rail.innerHTML=ids.map(i=>chipHTML(i,agents[i].state)).join('');
+  islNow.innerHTML=active.slice(0,3).map(i=>chipHTML(i,agents[i].state)).join('');
+  mini.innerHTML=active.filter(i=>agents[i].state!=='done').slice(0,3).map(i=>chipHTML(i,agents[i].state)).join('')+'<span class="unread"></span>';
   ids.forEach(i=>paintChip(i));
 }
 function paintChip(id){ const a=agents[id];
@@ -476,86 +413,62 @@ function paintChip(id){ const a=agents[id];
     el.className='chip '+(a.state==='working'?'active':a.state);
     const prog=el.querySelector('.prog'); if(prog)prog.style.strokeDashoffset=100*(1-(a.state==='done'?1:a.p||0));
     const st=el.querySelector('.meta i'); if(st)st.textContent=a.status||HARNESS[CAST[id].h];
-    const pct=el.querySelector('.pct'); if(pct)pct.textContent=a.state==='working'?Math.round((a.p||0)*100)+'%':'';
   }); }
 function setAgent(id,patch){ agents[id]={...(agents[id]||{state:'idle',p:0}),...patch}; }
 
 /* ===================== thread ===================== */
 const thread=document.getElementById('thread'), inp=document.getElementById('inp'), islLine=document.getElementById('isl-line');
-function addMsg(who,text,me=false,h=null){
-  const d=document.createElement('div'); d.className='msg'+(me?' me':'');
-  d.innerHTML=`<div class="who">${h?`<span class="hm">${MARKS[h]}</span>`:''}${who}</div><div class="t"></div>`;
-  d.querySelector('.t').textContent=text; thread.appendChild(d); thread.scrollTop=thread.scrollHeight; return d; }
+function addMsg(who,text,me=false,h=null){ const d=document.createElement('div'); d.className='msg'+(me?' me':'');
+  d.innerHTML=`<div class="who">${h?`<span class="hm">${MARKS[h]}</span>`:''}${who}</div><div class="t"></div>`; d.querySelector('.t').textContent=text; thread.appendChild(d); thread.scrollTop=thread.scrollHeight; return d; }
 function addSys(t){ const d=document.createElement('div'); d.className='sysline'; d.textContent=t; thread.appendChild(d); thread.scrollTop=thread.scrollHeight; }
 function setLine(who,text){ islLine.innerHTML=`<b>${who}</b> · ${text}`; }
-async function lucaSay(text,{expr='speaking'}={}){
-  setExpr(expr); setLine('luca',text);
-  const d=addMsg('luca',''); const tEl=d.querySelector('.t');
-  // phosphor-style arrival: whole words settle in, not a typewriter
-  const words=text.split(' '); for(let i=0;i<words.length;i++){ tEl.textContent=words.slice(0,i+1).join(' '); thread.scrollTop=thread.scrollHeight; await sleep(RM?0:38); }
-}
+async function lucaSay(text,{expr='speaking'}={}){ setExpr(expr); setLine('luca',text);
+  const d=addMsg('luca',''); const tEl=d.querySelector('.t'); const words=text.split(' ');
+  for(let i=0;i<words.length;i++){ tEl.textContent=words.slice(0,i+1).join(' '); thread.scrollTop=thread.scrollHeight; await sleep(RM?0:38); } }
 
 /* ===================== scenario ===================== */
 let running=false;
 const OTTO_ST=[[0,'reading the repo'],[.2,'scaffolding views'],[.46,'wiring sync'],[.72,'tests running'],[.93,'tests · 34/34']];
 const IRIS_ST=[[0,"reviewing otto's build"],[.24,'type & spacing'],[.52,'states & motion'],[.8,'final pass']];
+function chipEl(id){ return document.querySelector(`#${tier==='open'?'rail':tier==='island'?'isl-now':'mini'} .chip[data-id="${id}"]`)||document.querySelector(`.chip[data-id="${id}"]`); }
 async function runAgent(id,nextId,dur,sts,doneTxt){
-  setAgent(id,{state:'working',p:0,status:sts[0][1]}); renderAgents();
-  const chip=()=>document.querySelector(`#${tier==='open'?'rail':'isl-now'} .chip[data-id="${id}"]`)||document.querySelector(`.chip[data-id="${id}"]`);
-  lookAt(chip()); setExpr('working');
+  setAgent(id,{state:'working',p:0,status:sts[0][1]}); renderAgents(); lookAt(chipEl(id)); setExpr('working');
   let p=0; const t0=performance.now(); let nextSacc=performance.now()+1500+Math.random()*900;
   while(p<1){
     await sleep(RM?40:120+Math.random()*240);
-    const el=(performance.now()-t0)/dur;
-    p=clamp(p+Math.random()*.085*(el>.7?1.6:1),0,Math.min(1,el*1.15)); if(el>=1)p=1;
-    let status=sts[0][1]; for(const [th,tx] of sts) if(p>=th)status=tx;
-    setAgent(id,{p,status}); paintChip(id);
-    if(nextId&&performance.now()>nextSacc){ const o=document.querySelector(`.chip[data-id="${nextId}"]`); if(o){lookAt(o); setTimeout(()=>lookAt(chip()),380);} nextSacc=performance.now()+1700+Math.random()*1300; }
+    const el=(performance.now()-t0)/dur; p=clamp(p+Math.random()*.085*(el>.7?1.6:1),0,Math.min(1,el*1.15)); if(el>=1)p=1;
+    let status=sts[0][1]; for(const [th,tx] of sts) if(p>=th)status=tx; setAgent(id,{p,status}); paintChip(id);
+    if(nextId&&performance.now()>nextSacc){ const o=chipEl(nextId); if(o){lookAt(o); setTimeout(()=>lookAt(chipEl(id)),380);} nextSacc=performance.now()+1700+Math.random()*1300; }
+    else lookAt(chipEl(id));
   }
   setAgent(id,{state:'done',p:1,status:doneTxt}); renderAgents();
 }
 async function scenario(userText){
-  if(running)return; running=true; bRun.disabled=true;
-  if(tier!=='open')setTier('open');
-  addMsg('you',userText,true); lookAt(null);
-  setExpr('thinking'); await sleep(1000);
-  await lucaSay("on it. otto takes the build; iris follows with the design polish once he ships.");
-  await sleep(250);
-  setAgent('otto',{state:'working',p:0,status:'starting'}); setAgent('iris',{state:'queued',p:0,status:'queued · after otto'}); renderAgents();
-  await sleep(500);
+  if(running)return; running=true; bRun.disabled=true; if(tier!=='open')setTier('open');
+  addMsg('you',userText,true); lookAt(null); setExpr('thinking'); await sleep(1000);
+  await lucaSay("on it. otto takes the build; iris follows with the design polish once he ships."); await sleep(250);
+  setAgent('otto',{state:'working',p:0,status:'starting'}); setAgent('iris',{state:'queued',p:0,status:'queued · after otto'}); renderAgents(); await sleep(500);
   await runAgent('otto','iris',7000,OTTO_ST,'shipped · 4m 12s');
-  addSys('otto done — handing to iris'); setLine('otto','shipped · handing to iris');
-  await sleep(450);
-  await runAgent('iris',null,5600,IRIS_ST,'polish complete');
-  lookAt(null); await sleep(300);
+  addSys('otto done — handing to iris'); setLine('otto','shipped · handing to iris'); await sleep(450);
+  await runAgent('iris',null,5600,IRIS_ST,'polish complete'); lookAt(null); await sleep(300);
   await lucaSay("done. otto shipped the build, 34 of 34 green. iris finished the polish. preview's ready when you are.",{expr:'delighted'});
-  await sleep(1400); setExpr('idle');
-  bRun.disabled=false; running=false;
+  await sleep(1400); setExpr('idle'); bRun.disabled=false; running=false;
 }
 async function incoming(){
   if(running)return; running=true;
-  // an agent reaches out while you're elsewhere: the notch wakes on its own
   if(tier==='open'){ await deliverRae(); running=false; return; }
-  setTier('island'); setExpr('attentive');
-  setAgent('rae',{state:'active',p:0,status:'wants a word'}); renderAgents();
-  setLine('rae','deploy is green. tag the release, or hold?');
-  addMsg('rae','deploy is green. tag the release, or hold?',false,'openclaw');
-  await sleep(3800);
-  setTier('compact'); desk.dataset.unread='1'; setAgent('rae',{state:'idle'}); renderAgents(); setExpr('idle');
-  running=false;
+  setTier('island'); setExpr('attentive'); setAgent('rae',{state:'active',p:0,status:'wants a word'}); renderAgents();
+  setLine('rae','deploy is green. tag the release, or hold?'); addMsg('rae','deploy is green. tag the release, or hold?',false,'openclaw');
+  await sleep(3800); setTier('compact'); desk.dataset.unread='1'; setAgent('rae',{state:'idle'}); renderAgents(); setExpr('idle'); running=false;
 }
 async function deliverRae(){ setExpr('attentive'); setAgent('rae',{state:'active',p:0,status:'wants a word'}); renderAgents();
   const n=document.createElement('div'); n.className='newline'; n.textContent='new'; thread.appendChild(n);
   addMsg('rae','deploy is green. tag the release, or hold?',false,'openclaw'); await sleep(1200); setAgent('rae',{state:'idle'}); renderAgents(); setExpr('idle'); }
 async function consent(){
-  if(running)return; running=true;
-  if(tier==='compact')setTier('island');
-  setExpr('attentive'); setLine('luca','may i look at your screen for this?');
-  await sleep(RM?200:1300);
-  setExpr('watching'); setLine('luca','reading · the figma tab and the open pr');
-  await sleep(RM?400:3600);
-  setExpr('idle'); setLine('luca','got it. the spacing drifted in the header — want me to flag it to iris?');
-  running=false;
+  if(running)return; running=true; if(tier==='compact')setTier('island');
+  setExpr('attentive'); setLine('luca','may i look at your screen for this?'); await sleep(RM?200:1300);
+  setExpr('watching'); setLine('luca','reading · the figma tab and the open pr'); await sleep(RM?400:3600);
+  setExpr('idle'); setLine('luca','got it. the spacing drifted in the header — want me to flag it to iris?'); running=false;
 }
 function send(){ const v=inp.value.trim(); if(!v||running)return; inp.value='';
   if(/otto|iris|finish|build|ship/i.test(v)) return scenario(v);
@@ -572,36 +485,23 @@ document.getElementById('b-incoming').addEventListener('click',incoming);
 document.getElementById('b-consent').addEventListener('click',consent);
 document.getElementById('b-reset').addEventListener('click',()=>{ for(const k in agents)delete agents[k]; renderAgents(); thread.innerHTML=''; seedThread(); desk.dataset.unread='0'; setTier('compact'); setExpr('idle'); lookAt(null); setLine('luca','nothing running. say the word.'); });
 
-/* expression buttons + gallery */
+/* expression buttons + gallery + marks */
 const gExpr=document.getElementById('g-expr');
 Object.keys(EXPR).forEach(e=>{ const b=document.createElement('button'); b.dataset.e=e; b.textContent=e; b.addEventListener('click',()=>{ if(running)return; setExpr(e); if(tier==='compact'&&e!=='asleep'&&e!=='idle')setTier('island'); }); gExpr.appendChild(b); });
 const gal=document.getElementById('expr-gallery'); const galFaces=[];
 Object.keys(EXPR).forEach(e=>{ const d=document.createElement('div'); d.className='ex'; d.innerHTML=`<canvas></canvas><span>${e}</span>`; gal.appendChild(d);
-  const f=new Eyes(new Phosphor(d.querySelector('canvas'),3),{scale:1}); f.setExpr(e); f.lookAt={x:0,y:0}; f.fixed=true; galFaces.push(f); });
-/* marks strip */
-document.getElementById('marks').innerHTML=Object.keys(HARNESS).map(k=>`<div class="mk"><span class="hm">${MARKS[k]}</span>${HARNESS[k]}</div>`).join('');
+  const f=new Eyes(new Phosphor(d.querySelector('canvas'),2),{scale:.95}); f.setExpr(e); galFaces.push(f); });
+document.getElementById('marks').innerHTML=Object.keys(HARNESS).map(k=>`<div class="mk${PLACEHOLDER[k]?' ph':''}"><span class="hm">${MARKS[k]}</span>${HARNESS[k]}${PLACEHOLDER[k]?' ·':''}</div>`).join('');
 
-/* seed */
+/* seed + clock + loop */
 function seedThread(){ addMsg('luca','morning. otto pushed the date-formatter fix overnight; iris has app-store copy waiting in #launch.'); addMsg('you','thanks — i\'ll read it after standup',true); }
-seedThread();
-setLine('luca','nothing running. say the word.');
-setExpr('idle'); setTier('compact');
-/* clock */
+seedThread(); setLine('luca','nothing running. say the word.'); setExpr('idle'); setTier('compact'); renderAgents();
 const clock=document.getElementById('clock'); const tick=()=>{const d=new Date(); clock.textContent=d.toLocaleDateString(undefined,{weekday:'short'})+' '+d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});}; tick(); setInterval(tick,15000);
-
-/* loop */
-let last=0;
-function loop(now){
-  const t=now/1000;
-  if(!document.hidden){
-    faces.forEach(f=>{ f.ph.maybeResize(); if(f.ph.ok)f.step(t); });
-    galFaces.forEach(f=>{ f.ph.maybeResize(); if(f.ph.ok){ f.lookAt={x:f.ph.cv.getBoundingClientRect().left+40,y:f.ph.cv.getBoundingClientRect().top+28}; f.step(t);} });
-  }
-  if(!RM)requestAnimationFrame(loop); 
-}
-if(RM){ // settle one frame
-  faces.forEach(f=>{f.ph.resize(); for(let i=0;i<20;i++)f.step(i/30);}); galFaces.forEach(f=>{f.ph.resize(); for(let i=0;i<20;i++)f.step(i/30);});
-} else requestAnimationFrame(loop);
+function loop(now){ const t=now/1000;
+  if(!document.hidden){ faces.forEach(f=>{ f.ph.maybeResize(); if(f.ph.ok)f.step(t); });
+    galFaces.forEach(f=>{ f.ph.maybeResize(); if(f.ph.ok){ const b=f.ph.cv.getBoundingClientRect(); f.lookAt={x:b.left+b.width*.5,y:b.top+b.height*.62}; f.step(t);} }); }
+  if(!RM)requestAnimationFrame(loop); }
+if(RM){ faces.forEach(f=>{f.ph.resize(); for(let i=0;i<20;i++)f.step(i/30);}); galFaces.forEach(f=>{f.ph.resize(); for(let i=0;i<20;i++)f.step(i/30);}); } else requestAnimationFrame(loop);
 })();
 </script>
 </body>
