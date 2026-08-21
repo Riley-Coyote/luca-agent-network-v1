@@ -402,6 +402,12 @@ impl ArtifactMcpConfig {
         ));
         self
     }
+
+    #[cfg(test)]
+    pub(crate) fn with_test_sidecar_command(mut self, command: String) -> Self {
+        self.command = command;
+        self
+    }
 }
 
 fn artifact_server_name(turn: &ArtifactTurnBindingV1) -> String {

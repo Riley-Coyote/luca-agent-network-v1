@@ -5048,23 +5048,62 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_runtime_with_initialized_probe_receipt_is_cached_supported() {
+        let fixture = std::env::temp_dir().join(format!(
+            "luca-artifact-probe-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir(&fixture).unwrap();
+        let projected_sidecar = fixture.join("buzz-dev-mcp");
+        std::fs::write(
+            &projected_sidecar,
+            r#"#!/bin/bash
+read -r INITIALIZE
+if [[ "$INITIALIZE" != *'"method":"initialize"'* ]]; then exit 21; fi
+echo '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{},"serverInfo":{"name":"buzz-dev-mcp","version":"test"}}}'
+read -r INITIALIZED
+if [[ "$INITIALIZED" != *'"method":"notifications/initialized"'* ]]; then exit 22; fi
+printf '%s\n' "$LUCA_ARTIFACT_PROBE_NONCE" >"/dev/tcp/${LUCA_ARTIFACT_PROBE_ENDPOINT%:*}/${LUCA_ARTIFACT_PROBE_ENDPOINT##*:}"
+while read -r _; do :; done
+"#,
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&projected_sidecar, std::fs::Permissions::from_mode(0o700))
+                .unwrap();
+        }
         let mut ctx = make_prompt_context_no_owner();
         ctx.cwd = "/tmp".into();
         ctx.artifact_mcp = Some(crate::artifact_mcp::ArtifactMcpConfig::test_fixture(
             crate::artifact_mcp::ArtifactMcpSupport::ProbePending,
             'b',
         )
+        .with_test_sidecar_command(projected_sidecar.display().to_string())
         .with_test_probe_adapter("bash", vec!["-c".into(), r#"
             read -r INIT
             echo '{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{}}}'
             read -r REQ
+            COMMAND=$(printf '%s\n' "$REQ" | sed -E 's/.*"command":"([^"]+)".*/\1/')
             ENDPOINT=$(printf '%s\n' "$REQ" | sed -E 's/.*"name":"LUCA_ARTIFACT_PROBE_ENDPOINT","value":"([^"]+)".*/\1/')
             NONCE=$(printf '%s\n' "$REQ" | sed -E 's/.*"name":"LUCA_ARTIFACT_PROBE_NONCE","value":"([^"]+)".*/\1/')
-            HOST=${ENDPOINT%:*}
-            PORT=${ENDPOINT##*:}
-            printf '%s\n' "$NONCE" >"/dev/tcp/$HOST/$PORT"
+            MCP_DIR=$(mktemp -d)
+            mkfifo "$MCP_DIR/in" "$MCP_DIR/out"
+            env -i LUCA_ARTIFACT_PROBE_MODE=1 LUCA_ARTIFACT_PROBE_ENDPOINT="$ENDPOINT" LUCA_ARTIFACT_PROBE_NONCE="$NONCE" \
+              "$COMMAND" <"$MCP_DIR/in" >"$MCP_DIR/out" &
+            MCP_PID=$!
+            exec 3>"$MCP_DIR/in"
+            exec 4<"$MCP_DIR/out"
+            printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"unknown-acp-fixture","version":"1"}}}' >&3
+            read -r MCP_INITIALIZED <&4
+            if [[ "$MCP_INITIALIZED" != *'"name":"buzz-dev-mcp"'* ]]; then exit 23; fi
+            printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}' >&3
             echo '{"jsonrpc":"2.0","id":1,"result":{"sessionId":"probe-session"}}'
             read -r CANCEL
+            exec 3>&-
+            wait "$MCP_PID"
+            rm "$MCP_DIR/in" "$MCP_DIR/out"
+            rmdir "$MCP_DIR"
         "#.into()]));
         let mut agent = artifact_test_agent("sleep 5").await;
         assert!(resolve_artifact_mcp_support(&mut agent, &ctx).await);
@@ -5072,6 +5111,8 @@ mod tests {
             ctx.artifact_mcp.as_ref().unwrap().effective_support(),
             crate::artifact_mcp::ArtifactMcpSupport::Supported
         );
+        std::fs::remove_file(projected_sidecar).unwrap();
+        std::fs::remove_dir(fixture).unwrap();
     }
 
     #[tokio::test]

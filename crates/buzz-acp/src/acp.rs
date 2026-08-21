@@ -2367,7 +2367,7 @@ fn observer_payload_for_managed_read(
                 .then(|| nested_artifact_tool_name(update))
                 .flatten();
             let Some(tool_name) = artifact_tool_name(update).or(guarded_tool_name) else {
-                if artifact_state.guard_active {
+                if artifact_state.guard_active && trusted_ordinary_tool_call(update) {
                     if let Some(tool_call_id) =
                         update.get("toolCallId").and_then(serde_json::Value::as_str)
                     {
@@ -2375,8 +2375,13 @@ fn observer_payload_for_managed_read(
                             .ordinary_tool_call_ids
                             .insert(tool_call_id.to_owned());
                     }
+                    return value.clone();
                 }
-                return value.clone();
+                return if artifact_state.guard_active {
+                    body_free_managed_frame(value)
+                } else {
+                    value.clone()
+                };
             };
             let tool_call_id = update
                 .get("toolCallId")
@@ -2455,6 +2460,16 @@ fn observer_payload_for_managed_read(
         Some(_) if artifact_state.guard_active => body_free_managed_frame(value),
         _ => value.clone(),
     }
+}
+
+fn trusted_ordinary_tool_call(update: &serde_json::Value) -> bool {
+    let Some(title) = update.get("title").and_then(serde_json::Value::as_str) else {
+        return false;
+    };
+    matches!(
+        title,
+        "shell" | "read_file" | "view_image" | "str_replace" | "todo" | "_Stop" | "_PostCompact"
+    )
 }
 
 fn safe_public_chunk_frame(
@@ -3760,6 +3775,21 @@ mod tests {
             serde_json::json!({
                 "jsonrpc": "2.0", "method": "session/update",
                 "params": {"sessionId": "session-1", "update": {
+                    "sessionUpdate": "tool_call", "toolCallId": "generic-title",
+                    "title": "Running tool", "kind": "execute",
+                    "rawInput": {"arguments": {"content_utf8": SENTINEL}}
+                }}
+            }),
+            serde_json::json!({
+                "jsonrpc": "2.0", "method": "session/update",
+                "params": {"sessionId": "session-1", "update": {
+                    "sessionUpdate": "tool_call", "toolCallId": "arguments-only",
+                    "kind": "execute", "arguments": {"relative_path": SENTINEL}
+                }}
+            }),
+            serde_json::json!({
+                "jsonrpc": "2.0", "method": "session/update",
+                "params": {"sessionId": "session-1", "update": {
                     "sessionUpdate": "tool_call_update", "toolCallId": "out-of-order",
                     "status": "completed", "rawOutput": {"body": SENTINEL}
                 }}
@@ -3771,6 +3801,7 @@ mod tests {
             assert!(!encoded.contains(SENTINEL));
             assert_eq!(observed["bodyRedacted"], true);
         }
+        assert!(artifact_state.ordinary_tool_call_ids.is_empty());
     }
 
     #[test]

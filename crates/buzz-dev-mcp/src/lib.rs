@@ -434,7 +434,7 @@ mod restricted_artifact_tests {
 
     #[tokio::test]
     async fn probe_emits_receipt_only_through_initialized_callback() {
-        use tokio::io::AsyncReadExt;
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
         let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
             .await
@@ -443,14 +443,61 @@ mod restricted_artifact_tests {
             endpoint: listener.local_addr().unwrap(),
             nonce: "0123456789abcdef0123456789abcdef".into(),
         };
-        let emitter = tokio::spawn(async move {
-            probe.emit_initialization_receipt().await;
+        let (server_transport, client_transport) = tokio::io::duplex(4096);
+        let server = tokio::spawn(async move { probe.serve(server_transport).await });
+        let (client_read, mut client_write) = tokio::io::split(client_transport);
+        let mut client_read = BufReader::new(client_read);
+        let mut receipt = tokio::spawn(async move {
+            let (mut stream, peer) = listener.accept().await.unwrap();
+            assert!(peer.ip().is_loopback());
+            let mut body = Vec::new();
+            stream.read_to_end(&mut body).await.unwrap();
+            body
         });
-        let (mut stream, peer) = listener.accept().await.unwrap();
-        assert!(peer.ip().is_loopback());
-        let mut body = Vec::new();
-        stream.read_to_end(&mut body).await.unwrap();
+
+        let initialize = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {"name": "artifact-probe-test", "version": "1"}
+            }
+        });
+        client_write
+            .write_all(format!("{initialize}\n").as_bytes())
+            .await
+            .unwrap();
+        let mut initialize_response = String::new();
+        client_read
+            .read_line(&mut initialize_response)
+            .await
+            .unwrap();
+        let initialize_response: serde_json::Value =
+            serde_json::from_str(&initialize_response).unwrap();
+        assert_eq!(initialize_response.get("id"), Some(&serde_json::json!(1)));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(25), &mut receipt)
+                .await
+                .is_err(),
+            "initialize response alone must not prove MCP initialization"
+        );
+
+        let initialized = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized"
+        });
+        client_write
+            .write_all(format!("{initialized}\n").as_bytes())
+            .await
+            .unwrap();
+        let body = tokio::time::timeout(std::time::Duration::from_secs(1), receipt)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(body, b"0123456789abcdef0123456789abcdef\n");
-        emitter.await.unwrap();
+        client_write.shutdown().await.unwrap();
+        server.abort();
     }
 }
