@@ -46,7 +46,7 @@ function resetDevWebviewStateFromUrl() {
 }
 
 function configureDevE2eBridgeFromUrl() {
-  if (!import.meta.env.DEV) {
+  if (!(import.meta.env.DEV || import.meta.env.MODE === "e2e")) {
     return;
   }
 
