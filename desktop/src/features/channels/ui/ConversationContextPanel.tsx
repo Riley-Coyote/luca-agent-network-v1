@@ -268,219 +268,217 @@ export function ConversationContextPanel({
         </AuxiliaryPanelHeader>
       }
     >
-      <>
-        {/* One strip for both views: the tabs are how you move between the
+      {/* One strip for both views: the tabs are how you move between the
             conversation and a resident's card, in place, wherever you are. */}
-        <div className={cn(layout !== "split" && isSinglePanelView && "pt-13")}>
-          <ConversationDrawerNavigation
-            activePubkey={activeResident?.agent.pubkey ?? null}
-            agents={drawerAgents}
-            onOpenAgent={(pubkey) => setDrawerView(pubkey)}
-            onOpenConversation={() => setDrawerView(CONVERSATION_VIEW)}
+      <div className={cn(layout !== "split" && isSinglePanelView && "pt-13")}>
+        <ConversationDrawerNavigation
+          activePubkey={activeResident?.agent.pubkey ?? null}
+          agents={drawerAgents}
+          onOpenAgent={(pubkey) => setDrawerView(pubkey)}
+          onOpenConversation={() => setDrawerView(CONVERSATION_VIEW)}
+        />
+      </div>
+      {activeResident ? (
+        <AuxiliaryPanelBody className="overflow-y-auto px-4 pb-6">
+          <ResidentDrawer
+            agent={activeResident.agent}
+            onOpenAgent={(section) =>
+              goAgent(activeResident.agent.pubkey, { section })
+            }
+            persona={activeResident.persona}
+            replying={activeResidentReplying}
           />
-        </div>
-        {activeResident ? (
-          <AuxiliaryPanelBody className="overflow-y-auto px-4 pb-6">
-            <ResidentDrawer
-              agent={activeResident.agent}
-              onOpenAgent={(section) =>
-                goAgent(activeResident.agent.pubkey, { section })
-              }
-              persona={activeResident.persona}
-              replying={activeResidentReplying}
-            />
-          </AuxiliaryPanelBody>
-        ) : (
-          <AuxiliaryPanelBody className="overflow-y-auto px-4 pb-6">
-            <div className="space-y-6 pt-3">
-              {/* Name only. The room's description already sits under the
+        </AuxiliaryPanelBody>
+      ) : (
+        <AuxiliaryPanelBody className="overflow-y-auto px-4 pb-6">
+          <div className="space-y-6 pt-3">
+            {/* Name only. The room's description already sits under the
                   title in the conversation header — repeating it here costs a
                   paragraph of space at the top of every drawer. */}
-              <section className="space-y-1">
-                <div className="flex items-center gap-2 text-2xs font-medium uppercase tracking-[0.06em] text-muted-foreground/70">
-                  <MessageCircle className="h-3.5 w-3.5" />
-                  {channel.channelType === "dm" ? "Direct message" : "Room"}
-                </div>
-                <h2 className="truncate text-lg font-medium leading-6 tracking-[-0.02em] text-foreground">
-                  {channel.name}
-                </h2>
-              </section>
+            <section className="space-y-1">
+              <div className="flex items-center gap-2 text-2xs font-medium uppercase tracking-[0.06em] text-muted-foreground/70">
+                <MessageCircle className="h-3.5 w-3.5" />
+                {channel.channelType === "dm" ? "Direct message" : "Room"}
+              </div>
+              <h2 className="truncate text-lg font-medium leading-6 tracking-[-0.02em] text-foreground">
+                {channel.name}
+              </h2>
+            </section>
 
-              <section aria-labelledby="conversation-at-a-glance">
-                <SectionLabel id="conversation-at-a-glance">
-                  At a glance
-                </SectionLabel>
-                <div className="grid grid-cols-4 overflow-hidden rounded-2xl bg-plate">
-                  <Metric label="Present" value={members.length} />
-                  <Metric label="Agents" value={agentCount} />
-                  <Metric label="Files" value={attachmentCount} />
-                  <Metric label="Exchanges" value={exchangeHistory.length} />
-                </div>
-              </section>
+            <section aria-labelledby="conversation-at-a-glance">
+              <SectionLabel id="conversation-at-a-glance">
+                At a glance
+              </SectionLabel>
+              <div className="grid grid-cols-4 overflow-hidden rounded-2xl bg-plate">
+                <Metric label="Present" value={members.length} />
+                <Metric label="Agents" value={agentCount} />
+                <Metric label="Files" value={attachmentCount} />
+                <Metric label="Exchanges" value={exchangeHistory.length} />
+              </div>
+            </section>
 
-              <section aria-labelledby="conversation-agents">
-                <div className="flex items-center justify-between gap-3">
-                  <SectionLabel id="conversation-agents">Agents</SectionLabel>
-                  <SectionCount>
-                    {agentMembers.length || agents.length}
-                  </SectionCount>
-                </div>
+            <section aria-labelledby="conversation-agents">
+              <div className="flex items-center justify-between gap-3">
+                <SectionLabel id="conversation-agents">Agents</SectionLabel>
+                <SectionCount>
+                  {agentMembers.length || agents.length}
+                </SectionCount>
+              </div>
+              <div className="overflow-hidden rounded-2xl bg-plate">
+                {(agentMembers.length > 0
+                  ? agentMembers
+                  : agents.map<ChannelMember>((agent) => ({
+                      displayName: agent.name,
+                      isAgent: true,
+                      joinedAt: "",
+                      pubkey: agent.pubkey,
+                      role: "bot",
+                    }))
+                ).map((member) => {
+                  const agent = agentByPubkey.get(
+                    normalizePubkey(member.pubkey),
+                  );
+                  const label = resolveUserLabel({
+                    currentPubkey,
+                    fallbackName: member.displayName ?? agent?.name,
+                    profiles,
+                    pubkey: member.pubkey,
+                  });
+                  const harness = harnessLookup.get(
+                    normalizePubkey(member.pubkey),
+                  );
+                  const state = residentState(agent);
+                  return (
+                    <button
+                      className="group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors duration-150 hover:bg-plate-hover focus-visible:outline-hidden focus-visible:bg-plate-hover"
+                      data-testid={`conversation-resident-${normalizePubkey(member.pubkey)}`}
+                      key={normalizePubkey(member.pubkey)}
+                      onClick={() => onOpenResident(member.pubkey)}
+                      type="button"
+                    >
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center">
+                        <ResidentIdentityMark
+                          accessibleName={label}
+                          className={cn(
+                            state === "unavailable" && "opacity-50",
+                          )}
+                          decorative
+                          publicKey={member.pubkey}
+                          size={22}
+                        />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-foreground">
+                          {label}
+                        </span>
+                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                          {agent?.agentSource === "managed"
+                            ? `${harness && harness !== "other" ? HARNESS_LABELS[harness] : "Resident"} · ${visitors.has(normalizePubkey(member.pubkey)) ? "Visiting" : "Notebook available"}`
+                            : "External agent"}
+                        </span>
+                      </span>
+                      <ArrowUpRight className="h-4 w-4 text-muted-foreground/45 transition-colors group-hover:text-foreground" />
+                    </button>
+                  );
+                })}
+                {!membersQuery.isLoading &&
+                agentMembers.length === 0 &&
+                agents.length === 0 ? (
+                  <p className="px-3 py-3 text-sm text-muted-foreground">
+                    No resident agents are currently attached to this
+                    conversation.
+                  </p>
+                ) : null}
+              </div>
+            </section>
+
+            {people.length > 0 ? (
+              <section aria-labelledby="conversation-people">
+                <SectionLabel id="conversation-people">People</SectionLabel>
                 <div className="overflow-hidden rounded-2xl bg-plate">
-                  {(agentMembers.length > 0
-                    ? agentMembers
-                    : agents.map<ChannelMember>((agent) => ({
-                        displayName: agent.name,
-                        isAgent: true,
-                        joinedAt: "",
-                        pubkey: agent.pubkey,
-                        role: "bot",
-                      }))
-                  ).map((member) => {
-                    const agent = agentByPubkey.get(
-                      normalizePubkey(member.pubkey),
-                    );
-                    const label = resolveUserLabel({
-                      currentPubkey,
-                      fallbackName: member.displayName ?? agent?.name,
-                      profiles,
-                      pubkey: member.pubkey,
-                    });
-                    const harness = harnessLookup.get(
-                      normalizePubkey(member.pubkey),
-                    );
-                    const state = residentState(agent);
-                    return (
-                      <button
-                        className="group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors duration-150 hover:bg-plate-hover focus-visible:outline-hidden focus-visible:bg-plate-hover"
-                        data-testid={`conversation-resident-${normalizePubkey(member.pubkey)}`}
-                        key={normalizePubkey(member.pubkey)}
-                        onClick={() => onOpenResident(member.pubkey)}
-                        type="button"
-                      >
-                        <span className="flex h-7 w-7 shrink-0 items-center justify-center">
-                          <ResidentIdentityMark
-                            accessibleName={label}
-                            className={cn(
-                              state === "unavailable" && "opacity-50",
-                            )}
-                            decorative
-                            publicKey={member.pubkey}
-                            size={22}
-                          />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium text-foreground">
-                            {label}
-                          </span>
-                          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                            {agent?.agentSource === "managed"
-                              ? `${harness && harness !== "other" ? HARNESS_LABELS[harness] : "Resident"} · ${visitors.has(normalizePubkey(member.pubkey)) ? "Visiting" : "Notebook available"}`
-                              : "External agent"}
-                          </span>
-                        </span>
-                        <ArrowUpRight className="h-4 w-4 text-muted-foreground/45 transition-colors group-hover:text-foreground" />
-                      </button>
-                    );
-                  })}
-                  {!membersQuery.isLoading &&
-                  agentMembers.length === 0 &&
-                  agents.length === 0 ? (
-                    <p className="px-3 py-3 text-sm text-muted-foreground">
-                      No resident agents are currently attached to this
-                      conversation.
-                    </p>
-                  ) : null}
-                </div>
-              </section>
-
-              {people.length > 0 ? (
-                <section aria-labelledby="conversation-people">
-                  <SectionLabel id="conversation-people">People</SectionLabel>
-                  <div className="overflow-hidden rounded-2xl bg-plate">
-                    {people.map((member) => (
-                      <div
-                        className="flex items-center gap-3 px-3 py-2.5"
-                        key={normalizePubkey(member.pubkey)}
-                      >
-                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-plate-hover text-xs text-muted-foreground">
-                          {resolveIdentityDisplayName({
-                            displayName: member.displayName,
-                            isAgent: member.isAgent || member.role === "bot",
-                            pubkey: member.pubkey,
-                          })
-                            .slice(0, 1)
-                            .toUpperCase()}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">
-                          {resolveUserLabel({
-                            currentPubkey,
-                            fallbackName: member.displayName,
-                            profiles,
-                            pubkey: member.pubkey,
-                          })}
-                        </span>
-                        <span className="text-xs capitalize text-muted-foreground/70">
-                          {member.role}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
-              <section aria-labelledby="conversation-working-context">
-                <SectionLabel id="conversation-working-context">
-                  Working context
-                </SectionLabel>
-                <div className="rounded-2xl bg-plate px-3 py-3">
-                  <div className="flex items-start gap-3">
-                    <FolderGit2 className="mt-0.5 h-4 w-4 text-muted-foreground/55" />
-                    <div>
-                      <p className="text-sm text-foreground/90">
-                        No shared workspace attached
-                      </p>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                        A project, folder, or repository will appear here only
-                        when the runtime exposes one.
-                      </p>
+                  {people.map((member) => (
+                    <div
+                      className="flex items-center gap-3 px-3 py-2.5"
+                      key={normalizePubkey(member.pubkey)}
+                    >
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-plate-hover text-xs text-muted-foreground">
+                        {resolveIdentityDisplayName({
+                          displayName: member.displayName,
+                          isAgent: member.isAgent || member.role === "bot",
+                          pubkey: member.pubkey,
+                        })
+                          .slice(0, 1)
+                          .toUpperCase()}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">
+                        {resolveUserLabel({
+                          currentPubkey,
+                          fallbackName: member.displayName,
+                          profiles,
+                          pubkey: member.pubkey,
+                        })}
+                      </span>
+                      <span className="text-xs capitalize text-muted-foreground/70">
+                        {member.role}
+                      </span>
                     </div>
-                  </div>
+                  ))}
                 </div>
               </section>
+            ) : null}
 
-              {/* Last: the record of what the residents said to each other
+            <section aria-labelledby="conversation-working-context">
+              <SectionLabel id="conversation-working-context">
+                Working context
+              </SectionLabel>
+              <div className="rounded-2xl bg-plate px-3 py-3">
+                <div className="flex items-start gap-3">
+                  <FolderGit2 className="mt-0.5 h-4 w-4 text-muted-foreground/55" />
+                  <div>
+                    <p className="text-sm text-foreground/90">
+                      No shared workspace attached
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      A project, folder, or repository will appear here only
+                      when the runtime exposes one.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Last: the record of what the residents said to each other
                   here. Who is in the room and what it is working on answer
                   the first question; this answers the one you go looking for. */}
-              {exchangeHistory.length > 0 ? (
-                <section aria-labelledby="conversation-between-agents">
-                  <div className="flex items-center justify-between gap-3">
-                    <SectionLabel id="conversation-between-agents">
-                      Between agents
-                    </SectionLabel>
-                    <SectionCount>{exchangeHistory.length}</SectionCount>
-                  </div>
-                  <ExchangeHistory
-                    channelId={channel.id}
-                    currentPubkey={currentPubkey}
-                    messages={messages}
-                    profiles={profiles}
-                  />
-                </section>
-              ) : null}
+            {exchangeHistory.length > 0 ? (
+              <section aria-labelledby="conversation-between-agents">
+                <div className="flex items-center justify-between gap-3">
+                  <SectionLabel id="conversation-between-agents">
+                    Between agents
+                  </SectionLabel>
+                  <SectionCount>{exchangeHistory.length}</SectionCount>
+                </div>
+                <ExchangeHistory
+                  channelId={channel.id}
+                  currentPubkey={currentPubkey}
+                  messages={messages}
+                  profiles={profiles}
+                />
+              </section>
+            ) : null}
 
-              <Button
-                className="w-full justify-start gap-2"
-                data-testid="conversation-manage-participants"
-                onClick={onManageParticipants}
-                variant="ghost"
-              >
-                <Settings2 className="h-4 w-4" />
-                Manage participants
-              </Button>
-            </div>
-          </AuxiliaryPanelBody>
-        )}
-      </>
+            <Button
+              className="w-full justify-start gap-2"
+              data-testid="conversation-manage-participants"
+              onClick={onManageParticipants}
+              variant="ghost"
+            >
+              <Settings2 className="h-4 w-4" />
+              Manage participants
+            </Button>
+          </div>
+        </AuxiliaryPanelBody>
+      )}
     </AuxiliaryPanel>
   );
 }
