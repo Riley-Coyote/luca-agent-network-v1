@@ -46,7 +46,31 @@ fn artifact_mcp_support_for_spawn(
     }
 }
 
-fn artifact_mcp_probe_key(executable: &str) -> Result<luca_protocol::Sha256Ref, String> {
+fn artifact_probe_secret_env_key(key: &str) -> bool {
+    let upper = key.to_ascii_uppercase();
+    super::env_vars::is_reserved_env_key(key)
+        || upper.contains("SECRET")
+        || upper.contains("TOKEN")
+        || upper.contains("PASSWORD")
+        || upper.contains("CREDENTIAL")
+        || upper.ends_with("_API_KEY")
+        || upper.ends_with("_PRIVATE_KEY")
+}
+
+fn hash_probe_component(hasher: &mut Sha256, label: &[u8], value: &[u8]) {
+    hasher.update((label.len() as u64).to_be_bytes());
+    hasher.update(label);
+    hasher.update((value.len() as u64).to_be_bytes());
+    hasher.update(value);
+}
+
+fn artifact_mcp_probe_key(
+    executable: &str,
+    launcher_identity: &str,
+    agent_args: &[String],
+    behavior_env: &BTreeMap<String, String>,
+    config_file_path: Option<&str>,
+) -> Result<luca_protocol::Sha256Ref, String> {
     let resolved = resolve_command(executable)
         .ok_or_else(|| "failed to fingerprint ACP executable".to_owned())?;
     let canonical = resolved
@@ -55,7 +79,7 @@ fn artifact_mcp_probe_key(executable: &str) -> Result<luca_protocol::Sha256Ref, 
     let mut file = std::fs::File::open(canonical)
         .map_err(|_| "failed to fingerprint ACP executable".to_owned())?;
     let mut hasher = Sha256::new();
-    hasher.update(b"luca.artifact.acp-executable.v1\0");
+    hasher.update(b"luca.artifact.acp-launcher.v2\0");
     let mut buffer = [0_u8; 64 * 1024];
     loop {
         let read = file
@@ -65,6 +89,26 @@ fn artifact_mcp_probe_key(executable: &str) -> Result<luca_protocol::Sha256Ref, 
             break;
         }
         hasher.update(&buffer[..read]);
+    }
+    hash_probe_component(
+        &mut hasher,
+        b"launcher-identity",
+        launcher_identity.trim().as_bytes(),
+    );
+    for argument in normalize_agent_args(launcher_identity, agent_args.to_vec()) {
+        hash_probe_component(&mut hasher, b"argument", argument.as_bytes());
+    }
+    if let Some(path) = config_file_path {
+        hash_probe_component(&mut hasher, b"config-descriptor", path.as_bytes());
+    }
+    for (key, value) in behavior_env {
+        hash_probe_component(&mut hasher, b"env-key", key.as_bytes());
+        let projected = if artifact_probe_secret_env_key(key) {
+            b"<present-secret>".as_slice()
+        } else {
+            value.as_bytes()
+        };
+        hash_probe_component(&mut hasher, b"env-value", projected);
     }
     luca_protocol::Sha256Ref::parse(format!("sha256:{}", hex::encode(hasher.finalize())))
         .map_err(|_| "failed to fingerprint ACP executable".to_owned())
@@ -265,27 +309,107 @@ fn terminalize_restart_dispatches_if_proven(
     }
 }
 
-fn settle_restart_interrupted_artifact_receipts(
+const RESTART_RECEIPT_RETRY_DELAYS_MS: [u64; 5] = [100, 250, 500, 1_000, 2_000];
+
+fn settle_restart_receipt_batch<F>(
+    receipts: &[crate::luca::managed_dispatch_store::RestartInterruptedArtifactReceiptBinding],
+    settle: &mut F,
+) -> usize
+where
+    F: FnMut(
+        &crate::luca::managed_dispatch_store::RestartInterruptedArtifactReceiptBinding,
+    ) -> Result<(), String>,
+{
+    receipts
+        .iter()
+        .filter(|receipt| settle(receipt).is_err())
+        .count()
+}
+
+fn bounded_restart_receipt_retry<L, F, W>(
+    mut load: L,
+    mut settle: F,
+    mut wait: W,
+    max_attempts: usize,
+) -> usize
+where
+    L: FnMut() -> Result<
+        Vec<crate::luca::managed_dispatch_store::RestartInterruptedArtifactReceiptBinding>,
+        String,
+    >,
+    F: FnMut(
+        &crate::luca::managed_dispatch_store::RestartInterruptedArtifactReceiptBinding,
+    ) -> Result<(), String>,
+    W: FnMut(usize),
+{
+    let mut remaining = 1;
+    for attempt in 0..max_attempts {
+        remaining = match load() {
+            Ok(receipts) => settle_restart_receipt_batch(&receipts, &mut settle),
+            Err(_) => 1,
+        };
+        if remaining == 0 {
+            break;
+        }
+        if attempt + 1 < max_attempts {
+            wait(attempt);
+        }
+    }
+    remaining
+}
+
+fn spawn_restart_interrupted_artifact_receipt_retry(
     app: &AppHandle,
     dispatch_store: &std::sync::Arc<
         std::sync::Mutex<crate::luca::managed_dispatch_store::ManagedDispatchStore>,
     >,
     resident_pubkey: &str,
 ) -> Result<(), String> {
-    let receipts = dispatch_store
-        .lock()
-        .map_err(|_| "managed dispatch store lock is unavailable".to_string())?
-        .restart_interrupted_artifact_receipts_for_resident(resident_pubkey);
-    for receipt in receipts {
-        crate::mark_cancelled_dispatch_receipts(
-            app,
-            &receipt.owner_pubkey,
-            &receipt.conversation_id,
-            &receipt.resident_pubkey,
-            &receipt.dispatch_receipt_id,
-        )?;
-    }
-    Ok(())
+    let app = app.clone();
+    let dispatch_store = std::sync::Arc::clone(dispatch_store);
+    let resident_pubkey = resident_pubkey.to_owned();
+    std::thread::Builder::new()
+        .name(format!(
+            "luca-artifact-receipts-{}",
+            &resident_pubkey[..resident_pubkey.len().min(8)]
+        ))
+        .spawn(move || {
+            let remaining = bounded_restart_receipt_retry(
+                || {
+                    dispatch_store
+                        .lock()
+                        .map_err(|_| "managed dispatch store lock is unavailable".to_string())
+                        .map(|store| {
+                            store.restart_interrupted_artifact_receipts_for_resident(
+                                &resident_pubkey,
+                            )
+                        })
+                },
+                |receipt| {
+                    crate::mark_cancelled_dispatch_receipts(
+                        &app,
+                        &receipt.owner_pubkey,
+                        &receipt.conversation_id,
+                        &receipt.resident_pubkey,
+                        &receipt.dispatch_receipt_id,
+                    )
+                    .map(|_| ())
+                },
+                |attempt| {
+                    std::thread::sleep(std::time::Duration::from_millis(
+                        RESTART_RECEIPT_RETRY_DELAYS_MS[attempt],
+                    ));
+                },
+                RESTART_RECEIPT_RETRY_DELAYS_MS.len() + 1,
+            );
+            if remaining > 0 {
+                eprintln!(
+                    "luca-artifacts: restart-interrupted receipt settlement deferred after bounded retries"
+                );
+            }
+        })
+        .map(|_| ())
+        .map_err(|_| "failed to start artifact receipt settlement retry".to_string())
 }
 
 /// Binary name fragments for all known agent/harness processes that Buzz
@@ -2065,6 +2189,7 @@ pub fn spawn_agent_child(
             command.env("BUZZ_ACP_MCP_COMMAND", "");
         }
     }
+    let runtime_meta = known_acp_runtime(&effective_command);
     // Never inherit a stale desktop-shell bootstrap. Only this spawn's
     // successfully created lease may expose the communications broker.
     command.env_remove("BUZZ_ACP_COMMUNICATIONS_MCP_COMMAND");
@@ -2092,7 +2217,19 @@ pub fn spawn_agent_child(
                 artifact_broker_lease.bootstrap_json(),
             );
             if artifact_support == super::ArtifactMcpSupport::ProbePending {
-                match artifact_mcp_probe_key(&resolved_agent_command) {
+                let behavior = crate::managed_agents::resolve_effective_agent_env(
+                    record,
+                    &personas,
+                    runtime_meta,
+                    &global,
+                );
+                match artifact_mcp_probe_key(
+                    &resolved_agent_command,
+                    &effective_command,
+                    &agent_args,
+                    &behavior.env,
+                    behavior.config_file_path,
+                ) {
                     Ok(probe_key) => {
                         command.env("BUZZ_ACP_ARTIFACT_MCP_PROBE_KEY", probe_key.as_str());
                     }
@@ -2111,7 +2248,6 @@ pub fn spawn_agent_child(
     }
     // Enable MCP hook tools (_Stop, _PostCompact) for agents that need them.
     // Uses "*" because build_mcp_servers() hard-codes the server name to "buzz-mcp".
-    let runtime_meta = known_acp_runtime(&effective_command);
     if runtime_meta.is_some_and(|r| r.mcp_hooks) {
         command.env("MCP_HOOK_SERVERS", "*");
     }
@@ -2544,7 +2680,7 @@ pub fn spawn_agent_child(
                                 "luca-signing: interrupted {interrupted} prior-epoch managed dispatch(es) after complete startup outbox reconciliation"
                             );
                         }
-                        if let Err(error) = settle_restart_interrupted_artifact_receipts(
+                        if let Err(error) = spawn_restart_interrupted_artifact_receipt_retry(
                             &app_for_broker,
                             &dispatch_store,
                             resident_for_broker.as_str(),

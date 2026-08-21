@@ -15,6 +15,9 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+#[cfg(unix)]
+use rustix::fs::{open, openat, statat, unlinkat, AtFlags, Dir, FileType, Mode, OFlags};
+
 use base64::Engine as _;
 use chrono::{SecondsFormat, Utc};
 use luca_protocol::{
@@ -1357,24 +1360,79 @@ impl ArtifactStore {
         Ok(report)
     }
 
+    #[cfg(unix)]
     fn garbage_collect(&mut self, retention: Duration) -> Result<usize, ArtifactStoreError> {
         let mut removed = 0;
         let root = self.root.join("blobs").join("sha256");
-        let Ok(shards) = fs::read_dir(root) else {
-            return Ok(0);
+        let root = match open(
+            &root,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        ) {
+            Ok(root) => root,
+            Err(rustix::io::Errno::NOENT) => return Ok(0),
+            Err(rustix::io::Errno::LOOP | rustix::io::Errno::NOTDIR) => {
+                return Err(ArtifactStoreError::UnsafePath);
+            }
+            Err(_) => return Err(ArtifactStoreError::Unavailable),
         };
         let cutoff = SystemTime::now()
             .checked_sub(retention)
-            .unwrap_or(SystemTime::UNIX_EPOCH);
-        'outer: for shard in shards.flatten() {
-            let Ok(entries) = fs::read_dir(shard.path()) else {
+            .unwrap_or(SystemTime::UNIX_EPOCH)
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let cutoff = i64::try_from(cutoff).unwrap_or(i64::MAX);
+        let mut visited = 0_usize;
+        let shards = Dir::read_from(&root).map_err(|_| ArtifactStoreError::Unavailable)?;
+        for shard in shards {
+            let shard = shard.map_err(|_| ArtifactStoreError::Unavailable)?;
+            let shard_name = shard.file_name().to_bytes();
+            if shard_name.len() != 2
+                || !shard_name
+                    .iter()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+            {
                 continue;
+            }
+            let shard_name = shard.file_name().to_owned();
+            let shard = match openat(
+                &root,
+                shard_name.as_c_str(),
+                OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::empty(),
+            ) {
+                Ok(shard) => shard,
+                // A symlink or concurrently replaced component is never
+                // traversed. Skipping it preserves anything outside CAS.
+                Err(_) => continue,
             };
-            for entry in entries.flatten() {
-                if removed >= MAX_RECONCILE_ENTRIES {
-                    break 'outer;
+            let entries = Dir::read_from(&shard).map_err(|_| ArtifactStoreError::Unavailable)?;
+            for entry in entries {
+                if visited >= MAX_RECONCILE_ENTRIES {
+                    return Ok(removed);
                 }
-                let hash = entry.file_name().to_string_lossy().to_string();
+                visited += 1;
+                let entry = entry.map_err(|_| ArtifactStoreError::Unavailable)?;
+                let name = entry.file_name().to_bytes();
+                if name.len() != 64
+                    || !name
+                        .iter()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+                    || &name[..2] != shard_name.to_bytes()
+                {
+                    continue;
+                }
+                let name = entry.file_name().to_owned();
+                let before = match statat(&shard, name.as_c_str(), AtFlags::SYMLINK_NOFOLLOW) {
+                    Ok(metadata)
+                        if FileType::from_raw_mode(metadata.st_mode) == FileType::RegularFile =>
+                    {
+                        metadata
+                    }
+                    _ => continue,
+                };
+                let hash = name.to_string_lossy().into_owned();
                 let referenced: bool = self
                     .connection
                     .query_row(
@@ -1383,16 +1441,35 @@ impl ArtifactStore {
                         |row| row.get(0),
                     )
                     .map_err(|_| ArtifactStoreError::Unavailable)?;
-                let old_enough = entry
-                    .metadata()
-                    .and_then(|metadata| metadata.modified())
-                    .is_ok_and(|modified| modified <= cutoff);
-                if !referenced && old_enough && fs::remove_file(entry.path()).is_ok() {
+                if referenced || before.st_mtime > cutoff {
+                    continue;
+                }
+                let after = match statat(&shard, name.as_c_str(), AtFlags::SYMLINK_NOFOLLOW) {
+                    Ok(metadata)
+                        if FileType::from_raw_mode(metadata.st_mode) == FileType::RegularFile =>
+                    {
+                        metadata
+                    }
+                    _ => continue,
+                };
+                if before.st_dev == after.st_dev
+                    && before.st_ino == after.st_ino
+                    && before.st_mode == after.st_mode
+                    && before.st_size == after.st_size
+                    && before.st_mtime == after.st_mtime
+                    && before.st_mtime_nsec == after.st_mtime_nsec
+                    && unlinkat(&shard, name.as_c_str(), AtFlags::empty()).is_ok()
+                {
                     removed += 1;
                 }
             }
         }
         Ok(removed)
+    }
+
+    #[cfg(not(unix))]
+    fn garbage_collect(&mut self, _retention: Duration) -> Result<usize, ArtifactStoreError> {
+        Ok(0)
     }
 }
 

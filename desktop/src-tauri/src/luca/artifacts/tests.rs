@@ -4,6 +4,7 @@ use luca_protocol::{
     ArtifactCreateArgsV1, ArtifactKindV1, ArtifactReadModeV1, ArtifactReceiptStateV1,
     ArtifactSourceV1, ArtifactUpdateArgsV1, Hex64, OpaqueId, SafeU53, MAX_ARTIFACT_READ_BYTES,
 };
+use sha2::Digest as _;
 
 use super::*;
 
@@ -534,6 +535,27 @@ fn managed_blob_reads_reject_symlink_replacement() {
         store.read_binary(&hex('1'), &id(&created.artifact.artifact_id), None),
         Err(ArtifactStoreError::CorruptBlob)
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn garbage_collection_never_traverses_an_external_shard_symlink() {
+    let temp = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let mut store = ArtifactStore::open(temp.path()).unwrap();
+    let bytes = b"outside-cas-must-survive";
+    let hash = hex::encode(sha2::Sha256::digest(bytes));
+    let outside_blob = outside.path().join(&hash);
+    fs::write(&outside_blob, bytes).unwrap();
+    fs::create_dir_all(store.root.join("blobs/sha256")).unwrap();
+    std::os::unix::fs::symlink(
+        outside.path(),
+        store.root.join("blobs/sha256").join(&hash[..2]),
+    )
+    .unwrap();
+
+    assert_eq!(store.garbage_collect(Duration::ZERO).unwrap(), 0);
+    assert_eq!(fs::read(outside_blob).unwrap(), bytes);
 }
 
 #[test]

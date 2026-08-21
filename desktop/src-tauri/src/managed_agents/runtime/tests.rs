@@ -1,5 +1,62 @@
 use crate::managed_agents::known_acp_runtime;
 
+fn restart_receipt(
+    dispatch: &str,
+) -> crate::luca::managed_dispatch_store::RestartInterruptedArtifactReceiptBinding {
+    crate::luca::managed_dispatch_store::RestartInterruptedArtifactReceiptBinding {
+        owner_pubkey: "11".repeat(32),
+        conversation_id: "conversation-1".into(),
+        resident_pubkey: "22".repeat(32),
+        dispatch_receipt_id: dispatch.into(),
+    }
+}
+
+#[test]
+fn restart_receipt_batch_continues_after_one_settlement_failure() {
+    let receipts = vec![
+        restart_receipt("dispatch-1"),
+        restart_receipt("dispatch-2"),
+        restart_receipt("dispatch-3"),
+    ];
+    let mut visited = Vec::new();
+    let remaining = super::settle_restart_receipt_batch(&receipts, &mut |receipt| {
+        visited.push(receipt.dispatch_receipt_id.clone());
+        if receipt.dispatch_receipt_id == "dispatch-1" {
+            Err("transient".into())
+        } else {
+            Ok(())
+        }
+    });
+
+    assert_eq!(remaining, 1);
+    assert_eq!(visited, vec!["dispatch-1", "dispatch-2", "dispatch-3"],);
+}
+
+#[test]
+fn restart_receipt_retry_recovers_in_the_same_process_from_durable_rows() {
+    let round = std::cell::Cell::new(0_usize);
+    let waits = std::cell::Cell::new(0_usize);
+    let remaining = super::bounded_restart_receipt_retry(
+        || {
+            round.set(round.get() + 1);
+            Ok(vec![restart_receipt("dispatch-1")])
+        },
+        |receipt| {
+            if receipt.dispatch_receipt_id == "dispatch-1" && round.get() == 1 {
+                Err("artifact store temporarily unavailable".into())
+            } else {
+                Ok(())
+            }
+        },
+        |_| waits.set(waits.get() + 1),
+        3,
+    );
+
+    assert_eq!(remaining, 0);
+    assert_eq!(round.get(), 2, "durable interrupted rows were reloaded");
+    assert_eq!(waits.get(), 1, "retry occurred without a resident restart");
+}
+
 #[test]
 fn restart_dispatch_terminalization_requires_fully_terminal_startup_proof() {
     let temp = tempfile::tempdir().expect("temp");
@@ -206,7 +263,7 @@ fn artifact_support_is_catalog_driven_and_unknowns_require_probe() {
 }
 
 #[test]
-fn artifact_probe_key_is_opaque_and_changes_with_executable_bytes() {
+fn artifact_probe_key_binds_binary_launcher_arguments_and_public_config() {
     let temp = tempfile::tempdir().expect("temp");
     let executable = temp.path().join("adapter");
     std::fs::write(&executable, b"adapter-v1").expect("write v1");
@@ -216,14 +273,98 @@ fn artifact_probe_key_is_opaque_and_changes_with_executable_bytes() {
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
             .expect("mark executable");
     }
-    let first = super::artifact_mcp_probe_key(executable.to_str().expect("utf8 path"))
-        .expect("fingerprint v1");
+    let behavior = std::collections::BTreeMap::from([
+        ("ADAPTER_MODE".to_owned(), "stdio".to_owned()),
+        ("PROVIDER_API_KEY".to_owned(), "first-secret".to_owned()),
+    ]);
+    let first = super::artifact_mcp_probe_key(
+        executable.to_str().expect("utf8 path"),
+        "node",
+        &["adapter-a.js".to_owned()],
+        &behavior,
+        Some("adapter.toml"),
+    )
+    .expect("fingerprint v1");
     assert!(first.as_str().starts_with("sha256:"));
     assert!(!first.as_str().contains("adapter"));
 
+    let different_args = super::artifact_mcp_probe_key(
+        executable.to_str().expect("utf8 path"),
+        "node",
+        &["adapter-b.js".to_owned()],
+        &behavior,
+        Some("adapter.toml"),
+    )
+    .expect("fingerprint args");
+    assert_ne!(
+        first, different_args,
+        "shared launchers must bind arguments"
+    );
+
+    let different_launcher = super::artifact_mcp_probe_key(
+        executable.to_str().expect("utf8 path"),
+        "multicall-agent",
+        &["adapter-a.js".to_owned()],
+        &behavior,
+        Some("adapter.toml"),
+    )
+    .expect("fingerprint launcher identity");
+    assert_ne!(first, different_launcher, "argv[0] behavior must be bound");
+
+    let normalized_acp = super::artifact_mcp_probe_key(
+        executable.to_str().expect("utf8 path"),
+        "codex-acp",
+        &["ACP".to_owned()],
+        &behavior,
+        Some("adapter.toml"),
+    )
+    .expect("fingerprint normalized args");
+    let already_normalized = super::artifact_mcp_probe_key(
+        executable.to_str().expect("utf8 path"),
+        "codex-acp",
+        &[],
+        &behavior,
+        Some("adapter.toml"),
+    )
+    .expect("fingerprint empty normalized args");
+    assert_eq!(normalized_acp, already_normalized);
+
+    let mut different_public_config = behavior.clone();
+    different_public_config.insert("ADAPTER_MODE".to_owned(), "http".to_owned());
+    let configured = super::artifact_mcp_probe_key(
+        executable.to_str().expect("utf8 path"),
+        "node",
+        &["adapter-a.js".to_owned()],
+        &different_public_config,
+        Some("adapter.toml"),
+    )
+    .expect("fingerprint public config");
+    assert_ne!(first, configured, "public behavior config must be bound");
+
+    let mut rotated_secret = behavior.clone();
+    rotated_secret.insert("PROVIDER_API_KEY".to_owned(), "second-secret".to_owned());
+    let secret_rotated = super::artifact_mcp_probe_key(
+        executable.to_str().expect("utf8 path"),
+        "node",
+        &["adapter-a.js".to_owned()],
+        &rotated_secret,
+        Some("adapter.toml"),
+    )
+    .expect("fingerprint secret presence");
+    assert_eq!(
+        first, secret_rotated,
+        "credentials must never become probe-cache key material"
+    );
+
     std::fs::write(&executable, b"adapter-v2").expect("write v2");
-    let second = super::artifact_mcp_probe_key(executable.to_str().expect("utf8 path"))
-        .expect("fingerprint v2");
+    let second = super::artifact_mcp_probe_key(
+        executable.to_str().expect("utf8 path"),
+        "node",
+        &["adapter-a.js".to_owned()],
+        &behavior,
+        Some("adapter.toml"),
+    )
+    .expect("fingerprint v2");
     assert_ne!(first, second);
 }
 
