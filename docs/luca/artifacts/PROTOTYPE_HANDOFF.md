@@ -108,6 +108,7 @@ Before exposing Library in the live app:
 
 ## Explicitly deferred
 
-Build commands, development servers, hot reload, external preview networking,
-shared editing, multi-user boards, relay sync, and automatic publication remain
-separate live-Canvas work.
+Luca-owned build commands and process lifecycle, remote/LAN browsing, shared
+editing, multi-user boards, relay sync, and automatic publication remain
+deferred. Agent-started loopback development servers and hot reload are part of
+the authorized Canvas release.

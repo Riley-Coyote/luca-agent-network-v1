@@ -109,8 +109,34 @@ supported static-kind matrix pass in one real desktop candidate.
   cancellation, and community-switch regressions pass proportionally;
 - artifact/secret/path scan passes;
 - no unresolved P0/P1;
-- known limits explicitly say no live application build/runtime, networked
-  preview, cross-device sync, sharing, or collaborative board.
+- known limits explicitly say Luca owns no application build/runtime process,
+  remote/LAN preview, cross-device sync, sharing, or collaborative board.
+
+## MA5 — Agent-neutral live-preview candidate
+
+**Outcome:** Codex, Hermes, and any compatible ACP runtime can use the same
+artifact tools; a harness-started loopback app can be attached, recovered, and
+detached through Canvas without giving Luca process authority.
+
+**Tasks:** `A16`.
+
+**GA5 gate:**
+
+- static HTML isolation passes in native WebKit with CSP outside
+  attacker-controlled markup;
+- loopback proxy URL, Host, Origin, redirect, cookie, top-navigation, parent,
+  Tauri, HTTP-stream, and WebSocket revocation attacks fail closed;
+- Codex and Hermes complete real end-to-end artifact journeys;
+- Claude Code and OpenClaw either pass the same capability/isolation checks or
+  expose an honest unavailable state;
+- an unknown compatible ACP fixture succeeds only after a capability-free
+  probe, while an incompatible fixture retries without artifacts and preserves
+  conversation behavior;
+- live Canvas close/reopen, server loss, recovery, relaunch, and unsent restart
+  request pass;
+- observer, relay, logs, diagnostics, and retained evidence contain no artifact
+  body, source path, URL query, broker capability, or signing material;
+- no unresolved P0/P1 remains.
 
 ## Estimated effort
 
@@ -121,7 +147,8 @@ supported static-kind matrix pass in one real desktop candidate.
 | MA2 | 2–3 |
 | MA3 | 2–3 |
 | MA4 | 1–2 |
-| **Static-first total** | **7–11.5** |
+| MA5 | 1.5–3 |
+| **Artifact Canvas total** | **8.5–14.5** |
 
 These are engineering-effort ranges, not calendar promises. Shared-path and
 security tasks remain dependency-ordered even if other UI work is parallelized.

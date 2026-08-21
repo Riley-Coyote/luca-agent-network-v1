@@ -1,8 +1,8 @@
-# Luca Static Artifacts — Implementation Handoff Packet
+# Luca Artifact Canvas — Production Finish Packet
 
 **Status:** implementation activated by Riley on 2026-08-21.
 
-**Purpose:** add a local-first Artifact Library and an in-app static Canvas so a
+**Purpose:** add a local-first Artifact Library and an in-app Canvas so a
 resident can create something visible, the owner can inspect it immediately,
 and the result survives beyond the conversation that produced it.
 
@@ -66,8 +66,9 @@ Packet authoring does not satisfy any of those gates.
   or generic filesystem capability from the artifact system.
 - Versions are append-only. Revert creates another version.
 - Generated HTML never executes in Luca's application DOM or with Tauri IPC.
-- Static preview is the current product. Live application processes are a later
-  milestone, not a hidden requirement of this one.
+- Static preview and agent-attached loopback live preview are the authorized
+  product. The harness remains the process owner; Luca never runs or restarts a
+  development server.
 
 ## Anti-drift question
 

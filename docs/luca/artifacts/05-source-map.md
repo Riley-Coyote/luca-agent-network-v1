@@ -24,7 +24,7 @@ reconcile them against the active branch before implementation.
 | Mock Tauri bridge | `desktop/tests/helpers/bridge.ts` | Add artifact fixtures and command parity for E2E |
 | Desktop E2E | `desktop/tests/e2e/`, `desktop/playwright.config.ts` | Add Library/Canvas/conversation specs and visual states |
 | ACP observer | `crates/buzz-acp/src/observer.rs`, `desktop/src/features/agents/` | Reuse safe tool activity; exclude body/path data |
-| MCP server | `crates/buzz-dev-mcp/src/` | Add narrow create/update/read/list artifact tools |
+| MCP server | `crates/buzz-dev-mcp/src/luca_artifacts.rs` | Dedicated artifact-only mode with the seven stable tools and no shell/file/messaging surface |
 | MCP provisioning | `crates/buzz-acp/src/lib.rs::build_mcp_servers`, `crates/buzz-acp/src/acp.rs` | Pass only artifact MCP bootstrap data to the designated MCP child |
 | Runtime lifecycle | `desktop/src-tauri/src/managed_agents/runtime.rs` | Create, bind, invalidate, and clean artifact broker sessions |
 | Shared protocol | `crates/luca-protocol/src/`, `schemas/luca/` | Add versioned artifact broker requests/results and vectors |

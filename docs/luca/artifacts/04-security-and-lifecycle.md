@@ -38,9 +38,9 @@ request that still passes desktop-side binding and policy checks.
    designated artifact MCP server. The trusted ACP adapter necessarily sees the
    standard `mcpServers` command/environment projection.
 3. Provider/model prompts and shell/tool processes do not inherit it.
-4. `buzz-dev-mcp` consumes the bootstrap descriptor, duplicates it safely, sets
-   close-on-exec, closes the inherited original, and removes bootstrap state
-   from its environment.
+4. The artifact-only MCP process consumes the bootstrap descriptor, duplicates
+   it safely, sets close-on-exec, closes the inherited original, and removes
+   bootstrap state from its environment.
 5. Commands spawned by the shell tool, nested shells, package scripts, and
    subprocesses cannot inspect or use the broker descriptor/token.
 6. Runtime restart invalidates the old session epoch and endpoint.

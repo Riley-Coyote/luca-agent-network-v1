@@ -84,7 +84,7 @@ transport may remain unchanged.
 | PDF preview | Best available native inline preview plus download | PDF editing |
 | Arbitrary files | Catalog, metadata, download/reveal | Universal inline renderer |
 | Multi-file static bundle | Schema seam only | Initial release behavior |
-| Build commands/dev servers/hot reload | No | Long-term live Canvas |
+| Agent-started loopback dev server preview and hot reload | Required | Remote/LAN browsing and Luca-owned process launch |
 | Infinite board/whiteboard | No | Separate future artifact kind |
 | Relay upload/share | Explicit future action | Automatic upload |
 
@@ -167,3 +167,5 @@ The first integrated demo must prove:
 - close, relaunch, find in Library, and return to the source conversation;
 - network attempts, parent access, Tauri access, and path traversal fail;
 - messaging still succeeds when the artifact service is unavailable.
+- an agent-started loopback app attaches, hot reloads, survives Canvas
+  close/reopen, reports server loss, and prepares an unsent restart request.

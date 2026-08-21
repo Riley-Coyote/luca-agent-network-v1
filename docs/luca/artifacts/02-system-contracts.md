@@ -8,7 +8,7 @@ Rust and TypeScript conventions while preserving their semantics.
 ```mermaid
 flowchart TB
   Runtime["Managed resident runtime"]
-  MCP["buzz-dev-mcp artifact tools"]
+  MCP["Artifact-only MCP mode"]
   Broker["Scoped local artifact broker"]
   Desktop["Tauri artifact service"]
   DB["SQLite metadata"]
@@ -44,7 +44,7 @@ Artifact
   owner_pubkey: identity scope
   installation_id: local installation scope
   title: user-visible title
-  kind: image | markdown | text | code | svg | html | pdf | file
+  kind: image | markdown | text | code | svg | html | pdf | file | app
   media_type: sniffed authoritative MIME
   current_version: positive integer
   created_by_pubkey: resident or owner public identity

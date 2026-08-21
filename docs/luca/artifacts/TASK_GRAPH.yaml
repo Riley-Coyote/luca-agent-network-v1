@@ -2,12 +2,12 @@ schema_version: 1
 packet:
   id: luca-static-artifacts
   title: Luca Static Artifacts and Canvas
-  status: planning_ready_not_implementation_authorized
+  status: implementation_authorized_2026_08_21
   task_namespace: A
   milestone_namespace: MA
   gate_namespace: GA
   implementation_entrypoint: A00
-  max_active_lanes: 2
+  max_active_lanes: 3
 
 activation:
   external_dependency: CURRENT_G1_OR_RILEY_OVERRIDE
@@ -35,12 +35,15 @@ global_contracts:
     remain authoritative and available when artifacts fail.
   - Public UI calls the existing relay-backed Channel Canvas the Room brief;
     internal event kinds and transport commands remain unchanged.
-  - No live app build, dev server, networked preview, sharing, sync, or
-    collaborative board is in the static-first release.
+  - Luca never owns a live app build or dev-server process. Agent-started
+    loopback preview is in scope; remote/LAN preview, sharing, sync, and
+    collaborative boards are not.
+  - A16 may add the already-locked rustix crate as a direct desktop dependency
+    only for safe descriptor-relative no-follow source capture; its Cargo.lock
+    delta must contain no version churn.
 
 global_forbidden_paths:
   - .codex/luca-v1/**
-  - Cargo.lock
   - desktop/pnpm-lock.yaml
   - migrations/**
   - .env
@@ -99,6 +102,13 @@ milestones:
     outcome: >-
       Recovery, lifecycle, compatibility, real-resident acceptance, and native
       desktop verification pass for the static-first release.
+  MA5:
+    title: Agent-neutral live-preview candidate
+    tasks: [A16]
+    gate: GA5
+    outcome: >-
+      Provider-neutral artifact tools and the loopback-only live Canvas pass
+      native security, lifecycle, runtime, and product acceptance.
 
 mutexes:
   artifact_storage:
@@ -728,18 +738,18 @@ tasks:
 
   A11:
     milestone: MA3
-    title: Add narrow artifact tools to buzz-dev-mcp
+    title: Add the provider-neutral artifact-only MCP mode
     kind: implementation
     risk: critical
     lane: tools
     depends_on: [A10]
     objective: >-
-      Add create, update, read-bounded, and list-metadata tools that speak only
-      to the injected local artifact broker capability and fail honestly when
+      Add the seven stable artifact tools in a dedicated mode that speaks only
+      to the injected local artifact broker capability and fails honestly when
       the capability is unavailable.
     owns:
       include:
-        - crates/buzz-dev-mcp/src/artifact.rs
+        - crates/buzz-dev-mcp/src/luca_artifacts.rs
         - crates/buzz-dev-mcp/src/lib.rs
         - crates/buzz-dev-mcp/tests/artifact_tools.rs
         - evidence/MA3/A11/**
@@ -750,7 +760,8 @@ tasks:
         - migrations/**
         - lockfiles
     outputs:
-      - create_artifact, update_artifact, read_artifact, and list_artifacts tools.
+      - artifact_create, artifact_update, artifact_read, artifact_list,
+        canvas_present, preview_attach, and preview_detach tools.
       - Bounded inputs/outputs and structured unavailable/conflict errors.
       - Unit tests using a fake local broker.
     checks:
@@ -763,7 +774,7 @@ tasks:
       - Tools cannot choose owner, resident, epoch, or working root bindings.
       - List returns metadata only and read is bounded.
       - Tool result and logs do not reveal capability, absolute path, or full body.
-      - Shell and file tools do not gain broker access implicitly.
+      - The artifact-only mode exposes no shell, file, or messaging tools.
     stop_conditions:
       - Artifact tool must call a public network endpoint.
       - Tool can request arbitrary host paths.
@@ -1003,7 +1014,7 @@ tasks:
       - Every supported static kind and every fail-closed security fixture passes.
       - Relevant messaging, media, search, activity, permissions, cancellation,
         and community-switch regressions pass proportionally.
-      - No unresolved P0/P1 remains and deferred live-app scope is explicit.
+      - No unresolved P0/P1 remains and Luca-owned process execution remains explicitly deferred.
     stop_conditions:
       - Candidate requires weakening security or data-loss checks.
       - A failure is repaired outside the active usable-build failure budget.
@@ -1034,11 +1045,99 @@ tasks:
         proves: Candidate evidence is safe to retain.
     evidence: evidence/MA4/GA4/**
     done_when:
-      - Gate explicitly records no live application runtime, preview networking,
-        sync, sharing, or collaborative boards in this release.
+      - Gate explicitly records that Luca owns no application runtime process
+        and allows no remote/LAN preview, sync, sharing, or collaborative boards.
       - PASS is issued only if every critical contract is evidenced.
     stop_conditions:
       - Any unresolved critical contract or P0/P1 defect.
+    estimated_engineer_days: 1
+
+  A16:
+    milestone: MA5
+    title: Finish agent-neutral loopback Canvas and native acceptance
+    kind: integration_gate
+    risk: critical
+    lane: integration
+    depends_on: [GA4]
+    mutexes: [artifact_storage, desktop_registry, desktop_shell, authority_runtime, shared_protocol]
+    objective: >-
+      Close the production security, contract, lifecycle, runtime-neutrality,
+      and native UX gaps for the shared static and loopback-live Canvas.
+    owns:
+      include:
+        - desktop/src/features/artifacts/**
+        - desktop/src/shared/api/tauriArtifacts.ts
+        - desktop/src-tauri/src/commands/artifacts.rs
+        - desktop/src-tauri/src/commands/artifact_preview.rs
+        - desktop/src-tauri/src/luca/artifacts/**
+        - desktop/src-tauri/src/luca/artifact_bridge.rs
+        - desktop/src-tauri/src/luca/artifact_backend.rs
+        - desktop/src-tauri/src/managed_agents/**
+        - crates/buzz-acp/src/**
+        - crates/buzz-dev-mcp/src/luca_artifacts.rs
+        - crates/luca-protocol/src/artifact.rs
+        - desktop/tests/e2e/luca/artifact-canvas.spec.ts
+        - evidence/MA5/A16/**
+      forbid:
+        - migrations/**
+        - relay databases
+        - live application-data directories
+      exceptions:
+        - Cargo.lock may receive only the mechanical buzz-desktop dependency-list
+          delta needed to declare the already-locked rustix fs dependency for
+          safe descriptor-relative no-follow capture.
+    outputs:
+      - Native static attack and live Vite/HMR/WebSocket receipts.
+      - Codex, Hermes, Claude Code, OpenClaw, and unknown-ACP truth matrix.
+      - Durable static and stopped/restartable live lifecycle receipts.
+      - Installed-app wide, constrained, focus, accessibility, and console evidence.
+    checks:
+      - command: focused protocol, Rust, MCP, ACP, frontend, and Playwright suites
+        proves: The complete artifact slice remains green.
+      - command: native WebKit static attack and loopback-live fixtures
+        proves: Executable content and network authority remain contained.
+      - command: installed runtime matrix and descendant/observer/log scan
+        proves: Support is provider-neutral and unavailable states are truthful.
+      - command: just ci
+        proves: The final candidate passes the repository integration gate.
+    evidence: evidence/MA5/A16/**
+    done_when:
+      - Required static, live, security, runtime, product, native UX, and regression journeys pass.
+      - Every installed runtime passes or exposes a verified honest unavailable state.
+      - No unresolved P0/P1 remains.
+    stop_conditions:
+      - Native WebKit cannot enforce the static HTML policy.
+      - Capability, body, path, credential, or signing material leaks.
+      - Completion would require weakening authority or conversation independence.
+    estimated_engineer_days: 5-8
+
+  GA5:
+    milestone: MA5
+    title: Artifact Canvas production gate
+    kind: gate
+    risk: critical
+    lane: integration
+    depends_on: [A16]
+    objective: >-
+      Issue the production verdict only from retained native, security,
+      provider-neutral, lifecycle, visual, and regression evidence.
+    owns:
+      include: [evidence/MA5/GA5/**]
+      forbid: [production source]
+    outputs:
+      - GA5 PASS or FAIL.
+      - Supported renderer and runtime truth matrices.
+      - Deferred-scope and residual-risk statement.
+    checks:
+      - command: review A16 evidence against docs/luca/artifacts/06-milestones-and-gates.md
+        proves: The verdict maps to the authorized live-preview gate.
+      - command: final artifact, secret, capability, body, URL-query, and absolute-path scan
+        proves: Candidate and evidence are safe to retain.
+    evidence: evidence/MA5/GA5/**
+    done_when:
+      - Every GA5 criterion is evidenced and no unresolved P0/P1 remains.
+    stop_conditions:
+      - Any critical criterion is missing, fabricated, or contradicted by runtime evidence.
     estimated_engineer_days: 1
 
 graph_edges:
@@ -1053,6 +1152,7 @@ graph_edges:
   - A10 + A11 -> A12
   - A07 + A12 -> A13 -> GA3
   - GA3 -> A14 -> A15 -> GA4
+  - GA4 -> A16 -> GA5
 
 parallelism:
   allowed:
@@ -1073,7 +1173,8 @@ effort:
     MA2: 2-3
     MA3: 2-3
     MA4: 1-2
-    total_static_first: 7-11.5
+    MA5: 1.5-3
+    total_artifact_canvas: 8.5-14.5
   note: >-
     These are engineering-effort ranges, not calendar promises. Security,
     authority, storage, and shared-registry work remains serialized even when

@@ -1,4 +1,4 @@
-# Codex Kickoff — Luca Static Artifacts
+# Codex Kickoff — Luca Artifact Canvas
 
 You are implementing one bounded task from the Luca Static Artifacts packet.
 
@@ -37,8 +37,9 @@ For `A00`, this report is the work. Do not implement production code.
   Electron implementation.
 - Use the existing Markdown, code, pane, navigation, SQLite, test, and reset
   patterns where they satisfy the contract.
-- Do not add live application execution, build commands, preview network, sync,
-  sharing, or boards.
+- Do not make Luca own application execution or build commands. Live preview is
+  loopback-only and attached to a harness-owned server. Remote/LAN preview,
+  sync, sharing, and boards remain excluded.
 - Run focused tests first. `just ci` is an integrator/gate command only.
 - Follow the active usable-build failure budget unless Riley re-enables full
   milestone verification.
@@ -64,7 +65,7 @@ Stop and report if implementation would:
 3. Focused tests and negative/security tests.
 4. Real-app visual/native verification when applicable.
 5. Evidence location and artifact scan result.
-6. Known limits and deferred live-Canvas work.
+6. Known limits and deferred remote/process-owning Canvas work.
 7. Next graph task now unblocked—or the exact blocking contract conflict.
 
 ## Initial assignment

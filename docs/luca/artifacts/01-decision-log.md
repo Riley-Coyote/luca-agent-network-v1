@@ -39,11 +39,12 @@ reconciliation at `GA0` proves one infeasible.
 
 - The desktop artifact service owns validation, persistence, version identity,
   and lifecycle state.
-- `buzz-dev-mcp` exposes narrow artifact operations to the resident.
+- A dedicated artifact-only mode of the bundled MCP binary exposes the seven
+  provider-neutral artifact operations to the resident.
 - A separate artifact broker capability connects that MCP process to the
   desktop. It is not the signing broker or permission channel.
 - The provider/model process does not receive the broker descriptor or token.
-- Shell/file descendants launched by `buzz-dev-mcp` do not inherit the artifact
+- Shell/file descendants launched by the harness do not inherit the artifact
   broker capability.
 - The artifact tool may reference only inline content or paths resolved beneath
   the app-authorized working root for that turn.
@@ -57,7 +58,9 @@ These are technical checks, not invitations to redesign the product:
 1. Confirm the exact current branch and final-publication hooks used to bind a
    source message ID after a managed final is accepted.
 2. Confirm every supported managed runtime accepts the app-supplied
-   `buzz-dev-mcp` server. Unsupported runtimes must report capability absence.
+   artifact-only MCP server. Unsupported runtimes must report capability
+   absence; unknown runtimes must pass a capability-free compatibility probe
+   before receiving an authoritative projection.
 3. Confirm the safest Tauri/WebKit mechanism for an opaque sandboxed HTML
    document under the packaged app CSP.
 4. Confirm the current local database initialization and blocking-thread
@@ -74,8 +77,8 @@ the product or authority decisions above.
 | Decision | Earliest owner |
 |---|---|
 | Multi-file static bundle limits and custom protocol | Post-static extension |
-| Build toolchain and dev-server allowlist | Live Canvas milestone |
-| Preview network grants | Live Canvas milestone |
+| Luca-owned build toolchain and process orchestration | Post-v1 expansion |
+| Remote or LAN preview network grants | Post-v1 expansion |
 | Encrypted cross-device artifact synchronization | Sync/share milestone |
 | Shared collaborative boards | Board milestone |
 | Public or room-visible artifact publication | Share milestone |
@@ -92,4 +95,4 @@ the product or authority decisions above.
 - catalogue unrelated files outside the selected working root;
 - let artifact content become a system prompt, permission, or configuration;
 - mutate the old Luca repository while using it as a reference;
-- claim static V1 is a full live application runtime.
+- claim the loopback presentation surface is a Luca-owned application runtime.
