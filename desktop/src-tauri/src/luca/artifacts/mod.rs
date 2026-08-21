@@ -845,32 +845,6 @@ impl ArtifactStore {
         })
     }
 
-    pub(crate) fn rename(
-        &mut self,
-        owner_pubkey: &Hex64,
-        artifact_id: &OpaqueId,
-        title: &str,
-    ) -> Result<ArtifactRecord, ArtifactStoreError> {
-        validate_title(title)?;
-        let changed = self
-            .connection
-            .execute(
-                "UPDATE artifacts SET title = ?3, updated_at = ?4
-                 WHERE owner_pubkey = ?1 AND artifact_id = ?2",
-                params![
-                    owner_pubkey.as_str(),
-                    artifact_id.as_str(),
-                    title.trim(),
-                    now()
-                ],
-            )
-            .map_err(|_| ArtifactStoreError::Unavailable)?;
-        if changed != 1 {
-            return Err(ArtifactStoreError::NotFound);
-        }
-        self.get(owner_pubkey, artifact_id)
-    }
-
     pub(crate) fn pin(
         &mut self,
         owner_pubkey: &Hex64,
