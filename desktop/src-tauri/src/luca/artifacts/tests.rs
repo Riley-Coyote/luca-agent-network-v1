@@ -218,7 +218,38 @@ fn owner_scope_delete_restore_and_receipt_link_are_isolated() {
     assert!(receipts.iter().any(|receipt| {
         receipt.artifact_id == second.artifact.artifact_id
             && receipt.state == ArtifactReceiptStateV1::Interrupted
+            && receipt.artifact_title == second.artifact.title
     }));
+    assert_eq!(
+        store
+            .get(&hex('1'), &id(&second.artifact.artifact_id))
+            .unwrap()
+            .receipt_state,
+        ArtifactReceiptStateV1::Interrupted
+    );
+
+    let third = store
+        .create(&context('1'), &create_args("create-3", "cancelled"), None)
+        .unwrap();
+    assert_eq!(
+        store
+            .mark_dispatch_receipts(
+                &hex('1'),
+                &id("conversation-1"),
+                &hex('2'),
+                &id("dispatch-1"),
+                ArtifactReceiptStateV1::Interrupted,
+            )
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        store
+            .get(&hex('1'), &id(&third.artifact.artifact_id))
+            .unwrap()
+            .receipt_state,
+        ArtifactReceiptStateV1::Interrupted
+    );
 }
 
 #[test]

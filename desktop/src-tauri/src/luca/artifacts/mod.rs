@@ -124,6 +124,7 @@ pub(crate) struct ArtifactVersionRecord {
 pub(crate) struct ArtifactReceiptRecord {
     pub receipt_id: String,
     pub artifact_id: String,
+    pub artifact_title: String,
     pub version: u64,
     pub resident_pubkey: String,
     pub conversation_id: Option<String>,
@@ -860,8 +861,12 @@ impl ArtifactStore {
         let mut statement = self
             .connection
             .prepare(
-                "SELECT receipt_id, artifact_id, version, resident_pubkey, conversation_id,
-                        turn_id, dispatch_receipt_id, message_id, state, created_at, linked_at
+                "SELECT receipt_id, artifact_id,
+                        (SELECT title FROM artifacts
+                         WHERE artifacts.owner_pubkey = artifact_receipts.owner_pubkey
+                           AND artifacts.artifact_id = artifact_receipts.artifact_id),
+                        version, resident_pubkey, conversation_id, turn_id,
+                        dispatch_receipt_id, message_id, state, created_at, linked_at
                  FROM artifact_receipts
                  WHERE owner_pubkey = ?1 AND (?2 IS NULL OR conversation_id = ?2)
                  ORDER BY created_at DESC, receipt_id DESC LIMIT ?3",
@@ -890,8 +895,11 @@ impl ArtifactStore {
         message_id: &Hex64,
     ) -> Result<usize, ArtifactStoreError> {
         let timestamp = now();
-        let changed = self
+        let transaction = self
             .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ArtifactStoreError::Unavailable)?;
+        let changed = transaction
             .execute(
                 "UPDATE artifact_receipts SET state = 'linked', message_id = ?4, linked_at = ?5
                  WHERE owner_pubkey = ?1 AND conversation_id = ?2 AND turn_id = ?3
@@ -905,7 +913,7 @@ impl ArtifactStore {
                 ],
             )
             .map_err(|_| ArtifactStoreError::Unavailable)?;
-        self.connection
+        transaction
             .execute(
                 "UPDATE artifacts SET receipt_state = 'linked', updated_at = ?4
                  WHERE owner_pubkey = ?1 AND artifact_id IN (
@@ -919,6 +927,9 @@ impl ArtifactStore {
                     timestamp
                 ],
             )
+            .map_err(|_| ArtifactStoreError::Unavailable)?;
+        transaction
+            .commit()
             .map_err(|_| ArtifactStoreError::Unavailable)?;
         Ok(changed)
     }
@@ -936,8 +947,12 @@ impl ArtifactStore {
         ) {
             return Err(ArtifactStoreError::InvalidRequest);
         }
-        let changed = self
+        let timestamp = now();
+        let transaction = self
             .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ArtifactStoreError::Unavailable)?;
+        let changed = transaction
             .execute(
                 "UPDATE artifact_receipts SET state = ?4
                  WHERE owner_pubkey = ?1 AND conversation_id = ?2 AND turn_id = ?3
@@ -949,6 +964,83 @@ impl ArtifactStore {
                     receipt_state_value(state),
                 ],
             )
+            .map_err(|_| ArtifactStoreError::Unavailable)?;
+        transaction
+            .execute(
+                "UPDATE artifacts SET receipt_state = ?4, updated_at = ?5
+                 WHERE owner_pubkey = ?1 AND artifact_id IN (
+                    SELECT artifact_id FROM artifact_receipts
+                    WHERE owner_pubkey = ?1 AND conversation_id = ?2 AND turn_id = ?3
+                 )",
+                params![
+                    owner_pubkey.as_str(),
+                    conversation_id.as_str(),
+                    turn_id.as_str(),
+                    receipt_state_value(state),
+                    timestamp,
+                ],
+            )
+            .map_err(|_| ArtifactStoreError::Unavailable)?;
+        transaction
+            .commit()
+            .map_err(|_| ArtifactStoreError::Unavailable)?;
+        Ok(changed)
+    }
+
+    pub(crate) fn mark_dispatch_receipts(
+        &mut self,
+        owner_pubkey: &Hex64,
+        conversation_id: &OpaqueId,
+        resident_pubkey: &Hex64,
+        dispatch_receipt_id: &OpaqueId,
+        state: ArtifactReceiptStateV1,
+    ) -> Result<usize, ArtifactStoreError> {
+        if !matches!(
+            state,
+            ArtifactReceiptStateV1::Interrupted | ArtifactReceiptStateV1::Orphaned
+        ) {
+            return Err(ArtifactStoreError::InvalidRequest);
+        }
+        let timestamp = now();
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ArtifactStoreError::Unavailable)?;
+        let changed = transaction
+            .execute(
+                "UPDATE artifact_receipts SET state = ?5
+                 WHERE owner_pubkey = ?1 AND conversation_id = ?2
+                   AND resident_pubkey = ?3 AND dispatch_receipt_id = ?4
+                   AND state = 'provisional'",
+                params![
+                    owner_pubkey.as_str(),
+                    conversation_id.as_str(),
+                    resident_pubkey.as_str(),
+                    dispatch_receipt_id.as_str(),
+                    receipt_state_value(state),
+                ],
+            )
+            .map_err(|_| ArtifactStoreError::Unavailable)?;
+        transaction
+            .execute(
+                "UPDATE artifacts SET receipt_state = ?5, updated_at = ?6
+                 WHERE owner_pubkey = ?1 AND artifact_id IN (
+                    SELECT artifact_id FROM artifact_receipts
+                    WHERE owner_pubkey = ?1 AND conversation_id = ?2
+                      AND resident_pubkey = ?3 AND dispatch_receipt_id = ?4
+                 )",
+                params![
+                    owner_pubkey.as_str(),
+                    conversation_id.as_str(),
+                    resident_pubkey.as_str(),
+                    dispatch_receipt_id.as_str(),
+                    receipt_state_value(state),
+                    timestamp,
+                ],
+            )
+            .map_err(|_| ArtifactStoreError::Unavailable)?;
+        transaction
+            .commit()
             .map_err(|_| ArtifactStoreError::Unavailable)?;
         Ok(changed)
     }
@@ -1165,19 +1257,20 @@ fn version_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ArtifactVersion
 }
 
 fn receipt_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ArtifactReceiptRecord> {
-    let state: String = row.get(8)?;
+    let state: String = row.get(9)?;
     Ok(ArtifactReceiptRecord {
         receipt_id: row.get(0)?,
         artifact_id: row.get(1)?,
-        version: row.get(2)?,
-        resident_pubkey: row.get(3)?,
-        conversation_id: row.get(4)?,
-        turn_id: row.get(5)?,
-        dispatch_receipt_id: row.get(6)?,
-        message_id: row.get(7)?,
+        artifact_title: row.get(2)?,
+        version: row.get(3)?,
+        resident_pubkey: row.get(4)?,
+        conversation_id: row.get(5)?,
+        turn_id: row.get(6)?,
+        dispatch_receipt_id: row.get(7)?,
+        message_id: row.get(8)?,
         state: parse_receipt_state(&state).map_err(|_| rusqlite::Error::InvalidQuery)?,
-        created_at: row.get(9)?,
-        linked_at: row.get(10)?,
+        created_at: row.get(10)?,
+        linked_at: row.get(11)?,
     })
 }
 
@@ -1298,8 +1391,12 @@ fn load_commit(
     let version = load_version_with_storage(connection, owner_pubkey, artifact_id, version)?.record;
     let receipt = connection
         .query_row(
-            "SELECT receipt_id, artifact_id, version, resident_pubkey, conversation_id,
-                    turn_id, dispatch_receipt_id, message_id, state, created_at, linked_at
+            "SELECT receipt_id, artifact_id,
+                    (SELECT title FROM artifacts
+                     WHERE artifacts.owner_pubkey = artifact_receipts.owner_pubkey
+                       AND artifacts.artifact_id = artifact_receipts.artifact_id),
+                    version, resident_pubkey, conversation_id, turn_id,
+                    dispatch_receipt_id, message_id, state, created_at, linked_at
              FROM artifact_receipts WHERE owner_pubkey = ?1 AND receipt_id = ?2",
             params![owner_pubkey, receipt_id],
             receipt_from_row,

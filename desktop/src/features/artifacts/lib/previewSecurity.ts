@@ -7,6 +7,7 @@ const HOST_CSP = [
   "media-src data: blob:",
   "connect-src 'none'",
   "form-action 'none'",
+  "navigate-to 'none'",
   "base-uri 'none'",
   "frame-src 'none'",
   "object-src 'none'",

@@ -691,6 +691,17 @@ pub async fn cancel_managed_turn(
             });
         }
     };
+    if let Err(error) = crate::commands::artifacts::mark_cancelled_dispatch_receipts(
+        &app,
+        &owner_pubkey,
+        &cancellation.conversation_id,
+        &cancellation.resident_pubkey,
+        &cancellation.trigger_event_id,
+    ) {
+        // Receipt truth is best-effort metadata and must never make a durable
+        // conversation cancellation fail.
+        eprintln!("luca-artifacts: failed to interrupt cancelled-turn receipts: {error}");
+    }
 
     // There is no backend-visible acknowledgement from the harness for a
     // relay-delivered `!cancel`. Relay acceptance therefore cannot be treated

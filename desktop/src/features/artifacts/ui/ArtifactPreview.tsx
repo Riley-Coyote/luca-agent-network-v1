@@ -1,5 +1,6 @@
 import { Code2, FileWarning, ImageIcon } from "lucide-react";
 
+import { buildOpaqueHtmlDocument } from "@/features/artifacts/lib/previewSecurity";
 import type { ArtifactRecord } from "@/features/artifacts/types";
 
 export function ArtifactPreview({ artifact }: { artifact: ArtifactRecord }) {
@@ -12,7 +13,7 @@ export function ArtifactPreview({ artifact }: { artifact: ArtifactRecord }) {
         data-testid="artifact-html-preview"
         referrerPolicy="no-referrer"
         sandbox="allow-scripts"
-        srcDoc={current.source}
+        srcDoc={buildOpaqueHtmlDocument(current.source)}
         title={`Preview of ${artifact.title}`}
       />
     );

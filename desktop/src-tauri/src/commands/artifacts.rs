@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
 use luca_protocol::{
-    ArtifactCreateArgsV1, ArtifactKindV1, ArtifactReadModeV1, ArtifactSourceV1, Hex64, OpaqueId,
-    SafeU53, MAX_ARTIFACT_LIST_ITEMS, MAX_ARTIFACT_TITLE_CHARS,
+    ArtifactCreateArgsV1, ArtifactKindV1, ArtifactReadModeV1, ArtifactReceiptStateV1,
+    ArtifactSourceV1, Hex64, OpaqueId, SafeU53, MAX_ARTIFACT_LIST_ITEMS, MAX_ARTIFACT_TITLE_CHARS,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
@@ -158,6 +158,35 @@ fn emit_changed(app: &AppHandle, artifact_id: &str, reason: &str) {
             reason,
         },
     );
+}
+
+pub(crate) fn mark_cancelled_dispatch_receipts(
+    app: &AppHandle,
+    owner_pubkey: &str,
+    conversation_id: &str,
+    resident_pubkey: &str,
+    dispatch_receipt_id: &str,
+) -> Result<usize, String> {
+    let owner = Hex64::parse(owner_pubkey.to_owned()).map_err(|_| "artifact-owner-invalid")?;
+    let conversation =
+        OpaqueId::parse(conversation_id.to_owned()).map_err(|_| "artifact-invalid")?;
+    let resident =
+        Hex64::parse(resident_pubkey.to_owned()).map_err(|_| "artifact-resident-invalid")?;
+    let dispatch =
+        OpaqueId::parse(dispatch_receipt_id.to_owned()).map_err(|_| "artifact-invalid")?;
+    let changed = open_store(app)?
+        .mark_dispatch_receipts(
+            &owner,
+            &conversation,
+            &resident,
+            &dispatch,
+            ArtifactReceiptStateV1::Interrupted,
+        )
+        .map_err(|error| error.code().to_owned())?;
+    if changed > 0 {
+        emit_changed(app, "", "receipt-interrupted");
+    }
+    Ok(changed)
 }
 
 async fn blocking<T: Send + 'static>(

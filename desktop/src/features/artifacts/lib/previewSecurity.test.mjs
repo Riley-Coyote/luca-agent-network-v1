@@ -14,6 +14,7 @@ test("static HTML receives one host-owned network-denied policy", () => {
   assert.match(document, /default-src 'none'/i);
   assert.match(document, /connect-src 'none'/i);
   assert.match(document, /form-action 'none'/i);
+  assert.match(document, /navigate-to 'none'/i);
   assert.equal(
     document.match(/http-equiv="Content-Security-Policy"/g)?.length,
     1,
