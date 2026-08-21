@@ -207,7 +207,9 @@ test("a placed exchange's note carries a door to the pair DM", async ({
     },
   );
 
-  await expect(page.getByText("Luca asked Vektor — in their DM.")).toBeVisible();
+  await expect(
+    page.getByText("Luca asked Vektor — in their DM."),
+  ).toBeVisible();
   const door = page.getByTestId("exchange-note-room-link");
   await expect(door).toBeVisible();
   await door.click();

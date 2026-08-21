@@ -239,7 +239,10 @@
      own weight. Derived, so changing the weight cannot decentre it. Checked
      against the live mark by `lab-shots`. */
   left: calc(
-    var(--mn-visit-inset, 30px) + 22.5px - var(--mn-visit-line, 1px) / 2
+    var(--mn-visit-inset, 30px) +
+    22.5px -
+    var(--mn-visit-line, 1px) /
+    2
   );
   position: absolute;
   width: var(--mn-visit-line, 1px);
@@ -261,15 +264,19 @@
 :root[data-luca-shell]
   [data-luca-reading-plane][data-visit-span="first"]::before,
 :root[data-luca-shell] [data-luca-reading-plane][data-visit-span="last"]::after,
-:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="only"]::before,
-:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="only"]::after {
+:root[data-luca-shell]
+  [data-luca-reading-plane][data-visit-span="only"]::before,
+:root[data-luca-shell]
+  [data-luca-reading-plane][data-visit-span="only"]::after {
   display: none;
 }
 
 /* Rows inside the passage that are not a speaker's turn — a system row, a
    date divider — carry the inset but never the line. */
-:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="quiet"]::before,
-:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="quiet"]::after {
+:root[data-luca-shell]
+  [data-luca-reading-plane][data-visit-span="quiet"]::before,
+:root[data-luca-shell]
+  [data-luca-reading-plane][data-visit-span="quiet"]::after {
   display: none;
 }
 
