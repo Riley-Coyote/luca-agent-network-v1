@@ -228,7 +228,7 @@ function TemplateRow({
           {template.canvasTemplate ? (
             <span className="flex items-center gap-1">
               <MessageSquare className="h-4 w-4" />
-              canvas
+              room brief
             </span>
           ) : null}
         </div>
@@ -499,13 +499,13 @@ function TemplateFormDialog({
             />
           </div>
 
-          {/* Canvas Template */}
+          {/* Room brief template */}
           <div className="space-y-1.5">
             <label
               className="text-sm font-medium text-foreground"
               htmlFor="template-canvas"
             >
-              Canvas template{" "}
+              Room brief template{" "}
               <span className="font-normal text-muted-foreground">
                 (optional)
               </span>
@@ -515,7 +515,7 @@ function TemplateFormDialog({
               disabled={isPending}
               id="template-canvas"
               onChange={(e) => setCanvasTemplate(e.target.value)}
-              placeholder="Canvas content here..."
+              placeholder="Room brief content here..."
               rows={4}
               value={canvasTemplate}
             />

@@ -721,7 +721,7 @@ function ChannelManagementPanelContent({
         >
           <DialogPrimitive.Title asChild>
             <AuxiliaryPanelTitle>
-              {activeView === "canvas" ? "Canvas" : "Channel"}
+              {activeView === "canvas" ? "Room brief" : "Channel"}
             </AuxiliaryPanelTitle>
           </DialogPrimitive.Title>
         </AuxiliaryPanelHeaderGroup>
@@ -849,7 +849,7 @@ function ChannelManagementPanelContent({
               <IngressRow
                 description={canvasPreview}
                 icon={BookOpenText}
-                label="Canvas"
+                label="Room brief"
                 onClick={() => setActiveView("canvas")}
                 testId="channel-canvas-ingress"
                 trailing={canvasQuery.isLoading ? "Loading..." : undefined}

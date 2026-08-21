@@ -21,6 +21,7 @@ import {
   useArtifactMutations,
 } from "@/features/artifacts/hooks";
 import type { ArtifactKind, ArtifactSummary } from "@/features/artifacts/types";
+import { useArtifactProvenanceLabels } from "@/features/artifacts/useArtifactProvenanceLabels";
 import { formatBytes } from "@/shared/api/tauriArtifacts";
 import { cn } from "@/shared/lib/cn";
 
@@ -38,16 +39,27 @@ const FILTERS: readonly { label: string; value: "all" | ArtifactKind }[] = [
 export function ArtifactLibraryScreen() {
   const [query, setQuery] = React.useState("");
   const [filter, setFilter] = React.useState<"all" | ArtifactKind>("all");
-  const [includeDeleted, setIncludeDeleted] = React.useState(false);
+  const [deletedState, setDeletedState] = React.useState<"active" | "deleted">(
+    "active",
+  );
+  const [actionMessage, setActionMessage] = React.useState("");
   const deferredQuery = React.useDeferredValue(query.trim());
   const library = useArtifactLibrary({
     query: deferredQuery,
     kind: filter,
-    includeDeleted,
+    deletedState,
   });
   const mutations = useArtifactMutations();
+  const provenanceLabels = useArtifactProvenanceLabels();
   const { openArtifact, presentation } = useArtifactCanvas();
-  const artifacts = library.data?.artifacts ?? [];
+  const artifacts = library.data?.pages.flatMap((page) => page.artifacts) ?? [];
+  const total = library.data?.pages[0]?.total ?? artifacts.length;
+
+  React.useEffect(() => {
+    if (!actionMessage) return;
+    const timer = window.setTimeout(() => setActionMessage(""), 3_500);
+    return () => window.clearTimeout(timer);
+  }, [actionMessage]);
 
   const open = (artifact: ArtifactSummary) =>
     openArtifact({
@@ -77,7 +89,11 @@ export function ArtifactLibraryScreen() {
           disabled={mutations.importArtifact.isPending}
           onClick={() =>
             mutations.importArtifact.mutate(undefined, {
-              onSuccess: (artifact) => artifact && open(artifact),
+              onSuccess: (artifact) => {
+                if (artifact) open(artifact);
+                else setActionMessage("Import cancelled");
+              },
+              onError: () => setActionMessage("Could not import that file"),
             })
           }
           type="button"
@@ -97,7 +113,7 @@ export function ArtifactLibraryScreen() {
           <span className="sr-only">Search Library</span>
           <input
             onChange={(event) => setQuery(event.currentTarget.value)}
-            placeholder="Search title, resident, or conversation"
+            placeholder="Search artifact titles"
             value={query}
           />
         </label>
@@ -116,12 +132,16 @@ export function ArtifactLibraryScreen() {
           ))}
         </fieldset>
         <button
-          aria-pressed={includeDeleted}
+          aria-pressed={deletedState === "deleted"}
           className={cn(
             "artifact-library-trash-toggle",
-            includeDeleted && "is-active",
+            deletedState === "deleted" && "is-active",
           )}
-          onClick={() => setIncludeDeleted((value) => !value)}
+          onClick={() =>
+            setDeletedState((value) =>
+              value === "active" ? "deleted" : "active",
+            )
+          }
           type="button"
         >
           <Trash2 aria-hidden /> Recently deleted
@@ -140,14 +160,14 @@ export function ArtifactLibraryScreen() {
           />
         ) : null}
         {!library.isLoading && !library.isError && artifacts.length === 0 ? (
-          deferredQuery || filter !== "all" || includeDeleted ? (
+          deferredQuery || filter !== "all" || deletedState === "deleted" ? (
             <LibraryState
               action="Clear filters"
               icon={<Search aria-hidden />}
               onAction={() => {
                 setQuery("");
                 setFilter("all");
-                setIncludeDeleted(false);
+                setDeletedState("active");
               }}
               text="No artifact metadata matches this view."
               title="Nothing found"
@@ -170,26 +190,62 @@ export function ArtifactLibraryScreen() {
                 key={artifact.id}
                 onOpen={() => open(artifact)}
                 onPin={() =>
-                  mutations.pinArtifact.mutate({
-                    artifactId: artifact.id,
-                    pinned: !artifact.pinned,
+                  mutations.pinArtifact.mutate(
+                    {
+                      artifactId: artifact.id,
+                      pinned: !artifact.pinned,
+                    },
+                    {
+                      onError: () => setActionMessage("Could not update pin"),
+                    },
+                  )
+                }
+                onDelete={() =>
+                  mutations.deleteArtifact.mutate(artifact.id, {
+                    onError: () =>
+                      setActionMessage(
+                        "Could not move artifact to Recently deleted",
+                      ),
                   })
                 }
-                onRestore={() => mutations.restoreArtifact.mutate(artifact.id)}
+                onRestore={() =>
+                  mutations.restoreArtifact.mutate(artifact.id, {
+                    onError: () =>
+                      setActionMessage("Could not restore artifact"),
+                  })
+                }
                 selected={presentation?.artifactId === artifact.id}
+                sourceLabel={formatProvenanceLabel(
+                  provenanceLabels(artifact.provenance),
+                )}
               />
             ))}
           </ul>
+        ) : null}
+        {library.hasNextPage ? (
+          <button
+            className="artifact-library-load-more"
+            disabled={library.isFetchingNextPage}
+            onClick={() => void library.fetchNextPage()}
+            type="button"
+          >
+            {library.isFetchingNextPage ? "Loading…" : "Load more"}
+          </button>
         ) : null}
       </div>
 
       <footer className="artifact-library-screen__footer">
         <span>
-          {library.data?.total ?? artifacts.length} artifacts · stored on this
-          Mac
+          {total} {deletedState === "deleted" ? "deleted " : ""}artifacts ·
+          stored on this Mac
         </span>
         <span>Bodies load only when Canvas opens</span>
       </footer>
+      {actionMessage ? (
+        <div className="artifact-library-notice" role="status">
+          {actionMessage}
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -197,15 +253,19 @@ export function ArtifactLibraryScreen() {
 function ArtifactRow({
   artifact,
   onOpen,
+  onDelete,
   onPin,
   onRestore,
   selected,
+  sourceLabel,
 }: {
   artifact: ArtifactSummary;
   onOpen: () => void;
+  onDelete: () => void;
   onPin: () => void;
   onRestore: () => void;
   selected: boolean;
+  sourceLabel: string;
 }) {
   return (
     <li
@@ -225,12 +285,7 @@ function ArtifactRow({
           <strong>{artifact.title}</strong>
           <span>{artifact.summary ?? kindLabel(artifact.kind)}</span>
         </span>
-        <span className="artifact-library-row__source">
-          {artifact.provenance.residentName}
-          {artifact.provenance.conversationLabel
-            ? ` · ${artifact.provenance.conversationLabel}`
-            : ""}
-        </span>
+        <span className="artifact-library-row__source">{sourceLabel}</span>
         <span className="artifact-library-row__meta">
           v{artifact.currentVersion}
         </span>
@@ -248,18 +303,36 @@ function ArtifactRow({
             <RotateCcw aria-hidden />
           </button>
         ) : (
-          <button
-            aria-label={`${artifact.pinned ? "Unpin" : "Pin"} ${artifact.title}`}
-            data-active={artifact.pinned}
-            onClick={onPin}
-            type="button"
-          >
-            <Pin aria-hidden />
-          </button>
+          <>
+            <button
+              aria-label={`${artifact.pinned ? "Unpin" : "Pin"} ${artifact.title}`}
+              data-active={artifact.pinned}
+              onClick={onPin}
+              type="button"
+            >
+              <Pin aria-hidden />
+            </button>
+            <button
+              aria-label={`Move ${artifact.title} to Recently deleted`}
+              onClick={onDelete}
+              type="button"
+            >
+              <Trash2 aria-hidden />
+            </button>
+          </>
         )}
       </div>
     </li>
   );
+}
+
+function formatProvenanceLabel(labels: {
+  resident: string;
+  conversation: string | null;
+}) {
+  return labels.conversation
+    ? `${labels.resident} · ${labels.conversation}`
+    : labels.resident;
 }
 
 function KindIcon({ kind }: { kind: ArtifactKind }) {

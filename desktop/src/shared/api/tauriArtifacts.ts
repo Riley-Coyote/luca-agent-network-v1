@@ -6,10 +6,13 @@ import type {
   ArtifactListPage,
   ArtifactPreviewCapability,
   ArtifactPreviewPayload,
+  ArtifactPreviewState,
   ArtifactReceipt,
   ArtifactReceiptState,
   ArtifactSummary,
   ArtifactVersion,
+  LastPreviewMetadata,
+  PreparedArtifactPreview,
   PreviewHealth,
   PreviewSession,
 } from "@/features/artifacts/types";
@@ -18,8 +21,8 @@ type JsonRecord = Record<string, unknown>;
 
 export type ArtifactListInput = {
   query?: string;
-  kind?: ArtifactKind;
-  includeDeleted?: boolean;
+  kinds?: ArtifactKind[];
+  deleted?: "active" | "deleted" | "all";
   cursor?: string;
   limit?: number;
 };
@@ -96,21 +99,26 @@ function normalizeProvenance(value: unknown) {
   const raw = record(value);
   return {
     conversationId: nullableString(raw.conversation_id ?? raw.conversationId),
-    conversationLabel: nullableString(
-      raw.conversation_label ?? raw.conversationLabel,
-    ),
     projectId: nullableString(raw.project_id ?? raw.projectId),
-    projectLabel: nullableString(raw.project_label ?? raw.projectLabel),
     residentPubkey: nullableString(raw.resident_pubkey ?? raw.residentPubkey),
-    residentName: stringValue(
-      raw.resident_name ?? raw.residentName,
-      "Resident",
-    ),
     turnId: nullableString(raw.turn_id ?? raw.turnId),
     dispatchReceiptId: nullableString(
       raw.dispatch_receipt_id ?? raw.dispatchReceiptId,
     ),
     finalMessageId: nullableString(raw.final_message_id ?? raw.finalMessageId),
+  };
+}
+
+function normalizeLastPreview(value: unknown): LastPreviewMetadata | null {
+  const raw = record(value);
+  if (Object.keys(raw).length === 0) return null;
+  const origin = stringValue(raw.origin);
+  const port = numberValue(raw.port);
+  if (!origin || port <= 0) return null;
+  return {
+    origin,
+    port,
+    attachedAt: stringValue(raw.attached_at ?? raw.attachedAt),
   };
 }
 
@@ -160,13 +168,14 @@ function normalizeSummary(value: unknown): ArtifactSummary {
             ),
             availability: enumValue(
               source.availability,
-              ["available", "missing"] as const,
-              "available",
+              ["available", "missing", "unavailable"] as const,
+              "unavailable",
             ),
           },
     activePreviewSessionId: nullableString(
       raw.active_preview_session_id ?? raw.activePreviewSessionId,
     ),
+    lastPreview: normalizeLastPreview(raw.last_preview ?? raw.lastPreview),
   };
 }
 
@@ -174,10 +183,13 @@ function normalizeVersion(value: unknown): ArtifactVersion {
   const raw = record(value);
   const sizeBytes = numberValue(raw.size_bytes ?? raw.sizeBytes);
   return {
-    id: stringValue(raw.id ?? raw.version_id ?? raw.versionId),
+    id: stringValue(
+      raw.id ?? raw.version_id ?? raw.versionId,
+      `${stringValue(raw.artifact_id ?? raw.artifactId)}:v${numberValue(raw.number ?? raw.version, 1)}`,
+    ),
     number: numberValue(raw.number ?? raw.version, 1),
     createdAt: stringValue(raw.created_at ?? raw.createdAt),
-    note: stringValue(raw.note, "Artifact version"),
+    note: stringValue(raw.note, "Saved version"),
     sizeBytes,
     sizeLabel: stringValue(
       raw.size_label ?? raw.sizeLabel,
@@ -185,8 +197,13 @@ function normalizeVersion(value: unknown): ArtifactVersion {
     ),
     mediaType: nullableString(raw.media_type ?? raw.mediaType) ?? undefined,
     contentHash:
-      nullableString(raw.content_hash ?? raw.contentHash) ?? undefined,
-    source: stringValue(raw.source),
+      nullableString(
+        raw.content_hash ??
+          raw.contentHash ??
+          raw.aggregate_hash ??
+          raw.aggregateHash,
+      ) ?? undefined,
+    source: stringValue(raw.source ?? raw.source_type ?? raw.sourceType),
   };
 }
 
@@ -202,7 +219,10 @@ export async function listArtifacts(
 ): Promise<ArtifactListPage> {
   const value = await invokeTauri<unknown>("list_artifacts", {
     input: {
-      includeDeleted: input.includeDeleted,
+      query: input.query,
+      kinds: input.kinds,
+      deleted: input.deleted,
+      cursor: input.cursor,
       limit: input.limit,
     },
   });
@@ -214,21 +234,11 @@ export async function listArtifacts(
       : Array.isArray(raw.items)
         ? raw.items
         : [];
-  const query = input.query?.trim().toLowerCase() ?? "";
-  const artifacts = items.map(normalizeSummary).filter((artifact) => {
-    if (input.kind && artifact.kind !== input.kind) return false;
-    if (!query) return true;
-    return `${artifact.title} ${artifact.summary ?? ""} ${artifact.provenance.residentName} ${artifact.provenance.conversationLabel ?? ""}`
-      .toLowerCase()
-      .includes(query);
-  });
+  const artifacts = items.map(normalizeSummary);
   return {
     artifacts,
     nextCursor: nullableString(raw.next_cursor ?? raw.nextCursor),
-    total:
-      query || input.kind
-        ? artifacts.length
-        : numberValue(raw.total, items.length),
+    total: numberValue(raw.total, artifacts.length),
   };
 }
 
@@ -363,10 +373,6 @@ export async function listArtifactReceipts(
         conversationId,
       ),
       residentPubkey: stringValue(item.resident_pubkey ?? item.residentPubkey),
-      residentName: stringValue(
-        item.resident_name ?? item.residentName,
-        "Resident",
-      ),
       turnId: stringValue(item.turn_id ?? item.turnId),
       dispatchReceiptId: stringValue(
         item.dispatch_receipt_id ?? item.dispatchReceiptId,
@@ -401,6 +407,60 @@ function normalizePreviewSession(value: unknown): PreviewSession {
     attachedAt: stringValue(raw.attached_at ?? raw.attachedAt),
     checkedAt: stringValue(raw.checked_at ?? raw.checkedAt),
   };
+}
+
+export async function getArtifactPreviewState(
+  artifactId: string,
+): Promise<ArtifactPreviewState> {
+  const raw = record(
+    await invokeTauri("get_artifact_preview_state", {
+      input: { artifactId },
+    }),
+  );
+  const active = raw.active_session ?? raw.activeSession;
+  return {
+    artifactId: stringValue(raw.artifact_id ?? raw.artifactId, artifactId),
+    activeSession:
+      active === null || active === undefined
+        ? null
+        : normalizePreviewSession(active),
+    lastPreview: normalizeLastPreview(raw.last_preview ?? raw.lastPreview),
+  };
+}
+
+export async function prepareArtifactPreview(
+  artifactId: string,
+  version?: number | null,
+): Promise<PreparedArtifactPreview> {
+  const raw = record(
+    await invokeTauri("prepare_artifact_preview", {
+      input: { artifactId, version: version ?? null },
+    }),
+  );
+  return {
+    artifactId: stringValue(raw.artifact_id ?? raw.artifactId, artifactId),
+    version: numberValue(raw.version, version ?? 1),
+    presentationId: stringValue(raw.presentation_id ?? raw.presentationId),
+    renderer: enumValue(
+      raw.renderer,
+      ["sandboxed_html"] as const,
+      "sandboxed_html",
+    ),
+    uri: stringValue(raw.uri),
+    mediaType: stringValue(
+      raw.media_type ?? raw.mediaType,
+      "application/octet-stream",
+    ),
+    expiresAt: stringValue(raw.expires_at ?? raw.expiresAt),
+  };
+}
+
+export async function revokeArtifactPreview(
+  presentationId: string,
+): Promise<boolean> {
+  return invokeTauri("revoke_artifact_preview", {
+    input: { presentationId },
+  });
 }
 
 export async function getPreviewSession(
@@ -474,8 +534,8 @@ export async function revertArtifact(
 export async function exportArtifact(
   artifactId: string,
   version?: number | null,
-): Promise<void> {
-  await invokeTauri("export_artifact", {
+): Promise<boolean> {
+  return invokeTauri("export_artifact", {
     input: { artifactId, version: version ?? null },
   });
 }

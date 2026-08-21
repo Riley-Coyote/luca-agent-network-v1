@@ -32,16 +32,19 @@ export type ArtifactVersion = Readonly<{
 export type ArtifactSourceBinding = Readonly<{
   kind: "file" | "directory";
   relativePath: string;
-  availability: "available" | "missing";
+  availability: "available" | "missing" | "unavailable";
+}>;
+
+export type LastPreviewMetadata = Readonly<{
+  origin: string;
+  port: number;
+  attachedAt: string;
 }>;
 
 export type ArtifactProvenance = Readonly<{
   conversationId: string | null;
-  conversationLabel: string | null;
   projectId: string | null;
-  projectLabel: string | null;
   residentPubkey: string | null;
-  residentName: string;
   turnId: string | null;
   dispatchReceiptId: string | null;
   finalMessageId: string | null;
@@ -65,6 +68,7 @@ export type ArtifactSummary = Readonly<{
   provenance: ArtifactProvenance;
   sourceBinding: ArtifactSourceBinding | null;
   activePreviewSessionId: string | null;
+  lastPreview: LastPreviewMetadata | null;
 }>;
 
 export type ArtifactDetail = ArtifactSummary &
@@ -115,7 +119,6 @@ export type ArtifactReceipt = Readonly<{
   state: ArtifactReceiptState;
   conversationId: string;
   residentPubkey: string;
-  residentName: string;
   turnId: string;
   dispatchReceiptId: string;
   sessionEpoch: number;
@@ -136,6 +139,22 @@ export type PreviewSession = Readonly<{
   turnId: string;
   attachedAt: string;
   checkedAt: string;
+}>;
+
+export type ArtifactPreviewState = Readonly<{
+  artifactId: string;
+  activeSession: PreviewSession | null;
+  lastPreview: LastPreviewMetadata | null;
+}>;
+
+export type PreparedArtifactPreview = Readonly<{
+  artifactId: string;
+  version: number;
+  presentationId: string;
+  renderer: "sandboxed_html";
+  uri: string;
+  mediaType: string;
+  expiresAt: string;
 }>;
 
 export type ArtifactCanvasPresentation = Readonly<{

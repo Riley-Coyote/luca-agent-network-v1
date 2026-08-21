@@ -1039,6 +1039,9 @@ declare global {
       id?: string;
     }) => RelayEvent;
     __BUZZ_E2E_EMIT_TAURI_EVENT__?: (event: string, payload: unknown) => void;
+    __BUZZ_E2E_SET_ARTIFACT_PREVIEW_STATUS__?: (
+      status: "starting" | "ready" | "unreachable" | "stopped",
+    ) => void;
     /** Prepend `count` synthetic older messages to a channel's mock store so
      *  an older-history fetch has something to paginate. Mirrors how the real
      *  relay backfills history. Returns the created events. */
@@ -1281,12 +1284,8 @@ let mockArtifacts: MockArtifact[] = [
       "A responsive study for the threshold between conversation and durable work.",
     provenance: {
       conversation_id: "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50",
-      conversation_label: "Polyphonic",
-      project_id: "polyphonic",
-      project_label: "Polyphonic",
       resident_pubkey:
         "953d3363262e86b770419834c53d2446409db6d918a57f8f339d495d54ab001f",
-      resident_name: "Luca",
       turn_id: "turn-threshold",
       dispatch_receipt_id: "dispatch-threshold",
       final_message_id: "mock-general-alice",
@@ -1329,10 +1328,8 @@ let mockArtifacts: MockArtifact[] = [
     summary: "The durable vocabulary for residents, rooms, and created work.",
     provenance: {
       conversation_id: "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50",
-      conversation_label: "Luca",
       resident_pubkey:
         "554cef57437abac34522ac2c9f0490d685b72c80478cf9f7ed6f9570ee8624ea",
-      resident_name: "Vektor",
       turn_id: "turn-model",
     },
     source_binding: null,
@@ -1371,10 +1368,8 @@ let mockArtifacts: MockArtifact[] = [
       "A source-bound local application with an attached development preview.",
     provenance: {
       conversation_id: "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50",
-      conversation_label: "Polyphonic",
       resident_pubkey:
         "953d3363262e86b770419834c53d2446409db6d918a57f8f339d495d54ab001f",
-      resident_name: "Luca",
       turn_id: "turn-app",
     },
     source_binding: {
@@ -1390,6 +1385,102 @@ let mockArtifacts: MockArtifact[] = [
 
 let mockPreviewSessionStatus: "starting" | "ready" | "unreachable" | "stopped" =
   "ready";
+
+function mockArtifactVersionView(
+  artifact: MockArtifact,
+  value: Record<string, unknown>,
+) {
+  const number = Number(value.number ?? value.version ?? 1);
+  return {
+    id: `${artifact.id}:v${number}`,
+    artifactId: artifact.id,
+    number,
+    parentVersion: number > 1 ? number - 1 : null,
+    contentHash: String(
+      value.content_hash ??
+        value.contentHash ??
+        `sha256:${artifact.id}-${number}`,
+    ),
+    mediaType: String(
+      value.media_type ?? value.mediaType ?? artifact.media_type,
+    ),
+    sizeBytes: Number(
+      value.size_bytes ?? value.sizeBytes ?? artifact.size_bytes ?? 0,
+    ),
+    source: String(value.source ?? "inline"),
+    createdByPubkey: String(
+      artifact.provenance.resident_pubkey ?? ALICE_PUBKEY,
+    ),
+    conversationId: String(artifact.provenance.conversation_id ?? ""),
+    turnId: String(artifact.provenance.turn_id ?? ""),
+    createdAt: String(
+      value.created_at ?? value.createdAt ?? artifact.updated_at,
+    ),
+    note: String(value.note ?? "Saved version"),
+  };
+}
+
+function mockArtifactView(artifact: MockArtifact) {
+  const source = artifact.source_binding;
+  const isLiveApp =
+    artifact.kind === "app" && mockPreviewSessionStatus !== "stopped";
+  return {
+    id: artifact.id,
+    title: artifact.title,
+    kind: artifact.kind,
+    mediaType: artifact.media_type,
+    language: artifact.language,
+    currentVersion: artifact.current_version,
+    currentVersionId: `${artifact.id}:v${artifact.current_version}`,
+    sizeBytes: artifact.size_bytes,
+    createdAt: artifact.created_at,
+    updatedAt: artifact.updated_at,
+    pinned: artifact.pinned,
+    deletedAt: artifact.deleted_at,
+    availability: artifact.availability,
+    receiptState: "linked",
+    summary: artifact.summary,
+    provenance: {
+      residentPubkey: artifact.provenance.resident_pubkey ?? null,
+      conversationId: artifact.provenance.conversation_id ?? null,
+      projectId: null,
+      turnId: artifact.provenance.turn_id ?? null,
+      dispatchReceiptId: artifact.provenance.dispatch_receipt_id ?? null,
+      finalMessageId: artifact.provenance.final_message_id ?? null,
+    },
+    sourceBinding: source
+      ? {
+          kind: source.kind,
+          relativePath: source.relative_path,
+          availability: source.availability,
+        }
+      : null,
+    activePreviewSessionId: isLiveApp ? "preview-local-app" : null,
+    lastPreview:
+      artifact.kind === "app"
+        ? {
+            origin: "http://127.0.0.1",
+            port: 4182,
+            attachedAt: "2026-08-21T03:14:00Z",
+          }
+        : null,
+  };
+}
+
+function mockPreviewSession() {
+  return {
+    id: "preview-local-app",
+    artifactId: "local-app",
+    displayUrl: "http://127.0.0.1:4182",
+    proxyUrl: "about:blank",
+    status: mockPreviewSessionStatus,
+    conversationId: "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50",
+    residentPubkey: ALICE_PUBKEY,
+    turnId: "turn-app",
+    attachedAt: "2026-08-21T03:14:00Z",
+    checkedAt: new Date().toISOString(),
+  };
+}
 
 // A relay-hosted custom emoji used by the reaction guard. Its URL matches
 // `rewriteRelayUrl()`'s `/media/{64-hex}.{ext}` pattern on the relay origin, so
@@ -10061,12 +10152,16 @@ export function maybeInstallE2eTauriMocks() {
   resetMockSaveSubscriptions(config);
   resetMockPendingCommunityDeepLinks(config);
   mockWebsocketSendMutexWedged = false;
+  mockPreviewSessionStatus = "ready";
   mockWindows("main");
   window.__BUZZ_E2E_COMMANDS__ = [];
   window.__BUZZ_E2E_COMMAND_PAYLOADS__ = [];
   window.__BUZZ_E2E_COMMAND_LOG__ = [];
   window.__BUZZ_E2E_SIGNED_EVENTS__ = [];
   window.__BUZZ_E2E_WEBVIEW_ZOOM__ = 1;
+  window.__BUZZ_E2E_SET_ARTIFACT_PREVIEW_STATUS__ = (status) => {
+    mockPreviewSessionStatus = status;
+  };
   window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__ = ({
     channelName,
     channelId,
@@ -10690,24 +10785,54 @@ export function maybeInstallE2eTauriMocks() {
             (payload ?? {}) as {
               input?: {
                 query?: string;
-                kind?: string;
-                includeDeleted?: boolean;
+                kinds?: string[];
+                deleted?: "active" | "deleted" | "all";
+                cursor?: string;
+                limit?: number;
               };
             }
           ).input ?? {};
         const query = filter.query?.trim().toLowerCase() ?? "";
         const artifacts = mockArtifacts.filter((artifact) => {
-          if (!filter.includeDeleted && artifact.deleted_at) return false;
-          if (filter.includeDeleted && !artifact.deleted_at) return false;
-          if (filter.kind && artifact.kind !== filter.kind) return false;
+          if (filter.deleted === "deleted" && !artifact.deleted_at)
+            return false;
+          if (
+            (!filter.deleted || filter.deleted === "active") &&
+            artifact.deleted_at
+          )
+            return false;
+          if (filter.kinds?.length && !filter.kinds.includes(artifact.kind))
+            return false;
           return (
             !query ||
-            `${artifact.title} ${artifact.summary} ${String(artifact.provenance.resident_name ?? "")}`
+            [
+              artifact.title,
+              artifact.id,
+              String(artifact.provenance.resident_pubkey ?? ""),
+              String(artifact.provenance.conversation_id ?? ""),
+            ]
+              .join(" ")
               .toLowerCase()
               .includes(query)
           );
         });
-        return artifacts;
+        artifacts.sort(
+          (left, right) =>
+            Number(right.pinned) - Number(left.pinned) ||
+            right.updated_at.localeCompare(left.updated_at) ||
+            right.id.localeCompare(left.id),
+        );
+        const offset = Number.parseInt(filter.cursor ?? "0", 10);
+        const limit = Math.min(filter.limit ?? 100, 500);
+        const page = artifacts.slice(offset, offset + limit);
+        return {
+          artifacts: page.map(mockArtifactView),
+          nextCursor:
+            offset + page.length < artifacts.length
+              ? String(offset + page.length)
+              : null,
+          total: artifacts.length,
+        };
       }
       case "get_artifact": {
         const artifactId = (
@@ -10715,14 +10840,17 @@ export function maybeInstallE2eTauriMocks() {
         )?.input?.artifactId;
         const artifact = mockArtifacts.find((item) => item.id === artifactId);
         if (!artifact) throw new Error("artifact unavailable");
-        return artifact;
+        return mockArtifactView(artifact);
       }
       case "list_artifact_versions": {
         const artifactId = (
           payload as { input?: { artifactId?: string } } | null
         )?.input?.artifactId;
+        const artifact = mockArtifacts.find((item) => item.id === artifactId);
         return (
-          mockArtifacts.find((item) => item.id === artifactId)?.versions ?? []
+          artifact?.versions.map((version) =>
+            mockArtifactVersionView(artifact, version),
+          ) ?? []
         );
       }
       case "read_artifact_preview": {
@@ -10745,36 +10873,89 @@ export function maybeInstallE2eTauriMocks() {
               : capability === "generic"
                 ? "unsupported"
                 : "text";
+        const number = input.version ?? artifact.current_version;
         return {
+          artifactId: artifact.id,
+          version: number,
+          versionId: `${artifact.id}:v${number}`,
           previewType,
-          artifact,
-          version: {
-            artifact_id: artifact.id,
-            version: input.version ?? artifact.current_version,
-            media_type: artifact.media_type,
-            size_bytes: artifact.size_bytes ?? 0,
-          },
+          mediaType: artifact.media_type,
+          language: artifact.language,
           contentUtf8: artifact.preview.text ?? null,
           contentBase64: artifact.preview.content_base64 ?? null,
           truncated: false,
+          availability: artifact.availability,
+          safeMessage: null,
         };
       }
-      case "list_artifact_receipts":
-        return [];
+      case "get_artifact_preview_state": {
+        const artifactId = (
+          payload as { input?: { artifactId?: string } } | null
+        )?.input?.artifactId;
+        const artifact = mockArtifacts.find((item) => item.id === artifactId);
+        if (!artifact) throw new Error("artifact-not-found");
+        return {
+          artifactId: artifact.id,
+          activeSession:
+            artifact.kind === "app" && mockPreviewSessionStatus !== "stopped"
+              ? mockPreviewSession()
+              : null,
+          lastPreview: mockArtifactView(artifact).lastPreview,
+        };
+      }
+      case "prepare_artifact_preview": {
+        const input = (
+          payload as {
+            input?: { artifactId?: string; version?: number | null };
+          } | null
+        )?.input;
+        const artifact = mockArtifacts.find(
+          (item) => item.id === input?.artifactId,
+        );
+        if (!artifact) throw new Error("artifact-not-found");
+        const version = input?.version ?? artifact.current_version;
+        return {
+          artifactId: artifact.id,
+          version,
+          presentationId: `presentation-${artifact.id}-${version}`,
+          renderer: "sandboxed_html",
+          // Browser-only stand-in for the native luca-artifact:// URI. It lets
+          // Chromium render the exact bytes while the packaged WebKit smoke
+          // remains responsible for proving the real native scheme + CSP.
+          uri: `data:text/html;charset=utf-8,${encodeURIComponent(String(artifact.preview.text ?? ""))}`,
+          mediaType: artifact.media_type,
+          expiresAt: "2026-08-22T03:14:00Z",
+        };
+      }
+      case "revoke_artifact_preview":
+        return true;
+      case "list_artifact_receipts": {
+        const conversationId = (
+          payload as { input?: { conversationId?: string } } | null
+        )?.input?.conversationId;
+        if (conversationId !== "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50") {
+          return [];
+        }
+        return [
+          {
+            id: "receipt-threshold-study",
+            artifactId: "threshold-study",
+            artifactTitle: "threshold-study.html",
+            version: 3,
+            state: "linked",
+            conversationId,
+            residentPubkey: ALICE_PUBKEY,
+            turnId: "artifact-turn-3",
+            dispatchReceiptId: "dispatch-artifact-turn-3",
+            sessionEpoch: 4,
+            finalMessageId: "mock-general-alice",
+            createdAt: "2026-08-21T03:04:00Z",
+          },
+        ];
+      }
       case "get_preview_session":
       case "refresh_preview_health":
-        return {
-          id: "preview-local-app",
-          artifact_id: "local-app",
-          display_url: "http://127.0.0.1:4182",
-          proxy_url: "about:blank",
-          status: mockPreviewSessionStatus,
-          conversation_id: "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50",
-          resident_pubkey: ALICE_PUBKEY,
-          turn_id: "turn-app",
-          attached_at: "2026-08-21T03:14:00Z",
-          checked_at: new Date().toISOString(),
-        };
+        return mockPreviewSession();
       case "detach_preview_session":
         mockPreviewSessionStatus = "stopped";
         return null;
@@ -10792,8 +10973,9 @@ export function maybeInstallE2eTauriMocks() {
             ? { ...artifact, pinned: input.pinned ?? false }
             : artifact,
         );
-        return mockArtifacts.find(
-          (artifact) => artifact.id === input.artifactId,
+        return mockArtifactView(
+          mockArtifacts.find((artifact) => artifact.id === input.artifactId) ??
+            mockArtifacts[0],
         );
       }
       case "soft_delete_artifact": {
@@ -10805,7 +10987,10 @@ export function maybeInstallE2eTauriMocks() {
             ? { ...artifact, deleted_at: new Date().toISOString() }
             : artifact,
         );
-        return null;
+        return mockArtifactView(
+          mockArtifacts.find((artifact) => artifact.id === artifactId) ??
+            mockArtifacts[0],
+        );
       }
       case "restore_artifact": {
         const artifactId = (
@@ -10816,7 +11001,10 @@ export function maybeInstallE2eTauriMocks() {
             ? { ...artifact, deleted_at: null }
             : artifact,
         );
-        return mockArtifacts.find((artifact) => artifact.id === artifactId);
+        return mockArtifactView(
+          mockArtifacts.find((artifact) => artifact.id === artifactId) ??
+            mockArtifacts[0],
+        );
       }
       case "revert_artifact": {
         const input =
@@ -10830,12 +11018,16 @@ export function maybeInstallE2eTauriMocks() {
               }
             : artifact,
         );
-        return mockArtifacts.find(
-          (artifact) => artifact.id === input.artifactId,
-        );
+        return {
+          artifact: mockArtifactView(
+            mockArtifacts.find(
+              (artifact) => artifact.id === input.artifactId,
+            ) ?? mockArtifacts[0],
+          ),
+        };
       }
       case "export_artifact":
-        return null;
+        return true;
       case "set_artifact_canvas_window_open":
         return {
           mode:

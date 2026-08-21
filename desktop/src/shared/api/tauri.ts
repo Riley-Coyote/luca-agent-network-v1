@@ -255,7 +255,7 @@ export type RawAcpRuntimeCatalogEntry = {
   binary_path: string | null;
   default_args: string[];
   mcp_command: string | null;
-  artifact_mcp_support?: "standard_session_new";
+  artifact_mcp_support?: "supported" | "probe_pending" | "unavailable";
   model_env_var?: string | null;
   provider_env_var?: string | null;
   thinking_env_var?: string | null;
@@ -853,7 +853,11 @@ function fromRawAcpRuntimeCatalogEntry(
     binaryPath: entry.binary_path,
     defaultArgs: entry.default_args,
     mcpCommand: entry.mcp_command,
-    artifactMcpSupport: entry.artifact_mcp_support ?? "standard_session_new",
+    artifactMcpSupport:
+      entry.artifact_mcp_support === "supported" ||
+      entry.artifact_mcp_support === "probe_pending"
+        ? entry.artifact_mcp_support
+        : "unavailable",
     modelEnvVar: entry.model_env_var ?? null,
     providerEnvVar: entry.provider_env_var ?? null,
     thinkingEnvVar: entry.thinking_env_var ?? null,

@@ -10,6 +10,7 @@
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+  position: relative;
 }
 
 .artifact-library-screen__header {
@@ -240,6 +241,34 @@
 .artifact-library-row__actions button[data-active="true"] {
   background: hsl(var(--mn-hover));
   color: hsl(var(--mn-ink));
+}
+
+.artifact-library-load-more {
+  border-radius: 0.4rem;
+  color: hsl(var(--mn-ink-faint));
+  display: block;
+  font-size: var(--artifact-library-caption);
+  margin: 0.8rem auto 0;
+  padding: 0.5rem 0.75rem;
+}
+
+.artifact-library-load-more:hover {
+  background: hsl(var(--mn-hover));
+  color: hsl(var(--mn-ink));
+}
+
+.artifact-library-notice {
+  background: hsl(var(--mn-raised) / 0.94);
+  border: 1px solid hsl(var(--mn-border));
+  border-radius: 0.4rem;
+  bottom: 3.4rem;
+  color: hsl(var(--mn-ink-muted));
+  font-size: var(--artifact-library-caption);
+  max-width: calc(100% - 2rem);
+  padding: 0.45rem 0.65rem;
+  position: absolute;
+  right: 1rem;
+  z-index: 3;
 }
 
 .artifact-library-loading {

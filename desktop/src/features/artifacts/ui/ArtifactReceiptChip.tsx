@@ -2,10 +2,12 @@ import { FileCode2, LoaderCircle } from "lucide-react";
 
 import { useArtifactCanvas } from "@/features/artifacts/ArtifactCanvasProvider";
 import type { ArtifactReceipt } from "@/features/artifacts/types";
+import { useArtifactResidentLabel } from "@/features/artifacts/useArtifactProvenanceLabels";
 import { cn } from "@/shared/lib/cn";
 
 export function ArtifactReceiptChip({ receipt }: { receipt: ArtifactReceipt }) {
   const { openArtifact } = useArtifactCanvas();
+  const residentLabel = useArtifactResidentLabel(receipt.residentPubkey);
   const isProvisional = receipt.state === "provisional";
   return (
     <button
@@ -31,7 +33,9 @@ export function ArtifactReceiptChip({ receipt }: { receipt: ArtifactReceipt }) {
       )}
       <span>
         <strong>{receipt.artifactTitle}</strong>
-        <small>{receiptLabel(receipt.state)}</small>
+        <small>
+          {residentLabel} · {receiptLabel(receipt.state)}
+        </small>
       </span>
     </button>
   );

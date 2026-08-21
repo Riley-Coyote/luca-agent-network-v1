@@ -131,7 +131,8 @@ html[data-artifact-canvas-open="true"] [data-luca-inspector] {
 }
 
 .artifact-canvas-card__actions button,
-.artifact-live-controls button {
+.artifact-live-controls button,
+.artifact-preview-enter {
   align-items: center;
   border: 0;
   border-radius: 0.38rem;
@@ -144,7 +145,8 @@ html[data-artifact-canvas-open="true"] [data-luca-inspector] {
 }
 
 .artifact-canvas-card__actions button:hover,
-.artifact-live-controls button:hover {
+.artifact-live-controls button:hover,
+.artifact-preview-enter:hover {
   background: hsl(var(--mn-hover));
   color: hsl(var(--mn-ink));
 }
@@ -214,6 +216,19 @@ html[data-artifact-canvas-open="true"] [data-luca-inspector] {
 .artifact-live-controls {
   gap: 0.12rem;
   min-width: 0;
+}
+
+.artifact-preview-enter {
+  flex: 0 0 auto;
+  font-size: var(--artifact-text-caption);
+  gap: 0.35rem;
+  padding: 0 0.5rem;
+  width: auto;
+}
+
+.artifact-preview-enter svg {
+  height: 0.78rem;
+  width: 0.78rem;
 }
 
 .artifact-live-controls > span {
@@ -415,6 +430,20 @@ html[data-artifact-canvas-open="true"] [data-luca-inspector] {
   gap: 1rem;
   justify-content: space-between;
   padding: 0.75rem 1rem;
+}
+
+.artifact-canvas-card__notice {
+  background: hsl(var(--mn-raised) / 0.94);
+  border: 1px solid hsl(var(--mn-border));
+  border-radius: 0.4rem;
+  bottom: 0.75rem;
+  color: hsl(var(--mn-ink-muted));
+  font-size: var(--artifact-text-caption);
+  max-width: calc(100% - 1.5rem);
+  padding: 0.45rem 0.65rem;
+  position: absolute;
+  right: 0.75rem;
+  z-index: 3;
 }
 
 .artifact-canvas-card__recovery div {

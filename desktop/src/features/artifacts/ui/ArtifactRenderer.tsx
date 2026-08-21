@@ -1,43 +1,90 @@
 import { FileWarning, ImageIcon, LoaderCircle } from "lucide-react";
+import type * as React from "react";
 import ReactMarkdown from "react-markdown";
 
 import type {
   ArtifactDetail,
+  LastPreviewMetadata,
   ArtifactPreviewPayload,
+  PreparedArtifactPreview,
   PreviewSession,
 } from "@/features/artifacts/types";
-import {
-  buildOpaqueHtmlDocument,
-  svgImageDataUrl,
-} from "@/features/artifacts/lib/previewSecurity";
+import { svgImageDataUrl } from "@/features/artifacts/lib/previewSecurity";
 
 type ArtifactRendererProps = {
   artifact: ArtifactDetail;
+  frameRef: React.RefObject<HTMLIFrameElement | null>;
+  lastPreview: LastPreviewMetadata | null;
   payload: ArtifactPreviewPayload | undefined;
+  payloadError: Error | null;
+  preparedPreview: PreparedArtifactPreview | undefined;
+  preparedPreviewError: Error | null;
   previewSession: PreviewSession | undefined;
+  previewSessionError: Error | null;
   reloadKey: number;
 };
 
 export function ArtifactRenderer({
   artifact,
+  frameRef,
+  lastPreview,
   payload,
+  payloadError,
+  preparedPreview,
+  preparedPreviewError,
   previewSession,
+  previewSessionError,
   reloadKey,
 }: ArtifactRendererProps) {
   if (artifact.kind === "app") {
-    return <LiveAppRenderer reloadKey={reloadKey} session={previewSession} />;
+    return (
+      <LiveAppRenderer
+        error={previewSessionError}
+        frameRef={frameRef}
+        lastPreview={lastPreview}
+        reloadKey={reloadKey}
+        session={previewSession}
+      />
+    );
+  }
+
+  if (artifact.kind === "html") {
+    if (preparedPreviewError) {
+      return (
+        <RendererFallback
+          message={previewErrorMessage(preparedPreviewError)}
+          title="HTML preview unavailable"
+        />
+      );
+    }
+    if (!preparedPreview) {
+      return <RendererLoading label="Preparing secure preview" />;
+    }
+    return (
+      <iframe
+        className="artifact-renderer-frame"
+        data-testid="artifact-html-preview"
+        ref={frameRef}
+        referrerPolicy="no-referrer"
+        sandbox="allow-scripts"
+        src={preparedPreview.uri}
+        tabIndex={-1}
+        title={`Preview of ${artifact.title}`}
+      />
+    );
+  }
+
+  if (payloadError) {
+    return (
+      <RendererFallback
+        message={previewErrorMessage(payloadError)}
+        title="Preview unavailable"
+      />
+    );
   }
 
   if (!payload) {
-    return (
-      <div
-        className="artifact-renderer-state"
-        data-testid="artifact-preview-loading"
-      >
-        <LoaderCircle aria-hidden className="animate-spin" />
-        <p>Preparing preview</p>
-      </div>
-    );
+    return <RendererLoading label="Preparing preview" />;
   }
 
   if (payload.availability !== "ready") {
@@ -47,19 +94,6 @@ export function ArtifactRenderer({
           payload.safeMessage ?? availabilityMessage(payload.availability)
         }
         title="Preview unavailable"
-      />
-    );
-  }
-
-  if (payload.capability === "html" && payload.text !== null) {
-    return (
-      <iframe
-        className="artifact-renderer-frame"
-        data-testid="artifact-html-preview"
-        referrerPolicy="no-referrer"
-        sandbox="allow-scripts"
-        srcDoc={buildOpaqueHtmlDocument(payload.text)}
-        title={`Preview of ${artifact.title}`}
       />
     );
   }
@@ -168,12 +202,39 @@ export function ArtifactRenderer({
 }
 
 function LiveAppRenderer({
+  error,
+  frameRef,
+  lastPreview,
   reloadKey,
   session,
 }: {
+  error: Error | null;
+  frameRef: React.RefObject<HTMLIFrameElement | null>;
+  lastPreview: LastPreviewMetadata | null;
   reloadKey: number;
   session: PreviewSession | undefined;
 }) {
+  if (error) {
+    return (
+      <RendererFallback
+        message="Canvas could not read the current preview session. The application artifact is still safe in Library."
+        title="Preview state unavailable"
+      />
+    );
+  }
+  if (!session) {
+    return (
+      <div className="artifact-renderer-state" data-preview-health="stopped">
+        <FileWarning aria-hidden />
+        <h3>No server attached</h3>
+        <p>
+          {lastPreview
+            ? `The last preview used ${previewDisplayUrl(lastPreview)}. Ask the source resident to start it again.`
+            : "Ask the source resident to start its development server and attach a loopback preview."}
+        </p>
+      </div>
+    );
+  }
   if (session?.status !== "ready" || !session.proxyUrl) {
     return (
       <div
@@ -200,12 +261,45 @@ function LiveAppRenderer({
       className="artifact-renderer-frame"
       data-testid="artifact-live-preview"
       key={reloadKey}
+      ref={frameRef}
       referrerPolicy="no-referrer"
       sandbox="allow-forms allow-same-origin allow-scripts"
       src={session.proxyUrl}
+      tabIndex={-1}
       title="Local application preview"
     />
   );
+}
+
+function RendererLoading({ label }: { label: string }) {
+  return (
+    <div
+      className="artifact-renderer-state"
+      data-testid="artifact-preview-loading"
+    >
+      <LoaderCircle aria-hidden className="animate-spin" />
+      <p>{label}</p>
+    </div>
+  );
+}
+
+function previewDisplayUrl(preview: LastPreviewMetadata) {
+  return `${preview.origin}:${preview.port}`;
+}
+
+function previewErrorMessage(error: Error) {
+  const message = error.message.toLowerCase();
+  if (message.includes("deleted"))
+    return "Restore this artifact before previewing it.";
+  if (message.includes("corrupt"))
+    return "The managed copy could not be verified. No source bytes were substituted.";
+  if (message.includes("source-missing"))
+    return "The bound source is missing, but the artifact record remains available.";
+  if (message.includes("too-large"))
+    return "This artifact is larger than the safe inline preview limit.";
+  if (message.includes("expired") || message.includes("not-found"))
+    return "This preview expired. Close and reopen Canvas to prepare a fresh one.";
+  return "Canvas could not prepare this preview. The artifact remains available to export.";
 }
 
 function RendererFallback({

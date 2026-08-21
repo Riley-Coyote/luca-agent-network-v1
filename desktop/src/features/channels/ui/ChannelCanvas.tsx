@@ -56,7 +56,9 @@ export function ChannelCanvas({
   }
 
   if (canvasQuery.isLoading) {
-    return <p className="text-sm text-muted-foreground">Loading canvas...</p>;
+    return (
+      <p className="text-sm text-muted-foreground">Loading room brief...</p>
+    );
   }
 
   if (canvasQuery.error instanceof Error) {
@@ -73,12 +75,12 @@ export function ChannelCanvas({
     return (
       <div className="space-y-3">
         <Textarea
-          aria-label="Canvas content"
+          aria-label="Room brief content"
           className="min-h-48 font-mono text-sm"
           data-testid="channel-canvas-editor"
           disabled={setCanvasMutation.isPending}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="Write your canvas content in Markdown..."
+          placeholder="Write the room brief in Markdown..."
           value={draft}
         />
         <div className="flex gap-2">
@@ -94,7 +96,7 @@ export function ChannelCanvas({
             type="button"
           >
             <Save className="h-4 w-4" />
-            {setCanvasMutation.isPending ? "Saving..." : "Save canvas"}
+            {setCanvasMutation.isPending ? "Saving..." : "Save room brief"}
           </Button>
           <Button
             data-testid="channel-canvas-cancel"
@@ -131,7 +133,7 @@ export function ChannelCanvas({
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">
-          No canvas set for this channel.
+          No room brief set for this channel.
         </p>
       )}
       {canEdit && !isArchived ? (
@@ -143,7 +145,7 @@ export function ChannelCanvas({
           variant="outline"
         >
           <Pencil className="h-4 w-4" />
-          {canvasContent ? "Edit canvas" : "Create canvas"}
+          {canvasContent ? "Edit room brief" : "Create room brief"}
         </Button>
       ) : null}
     </div>

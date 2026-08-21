@@ -1,7 +1,10 @@
 import { Code2, FileWarning, ImageIcon } from "lucide-react";
 
-import { buildOpaqueHtmlDocument } from "@/features/artifacts/lib/previewSecurity";
 import type { ArtifactRecord } from "@/features/artifacts/types";
+
+// The design lab preserves its geometry with a fixed, non-executing document.
+// Production HTML always comes from the native luca-artifact:// preview scheme.
+const LAB_HTML_PLACEHOLDER = `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><style>html,body{height:100%;margin:0}body{display:grid;place-items:center;background:#f5f4f1;color:#77736c;font:13px ui-monospace,monospace;letter-spacing:.04em}</style></head><body>Static HTML preview</body></html>`;
 
 export function ArtifactPreview({ artifact }: { artifact: ArtifactRecord }) {
   const current = artifact.versions[0];
@@ -12,8 +15,8 @@ export function ArtifactPreview({ artifact }: { artifact: ArtifactRecord }) {
         className="artifact-preview__iframe"
         data-testid="artifact-html-preview"
         referrerPolicy="no-referrer"
-        sandbox="allow-scripts"
-        srcDoc={buildOpaqueHtmlDocument(current.source)}
+        sandbox=""
+        srcDoc={LAB_HTML_PLACEHOLDER}
         title={`Preview of ${artifact.title}`}
       />
     );

@@ -44,6 +44,8 @@ export function ArtifactCanvasProvider({
   const [phase, setPhase] = React.useState<ArtifactCanvasPhase>("closed");
   const [mode, setMode] = React.useState<ArtifactCanvasMode>(browserMode);
   const closeTimer = React.useRef<number | null>(null);
+  const nativeWindowOpen = React.useRef(false);
+  const openRequest = React.useRef(0);
   const restoreFocus = React.useRef<HTMLElement | null>(null);
   const dismissedTurns = React.useRef(new Set<string>());
   const autoPresentedTurns = React.useRef(new Set<string>());
@@ -53,15 +55,18 @@ export function ArtifactCanvasProvider({
 
   const openArtifact = React.useCallback((next: ArtifactCanvasPresentation) => {
     if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+    const request = ++openRequest.current;
     restoreFocus.current =
       document.activeElement instanceof HTMLElement
         ? document.activeElement
         : null;
     setPhase("opening");
+    nativeWindowOpen.current = true;
     void setArtifactCanvasWindowOpen(true, 704)
       .then((result) => setMode(result.mode))
       .catch(() => setMode(browserMode()))
       .finally(() => {
+        if (request !== openRequest.current) return;
         setPresentation(next);
         requestAnimationFrame(() => setPhase("open"));
       });
@@ -69,9 +74,9 @@ export function ArtifactCanvasProvider({
 
   const closeCanvas = React.useCallback(() => {
     if (!presentation) return;
+    ++openRequest.current;
     if (presentation.turnId) dismissedTurns.current.add(presentation.turnId);
     setPhase("closing");
-    void setArtifactCanvasWindowOpen(false).catch(() => undefined);
     const reduced = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     ).matches;
@@ -79,10 +84,24 @@ export function ArtifactCanvasProvider({
       () => {
         setPresentation(null);
         setPhase("closed");
-        restoreFocus.current?.focus();
+        nativeWindowOpen.current = false;
+        void setArtifactCanvasWindowOpen(false).catch(() => undefined);
+        if (restoreFocus.current?.isConnected) restoreFocus.current.focus();
       },
       reduced ? 0 : TRANSITION_MS,
     );
+  }, [presentation]);
+
+  React.useEffect(() => {
+    if (!presentation) return;
+    let lastWidth = window.innerWidth;
+    const onResize = () => {
+      if (Math.abs(window.innerWidth - lastWidth) < 8) return;
+      lastWidth = window.innerWidth;
+      setMode(browserMode());
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   }, [presentation]);
 
   React.useEffect(() => {
@@ -131,8 +150,8 @@ export function ArtifactCanvasProvider({
         if (payload.conversationId !== currentConversationId) return;
         if (turnId && dismissedTurns.current.has(turnId)) return;
         if (turnId && autoPresentedTurns.current.has(turnId)) return;
-        if (presentation) return;
         if (turnId) autoPresentedTurns.current.add(turnId);
+        if (presentation) return;
         openArtifact({
           artifactId: payload.artifactId,
           version: payload.version ?? null,
@@ -160,6 +179,11 @@ export function ArtifactCanvasProvider({
   React.useEffect(
     () => () => {
       if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+      ++openRequest.current;
+      if (nativeWindowOpen.current) {
+        nativeWindowOpen.current = false;
+        void setArtifactCanvasWindowOpen(false).catch(() => undefined);
+      }
     },
     [],
   );
