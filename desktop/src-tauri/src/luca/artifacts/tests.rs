@@ -404,6 +404,35 @@ fn reconciliation_removes_staging_and_marks_missing_current_blob() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn managed_blob_reads_reject_symlink_replacement() {
+    let temp = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let mut store = ArtifactStore::open(temp.path()).unwrap();
+    let created = store
+        .create(&context('1'), &create_args("blob-symlink", "safe"), None)
+        .unwrap();
+    let hash: String = store
+        .connection
+        .query_row(
+            "SELECT blob_hash FROM artifact_versions LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let blob = blob_path(&store.root.join("blobs"), &hash).unwrap();
+    fs::remove_file(&blob).unwrap();
+    let outside_file = outside.path().join("replacement");
+    fs::write(&outside_file, "safe").unwrap();
+    std::os::unix::fs::symlink(&outside_file, &blob).unwrap();
+
+    assert_eq!(
+        store.read_binary(&hex('1'), &id(&created.artifact.artifact_id), None),
+        Err(ArtifactStoreError::CorruptBlob)
+    );
+}
+
 #[test]
 fn schema_identity_is_fail_closed() {
     let temp = tempfile::tempdir().unwrap();
@@ -418,6 +447,156 @@ fn schema_identity_is_fail_closed() {
         ArtifactStore::open(temp.path()),
         Err(ArtifactStoreError::SchemaIncompatible)
     ));
+}
+
+#[test]
+fn native_list_paginates_and_filters_metadata_without_loading_bodies() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut store = ArtifactStore::open(temp.path()).unwrap();
+    for (key, title) in [("list-1", "Alpha"), ("list-2", "Beta"), ("list-3", "Gamma")] {
+        let mut args = create_args(key, &format!("<h1>{title}</h1>"));
+        args.title = title.into();
+        store.create(&context('1'), &args, None).unwrap();
+    }
+    let query = ArtifactListQuery {
+        query: None,
+        kinds: vec![ArtifactKindV1::Html, ArtifactKindV1::Html],
+        deleted: ArtifactDeletedFilter::Active,
+        cursor: None,
+        limit: 2,
+    };
+    let first = store.list_page(&hex('1'), &query).unwrap();
+    assert_eq!(first.artifacts.len(), 2);
+    assert_eq!(first.total, 3);
+    let second = store
+        .list_page(
+            &hex('1'),
+            &ArtifactListQuery {
+                cursor: first.next_cursor,
+                ..query.clone()
+            },
+        )
+        .unwrap();
+    assert_eq!(second.artifacts.len(), 1);
+    assert!(second.next_cursor.is_none());
+
+    let by_resident = store
+        .list_page(
+            &hex('1'),
+            &ArtifactListQuery {
+                query: Some(hex('2').as_str().into()),
+                cursor: None,
+                ..query.clone()
+            },
+        )
+        .unwrap();
+    assert_eq!(by_resident.total, 3);
+    assert_eq!(
+        store.list_page(
+            &hex('1'),
+            &ArtifactListQuery {
+                cursor: Some("not-a-cursor".into()),
+                ..query
+            },
+        ),
+        Err(ArtifactStoreError::InvalidRequest)
+    );
+}
+
+#[test]
+fn last_preview_metadata_is_owner_scoped_sanitized_input_and_durable() {
+    let temp = tempfile::tempdir().unwrap();
+    let artifact_id = {
+        let mut store = ArtifactStore::open(temp.path()).unwrap();
+        let created = store
+            .create(&context('1'), &create_args("preview-history", "app"), None)
+            .unwrap();
+        let artifact_id = id(&created.artifact.artifact_id);
+        store
+            .record_preview_attachment(
+                &hex('1'),
+                &artifact_id,
+                "http://127.0.0.1",
+                5173,
+                "2026-08-21T00:00:00Z",
+            )
+            .unwrap();
+        assert_eq!(
+            store.record_preview_attachment(
+                &hex('1'),
+                &artifact_id,
+                "http://example.com",
+                80,
+                "2026-08-21T00:00:00Z",
+            ),
+            Err(ArtifactStoreError::InvalidRequest)
+        );
+        artifact_id
+    };
+    let store = ArtifactStore::open(temp.path()).unwrap();
+    assert_eq!(store.last_preview(&hex('3'), &artifact_id).unwrap(), None);
+    let preview = store
+        .last_preview(&hex('1'), &artifact_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(preview.origin, "http://127.0.0.1");
+    assert_eq!(preview.port, 5173);
+}
+
+#[test]
+fn accepted_receipt_link_reconciliation_is_idempotent() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut store = ArtifactStore::open(temp.path()).unwrap();
+    let created = store
+        .create(
+            &context('1'),
+            &create_args("receipt-recovery", "body"),
+            None,
+        )
+        .unwrap();
+    assert_eq!(
+        store
+            .link_turn_receipts(&hex('1'), &id("conversation-1"), &id("turn-1"), &hex('a'))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        store
+            .link_turn_receipts(&hex('1'), &id("conversation-1"), &id("turn-1"), &hex('a'))
+            .unwrap(),
+        0
+    );
+    let receipt = store
+        .latest_receipt(&hex('1'), &id(&created.artifact.artifact_id), 1)
+        .unwrap();
+    assert_eq!(receipt.state, ArtifactReceiptStateV1::Linked);
+    assert_eq!(receipt.message_id.as_deref(), Some(hex('a').as_str()));
+}
+
+#[test]
+fn schema_v1_is_migrated_without_discarding_artifacts() {
+    let temp = tempfile::tempdir().unwrap();
+    let artifact_id = {
+        let mut store = ArtifactStore::open(temp.path()).unwrap();
+        let created = store
+            .create(&context('1'), &create_args("migrate-v1", "body"), None)
+            .unwrap();
+        store
+            .connection
+            .execute_batch("DROP TABLE artifact_preview_history; PRAGMA user_version = 1;")
+            .unwrap();
+        created.artifact.artifact_id
+    };
+    let store = ArtifactStore::open(temp.path()).unwrap();
+    assert_eq!(
+        store.get(&hex('1'), &id(&artifact_id)).unwrap().artifact_id,
+        artifact_id
+    );
+    let version: i64 = store
+        .connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, schema::SCHEMA_VERSION);
 }
 
 #[allow(dead_code)]

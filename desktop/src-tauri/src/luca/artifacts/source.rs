@@ -4,6 +4,9 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+#[cfg(unix)]
+use rustix::fs::{fstat, open, openat, FileType, Mode, OFlags};
+
 use image::ImageReader;
 use luca_protocol::{
     ArtifactKindV1, ArtifactSourceV1, OpaqueId, MAX_ARTIFACT_FILE_BYTES, MAX_ARTIFACT_INLINE_BYTES,
@@ -57,17 +60,11 @@ pub(super) fn capture_source(
         } => {
             let (root_id, root) = required_root(working_root_id, working_root)?;
             let normalized = normalize_relative_path(relative_path)?;
-            let path = resolve_contained(root, &normalized, false)?;
-            let metadata = fs::metadata(&path).map_err(|_| ArtifactStoreError::SourceMissing)?;
-            if !metadata.is_file() || metadata.len() > MAX_ARTIFACT_FILE_BYTES {
-                return Err(if metadata.len() > MAX_ARTIFACT_FILE_BYTES {
-                    ArtifactStoreError::TooLarge
-                } else {
-                    ArtifactStoreError::InvalidSource
-                });
+            let (mut file, size_bytes) = open_relative_file(root, &normalized)?;
+            if size_bytes > MAX_ARTIFACT_FILE_BYTES {
+                return Err(ArtifactStoreError::TooLarge);
             }
-            let mut file = File::open(path).map_err(|_| ArtifactStoreError::SourceMissing)?;
-            let mut bytes = Vec::with_capacity(metadata.len().min(8 * 1024 * 1024) as usize);
+            let mut bytes = Vec::with_capacity(size_bytes.min(8 * 1024 * 1024) as usize);
             Read::by_ref(&mut file)
                 .take(MAX_ARTIFACT_FILE_BYTES + 1)
                 .read_to_end(&mut bytes)
@@ -90,10 +87,7 @@ pub(super) fn capture_source(
             }
             let (root_id, root) = required_root(working_root_id, working_root)?;
             let normalized = normalize_relative_path(relative_path)?;
-            let path = resolve_contained(root, &normalized, true)?;
-            if !path.is_dir() {
-                return Err(ArtifactStoreError::InvalidSource);
-            }
+            validate_relative_directory(root, &normalized)?;
             Ok(CapturedSource {
                 bytes: None,
                 blob_hash: None,
@@ -117,7 +111,7 @@ fn required_root<'a>(
     }
 }
 
-fn normalize_relative_path(value: &str) -> Result<String, ArtifactStoreError> {
+pub(super) fn normalize_relative_path(value: &str) -> Result<String, ArtifactStoreError> {
     let slash = value.replace('\\', "/");
     let path = Path::new(&slash);
     if path.is_absolute() {
@@ -142,37 +136,120 @@ fn normalize_relative_path(value: &str) -> Result<String, ArtifactStoreError> {
     Ok(parts.join("/"))
 }
 
-fn resolve_contained(
-    working_root: &Path,
-    relative_path: &str,
-    expect_directory: bool,
-) -> Result<PathBuf, ArtifactStoreError> {
-    let canonical_root = working_root
-        .canonicalize()
-        .map_err(|_| ArtifactStoreError::WorkingRootUnavailable)?;
-    if !canonical_root.is_dir() {
+#[cfg(unix)]
+fn open_root_directory(working_root: &Path) -> Result<std::os::fd::OwnedFd, ArtifactStoreError> {
+    let descriptor = open(
+        working_root,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(|_| ArtifactStoreError::WorkingRootUnavailable)?;
+    let metadata = fstat(&descriptor).map_err(|_| ArtifactStoreError::WorkingRootUnavailable)?;
+    if FileType::from_raw_mode(metadata.st_mode) != FileType::Directory {
         return Err(ArtifactStoreError::WorkingRootUnavailable);
     }
+    Ok(descriptor)
+}
 
-    let mut candidate = canonical_root.clone();
-    for part in relative_path.split('/') {
-        candidate.push(part);
-        let metadata =
-            fs::symlink_metadata(&candidate).map_err(|_| ArtifactStoreError::SourceMissing)?;
-        if metadata.file_type().is_symlink() {
-            return Err(ArtifactStoreError::UnsafePath);
+#[cfg(unix)]
+fn open_relative_descriptor<F>(
+    working_root: &Path,
+    relative_path: &str,
+    final_flags: OFlags,
+    before_final_open: F,
+) -> Result<std::os::fd::OwnedFd, ArtifactStoreError>
+where
+    F: FnOnce(),
+{
+    let mut directory = open_root_directory(working_root)?;
+    let mut components = relative_path.split('/').peekable();
+    let mut before_final_open = Some(before_final_open);
+    while let Some(component) = components.next() {
+        let is_final = components.peek().is_none();
+        if is_final {
+            if let Some(hook) = before_final_open.take() {
+                hook();
+            }
         }
+        let flags = if is_final {
+            final_flags | OFlags::NOFOLLOW | OFlags::CLOEXEC
+        } else {
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC
+        };
+        directory = openat(&directory, component, flags, Mode::empty()).map_err(|error| {
+            if matches!(error, rustix::io::Errno::LOOP | rustix::io::Errno::XDEV) {
+                ArtifactStoreError::UnsafePath
+            } else {
+                ArtifactStoreError::SourceMissing
+            }
+        })?;
     }
-    let canonical_candidate = candidate
-        .canonicalize()
-        .map_err(|_| ArtifactStoreError::SourceMissing)?;
-    if !canonical_candidate.starts_with(&canonical_root)
-        || (expect_directory && !canonical_candidate.is_dir())
-        || (!expect_directory && !canonical_candidate.is_file())
-    {
-        return Err(ArtifactStoreError::UnsafePath);
+    Ok(directory)
+}
+
+#[cfg(unix)]
+fn open_relative_file(
+    working_root: &Path,
+    relative_path: &str,
+) -> Result<(File, u64), ArtifactStoreError> {
+    open_relative_file_with_hook(working_root, relative_path, || {})
+}
+
+#[cfg(unix)]
+fn open_relative_file_with_hook<F>(
+    working_root: &Path,
+    relative_path: &str,
+    before_final_open: F,
+) -> Result<(File, u64), ArtifactStoreError>
+where
+    F: FnOnce(),
+{
+    let descriptor = open_relative_descriptor(
+        working_root,
+        relative_path,
+        OFlags::RDONLY,
+        before_final_open,
+    )?;
+    let metadata = fstat(&descriptor).map_err(|_| ArtifactStoreError::SourceMissing)?;
+    if FileType::from_raw_mode(metadata.st_mode) != FileType::RegularFile {
+        return Err(ArtifactStoreError::InvalidSource);
     }
-    Ok(canonical_candidate)
+    let size = u64::try_from(metadata.st_size).map_err(|_| ArtifactStoreError::InvalidSource)?;
+    Ok((File::from(descriptor), size))
+}
+
+#[cfg(unix)]
+fn validate_relative_directory(
+    working_root: &Path,
+    relative_path: &str,
+) -> Result<(), ArtifactStoreError> {
+    let descriptor = open_relative_descriptor(
+        working_root,
+        relative_path,
+        OFlags::RDONLY | OFlags::DIRECTORY,
+        || {},
+    )?;
+    let metadata = fstat(descriptor).map_err(|_| ArtifactStoreError::SourceMissing)?;
+    if FileType::from_raw_mode(metadata.st_mode) != FileType::Directory {
+        return Err(ArtifactStoreError::InvalidSource);
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn open_relative_file(
+    _working_root: &Path,
+    _relative_path: &str,
+) -> Result<(File, u64), ArtifactStoreError> {
+    Err(ArtifactStoreError::Unsupported)
+}
+
+#[cfg(not(unix))]
+fn validate_relative_directory(
+    _working_root: &Path,
+    _relative_path: &str,
+) -> Result<(), ArtifactStoreError> {
+    Err(ArtifactStoreError::Unsupported)
 }
 
 fn capture_bytes(
@@ -279,10 +356,8 @@ pub(super) fn publish_blob(
     ensure_private_directory(&directory)?;
     let destination = directory.join(hash);
     if destination.exists() {
-        let metadata = destination
-            .metadata()
-            .map_err(|_| ArtifactStoreError::Unavailable)?;
-        if metadata.len() != bytes.len() as u64 {
+        let existing = read_blob(blobs_root, hash)?;
+        if existing != bytes {
             return Err(ArtifactStoreError::CorruptBlob);
         }
         return Ok(());
@@ -318,6 +393,9 @@ pub(super) fn publish_blob(
 }
 
 pub(super) fn ensure_private_directory(path: &Path) -> Result<(), ArtifactStoreError> {
+    if fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        return Err(ArtifactStoreError::UnsafePath);
+    }
     fs::create_dir_all(path).map_err(|_| ArtifactStoreError::Unavailable)?;
     #[cfg(unix)]
     {
@@ -343,4 +421,67 @@ pub(super) fn blob_path(root: &Path, hash: &str) -> Result<PathBuf, ArtifactStor
         return Err(ArtifactStoreError::CorruptBlob);
     }
     Ok(root.join("sha256").join(&hash[..2]).join(hash))
+}
+
+pub(super) fn read_blob(root: &Path, hash: &str) -> Result<Vec<u8>, ArtifactStoreError> {
+    blob_path(root, hash)?;
+    let relative = format!("sha256/{}/{hash}", &hash[..2]);
+    let (mut file, size) =
+        open_relative_file(root, &relative).map_err(|_| ArtifactStoreError::CorruptBlob)?;
+    if size > MAX_ARTIFACT_FILE_BYTES {
+        return Err(ArtifactStoreError::CorruptBlob);
+    }
+    let mut bytes = Vec::with_capacity(size.min(8 * 1024 * 1024) as usize);
+    file.read_to_end(&mut bytes)
+        .map_err(|_| ArtifactStoreError::CorruptBlob)?;
+    if bytes.len() as u64 != size || hex::encode(Sha256::digest(&bytes)) != hash {
+        return Err(ArtifactStoreError::CorruptBlob);
+    }
+    Ok(bytes)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+
+    #[test]
+    fn final_component_swap_to_symlink_fails_closed() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("nested")).unwrap();
+        fs::write(root.path().join("nested/artifact.txt"), b"safe").unwrap();
+        fs::write(outside.path().join("secret.txt"), b"secret").unwrap();
+
+        let result = open_relative_file_with_hook(root.path(), "nested/artifact.txt", || {
+            fs::remove_file(root.path().join("nested/artifact.txt")).unwrap();
+            symlink(
+                outside.path().join("secret.txt"),
+                root.path().join("nested/artifact.txt"),
+            )
+            .unwrap();
+        });
+
+        assert!(matches!(result, Err(ArtifactStoreError::UnsafePath)));
+    }
+
+    #[test]
+    fn parent_swap_cannot_redirect_an_open_directory_descriptor() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("nested")).unwrap();
+        fs::write(root.path().join("nested/artifact.txt"), b"safe").unwrap();
+        fs::write(outside.path().join("artifact.txt"), b"secret").unwrap();
+
+        let (mut file, _) =
+            open_relative_file_with_hook(root.path(), "nested/artifact.txt", || {
+                fs::rename(root.path().join("nested"), root.path().join("parked")).unwrap();
+                symlink(outside.path(), root.path().join("nested")).unwrap();
+            })
+            .unwrap();
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).unwrap();
+
+        assert_eq!(bytes, b"safe");
+    }
 }

@@ -5,6 +5,7 @@
 //! content-addressed bytes only; callers remain responsible for managed-turn
 //! authority and for resolving the opaque working-root handle.
 
+pub(crate) mod presentation;
 mod schema;
 mod source;
 
@@ -14,6 +15,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use base64::Engine as _;
 use chrono::{SecondsFormat, Utc};
 use luca_protocol::{
     canonical_sha256, ArtifactBrokerBindingV1, ArtifactCreateArgsV1, ArtifactKindV1,
@@ -21,17 +23,17 @@ use luca_protocol::{
     OpaqueId, SafeU53, MAX_ARTIFACT_LIST_ITEMS, MAX_ARTIFACT_READ_BYTES,
 };
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
-use serde::Serialize;
-use sha2::Digest;
+use serde::{Deserialize, Serialize};
 
 use self::source::{
-    blob_path, capture_source, ensure_private_directory, publish_blob, set_private_file,
+    blob_path, capture_source, ensure_private_directory, publish_blob, read_blob, set_private_file,
     CapturedSource,
 };
 
 const MAX_OWNER_LOGICAL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const MAX_RECONCILE_ENTRIES: usize = 10_000;
 const UNREFERENCED_BLOB_RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
+const MAX_ARTIFACT_QUERY_CHARS: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ArtifactStoreError {
@@ -100,6 +102,44 @@ pub(crate) struct ArtifactRecord {
     pub created_at: String,
     pub updated_at: String,
     pub deleted_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ArtifactDeletedFilter {
+    Active,
+    Deleted,
+    All,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ArtifactListQuery {
+    pub query: Option<String>,
+    pub kinds: Vec<ArtifactKindV1>,
+    pub deleted: ArtifactDeletedFilter,
+    pub cursor: Option<String>,
+    pub limit: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ArtifactListPage {
+    pub artifacts: Vec<ArtifactRecord>,
+    pub next_cursor: Option<String>,
+    pub total: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ArtifactLastPreviewRecord {
+    pub origin: String,
+    pub port: u16,
+    pub attached_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ArtifactListCursor {
+    pinned: bool,
+    updated_at: String,
+    artifact_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -461,15 +501,51 @@ impl ArtifactStore {
         Ok(())
     }
 
-    pub(crate) fn list(
+    pub(crate) fn list_page(
         &self,
         owner_pubkey: &Hex64,
-        include_deleted: bool,
-        limit: u16,
-    ) -> Result<Vec<ArtifactRecord>, ArtifactStoreError> {
-        if limit == 0 || limit > MAX_ARTIFACT_LIST_ITEMS {
+        query: &ArtifactListQuery,
+    ) -> Result<ArtifactListPage, ArtifactStoreError> {
+        if query.limit == 0 || query.limit > MAX_ARTIFACT_LIST_ITEMS {
             return Err(ArtifactStoreError::InvalidRequest);
         }
+        let title_query = query
+            .query
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| {
+                if value.chars().count() > MAX_ARTIFACT_QUERY_CHARS {
+                    return Err(ArtifactStoreError::InvalidRequest);
+                }
+                Ok(format!(
+                    "%{}%",
+                    escape_like(value.to_ascii_lowercase().as_str())
+                ))
+            })
+            .transpose()?;
+        if query.kinds.len() > 9 {
+            return Err(ArtifactStoreError::InvalidRequest);
+        }
+        let mut kinds = query
+            .kinds
+            .iter()
+            .copied()
+            .map(kind_value)
+            .collect::<Vec<_>>();
+        kinds.sort_unstable();
+        kinds.dedup();
+        let kind_filter = (!kinds.is_empty()).then(|| format!("|{}|", kinds.join("|")));
+        let deleted = match query.deleted {
+            ArtifactDeletedFilter::Active => "active",
+            ArtifactDeletedFilter::Deleted => "deleted",
+            ArtifactDeletedFilter::All => "all",
+        };
+        let cursor = query.cursor.as_deref().map(decode_cursor).transpose()?;
+        let cursor_pinned = cursor.as_ref().map(|value| value.pinned);
+        let cursor_updated = cursor.as_ref().map(|value| value.updated_at.as_str());
+        let cursor_artifact = cursor.as_ref().map(|value| value.artifact_id.as_str());
+        let fetch_limit = u32::from(query.limit) + 1;
         let mut statement = self
             .connection
             .prepare(
@@ -477,19 +553,92 @@ impl ArtifactStore {
                         pinned, created_by_pubkey, conversation_id, source_turn_id,
                         created_at, updated_at, deleted_at
                  FROM artifacts
-                 WHERE owner_pubkey = ?1 AND (?2 = 1 OR deleted_at IS NULL)
-                 ORDER BY pinned DESC, updated_at DESC, artifact_id DESC LIMIT ?3",
+                 WHERE owner_pubkey = ?1
+                   AND (?2 IS NULL
+                     OR lower(title) LIKE ?2 ESCAPE '\\'
+                     OR lower(artifact_id) LIKE ?2 ESCAPE '\\'
+                     OR lower(created_by_pubkey) LIKE ?2 ESCAPE '\\'
+                     OR lower(COALESCE(conversation_id, '')) LIKE ?2 ESCAPE '\\')
+                   AND (?3 IS NULL OR instr(?3, '|' || kind || '|') > 0)
+                   AND (?4 = 'all'
+                     OR (?4 = 'active' AND deleted_at IS NULL)
+                     OR (?4 = 'deleted' AND deleted_at IS NOT NULL))
+                   AND (?5 IS NULL
+                     OR pinned < ?5
+                     OR (pinned = ?5 AND updated_at < ?6)
+                     OR (pinned = ?5 AND updated_at = ?6 AND artifact_id < ?7))
+                 ORDER BY pinned DESC, updated_at DESC, artifact_id DESC LIMIT ?8",
             )
             .map_err(|_| ArtifactStoreError::Unavailable)?;
-        let records = statement
+        let mut records = statement
             .query_map(
-                params![owner_pubkey.as_str(), include_deleted, limit],
+                params![
+                    owner_pubkey.as_str(),
+                    title_query,
+                    kind_filter,
+                    deleted,
+                    cursor_pinned,
+                    cursor_updated,
+                    cursor_artifact,
+                    fetch_limit,
+                ],
                 artifact_from_row,
             )
             .map_err(|_| ArtifactStoreError::Unavailable)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| ArtifactStoreError::SchemaIncompatible)?;
-        Ok(records)
+        let next_cursor = if records.len() > usize::from(query.limit) {
+            records.truncate(usize::from(query.limit));
+            records.last().map(encode_cursor).transpose()?
+        } else {
+            None
+        };
+        let total = self
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM artifacts
+                 WHERE owner_pubkey = ?1
+                   AND (?2 IS NULL
+                     OR lower(title) LIKE ?2 ESCAPE '\\'
+                     OR lower(artifact_id) LIKE ?2 ESCAPE '\\'
+                     OR lower(created_by_pubkey) LIKE ?2 ESCAPE '\\'
+                     OR lower(COALESCE(conversation_id, '')) LIKE ?2 ESCAPE '\\')
+                   AND (?3 IS NULL OR instr(?3, '|' || kind || '|') > 0)
+                   AND (?4 = 'all'
+                     OR (?4 = 'active' AND deleted_at IS NULL)
+                     OR (?4 = 'deleted' AND deleted_at IS NOT NULL))",
+                params![owner_pubkey.as_str(), title_query, kind_filter, deleted],
+                |row| row.get(0),
+            )
+            .map_err(|_| ArtifactStoreError::Unavailable)?;
+        Ok(ArtifactListPage {
+            artifacts: records,
+            next_cursor,
+            total,
+        })
+    }
+
+    pub(crate) fn list(
+        &self,
+        owner_pubkey: &Hex64,
+        include_deleted: bool,
+        limit: u16,
+    ) -> Result<Vec<ArtifactRecord>, ArtifactStoreError> {
+        self.list_page(
+            owner_pubkey,
+            &ArtifactListQuery {
+                query: None,
+                kinds: Vec::new(),
+                deleted: if include_deleted {
+                    ArtifactDeletedFilter::All
+                } else {
+                    ArtifactDeletedFilter::Active
+                },
+                cursor: None,
+                limit,
+            },
+        )
+        .map(|page| page.artifacts)
     }
 
     pub(crate) fn get(
@@ -531,6 +680,85 @@ impl ArtifactStore {
         Ok(records)
     }
 
+    pub(crate) fn latest_receipt(
+        &self,
+        owner_pubkey: &Hex64,
+        artifact_id: &OpaqueId,
+        version: u64,
+    ) -> Result<ArtifactReceiptRecord, ArtifactStoreError> {
+        self.connection
+            .query_row(
+                "SELECT receipt_id, artifact_id,
+                        (SELECT title FROM artifacts
+                         WHERE artifacts.owner_pubkey = artifact_receipts.owner_pubkey
+                           AND artifacts.artifact_id = artifact_receipts.artifact_id),
+                        version, resident_pubkey, conversation_id, turn_id,
+                        dispatch_receipt_id, message_id, state, created_at, linked_at
+                 FROM artifact_receipts
+                 WHERE owner_pubkey = ?1 AND artifact_id = ?2 AND version = ?3
+                 ORDER BY created_at DESC, receipt_id DESC LIMIT 1",
+                params![owner_pubkey.as_str(), artifact_id.as_str(), version],
+                receipt_from_row,
+            )
+            .optional()
+            .map_err(|_| ArtifactStoreError::Unavailable)?
+            .ok_or(ArtifactStoreError::NotFound)
+    }
+
+    pub(crate) fn record_preview_attachment(
+        &mut self,
+        owner_pubkey: &Hex64,
+        artifact_id: &OpaqueId,
+        origin: &str,
+        port: u16,
+        attached_at: &str,
+    ) -> Result<(), ArtifactStoreError> {
+        validate_preview_metadata(origin, port, attached_at)?;
+        self.get(owner_pubkey, artifact_id)?;
+        self.connection
+            .execute(
+                "INSERT INTO artifact_preview_history (
+                    owner_pubkey, artifact_id, origin, port, attached_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(owner_pubkey, artifact_id) DO UPDATE SET
+                    origin = excluded.origin,
+                    port = excluded.port,
+                    attached_at = excluded.attached_at",
+                params![
+                    owner_pubkey.as_str(),
+                    artifact_id.as_str(),
+                    origin,
+                    port,
+                    attached_at
+                ],
+            )
+            .map_err(|_| ArtifactStoreError::Unavailable)?;
+        Ok(())
+    }
+
+    pub(crate) fn last_preview(
+        &self,
+        owner_pubkey: &Hex64,
+        artifact_id: &OpaqueId,
+    ) -> Result<Option<ArtifactLastPreviewRecord>, ArtifactStoreError> {
+        self.connection
+            .query_row(
+                "SELECT origin, port, attached_at FROM artifact_preview_history
+                 WHERE owner_pubkey = ?1 AND artifact_id = ?2",
+                params![owner_pubkey.as_str(), artifact_id.as_str()],
+                |row| {
+                    let port: u16 = row.get(1)?;
+                    Ok(ArtifactLastPreviewRecord {
+                        origin: row.get(0)?,
+                        port,
+                        attached_at: row.get(2)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|_| ArtifactStoreError::Unavailable)
+    }
+
     pub(crate) fn read(
         &self,
         owner_pubkey: &Hex64,
@@ -565,12 +793,7 @@ impl ArtifactStore {
             });
         }
         let hash = blob_hash.ok_or(ArtifactStoreError::Unsupported)?;
-        let path = blob_path(&self.root.join("blobs"), &hash)?;
-        let bytes = fs::read(path).map_err(|_| ArtifactStoreError::CorruptBlob)?;
-        let expected = hex::encode(sha2::Sha256::digest(&bytes));
-        if expected != hash {
-            return Err(ArtifactStoreError::CorruptBlob);
-        }
+        let bytes = read_blob(&self.root.join("blobs"), &hash)?;
         let truncated = bytes.len() > MAX_ARTIFACT_READ_BYTES;
         let bounded = bytes[..bytes.len().min(MAX_ARTIFACT_READ_BYTES)].to_vec();
         if !record.media_type.starts_with("text/") && record.media_type != "image/svg+xml" {
@@ -610,11 +833,8 @@ impl ArtifactStore {
             .map_err(|_| ArtifactStoreError::Unavailable)?
             .ok_or(ArtifactStoreError::VersionNotFound)?;
         let hash = blob_hash.ok_or(ArtifactStoreError::Unsupported)?;
-        let path = blob_path(&self.root.join("blobs"), &hash)?;
-        let bytes = fs::read(path).map_err(|_| ArtifactStoreError::CorruptBlob)?;
-        if bytes.len() as u64 != record.size_bytes
-            || hex::encode(sha2::Sha256::digest(&bytes)) != hash
-        {
+        let bytes = read_blob(&self.root.join("blobs"), &hash)?;
+        if bytes.len() as u64 != record.size_bytes {
             return Err(ArtifactStoreError::CorruptBlob);
         }
         Ok(ArtifactPreviewRecord {
@@ -1157,6 +1377,70 @@ fn validate_title(title: &str) -> Result<(), ArtifactStoreError> {
         return Err(ArtifactStoreError::InvalidRequest);
     }
     Ok(())
+}
+
+fn validate_preview_metadata(
+    origin: &str,
+    port: u16,
+    attached_at: &str,
+) -> Result<(), ArtifactStoreError> {
+    let url = url::Url::parse(origin).map_err(|_| ArtifactStoreError::InvalidRequest)?;
+    let loopback = match url.host() {
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        Some(url::Host::Domain(domain)) => domain.eq_ignore_ascii_case("localhost"),
+        None => false,
+    };
+    if url.scheme() != "http"
+        || !loopback
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+        || url.path() != "/"
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || port == 0
+        || attached_at.is_empty()
+        || attached_at.len() > 64
+    {
+        return Err(ArtifactStoreError::InvalidRequest);
+    }
+    Ok(())
+}
+
+fn escape_like(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+fn encode_cursor(record: &ArtifactRecord) -> Result<String, ArtifactStoreError> {
+    let bytes = serde_json::to_vec(&ArtifactListCursor {
+        pinned: record.pinned,
+        updated_at: record.updated_at.clone(),
+        artifact_id: record.artifact_id.clone(),
+    })
+    .map_err(|_| ArtifactStoreError::InvalidRequest)?;
+    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
+}
+
+fn decode_cursor(value: &str) -> Result<ArtifactListCursor, ArtifactStoreError> {
+    if value.is_empty() || value.len() > 2048 {
+        return Err(ArtifactStoreError::InvalidRequest);
+    }
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(value)
+        .map_err(|_| ArtifactStoreError::InvalidRequest)?;
+    let cursor: ArtifactListCursor =
+        serde_json::from_slice(&bytes).map_err(|_| ArtifactStoreError::InvalidRequest)?;
+    if cursor.updated_at.is_empty()
+        || cursor.updated_at.len() > 64
+        || OpaqueId::parse(cursor.artifact_id.clone()).is_err()
+    {
+        return Err(ArtifactStoreError::InvalidRequest);
+    }
+    Ok(cursor)
 }
 
 fn reject_symlink(path: &Path) -> Result<(), ArtifactStoreError> {

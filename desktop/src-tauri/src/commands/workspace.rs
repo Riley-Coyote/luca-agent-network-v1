@@ -171,6 +171,11 @@ pub async fn apply_workspace(
                     "luca-artifacts: failed to revoke previews during workspace switch: {error}"
                 );
             }
+            if let Err(error) = crate::luca::artifacts::presentation::revoke_all() {
+                eprintln!(
+                    "luca-artifacts: failed to revoke static presentations during workspace switch: {error}"
+                );
+            }
         }
 
         // Keep the backend-side reconcile guard aligned with the frontend

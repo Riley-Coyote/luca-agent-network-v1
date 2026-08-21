@@ -346,6 +346,19 @@ pub fn run() {
                 responder.respond(response);
             });
         })
+        .register_asynchronous_uri_scheme_protocol("luca-artifact", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let owner = app
+                    .state::<AppState>()
+                    .signing_keys()
+                    .ok()
+                    .map(|keys| keys.public_key().to_hex());
+                let response =
+                    crate::luca::artifacts::presentation::handle(owner.as_deref(), &request);
+                responder.respond(response);
+            });
+        })
         .manage(build_app_state())
         .manage(ClipboardState::new())
         .manage(PendingCommunityDeepLinks::default())
@@ -441,7 +454,9 @@ pub fn run() {
             // Reconcile the owner-local artifact staging area and immutable
             // blob catalog off the setup thread. Artifact failures are
             // deliberately fail-soft and never block messaging or residents.
+            let _ = crate::luca::artifacts::presentation::revoke_all();
             if let Ok(app_data_dir) = app_handle.path().app_data_dir() {
+                let artifacts_app = app_handle.clone();
                 tauri::async_runtime::spawn_blocking(move || {
                     match crate::luca::artifacts::ArtifactStore::open(&app_data_dir)
                         .and_then(|mut store| store.reconcile())
@@ -456,6 +471,13 @@ pub fn run() {
                                 report.removed_staging_entries,
                                 report.missing_blob_versions,
                                 report.removed_unreferenced_blobs
+                            );
+                            let _ = artifacts_app.emit(
+                                "luca://artifacts-changed",
+                                serde_json::json!({
+                                    "artifactId": "",
+                                    "reason": "reconciled"
+                                }),
                             );
                         }
                         Ok(_) => {}
@@ -789,7 +811,10 @@ pub fn run() {
             list_artifacts,
             get_artifact,
             list_artifact_versions,
+            get_artifact_preview_state,
             read_artifact_preview,
+            prepare_artifact_preview,
+            revoke_artifact_preview,
             import_artifact_from_picker,
             pin_artifact,
             revert_artifact,

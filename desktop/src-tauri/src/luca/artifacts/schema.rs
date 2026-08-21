@@ -5,7 +5,7 @@ use rusqlite::{Connection, OpenFlags};
 use super::ArtifactStoreError;
 
 pub(super) const APPLICATION_ID: i32 = 0x4c_55_43_41;
-pub(super) const SCHEMA_VERSION: i64 = 1;
+pub(super) const SCHEMA_VERSION: i64 = 2;
 
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE artifacts (
@@ -70,6 +70,17 @@ CREATE TABLE artifact_receipts (
       REFERENCES artifact_versions(owner_pubkey, artifact_id, version) ON DELETE CASCADE
 ) STRICT;
 
+CREATE TABLE artifact_preview_history (
+    owner_pubkey TEXT NOT NULL,
+    artifact_id TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    port INTEGER NOT NULL CHECK (port > 0 AND port <= 65535),
+    attached_at TEXT NOT NULL,
+    PRIMARY KEY (owner_pubkey, artifact_id),
+    FOREIGN KEY (owner_pubkey, artifact_id)
+      REFERENCES artifacts(owner_pubkey, artifact_id) ON DELETE CASCADE
+) STRICT;
+
 CREATE INDEX artifacts_owner_updated
   ON artifacts(owner_pubkey, deleted_at, pinned DESC, updated_at DESC, artifact_id DESC);
 CREATE INDEX artifact_versions_owner_artifact
@@ -78,6 +89,20 @@ CREATE INDEX artifact_versions_blob
   ON artifact_versions(blob_hash) WHERE blob_hash IS NOT NULL;
 CREATE INDEX artifact_receipts_turn
   ON artifact_receipts(owner_pubkey, conversation_id, turn_id, created_at DESC);
+"#;
+
+const MIGRATE_V1_TO_V2_SQL: &str = r#"
+CREATE TABLE artifact_preview_history (
+    owner_pubkey TEXT NOT NULL,
+    artifact_id TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    port INTEGER NOT NULL CHECK (port > 0 AND port <= 65535),
+    attached_at TEXT NOT NULL,
+    PRIMARY KEY (owner_pubkey, artifact_id),
+    FOREIGN KEY (owner_pubkey, artifact_id)
+      REFERENCES artifacts(owner_pubkey, artifact_id) ON DELETE CASCADE
+) STRICT;
+PRAGMA user_version = 2;
 "#;
 
 pub(super) fn open_database(path: &Path) -> Result<Connection, ArtifactStoreError> {
@@ -100,7 +125,8 @@ pub(super) fn open_database(path: &Path) -> Result<Connection, ArtifactStoreErro
         path,
         OpenFlags::SQLITE_OPEN_READ_WRITE
             | OpenFlags::SQLITE_OPEN_CREATE
-            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX
+            | OpenFlags::SQLITE_OPEN_NOFOLLOW,
     )
     .map_err(|_| ArtifactStoreError::Unavailable)?;
     connection
@@ -108,7 +134,15 @@ pub(super) fn open_database(path: &Path) -> Result<Connection, ArtifactStoreErro
         .map_err(|_| ArtifactStoreError::Unavailable)?;
 
     if existed {
-        validate_identity(&connection)?;
+        validate_application_id(&connection)?;
+        let user_version = user_version(&connection)?;
+        match user_version {
+            1 => connection
+                .execute_batch(&format!("BEGIN IMMEDIATE; {MIGRATE_V1_TO_V2_SQL} COMMIT;"))
+                .map_err(|_| ArtifactStoreError::SchemaIncompatible)?,
+            SCHEMA_VERSION => {}
+            _ => return Err(ArtifactStoreError::SchemaIncompatible),
+        }
     } else {
         connection
             .execute_batch(&format!(
@@ -128,16 +162,27 @@ pub(super) fn open_database(path: &Path) -> Result<Connection, ArtifactStoreErro
 }
 
 fn validate_identity(connection: &Connection) -> Result<(), ArtifactStoreError> {
-    let application_id: i64 = connection
-        .pragma_query_value(None, "application_id", |row| row.get(0))
-        .map_err(|_| ArtifactStoreError::SchemaIncompatible)?;
-    let user_version: i64 = connection
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .map_err(|_| ArtifactStoreError::SchemaIncompatible)?;
-    if application_id != i64::from(APPLICATION_ID) || user_version != SCHEMA_VERSION {
+    validate_application_id(connection)?;
+    if user_version(connection)? != SCHEMA_VERSION {
         return Err(ArtifactStoreError::SchemaIncompatible);
     }
     Ok(())
+}
+
+fn validate_application_id(connection: &Connection) -> Result<(), ArtifactStoreError> {
+    let application_id: i64 = connection
+        .pragma_query_value(None, "application_id", |row| row.get(0))
+        .map_err(|_| ArtifactStoreError::SchemaIncompatible)?;
+    if application_id != i64::from(APPLICATION_ID) {
+        return Err(ArtifactStoreError::SchemaIncompatible);
+    }
+    Ok(())
+}
+
+fn user_version(connection: &Connection) -> Result<i64, ArtifactStoreError> {
+    connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|_| ArtifactStoreError::SchemaIncompatible)
 }
 
 fn validate_schema(connection: &Connection) -> Result<(), ArtifactStoreError> {
@@ -145,7 +190,9 @@ fn validate_schema(connection: &Connection) -> Result<(), ArtifactStoreError> {
     let mut statement = connection
         .prepare(
             "SELECT name FROM sqlite_schema
-             WHERE type = 'table' AND name IN ('artifacts', 'artifact_versions', 'artifact_receipts')
+             WHERE type = 'table' AND name IN (
+               'artifacts', 'artifact_versions', 'artifact_receipts', 'artifact_preview_history'
+             )
              ORDER BY name",
         )
         .map_err(|_| ArtifactStoreError::SchemaIncompatible)?;
@@ -154,7 +201,14 @@ fn validate_schema(connection: &Connection) -> Result<(), ArtifactStoreError> {
         .map_err(|_| ArtifactStoreError::SchemaIncompatible)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| ArtifactStoreError::SchemaIncompatible)?;
-    if names != ["artifact_receipts", "artifact_versions", "artifacts"] {
+    if names
+        != [
+            "artifact_preview_history",
+            "artifact_receipts",
+            "artifact_versions",
+            "artifacts",
+        ]
+    {
         return Err(ArtifactStoreError::SchemaIncompatible);
     }
     let foreign_keys: i64 = connection

@@ -269,10 +269,19 @@ fn rewrite_location(value: &HeaderValue, state: &PreviewProxyState) -> Option<He
     HeaderValue::from_str(rewritten.as_str()).ok()
 }
 
+fn preview_frame_ancestors(dev: bool) -> &'static str {
+    if dev {
+        "tauri://localhost http://tauri.localhost http://localhost:*"
+    } else {
+        "tauri://localhost http://tauri.localhost"
+    }
+}
+
 fn response_security_headers(headers: &mut HeaderMap, proxy_origin: &str) {
     let websocket_origin = proxy_origin.replacen("http://", "ws://", 1);
+    let frame_ancestors = preview_frame_ancestors(cfg!(debug_assertions));
     let policy = format!(
-        "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' {websocket_origin}; worker-src 'self' blob:; child-src 'self' blob:; frame-src 'self' data: blob:; object-src 'none'; base-uri 'self'; form-action 'self'; navigate-to 'self'; frame-ancestors tauri://localhost http://tauri.localhost"
+        "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' {websocket_origin}; worker-src 'self' blob:; child-src 'self' blob:; frame-src 'self' data: blob:; object-src 'none'; base-uri 'self'; form-action 'self'; navigate-to 'self'; frame-ancestors {frame_ancestors}"
     );
     if let Ok(policy) = HeaderValue::from_str(&policy) {
         headers.insert(header::CONTENT_SECURITY_POLICY, policy);
@@ -712,6 +721,18 @@ pub(crate) fn stop_all_preview_sessions() -> Result<usize, String> {
     stop_matching_preview_sessions(|_| true).map(|views| views.len())
 }
 
+/// Revoke every live preview for one owner-scoped artifact.
+pub(crate) fn stop_preview_sessions_for_artifact(
+    owner_pubkey: &str,
+    artifact_id: &str,
+) -> Result<usize, String> {
+    stop_matching_preview_sessions(|session| {
+        session.binding.owner_pubkey.as_str() == owner_pubkey
+            && session.view.artifact_id == artifact_id
+    })
+    .map(|views| views.len())
+}
+
 fn session_for_owner(
     owner_pubkey: &str,
     session_id: &str,
@@ -726,6 +747,64 @@ fn session_for_owner(
         return Err("preview session was not found".to_string());
     }
     Ok(session.view.clone())
+}
+
+/// Return the newest active preview for one owner-scoped artifact.
+pub(crate) fn active_preview_for_artifact(
+    owner_pubkey: &str,
+    artifact_id: &str,
+) -> Option<ArtifactPreviewSession> {
+    preview_sessions()
+        .lock()
+        .ok()?
+        .values()
+        .filter(|session| {
+            session.binding.owner_pubkey.as_str() == owner_pubkey
+                && session.view.artifact_id == artifact_id
+                && session.view.status != ArtifactPreviewStatus::Stopped
+                && !session.cancel.is_cancelled()
+        })
+        .max_by(|left, right| left.view.attached_at.cmp(&right.view.attached_at))
+        .map(|session| session.view.clone())
+}
+
+fn sanitized_preview_origin(url: &Url) -> Result<(String, u16), String> {
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| "preview URL port is invalid".to_string())?;
+    let host = match url
+        .host()
+        .ok_or_else(|| "preview URL host is missing".to_string())?
+    {
+        Host::Ipv4(address) => address.to_string(),
+        Host::Ipv6(address) => format!("[{address}]"),
+        Host::Domain(domain) => domain.to_ascii_lowercase(),
+    };
+    Ok((format!("{}://{host}", url.scheme()), port))
+}
+
+fn persist_preview_attachment(
+    app: &AppHandle,
+    binding: &ArtifactBrokerBindingV1,
+    artifact_id: &OpaqueId,
+    display_url: &Url,
+    attached_at: &str,
+) -> Result<(), String> {
+    let (origin, port) = sanitized_preview_origin(display_url)?;
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "artifact-unavailable".to_string())?;
+    crate::luca::artifacts::ArtifactStore::open(&app_data_dir)
+        .map_err(|error| error.code().to_string())?
+        .record_preview_attachment(
+            &binding.owner_pubkey,
+            artifact_id,
+            &origin,
+            port,
+            attached_at,
+        )
+        .map_err(|error| error.code().to_string())
 }
 
 fn apply_health_result(
@@ -874,6 +953,16 @@ pub(crate) async fn attach_preview_session(
     if let Some(evicted) = evicted {
         evicted.cancel.cancel();
     }
+    if let Err(error) =
+        persist_preview_attachment(app, binding, artifact_id, &display_url, &view.attached_at)
+    {
+        if let Ok(mut sessions) = preview_sessions().lock() {
+            if let Some(session) = sessions.remove(&view.id) {
+                session.cancel.cancel();
+            }
+        }
+        return Err(error);
+    }
     emit_preview_state(app, &view);
     emit_canvas_present(app, &view);
     let health_app = app.clone();
@@ -964,6 +1053,17 @@ mod tests {
     use tokio::time::timeout;
     use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
+    #[test]
+    fn live_preview_parent_origin_policy_is_dev_aware() {
+        assert_eq!(
+            preview_frame_ancestors(false),
+            "tauri://localhost http://tauri.localhost"
+        );
+        let dev = preview_frame_ancestors(true);
+        assert!(dev.contains("http://localhost:*"));
+        assert!(!dev.contains("http://*"));
+    }
+
     struct TestProxy {
         upstream_task: tokio::task::JoinHandle<()>,
         proxy_port: u16,
@@ -991,6 +1091,21 @@ mod tests {
     async fn spawn_test_proxy() -> TestProxy {
         let upstream = Router::new()
             .route("/", get(|| async { Html("<main>preview ready</main>") }))
+            .route(
+                "/stream",
+                get(|| async {
+                    let stream = futures_util::stream::unfold(0_u64, |index| async move {
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                        Some((
+                            Ok::<bytes::Bytes, std::convert::Infallible>(bytes::Bytes::from(
+                                format!("chunk-{index}\n"),
+                            )),
+                            index + 1,
+                        ))
+                    });
+                    Body::from_stream(stream)
+                }),
+            )
             .route(
                 "/socket",
                 get(|upgrade: WebSocketUpgrade| async move { upgrade.on_upgrade(echo_socket) }),
@@ -1250,6 +1365,31 @@ mod tests {
             result,
             None | Some(Err(_)) | Some(Ok(tungstenite::Message::Close(_)))
         ));
+    }
+
+    #[tokio::test]
+    async fn revocation_terminates_an_in_flight_http_response_stream() {
+        let proxy = spawn_test_proxy().await;
+        let client = resolved_client(&proxy.hostname, proxy.proxy_port);
+        let response = client
+            .get(format!(
+                "http://{}:{}/stream",
+                proxy.hostname, proxy.proxy_port
+            ))
+            .send()
+            .await
+            .unwrap();
+        let mut stream = response.bytes_stream();
+        assert!(stream.next().await.is_some(), "stream should be open");
+
+        proxy.cancel.cancel();
+        timeout(Duration::from_secs(2), async {
+            while let Some(chunk) = stream.next().await {
+                chunk.expect("buffered proxy chunk");
+            }
+        })
+        .await
+        .expect("revocation must terminate the HTTP body promptly");
     }
 
     #[test]
