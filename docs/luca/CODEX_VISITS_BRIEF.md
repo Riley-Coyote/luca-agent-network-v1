@@ -65,8 +65,29 @@ Two more things before feature work starts:
 - **Work in a clean tree.** The canonical worktree may hold uncommitted work from a parallel session
   (a typography/ink-ladder pass was in progress on 2026-08-21). `git status` must be clean, or the
   parallel work committed, before you branch. Never stash or revert someone else's changes.
-- Gates green first: `just desktop-tauri-clippy`, `cargo test --manifest-path
-  desktop/src-tauri/Cargo.toml`, `cd desktop && pnpm exec biome check . && pnpm test`.
+### What step 0 actually looks like — rehearsed 2026-08-21, do not re-litigate
+
+The whole of step 0 was replayed end to end against `origin/agent/exchange-object` before this brief
+was handed over, so you know what "normal" looks like and do not spend an afternoon deciding whether
+something is your fault:
+
+- **The merge is clean.** 27 files, ~11,400 deletions (the retired communication machinery), no
+  conflicts.
+- **All three cherry-picks are clean**, in the order given. No conflict resolution required.
+- **`pnpm test`: 3,668 pass, 0 fail. `tsc --noEmit`: clean. `pnpm check:px-text`: clean.**
+- **`biome check .` will show exactly one error and seven warnings, and neither is yours:**
+  - the error is a *formatting* diagnostic in `desktop/tests/e2e/luca/exchange-strip.spec.ts`, an
+    artifact of the merge and the third cherry-pick both touching that spec. Fix it as the last act
+    of step 0 with `pnpm exec biome check --write tests/e2e/luca/exchange-strip.spec.ts` and commit
+    it with the cherry-picks. Change nothing else in that file.
+  - the seven warnings are `noImportantStyles` in `src/shared/styles/globals/components.css`
+    (onboarding media query). Pre-existing, warnings not errors. **Leave them alone.**
+- **The Playwright luca specs fail in a local checkout** at the personal-home identity gate, before
+  the shell mounts — verified reproducing on an untouched build, so it is the environment and not
+  the code. Do not try to fix them and do not treat them as a signal about your work; report them as
+  observed and move on.
+- Then, before feature work: `just desktop-tauri-clippy` and `cargo test --manifest-path
+  desktop/src-tauri/Cargo.toml`.
 
 ## The design, fully decided
 
