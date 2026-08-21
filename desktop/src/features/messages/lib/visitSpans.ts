@@ -1,8 +1,17 @@
 /**
- * A visit is a parenthesis in the room's long conversation: from the house
- * note that says a resident stepped in, to the note that says they stepped
- * out. Every row between belongs to the visit. This module finds those spans
- * once, on the flattened item stream, so rows can paint as one plate.
+ * A visit is a stretch of the room's conversation with a door at each end.
+ * This module finds those stretches once, on the flattened item stream, and
+ * tells each row what it is inside one:
+ *
+ *   visitThreshold  the row IS a door — the arrival or departure note
+ *   visitSpan       the row is inside the passage between the doors, and
+ *                   where it sits on the line that connects the speakers
+ *   authorVisiting  this message's author is a guest at this point
+ *   visitOpen       an arrival whose visit has not ended yet
+ *
+ * The line connects the marks of people who SPOKE during the visit, so only
+ * message rows carry a position on it; anything else inside the passage is
+ * `quiet` — inset with the rest, but off the line.
  *
  * Pure (no React, no DOM) like the rest of `lib/`.
  */
@@ -10,16 +19,20 @@
 import type { TimelineItem } from "@/features/messages/lib/timelineItems";
 import { parseVisitEvent } from "@/features/messages/lib/visitEvents";
 
-export type VisitSpanPosition = "start" | "middle" | "end";
+/** Where a row sits on the line that connects the visit's speakers. */
+export type VisitSpanPosition = "first" | "middle" | "last" | "only" | "quiet";
+
+/** A row that is itself a door. */
+export type VisitThreshold = "enter" | "leave";
 
 type VisitAware = {
-  /** Where this row sits in a visit plate; unset when no visit is open. */
   visitSpan?: VisitSpanPosition;
-  /** Message rows: the author is a visitor at this point in the conversation. */
+  visitThreshold?: VisitThreshold;
   authorVisiting?: boolean;
-  /** Arrival rows: the visit has not ended yet (plate open, mark breathing). */
   visitOpen?: boolean;
 };
+
+type AwareItem = TimelineItem & VisitAware;
 
 function entryOf(item: TimelineItem) {
   if (item.kind === "message" || item.kind === "system") return item.entry;
@@ -28,41 +41,69 @@ function entryOf(item: TimelineItem) {
   return null;
 }
 
+/** Give the speakers of one passage their place on the line. */
+function closePassage(speakers: AwareItem[], quiet: AwareItem[]) {
+  for (const item of quiet) item.visitSpan = "quiet";
+  if (speakers.length === 1) {
+    speakers[0].visitSpan = "only";
+    return;
+  }
+  speakers.forEach((item, index) => {
+    item.visitSpan =
+      index === 0 ? "first" : index === speakers.length - 1 ? "last" : "middle";
+  });
+}
+
 /**
- * Annotate items in place with their visit span position. Nested visits (a
- * second resident steps in before the first leaves) share one plate: the
- * plate starts with the first arrival and ends with the last departure.
+ * Annotate items in place. Nested visits (a second guest steps in before the
+ * first leaves) share one passage: it opens at the first arrival and closes at
+ * the last departure. A visit still under way simply has no departure yet, so
+ * its passage runs to the newest row.
  */
 export function annotateVisitSpans(items: TimelineItem[]): void {
   const open = new Set<string>();
-  const arrivalItems = new Map<string, TimelineItem & VisitAware>();
+  const arrivals = new Map<string, AwareItem>();
+  let speakers: AwareItem[] = [];
+  let quiet: AwareItem[] = [];
 
-  for (const item of items as (TimelineItem & VisitAware)[]) {
+  for (const item of items as AwareItem[]) {
     const entry = entryOf(item);
     const visit = entry ? parseVisitEvent(entry.message) : null;
 
     if (visit?.type === "visit_arrived") {
-      item.visitSpan = open.size === 0 ? "start" : "middle";
+      item.visitThreshold = "enter";
       item.visitOpen = true;
       open.add(visit.resident);
-      arrivalItems.set(visit.resident, item);
+      arrivals.set(visit.resident, item);
       continue;
     }
 
     if (visit?.type === "visit_left" && open.has(visit.resident)) {
       open.delete(visit.resident);
-      const arrival = arrivalItems.get(visit.resident);
+      const arrival = arrivals.get(visit.resident);
       if (arrival) arrival.visitOpen = false;
-      item.visitSpan = open.size === 0 ? "end" : "middle";
+      item.visitThreshold = "leave";
+      if (open.size === 0) {
+        closePassage(speakers, quiet);
+        speakers = [];
+        quiet = [];
+      }
       continue;
     }
 
-    if (open.size > 0) item.visitSpan = "middle";
+    if (open.size === 0) continue;
+
     if (item.kind === "message") {
       const pubkey = item.entry.message.pubkey?.toLowerCase();
       item.authorVisiting = Boolean(pubkey && open.has(pubkey));
+      speakers.push(item);
+    } else {
+      quiet.push(item);
     }
   }
+
+  // A visit that is still open when the timeline ends.
+  closePassage(speakers, quiet);
 }
 
 /** Residents visiting right now: stepped in, not yet stepped out. */

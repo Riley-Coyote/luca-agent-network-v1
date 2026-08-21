@@ -37,8 +37,8 @@ hold for 3 or 8.
    no approval, no capability types, no new protocol contracts. If any step seems to need one, STOP
    and leave a `NOTE(claude):` describing what you wanted.
 4. **The exchange machinery is reused unchanged.** Budgets, the strip, Stop/Go, turn tags, the
-   relay's turn rules — none of it changes. The only new relay behavior is the since-filter (below)
-   and the note kind from the salvage.
+   relay's turn rules — none of it changes. The only new relay behavior is the note kind from the
+   salvage; there is no read-filter work in this brief (see B).
 5. The contract (`crates/luca-protocol/src/exchange.rs`), `luca_managed_prompt.md`'s house rules,
    and all `TODO(ship)` wording stay frozen.
 
@@ -70,20 +70,28 @@ Two entry points, one helper:
   with members = {speaker, new guest}; both exchanges coexist in the room; nothing keys on count).
 
 ### B. What a visit is, concretely
-A visit = ordinary channel membership plus a recorded **arrival time** (`since`). Two halves:
-- **Relay:** the membership row for a visiting member carries `since` (unix seconds). Extend the
-  put-user path to accept an optional since (only the channel's creator/owner-authored put-user may
-  set it), store it with the membership, and **filter that member's reads of channel events to
-  `created_at >= since`** — history fetches, live REQ replay, context queries, COUNT. The choke
-  points are the same places that already answer "is this reader a member of this private channel"
-  (`check_channel_membership` and the read-path membership checks in `crates/buzz-relay`); extend
-  them to also answer "since when." Fail closed: a malformed since behaves as "now." The owner and
-  ordinary members have no since (see everything, as today). This is the privacy floor the model
-  doc demands — a guest in your private DM must never be able to read what happened before they
-  arrived, and "a prompt-window alone is not a boundary."
-- **Desktop:** record the visit (channel, guest, since, and the exchange id that brought them, if
-  any) in the exchange store beside the heads, so fade (D) and the header (C) can be derived. The
-  visit grant must be recorded on the frozen per-final decision (same replay discipline the mint
+A visit = **ordinary channel membership**, plus a recorded arrival time used for display only.
+
+**POLICY CHANGE, 2026-08-21, Riley — read this before you look at any older text.** An earlier
+draft of this brief (and of `CONVERSATION_MODEL.md`) had the relay filter a visiting member's reads
+to `created_at >= since`, so a guest could see nothing from before they arrived. **That is
+cancelled.** A visiting agent gets the conversation: the room's history is readable by them for as
+long as they are a member, exactly like any other member. The reason is plain — an agent that steps
+into a conversation it cannot read cannot help with it, and answering one mentioned sentence
+without its context is worse than not answering. It is also the house rule applied consistently:
+inside the house family is trusted by default and the checks live at the door; a same-owner
+resident invited into the owner's own room is family. A visit is bounded in **time and presence**,
+never in what may be read.
+
+- **Relay: nothing to build.** No `since` on the membership row, no read filter, no changes to
+  `check_channel_membership` or any read path. Do not add a since column, a since parameter on
+  put-user, or a filtered read path "for later" — if that boundary is ever wanted it will be
+  designed then, and dead half-built machinery is exactly what the cleanup brief spent a day
+  removing.
+- **Desktop:** record the visit (channel, guest, arrival time, and the exchange id that brought
+  them, if any) in the exchange store beside the heads. The arrival time is for the UI and for fade
+  (D) — the timeline draws the threshold at that moment — and grants no read permission of its own.
+  The visit grant must be recorded on the frozen per-final decision (same replay discipline the mint
   already uses) so a crash replay does not re-add or double-note.
 
 ### C. What people see — the UI is already built; you emit the events it reads
@@ -104,9 +112,10 @@ restyle any of that.** Your job is the data they read:
   desktop (`openVisitors()` in `visitSpans.ts`). No header/title wiring for you.
 - The guest's own prompt (harness side, where the exchange sentence already renders —
   `exchange_prompt_line` in `crates/buzz-acp/src/queue.rs` is the pattern): one sentence — "You are
-  visiting <host label>'s conversation as a guest; you can see messages from your arrival onward.
-  When the exchange pauses or closes, you step back out." No new prompt machinery — one more line in
-  the same place.
+  a guest in <host label>'s conversation; you have the conversation, so answer in context. When the
+  exchange pauses or closes, you step back out." No new prompt machinery — one more line in the same
+  place. (The old wording promised the guest could only see from their arrival onward; that policy
+  is cancelled, see B.)
 - No badges change, no new settings, no permission surfaces. The strip works as it already does.
 
 ### D. Ending a visit (fade)
@@ -118,8 +127,8 @@ mention them, or on `resolve_exchange` stop of their exchange.** On fade: remove
 (existing remove-member path), and the relay speaks the matching note, same keys:
 `{"type":"visit_left","resident":"<guest hex pubkey>","exchange_id":"<hex>","text":"ziggy left."}`
 (the desktop renders "stepped out" and closes the plate from it). Their memory of the visit is
-theirs; nothing is deleted. A later mention starts a fresh visit with a fresh since. Keep the fade
-check in ONE desktop function with tests; do not distribute the rule.
+theirs; nothing is deleted. A later mention starts a fresh visit with a fresh arrival time. Keep the
+fade check in ONE desktop function with tests; do not distribute the rule.
 
 ### E. Explicitly out of scope
 The delegation card, "start a room from here" (stays the owner's manual, not-yet-built button),
@@ -129,20 +138,19 @@ who may create rooms. Do not build ahead.
 ## Order of work, each with its done-condition
 
 1. Step 0 + salvage cherry-picks → all gates green, `NOTE(claude)` removed.
-2. Relay since-membership + read filter → unit tests in the relay handler style + one e2e in
-   `crates/buzz-test-client/tests/` proving: guest added with since sees nothing older, sees
-   everything newer, owner unaffected, malformed since acts as now.
-3. Desktop visit helper + both entry points + decision-record replay → sibling `_tests.rs` tests:
+   *(The relay since-membership + read-filter task that used to be task 2 is deleted — see the
+   policy change in B. There is no relay read work in this brief at all.)*
+2. Desktop visit helper + both entry points + decision-record replay → sibling `_tests.rs` tests:
    owner-mention visit, resident-mention visit + in-place mint (assert conversation stays the SAME
    room), replay stages once, third-resident mention mints a second exchange in place.
-4. Arrival/left notes + guest prompt line → relay/desktop unit tests that the note bodies are exactly
+3. Arrival/left notes + guest prompt line → relay/desktop unit tests that the note bodies are exactly
    the JSON payloads in C/D (keys `type`, `resident`, `exchange_id`, `text`; `resident` lowercase
    hex) and that 41013 reaches the desktop timeline kinds; harness unit test for the prompt line.
    **No UI work and no Playwright UI spec** — the rendering is design-owned and checked by
    `desktop/scripts/lab-shots.mjs`.
-5. Fade → the one-function rule + tests; e2e: stop the exchange → membership removed + a
+4. Fade → the one-function rule + tests; e2e: stop the exchange → membership removed + a
    `visit_left` note emitted.
-6. Full gates: `just desktop-tauri-clippy` · full tauri tests · `cargo test -p buzz-relay --lib`
+5. Full gates: `just desktop-tauri-clippy` · full tauri tests · `cargo test -p buzz-relay --lib`
    (skip `api::mesh_demo`, known flake) · `cargo test -p buzz-acp` · desktop `pnpm test` + the
    Playwright luca suite (pre-existing failures listed in the cleanup work are not yours).
 

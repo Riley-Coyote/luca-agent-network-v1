@@ -98,6 +98,20 @@ for (const theme of themes) {
   }
   await page.waitForTimeout(700);
 
+  // Scroll the timeline so a visit passage straddles the top of the viewport:
+  // the presence rail only has a job once the door has scrolled away.
+  await page.evaluate(() => {
+    const scroller = document.querySelector("[data-buzz-conversation-scroll]");
+    const rows = [...document.querySelectorAll("[data-visit-span]")];
+    if (!scroller || rows.length === 0) return;
+    const last = rows[rows.length - 1];
+    scroller.scrollTop +=
+      last.getBoundingClientRect().top -
+      scroller.getBoundingClientRect().top -
+      4;
+  });
+  await page.waitForTimeout(400);
+
   const checks = await page.evaluate(() => {
     const rect = (el) => el?.getBoundingClientRect() ?? null;
     const q = (s) => document.querySelector(s);
@@ -132,7 +146,12 @@ for (const theme of themes) {
         .filter(Boolean)
         .sort((a, b) => rect(a).top - rect(b).top)[0] ?? null;
     const spans = qa("[data-visit-span]")
-      .map((el) => ({ ...rect(el).toJSON(), pos: el.dataset.visitSpan }))
+      .map((el) => ({
+        ...rect(el).toJSON(),
+        pos: el.dataset.visitSpan,
+        padLeft: Number.parseFloat(getComputedStyle(el).paddingLeft),
+        padRight: Number.parseFloat(getComputedStyle(el).paddingRight),
+      }))
       .sort((a, b) => a.top - b.top);
     const monoInDrawer = panel
       ? qa('[data-testid="conversation-context-panel"] *').filter((el) => {
@@ -168,16 +187,50 @@ for (const theme of themes) {
         ? Math.round(rect(pill).top - rect(chatHeader).bottom)
         : null;
     r.visitSpanRows = spans.length;
-    // Rows inside one plate must touch; a gap is only allowed between one
-    // plate's end row and the next plate's start row.
+    // Rows inside one passage must touch; a gap is only allowed where one
+    // passage ends and the next begins.
     r.visitSpanContiguous = spans.length
       ? spans.every(
           (s, i) =>
             i === 0 ||
             s.top <= spans[i - 1].bottom + 1 ||
-            (spans[i - 1].pos === "end" && s.pos === "start"),
+            (["last", "only"].includes(spans[i - 1].pos) &&
+              ["first", "only"].includes(s.pos)),
         )
       : null;
+    // The doors keep the reading plane's full measure; the passage between
+    // them is inset from both sides. Padding, not box width — the rows are all
+    // the same element, so only the padding tells them apart.
+    const doors = qa("[data-visit-threshold]").map((el) => ({
+      pad: Number.parseFloat(getComputedStyle(el).paddingLeft),
+      ruleCount: el.querySelectorAll(".luca-visit-threshold__rule").length,
+      ruleWidth: Math.min(
+        ...[...el.querySelectorAll(".luca-visit-threshold__rule")].map(
+          (n) => rect(n).width,
+        ),
+      ),
+    }));
+    r.doorCount = doors.length;
+    r.doorsFullWidth = doors.length
+      ? doors.every((d) => d.pad < 12 && d.ruleCount === 2 && d.ruleWidth > 40)
+      : null;
+    r.passageInset = spans.length
+      ? spans.every((s) => s.padLeft >= 20 && s.padRight >= 20)
+      : null;
+    const rail = q('[data-testid="visit-presence-rail"]');
+    r.railPresent = rail ? rail.hasAttribute("data-visit-present") : null;
+    const railMark = rail?.querySelector("[data-resident-mark-kind]");
+    const scroller = q("[data-buzz-conversation-scroll]");
+    // It must sit inside the viewport and clear of the message column.
+    r.railInView =
+      railMark && scroller
+        ? rect(railMark).top >= rect(scroller).top - 1 &&
+          rect(railMark).bottom <= rect(scroller).bottom + 1
+        : null;
+    r.railClearOfRows =
+      railMark && spans.length
+        ? spans.every((s) => rect(railMark).right <= s.left + s.padLeft + 1)
+        : null;
     r.monoInDrawer = monoInDrawer;
     r.sidebarBg = getComputedStyle(
       q('[data-testid="app-sidebar"]'),
@@ -190,12 +243,13 @@ for (const theme of themes) {
       composer: q('[data-testid="channel-composer-overlay"]')
         ? rect(q('[data-testid="channel-composer-overlay"]')).toJSON()
         : null,
-      // The most recent plate (the last run of span rows), which is the one
+      // The most recent passage (the last run of span rows), which is the one
       // in view when the timeline sits at the bottom.
       plate: (() => {
         if (!spans.length) return null;
         let start = spans.length - 1;
-        while (start > 0 && spans[start].pos !== "start") start -= 1;
+        while (start > 0 && !["first", "only"].includes(spans[start].pos))
+          start -= 1;
         const run = spans.slice(start);
         return {
           x: run[0].left,
@@ -342,7 +396,16 @@ for (const theme of themes) {
       : null,
     `(offset ${checks.pillOffsetFromHeader})`,
   );
-  expect("visit plate contiguous", checks.visitSpanContiguous);
+  expect("visit passage contiguous", checks.visitSpanContiguous);
+  expect("both doors present", checks.doorCount >= 2, `(${checks.doorCount})`);
+  expect(
+    "doors keep the full measure, with rules on both sides",
+    checks.doorsFullWidth,
+  );
+  expect("passage is inset from the plane", checks.passageInset);
+  expect("presence rail pins while a visit is on screen", checks.railPresent);
+  expect("presence rail stays in the viewport", checks.railInView);
+  expect("presence rail clears the message column", checks.railClearOfRows);
   expect(
     "no mono type in drawer chrome",
     checks.monoInDrawer === 0,
@@ -409,7 +472,7 @@ fs.writeFileSync(
 
 for (const [theme, r] of Object.entries(report)) {
   console.log(
-    `${theme.padEnd(18)} drawer=${r.drawerWidth} inflow=${r.headerInFlow} card=${r.asideIsCard} seam=${r.seamWidth} stripΔ=${r.stripWidthDelta} pill=${r.pillOffsetFromHeader} span=${r.visitSpanRows}/${r.visitSpanContiguous} mono=${r.monoInDrawer} resident=${r.resident.present ? `model:${r.resident.model}` : "MISSING"} errs=${r.consoleErrors.length}  →${path.relative(DESKTOP, r.out)}`,
+    `${theme.padEnd(18)} drawer=${r.drawerWidth} inflow=${r.headerInFlow} card=${r.asideIsCard} seam=${r.seamWidth} stripΔ=${r.stripWidthDelta} pill=${r.pillOffsetFromHeader} span=${r.visitSpanRows}/${r.visitSpanContiguous} doors=${r.doorCount} inset=${r.passageInset} rail=${r.railPresent} mono=${r.monoInDrawer} resident=${r.resident.present ? `model:${r.resident.model}` : "MISSING"} errs=${r.consoleErrors.length}  →${path.relative(DESKTOP, r.out)}`,
   );
 }
 if (failures.length) {

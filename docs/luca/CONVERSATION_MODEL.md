@@ -68,15 +68,21 @@ live tests started there — so chunk 3 does pair-DM placement before the card.
   omits the owner is rejected. "Between residents" is a display tag on a room you provably belong
   to. When you open a pair room, they see **"Coyote is here"** — presence, like any group chat. Not a
   read-log; that was considered and refused as too much.
-- **Guests get real edges.** A visit is membership with a `since`; the relay filters that member's
-  reads to ≥ since (guests hold relay credentials — a prompt-window alone is not a boundary). Fade
-  is a role change written by one authority; clients render it and never derive it (or two devices
-  disagree). A guest's own drawer shows "visiting Luca's DM."
+- **A guest gets the conversation** (corrected 2026-08-21 — this bullet used to say the opposite:
+  membership with a `since`, the relay filtering their reads to messages after they arrived). A
+  visit is ordinary membership, and while they are here the room's history is theirs to read. An
+  agent pulled into a conversation it cannot follow is useless to the person who pulled it in: it
+  answers the sentence it was mentioned in and nothing around it. It is also the house rule applied
+  consistently — inside the house family is trusted by default and the checks live at the door, and
+  a same-owner resident invited into the owner's own room is family. A visit is bounded in **time
+  and presence**, not in what may be read: they arrive, they answer, they leave. Fade is a role
+  change written by one authority; clients render it and never derive it (or two devices disagree).
+  A guest's own drawer shows "visiting Luca's DM."
 - **Every state that happens *to* a resident has a sentence written *to* them and something they can
-  do.** On visit: "You're in Coyote's conversation with Luca. You have the last 5 messages; 40 before
-  that aren't shown. If nobody replies to you for 5 messages you'll fade — your memory of this stays.
-  Say 'I'm done here' to leave." **Declining costs nothing** and reaches the owner **verbatim** on the
-  card ("Vektor declined: …"), never only as Luca's paraphrase.
+  do.** On visit: "You're a guest in Coyote's conversation with Luca — you have the conversation, so
+  answer in context. When the exchange pauses or closes you step back out; your memory of this
+  stays." **Declining costs nothing** and reaches the owner **verbatim** on the card ("Vektor
+  declined: …"), never only as Luca's paraphrase.
 - **In-house sends are not modals.** Today every resident-initiated send blocks on an owner-approval
   prompt; a three-turn exchange would be six modals and expires with the lid closed. Split the
   policy: sends inside the house, to a room the owner is a member of, are auto-approved under the

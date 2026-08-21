@@ -8,6 +8,8 @@
   --font-instrument: "Doto", "Fragment Mono", "SFMono-Regular", monospace;
   --mn-text-chat: 0.9375rem;
   --mn-text-micro: 0.5625rem;
+  /* A guest's turns sit one step below the room's own voice. */
+  --mn-text-visit: 0.9375rem;
   /* ------------------------------------------------------------------
    * THE SHELL SCALE — single source of truth.
    *
@@ -176,29 +178,102 @@
   overflow: hidden;
 }
 
-/* A visit is an aside inside the room's conversation, and asides have been
-   drawn the same way for as long as there has been threaded text: indent the
-   passage and run a rule down the indent. It is the blockquote rule
-   (`border-left` + `padding-left`), the same shape as a nested comment thread
-   or a quoted reply. Two things make it read: the content moves right, and
-   the rule marks where it moved from. Neither works without the other — a
-   rule with no indent is just a stray line in the margin.
-   The rows are separate virtualized elements, so each carries the border; they
-   stack edge to edge (see the visit-span annotation), so the rule is
-   continuous down the passage. */
+/* ------------------------------------------------------------------
+ * THE VISIT
+ *
+ * A guest arriving is an event, not a footnote, so it is drawn as a
+ * threshold: a rule all the way across the reading plane with the moment
+ * centred on it — the same grammar as the day divider, a break in presence
+ * rather than in time. The way out is bare and its rule fades toward the ends
+ * instead of running to them, so the door reads as swinging one way.
+ *
+ * Between the two doors the column steps in from both sides. No fill and no
+ * border: the passage is simply a different space, the way a magazine sets a
+ * sidebar. The doors keep the full width, so they stay the widest thing on
+ * screen and the visit sits inside them — and the inset opens the margin the
+ * presence mark keeps watch in.
+ * ------------------------------------------------------------------ */
 :root[data-luca-shell] [data-luca-reading-plane][data-visit-span] {
-  border-left: 2px solid hsl(var(--mn-ink) / 0.14);
-  padding-left: 1rem;
+  padding-left: var(--mn-visit-inset, 30px);
+  padding-right: var(--mn-visit-inset-end, 44px);
+  position: relative;
 }
 
-/* A little air inside the quote at its two ends, so the first and last lines
-   do not sit flush against the rule's start and finish. */
-:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="start"] {
-  padding-top: 0.25rem;
+/* THE LINE connects the marks of the people who spoke during the visit and
+   nothing else. It is drawn per row in two segments — row top to the mark,
+   mark to row bottom — so the first speaker omits its upper segment and the
+   last omits its lower one, and the line begins and ends ON a mark instead of
+   running past it into the notes. Per row rather than one absolute trunk is
+   also the only construction that survives virtualization: no row needs to
+   know the height of the passage, only whether it is the first or last
+   speaker in it. */
+:root[data-luca-shell] [data-luca-reading-plane][data-visit-span]::before,
+:root[data-luca-shell] [data-luca-reading-plane][data-visit-span]::after {
+  background: hsl(var(--mn-ink) / 0.17);
+  content: "";
+  /* Row padding (4px) + gutter centre (10.5px) inside the inset column. */
+  left: calc(var(--mn-visit-inset, 30px) + 14px);
+  position: absolute;
+  width: 2px;
 }
 
-:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="end"] {
-  padding-bottom: 0.25rem;
+/* Row top → the mark. `--mn-visit-mark-top` is where the mark starts inside
+   the row: the row's own padding plus the gutter's. */
+:root[data-luca-shell] [data-luca-reading-plane][data-visit-span]::before {
+  height: var(--mn-visit-mark-top, 10px);
+  top: 0;
+}
+
+/* The mark → row bottom. */
+:root[data-luca-shell] [data-luca-reading-plane][data-visit-span]::after {
+  bottom: 0;
+  top: calc(var(--mn-visit-mark-top, 10px) + 21px);
+}
+
+:root[data-luca-shell]
+  [data-luca-reading-plane][data-visit-span="first"]::before,
+:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="last"]::after,
+:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="only"]::before,
+:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="only"]::after {
+  display: none;
+}
+
+/* Rows inside the passage that are not a speaker's turn — a system row, a
+   date divider — carry the inset but never the line. */
+:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="quiet"]::before,
+:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="quiet"]::after {
+  display: none;
+}
+
+/* THE DOORS. Full width — the widest thing on screen — so the passage reads as
+   sitting inside them. The way out fades toward the ends rather than running
+   to them: direction is information, and the door swings one way. */
+:root[data-luca-shell] .luca-visit-threshold__rule {
+  background: hsl(var(--mn-ink) / 0.15);
+  flex: 1 1 0%;
+  height: 1px;
+}
+
+:root[data-luca-shell]
+  [data-visit-threshold="leave"]
+  .luca-visit-threshold__rule:first-child {
+  background: linear-gradient(to right, transparent, hsl(var(--mn-ink) / 0.15));
+}
+
+:root[data-luca-shell]
+  [data-visit-threshold="leave"]
+  .luca-visit-threshold__rule:last-child {
+  background: linear-gradient(to left, transparent, hsl(var(--mn-ink) / 0.15));
+}
+
+/* THE VISIT'S OWN VOICE. One step down and one shade back — felt before it is
+   noticed. The author line and the time hold their size so the rhythm of the
+   column does not break. */
+:root[data-luca-shell]
+  [data-luca-reading-plane][data-visit-span]
+  .message-markdown {
+  color: hsl(var(--mn-ink) / 0.72);
+  font-size: var(--mn-text-visit);
 }
 
 /* With the rail collapsed there is no seam to hug, so the left lip matches the

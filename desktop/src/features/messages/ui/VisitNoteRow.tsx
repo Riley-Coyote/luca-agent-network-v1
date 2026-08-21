@@ -14,17 +14,20 @@ import { cn } from "@/shared/lib/cn";
 type VisitNoteRowProps = {
   currentPubkey?: string;
   message: TimelineMessage;
-  /** Arrival rows: the visit is still under way (plate open, mark breathing). */
+  /** Arrival rows: the visit is still under way (mark breathing). */
   open?: boolean;
   profiles?: UserProfileLookup;
   visit: VisitEvent;
 };
 
 /**
- * The two house notes that bracket a visit. Arrival is the boundary line — it
- * tells the room the guest sees the conversation from here, and nothing
- * above. Departure is an exhale: name and verb, no mark, no line. Both sit in
- * the meta register so they never compete with what was said.
+ * The door at each end of a visit.
+ *
+ * A guest arriving is an event, so it is drawn as a threshold: a rule all the
+ * way across the reading plane with the moment centred on it — the same
+ * grammar the day divider uses, a break in presence rather than in time. The
+ * way out is bare and its rule fades toward the ends instead of running to
+ * them, so the door reads as swinging one way.
  */
 export function VisitNoteRow({
   currentPubkey,
@@ -49,36 +52,35 @@ export function VisitNoteRow({
   return (
     <div
       className={cn(
-        "mx-1 flex items-center gap-2.5 px-2",
-        arrived ? "pb-1 pt-2.5" : "pb-2 pt-1.5",
+        "luca-visit-threshold flex items-center gap-3.5 px-2",
+        arrived ? "pb-2.5 pt-3.5" : "py-3",
       )}
       data-message-id={message.id}
       data-testid={arrived ? "visit-arrived-row" : "visit-left-row"}
-      data-visit-open={arrived && open ? "" : undefined}
+      data-visit-guest={arrived ? visit.resident : undefined}
     >
-      <span className="flex w-[21px] shrink-0 justify-center">
+      <span aria-hidden className="luca-visit-threshold__rule" />
+      <span
+        className={cn(
+          "flex shrink-0 items-center gap-1.5 whitespace-nowrap text-2xs leading-4",
+          arrived ? "text-muted-foreground" : "text-muted-foreground/70",
+        )}
+      >
         {arrived ? (
           <ResidentIdentityMark
             accessibleName={name}
-            // Presence is lighter: the mark on the threshold line sits at
-            // meta ink; it breathes while the visit is still under way.
-            className={cn("text-foreground/70", open && "luca-identity-breath")}
+            className={cn("text-foreground/75", open && "luca-identity-breath")}
             decorative
             publicKey={visit.resident}
-            size={13}
+            size={12}
           />
         ) : null}
+        <span>
+          <span className="text-foreground/70">{name}</span>
+          {arrived ? " stepped in" : " stepped out"}
+        </span>
       </span>
-      <p className="min-w-0 truncate text-2xs leading-4 text-muted-foreground">
-        <span className="font-medium text-foreground/70">{name}</span>
-        {arrived ? " stepped in" : " stepped out"}
-        {arrived ? (
-          <>
-            <span className="px-1.5 text-muted-foreground/50">·</span>
-            sees the conversation from here
-          </>
-        ) : null}
-      </p>
+      <span aria-hidden className="luca-visit-threshold__rule" />
     </div>
   );
 }

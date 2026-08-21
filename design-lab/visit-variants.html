@@ -1,0 +1,812 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-treatment="on">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Visit — the threshold</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+:root{--logo-claude:url("data:image/png;base64,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");--logo-codex:url("data:image/png;base64,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")}
+/* Tokens lifted from conversation-shell.css so the prototype judges the same
+   surfaces and ink as the app. Dark is Void; light is the catppuccin-latte
+   family the app derives for light palettes. */
+:root {
+  --mn-floor: 0 0% 0%;
+  --mn-surface: 220 8% 2.1%;
+  --mn-border: 220 5% 10.5%;
+  --mn-ink: 220 11.8% 93.1%;
+  --mn-ink-muted: 220 2.7% 71.5%;
+  --font-ui: "Instrument Sans", "Inter", "Avenir Next", "Segoe UI", sans-serif;
+
+  /* The thread line. One value, used by every option. */
+  --line: hsl(var(--mn-ink) / 0.17);
+  --line-w: 2px;
+  /* Geometry that must agree across options: the glyph column and the step. */
+  --gutter: 21px;
+  --gap: 10px;
+  /* Where a mark sits inside its row: row padding-top + gutter padding-top. */
+  --mark-top: 8px;
+  --mark-size: 21px;
+}
+
+:root[data-theme="light"] {
+  --mn-floor: 220 20% 97.5%;
+  --mn-surface: 0 0% 100%;
+  --mn-border: 220 14% 90%;
+  --mn-ink: 230 19% 26%;
+  --mn-ink-muted: 232 10% 47%;
+  --line: hsl(var(--mn-ink) / 0.22);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: hsl(var(--mn-floor));
+  color: hsl(var(--mn-ink));
+  font-family: var(--font-ui);
+  font-size: 16px;
+  margin: 0;
+  padding: 40px 32px 96px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  justify-content: space-between;
+  margin: 0 auto 40px;
+  max-width: 60rem;
+}
+
+.page-head h1 {
+  font-size: 1.375rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  margin: 0 0 6px;
+}
+
+.page-head p,
+.option-head p,
+.page-foot p {
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  margin: 0;
+  max-width: 42rem;
+}
+
+.controls {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+.ctl {
+  background: hsl(var(--mn-ink) / 0.06);
+  border: 0;
+  border-radius: 8px;
+  color: hsl(var(--mn-ink) / 0.85);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 7px 12px;
+}
+
+.ctl:hover {
+  background: hsl(var(--mn-ink) / 0.1);
+}
+
+.option {
+  margin: 0 auto 56px;
+  max-width: 60rem;
+}
+
+.option-head {
+  margin-bottom: 14px;
+}
+
+.option-head h2 {
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  margin: 0 0 4px;
+}
+
+.option-head b {
+  color: hsl(var(--mn-ink) / 0.9);
+  font-weight: 500;
+}
+
+/* The conversation card and its reading plane. */
+.plane {
+  background: hsl(var(--mn-surface));
+  border: 1px solid hsl(var(--mn-border));
+  border-radius: 10px;
+  padding: 18px 20px;
+}
+
+/* ---- one message row ------------------------------------------------ */
+.row {
+  display: flex;
+  gap: var(--gap);
+  padding: 6px 0 10px;
+  position: relative;
+}
+
+.gutter {
+  display: flex;
+  flex: none;
+  justify-content: center;
+  padding-top: 2px;
+  width: var(--gutter);
+}
+
+.body {
+  min-width: 0;
+}
+
+.meta {
+  align-items: baseline;
+  display: flex;
+  gap: 6px;
+  line-height: 1rem;
+}
+
+.meta b {
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+}
+
+.meta time,
+.meta em {
+  color: hsl(var(--mn-ink-muted) / 0.72);
+  font-size: 0.6875rem;
+  font-style: normal;
+}
+
+.body p {
+  color: hsl(var(--mn-ink) / 0.9);
+  font-size: 1rem;
+  line-height: 1.68;
+  margin: 2px 0 0;
+}
+
+/* ---- marks ---------------------------------------------------------- */
+.mark {
+  background: currentColor;
+  color: hsl(var(--mn-ink));
+  display: block;
+  flex: none;
+  height: 21px;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+  width: 21px;
+}
+
+.mark.sm {
+  height: 13px;
+  width: 13px;
+  color: hsl(var(--mn-ink) / 0.7);
+}
+
+.mark.claude {
+  mask-image: var(--logo-claude);
+}
+
+.mark.codex {
+  mask-image: var(--logo-codex);
+}
+
+.disc {
+  align-items: center;
+  background: hsl(var(--mn-ink) / 0.1);
+  border-radius: 999px;
+  color: hsl(var(--mn-ink) / 0.75);
+  display: flex;
+  flex: none;
+  font-size: 0.625rem;
+  height: 21px;
+  justify-content: center;
+  width: 21px;
+}
+
+.dot {
+  background: hsl(var(--mn-ink) / 0.28);
+  border-radius: 999px;
+  display: block;
+  height: 7px;
+  width: 7px;
+}
+
+/* A mark on the line needs nothing special: the line is drawn in two segments
+   that stop at the mark's top and resume at its bottom, so it never runs
+   behind the glyph and no mask or halo is required. */
+.node {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---- the visit's own type: one step down, one shade back ------------- */
+:root[data-treatment="on"] .visit-row .body p {
+  color: hsl(var(--mn-ink) / 0.72);
+  font-size: 0.9375rem;
+}
+
+:root[data-treatment="on"] .visit-row .meta b {
+  color: hsl(var(--mn-ink) / 0.82);
+}
+
+/* ====================================================================== */
+/* THE THRESHOLD. The entrance is the privacy boundary — everything above  */
+/* it the guest cannot see — so it is drawn all the way across, with the   */
+/* moment centred on it. Same grammar as the day divider, one register     */
+/* stronger, and a break in presence rather than in time.                  */
+/* ====================================================================== */
+.threshold {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  padding: 14px 0 10px;
+}
+
+.threshold .rule {
+  background: var(--line);
+  flex: 1;
+  height: 1px;
+}
+
+.threshold .label {
+  align-items: center;
+  color: hsl(var(--mn-ink-muted) / 0.9);
+  display: flex;
+  flex: none;
+  font-size: 0.6875rem;
+  gap: 7px;
+  line-height: 1rem;
+  white-space: nowrap;
+}
+
+.threshold .label em {
+  font-style: normal;
+  opacity: 0.45;
+}
+
+.threshold .mark.xs {
+  color: hsl(var(--mn-ink) / 0.75);
+  height: 12px;
+  width: 12px;
+}
+
+/* Direction is information: the way out is bare, and its rule fades toward
+   the ends instead of running to them, so the door reads as swinging shut. */
+.threshold.exit {
+  padding: 12px 0 12px;
+}
+
+.threshold.exit .label {
+  color: hsl(var(--mn-ink-muted) / 0.62);
+}
+
+.threshold.exit .rule:first-child {
+  background: linear-gradient(to right, transparent, var(--line));
+}
+
+.threshold.exit .rule:last-child {
+  background: linear-gradient(to left, transparent, var(--line));
+}
+
+/* Stage directions: never mistakable for speech. */
+.threshold.stage .label b {
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.threshold.stage .label .clause {
+  border-left: 1px solid hsl(var(--mn-ink) / 0.14);
+  font-size: 0.6875rem;
+  opacity: 0.62;
+  padding-left: 8px;
+}
+
+/* ====================================================================== */
+/* THE LINE. It connects the marks of the people who spoke during the      */
+/* visit, and nothing else — so it is drawn per row, in two segments: one  */
+/* from the row's top edge up to the mark, one from the mark down to the   */
+/* row's bottom edge. The first speaking row omits its upper segment and   */
+/* the last omits its lower one, which is what makes the line begin and    */
+/* end ON a mark instead of running past it into the notes.                */
+/* Drawing it per row (rather than as one absolute trunk) is also what     */
+/* will survive virtualization in the app: no row needs to know the height */
+/* of the passage, only whether it is the first or last speaker in it.     */
+/* ====================================================================== */
+.visit-row {
+  position: relative;
+}
+
+.visit-row::before,
+.visit-row::after {
+  background: var(--line);
+  content: "";
+  left: calc(var(--gutter) / 2 - var(--line-w) / 2);
+  position: absolute;
+  width: var(--line-w);
+}
+
+/* Row top → mark top. `--mark-top` is where the mark starts inside the row:
+   the row's own padding (6px) plus the gutter's (2px). */
+.visit-row::before {
+  height: calc(var(--mark-top));
+  top: 0;
+}
+
+/* Mark bottom → row bottom. */
+.visit-row::after {
+  bottom: 0;
+  top: calc(var(--mark-top) + var(--mark-size));
+}
+
+.visit-row.first::before,
+.visit-row.last::after {
+  display: none;
+}
+
+/* ====================================================================== */
+/* THE PASSAGE. Inset from both sides, the way a magazine sets a sidebar:  */
+/* a different space with no fill and no border. The thresholds keep the   */
+/* full width, so the doors stay the widest thing on the page and the      */
+/* visit sits inside them.                                                 */
+/* ====================================================================== */
+.visit-block {
+  position: relative;
+}
+
+.visit-block.narrow {
+  padding-left: 30px;
+  padding-right: 44px;
+}
+
+/* ====================================================================== */
+/* STICKY PRESENCE. A long visit scrolls past its own entrance; the mark   */
+/* rides the margin so the room never stops saying who is in it, and lets  */
+/* go when the passage ends. Height 0 so it occupies no space in flow.     */
+/* ====================================================================== */
+.presence {
+  display: block;
+  height: 0;
+  position: sticky;
+  top: 10px;
+  z-index: 2;
+}
+
+/* It lives in the margin the narrowing created — the two ideas hold each
+   other up: the passage steps in, and the mark keeps watch in the space it
+   left behind, clear of every other mark in the column. */
+.presence i {
+  color: hsl(var(--mn-ink) / 0.42);
+  height: 17px;
+  left: -28px;
+  position: absolute;
+  top: 0;
+  width: 17px;
+}
+
+.scroller {
+  max-height: 460px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.hint {
+  color: hsl(var(--mn-ink-muted) / 0.7);
+  font-size: 0.6875rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  padding-left: 8px;
+  text-transform: none;
+}
+
+.page-foot {
+  margin: 0 auto;
+  max-width: 60rem;
+}
+
+</style></head>
+<body>
+<!-- BODY of the visit-structure prototype. The build step inlines the harness
+     logo data URIs above this markup. -->
+<header class="page-head">
+  <div>
+    <h1>Visit — the threshold</h1>
+    <p>
+      The entrance and the exit are real events, so they get real weight. Three ways of drawing that, plus the
+      sticky presence rail at the bottom, which only makes sense scrolling.
+    </p>
+  </div>
+  <div class="controls">
+    <button class="ctl" data-theme-toggle type="button">Light</button>
+    <button class="ctl" data-treatment-toggle type="button">
+      Text treatment: on
+    </button>
+  </div>
+</header>
+
+<!-- ============================================================ -->
+<section class="option">
+  <div class="option-head">
+    <h2>1 — Threshold</h2>
+    <p>
+      A rule all the way across with the moment centred on it, the way the day
+      divider already works in this app — a break in presence rather than a
+      break in time. The entrance is drawn full strength and carries the guest's
+      mark; the exit is bare and fades out toward both ends, so the door reads
+      as swinging one way.
+    </p>
+  </div>
+  <div class="plane">
+    <div class="row">
+      <span class="gutter"><i class="mark claude"></i></span>
+      <div class="body">
+        <div class="meta"><b>Luca</b><time>1:13 AM</time></div>
+        <p>
+          Nothing happens, and that is the design. The bucket runs out and we
+          hold. You wake up to a paused conversation, not a finished one.
+          @ziggy, you argued the other side of this last week.
+        </p>
+      </div>
+    </div>
+
+    <div class="threshold enter">
+      <span class="rule"></span>
+      <span class="label"
+        ><i class="mark codex xs"></i>ziggy stepped in</span
+      >
+      <span class="rule"></span>
+    </div>
+
+    <div class="visit-block">
+      <div class="row visit-row first">
+        <span class="gutter"><i class="mark codex node"></i></span>
+        <div class="body">
+          <div class="meta"><b>ziggy</b><time>1:16 AM</time><em>· visiting</em></div>
+          <p>
+            I would only add that the pause should read as a held breath, not an
+            error. If I hit the cap mid-thought, the room should still feel alive
+            when you come back to it.
+          </p>
+        </div>
+      </div>
+      <div class="row visit-row">
+        <span class="gutter"><i class="disc node">C</i></span>
+        <div class="body">
+          <div class="meta"><b>Coyote</b><time>1:18 AM</time></div>
+          <p>Alive how — the strip, or the room itself?</p>
+        </div>
+      </div>
+      <div class="row visit-row last">
+        <span class="gutter"><i class="mark codex node"></i></span>
+        <div class="body">
+          <div class="meta"><b>ziggy</b><time>1:21 AM</time><em>· visiting</em></div>
+          <p>
+            The room itself. The strip is the control; the room is what tells you
+            the conversation is still open.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="threshold exit">
+      <span class="rule"></span>
+      <span class="label">ziggy stepped out</span>
+      <span class="rule"></span>
+    </div>
+
+    <div class="row">
+      <span class="gutter"><i class="disc">C</i></span>
+      <div class="body">
+        <div class="meta"><b>Coyote</b><time>1:24 AM</time></div>
+        <p>Good — let us leave the rule where it is, then.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section class="option">
+  <div class="option-head">
+    <h2>2 — Threshold, narrower measure</h2>
+    <p>
+      Same thresholds, but between them the column is inset from both sides. No
+      fill and no border: the passage is simply a different space, the way a
+      magazine sets a sidebar. The rules stay full width, so the doors are the
+      widest thing and the visit sits inside them.
+    </p>
+  </div>
+  <div class="plane">
+    <div class="row">
+      <span class="gutter"><i class="mark claude"></i></span>
+      <div class="body">
+        <div class="meta"><b>Luca</b><time>1:13 AM</time></div>
+        <p>
+          Nothing happens, and that is the design. The bucket runs out and we
+          hold. You wake up to a paused conversation, not a finished one.
+          @ziggy, you argued the other side of this last week.
+        </p>
+      </div>
+    </div>
+
+    <div class="threshold enter">
+      <span class="rule"></span>
+      <span class="label"
+        ><i class="mark codex xs"></i>ziggy stepped in</span
+      >
+      <span class="rule"></span>
+    </div>
+
+    <div class="visit-block narrow">
+      <div class="row visit-row first">
+        <span class="gutter"><i class="mark codex node"></i></span>
+        <div class="body">
+          <div class="meta"><b>ziggy</b><time>1:16 AM</time><em>· visiting</em></div>
+          <p>
+            I would only add that the pause should read as a held breath, not an
+            error. If I hit the cap mid-thought, the room should still feel alive
+            when you come back to it.
+          </p>
+        </div>
+      </div>
+      <div class="row visit-row">
+        <span class="gutter"><i class="disc node">C</i></span>
+        <div class="body">
+          <div class="meta"><b>Coyote</b><time>1:18 AM</time></div>
+          <p>Alive how — the strip, or the room itself?</p>
+        </div>
+      </div>
+      <div class="row visit-row last">
+        <span class="gutter"><i class="mark codex node"></i></span>
+        <div class="body">
+          <div class="meta"><b>ziggy</b><time>1:21 AM</time><em>· visiting</em></div>
+          <p>
+            The room itself. The strip is the control; the room is what tells you
+            the conversation is still open.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="threshold exit">
+      <span class="rule"></span>
+      <span class="label">ziggy stepped out</span>
+      <span class="rule"></span>
+    </div>
+
+    <div class="row">
+      <span class="gutter"><i class="disc">C</i></span>
+      <div class="body">
+        <div class="meta"><b>Coyote</b><time>1:24 AM</time></div>
+        <p>Good — let us leave the rule where it is, then.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section class="option">
+  <div class="option-head">
+    <h2>3 — Stage directions</h2>
+    <p>
+      The house metaphor taken at its word. Theatre has marked entrances and
+      exits for four hundred years and they are never mistaken for dialogue:
+      centred, small caps, a voice of their own.
+    </p>
+  </div>
+  <div class="plane">
+    <div class="row">
+      <span class="gutter"><i class="mark claude"></i></span>
+      <div class="body">
+        <div class="meta"><b>Luca</b><time>1:13 AM</time></div>
+        <p>
+          Nothing happens, and that is the design. The bucket runs out and we
+          hold. You wake up to a paused conversation, not a finished one.
+          @ziggy, you argued the other side of this last week.
+        </p>
+      </div>
+    </div>
+
+    <div class="threshold enter stage">
+      <span class="rule"></span>
+      <span class="label"
+        ><i class="mark codex xs"></i><b>ziggy enters</b></span
+      >
+      <span class="rule"></span>
+    </div>
+
+    <div class="visit-block narrow">
+      <div class="row visit-row first">
+        <span class="gutter"><i class="mark codex node"></i></span>
+        <div class="body">
+          <div class="meta"><b>ziggy</b><time>1:16 AM</time><em>· visiting</em></div>
+          <p>
+            I would only add that the pause should read as a held breath, not an
+            error. If I hit the cap mid-thought, the room should still feel alive
+            when you come back to it.
+          </p>
+        </div>
+      </div>
+      <div class="row visit-row">
+        <span class="gutter"><i class="disc node">C</i></span>
+        <div class="body">
+          <div class="meta"><b>Coyote</b><time>1:18 AM</time></div>
+          <p>Alive how — the strip, or the room itself?</p>
+        </div>
+      </div>
+      <div class="row visit-row last">
+        <span class="gutter"><i class="mark codex node"></i></span>
+        <div class="body">
+          <div class="meta"><b>ziggy</b><time>1:21 AM</time><em>· visiting</em></div>
+          <p>
+            The room itself. The strip is the control; the room is what tells you
+            the conversation is still open.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="threshold exit stage">
+      <span class="rule"></span>
+      <span class="label"><b>ziggy leaves</b></span>
+      <span class="rule"></span>
+    </div>
+
+    <div class="row">
+      <span class="gutter"><i class="disc">C</i></span>
+      <div class="body">
+        <div class="meta"><b>Coyote</b><time>1:24 AM</time></div>
+        <p>Good — let us leave the rule where it is, then.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section class="option">
+  <div class="option-head">
+    <h2>6 — Sticky presence <span class="hint">scroll this panel</span></h2>
+    <p>
+      During a long visit you lose track that a guest is even in the room. While
+      the visit is on screen its mark pins to the margin and rides with you,
+      releasing at the exit. Scroll inside the frame: the mark holds while the
+      visit passes, then lets go.
+    </p>
+  </div>
+  <div class="plane scroller">
+    <div class="row">
+      <span class="gutter"><i class="mark claude"></i></span>
+      <div class="body">
+        <div class="meta"><b>Luca</b><time>1:13 AM</time></div>
+        <p>
+          Nothing happens, and that is the design. The bucket runs out and we
+          hold. You wake up to a paused conversation, not a finished one.
+          @ziggy, you argued the other side of this last week.
+        </p>
+      </div>
+    </div>
+
+    <div class="threshold enter">
+      <span class="rule"></span>
+      <span class="label"
+        ><i class="mark codex xs"></i>ziggy stepped in</span
+      >
+      <span class="rule"></span>
+    </div>
+
+    <div class="visit-block narrow">
+      <span class="presence" aria-hidden="true"><i class="mark codex"></i></span>
+      <div class="row visit-row first">
+        <span class="gutter"><i class="mark codex node"></i></span>
+        <div class="body">
+          <div class="meta"><b>ziggy</b><time>1:16 AM</time><em>· visiting</em></div>
+          <p>
+            I would only add that the pause should read as a held breath, not an
+            error. If I hit the cap mid-thought, the room should still feel alive
+            when you come back to it.
+          </p>
+        </div>
+      </div>
+      <div class="row visit-row">
+        <span class="gutter"><i class="disc node">C</i></span>
+        <div class="body">
+          <div class="meta"><b>Coyote</b><time>1:18 AM</time></div>
+          <p>Alive how — the strip, or the room itself?</p>
+        </div>
+      </div>
+      <div class="row visit-row">
+        <span class="gutter"><i class="mark codex node"></i></span>
+        <div class="body">
+          <div class="meta"><b>ziggy</b><time>1:21 AM</time><em>· visiting</em></div>
+          <p>
+            The room itself. The strip is the control; the room is what tells you
+            the conversation is still open. A paused exchange should look like a
+            held breath — the people in it are still standing there.
+          </p>
+        </div>
+      </div>
+      <div class="row visit-row">
+        <span class="gutter"><i class="disc node">C</i></span>
+        <div class="body">
+          <div class="meta"><b>Coyote</b><time>1:22 AM</time></div>
+          <p>
+            And if I never come back to it? I want to know the room does not rot
+            while I am away.
+          </p>
+        </div>
+      </div>
+      <div class="row visit-row last">
+        <span class="gutter"><i class="mark codex node"></i></span>
+        <div class="body">
+          <div class="meta"><b>ziggy</b><time>1:23 AM</time><em>· visiting</em></div>
+          <p>
+            It does not. The exchange expires, the room stays. Nothing is lost
+            except the permission to keep going without you.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="threshold exit">
+      <span class="rule"></span>
+      <span class="label">ziggy stepped out</span>
+      <span class="rule"></span>
+    </div>
+
+    <div class="row">
+      <span class="gutter"><i class="disc">C</i></span>
+      <div class="body">
+        <div class="meta"><b>Coyote</b><time>1:24 AM</time></div>
+        <p>Good — let us leave the rule where it is, then.</p>
+      </div>
+    </div>
+    <div class="row">
+      <span class="gutter"><i class="mark claude"></i></span>
+      <div class="body">
+        <div class="meta"><b>Luca</b><time>1:26 AM</time></div>
+        <p>
+          Then that is the three questions closed. I will write it up before you
+          are back at the desk tomorrow.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="page-foot">
+  <p>
+    In every panel: the line still connects only the marks of people who spoke
+    during the visit, and the visit's body steps 16px → 15px at 72% ink while
+    the author line and time hold their size. Toggle the treatment off above to
+    see how much the thresholds alone are carrying.
+  </p>
+</footer>
+
+<script>
+  const root = document.documentElement;
+  const themeBtn = document.querySelector("[data-theme-toggle]");
+  const treatBtn = document.querySelector("[data-treatment-toggle]");
+  themeBtn.addEventListener("click", () => {
+    const light = root.dataset.theme === "light";
+    root.dataset.theme = light ? "dark" : "light";
+    themeBtn.textContent = light ? "Light" : "Dark";
+  });
+  treatBtn.addEventListener("click", () => {
+    const off = root.dataset.treatment === "off";
+    root.dataset.treatment = off ? "on" : "off";
+    treatBtn.textContent = `Text treatment: ${off ? "on" : "off"}`;
+  });
+</script>
+
+</body></html>

@@ -20,6 +20,7 @@ import { parseVisitEvent } from "@/features/messages/lib/visitEvents";
 import {
   annotateVisitSpans,
   type VisitSpanPosition,
+  type VisitThreshold,
 } from "@/features/messages/lib/visitSpans";
 import { KIND_SYSTEM_MESSAGE } from "@/shared/constants/kinds";
 
@@ -30,6 +31,7 @@ import { KIND_SYSTEM_MESSAGE } from "@/shared/constants/kinds";
  */
 type VisitAnnotations = {
   visitSpan?: VisitSpanPosition;
+  visitThreshold?: VisitThreshold;
   authorVisiting?: boolean;
   visitOpen?: boolean;
 };

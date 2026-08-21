@@ -25,6 +25,7 @@ export function TimelineRowShell({
       data-luca-reading-plane
       data-timeline-item-key={getTimelineItemKey(item)}
       data-visit-span={item.visitSpan}
+      data-visit-threshold={item.visitThreshold}
       style={useContentVisibility ? timelineRowReserveStyle(item) : undefined}
     >
       {children}
