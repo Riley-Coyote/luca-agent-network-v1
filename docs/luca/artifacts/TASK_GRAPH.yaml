@@ -1,0 +1,1080 @@
+schema_version: 1
+packet:
+  id: luca-static-artifacts
+  title: Luca Static Artifacts and Canvas
+  status: planning_ready_not_implementation_authorized
+  task_namespace: A
+  milestone_namespace: MA
+  gate_namespace: GA
+  implementation_entrypoint: A00
+  max_active_lanes: 2
+
+activation:
+  external_dependency: CURRENT_G1_OR_RILEY_OVERRIDE
+  satisfied_when:
+    - Current repository G1 has a recorded PASS.
+    - Riley explicitly records an artifact-work priority override.
+  note: >-
+    An override changes ordering only. It does not waive identity, authority,
+    sandbox, data-loss, path-safety, or artifact/conversation independence
+    requirements.
+
+global_contracts:
+  - Local-first SQLite catalog plus content-addressed managed bytes.
+  - Artifact versions are append-only; revert creates a new version.
+  - Artifact and signed-message success are independent.
+  - No artifact body, local path, or broker capability enters relay events,
+    observer streams, diagnostics, or evidence.
+  - Generated HTML runs only in a fail-closed opaque sandbox without Tauri IPC,
+    parent access, same-origin privilege, storage, or network.
+  - SVG is rendered as an image and never mounted as inline app DOM.
+  - The artifact broker is separate from signing and permission brokers.
+  - Direct and nested provider, model, and shell descendants never inherit the
+    artifact broker capability.
+  - Existing Buzz conversation, attachment, media, search, and activity planes
+    remain authoritative and available when artifacts fail.
+  - Public UI calls the existing relay-backed Channel Canvas the Room brief;
+    internal event kinds and transport commands remain unchanged.
+  - No live app build, dev server, networked preview, sharing, sync, or
+    collaborative board is in the static-first release.
+
+global_forbidden_paths:
+  - .codex/luca-v1/**
+  - Cargo.lock
+  - desktop/pnpm-lock.yaml
+  - migrations/**
+  - .env
+  - .env.*
+  - live application-data directories
+  - legacy source repositories
+
+global_evidence_rules:
+  root: evidence/MA*/<task>/**
+  required:
+    - task capsule and dependency receipt
+    - raw focused-check output
+    - redacted negative-test receipts where applicable
+    - visual or native-app receipt where applicable
+    - artifact scan result
+  forbidden:
+    - secrets or credentials
+    - protected conversation bodies
+    - artifact bodies
+    - broker capability values
+    - absolute local paths
+
+milestones:
+  MA0:
+    title: Source reconciliation and contract freeze
+    tasks: [A00]
+    gate: GA0
+    outcome: >-
+      Packet assumptions are reconciled against the active branch, exact source
+      ownership is frozen, and security/evaluation fixtures are executable.
+  MA1:
+    title: Local artifact substrate
+    tasks: [A01, A02, A03, A04]
+    gate: GA1
+    outcome: >-
+      Owner-scoped local artifacts can be captured, versioned, queried,
+      exported, deleted, restored, and recovered without UI or agent coupling.
+  MA2:
+    title: Library and static Canvas
+    tasks: [A05, A06, A07, A08, A09]
+    gate: GA2
+    outcome: >-
+      Owners can browse Library and safely preview supported static artifacts in
+      Canvas from Library or conversation-shaped fixtures.
+  MA3:
+    title: Resident artifact bridge and receipts
+    tasks: [A10, A11, A12, A13]
+    gate: GA3
+    outcome: >-
+      Supported managed residents can explicitly create and update artifacts,
+      with truthful local conversation receipts and no authority broadening.
+  MA4:
+    title: Static artifact candidate
+    tasks: [A14, A15]
+    gate: GA4
+    outcome: >-
+      Recovery, lifecycle, compatibility, real-resident acceptance, and native
+      desktop verification pass for the static-first release.
+
+mutexes:
+  artifact_storage:
+    description: Serializes catalog, blob-store, recovery, and retention edits.
+  desktop_registry:
+    description: Serializes Tauri command registration and mock-bridge changes.
+  desktop_shell:
+    description: Serializes routes, navigation, primary layout, and pane state.
+  authority_runtime:
+    description: Serializes ACP authority and managed runtime lifecycle edits.
+  shared_protocol:
+    description: Serializes versioned artifact broker schema and vectors.
+
+tasks:
+  A00:
+    milestone: MA0
+    title: Reconcile source and freeze the implementation contract
+    kind: planning_gate
+    risk: critical
+    lane: integration
+    depends_on: [CURRENT_G1_OR_RILEY_OVERRIDE]
+    objective: >-
+      Verify every packet assumption against the active branch; freeze exact
+      owned paths, route and pane seams, broker lifecycle, data bounds, test
+      commands, and synthetic fixtures; return a GA0 verdict only.
+    owns:
+      include:
+        - docs/luca/artifacts/**
+        - evidence/MA0/A00/**
+      forbid:
+        - desktop/src/**
+        - desktop/src-tauri/src/**
+        - crates/**
+        - schemas/**
+        - migrations/**
+        - lockfiles
+    outputs:
+      - Active branch, commit, and preserved dirty-worktree receipt.
+      - Source-map reconciliation with confirmed or corrected seams.
+      - Final exact owned-path and mutex table for A01 through A15.
+      - Synthetic fixture manifest and hashes.
+      - Packaged WebKit HTML sandbox spike receipt or HTML Preview disablement.
+      - GA0 PASS or FAIL report.
+    checks:
+      - command: git status --short --branch
+        proves: Active source and preservation boundary are recorded.
+      - command: rg --files desktop/src desktop/src-tauri/src crates schemas
+        proves: Named implementation seams exist on the active branch.
+      - command: ruby -e 'require "yaml"; YAML.load_file("docs/luca/artifacts/TASK_GRAPH.yaml")'
+        proves: Task graph parses.
+      - command: artifact packet link and secret/path scan
+        proves: Packet references resolve and evidence rules are safe.
+    evidence: evidence/MA0/A00/**
+    done_when:
+      - No unverified architecture assumption remains implementation-blocking.
+      - Every task has non-overlapping exact ownership or an explicit mutex.
+      - HTML sandbox behavior is proven in the real Tauri/WebKit boundary or
+        HTML Preview is removed from first-release supported kinds.
+      - GA0 verdict is explicit and A01 has not begun.
+    stop_conditions:
+      - Current G1 is not PASS and no Riley override is recorded.
+      - Reconciled source requires a conductor or new message-routing authority.
+      - Sandbox cannot deny network, Tauri IPC, parent access, and same-origin.
+      - Required work overlaps unrelated user changes without a safe boundary.
+    estimated_engineer_days: 2-4
+
+  GA0:
+    milestone: MA0
+    title: Source and contract freeze gate
+    kind: gate
+    risk: critical
+    lane: integration
+    depends_on: [A00]
+    objective: >-
+      Record whether the reconciled packet, exact ownership, synthetic fixtures,
+      and native WebKit sandbox boundary are safe to implement.
+    owns:
+      include: [evidence/MA0/GA0/**]
+      forbid: [production source]
+    outputs:
+      - GA0 PASS or FAIL receipt mapped to every MA0 criterion.
+    checks:
+      - command: review A00 evidence against docs/luca/artifacts/06-milestones-and-gates.md
+        proves: Verdict matches the authorized gate.
+      - command: repeat packet dependency, path, link, and artifact scan
+        proves: Frozen packet is internally consistent and safe.
+    evidence: evidence/MA0/GA0/**
+    done_when:
+      - Active source, preserved work, exact ownership, fixtures, and sandbox
+        verdict are all explicit.
+      - PASS is issued only when A01 can start without reopening architecture.
+    stop_conditions:
+      - Any A00 critical stop remains unresolved.
+    estimated_engineer_days: 0.5
+
+  A01:
+    milestone: MA1
+    title: Define artifact domain model, limits, and canonical fixtures
+    kind: implementation
+    risk: high
+    lane: substrate
+    depends_on: [GA0]
+    mutex: artifact_storage
+    objective: >-
+      Implement the internal artifact, version, source-binding, provenance,
+      receipt-state, and render-capability types plus canonical serialization,
+      hash vectors, and bounded constants.
+    owns:
+      include:
+        - desktop/src-tauri/src/artifacts/model.rs
+        - desktop/src-tauri/src/artifacts/limits.rs
+        - desktop/src-tauri/src/artifacts/fixtures/**
+        - evidence/MA1/A01/**
+      forbid:
+        - desktop/src-tauri/src/lib.rs
+        - desktop/src-tauri/src/commands/**
+        - desktop/src/**
+        - crates/**
+        - schemas/**
+        - migrations/**
+        - lockfiles
+    outputs:
+      - Stable internal IDs and append-only version semantics.
+      - Canonical manifest encoding and SHA-256 vectors.
+      - Supported-kind and preview-capability matrix.
+      - Size, count, path, MIME, and metadata bounds.
+    checks:
+      - command: cargo test --manifest-path desktop/src-tauri/Cargo.toml artifact_model --lib
+        proves: Canonical types, vectors, and bounds pass.
+      - command: cargo fmt --manifest-path desktop/src-tauri/Cargo.toml -- --check
+        proves: Rust formatting passes.
+    evidence: evidence/MA1/A01/**
+    done_when:
+      - Same bytes produce the same content hash across fixture replays.
+      - Reordering or ambiguous canonical fields cannot change semantic identity.
+      - Unsupported kinds have explicit source/download-only capabilities.
+      - Types contain no relay event or authority capability dependency.
+    stop_conditions:
+      - A new dependency or migration is required.
+      - Model identity would be derived from mutable path or display name.
+      - Revert would mutate or delete historical versions.
+    estimated_engineer_days: 1-2
+
+  A02:
+    milestone: MA1
+    title: Build the local SQLite catalog and content-addressed store
+    kind: implementation
+    risk: critical
+    lane: substrate
+    depends_on: [A01]
+    mutex: artifact_storage
+    objective: >-
+      Implement owner-scoped catalog persistence, managed blob capture, atomic
+      commit, pagination and metadata search, expected-version append, and
+      restart-safe reconciliation using existing rusqlite conventions.
+    owns:
+      include:
+        - desktop/src-tauri/src/artifacts/mod.rs
+        - desktop/src-tauri/src/artifacts/store.rs
+        - desktop/src-tauri/src/artifacts/blobs.rs
+        - desktop/src-tauri/src/artifacts/capture.rs
+        - desktop/src-tauri/src/artifacts/recovery.rs
+        - desktop/src-tauri/src/artifacts/tests/**
+        - evidence/MA1/A02/**
+      forbid:
+        - desktop/src-tauri/src/lib.rs
+        - desktop/src-tauri/src/commands/**
+        - desktop/src/**
+        - migrations/**
+        - lockfiles
+    outputs:
+      - App-data-local catalog created by the artifact module.
+      - Deduplicated content-addressed managed bytes.
+      - Atomic staged capture and restart reconciliation.
+      - Owner-scoped list, search, get, append, soft-delete, restore, and export.
+    checks:
+      - command: cargo test --manifest-path desktop/src-tauri/Cargo.toml artifact_store --lib
+        proves: CRUD, versioning, scope, and search pass.
+      - command: cargo test --manifest-path desktop/src-tauri/Cargo.toml artifact_crash --lib
+        proves: Every capture crash point is recoverable.
+      - command: cargo test --manifest-path desktop/src-tauri/Cargo.toml artifact_adversarial --lib
+        proves: Traversal, symlink, corruption, MIME, and oversize checks fail closed.
+    evidence: evidence/MA1/A02/**
+    done_when:
+      - Catalog never commits a version whose managed bytes are unavailable.
+      - Replaying the same operation is idempotent.
+      - Concurrent stale expected-version writes return conflict.
+      - Metadata list/search does not load artifact bodies.
+      - Artifact database failure does not touch messaging storage.
+    stop_conditions:
+      - Schema requires a repository migration.
+      - Capture follows symlinks outside the verified working root.
+      - Atomicity depends on best-effort cleanup rather than commit ordering.
+    estimated_engineer_days: 4-6
+
+  A03:
+    milestone: MA1
+    title: Register bounded Tauri artifact commands and typed renderer API
+    kind: integration
+    risk: high
+    lane: integration
+    depends_on: [A02]
+    mutexes: [artifact_storage, desktop_registry]
+    objective: >-
+      Expose the storage contract through narrow Tauri commands and a typed
+      frontend adapter, including mock bridge support, without exposing raw
+      managed-store paths or unbounded bodies in list responses.
+    owns:
+      include:
+        - desktop/src-tauri/src/commands/artifacts.rs
+        - desktop/src-tauri/src/commands/mod.rs
+        - desktop/src-tauri/src/lib.rs
+        - desktop/src/shared/api/tauriArtifacts.ts
+        - desktop/src/features/artifacts/types.ts
+        - desktop/tests/helpers/bridge.ts
+        - evidence/MA1/A03/**
+      forbid:
+        - desktop/src/features/artifacts/ui/**
+        - desktop/src/app/routes/**
+        - crates/**
+        - schemas/**
+        - migrations/**
+        - lockfiles
+    outputs:
+      - List, get-metadata, read-bounded, import, append, revert, delete, restore,
+        and export commands.
+      - Typed frontend error and pagination contract.
+      - Representative mock bridge state and failures.
+    checks:
+      - command: cargo test --manifest-path desktop/src-tauri/Cargo.toml artifact_commands --lib
+        proves: Command validation and error mapping pass.
+      - command: pnpm --dir desktop typecheck
+        proves: Rust-to-renderer contract is consistently consumed.
+      - command: pnpm --dir desktop exec biome check src/shared/api/tauriArtifacts.ts src/features/artifacts/types.ts tests/helpers/bridge.ts
+        proves: Changed TypeScript passes focused lint.
+    evidence: evidence/MA1/A03/**
+    done_when:
+      - List responses contain metadata and thumbnails only, never full bodies.
+      - Read commands are bounded and scoped by current owner identity.
+      - Errors distinguish conflict, unavailable, corrupt, unsupported, and denied.
+      - Mock bridge expresses success and every meaningful failure state.
+    stop_conditions:
+      - Renderer must receive a managed-store filesystem path.
+      - Command registration overlaps unrelated edits without serialization.
+      - Tauri command grants generated content direct IPC access.
+    estimated_engineer_days: 2-3
+
+  A04:
+    milestone: MA1
+    title: Complete import, version, revert, deletion, and recovery behavior
+    kind: hardening
+    risk: high
+    lane: substrate
+    depends_on: [A03]
+    mutex: artifact_storage
+    objective: >-
+      Close the substrate lifecycle with source-file import, update and revert,
+      trash/restore, bounded export, corruption handling, missing-source behavior,
+      and restart recovery acceptance tests.
+    owns:
+      include:
+        - desktop/src-tauri/src/artifacts/**
+        - desktop/src-tauri/src/commands/artifacts.rs
+        - desktop/src-tauri/tests/artifacts/**
+        - evidence/MA1/A04/**
+      forbid:
+        - desktop/src/**
+        - crates/**
+        - schemas/**
+        - migrations/**
+        - lockfiles
+    outputs:
+      - Complete substrate acceptance matrix.
+      - Missing-original-source and corrupt-managed-copy recovery states.
+      - Export collision and safe filename behavior.
+    checks:
+      - command: cargo test --manifest-path desktop/src-tauri/Cargo.toml artifact --lib
+        proves: Full focused substrate suite passes.
+      - command: cargo test --manifest-path desktop/src-tauri/Cargo.toml --test artifacts
+        proves: Restart and filesystem-boundary integration passes.
+    evidence: evidence/MA1/A04/**
+    done_when:
+      - Revert appends a new version referencing selected historical content.
+      - Delete is recoverable until explicit lifecycle collection.
+      - Missing source never invalidates an already managed version.
+      - Corruption is reported without silently substituting source bytes.
+    stop_conditions:
+      - Recovery can discard the last valid version.
+      - Delete immediately removes bytes still referenced by another version.
+      - Export can overwrite without an explicit collision decision.
+    estimated_engineer_days: 2-3
+
+  GA1:
+    milestone: MA1
+    title: Local substrate gate
+    kind: gate
+    risk: critical
+    lane: integration
+    depends_on: [A01, A02, A03, A04]
+    objective: >-
+      Verify the complete local persistence and lifecycle contract before any
+      Library or Canvas UI consumes it.
+    owns:
+      include: [evidence/MA1/GA1/**]
+      forbid: [production source]
+    outputs:
+      - GA1 PASS or FAIL receipt mapped to every gate criterion.
+    checks:
+      - command: focused MA1 checks from A01 through A04
+        proves: Substrate behavior is stable as one unit.
+      - command: artifact evidence secret/path scan
+        proves: Evidence is safe.
+    evidence: evidence/MA1/GA1/**
+    done_when:
+      - Atomicity, identity scope, adversarial paths, MIME/size bounds,
+        conflicts, restart, search, missing source, and fail-soft messaging all pass.
+    stop_conditions:
+      - Any data-loss, cross-owner, path-escape, or artifact/messaging coupling defect.
+    estimated_engineer_days: 1
+
+  A05:
+    milestone: MA2
+    title: Resolve Canvas naming collision in public UI
+    kind: implementation
+    risk: medium
+    lane: ui
+    depends_on: [GA1]
+    objective: >-
+      Rename the existing relay-backed Channel Canvas to Room brief in public
+      copy while preserving event kind, transport commands, data, permissions,
+      and internal compatibility.
+    owns:
+      include:
+        - desktop/src/features/channels/ui/ChannelCanvas.tsx
+        - desktop/src/features/channels/ui/ChannelManagementSheet.tsx
+        - desktop/tests/e2e/room-brief.spec.ts
+        - evidence/MA2/A05/**
+      forbid:
+        - crates/buzz-core/src/kind.rs
+        - desktop/src-tauri/src/commands/canvas.rs
+        - relay event schemas
+        - migrations/**
+        - lockfiles
+    outputs:
+      - Room brief public label and explanatory copy.
+      - Regression test proving existing channel content still reads and writes.
+    checks:
+      - command: pnpm --dir desktop typecheck
+        proves: Copy-only compatibility change typechecks.
+      - command: pnpm --dir desktop exec playwright test tests/e2e/room-brief.spec.ts --project=smoke
+        proves: Existing relay-backed feature remains usable under new public name.
+    evidence: evidence/MA2/A05/**
+    done_when:
+      - No user-facing surface ambiguously calls Room brief the artifact Canvas.
+      - Kind 40100 and native command names remain unchanged.
+    stop_conditions:
+      - Rename requires a transport or stored-event migration.
+    estimated_engineer_days: 1
+
+  A06:
+    milestone: MA2
+    title: Build Library route, navigation, browse, search, and detail shell
+    kind: implementation
+    risk: medium
+    lane: ui
+    depends_on: [GA1]
+    mutex: desktop_shell
+    objective: >-
+      Add a first-class Library destination with grid/list browsing, metadata
+      search, filters, selection, import entry, empty/loading/error/large-library
+      states, and an accessible details shell.
+    owns:
+      include:
+        - desktop/src/app/routes/library.tsx
+        - desktop/src/app/routeTree.gen.ts
+        - desktop/src/app/AppShell.helpers.ts
+        - desktop/src/app/AppShell.tsx
+        - desktop/src/features/artifacts/ui/library/**
+        - desktop/src/features/artifacts/hooks/useArtifactLibrary.ts
+        - desktop/src/app/navigation/useAppNavigation.ts
+        - desktop/src/features/sidebar/**
+        - desktop/tests/e2e/artifacts/library.spec.ts
+        - evidence/MA2/A06/**
+      forbid:
+        - desktop/src-tauri/src/**
+        - crates/**
+        - schemas/**
+        - lockfiles
+    outputs:
+      - Library route and primary navigation entry.
+      - Search, kind/source/resident filters, pagination, and sorting.
+      - Accessible import, selection, trash, and recovery entry points.
+    checks:
+      - command: pnpm --dir desktop typecheck
+        proves: Library integration typechecks.
+      - command: pnpm --dir desktop exec biome check src/app/routes/library.tsx src/features/artifacts src/app/navigation src/features/sidebar
+        proves: Focused UI lint passes.
+      - command: pnpm --dir desktop exec playwright test tests/e2e/artifacts/library.spec.ts --project=smoke
+        proves: Core Library states and keyboard path pass.
+    evidence: evidence/MA2/A06/**
+    done_when:
+      - Ten-thousand-row fixture remains paginated and responsive.
+      - Cards never execute content or load full artifact bodies.
+      - Empty, loading, service-unavailable, corrupt, and no-results states are distinct.
+      - Text uses zoom-safe named rem tokens.
+    stop_conditions:
+      - Navigation edit collides with unrelated shell work.
+      - Browse requires loading artifact bodies into the result set.
+    estimated_engineer_days: 3-4
+
+  A07:
+    milestone: MA2
+    title: Build the shared static Canvas and safe renderers
+    kind: implementation
+    risk: critical
+    lane: ui_security
+    depends_on: [A03, A06]
+    mutex: desktop_shell
+    objective: >-
+      Add the Canvas preview surface and static renderers for image, Markdown,
+      text, code, SVG, HTML, PDF, and source/download-only files with explicit
+      capability and failure states.
+    owns:
+      include:
+        - desktop/src/features/artifacts/ui/canvas/**
+        - desktop/src/features/artifacts/ui/renderers/**
+        - desktop/src/features/artifacts/lib/previewSecurity.ts
+        - desktop/src/features/artifacts/hooks/useArtifactCanvas.ts
+        - desktop/src/app/routes/library.$artifactId.tsx
+        - desktop/src/features/channels/ui/ChannelPane.tsx
+        - desktop/src/features/channels/ui/useChannelPanelHistoryState.ts
+        - desktop/tests/e2e/artifacts/canvas.spec.ts
+        - desktop/tests/e2e/artifacts/sandbox.spec.ts
+        - evidence/MA2/A07/**
+      forbid:
+        - desktop/src-tauri/src/**
+        - crates/**
+        - schemas/**
+        - lockfiles
+    outputs:
+      - Shared Canvas route/pane with Preview, Source, and Versions tabs.
+      - Opaque sandboxed HTML renderer with restrictive generated CSP.
+      - Image-only SVG renderer.
+      - Bounded text/code/Markdown and PDF render paths.
+      - Unsupported, corrupt, missing, too-large, and unavailable states.
+    checks:
+      - command: pnpm --dir desktop typecheck
+        proves: Canvas integration typechecks.
+      - command: pnpm --dir desktop exec playwright test tests/e2e/artifacts/canvas.spec.ts tests/e2e/artifacts/sandbox.spec.ts --project=smoke
+        proves: Static renderer matrix and sandbox denial pass.
+      - command: packaged or dev-native Tauri sandbox fixture run
+        proves: WebKit boundary denies Tauri, parent, storage, and network access.
+    evidence: evidence/MA2/A07/**
+    done_when:
+      - HTML iframe is opaque and has scripts only; same-origin is absent.
+      - SVG is never inserted through innerHTML or inline DOM parsing.
+      - External URL, form, navigation, popup, download, and Tauri probes fail closed.
+      - Closing Canvas restores prior focus and route/pane state.
+    stop_conditions:
+      - Generated content must share the app origin.
+      - Sandbox denial cannot be proven in the real Tauri webview.
+      - Canvas requires shell commands or network access.
+    estimated_engineer_days: 4-6
+
+  A08:
+    milestone: MA2
+    title: Add version history, comparison, revert, and detail actions
+    kind: implementation
+    risk: medium
+    lane: ui
+    depends_on: [A04, A07]
+    objective: >-
+      Complete artifact history and lifecycle UX: version timeline, safe text
+      comparison, revert-as-new-version, metadata/provenance, export, delete,
+      restore, and recovery actions.
+    owns:
+      include:
+        - desktop/src/features/artifacts/ui/canvas/versions/**
+        - desktop/src/features/artifacts/ui/details/**
+        - desktop/src/features/artifacts/ui/library/**
+        - desktop/src/features/artifacts/hooks/useArtifactMutations.ts
+        - desktop/tests/e2e/artifacts/versions.spec.ts
+        - evidence/MA2/A08/**
+      forbid:
+        - desktop/src-tauri/src/**
+        - crates/**
+        - schemas/**
+        - lockfiles
+    outputs:
+      - Append-only version timeline and selected-version preview.
+      - Bounded text/Markdown/code comparison.
+      - Confirmed revert, export, trash, restore, and recovery flows.
+    checks:
+      - command: pnpm --dir desktop typecheck
+        proves: History and lifecycle UI typechecks.
+      - command: pnpm --dir desktop exec playwright test tests/e2e/artifacts/versions.spec.ts --project=smoke
+        proves: Compare, conflict, revert, delete, restore, and recovery paths pass.
+    evidence: evidence/MA2/A08/**
+    done_when:
+      - Revert confirmation states that a new version will be created.
+      - Version conflict preserves both the latest server state and user intent.
+      - Binary comparison degrades honestly to metadata and preview selection.
+    stop_conditions:
+      - UI offers destructive historical mutation.
+      - A conflict is silently last-write-wins.
+    estimated_engineer_days: 2-3
+
+  A09:
+    milestone: MA2
+    title: Harden Library and Canvas interaction quality
+    kind: hardening
+    risk: high
+    lane: ui_quality
+    depends_on: [A05, A06, A07, A08]
+    objective: >-
+      Verify real-render quality, accessibility, zoom, responsive behavior,
+      focus, reduced motion, overflow, large datasets, renderer failures, and
+      console cleanliness across the complete owner-authored experience.
+    owns:
+      include:
+        - desktop/tests/e2e/artifacts/**
+        - desktop/src/features/artifacts/**
+        - desktop/src/app/routes/library.tsx
+        - desktop/src/app/routes/library.$artifactId.tsx
+        - evidence/MA2/A09/**
+      forbid:
+        - desktop/src-tauri/src/**
+        - crates/**
+        - schemas/**
+        - lockfiles
+    outputs:
+      - Desktop and narrow-layout screenshot set with distinct hashes.
+      - Keyboard, focus, zoom, reduced-motion, and overflow receipts.
+      - Large-library and large-file response measurements.
+      - Zero unexpected console errors in tested flows.
+    checks:
+      - command: pnpm --dir desktop exec playwright test tests/e2e/artifacts --project=smoke
+        proves: Full static UI suite passes.
+      - command: pnpm --dir desktop check:px-text
+        proves: New readable text remains zoom-safe.
+      - command: pnpm --dir desktop build
+        proves: Production frontend build succeeds.
+    evidence: evidence/MA2/A09/**
+    done_when:
+      - Meaningful states are visually inspected in a real render.
+      - Keyboard-only users can reach, operate, and leave Canvas.
+      - Narrow layouts preserve source/download/recovery access.
+      - Screenshot hashes prove distinct states were captured.
+    stop_conditions:
+      - Visual verification is limited to source inspection.
+      - Sandbox tests pass only in a plain browser, not Tauri/WebKit.
+    estimated_engineer_days: 2-3
+
+  GA2:
+    milestone: MA2
+    title: Library and static Canvas gate
+    kind: gate
+    risk: critical
+    lane: integration
+    depends_on: [A05, A06, A07, A08, A09]
+    objective: >-
+      Accept the owner-side Library and Canvas before any resident receives
+      artifact capability.
+    owns:
+      include: [evidence/MA2/GA2/**]
+      forbid: [production source]
+    outputs:
+      - GA2 PASS or FAIL receipt mapped to static UI and sandbox criteria.
+    checks:
+      - command: focused MA2 checks from A05 through A09
+        proves: Owner-side experience works as one integrated surface.
+      - command: native Tauri sandbox attack fixture
+        proves: Generated content remains outside the trusted origin and IPC.
+    evidence: evidence/MA2/GA2/**
+    done_when:
+      - Library, Canvas, versions, Room brief naming, accessibility, and sandbox pass.
+    stop_conditions:
+      - Any content execution, IPC, network, focus-loss, or data-history defect.
+    estimated_engineer_days: 1
+
+  A10:
+    milestone: MA3
+    title: Define the versioned artifact broker protocol
+    kind: implementation
+    risk: critical
+    lane: protocol
+    depends_on: [GA2]
+    mutex: shared_protocol
+    objective: >-
+      Define the local broker request, response, error, binding, idempotency,
+      expected-version, and limit contracts shared by managed runtimes and Luca.
+    owns:
+      include:
+        - crates/luca-protocol/src/artifact.rs
+        - crates/luca-protocol/src/lib.rs
+        - crates/luca-protocol/tests/artifact_protocol.rs
+        - schemas/luca/artifacts/**
+        - evidence/MA3/A10/**
+      forbid:
+        - desktop/src/**
+        - desktop/src-tauri/src/**
+        - crates/buzz-acp/**
+        - crates/buzz-dev-mcp/**
+        - migrations/**
+        - lockfiles
+    outputs:
+      - Versioned local request/response schema.
+      - Owner, resident, conversation, turn, epoch, and working-root bindings.
+      - Canonical idempotency and expected-version rules.
+      - Golden vectors for valid, stale, replayed, reordered, and oversized frames.
+    checks:
+      - command: cargo test -p luca-protocol artifact
+        proves: Schema, vectors, bindings, and errors pass.
+      - command: schema fixture validation
+        proves: Versioned external fixtures match Rust contract.
+    evidence: evidence/MA3/A10/**
+    done_when:
+      - Same idempotency key with different bytes is rejected.
+      - Stale epoch or mismatched identity/turn/root is rejected.
+      - Protocol contains no signing, permission, relay, or model authority.
+      - Bodies and paths are explicitly redacted from safe diagnostics.
+    stop_conditions:
+      - Protocol needs a relay event kind or HTTP endpoint.
+      - Capability can be reused across turn, resident, owner, or epoch boundaries.
+      - Schema changes unrelated Luca protocol surfaces without explicit review.
+    estimated_engineer_days: 2-3
+
+  A11:
+    milestone: MA3
+    title: Add narrow artifact tools to buzz-dev-mcp
+    kind: implementation
+    risk: critical
+    lane: tools
+    depends_on: [A10]
+    objective: >-
+      Add create, update, read-bounded, and list-metadata tools that speak only
+      to the injected local artifact broker capability and fail honestly when
+      the capability is unavailable.
+    owns:
+      include:
+        - crates/buzz-dev-mcp/src/artifact.rs
+        - crates/buzz-dev-mcp/src/lib.rs
+        - crates/buzz-dev-mcp/tests/artifact_tools.rs
+        - evidence/MA3/A11/**
+      forbid:
+        - crates/buzz-acp/**
+        - desktop/**
+        - schemas/**
+        - migrations/**
+        - lockfiles
+    outputs:
+      - create_artifact, update_artifact, read_artifact, and list_artifacts tools.
+      - Bounded inputs/outputs and structured unavailable/conflict errors.
+      - Unit tests using a fake local broker.
+    checks:
+      - command: cargo test -p buzz-dev-mcp artifact
+        proves: Tool validation, redaction, conflict, and unavailable behavior pass.
+      - command: cargo clippy -p buzz-dev-mcp --all-targets -- -D warnings
+        proves: Changed tool crate passes focused lint.
+    evidence: evidence/MA3/A11/**
+    done_when:
+      - Tools cannot choose owner, resident, epoch, or working root bindings.
+      - List returns metadata only and read is bounded.
+      - Tool result and logs do not reveal capability, absolute path, or full body.
+      - Shell and file tools do not gain broker access implicitly.
+    stop_conditions:
+      - Artifact tool must call a public network endpoint.
+      - Tool can request arbitrary host paths.
+      - Broker capability appears in model-visible environment or diagnostics.
+    estimated_engineer_days: 2-3
+
+  A12:
+    milestone: MA3
+    title: Wire managed runtime artifact-broker lifecycle
+    kind: integration
+    risk: critical
+    lane: authority
+    depends_on: [A10, A11]
+    mutex: authority_runtime
+    objective: >-
+      Mint, bind, inject, rotate, revoke, and observe the artifact broker for
+      supported managed residents without altering signing, permission, model,
+      provider, shell, or native resident identity authority.
+    owns:
+      include:
+        - crates/buzz-acp/src/acp.rs
+        - crates/buzz-acp/src/lib.rs
+        - crates/buzz-acp/src/pool.rs
+        - crates/buzz-acp/tests/artifact_broker.rs
+        - desktop/src-tauri/src/artifacts/broker.rs
+        - desktop/src-tauri/src/commands/artifacts.rs
+        - desktop/src/features/artifacts/runtime/**
+        - evidence/MA3/A12/**
+      forbid:
+        - resident key storage
+        - signing broker authority
+        - managed permission decisions
+        - model/provider selection
+        - relay event schema
+        - migrations/**
+        - lockfiles
+    outputs:
+      - Turn/epoch-scoped broker lifecycle.
+      - Runtime capability-available/unavailable reporting from actual harness facts.
+      - Observer-safe artifact activity metadata.
+      - Cancellation, restart, timeout, and nested-descendant revocation tests.
+    checks:
+      - command: cargo test -p buzz-acp artifact
+        proves: Harness lifecycle and descendant isolation pass.
+      - command: cargo test --manifest-path desktop/src-tauri/Cargo.toml artifact_broker --lib
+        proves: Native broker binding, storage handoff, and revocation pass.
+      - command: cargo clippy -p buzz-acp --all-targets -- -D warnings
+        proves: Authority-plane change passes focused lint.
+    evidence: evidence/MA3/A12/**
+    done_when:
+      - Capability is inaccessible to direct and nested provider/model/shell descendants.
+      - Cancellation, epoch change, restart, timeout, and turn completion revoke it.
+      - Capability availability is derived from runtime catalog/harness facts.
+      - Artifact failure cannot block resident final publication.
+    stop_conditions:
+      - Wiring broadens signing, permission, provider, model, tools, or budgets.
+      - Runtime-specific flags are hardcoded in the React UI.
+      - Native resident identity is conflated with managed runtime binding.
+      - Safe descendant isolation cannot be demonstrated.
+    estimated_engineer_days: 4-6
+
+  A13:
+    milestone: MA3
+    title: Project artifact activity into local conversation receipts
+    kind: integration
+    risk: high
+    lane: conversation_ui
+    depends_on: [A07, A12]
+    objective: >-
+      Show provisional, linked, interrupted, and orphaned local artifact cards in
+      conversation; link them from turn identity to the accepted signed final;
+      and implement the focus-respecting auto-open policy without changing the
+      signed message body or relay tags.
+    owns:
+      include:
+        - desktop/src/features/artifacts/conversation/**
+        - desktop/src/features/messages/ui/MessageRow.tsx
+        - desktop/src/features/messages/lib/timelineItems.ts
+        - desktop/src/features/artifacts/hooks/useArtifactReceipts.ts
+        - desktop/tests/e2e/artifacts/conversation-receipts.spec.ts
+        - evidence/MA3/A13/**
+      forbid:
+        - relay event builders
+        - message body transformation
+        - attachment/media event tags
+        - desktop/src-tauri/src/artifacts/store.rs
+        - migrations/**
+        - lockfiles
+    outputs:
+      - Local receipt state machine and durable turn-to-final linkage.
+      - Conversation cards with Open in Canvas, source/provenance, and failure state.
+      - Focus-respecting auto-open and explicit reopen behavior.
+    checks:
+      - command: pnpm --dir desktop typecheck
+        proves: Receipt projection typechecks.
+      - command: pnpm --dir desktop exec playwright test tests/e2e/artifacts/conversation-receipts.spec.ts --project=smoke
+        proves: Provisional, linked, interrupted, orphaned, and focus paths pass.
+      - command: signed-event fixture comparison
+        proves: Artifact activity does not alter final body or relay tags.
+    evidence: evidence/MA3/A13/**
+    done_when:
+      - Artifact card is explicitly local and never impersonates signed chronology.
+      - A committed artifact survives failed/interrupted final as orphaned truth.
+      - A successful final remains valid when artifact creation fails.
+      - Auto-open never steals focus after user navigation or manual Canvas close.
+    stop_conditions:
+      - Receipt requires modifying signed event content.
+      - Conversation rendering depends on artifact service availability.
+      - Local overlay cannot distinguish provisional from accepted chronology.
+    estimated_engineer_days: 3-4
+
+  GA3:
+    milestone: MA3
+    title: Resident artifact bridge gate
+    kind: gate
+    risk: critical
+    lane: integration
+    depends_on: [A10, A11, A12, A13]
+    objective: >-
+      Accept the resident-to-library path only after protocol, authority,
+      redaction, fail-soft conversation, and receipt truthfulness all pass.
+    owns:
+      include: [evidence/MA3/GA3/**]
+      forbid: [production source]
+    outputs:
+      - GA3 PASS or FAIL receipt mapped to broker and conversation criteria.
+    checks:
+      - command: focused MA3 checks from A10 through A13
+        proves: Protocol, tools, lifecycle, and UI projection integrate safely.
+      - command: descendant capability and log/body/path scan
+        proves: Authority and privacy boundaries remain intact.
+    evidence: evidence/MA3/GA3/**
+    done_when:
+      - Every supported managed runtime works or shows honest unavailable state.
+      - Stale, mismatched, reordered, replayed, timed-out, and nested use fail closed.
+      - Conversation and artifact partial-success cases remain truthful and recoverable.
+    stop_conditions:
+      - Capability leakage, signed-content mutation, or conversation dependency.
+    estimated_engineer_days: 1
+
+  A14:
+    milestone: MA4
+    title: Harden reconciliation, retention, quota, GC, and identity reset
+    kind: hardening
+    risk: critical
+    lane: substrate
+    depends_on: [GA3]
+    mutex: artifact_storage
+    objective: >-
+      Complete operational lifecycle behavior for staged files, abandoned
+      operations, quota pressure, retention, deduplicated garbage collection,
+      owner/community changes, clean profiles, and existing-profile upgrades.
+    owns:
+      include:
+        - desktop/src-tauri/src/artifacts/recovery.rs
+        - desktop/src-tauri/src/artifacts/retention.rs
+        - desktop/src-tauri/src/artifacts/store.rs
+        - desktop/src-tauri/tests/artifact_lifecycle.rs
+        - desktop/src/features/artifacts/store/**
+        - desktop/src/features/communities/useCommunityInit.ts
+        - desktop/tests/e2e/artifacts/lifecycle.spec.ts
+        - evidence/MA4/A14/**
+      forbid:
+        - relay databases
+        - repository migrations
+        - resident key storage
+        - lockfiles
+    outputs:
+      - Deterministic startup reconciliation and staged-file cleanup.
+      - Quota reporting and safe admission refusal.
+      - Trash retention and reference-aware blob garbage collection.
+      - Community/owner reset for all new module-level artifact state.
+      - Clean-profile and existing-profile upgrade tests.
+    checks:
+      - command: cargo test --manifest-path desktop/src-tauri/Cargo.toml artifact_lifecycle --lib
+        proves: Retention, quota, reconciliation, and GC pass.
+      - command: cargo test --manifest-path desktop/src-tauri/Cargo.toml --test artifact_lifecycle
+        proves: Restart and profile lifecycle pass.
+      - command: pnpm --dir desktop exec playwright test tests/e2e/artifacts/lifecycle.spec.ts --project=smoke
+        proves: Owner/community reset and user-visible lifecycle states pass.
+    evidence: evidence/MA4/A14/**
+    done_when:
+      - GC removes bytes only when no live or retained version references them.
+      - Quota refusal cannot leave a committed partial version.
+      - Community switching resets every artifact module singleton and cache.
+      - Existing profiles start without destructive conversion.
+    stop_conditions:
+      - Cleanup can remove a last referenced version.
+      - Identity switch can expose prior-owner metadata or preview bytes.
+      - Upgrade requires a relay or repository migration.
+    estimated_engineer_days: 3-4
+
+  A15:
+    milestone: MA4
+    title: Run the integrated static candidate and real-resident acceptance
+    kind: integration_gate
+    risk: critical
+    lane: integration
+    depends_on: [A14]
+    mutexes: [desktop_registry, desktop_shell, authority_runtime]
+    objective: >-
+      Verify one complete static-first candidate using a real supported managed
+      resident, the standalone HTML version/revert/relaunch scenario, every
+      supported kind, partial failures, native desktop inspection, and relevant
+      upstream regressions.
+    owns:
+      include:
+        - desktop/tests/e2e/artifacts/candidate.spec.ts
+        - desktop/tests/e2e/artifacts/fixtures/**
+        - evidence/MA4/A15/**
+        - evidence/MA4/GA4/**
+      forbid:
+        - production source except an explicitly recorded bounded repair
+        - migrations/**
+        - lockfiles
+    outputs:
+      - Real-resident create HTML v1, update v2, compare, revert, relaunch receipt.
+      - Static-kind support matrix and negative attack matrix.
+      - Desktop and narrow native-app visual receipts.
+      - Clean/existing profile and relevant messaging regression receipts.
+      - Known-limits statement and GA4 PASS or FAIL.
+    checks:
+      - command: focused artifact Rust, protocol, ACP, MCP, TypeScript, and E2E suites
+        proves: Complete packet remains green before integration gate.
+      - command: cargo check --manifest-path desktop/src-tauri/Cargo.toml
+        proves: Native desktop backend builds.
+      - command: pnpm --dir desktop build
+        proves: Desktop frontend production build succeeds.
+      - command: real Tauri app acceptance run with a synthetic-content managed resident
+        proves: Runtime, broker, Library, Canvas, receipts, restart, and sandbox work end to end.
+      - command: just ci
+        proves: Repository integration gate passes when explicitly enabled for GA4.
+    evidence: evidence/MA4/A15/**
+    done_when:
+      - Real resident artifact appears provisionally, links to accepted final,
+        opens safely, updates, compares, reverts, and survives restart.
+      - Every supported static kind and every fail-closed security fixture passes.
+      - Relevant messaging, media, search, activity, permissions, cancellation,
+        and community-switch regressions pass proportionally.
+      - No unresolved P0/P1 remains and deferred live-app scope is explicit.
+    stop_conditions:
+      - Candidate requires weakening security or data-loss checks.
+      - A failure is repaired outside the active usable-build failure budget.
+      - Real resident test requires exposing credentials in evidence.
+      - Installed/native verification cannot be performed.
+    estimated_engineer_days: 3-5
+
+  GA4:
+    milestone: MA4
+    title: Static artifacts release gate
+    kind: gate
+    risk: critical
+    lane: integration
+    depends_on: [A15]
+    objective: >-
+      Record the final static-first release verdict and its exact known limits.
+    owns:
+      include: [evidence/MA4/GA4/**]
+      forbid: [production source]
+    outputs:
+      - GA4 PASS or FAIL.
+      - Supported-kind and supported-runtime matrices.
+      - Deferred-scope and residual-risk statement.
+    checks:
+      - command: review A15 evidence against docs/luca/artifacts/06-milestones-and-gates.md
+        proves: Final verdict maps to the authorized gate rather than test count alone.
+      - command: final artifact, secret, capability, body, and absolute-path scan
+        proves: Candidate evidence is safe to retain.
+    evidence: evidence/MA4/GA4/**
+    done_when:
+      - Gate explicitly records no live application runtime, preview networking,
+        sync, sharing, or collaborative boards in this release.
+      - PASS is issued only if every critical contract is evidenced.
+    stop_conditions:
+      - Any unresolved critical contract or P0/P1 defect.
+    estimated_engineer_days: 1
+
+graph_edges:
+  - CURRENT_G1_OR_RILEY_OVERRIDE -> A00 -> GA0
+  - GA0 -> A01 -> A02 -> A03 -> A04 -> GA1
+  - GA1 -> A05
+  - GA1 -> A06
+  - A03 + A06 -> A07
+  - A04 + A07 -> A08
+  - A05 + A06 + A07 + A08 -> A09 -> GA2
+  - GA2 -> A10 -> A11
+  - A10 + A11 -> A12
+  - A07 + A12 -> A13 -> GA3
+  - GA3 -> A14 -> A15 -> GA4
+
+parallelism:
+  allowed:
+    - After GA1, A05 and A06 may run in parallel because their exact paths do not overlap.
+    - After A03 and A06, A07 may run while A05 finishes if desktop_shell ownership is free.
+    - Protocol fixture preparation for A10 may be researched during MA2 but not committed before GA2.
+  serialized:
+    - All artifact_storage mutex holders.
+    - All authority_runtime mutex holders.
+    - All desktop_registry mutex holders.
+    - Gate verdicts and bounded integration repairs.
+
+effort:
+  unit: engineer_weeks
+  ranges:
+    MA0: 0.5-1
+    MA1: 1.5-2.5
+    MA2: 2-3
+    MA3: 2-3
+    MA4: 1-2
+    total_static_first: 7-11.5
+  note: >-
+    These are engineering-effort ranges, not calendar promises. Security,
+    authority, storage, and shared-registry work remains serialized even when
+    independent UI tasks can be parallelized.

@@ -9,6 +9,7 @@
 
 #![forbid(unsafe_code)]
 
+mod artifact;
 mod brain;
 mod canonical;
 mod communications;
@@ -26,6 +27,7 @@ mod notebook;
 mod owner_identity;
 mod relay_auth;
 
+pub use artifact::*;
 pub use brain::*;
 pub use canonical::{
     canonical_sha256, canonicalize, parse_and_canonicalize_strict, parse_strict_json,
