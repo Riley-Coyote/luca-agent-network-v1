@@ -92,7 +92,7 @@ function McpServerRow({
         <span className="block truncate text-sm font-medium text-foreground">
           {extension.name}
         </span>
-        <span className="mt-0.5 block truncate text-2xs text-muted-foreground/70">
+        <span className="mt-0.5 block truncate text-2xs text-ink-faint">
           {extension.kind}
           {extension.enabled ? " enabled" : " disabled"}
         </span>

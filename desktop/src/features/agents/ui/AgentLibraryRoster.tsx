@@ -82,7 +82,7 @@ export function AgentLibraryRoster({
                 {residents.length} {residents.length === 1 ? "agent" : "agents"}
               </span>
               {isMockPreview() ? (
-                <span className="font-mono text-2xs uppercase tracking-[0.12em] text-muted-foreground/70">
+                <span className="font-mono text-2xs uppercase tracking-caps-wide text-ink-faint">
                   Mock data
                 </span>
               ) : null}
@@ -260,7 +260,7 @@ function ResidentRosterRow({
           {residentAvailabilityLabel(resident.availability)}
           {resident.wakesWithApp ? (
             <span
-              className="text-muted-foreground/70"
+              className="text-ink-faint"
               data-testid="agent-library-wakes-with-app"
             >
               {" "}

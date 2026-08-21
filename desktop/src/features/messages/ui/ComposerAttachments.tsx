@@ -161,7 +161,7 @@ function ComposerSnapshotCard({
         <AttachmentActions className="ml-4">
           <AttachmentAction
             aria-label={`Remove ${displayName}`}
-            className="border-0 bg-transparent text-muted-foreground/70 shadow-none hover:text-foreground hover:shadow-none focus-visible:bg-muted focus-visible:ring-0"
+            className="border-0 bg-transparent text-ink-faint shadow-none hover:text-foreground hover:shadow-none focus-visible:bg-muted focus-visible:ring-0"
             data-testid={`composer-${snapshotKind}-snapshot-remove`}
             onClick={() => onRemove(attachment.url)}
             title="Remove"
@@ -324,7 +324,7 @@ const MediaAttachmentItem = React.forwardRef<
               )}
               {isSpoilered ? (
                 <div
-                  className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-2xl bg-background/55 text-foreground/70 backdrop-blur-[1px]"
+                  className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-2xl bg-background/55 text-ink-muted backdrop-blur-[1px]"
                   data-composer-media-spoiler=""
                 >
                   <HatGlasses className="h-4 w-4" />
@@ -396,7 +396,7 @@ const MediaAttachmentItem = React.forwardRef<
                  * backdrop-close clickable.
                  */
                 <div
-                  className="pointer-events-none absolute inset-0 flex items-center justify-center text-foreground/70"
+                  className="pointer-events-none absolute inset-0 flex items-center justify-center text-ink-muted"
                   data-lightbox-media-spoiler=""
                 >
                   <HatGlasses className="h-10 w-10" />

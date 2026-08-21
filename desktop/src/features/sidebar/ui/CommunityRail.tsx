@@ -111,7 +111,7 @@ function CommunityButton({
                   "flex h-9 w-9 items-center justify-center overflow-hidden rounded-2xl text-xs font-semibold transition-all",
                   isActive
                     ? "rounded-xl bg-primary text-primary-foreground"
-                    : "bg-sidebar-accent/60 text-sidebar-foreground/80 hover:rounded-xl hover:bg-primary/80 hover:text-primary-foreground",
+                    : "bg-sidebar-accent/60 text-ink-muted hover:rounded-xl hover:bg-primary/80 hover:text-primary-foreground",
                   pending && "opacity-60",
                 )}
               >
@@ -251,7 +251,7 @@ export function CommunityRail({
         <TooltipTrigger asChild>
           <button
             aria-label="Add community"
-            className="flex h-9 w-9 items-center justify-center rounded-2xl bg-sidebar-accent/60 text-sidebar-foreground/70 outline-hidden transition-all hover:rounded-xl hover:bg-primary/80 hover:text-primary-foreground focus:outline-none focus-visible:outline-none"
+            className="flex h-9 w-9 items-center justify-center rounded-2xl bg-sidebar-accent/60 text-ink-muted outline-hidden transition-all hover:rounded-xl hover:bg-primary/80 hover:text-primary-foreground focus:outline-none focus-visible:outline-none"
             data-testid="community-rail-add"
             onClick={onAddCommunity}
             type="button"

@@ -98,7 +98,7 @@ function ReplyParentContext({
               triggerElement="span"
             >
               <button
-                className="rounded font-medium text-foreground/80 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                className="rounded font-medium text-ink-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                 type="button"
               >
                 {parentDisplayName}
@@ -155,7 +155,7 @@ export function NoteCard({
   const avatarUrl = profile?.avatarUrl ?? null;
   const [isReplyComposerOpen, setIsReplyComposerOpen] = React.useState(false);
   const actionButtonClass =
-    "inline-flex min-w-7 items-center gap-1.5 text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
+    "inline-flex min-w-7 items-center gap-1.5 text-ink-faint transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
   const activeActionClass = "text-primary";
   const countPlaceholder = <span aria-hidden className="w-2.5" />;
   const reactionCountLabel =
@@ -209,7 +209,7 @@ export function NoteCard({
               {profile.nip05Handle}
             </span>
           ) : null}
-          <span className="shrink-0 text-xs text-muted-foreground/70">
+          <span className="shrink-0 text-xs text-ink-faint">
             {formatRelativeTime(note.createdAt)}
           </span>
         </div>

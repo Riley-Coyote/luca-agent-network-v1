@@ -175,7 +175,7 @@ function PersonaCatalogChooser({
                       "flex w-full items-center gap-2 rounded-lg px-4 py-1.5 text-left transition-[background-color,color,box-shadow] focus:outline-hidden focus-visible:ring-2 focus-visible:ring-sidebar-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar",
                       isCurrent
                         ? "bg-sidebar-active text-sidebar-active-foreground"
-                        : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                        : "text-ink-muted hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                     )}
                     data-testid={`persona-catalog-list-item-${persona.id}`}
                     key={persona.id}

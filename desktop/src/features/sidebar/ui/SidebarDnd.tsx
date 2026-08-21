@@ -151,7 +151,7 @@ export function DragOverlayChannel({ name }: { name: string }) {
       data-buzz-flat
       className="flex cursor-grabbing items-center gap-2 rounded-md bg-sidebar px-2 py-1.5 text-sm text-sidebar-foreground opacity-90 shadow-lg ring-1 ring-sidebar-border"
     >
-      <Hash className="h-4 w-4 shrink-0 text-sidebar-foreground/60" />
+      <Hash className="h-4 w-4 shrink-0 text-ink-faint" />
       <span className="truncate">{name}</span>
     </div>
   );
@@ -161,7 +161,7 @@ export function DragOverlaySection({ name }: { name: string }) {
   return (
     <div
       data-buzz-flat
-      className="flex cursor-grabbing items-center gap-1 rounded-md bg-sidebar px-2 py-1 text-xs font-medium uppercase tracking-wider text-sidebar-foreground/60 opacity-90 shadow-lg ring-1 ring-sidebar-border"
+      className="flex cursor-grabbing items-center gap-1 rounded-md bg-sidebar px-2 py-1 text-xs font-medium uppercase tracking-wider text-ink-faint opacity-90 shadow-lg ring-1 ring-sidebar-border"
     >
       <span>{name}</span>
     </div>

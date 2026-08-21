@@ -54,12 +54,12 @@ export function LucaGreetingChoices({
         return (
           <button
             className={cn(
-              "group flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-foreground/85 transition-colors duration-150",
+              "group flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-ink-muted transition-colors duration-150",
               index > 0 && "border-t border-border/60",
               "hover:bg-accent hover:text-foreground",
               "focus-visible:bg-accent focus-visible:outline-none",
               "disabled:cursor-default disabled:opacity-50",
-              last && "text-foreground/60",
+              last && "text-ink-faint",
             )}
             data-testid={`luca-greeting-choice-${index + 1}`}
             disabled={disabled || sending !== null}
@@ -83,7 +83,7 @@ export function LucaGreetingChoices({
             <span className="min-w-0 flex-1">{choice}</span>
             <ArrowRight
               aria-hidden="true"
-              className="size-3.5 shrink-0 text-foreground/0 transition-colors group-hover:text-foreground/60"
+              className="size-3.5 shrink-0 text-foreground/0 transition-colors group-hover:text-ink-faint"
             />
           </button>
         );

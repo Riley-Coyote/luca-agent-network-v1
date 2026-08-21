@@ -258,7 +258,7 @@ function AgentSettingsDetail({
                 <h2 className="truncate text-xl font-medium tracking-tight">
                   {resident.displayName}
                 </h2>
-                <span className="font-mono text-2xs uppercase tracking-[0.12em] text-muted-foreground">
+                <span className="font-mono text-2xs uppercase tracking-caps-wide text-muted-foreground">
                   {residentAvailabilityLabel(resident.availability)}
                 </span>
               </div>

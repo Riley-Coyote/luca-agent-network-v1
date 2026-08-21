@@ -50,15 +50,15 @@ export function FocusedThreadBar({
         <ArrowLeft className="h-3.5 w-3.5" />
         All messages
       </button>
-      <span aria-hidden className="text-muted-foreground/30">
+      <span aria-hidden className="text-ink-ghost">
         ·
       </span>
-      <span className="min-w-0 truncate text-xs text-muted-foreground/80">
+      <span className="min-w-0 truncate text-xs text-ink-faint">
         {replyCount === 0
           ? `${authorName}'s message`
           : `${replyCount} ${replyCount === 1 ? "reply" : "replies"} to ${authorName}`}
       </span>
-      <span className="ml-auto hidden shrink-0 text-2xs text-muted-foreground/40 sm:inline">
+      <span className="ml-auto hidden shrink-0 text-2xs text-ink-faint sm:inline">
         esc
       </span>
     </div>

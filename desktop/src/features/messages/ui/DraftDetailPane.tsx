@@ -146,7 +146,7 @@ export function DraftDetailPane({
                 <span className="text-xs font-medium text-muted-foreground">
                   Draft
                 </span>
-                <span className="shrink-0 text-xs font-normal tabular-nums text-muted-foreground/55">
+                <span className="shrink-0 text-xs font-normal tabular-nums text-ink-faint">
                   {formatDraftCreatedAt(entry.draft)}
                 </span>
               </div>

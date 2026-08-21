@@ -409,9 +409,7 @@ function MemoryDanglingRefsHint({ slugs }: { slugs: string[] }) {
             </React.Fragment>
           ))}
         </p>
-        <p className="mt-0.5 text-foreground/50">
-          {MEMORY_DANGLING_REF_TOOLTIP}
-        </p>
+        <p className="mt-0.5 text-ink-faint">{MEMORY_DANGLING_REF_TOOLTIP}</p>
       </div>
     </div>
   );
@@ -423,9 +421,7 @@ function MemorySlugTitle({ slug }: { slug: string }) {
 
   if (segments.length === 1) {
     return (
-      <span
-        className={segments[0] === "mem" ? "text-foreground/40" : undefined}
-      >
+      <span className={segments[0] === "mem" ? "text-ink-faint" : undefined}>
         {segments[0]}
       </span>
     );
@@ -438,11 +434,11 @@ function MemorySlugTitle({ slug }: { slug: string }) {
         return (
           <React.Fragment key={segmentPath}>
             {index > 0 ? (
-              <span className="px-0.5 text-foreground/40">/</span>
+              <span className="px-0.5 text-ink-faint">/</span>
             ) : null}
             <span
               className={cn(
-                segment === "mem" ? "text-foreground/40" : "text-foreground",
+                segment === "mem" ? "text-ink-faint" : "text-foreground",
               )}
             >
               {segment}
@@ -520,13 +516,13 @@ function MemoryEntryAccordion({
         </div>
         <div
           className={cn(
-            "mt-1 text-xs leading-5 text-foreground/70",
+            "mt-1 text-xs leading-5 text-ink-muted",
             open ? "whitespace-pre-wrap wrap-break-word" : "line-clamp-2",
           )}
           ref={bodyRef}
         >
           {isEmpty ? (
-            <span className="italic text-foreground/50">(empty)</span>
+            <span className="italic text-ink-faint">(empty)</span>
           ) : (
             <MemoryBodyText body={entry.body} />
           )}

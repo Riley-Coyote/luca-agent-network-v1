@@ -94,10 +94,10 @@ export function DiffViewer({
             >
               {showFileHeader ? (
                 <div className="flex items-center gap-2 border-b border-border/60 bg-muted/35 px-3 py-2">
-                  <span className="truncate font-mono text-2xs text-foreground/85">
+                  <span className="truncate font-mono text-2xs text-ink-muted">
                     {label}
                   </span>
-                  <span className="rounded-md border border-border/60 px-1.5 py-0.5 text-2xs uppercase tracking-[0.14em] text-muted-foreground">
+                  <span className="rounded-md border border-border/60 px-1.5 py-0.5 text-2xs uppercase tracking-caps-wide text-muted-foreground">
                     {DIFF_TYPE_LABELS[diffType]}
                   </span>
                   <div className="ml-auto flex items-center gap-1.5">

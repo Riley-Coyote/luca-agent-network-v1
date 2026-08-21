@@ -406,7 +406,7 @@ function ReactionPill({
     "min-w-12 justify-center gap-1.5 px-2",
     reaction.reactedByCurrentUser
       ? "border-primary/40 bg-primary/10 text-primary"
-      : "border-border/70 bg-muted/70 text-foreground/90",
+      : "border-border/70 bg-muted/70 text-ink",
     canToggle
       ? reaction.reactedByCurrentUser
         ? "hover:bg-primary/10 hover:text-primary focus-visible:bg-primary/10 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"

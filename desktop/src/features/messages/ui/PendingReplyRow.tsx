@@ -111,14 +111,14 @@ export function PendingReplyRow({
                   className="size-1.5 shrink-0 rounded-full bg-foreground/55 motion-safe:animate-pulse"
                 />
                 <span className="min-w-0 truncate text-sm text-muted-foreground">
-                  <span className="font-medium text-foreground/80">{name}</span>
+                  <span className="font-medium text-ink-muted">{name}</span>
                   {label ? ` is ${label}` : " is working"}
                   <span aria-hidden>…</span>
                 </span>
               </button>
 
               {elapsedMs >= SHOW_ELAPSED_AFTER_MS ? (
-                <span className="shrink-0 text-2xs tabular-nums text-muted-foreground/50">
+                <span className="shrink-0 text-2xs tabular-nums text-ink-faint">
                   {formatElapsed(elapsedMs)}
                 </span>
               ) : null}

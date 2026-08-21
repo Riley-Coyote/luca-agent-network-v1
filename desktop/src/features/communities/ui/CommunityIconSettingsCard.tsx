@@ -78,7 +78,7 @@ export function CommunityIconSettingsCard() {
     <div className="space-y-1.5" data-testid="community-icon-settings">
       <span className="text-sm font-medium">Community icon</span>
       <div className="flex items-center gap-3">
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-sidebar-accent/60 text-sm font-semibold text-sidebar-foreground/80">
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-sidebar-accent/60 text-sm font-semibold text-ink-muted">
           {icon ? (
             <img
               alt="Community icon"

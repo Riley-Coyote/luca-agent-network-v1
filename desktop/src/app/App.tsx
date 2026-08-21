@@ -133,7 +133,7 @@ function LucaLoader({ className }: { className?: string }) {
     <div
       aria-label="Opening Luca"
       className={cn(
-        "text-lg font-medium tracking-[0.18em] text-foreground",
+        "text-lg font-medium tracking-caps-wider text-foreground",
         className,
       )}
       role="img"

@@ -216,7 +216,7 @@ function RuntimeStatusChip({ runtime }: { runtime: AcpRuntimeCatalogEntry }) {
 
   return (
     <>
-      <span aria-hidden="true" className="text-muted-foreground/50">
+      <span aria-hidden="true" className="text-ink-ghost">
         ·
       </span>
       <span
@@ -440,7 +440,7 @@ function GitBashCard({
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <p className="text-sm font-medium">Git Bash</p>
-            <span aria-hidden="true" className="text-muted-foreground/50">
+            <span aria-hidden="true" className="text-ink-ghost">
               ·
             </span>
             <span

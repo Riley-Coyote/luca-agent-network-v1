@@ -613,7 +613,7 @@ function ConnectionRow({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <p className="truncate text-sm font-medium">{connection.name}</p>
-            <span className="font-mono text-2xs uppercase tracking-[0.1em] text-muted-foreground">
+            <span className="font-mono text-2xs uppercase tracking-caps-wide text-muted-foreground">
               stdio · {connection.enabled ? health : "disabled"}
             </span>
           </div>

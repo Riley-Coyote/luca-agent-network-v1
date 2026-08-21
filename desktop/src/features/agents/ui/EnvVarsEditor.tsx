@@ -341,11 +341,11 @@ export function EnvVarsEditor({
                   )}
                 >
                   <Lock
-                    className="h-3 w-3 shrink-0 text-muted-foreground/60"
+                    className="h-3 w-3 shrink-0 text-ink-faint"
                     aria-hidden
                   />
                   <span
-                    className="font-mono text-sm leading-6 text-foreground/80"
+                    className="font-mono text-sm leading-6 text-ink-muted"
                     data-testid="env-vars-required-key"
                   >
                     {key}
@@ -421,12 +421,9 @@ export function EnvVarsEditor({
                   "border-muted-foreground/20 bg-muted/20",
                 )}
               >
-                <Lock
-                  className="h-3 w-3 shrink-0 text-muted-foreground/40"
-                  aria-hidden
-                />
+                <Lock className="h-3 w-3 shrink-0 text-ink-faint" aria-hidden />
                 <span
-                  className="font-mono text-sm leading-6 text-foreground/60"
+                  className="font-mono text-sm leading-6 text-ink-faint"
                   data-testid="env-vars-file-satisfied-key"
                 >
                   {key}
@@ -467,11 +464,11 @@ export function EnvVarsEditor({
                   )}
                 >
                   <Lock
-                    className="h-3 w-3 shrink-0 text-muted-foreground/40"
+                    className="h-3 w-3 shrink-0 text-ink-faint"
                     aria-hidden
                   />
                   <span
-                    className="font-mono text-sm leading-6 text-foreground/60"
+                    className="font-mono text-sm leading-6 text-ink-faint"
                     data-testid="env-vars-inherited-key"
                   >
                     {irow.key}
@@ -490,9 +487,7 @@ export function EnvVarsEditor({
                   <span
                     className={cn(
                       "font-mono text-sm",
-                      irow.masked
-                        ? "text-muted-foreground/50"
-                        : "text-foreground/70",
+                      irow.masked ? "text-ink-faint" : "text-ink-muted",
                     )}
                     data-testid="env-vars-inherited-value"
                   >

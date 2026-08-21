@@ -68,7 +68,7 @@ function ProjectUpdatedLabel({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="whitespace-nowrap text-xs leading-4 text-muted-foreground/70">
+        <span className="whitespace-nowrap text-xs leading-4 text-ink-faint">
           {relativeTime(updatedAt)}
         </span>
       </TooltipTrigger>
@@ -257,7 +257,7 @@ function StatusPill({ status }: { status: string }) {
   }
 
   return (
-    <span className="shrink-0 rounded-full border border-border/60 bg-muted/40 px-2 pb-[3px] pt-[5px] text-2xs font-semibold uppercase leading-none tracking-[0.18em] text-muted-foreground">
+    <span className="shrink-0 rounded-full border border-border/60 bg-muted/40 px-2 pb-[3px] pt-[5px] text-2xs font-semibold uppercase leading-none tracking-caps-wider text-muted-foreground">
       {status}
     </span>
   );
@@ -266,7 +266,7 @@ function StatusPill({ status }: { status: string }) {
 export function EmptyState() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 py-16 text-center">
-      <FolderGit2 className="h-10 w-10 text-muted-foreground/40" />
+      <FolderGit2 className="h-10 w-10 text-ink-ghost" />
       <div className="space-y-1">
         <p className="text-sm font-medium text-foreground">No projects yet</p>
         <p className="text-sm text-muted-foreground">
@@ -280,7 +280,7 @@ export function EmptyState() {
 export function EmptyFilteredState() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 border border-dashed border-border/60 px-4 py-12 text-center">
-      <FolderGit2 className="h-9 w-9 text-muted-foreground/40" />
+      <FolderGit2 className="h-9 w-9 text-ink-ghost" />
       <div className="space-y-1">
         <p className="text-sm font-medium text-foreground">
           No matching projects

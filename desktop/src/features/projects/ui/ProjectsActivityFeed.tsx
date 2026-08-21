@@ -294,7 +294,7 @@ function ActivityCard({
         )}
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-start gap-2">
-            <div className="min-w-0 flex-1 text-xs text-muted-foreground/70">
+            <div className="min-w-0 flex-1 text-xs text-ink-faint">
               <span>
                 {item.actorPubkey ? (
                   <UserProfilePopover

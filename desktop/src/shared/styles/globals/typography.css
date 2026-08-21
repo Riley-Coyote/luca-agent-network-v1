@@ -1,0 +1,211 @@
+/* ------------------------------------------------------------------
+ * THE TYPE SYSTEM — single source of truth.
+ *
+ * Before this file the scale lived in three places that disagreed: Tailwind
+ * tokens (`2xs`/`3xs`/`badge`/`chat`), CSS custom properties (`--mn-text-*`,
+ * one of which was used five times and never defined), and raw literals
+ * scattered through component CSS. Line-height was set independently of size
+ * (`leading-4/5/6` applied to 11px, 14px and 16px alike), so vertical rhythm
+ * was accidental, and sixteen different tracking values described what is, in
+ * 67 of its 71 uses, one uppercase micro-label.
+ *
+ * A type step is not a font-size. It is a SIZE, its LEADING, and its TRACKING
+ * bound together — change one and the other two are already wrong. So every
+ * step here ships as three tokens plus a role class that applies all three.
+ *
+ * THE RAMP. Few decisive sizes with real gaps between them, not a gradient of
+ * timid steps. Tracking tightens as size grows (optical compensation: the
+ * counters that look correct at 11px look loose at 40px) and opens slightly
+ * below 12px, where the counterforms need air to stay legible.
+ *
+ *   micro    11px   counts, timestamps, the smallest readable meta
+ *   label    12px   captions, secondary chrome
+ *   ui       14px   THE chrome default — rows, buttons, menus, fields
+ *   body     16px   message copy, composer, anything read at length
+ *   title    17px   conversation and panel headers
+ *   heading  22px   empty states, section openings
+ *   display  40px   onboarding
+ *   eyebrow  11px   the one uppercase micro-label
+ *
+ * THE FACES. Two families with distinct jobs, per the typographic
+ * foundation. Instrument Sans is a display-leaning grotesque: excellent as
+ * chrome, where text is short, glanced at, and wants character. Inter is
+ * drawn for screen reading and holds up over paragraphs, which is what a
+ * conversation actually is. So reading surfaces get Inter and chrome keeps
+ * Instrument Sans. `--font-ui` and `--font-mono` are declared beside the
+ * shell scale in conversation-shell.css; `--font-reading` joins them here
+ * because it exists for this file's sake.
+ * ------------------------------------------------------------------ */
+
+:root[data-luca-shell] {
+  --font-reading:
+    "Inter Variable", Inter, ui-sans-serif, system-ui, "Avenir Next",
+    "Segoe UI", sans-serif;
+
+  --type-micro-size: 0.6875rem;
+  --type-micro-leading: 1.45;
+  --type-micro-tracking: 0.005em;
+
+  --type-label-size: 0.75rem;
+  --type-label-leading: 1.4;
+  --type-label-tracking: 0.003em;
+
+  --type-ui-size: 0.875rem;
+  --type-ui-leading: 1.43;
+  --type-ui-tracking: 0em;
+
+  --type-body-size: 1rem;
+  --type-body-leading: 1.68;
+  --type-body-tracking: -0.003em;
+
+  --type-title-size: 1.0625rem;
+  --type-title-leading: 1.35;
+  --type-title-tracking: -0.014em;
+
+  --type-heading-size: 1.375rem;
+  --type-heading-leading: 1.25;
+  --type-heading-tracking: -0.021em;
+
+  --type-display-size: 2.5rem;
+  --type-display-leading: 1.12;
+  --type-display-tracking: -0.026em;
+
+  --type-eyebrow-size: 0.6875rem;
+  --type-eyebrow-leading: 1.45;
+
+  /* UPPERCASE TRACKING. Capitals were drawn to sit beside each other in Latin
+     inscriptions, not to be set solid at 11px, so a run of them needs air —
+     but how much was being decided per component: sixteen values between
+     0.02em and 0.3em described what is, in almost every case, one label
+     style. Three steps replace them. Set lowercase text on the ramp's own
+     tracking; these are for capitals only. */
+  --type-caps-tracking: 0.09em;
+  --type-eyebrow-tracking: 0.14em;
+  --type-caps-wider-tracking: 0.2em;
+
+  /* Legacy aliases. `--mn-text-chat` predates the ramp and claimed 15px while
+     message bodies actually rendered at 16px; it now resolves to the step that
+     was always true in the product. `--mn-text-ui` was referenced five times and
+     never defined, so those font-sizes silently inherited from their parent —
+     it exists now and means what its name says. */
+  --mn-text-chat: var(--type-body-size);
+  --mn-text-ui: var(--type-ui-size);
+  --mn-text-micro: var(--type-micro-size);
+}
+
+/* ------------------------------------------------------------------
+ * ROLE CLASSES. Applying a step means applying all three of its tokens; these
+ * exist so a component cannot take the size and leave the leading behind.
+ * ------------------------------------------------------------------ */
+
+:root[data-luca-shell] .type-micro {
+  font-size: var(--type-micro-size);
+  letter-spacing: var(--type-micro-tracking);
+  line-height: var(--type-micro-leading);
+}
+
+:root[data-luca-shell] .type-label {
+  font-size: var(--type-label-size);
+  letter-spacing: var(--type-label-tracking);
+  line-height: var(--type-label-leading);
+}
+
+:root[data-luca-shell] .type-ui {
+  font-size: var(--type-ui-size);
+  letter-spacing: var(--type-ui-tracking);
+  line-height: var(--type-ui-leading);
+}
+
+:root[data-luca-shell] .type-body {
+  font-family: var(--font-reading);
+  font-size: var(--type-body-size);
+  letter-spacing: var(--type-body-tracking);
+  line-height: var(--type-body-leading);
+}
+
+:root[data-luca-shell] .type-title {
+  font-size: var(--type-title-size);
+  letter-spacing: var(--type-title-tracking);
+  line-height: var(--type-title-leading);
+}
+
+:root[data-luca-shell] .type-heading {
+  font-size: var(--type-heading-size);
+  letter-spacing: var(--type-heading-tracking);
+  line-height: var(--type-heading-leading);
+}
+
+:root[data-luca-shell] .type-display {
+  font-size: var(--type-display-size);
+  letter-spacing: var(--type-display-tracking);
+  line-height: var(--type-display-leading);
+}
+
+/* The single uppercase micro-label. Every sidebar group heading, section
+   title and state chip resolves here instead of picking its own tracking
+   somewhere between 0.02em and 0.3em. */
+:root[data-luca-shell] .type-eyebrow {
+  font-size: var(--type-eyebrow-size);
+  font-weight: 500;
+  letter-spacing: var(--type-eyebrow-tracking);
+  line-height: var(--type-eyebrow-leading);
+  text-transform: uppercase;
+}
+
+/* ------------------------------------------------------------------
+ * READING SURFACES. Inter, and the two features that matter for a product
+ * whose whole job is reading: `cv05` gives lowercase l a tail so it stops
+ * impersonating capital I and the digit 1, and reading copy sits on the
+ * reading face rather than the chrome face.
+ * ------------------------------------------------------------------ */
+
+:root[data-luca-shell] :is([data-message-content], [data-reading-surface]) {
+  font-family: var(--font-reading);
+  font-feature-settings: "cv05" 1;
+}
+
+/* Timestamps, counts and durations are numbers that update in place. Tabular
+   figures keep them from reflowing a row every time a digit changes width. */
+:root[data-luca-shell]
+  :is(
+    [data-message-timestamp],
+    [data-luca-count],
+    time,
+    [data-slot="timestamp"]
+  ) {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------------
+ * OPTICAL WEIGHT COMPENSATION.
+ *
+ * The same weight does not read the same in both modes. Light text on a dark
+ * ground blooms — the glyph spreads into the background and gains apparent
+ * weight — while dark text on a light ground is eroded by the same effect and
+ * reads thinner. A single weight tuned in the dark therefore always looks
+ * anaemic in the light, which is exactly the symptom this pass started from.
+ *
+ * `-webkit-font-smoothing: antialiased` deepens the problem: it drops
+ * subpixel rendering, which costs stem density precisely where dark-on-light
+ * text can least afford it. It stays on for dark (where the bloom is the
+ * thing being restrained) and comes off for light.
+ *
+ * Honest measurement: in Chromium — the design lab and every screenshot in
+ * this repo — turning it off is worth about +2% ink mass, which is noise.
+ * WebKit honours the property far more than Chromium does, and the shipping
+ * shell is a WKWebView, so the effect there is expected to be larger; that
+ * has NOT been measured. The rule is kept because it is free and correct in
+ * the direction it points, not because a number here justifies it.
+ *
+ * A weight nudge was the other candidate and is deliberately NOT here. Raising
+ * the light-mode body to 420 moved a 257px string by 0.6px — below noticing —
+ * and `font-variation-settings` is both inherited AND outranks `font-weight`,
+ * so every `<strong>` inside a message inherited "wght" 420 and rendered
+ * identical to the text around it. Bold died in light mode to buy nothing.
+ * The ink ladder is what makes light mode read; weight was never the lever.
+ * ------------------------------------------------------------------ */
+
+:root[data-luca-shell]:not(.dark) body {
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+}

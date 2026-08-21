@@ -213,7 +213,7 @@ function AgentDefaultsSection({
               onValueChange={handleHarnessChange}
               options={harnessOptions}
               placeholder="Select a harness"
-              placeholderClassName="text-foreground/70"
+              placeholderClassName="text-ink-muted"
               testId="global-agent-default-harness"
               value={selectedRuntimeId}
             />
@@ -234,7 +234,7 @@ function AgentDefaultsSection({
             }}
             onCustomModelEditingChange={setIsCustomModelEditing}
             onIsCustomProviderChange={setIsCustomProvider}
-            placeholderClassName="text-foreground/70"
+            placeholderClassName="text-ink-muted"
             selectClassName="h-12 rounded-2xl border border-foreground/15 bg-foreground/[0.06] px-4 py-2 text-sm shadow-none hover:bg-foreground/10"
             disclosure="onboarding-essential"
             unstyled
@@ -288,7 +288,7 @@ export function DefaultConfigStep({
         <h1 className="text-title font-normal text-foreground">
           Choose your default runtime and model
         </h1>
-        <p className="mx-auto mt-3 max-w-[440px] text-sm leading-5 text-foreground/80">
+        <p className="mx-auto mt-3 max-w-[440px] text-sm leading-5 text-ink-muted">
           Luca uses this for new residents by default. Your owner identity stays
           the same when you replace the runtime, provider, or model later.
         </p>

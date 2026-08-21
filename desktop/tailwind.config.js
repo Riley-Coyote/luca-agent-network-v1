@@ -38,6 +38,14 @@ export default {
       spacing: {
         4.5: "1.125rem",
       },
+      // Uppercase tracking, named once in typography.css. Reach for these
+      // rather than `tracking-[0.11em]`; lowercase text takes its tracking
+      // from its ramp step and needs none of these.
+      letterSpacing: {
+        caps: "var(--type-caps-tracking)",
+        "caps-wide": "var(--type-eyebrow-tracking)",
+        "caps-wider": "var(--type-caps-wider-tracking)",
+      },
       fontFamily: {
         sans: [
           '"Inter Variable"',
@@ -50,6 +58,19 @@ export default {
       colors: {
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
+        // THE INK LADDER as utilities. Secondary text used to be written as an
+        // alpha on the foreground — `text-muted-foreground/60` and thirteen
+        // other values — which reads as a tone in dark mode and falls through
+        // the AA floor the moment the ink goes near-black on paper. These four
+        // are the only levels; each holds a known contrast in every palette.
+        // Reach for `text-ink-muted`, never `text-foreground/70`.
+        ink: {
+          DEFAULT: "hsl(var(--mn-ink))",
+          muted: "hsl(var(--mn-ink-muted))",
+          faint: "hsl(var(--mn-ink-faint))",
+          // Decorative and disabled only — it does not clear AA by design.
+          ghost: "hsl(var(--mn-ink-ghost))",
+        },
         // The plate: a borderless filled group that reads in every theme
         // because it is ink at a small alpha, not a fixed grey. Defined in
         // conversation-shell.css beside the shell scale.

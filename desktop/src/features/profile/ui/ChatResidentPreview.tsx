@@ -73,7 +73,7 @@ export function ChatResidentPreview({
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-3">
             <h2 className="truncate text-base font-medium">{displayName}</h2>
-            <span className="font-mono text-2xs uppercase tracking-[0.12em] text-muted-foreground">
+            <span className="font-mono text-2xs uppercase tracking-caps-wide text-muted-foreground">
               {resident
                 ? residentAvailabilityLabel(resident.availability)
                 : "External"}
@@ -90,7 +90,7 @@ export function ChatResidentPreview({
       </section>
 
       <PreviewSection label="In this conversation">
-        <p className="text-sm leading-6 text-foreground/90">
+        <p className="text-sm leading-6 text-ink">
           {managedAgent
             ? "Present as a managed resident."
             : "Present as an external agent. Luca does not manage its runtime or private Notebook."}
@@ -111,14 +111,14 @@ export function ChatResidentPreview({
               onClick={() => onOpenFullProfile("notebook")}
               type="button"
             >
-              <div className="flex items-center gap-2 text-sm text-foreground/90">
+              <div className="flex items-center gap-2 text-sm text-ink">
                 <BookOpen className="size-3.5" />
                 <span>
                   {unresolvedCount} unresolved{" "}
                   {unresolvedCount === 1 ? "thread" : "threads"}
                 </span>
               </div>
-              <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground group-hover:text-foreground/80">
+              <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground group-hover:text-ink-muted">
                 {continuity.handoff.summary || "Continuity handoff available."}
               </p>
             </button>
@@ -135,7 +135,7 @@ export function ChatResidentPreview({
       ) : null}
 
       <PreviewSection label="Identity">
-        <div className="flex items-center gap-2 text-sm text-foreground/90">
+        <div className="flex items-center gap-2 text-sm text-ink">
           <KeyRound className="size-3.5" />
           <span className="font-mono text-xs">{truncatePubkey(pubkey)}</span>
         </div>
@@ -168,7 +168,7 @@ function PreviewSection({
 }) {
   return (
     <section className="border-b border-border/55 pb-5 last:border-b-0">
-      <p className="mb-3 font-mono text-2xs uppercase tracking-[0.15em] text-muted-foreground">
+      <p className="mb-3 font-mono text-2xs uppercase tracking-caps-wide text-muted-foreground">
         {label}
       </p>
       {children}

@@ -758,7 +758,7 @@ export function AgentConfigFields({
         <div className={cn(blockClassName, "space-y-3")}>
           <button
             aria-expanded={advancedOpen}
-            className="inline-flex h-9 items-center gap-1.5 text-sm font-medium text-foreground transition-colors hover:text-foreground/80 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex h-9 items-center gap-1.5 text-sm font-medium text-foreground transition-colors hover:text-ink-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             data-testid="global-agent-advanced-toggle"
             onClick={() => setAdvancedOpen((current) => !current)}
             type="button"

@@ -593,7 +593,7 @@ function RuntimeProvidersSection({
         <h1 className="text-title font-normal text-foreground">
           Prepare your resident setup
         </h1>
-        <p className="mx-auto mt-3 max-w-[760px] text-sm leading-6 text-foreground/90">
+        <p className="mx-auto mt-3 max-w-[760px] text-sm leading-6 text-ink">
           Luca found the runtimes available on this machine. Install or sign in
           to at least one so your residents have a runtime to use.
         </p>

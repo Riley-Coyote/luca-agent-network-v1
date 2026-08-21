@@ -65,7 +65,7 @@ export function BackupStep({ direction, onBack, onNext }: BackupStepProps) {
         <h1 className="text-title font-normal text-foreground">
           Your owner identity is secured
         </h1>
-        <p className="mt-5 text-sm leading-6 text-foreground/80">
+        <p className="mt-5 text-sm leading-6 text-ink-muted">
           Luca created a cryptographic identity for you. Its private signing key
           stays in your system keychain and is never shown or copied during
           setup.
@@ -78,19 +78,19 @@ export function BackupStep({ direction, onBack, onNext }: BackupStepProps) {
           data-testid="onboarding-recovery-disclosure"
         >
           <div className="flex items-start gap-3">
-            <LockKeyhole className="mt-0.5 h-5 w-5 shrink-0 text-foreground/70" />
+            <LockKeyhole className="mt-0.5 h-5 w-5 shrink-0 text-ink-muted" />
             <div>
               <h2 className="text-sm font-medium text-foreground">
                 Create a protected recovery file
               </h2>
-              <p className="mt-2 text-sm leading-6 text-foreground/75">
+              <p className="mt-2 text-sm leading-6 text-ink-muted">
                 Luca encrypts your owner identity with a passphrase you choose.
                 Store the file and passphrase separately; neither can recover
                 your identity alone.
               </p>
               {exportedFile ? (
                 <p
-                  className="mt-4 flex items-center gap-2 text-xs text-foreground/80"
+                  className="mt-4 flex items-center gap-2 text-xs text-ink-muted"
                   data-testid="onboarding-protected-export-success"
                 >
                   <CheckCircle2 className="h-4 w-4" />

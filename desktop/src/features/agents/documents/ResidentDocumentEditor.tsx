@@ -137,9 +137,7 @@ export function ResidentDocumentEditor({
       <div className="mt-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <div className="flex min-w-0 items-baseline gap-3">
           <h3 className="text-base text-foreground">{title}</h3>
-          <span className="font-mono text-2xs text-muted-foreground/75">
-            {fileName}
-          </span>
+          <span className="font-mono text-2xs text-ink-faint">{fileName}</span>
         </div>
         <span className="text-2xs text-muted-foreground">{writerLine}</span>
       </div>
@@ -154,8 +152,8 @@ export function ResidentDocumentEditor({
         autoCapitalize="none"
         autoCorrect="off"
         className={cn(
-          "resident-document-textarea mt-4 min-h-[26rem] w-full flex-1 resize-y rounded-md border border-border/60 bg-foreground/[0.02] px-4 py-3 text-base leading-[1.68] text-foreground/90 transition-colors",
-          "placeholder:text-muted-foreground/60 hover:border-border/80 focus-visible:border-foreground/40 focus-visible:outline-hidden",
+          "resident-document-textarea mt-4 min-h-[26rem] w-full flex-1 resize-y rounded-md border border-border/60 bg-foreground/[0.02] px-4 py-3 text-base leading-[1.68] text-ink transition-colors",
+          "placeholder:text-ink-faint hover:border-border/80 focus-visible:border-foreground/40 focus-visible:outline-hidden",
           "disabled:opacity-60",
         )}
         data-testid="resident-document-textarea"
@@ -241,7 +239,7 @@ export function ResidentDocumentEditor({
             <>
               {" "}
               <button
-                className="text-foreground/80 underline decoration-foreground/30 underline-offset-2 transition-colors hover:text-foreground focus-visible:outline-hidden"
+                className="text-ink-muted underline decoration-foreground/30 underline-offset-2 transition-colors hover:text-foreground focus-visible:outline-hidden"
                 data-testid="resident-document-restart"
                 onClick={onRestart}
                 type="button"
@@ -263,7 +261,7 @@ export function ResidentDocumentEditor({
               <>
                 {residentName} is still running the previous version.{" "}
                 <button
-                  className="text-foreground/80 underline decoration-foreground/30 underline-offset-2 transition-colors hover:text-foreground focus-visible:outline-hidden"
+                  className="text-ink-muted underline decoration-foreground/30 underline-offset-2 transition-colors hover:text-foreground focus-visible:outline-hidden"
                   data-testid="resident-document-restart"
                   onClick={onRestart}
                   type="button"

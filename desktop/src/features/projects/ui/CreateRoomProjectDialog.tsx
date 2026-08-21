@@ -244,7 +244,7 @@ export function CreateRoomProjectDialog({
             {includeFirstRoom ? (
               <Field htmlFor="create-project-room-name" label="Room name">
                 <div className="relative">
-                  <MessagesSquare className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/55" />
+                  <MessagesSquare className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-faint" />
                   <Input
                     className="pl-9"
                     data-testid="create-project-room-name"
@@ -333,7 +333,7 @@ export function CreateRoomProjectDialog({
                             });
                           }}
                         />
-                        <UsersRound className="size-4 shrink-0 text-muted-foreground/60" />
+                        <UsersRound className="size-4 shrink-0 text-ink-faint" />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm">
                             {resident.name}
@@ -440,7 +440,7 @@ export function CreateRoomProjectDialog({
                         });
                       }}
                     />
-                    <Files className="size-4 shrink-0 text-muted-foreground/60" />
+                    <Files className="size-4 shrink-0 text-ink-faint" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm">
                         {option.label}

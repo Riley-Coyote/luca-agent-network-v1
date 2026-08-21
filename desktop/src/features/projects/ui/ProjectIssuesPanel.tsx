@@ -122,7 +122,7 @@ function IssueRow({
             pubkey={issue.author}
             showLabel={false}
           />
-          <span className="truncate text-foreground/80">
+          <span className="truncate text-ink-muted">
             <span className="font-medium">{authorLabel}</span> created this
             issue {relativeTime(issue.createdAt)}
           </span>

@@ -358,7 +358,7 @@ export function PulseView({ currentPubkey }: PulseViewProps) {
                     <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground dark:text-white/55" />
                     <Input
                       autoFocus
-                      className="h-9 rounded-full border-0 bg-transparent pl-10 pr-12 text-sm shadow-none placeholder:text-muted-foreground/80 focus-visible:ring-0 dark:text-white dark:placeholder:text-white/60"
+                      className="h-9 rounded-full border-0 bg-transparent pl-10 pr-12 text-sm shadow-none placeholder:text-ink-faint focus-visible:ring-0 dark:text-white dark:placeholder:text-white/60"
                       onChange={(event) => setSearchQuery(event.target.value)}
                       placeholder="What would you like to know?"
                       type="search"

@@ -6,8 +6,9 @@
     "Avenir Next", "Segoe UI", sans-serif;
   --font-mono: "Fragment Mono", "SFMono-Regular", "SF Mono", monospace;
   --font-instrument: "Doto", "Fragment Mono", "SFMono-Regular", monospace;
-  --mn-text-chat: 0.9375rem;
-  --mn-text-micro: 0.5625rem;
+  /* The type ramp — sizes, leadings and tracking — lives in typography.css,
+     which is imported after this file. `--mn-text-*` are aliases onto it and
+     are defined there, once, beside the steps they point at. */
   /* A guest's turns sit one step below the room's own voice. */
   --mn-text-visit: 0.9375rem;
   /* ------------------------------------------------------------------
@@ -41,9 +42,32 @@
   --mn-surface-hover: 220 6% 4.2%;
   --mn-border: 220 5% 10.5%;
   --mn-border-strong: 220 4% 15.5%;
+  /* THE INK LADDER. Four roles, defined by the contrast each one holds
+   * against the conversation surface rather than by a lightness that looked
+   * right. Void sets the reference shape, and Paper is solved to reproduce it
+   * ratio for ratio — which is what makes hierarchy read the same in a dark
+   * room and in daylight, something matched lightness values can never
+   * guarantee:
+   *
+   *   ink        ~17:1   primary reading copy, names, active rows
+   *   ink-muted  ~10:1   secondary copy, resting chrome
+   *   ink-faint  ~5.7:1  timestamps, section labels — still AA at 11px
+   *   ink-ghost  ~3.4:1  decorative and disabled ONLY, never plain text
+   *
+   * Palettes may sit below the targets on purpose — Graphite is deliberately
+   * quieter — but nothing that carries text may fall through the AA floor of
+   * 4.5:1, measured on the RAISED surface, since plates sit above the
+   * conversation ground. Derived syntax themes are solved against a lower set
+   * of targets in `adaptive-theme.ts` so they keep their own character while
+   * still clearing that floor.
+   *
+   * Do not express a fifth level by putting an alpha on one of these. That
+   * habit is what collapsed the light palettes: alphas tuned against
+   * near-white ink land far below AA once the ink is near-black. */
   --mn-ink: 220 11.8% 93.1%;
   --mn-ink-muted: 220 2.7% 71.5%;
   --mn-ink-faint: 220 1.6% 53.2%;
+  --mn-ink-ghost: 220 1.5% 39%;
   --mn-focus: 213 94% 68%;
 
   /* The one light effect this system uses: a 1px lit top edge on raised
@@ -71,6 +95,11 @@
    * PAIRED WITH `trafficLightPosition.y` in tauri.conf.json: the lights are
    * 12px tall, so aligning them on this row means y = lip + (header - 12) / 2.
    * Change one, change the other. */
+  /* The measure — the width of the READING column, not of the card. A line
+     much past the mid-70s of characters costs the eye its return sweep; the
+     plane was 48rem, which put message copy at 87. This lands it at 79, the
+     same register the best long-form readers sit in. */
+  --mn-reading-measure: 45rem;
   --mn-card-lip: 8px;
   /* The header is TWO lines now — name, then the live-state line. */
   --mn-header-height: 56px;
@@ -342,10 +371,10 @@
 
 :root[data-luca-shell] [data-sidebar="group-label"] {
   color: hsl(var(--mn-ink-faint));
-  font-family: var(--font-mono);
-  font-size: var(--mn-text-micro);
+  font-family: var(--font-ui);
+  font-size: var(--type-eyebrow-size);
   font-weight: 500;
-  letter-spacing: 0.16em;
+  letter-spacing: var(--type-eyebrow-tracking);
   line-height: 24px;
   text-transform: uppercase;
 }
@@ -368,9 +397,12 @@
 
 :root[data-luca-shell] [data-sidebar="menu-button"][data-active="true"] {
   background: hsl(var(--sidebar-active));
-  border-color: hsl(220 5% 88% / 0.1);
+  border-color: hsl(var(--mn-ink) / 0.06);
   color: hsl(var(--sidebar-active-foreground));
-  font-weight: 520;
+  /* 500, not 520. The active row earns a step of weight, but it should be a
+     step ON the ramp — 520 was one of a set of one-off weights (520, 540,
+     560) that no token described. */
+  font-weight: 500;
 }
 
 :root[data-luca-shell]
@@ -411,9 +443,10 @@
 }
 
 :root[data-luca-shell] [data-testid="chat-title"] {
-  font-size: var(--mn-text-chat);
-  font-weight: 600;
-  letter-spacing: -0.012em;
+  font-size: var(--type-title-size);
+  font-weight: 550;
+  letter-spacing: var(--type-title-tracking);
+  line-height: var(--type-title-leading);
 }
 
 /* Project room navigation is contextual furniture inside the approved Luca
@@ -597,16 +630,18 @@
 
 :root[data-luca-shell] .luca-project-empty-conversation h2 {
   color: hsl(var(--mn-ink));
-  font-size: 1.375rem;
-  font-weight: 560;
-  letter-spacing: -0.025em;
+  font-size: var(--type-heading-size);
+  font-weight: 550;
+  letter-spacing: var(--type-heading-tracking);
+  line-height: var(--type-heading-leading);
   margin-top: 10px;
 }
 
 :root[data-luca-shell] .luca-project-empty-conversation p {
   color: hsl(var(--mn-ink-muted));
-  font-size: var(--mn-text-chat);
-  line-height: 1.55;
+  font-family: var(--font-reading);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-leading);
   margin-top: 8px;
 }
 
@@ -669,10 +704,10 @@
 :root[data-luca-shell] [data-luca-header-meta],
 :root[data-luca-shell] [data-luca-agent-state] {
   color: hsl(var(--mn-ink-faint));
-  font-family: var(--font-mono);
-  font-size: var(--mn-text-micro);
+  font-family: var(--font-ui);
+  font-size: var(--type-eyebrow-size);
   font-weight: 500;
-  letter-spacing: 0.14em;
+  letter-spacing: var(--type-eyebrow-tracking);
   text-transform: uppercase;
 }
 
@@ -690,9 +725,16 @@
   padding: 0 22px;
 }
 
-:root[data-luca-shell] [data-luca-reading-plane] {
+/* THE READING COLUMN. Everything that must align with message copy — the
+   timeline rows, the composer, the exchange strip, the conversation intro,
+   the presence rail, the activity shelf — takes its width from here. Each of
+   those restated `48rem` for itself, so narrowing the measure moved the
+   composer and left the strip 48px wider than it; one decision cannot live in
+   seven places. Add `.luca-measure` to anything new that belongs in the
+   column. */
+:root[data-luca-shell] :is([data-luca-reading-plane], .luca-measure) {
   margin-inline: auto;
-  max-width: 48rem;
+  max-width: var(--mn-reading-measure);
   width: 100%;
 }
 
@@ -704,17 +746,20 @@
   background: hsl(var(--mn-raised) / 0.55);
 }
 
-:root[data-luca-shell] [data-message-content] {
-  color: hsl(var(--mn-ink) / 0.88);
-  font-size: var(--mn-text-chat);
-  line-height: 1.68;
+/* Message copy is ink at full strength. It used to be `--mn-ink / 0.88`, which
+   is fine over near-white ink on black and lands under AA the moment the ink
+   goes near-black on paper. Levels below this one come from the ink LADDER,
+   never from an alpha on top of it. */
+:root[data-luca-shell] :is([data-message-content], .type-body) {
+  color: hsl(var(--mn-ink));
 }
 
 :root[data-luca-shell] [data-testid="message-thread-summary"] {
-  color: hsl(var(--mn-ink-muted) / 0.78);
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  letter-spacing: 0.025em;
+  color: hsl(var(--mn-ink-faint));
+  font-family: var(--font-ui);
+  font-size: var(--type-micro-size);
+  letter-spacing: var(--type-micro-tracking);
+  line-height: var(--type-micro-leading);
 }
 
 :root[data-luca-shell] [data-testid="message-composer"] {
@@ -774,7 +819,7 @@
 }
 
 @media (max-width: 1024px) {
-  :root[data-luca-shell] [data-luca-reading-plane] {
+  :root[data-luca-shell] :is([data-luca-reading-plane], .luca-measure) {
     max-width: calc(100% - 40px);
   }
 }

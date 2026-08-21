@@ -70,7 +70,7 @@ export function FileContentBlock({
         </pre>
       </div>
       <div
-        className="relative z-10 shrink-0 truncate border-t border-border/50 bg-muted/35 px-3 py-1.5 text-xs font-normal leading-5 text-muted-foreground/70"
+        className="relative z-10 shrink-0 truncate border-t border-border/50 bg-muted/35 px-3 py-1.5 text-xs font-normal leading-5 text-ink-faint"
         title={footerTitle ?? resolvedFooterText}
       >
         {resolvedFooterText}
@@ -98,7 +98,7 @@ function FileContentLineView({ line }: { line: FileContentLine }) {
           "border-l-2 border-green-500/50 bg-green-500/12 text-foreground dark:bg-green-500/10",
         line.kind === "remove" &&
           "border-l-2 border-red-500/50 bg-red-500/12 text-foreground dark:bg-red-500/10",
-        line.kind === "meta" && "text-muted-foreground/70",
+        line.kind === "meta" && "text-ink-faint",
       )}
     >
       {line.text || " "}

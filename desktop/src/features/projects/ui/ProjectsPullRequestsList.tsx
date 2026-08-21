@@ -139,13 +139,11 @@ function PullRequestGridCard({
         </div>
 
         {pullRequest.content ? (
-          <p className="line-clamp-2 text-sm text-foreground/90">
-            {pullRequest.content}
-          </p>
+          <p className="line-clamp-2 text-sm text-ink">{pullRequest.content}</p>
         ) : null}
 
         <div className="mt-auto border border-border/60 bg-muted/30 px-2.5 py-2">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-foreground/80">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-ink-muted">
             <span className="font-mono text-foreground">
               #{pullRequest.id.slice(0, 8)}
             </span>

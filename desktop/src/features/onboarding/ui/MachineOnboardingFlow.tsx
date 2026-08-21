@@ -150,7 +150,7 @@ export function MachineOnboardingFlow({
                     ? "Re-import your key"
                     : "Connect your owner identity"}
                 </h1>
-                <p className="mt-5 max-w-[440px] text-sm leading-6 text-foreground/80">
+                <p className="mt-5 max-w-[440px] text-sm leading-6 text-ink-muted">
                   {identityLost
                     ? "Your identity is no longer in the system keyring. Re-import your nsec to restore it."
                     : "If you already have a compatible cryptographic identity, enter its private key to connect it to Polyphonic. It stays masked while you enter it."}

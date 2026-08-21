@@ -110,7 +110,7 @@ export function HarnessLogo({
     return (
       <span
         className={cn(
-          "inline-flex shrink-0 items-center justify-center rounded-[28%] bg-plate-hover text-foreground/80",
+          "inline-flex shrink-0 items-center justify-center rounded-[28%] bg-plate-hover text-ink-muted",
           className,
         )}
         data-harness={harness}
