@@ -200,19 +200,20 @@ export function formatBytes(bytes: number | null): string {
 export async function listArtifacts(
   input: ArtifactListInput = {},
 ): Promise<ArtifactListPage> {
-  const raw = record(
-    await invokeTauri<unknown>("list_artifacts", {
-      input: {
-        includeDeleted: input.includeDeleted,
-        limit: input.limit,
-      },
-    }),
-  );
-  const items = Array.isArray(raw.artifacts)
-    ? raw.artifacts
-    : Array.isArray(raw.items)
-      ? raw.items
-      : [];
+  const value = await invokeTauri<unknown>("list_artifacts", {
+    input: {
+      includeDeleted: input.includeDeleted,
+      limit: input.limit,
+    },
+  });
+  const raw = record(value);
+  const items = Array.isArray(value)
+    ? value
+    : Array.isArray(raw.artifacts)
+      ? raw.artifacts
+      : Array.isArray(raw.items)
+        ? raw.items
+        : [];
   const query = input.query?.trim().toLowerCase() ?? "";
   const artifacts = items.map(normalizeSummary).filter((artifact) => {
     if (input.kind && artifact.kind !== input.kind) return false;
@@ -265,8 +266,13 @@ export async function readArtifactPreview(
       input: { artifactId, version: version ?? null },
     }),
   );
+  const artifact = record(raw.artifact);
+  const versionRecord = record(raw.version);
   const mediaType = stringValue(
-    raw.media_type ?? raw.mediaType,
+    raw.media_type ??
+      raw.mediaType ??
+      versionRecord.media_type ??
+      versionRecord.mediaType,
     "application/octet-stream",
   );
   const previewType = stringValue(raw.preview_type ?? raw.previewType);
@@ -291,9 +297,23 @@ export async function readArtifactPreview(
     );
   })();
   return {
-    artifactId: stringValue(raw.artifact_id ?? raw.artifactId, artifactId),
-    version: numberValue(raw.version, version ?? 1),
-    versionId: nullableString(raw.version_id ?? raw.versionId),
+    artifactId: stringValue(
+      raw.artifact_id ??
+        raw.artifactId ??
+        artifact.artifact_id ??
+        artifact.artifactId,
+      artifactId,
+    ),
+    version: numberValue(
+      typeof raw.version === "number" ? raw.version : versionRecord.version,
+      version ?? 1,
+    ),
+    versionId: nullableString(
+      raw.version_id ??
+        raw.versionId ??
+        versionRecord.version_id ??
+        versionRecord.versionId,
+    ),
     capability,
     mediaType,
     language: nullableString(raw.language),
@@ -326,7 +346,7 @@ export async function listArtifactReceipts(
   return receipts.map((value) => {
     const item = record(value);
     return {
-      id: stringValue(item.id),
+      id: stringValue(item.id ?? item.receipt_id ?? item.receiptId),
       artifactId: stringValue(item.artifact_id ?? item.artifactId),
       artifactTitle: stringValue(
         item.artifact_title ?? item.artifactTitle,
@@ -353,7 +373,10 @@ export async function listArtifactReceipts(
       ),
       sessionEpoch: numberValue(item.session_epoch ?? item.sessionEpoch),
       finalMessageId: nullableString(
-        item.final_message_id ?? item.finalMessageId,
+        item.final_message_id ??
+          item.finalMessageId ??
+          item.message_id ??
+          item.messageId,
       ),
       createdAt: stringValue(item.created_at ?? item.createdAt),
     };
@@ -406,7 +429,9 @@ export async function importArtifactFromPicker(): Promise<ArtifactSummary | null
   const value = await invokeTauri<unknown>("import_artifact_from_picker", {
     input: {},
   });
-  return value === null ? null : normalizeSummary(value);
+  if (value === null) return null;
+  const raw = record(value);
+  return normalizeSummary(raw.artifact ?? value);
 }
 
 export async function pinArtifact(
@@ -435,15 +460,15 @@ export async function revertArtifact(
   version: number,
   expectedCurrentVersion: number,
 ): Promise<ArtifactSummary> {
-  return normalizeSummary(
-    await invokeTauri("revert_artifact", {
-      input: {
-        artifactId,
-        sourceVersion: version,
-        expectedCurrentVersion,
-      },
-    }),
-  );
+  const value = await invokeTauri("revert_artifact", {
+    input: {
+      artifactId,
+      sourceVersion: version,
+      expectedCurrentVersion,
+    },
+  });
+  const raw = record(value);
+  return normalizeSummary(raw.artifact ?? value);
 }
 
 export async function exportArtifact(

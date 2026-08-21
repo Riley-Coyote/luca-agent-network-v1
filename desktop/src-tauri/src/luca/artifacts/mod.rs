@@ -128,6 +128,7 @@ pub(crate) struct ArtifactReceiptRecord {
     pub resident_pubkey: String,
     pub conversation_id: Option<String>,
     pub turn_id: Option<String>,
+    pub dispatch_receipt_id: Option<String>,
     pub message_id: Option<String>,
     pub state: ArtifactReceiptStateV1,
     pub created_at: String,
@@ -860,7 +861,7 @@ impl ArtifactStore {
             .connection
             .prepare(
                 "SELECT receipt_id, artifact_id, version, resident_pubkey, conversation_id,
-                        turn_id, message_id, state, created_at, linked_at
+                        turn_id, dispatch_receipt_id, message_id, state, created_at, linked_at
                  FROM artifact_receipts
                  WHERE owner_pubkey = ?1 AND (?2 IS NULL OR conversation_id = ?2)
                  ORDER BY created_at DESC, receipt_id DESC LIMIT ?3",
@@ -1164,7 +1165,7 @@ fn version_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ArtifactVersion
 }
 
 fn receipt_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ArtifactReceiptRecord> {
-    let state: String = row.get(7)?;
+    let state: String = row.get(8)?;
     Ok(ArtifactReceiptRecord {
         receipt_id: row.get(0)?,
         artifact_id: row.get(1)?,
@@ -1172,10 +1173,11 @@ fn receipt_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ArtifactReceipt
         resident_pubkey: row.get(3)?,
         conversation_id: row.get(4)?,
         turn_id: row.get(5)?,
-        message_id: row.get(6)?,
+        dispatch_receipt_id: row.get(6)?,
+        message_id: row.get(7)?,
         state: parse_receipt_state(&state).map_err(|_| rusqlite::Error::InvalidQuery)?,
-        created_at: row.get(8)?,
-        linked_at: row.get(9)?,
+        created_at: row.get(9)?,
+        linked_at: row.get(10)?,
     })
 }
 
@@ -1297,7 +1299,7 @@ fn load_commit(
     let receipt = connection
         .query_row(
             "SELECT receipt_id, artifact_id, version, resident_pubkey, conversation_id,
-                    turn_id, message_id, state, created_at, linked_at
+                    turn_id, dispatch_receipt_id, message_id, state, created_at, linked_at
              FROM artifact_receipts WHERE owner_pubkey = ?1 AND receipt_id = ?2",
             params![owner_pubkey, receipt_id],
             receipt_from_row,
