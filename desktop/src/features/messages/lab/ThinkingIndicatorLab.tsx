@@ -89,12 +89,12 @@ function Row({
           <span className="truncate text-sm font-semibold leading-4 tracking-[-0.012em]">
             Luca
           </span>
-          <span className="shrink-0 font-mono text-badge font-normal leading-4 tracking-[0.06em] tabular-nums text-muted-foreground/65">
+          <span className="shrink-0 font-mono text-badge font-normal leading-4 tracking-caps tabular-nums text-ink-faint">
             12:11 AM
           </span>
           {status}
         </div>
-        <div className="-mt-0.5 min-h-6 text-base leading-6 text-foreground/92">
+        <div className="-mt-0.5 min-h-6 text-base leading-6 text-ink">
           {body}
         </div>
       </div>
@@ -108,7 +108,7 @@ function StatusWord({ word }: { word: string | null }) {
       {word ? (
         <motion.span
           animate={{ opacity: 1, y: 0 }}
-          className="text-xs text-muted-foreground/70"
+          className="text-xs text-ink-faint"
           exit={{ opacity: 0, y: -2, transition: { duration: 0.16 } }}
           initial={{ opacity: 0, y: 2 }}
           key={word}
@@ -464,7 +464,7 @@ function FilamentSection({ bloom }: { bloom: boolean }) {
               seed={LUCA_IDENTITY_SEED}
               size={72}
             />
-            <span className="font-mono text-2xs uppercase tracking-[0.12em] text-muted-foreground/60">
+            <span className="font-mono text-2xs uppercase tracking-caps-wide text-ink-faint">
               72px
             </span>
           </div>
@@ -485,7 +485,7 @@ export function ThinkingIndicatorLab() {
       <div className="mx-auto max-w-[52rem] px-8 py-12">
         <header className="mb-8 flex items-end justify-between gap-6">
           <div>
-            <p className="font-mono text-2xs uppercase tracking-[0.14em] text-muted-foreground/70">
+            <p className="font-mono text-2xs uppercase tracking-caps-wide text-ink-faint">
               design lab
             </p>
             <h1 className="mt-1 text-2xl font-medium tracking-[-0.02em]">
@@ -527,7 +527,7 @@ export function ThinkingIndicatorLab() {
           </div>
         </header>
 
-        <div className="mb-6 flex items-center gap-3 font-mono text-2xs uppercase tracking-[0.12em] text-muted-foreground/70">
+        <div className="mb-6 flex items-center gap-3 font-mono text-2xs uppercase tracking-caps-wide text-ink-faint">
           {PHASES.map((p) => (
             <span
               className={cn(
@@ -579,7 +579,7 @@ export function ThinkingIndicatorLab() {
             >
               <div className="mb-3 flex items-baseline justify-between gap-6">
                 <h2 className="text-sm font-medium">{specimen.title}</h2>
-                <span className="font-mono text-2xs uppercase tracking-[0.12em] text-muted-foreground/60">
+                <span className="font-mono text-2xs uppercase tracking-caps-wide text-ink-faint">
                   {state.phase}
                 </span>
               </div>

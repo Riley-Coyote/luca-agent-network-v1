@@ -81,8 +81,8 @@ function ActivityLabel({
         isActionRequired && !isDone
           ? "font-medium text-amber-600/80 dark:text-amber-300/80"
           : isDone
-            ? "font-normal text-muted-foreground/70"
-            : "font-medium text-muted-foreground/80",
+            ? "font-normal text-ink-faint"
+            : "font-medium text-ink-faint",
       )}
     >
       <span className="shrink-0">{label.text}</span>
@@ -272,7 +272,7 @@ export function InboxListPane({
                 </span>
                 <span
                   className={cn(
-                    "flex shrink-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground/70 transition-opacity group-hover/inbox-item:opacity-0 group-focus-within/inbox-item:opacity-0",
+                    "flex shrink-0 items-center gap-1.5 text-xs leading-4 text-ink-faint transition-opacity group-hover/inbox-item:opacity-0 group-focus-within/inbox-item:opacity-0",
                     isDone ? "font-normal" : "font-medium",
                   )}
                 >

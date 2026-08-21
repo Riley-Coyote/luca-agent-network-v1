@@ -137,7 +137,7 @@ export function AgentDropdownSelect({
             className={cn(
               "min-w-0 truncate",
               isPlaceholderSelection &&
-                (placeholderClassName ?? "text-foreground/45"),
+                (placeholderClassName ?? "text-ink-faint"),
             )}
           >
             {selectedLabel ?? selectedOption?.label ?? placeholder}
@@ -146,7 +146,7 @@ export function AgentDropdownSelect({
             aria-hidden="true"
             className={cn(
               "ml-3 h-4 w-4 shrink-0 transition-transform duration-150",
-              disabled ? "text-foreground/30" : "text-foreground",
+              disabled ? "text-ink-ghost" : "text-foreground",
               open && "rotate-180",
             )}
           />
@@ -171,7 +171,7 @@ export function AgentDropdownSelect({
             <div className="relative">
               <Search
                 aria-hidden="true"
-                className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-foreground/45"
+                className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-faint"
               />
               <Input
                 aria-label="Search models"
@@ -185,7 +185,7 @@ export function AgentDropdownSelect({
             </div>
           ) : null}
           {showSearch && filteredOptions.length === 0 ? (
-            <p className="px-3 py-2 text-sm text-foreground/55">No matches</p>
+            <p className="px-3 py-2 text-sm text-ink-faint">No matches</p>
           ) : null}
           {filteredOptions.map((option) => {
             const selected = option.value === value;

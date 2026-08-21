@@ -105,9 +105,7 @@ export function MarkdownCodeBlock({
         style={{ borderRadius: "1rem" }}
       >
         {language && (
-          <div className="mb-1 text-xs text-muted-foreground/70">
-            {language}
-          </div>
+          <div className="mb-1 text-xs text-ink-faint">{language}</div>
         )}
         {children}
       </pre>

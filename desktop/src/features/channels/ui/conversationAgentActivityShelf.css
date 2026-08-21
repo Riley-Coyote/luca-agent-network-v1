@@ -33,7 +33,7 @@
   gap: 6px;
   height: 100%;
   margin-inline: auto;
-  max-width: 48rem;
+  max-width: var(--mn-reading-measure);
   padding-inline: 4px;
   width: 100%;
 }

@@ -279,7 +279,7 @@ export function PolyphonicPresentationAgentSelector({
           if (!group.length) return null;
           return (
             <div key={source}>
-              <p className="sticky top-0 z-10 bg-[var(--prototype-recessed)] px-3 pb-1 pt-2 text-2xs font-semibold tracking-[0.12em] text-[var(--prototype-muted)] uppercase">
+              <p className="sticky top-0 z-10 bg-[var(--prototype-recessed)] px-3 pb-1 pt-2 text-2xs font-semibold tracking-caps-wide text-[var(--prototype-muted)] uppercase">
                 {source}
               </p>
               {group.map((agent) => {

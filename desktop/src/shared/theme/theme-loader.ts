@@ -27,6 +27,17 @@ export const BUZZ_DARK_THEME_NAME = "buzz-dark";
  */
 export const GRAPHITE_THEME_NAME = "graphite";
 
+/**
+ * Paper — the first-party LIGHT palette, and Void's counterpart.
+ *
+ * Until it existed the shell had no authored light mode at all: choosing
+ * "Light" in Appearance offered nothing but syntax themes, each one an entire
+ * application extrapolated from a code editor's three colors. Paper is an app
+ * palette like Void and Graphite, so its code highlighting resolves through
+ * {@link PAPER_BASE_THEME}.
+ */
+export const PAPER_THEME_NAME = "paper";
+
 /** The Luca shell uses GitHub Dark for its syntax-highlighting baseline. */
 export const BUZZ_BASE_THEME: SyntaxThemeName = "github-dark";
 
@@ -35,6 +46,9 @@ export const BUZZ_DARK_BASE_THEME: SyntaxThemeName = "github-dark";
 
 /** Graphite keeps the same restrained GitHub Dark syntax baseline as Void. */
 export const GRAPHITE_BASE_THEME: SyntaxThemeName = "github-dark";
+
+/** Paper is the light shell, so its code blocks take the light baseline. */
+export const PAPER_BASE_THEME: SyntaxThemeName = "github-light";
 
 /**
  * Resolve a theme name to the real Shiki bundled theme it maps to.
@@ -51,6 +65,7 @@ export function resolveShikiThemeName(name: string): SyntaxThemeName {
   if (name === BUZZ_THEME_NAME) return BUZZ_BASE_THEME;
   if (name === BUZZ_DARK_THEME_NAME) return BUZZ_DARK_BASE_THEME;
   if (name === GRAPHITE_THEME_NAME) return GRAPHITE_BASE_THEME;
+  if (name === PAPER_THEME_NAME) return PAPER_BASE_THEME;
   return name as SyntaxThemeName;
 }
 
@@ -60,6 +75,7 @@ export const SYNTAX_THEMES = [
   "buzz",
   "buzz-dark",
   "graphite",
+  "paper",
   "andromeeda",
   "aurora-x",
   "ayu-dark",
@@ -127,6 +143,7 @@ export type SyntaxThemeName = (typeof SYNTAX_THEMES)[number];
 // Known light themes — used by the theme picker to show sun/moon icons
 // for themes that haven't been loaded yet.
 export const LIGHT_THEMES: ReadonlySet<SyntaxThemeName> = new Set([
+  "paper",
   "catppuccin-latte",
   "everforest-light",
   "github-light",
@@ -156,6 +173,7 @@ const themeImports: Record<
   buzz: () => import("shiki/themes/github-dark.mjs"),
   "buzz-dark": () => import("shiki/themes/github-dark.mjs"),
   graphite: () => import("shiki/themes/github-dark.mjs"),
+  paper: () => import("shiki/themes/github-light.mjs"),
   andromeeda: () => import("shiki/themes/andromeeda.mjs"),
   "aurora-x": () => import("shiki/themes/aurora-x.mjs"),
   "ayu-dark": () => import("shiki/themes/ayu-dark.mjs"),
@@ -234,8 +252,11 @@ export function isLightTheme(name: string): boolean {
 export const THEME_PAIRS: ReadonlyMap<SyntaxThemeName, SyntaxThemeName> =
   new Map([
     // Light → Dark
-    // Buzz is the first-party pair; keep it first so it leads every category.
-    ["buzz", "buzz-dark"],
+    // Paper ↔ Void is the first-party pair; keep it first so it leads every
+    // category. `buzz-dark` stays mapped to `buzz` below — that alias is the
+    // "always Void" choice, and pairing it to a light palette would take the
+    // stay-dark option away from System mode.
+    ["paper", "buzz"],
     ["catppuccin-latte", "catppuccin-mocha"],
     ["everforest-light", "everforest-dark"],
     ["github-light", "github-dark"],
@@ -254,6 +275,7 @@ export const THEME_PAIRS: ReadonlyMap<SyntaxThemeName, SyntaxThemeName> =
     ["solarized-light", "solarized-dark"],
     ["vitesse-light", "vitesse-dark"],
     // Dark → Light (reverse mappings)
+    ["buzz", "paper"],
     ["buzz-dark", "buzz"],
     ["catppuccin-mocha", "catppuccin-latte"],
     ["everforest-dark", "everforest-light"],

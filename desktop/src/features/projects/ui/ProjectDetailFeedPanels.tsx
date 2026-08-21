@@ -230,7 +230,7 @@ export function ActivityPanel({
                     showLabel={false}
                   />
                   <span className="truncate">
-                    <span className="font-medium text-foreground/80">
+                    <span className="font-medium text-ink-muted">
                       {authorLabel}
                     </span>{" "}
                     committed

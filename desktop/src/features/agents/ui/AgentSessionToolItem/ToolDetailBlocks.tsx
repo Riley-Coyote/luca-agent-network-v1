@@ -78,9 +78,7 @@ export function ToolDetailBlocks({
         )
       ) : null}
       {!showShellCommand && !showParameters && !hasResult ? (
-        <p className="text-sm text-muted-foreground/80">
-          Waiting for tool details.
-        </p>
+        <p className="text-sm text-ink-faint">Waiting for tool details.</p>
       ) : null}
     </div>
   );

@@ -189,7 +189,7 @@ export function NativeResidentImportSection({
                     <span className="truncate text-sm font-medium">
                       {candidate.displayName}
                     </span>
-                    <span className="shrink-0 font-mono text-2xs uppercase tracking-[0.08em] text-muted-foreground">
+                    <span className="shrink-0 font-mono text-2xs uppercase tracking-caps text-muted-foreground">
                       {runtimeLabel(candidate)}
                     </span>
                   </div>

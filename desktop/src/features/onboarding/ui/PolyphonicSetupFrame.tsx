@@ -277,7 +277,7 @@ export function PolyphonicNotice({
         "mt-3 rounded-md px-3 py-2.5 text-sm leading-5",
         kind === "error"
           ? "border border-destructive/35 bg-destructive/5 text-destructive"
-          : "bg-foreground/[0.04] text-foreground/60",
+          : "bg-foreground/[0.04] text-ink-faint",
       )}
       role={kind === "error" ? "alert" : "status"}
     >

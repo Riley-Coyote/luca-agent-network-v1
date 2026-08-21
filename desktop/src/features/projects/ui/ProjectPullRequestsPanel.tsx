@@ -631,7 +631,7 @@ function PullRequestDetail({
                             : item.content.trim() || "requested a review"}
                       </span>
                     </span>
-                    <span className="w-20 shrink-0 text-right text-xs text-muted-foreground/70">
+                    <span className="w-20 shrink-0 text-right text-xs text-ink-faint">
                       {compactDate(item.createdAt)}
                     </span>
                   </div>

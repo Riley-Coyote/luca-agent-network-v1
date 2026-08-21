@@ -63,20 +63,20 @@ export function VisitNoteRow({
       <span
         className={cn(
           "flex shrink-0 items-center gap-1.5 whitespace-nowrap text-2xs leading-4",
-          arrived ? "text-muted-foreground" : "text-muted-foreground/70",
+          arrived ? "text-muted-foreground" : "text-ink-faint",
         )}
       >
         {arrived ? (
           <ResidentIdentityMark
             accessibleName={name}
-            className={cn("text-foreground/75", open && "luca-identity-breath")}
+            className={cn("text-ink-muted", open && "luca-identity-breath")}
             decorative
             publicKey={visit.resident}
             size={12}
           />
         ) : null}
         <span>
-          <span className="text-foreground/70">{name}</span>
+          <span className="text-ink-muted">{name}</span>
           {arrived ? " stepped in" : " stepped out"}
         </span>
       </span>

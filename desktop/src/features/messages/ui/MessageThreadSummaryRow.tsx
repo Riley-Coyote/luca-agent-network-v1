@@ -201,7 +201,7 @@ export function MessageThreadSummaryRow({
         />
         <MessageSquare
           aria-hidden
-          className="relative z-10 size-3.5 shrink-0 text-muted-foreground/65"
+          className="relative z-10 size-3.5 shrink-0 text-ink-faint"
         />
         <div className="relative z-10 min-w-0">
           <div>
@@ -215,10 +215,8 @@ export function MessageThreadSummaryRow({
             ) : null}
             {summary.lastReplyAt ? (
               <>
-                <span className="mx-1 font-normal text-muted-foreground/50">
-                  ·
-                </span>
-                <span className="inline-grid font-normal text-muted-foreground/70">
+                <span className="mx-1 font-normal text-ink-faint">·</span>
+                <span className="inline-grid font-normal text-ink-faint">
                   <span
                     className="col-start-1 row-start-1 transition-opacity group-hover:opacity-0 group-focus-visible:opacity-0"
                     data-testid="message-thread-summary-last-reply"

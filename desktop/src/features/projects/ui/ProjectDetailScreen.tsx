@@ -673,7 +673,7 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
   if (projectQuery.isError) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 py-16 text-center">
-        <FolderGit2 className="h-10 w-10 text-muted-foreground/40" />
+        <FolderGit2 className="h-10 w-10 text-ink-ghost" />
         <p className="text-sm text-red-400">Failed to load project</p>
         <div className="flex items-center gap-2">
           <Button
@@ -700,7 +700,7 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
   if (!project) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 py-16 text-center">
-        <FolderGit2 className="h-10 w-10 text-muted-foreground/40" />
+        <FolderGit2 className="h-10 w-10 text-ink-ghost" />
         <p className="text-sm text-muted-foreground">
           This project could not be found.
         </p>
@@ -807,7 +807,7 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
                   <FolderGit2 className="h-3.5 w-3.5" />
                   Projects
                 </button>
-                <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+                <ChevronRight className="h-3 w-3 shrink-0 text-ink-faint" />
                 {activeWorkItemCrumb ? (
                   <>
                     <button
@@ -817,7 +817,7 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
                     >
                       {project.name}
                     </button>
-                    <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+                    <ChevronRight className="h-3 w-3 shrink-0 text-ink-faint" />
                     <button
                       className="shrink-0 rounded-md px-0.5 py-1 font-medium transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={activeWorkItemCrumb.clear}
@@ -825,10 +825,10 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
                     >
                       {activeWorkItemCrumb.category}
                     </button>
-                    <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+                    <ChevronRight className="h-3 w-3 shrink-0 text-ink-faint" />
                     <span
                       aria-current="page"
-                      className="min-w-0 truncate px-0.5 font-medium text-muted-foreground/60"
+                      className="min-w-0 truncate px-0.5 font-medium text-ink-faint"
                     >
                       {activeWorkItemCrumb.title}
                     </span>
@@ -842,10 +842,10 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
                     >
                       {project.name}
                     </button>
-                    <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+                    <ChevronRight className="h-3 w-3 shrink-0 text-ink-faint" />
                     <span
                       aria-current="page"
-                      className="min-w-0 truncate px-0.5 font-medium text-muted-foreground/60"
+                      className="min-w-0 truncate px-0.5 font-medium text-ink-faint"
                     >
                       {activeTabCrumb}
                     </span>
@@ -853,7 +853,7 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
                 ) : (
                   <span
                     aria-current="page"
-                    className="min-w-0 truncate px-0.5 font-medium text-muted-foreground/60"
+                    className="min-w-0 truncate px-0.5 font-medium text-ink-faint"
                   >
                     {project.name}
                   </span>

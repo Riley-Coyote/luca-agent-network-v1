@@ -802,7 +802,7 @@ function TurnSetupFooter({
 
   return (
     <div
-      className="flex items-center gap-1.5 text-muted-foreground/80"
+      className="flex items-center gap-1.5 text-ink-faint"
       data-testid="transcript-turn-setup"
     >
       {showContext ? (
@@ -819,7 +819,7 @@ function TurnSetupFooter({
           <CheckCheck aria-hidden="true" />
         </Toggle>
       ) : (
-        <span className="inline-flex shrink-0 items-center justify-center rounded-sm text-muted-foreground/70">
+        <span className="inline-flex shrink-0 items-center justify-center rounded-sm text-ink-faint">
           <CheckCheck className="h-3.5 w-3.5" />
           <span className="sr-only">{tooltipText}</span>
         </span>

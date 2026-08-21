@@ -119,12 +119,12 @@ export function VisitPresenceRail() {
     >
       {pinned ? (
         <div
-          className="mx-auto w-full max-w-[48rem] px-0"
+          className="luca-measure px-0"
           style={{ transform: `translateY(${pinned.top}px)` }}
         >
           <ResidentIdentityMark
             accessibleName="Visiting resident"
-            className="ml-1 text-foreground/45"
+            className="ml-1 text-ink-faint"
             decorative
             publicKey={pinned.guest}
             size={MARK_SIZE}

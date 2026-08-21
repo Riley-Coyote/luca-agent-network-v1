@@ -69,7 +69,7 @@ export function HuddleParticipantsControl({
       >
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="text-sm font-medium">Participants</h2>
-          <span className="shrink-0 text-xs text-foreground/60">
+          <span className="shrink-0 text-xs text-ink-faint">
             {participantLabel}
           </span>
         </div>
@@ -107,7 +107,7 @@ export function HuddleParticipantsControl({
                   <div className="truncate text-sm font-medium">
                     {displayName}
                   </div>
-                  <div className="truncate text-xs text-foreground/60">
+                  <div className="truncate text-xs text-ink-faint">
                     {isActive ? "Speaking" : isAgent ? "Agent" : "In huddle"}
                   </div>
                 </div>
@@ -115,7 +115,7 @@ export function HuddleParticipantsControl({
                 {isAgent && onRemoveAgent && (
                   <Button
                     aria-label={`Remove ${displayName} from huddle`}
-                    className="h-7 w-7 shrink-0 text-foreground/65 hover:bg-destructive/15 hover:text-destructive"
+                    className="h-7 w-7 shrink-0 text-ink-muted hover:bg-destructive/15 hover:text-destructive"
                     onClick={() => void onRemoveAgent(pubkey)}
                     size="icon"
                     type="button"

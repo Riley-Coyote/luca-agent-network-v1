@@ -297,7 +297,7 @@ export function ConversationContextPanel({
                   title in the conversation header — repeating it here costs a
                   paragraph of space at the top of every drawer. */}
               <section className="space-y-1">
-                <div className="flex items-center gap-2 text-2xs font-medium uppercase tracking-[0.06em] text-muted-foreground/70">
+                <div className="flex items-center gap-2 text-2xs font-medium uppercase tracking-caps text-ink-faint">
                   <MessageCircle className="h-3.5 w-3.5" />
                   {channel.channelType === "dm" ? "Direct message" : "Room"}
                 </div>
@@ -378,7 +378,7 @@ export function ConversationContextPanel({
                               : "External agent"}
                           </span>
                         </span>
-                        <ArrowUpRight className="h-4 w-4 text-muted-foreground/45 transition-colors group-hover:text-foreground" />
+                        <ArrowUpRight className="h-4 w-4 text-ink-faint transition-colors group-hover:text-foreground" />
                       </button>
                     );
                   })}
@@ -411,7 +411,7 @@ export function ConversationContextPanel({
                             .slice(0, 1)
                             .toUpperCase()}
                         </span>
-                        <span className="min-w-0 flex-1 truncate text-sm text-foreground/90">
+                        <span className="min-w-0 flex-1 truncate text-sm text-ink">
                           {resolveUserLabel({
                             currentPubkey,
                             fallbackName: member.displayName,
@@ -419,7 +419,7 @@ export function ConversationContextPanel({
                             pubkey: member.pubkey,
                           })}
                         </span>
-                        <span className="text-xs capitalize text-muted-foreground/70">
+                        <span className="text-xs capitalize text-ink-faint">
                           {member.role}
                         </span>
                       </div>
@@ -434,9 +434,9 @@ export function ConversationContextPanel({
                 </SectionLabel>
                 <div className="rounded-2xl bg-plate px-3 py-3">
                   <div className="flex items-start gap-3">
-                    <FolderGit2 className="mt-0.5 h-4 w-4 text-muted-foreground/55" />
+                    <FolderGit2 className="mt-0.5 h-4 w-4 text-ink-faint" />
                     <div>
-                      <p className="text-sm text-foreground/90">
+                      <p className="text-sm text-ink">
                         No shared workspace attached
                       </p>
                       <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -496,7 +496,7 @@ function SectionLabel({
   // by size and opacity, never by a second typeface.
   return (
     <h3
-      className="mb-2 text-2xs font-medium uppercase tracking-[0.06em] text-muted-foreground/70"
+      className="mb-2 text-2xs font-medium uppercase tracking-caps text-ink-faint"
       id={id}
     >
       {children}
@@ -506,7 +506,7 @@ function SectionLabel({
 
 function SectionCount({ children }: { children: React.ReactNode }) {
   return (
-    <span className="mb-2 text-2xs tabular-nums text-muted-foreground/55">
+    <span className="mb-2 text-2xs tabular-nums text-ink-faint">
       {children}
     </span>
   );

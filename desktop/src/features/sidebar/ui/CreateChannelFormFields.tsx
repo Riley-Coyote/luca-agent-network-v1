@@ -13,9 +13,8 @@ import type { CreateChannelFormState } from "@/features/sidebar/lib/useCreateCha
 const CREATE_FIELD_SHELL_CLASS =
   "rounded-xl border border-input bg-muted/40 transition-colors duration-150 ease-out hover:border-muted-foreground/40 focus-within:border-muted-foreground/50";
 const CREATE_FIELD_CONTROL_CLASS =
-  "border-0 bg-transparent text-muted-foreground/55 shadow-none outline-none ring-0 transition-colors duration-150 ease-out placeholder:text-muted-foreground/55 focus:bg-transparent focus:text-foreground focus:outline-hidden focus-visible:ring-0";
-const CREATE_LABEL_OPTIONAL_CLASS =
-  "ml-1 text-xs font-normal text-muted-foreground/50";
+  "border-0 bg-transparent text-ink-faint shadow-none outline-none ring-0 transition-colors duration-150 ease-out placeholder:text-ink-faint focus:bg-transparent focus:text-foreground focus:outline-hidden focus-visible:ring-0";
+const CREATE_LABEL_OPTIONAL_CLASS = "ml-1 text-xs font-normal text-ink-faint";
 
 export const CREATE_CHANNEL_FORM_ID = "create-channel-form";
 
@@ -109,7 +108,7 @@ export function CreateChannelFormFields({
             Private
           </span>
           <span
-            className="block text-xs leading-4 text-muted-foreground/65"
+            className="block text-xs leading-4 text-ink-faint"
             id="create-channel-private-description"
           >
             Only members can invite people to this {kindLabel}.
@@ -138,7 +137,7 @@ export function CreateChannelFormFields({
             <span className={CREATE_LABEL_OPTIONAL_CLASS}>Optional</span>
           </label>
           <select
-            className="flex min-h-11 w-full rounded-xl border border-input bg-muted/40 px-3 py-2 text-sm text-muted-foreground/55 shadow-none transition-colors duration-150 ease-out hover:border-muted-foreground/40 focus:border-muted-foreground/50 focus:text-foreground focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex min-h-11 w-full rounded-xl border border-input bg-muted/40 px-3 py-2 text-sm text-ink-faint shadow-none transition-colors duration-150 ease-out hover:border-muted-foreground/40 focus:border-muted-foreground/50 focus:text-foreground focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50"
             data-testid="create-channel-template"
             disabled={isCreating}
             id="create-channel-template"
@@ -192,11 +191,11 @@ export function CreateChannelFormFooter({
           >
             <DurationIcon className="h-4 w-4" />
             {durationLabel}
-            <ChevronDown className="h-4 w-4 text-muted-foreground/70" />
+            <ChevronDown className="h-4 w-4 text-ink-faint" />
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-72 p-1">
-          <div className="px-3 pb-1.5 pt-2 text-xs font-medium text-muted-foreground/70">
+          <div className="px-3 pb-1.5 pt-2 text-xs font-medium text-ink-faint">
             Channel type
           </div>
           <fieldset className="space-y-1">
@@ -256,7 +255,7 @@ function ChannelDurationOption({
   return (
     <label
       className={cn(
-        "relative flex min-h-16 cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 text-left text-muted-foreground/75 transition-colors duration-150 ease-out hover:bg-muted/50 hover:text-foreground has-[:focus-visible]:outline-hidden has-[:focus-visible]:ring-1 has-[:focus-visible]:ring-ring",
+        "relative flex min-h-16 cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 text-left text-ink-faint transition-colors duration-150 ease-out hover:bg-muted/50 hover:text-foreground has-[:focus-visible]:outline-hidden has-[:focus-visible]:ring-1 has-[:focus-visible]:ring-ring",
         checked && "text-foreground",
       )}
     >
@@ -289,8 +288,8 @@ function ChannelDurationOption({
         </span>
         <span
           className={cn(
-            "col-span-2 block text-xs leading-4 text-muted-foreground/70",
-            checked && "text-muted-foreground/65",
+            "col-span-2 block text-xs leading-4 text-ink-faint",
+            checked && "text-ink-faint",
           )}
         >
           {description}

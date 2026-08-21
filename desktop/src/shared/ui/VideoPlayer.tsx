@@ -1961,7 +1961,7 @@ function VideoReviewDialog({
                         "rounded-md px-2 py-1 font-mono text-xs font-semibold transition-colors",
                         !replyTarget && postAtCurrentFrame
                           ? TIMECODE_ACCENT_CLASS
-                          : "bg-muted text-muted-foreground/70",
+                          : "bg-muted text-ink-faint",
                       )}
                       data-testid="video-review-composer-timecode"
                     >

@@ -55,7 +55,7 @@ export function ResidentNotebookGrowthField({
         size={104}
       />
       {status ? (
-        <p className="absolute inset-x-3 bottom-2 text-center font-mono text-3xs uppercase tracking-[0.12em] text-muted-foreground">
+        <p className="absolute inset-x-3 bottom-2 text-center font-mono text-3xs uppercase tracking-caps-wide text-muted-foreground">
           {status}
         </p>
       ) : null}

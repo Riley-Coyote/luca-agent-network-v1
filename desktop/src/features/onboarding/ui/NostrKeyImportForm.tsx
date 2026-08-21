@@ -149,7 +149,7 @@ export function NostrKeyImportForm({
               <Input
                 autoComplete="off"
                 autoCorrect="off"
-                className="h-[3.6875rem] rounded-none border-0 bg-transparent px-10 text-center font-mono !text-4xl text-[color:var(--buzz-onboarding-backup-ink)] shadow-none placeholder:text-foreground/30 focus-visible:ring-0"
+                className="h-[3.6875rem] rounded-none border-0 bg-transparent px-10 text-center font-mono !text-4xl text-[color:var(--buzz-onboarding-backup-ink)] shadow-none placeholder:text-ink-faint focus-visible:ring-0"
                 data-testid="nostr-import-nsec-input"
                 id="nostr-private-key"
                 onChange={(event) => {

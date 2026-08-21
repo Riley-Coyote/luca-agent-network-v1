@@ -84,9 +84,7 @@ function SettingsSectionButton({
         <Icon
           className={cn(
             "h-4 w-4 shrink-0 transition-colors",
-            active
-              ? "text-sidebar-active-foreground"
-              : "text-sidebar-foreground/70",
+            active ? "text-sidebar-active-foreground" : "text-ink-muted",
           )}
         />
         <SidebarMenuLabel>{section.label}</SidebarMenuLabel>
@@ -239,7 +237,7 @@ export function SettingsView({
         <SidebarFooter>
           {appVersion ? (
             <p
-              className="px-2 pb-1 text-xs text-sidebar-foreground/45"
+              className="px-2 pb-1 text-xs text-ink-faint"
               data-buzz-sidebar-secondary
               data-testid="settings-version"
             >

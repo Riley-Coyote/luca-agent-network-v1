@@ -37,7 +37,7 @@ function LucaOnboardingHeading({
 
   return (
     <header className="w-full max-w-[30rem]">
-      <p className="font-mono text-2xs uppercase tracking-[0.2em] text-white/52">
+      <p className="font-mono text-2xs uppercase tracking-caps-wider text-white/52">
         {eyebrow}
       </p>
       <h1
@@ -172,7 +172,7 @@ export function OwnerChapter({
       />
       <div className="mt-8 w-full space-y-6 border-y border-white/[0.09] py-5">
         <label className="block" htmlFor="luca-owner-name">
-          <span className="font-mono text-2xs uppercase tracking-[0.16em] text-white/52">
+          <span className="font-mono text-2xs uppercase tracking-caps-wide text-white/52">
             Your name
           </span>
           <Input
@@ -186,7 +186,7 @@ export function OwnerChapter({
           />
         </label>
         <fieldset>
-          <legend className="font-mono text-2xs uppercase tracking-[0.16em] text-white/52">
+          <legend className="font-mono text-2xs uppercase tracking-caps-wide text-white/52">
             Your mark
           </legend>
           <div className="mt-3 flex gap-2.5">
@@ -289,7 +289,7 @@ export function AgentsChapter({
       {residents.length > 0 ? (
         <section aria-label="Agents found on this Mac" className="mt-6 w-full">
           <div className="flex items-center justify-between border-b border-white/[0.09] pb-2.5">
-            <h2 className="font-mono text-2xs uppercase tracking-[0.16em] text-white/52">
+            <h2 className="font-mono text-2xs uppercase tracking-caps-wide text-white/52">
               Found on this Mac
             </h2>
             <span className="text-xs text-white/42">
@@ -324,7 +324,7 @@ export function AgentsChapter({
                     </span>
                     <span
                       className={cn(
-                        "font-mono text-2xs uppercase tracking-[0.1em]",
+                        "font-mono text-2xs uppercase tracking-caps-wide",
                         resident.status === "Ready"
                           ? "text-white/52"
                           : "text-warning",
@@ -457,7 +457,7 @@ export function ReadyChapter({
 function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex min-h-14 items-center justify-between gap-5 border-b border-white/[0.07] py-3 last:border-b-0">
-      <span className="font-mono text-2xs uppercase tracking-[0.14em] text-white/45">
+      <span className="font-mono text-2xs uppercase tracking-caps-wide text-white/45">
         {label}
       </span>
       <span className="text-sm text-white/82">{value}</span>

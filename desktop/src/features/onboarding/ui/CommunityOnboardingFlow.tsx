@@ -445,7 +445,7 @@ export function CommunityOnboardingFlow({
                   ? "Connecting your personal home"
                   : `Joining ${transaction.communityName}`}
               </h1>
-              <p className="mt-3 text-sm text-foreground/80">
+              <p className="mt-3 text-sm text-ink-muted">
                 {transaction.error ??
                   (isLegacyFirstOwnerCompletionStage
                     ? "Finishing your owner setup…"
@@ -486,7 +486,7 @@ export function CommunityOnboardingFlow({
                       ? "Set up your owner profile"
                       : "Build your profile"}
                   </h1>
-                  <p className="mx-auto mt-3 max-w-[380px] text-sm leading-6 text-foreground/80">
+                  <p className="mx-auto mt-3 max-w-[380px] text-sm leading-6 text-ink-muted">
                     {isFirstOwnerPath
                       ? "Choose the name and avatar Luca will use for your owner identity."
                       : "Add a name and avatar. They’ll show up on your messages, reactions, and agent handoffs."}
@@ -515,7 +515,7 @@ export function CommunityOnboardingFlow({
                       autoCapitalize="none"
                       autoComplete="username"
                       autoCorrect="off"
-                      className="h-14 rounded-2xl border-[color:rgb(var(--buzz-onboarding-avatar-control-fg)_/_0.28)] bg-[rgb(var(--buzz-onboarding-avatar-dialog-bg)/0.95)] px-5 text-sm shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[color:rgb(var(--buzz-onboarding-avatar-control-fg)_/_0.5)] md:text-sm"
+                      className="h-14 rounded-2xl border-[color:rgb(var(--buzz-onboarding-avatar-control-fg)_/_0.28)] bg-[rgb(var(--buzz-onboarding-avatar-dialog-bg)/0.95)] px-5 text-sm shadow-none placeholder:text-ink-faint focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[color:rgb(var(--buzz-onboarding-avatar-control-fg)_/_0.5)] md:text-sm"
                       data-testid="community-profile-name-key"
                       disabled={isPending || isUploadingAvatar}
                       id="community-display-name"
@@ -611,7 +611,7 @@ export function CommunityOnboardingFlow({
           ) : (
             <>
               <h1 className="text-title font-normal">Meet your starter team</h1>
-              <p className="mx-auto mt-3 max-w-[400px] text-sm leading-6 text-foreground/80">
+              <p className="mx-auto mt-3 max-w-[400px] text-sm leading-6 text-ink-muted">
                 Luca lets you bring multiple agents into one personal network.
                 Your starter agents will help you get oriented.
               </p>
@@ -629,7 +629,7 @@ export function CommunityOnboardingFlow({
                           label={persona.displayName}
                           testId={`starter-persona-${persona.displayName.toLowerCase()}`}
                         />
-                        <span className="font-mono text-xs font-medium uppercase tracking-[0.15em]">
+                        <span className="font-mono text-xs font-medium uppercase tracking-caps-wide">
                           {persona.displayName}
                         </span>
                       </div>

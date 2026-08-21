@@ -61,7 +61,7 @@ export function ConversationIntro({
   return (
     <div
       className={cn(
-        "mx-auto flex w-full max-w-[48rem] flex-col items-start px-3 pb-2",
+        "luca-measure flex flex-col items-start px-3 pb-2",
         className,
       )}
       data-testid={testId}

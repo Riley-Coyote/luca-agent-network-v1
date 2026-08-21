@@ -143,7 +143,7 @@ export function InboxMessageRow({
             className="flex w-9 shrink-0 self-stretch items-start justify-end pt-0.5"
             title={message.fullTimestampLabel}
           >
-            <p className="shrink-0 cursor-default whitespace-nowrap text-xs font-normal leading-4 tabular-nums text-muted-foreground/55 opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100">
+            <p className="shrink-0 cursor-default whitespace-nowrap text-xs font-normal leading-4 tabular-nums text-ink-faint opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100">
               {hoverTimestampLabel}
             </p>
           </div>
@@ -186,7 +186,7 @@ export function InboxMessageRow({
                   ownerPubkey={message.ownerPubkey}
                 />
               ) : null}
-              <p className="shrink-0 text-xs font-normal tabular-nums text-muted-foreground/55">
+              <p className="shrink-0 text-xs font-normal tabular-nums text-ink-faint">
                 {message.fullTimestampLabel}
               </p>
             </div>

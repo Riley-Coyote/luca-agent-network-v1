@@ -721,7 +721,7 @@ export function ProfileSettingsCard({
                               </label>
                               {isEditingProfileMetadata ? (
                                 <Input
-                                  className="h-auto border-0 bg-transparent px-0 py-0 text-sm text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
+                                  className="h-auto border-0 bg-transparent px-0 py-0 text-sm text-muted-foreground shadow-none placeholder:text-ink-faint focus-visible:ring-0"
                                   data-testid="profile-display-name"
                                   disabled={updateProfileMutation.isPending}
                                   id="profile-display-name"
@@ -754,7 +754,7 @@ export function ProfileSettingsCard({
                               </label>
                               {isEditingProfileMetadata ? (
                                 <Textarea
-                                  className="min-h-[72px] resize-none border-0 bg-transparent px-0 py-0 text-sm leading-6 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
+                                  className="min-h-[72px] resize-none border-0 bg-transparent px-0 py-0 text-sm leading-6 text-muted-foreground shadow-none placeholder:text-ink-faint focus-visible:ring-0"
                                   data-testid="profile-about"
                                   disabled={updateProfileMutation.isPending}
                                   id="profile-about"
@@ -771,7 +771,7 @@ export function ProfileSettingsCard({
                                     "min-w-0 break-words text-sm",
                                     aboutDraft
                                       ? "text-muted-foreground"
-                                      : "text-muted-foreground/55",
+                                      : "text-ink-faint",
                                   )}
                                   data-testid="profile-about-value"
                                   title={aboutDraft || "Not set"}

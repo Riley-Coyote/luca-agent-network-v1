@@ -423,10 +423,18 @@ export const MessageRow = React.memo(
           return (
             <Markdown
               channelNames={channelNames}
+              // `type-body` is the reading step from the type ramp — the
+              // reading face, its size, leading and tracking applied together,
+              // since taking one without the others is what let message copy
+              // drift from the scale it was supposed to be on. Full-strength
+              // ink, not `/90`: the ladder expresses hierarchy through its own
+              // roles, and an alpha on top of near-black ink is what dropped
+              // light mode below AA.
               className={cn(
-                "max-w-full text-base leading-[1.68] text-foreground/90",
-                emojiOnly &&
-                  "text-4xl leading-tight [&_p]:leading-tight [&_img[data-custom-emoji]]:h-[1.45em] [&_img[data-custom-emoji]]:align-middle [&_button:has(img[data-custom-emoji])]:align-middle",
+                "max-w-full text-foreground",
+                emojiOnly
+                  ? "text-4xl leading-tight [&_p]:leading-tight [&_img[data-custom-emoji]]:h-[1.45em] [&_img[data-custom-emoji]]:align-middle [&_button:has(img[data-custom-emoji])]:align-middle"
+                  : "type-body",
               )}
               // Only pass the author pubkey for agent-authored messages so
               // config-nudge cards can authenticate the sender. Uses the
@@ -512,14 +520,14 @@ export const MessageRow = React.memo(
       message.pending || message.edited ? (
         <>
           {message.pending ? (
-            <p className="font-medium uppercase tracking-[0.14em] text-primary/80">
+            <p className="font-medium uppercase tracking-caps-wide text-primary/80">
               Sending
             </p>
           ) : null}
           {message.edited ? (
             <Tooltip>
               <TooltipTrigger asChild>
-                <p className="text-muted-foreground/70">(edited)</p>
+                <p className="text-ink-faint">(edited)</p>
               </TooltipTrigger>
               <TooltipContent>This message has been edited</TooltipContent>
             </Tooltip>
@@ -531,7 +539,7 @@ export const MessageRow = React.memo(
       if (interruptedOwnerReceipt) {
         return (
           <p
-            className="mt-1 text-2xs leading-4 text-muted-foreground/55"
+            className="mt-1 text-2xs leading-4 text-ink-faint"
             data-testid="managed-interrupted-status"
             role="status"
           >
@@ -612,7 +620,7 @@ export const MessageRow = React.memo(
           // Presence is lighter, words are equal: one whispered word after the
           // time is the only thing that marks a guest's message.
           <span
-            className="text-2xs leading-4 text-muted-foreground/65"
+            className="text-2xs leading-4 text-ink-faint"
             data-testid="resident-visiting-word"
           >
             <span className="pr-1">·</span>visiting
@@ -621,7 +629,7 @@ export const MessageRow = React.memo(
         {statusMetadataNode}
         {activityWord ? (
           <span
-            className="text-muted-foreground/70"
+            className="text-ink-faint"
             data-testid="resident-activity-word"
             role="status"
           >
@@ -634,7 +642,7 @@ export const MessageRow = React.memo(
       showStop && stopPubkey ? (
         <button
           aria-label={`Stop ${message.author}`}
-          className="ml-auto shrink-0 rounded text-xs leading-4 text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring active:text-foreground/80 disabled:cursor-default disabled:text-muted-foreground/40 disabled:hover:text-muted-foreground/40"
+          className="ml-auto shrink-0 rounded text-xs leading-4 text-ink-faint transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring active:text-ink-muted disabled:cursor-default disabled:text-ink-faint disabled:hover:text-ink-faint"
           data-testid="resident-stop"
           disabled={stopping}
           onClick={() => residentStop?.onStop(stopPubkey)}

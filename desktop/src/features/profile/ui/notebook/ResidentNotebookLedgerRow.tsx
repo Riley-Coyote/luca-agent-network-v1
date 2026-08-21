@@ -39,7 +39,7 @@ export function ResidentNotebookLedgerRow({
       </span>
 
       <span className="min-w-0 flex-1">
-        <span className="flex items-center justify-between gap-3 font-mono text-2xs uppercase tracking-[0.09em] text-muted-foreground">
+        <span className="flex items-center justify-between gap-3 font-mono text-2xs uppercase tracking-caps text-muted-foreground">
           <span className="truncate">
             {isJournalPage
               ? "Journal page"
@@ -54,7 +54,7 @@ export function ResidentNotebookLedgerRow({
           {title}
         </span>
 
-        <span className="mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5 font-mono text-2xs uppercase tracking-[0.07em] text-muted-foreground">
+        <span className="mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5 font-mono text-2xs uppercase tracking-caps text-muted-foreground">
           <span>
             {item.authorship === "resident"
               ? "resident authored"

@@ -97,7 +97,7 @@ export function AgentRuntimeTargetSelector({
                     {option.label}
                   </span>
                   {option.recommended ? (
-                    <span className="ml-3 shrink-0 text-2xs uppercase tracking-[0.1em] text-white/38">
+                    <span className="ml-3 shrink-0 text-2xs uppercase tracking-caps-wide text-white/38">
                       Recommended
                     </span>
                   ) : null}
@@ -149,7 +149,7 @@ export function AgentRuntimeTargetSelector({
                 <span className="flex items-center gap-1.5 text-sm text-white/88">
                   {option.label}
                   {option.recommended ? (
-                    <span className="text-2xs uppercase tracking-[0.12em] text-white/38">
+                    <span className="text-2xs uppercase tracking-caps-wide text-white/38">
                       Recommended
                     </span>
                   ) : null}

@@ -909,7 +909,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                 >
                   <div className="pointer-events-none">
                     {roomExchanges.length > 0 ? (
-                      <div className="pointer-events-auto mx-auto mb-2 grid w-full max-w-[48rem] gap-1">
+                      <div className="luca-measure pointer-events-auto mb-2 grid gap-1">
                         {roomExchanges.map((exchange) => (
                           <ExchangeStrip
                             exchange={exchange}
@@ -921,7 +921,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                       </div>
                     ) : null}
                     {activePermissionRequests.length > 0 ? (
-                      <div className="pointer-events-auto mx-auto mb-2 grid w-full max-w-[48rem] gap-2">
+                      <div className="luca-measure pointer-events-auto mb-2 grid gap-2">
                         {activePermissionRequests.map((pending) => (
                           <ManagedPermissionCard
                             key={pending.pendingId}
@@ -973,7 +973,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                       channelId={activeChannel?.id ?? null}
                       channelName={activeChannel?.name ?? "channel"}
                       channelType={activeChannel?.channelType ?? null}
-                      containerClassName="pointer-events-auto mx-auto w-full max-w-[48rem] px-0"
+                      containerClassName="luca-measure pointer-events-auto px-0"
                       disabled={isComposerDisabled}
                       editTarget={mainEditTarget}
                       autoSubmitDraftKey={autoSendDraftKey}

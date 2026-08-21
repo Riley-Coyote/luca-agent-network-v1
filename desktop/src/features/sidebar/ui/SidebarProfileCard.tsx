@@ -75,7 +75,7 @@ export function SidebarProfileCard({
   const communityLabel = "Personal workspace";
   const readonlyCommunityLabel = (
     <span
-      className="flex min-w-0 cursor-pointer items-center text-xs leading-snug text-sidebar-foreground/70"
+      className="flex min-w-0 cursor-pointer items-center text-xs leading-snug text-ink-muted"
       data-buzz-sidebar-secondary
     >
       <span className="truncate">{communityLabel}</span>
@@ -170,7 +170,7 @@ export function SidebarProfileCard({
               <button
                 aria-label={`Open profile menu for ${resolvedDisplayName}`}
                 className={cn(
-                  "flex w-full min-w-0 items-center truncate rounded-sm text-left text-xs leading-snug text-sidebar-foreground/70 outline-hidden transition-opacity duration-150 focus:outline-none focus-visible:outline-none group-hover/profile-card:opacity-0",
+                  "flex w-full min-w-0 items-center truncate rounded-sm text-left text-xs leading-snug text-ink-muted outline-hidden transition-opacity duration-150 focus:outline-none focus-visible:outline-none group-hover/profile-card:opacity-0",
                   profilePopoverOpen && "opacity-100",
                 )}
                 data-buzz-sidebar-secondary
@@ -191,7 +191,7 @@ export function SidebarProfileCard({
               </button>
               <div
                 className={cn(
-                  "pointer-events-none absolute inset-0 flex min-w-0 items-center text-xs leading-snug text-sidebar-foreground/70 opacity-0 transition-opacity duration-150 group-hover/profile-card:opacity-100",
+                  "pointer-events-none absolute inset-0 flex min-w-0 items-center text-xs leading-snug text-ink-muted opacity-0 transition-opacity duration-150 group-hover/profile-card:opacity-100",
                   profilePopoverOpen && "opacity-0",
                 )}
                 data-buzz-sidebar-secondary

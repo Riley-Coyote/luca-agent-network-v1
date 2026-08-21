@@ -645,7 +645,7 @@ function ProfileLiveActivityEmbed({
               </span>
               {activeChannelName ? (
                 <span
-                  className="block truncate text-xs font-medium text-muted-foreground/75"
+                  className="block truncate text-xs font-medium text-ink-faint"
                   data-testid="user-profile-activity-channel-label"
                   title={`#${activeChannelName}`}
                 >

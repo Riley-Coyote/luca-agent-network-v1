@@ -14,11 +14,13 @@ import { isMacPlatform } from "@/shared/lib/platform";
 import {
   createGraphiteThemeVars,
   createLucaThemeVars,
+  createPaperThemeVars,
   createThemeVars,
   hexToHsl,
 } from "./adaptive-theme";
 import {
   GRAPHITE_THEME_NAME,
+  PAPER_THEME_NAME,
   SYNTAX_THEMES,
   type SyntaxThemeName,
   extractThemeInfo,
@@ -83,7 +85,9 @@ function readStoredTheme(fallback: SyntaxThemeName): SyntaxThemeName {
   if (!stored) return fallback;
 
   // Migrate legacy values
-  if (stored === "light") return "catppuccin-latte";
+  // Legacy "light" used to land on a syntax theme because the shell had no
+  // light palette of its own. It has one now.
+  if (stored === "light") return PAPER_THEME_NAME;
   if (stored === "dark" || stored === "system") return "houston";
 
   return isValidThemeName(stored) ? stored : fallback;
@@ -195,8 +199,21 @@ function applyAccentColor(value: string) {
     root.style.setProperty("--primary-foreground", background);
     root.style.setProperty("--sidebar-primary", foreground);
     root.style.setProperty("--sidebar-primary-foreground", background);
-    root.style.setProperty("--sidebar-active", foreground);
-    root.style.setProperty("--sidebar-active-foreground", background);
+    // Rail selection is the one place the ink pill does not survive being
+    // mirrored. On a dark palette a near-white pill is a small LIT object on
+    // a dark field; invert it and the same shape becomes a near-black slab on
+    // paper — a blot, and the loudest thing on the page, for what is only
+    // "which room am I in". Light palettes therefore keep the shell's own
+    // selected plate (`--sidebar-active` → `--mn-hover`, ink text), which is
+    // what every light interface of this kind actually does. Filled buttons
+    // still invert: `--primary` above is untouched.
+    if (root.classList.contains("dark")) {
+      root.style.setProperty("--sidebar-active", foreground);
+      root.style.setProperty("--sidebar-active-foreground", background);
+    } else {
+      root.style.removeProperty("--sidebar-active");
+      root.style.removeProperty("--sidebar-active-foreground");
+    }
     return;
   }
 
@@ -227,7 +244,11 @@ export function isBuzzTheme(themeName: string): boolean {
 
 /** App palettes whose selection treatment is intentionally monochrome. */
 export function isFixedNeutralTheme(themeName: string): boolean {
-  return isBuzzTheme(themeName) || themeName === GRAPHITE_THEME_NAME;
+  return (
+    isBuzzTheme(themeName) ||
+    themeName === GRAPHITE_THEME_NAME ||
+    themeName === PAPER_THEME_NAME
+  );
 }
 
 /**
@@ -461,7 +482,11 @@ const LUCA_SHELL_THEME_VARIABLES = [
   "--mn-ink",
   "--mn-ink-muted",
   "--mn-ink-faint",
+  "--mn-ink-ghost",
   "--mn-focus",
+  // Paper restates the lit edge as a shadow beneath rather than a highlight
+  // above, so it has to be cleared when returning to a dark palette.
+  "--mn-lit-edge",
 ] as const;
 
 /** Apply a theme: load data, derive CSS vars, set them on :root. */
@@ -476,6 +501,7 @@ async function applyTheme(
   const { isDark, vars } = (() => {
     if (isBuzzTheme(name)) return createLucaThemeVars();
     if (name === GRAPHITE_THEME_NAME) return createGraphiteThemeVars();
+    if (name === PAPER_THEME_NAME) return createPaperThemeVars();
     return createThemeVars(info.bg, info.fg, info.comment, {
       added: info.added,
       deleted: info.deleted,

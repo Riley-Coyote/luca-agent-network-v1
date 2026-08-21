@@ -217,7 +217,7 @@ export function MicControls({
                 className={cn("h-3 w-3 shrink-0", !isPttMode && "invisible")}
               />
               <span className="font-medium">Push to Talk</span>
-              <kbd className="ml-auto rounded border border-foreground/10 px-1.5 py-0.5 text-2xs font-medium text-foreground/60">
+              <kbd className="ml-auto rounded border border-foreground/10 px-1.5 py-0.5 text-2xs font-medium text-ink-faint">
                 {pushToTalkShortcut}
               </kbd>
             </button>
@@ -262,7 +262,7 @@ export function MicControls({
             {micUnavailable && (
               <div className="mt-3 rounded-md border border-foreground/10 bg-foreground/8 px-2 py-2 text-xs text-foreground">
                 <p className="font-medium">Microphone unavailable</p>
-                <p className="mt-1 leading-snug text-foreground/70">
+                <p className="mt-1 leading-snug text-ink-muted">
                   Check app microphone permission or select another input
                   device.
                 </p>
@@ -343,7 +343,7 @@ export function SpeakerControls({
                 <p className="text-xs font-medium">
                   Headphones help prevent echo
                 </p>
-                <p className="mt-1 text-xs leading-snug text-foreground/75">
+                <p className="mt-1 text-xs leading-snug text-ink-muted">
                   If people are nearby, speakers can feed back into your mic.
                   Headphones keep huddles clearer.
                 </p>
