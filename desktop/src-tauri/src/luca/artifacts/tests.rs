@@ -199,6 +199,26 @@ fn owner_scope_delete_restore_and_receipt_link_are_isolated() {
         store.receipts(&hex('1'), None, 10).unwrap()[0].state,
         ArtifactReceiptStateV1::Linked
     );
+
+    let second = store
+        .create(&context('1'), &create_args("create-2", "unfinished"), None)
+        .unwrap();
+    assert_eq!(
+        store
+            .mark_turn_receipts(
+                &hex('1'),
+                &id("conversation-1"),
+                &id("turn-1"),
+                ArtifactReceiptStateV1::Interrupted,
+            )
+            .unwrap(),
+        1
+    );
+    let receipts = store.receipts(&hex('1'), None, 10).unwrap();
+    assert!(receipts.iter().any(|receipt| {
+        receipt.artifact_id == second.artifact.artifact_id
+            && receipt.state == ArtifactReceiptStateV1::Interrupted
+    }));
 }
 
 #[test]

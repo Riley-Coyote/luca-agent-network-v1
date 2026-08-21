@@ -10,10 +10,13 @@ use std::{
     time::Duration,
 };
 
-use luca_protocol::{ExchangeTurnTag, ManagedMessagePublishRequestV1, OpaqueId, Sha256Ref};
+use luca_protocol::{
+    ArtifactReceiptStateV1, ExchangeTurnTag, Hex64, ManagedMessagePublishRequestV1, OpaqueId,
+    Sha256Ref,
+};
 use nostr::{Event, JsonUtil, Keys, Kind};
 use reqwest::Method;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter, Manager};
 
 use super::{
     exchange::{classify_exchange_refusal, ExchangeDenial, ExchangeNote, ExchangeRefusal},
@@ -444,7 +447,65 @@ impl ManagedMessagePublisher {
         if let Err(error) = self.record_handoff_job(entry, outbox) {
             eprintln!("luca-continuity: handoff job scheduling unavailable: {error:?}");
         }
+        self.settle_artifact_receipts(
+            &entry.request,
+            Some(entry.event_id.as_str()),
+            ArtifactReceiptStateV1::Linked,
+        );
         Ok(())
+    }
+
+    /// Artifact bookkeeping is deliberately downstream of publication. A
+    /// missing or damaged Library must never turn an accepted resident final
+    /// into a failed conversation turn.
+    fn settle_artifact_receipts(
+        &self,
+        request: &ManagedMessagePublishRequestV1,
+        final_message_id: Option<&str>,
+        state: ArtifactReceiptStateV1,
+    ) {
+        let Some(scheduler) = &self.handoff_scheduler else {
+            return;
+        };
+        let result = (|| {
+            let app_data_dir = scheduler.app.path().app_data_dir().map_err(|_| ())?;
+            let mut store = super::artifacts::ArtifactStore::open(&app_data_dir).map_err(|_| ())?;
+            match state {
+                ArtifactReceiptStateV1::Linked => {
+                    let message_id =
+                        Hex64::parse(final_message_id.ok_or(())?.to_owned()).map_err(|_| ())?;
+                    store
+                        .link_turn_receipts(
+                            &request.owner_pubkey,
+                            &request.conversation_id,
+                            &request.turn_id,
+                            &message_id,
+                        )
+                        .map_err(|_| ())
+                }
+                ArtifactReceiptStateV1::Interrupted | ArtifactReceiptStateV1::Orphaned => store
+                    .mark_turn_receipts(
+                        &request.owner_pubkey,
+                        &request.conversation_id,
+                        &request.turn_id,
+                        state,
+                    )
+                    .map_err(|_| ()),
+                ArtifactReceiptStateV1::Provisional => Err(()),
+            }
+        })();
+        match result {
+            Ok(changed) if changed > 0 => {
+                let _ = scheduler.app.emit(
+                    "luca://artifacts-changed",
+                    serde_json::json!({ "reason": "receipt-settled" }),
+                );
+            }
+            Ok(_) => {}
+            Err(()) => {
+                eprintln!("luca-artifacts: receipt settlement unavailable");
+            }
+        }
     }
 
     fn record_handoff_job(
@@ -533,7 +594,15 @@ impl ManagedMessagePublisher {
         }
         outbox
             .mark_authority_finalized(&entry.idempotency_key)
-            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+        let receipt_state =
+            if state == super::managed_dispatch_store::ManagedDispatchState::Cancelled {
+                ArtifactReceiptStateV1::Interrupted
+            } else {
+                ArtifactReceiptStateV1::Orphaned
+            };
+        self.settle_artifact_receipts(&entry.request, None, receipt_state);
+        Ok(())
     }
 
     fn submit_entry_serialized(
@@ -675,6 +744,14 @@ impl ManagedMessagePublisher {
         outbox
             .mark_authority_finalized(&entry.idempotency_key)
             .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+        let receipt_state =
+            if terminal_state == super::managed_dispatch_store::ManagedDispatchState::Cancelled {
+                ArtifactReceiptStateV1::Interrupted
+            } else {
+                ArtifactReceiptStateV1::Orphaned
+            };
+        drop(store);
+        self.settle_artifact_receipts(&entry.request, None, receipt_state);
         Ok(decision)
     }
 
