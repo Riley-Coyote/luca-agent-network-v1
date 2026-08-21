@@ -223,20 +223,26 @@
    speaker in it. */
 :root[data-luca-shell] [data-luca-reading-plane][data-visit-span]::before,
 :root[data-luca-shell] [data-luca-reading-plane][data-visit-span]::after {
-  background: hsl(var(--mn-ink) / 0.2);
+  /* A hairline, and deliberately a shade under the doors (15%): the doors are
+     the structure, the thread between the speakers is a secondary detail. Both
+     sit far below the value of any text, which is what keeps the passage
+     legible as conversation rather than as diagram. */
+  background: hsl(var(--mn-ink) / 0.14);
   /* Rounded ends: where the line meets a mark it should stop like a drawn
-     stroke, not like a cut column. Half its own width, so it reads at any
-     line weight. */
+     stroke, not like a cut column. */
   border-radius: 1px;
   content: "";
   /* Dead-centre on the mark, and the arithmetic is written down because it is
      the difference between a connector and a stray line: from the inset edge,
      the row's article adds `mx-1` (4px) and `px-2` (8px), then the mark column
-     is 21px wide — so its centre is +22.5px, and the 2px line starts half a
-     pixel-pair before that. Checked against the live mark by `lab-shots`. */
-  left: calc(var(--mn-visit-inset, 30px) + 21.5px);
+     is 21px wide — so its centre is +22.5px, and the line backs off half its
+     own weight. Derived, so changing the weight cannot decentre it. Checked
+     against the live mark by `lab-shots`. */
+  left: calc(
+    var(--mn-visit-inset, 30px) + 22.5px - var(--mn-visit-line, 1px) / 2
+  );
   position: absolute;
-  width: var(--mn-visit-line, 2px);
+  width: var(--mn-visit-line, 1px);
 }
 
 /* Row top → the mark. The mark sits `py-1.5` (6px) + `mt-0.5` (2px) below the
