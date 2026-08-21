@@ -6117,6 +6117,7 @@ async function handleOpenDm(
   ]);
   const existingChannel = findMockDmByParticipantPubkeys(participantPubkeys);
   if (existingChannel) {
+    markMockManagedAgentChannelReady(normalizedPubkeys, existingChannel.id);
     return toRawChannel(existingChannel, config);
   }
 
@@ -6152,6 +6153,7 @@ async function handleOpenDm(
     });
     syncMockChannel(channel);
     mockChannels.push(channel);
+    markMockManagedAgentChannelReady(normalizedPubkeys, channel.id);
     return toRawChannel(channel, config);
   }
 
@@ -6190,6 +6192,21 @@ async function handleOpenDm(
       ? new Date(ev.created_at * 1000).toISOString()
       : new Date().toISOString(),
   };
+}
+
+function markMockManagedAgentChannelReady(
+  participantPubkeys: string[],
+  channelId: string,
+) {
+  for (const agent of mockManagedAgents) {
+    if (
+      agent.status !== "running" ||
+      !participantPubkeys.includes(agent.pubkey)
+    )
+      continue;
+    const marker = `subscribed to channel ${channelId}`;
+    if (!agent.log_lines.includes(marker)) agent.log_lines.push(marker);
+  }
 }
 
 async function handleHideDm(

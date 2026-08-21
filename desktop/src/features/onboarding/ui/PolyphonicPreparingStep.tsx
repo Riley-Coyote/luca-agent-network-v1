@@ -12,6 +12,7 @@ import {
 } from "@/features/agents/lib/instanceInputForDefinition";
 import { useOperatorForgeSettingsQuery } from "@/features/agents/operatorForgeQueries";
 import { createLucaResident } from "@/features/luca/residents/api";
+import { getManagedAgentLog } from "@/shared/api/tauri";
 import { openDm } from "@/shared/api/tauriChannels";
 import { hasManagedAgentChannelMessageMarker } from "@/shared/api/tauriManagedAgentMessageMarkers";
 import { sendManagedAgentChannelMessage } from "@/shared/api/tauriManagedAgentMessages";
@@ -26,6 +27,23 @@ import { PolyphonicBrandMark } from "./PolyphonicThresholdField";
 
 const LUCA_PERSONA_ID = "builtin:fizz";
 const GREETING_MARKER = "polyphonic-onboarding.luca-greeting.v1";
+const LUCA_READY_TIMEOUT_MS = 30_000;
+
+async function waitForLucaChannelSubscription(
+  pubkey: string,
+  channelId: string,
+) {
+  const readyMarker = `subscribed to channel ${channelId}`;
+  const deadline = Date.now() + LUCA_READY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const log = await getManagedAgentLog(pubkey, 160);
+    if (log.content.includes(readyMarker)) return;
+    await new Promise((resolve) => window.setTimeout(resolve, 200));
+  }
+  throw new Error(
+    "Luca started but did not finish connecting to this conversation. Retry setup to reconnect.",
+  );
+}
 
 export function PolyphonicPreparingStep({
   displayName,
@@ -131,6 +149,9 @@ export function PolyphonicPreparingStep({
             marker: GREETING_MARKER,
             markerScope: "channel",
           });
+        }
+        if (target.kind === "managed") {
+          await waitForLucaChannelSubscription(lucaPubkey, channel.id);
         }
         if (!cancelled) onComplete(channel.id);
       } catch (cause) {
