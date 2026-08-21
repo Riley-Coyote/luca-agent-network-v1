@@ -1,5 +1,7 @@
 //! Luca-owned desktop authority components layered onto the Buzz application.
 
+pub(crate) mod artifacts;
+
 // These accepted G2 kernel modules intentionally retain dormant export,
 // rotation, and relay APIs for the deferred long-range roadmap. Keep their
 // dead-code allowance local instead of weakening the desktop crate lint gate.

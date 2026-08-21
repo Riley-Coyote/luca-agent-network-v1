@@ -438,6 +438,35 @@ pub fn run() {
                 _ => eprintln!("buzz-desktop: continuity runtime unavailable this launch"),
             }
 
+            // Reconcile the owner-local artifact staging area and immutable
+            // blob catalog off the setup thread. Artifact failures are
+            // deliberately fail-soft and never block messaging or residents.
+            if let Ok(app_data_dir) = app_handle.path().app_data_dir() {
+                tauri::async_runtime::spawn_blocking(move || {
+                    match crate::luca::artifacts::ArtifactStore::open(&app_data_dir)
+                        .and_then(|mut store| store.reconcile())
+                    {
+                        Ok(report)
+                            if report.removed_staging_entries > 0
+                                || report.missing_blob_versions > 0
+                                || report.removed_unreferenced_blobs > 0 =>
+                        {
+                            eprintln!(
+                                "luca-artifacts: reconciled staging={} missing={} garbage={}",
+                                report.removed_staging_entries,
+                                report.missing_blob_versions,
+                                report.removed_unreferenced_blobs
+                            );
+                        }
+                        Ok(_) => {}
+                        Err(error) => eprintln!(
+                            "luca-artifacts: startup reconciliation unavailable: {}",
+                            error.code()
+                        ),
+                    }
+                });
+            }
+
             // Backfill the pinned persona snapshot for any pre-existing agent
             // that predates the record-authoritative-spawn cutover (persona_id
             // set but no source_version). Must run before
@@ -757,6 +786,17 @@ pub fn run() {
             leave_channel,
             get_canvas,
             set_canvas,
+            list_artifacts,
+            get_artifact,
+            list_artifact_versions,
+            read_artifact_preview,
+            import_artifact_from_picker,
+            pin_artifact,
+            revert_artifact,
+            soft_delete_artifact,
+            restore_artifact,
+            export_artifact,
+            list_artifact_receipts,
             get_feed,
             get_luca_owner_inbox,
             search_messages,
