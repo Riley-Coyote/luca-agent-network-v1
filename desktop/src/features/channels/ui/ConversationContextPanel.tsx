@@ -1,11 +1,8 @@
 import {
-  Activity,
   ArrowUpRight,
   FolderGit2,
   MessageCircle,
-  Paperclip,
   Settings2,
-  Users,
 } from "lucide-react";
 import * as React from "react";
 
@@ -14,8 +11,13 @@ import {
   useManagedAgentsQuery,
   usePersonasQuery,
 } from "@/features/agents/hooks";
+import { useResidentHarnessLookup } from "@/features/agents/ResidentHarnessContext";
 import { useChannelMembersQuery } from "@/features/channels/hooks";
 import { ResidentDrawer } from "@/features/channels/ui/ResidentDrawer";
+import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMark";
+import { useRoomExchangeHistory } from "@/features/exchange/exchangeStore";
+import { ExchangeHistory } from "@/features/exchange/ui/ExchangeHistory";
+import { openVisitors } from "@/features/messages/lib/visitSpans";
 import { useManagedPresentationActivity } from "@/features/messages/managedPresentationHooks";
 import type { ChannelAgentSessionAgent } from "@/features/channels/ui/useChannelAgentSessions";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
@@ -34,14 +36,13 @@ import {
   AuxiliaryPanelHeaderTitleBlock,
 } from "@/shared/layout/AuxiliaryPanel";
 import { normalizePubkey } from "@/shared/lib/pubkey";
-import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/cn";
-import { channelChrome } from "@/shared/layout/chromeLayout";
 import {
   type ConversationDrawerAgent,
   ConversationDrawerNavigation,
 } from "@/shared/ui/ConversationDrawerNavigation";
+import { HARNESS_LABELS } from "@/shared/ui/HarnessLogo";
 
 type ConversationContextPanelProps = {
   agents: ChannelAgentSessionAgent[];
@@ -141,6 +142,9 @@ export function ConversationContextPanel({
   const people = members.filter((member) => !isAgentMember(member));
   const agentCount = agentMembers.length || agents.length;
   const attachmentCount = countAttachments(messages);
+  const harnessLookup = useResidentHarnessLookup();
+  const exchangeHistory = useRoomExchangeHistory(channel.id);
+  const visitors = React.useMemo(() => openVisitors(messages), [messages]);
   const channelSummary =
     channel.purpose?.trim() ||
     channel.topic?.trim() ||
@@ -152,6 +156,7 @@ export function ConversationContextPanel({
     const candidates =
       agentMembers.length > 0
         ? agentMembers.map((member) => ({
+            harness: harnessLookup.get(normalizePubkey(member.pubkey)) ?? null,
             name: resolveUserLabel({
               currentPubkey,
               fallbackName: member.displayName,
@@ -164,6 +169,7 @@ export function ConversationContextPanel({
             ),
           }))
         : agents.map((agent) => ({
+            harness: harnessLookup.get(normalizePubkey(agent.pubkey)) ?? null,
             name: agent.name,
             pubkey: agent.pubkey,
             state: residentState(agent),
@@ -174,7 +180,14 @@ export function ConversationContextPanel({
         candidates.map((agent) => [normalizePubkey(agent.pubkey), agent]),
       ).values(),
     ];
-  }, [agentByPubkey, agentMembers, agents, currentPubkey, profiles]);
+  }, [
+    agentByPubkey,
+    agentMembers,
+    agents,
+    currentPubkey,
+    harnessLookup,
+    profiles,
+  ]);
 
   return (
     <AuxiliaryPanel
@@ -191,7 +204,6 @@ export function ConversationContextPanel({
       widthPx={widthPx}
       header={
         <AuxiliaryPanelHeader
-          bordered
           density="compact"
           surface={isSinglePanelView ? "transparent" : "default"}
         >
@@ -210,7 +222,6 @@ export function ConversationContextPanel({
         <AuxiliaryPanelBody
           className={cn(
             "overflow-y-auto px-4 pb-6",
-            layout === "split" && channelChrome.contentPadding,
             layout !== "split" && isSinglePanelView && "pt-13",
           )}
         >
@@ -233,10 +244,7 @@ export function ConversationContextPanel({
       ) : (
         <>
           <div
-            className={cn(
-              layout === "split" && channelChrome.contentPadding,
-              layout !== "split" && isSinglePanelView && "pt-13",
-            )}
+            className={cn(layout !== "split" && isSinglePanelView && "pt-13")}
           >
             <ConversationDrawerNavigation
               agents={drawerAgents}
@@ -245,9 +253,9 @@ export function ConversationContextPanel({
             />
           </div>
           <AuxiliaryPanelBody className="overflow-y-auto px-4 pb-6">
-            <div className="space-y-7 pt-5">
-              <section className="space-y-2 border-b border-border/55 pb-5">
-                <div className="flex items-center gap-2 text-2xs uppercase tracking-[0.14em] text-muted-foreground">
+            <div className="space-y-6 pt-4">
+              <section className="space-y-1.5 pb-1">
+                <div className="flex items-center gap-2 text-2xs font-medium uppercase tracking-[0.06em] text-muted-foreground/70">
                   <MessageCircle className="h-3.5 w-3.5" />
                   {channel.channelType === "dm" ? "Direct message" : "Room"}
                 </div>
@@ -263,25 +271,39 @@ export function ConversationContextPanel({
                 <SectionLabel id="conversation-at-a-glance">
                   At a glance
                 </SectionLabel>
-                <div className="grid grid-cols-3 divide-x divide-border/55 border-y border-border/55">
-                  <Metric icon={Users} label="Present" value={members.length} />
-                  <Metric icon={Activity} label="Agents" value={agentCount} />
-                  <Metric
-                    icon={Paperclip}
-                    label="Files"
-                    value={attachmentCount}
-                  />
+                <div className="grid grid-cols-4 overflow-hidden rounded-2xl bg-plate">
+                  <Metric label="Present" value={members.length} />
+                  <Metric label="Agents" value={agentCount} />
+                  <Metric label="Files" value={attachmentCount} />
+                  <Metric label="Exchanges" value={exchangeHistory.length} />
                 </div>
               </section>
+
+              {exchangeHistory.length > 0 ? (
+                <section aria-labelledby="conversation-between-agents">
+                  <div className="flex items-center justify-between gap-3">
+                    <SectionLabel id="conversation-between-agents">
+                      Between agents
+                    </SectionLabel>
+                    <SectionCount>{exchangeHistory.length}</SectionCount>
+                  </div>
+                  <ExchangeHistory
+                    channelId={channel.id}
+                    currentPubkey={currentPubkey}
+                    messages={messages}
+                    profiles={profiles}
+                  />
+                </section>
+              ) : null}
 
               <section aria-labelledby="conversation-agents">
                 <div className="flex items-center justify-between gap-3">
                   <SectionLabel id="conversation-agents">Agents</SectionLabel>
-                  <span className="font-mono text-2xs tracking-[0.12em] text-muted-foreground/70">
+                  <SectionCount>
                     {agentMembers.length || agents.length}
-                  </span>
+                  </SectionCount>
                 </div>
-                <div className="divide-y divide-border/50 border-y border-border/50">
+                <div className="overflow-hidden rounded-2xl bg-plate">
                   {(agentMembers.length > 0
                     ? agentMembers
                     : agents.map<ChannelMember>((agent) => ({
@@ -301,27 +323,36 @@ export function ConversationContextPanel({
                       profiles,
                       pubkey: member.pubkey,
                     });
+                    const harness = harnessLookup.get(
+                      normalizePubkey(member.pubkey),
+                    );
+                    const state = residentState(agent);
                     return (
                       <button
-                        className="group flex w-full items-center gap-3 px-1 py-3 text-left transition-colors duration-150 hover:bg-muted/25 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                        className="group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors duration-150 hover:bg-plate-hover focus-visible:outline-hidden focus-visible:bg-plate-hover"
                         data-testid={`conversation-resident-${normalizePubkey(member.pubkey)}`}
                         key={normalizePubkey(member.pubkey)}
                         onClick={() => onOpenResident(member.pubkey)}
                         type="button"
                       >
-                        <AgentIdentitySpecimen
-                          accessibleName={label}
-                          publicKey={member.pubkey}
-                          size={32}
-                          state={residentState(agent)}
-                        />
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center">
+                          <ResidentIdentityMark
+                            accessibleName={label}
+                            className={cn(
+                              state === "unavailable" && "opacity-50",
+                            )}
+                            decorative
+                            publicKey={member.pubkey}
+                            size={22}
+                          />
+                        </span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-medium text-foreground">
                             {label}
                           </span>
-                          <span className="mt-0.5 block truncate font-mono text-2xs uppercase tracking-[0.1em] text-muted-foreground">
+                          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                             {agent?.agentSource === "managed"
-                              ? "Resident · Notebook available"
+                              ? `${harness && harness !== "other" ? HARNESS_LABELS[harness] : "Resident"} · ${visitors.has(normalizePubkey(member.pubkey)) ? "Visiting" : "Notebook available"}`
                               : "External agent"}
                           </span>
                         </span>
@@ -332,7 +363,7 @@ export function ConversationContextPanel({
                   {!membersQuery.isLoading &&
                   agentMembers.length === 0 &&
                   agents.length === 0 ? (
-                    <p className="px-1 py-4 text-sm text-muted-foreground">
+                    <p className="px-3 py-3 text-sm text-muted-foreground">
                       No resident agents are currently attached to this
                       conversation.
                     </p>
@@ -343,13 +374,13 @@ export function ConversationContextPanel({
               {people.length > 0 ? (
                 <section aria-labelledby="conversation-people">
                   <SectionLabel id="conversation-people">People</SectionLabel>
-                  <div className="divide-y divide-border/45 border-y border-border/45">
+                  <div className="overflow-hidden rounded-2xl bg-plate">
                     {people.map((member) => (
                       <div
-                        className="flex items-center gap-3 px-1 py-2.5"
+                        className="flex items-center gap-3 px-3 py-2.5"
                         key={normalizePubkey(member.pubkey)}
                       >
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/60 bg-muted/20 text-xs text-muted-foreground">
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-plate-hover text-xs text-muted-foreground">
                           {resolveIdentityDisplayName({
                             displayName: member.displayName,
                             isAgent: member.isAgent || member.role === "bot",
@@ -366,7 +397,7 @@ export function ConversationContextPanel({
                             pubkey: member.pubkey,
                           })}
                         </span>
-                        <span className="font-mono text-2xs uppercase tracking-[0.1em] text-muted-foreground/60">
+                        <span className="text-xs capitalize text-muted-foreground/70">
                           {member.role}
                         </span>
                       </div>
@@ -379,7 +410,7 @@ export function ConversationContextPanel({
                 <SectionLabel id="conversation-working-context">
                   Working context
                 </SectionLabel>
-                <div className="border-y border-border/50 py-3">
+                <div className="rounded-2xl bg-plate px-3 py-3">
                   <div className="flex items-start gap-3">
                     <FolderGit2 className="mt-0.5 h-4 w-4 text-muted-foreground/55" />
                     <div>
@@ -419,9 +450,11 @@ function SectionLabel({
   children: React.ReactNode;
   id: string;
 }) {
+  // Section titles speak in the UI face at small size and low ink — hierarchy
+  // by size and opacity, never by a second typeface.
   return (
     <h3
-      className="mb-2.5 font-mono text-2xs uppercase tracking-[0.14em] text-muted-foreground"
+      className="mb-2 text-2xs font-medium uppercase tracking-[0.06em] text-muted-foreground/70"
       id={id}
     >
       {children}
@@ -429,24 +462,19 @@ function SectionLabel({
   );
 }
 
-function Metric({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: number;
-}) {
+function SectionCount({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1 px-2.5 py-3 first:pl-0 last:pr-0">
-      <div className="flex items-center gap-1.5 text-muted-foreground/65">
-        <Icon className="h-3.5 w-3.5" />
-        <span className="truncate font-mono text-3xs uppercase tracking-[0.12em]">
-          {label}
-        </span>
-      </div>
-      <span className={cn("text-lg font-medium tabular-nums text-foreground")}>
+    <span className="mb-2 text-2xs tabular-nums text-muted-foreground/55">
+      {children}
+    </span>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5 px-3 py-2.5">
+      <span className="truncate text-2xs text-muted-foreground">{label}</span>
+      <span className="text-base font-medium tabular-nums text-foreground">
         {value}
       </span>
     </div>

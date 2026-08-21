@@ -5,6 +5,11 @@ import { Outlet, useLocation } from "@tanstack/react-router";
 import { deriveShellRoute } from "@/app/AppShell.helpers";
 import { AppShellProvider } from "@/app/AppShellContext";
 import * as BuzzTheme from "@/app/BuzzThemeSurfaces";
+import { ResidentHarnessProvider } from "@/features/agents/ResidentHarnessContext";
+import {
+  RightCardsSlot,
+  RightCardsSlotProvider,
+} from "@/shared/layout/RightCardsSlot";
 import { AppShellOverlays } from "@/app/AppShellOverlays";
 import { AppTopChrome } from "@/app/AppTopChrome";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
@@ -963,18 +968,27 @@ export function AppShell() {
                             data-buzz-shadow-viewport
                             style={chromeCssVarDefaults as React.CSSProperties}
                           >
-                            <BuzzTheme.ContentSurface>
-                              <NavigationTransition
-                                className="flex min-h-0 flex-1 flex-col"
-                                contentClassName="flex min-h-0 flex-1 flex-col"
-                                transitionKey={location.pathname}
-                                variant={
-                                  selectedChannelId ? "conversation" : "route"
-                                }
-                              >
-                                <Outlet />
-                              </NavigationTransition>
-                            </BuzzTheme.ContentSurface>
+                            <RightCardsSlotProvider>
+                              <ResidentHarnessProvider>
+                                <div className="flex min-h-0 min-w-0 flex-1 flex-row">
+                                  <BuzzTheme.ContentSurface>
+                                    <NavigationTransition
+                                      className="flex min-h-0 flex-1 flex-col"
+                                      contentClassName="flex min-h-0 flex-1 flex-col"
+                                      transitionKey={location.pathname}
+                                      variant={
+                                        selectedChannelId
+                                          ? "conversation"
+                                          : "route"
+                                      }
+                                    >
+                                      <Outlet />
+                                    </NavigationTransition>
+                                  </BuzzTheme.ContentSurface>
+                                  <RightCardsSlot />
+                                </div>
+                              </ResidentHarnessProvider>
+                            </RightCardsSlotProvider>
                           </SidebarInset>
                         </MainInsetProvider>
                         <RelayConnectionOverlay

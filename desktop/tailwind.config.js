@@ -50,6 +50,14 @@ export default {
       colors: {
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
+        // The plate: a borderless filled group that reads in every theme
+        // because it is ink at a small alpha, not a fixed grey. Defined in
+        // conversation-shell.css beside the shell scale.
+        plate: {
+          DEFAULT: "var(--mn-plate)",
+          hover: "var(--mn-plate-hover)",
+          opaque: "var(--mn-plate-opaque)",
+        },
         card: {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",

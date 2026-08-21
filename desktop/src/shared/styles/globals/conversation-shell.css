@@ -50,6 +50,18 @@
    * both of which fight a lightness-based elevation model. */
   --mn-lit-edge: inset 0 1px 0 rgb(255 255 255 / 0.035);
 
+  /* The plate: the one borderless group surface. Ink at a small alpha rather
+   * than a grey step, so it reads the same in Void, Graphite and every light
+   * palette without a per-theme value. `--mn-plate-opaque` is the same tint
+   * mixed into the surface for objects that float over scrolling content. */
+  --mn-plate: hsl(var(--mn-ink) / 0.035);
+  --mn-plate-hover: hsl(var(--mn-ink) / 0.06);
+  --mn-plate-opaque: color-mix(
+    in srgb,
+    hsl(var(--mn-ink)) 3.5%,
+    hsl(var(--mn-surface))
+  );
+
   /* Shell geometry, derived once so the pieces cannot drift apart.
    * The floating chrome must occupy exactly the card's header ROW — otherwise
    * its controls sit in a strip of their own above the header and read as
@@ -139,6 +151,51 @@
   border-radius: var(--radius);
   box-shadow: none;
   margin: 8px 8px 8px 1px;
+}
+
+/* Right-hand cards. An inspector is its own card on the floor, beside the
+   conversation card, not a column attached inside it — the same surface, the
+   same edge, the same radius, with one lip of floor between them. The slot
+   carries the lip so an empty slot costs nothing. */
+:root[data-luca-shell] [data-luca-right-cards] {
+  display: flex;
+  flex-shrink: 0;
+  min-height: 0;
+  padding: var(--mn-card-lip) var(--mn-card-lip) var(--mn-card-lip) 0;
+}
+
+:root[data-luca-shell] [data-luca-right-cards]:empty {
+  display: none;
+}
+
+:root[data-luca-shell] [data-luca-card] {
+  background: hsl(var(--mn-surface));
+  border: 1px solid hsl(var(--mn-border));
+  border-radius: var(--radius);
+  box-shadow: none;
+  overflow: hidden;
+}
+
+/* The visit plate. A visit is a parenthesis in the room's conversation, from
+   "stepped in" to "stepped out"; every row between paints the same plate, and
+   because virtualized rows stack edge to edge the plate reads as one object.
+   `start` rounds the top, `end` rounds the bottom; a visit still under way
+   simply has no end row yet, so its plate stays open toward the newest
+   message. The fill is the plate token, never a border. */
+:root[data-luca-shell] [data-luca-reading-plane][data-visit-span] {
+  background: var(--mn-plate);
+}
+
+:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="start"] {
+  border-top-left-radius: 1rem;
+  border-top-right-radius: 1rem;
+  padding-top: 0.375rem;
+}
+
+:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="end"] {
+  border-bottom-left-radius: 1rem;
+  border-bottom-right-radius: 1rem;
+  padding-bottom: 0.25rem;
 }
 
 /* With the rail collapsed there is no seam to hug, so the left lip matches the

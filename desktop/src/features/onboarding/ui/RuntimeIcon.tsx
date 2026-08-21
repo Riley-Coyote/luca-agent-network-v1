@@ -4,19 +4,12 @@ import { TerminalSquare } from "lucide-react";
 import type { AcpRuntimeCatalogEntry } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { useTheme } from "@/shared/theme/ThemeProvider";
-import chatgptLogoUrl from "../assets/harness-logos/chatgpt.png?inline";
-import claudeLogoUrl from "../assets/harness-logos/claude.png?inline";
-import gooseLogoUrl from "../assets/harness-logos/goose.png?inline";
-import grokLogoUrl from "../assets/harness-logos/grok-mark.svg?inline";
-import kimiLogoUrl from "../assets/harness-logos/kimi-mark.svg?inline";
+import { HARNESS_LOGOS, type HarnessId } from "@/shared/ui/HarnessLogo";
 
-const RUNTIME_LOGOS: Record<string, string> = {
-  claude: claudeLogoUrl,
-  codex: chatgptLogoUrl,
-  goose: gooseLogoUrl,
-  grok: grokLogoUrl,
-  kimi: kimiLogoUrl,
-};
+// The one logo map lives in HarnessLogo; the picker keys it by catalog id.
+const RUNTIME_LOGOS: Partial<Record<string, string>> = HARNESS_LOGOS as Partial<
+  Record<HarnessId | string, string>
+>;
 
 function isBuzzRuntime(runtime: AcpRuntimeCatalogEntry): boolean {
   return runtime.id.trim().toLowerCase() === "buzz-agent";

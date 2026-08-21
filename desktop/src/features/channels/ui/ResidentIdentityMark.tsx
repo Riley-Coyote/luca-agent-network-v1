@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import { useResidentHarness } from "@/features/agents/ResidentHarnessContext";
 import {
   residentIdentityPath,
   residentMarkKind,
@@ -15,6 +16,7 @@ import {
   FilamentMark,
   type FilamentMode,
 } from "@/shared/ui/dot-display/identity/FilamentMark";
+import { HarnessLogo, harnessHasLogo } from "@/shared/ui/HarnessLogo";
 
 const PROVIDER_MARKS = {
   claude: claudeLogoUrl,
@@ -24,6 +26,14 @@ const PROVIDER_MARKS = {
 /** What the resident is doing right now, if the mark should show it. */
 export type ResidentMarkLiveState = "thinking" | "writing" | null;
 
+/**
+ * Which face of the resident to show. The identity glyph says WHO; the
+ * harness logo says WHAT THEY RUN ON. Conversation rows and drawer lists show
+ * the harness by default (`auto` → logo when the harness is known); the
+ * presence rail and the drawer's top identity ask for the glyph explicitly.
+ */
+export type ResidentMarkPresentation = "auto" | "glyph" | "harness";
+
 export type ResidentIdentityMarkProps = {
   accessibleName: string;
   className?: string;
@@ -32,6 +42,7 @@ export type ResidentIdentityMarkProps = {
    *  stroke while thinking; the glyph holds lit while words arrive. */
   live?: ResidentMarkLiveState;
   personaId?: string | null;
+  presentation?: ResidentMarkPresentation;
   publicKey: string;
   size?: number;
   "data-testid"?: string;
@@ -42,7 +53,8 @@ export type ResidentIdentityMarkProps = {
  *
  * Direct runtime contacts use their canonical transparent provider asset.
  * Every owned/custom resident uses a static public-key-derived mark, even when
- * Codex or Claude powers that resident behind the scenes.
+ * Codex or Claude powers that resident behind the scenes — unless the surface
+ * asks for the harness face, in which case a known harness shows its logo.
  */
 export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
   accessibleName,
@@ -50,12 +62,22 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
   decorative = false,
   live = null,
   personaId,
+  presentation = "auto",
   publicKey,
   size = 20,
   "data-testid": dataTestId,
 }: ResidentIdentityMarkProps) {
   const kind = residentMarkKind(personaId);
   const lucaPubkey = useCanonicalLucaPubkey();
+  const harness = useResidentHarness(publicKey);
+  // Known harness with a drawable logo (or a named harness whose asset is
+  // still missing — the monogram) wins when the surface wants the harness
+  // face. Unknown commands keep the glyph: a stand-in would say nothing.
+  const showHarness =
+    presentation !== "glyph" &&
+    kind === "custom" &&
+    harness !== null &&
+    (harnessHasLogo(harness) || harness === "hermes" || harness === "openclaw");
   const filamentMode: FilamentMode | null =
     kind === "custom" && live
       ? live === "thinking"
@@ -80,13 +102,21 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
         "inline-flex shrink-0 items-center justify-center text-foreground",
         className,
       )}
-      data-resident-mark-kind={kind}
+      data-resident-mark-kind={showHarness ? "harness" : kind}
       data-resident-mark-live={live ?? undefined}
       data-testid={dataTestId}
       style={{ height: size, width: size }}
       {...accessibilityProps}
     >
-      {filamentMode ? (
+      {showHarness && harness ? (
+        // The harness face: live state reads as breath, not a filament.
+        <HarnessLogo
+          className={cn(live && "luca-identity-breath")}
+          decorative
+          harness={harness}
+          size={size}
+        />
+      ) : filamentMode ? (
         // The live mark is the resting glyph — same box, same edge, same
         // corners — with a light moving through it. No quiet zone, no bloom:
         // nothing about the mark says "thinking" except the fill.

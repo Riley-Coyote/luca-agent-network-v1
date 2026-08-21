@@ -3,8 +3,11 @@ import { MessageCircle, UserRound } from "lucide-react";
 
 import type { AgentVisualState } from "@/shared/ui/AgentIdentitySpecimen";
 import { cn } from "@/shared/lib/cn";
+import { HarnessLogo, type HarnessId } from "@/shared/ui/HarnessLogo";
 
 export type ConversationDrawerAgent = {
+  /** The harness the resident runs on; the tab shows its logo when known. */
+  harness?: HarnessId | null;
   name: string;
   pubkey: string;
   state?: AgentVisualState;
@@ -26,11 +29,11 @@ export function ConversationDrawerNavigation({
   return (
     <nav
       aria-label="Drawer context"
-      className="border-b border-border/60 px-3 py-2.5"
+      className="px-4 pb-2 pt-0.5"
       data-testid="conversation-drawer-navigation"
     >
       <div
-        className="flex min-w-0 gap-1 overflow-x-auto rounded-lg border border-border/65 bg-muted/20 p-1 scrollbar-none [&::-webkit-scrollbar]:hidden"
+        className="flex min-w-0 gap-1 overflow-x-auto rounded-lg bg-plate p-1 scrollbar-none [&::-webkit-scrollbar]:hidden"
         role="tablist"
       >
         <DrawerContextTab
@@ -45,7 +48,13 @@ export function ConversationDrawerNavigation({
           return (
             <DrawerContextTab
               active={active}
-              icon={<UserRound className="h-3.5 w-3.5" />}
+              icon={
+                agent.harness ? (
+                  <HarnessLogo decorative harness={agent.harness} size={14} />
+                ) : (
+                  <UserRound className="h-3.5 w-3.5" />
+                )
+              }
               key={agent.pubkey}
               label={agent.name}
               onClick={
@@ -79,8 +88,8 @@ function DrawerContextTab({
       className={cn(
         "flex h-8 shrink-0 items-center gap-2 rounded-md px-2.5 text-xs font-medium transition-colors duration-150 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring",
         active
-          ? "bg-background text-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.7)]"
-          : "text-muted-foreground hover:bg-background/55 hover:text-foreground",
+          ? "bg-plate-hover text-foreground"
+          : "text-muted-foreground hover:bg-plate hover:text-foreground",
       )}
       data-testid={testId}
       disabled={!active && !onClick}

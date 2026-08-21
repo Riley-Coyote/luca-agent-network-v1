@@ -33,11 +33,11 @@ import {
 import { SectionHeader } from "@/shared/ui/PageHeader";
 import { Spinner } from "@/shared/ui/spinner";
 import { Switch } from "@/shared/ui/switch";
+import { HARNESS_LOGOS, type HarnessId } from "@/shared/ui/HarnessLogo";
 
-const RUNTIME_LOGO_URLS: Record<string, string> = {
-  claude: "/runtime-icons/claude.png",
-  codex: "/runtime-icons/codex.png",
-};
+// The one logo map lives in HarnessLogo; Doctor keys it by catalog id.
+const RUNTIME_LOGO_URLS: Partial<Record<string, string>> =
+  HARNESS_LOGOS as Partial<Record<HarnessId | string, string>>;
 
 const RUNTIME_LOGO_SCALE: Record<string, string> = {
   claude: "scale-110",

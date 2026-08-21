@@ -1,7 +1,6 @@
 import * as React from "react";
 import { ArrowLeft, X } from "lucide-react";
 
-import { channelChrome } from "@/shared/layout/chromeLayout";
 import { AuxiliaryPanelContext } from "@/shared/layout/auxiliaryPanelContext";
 import type { AuxiliaryPanelMode } from "@/shared/layout/auxiliaryPanelContext";
 import { cn } from "@/shared/lib/cn";
@@ -163,25 +162,21 @@ export function AuxiliaryPanelHeader({
     );
   }
 
+  // Docked: the panel is its own card, so its header is an ordinary in-flow
+  // row the height of the card's title row — the title sits on the same line
+  // as the conversation title next door, and nothing floats over the content.
   return (
     <div
       className={cn(
-        "pointer-events-none relative z-40 overflow-visible",
+        "relative z-40 flex h-(--mn-header-title-row,42px) shrink-0 cursor-default select-none items-center gap-2.5 pl-5 pr-3",
         getAuxiliaryPanelSurfaceClass(
           resolvedTransparent ? "transparent" : surface,
         ),
-        channelChrome.negativeMargin,
       )}
+      data-tauri-drag-region
       {...props}
     >
-      <div
-        className="pointer-events-auto relative z-40 shrink-0 cursor-default select-none py-2 pl-5 pr-3"
-        data-tauri-drag-region
-      >
-        <div className="flex h-9 min-w-0 items-center gap-2.5">
-          {renderAuxiliaryPanelHeaderContent(children)}
-        </div>
-      </div>
+      {renderAuxiliaryPanelHeaderContent(children)}
     </div>
   );
 }
@@ -246,8 +241,8 @@ export function getAuxiliaryPanelBodyClass({
   const resolvedMode =
     mode ?? getAuxiliaryPanelMode(isSplitLayout, isFloatingOverlay);
 
+  // Docked headers are in flow now, so the body needs no clearance.
   return cn(
-    resolvedMode === "docked" && channelChrome.contentPadding,
     resolvedMode === "single-panel" && AUXILIARY_PANEL_HEADER_HEIGHT_CLASS,
   );
 }

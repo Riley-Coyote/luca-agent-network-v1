@@ -36,6 +36,7 @@ const EMPTY_CHANNEL_IDS: ReadonlySet<string> = new Set<string>();
 
 function invalidateCaches() {
   roomCache.clear();
+  historyCache.clear();
   pausedChannelIdsCache = null;
 }
 
@@ -133,6 +134,47 @@ export function getRoomExchanges(
   const result = matched.length === 0 ? EMPTY_ENTRIES : matched;
   roomCache.set(channelId, result);
   return result;
+}
+
+const historyCache = new Map<string, readonly ExchangeEntry[]>();
+
+/**
+ * Every exchange that ever happened in one conversation — live, paused, and
+ * closed — most recent first. The drawer's "Between agents" is the record of
+ * what the residents said to each other here, so closed exchanges stay.
+ */
+export function getRoomExchangeHistory(
+  channelId: string | null | undefined,
+): readonly ExchangeEntry[] {
+  if (!channelId) return EMPTY_ENTRIES;
+  const cached = historyCache.get(channelId);
+  if (cached) return cached;
+  // Live first (the one the owner may still act on), then by when the
+  // exchange opened — the deadline is opened-at plus a fixed window, so it
+  // orders by recency without a stored timestamp — then by first-seen.
+  const matched = [...entries.values()]
+    .filter((entry) => entry.record.conversationId === channelId)
+    .sort((a, b) => {
+      const liveA = isLive(a) ? 1 : 0;
+      const liveB = isLive(b) ? 1 : 0;
+      if (liveA !== liveB) return liveB - liveA;
+      if (a.record.deadline !== b.record.deadline) {
+        return b.record.deadline - a.record.deadline;
+      }
+      return b.observedAt - a.observedAt;
+    });
+  const result = matched.length === 0 ? EMPTY_ENTRIES : matched;
+  historyCache.set(channelId, result);
+  return result;
+}
+
+/** Every exchange in one conversation, live and closed, most recent first. */
+export function useRoomExchangeHistory(
+  channelId: string | null | undefined,
+): readonly ExchangeEntry[] {
+  return React.useSyncExternalStore(subscribeExchangeStore, () =>
+    getRoomExchangeHistory(channelId),
+  );
 }
 
 /**
