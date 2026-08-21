@@ -111,6 +111,12 @@ test("a ready runtime enters the real Luca DM with one inert canonical greeting"
     evidence.commands.filter((command) => command === "create_luca_resident"),
   ).toHaveLength(1);
   expect(
+    evidence.payloads.find((entry) => entry.command === "create_luca_resident")
+      ?.payload,
+  ).toMatchObject({
+    input: { spawnAfterCreate: true, startOnAppLaunch: true },
+  });
+  expect(
     evidence.commands.filter(
       (command) => command === "send_managed_agent_channel_message",
     ),

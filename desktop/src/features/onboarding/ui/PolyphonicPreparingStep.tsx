@@ -84,11 +84,15 @@ export function PolyphonicPreparingStep({
           );
           const created = await createLucaResident({
             ...baseInput,
-            spawnAfterCreate: false,
-            startOnAppLaunch: false,
+            // Luca is the resident operator opened immediately after this
+            // step. Keep the managed listener live so the first owner message
+            // cannot race a stopped runtime, and restore it on relaunch.
+            spawnAfterCreate: true,
+            startOnAppLaunch: true,
           });
           if (created.profileSyncError)
             throw new Error(created.profileSyncError);
+          if (created.spawnError) throw new Error(created.spawnError);
           lucaPubkey = created.resident.residentPubkey;
         }
 
