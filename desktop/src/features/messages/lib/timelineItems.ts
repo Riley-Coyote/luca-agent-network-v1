@@ -16,7 +16,23 @@ import {
   hasSameMessageAuthor,
   isWithinGroupingWindow,
 } from "@/features/messages/lib/messageGrouping";
+import { parseVisitEvent } from "@/features/messages/lib/visitEvents";
+import {
+  annotateVisitSpans,
+  type VisitSpanPosition,
+} from "@/features/messages/lib/visitSpans";
 import { KIND_SYSTEM_MESSAGE } from "@/shared/constants/kinds";
+
+/**
+ * Visit annotations shared by every row kind: where the row sits in a visit
+ * plate (see `visitSpans.ts`), whether a message's author is visiting, and
+ * whether an arrival row's visit is still open.
+ */
+type VisitAnnotations = {
+  visitSpan?: VisitSpanPosition;
+  authorVisiting?: boolean;
+  visitOpen?: boolean;
+};
 
 /**
  * One renderable row in the flattened timeline. Dividers carry no message and
@@ -25,21 +41,24 @@ import { KIND_SYSTEM_MESSAGE } from "@/shared/constants/kinds";
 export type TimelineItem =
   // `headingTimestamp` (not a prebaked label) so the render still resolves
   // "Today"/"Yesterday" relative to the current clock, not to build time.
-  | { kind: "day-divider"; key: string; headingTimestamp: number }
-  | { kind: "unread-divider"; key: string }
-  | { kind: "system"; key: string; entry: MainTimelineEntry }
-  | {
-      kind: "system-group";
-      key: string;
-      entries: MainTimelineEntry[];
-    }
-  | {
-      kind: "message";
-      key: string;
-      entry: MainTimelineEntry;
-      isContinuation: boolean;
-      isFollowedByContinuation: boolean;
-    };
+  (
+    | { kind: "day-divider"; key: string; headingTimestamp: number }
+    | { kind: "unread-divider"; key: string }
+    | { kind: "system"; key: string; entry: MainTimelineEntry }
+    | {
+        kind: "system-group";
+        key: string;
+        entries: MainTimelineEntry[];
+      }
+    | {
+        kind: "message";
+        key: string;
+        entry: MainTimelineEntry;
+        isContinuation: boolean;
+        isFollowedByContinuation: boolean;
+      }
+  ) &
+    VisitAnnotations;
 
 export type TimelineItemsResult = {
   items: TimelineItem[];
@@ -220,7 +239,12 @@ export function buildTimelineItems(
       items.push({ kind: "unread-divider", key: `unread-${renderKey}` });
     }
 
-    const kind = message.kind === KIND_SYSTEM_MESSAGE ? "system" : "message";
+    // Visit notes are system rows whatever kind carries them (40099 today,
+    // the exchange-note kind when it lands): the payload decides.
+    const kind =
+      message.kind === KIND_SYSTEM_MESSAGE || parseVisitEvent(message) !== null
+        ? "system"
+        : "message";
     if (kind === "system") {
       previousGroupEntry = null;
       previousMessageItemIndex = null;
@@ -273,6 +297,7 @@ export function buildTimelineItems(
     previousGroupEntry = entry;
   }
 
+  annotateVisitSpans(items);
   return { items };
 }
 

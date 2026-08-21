@@ -3,6 +3,7 @@ import {
   resolveUserLabel,
   type UserProfileLookup,
 } from "@/features/profile/lib/identity";
+import { cn } from "@/shared/lib/cn";
 
 const MAX_VISIBLE_RESIDENTS = 3;
 
@@ -12,18 +13,33 @@ export function ConversationPresenceRail({
   profiles,
   residentPersonaIdLookup,
   residentPubkeys,
+  visitorPubkeys,
 }: {
   onOpenResident: (pubkey: string) => void;
   onOpenRoster: () => void;
   profiles?: UserProfileLookup;
   residentPersonaIdLookup?: ReadonlyMap<string, string | null>;
   residentPubkeys: readonly string[];
+  /** Residents who stepped in for a question and have not stepped out. */
+  visitorPubkeys?: ReadonlySet<string>;
 }) {
-  const visible = residentPubkeys.filter(
+  // Who lives here first, then who is passing through. Presence is lighter
+  // for a guest; their words in the timeline are not.
+  const members = residentPubkeys.filter(
+    (pubkey) => !visitorPubkeys?.has(pubkey.toLowerCase()),
+  );
+  const visitors = residentPubkeys.filter((pubkey) =>
+    visitorPubkeys?.has(pubkey.toLowerCase()),
+  );
+  const ordered = [...members, ...visitors];
+  const visible = ordered.filter(
     (_pubkey, index) => index < MAX_VISIBLE_RESIDENTS,
   );
-  const hiddenCount = Math.max(0, residentPubkeys.length - visible.length);
+  const hiddenCount = Math.max(0, ordered.length - visible.length);
   if (visible.length === 0) return null;
+  const firstVisitorIndex = visible.findIndex((pubkey) =>
+    visitorPubkeys?.has(pubkey.toLowerCase()),
+  );
 
   return (
     <nav
@@ -31,27 +47,50 @@ export function ConversationPresenceRail({
       className="flex items-center justify-center gap-2"
       data-testid="conversation-presence-rail"
     >
-      {visible.map((pubkey) => {
+      {visible.map((pubkey, index) => {
         const name = resolveUserLabel({ profiles, pubkey });
+        const visiting = visitorPubkeys?.has(pubkey.toLowerCase()) ?? false;
         return (
-          <button
-            aria-label={`Open ${name} details`}
-            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-            key={pubkey}
-            onClick={() => onOpenResident(pubkey)}
-            title={name}
-            type="button"
-          >
-            <ResidentIdentityMark
-              accessibleName={name}
-              decorative
-              personaId={
-                residentPersonaIdLookup?.get(pubkey.toLowerCase()) ?? null
+          <span className="flex items-center gap-2" key={pubkey}>
+            {visiting && index === firstVisitorIndex && index > 0 ? (
+              <span
+                aria-hidden="true"
+                className="h-3.5 w-px bg-border"
+                data-testid="conversation-presence-rail-divider"
+              />
+            ) : null}
+            <button
+              aria-label={
+                visiting
+                  ? `Open ${name} details (visiting)`
+                  : `Open ${name} details`
               }
-              publicKey={pubkey}
-              size={22}
-            />
-          </button>
+              className={cn(
+                "flex h-8 items-center justify-center gap-1.5 rounded-md px-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+                visiting && "opacity-60 hover:opacity-100",
+              )}
+              data-visiting={visiting ? "" : undefined}
+              onClick={() => onOpenResident(pubkey)}
+              title={visiting ? `${name} · visiting` : name}
+              type="button"
+            >
+              <ResidentIdentityMark
+                accessibleName={name}
+                decorative
+                personaId={
+                  residentPersonaIdLookup?.get(pubkey.toLowerCase()) ?? null
+                }
+                presentation="glyph"
+                publicKey={pubkey}
+                size={22}
+              />
+              {visiting ? (
+                <span className="text-3xs uppercase tracking-[0.08em] text-muted-foreground">
+                  visiting
+                </span>
+              ) : null}
+            </button>
+          </span>
         );
       })}
       {hiddenCount > 0 ? (

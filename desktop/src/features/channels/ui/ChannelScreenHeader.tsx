@@ -45,6 +45,8 @@ type ChannelScreenHeaderProps = {
   onManageChannel: () => void;
   onOpenResident: (pubkey: string) => void;
   onToggleMembers: () => void;
+  /** Residents visiting right now — shown after the members, lighter. */
+  visitorPubkeys?: ReadonlySet<string>;
 };
 
 function conversationResidentPubkeys(
@@ -93,6 +95,7 @@ export function ChannelScreenHeader({
   onToggleMembers,
   showHeaderContent = true,
   transparentChrome = false,
+  visitorPubkeys,
 }: ChannelScreenHeaderProps) {
   const residentPubkeys = React.useMemo(
     () =>
@@ -169,6 +172,7 @@ export function ChannelScreenHeader({
           profiles={profiles}
           residentPersonaIdLookup={residentPersonaIdLookup}
           residentPubkeys={residentPubkeys}
+          visitorPubkeys={visitorPubkeys}
         />
       }
       channelType={activeChannel?.channelType}

@@ -12,6 +12,7 @@ import {
 } from "@/features/channels/hooks";
 import { ChannelScreenEmptyState } from "@/features/channels/ui/ChannelScreenEmptyState";
 import { ChannelScreenHeader } from "@/features/channels/ui/ChannelScreenHeader";
+import { openVisitors } from "@/features/messages/lib/visitSpans";
 import { ChannelPane } from "@/features/channels/ui/ChannelPane";
 import { WelcomeAgentCreateDialog } from "@/features/channels/ui/WelcomeAgentCreateDialog";
 import { ForumChannelContent } from "@/features/channels/ui/ForumChannelContent";
@@ -739,6 +740,11 @@ export function ChannelScreen({
     setIsConversationContextOpen(true);
   }, [setProfilePanelPubkey]);
 
+  // Who is visiting right now, from the house notes in the timeline itself.
+  const visitorPubkeys = React.useMemo(
+    () => openVisitors(timelineMessages),
+    [timelineMessages],
+  );
   const channelHeader = React.useMemo(
     () => (
       <ChannelScreenHeader
@@ -765,9 +771,11 @@ export function ChannelScreen({
         onToggleMembers={handleToggleMembers}
         showHeaderContent={!isSinglePanelView}
         transparentChrome={activeChannel?.channelType !== "forum"}
+        visitorPubkeys={visitorPubkeys}
       />
     ),
     [
+      visitorPubkeys,
       messageProfiles,
       residentPersonaIdLookup,
       activeChannel,

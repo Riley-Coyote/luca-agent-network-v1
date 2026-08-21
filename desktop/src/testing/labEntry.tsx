@@ -26,6 +26,7 @@ import { CommunitiesProvider } from "@/features/communities/useCommunities";
 import { CommunityOnboardingProvider } from "@/features/onboarding/communityOnboarding";
 import { NostrBindConsentDialog } from "@/features/profile/ui/NostrBindConsentDialog";
 import { UpdaterProvider } from "@/features/settings/hooks/UpdaterProvider";
+import { KIND_SYSTEM_MESSAGE } from "@/shared/constants/kinds";
 import { ThemeProvider } from "@/shared/theme/ThemeProvider";
 import { EmojiBurstProvider } from "@/shared/ui/EmojiBurstProvider";
 import { PoofBurstProvider } from "@/shared/ui/PoofBurstProvider";
@@ -36,7 +37,7 @@ import {
   LAB_DM_ID,
   LAB_DM_TRANSCRIPT,
   LAB_DM_WITH,
-  LAB_EXCHANGE,
+  LAB_EXCHANGES,
   LAB_OPEN_ROOM,
   LAB_OWNER,
   LAB_RESIDENTS,
@@ -72,10 +73,22 @@ function seedStorage() {
   const store = window.localStorage;
   store.clear();
 
-  // The Luca shell only paints on the first-party `buzz` palette. Clearing the
-  // cache alongside it stops a stale entry from repainting the boot backdrop.
-  store.setItem("buzz-theme", "buzz");
+  // One build serves every palette: `?theme=graphite` (or any id from
+  // SYNTAX_THEMES) picks the theme; the default is the first-party `buzz`.
+  // Clearing the cache alongside it stops a stale entry from repainting the
+  // boot backdrop.
+  const requestedTheme = new URLSearchParams(window.location.search).get(
+    "theme",
+  );
+  store.setItem(
+    "buzz-theme",
+    requestedTheme && /^[a-z0-9-]+$/i.test(requestedTheme)
+      ? requestedTheme
+      : "buzz",
+  );
   store.removeItem("buzz-theme-cache");
+  // The drawer width persists per session; the lab always shows the default.
+  window.sessionStorage.removeItem("buzz.desktop.thread-panel-width");
 
   // The personal home must exist as a community AND be recorded as the home,
   // or PersonalHomeGate tries to provision one over IPC and never resolves.
@@ -110,18 +123,19 @@ function seedStorage() {
 function configureBridge() {
   window.__BUZZ_E2E__ = {
     mock: {
-      exchanges: [
-        {
-          bucket: LAB_EXCHANGE.bucket,
-          conversationId: LAB_ROOMS[LAB_EXCHANGE.room].id,
-          exchangeId: LAB_EXCHANGE.exchangeId,
-          members: [...LAB_EXCHANGE.members],
-          openedBy: LAB_EXCHANGE.openedBy,
-          owner: LAB_OWNER.pubkey,
-          rootEventId: LAB_EXCHANGE.rootEventId,
-        },
-      ],
+      exchanges: Object.values(LAB_EXCHANGES).map((exchange) => ({
+        bucket: exchange.bucket,
+        conversationId: LAB_ROOMS[exchange.room].id,
+        exchangeId: exchange.exchangeId,
+        members: [...exchange.members],
+        openedBy: exchange.openedBy,
+        owner: LAB_OWNER.pubkey,
+        phase: exchange.state === "closed" ? "closed" : undefined,
+        rootEventId: exchange.rootEventId,
+        state: exchange.state,
+      })),
       managedAgents: Object.values(LAB_RESIDENTS).map((resident) => ({
+        agentCommand: resident.harness,
         name: resident.name,
         pubkey: resident.pubkey,
         status: "running",
@@ -180,12 +194,30 @@ async function clearStockChannels() {
 function sayAll(channelId: string, turns: LabTurn[]) {
   const nowSeconds = Math.floor(Date.now() / 1000);
   for (const turn of [...turns].sort((a, b) => b.minutesAgo - a.minutesAgo)) {
+    const exchange = LAB_EXCHANGES[turn.exchange ?? "today"];
+    if (turn.visit) {
+      // A house note: the owner-signed system row the relay speaks when a
+      // resident steps in for an exchange or back out. The UI reads the
+      // payload, not the kind, so 40099 stands in for the note kind here.
+      window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+        channelId,
+        content: JSON.stringify({
+          exchange_id: exchange.exchangeId,
+          resident: turn.from,
+          type: turn.visit === "arrived" ? "visit_arrived" : "visit_left",
+        }),
+        createdAt: nowSeconds - turn.minutesAgo * 60,
+        kind: KIND_SYSTEM_MESSAGE,
+        pubkey: LAB_OWNER.pubkey,
+      });
+      continue;
+    }
     window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
       channelId,
       content: turn.text,
       createdAt: nowSeconds - turn.minutesAgo * 60,
       extraTags: turn.exchangeTurn
-        ? [["exchange", LAB_EXCHANGE.exchangeId, String(turn.exchangeTurn)]]
+        ? [["exchange", exchange.exchangeId, String(turn.exchangeTurn)]]
         : undefined,
       pubkey: turn.from,
     });

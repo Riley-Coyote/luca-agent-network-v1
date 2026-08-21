@@ -86,11 +86,22 @@ A visit = ordinary channel membership plus a recorded **arrival time** (`since`)
   visit grant must be recorded on the frozen per-final decision (same replay discipline the mint
   already uses) so a crash replay does not re-add or double-note.
 
-### C. What people see
-- On arrival, the relay speaks one note in the room (the new 41013 kind, from the salvage):
-  "ziggy is visiting — they can see this conversation from here on."
-- The room header shows visitors: "Luca · ziggy visiting" (the conversation-model wording). Wire it
-  where the header/title renders; visitors come from the desktop's visit records for that channel.
+### C. What people see — the UI is already built; you emit the events it reads
+The visuals of a visit (the threshold line, the plate around the visit, `· visiting` on the guest's
+messages, the header rail's "visiting" mark, the drawer's "Between agents") are owned by the design
+session and ALREADY EXIST on this branch: `desktop/src/features/messages/lib/visitEvents.ts`,
+`visitSpans.ts`, `ui/VisitNoteRow.tsx`, `features/channels/ui/ConversationPresenceRail.tsx`,
+`ConversationContextPanel.tsx`, `features/exchange/ui/ExchangeHistory.tsx`. **Do not add, change or
+restyle any of that.** Your job is the data they read:
+- On arrival, the relay speaks one note in the room (the new 41013 kind, from the salvage) whose
+  body is this JSON, exactly these keys:
+  `{"type":"visit_arrived","resident":"<guest hex pubkey>","exchange_id":"<hex>","text":"ziggy is visiting — they can see this conversation from here on."}`
+  (`text` is for clients that do not know the payload; the desktop writes its own line.) The desktop
+  already routes 41013 into the timeline once the salvage commit's kind wiring is in (check
+  `CHANNEL_EVENT_KINDS` / `CHANNEL_TIMELINE_CONTENT_KINDS` in `desktop/src/shared/constants/kinds.ts`
+  include it); `timelineItems.ts` treats any row whose body parses as a visit payload as a system row.
+- The header's "visiting" mark and the drawer's visitor labels are derived from those notes on the
+  desktop (`openVisitors()` in `visitSpans.ts`). No header/title wiring for you.
 - The guest's own prompt (harness side, where the exchange sentence already renders —
   `exchange_prompt_line` in `crates/buzz-acp/src/queue.rs` is the pattern): one sentence — "You are
   visiting <host label>'s conversation as a guest; you can see messages from your arrival onward.
@@ -104,7 +115,9 @@ expired — and for owner-initiated visits with no exchange, when the exchange t
 first reply (if any) ends, else after the room is idle — simplest honest implementation: **a visit
 with no open exchange involving the guest ends when the owner's next message in the room does not
 mention them, or on `resolve_exchange` stop of their exchange.** On fade: remove the membership
-(existing remove-member path), and the relay speaks: "ziggy left." Their memory of the visit is
+(existing remove-member path), and the relay speaks the matching note, same keys:
+`{"type":"visit_left","resident":"<guest hex pubkey>","exchange_id":"<hex>","text":"ziggy left."}`
+(the desktop renders "stepped out" and closes the plate from it). Their memory of the visit is
 theirs; nothing is deleted. A later mention starts a fresh visit with a fresh since. Keep the fade
 check in ONE desktop function with tests; do not distribute the rule.
 
@@ -122,10 +135,13 @@ who may create rooms. Do not build ahead.
 3. Desktop visit helper + both entry points + decision-record replay → sibling `_tests.rs` tests:
    owner-mention visit, resident-mention visit + in-place mint (assert conversation stays the SAME
    room), replay stages once, third-resident mention mints a second exchange in place.
-4. Arrival/left notes + header + guest prompt line → Playwright spec beside
-   `desktop/tests/e2e/luca/exchange-strip.spec.ts` (mock a visit: note row renders, header shows
-   "visiting", volley counts in place); harness unit test for the prompt line.
-5. Fade → the one-function rule + tests; e2e: stop the exchange → membership removed + "left" note.
+4. Arrival/left notes + guest prompt line → relay/desktop unit tests that the note bodies are exactly
+   the JSON payloads in C/D (keys `type`, `resident`, `exchange_id`, `text`; `resident` lowercase
+   hex) and that 41013 reaches the desktop timeline kinds; harness unit test for the prompt line.
+   **No UI work and no Playwright UI spec** — the rendering is design-owned and checked by
+   `desktop/scripts/lab-shots.mjs`.
+5. Fade → the one-function rule + tests; e2e: stop the exchange → membership removed + a
+   `visit_left` note emitted.
 6. Full gates: `just desktop-tauri-clippy` · full tauri tests · `cargo test -p buzz-relay --lib`
    (skip `api::mesh_demo`, known flake) · `cargo test -p buzz-acp` · desktop `pnpm test` + the
    Playwright luca suite (pre-existing failures listed in the cleanup work are not yours).

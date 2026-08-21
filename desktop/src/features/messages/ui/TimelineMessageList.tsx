@@ -33,7 +33,9 @@ import type { ChannelType } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { DayDivider } from "./DayDivider";
 import { MessageRow } from "./MessageRow";
+import { parseVisitEvent } from "@/features/messages/lib/visitEvents";
 import { ManagedResponseRow } from "./ManagedResponseRow";
+import { VisitNoteRow } from "./VisitNoteRow";
 import {
   PreserveVirtualizedItemVisibilityContext,
   VirtualizedTimelineItemShell,
@@ -258,6 +260,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
               onToggleReaction={onToggleReaction}
               profiles={profiles}
               ownerProfiles={ownerProfiles}
+              visitOpen={item.visitOpen}
             />
           );
         case "system-group":
@@ -276,6 +279,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
         case "message":
           return (
             <MessageRowItem
+              authorVisiting={item.authorVisiting}
               channelId={channelId}
               currentPubkey={currentPubkey}
               entry={item.entry}
@@ -770,6 +774,7 @@ function SystemRow({
   onToggleReaction,
   profiles,
   ownerProfiles,
+  visitOpen = false,
 }: {
   currentPubkey?: string;
   entries?: MainTimelineEntry[];
@@ -778,6 +783,8 @@ function SystemRow({
   onToggleReaction?: TimelineMessageListProps["onToggleReaction"];
   profiles?: UserProfileLookup;
   ownerProfiles?: UserProfileLookup;
+  /** Arrival rows: the visit is still under way. */
+  visitOpen?: boolean;
 }) {
   const systemEntries = entries ?? (entry ? [entry] : []);
   const firstEntry = systemEntries[0];
@@ -786,6 +793,23 @@ function SystemRow({
     [entries],
   );
   if (!firstEntry) return null;
+
+  // A visit note is a house line, not a system event with title + action.
+  const visit = parseVisitEvent(firstEntry.message);
+  if (visit) {
+    return (
+      <div className="flex flex-col gap-1">
+        <VisitNoteRow
+          currentPubkey={currentPubkey}
+          message={firstEntry.message}
+          open={visitOpen}
+          profiles={profiles}
+          visit={visit}
+        />
+        {footer}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-1 pb-2.5">
@@ -830,6 +854,7 @@ type MessageRowItemProps = Pick<
 > & {
   entry: MainTimelineEntry;
   footer: React.ReactNode;
+  authorVisiting?: boolean;
   collapseLongBody?: boolean;
   quickReactions?: boolean;
   isContinuation?: boolean;
@@ -841,6 +866,7 @@ type MessageRowItemProps = Pick<
 };
 
 function MessageRowItem({
+  authorVisiting = false,
   channelId,
   currentPubkey,
   entry,
@@ -968,6 +994,7 @@ function MessageRowItem({
       )}
     >
       <TurnRow
+        authorVisiting={authorVisiting}
         channelId={channelId}
         highlighted={message.id === highlightedMessageId || isSearchActive}
         huddleMemberPubkeys={huddleMemberPubkeys}

@@ -92,6 +92,7 @@ export const MessageRow = React.memo(
     isFollowingThread,
     isContinuation = false,
     isUnread,
+    authorVisiting = false,
     layoutVariant = "default",
     message,
     onCollapseDepthGuide,
@@ -134,6 +135,8 @@ export const MessageRow = React.memo(
     isFollowingThread?: boolean;
     isContinuation?: boolean;
     isUnread?: boolean;
+    /** The author is visiting this room right now (stepped in, not yet out). */
+    authorVisiting?: boolean;
     layoutVariant?: "default" | "thread-reply";
     message: TimelineMessage;
     onCollapseDepthGuide?: (message: TimelineMessage) => void;
@@ -605,6 +608,16 @@ export const MessageRow = React.memo(
     const inlineMetadataNode = (
       <div className="flex shrink-0 items-baseline gap-2 text-xs">
         <MessageTimestamp createdAt={message.createdAt} time={message.time} />
+        {authorVisiting ? (
+          // Presence is lighter, words are equal: one whispered word after the
+          // time is the only thing that marks a guest's message.
+          <span
+            className="text-2xs leading-4 text-muted-foreground/65"
+            data-testid="resident-visiting-word"
+          >
+            <span className="pr-1">·</span>visiting
+          </span>
+        ) : null}
         {statusMetadataNode}
         {activityWord ? (
           <span
@@ -1018,6 +1031,7 @@ export const MessageRow = React.memo(
       next.collapseDepthGuideActions,
     ) &&
     prev.collapseLongBody === next.collapseLongBody &&
+    prev.authorVisiting === next.authorVisiting &&
     prev.quickReactions === next.quickReactions &&
     prev.collapseDescendantsLabel === next.collapseDescendantsLabel &&
     prev.connectDescendants === next.connectDescendants &&

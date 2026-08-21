@@ -76,7 +76,7 @@ export function ExchangeStrip({
   return (
     <section
       aria-label={`Exchange between ${names.join(" and ")}`}
-      className="luca-exchange-strip flex min-h-8 w-full items-center gap-2 rounded-md border border-border/70 px-2 py-1 shadow-[var(--mn-lit-edge)]"
+      className="luca-exchange-strip flex min-h-9 w-full items-center gap-2.5 rounded-lg bg-plate-opaque px-3 py-1.5"
       data-exchange-phase={phase}
       data-testid="exchange-strip"
     >
