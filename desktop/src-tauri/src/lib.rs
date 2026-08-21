@@ -680,6 +680,7 @@ pub fn run() {
             unarchive_builderlab_community,
             transfer_builderlab_community,
             title_bar_double_click,
+            set_artifact_canvas_window_open,
             get_identity,
             export_protected_owner_identity,
             preview_protected_owner_identity,
