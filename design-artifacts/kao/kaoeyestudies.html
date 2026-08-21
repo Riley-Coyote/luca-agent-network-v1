@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kao — eye studies</title>
+<style>
+  :root{
+    --bg:#0c0d11; --ink:#e8e4dc; --dim:#8a8794; --cyan:#8ee6ff; --amber:#ffb86b;
+    --line:rgba(255,255,255,.07); --d-0:#090a0b; --d-line:#1a1b1a;
+    --mono:ui-monospace,'SF Mono','Cascadia Code',Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    padding:40px 20px 80px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto}
+  header h1{font-size:26px;font-weight:650;letter-spacing:-.02em}
+  header h1 span{font-family:var(--mono);font-size:13px;color:var(--dim);font-weight:400;margin-left:12px}
+  header .sub{color:var(--dim);font-size:14.5px;line-height:1.65;margin-top:10px;max-width:780px}
+  header .sub b{color:var(--ink);font-weight:600}
+  header .sub i{color:var(--cyan);font-style:normal}
+
+  .statebar{display:flex;flex-wrap:wrap;gap:8px;margin:26px 0 8px;align-items:center}
+  .statebar button{font-family:var(--mono);font-size:12.5px;color:var(--dim);background:#14151d;
+    border:1px solid var(--line);border-radius:8px;padding:8px 14px;cursor:pointer;transition:all .15s ease}
+  .statebar button:hover{color:var(--ink);border-color:rgba(255,255,255,.18)}
+  .statebar button.on{color:#0a0a10;background:var(--ink);border-color:var(--ink);font-weight:600}
+  .statebar button.on[data-s="watching"]{background:var(--cyan);border-color:var(--cyan)}
+  .statebar .spacer{flex:1}
+  .statebar #tour.on{color:#0a0a10;background:var(--amber);border-color:var(--amber)}
+  .hint{font-family:var(--mono);font-size:11.5px;color:#57555f;margin-bottom:26px}
+  .hint b{color:#8a8794;font-weight:500}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:22px}
+  @media(max-width:960px){.grid{grid-template-columns:1fr}}
+
+  .card .osw{background:var(--d-0);border:1px solid #202126;border-radius:10px;overflow:hidden;cursor:pointer;
+    transition:box-shadow .6s ease, border-color .6s ease}
+  .osw .tbar{display:flex;align-items:center;gap:8px;padding:8px 11px;border-bottom:1px solid var(--d-line)}
+  .osw .tbar .dots{display:flex;gap:5px}
+  .osw .tbar .dots i{width:8px;height:8px;border-radius:50%;background:#232428;display:block}
+  .osw .tbar .ttl{font-family:var(--mono);font-size:8.5px;letter-spacing:.18em;text-transform:uppercase;color:#4a4b4d;margin-left:5px}
+  .osw .tbar .ver{margin-left:auto;font-family:var(--mono);font-size:8.5px;letter-spacing:.14em;color:#3c3d40}
+  .osw .screen{position:relative;height:195px}
+  .osw canvas{display:block;width:100%;height:100%}
+  .osw .tag{position:absolute;right:10px;bottom:8px;font-family:var(--mono);font-size:7.5px;
+    letter-spacing:.2em;text-transform:uppercase;color:#44454a;pointer-events:none}
+  .osw[data-state="summoned"]{box-shadow:0 0 30px -8px rgba(255,184,107,.38);border-color:#2c2620}
+  .osw[data-state="watching"]{box-shadow:0 0 30px -8px rgba(142,230,255,.3);border-color:#20303a}
+  .osw[data-state="thinking"]{box-shadow:0 0 26px -10px rgba(255,184,107,.2)}
+  .osw[data-state="speaking"]{box-shadow:0 0 28px -8px rgba(255,184,107,.28)}
+  .osw[data-state="acting"]{box-shadow:0 0 26px -10px rgba(255,184,107,.24)}
+
+  .card .cap{padding:12px 4px 0}
+  .card .cap h2{font-size:14.5px;font-weight:650;display:flex;align-items:baseline;gap:9px}
+  .card .cap h2 .k{font-family:var(--mono);font-size:10px;color:var(--dim);font-weight:400}
+  .card .cap p{font-size:12.8px;line-height:1.6;color:#a9a6b1;margin-top:6px}
+
+  .verdict{margin-top:44px;border-left:2px solid var(--amber);padding:6px 0 6px 22px;max-width:800px}
+  .verdict h3{font-family:var(--mono);font-size:12px;color:var(--amber);font-weight:500;letter-spacing:.06em;margin-bottom:12px}
+  .verdict p{font-family:var(--mono);font-size:13px;line-height:1.75;color:#c9c5cf}
+  .verdict p+p{margin-top:12px}
+  footer{margin-top:36px;font-family:var(--mono);font-size:11px;color:#4e4c58;line-height:1.7;max-width:780px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>kao — eye studies <span>five ways to be alive on a grid</span></h1>
+  <p class="sub">same six states, same gaze, same laws — five different eyes. <b>this is the acclimation-curve
+  bet made concrete:</b> ship eyes people learn to trust, add expression elements, grow a body only after
+  ambient presence feels normal. every study keeps the rules: shape carries meaning, the phosphor trail
+  carries life, and <i>cyan appears only while reading your screen.</i> click any window — summon → watching.</p>
+</header>
+
+<div class="statebar" id="statebar">
+  <button data-s="idle" class="on">1 · idle</button>
+  <button data-s="summoned">2 · summoned</button>
+  <button data-s="watching">3 · watching</button>
+  <button data-s="thinking">4 · thinking</button>
+  <button data-s="speaking">5 · speaking</button>
+  <button data-s="acting">6 · acting</button>
+  <div class="spacer"></div>
+  <button id="tour">auto tour</button>
+</div>
+<div class="hint">press 1–6 · all five track your cursor and glance on their own · <b>click any study to run the consent flow</b></div>
+
+<main class="grid">
+
+  <div class="card">
+    <div class="osw" data-consent data-state="idle">
+      <div class="tbar"><div class="dots"><i></i><i></i><i></i></div>
+        <span class="ttl">kao / soft · parametric</span><span class="ver">v0.4</span></div>
+      <div class="screen"><canvas id="cv-soft"></canvas><span class="tag">study 01</span></div>
+    </div>
+    <div class="cap"><h2>soft <span class="k">the baseline — continuous morphs</span></h2>
+      <p>one parameter space (width, height, crescent, skew, pupil), every expression a point in it. the most
+      expressive continuum and the warmest — this is the one that emotes.</p></div>
+  </div>
+
+  <div class="card">
+    <div class="osw" data-consent data-state="idle">
+      <div class="tbar"><div class="dots"><i></i><i></i><i></i></div>
+        <span class="ttl">kao / glyph · terminal-native</span><span class="ver">v0.4</span></div>
+      <div class="screen"><canvas id="cv-glyph"></canvas><span class="tag">study 02</span></div>
+    </div>
+    <div class="cap"><h2>glyph <span class="k">literal kaomoji — typed on the matrix</span></h2>
+      <p>the eyes are actual characters, materializing dot by dot with phosphor trails between them. the most
+      portable identity — the same face survives in a log line, a menubar, a tweet, a commit message.</p></div>
+  </div>
+
+  <div class="card">
+    <div class="osw" data-consent data-state="idle">
+      <div class="tbar"><div class="dots"><i></i><i></i><i></i></div>
+        <span class="ttl">kao / iris · aperture</span><span class="ver">v0.4</span></div>
+      <div class="screen"><canvas id="cv-iris"></canvas><span class="tag">study 03</span></div>
+    </div>
+    <div class="cap"><h2>iris <span class="k">mechanical — apertures that breathe</span></h2>
+      <p>rings that dilate and contract like camera diaphragms. the most precise-feeling, and the most
+      honest about watching — an aperture opening is unambiguous. also the riskiest: lens = surveillance
+      association. that risk is worth studying on purpose.</p></div>
+  </div>
+
+  <div class="card">
+    <div class="osw" data-consent data-state="idle">
+      <div class="tbar"><div class="dots"><i></i><i></i><i></i></div>
+        <span class="ttl">kao / scope · signal</span><span class="ver">v0.4</span></div>
+      <div class="screen"><canvas id="cv-scope"></canvas><span class="tag">study 04</span></div>
+    </div>
+    <div class="cap"><h2>scope <span class="k">the eyes are live signals</span></h2>
+      <p>each eye is a little oscilloscope: a flat breathing line at rest, a damped spike when summoned, a
+      perfect circle when it locks on, wandering noise while thinking. "alive underneath" made literal —
+      the deepest fit with the wip-window camouflage.</p></div>
+  </div>
+
+  <div class="card">
+    <div class="osw" data-consent data-state="idle">
+      <div class="tbar"><div class="dots"><i></i><i></i><i></i></div>
+        <span class="ttl">kao / pixel · vfd</span><span class="ver">v0.4</span></div>
+      <div class="screen"><canvas id="cv-pixel"></canvas><span class="tag">study 05</span></div>
+    </div>
+    <div class="cap"><h2>pixel <span class="k">chunky — the lovable one</span></h2>
+      <p>fat square cells like a vacuum-fluorescent display. blunt blocky expressions, hard blinks, zero
+      subtlety — and that's its charm. the most tamagotchi, the most merchable, the fastest to read at
+      tiny sizes (menubar, notch).</p></div>
+  </div>
+
+</main>
+
+<section class="verdict">
+  <h3>honest read after building all five</h3>
+  <p>soft is the flagship — it's the only one with a true expressive continuum, and warmth is the product.
+  glyph is the identity layer, not a competitor: the brand's ascii form that escapes the window and travels.
+  scope surprised me — while building it i kept letting it run; a signal that calms when you stop moving is
+  weirdly companionable, and it's the strongest match for the camouflage frame. iris reads beautiful and
+  slightly cold; the lens association is real, which might make it exactly wrong for a trust product — or
+  exactly right for a pro/ops skin. pixel is the one strangers will screenshot.</p>
+  <p>my actual recommendation: soft as default body-of-record, glyph as the portable identity system, the
+  others as skins. and one build note that fell out — all five run the same state machine untouched, which
+  is now proven three demos deep: the anatomy is stable, everything else is costume.</p>
+</section>
+
+<footer>rig notes: one phosphor system (round + square cell variants), five renderers, zero changes to the
+six-state anatomy. cyan law enforced at display level in all five. next: the fine-tuning pass — micro-expression
+vocabulary (suspicion, delight, effort, apology), timing curves, and the acting-state status line.</footer>
+
+</div>
+
+<script>
+(() => {
+  const STATES = ['idle','summoned','watching','thinking','speaking','acting'];
+  let state = 'idle', stateStart = performance.now();
+  const mouse = { x: innerWidth/2, y: innerHeight/3 };
+  document.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+  const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+  const lerp = (a,b,k) => a + (b-a)*k;
+  const TAU = Math.PI*2;
+  const stT = () => (performance.now()-stateStart)/1000;
+  const talkEnv = t => (0.5+0.5*Math.sin(t*10.5))*(0.55+0.45*Math.sin(t*2.6));
+
+  /* ---------- phosphor ---------- */
+  const DIMC=[26,27,30];
+  class Phosphor{
+    constructor(cv, cell, opts={}){
+      this.cv=cv; this.cell=cell; this.ink=opts.ink??0.13; this.inkLit=opts.inkLit??0.21;
+      this.square=opts.square??false; this.dot=[239,239,237]; this.ok=false; this.resize();
+    }
+    resize(){
+      const r=this.cv.getBoundingClientRect();
+      if(r.width<4||r.height<4){this.ok=false;return false;}
+      const dpr=Math.min(devicePixelRatio||1,2);
+      this.cv.width=Math.round(r.width*dpr); this.cv.height=Math.round(r.height*dpr);
+      this.ctx=this.cv.getContext('2d'); this.ctx.setTransform(dpr,0,0,dpr,0,0);
+      this.w=r.width; this.h=r.height;
+      this.cols=Math.max(1,Math.floor(r.width/this.cell));
+      this.rows=Math.max(1,Math.floor(r.height/this.cell));
+      this.ox=(r.width-this.cols*this.cell)/2; this.oy=(r.height-this.rows*this.cell)/2;
+      this.q=new Float32Array(this.cols*this.rows); this.ok=true; return true;
+    }
+    maybeResize(){
+      const r=this.cv.getBoundingClientRect();
+      if(Math.abs(r.width-this.w)>2||Math.abs(r.height-this.h)>2) this.resize();
+    }
+    fade(k){ if(!this.ok)return; const q=this.q; for(let i=0;i<q.length;i++)q[i]*=k; }
+    set(x,y,v){
+      if(!this.ok)return; x=Math.round(x); y=Math.round(y);
+      if(x<0||y<0||x>=this.cols||y>=this.rows)return;
+      const i=y*this.cols+x; if(v>this.q[i])this.q[i]=v;
+    }
+    line(ax,ay,bx,by,v){
+      const st=Math.max(1,Math.round(Math.hypot(bx-ax,by-ay)));
+      for(let s=0;s<=st;s++) this.set(ax+(bx-ax)*s/st, ay+(by-ay)*s/st, v);
+    }
+    draw(){
+      if(!this.ok)return;
+      const {ctx,cell,cols,rows,ox,oy,q,ink,inkLit,dot,square}=this;
+      ctx.clearRect(0,0,this.w,this.h);
+      for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){
+        const c=q[y*cols+x];
+        const r=Math.round(DIMC[0]+(dot[0]-DIMC[0])*c),
+              g=Math.round(DIMC[1]+(dot[1]-DIMC[1])*c),
+              b=Math.round(DIMC[2]+(dot[2]-DIMC[2])*c);
+        ctx.fillStyle='rgb('+r+','+g+','+b+')';
+        if(square){
+          const s=cell*(0.42+0.5*c), o=(cell-s)/2;
+          ctx.beginPath();
+          ctx.roundRect(ox+x*cell+o, oy+y*cell+o, s, s, s*0.22);
+          ctx.fill();
+        } else {
+          ctx.beginPath();
+          ctx.arc(ox+x*cell+cell/2, oy+y*cell+cell/2, cell*(ink+inkLit*c), 0, 6.2832);
+          ctx.fill();
+        }
+      }
+    }
+  }
+
+  /* ---------- shared behaviors ---------- */
+  const WHITE=[239,239,237], CYAN=[150,232,255], AMBER=[255,204,140];
+  class Base{
+    constructor(ph){
+      this.ph=ph; this.tint=[...WHITE]; this.gaze={x:0,y:0};
+      this.nextBlink=2+Math.random()*3; this.blinkUntil=0;
+      this.nextGlance=3+Math.random()*4; this.glanceUntil=0; this.gtx=0; this.gty=0;
+    }
+    behave(t){
+      if(t>this.nextBlink && state!=='watching'){
+        this.blinkUntil=t+.11; this.nextBlink=t+2.2+Math.random()*3.4;
+        if(Math.random()<.2) this.nextBlink=t+.55;
+      }
+      if(t>this.nextGlance){
+        this.glanceUntil=t+.5+Math.random()*.6; this.nextGlance=t+3+Math.random()*5;
+        const a=Math.random()*TAU; this.gtx=Math.cos(a); this.gty=Math.sin(a)*.6;
+      }
+      const r=this.ph.cv.getBoundingClientRect();
+      let tx=clamp((mouse.x-(r.left+r.width/2))/(r.width*.8),-1,1);
+      let ty=clamp((mouse.y-(r.top+r.height/2))/(r.height*.9),-1,1);
+      if(t<this.glanceUntil && state!=='watching'){ tx=this.gtx; ty=this.gty; }
+      if(state==='thinking'){ tx=-.7; ty=-.8; }
+      this.gaze.x=lerp(this.gaze.x,tx,.14); this.gaze.y=lerp(this.gaze.y,ty,.14);
+      let target=state==='watching'?CYAN:WHITE;
+      const flash=state==='summoned'?Math.exp(-stT()*3):0;
+      for(let i=0;i<3;i++)
+        this.tint[i]=lerp(this.tint[i], target[i]*(1-flash)+AMBER[i]*flash, .08);
+      this.ph.dot=this.tint;
+      this.blink=t<this.blinkUntil;
+    }
+    centers(sepF=.24){
+      const {cols,rows}=this.ph;
+      return {
+        exL: cols/2 - cols*sepF/2 + this.gaze.x*cols*.045,
+        exR: cols/2 + cols*sepF/2 + this.gaze.x*cols*.045,
+        ey:  rows/2 + this.gaze.y*rows*.07
+      };
+    }
+    bright(){ return {idle:.6,summoned:1,watching:1,thinking:.72,speaking:.9,acting:.85}[state]??.7; }
+  }
+
+  /* ---------- 01 soft (parametric) ---------- */
+  class Soft extends Base{
+    constructor(ph){ super(ph);
+      this.L={w:1,h:.4,cres:.1,skew:0,pup:0}; this.R={w:1,h:.4,cres:.1,skew:0,pup:0}; }
+    targets(t){
+      const b={w:1,h:.42,cres:.12,skew:0,pup:0};
+      const L={...b},R={...b};
+      switch(state){
+        case 'summoned': L.h=R.h=.92; L.pup=R.pup=.28; L.cres=R.cres=0; break;
+        case 'watching': L.h=R.h=1.05; L.w=R.w=1.05; L.pup=R.pup=.42; L.cres=R.cres=0; break;
+        case 'thinking': L.h=.55; R.h=.38; L.pup=R.pup=.22; L.cres=R.cres=.08; break;
+        case 'speaking': L.h=R.h=.62*(1+.1*Math.sin(t*7)); L.cres=R.cres=.9; break;
+        case 'acting': L.h=R.h=.6; L.skew=R.skew=(this.gaze.x<-.05?-.55:.55); L.pup=R.pup=.3; L.cres=R.cres=0; break;
+      }
+      return [L,R];
+    }
+    step(t){
+      this.behave(t);
+      const ph=this.ph; ph.fade(.7);
+      const [TL,TR]=this.targets(t);
+      for(const [cur,tgt] of [[this.L,TL],[this.R,TR]])
+        for(const k in cur) cur[k]=lerp(cur[k], this.blink&&k==='h'?.1:tgt[k], .16);
+      const {exL,exR,ey}=this.centers();
+      const eh=ph.rows*.30, ew=eh*.78, br=this.bright();
+      const breath=1+.03*Math.sin(t*1.1);
+      [[exL,this.L],[exR,this.R]].forEach(([ecx,p])=>{
+        const w=ew*p.w, h=Math.max(.8,eh*p.h*breath);
+        const px=this.gaze.x*w*.42, py=this.gaze.y*h*.45;
+        for(let y=Math.floor(ey-h-2);y<=ey+h+2;y++)for(let x=Math.floor(ecx-w-2);x<=ecx+w+2;x++){
+          let nx=(x-ecx)/w + p.skew*((y-ey)/h);
+          const ny=(y-ey)/h;
+          const se=Math.pow(Math.abs(nx),2.4)+Math.pow(Math.abs(ny),2.4);
+          let v=clamp((1-se)/.35,0,1);
+          if(v<=0)continue;
+          if(p.cres>.02){
+            const cy2=(y-(ey+p.cres*h*1.15))/h, cx2=nx/1.05;
+            if(cx2*cx2+cy2*cy2<1.05) v=0;
+          }
+          if(p.pup>.02){
+            const pdx=(x-ecx-px)/(w*p.pup), pdy=(y-ey-py)/(h*p.pup);
+            if(pdx*pdx+pdy*pdy<1) v*=.06;
+          }
+          if(v>0)ph.set(x,y,v*br);
+        }
+      });
+      ph.draw();
+    }
+  }
+
+  /* ---------- 02 glyph (5x7 font) ---------- */
+  const F={
+    '-':["00000","00000","00000","11110","00000","00000","00000"],
+    'o':["00000","00000","01100","10010","10010","10010","01100"],
+    'O':["01110","10001","10001","10001","10001","10001","01110"],
+    '^':["00100","01010","10001","00000","00000","00000","00000"],
+    '>':["10000","01000","00100","00010","00100","01000","10000"],
+    '<':["00001","00010","00100","01000","00100","00010","00001"],
+    '.':["00000","00000","00000","00000","00000","01100","01100"],
+    '!':["00100","00100","00100","00100","00100","00000","00100"]
+  };
+  class Glyph extends Base{
+    step(t){
+      this.behave(t);
+      const ph=this.ph; ph.fade(.66);
+      const st=stT();
+      let ch;
+      switch(state){
+        case 'idle': ch='-'; break;
+        case 'summoned': ch=st<.35?'!':'o'; break;
+        case 'watching': ch='O'; break;
+        case 'thinking': ch='.'; break;
+        case 'speaking': ch='^'; break;
+        case 'acting': ch=this.gaze.x<-.05?'<':'>'; break;
+      }
+      if(this.blink)ch='-';
+      const g=F[ch], S=2;
+      const {exL,exR,ey}=this.centers(.3);
+      const br=this.bright();
+      const bob=state==='speaking'?Math.round(Math.sin(t*7))*1:0;
+      [exL,exR].forEach((ecx,ei)=>{
+        const oy=ey-3.5*S+bob + (state==='thinking'?-2:0);
+        const ox=ecx-2.5*S + (state==='thinking'?-2:0);
+        for(let r=0;r<7;r++)for(let c=0;c<5;c++){
+          if(g[r][c]!=='1')continue;
+          for(let dy=0;dy<S;dy++)for(let dx=0;dx<S;dx++){
+            // staggered materialize: cells arrive with tiny per-cell delay after a state change
+            const delay=((r*5+c)%7)*.03;
+            const a=clamp((st-delay)*6,0,1);
+            ph.set(ox+c*S+dx, oy+r*S+dy, br*(.55+.45*a));
+          }
+        }
+      });
+      ph.draw();
+    }
+  }
+
+  /* ---------- 03 iris (aperture) ---------- */
+  class Iris extends Base{
+    constructor(ph){ super(ph); this.open=.35; this.rot=0; }
+    step(t){
+      this.behave(t);
+      const ph=this.ph; ph.fade(.72);
+      let tgt=.3;
+      if(state==='summoned')tgt=.85;
+      if(state==='watching')tgt=1;
+      if(state==='thinking')tgt=.42+.06*Math.sin(t*1.6);
+      if(state==='speaking')tgt=.45+.3*talkEnv(t);
+      if(state==='acting')tgt=.6;
+      if(this.blink)tgt=.06;
+      this.open=lerp(this.open,tgt,.14);
+      this.rot+=(state==='watching'?.9:.25)*.016*TAU;
+      const {exL,exR,ey}=this.centers(.26);
+      const R=ph.rows*.24, br=this.bright();
+      const flat=state==='acting'?.55:1;   // lens flattens when working
+      [exL,exR].forEach(ecx=>{
+        const cx2=ecx+this.gaze.x*2;
+        // outer housing ring (always, dim)
+        for(let i=0;i<40;i++){
+          const a=i/40*TAU;
+          ph.set(cx2+Math.cos(a)*R, ey+Math.sin(a)*R*flat, .3*br);
+        }
+        // aperture ring at open radius, segmented like blades
+        const r2=R*(.18+.72*this.open);
+        const segs=48;
+        for(let i=0;i<segs;i++){
+          const a=i/segs*TAU+this.rot;
+          const blade=.55+.45*Math.cos(a*6-this.rot*2);
+          const v=(state==='watching'?1:.55+.45*this.open)*blade;
+          ph.set(cx2+Math.cos(a)*r2, ey+Math.sin(a)*r2*flat, v*br);
+          if(this.open>.5) // second inner ring as it dilates
+            ph.set(cx2+Math.cos(a)*r2*.55, ey+Math.sin(a)*r2*.55*flat, v*.5*br);
+        }
+        // pupil dot rides the gaze
+        const px=cx2+this.gaze.x*R*.35, py=ey+this.gaze.y*R*.3*flat;
+        ph.set(px,py,br); ph.set(px+1,py,.7*br); ph.set(px-1,py,.7*br);
+        ph.set(px,py+1,.7*br); ph.set(px,py-1,.7*br);
+      });
+      ph.draw();
+    }
+  }
+
+  /* ---------- 04 scope (signal) ---------- */
+  class Scope extends Base{
+    constructor(ph){ super(ph); this.ph2=0; }
+    step(t){
+      this.behave(t);
+      const ph=this.ph; ph.fade(.8);
+      const {exL,exR,ey}=this.centers(.5);
+      const W=ph.cols*.19, H=ph.rows*.26, br=this.bright();
+      const st=stT();
+      [exL,exR].forEach((ecx,ei)=>{
+        // bracket corners (housing)
+        const x0=ecx-W, x1=ecx+W, y0=ey-H, y1=ey+H, L=3;
+        [[x0,y0,1,1],[x1,y0,-1,1],[x0,y1,1,-1],[x1,y1,-1,-1]].forEach(([bx,by,sx,sy])=>{
+          for(let i=0;i<=L;i++){ ph.set(bx+i*sx,by,.28); ph.set(bx,by+i*sy,.28); }
+        });
+        const phse=t*3+ei*1.7;
+        if(state==='watching'){
+          // locked: perfect circle lissajous — the signal literally becomes an eye
+          const r=Math.min(W,H)*.68, segs=44;
+          for(let i=0;i<segs;i++){
+            const a=i/segs*TAU;
+            ph.set(ecx+Math.cos(a)*r+this.gaze.x*3, ey+Math.sin(a)*r+this.gaze.y*2, .85*br);
+          }
+          const hd=t*2.2;
+          ph.set(ecx+Math.cos(hd)*r+this.gaze.x*3, ey+Math.sin(hd)*r+this.gaze.y*2, 1);
+        } else {
+          // traveling trace
+          let prevX=null, prevY=null;
+          for(let x=Math.ceil(x0)+1;x<x1;x++){
+            const u=(x-x0)/(2*W);            // 0..1 across window
+            const w=u*TAU*2;
+            let y=0;
+            if(state==='idle') y=Math.sin(w+t*1.6)*H*.18;
+            else if(state==='summoned'){
+              const k=Math.exp(-st*2.5);
+              y=Math.sin(w*2+t*9)*H*(.15+.75*k*Math.exp(-Math.pow((u-.5)*4,2)));
+            }
+            else if(state==='thinking'){
+              y=(Math.sin(w*1.3+t*2)+.6*Math.sin(w*3.7+t*3.4)+.35*Math.sin(w*7.1-t*5))*H*.22;
+            }
+            else if(state==='speaking'){
+              y=(Math.sin(w*3+t*12)*.6+Math.sin(w*7-t*9)*.4)*H*.55*talkEnv(t+u);
+            }
+            else if(state==='acting'){
+              const dir=this.gaze.x<-.05?-1:1;
+              const saw=((u*3+t*1.8*dir)%1+1)%1;
+              y=(saw*2-1)*H*.45;
+            }
+            y=ey+y+this.gaze.y*2;
+            if(prevX!==null) ph.line(prevX,prevY,x,y,.75*br);
+            prevX=x; prevY=y;
+          }
+          // bright head sweeping
+          const hu=((t*.9+ei*.5)%1);
+          const hx=x0+hu*2*W;
+          ph.set(hx,ey+this.gaze.y*2,1);
+        }
+        if(this.blink){ ph.line(x0+1,ey,x1-1,ey,.9); }  // flatline blink
+      });
+      ph.draw();
+    }
+  }
+
+  /* ---------- 05 pixel (vfd chunky) ---------- */
+  class Pixel extends Base{
+    constructor(ph){ super(ph); this.h=2; this.w=4; }
+    step(t){
+      this.behave(t);
+      const ph=this.ph; ph.fade(.55);
+      let tw=4, th=2, pup=false, happy=false, lean=0;
+      switch(state){
+        case 'summoned': tw=5; th=4; pup=true; break;
+        case 'watching': tw=5; th=5; pup=true; break;
+        case 'thinking': tw=4; th=2; break;
+        case 'speaking': tw=5; th=3; happy=true; break;
+        case 'acting': tw=4; th=3; pup=true; lean=this.gaze.x<-.05?-1:1; break;
+      }
+      if(this.blink){th=1;pup=false;happy=false;}
+      this.w=lerp(this.w,tw,.25); this.h=lerp(this.h,th,.25);
+      const W=Math.round(this.w), H=Math.round(this.h);
+      const {exL,exR,ey}=this.centers(.3);
+      const br=this.bright();
+      const gx=Math.round(this.gaze.x*1.5), gy=Math.round(this.gaze.y*1.2);
+      [exL,exR].forEach(ecx=>{
+        const ox=Math.round(ecx)-Math.ceil(W/2)+gx;
+        const oy=Math.round(ey)-Math.ceil(H/2)+gy+(state==='thinking'?-1:0);
+        for(let r=0;r<H;r++)for(let c2=0;c2<W;c2++){
+          // rounded corners: skip corner cells on big blocks
+          if(H>2&&W>2&&(r===0||r===H-1)&&(c2===0||c2===W-1))continue;
+          // happy: carve the lower middle to leave an arch
+          if(happy&&r>=H-1&&c2>0&&c2<W-1)continue;
+          const x=ox+c2+lean*Math.round((r-H/2)*.6);
+          ph.set(x,oy+r,br);
+        }
+        if(pup&&H>2&&W>2){
+          const px=ox+Math.floor(W/2)+clamp(gx,-1,1), py=oy+Math.floor(H/2)+clamp(gy,-1,1);
+          ph.set(px,py,.08); if(W>4)ph.set(px-0,py-0,.08);
+        }
+      });
+      ph.draw();
+    }
+  }
+
+  /* ---------- instances ---------- */
+  const studies=[
+    new Soft (new Phosphor(document.getElementById('cv-soft'),  6)),
+    new Glyph(new Phosphor(document.getElementById('cv-glyph'), 6, {inkLit:.24})),
+    new Iris (new Phosphor(document.getElementById('cv-iris'),  6)),
+    new Scope(new Phosphor(document.getElementById('cv-scope'), 5, {ink:.11})),
+    new Pixel(new Phosphor(document.getElementById('cv-pixel'), 13, {square:true}))
+  ];
+
+  /* ---------- state control ---------- */
+  const bar=document.getElementById('statebar');
+  const wins=[...document.querySelectorAll('[data-consent]')];
+  function setState(s){
+    if(!STATES.includes(s))return;
+    state=s; stateStart=performance.now();
+    bar.querySelectorAll('button[data-s]').forEach(b=>b.classList.toggle('on',b.dataset.s===s));
+    wins.forEach(w=>w.dataset.state=s);
+  }
+  bar.addEventListener('click',e=>{
+    const b=e.target.closest('button[data-s]'); if(b){stopTour();setState(b.dataset.s);}
+  });
+  document.addEventListener('keydown',e=>{
+    const i=parseInt(e.key)-1;
+    if(i>=0&&i<STATES.length){stopTour();setState(STATES[i]);}
+  });
+  let tourTimer=null;
+  const tourBtn=document.getElementById('tour');
+  function stopTour(){clearInterval(tourTimer);tourTimer=null;tourBtn.classList.remove('on');}
+  tourBtn.addEventListener('click',()=>{
+    if(tourTimer)return stopTour();
+    tourBtn.classList.add('on');
+    let i=STATES.indexOf(state);
+    tourTimer=setInterval(()=>{i=(i+1)%STATES.length;setState(STATES[i]);},4200);
+  });
+  let consentTimer=null;
+  wins.forEach(w=>w.addEventListener('click',()=>{
+    stopTour(); clearTimeout(consentTimer);
+    if(state==='watching')return setState('idle');
+    setState('summoned');
+    consentTimer=setTimeout(()=>setState('watching'),1100);
+  }));
+
+  /* ---------- loop ---------- */
+  function loop(now){
+    const t=now/1000;
+    for(const s of studies){ s.ph.maybeResize(); s.step(t); }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

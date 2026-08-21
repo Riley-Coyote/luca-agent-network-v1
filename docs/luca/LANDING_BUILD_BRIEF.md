@@ -107,7 +107,7 @@ The blueprint has the nine sections. Here is how each should *move and sit*. Com
 
 **§2 The notch — continuous from §1.**
 - Scroll-pinned. As the visitor scrolls, the two glyphs arrive at a rendered macOS notch at the top of a dark "desktop" plate; the notch slides open; two harness marks appear with progress rings that fill in slate; a one-line composer sits beneath ("message Luca…"). Copy lands to the left: *Keep track of them from anywhere on your Mac.*
-- Riley has a separate, more developed notch design (done in a Claude chat, not in this repo). **Ask him for it before building this section** — it should be that design, not an invention.
+- The notch design exists: `design-artifacts/kao/` (`kao.html` study b, and `luca-demo.html` for the orchestration-in-the-notch loop). Build from it — phosphor eyes asleep as two dim dots, the notch *opening* as the door, progress rings for dispatched agents, a one-line drawer beneath. Apply the direction notes in that folder's README (no amber, cool ink, near-black notch). Show the consent beat — eyes wake → go cold (cyan, "reading your screen") → only then the rings — without explaining it.
 
 **§3 The brain.** Fragments (small cards: "ChatGPT · 2,310 conversations", "Claude · projects", "Notion · 140 pages", "a repo", "a folder of PDFs") drift in from the edges and settle into one quiet container labelled *Mnemos*. Then a close-up: one agent turn that cites something it learned from a *different* platform. The container is the only thing that gets the lit-edge treatment in the section. Keep it under 8 fragments; crowd = noise.
 
@@ -183,7 +183,7 @@ Macro restraint is what makes substrate detail register. If the page is busy, no
 - **iOS companion:** `prototypes/luca-mobile-companion` (Vite; `npm run build` → `dist/`).
 - **Fonts:** Inter variable woff2 at `polyphonic-landing/design/inter.woff2`; Inter Tight + JetBrains Mono via Google Fonts or local woff2 — self-host for the final build.
 - **Earlier mock world:** `polyphonic-landing/demo-world.md`.
-- **The notch design:** not in repo — **ask Riley**.
+- **The notch + agent embodiment (eyes):** `design-artifacts/kao/` — three prototypes + README with direction notes. The eyes are the agent's *face*; the identity glyph is its *mark*; same phosphor substrate.
 
 ---
 
@@ -207,9 +207,8 @@ Macro restraint is what makes substrate detail register. If the page is busy, no
 1. **Signal colour:** slate `#6d93c9` (the canonical baseline) vs the coral continuity signal from the Aug-12 Mnemos direction. Default slate.
 2. **Hero's main agent:** Luca (one face for the page, matches onboarding) vs a named personal agent (reads more "your household"). Claude leans Luca.
 3. **Cast names:** demo-world's Iris/Otto/Rae, or Riley's Ziggy for the Codex agent.
-4. **The notch design file** — get it from him.
-5. **Primary CTA** — private-beta waitlist (per the earlier blueprint) or download.
-6. **Wordmark** — "Polyphonic" with a small "by Mnemos," or Mnemos-led. Brand architecture says Mnemos is the institution, Polyphonic the app; the landing is the app's page, so Claude leans Polyphonic-led with Mnemos present.
+4. **Primary CTA** — private-beta waitlist (per the earlier blueprint) or download.
+5. **Wordmark** — "Polyphonic" with a small "by Mnemos," or Mnemos-led. Brand architecture says Mnemos is the institution, Polyphonic the app; the landing is the app's page, so Claude leans Polyphonic-led with Mnemos present.
 
 ---
 

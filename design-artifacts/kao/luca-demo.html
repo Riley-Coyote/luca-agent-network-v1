@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>luca — full demo</title>
+<style>
+  :root{
+    --bg:#0c0d11; --ink:#e8e4dc; --dim:#8a8794; --cyan:#8ee6ff; --amber:#ffb86b;
+    --ok:#7ee0a3; --line:rgba(255,255,255,.07); --d-0:#090a0b; --d-line:#1a1b1a;
+    --mono:ui-monospace,'SF Mono','Cascadia Code',Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    padding:40px 20px 80px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:900px;margin:0 auto}
+  header h1{font-size:26px;font-weight:650;letter-spacing:-.02em}
+  header h1 span{font-family:var(--mono);font-size:13px;color:var(--dim);font-weight:400;margin-left:12px}
+  header .sub{color:var(--dim);font-size:14.5px;line-height:1.65;margin-top:10px;max-width:740px}
+  header .sub b{color:var(--ink);font-weight:600}
+
+  .statebar{display:flex;flex-wrap:wrap;gap:8px;margin:26px 0 8px;align-items:center}
+  .statebar button{font-family:var(--mono);font-size:12px;color:var(--dim);background:#14151d;
+    border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer;transition:all .15s ease}
+  .statebar button:hover{color:var(--ink);border-color:rgba(255,255,255,.18)}
+  .statebar button.on{color:#0a0a10;background:var(--ink);border-color:var(--ink);font-weight:600}
+  .statebar button.on[data-s="watching"]{background:var(--cyan);border-color:var(--cyan)}
+  .statebar .spacer{flex:1}
+  .statebar #demo{color:#0a0a10;background:var(--amber);border-color:var(--amber);font-weight:600}
+  .statebar #demo:disabled{opacity:.4;cursor:default}
+  .hint{font-family:var(--mono);font-size:11.5px;color:#57555f;margin-bottom:24px}
+  .hint b{color:#8a8794;font-weight:500}
+
+  /* ---------- the window ---------- */
+  .osw{background:var(--d-0);border:1px solid #202126;border-radius:12px;overflow:hidden;
+    transition:box-shadow .6s ease, border-color .6s ease}
+  .osw .tbar{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--d-line)}
+  .osw .tbar .dots{display:flex;gap:6px}
+  .osw .tbar .dots i{width:9px;height:9px;border-radius:50%;background:#232428;display:block}
+  .osw .tbar .ttl{font-family:var(--mono);font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:#4a4b4d;margin-left:6px}
+  .osw .tbar .ver{margin-left:auto;font-family:var(--mono);font-size:9px;letter-spacing:.16em;color:#3c3d40}
+  .osw .screen{position:relative;height:225px;cursor:pointer}
+  .osw canvas{display:block;width:100%;height:100%}
+  .osw .tag{position:absolute;font-family:var(--mono);font-size:8px;letter-spacing:.2em;text-transform:uppercase;
+    color:#4a4b4d;pointer-events:none}
+  .osw .tag.tl{left:11px;top:10px} .osw .tag.br{right:11px;bottom:10px;color:#5a5b5d}
+  .osw[data-state="summoned"]{box-shadow:0 0 34px -8px rgba(255,184,107,.4);border-color:#2c2620}
+  .osw[data-state="watching"]{box-shadow:0 0 34px -8px rgba(142,230,255,.33);border-color:#20303a}
+  .osw[data-state="thinking"]{box-shadow:0 0 28px -10px rgba(255,184,107,.22)}
+  .osw[data-state="speaking"]{box-shadow:0 0 30px -8px rgba(255,184,107,.3);border-color:#2a2520}
+  .osw[data-state="acting"]{box-shadow:0 0 28px -10px rgba(255,184,107,.26)}
+
+  /* ---------- chat drawer ---------- */
+  .chat{border-top:1px solid var(--d-line)}
+  .log{max-height:170px;overflow-y:auto;padding:14px 16px 6px;display:flex;flex-direction:column;gap:10px}
+  .log::-webkit-scrollbar{width:4px} .log::-webkit-scrollbar-thumb{background:#232428;border-radius:2px}
+  .msg{max-width:82%;font-family:var(--mono);font-size:12px;line-height:1.6}
+  .msg.user{align-self:flex-end;color:#8f8c96;text-align:right}
+  .msg.user::before{content:"you";display:block;font-size:8px;letter-spacing:.2em;text-transform:uppercase;color:#4a4b4d;margin-bottom:3px}
+  .msg.luca{align-self:flex-start;color:#d8d4cc}
+  .msg.luca::before{content:"luca";display:block;font-size:8px;letter-spacing:.2em;text-transform:uppercase;color:#6b5b48;margin-bottom:3px}
+  .msg .caret{display:inline-block;width:6px;height:1em;transform:translateY(2px);background:#8e8f8c;margin-left:2px;animation:caret 1s steps(1) infinite}
+  @keyframes caret{50%{opacity:0}}
+  .sys{align-self:center;font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:#44454a}
+
+  /* ---------- orchestration panel ---------- */
+  .orch{max-height:0;opacity:0;overflow:hidden;transition:max-height .5s cubic-bezier(.4,0,.2,1),opacity .4s;
+    border-top:1px solid transparent}
+  .orch.open{max-height:190px;opacity:1;border-top-color:var(--d-line)}
+  .orch .plan{font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;
+    color:#57555f;padding:12px 18px 0}
+  .orch .plan b{color:#8a8794;font-weight:500}
+  .chips{display:flex;gap:14px;padding:12px 18px 16px}
+  .chip{flex:1;display:flex;align-items:center;gap:14px;background:#0d0e13;border:1px solid #1c1d23;
+    border-radius:12px;padding:12px 14px;opacity:.45;transition:opacity .4s, border-color .4s}
+  .chip.active{opacity:1;border-color:#2a2b33}
+  .chip.done{opacity:1;border-color:#1e2e26}
+  .ringwrap{position:relative;width:54px;height:54px;flex:none}
+  .ringwrap svg.ring{position:absolute;inset:0;transform:rotate(-90deg)}
+  .ringwrap svg.ring circle{fill:none;stroke-width:2.5;stroke-linecap:round}
+  .ringwrap svg.ring .track{stroke:#1e1f26}
+  .ringwrap svg.ring .prog{stroke:#cfccc4;stroke-dasharray:150.8;stroke-dashoffset:150.8;
+    transition:stroke-dashoffset .3s ease, stroke .4s}
+  .chip.done svg.ring .prog{stroke:var(--ok)}
+  .ringwrap .icon{position:absolute;inset:7px;border-radius:50%;background:#14151b;
+    display:flex;align-items:center;justify-content:center}
+  .ringwrap .icon svg{width:24px;height:24px;display:block}
+  .chip .meta{min-width:0}
+  .chip .meta b{display:block;font-size:13px;font-weight:650;letter-spacing:-.01em}
+  .chip .meta .rt{display:block;font-family:var(--mono);font-size:8.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:#57555f;margin-top:2px}
+  .chip .meta .status{display:block;font-family:var(--mono);font-size:10.5px;color:#9a97a4;margin-top:6px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chip.done .meta .status{color:var(--ok)}
+  .chip .pct{margin-left:auto;font-family:var(--mono);font-size:10px;color:#57555f;flex:none}
+  .chip.done .pct{color:var(--ok)}
+
+  /* ---------- input ---------- */
+  .inrow{display:flex;align-items:center;gap:10px;border-top:1px solid var(--d-line);padding:10px 16px}
+  .inrow .p{font-family:var(--mono);font-size:11px;color:#6b5b48;flex:none}
+  .inrow input{flex:1;background:none;border:none;outline:none;color:#e8e4dc;
+    font-family:var(--mono);font-size:12px;caret-color:var(--amber)}
+  .inrow input::placeholder{color:#3e3f45}
+  .inrow button{font-family:var(--mono);font-size:10px;color:#8a8794;background:#14151d;
+    border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer}
+  .inrow button:hover{color:var(--ink)}
+
+  /* ---------- notch study ---------- */
+  .study{margin-top:30px}
+  .slabel{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#57555f;margin-bottom:12px}
+  .desk{position:relative;height:230px;border-radius:14px;overflow:hidden;border:1px solid var(--line);
+    background:linear-gradient(175deg,#171a26 0%,#101321 42%,#0b0d17 100%)}
+  .desk .menubar{position:absolute;top:0;left:0;right:0;height:30px;background:rgba(9,10,12,.86);
+    backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:space-between;
+    padding:0 16px;font-family:var(--mono);font-size:10.5px;color:#6a6b70;z-index:2}
+  .desk .menubar .l b{color:#a8a5ae;font-weight:600;margin-right:14px}
+  .desk .menubar .l span{margin-right:12px}
+  .desk .menubar .r span{margin-left:12px}
+  .notchwrap{position:absolute;top:0;left:50%;transform:translateX(-50%);z-index:4;cursor:pointer}
+  .notch{background:#000;width:176px;height:30px;border-radius:0 0 12px 12px;overflow:hidden;margin:0 auto;
+    transition:width .5s cubic-bezier(.34,1.3,.4,1), height .5s cubic-bezier(.34,1.3,.4,1),
+      border-radius .5s, box-shadow .6s ease}
+  .notch canvas{display:block;width:100%;height:100%}
+  .desk:not([data-state="idle"]) .notch{width:300px;height:84px;border-radius:0 0 20px 20px}
+  .desk[data-state="summoned"] .notch{box-shadow:0 8px 44px -10px rgba(255,184,107,.35)}
+  .desk[data-state="watching"] .notch{box-shadow:0 8px 44px -10px rgba(142,230,255,.3)}
+  .desk[data-state="speaking"] .notch{box-shadow:0 8px 40px -10px rgba(255,184,107,.28)}
+  .ndrawer{width:300px;margin:6px auto 0;background:rgba(0,0,0,.92);border-radius:14px;overflow:hidden;
+    max-height:0;opacity:0;transform:translateY(-8px);
+    transition:max-height .45s cubic-bezier(.4,0,.2,1), opacity .35s, transform .45s}
+  .ndrawer.open{max-height:52px;opacity:1;transform:translateY(0)}
+  .ndrawer .inner{padding:10px 16px;font-family:var(--mono);font-size:10.5px;line-height:1.5;color:#cfccc4}
+
+  footer{margin-top:36px;font-family:var(--mono);font-size:11px;color:#4e4c58;line-height:1.7;max-width:740px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>luca <span>full demo — soft eyes · chat · orchestration</span></h1>
+  <p class="sub">the whole loop in one window: you speak to luca, luca approves, and the runtimes you've
+  already raised appear as themselves — <b>real marks, live progress, the eyes supervising the work they
+  dispatched.</b> the sophistication is real but the frame stays humble: it still looks like some indie tool.</p>
+</header>
+
+<div class="statebar" id="statebar">
+  <button data-s="idle" class="on">1 · idle</button>
+  <button data-s="summoned">2 · summoned</button>
+  <button data-s="watching">3 · watching</button>
+  <button data-s="thinking">4 · thinking</button>
+  <button data-s="speaking">5 · speaking</button>
+  <button data-s="acting">6 · acting</button>
+  <div class="spacer"></div>
+  <button id="demo">▶ run the scenario</button>
+</div>
+<div class="hint">press 1–6 for manual states · click the display for consent flow · or type to luca yourself —
+  <b>mention claude or sol and it dispatches them</b></div>
+
+<div class="osw" id="osw" data-state="idle">
+  <div class="tbar">
+    <div class="dots"><i></i><i></i><i></i></div>
+    <span class="ttl">luca · local-01 — wip</span>
+    <span class="ver">v0.4 · offline-first</span>
+  </div>
+  <div class="screen" id="screen">
+    <canvas id="cv-a"></canvas>
+    <span class="tag tl">display · alive underneath</span>
+    <span class="tag br" id="uptime">uptime · 41d 06:12:00</span>
+  </div>
+  <div class="chat">
+    <div class="log" id="log">
+      <div class="sys">luca is idle — say something, or run the scenario</div>
+    </div>
+    <div class="orch" id="orch">
+      <div class="plan" id="plan"></div>
+      <div class="chips">
+        <div class="chip" id="chip-sol">
+          <div class="ringwrap">
+            <svg class="ring" viewBox="0 0 54 54">
+              <circle class="track" cx="27" cy="27" r="24"/>
+              <circle class="prog" id="ring-sol" cx="27" cy="27" r="24"/>
+            </svg>
+            <div class="icon">
+              <svg viewBox="-14 -14 28 28" id="icon-sol"></svg>
+            </div>
+          </div>
+          <div class="meta"><b>sol</b><span class="rt">openai · codex runtime</span>
+            <span class="status" id="st-sol">standing by</span></div>
+          <span class="pct" id="pct-sol"></span>
+        </div>
+        <div class="chip" id="chip-claude">
+          <div class="ringwrap">
+            <svg class="ring" viewBox="0 0 54 54">
+              <circle class="track" cx="27" cy="27" r="24"/>
+              <circle class="prog" id="ring-claude" cx="27" cy="27" r="24"/>
+            </svg>
+            <div class="icon">
+              <svg viewBox="-14 -14 28 28" id="icon-claude"></svg>
+            </div>
+          </div>
+          <div class="meta"><b>claude</b><span class="rt">anthropic · claude code</span>
+            <span class="status" id="st-claude">standing by</span></div>
+          <span class="pct" id="pct-claude"></span>
+        </div>
+      </div>
+    </div>
+    <div class="inrow">
+      <span class="p">›</span>
+      <input id="inp" type="text" spellcheck="false"
+        placeholder='hey luca — have claude and sol finish the app. claude takes final design polish.'>
+      <button id="send">send</button>
+    </div>
+  </div>
+</div>
+
+<section class="study">
+  <div class="slabel">the notch, synced — same mind, smaller door</div>
+  <div class="desk" id="desk" data-state="idle">
+    <div class="menubar">
+      <div class="l"><b>&#63743;</b><span>luca</span><span>file</span><span>edit</span><span>view</span></div>
+      <div class="r"><span>◐ 82%</span><span>wed 4:12 pm</span></div>
+    </div>
+    <div class="notchwrap" id="notchwrap">
+      <div class="notch" id="notch"><canvas id="cv-b"></canvas></div>
+      <div class="ndrawer" id="ndrawer"><div class="inner" id="ntxt"></div></div>
+    </div>
+  </div>
+</section>
+
+<footer>rig notes: soft eyes at higher density (5px cells window / 3px notch), idle brightness raised, gaze-target
+api added — during orchestration the eyes look at the chip that's working, with saccades to the queued one.
+progress rings advance in bursts, not linearly; statuses are per-agent and sequenced (claude activates only
+after sol ships, per the instruction). marks used nominatively — sol wears openai's, claude wears anthropic's.</footer>
+
+</div>
+
+<script>
+(() => {
+  const STATES = ['idle','summoned','watching','thinking','speaking','acting'];
+  let state = 'idle', stateStart = performance.now();
+  const mouse = { x: innerWidth/2, y: innerHeight/3 };
+  document.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+  const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+  const lerp = (a,b,k)=>a+(b-a)*k;
+  const TAU = Math.PI*2;
+  const sleep = ms => new Promise(r=>setTimeout(r,ms));
+  const stT = () => (performance.now()-stateStart)/1000;
+
+  /* ---------- brand marks (nominative, simplified) ---------- */
+  (function(){
+    // claude — coral starburst
+    const g = document.getElementById('icon-claude');
+    let s='';
+    for(let i=0;i<12;i++){
+      const len = i%2 ? 7.2 : 10.5;
+      s+=`<rect x="-1.45" y="${-len-1.5}" width="2.9" height="${len}" rx="1.45"
+        fill="#D97757" transform="rotate(${i*30})"/>`;
+    }
+    g.innerHTML=s;
+    // openai — hex knot from six bent bars
+    const o = document.getElementById('icon-sol');
+    let t='';
+    for(let i=0;i<6;i++){
+      t+=`<path d="M 0 -10.5 L 8.6 -5.6 L 8.6 4.2" fill="none" stroke="#e8e6e3"
+        stroke-width="3" stroke-linecap="round" stroke-linejoin="round" transform="rotate(${i*60})"/>`;
+    }
+    o.innerHTML=t;
+  })();
+
+  /* ---------- phosphor ---------- */
+  const DIMC=[27,28,31];
+  class Phosphor{
+    constructor(cv, cell, opts={}){
+      this.cv=cv; this.cell=cell; this.ink=opts.ink??0.14; this.inkLit=opts.inkLit??0.22;
+      this.dot=[239,239,237]; this.ok=false; this.resize();
+    }
+    resize(){
+      const r=this.cv.getBoundingClientRect();
+      if(r.width<4||r.height<4){this.ok=false;return false;}
+      const dpr=Math.min(devicePixelRatio||1,2);
+      this.cv.width=Math.round(r.width*dpr); this.cv.height=Math.round(r.height*dpr);
+      this.ctx=this.cv.getContext('2d'); this.ctx.setTransform(dpr,0,0,dpr,0,0);
+      this.w=r.width; this.h=r.height;
+      this.cols=Math.max(1,Math.floor(r.width/this.cell));
+      this.rows=Math.max(1,Math.floor(r.height/this.cell));
+      this.ox=(r.width-this.cols*this.cell)/2; this.oy=(r.height-this.rows*this.cell)/2;
+      this.q=new Float32Array(this.cols*this.rows); this.ok=true; return true;
+    }
+    maybeResize(){
+      const r=this.cv.getBoundingClientRect();
+      if(Math.abs(r.width-this.w)>2||Math.abs(r.height-this.h)>2) this.resize();
+    }
+    fade(k){ if(!this.ok)return; const q=this.q; for(let i=0;i<q.length;i++)q[i]*=k; }
+    set(x,y,v){
+      if(!this.ok)return; x=Math.round(x); y=Math.round(y);
+      if(x<0||y<0||x>=this.cols||y>=this.rows)return;
+      const i=y*this.cols+x; if(v>this.q[i])this.q[i]=v;
+    }
+    draw(){
+      if(!this.ok)return;
+      const {ctx,cell,cols,rows,ox,oy,q,ink,inkLit,dot}=this;
+      ctx.clearRect(0,0,this.w,this.h);
+      for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){
+        const c=q[y*cols+x];
+        ctx.fillStyle='rgb('+Math.round(DIMC[0]+(dot[0]-DIMC[0])*c)+','+
+          Math.round(DIMC[1]+(dot[1]-DIMC[1])*c)+','+Math.round(DIMC[2]+(dot[2]-DIMC[2])*c)+')';
+        ctx.beginPath();
+        ctx.arc(ox+x*cell+cell/2, oy+y*cell+cell/2, cell*(ink+inkLit*c), 0, 6.2832);
+        ctx.fill();
+      }
+    }
+  }
+
+  /* ---------- soft eyes with gaze-target api ---------- */
+  const WHITE=[239,239,237], CYAN=[150,232,255], AMBER=[255,204,140];
+  class Soft{
+    constructor(ph, scale=1){
+      this.ph=ph; this.scale=scale; this.tint=[...WHITE];
+      this.L={w:1,h:.5,cres:.1,skew:0,pup:0}; this.R={w:1,h:.5,cres:.1,skew:0,pup:0};
+      this.nextBlink=2+Math.random()*3; this.blinkUntil=0;
+      this.nextGlance=3+Math.random()*4; this.glanceUntil=0; this.gtx=0; this.gty=0;
+      this.gaze={x:0,y:0};
+      this.lookAt=null;   // {x,y} viewport px, or an Element
+    }
+    targets(t){
+      const b={w:1,h:.5,cres:.12,skew:0,pup:0};
+      const L={...b},R={...b};
+      switch(state){
+        case 'summoned': L.h=R.h=.92; L.pup=R.pup=.28; L.cres=R.cres=0; break;
+        case 'watching': L.h=R.h=1.05; L.w=R.w=1.05; L.pup=R.pup=.42; L.cres=R.cres=0; break;
+        case 'thinking': L.h=.6; R.h=.42; L.pup=R.pup=.22; L.cres=R.cres=.08; break;
+        case 'speaking': L.h=R.h=.62*(1+.1*Math.sin(t*7)); L.cres=R.cres=.9; break;
+        case 'acting': L.h=R.h=.68; L.pup=R.pup=.34; L.cres=R.cres=0;
+          L.skew=R.skew=clamp(this.gaze.x,-1,1)*.5; break;
+      }
+      return [L,R];
+    }
+    step(t){
+      const ph=this.ph; if(!ph.ok)return;
+      if(t>this.nextBlink && state!=='watching'){
+        this.blinkUntil=t+.11; this.nextBlink=t+2.2+Math.random()*3.4;
+        if(Math.random()<.2)this.nextBlink=t+.55;
+      }
+      if(t>this.nextGlance){
+        this.glanceUntil=t+.5+Math.random()*.6; this.nextGlance=t+3+Math.random()*5;
+        const a=Math.random()*TAU; this.gtx=Math.cos(a); this.gty=Math.sin(a)*.6;
+      }
+      const r=ph.cv.getBoundingClientRect();
+      let px=mouse.x, py=mouse.y;
+      let la=this.lookAt;
+      if(la){
+        if(la.getBoundingClientRect){const b=la.getBoundingClientRect(); px=b.left+b.width/2; py=b.top+b.height/2;}
+        else {px=la.x; py=la.y;}
+      }
+      let tx=clamp((px-(r.left+r.width/2))/(r.width*.8),-1,1);
+      let ty=clamp((py-(r.top+r.height/2))/(Math.max(r.height,120)*.75),-1,1);
+      if(!la && t<this.glanceUntil && state!=='watching'){ tx=this.gtx; ty=this.gty; }
+      if(!la && state==='thinking'){ tx=-.7; ty=-.8; }
+      this.gaze.x=lerp(this.gaze.x,tx,.14); this.gaze.y=lerp(this.gaze.y,ty,.14);
+
+      let target=state==='watching'?CYAN:WHITE;
+      const flash=state==='summoned'?Math.exp(-stT()*3):0;
+      for(let i=0;i<3;i++)
+        this.tint[i]=lerp(this.tint[i], target[i]*(1-flash)+AMBER[i]*flash, .08);
+      ph.dot=this.tint;
+
+      ph.fade(.7);
+      const [TL,TR]=this.targets(t);
+      const blink=t<this.blinkUntil;
+      for(const [cur,tgt] of [[this.L,TL],[this.R,TR]])
+        for(const k in cur) cur[k]=lerp(cur[k], blink&&k==='h'?.1:tgt[k], .16);
+      const rows=ph.rows, cols=ph.cols;
+      const eh=rows*.32*this.scale, ew=eh*.78;
+      const sep=Math.max(ew*2.7, cols*.16);
+      const ey=rows*.5 + this.gaze.y*rows*.07;
+      const bright={idle:.82,summoned:1,watching:1,thinking:.8,speaking:.92,acting:.9}[state]??.82;
+      const breath=1+.03*Math.sin(t*1.1);
+      [[-1,this.L],[1,this.R]].forEach(([side,p])=>{
+        const ecx=cols/2+side*sep/2+this.gaze.x*cols*.045;
+        const w=ew*p.w, h=Math.max(1,eh*p.h*breath);
+        const ppx=this.gaze.x*w*.42, ppy=this.gaze.y*h*.45;
+        for(let y=Math.floor(ey-h-2);y<=ey+h+2;y++)for(let x=Math.floor(ecx-w-2);x<=ecx+w+2;x++){
+          let nx=(x-ecx)/w + p.skew*((y-ey)/h);
+          const ny=(y-ey)/h;
+          const se=Math.pow(Math.abs(nx),2.4)+Math.pow(Math.abs(ny),2.4);
+          let v=clamp((1-se)/.32,0,1);
+          if(v<=0)continue;
+          if(p.cres>.02){
+            const cy2=(y-(ey+p.cres*h*1.15))/h, cx2=nx/1.05;
+            if(cx2*cx2+cy2*cy2<1.05)v=0;
+          }
+          if(p.pup>.02){
+            const pdx=(x-ecx-ppx)/(w*p.pup), pdy=(y-ey-ppy)/(h*p.pup);
+            if(pdx*pdx+pdy*pdy<1)v*=.06;
+          }
+          if(v>0)ph.set(x,y,v*bright);
+        }
+      });
+      ph.draw();
+    }
+  }
+
+  const eyesA=new Soft(new Phosphor(document.getElementById('cv-a'),5),1);
+  const eyesB=new Soft(new Phosphor(document.getElementById('cv-b'),3),1.15);
+
+  /* ---------- state machine ---------- */
+  const bar=document.getElementById('statebar');
+  const osw=document.getElementById('osw'), desk=document.getElementById('desk');
+  const ndrawer=document.getElementById('ndrawer'), ntxt=document.getElementById('ntxt');
+  function setState(s){
+    if(!STATES.includes(s))return;
+    state=s; stateStart=performance.now();
+    bar.querySelectorAll('button[data-s]').forEach(b=>b.classList.toggle('on',b.dataset.s===s));
+    osw.dataset.state=s; desk.dataset.state=s;
+  }
+  bar.addEventListener('click',e=>{
+    const b=e.target.closest('button[data-s]'); if(b&&!running)setState(b.dataset.s);
+  });
+  document.addEventListener('keydown',e=>{
+    if(document.activeElement===inp)return;
+    const i=parseInt(e.key)-1;
+    if(i>=0&&i<STATES.length&&!running)setState(STATES[i]);
+  });
+  let consentTimer=null;
+  document.getElementById('screen').addEventListener('click',()=>{
+    if(running)return;
+    clearTimeout(consentTimer);
+    if(state==='watching')return setState('idle');
+    setState('summoned');
+    consentTimer=setTimeout(()=>setState('watching'),1100);
+  });
+  document.getElementById('notchwrap').addEventListener('click',()=>{
+    if(running)return;
+    clearTimeout(consentTimer);
+    if(state==='watching')return setState('idle');
+    setState('summoned');
+    consentTimer=setTimeout(()=>setState('watching'),1100);
+  });
+
+  /* ---------- uptime ---------- */
+  const up=document.getElementById('uptime');
+  let secs=41*86400+6*3600+12*60;
+  setInterval(()=>{secs++;
+    const dd=Math.floor(secs/86400),hh=String(Math.floor(secs%86400/3600)).padStart(2,'0'),
+      mm=String(Math.floor(secs%3600/60)).padStart(2,'0'),ss=String(secs%60).padStart(2,'0');
+    up.textContent=`uptime · ${dd}d ${hh}:${mm}:${ss}`;},1000);
+
+  /* ---------- chat ---------- */
+  const log=document.getElementById('log'), inp=document.getElementById('inp');
+  function addMsg(cls){
+    const d=document.createElement('div'); d.className='msg '+cls;
+    log.appendChild(d); log.scrollTop=log.scrollHeight; return d;
+  }
+  function addSys(txt){
+    const d=document.createElement('div'); d.className='sys'; d.textContent=txt;
+    log.appendChild(d); log.scrollTop=log.scrollHeight;
+  }
+  async function lucaSay(text){
+    setState('speaking');
+    const d=addMsg('luca');
+    const c=document.createElement('span'); c.className='caret';
+    for(let i=0;i<=text.length;i++){
+      d.textContent=text.slice(0,i); d.appendChild(c);
+      log.scrollTop=log.scrollHeight;
+      await sleep(24);
+    }
+    c.remove();
+  }
+
+  /* ---------- orchestration ---------- */
+  const orch=document.getElementById('orch'), plan=document.getElementById('plan');
+  const chips={
+    sol:{el:document.getElementById('chip-sol'), ring:document.getElementById('ring-sol'),
+      st:document.getElementById('st-sol'), pct:document.getElementById('pct-sol')},
+    claude:{el:document.getElementById('chip-claude'), ring:document.getElementById('ring-claude'),
+      st:document.getElementById('st-claude'), pct:document.getElementById('pct-claude')}
+  };
+  const CIRC=150.8;
+  function setRing(c,p){ c.ring.style.strokeDashoffset=CIRC*(1-p); c.pct.textContent=Math.round(p*100)+'%'; }
+  const SOL_ST=[[0,'reading repo…'],[.18,'scaffolding views…'],[.45,'wiring supabase…'],
+    [.72,'tests · running…'],[.92,'tests · 34/34 ✓']];
+  const CLAUDE_ST=[[0,"reviewing sol's build…"],[.22,'design tokens…'],[.5,'spacing & type pass…'],
+    [.78,'motion & micro-states…']];
+  async function runAgent(key, otherKey, dur, statuses, doneTxt, notchTxt){
+    const c=chips[key], o=chips[otherKey];
+    c.el.classList.add('active');
+    ntxt.textContent=notchTxt; ndrawer.classList.add('open');
+    eyesA.lookAt=c.el; eyesB.lookAt=null;
+    let p=0; const t0=performance.now();
+    let nextSaccade=performance.now()+1600+Math.random()*900;
+    while(p<1){
+      await sleep(120+Math.random()*260);
+      const el=(performance.now()-t0)/dur;
+      // bursty progress that still lands on time
+      p=clamp(p+(Math.random()*.09)*(el>.7?1.6:1),0,Math.min(1,el*1.15));
+      if(el>=1)p=1;
+      setRing(c,p);
+      for(const [th,txt] of statuses) if(p>=th) c.st.textContent=txt;
+      if(performance.now()>nextSaccade){          // glance at the queued agent, then back
+        eyesA.lookAt=o.el; setTimeout(()=>{eyesA.lookAt=c.el;},420);
+        nextSaccade=performance.now()+1800+Math.random()*1200;
+      }
+    }
+    setRing(c,1);
+    c.el.classList.remove('active'); c.el.classList.add('done');
+    c.st.textContent=doneTxt;
+  }
+  let running=false;
+  async function scenario(userText){
+    if(running)return; running=true;
+    document.getElementById('demo').disabled=true;
+    // user message
+    const u=addMsg('user'); u.textContent=userText;
+    eyesA.lookAt=null;
+    setState('thinking'); await sleep(1100);
+    await lucaSay("on it — sol takes the build, claude takes the final design polish after. splitting now.");
+    await sleep(300);
+    plan.innerHTML='plan · <b>01 sol → finish build</b> · <b>02 claude → design polish</b> (starts after 01)';
+    orch.classList.add('open');
+    chips.claude.st.textContent='queued · after sol';
+    await sleep(650);
+    setState('acting');
+    await runAgent('sol','claude',6800,SOL_ST,'shipped · 4m 12s','sol ▸ building · claude ▸ queued');
+    addSys('sol done — handing to claude');
+    await sleep(500);
+    await runAgent('claude','sol',5600,CLAUDE_ST,'polish complete','claude ▸ design polish');
+    eyesA.lookAt=null; eyesB.lookAt=null;
+    ntxt.textContent='done · preview ready';
+    await sleep(400);
+    await lucaSay("done. sol shipped the build — 34/34 green. claude finished the polish pass. preview's ready when you are.");
+    await sleep(1600);
+    setState('idle'); ndrawer.classList.remove('open');
+    document.getElementById('demo').disabled=false;
+    running=false;
+  }
+  const DEMO_LINE="hey luca — could you have claude and sol finish that app? make sure claude handles the final design polish";
+  document.getElementById('demo').addEventListener('click', async ()=>{
+    if(running)return;
+    // auto-type into the input first, so it reads as you speaking
+    inp.focus(); inp.value='';
+    eyesA.lookAt=inp;
+    for(let i=0;i<=DEMO_LINE.length;i++){ inp.value=DEMO_LINE.slice(0,i); await sleep(16); }
+    await sleep(250); inp.value='';
+    scenario(DEMO_LINE);
+  });
+  function send(){
+    const v=inp.value.trim(); if(!v||running)return;
+    inp.value='';
+    if(/claude|sol/i.test(v)) scenario(v);
+    else {
+      const u=addMsg('user'); u.textContent=v;
+      (async()=>{ setState('thinking'); await sleep(700);
+        await lucaSay("logged. want it on the board, or should i just handle it quietly?");
+        await sleep(900); setState('idle'); })();
+    }
+  }
+  document.getElementById('send').addEventListener('click',send);
+  inp.addEventListener('keydown',e=>{ if(e.key==='Enter')send(); });
+  inp.addEventListener('focus',()=>{ if(!running)eyesA.lookAt=inp; });
+  inp.addEventListener('blur',()=>{ if(!running)eyesA.lookAt=null; });
+
+  /* ---------- loop ---------- */
+  function loop(now){
+    const t=now/1000;
+    eyesA.ph.maybeResize(); eyesB.ph.maybeResize();
+    eyesA.step(t); eyesB.step(t);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

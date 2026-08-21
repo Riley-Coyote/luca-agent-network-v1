@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kao — the quiet build</title>
+<style>
+  :root{
+    --bg:#0c0d11; --ink:#e8e4dc; --dim:#8a8794; --cyan:#8ee6ff; --amber:#ffb86b;
+    --line:rgba(255,255,255,.07);
+    --d-0:#090a0b; --d-line:#1a1b1a;
+    --mono:ui-monospace,'SF Mono','Cascadia Code',Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    padding:40px 20px 80px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1020px;margin:0 auto}
+  header h1{font-size:26px;font-weight:650;letter-spacing:-.02em}
+  header h1 span{font-family:var(--mono);font-size:13px;color:var(--dim);font-weight:400;margin-left:12px}
+  header .sub{color:var(--dim);font-size:14.5px;line-height:1.65;margin-top:10px;max-width:760px}
+  header .sub b{color:var(--ink);font-weight:600}
+  header .sub i{color:var(--cyan);font-style:normal}
+
+  .statebar{display:flex;flex-wrap:wrap;gap:8px;margin:26px 0 8px;align-items:center}
+  .statebar button{font-family:var(--mono);font-size:12.5px;color:var(--dim);background:#14151d;
+    border:1px solid var(--line);border-radius:8px;padding:8px 14px;cursor:pointer;transition:all .15s ease}
+  .statebar button:hover{color:var(--ink);border-color:rgba(255,255,255,.18)}
+  .statebar button.on{color:#0a0a10;background:var(--ink);border-color:var(--ink);font-weight:600}
+  .statebar button.on[data-s="watching"]{background:var(--cyan);border-color:var(--cyan)}
+  .statebar .spacer{flex:1}
+  .statebar #tour.on{color:#0a0a10;background:var(--amber);border-color:var(--amber)}
+  .hint{font-family:var(--mono);font-size:11.5px;color:#57555f;margin-bottom:26px}
+  .hint b{color:#8a8794;font-weight:500}
+
+  .study{margin-top:34px}
+  .study > .slabel{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+    color:#57555f;margin-bottom:12px}
+
+  /* ---------- study a: the wip window ---------- */
+  .osw{background:var(--d-0);border:1px solid #202126;border-radius:10px;overflow:hidden;cursor:pointer;
+    max-width:760px;margin:0 auto;transition:box-shadow .6s ease, border-color .6s ease}
+  .osw .tbar{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--d-line)}
+  .osw .tbar .dots{display:flex;gap:6px}
+  .osw .tbar .dots i{width:9px;height:9px;border-radius:50%;background:#232428;display:block}
+  .osw .tbar .ttl{font-family:var(--mono);font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:#4a4b4d;margin-left:6px}
+  .osw .tbar .ver{margin-left:auto;font-family:var(--mono);font-size:9px;letter-spacing:.16em;color:#3c3d40}
+  .osw .screen{position:relative;height:300px}
+  .osw canvas{display:block;width:100%;height:100%}
+  .osw .tag{position:absolute;font-family:var(--mono);font-size:8px;letter-spacing:.2em;text-transform:uppercase;
+    color:#4a4b4d;pointer-events:none}
+  .osw .tag.tl{left:11px;top:10px} .osw .tag.br{right:11px;bottom:10px;color:#5a5b5d}
+  .osw .wdrawer{max-height:0;opacity:0;overflow:hidden;border-top:1px solid transparent;
+    transition:max-height .45s cubic-bezier(.4,0,.2,1), opacity .35s ease, border-color .45s}
+  .osw .wdrawer.open{max-height:86px;opacity:1;border-top-color:var(--d-line)}
+  .osw .wdrawer .inner{padding:14px 16px;display:flex;gap:12px;align-items:baseline}
+  .osw .wdrawer .lbl{font-family:var(--mono);font-size:8px;letter-spacing:.2em;text-transform:uppercase;color:#4a4b4d;flex:none}
+  .osw .wdrawer .txt{font-family:var(--mono);font-size:12px;line-height:1.6;color:#cfccc4}
+  .osw .wdrawer .caret{display:inline-block;width:7px;height:1.05em;transform:translateY(2px);
+    background:#8e8f8c;margin-left:2px;animation:caret 1s steps(1) infinite}
+  @keyframes caret{50%{opacity:0}}
+
+  /* state-driven border glow — the only color the frame is allowed */
+  .osw[data-state="summoned"]{box-shadow:0 0 34px -8px rgba(255,184,107,.4);border-color:#2c2620}
+  .osw[data-state="watching"]{box-shadow:0 0 34px -8px rgba(142,230,255,.33);border-color:#20303a}
+  .osw[data-state="thinking"]{box-shadow:0 0 28px -10px rgba(255,184,107,.22)}
+  .osw[data-state="speaking"]{box-shadow:0 0 30px -8px rgba(255,184,107,.3);border-color:#2a2520}
+  .osw[data-state="acting"]{box-shadow:0 0 28px -10px rgba(255,184,107,.26)}
+
+  /* ---------- study b: the notch ---------- */
+  .desk{position:relative;height:330px;border-radius:14px;overflow:hidden;border:1px solid var(--line);
+    background:linear-gradient(175deg,#171a26 0%,#101321 42%,#0b0d17 100%)}
+  .desk .menubar{position:absolute;top:0;left:0;right:0;height:30px;background:rgba(9,10,12,.86);
+    backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:space-between;
+    padding:0 16px;font-family:var(--mono);font-size:10.5px;color:#6a6b70;z-index:2}
+  .desk .menubar .l b{color:#a8a5ae;font-weight:600;margin-right:14px}
+  .desk .menubar .l span{margin-right:12px}
+  .desk .menubar .r span{margin-left:12px}
+  .notchwrap{position:absolute;top:0;left:50%;transform:translateX(-50%);z-index:4;cursor:pointer}
+  .notch{background:#000;width:176px;height:30px;border-radius:0 0 12px 12px;overflow:hidden;
+    margin:0 auto;position:relative;
+    transition:width .5s cubic-bezier(.34,1.3,.4,1), height .5s cubic-bezier(.34,1.3,.4,1),
+      border-radius .5s, box-shadow .6s ease}
+  .notch canvas{display:block;width:100%;height:100%}
+  .desk[data-state="summoned"] .notch,
+  .desk[data-state="watching"] .notch,
+  .desk[data-state="thinking"] .notch,
+  .desk[data-state="speaking"] .notch,
+  .desk[data-state="acting"] .notch{width:300px;height:88px;border-radius:0 0 20px 20px}
+  .desk[data-state="summoned"] .notch{box-shadow:0 8px 44px -10px rgba(255,184,107,.35)}
+  .desk[data-state="watching"] .notch{box-shadow:0 8px 44px -10px rgba(142,230,255,.3)}
+  .desk[data-state="speaking"] .notch{box-shadow:0 8px 40px -10px rgba(255,184,107,.28)}
+  .ndrawer{width:300px;margin:6px auto 0;background:rgba(0,0,0,.92);border-radius:14px;
+    overflow:hidden;max-height:0;opacity:0;transform:translateY(-8px);
+    transition:max-height .45s cubic-bezier(.4,0,.2,1), opacity .35s, transform .45s}
+  .ndrawer.open{max-height:64px;opacity:1;transform:translateY(0)}
+  .ndrawer .inner{padding:12px 16px;font-family:var(--mono);font-size:11.5px;line-height:1.55;color:#cfccc4}
+  .ndrawer .caret{display:inline-block;width:6px;height:1em;transform:translateY(2px);
+    background:#8e8f8c;margin-left:2px;animation:caret 1s steps(1) infinite}
+  .desk .fakewin{position:absolute;border:1px solid rgba(255,255,255,.07);border-radius:10px;
+    background:rgba(12,13,18,.5);pointer-events:none}
+  .desk .fakewin .fbar{height:22px;border-bottom:1px solid rgba(255,255,255,.05)}
+
+  /* ---------- notes ---------- */
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:34px;margin-top:40px}
+  @media(max-width:820px){.cols{grid-template-columns:1fr}}
+  .cols h3{font-family:var(--mono);font-size:12px;letter-spacing:.06em;font-weight:500;margin-bottom:12px}
+  .cols .a h3{color:var(--amber)} .cols .b h3{color:var(--cyan)}
+  .cols p{font-size:13.5px;line-height:1.7;color:#b3b0bb}
+  .cols p+p{margin-top:10px}
+  .cols code{font-family:var(--mono);font-size:12px;color:#d8d4cc;background:#14151d;
+    border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+  footer{margin-top:40px;font-family:var(--mono);font-size:11px;color:#4e4c58;line-height:1.7;max-width:760px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>kao <span>顔 · the quiet build — inconspicuous outside, alive underneath</span></h1>
+  <p class="sub">your mnemos phosphor grid, worn as a face. no body at all this time — <b>just eyes on a dot
+  matrix inside a frame that looks like a dev tool someone left running.</b> the camouflage is the point:
+  it under-promises visually so the aliveness arrives as a discovery, not a claim. shape carries everything;
+  color appears only when it means something. white is the resting truth, the border breathes amber when it
+  works or talks, and <i>cyan remains the one law — eyes run cold only while reading your screen.</i></p>
+</header>
+
+<div class="statebar" id="statebar">
+  <button data-s="idle" class="on">1 · idle</button>
+  <button data-s="summoned">2 · summoned</button>
+  <button data-s="watching">3 · watching</button>
+  <button data-s="thinking">4 · thinking</button>
+  <button data-s="speaking">5 · speaking</button>
+  <button data-s="acting">6 · acting</button>
+  <div class="spacer"></div>
+  <button id="tour">auto tour</button>
+</div>
+<div class="hint">press 1–6 · the eyes track your cursor and glance around on their own ·
+  <b>click either study: summon → watching. click again to stand down.</b></div>
+
+<section class="study">
+  <div class="slabel">study a · the wip window — "just some indie tool"</div>
+  <div class="osw" id="osw" data-state="idle">
+    <div class="tbar">
+      <div class="dots"><i></i><i></i><i></i></div>
+      <span class="ttl">agent · local-01 — wip</span>
+      <span class="ver">v0.3 · offline-first</span>
+    </div>
+    <div class="screen">
+      <canvas id="cv-a"></canvas>
+      <span class="tag tl">display · alive underneath</span>
+      <span class="tag br" id="uptime">uptime · 41d 06:12:00</span>
+    </div>
+    <div class="wdrawer" id="wdrawer">
+      <div class="inner">
+        <span class="lbl">txt</span>
+        <span class="txt"><span id="wtxt"></span><span class="caret"></span></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="study">
+  <div class="slabel">study b · the notch — it was sleeping up there the whole time</div>
+  <div class="desk" id="desk" data-state="idle">
+    <div class="menubar">
+      <div class="l"><b>&#63743;</b><span>luca</span><span>file</span><span>edit</span><span>view</span><span>window</span></div>
+      <div class="r"><span>◐ 82%</span><span>wed 4:12 pm</span></div>
+    </div>
+    <div class="fakewin" style="top:64px;left:36px;width:300px;height:200px"><div class="fbar"></div></div>
+    <div class="fakewin" style="top:96px;right:44px;width:340px;height:190px"><div class="fbar"></div></div>
+    <div class="notchwrap" id="notchwrap">
+      <div class="notch" id="notch"><canvas id="cv-b"></canvas></div>
+      <div class="ndrawer" id="ndrawer">
+        <div class="inner"><span id="ntxt"></span><span class="caret"></span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="cols">
+  <div class="a">
+    <h3>the expression system — kaomoji, distilled to eyes</h3>
+    <p>every expression is one parametric eye morphing on the grid — width, height, crescent cut, skew, pupil.
+    resting is a soft half-open <code>- -</code>. summoned pops wide <code>o o</code>. watching is full round
+    with a dark pupil hole, cold-tinted <code>O O</code>. thinking half-lids and drifts up-left, slightly
+    asymmetric like <code>ō_o</code>. speaking is the crescent <code>^ ^</code> bouncing gently with the text.
+    acting skews into <code>&gt; &gt;</code> pointed wherever it's working. between any two of these it
+    interpolates through the same parameter space, so morphs are continuous — malleable, never frame-swapped —
+    and the phosphor fade leaves a breath of trail behind every movement.</p>
+  </div>
+  <div class="b">
+    <h3>why the camouflage frame wins</h3>
+    <p>a creature announces itself and asks to be loved. a wip window just sits there — mono labels, an uptime
+    counter, a version string — until you notice it noticed you. that discovery moment does more attachment
+    work than any amount of character design, and it fits how this actually ships: an indie-built thing that is
+    quietly connected to everything.</p>
+    <p>the notch is the strongest placement: dead space every mac owner already ignores, which means the agent
+    lives at the top of every screen without occupying any of it. asleep it's two dim dots. summoned, the notch
+    itself opens — the hardware seam becomes a door. text arrives on a drawer that slides out beneath it and
+    folds away when done.</p>
+  </div>
+</div>
+
+<footer>rig notes: one Phosphor grid (your mnemos class, verbatim mechanics — intensity field, fade trails,
+dot radius by charge), one parametric eye pair, one state machine shared by every placement. the same eyes
+scale from a 760px window to an 88px notch without redesign, and they'd survive being printed in a log line.
+color law is enforced at the display level: only watching may tint the phosphor.</footer>
+
+</div>
+
+<script>
+(() => {
+  const STATES = ['idle','summoned','watching','thinking','speaking','acting'];
+  let state = 'idle', stateStart = performance.now();
+  const mouse = { x: innerWidth/2, y: innerHeight/3 };
+  document.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+  const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+  const lerp = (a,b,k) => a + (b-a)*k;
+
+  /* ---------- phosphor (from mnemos, tint-capable) ---------- */
+  const DIM = [26,27,30];
+  class Phosphor{
+    constructor(cv, cell, ink, inkLit){
+      this.cv=cv; this.cell=cell; this.ink=ink??0.13; this.inkLit=inkLit??0.20;
+      this.dot=[239,239,237]; this.ok=false; this.resize();
+    }
+    resize(){
+      const r=this.cv.getBoundingClientRect();
+      if(r.width<4||r.height<4){this.ok=false;return false;}
+      const dpr=Math.min(devicePixelRatio||1,2);
+      this.cv.width=Math.round(r.width*dpr); this.cv.height=Math.round(r.height*dpr);
+      this.ctx=this.cv.getContext('2d'); this.ctx.setTransform(dpr,0,0,dpr,0,0);
+      this.w=r.width; this.h=r.height;
+      this.cols=Math.max(1,Math.floor(r.width/this.cell));
+      this.rows=Math.max(1,Math.floor(r.height/this.cell));
+      this.ox=(r.width-this.cols*this.cell)/2; this.oy=(r.height-this.rows*this.cell)/2;
+      this.q=new Float32Array(this.cols*this.rows); this.ok=true; return true;
+    }
+    maybeResize(){
+      const r=this.cv.getBoundingClientRect();
+      if(Math.abs(r.width-this.w)>2||Math.abs(r.height-this.h)>2) this.resize();
+    }
+    fade(k){ if(!this.ok)return; const q=this.q; for(let i=0;i<q.length;i++)q[i]*=k; }
+    set(x,y,v){
+      if(!this.ok)return; x=Math.round(x); y=Math.round(y);
+      if(x<0||y<0||x>=this.cols||y>=this.rows)return;
+      const i=y*this.cols+x; if(v>this.q[i])this.q[i]=v;
+    }
+    draw(){
+      if(!this.ok)return;
+      const {ctx,cell,cols,rows,ox,oy,q,ink,inkLit,dot}=this;
+      ctx.clearRect(0,0,this.w,this.h);
+      for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){
+        const c=q[y*cols+x];
+        const r=Math.round(DIM[0]+(dot[0]-DIM[0])*c),
+              g=Math.round(DIM[1]+(dot[1]-DIM[1])*c),
+              b=Math.round(DIM[2]+(dot[2]-DIM[2])*c);
+        ctx.fillStyle='rgb('+r+','+g+','+b+')';
+        ctx.beginPath();
+        ctx.arc(ox+x*cell+cell/2, oy+y*cell+cell/2, cell*(ink+inkLit*c), 0, 6.2832);
+        ctx.fill();
+      }
+    }
+  }
+
+  /* ---------- parametric eyes ---------- */
+  const WHITE=[239,239,237], CYAN=[150,232,255], AMBER=[255,204,140];
+  class Eyes{
+    constructor(ph, opts={}){
+      this.ph=ph;
+      this.scale=opts.scale??1;         // eye size relative to grid rows
+      this.idleH=opts.idleH??0.42;      // resting openness (notch sleeps lower)
+      this.L={w:1,h:.4,cres:.1,skew:0,pup:0}; this.R={w:1,h:.4,cres:.1,skew:0,pup:0};
+      this.tint=[...WHITE];
+      this.nextBlink=2+Math.random()*3; this.blinkUntil=0;
+      this.nextGlance=3+Math.random()*4; this.glanceUntil=0; this.gx=0; this.gy=0;
+      this.gaze={x:0,y:0};
+    }
+    targets(st, t){
+      const b={w:1,h:this.idleH,cres:.12,skew:0,pup:0};
+      const L={...b}, R={...b};
+      switch(st){
+        case 'summoned': L.h=R.h=.92; L.w=R.w=1.02; L.pup=R.pup=.28; L.cres=R.cres=0; break;
+        case 'watching': L.h=R.h=1.05; L.w=R.w=1.05; L.pup=R.pup=.42; L.cres=R.cres=0; break;
+        case 'thinking': L.h=.55; R.h=.38; L.cres=R.cres=.08; L.pup=R.pup=.22; break;
+        case 'speaking': L.h=R.h=.62; L.cres=R.cres=.9;
+          L.h*=1+.1*Math.sin(t*7); R.h*=1+.1*Math.sin(t*7+.4); break;
+        case 'acting':   L.h=R.h=.6; L.skew=R.skew=(this.gaze.x<-.05?-.55:.55); L.pup=R.pup=.3; L.cres=R.cres=0; break;
+      }
+      return [L,R];
+    }
+    step(t, st, dt){
+      const ph=this.ph; if(!ph.ok) return;
+      // blink / glance timers
+      if(t>this.nextBlink && st!=='watching'){
+        this.blinkUntil=t+.11; this.nextBlink=t+2.2+Math.random()*3.4;
+        if(Math.random()<.2) this.nextBlink=t+.5;         // occasional double blink
+      }
+      if(t>this.nextGlance){
+        this.glanceUntil=t+.5+Math.random()*.6;
+        this.nextGlance=t+3+Math.random()*5;
+        const a=Math.random()*6.28;
+        this.gtx=Math.cos(a); this.gty=Math.sin(a)*.6;
+      }
+      // gaze: cursor + autonomous glance
+      const r=ph.cv.getBoundingClientRect();
+      let tx=clamp((mouse.x-(r.left+r.width/2))/(r.width*.8),-1,1);
+      let ty=clamp((mouse.y-(r.top+r.height/2))/(Math.max(r.height,120)*.9),-1,1);
+      if(t<this.glanceUntil && st!=='watching'){ tx=this.gtx; ty=this.gty; }
+      if(st==='thinking'){ tx=-.7; ty=-.8; }
+      this.gaze.x=lerp(this.gaze.x,tx,.14); this.gaze.y=lerp(this.gaze.y,ty,.14);
+
+      // morph params
+      const [TL,TR]=this.targets(st,t);
+      const blink=t<this.blinkUntil;
+      for(const [cur,tgt] of [[this.L,TL],[this.R,TR]]){
+        for(const k of ['w','h','cres','skew','pup'])
+          cur[k]=lerp(cur[k], blink&&k==='h'?.1:tgt[k], .16);
+      }
+      // tint law: cyan only while watching; amber flash on summon
+      const stT=(performance.now()-stateStart)/1000;
+      let target=WHITE;
+      if(st==='watching') target=CYAN;
+      const flash=st==='summoned'?Math.exp(-stT*3):0;
+      for(let i=0;i<3;i++)
+        this.tint[i]=lerp(this.tint[i], target[i]*(1-flash)+AMBER[i]*flash, .08);
+      ph.dot=this.tint;
+
+      // render
+      ph.fade(.7);
+      const rows=ph.rows, cols=ph.cols;
+      const eh=rows*.30*this.scale, ew=eh*.78;
+      const sep=Math.max(ew*2.6, cols*.18);
+      const ecy=rows*.5 + this.gaze.y*rows*.06;
+      const bright={idle:.6,summoned:1,watching:1,thinking:.72,speaking:.9,acting:.85}[st]??.7;
+      const breath=1+.03*Math.sin(t*1.1);
+      [[-1,this.L],[1,this.R]].forEach(([side,p])=>{
+        const ecx=cols/2 + side*sep/2 + this.gaze.x*cols*.045;
+        const w=ew*p.w, h=Math.max(.8,eh*p.h*breath);
+        const px=this.gaze.x*w*.42, py=this.gaze.y*h*.45;
+        const x0=Math.floor(ecx-w-2), x1=Math.ceil(ecx+w+2);
+        const y0=Math.floor(ecy-h-2), y1=Math.ceil(ecy+h+2);
+        for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){
+          let nx=(x-ecx)/w + p.skew*((y-ecy)/h);
+          const ny=(y-ecy)/h;
+          const se=Math.pow(Math.abs(nx),2.4)+Math.pow(Math.abs(ny),2.4);
+          let v=clamp((1-se)/.35,0,1);
+          if(v<=0)continue;
+          if(p.cres>0.02){ // crescent cut from below
+            const cy2=(y-(ecy+p.cres*h*1.15))/h, cx2=nx/1.05;
+            if(cx2*cx2+cy2*cy2 < 1.05) v=0;
+          }
+          if(p.pup>0.02){ // pupil = unlit hole
+            const pdx=(x-ecx-px)/(w*p.pup), pdy=(y-ecy-py)/(h*p.pup);
+            if(pdx*pdx+pdy*pdy<1) v*=.06;
+          }
+          if(v>0) ph.set(x,y,v*bright);
+        }
+      });
+      ph.draw();
+    }
+  }
+
+  /* ---------- instances ---------- */
+  const phA=new Phosphor(document.getElementById('cv-a'), 7, .12, .21);
+  const phB=new Phosphor(document.getElementById('cv-b'), 4, .13, .22);
+  const eyesA=new Eyes(phA,{scale:1, idleH:.42});
+  const eyesB=new Eyes(phB,{scale:1.15, idleH:.2});
+
+  /* ---------- drawers + text ---------- */
+  const wdrawer=document.getElementById('wdrawer'), wtxt=document.getElementById('wtxt');
+  const ndrawer=document.getElementById('ndrawer'), ntxt=document.getElementById('ntxt');
+  const WLINE="deploy finished while you were in figma — all green. the draft email's been open 40 min. send it?";
+  const NLINE="build's green. your 2pm moved to 3.";
+  function typeInto(el,text){ clearInterval(el._tw); el.textContent='';
+    let i=0; el._tw=setInterval(()=>{ el.textContent=text.slice(0,++i);
+      if(i>=text.length)clearInterval(el._tw); },26); }
+
+  /* ---------- state machine ---------- */
+  const bar=document.getElementById('statebar');
+  const osw=document.getElementById('osw'), desk=document.getElementById('desk');
+  function setState(s){
+    if(!STATES.includes(s))return;
+    state=s; stateStart=performance.now();
+    bar.querySelectorAll('button[data-s]').forEach(b=>b.classList.toggle('on',b.dataset.s===s));
+    osw.dataset.state=s; desk.dataset.state=s;
+    if(s==='speaking'){
+      wdrawer.classList.add('open'); ndrawer.classList.add('open');
+      typeInto(wtxt,WLINE); typeInto(ntxt,NLINE);
+    } else {
+      wdrawer.classList.remove('open'); ndrawer.classList.remove('open');
+      clearInterval(wtxt._tw); clearInterval(ntxt._tw);
+    }
+  }
+  bar.addEventListener('click',e=>{
+    const b=e.target.closest('button[data-s]'); if(b){stopTour();setState(b.dataset.s);}
+  });
+  document.addEventListener('keydown',e=>{
+    const i=parseInt(e.key)-1;
+    if(i>=0&&i<STATES.length){stopTour();setState(STATES[i]);}
+  });
+  let tourTimer=null;
+  const tourBtn=document.getElementById('tour');
+  function stopTour(){clearInterval(tourTimer);tourTimer=null;tourBtn.classList.remove('on');}
+  tourBtn.addEventListener('click',()=>{
+    if(tourTimer)return stopTour();
+    tourBtn.classList.add('on');
+    let i=STATES.indexOf(state);
+    tourTimer=setInterval(()=>{i=(i+1)%STATES.length;setState(STATES[i]);},4200);
+  });
+  let consentTimer=null;
+  function consentClick(){
+    stopTour(); clearTimeout(consentTimer);
+    if(state==='watching')return setState('idle');
+    setState('summoned');
+    consentTimer=setTimeout(()=>setState('watching'),1100);
+  }
+  osw.addEventListener('click',consentClick);
+  document.getElementById('notchwrap').addEventListener('click',consentClick);
+
+  /* ---------- uptime tick ---------- */
+  const up=document.getElementById('uptime');
+  let secs=41*86400+6*3600+12*60;
+  setInterval(()=>{secs++;
+    const dd=Math.floor(secs/86400), hh=String(Math.floor(secs%86400/3600)).padStart(2,'0'),
+          mm=String(Math.floor(secs%3600/60)).padStart(2,'0'), ss=String(secs%60).padStart(2,'0');
+    up.textContent=`uptime · ${dd}d ${hh}:${mm}:${ss}`;
+  },1000);
+
+  /* ---------- loop ---------- */
+  let last=performance.now();
+  function loop(now){
+    const t=now/1000, dt=(now-last)/1000; last=now;
+    phA.maybeResize(); phB.maybeResize();
+    eyesA.step(t,state,dt);
+    eyesB.step(t,state,dt);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
