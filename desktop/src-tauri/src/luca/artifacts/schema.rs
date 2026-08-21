@@ -125,8 +125,7 @@ pub(super) fn open_database(path: &Path) -> Result<Connection, ArtifactStoreErro
         path,
         OpenFlags::SQLITE_OPEN_READ_WRITE
             | OpenFlags::SQLITE_OPEN_CREATE
-            | OpenFlags::SQLITE_OPEN_NO_MUTEX
-            | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .map_err(|_| ArtifactStoreError::Unavailable)?;
     connection
