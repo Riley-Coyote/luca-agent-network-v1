@@ -127,6 +127,7 @@ export function AppSidebar({
   onCreateAgent,
   onSelectAgents,
   onSelectBrain,
+  onSelectArtifacts,
   onSelectInbox,
   onSelectProjects: _onSelectProjects,
   onSelectPulse,
@@ -539,6 +540,7 @@ export function AppSidebar({
             onNewMessage={onNewMessage}
             onSelectAgents={onSelectAgents}
             onSelectBrain={onSelectBrain}
+            onSelectArtifacts={onSelectArtifacts}
             onSelectInbox={onSelectInbox}
             onSelectPulse={onSelectPulse}
             onSelectSettings={onSelectSettings}

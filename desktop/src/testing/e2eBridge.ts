@@ -1237,6 +1237,160 @@ const CHANNEL_WINDOW_AUX_DELETION_KINDS = new Set([
 // asserts against this exact port.
 const MOCK_MEDIA_PROXY_PORT = 54321;
 
+type MockArtifact = {
+  id: string;
+  title: string;
+  kind: string;
+  media_type: string;
+  language: string | null;
+  current_version: number;
+  current_version_id: string | null;
+  size_bytes: number | null;
+  created_at: string;
+  updated_at: string;
+  pinned: boolean;
+  deleted_at: string | null;
+  availability: string;
+  summary: string;
+  provenance: Record<string, unknown>;
+  source_binding: Record<string, unknown> | null;
+  versions: Array<Record<string, unknown>>;
+  preview: Record<string, unknown>;
+  active_preview_session_id?: string | null;
+};
+
+const mockArtifactHtml = `<!doctype html><html><head><title>The threshold</title><style>*{box-sizing:border-box}body{margin:0;background:#eeede8;color:#15171a;font-family:system-ui}main{min-height:100vh;display:grid;grid-template-rows:auto 1fr auto;padding:34px 42px}header,footer{display:flex;justify-content:space-between;border-bottom:1px solid #15171a33;padding-bottom:16px;font:10px monospace;letter-spacing:.16em;text-transform:uppercase}.hero{display:grid;grid-template-columns:1.3fr .7fr;gap:8vw;align-items:end}.index{font:10px monospace;letter-spacing:.16em;text-transform:uppercase;color:#3d5a80}h1{margin:18px 0;font:300 clamp(54px,8vw,104px)/.86 Georgia,serif;letter-spacing:-.065em}.copy{border-top:1px solid #15171a44;padding-top:18px;font-size:1.125rem;line-height:1.5}footer{border:0;border-top:1px solid #15171a33;padding-top:16px}</style></head><body><main><header><span>Polyphonic · study 03</span><span>Canvas</span></header><section class="hero"><div><div class="index">A place for work that keeps becoming</div><h1>The threshold is not a screen.</h1></div><p class="copy">It is the point where a conversation becomes something you can hold, revise, and return to.</p></section><footer><span>One continuous record</span><span>August 21, 2026</span></footer></main></body></html>`;
+const mockArtifactMarkdown = `# Conversation model\n\nSix words hold the house together:\n\n- **resident** — a stable identity\n- **DM** — one persistent conversation\n- **room** — work with one or many residents\n- **artifact** — durable work made visible\n\nThe interface should make those relationships legible without turning them into ceremony.`;
+
+let mockArtifacts: MockArtifact[] = [
+  {
+    id: "threshold-study",
+    title: "threshold-study.html",
+    kind: "html",
+    media_type: "text/html",
+    language: "html",
+    current_version: 3,
+    current_version_id: "threshold-v3",
+    size_bytes: 8421,
+    created_at: "2026-08-20T20:51:00Z",
+    updated_at: "2026-08-21T02:42:00Z",
+    pinned: true,
+    deleted_at: null,
+    availability: "ready",
+    summary:
+      "A responsive study for the threshold between conversation and durable work.",
+    provenance: {
+      conversation_id: "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50",
+      conversation_label: "Polyphonic",
+      project_id: "polyphonic",
+      project_label: "Polyphonic",
+      resident_pubkey:
+        "953d3363262e86b770419834c53d2446409db6d918a57f8f339d495d54ab001f",
+      resident_name: "Luca",
+      turn_id: "turn-threshold",
+      dispatch_receipt_id: "dispatch-threshold",
+      final_message_id: "mock-general-alice",
+    },
+    source_binding: null,
+    versions: [3, 2, 1].map((version) => ({
+      id: `threshold-v${version}`,
+      number: version,
+      created_at: `2026-08-21T0${version}:42:00Z`,
+      note:
+        version === 3
+          ? "Tightened the thesis and lower measure."
+          : "Earlier complete direction.",
+      size_bytes: 8421 - (3 - version) * 420,
+      size_label: `${(8.4 - (3 - version) * 0.4).toFixed(1)} KB`,
+      media_type: "text/html",
+      content_hash: `sha256:threshold-${version}`,
+    })),
+    preview: {
+      capability: "html",
+      media_type: "text/html",
+      text: mockArtifactHtml,
+    },
+    active_preview_session_id: null,
+  },
+  {
+    id: "conversation-model",
+    title: "conversation-model.md",
+    kind: "markdown",
+    media_type: "text/markdown",
+    language: "markdown",
+    current_version: 2,
+    current_version_id: "conversation-v2",
+    size_bytes: 1240,
+    created_at: "2026-08-19T19:14:00Z",
+    updated_at: "2026-08-20T23:10:00Z",
+    pinned: false,
+    deleted_at: null,
+    availability: "ready",
+    summary: "The durable vocabulary for residents, rooms, and created work.",
+    provenance: {
+      conversation_id: "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50",
+      conversation_label: "Luca",
+      resident_pubkey:
+        "554cef57437abac34522ac2c9f0490d685b72c80478cf9f7ed6f9570ee8624ea",
+      resident_name: "Vektor",
+      turn_id: "turn-model",
+    },
+    source_binding: null,
+    versions: [
+      {
+        id: "conversation-v2",
+        number: 2,
+        created_at: "2026-08-20T23:10:00Z",
+        note: "Clarified artifact language.",
+        size_bytes: 1240,
+        size_label: "1.2 KB",
+      },
+    ],
+    preview: {
+      capability: "markdown",
+      media_type: "text/markdown",
+      text: mockArtifactMarkdown,
+    },
+    active_preview_session_id: null,
+  },
+  {
+    id: "local-app",
+    title: "resident-field",
+    kind: "app",
+    media_type: "application/x-luca-app",
+    language: null,
+    current_version: 1,
+    current_version_id: null,
+    size_bytes: null,
+    created_at: "2026-08-21T03:02:00Z",
+    updated_at: "2026-08-21T03:14:00Z",
+    pinned: false,
+    deleted_at: null,
+    availability: "ready",
+    summary:
+      "A source-bound local application with an attached development preview.",
+    provenance: {
+      conversation_id: "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50",
+      conversation_label: "Polyphonic",
+      resident_pubkey:
+        "953d3363262e86b770419834c53d2446409db6d918a57f8f339d495d54ab001f",
+      resident_name: "Luca",
+      turn_id: "turn-app",
+    },
+    source_binding: {
+      kind: "directory",
+      relative_path: "apps/resident-field",
+      availability: "available",
+    },
+    versions: [],
+    preview: { capability: "app", media_type: "application/x-luca-app" },
+    active_preview_session_id: "preview-local-app",
+  },
+];
+
+let mockPreviewSessionStatus: "starting" | "ready" | "unreachable" | "stopped" =
+  "ready";
+
 // A relay-hosted custom emoji used by the reaction guard. Its URL matches
 // `rewriteRelayUrl()`'s `/media/{64-hex}.{ext}` pattern on the relay origin, so
 // reacting with it exercises the proxy rewrite (unlike the `:buzz:` fixture,
@@ -10530,6 +10684,156 @@ export function maybeInstallE2eTauriMocks() {
     window.__BUZZ_E2E_COMMAND_LOG__?.push({ command, payload });
 
     switch (command) {
+      case "list_artifacts": {
+        const filter =
+          (
+            (payload ?? {}) as {
+              input?: {
+                query?: string;
+                kind?: string;
+                includeDeleted?: boolean;
+              };
+            }
+          ).input ?? {};
+        const query = filter.query?.trim().toLowerCase() ?? "";
+        const artifacts = mockArtifacts.filter((artifact) => {
+          if (!filter.includeDeleted && artifact.deleted_at) return false;
+          if (filter.includeDeleted && !artifact.deleted_at) return false;
+          if (filter.kind && artifact.kind !== filter.kind) return false;
+          return (
+            !query ||
+            `${artifact.title} ${artifact.summary} ${String(artifact.provenance.resident_name ?? "")}`
+              .toLowerCase()
+              .includes(query)
+          );
+        });
+        return { artifacts, next_cursor: null, total: artifacts.length };
+      }
+      case "get_artifact": {
+        const artifactId = (
+          payload as { input?: { artifactId?: string } } | null
+        )?.input?.artifactId;
+        const artifact = mockArtifacts.find((item) => item.id === artifactId);
+        if (!artifact) throw new Error("artifact unavailable");
+        return artifact;
+      }
+      case "list_artifact_versions": {
+        const artifactId = (
+          payload as { input?: { artifactId?: string } } | null
+        )?.input?.artifactId;
+        return (
+          mockArtifacts.find((item) => item.id === artifactId)?.versions ?? []
+        );
+      }
+      case "read_artifact_preview": {
+        const input =
+          (
+            (payload ?? {}) as {
+              input?: { artifactId?: string; version?: number | null };
+            }
+          ).input ?? {};
+        const artifact = mockArtifacts.find(
+          (item) => item.id === input.artifactId,
+        );
+        if (!artifact) throw new Error("artifact unavailable");
+        return {
+          artifact_id: artifact.id,
+          version: input.version ?? artifact.current_version,
+          version_id: artifact.current_version_id,
+          language: artifact.language,
+          truncated: false,
+          availability: artifact.availability,
+          safe_message: null,
+          ...artifact.preview,
+        };
+      }
+      case "list_artifact_receipts":
+        return { receipts: [] };
+      case "get_preview_session":
+      case "refresh_preview_health":
+        return {
+          id: "preview-local-app",
+          artifact_id: "local-app",
+          display_url: "http://127.0.0.1:4182",
+          proxy_url: "about:blank",
+          status: mockPreviewSessionStatus,
+          conversation_id: "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50",
+          resident_pubkey: ALICE_PUBKEY,
+          turn_id: "turn-app",
+          attached_at: "2026-08-21T03:14:00Z",
+          checked_at: new Date().toISOString(),
+        };
+      case "detach_preview_session":
+        mockPreviewSessionStatus = "stopped";
+        return null;
+      case "import_artifact_from_picker":
+        return null;
+      case "pin_artifact": {
+        const input =
+          (
+            (payload ?? {}) as {
+              input?: { artifactId?: string; pinned?: boolean };
+            }
+          ).input ?? {};
+        mockArtifacts = mockArtifacts.map((artifact) =>
+          artifact.id === input.artifactId
+            ? { ...artifact, pinned: input.pinned ?? false }
+            : artifact,
+        );
+        return mockArtifacts.find(
+          (artifact) => artifact.id === input.artifactId,
+        );
+      }
+      case "soft_delete_artifact": {
+        const artifactId = (
+          payload as { input?: { artifactId?: string } } | null
+        )?.input?.artifactId;
+        mockArtifacts = mockArtifacts.map((artifact) =>
+          artifact.id === artifactId
+            ? { ...artifact, deleted_at: new Date().toISOString() }
+            : artifact,
+        );
+        return null;
+      }
+      case "restore_artifact": {
+        const artifactId = (
+          payload as { input?: { artifactId?: string } } | null
+        )?.input?.artifactId;
+        mockArtifacts = mockArtifacts.map((artifact) =>
+          artifact.id === artifactId
+            ? { ...artifact, deleted_at: null }
+            : artifact,
+        );
+        return mockArtifacts.find((artifact) => artifact.id === artifactId);
+      }
+      case "revert_artifact": {
+        const input =
+          ((payload ?? {}) as { input?: { artifactId?: string } }).input ?? {};
+        mockArtifacts = mockArtifacts.map((artifact) =>
+          artifact.id === input.artifactId
+            ? {
+                ...artifact,
+                current_version: artifact.current_version + 1,
+                current_version_id: `${artifact.id}-v${artifact.current_version + 1}`,
+              }
+            : artifact,
+        );
+        return mockArtifacts.find(
+          (artifact) => artifact.id === input.artifactId,
+        );
+      }
+      case "export_artifact":
+        return null;
+      case "set_artifact_canvas_window_open":
+        return {
+          mode:
+            window.innerWidth >= 1600
+              ? "expanded"
+              : window.innerWidth >= 1024
+                ? "contained"
+                : "focus",
+          changed: false,
+        };
       case "discover_connected_brain_sources":
       case "list_connected_brain_sources":
         return connectedBrainInventory();

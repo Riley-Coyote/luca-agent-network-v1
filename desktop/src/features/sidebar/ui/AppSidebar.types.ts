@@ -34,6 +34,7 @@ export type AppSidebarProps = {
     | "messages"
     | "agents"
     | "brain"
+    | "artifacts"
     | "workflows"
     | "pulse"
     | "projects";
@@ -78,6 +79,7 @@ export type AppSidebarProps = {
   onCreateAgent: () => void;
   onSelectAgents: () => void;
   onSelectBrain: () => void;
+  onSelectArtifacts: () => void;
   onSelectInbox: () => void;
   onSelectProjects: () => void;
   onSelectPulse: () => void;

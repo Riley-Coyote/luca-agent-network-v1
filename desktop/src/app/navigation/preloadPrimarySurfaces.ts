@@ -18,6 +18,12 @@ export function preloadBrainSurface() {
   return warmSurface(() => import("@/features/luca/brain/BrainScreen"));
 }
 
+export function preloadArtifactsSurface() {
+  return warmSurface(
+    () => import("@/features/artifacts/ui/ArtifactLibraryScreen"),
+  );
+}
+
 export function preloadActivitySurface() {
   return warmSurface(() => import("@/features/pulse/ui/PulseScreen"));
 }
@@ -31,6 +37,7 @@ export function preloadPrimaryNavigationSurfaces() {
     preloadConversationSurface(),
     preloadAgentsSurface(),
     preloadBrainSurface(),
+    preloadArtifactsSurface(),
     preloadActivitySurface(),
     preloadSettingsSurface(),
   ]);

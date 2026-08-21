@@ -2,6 +2,9 @@ import * as React from "react";
 import { Hash, LogIn } from "lucide-react";
 import { toast } from "sonner";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { useArtifactReceipts } from "@/features/artifacts/hooks";
+import { ArtifactReceiptChip } from "@/features/artifacts/ui/ArtifactReceiptChip";
+import { managedPresentationUiKey } from "@/features/messages/managedPresentationTypes";
 import { useMediaUpload } from "@/features/messages/lib/useMediaUpload";
 import { MessageComposer } from "@/features/messages/ui/MessageComposer";
 import { ComposerTimeoutBanner } from "@/features/moderation/ui/ComposerTimeoutBanner";
@@ -626,6 +629,26 @@ export const ChannelPane = React.memo(function ChannelPane({
       residentPersonaIdLookup,
     ],
   );
+  const artifactReceiptsQuery = useArtifactReceipts(activeChannelId);
+  const artifactMessageFooters = React.useMemo(() => {
+    const footers: Record<string, React.ReactNode> = {};
+    for (const receipt of artifactReceiptsQuery.data ?? []) {
+      const key =
+        receipt.finalMessageId ??
+        managedPresentationUiKey(
+          receipt.residentPubkey,
+          receipt.dispatchReceiptId,
+        );
+      const current = footers[key];
+      footers[key] = (
+        <div className="flex flex-wrap gap-2">
+          {current}
+          <ArtifactReceiptChip receipt={receipt} />
+        </div>
+      );
+    }
+    return footers;
+  }, [artifactReceiptsQuery.data]);
   const projectedRoomMessages = React.useMemo(() => {
     const projected = projectManagedTimelineMessages(
       visibleMessages,
@@ -816,6 +839,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                 isFetchingOlder={isFetchingOlder}
                 isFollowingThreadById={isFollowingThreadById}
                 isMessageUnreadById={isMessageUnreadById}
+                messageFooters={artifactMessageFooters}
                 personaLookup={personaLookup}
                 profiles={profiles}
                 ownerProfiles={ownerProfiles}

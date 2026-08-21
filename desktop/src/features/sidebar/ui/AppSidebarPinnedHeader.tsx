@@ -1,9 +1,18 @@
-import { Activity, Bot, Brain, Inbox, Plus, Settings } from "lucide-react";
+import {
+  Activity,
+  Bot,
+  Brain,
+  Inbox,
+  Library,
+  Plus,
+  Settings,
+} from "lucide-react";
 
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
 import {
   preloadActivitySurface,
   preloadAgentsSurface,
+  preloadArtifactsSurface,
   preloadBrainSurface,
   preloadSettingsSurface,
 } from "@/app/navigation/preloadPrimarySurfaces";
@@ -25,6 +34,7 @@ type SidebarSelectedView =
   | "messages"
   | "agents"
   | "brain"
+  | "artifacts"
   | "workflows"
   | "pulse"
   | "projects";
@@ -48,6 +58,7 @@ type AppSidebarPrimaryMenuProps = {
   onNewMessage: () => void;
   onSelectAgents: () => void;
   onSelectBrain: () => void;
+  onSelectArtifacts: () => void;
   onSelectInbox: () => void;
   onSelectPulse: () => void;
   onSelectSettings: () => void;
@@ -94,6 +105,7 @@ export function AppSidebarPrimaryMenu({
   onNewMessage,
   onSelectAgents,
   onSelectBrain,
+  onSelectArtifacts,
   onSelectInbox,
   onSelectPulse,
   onSelectSettings,
@@ -111,6 +123,20 @@ export function AppSidebarPrimaryMenu({
       data-testid="sidebar-primary-menu"
     >
       <SidebarMenu className="pb-2">
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            data-testid="open-artifacts-view"
+            isActive={selectedView === "artifacts"}
+            onFocus={() => void preloadArtifactsSurface()}
+            onClick={onSelectArtifacts}
+            onPointerEnter={() => void preloadArtifactsSurface()}
+            tooltip="Library"
+            type="button"
+          >
+            <Library className="h-4 w-4" />
+            <SidebarMenuLabel>Library</SidebarMenuLabel>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
         <SidebarMenuItem>
           <SidebarMenuButton
             data-luca-primary-action="new-conversation"

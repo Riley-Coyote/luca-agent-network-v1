@@ -58,3 +58,10 @@ test("deriveShellRoute_preservesChannelSelection", () => {
     selectedView: "channel",
   });
 });
+
+test("deriveShellRoute_selectsArtifactLibraryWithoutAConversation", () => {
+  assert.deepEqual(deriveShellRoute("/artifacts"), {
+    selectedChannelId: null,
+    selectedView: "artifacts",
+  });
+});

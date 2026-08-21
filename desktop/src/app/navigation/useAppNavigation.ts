@@ -86,6 +86,17 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  const goArtifacts = React.useCallback(
+    (behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/artifacts",
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
   const goInbox = React.useCallback(
     (behavior?: NavigationBehavior) =>
       commitNavigation(
@@ -353,6 +364,7 @@ export function useAppNavigation() {
     closeWorkflowDetail,
     goAgent,
     goAgents,
+    goArtifacts,
     goBrain,
     goChannel,
     goForumPost,
