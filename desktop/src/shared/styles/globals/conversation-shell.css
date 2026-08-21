@@ -176,38 +176,29 @@
   overflow: hidden;
 }
 
-/* The visit rail. A visit is a parenthesis in the room's conversation, from
-   "stepped in" to "stepped out" — but a filled plate is a heavy way to say so.
-   One hairline down the left margin of the reading plane spans the passage
-   instead: the rows keep their own alignment and their own ground, and the
-   line alone holds them together. It begins at the arrival mark and ends at
-   the departure line; a visit still under way has no end row yet, so the rail
-   simply runs on toward the newest message. */
+/* A visit is an aside inside the room's conversation, and asides have been
+   drawn the same way for as long as there has been threaded text: indent the
+   passage and run a rule down the indent. It is the blockquote rule
+   (`border-left` + `padding-left`), the same shape as a nested comment thread
+   or a quoted reply. Two things make it read: the content moves right, and
+   the rule marks where it moved from. Neither works without the other — a
+   rule with no indent is just a stray line in the margin.
+   The rows are separate virtualized elements, so each carries the border; they
+   stack edge to edge (see the visit-span annotation), so the rule is
+   continuous down the passage. */
 :root[data-luca-shell] [data-luca-reading-plane][data-visit-span] {
-  position: relative;
+  border-left: 2px solid hsl(var(--mn-ink) / 0.14);
+  padding-left: 1rem;
 }
 
-:root[data-luca-shell] [data-luca-reading-plane][data-visit-span]::before {
-  background: hsl(var(--mn-ink) / 0.16);
-  border-radius: 1px;
-  bottom: 0;
-  content: "";
-  left: 0;
-  position: absolute;
-  top: 0;
-  width: 1px;
+/* A little air inside the quote at its two ends, so the first and last lines
+   do not sit flush against the rule's start and finish. */
+:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="start"] {
+  padding-top: 0.25rem;
 }
 
-/* Start and end at the note's own line, not at the row's edge, so the rail
-   reads as drawn between the two thresholds rather than clipped by them. */
-:root[data-luca-shell]
-  [data-luca-reading-plane][data-visit-span="start"]::before {
-  top: 1.0625rem;
-}
-
-:root[data-luca-shell]
-  [data-luca-reading-plane][data-visit-span="end"]::before {
-  bottom: 0.9375rem;
+:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="end"] {
+  padding-bottom: 0.25rem;
 }
 
 /* With the rail collapsed there is no seam to hug, so the left lip matches the
