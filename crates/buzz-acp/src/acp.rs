@@ -42,6 +42,8 @@ const LUCA_DESCENDANT_FORBIDDEN_ENV: &[&str] = &[
     "BUZZ_ACP_COMMUNICATIONS_MCP_CONFIG",
     "BUZZ_ACP_ARTIFACT_MCP_COMMAND",
     "BUZZ_ACP_ARTIFACT_MCP_CONFIG",
+    "BUZZ_ACP_ARTIFACT_MCP_SUPPORT",
+    "BUZZ_ACP_ARTIFACT_MCP_PROBE_KEY",
     "BUZZ_ACP_DIRECT_PRIVATE_KEY",
     "LUCA_COMMUNICATIONS_MODE",
     "LUCA_COMMUNICATIONS_ENDPOINT",
@@ -2323,6 +2325,16 @@ fn observer_payload_for_managed_read(
     value: &serde_json::Value,
     sensitive_tool_call_ids: &mut std::collections::HashSet<String>,
 ) -> serde_json::Value {
+    if value.get("method").is_none() && value.get("id").is_some() {
+        let error_code = value.pointer("/error/code").cloned();
+        return serde_json::json!({
+            "jsonrpc": value.get("jsonrpc").cloned().unwrap_or(serde_json::Value::Null),
+            "id": value.get("id").cloned().unwrap_or(serde_json::Value::Null),
+            "status": if value.get("error").is_some() { "error" } else { "success" },
+            "errorCode": error_code,
+            "bodyRedacted": true,
+        });
+    }
     let Some(update) = value.pointer("/params/update") else {
         return value.clone();
     };
@@ -2393,22 +2405,67 @@ fn observer_payload_for_managed_read(
 }
 
 fn artifact_tool_name(update: &serde_json::Value) -> Option<&'static str> {
-    let candidates = [
+    let raw_server = update
+        .pointer("/rawInput/server")
+        .and_then(serde_json::Value::as_str);
+    let raw_tool = update
+        .pointer("/rawInput/tool")
+        .and_then(serde_json::Value::as_str);
+    if let (Some(server), Some(tool)) = (raw_server, raw_tool) {
+        if is_artifact_server_name(server) {
+            return artifact_leaf_tool_name(tool);
+        }
+    }
+
+    [
         update.get("title").and_then(serde_json::Value::as_str),
         update
-            .pointer("/rawInput/toolName")
+            .pointer("/_meta/claudeCode/toolName")
             .and_then(serde_json::Value::as_str),
-        update
-            .pointer("/rawInput/tool_name")
-            .and_then(serde_json::Value::as_str),
-        update
-            .pointer("/rawInput/name")
-            .and_then(serde_json::Value::as_str),
-    ];
+    ]
+    .into_iter()
+    .flatten()
+    .find_map(qualified_artifact_tool_name)
+}
+
+fn is_artifact_server_name(value: &str) -> bool {
+    let Some(suffix) = value.strip_prefix("luca-artifacts-") else {
+        return false;
+    };
+    suffix.len() == 12
+        && suffix
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn artifact_leaf_tool_name(value: &str) -> Option<&'static str> {
     ARTIFACT_TOOL_NAMES
         .iter()
         .copied()
-        .find(|name| candidates.into_iter().flatten().any(|value| value == *name))
+        .find(|name| value == *name)
+}
+
+fn qualified_artifact_tool_name(value: &str) -> Option<&'static str> {
+    if let Some(qualified) = value.strip_prefix("mcp.") {
+        let (server, tool) = qualified.rsplit_once('.')?;
+        return is_artifact_server_name(server)
+            .then(|| artifact_leaf_tool_name(tool))
+            .flatten();
+    }
+    if let Some(qualified) = value.strip_prefix("mcp__") {
+        let (server, tool) = qualified.rsplit_once("__")?;
+        return is_artifact_server_name(server)
+            .then(|| artifact_leaf_tool_name(tool))
+            .flatten();
+    }
+    let qualified = value.strip_prefix("mcp_luca_artifacts_")?;
+    let (server_suffix, tool) = qualified.split_once('_')?;
+    (server_suffix.len() == 12
+        && server_suffix
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
+    .then(|| artifact_leaf_tool_name(tool))
+    .flatten()
 }
 
 fn observer_payload_for_write(value: &serde_json::Value) -> serde_json::Value {
@@ -3391,6 +3448,12 @@ mod tests {
             .expect("failed to spawn test script")
     }
 
+    async fn spawn_managed_script(script: &str) -> AcpClient {
+        AcpClient::spawn_managed("bash", &["-c".into(), script.into()], &[], false)
+            .await
+            .expect("failed to spawn managed test script")
+    }
+
     #[tokio::test]
     async fn prompt_write_reaches_runtime_but_observer_and_debug_are_body_free() {
         use tracing::instrument::WithSubscriber;
@@ -3452,53 +3515,225 @@ mod tests {
     }
 
     #[test]
-    fn managed_artifact_tool_observer_frames_are_body_and_path_free() {
+    fn real_adapter_artifact_names_require_the_exact_server_namespace() {
+        let suffix = "0123abcdef45";
+        for tool in ARTIFACT_TOOL_NAMES {
+            assert_eq!(
+                qualified_artifact_tool_name(&format!("mcp.luca-artifacts-{suffix}.{tool}")),
+                Some(*tool)
+            );
+            assert_eq!(
+                qualified_artifact_tool_name(&format!("mcp__luca-artifacts-{suffix}__{tool}")),
+                Some(*tool)
+            );
+            assert_eq!(
+                qualified_artifact_tool_name(&format!("mcp_luca_artifacts_{suffix}_{tool}")),
+                Some(*tool)
+            );
+        }
+        for lookalike in [
+            "artifact_create",
+            "mcp.other.artifact_create",
+            "mcp.luca-artifacts-0123abcdef4.artifact_create",
+            "mcp.luca-artifacts-0123ABCDEF45.artifact_create",
+            "mcp__luca-artifacts-0123abcdef456__artifact_create",
+            "mcp_luca_artifacts_0123abcdeg45_artifact_create",
+            "mcp_luca_artifacts_0123abcdef45_shell",
+        ] {
+            assert_eq!(
+                qualified_artifact_tool_name(lookalike),
+                None,
+                "accepted unsafe artifact tool lookalike: {lookalike}"
+            );
+        }
+    }
+
+    #[test]
+    fn real_adapter_artifact_start_update_and_completion_frames_are_body_free() {
         const BODY: &str = "PRIVATE_ARTIFACT_BODY_SENTINEL";
         const PATH: &str = "private/source/path.md";
         const URL: &str = "http://127.0.0.1:4173/private";
         let mut ids = std::collections::HashSet::new();
-        let start = serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": "session/update",
-            "params": {
-                "sessionId": "session-1",
-                "update": {
-                    "sessionUpdate": "tool_call",
-                    "toolCallId": "tool-1",
-                    "title": "artifact_create",
-                    "kind": "other",
-                    "status": "in_progress",
-                    "rawInput": {"content_utf8": BODY, "relative_path": PATH, "url": URL}
-                }
-            }
-        });
-        let redacted = observer_payload_for_managed_read(&start, &mut ids);
-        let encoded = serde_json::to_string(&redacted).unwrap();
-        assert!(!encoded.contains(BODY));
-        assert!(!encoded.contains(PATH));
-        assert!(!encoded.contains(URL));
-        assert_eq!(redacted["params"]["update"]["bodyRedacted"], true);
-
-        let complete = serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": "session/update",
-            "params": {
-                "sessionId": "session-1",
-                "update": {
-                    "sessionUpdate": "tool_call_update",
-                    "toolCallId": "tool-1",
-                    "status": "completed",
-                    "content": [{"type": "text", "text": BODY}],
+        let fixtures = [
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {"sessionId": "session-1", "update": {
+                    "sessionUpdate": "tool_call", "toolCallId": "codex-1",
+                    "title": "mcp.luca-artifacts-0123abcdef45.artifact_create",
+                    "kind": "execute", "status": "in_progress",
+                    "rawInput": {"server": "luca-artifacts-0123abcdef45", "tool": "artifact_create", "arguments": {"content_utf8": BODY, "relative_path": PATH, "url": URL}}
+                }}
+            }),
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {"sessionId": "session-1", "update": {
+                    "sessionUpdate": "tool_call", "toolCallId": "claude-1",
+                    "title": "mcp__luca-artifacts-0123abcdef45__preview_attach",
+                    "kind": "other", "status": "pending",
+                    "rawInput": {"artifact_id": BODY, "url": URL},
+                    "_meta": {"claudeCode": {"toolName": "mcp__luca-artifacts-0123abcdef45__preview_attach"}}
+                }}
+            }),
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {"sessionId": "session-1", "update": {
+                    "sessionUpdate": "tool_call", "toolCallId": "hermes-1",
+                    "title": "mcp_luca_artifacts_0123abcdef45_artifact_update",
+                    "kind": "other", "status": "pending",
+                    "rawInput": {"content_utf8": BODY, "relative_path": PATH}
+                }}
+            }),
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {"sessionId": "session-1", "update": {
+                    "sessionUpdate": "tool_call_update", "toolCallId": "claude-1",
+                    "title": "mcp__luca-artifacts-0123abcdef45__preview_attach",
+                    "status": "in_progress", "rawInput": {"url": URL},
+                    "_meta": {"claudeCode": {"toolName": "mcp__luca-artifacts-0123abcdef45__preview_attach"}}
+                }}
+            }),
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {"sessionId": "session-1", "update": {
+                    "sessionUpdate": "tool_call_update", "toolCallId": "codex-1",
+                    "status": "completed", "content": [{"type": "text", "text": BODY}],
                     "rawOutput": {"relative_path": PATH, "url": URL}
-                }
-            }
-        });
-        let redacted = observer_payload_for_managed_read(&complete, &mut ids);
-        let encoded = serde_json::to_string(&redacted).unwrap();
-        assert!(!encoded.contains(BODY));
-        assert!(!encoded.contains(PATH));
-        assert!(!encoded.contains(URL));
-        assert!(!ids.contains("tool-1"));
+                }}
+            }),
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {"sessionId": "session-1", "update": {
+                    "sessionUpdate": "tool_call_update", "toolCallId": "claude-1",
+                    "status": "completed", "content": [{"type": "text", "text": BODY}],
+                    "rawOutput": {"relative_path": PATH, "url": URL}
+                }}
+            }),
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {"sessionId": "session-1", "update": {
+                    "sessionUpdate": "tool_call_update", "toolCallId": "hermes-1",
+                    "status": "failed", "content": [{"type": "text", "text": BODY}],
+                    "rawOutput": {"relative_path": PATH, "url": URL}
+                }}
+            }),
+        ];
+        for fixture in fixtures {
+            let redacted = observer_payload_for_managed_read(&fixture, &mut ids);
+            let encoded = serde_json::to_string(&redacted).unwrap();
+            assert!(!encoded.contains(BODY));
+            assert!(!encoded.contains(PATH));
+            assert!(!encoded.contains(URL));
+            assert_eq!(redacted["params"]["update"]["bodyRedacted"], true);
+        }
+        assert!(ids.is_empty());
+    }
+
+    #[tokio::test]
+    async fn real_adapter_artifact_frames_never_reach_observer_or_debug_logs() {
+        use tracing::instrument::WithSubscriber;
+
+        const BODY: &str = "PRIVATE_ARTIFACT_BODY_SENTINEL";
+        const PATH: &str = "private/source/path.md";
+        const URL: &str = "http://127.0.0.1:4173/private";
+        let script = format!(
+            r#"
+            read -r REQ
+            echo '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"session-1","update":{{"sessionUpdate":"tool_call","toolCallId":"tool-1","title":"mcp.luca-artifacts-0123abcdef45.artifact_create","kind":"execute","status":"in_progress","rawInput":{{"server":"luca-artifacts-0123abcdef45","tool":"artifact_create","arguments":{{"content_utf8":"{BODY}","relative_path":"{PATH}","url":"{URL}"}}}}}}}}}}'
+            echo '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"session-1","update":{{"sessionUpdate":"tool_call_update","toolCallId":"tool-1","status":"completed","rawOutput":{{"body":"{BODY}","relative_path":"{PATH}","url":"{URL}"}}}}}}}}'
+            echo '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'
+            "#
+        );
+        let mut client = spawn_managed_script(&script).await;
+        let observer = ObserverHandle::in_process();
+        client.set_observer(Some(observer.clone()), 0);
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(CapturingMakeWriter(std::sync::Arc::clone(&captured)))
+            .with_ansi(false)
+            .with_max_level(tracing::Level::DEBUG)
+            .finish();
+
+        let result = client
+            .session_prompt_blocks_with_idle_timeout(
+                "session-1",
+                &["present the artifact"],
+                std::time::Duration::from_secs(2),
+                std::time::Duration::from_secs(5),
+            )
+            .with_subscriber(subscriber)
+            .await
+            .expect("managed prompt completes");
+        assert_eq!(result, StopReason::EndTurn);
+
+        let observer_json = serde_json::to_string(&observer.snapshot()).unwrap();
+        let log = captured
+            .lock()
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+            .unwrap_or_default();
+        for sentinel in [BODY, PATH, URL] {
+            assert!(!observer_json.contains(sentinel));
+            assert!(!log.contains(sentinel));
+        }
+    }
+
+    #[tokio::test]
+    async fn managed_session_new_echo_response_cannot_leak_artifact_capability() {
+        use tracing::instrument::WithSubscriber;
+
+        const CAPABILITY: &str = "PRIVATE_ARTIFACT_CAPABILITY_SENTINEL";
+        const PATH: &str = "/private/artifact/socket";
+        let script = format!(
+            r#"
+            read -r REQ
+            echo '{{"jsonrpc":"2.0","id":0,"error":{{"code":-32602,"message":"rejected {CAPABILITY} {PATH}"}},"echo":{{"request":"{CAPABILITY}","path":"{PATH}"}}}}'
+            "#
+        );
+        let mut client = spawn_managed_script(&script).await;
+        let observer = ObserverHandle::in_process();
+        client.set_observer(Some(observer.clone()), 0);
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(CapturingMakeWriter(std::sync::Arc::clone(&captured)))
+            .with_ansi(false)
+            .with_max_level(tracing::Level::DEBUG)
+            .finish();
+        let server = McpServer {
+            name: "luca-artifacts-0123abcdef45".into(),
+            command: "/opt/luca/buzz-dev-mcp".into(),
+            args: Vec::new(),
+            env: vec![EnvVar {
+                name: "LUCA_ARTIFACT_CAPABILITY".into(),
+                value: CAPABILITY.into(),
+            }],
+        };
+
+        let result = client
+            .session_new_full("/tmp", vec![server], None)
+            .with_subscriber(subscriber)
+            .await;
+        assert!(matches!(
+            result,
+            Err(AcpError::AgentError { code: -32602, .. })
+        ));
+
+        let observer_json = serde_json::to_string(&observer.snapshot()).unwrap();
+        let log = captured
+            .lock()
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+            .unwrap_or_default();
+        for sentinel in [CAPABILITY, PATH] {
+            assert!(!observer_json.contains(sentinel));
+            assert!(!log.contains(sentinel));
+        }
+        assert!(observer_json.contains("bodyRedacted"));
+        assert!(observer_json.contains("-32602"));
     }
 
     #[tokio::test]

@@ -1224,6 +1224,16 @@ struct PartialEntry {
     entry: AcpRuntimeCatalogEntry,
 }
 
+pub(crate) fn artifact_mcp_support(runtime: &KnownAcpRuntime) -> ArtifactMcpSupport {
+    match runtime.id {
+        // These adapters are covered by captured session/new MCP fixtures.
+        "claude" | "codex" | "buzz-agent" => ArtifactMcpSupport::Supported,
+        // Other known ACP runtimes stay capability-free until their executable
+        // fingerprint passes the sacrificial compatibility probe.
+        _ => ArtifactMcpSupport::ProbePending,
+    }
+}
+
 pub fn discover_acp_runtimes() -> Vec<AcpRuntimeCatalogEntry> {
     // Phase 1: build all entries (fast — no probes yet).
     let mut partials: Vec<PartialEntry> = KNOWN_ACP_RUNTIMES
@@ -1313,7 +1323,7 @@ pub fn discover_acp_runtimes() -> Vec<AcpRuntimeCatalogEntry> {
                     binary_path,
                     default_args,
                     mcp_command: runtime.mcp_command.map(str::to_string),
-                    artifact_mcp_support: ArtifactMcpSupport::StandardSessionNew,
+                    artifact_mcp_support: artifact_mcp_support(runtime),
                     model_env_var: runtime.model_env_var.map(str::to_string),
                     provider_env_var: runtime.provider_env_var.map(str::to_string),
                     thinking_env_var: runtime.thinking_env_var.map(str::to_string),

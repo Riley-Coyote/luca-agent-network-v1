@@ -432,6 +432,22 @@ pub struct CliArgs {
     #[arg(long, env = "BUZZ_ACP_ARTIFACT_MCP_CONFIG")]
     pub(crate) artifact_mcp_config: Option<crate::artifact_mcp::ArtifactMcpBootstrapV1>,
 
+    /// Desktop-owned compatibility fact for the independent Artifact MCP.
+    /// Missing values fail closed; unknown ACP executables receive only a
+    /// capability-free sacrificial probe before exact-turn projection.
+    #[arg(
+        long,
+        env = "BUZZ_ACP_ARTIFACT_MCP_SUPPORT",
+        default_value = "unavailable",
+        value_enum
+    )]
+    pub(crate) artifact_mcp_support: crate::artifact_mcp::ArtifactMcpSupport,
+
+    /// Desktop-authored opaque fingerprint of the ACP executable. It is used
+    /// only as the compatibility-probe cache key and never projected to MCP.
+    #[arg(long, env = "BUZZ_ACP_ARTIFACT_MCP_PROBE_KEY")]
+    pub(crate) artifact_mcp_probe_key: Option<String>,
+
     /// Idle timeout: max seconds of silence before killing a turn.
     /// Resets on any agent stdout activity.
     #[arg(long, env = "BUZZ_ACP_IDLE_TIMEOUT")]
@@ -781,6 +797,17 @@ pub(crate) fn normalize_agent_command_identity(command: &str) -> String {
             _ => character,
         })
         .collect()
+}
+
+fn effective_artifact_mcp_support(
+    agent_args: &[String],
+    declared: crate::artifact_mcp::ArtifactMcpSupport,
+) -> crate::artifact_mcp::ArtifactMcpSupport {
+    if agent_args.first().map(String::as_str) == Some("openclaw-compat") {
+        crate::artifact_mcp::ArtifactMcpSupport::Unavailable
+    } else {
+        declared
+    }
 }
 
 fn default_agent_args(command: &str) -> Option<Vec<String>> {
@@ -1219,10 +1246,25 @@ impl Config {
             managed_mcp_identity,
         )
         .map_err(ConfigError::ConfigFile)?;
+        let artifact_mcp_support =
+            effective_artifact_mcp_support(&agent_args, args.artifact_mcp_support);
+        let artifact_mcp_probe_key = args
+            .artifact_mcp_probe_key
+            .as_deref()
+            .and_then(|value| Sha256Ref::parse(value).ok());
+        let artifact_probe_adapter = crate::artifact_mcp::ArtifactProbeAdapterConfig::new(
+            agent_command.clone(),
+            agent_args.clone(),
+            persona_env_vars.clone(),
+            has_generated_codex_config,
+        );
         let artifact_mcp = crate::artifact_mcp::ArtifactMcpConfig::new(
             args.artifact_mcp_command,
             args.artifact_mcp_config,
             managed_mcp_identity,
+            artifact_mcp_support,
+            artifact_mcp_probe_key,
+            artifact_probe_adapter,
         )
         .map_err(ConfigError::ConfigFile)?;
         let config = Config {
@@ -2705,6 +2747,33 @@ channels = "ALL"
         assert_eq!(args.multiple_event_handling, MultipleEventHandling::Steer);
         // Dedup default must remain `queue` so steering's requirement is met.
         assert!(matches!(args.dedup, DedupMode::Queue));
+    }
+
+    #[test]
+    fn artifact_mcp_support_defaults_unavailable_and_parses_probe_pending() {
+        let default = CliArgs::parse_from(["buzz-acp", "--private-key", &"0".repeat(64)]);
+        assert_eq!(
+            default.artifact_mcp_support,
+            crate::artifact_mcp::ArtifactMcpSupport::Unavailable
+        );
+        let probe = CliArgs::parse_from([
+            "buzz-acp",
+            "--private-key",
+            &"0".repeat(64),
+            "--artifact-mcp-support",
+            "probe_pending",
+        ]);
+        assert_eq!(
+            probe.artifact_mcp_support,
+            crate::artifact_mcp::ArtifactMcpSupport::ProbePending
+        );
+        assert_eq!(
+            effective_artifact_mcp_support(
+                &["openclaw-compat".into(), "resident-1".into()],
+                crate::artifact_mcp::ArtifactMcpSupport::Supported,
+            ),
+            crate::artifact_mcp::ArtifactMcpSupport::Unavailable
+        );
     }
 
     #[test]

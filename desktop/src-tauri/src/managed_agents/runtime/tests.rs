@@ -193,6 +193,40 @@ fn unknown_command_returns_none() {
     assert!(known_acp_runtime("custom-agent").is_none());
 }
 
+#[test]
+fn artifact_support_is_catalog_driven_and_unknowns_require_probe() {
+    assert_eq!(
+        super::artifact_mcp_support_for_spawn(None, "codex-acp"),
+        crate::managed_agents::ArtifactMcpSupport::Supported
+    );
+    assert_eq!(
+        super::artifact_mcp_support_for_spawn(None, "future-acp-adapter"),
+        crate::managed_agents::ArtifactMcpSupport::ProbePending
+    );
+}
+
+#[test]
+fn artifact_probe_key_is_opaque_and_changes_with_executable_bytes() {
+    let temp = tempfile::tempdir().expect("temp");
+    let executable = temp.path().join("adapter");
+    std::fs::write(&executable, b"adapter-v1").expect("write v1");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
+            .expect("mark executable");
+    }
+    let first = super::artifact_mcp_probe_key(executable.to_str().expect("utf8 path"))
+        .expect("fingerprint v1");
+    assert!(first.as_str().starts_with("sha256:"));
+    assert!(!first.as_str().contains("adapter"));
+
+    std::fs::write(&executable, b"adapter-v2").expect("write v2");
+    let second = super::artifact_mcp_probe_key(executable.to_str().expect("utf8 path"))
+        .expect("fingerprint v2");
+    assert_ne!(first, second);
+}
+
 // ── build_respond_to_env tests ───────────────────────────────────────
 
 use super::build_respond_to_env;

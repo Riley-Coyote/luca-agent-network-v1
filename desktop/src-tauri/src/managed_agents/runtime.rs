@@ -1,9 +1,11 @@
 use std::{
     collections::{BTreeMap, HashMap},
+    io::Read,
     sync::{Mutex, OnceLock},
     thread::JoinHandle,
 };
 
+use sha2::{Digest, Sha256};
 use tauri::AppHandle;
 
 use super::agent_env::build_buzz_agent_provider_defaults;
@@ -27,6 +29,54 @@ mod openclaw_compat;
 
 mod sweep;
 pub(crate) use sweep::sweep_untracked_bundle_harnesses;
+
+fn artifact_mcp_support_for_spawn(
+    native_binding: Option<&super::RuntimeBinding>,
+    effective_command: &str,
+) -> super::ArtifactMcpSupport {
+    match native_binding {
+        Some(super::RuntimeBinding::Hermes { .. }) => super::ArtifactMcpSupport::Supported,
+        // OpenClaw remains fail-closed until its model-shell and nested-process
+        // containment has a dedicated acceptance test.
+        Some(super::RuntimeBinding::Openclaw { .. }) => super::ArtifactMcpSupport::Unavailable,
+        None => known_acp_runtime(effective_command).map_or(
+            super::ArtifactMcpSupport::ProbePending,
+            super::discovery::artifact_mcp_support,
+        ),
+    }
+}
+
+fn artifact_mcp_probe_key(executable: &str) -> Result<luca_protocol::Sha256Ref, String> {
+    let resolved = resolve_command(executable)
+        .ok_or_else(|| "failed to fingerprint ACP executable".to_owned())?;
+    let canonical = resolved
+        .canonicalize()
+        .map_err(|_| "failed to fingerprint ACP executable".to_owned())?;
+    let mut file = std::fs::File::open(canonical)
+        .map_err(|_| "failed to fingerprint ACP executable".to_owned())?;
+    let mut hasher = Sha256::new();
+    hasher.update(b"luca.artifact.acp-executable.v1\0");
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|_| "failed to fingerprint ACP executable".to_owned())?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    luca_protocol::Sha256Ref::parse(format!("sha256:{}", hex::encode(hasher.finalize())))
+        .map_err(|_| "failed to fingerprint ACP executable".to_owned())
+}
+
+fn artifact_mcp_support_env(support: super::ArtifactMcpSupport) -> &'static str {
+    match support {
+        super::ArtifactMcpSupport::Supported => "supported",
+        super::ArtifactMcpSupport::ProbePending => "probe_pending",
+        super::ArtifactMcpSupport::Unavailable => "unavailable",
+    }
+}
 
 type RespondToEnv = (Vec<(&'static str, String)>, Vec<&'static str>);
 
@@ -1998,6 +2048,8 @@ pub fn spawn_agent_child(
     command.env_remove("BUZZ_ACP_COMMUNICATIONS_MCP_CONFIG");
     command.env_remove("BUZZ_ACP_ARTIFACT_MCP_COMMAND");
     command.env_remove("BUZZ_ACP_ARTIFACT_MCP_CONFIG");
+    command.env_remove("BUZZ_ACP_ARTIFACT_MCP_SUPPORT");
+    command.env_remove("BUZZ_ACP_ARTIFACT_MCP_PROBE_KEY");
     command.env_remove("BUZZ_ACP_DIRECT_PRIVATE_KEY");
     #[cfg(unix)]
     {
@@ -2007,10 +2059,30 @@ pub fn spawn_agent_child(
             repository_broker_lease.bootstrap_json(),
         );
         if let Some(artifact_broker_lease) = artifact_broker_lease.as_ref() {
+            let mut artifact_support = artifact_mcp_support_for_spawn(
+                record.native_runtime_binding.as_ref(),
+                &effective_command,
+            );
             command.env("BUZZ_ACP_ARTIFACT_MCP_COMMAND", &repository_mcp_command);
             command.env(
                 "BUZZ_ACP_ARTIFACT_MCP_CONFIG",
                 artifact_broker_lease.bootstrap_json(),
+            );
+            if artifact_support == super::ArtifactMcpSupport::ProbePending {
+                match artifact_mcp_probe_key(&resolved_agent_command) {
+                    Ok(probe_key) => {
+                        command.env("BUZZ_ACP_ARTIFACT_MCP_PROBE_KEY", probe_key.as_str());
+                    }
+                    Err(_) => {
+                        // Artifact capability fails closed without preventing
+                        // the resident's ordinary conversation from starting.
+                        artifact_support = super::ArtifactMcpSupport::Unavailable;
+                    }
+                }
+            }
+            command.env(
+                "BUZZ_ACP_ARTIFACT_MCP_SUPPORT",
+                artifact_mcp_support_env(artifact_support),
             );
         }
     }

@@ -5,7 +5,13 @@
 //! neither the master capability nor desktop-owned working root is forwarded to
 //! the model, prompt, relay, or the general development MCP.
 
-use std::{fmt, path::Path, str::FromStr};
+use std::{
+    collections::HashMap,
+    fmt,
+    path::Path,
+    str::FromStr,
+    sync::{Mutex, OnceLock},
+};
 
 use luca_protocol::{Hex64, OpaqueId, SafeU53, Sha256Ref};
 use serde::Deserialize;
@@ -13,6 +19,8 @@ use sha2::{digest::Output, Digest, Sha256};
 use zeroize::Zeroize;
 
 use crate::acp::{EnvVar, McpServer};
+
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 const BROKER_PROTOCOL: &str = "luca.artifact.broker.v1";
 
@@ -67,6 +75,43 @@ impl FromStr for ArtifactMcpBootstrapV1 {
 pub(crate) struct ArtifactMcpConfig {
     command: String,
     bootstrap: ArtifactMcpBootstrapV1,
+    declared_support: ArtifactMcpSupport,
+    probe_key: Option<Sha256Ref>,
+    probe_adapter: Option<ArtifactProbeAdapterConfig>,
+}
+
+#[derive(Clone)]
+pub(crate) struct ArtifactProbeAdapterConfig {
+    command: String,
+    args: Vec<String>,
+    extra_env: Vec<(String, String)>,
+    has_generated_codex_config: bool,
+}
+
+impl ArtifactProbeAdapterConfig {
+    pub(crate) fn new(
+        command: String,
+        args: Vec<String>,
+        extra_env: Vec<(String, String)>,
+        has_generated_codex_config: bool,
+    ) -> Self {
+        Self {
+            command,
+            args,
+            extra_env,
+            has_generated_codex_config,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum ArtifactMcpSupport {
+    #[value(name = "supported")]
+    Supported,
+    #[value(name = "probe_pending")]
+    ProbePending,
+    #[value(name = "unavailable")]
+    Unavailable,
 }
 
 /// Exact managed-turn coordinates frozen before the restricted sidecar is
@@ -85,6 +130,12 @@ impl fmt::Debug for ArtifactMcpConfig {
             .debug_struct("ArtifactMcpConfig")
             .field("command", &self.command)
             .field("bootstrap", &self.bootstrap)
+            .field("declared_support", &self.declared_support)
+            .field("probe_key", &self.probe_key)
+            .field(
+                "probe_adapter",
+                &self.probe_adapter.as_ref().map(|_| "<disposable adapter>"),
+            )
             .finish()
     }
 }
@@ -94,6 +145,9 @@ impl ArtifactMcpConfig {
         command: String,
         bootstrap: Option<ArtifactMcpBootstrapV1>,
         managed_identity: Option<(&Hex64, SafeU53, &Sha256Ref)>,
+        declared_support: ArtifactMcpSupport,
+        probe_key: Option<Sha256Ref>,
+        probe_adapter: ArtifactProbeAdapterConfig,
     ) -> Result<Option<Self>, String> {
         let command = command.trim().to_owned();
         match (command.is_empty(), bootstrap) {
@@ -108,7 +162,22 @@ impl ArtifactMcpConfig {
                 {
                     return Err("Artifact MCP bootstrap does not match the managed session".into());
                 }
-                Ok(Some(Self { command, bootstrap }))
+                let (declared_support, probe_adapter) = match declared_support {
+                    ArtifactMcpSupport::ProbePending if probe_key.is_some() => {
+                        (declared_support, Some(probe_adapter))
+                    }
+                    // Missing host proof fails closed. A path, runtime binding,
+                    // resident, or turn identifier is never accepted as a cache key.
+                    ArtifactMcpSupport::ProbePending => (ArtifactMcpSupport::Unavailable, None),
+                    support => (support, None),
+                };
+                Ok(Some(Self {
+                    command,
+                    bootstrap,
+                    declared_support,
+                    probe_key,
+                    probe_adapter,
+                }))
             }
             _ => Err("Artifact MCP requires an exact managed desktop bootstrap".into()),
         }
@@ -155,6 +224,116 @@ impl ArtifactMcpConfig {
                 },
             ],
         }
+    }
+
+    pub(crate) fn probe_server(&self) -> McpServer {
+        McpServer {
+            name: "luca-artifact-compatibility-probe".into(),
+            command: self.command.clone(),
+            args: Vec::new(),
+            env: vec![EnvVar {
+                name: "LUCA_ARTIFACT_PROBE_MODE".into(),
+                value: "1".into(),
+            }],
+        }
+    }
+
+    pub(crate) fn effective_support(&self) -> ArtifactMcpSupport {
+        match self.declared_support {
+            ArtifactMcpSupport::ProbePending => self
+                .probe_key
+                .as_ref()
+                .map(|probe_key| {
+                    probe_cache()
+                        .lock()
+                        .ok()
+                        .and_then(|cache| cache.get(probe_key.as_str()).copied())
+                        .unwrap_or(ArtifactMcpSupport::ProbePending)
+                })
+                .unwrap_or(ArtifactMcpSupport::Unavailable),
+            support => support,
+        }
+    }
+
+    pub(crate) fn record_probe(&self, support: ArtifactMcpSupport) {
+        if self.declared_support != ArtifactMcpSupport::ProbePending
+            || support == ArtifactMcpSupport::ProbePending
+        {
+            return;
+        }
+        if let (Some(probe_key), Ok(mut cache)) = (&self.probe_key, probe_cache().lock()) {
+            cache.insert(probe_key.as_str().to_owned(), support);
+        }
+    }
+
+    /// Probe an unknown ACP executable in a disposable process. The live pool
+    /// process never receives this test session or its MCP registration.
+    pub(crate) async fn run_disposable_probe(&self, cwd: &str) -> ArtifactMcpSupport {
+        let Some(adapter) = self.probe_adapter.as_ref() else {
+            return ArtifactMcpSupport::Unavailable;
+        };
+        let spawned = crate::acp::AcpClient::spawn_managed(
+            &adapter.command,
+            &adapter.args,
+            &adapter.extra_env,
+            adapter.has_generated_codex_config,
+        )
+        .await;
+        let Ok(mut client) = spawned else {
+            return ArtifactMcpSupport::Unavailable;
+        };
+        let outcome = tokio::time::timeout(PROBE_TIMEOUT, async {
+            client.initialize().await?;
+            let response = client
+                .session_new_full(cwd, vec![self.probe_server()], None)
+                .await?;
+            client.session_cancel(&response.session_id).await
+        })
+        .await;
+        client.shutdown().await;
+        match outcome {
+            Ok(Ok(())) => ArtifactMcpSupport::Supported,
+            _ => ArtifactMcpSupport::Unavailable,
+        }
+    }
+}
+
+fn probe_cache() -> &'static Mutex<HashMap<String, ArtifactMcpSupport>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, ArtifactMcpSupport>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[cfg(test)]
+impl ArtifactMcpConfig {
+    pub(crate) fn test_fixture(declared_support: ArtifactMcpSupport, probe_hex: char) -> Self {
+        Self {
+            command: "/opt/luca/buzz-dev-mcp".into(),
+            bootstrap: ArtifactMcpBootstrapV1 {
+                protocol: BROKER_PROTOCOL.into(),
+                endpoint: "/tmp/luca-ab-fixture/e7-0123456789abcdef.sock".into(),
+                master_capability: Sha256Ref::parse(format!("sha256:{}", "a".repeat(64))).unwrap(),
+                capability_generation: SafeU53::new(9).unwrap(),
+                resident_pubkey: Hex64::parse("11".repeat(32)).unwrap(),
+                session_epoch: SafeU53::new(7).unwrap(),
+                binding_ref: Sha256Ref::parse(format!("sha256:{}", "f".repeat(64))).unwrap(),
+                working_root_id: OpaqueId::parse("root-fixture").unwrap(),
+            },
+            declared_support,
+            probe_key: Some(
+                Sha256Ref::parse(format!("sha256:{}", probe_hex.to_string().repeat(64))).unwrap(),
+            ),
+            probe_adapter: None,
+        }
+    }
+
+    pub(crate) fn with_test_probe_adapter(mut self, command: &str, args: Vec<String>) -> Self {
+        self.probe_adapter = Some(ArtifactProbeAdapterConfig::new(
+            command.into(),
+            args,
+            Vec::new(),
+            false,
+        ));
+        self
     }
 }
 
@@ -259,6 +438,9 @@ mod tests {
         let config = ArtifactMcpConfig {
             command: "/opt/luca/buzz-dev-mcp".into(),
             bootstrap: bootstrap(),
+            declared_support: ArtifactMcpSupport::Supported,
+            probe_key: None,
+            probe_adapter: None,
         };
         let server = config.server_for_turn(&turn());
         assert!(server.name.starts_with("luca-artifacts-"));
@@ -280,5 +462,66 @@ mod tests {
         changed = turn();
         changed.cancellation_epoch = SafeU53::new(8).unwrap();
         assert_ne!(original, derive_turn_capability(&bootstrap, &changed));
+    }
+
+    #[test]
+    fn probe_projection_contains_no_authority_and_caches_by_executable_fingerprint() {
+        probe_cache().lock().unwrap().clear();
+        let config = ArtifactMcpConfig {
+            command: "/opt/luca/buzz-dev-mcp".into(),
+            bootstrap: bootstrap(),
+            declared_support: ArtifactMcpSupport::ProbePending,
+            probe_key: Some(Sha256Ref::parse(format!("sha256:{}", "c".repeat(64))).unwrap()),
+            probe_adapter: None,
+        };
+        let server = config.probe_server();
+        let serialized = serde_json::to_string(&server).unwrap();
+        assert_eq!(server.env.len(), 1);
+        assert!(serialized.contains("LUCA_ARTIFACT_PROBE_MODE"));
+        for forbidden in [
+            "LUCA_ARTIFACT_CAPABILITY",
+            "LUCA_ARTIFACT_ENDPOINT",
+            "LUCA_ARTIFACT_TURN_ID",
+            "root-fixture",
+            "conversation-1",
+        ] {
+            assert!(!serialized.contains(forbidden));
+        }
+        assert_eq!(config.effective_support(), ArtifactMcpSupport::ProbePending);
+        config.record_probe(ArtifactMcpSupport::Supported);
+        assert_eq!(config.effective_support(), ArtifactMcpSupport::Supported);
+        let mut different_authority = config.clone();
+        different_authority.bootstrap.binding_ref =
+            Sha256Ref::parse(format!("sha256:{}", "d".repeat(64))).unwrap();
+        assert_eq!(
+            different_authority.effective_support(),
+            ArtifactMcpSupport::Supported,
+            "authority changes must not change an executable capability fact"
+        );
+        probe_cache().lock().unwrap().clear();
+    }
+
+    #[test]
+    fn probe_pending_without_host_executable_key_fails_closed() {
+        let bootstrap = bootstrap();
+        let resident_pubkey = bootstrap.resident_pubkey.clone();
+        let session_epoch = bootstrap.session_epoch;
+        let binding_ref = bootstrap.binding_ref.clone();
+        let config = ArtifactMcpConfig::new(
+            "/opt/luca/buzz-dev-mcp".into(),
+            Some(bootstrap),
+            Some((&resident_pubkey, session_epoch, &binding_ref)),
+            ArtifactMcpSupport::ProbePending,
+            None,
+            ArtifactProbeAdapterConfig::new(
+                "/opt/acp/future-agent".into(),
+                Vec::new(),
+                Vec::new(),
+                false,
+            ),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(config.effective_support(), ArtifactMcpSupport::Unavailable);
     }
 }

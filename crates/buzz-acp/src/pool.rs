@@ -825,6 +825,8 @@ async fn create_session_and_apply_model(
         communications_turn.is_some(),
         artifact_turn.is_some(),
     );
+    let artifact_projection_allowed =
+        privileged_policy.artifact && resolve_artifact_mcp_support(agent, ctx).await;
     if let (true, PromptSource::Channel(conversation_id), Some(repository_mcp)) = (
         privileged_policy.repository,
         source,
@@ -840,13 +842,13 @@ async fn create_session_and_apply_model(
         mcp_servers.push(communications_mcp.server_for_turn(turn));
     }
     if let (true, Some(artifact_mcp), Some(turn)) = (
-        privileged_policy.artifact,
+        artifact_projection_allowed,
         ctx.artifact_mcp.as_ref(),
         artifact_turn,
     ) {
         mcp_servers.push(artifact_mcp.server_for_turn(turn));
     }
-    let artifact_projected = privileged_policy.artifact;
+    let artifact_projected = artifact_projection_allowed;
     let fallback_servers = artifact_projected.then(|| {
         mcp_servers
             .iter()
@@ -870,6 +872,9 @@ async fn create_session_and_apply_model(
     {
         Ok(response) => response,
         Err(_) if artifact_projected => {
+            if let Some(artifact_mcp) = ctx.artifact_mcp.as_ref() {
+                artifact_mcp.record_probe(crate::artifact_mcp::ArtifactMcpSupport::Unavailable);
+            }
             tracing::warn!(
                 target: "luca::artifacts",
                 "runtime rejected the artifact MCP projection; retrying conversation without artifacts"
@@ -994,6 +999,42 @@ async fn create_session_and_apply_model(
     }
 
     Ok(resp.session_id)
+}
+
+async fn resolve_artifact_mcp_support(agent: &mut OwnedAgent, ctx: &PromptContext) -> bool {
+    let Some(artifact_mcp) = ctx.artifact_mcp.as_ref() else {
+        return false;
+    };
+    match artifact_mcp.effective_support() {
+        crate::artifact_mcp::ArtifactMcpSupport::Supported => true,
+        crate::artifact_mcp::ArtifactMcpSupport::Unavailable => {
+            agent.acp.observe(
+                "artifact_mcp_unavailable",
+                serde_json::json!({"reason": "runtime_capability_unavailable"}),
+            );
+            false
+        }
+        crate::artifact_mcp::ArtifactMcpSupport::ProbePending => {
+            let support = artifact_mcp.run_disposable_probe(&ctx.cwd).await;
+            let supported = support == crate::artifact_mcp::ArtifactMcpSupport::Supported;
+            artifact_mcp.record_probe(support);
+            agent.acp.observe(
+                if supported {
+                    "artifact_mcp_probe_supported"
+                } else {
+                    "artifact_mcp_unavailable"
+                },
+                serde_json::json!({
+                    "reason": if supported {
+                        "capability_free_probe_accepted"
+                    } else {
+                        "capability_free_probe_rejected"
+                    }
+                }),
+            );
+            supported
+        }
+    }
 }
 
 fn openclaw_session_meta(
@@ -4943,6 +4984,125 @@ mod tests {
                 artifact: false,
             }
         );
+    }
+
+    async fn artifact_test_agent(script: &str) -> OwnedAgent {
+        let acp = AcpClient::spawn("bash", &["-c".to_string(), script.to_string()], &[], false)
+            .await
+            .expect("spawn artifact ACP fixture");
+        OwnedAgent {
+            index: 0,
+            acp,
+            state: SessionState::default(),
+            model_capabilities: None,
+            desired_model: None,
+            model_overridden: false,
+            agent_name: "unknown".into(),
+            goose_system_prompt_supported: None,
+            protocol_version: 2,
+        }
+    }
+
+    fn artifact_turn() -> crate::artifact_mcp::ArtifactTurnBindingV1 {
+        crate::artifact_mcp::ArtifactTurnBindingV1 {
+            conversation_id: luca_protocol::OpaqueId::parse("conversation-1").unwrap(),
+            turn_id: luca_protocol::OpaqueId::parse("turn-1").unwrap(),
+            dispatch_receipt_id: luca_protocol::OpaqueId::parse("dispatch-1").unwrap(),
+            cancellation_epoch: luca_protocol::SafeU53::new(7).unwrap(),
+        }
+    }
+
+    #[tokio::test]
+    async fn unknown_runtime_probe_is_capability_free_and_cached_by_fingerprint() {
+        let mut ctx = make_prompt_context_no_owner();
+        ctx.cwd = "/tmp".into();
+        ctx.artifact_mcp = Some(crate::artifact_mcp::ArtifactMcpConfig::test_fixture(
+            crate::artifact_mcp::ArtifactMcpSupport::ProbePending,
+            'c',
+        )
+        .with_test_probe_adapter("bash", vec!["-c".into(), r#"
+            read -r INIT
+            echo '{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{}}}'
+            read -r REQ
+            if [[ "$REQ" == *"LUCA_ARTIFACT_CAPABILITY"* ]]; then
+              echo '{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"probe carried authority"}}'
+            else
+              echo '{"jsonrpc":"2.0","id":1,"result":{"sessionId":"probe-session"}}'
+            fi
+            read -r CANCEL
+            sleep 5
+        "#.into()]));
+        let script = r#"
+            sleep 5
+        "#;
+        let mut agent = artifact_test_agent(script).await;
+        assert!(resolve_artifact_mcp_support(&mut agent, &ctx).await);
+        assert_eq!(
+            ctx.artifact_mcp.as_ref().unwrap().effective_support(),
+            crate::artifact_mcp::ArtifactMcpSupport::Supported
+        );
+        // A second decision for the same executable fingerprint must use the
+        // cache and never touch the authoritative adapter process.
+        assert!(resolve_artifact_mcp_support(&mut agent, &ctx).await);
+    }
+
+    #[tokio::test]
+    async fn rejected_unknown_probe_caches_unavailable_without_authority() {
+        let mut ctx = make_prompt_context_no_owner();
+        ctx.cwd = "/tmp".into();
+        ctx.artifact_mcp = Some(crate::artifact_mcp::ArtifactMcpConfig::test_fixture(
+            crate::artifact_mcp::ArtifactMcpSupport::ProbePending,
+            'd',
+        )
+        .with_test_probe_adapter("bash", vec!["-c".into(), r#"
+            read -r INIT
+            echo '{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{}}}'
+            read -r REQ
+            if [[ "$REQ" == *"LUCA_ARTIFACT_CAPABILITY"* ]]; then exit 7; fi
+            echo '{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"mcpServers unsupported"}}'
+            sleep 5
+        "#.into()]));
+        let script = r#"
+            sleep 5
+        "#;
+        let mut agent = artifact_test_agent(script).await;
+        assert!(!resolve_artifact_mcp_support(&mut agent, &ctx).await);
+        assert_eq!(
+            ctx.artifact_mcp.as_ref().unwrap().effective_support(),
+            crate::artifact_mcp::ArtifactMcpSupport::Unavailable
+        );
+    }
+
+    #[tokio::test]
+    async fn rejected_authoritative_projection_retries_without_artifacts() {
+        let mut ctx = make_prompt_context_no_owner();
+        ctx.cwd = "/tmp".into();
+        ctx.artifact_mcp = Some(crate::artifact_mcp::ArtifactMcpConfig::test_fixture(
+            crate::artifact_mcp::ArtifactMcpSupport::Supported,
+            'e',
+        ));
+        let script = r#"
+            read -r FIRST
+            if [[ "$FIRST" != *"LUCA_ARTIFACT_CAPABILITY"* ]]; then exit 8; fi
+            echo '{"jsonrpc":"2.0","id":0,"error":{"code":-32602,"message":"artifact projection rejected"}}'
+            read -r SECOND
+            if [[ "$SECOND" == *"LUCA_ARTIFACT_CAPABILITY"* ]]; then exit 9; fi
+            echo '{"jsonrpc":"2.0","id":1,"result":{"sessionId":"conversation-session"}}'
+            sleep 5
+        "#;
+        let mut agent = artifact_test_agent(script).await;
+        let session = create_session_and_apply_model(
+            &mut agent,
+            &ctx,
+            &PromptSource::Channel(Uuid::new_v4()),
+            None,
+            None,
+            None,
+            Some(&artifact_turn()),
+        )
+        .await
+        .expect("conversation session survives rejected artifact projection");
+        assert_eq!(session, "conversation-session");
     }
 
     // These pin the initial_message dispatch path (run_prompt_task, ~line 855):

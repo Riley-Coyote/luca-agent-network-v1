@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use super::overrides::{divergent_agent_command_override, update_time_agent_command_override};
 use super::{
-    apply_agent_command_update, classify_runtime, codex_adapter_availability,
+    apply_agent_command_update, artifact_mcp_support, classify_runtime, codex_adapter_availability,
     codex_adapter_is_outdated, create_time_agent_command_override, default_agent_command,
     effective_agent_command, find_nvm_default_bin, find_via_login_shell,
     is_login_shell_path_uninit, is_safe_nvm_tag, managed_agent_avatar_url, normalize_agent_args,
@@ -10,7 +10,7 @@ use super::{
     refresh_login_shell_path, BUZZ_AGENT_AVATAR_URL, CLAUDE_CODE_AVATAR_URL, CODEX_AVATAR_URL,
     GOOSE_AVATAR_URL, GROK_AVATAR_URL, KIMI_AVATAR_URL,
 };
-use crate::managed_agents::AcpAvailabilityStatus;
+use crate::managed_agents::{AcpAvailabilityStatus, ArtifactMcpSupport};
 
 #[test]
 fn resolves_known_avatar_for_bare_command() {
@@ -42,6 +42,25 @@ fn resolves_known_avatar_for_command_paths_and_aliases() {
 #[test]
 fn returns_none_for_unknown_commands() {
     assert!(managed_agent_avatar_url("custom-agent").is_none());
+}
+
+#[test]
+fn artifact_support_is_explicit_and_evidence_based() {
+    for id in ["claude", "codex", "buzz-agent"] {
+        let runtime = super::known_acp_runtime_exact(id).expect("known runtime");
+        assert_eq!(artifact_mcp_support(runtime), ArtifactMcpSupport::Supported);
+    }
+    for id in ["goose", "kimi", "grok"] {
+        let runtime = super::known_acp_runtime_exact(id).expect("known runtime");
+        assert_eq!(
+            artifact_mcp_support(runtime),
+            ArtifactMcpSupport::ProbePending
+        );
+    }
+    assert_eq!(
+        serde_json::to_string(&ArtifactMcpSupport::Unavailable).unwrap(),
+        "\"unavailable\""
+    );
 }
 
 #[test]

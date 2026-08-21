@@ -483,4 +483,100 @@ mod tests {
             ]
         );
     }
+
+    fn broker_client(endpoint: PathBuf, generation: u64) -> ArtifactBrokerClient {
+        ArtifactBrokerClient {
+            endpoint,
+            capability: Arc::new(Zeroizing::new(format!("sha256:{}", "a".repeat(64)))),
+            capability_generation: generation,
+            conversation_id: "conversation-1".into(),
+            turn_id: "turn-1".into(),
+            dispatch_receipt_id: "dispatch-1".into(),
+            cancellation_epoch: 7,
+        }
+    }
+
+    #[tokio::test]
+    async fn restricted_sidecar_roundtrips_exact_turn_broker_coordinates() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+        let directory = tempfile::tempdir().unwrap();
+        let endpoint = directory.path().join("artifact.sock");
+        let listener = tokio::net::UnixListener::bind(&endpoint).unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut stream = BufReader::new(stream);
+            let mut line = String::new();
+            stream.read_line(&mut line).await.unwrap();
+            let frame: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(frame["protocol"], BROKER_PROTOCOL);
+            assert_eq!(frame["conversation_id"], "conversation-1");
+            assert_eq!(frame["turn_id"], "turn-1");
+            assert_eq!(frame["dispatch_receipt_id"], "dispatch-1");
+            assert_eq!(frame["cancellation_epoch"], 7);
+            assert_eq!(frame["operation"], "artifact_list");
+            let response = serde_json::json!({
+                "protocol": TOOL_PROTOCOL,
+                "ok": true,
+                "request_id": frame["operation_request_id"],
+                "operation": frame["operation"],
+                "capability_generation": frame["capability_generation"],
+                "conversation_id": frame["conversation_id"],
+                "turn_id": frame["turn_id"],
+                "dispatch_receipt_id": frame["dispatch_receipt_id"],
+                "cancellation_epoch": frame["cancellation_epoch"],
+                "result": {"receipt": "body-free"}
+            });
+            let mut bytes = serde_json::to_vec(&response).unwrap();
+            bytes.push(b'\n');
+            stream.get_mut().write_all(&bytes).await.unwrap();
+        });
+        let client = broker_client(endpoint, 9);
+        let result = client
+            .call("artifact_list", serde_json::json!({"limit": 1}))
+            .await;
+        assert!(result.is_ok());
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn rotated_generation_and_stopped_broker_fail_closed() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+        let directory = tempfile::tempdir().unwrap();
+        let endpoint = directory.path().join("artifact.sock");
+        let listener = tokio::net::UnixListener::bind(&endpoint).unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut stream = BufReader::new(stream);
+            let mut line = String::new();
+            stream.read_line(&mut line).await.unwrap();
+            let frame: Value = serde_json::from_str(&line).unwrap();
+            let response = serde_json::json!({
+                "protocol": TOOL_PROTOCOL,
+                "ok": true,
+                "request_id": frame["operation_request_id"],
+                "operation": frame["operation"],
+                "capability_generation": 8,
+                "conversation_id": frame["conversation_id"],
+                "turn_id": frame["turn_id"],
+                "dispatch_receipt_id": frame["dispatch_receipt_id"],
+                "cancellation_epoch": frame["cancellation_epoch"],
+                "result": {}
+            });
+            let mut bytes = serde_json::to_vec(&response).unwrap();
+            bytes.push(b'\n');
+            stream.get_mut().write_all(&bytes).await.unwrap();
+        });
+        let client = broker_client(endpoint.clone(), 9);
+        assert!(client
+            .call("artifact_list", serde_json::json!({"limit": 1}))
+            .await
+            .is_err());
+        server.await.unwrap();
+        assert!(client
+            .call("artifact_list", serde_json::json!({"limit": 1}))
+            .await
+            .is_err());
+    }
 }

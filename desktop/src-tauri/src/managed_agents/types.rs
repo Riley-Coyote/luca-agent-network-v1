@@ -626,7 +626,9 @@ pub struct AcpRuntimeCatalogEntry {
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ArtifactMcpSupport {
-    StandardSessionNew,
+    Supported,
+    ProbePending,
+    Unavailable,
 }
 
 /// Result of a single install step (CLI or adapter).

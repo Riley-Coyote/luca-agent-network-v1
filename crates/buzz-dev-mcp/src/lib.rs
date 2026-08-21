@@ -33,6 +33,20 @@ struct DevMcp {
     tool_router: ToolRouter<DevMcp>,
 }
 
+#[derive(Clone)]
+struct ArtifactCompatibilityProbeMcp;
+
+impl ServerHandler for ArtifactCompatibilityProbeMcp {
+    fn get_info(&self) -> ServerInfo {
+        ServerInfo::new(ServerCapabilities::builder().build()).with_server_info(
+            rmcp::model::Implementation::new(
+                "luca-artifact-compatibility-probe",
+                env!("CARGO_PKG_VERSION"),
+            ),
+        )
+    }
+}
+
 #[tool_router]
 impl DevMcp {
     fn new(state: Arc<shell::SharedState>) -> Self {
@@ -177,12 +191,18 @@ async fn async_main(cmd: String) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let artifact_mode = std::env::var("LUCA_ARTIFACT_MODE").as_deref() == Ok("1");
+    let artifact_probe_mode = std::env::var("LUCA_ARTIFACT_PROBE_MODE").as_deref() == Ok("1");
     let repository_mode = std::env::var("LUCA_REPOSITORY_MODE").as_deref() == Ok("1");
     let communications_mode = std::env::var("LUCA_COMMUNICATIONS_MODE").as_deref() == Ok("1");
-    if [artifact_mode, repository_mode, communications_mode]
-        .into_iter()
-        .filter(|enabled| *enabled)
-        .count()
+    if [
+        artifact_mode,
+        artifact_probe_mode,
+        repository_mode,
+        communications_mode,
+    ]
+    .into_iter()
+    .filter(|enabled| *enabled)
+    .count()
         > 1
     {
         return Err("Luca MCP personalities are mutually exclusive".into());
@@ -190,7 +210,7 @@ async fn async_main(cmd: String) -> Result<(), Box<dyn std::error::Error>> {
 
     // Restricted personalities must never translate or retain signing
     // material, even if a hostile parent tries to inject legacy variables.
-    if artifact_mode || repository_mode || communications_mode {
+    if artifact_mode || artifact_probe_mode || repository_mode || communications_mode {
         for key in [
             "BUZZ_ACP_DIRECT_PRIVATE_KEY",
             "BUZZ_PRIVATE_KEY",
@@ -204,6 +224,12 @@ async fn async_main(cmd: String) -> Result<(), Box<dyn std::error::Error>> {
         // the CLI and media helpers.
         std::env::remove_var("BUZZ_ACP_DIRECT_PRIVATE_KEY");
         std::env::set_var("BUZZ_PRIVATE_KEY", private_key);
+    }
+
+    if artifact_probe_mode {
+        let service = ArtifactCompatibilityProbeMcp.serve(stdio()).await?;
+        service.waiting().await?;
+        return Ok(());
     }
 
     if artifact_mode {
