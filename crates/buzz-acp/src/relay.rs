@@ -335,6 +335,8 @@ fn signed_event_from_result(result: RelayAuthSignResultV1) -> Result<Event, Rela
 pub struct ChannelInfo {
     pub name: String,
     pub channel_type: String,
+    /// This resident's ordinary membership role is `guest`.
+    pub is_guest: bool,
 }
 
 /// Build the discovered-channel subscribe set from the membership UUIDs and the
@@ -350,6 +352,7 @@ pub struct ChannelInfo {
 fn merge_discovered_channels(
     channel_uuids: Vec<Uuid>,
     meta_events: &serde_json::Value,
+    guest_channels: &std::collections::HashSet<Uuid>,
 ) -> HashMap<Uuid, ChannelInfo> {
     let mut meta_map: HashMap<Uuid, (String, String)> = HashMap::new();
     let mut archived: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
@@ -407,7 +410,14 @@ fn merge_discovered_channels(
         let (name, channel_type) = meta_map
             .remove(&uuid)
             .unwrap_or_else(|| ("unknown".to_string(), "stream".to_string()));
-        map.insert(uuid, ChannelInfo { name, channel_type });
+        map.insert(
+            uuid,
+            ChannelInfo {
+                name,
+                channel_type,
+                is_guest: guest_channels.contains(&uuid),
+            },
+        );
     }
     map
 }
@@ -869,8 +879,15 @@ impl HarnessRelay {
 
         // Extract channel UUIDs from #d tags.
         let mut channel_uuids: Vec<Uuid> = Vec::new();
+        let mut guest_channels = std::collections::HashSet::new();
         for ev in member_arr {
             if let Some(tags) = ev.get("tags").and_then(|t| t.as_array()) {
+                let channel_id = tags.iter().find_map(|tag| {
+                    let arr = tag.as_array()?;
+                    (arr.first()?.as_str()? == "d")
+                        .then(|| arr.get(1)?.as_str()?.parse::<Uuid>().ok())
+                        .flatten()
+                });
                 for tag in tags {
                     if let Some(arr) = tag.as_array() {
                         if arr.first().and_then(|v| v.as_str()) == Some("d") {
@@ -878,6 +895,13 @@ impl HarnessRelay {
                                 if let Ok(uuid) = d_val.parse::<Uuid>() {
                                     channel_uuids.push(uuid);
                                 }
+                            }
+                        } else if arr.first().and_then(|v| v.as_str()) == Some("p")
+                            && arr.get(1).and_then(|v| v.as_str()) == Some(pk_hex.as_str())
+                            && arr.get(3).and_then(|v| v.as_str()) == Some("guest")
+                        {
+                            if let Some(channel_id) = channel_id {
+                                guest_channels.insert(channel_id);
                             }
                         }
                     }
@@ -901,7 +925,7 @@ impl HarnessRelay {
         let meta_events = rest.query(&[meta_filter]).await?;
 
         // Step 3: Build the final subscribe set, skipping archived channels.
-        let map = merge_discovered_channels(channel_uuids, &meta_events);
+        let map = merge_discovered_channels(channel_uuids, &meta_events, &guest_channels);
 
         debug!("discovered {} channel(s)", map.len());
         Ok(map)
@@ -4509,7 +4533,7 @@ mod tests {
             meta_event(archived, "dead", &["archived", "true"]),
         ]);
 
-        let map = merge_discovered_channels(vec![live, archived], &meta);
+        let map = merge_discovered_channels(vec![live, archived], &meta, &HashSet::new());
 
         assert!(map.contains_key(&live), "non-archived channel is kept");
         assert!(
@@ -4530,7 +4554,7 @@ mod tests {
         let reaped = Uuid::new_v4();
         let meta = serde_json::json!([meta_event(reaped, "reaped", &["archived", "true"])]);
 
-        let map = merge_discovered_channels(vec![reaped], &meta);
+        let map = merge_discovered_channels(vec![reaped], &meta, &HashSet::new());
 
         assert!(
             map.is_empty(),
@@ -4544,9 +4568,23 @@ mod tests {
         let ch = Uuid::new_v4();
         let meta = serde_json::json!([meta_event(ch, "back", &["archived", "false"])]);
 
-        let map = merge_discovered_channels(vec![ch], &meta);
+        let map = merge_discovered_channels(vec![ch], &meta, &HashSet::new());
 
         assert!(map.contains_key(&ch), "archived=false is treated as live");
+    }
+
+    #[test]
+    fn merge_discovered_channels_preserves_the_residents_guest_role() {
+        let visit = Uuid::new_v4();
+        let regular = Uuid::new_v4();
+        let meta = serde_json::json!([
+            meta_event(visit, "host", &[]),
+            meta_event(regular, "home", &[]),
+        ]);
+        let map = merge_discovered_channels(vec![visit, regular], &meta, &HashSet::from([visit]));
+
+        assert!(map[&visit].is_guest);
+        assert!(!map[&regular].is_guest);
     }
 
     #[test]
