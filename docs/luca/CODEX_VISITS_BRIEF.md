@@ -42,12 +42,31 @@ hold for 3 or 8.
 5. The contract (`crates/luca-protocol/src/exchange.rs`), `luca_managed_prompt.md`'s house rules,
    and all `TODO(ship)` wording stay frozen.
 
-## Branch setup (step 0)
+## Branch setup (step 0) — corrected 2026-08-21, read this even if you read the brief before
 
-Branch `codex/visits` off `codex/cleanup-after-exchange` (it contains the machinery deletion and CI
-fixes; `agent/exchange-object` is its base). Then the three cherry-picks. Gates must be green before
-feature work starts: `just desktop-tauri-clippy`, `cargo test --manifest-path
-desktop/src-tauri/Cargo.toml`, `cd desktop && pnpm exec biome check . && pnpm test`.
+The two branches have **diverged** since this was first written (merge base `c94295d2`):
+`agent/exchange-object` has eleven commits the cleanup branch does not, including the whole visit
+UI; `codex/cleanup-after-exchange` has four the other does not. The original instruction — branch
+off the cleanup branch — would silently drop the UI this brief depends on, so:
+
+```
+git switch agent/exchange-object          # has the visit UI; pushed, df89297c or later
+git switch -c codex/visits
+git merge codex/cleanup-after-exchange    # brings the machinery deletion + CI fixes
+```
+
+Then the three cherry-picks (decision 2). **Those three commits live only on the local branch
+`agent/pair-dm-placement`, which has never been pushed** — they are reachable from any worktree of
+this repository on Riley's machine and from nowhere else. Do not try to fetch them; do not recreate
+them by hand. If `git cat-file -e a659b066` fails you are in the wrong checkout — stop and say so.
+
+Two more things before feature work starts:
+
+- **Work in a clean tree.** The canonical worktree may hold uncommitted work from a parallel session
+  (a typography/ink-ladder pass was in progress on 2026-08-21). `git status` must be clean, or the
+  parallel work committed, before you branch. Never stash or revert someone else's changes.
+- Gates green first: `just desktop-tauri-clippy`, `cargo test --manifest-path
+  desktop/src-tauri/Cargo.toml`, `cd desktop && pnpm exec biome check . && pnpm test`.
 
 ## The design, fully decided
 
@@ -95,12 +114,20 @@ never in what may be read.
   already uses) so a crash replay does not re-add or double-note.
 
 ### C. What people see — the UI is already built; you emit the events it reads
-The visuals of a visit (the threshold line, the plate around the visit, `· visiting` on the guest's
-messages, the header rail's "visiting" mark, the drawer's "Between agents") are owned by the design
-session and ALREADY EXIST on this branch: `desktop/src/features/messages/lib/visitEvents.ts`,
-`visitSpans.ts`, `ui/VisitNoteRow.tsx`, `features/channels/ui/ConversationPresenceRail.tsx`,
-`ConversationContextPanel.tsx`, `features/exchange/ui/ExchangeHistory.tsx`. **Do not add, change or
-restyle any of that.** Your job is the data they read:
+The visuals of a visit are finished, reviewed and merged on `agent/exchange-object` (design session,
+2026-08-21): the two thresholds that bracket the passage, the inset column between them, the hairline
+connecting the speakers' marks, `· visiting` after a guest's timestamp, the "visiting" mark in the
+header rail, the sticky presence mark in the margin, and the drawer's "Between agents". They live in
+`desktop/src/features/messages/lib/visitEvents.ts`, `visitSpans.ts`, `ui/VisitNoteRow.tsx`,
+`ui/VisitPresenceRail.tsx`, `ui/TimelineRowShell.tsx`, `features/channels/ui/ConversationPresenceRail.tsx`,
+`ConversationContextPanel.tsx`, `features/exchange/ui/ExchangeHistory.tsx`, and the visit block of
+`shared/styles/globals/conversation-shell.css`.
+
+**Do not add, change, restyle or "improve" any of it, and do not touch its geometry** — the
+connector's position is derived arithmetic that `desktop/scripts/lab-shots.mjs` measures to 0.5px.
+Run `node desktop/scripts/lab-shots.mjs` once before you start and once at the end: it must pass both
+times, and if it fails after your work, your change reached the UI and should be reverted rather than
+patched. Your job is the data those components read:
 - On arrival, the relay speaks one note in the room (the new 41013 kind, from the salvage) whose
   body is this JSON, exactly these keys:
   `{"type":"visit_arrived","resident":"<guest hex pubkey>","exchange_id":"<hex>","text":"ziggy is visiting — they can see this conversation from here on."}`
