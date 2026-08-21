@@ -86,8 +86,14 @@ something is your fault:
   the shell mounts — verified reproducing on an untouched build, so it is the environment and not
   the code. Do not try to fix them and do not treat them as a signal about your work; report them as
   observed and move on.
-- Then, before feature work: `just desktop-tauri-clippy` and `cargo test --manifest-path
-  desktop/src-tauri/Cargo.toml`.
+- **Run the Rust gates through `just`, never through raw `cargo`, in a fresh worktree.** Tauri
+  validates `externalBin` at compile time, and the five sidecar binaries under
+  `desktop/src-tauri/binaries/` are gitignored build artifacts that a new worktree does not have. A
+  bare `cargo check`/`cargo test --manifest-path desktop/src-tauri/Cargo.toml` therefore dies in
+  `build.rs` with *"resource path `binaries/buzz-acp-aarch64-apple-darwin` doesn't exist"* — which
+  looks like a broken merge and is not one. `just desktop-tauri-clippy`, `just desktop-tauri-check`
+  and `just desktop-tauri-test` all depend on `_ensure-sidecar-stubs`, which touches the placeholders
+  first. Use those. (Verified the hard way on 2026-08-21.)
 
 ## The design, fully decided
 
@@ -200,7 +206,8 @@ who may create rooms. Do not build ahead.
    `desktop/scripts/lab-shots.mjs`.
 4. Fade → the one-function rule + tests; e2e: stop the exchange → membership removed + a
    `visit_left` note emitted.
-5. Full gates: `just desktop-tauri-clippy` · full tauri tests · `cargo test -p buzz-relay --lib`
+5. Full gates (via `just`, per step 0 — raw cargo cannot build this crate in a fresh worktree):
+   `just desktop-tauri-clippy` · `just desktop-tauri-test` · `cargo test -p buzz-relay --lib`
    (skip `api::mesh_demo`, known flake) · `cargo test -p buzz-acp` · desktop `pnpm test` + the
    Playwright luca suite (pre-existing failures listed in the cleanup work are not yours).
 
