@@ -6,6 +6,7 @@
 
 use std::{
     io::Read,
+    path::PathBuf,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -244,6 +245,7 @@ pub(crate) struct ManagedMessagePublisher {
     dispatch_store: Arc<Mutex<ManagedDispatchStore>>,
     transport: Box<dyn ManagedRelayTransport>,
     handoff_scheduler: Option<HandoffScheduler>,
+    artifact_app_data_dir: Option<PathBuf>,
     exchange: Option<ExchangeAuthority>,
 }
 
@@ -326,11 +328,13 @@ impl ManagedMessagePublisher {
             relay: Box::new(AppExchangeRelay::new(app.clone())),
             store: global_exchange_store(&app)?,
         };
+        let artifact_app_data_dir = app.path().app_data_dir().ok();
         Ok(Self {
             resident_pubkey,
             dispatch_store,
             transport: Box::new(transport),
             handoff_scheduler: Some(HandoffScheduler { app, binding_ref }),
+            artifact_app_data_dir,
             exchange: Some(exchange),
         })
     }
@@ -346,8 +350,15 @@ impl ManagedMessagePublisher {
             dispatch_store,
             transport,
             handoff_scheduler: None,
+            artifact_app_data_dir: None,
             exchange: None,
         }
+    }
+
+    #[cfg(test)]
+    fn with_artifact_app_data_dir(mut self, app_data_dir: PathBuf) -> Self {
+        self.artifact_app_data_dir = Some(app_data_dir);
+        self
     }
 
     /// Bind an offline exchange authority so the mint/continue/refuse paths can
@@ -464,12 +475,11 @@ impl ManagedMessagePublisher {
         final_message_id: Option<&str>,
         state: ArtifactReceiptStateV1,
     ) {
-        let Some(scheduler) = &self.handoff_scheduler else {
+        let Some(app_data_dir) = &self.artifact_app_data_dir else {
             return;
         };
         let result = (|| {
-            let app_data_dir = scheduler.app.path().app_data_dir().map_err(|_| ())?;
-            let mut store = super::artifacts::ArtifactStore::open(&app_data_dir).map_err(|_| ())?;
+            let mut store = super::artifacts::ArtifactStore::open(app_data_dir).map_err(|_| ())?;
             match state {
                 ArtifactReceiptStateV1::Linked => {
                     let message_id =
@@ -496,10 +506,12 @@ impl ManagedMessagePublisher {
         })();
         match result {
             Ok(changed) if changed > 0 => {
-                let _ = scheduler.app.emit(
-                    "luca://artifacts-changed",
-                    serde_json::json!({ "reason": "receipt-settled" }),
-                );
+                if let Some(scheduler) = &self.handoff_scheduler {
+                    let _ = scheduler.app.emit(
+                        "luca://artifacts-changed",
+                        serde_json::json!({ "reason": "receipt-settled" }),
+                    );
+                }
             }
             Ok(_) => {}
             Err(()) => {
@@ -788,6 +800,15 @@ impl ManagedMessagePublisher {
             outbox
                 .mark_authority_finalized(&entry.idempotency_key)
                 .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+            // The relay acceptance may have become durable immediately before
+            // a crash. Receipt settlement is idempotent and remains fail-soft,
+            // so recovery links the artifact to the already-accepted final
+            // without changing conversation publication truth.
+            self.settle_artifact_receipts(
+                &entry.request,
+                Some(entry.event_id.as_str()),
+                ArtifactReceiptStateV1::Linked,
+            );
             self.record_handoff_job(&entry, outbox)?;
             return Ok(());
         }

@@ -9,7 +9,8 @@ use std::{
 };
 
 use luca_protocol::{
-    canonicalize, derive_message_publish_idempotency_key, Hex64, SafeU53, MESSAGE_PUBLISH_PROTOCOL,
+    canonicalize, derive_message_publish_idempotency_key, ArtifactCreateArgsV1, ArtifactKindV1,
+    ArtifactReceiptStateV1, ArtifactSourceV1, Hex64, SafeU53, MESSAGE_PUBLISH_PROTOCOL,
 };
 use nostr::{EventBuilder, Tag, Timestamp};
 
@@ -698,6 +699,99 @@ fn accepted_outbox_can_finish_after_safely_compacted_dispatch() {
         .reconcile_on_start(&mut fixture.outbox, &fixture.session)
         .expect("finish retained acceptance");
     assert!(fixture.outbox.reconciliation_entries().is_empty());
+}
+
+#[test]
+fn accepted_outbox_restart_links_provisional_artifact_receipt_exactly_once() {
+    let mut fixture = fixture();
+    let artifact_data = tempfile::tempdir().expect("artifact data");
+    let artifact_id = {
+        let mut store = super::super::artifacts::ArtifactStore::open(artifact_data.path())
+            .expect("artifact store");
+        let context = super::super::artifacts::ArtifactWriteContext {
+            owner_pubkey: fixture.request.owner_pubkey.clone(),
+            author_pubkey: fixture.request.resident_pubkey.clone(),
+            resident_pubkey: fixture.request.resident_pubkey.clone(),
+            conversation_id: Some(fixture.request.conversation_id.clone()),
+            turn_id: Some(fixture.request.turn_id.clone()),
+            dispatch_receipt_id: Some(fixture.request.dispatch_receipt_id.clone()),
+            working_root_id: None,
+            receipt_state: ArtifactReceiptStateV1::Provisional,
+        };
+        store
+            .create(
+                &context,
+                &ArtifactCreateArgsV1 {
+                    title: "Recovered artifact".into(),
+                    kind: ArtifactKindV1::Html,
+                    source: ArtifactSourceV1::InlineText {
+                        content_utf8: "<h1>durable</h1>".into(),
+                        declared_media_type: Some("text/html".into()),
+                    },
+                    idempotency_key: OpaqueId::parse("accepted-artifact-once")
+                        .expect("artifact idempotency"),
+                },
+                None,
+            )
+            .expect("create provisional artifact")
+            .artifact
+            .artifact_id
+    };
+    fixture
+        .outbox
+        .mark_submitted(&fixture.request.idempotency_key, &fixture.session, false)
+        .expect("submitted");
+    fixture
+        .outbox
+        .mark_accepted(
+            &fixture.request.idempotency_key,
+            OpaqueId::parse(fixture.event_id.clone()).expect("receipt"),
+        )
+        .expect("accepted");
+    let empty_store = Arc::new(Mutex::new(
+        ManagedDispatchStore::load(
+            tempfile::tempdir()
+                .expect("temp")
+                .keep()
+                .join("dispatches.json"),
+        )
+        .expect("empty store"),
+    ));
+    let state = Arc::new(Mutex::new(FakeRelayState::default()));
+    let mut publisher = ManagedMessagePublisher::with_transport(
+        fixture.resident.public_key().to_hex(),
+        empty_store,
+        Box::new(FakeRelayTransport { state }),
+    )
+    .with_artifact_app_data_dir(artifact_data.path().to_path_buf());
+
+    publisher
+        .reconcile_on_start(&mut fixture.outbox, &fixture.session)
+        .expect("finish retained acceptance");
+    let first = {
+        let store = super::super::artifacts::ArtifactStore::open(artifact_data.path())
+            .expect("reopen artifacts");
+        store
+            .latest_receipt(
+                &fixture.request.owner_pubkey,
+                &OpaqueId::parse(artifact_id).expect("artifact id"),
+                1,
+            )
+            .expect("linked receipt")
+    };
+    assert_eq!(first.state, ArtifactReceiptStateV1::Linked);
+    assert_eq!(first.message_id.as_deref(), Some(fixture.event_id.as_str()));
+
+    publisher
+        .reconcile_on_start(&mut fixture.outbox, &fixture.session)
+        .expect("idempotent second startup");
+    let store = super::super::artifacts::ArtifactStore::open(artifact_data.path())
+        .expect("reopen artifacts again");
+    let receipts = store
+        .receipts(&fixture.request.owner_pubkey, None, 10)
+        .expect("receipts");
+    assert_eq!(receipts.len(), 1);
+    assert_eq!(receipts[0].linked_at, first.linked_at);
 }
 
 #[test]
