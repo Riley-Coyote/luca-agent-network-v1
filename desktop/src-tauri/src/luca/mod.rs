@@ -6,6 +6,8 @@ pub(crate) mod artifacts;
 // rotation, and relay APIs for the deferred long-range roadmap. Keep their
 // dead-code allowance local instead of weakening the desktop crate lint gate.
 #[cfg(unix)]
+pub(crate) mod artifact_backend;
+#[cfg(unix)]
 pub(crate) mod artifact_bridge;
 #[cfg(unix)]
 pub(crate) mod communication_bridge;

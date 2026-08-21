@@ -1882,7 +1882,7 @@ pub fn spawn_agent_child(
                 working_root_id,
                 working_root: managed_working_root.clone(),
             },
-            std::sync::Arc::new(crate::luca::artifact_bridge::UnavailableArtifactBackend),
+            std::sync::Arc::new(crate::luca::artifact_backend::DesktopArtifactBackend::new(app)?),
         )
     })()
     .map(Some)

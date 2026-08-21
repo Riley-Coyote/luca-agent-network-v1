@@ -99,27 +99,6 @@ pub(crate) trait ArtifactBrokerBackend: Send + Sync {
     ) -> ArtifactToolResultV1;
 }
 
-/// Honest placeholder used until the storage lane is integrated. It keeps the
-/// conversation alive and never pretends a mutation committed.
-pub(crate) struct UnavailableArtifactBackend;
-
-impl ArtifactBrokerBackend for UnavailableArtifactBackend {
-    fn dispatch(
-        &self,
-        request: ArtifactToolRequestV1,
-        _canonical_working_root: &Path,
-    ) -> ArtifactToolResultV1 {
-        ArtifactToolResultV1 {
-            protocol: ARTIFACT_TOOL_PROTOCOL.into(),
-            request_id: request.request_id,
-            outcome: ArtifactToolOutcomeV1::Failed {
-                code: "artifact_backend_unavailable".into(),
-                message: "Artifact storage is not available in this build.".into(),
-            },
-        }
-    }
-}
-
 struct ArtifactBrokerOwner {
     active: Arc<AtomicBool>,
     socket_path: PathBuf,
