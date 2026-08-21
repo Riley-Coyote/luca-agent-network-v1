@@ -621,6 +621,7 @@ export type AcpRuntimeCatalogEntry = {
   binaryPath: string | null;
   defaultArgs: string[];
   mcpCommand: string | null;
+  artifactMcpSupport: "standard_session_new";
   /** Environment variable used to apply the initial model, when supported. */
   modelEnvVar: string | null;
   /** Environment variable used to apply the selected LLM provider, when supported. */

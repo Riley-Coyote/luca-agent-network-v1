@@ -598,6 +598,10 @@ pub struct AcpRuntimeCatalogEntry {
     pub binary_path: Option<String>,
     pub default_args: Vec<String>,
     pub mcp_command: Option<String>,
+    /// Rust-owned compatibility fact for Luca's independent Artifact MCP
+    /// projection. Unknown custom ACP commands are probed at session/new and
+    /// fall back honestly when rejected.
+    pub artifact_mcp_support: ArtifactMcpSupport,
     /// Environment variable used to apply the initial model, when supported.
     pub model_env_var: Option<String>,
     /// Environment variable used to apply the selected LLM provider, when supported.
@@ -617,6 +621,12 @@ pub struct AcpRuntimeCatalogEntry {
     /// Hint for completing authentication, shown when `auth_status` is not `logged_in`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub login_hint: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ArtifactMcpSupport {
+    StandardSessionNew,
 }
 
 /// Result of a single install step (CLI or adapter).

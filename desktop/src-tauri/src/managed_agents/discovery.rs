@@ -6,7 +6,8 @@ use std::time::{Duration, Instant};
 
 use crate::managed_agents::{
     buzz_managed_command_path, buzz_managed_node_bin_dir, buzz_managed_npm_bin_dir,
-    AcpAvailabilityStatus, AcpRuntimeCatalogEntry, AuthStatus, CommandAvailabilityInfo,
+    AcpAvailabilityStatus, AcpRuntimeCatalogEntry, ArtifactMcpSupport, AuthStatus,
+    CommandAvailabilityInfo,
 };
 
 mod runtime_metadata;
@@ -1312,6 +1313,7 @@ pub fn discover_acp_runtimes() -> Vec<AcpRuntimeCatalogEntry> {
                     binary_path,
                     default_args,
                     mcp_command: runtime.mcp_command.map(str::to_string),
+                    artifact_mcp_support: ArtifactMcpSupport::StandardSessionNew,
                     model_env_var: runtime.model_env_var.map(str::to_string),
                     provider_env_var: runtime.provider_env_var.map(str::to_string),
                     thinking_env_var: runtime.thinking_env_var.map(str::to_string),

@@ -447,6 +447,7 @@ pub struct PromptContext {
     pub(crate) direct_buzz_mcp: Option<McpServer>,
     pub(crate) repository_mcp: Option<crate::repository_mcp::RepositoryMcpConfig>,
     pub(crate) communications_mcp: Option<crate::communications_mcp::CommunicationsMcpConfig>,
+    pub(crate) artifact_mcp: Option<crate::artifact_mcp::ArtifactMcpConfig>,
     pub initial_message: Option<String>,
     pub idle_timeout: Duration,
     pub max_turn_duration: Duration,
@@ -776,6 +777,7 @@ async fn create_session_and_apply_model(
     agent_core: Option<&str>,
     agent_canvas: Option<&str>,
     communications_turn: Option<&crate::communications_mcp::CommunicationsTurnBindingV1>,
+    artifact_turn: Option<&crate::artifact_mcp::ArtifactTurnBindingV1>,
 ) -> Result<String, AcpError> {
     // Build base_prompt + system_prompt + agent core + canvas metadata into a
     // single prompt. Standard protocol-v2 agents receive it in `session/new`;
@@ -821,6 +823,7 @@ async fn create_session_and_apply_model(
         source,
         ctx.repository_mcp.is_some(),
         communications_turn.is_some(),
+        artifact_turn.is_some(),
     );
     if let (true, PromptSource::Channel(conversation_id), Some(repository_mcp)) = (
         privileged_policy.repository,
@@ -836,7 +839,22 @@ async fn create_session_and_apply_model(
     ) {
         mcp_servers.push(communications_mcp.server_for_turn(turn));
     }
-    let resp = agent
+    if let (true, Some(artifact_mcp), Some(turn)) = (
+        privileged_policy.artifact,
+        ctx.artifact_mcp.as_ref(),
+        artifact_turn,
+    ) {
+        mcp_servers.push(artifact_mcp.server_for_turn(turn));
+    }
+    let artifact_projected = privileged_policy.artifact;
+    let fallback_servers = artifact_projected.then(|| {
+        mcp_servers
+            .iter()
+            .filter(|server| !server.name.starts_with("luca-artifacts-"))
+            .cloned()
+            .collect::<Vec<_>>()
+    });
+    let resp = match agent
         .acp
         .session_new_full_with_meta(
             &ctx.cwd,
@@ -848,7 +866,34 @@ async fn create_session_and_apply_model(
             ),
             session_meta,
         )
-        .await?;
+        .await
+    {
+        Ok(response) => response,
+        Err(_) if artifact_projected => {
+            tracing::warn!(
+                target: "luca::artifacts",
+                "runtime rejected the artifact MCP projection; retrying conversation without artifacts"
+            );
+            agent.acp.observe(
+                "artifact_mcp_unavailable",
+                serde_json::json!({"reason": "session_projection_rejected"}),
+            );
+            agent
+                .acp
+                .session_new_full_with_meta(
+                    &ctx.cwd,
+                    fallback_servers.unwrap_or_default(),
+                    session_new_system_prompt(
+                        is_goose,
+                        agent.protocol_version,
+                        combined_system_prompt.as_deref(),
+                    ),
+                    openclaw_session_meta(ctx, source)?,
+                )
+                .await?
+        }
+        Err(error) => return Err(error),
+    };
 
     if is_goose && agent.goose_system_prompt_supported != Some(false) {
         if let Some(prompt) = combined_system_prompt.as_deref() {
@@ -1556,6 +1601,38 @@ fn managed_communications_turn(
     }
 }
 
+fn managed_artifact_turn(
+    ctx: &PromptContext,
+    batch: Option<&FlushBatch>,
+    turn_id: &str,
+) -> Option<crate::artifact_mcp::ArtifactTurnBindingV1> {
+    ctx.artifact_mcp.as_ref()?;
+    let managed = ctx.managed_final_publisher.as_ref()?;
+    let batch = batch?;
+    let trigger = last_eligible_managed_trigger(batch, &managed.owner_pubkey)?;
+    match crate::luca_final_publisher::ManagedFinalTurn::from_triggering_event(
+        managed,
+        turn_id,
+        batch.channel_id,
+        trigger,
+        None,
+    ) {
+        Ok(final_turn) => Some(crate::artifact_mcp::ArtifactTurnBindingV1 {
+            conversation_id: final_turn.conversation_id,
+            turn_id: final_turn.turn_id,
+            dispatch_receipt_id: final_turn.dispatch_receipt_id,
+            cancellation_epoch: final_turn.cancellation_epoch,
+        }),
+        Err(error) => {
+            tracing::warn!(
+                target: "luca::artifacts",
+                "artifact MCP turn authority was invalid: {error}"
+            );
+            None
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ChannelSessionPolicy {
     create_session: bool,
@@ -1566,27 +1643,27 @@ struct ChannelSessionPolicy {
 struct PrivilegedSessionMcpPolicy {
     repository: bool,
     communications: bool,
+    artifact: bool,
 }
 
 fn privileged_session_mcp_policy(
     source: &PromptSource,
     repository_configured: bool,
     communications_turn: bool,
+    artifact_turn: bool,
 ) -> PrivilegedSessionMcpPolicy {
     let ordinary_channel = matches!(source, PromptSource::Channel(_));
     let communications = ordinary_channel && communications_turn;
     PrivilegedSessionMcpPolicy {
         repository: ordinary_channel && repository_configured && !communications,
         communications,
+        artifact: ordinary_channel && artifact_turn,
     }
 }
 
-fn channel_session_policy(
-    has_cached_session: bool,
-    communications_turn: bool,
-) -> ChannelSessionPolicy {
+fn channel_session_policy(has_cached_session: bool, turn_scoped_mcp: bool) -> ChannelSessionPolicy {
     ChannelSessionPolicy {
-        create_session: !has_cached_session || communications_turn,
+        create_session: !has_cached_session || turn_scoped_mcp,
         first_channel_session: !has_cached_session,
     }
 }
@@ -1971,6 +2048,10 @@ pub async fn run_prompt_task(
         PromptSource::Channel(_) => managed_communications_turn(&ctx, batch.as_ref(), &turn_id),
         PromptSource::Heartbeat | PromptSource::Continuity(_) => None,
     };
+    let artifact_turn = match &source {
+        PromptSource::Channel(_) => managed_artifact_turn(&ctx, batch.as_ref(), &turn_id),
+        PromptSource::Heartbeat | PromptSource::Continuity(_) => None,
+    };
     let triggering_event_ids: Vec<String> = batch
         .as_ref()
         .map(|b| b.events.iter().map(|be| be.event.id.to_hex()).collect())
@@ -1990,7 +2071,8 @@ pub async fn run_prompt_task(
             // batch order on later sessions.
             "managedDispatchReceiptId": communications_turn
                 .as_ref()
-                .map(|turn| turn.dispatch_receipt_id.as_str()),
+                .map(|turn| turn.dispatch_receipt_id.as_str())
+                .or_else(|| artifact_turn.as_ref().map(|turn| turn.dispatch_receipt_id.as_str())),
         }),
     );
 
@@ -2161,7 +2243,7 @@ pub async fn run_prompt_task(
         PromptSource::Channel(cid) => {
             let policy = channel_session_policy(
                 agent.state.sessions.contains_key(cid),
-                communications_turn.is_some(),
+                communications_turn.is_some() || artifact_turn.is_some(),
             );
             if !policy.create_session {
                 let Some(session_id) = agent.state.sessions.get(cid).cloned() else {
@@ -2187,6 +2269,7 @@ pub async fn run_prompt_task(
                     agent_core.as_deref(),
                     agent_canvas.as_deref(),
                     communications_turn.as_ref(),
+                    artifact_turn.as_ref(),
                 )
                 .await
                 {
@@ -2235,8 +2318,10 @@ pub async fn run_prompt_task(
             if let Some(sid) = &agent.state.heartbeat_session {
                 (sid.clone(), false, false)
             } else {
-                match create_session_and_apply_model(&mut agent, &ctx, &source, None, None, None)
-                    .await
+                match create_session_and_apply_model(
+                    &mut agent, &ctx, &source, None, None, None, None,
+                )
+                .await
                 {
                     Ok(sid) => {
                         tracing::info!(
@@ -2274,7 +2359,8 @@ pub async fn run_prompt_task(
             }
         }
         PromptSource::Continuity(_) => {
-            match create_session_and_apply_model(&mut agent, &ctx, &source, None, None, None).await
+            match create_session_and_apply_model(&mut agent, &ctx, &source, None, None, None, None)
+                .await
             {
                 Ok(sid) => {
                     tracing::info!(
@@ -4831,27 +4917,30 @@ mod tests {
     }
 
     #[test]
-    fn privileged_repository_and_communications_sidecars_never_share_a_session() {
+    fn privileged_sidecars_follow_exact_channel_policy() {
         let channel = PromptSource::Channel(Uuid::new_v4());
         assert_eq!(
-            privileged_session_mcp_policy(&channel, true, true),
+            privileged_session_mcp_policy(&channel, true, true, true),
             PrivilegedSessionMcpPolicy {
                 repository: false,
                 communications: true,
+                artifact: true,
             }
         );
         assert_eq!(
-            privileged_session_mcp_policy(&channel, true, false),
+            privileged_session_mcp_policy(&channel, true, false, true),
             PrivilegedSessionMcpPolicy {
                 repository: true,
                 communications: false,
+                artifact: true,
             }
         );
         assert_eq!(
-            privileged_session_mcp_policy(&PromptSource::Heartbeat, true, true),
+            privileged_session_mcp_policy(&PromptSource::Heartbeat, true, true, true),
             PrivilegedSessionMcpPolicy {
                 repository: false,
                 communications: false,
+                artifact: false,
             }
         );
     }
@@ -7062,6 +7151,7 @@ mod tests {
             direct_buzz_mcp: None,
             repository_mcp: None,
             communications_mcp: None,
+            artifact_mcp: None,
             initial_message: None,
             idle_timeout: Duration::from_secs(60),
             max_turn_duration: Duration::from_secs(120),

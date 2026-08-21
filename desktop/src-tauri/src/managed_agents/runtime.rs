@@ -149,6 +149,8 @@ pub(crate) fn join_managed_signing_broker(resident_pubkey: &str) -> Result<(), S
     #[cfg(unix)]
     let communications_result =
         crate::luca::communication_bridge::stop_communication_broker(resident_pubkey);
+    #[cfg(unix)]
+    let artifact_result = crate::luca::artifact_bridge::stop_artifact_broker(resident_pubkey);
     crate::luca::managed_cognition::unregister(resident_pubkey);
     managed_capsule_brokers()
         .lock()
@@ -172,6 +174,8 @@ pub(crate) fn join_managed_signing_broker(resident_pubkey: &str) -> Result<(), S
     repository_result?;
     #[cfg(unix)]
     communications_result?;
+    #[cfg(unix)]
+    artifact_result?;
     Ok(())
 }
 
@@ -1766,6 +1770,13 @@ pub fn spawn_agent_child(
             fallback_command,
             record.agent_args.clone(),
         )?;
+    let managed_working_root = native_runtime
+        .as_ref()
+        .and_then(|runtime| runtime.default_workspace.clone())
+        .or_else(super::default_agent_workdir)
+        .unwrap_or(std::env::current_dir().map_err(|error| {
+            format!("failed to resolve managed agent working directory: {error}")
+        })?);
     let resolved_acp_command = resolve_command(&record.acp_command)
         .ok_or_else(|| missing_command_message(&record.acp_command, "ACP harness command"))?;
     // Every ACP-compatible resident receives Buzz's existing CLI-backed MCP.
@@ -1859,6 +1870,29 @@ pub fn spawn_agent_child(
         runtime_binding_ref.clone(),
     )?;
     #[cfg(unix)]
+    let artifact_broker_lease = (|| {
+        let working_root_id = crate::luca::artifact_bridge::working_root_id(&managed_working_root)?;
+        crate::luca::artifact_bridge::create_broker_lease(
+            app,
+            crate::luca::artifact_bridge::ArtifactBrokerContext {
+                owner_pubkey: owner_pubkey.clone(),
+                resident_pubkey: resident_pubkey.clone(),
+                session_epoch,
+                binding_ref: runtime_binding_ref.clone(),
+                working_root_id,
+                working_root: managed_working_root.clone(),
+            },
+            std::sync::Arc::new(crate::luca::artifact_bridge::UnavailableArtifactBackend),
+        )
+    })()
+    .map(Some)
+    .unwrap_or_else(|_| {
+        eprintln!(
+            "luca-artifacts: broker unavailable; continuing the managed resident without artifact tools"
+        );
+        None
+    });
+    #[cfg(unix)]
     let managed_continuity_fd = crate::luca::managed_continuity::create_endpoint(
         app.clone(),
         resident_pubkey.clone(),
@@ -1900,13 +1934,7 @@ pub fn spawn_agent_child(
         crate::relay::relay_http_base_url(&effective_relay_url).trim_end_matches('/')
     );
     let mut command = std::process::Command::new(&resolved_acp_command);
-    if let Some(home) = native_runtime
-        .as_ref()
-        .and_then(|runtime| runtime.default_workspace.clone())
-        .or_else(super::default_agent_workdir)
-    {
-        command.current_dir(home);
-    }
+    command.current_dir(&managed_working_root);
     #[cfg(unix)]
     command.stdin(managed_acp_stdin.into_stdio());
     #[cfg(not(unix))]
@@ -1959,6 +1987,8 @@ pub fn spawn_agent_child(
     // successfully created lease may expose the communications broker.
     command.env_remove("BUZZ_ACP_COMMUNICATIONS_MCP_COMMAND");
     command.env_remove("BUZZ_ACP_COMMUNICATIONS_MCP_CONFIG");
+    command.env_remove("BUZZ_ACP_ARTIFACT_MCP_COMMAND");
+    command.env_remove("BUZZ_ACP_ARTIFACT_MCP_CONFIG");
     command.env_remove("BUZZ_ACP_DIRECT_PRIVATE_KEY");
     #[cfg(unix)]
     {
@@ -1967,6 +1997,13 @@ pub fn spawn_agent_child(
             "BUZZ_ACP_REPOSITORY_MCP_CONFIG",
             repository_broker_lease.bootstrap_json(),
         );
+        if let Some(artifact_broker_lease) = artifact_broker_lease.as_ref() {
+            command.env("BUZZ_ACP_ARTIFACT_MCP_COMMAND", &repository_mcp_command);
+            command.env(
+                "BUZZ_ACP_ARTIFACT_MCP_CONFIG",
+                artifact_broker_lease.bootstrap_json(),
+            );
+        }
     }
     // Enable MCP hook tools (_Stop, _PostCompact) for agents that need them.
     // Uses "*" because build_mcp_servers() hard-codes the server name to "buzz-mcp".
@@ -2452,6 +2489,14 @@ pub fn spawn_agent_child(
         let _ = join_managed_signing_broker(&record.pubkey);
         abort_spawned_child(&mut child);
         return Err(format!("failed to register repository broker: {error}"));
+    }
+    #[cfg(unix)]
+    if let Some(artifact_broker_lease) = artifact_broker_lease {
+        if artifact_broker_lease.commit().is_err() {
+            eprintln!(
+                "luca-artifacts: broker registration failed; conversation remains available without artifact tools"
+            );
+        }
     }
 
     // Stamp the adapter availability for runtimes with a version gate (codex

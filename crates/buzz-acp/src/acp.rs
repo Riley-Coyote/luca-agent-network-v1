@@ -40,6 +40,8 @@ const LUCA_DESCENDANT_FORBIDDEN_ENV: &[&str] = &[
     "BUZZ_ACP_REPOSITORY_MCP_CONFIG",
     "BUZZ_ACP_COMMUNICATIONS_MCP_COMMAND",
     "BUZZ_ACP_COMMUNICATIONS_MCP_CONFIG",
+    "BUZZ_ACP_ARTIFACT_MCP_COMMAND",
+    "BUZZ_ACP_ARTIFACT_MCP_CONFIG",
     "BUZZ_ACP_DIRECT_PRIVATE_KEY",
     "LUCA_COMMUNICATIONS_MODE",
     "LUCA_COMMUNICATIONS_ENDPOINT",
@@ -49,6 +51,24 @@ const LUCA_DESCENDANT_FORBIDDEN_ENV: &[&str] = &[
     "LUCA_COMMUNICATIONS_TURN_ID",
     "LUCA_COMMUNICATIONS_DISPATCH_RECEIPT_ID",
     "LUCA_COMMUNICATIONS_CANCELLATION_EPOCH",
+    "LUCA_ARTIFACT_MODE",
+    "LUCA_ARTIFACT_ENDPOINT",
+    "LUCA_ARTIFACT_CAPABILITY",
+    "LUCA_ARTIFACT_CAPABILITY_GENERATION",
+    "LUCA_ARTIFACT_CONVERSATION_ID",
+    "LUCA_ARTIFACT_TURN_ID",
+    "LUCA_ARTIFACT_DISPATCH_RECEIPT_ID",
+    "LUCA_ARTIFACT_CANCELLATION_EPOCH",
+];
+
+const ARTIFACT_TOOL_NAMES: &[&str] = &[
+    "artifact_create",
+    "artifact_update",
+    "artifact_read",
+    "artifact_list",
+    "canvas_present",
+    "preview_attach",
+    "preview_detach",
 ];
 
 const MANAGED_PERMISSION_MAX_FRAME_BYTES: usize = 64 * 1024;
@@ -410,6 +430,10 @@ pub struct AcpClient {
     observer_agent_index: Option<usize>,
     /// Best-effort context attached to raw ACP wire events.
     observer_context: ObserverContext,
+    /// Tool-call identifiers whose arguments/results may contain artifact
+    /// bodies, source paths, or preview URLs. Observer payloads retain only
+    /// body-free lifecycle metadata for these calls.
+    sensitive_artifact_tool_call_ids: std::collections::HashSet<String>,
     /// Most recently observed `_meta.goose.activeRunId` from a
     /// `session/update` notification of kind `session_info_update`.
     ///
@@ -812,6 +836,7 @@ impl AcpClient {
             observer: None,
             observer_agent_index: None,
             observer_context: ObserverContext::default(),
+            sensitive_artifact_tool_call_ids: std::collections::HashSet::new(),
             active_run_id: None,
             steer_rx: None,
             goose_usage: UsageTracker::default(),
@@ -851,6 +876,53 @@ impl AcpClient {
                 payload,
             );
         }
+    }
+
+    fn observe_parse_error(&self, line: &str, error: &serde_json::Error) {
+        let payload = if self.managed_identity {
+            serde_json::json!({
+                "lineBytes": line.len(),
+                "error": error.to_string(),
+                "bodyRedacted": true,
+            })
+        } else {
+            serde_json::json!({
+                "line": line,
+                "error": error.to_string(),
+            })
+        };
+        self.observe("acp_parse_error", payload);
+    }
+
+    fn trace_inbound_metadata(&self, msg: &serde_json::Value) {
+        if !self.managed_identity {
+            tracing::debug!(target: "acp::wire", "← {msg}");
+            return;
+        }
+        let method = msg
+            .get("method")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("response");
+        let update = msg
+            .pointer("/params/update/sessionUpdate")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("none");
+        tracing::debug!(
+            target: "acp::wire",
+            method,
+            update,
+            bytes = serialized_len(msg),
+            "managed ACP frame received"
+        );
+    }
+
+    fn observe_inbound(&mut self, msg: &serde_json::Value) {
+        let payload = if self.managed_identity {
+            observer_payload_for_managed_read(msg, &mut self.sensitive_artifact_tool_call_ids)
+        } else {
+            msg.clone()
+        };
+        self.observe("acp_read", payload);
     }
 
     /// Send the `initialize` request and return the agent's response result value.
@@ -1172,11 +1244,13 @@ impl AcpClient {
     /// Bind permission prompts observed during this ACP prompt to the exact
     /// harness turn. Cleared on every prompt return path.
     pub fn set_managed_turn_context(&mut self, turn_id: &str, conversation_id: Option<&str>) {
+        self.sensitive_artifact_tool_call_ids.clear();
         self.managed_turn_id = Some(turn_id.to_owned());
         self.managed_conversation_id = conversation_id.map(str::to_owned);
     }
 
     pub fn clear_managed_turn_id(&mut self) {
+        self.sensitive_artifact_tool_call_ids.clear();
         self.managed_turn_id = None;
         self.managed_conversation_id = None;
     }
@@ -1483,19 +1557,10 @@ impl AcpClient {
                 continue;
             }
 
-            // Only log and reset idle after we have a valid non-empty line.
-            tracing::debug!(target: "acp::wire", "← {trimmed}");
-
             let msg: serde_json::Value = match serde_json::from_str(trimmed) {
                 Ok(v) => v,
                 Err(e) => {
-                    self.observe(
-                        "acp_parse_error",
-                        serde_json::json!({
-                            "line": trimmed,
-                            "error": e.to_string(),
-                        }),
-                    );
+                    self.observe_parse_error(trimmed, &e);
                     tracing::warn!(
                         target: "acp::wire",
                         "failed to parse line as JSON: {e} — skipping"
@@ -1503,7 +1568,8 @@ impl AcpClient {
                     continue;
                 }
             };
-            self.observe("acp_read", msg.clone());
+            self.trace_inbound_metadata(&msg);
+            self.observe_inbound(&msg);
 
             // Check if this is a response to our expected request (has matching id
             // AND no `method` field — a `method` field means it's an agent-initiated
@@ -1779,18 +1845,10 @@ impl AcpClient {
                         continue;
                     }
 
-                    tracing::debug!(target: "acp::wire", "← {trimmed}");
-
                     let msg: serde_json::Value = match serde_json::from_str(trimmed) {
                         Ok(v) => v,
                         Err(e) => {
-                            self.observe(
-                                "acp_parse_error",
-                                serde_json::json!({
-                                    "line": trimmed,
-                                    "error": e.to_string(),
-                                }),
-                            );
+                            self.observe_parse_error(trimmed, &e);
                             tracing::warn!(
                                 target: "acp::wire",
                                 "failed to parse line as JSON: {e} — skipping"
@@ -1798,7 +1856,8 @@ impl AcpClient {
                             continue;
                         }
                     };
-                    self.observe("acp_read", msg.clone());
+                    self.trace_inbound_metadata(&msg);
+                    self.observe_inbound(&msg);
 
                     let activity_now = Instant::now();
                     idle_deadline = activity_now + idle_timeout;
@@ -2258,6 +2317,98 @@ impl AcpClient {
 
 fn serialized_len(value: &serde_json::Value) -> usize {
     serde_json::to_vec(value).map_or(0, |bytes| bytes.len())
+}
+
+fn observer_payload_for_managed_read(
+    value: &serde_json::Value,
+    sensitive_tool_call_ids: &mut std::collections::HashSet<String>,
+) -> serde_json::Value {
+    let Some(update) = value.pointer("/params/update") else {
+        return value.clone();
+    };
+    let update_type = update
+        .get("sessionUpdate")
+        .and_then(serde_json::Value::as_str);
+    match update_type {
+        Some("tool_call") => {
+            let Some(tool_name) = artifact_tool_name(update) else {
+                return value.clone();
+            };
+            let tool_call_id = update
+                .get("toolCallId")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown");
+            if tool_call_id != "unknown" {
+                sensitive_tool_call_ids.insert(tool_call_id.to_owned());
+            }
+            serde_json::json!({
+                "jsonrpc": value.get("jsonrpc").cloned().unwrap_or(serde_json::Value::Null),
+                "method": "session/update",
+                "params": {
+                    "sessionId": value.pointer("/params/sessionId").cloned().unwrap_or(serde_json::Value::Null),
+                    "update": {
+                        "sessionUpdate": "tool_call",
+                        "toolCallId": tool_call_id,
+                        "title": tool_name,
+                        "kind": update.get("kind").cloned().unwrap_or(serde_json::Value::Null),
+                        "status": update.get("status").cloned().unwrap_or(serde_json::Value::Null),
+                        "bodyRedacted": true,
+                    }
+                }
+            })
+        }
+        Some("tool_call_update") => {
+            let tool_call_id = update
+                .get("toolCallId")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown");
+            let is_artifact_update = sensitive_tool_call_ids.contains(tool_call_id)
+                || artifact_tool_name(update).is_some();
+            if !is_artifact_update {
+                return value.clone();
+            }
+            let status = update
+                .get("status")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown");
+            if matches!(status, "completed" | "failed") {
+                sensitive_tool_call_ids.remove(tool_call_id);
+            }
+            serde_json::json!({
+                "jsonrpc": value.get("jsonrpc").cloned().unwrap_or(serde_json::Value::Null),
+                "method": "session/update",
+                "params": {
+                    "sessionId": value.pointer("/params/sessionId").cloned().unwrap_or(serde_json::Value::Null),
+                    "update": {
+                        "sessionUpdate": "tool_call_update",
+                        "toolCallId": tool_call_id,
+                        "status": status,
+                        "bodyRedacted": true,
+                    }
+                }
+            })
+        }
+        _ => value.clone(),
+    }
+}
+
+fn artifact_tool_name(update: &serde_json::Value) -> Option<&'static str> {
+    let candidates = [
+        update.get("title").and_then(serde_json::Value::as_str),
+        update
+            .pointer("/rawInput/toolName")
+            .and_then(serde_json::Value::as_str),
+        update
+            .pointer("/rawInput/tool_name")
+            .and_then(serde_json::Value::as_str),
+        update
+            .pointer("/rawInput/name")
+            .and_then(serde_json::Value::as_str),
+    ];
+    ARTIFACT_TOOL_NAMES
+        .iter()
+        .copied()
+        .find(|name| candidates.into_iter().flatten().any(|value| value == *name))
 }
 
 fn observer_payload_for_write(value: &serde_json::Value) -> serde_json::Value {
@@ -3298,6 +3449,56 @@ mod tests {
         assert!(!log.contains(SENTINEL));
         assert!(log.contains("session/prompt"));
         assert!(log.contains("body_bytes="));
+    }
+
+    #[test]
+    fn managed_artifact_tool_observer_frames_are_body_and_path_free() {
+        const BODY: &str = "PRIVATE_ARTIFACT_BODY_SENTINEL";
+        const PATH: &str = "private/source/path.md";
+        const URL: &str = "http://127.0.0.1:4173/private";
+        let mut ids = std::collections::HashSet::new();
+        let start = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionId": "session-1",
+                "update": {
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": "tool-1",
+                    "title": "artifact_create",
+                    "kind": "other",
+                    "status": "in_progress",
+                    "rawInput": {"content_utf8": BODY, "relative_path": PATH, "url": URL}
+                }
+            }
+        });
+        let redacted = observer_payload_for_managed_read(&start, &mut ids);
+        let encoded = serde_json::to_string(&redacted).unwrap();
+        assert!(!encoded.contains(BODY));
+        assert!(!encoded.contains(PATH));
+        assert!(!encoded.contains(URL));
+        assert_eq!(redacted["params"]["update"]["bodyRedacted"], true);
+
+        let complete = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionId": "session-1",
+                "update": {
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": "tool-1",
+                    "status": "completed",
+                    "content": [{"type": "text", "text": BODY}],
+                    "rawOutput": {"relative_path": PATH, "url": URL}
+                }
+            }
+        });
+        let redacted = observer_payload_for_managed_read(&complete, &mut ids);
+        let encoded = serde_json::to_string(&redacted).unwrap();
+        assert!(!encoded.contains(BODY));
+        assert!(!encoded.contains(PATH));
+        assert!(!encoded.contains(URL));
+        assert!(!ids.contains("tool-1"));
     }
 
     #[tokio::test]

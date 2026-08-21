@@ -426,6 +426,12 @@ pub struct CliArgs {
     pub(crate) communications_mcp_config:
         Option<crate::communications_mcp::CommunicationsMcpBootstrapV1>,
 
+    #[arg(long, env = "BUZZ_ACP_ARTIFACT_MCP_COMMAND", default_value = "")]
+    pub(crate) artifact_mcp_command: String,
+
+    #[arg(long, env = "BUZZ_ACP_ARTIFACT_MCP_CONFIG")]
+    pub(crate) artifact_mcp_config: Option<crate::artifact_mcp::ArtifactMcpBootstrapV1>,
+
     /// Idle timeout: max seconds of silence before killing a turn.
     /// Resets on any agent stdout activity.
     #[arg(long, env = "BUZZ_ACP_IDLE_TIMEOUT")]
@@ -653,6 +659,7 @@ pub struct Config {
     pub mcp_command: String,
     pub(crate) repository_mcp: Option<crate::repository_mcp::RepositoryMcpConfig>,
     pub(crate) communications_mcp: Option<crate::communications_mcp::CommunicationsMcpConfig>,
+    pub(crate) artifact_mcp: Option<crate::artifact_mcp::ArtifactMcpConfig>,
     pub idle_timeout_secs: u64,
     pub max_turn_duration_secs: u64,
     pub agents: u32,
@@ -1212,6 +1219,12 @@ impl Config {
             managed_mcp_identity,
         )
         .map_err(ConfigError::ConfigFile)?;
+        let artifact_mcp = crate::artifact_mcp::ArtifactMcpConfig::new(
+            args.artifact_mcp_command,
+            args.artifact_mcp_config,
+            managed_mcp_identity,
+        )
+        .map_err(ConfigError::ConfigFile)?;
         let config = Config {
             identity,
             direct_mcp_keys,
@@ -1221,6 +1234,7 @@ impl Config {
             mcp_command: args.mcp_command,
             repository_mcp,
             communications_mcp,
+            artifact_mcp,
             idle_timeout_secs,
             max_turn_duration_secs,
             agents: args.agents,
@@ -1640,6 +1654,7 @@ mod tests {
             mcp_command: "".into(),
             repository_mcp: None,
             communications_mcp: None,
+            artifact_mcp: None,
             idle_timeout_secs: DEFAULT_IDLE_TIMEOUT_SECS,
             max_turn_duration_secs: DEFAULT_MAX_TURN_DURATION_SECS,
             agents: 1,

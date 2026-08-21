@@ -11,6 +11,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 #[cfg(unix)]
+mod luca_artifacts;
+#[cfg(unix)]
 mod luca_communications;
 #[cfg(unix)]
 mod luca_repositories;
@@ -169,23 +171,52 @@ async fn async_main(cmd: String) -> Result<(), Box<dyn std::error::Error>> {
     // repeated installation is harmless.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    // Managed ACP processes receive the resident key under a private internal
-    // name. Translate it only at the existing Buzz MCP boundary so the normal
-    // Buzz CLI and media helpers keep using their established environment.
-    if let Some(private_key) = std::env::var_os("BUZZ_ACP_DIRECT_PRIVATE_KEY") {
-        std::env::remove_var("BUZZ_ACP_DIRECT_PRIVATE_KEY");
-        std::env::set_var("BUZZ_PRIVATE_KEY", private_key);
-    }
-
     // buzz CLI needs tokio (async HTTP client).
     if cmd == "buzz" {
         std::process::exit(buzz_cli::run_from_args(std::env::args()).await);
     }
 
+    let artifact_mode = std::env::var("LUCA_ARTIFACT_MODE").as_deref() == Ok("1");
     let repository_mode = std::env::var("LUCA_REPOSITORY_MODE").as_deref() == Ok("1");
     let communications_mode = std::env::var("LUCA_COMMUNICATIONS_MODE").as_deref() == Ok("1");
-    if repository_mode && communications_mode {
+    if [artifact_mode, repository_mode, communications_mode]
+        .into_iter()
+        .filter(|enabled| *enabled)
+        .count()
+        > 1
+    {
         return Err("Luca MCP personalities are mutually exclusive".into());
+    }
+
+    // Restricted personalities must never translate or retain signing
+    // material, even if a hostile parent tries to inject legacy variables.
+    if artifact_mode || repository_mode || communications_mode {
+        for key in [
+            "BUZZ_ACP_DIRECT_PRIVATE_KEY",
+            "BUZZ_PRIVATE_KEY",
+            "NOSTR_PRIVATE_KEY",
+            "BUZZ_AUTH_TAG",
+        ] {
+            std::env::remove_var(key);
+        }
+    } else if let Some(private_key) = std::env::var_os("BUZZ_ACP_DIRECT_PRIVATE_KEY") {
+        // The general Buzz MCP alone retains the legacy translation needed by
+        // the CLI and media helpers.
+        std::env::remove_var("BUZZ_ACP_DIRECT_PRIVATE_KEY");
+        std::env::set_var("BUZZ_PRIVATE_KEY", private_key);
+    }
+
+    if artifact_mode {
+        #[cfg(unix)]
+        {
+            let service = luca_artifacts::LucaArtifactsMcp::from_environment()?
+                .serve(stdio())
+                .await?;
+            service.waiting().await?;
+            return Ok(());
+        }
+        #[cfg(not(unix))]
+        return Err("Luca artifact MCP is supported only on Unix".into());
     }
 
     if communications_mode {

@@ -55,6 +55,16 @@ const COMMUNICATIONS_ENV_KEYS: [&str; 8] = [
     "LUCA_COMMUNICATIONS_DISPATCH_RECEIPT_ID",
     "LUCA_COMMUNICATIONS_CANCELLATION_EPOCH",
 ];
+const ARTIFACT_ENV_KEYS: [&str; 8] = [
+    "LUCA_ARTIFACT_MODE",
+    "LUCA_ARTIFACT_ENDPOINT",
+    "LUCA_ARTIFACT_CAPABILITY",
+    "LUCA_ARTIFACT_CAPABILITY_GENERATION",
+    "LUCA_ARTIFACT_CONVERSATION_ID",
+    "LUCA_ARTIFACT_TURN_ID",
+    "LUCA_ARTIFACT_DISPATCH_RECEIPT_ID",
+    "LUCA_ARTIFACT_CANCELLATION_EPOCH",
+];
 
 #[derive(Clone)]
 struct CompatConfig {
@@ -299,7 +309,7 @@ fn validate_mcp_servers(servers: &[McpServerStdio]) -> Result<(), String> {
     if servers.is_empty() {
         return Ok(());
     }
-    if servers.len() > 2 {
+    if servers.len() > 3 {
         return Err("unsupported MCP projection".into());
     }
     let mut names = std::collections::BTreeSet::new();
@@ -354,6 +364,31 @@ fn validate_mcp_servers(servers: &[McpServerStdio]) -> Result<(), String> {
                         .get("LUCA_COMMUNICATIONS_CANCELLATION_EPOCH")
                         .is_some_and(|value| is_safe_positive_u53(value))
             }
+            name if valid_artifact_server_name(name) => {
+                server.env.len() == ARTIFACT_ENV_KEYS.len()
+                    && env.get("LUCA_ARTIFACT_MODE") == Some(&"1")
+                    && env
+                        .get("LUCA_ARTIFACT_ENDPOINT")
+                        .is_some_and(|value| valid_broker_endpoint(value, "luca-ab-"))
+                    && env
+                        .get("LUCA_ARTIFACT_CAPABILITY")
+                        .is_some_and(|value| is_sha256_ref(value))
+                    && env
+                        .get("LUCA_ARTIFACT_CAPABILITY_GENERATION")
+                        .is_some_and(|value| is_safe_positive_u53(value))
+                    && env
+                        .get("LUCA_ARTIFACT_CONVERSATION_ID")
+                        .is_some_and(|value| is_opaque_id(value))
+                    && env
+                        .get("LUCA_ARTIFACT_TURN_ID")
+                        .is_some_and(|value| is_opaque_id(value))
+                    && env
+                        .get("LUCA_ARTIFACT_DISPATCH_RECEIPT_ID")
+                        .is_some_and(|value| is_opaque_id(value))
+                    && env
+                        .get("LUCA_ARTIFACT_CANCELLATION_EPOCH")
+                        .is_some_and(|value| is_safe_positive_u53(value))
+            }
             _ => false,
         };
         if !valid {
@@ -368,6 +403,16 @@ fn valid_communications_server_name(name: &str) -> bool {
         return true;
     }
     let Some(suffix) = name.strip_prefix("luca-communications-") else {
+        return false;
+    };
+    suffix.len() == 12
+        && suffix
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn valid_artifact_server_name(name: &str) -> bool {
+    let Some(suffix) = name.strip_prefix("luca-artifacts-") else {
         return false;
     };
     suffix.len() == 12
@@ -624,6 +669,9 @@ fn build_command(
     for key in COMMUNICATIONS_ENV_KEYS {
         command.env_remove(key);
     }
+    for key in ARTIFACT_ENV_KEYS {
+        command.env_remove(key);
+    }
     command
 }
 
@@ -829,6 +877,49 @@ mod tests {
         }
     }
 
+    fn artifact_server(capability: &str) -> McpServerStdio {
+        McpServerStdio {
+            name: "luca-artifacts-0123abcdef45".into(),
+            command: "/opt/luca/buzz-dev-mcp".into(),
+            args: Vec::new(),
+            env: vec![
+                EnvVar {
+                    name: "LUCA_ARTIFACT_MODE".into(),
+                    value: "1".into(),
+                },
+                EnvVar {
+                    name: "LUCA_ARTIFACT_ENDPOINT".into(),
+                    value: "/tmp/luca-ab-11111111111111111111111111111111/e7-2222222222222222.sock"
+                        .into(),
+                },
+                EnvVar {
+                    name: "LUCA_ARTIFACT_CAPABILITY".into(),
+                    value: capability.into(),
+                },
+                EnvVar {
+                    name: "LUCA_ARTIFACT_CAPABILITY_GENERATION".into(),
+                    value: "9".into(),
+                },
+                EnvVar {
+                    name: "LUCA_ARTIFACT_CONVERSATION_ID".into(),
+                    value: "conversation-1".into(),
+                },
+                EnvVar {
+                    name: "LUCA_ARTIFACT_TURN_ID".into(),
+                    value: "turn-1".into(),
+                },
+                EnvVar {
+                    name: "LUCA_ARTIFACT_DISPATCH_RECEIPT_ID".into(),
+                    value: "dispatch-1".into(),
+                },
+                EnvVar {
+                    name: "LUCA_ARTIFACT_CANCELLATION_EPOCH".into(),
+                    value: "7".into(),
+                },
+            ],
+        }
+    }
+
     #[test]
     fn repository_projection_is_exact_and_scoped() {
         assert!(validate_mcp_servers(&[]).is_ok());
@@ -861,6 +952,20 @@ mod tests {
             .unwrap()
             .value =
             "/tmp/luca-rb-11111111111111111111111111111111/e7-2222222222222222.sock".into();
+        assert!(validate_mcp_servers(&[invalid]).is_err());
+    }
+
+    #[test]
+    fn third_restricted_artifact_projection_is_exact_and_scoped() {
+        let repository = repository_server(&format!("sha256:{}", "a".repeat(64)));
+        let communications = communications_server(&format!("sha256:{}", "b".repeat(64)));
+        let artifact = artifact_server(&format!("sha256:{}", "c".repeat(64)));
+        assert!(validate_mcp_servers(&[repository, communications, artifact.clone()]).is_ok());
+        let mut invalid = artifact;
+        invalid.env.push(EnvVar {
+            name: "WORKING_ROOT".into(),
+            value: "/private".into(),
+        });
         assert!(validate_mcp_servers(&[invalid]).is_err());
     }
 
@@ -912,7 +1017,7 @@ mod tests {
     }
 
     #[test]
-    fn child_environment_does_not_inherit_bootstrap_or_repository_capability() {
+    fn child_environment_does_not_inherit_any_luca_broker_capability() {
         let config = CompatConfig {
             openclaw_command: PathBuf::from("/opt/openclaw"),
             native_config_path: PathBuf::from("/native/openclaw.json"),
@@ -938,6 +1043,11 @@ mod tests {
                 .any(|(name, value)| name == key && value.is_none()));
         }
         for key in COMMUNICATIONS_ENV_KEYS {
+            assert!(command
+                .get_envs()
+                .any(|(name, value)| name == key && value.is_none()));
+        }
+        for key in ARTIFACT_ENV_KEYS {
             assert!(command
                 .get_envs()
                 .any(|(name, value)| name == key && value.is_none()));
