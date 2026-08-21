@@ -140,7 +140,10 @@ export function ExchangeHistory({
                 }
                 type="button"
               >
-                <span className="flex w-9 shrink-0 items-center justify-center gap-0.5">
+                {/* Stacked, not side by side: the pair is one column the
+                    width of a single mark, so the names and the turns keep
+                    the measure in a 360px drawer. */}
+                <span className="flex w-4 shrink-0 flex-col items-center gap-1">
                   {record.members.map((member, index) => (
                     <ResidentIdentityMark
                       accessibleName={names[index] ?? member}
@@ -148,7 +151,7 @@ export function ExchangeHistory({
                       decorative
                       key={member}
                       publicKey={member}
-                      size={15}
+                      size={14}
                     />
                   ))}
                 </span>
@@ -178,7 +181,7 @@ export function ExchangeHistory({
               ) : null}
             </div>
             {expanded && turns.length > 0 ? (
-              <div className="mt-3 flex flex-col gap-2.5 pl-12">
+              <div className="mt-3 flex flex-col gap-2.5 pl-7">
                 {turns.map((turn) => (
                   <div className="flex items-start gap-2" key={turn.id}>
                     {turn.pubkey ? (

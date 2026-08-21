@@ -86,22 +86,24 @@ export function ResidentDrawer({
     };
   }, [agent.pubkey]);
   return (
-    <div className="space-y-7 pt-5" data-testid="resident-drawer">
-      <section className="flex items-start gap-4 border-b border-border/55 pb-5">
+    <div className="space-y-6 pt-3" data-testid="resident-drawer">
+      <section className="flex items-start gap-4">
+        {/* The identity glyph, not the harness logo: this is the one place
+            that is about who they are rather than what runs them. */}
         <AgentIdentitySpecimen
           accessibleName={agent.name}
           publicKey={agent.pubkey}
-          size={56}
+          size={48}
           state={state.tone === "present" ? "present" : "idle"}
         />
         {/* The panel header already carries the name; the card leads with the
             mark, then who they are and how they are. */}
-        <div className="min-w-0 flex-1 pt-1">
+        <div className="min-w-0 flex-1 pt-0.5">
           <p className="truncate text-base leading-6 text-foreground/90">
             {role ?? "Resident"}
           </p>
           <p
-            className="mt-1.5 flex items-center gap-2 text-2xs text-muted-foreground"
+            className="mt-1 flex items-center gap-2 text-2xs text-muted-foreground"
             data-testid="resident-drawer-state"
           >
             <span
@@ -143,24 +145,26 @@ export function ResidentDrawer({
             {instructions ? "Open" : "Write"}
           </OpenLink>
         </div>
-        {instructions ? (
-          <p
-            className="whitespace-pre-line text-sm leading-6 text-foreground/80"
-            data-testid="resident-drawer-instructions"
-            style={{
-              display: "-webkit-box",
-              WebkitBoxOrient: "vertical",
-              WebkitLineClamp: INSTRUCTIONS_PREVIEW_LINES,
-              overflow: "hidden",
-            }}
-          >
-            {firstLines(instructions, INSTRUCTIONS_PREVIEW_LINES + 2)}
-          </p>
-        ) : (
-          <p className="text-sm leading-6 text-muted-foreground">
-            No instructions yet.
-          </p>
-        )}
+        <div className="rounded-2xl bg-plate px-3 py-2.5">
+          {instructions ? (
+            <p
+              className="whitespace-pre-line text-sm leading-6 text-foreground/80"
+              data-testid="resident-drawer-instructions"
+              style={{
+                display: "-webkit-box",
+                WebkitBoxOrient: "vertical",
+                WebkitLineClamp: INSTRUCTIONS_PREVIEW_LINES,
+                overflow: "hidden",
+              }}
+            >
+              {firstLines(instructions, INSTRUCTIONS_PREVIEW_LINES + 2)}
+            </p>
+          ) : (
+            <p className="text-sm leading-6 text-muted-foreground">
+              No instructions yet.
+            </p>
+          )}
+        </div>
       </section>
 
       <section aria-labelledby="resident-drawer-handoff">
@@ -168,21 +172,23 @@ export function ResidentDrawer({
           <Eyebrow id="resident-drawer-handoff">Last handoff</Eyebrow>
           <OpenLink onClick={() => onOpenAgent("notebook")}>Notebook</OpenLink>
         </div>
-        <p
-          className="text-sm leading-6 text-foreground/80"
-          data-testid="resident-drawer-handoff"
-        >
-          {continuity?.handoff
-            ? continuity.handoff.summary || "No summary recorded."
-            : continuity?.enabled === false
-              ? "Continuity is off for this resident."
-              : "No handoff has been recorded yet."}
-        </p>
+        <div className="rounded-2xl bg-plate px-3 py-2.5">
+          <p
+            className="text-sm leading-6 text-foreground/80"
+            data-testid="resident-drawer-handoff"
+          >
+            {continuity?.handoff
+              ? continuity.handoff.summary || "No summary recorded."
+              : continuity?.enabled === false
+                ? "Continuity is off for this resident."
+                : "No handoff has been recorded yet."}
+          </p>
+        </div>
       </section>
 
-      <section className="border-t border-border/55 pt-5">
+      <section>
         <button
-          className="flex w-full items-center justify-between gap-3 rounded-md px-1 py-1.5 text-left text-sm text-foreground/80 transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden"
+          className="flex w-full items-center justify-between gap-3 rounded-2xl bg-plate px-3 py-2.5 text-left text-sm text-foreground/80 transition-colors hover:bg-plate-hover hover:text-foreground focus-visible:bg-plate-hover focus-visible:text-foreground focus-visible:outline-hidden"
           data-testid="resident-drawer-open-agent"
           onClick={() => onOpenAgent("documents")}
           type="button"
@@ -195,10 +201,12 @@ export function ResidentDrawer({
   );
 }
 
+// Matches the conversation drawer's section titles: the UI face at small size
+// and low ink. Hierarchy by size and opacity, never by a second typeface.
 function Eyebrow({ children, id }: { children: React.ReactNode; id: string }) {
   return (
     <h3
-      className="mb-2.5 font-mono text-2xs uppercase tracking-[0.14em] text-muted-foreground"
+      className="mb-2 text-2xs font-medium uppercase tracking-[0.06em] text-muted-foreground/70"
       id={id}
     >
       {children}
@@ -215,7 +223,7 @@ function OpenLink({
 }) {
   return (
     <button
-      className="mb-2.5 text-2xs text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden"
+      className="mb-2 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden"
       onClick={onClick}
       type="button"
     >

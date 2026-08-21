@@ -145,13 +145,6 @@ export function ConversationContextPanel({
   const harnessLookup = useResidentHarnessLookup();
   const exchangeHistory = useRoomExchangeHistory(channel.id);
   const visitors = React.useMemo(() => openVisitors(messages), [messages]);
-  const channelSummary =
-    channel.purpose?.trim() ||
-    channel.topic?.trim() ||
-    channel.description?.trim() ||
-    (channel.channelType === "dm"
-      ? "A private conversation."
-      : "A shared conversation with people and resident agents.");
   const drawerAgents = React.useMemo<ConversationDrawerAgent[]>(() => {
     const candidates =
       agentMembers.length > 0
@@ -253,18 +246,18 @@ export function ConversationContextPanel({
             />
           </div>
           <AuxiliaryPanelBody className="overflow-y-auto px-4 pb-6">
-            <div className="space-y-6 pt-4">
-              <section className="space-y-1.5 pb-1">
+            <div className="space-y-6 pt-3">
+              {/* Name only. The room's description already sits under the
+                  title in the conversation header — repeating it here costs a
+                  paragraph of space at the top of every drawer. */}
+              <section className="space-y-1">
                 <div className="flex items-center gap-2 text-2xs font-medium uppercase tracking-[0.06em] text-muted-foreground/70">
                   <MessageCircle className="h-3.5 w-3.5" />
                   {channel.channelType === "dm" ? "Direct message" : "Room"}
                 </div>
-                <h2 className="text-xl font-medium tracking-[-0.025em] text-foreground">
+                <h2 className="truncate text-lg font-medium leading-6 tracking-[-0.02em] text-foreground">
                   {channel.name}
                 </h2>
-                <p className="max-w-[34rem] text-sm leading-6 text-muted-foreground">
-                  {channelSummary}
-                </p>
               </section>
 
               <section aria-labelledby="conversation-at-a-glance">
@@ -278,23 +271,6 @@ export function ConversationContextPanel({
                   <Metric label="Exchanges" value={exchangeHistory.length} />
                 </div>
               </section>
-
-              {exchangeHistory.length > 0 ? (
-                <section aria-labelledby="conversation-between-agents">
-                  <div className="flex items-center justify-between gap-3">
-                    <SectionLabel id="conversation-between-agents">
-                      Between agents
-                    </SectionLabel>
-                    <SectionCount>{exchangeHistory.length}</SectionCount>
-                  </div>
-                  <ExchangeHistory
-                    channelId={channel.id}
-                    currentPubkey={currentPubkey}
-                    messages={messages}
-                    profiles={profiles}
-                  />
-                </section>
-              ) : null}
 
               <section aria-labelledby="conversation-agents">
                 <div className="flex items-center justify-between gap-3">
@@ -426,6 +402,26 @@ export function ConversationContextPanel({
                 </div>
               </section>
 
+              {/* Last: the record of what the residents said to each other
+                  here. Who is in the room and what it is working on answer
+                  the first question; this answers the one you go looking for. */}
+              {exchangeHistory.length > 0 ? (
+                <section aria-labelledby="conversation-between-agents">
+                  <div className="flex items-center justify-between gap-3">
+                    <SectionLabel id="conversation-between-agents">
+                      Between agents
+                    </SectionLabel>
+                    <SectionCount>{exchangeHistory.length}</SectionCount>
+                  </div>
+                  <ExchangeHistory
+                    channelId={channel.id}
+                    currentPubkey={currentPubkey}
+                    messages={messages}
+                    profiles={profiles}
+                  />
+                </section>
+              ) : null}
+
               <Button
                 className="w-full justify-start gap-2"
                 data-testid="conversation-manage-participants"
@@ -472,7 +468,7 @@ function SectionCount({ children }: { children: React.ReactNode }) {
 
 function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="flex min-w-0 flex-col gap-0.5 px-3 py-2.5">
+    <div className="flex min-w-0 flex-col gap-0.5 px-2.5 py-2.5">
       <span className="truncate text-2xs text-muted-foreground">{label}</span>
       <span className="text-base font-medium tabular-nums text-foreground">
         {value}

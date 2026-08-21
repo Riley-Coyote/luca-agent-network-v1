@@ -227,6 +227,59 @@ for (const theme of themes) {
   await clip("plate", checks.clips.plate, 16);
   await clip("header", checks.clips.header, 10);
 
+  // The other half of the drawer: a 1:1 with a resident turns it into their
+  // card — model selector, instructions, last handoff, open-agent. Capture it
+  // and assert the controls are still there, so a restyle cannot quietly drop
+  // one of them. Done before the assertions so they can read it.
+  const resident = {};
+  try {
+    const dmLink = page
+      .locator('[data-testid="app-sidebar"]')
+      .getByText("Luca", { exact: true })
+      .first();
+    if (await dmLink.count()) await dmLink.click();
+    // Switching conversations closes the drawer; open it again there.
+    await page.waitForTimeout(400);
+    if (!(await page.$('[data-testid="conversation-context-panel"]'))) {
+      await page.click(
+        '[data-testid="chat-header"] [aria-label="Open conversation details"]',
+      );
+    }
+    await page.waitForSelector('[data-testid="resident-drawer"]', {
+      timeout: 6000,
+    });
+    await page.waitForTimeout(500);
+    resident.present = true;
+    resident.model = await page
+      .locator('[data-testid="resident-drawer-model-trigger"]')
+      .count();
+    // Section headings, not the filled-in bodies: a resident with no
+    // instructions yet still has to show the section (and its Write link).
+    resident.instructions = await page
+      .locator("#resident-drawer-instructions")
+      .count();
+    resident.handoff = await page.locator("#resident-drawer-handoff").count();
+    resident.openAgent = await page
+      .locator('[data-testid="resident-drawer-open-agent"]')
+      .count();
+    const box = await page
+      .locator('[data-testid="conversation-context-panel"]')
+      .boundingBox();
+    if (box) {
+      await page.screenshot({
+        path: path.join(out, "drawer-resident.png"),
+        clip: {
+          x: Math.max(0, box.x - 10),
+          y: Math.max(0, box.y - 10),
+          width: box.width + 20,
+          height: Math.min(900 - box.y + 10, box.height + 20),
+        },
+      });
+    }
+  } catch {
+    resident.present = false;
+  }
+
   const expect = (name, ok, detail) => {
     if (ok === null || ok === undefined) return;
     if (!ok) failures.push(`${theme}: ${name} ${detail ?? ""}`.trim());
@@ -265,6 +318,29 @@ for (const theme of themes) {
     checks.monoInDrawer === 0,
     `(${checks.monoInDrawer} nodes)`,
   );
+  expect("resident drawer renders in a 1:1", resident.present);
+  if (resident.present) {
+    expect(
+      "resident drawer keeps the model selector",
+      resident.model === 1,
+      `(${resident.model})`,
+    );
+    expect(
+      "resident drawer keeps instructions",
+      resident.instructions === 1,
+      `(${resident.instructions})`,
+    );
+    expect(
+      "resident drawer keeps last handoff",
+      resident.handoff === 1,
+      `(${resident.handoff})`,
+    );
+    expect(
+      "resident drawer keeps open-agent",
+      resident.openAgent === 1,
+      `(${resident.openAgent})`,
+    );
+  }
   if (theme === "graphite") {
     expect(
       "graphite sidebar rgb(13, 13, 15)",
@@ -284,7 +360,7 @@ for (const theme of themes) {
     `\n      ${realErrors.slice(0, 5).join("\n      ")}`,
   );
 
-  report[theme] = { ...checks, consoleErrors: realErrors, out };
+  report[theme] = { ...checks, resident, consoleErrors: realErrors, out };
   await page.close();
 }
 
@@ -298,7 +374,7 @@ fs.writeFileSync(
 
 for (const [theme, r] of Object.entries(report)) {
   console.log(
-    `${theme.padEnd(18)} drawer=${r.drawerWidth} inflow=${r.headerInFlow} card=${r.asideIsCard} seam=${r.seamWidth} stripΔ=${r.stripWidthDelta} pill=${r.pillOffsetFromHeader} span=${r.visitSpanRows}/${r.visitSpanContiguous} mono=${r.monoInDrawer} errs=${r.consoleErrors.length}  →${path.relative(DESKTOP, r.out)}`,
+    `${theme.padEnd(18)} drawer=${r.drawerWidth} inflow=${r.headerInFlow} card=${r.asideIsCard} seam=${r.seamWidth} stripΔ=${r.stripWidthDelta} pill=${r.pillOffsetFromHeader} span=${r.visitSpanRows}/${r.visitSpanContiguous} mono=${r.monoInDrawer} resident=${r.resident.present ? `model:${r.resident.model}` : "MISSING"} errs=${r.consoleErrors.length}  →${path.relative(DESKTOP, r.out)}`,
   );
 }
 if (failures.length) {
