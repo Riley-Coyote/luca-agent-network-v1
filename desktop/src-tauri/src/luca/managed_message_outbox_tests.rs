@@ -388,6 +388,9 @@ fn accepted_outbox_remains_recoverable_until_handoff_is_durable() {
         )
         .expect("accepted");
     outbox
+        .mark_artifact_receipts_pending(&request.idempotency_key)
+        .expect("artifact receipts pending");
+    outbox
         .mark_authority_finalized(&request.idempotency_key)
         .expect("authority finalized");
 
@@ -404,8 +407,58 @@ fn accepted_outbox_remains_recoverable_until_handoff_is_durable() {
     reloaded
         .mark_handoff_recorded(&request.idempotency_key)
         .expect("handoff recorded");
+    reloaded
+        .mark_artifact_receipts_settled(&request.idempotency_key)
+        .expect("artifact receipts settled");
     let completed = ManagedMessageOutbox::load_encrypted(session, path, passphrase)
         .expect("reload completed transfer");
+    assert!(completed.reconciliation_entries().is_empty());
+}
+
+#[test]
+fn accepted_outbox_persists_retry_until_artifact_receipts_settle() {
+    let keys = Keys::parse(&"0d".repeat(32)).expect("valid fixture key");
+    let request = request(&keys);
+    let event = frozen_event(&keys, &request);
+    let session =
+        OpaqueId::parse("installation-artifact-settlement").expect("valid installation ID");
+    let passphrase = SecretString::from("artifact-settlement-passphrase".to_owned());
+    let temp = tempfile::tempdir().expect("temp");
+    let path = temp.path().join("managed-outbox.age");
+    let mut outbox =
+        ManagedMessageOutbox::load_encrypted(session.clone(), path.clone(), passphrase.clone())
+            .expect("new encrypted outbox");
+    outbox
+        .prepare(&request, event, &session, 3, false)
+        .expect("prepare");
+    outbox
+        .mark_submitted(&request.idempotency_key, &session, false)
+        .expect("submitted");
+    outbox
+        .mark_accepted(
+            &request.idempotency_key,
+            OpaqueId::parse("artifact-settlement-receipt").expect("receipt"),
+        )
+        .expect("accepted");
+    outbox
+        .mark_artifact_receipts_pending(&request.idempotency_key)
+        .expect("artifact receipts pending");
+    outbox
+        .mark_authority_finalized(&request.idempotency_key)
+        .expect("authority finalized");
+    outbox
+        .mark_handoff_recorded(&request.idempotency_key)
+        .expect("handoff recorded");
+
+    let mut reloaded =
+        ManagedMessageOutbox::load_encrypted(session.clone(), path.clone(), passphrase.clone())
+            .expect("reload unsettled artifact receipt");
+    assert_eq!(reloaded.reconciliation_entries().len(), 1);
+    reloaded
+        .mark_artifact_receipts_settled(&request.idempotency_key)
+        .expect("settle artifact receipts");
+    let completed = ManagedMessageOutbox::load_encrypted(session, path, passphrase)
+        .expect("reload settled artifact receipt");
     assert!(completed.reconciliation_entries().is_empty());
 }
 
@@ -496,6 +549,7 @@ fn luca_signing_outbox_capacity_evicts_only_oldest_finalized_terminal() {
                 Some(OpaqueId::parse("accepted-receipt").expect("receipt"));
             entry.authority_finalized = true;
             entry.handoff_recorded = true;
+            entry.artifact_receipts_settled = true;
         } else {
             unresolved_keys.push(key.clone());
         }

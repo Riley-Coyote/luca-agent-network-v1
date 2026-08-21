@@ -35,6 +35,13 @@ const MAX_RECONCILE_ENTRIES: usize = 10_000;
 const UNREFERENCED_BLOB_RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_ARTIFACT_QUERY_CHARS: usize = 256;
 
+fn publish_captured_at(root: &Path, captured: &CapturedSource) -> Result<(), ArtifactStoreError> {
+    if let (Some(hash), Some(bytes)) = (&captured.blob_hash, &captured.bytes) {
+        publish_blob(&root.join("blobs"), &root.join("staging"), hash, bytes)?;
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ArtifactStoreError {
     Unavailable,
@@ -292,7 +299,6 @@ impl ArtifactStore {
             context.working_root_id.as_ref(),
             working_root,
         )?;
-        self.publish_captured(&captured)?;
         let fingerprint = create_fingerprint(context, args, &captured)?;
         let aggregate_hash = aggregate_hash(args.kind, &captured)?;
         let now = now();
@@ -320,6 +326,7 @@ impl ArtifactStore {
             captured.size_bytes,
             self.owner_quota_bytes,
         )?;
+        publish_captured_at(&self.root, &captured)?;
         transaction
             .execute(
                 "INSERT INTO artifacts (
@@ -388,7 +395,6 @@ impl ArtifactStore {
             context.working_root_id.as_ref(),
             working_root,
         )?;
-        self.publish_captured(&captured)?;
         let fingerprint = update_fingerprint(context, args, &captured)?;
         let aggregate_hash = aggregate_hash(artifact.kind, &captured)?;
         let now = now();
@@ -426,6 +432,7 @@ impl ArtifactStore {
             captured.size_bytes,
             self.owner_quota_bytes,
         )?;
+        publish_captured_at(&self.root, &captured)?;
         let next_version = current_version
             .checked_add(1)
             .ok_or(ArtifactStoreError::InvalidRequest)?;
@@ -489,22 +496,19 @@ impl ArtifactStore {
         Ok(commit)
     }
 
-    fn publish_captured(&self, captured: &CapturedSource) -> Result<(), ArtifactStoreError> {
-        if let (Some(hash), Some(bytes)) = (&captured.blob_hash, &captured.bytes) {
-            publish_blob(
-                &self.root.join("blobs"),
-                &self.root.join("staging"),
-                hash,
-                bytes,
-            )?;
-        }
-        Ok(())
-    }
-
     pub(crate) fn list_page(
         &self,
         owner_pubkey: &Hex64,
         query: &ArtifactListQuery,
+    ) -> Result<ArtifactListPage, ArtifactStoreError> {
+        self.list_page_scoped(owner_pubkey, query, None)
+    }
+
+    fn list_page_scoped(
+        &self,
+        owner_pubkey: &Hex64,
+        query: &ArtifactListQuery,
+        conversation_id: Option<&OpaqueId>,
     ) -> Result<ArtifactListPage, ArtifactStoreError> {
         if query.limit == 0 || query.limit > MAX_ARTIFACT_LIST_ITEMS {
             return Err(ArtifactStoreError::InvalidRequest);
@@ -554,6 +558,7 @@ impl ArtifactStore {
                         created_at, updated_at, deleted_at
                  FROM artifacts
                  WHERE owner_pubkey = ?1
+                   AND (?9 IS NULL OR conversation_id = ?9)
                    AND (?2 IS NULL
                      OR lower(title) LIKE ?2 ESCAPE '\\'
                      OR lower(artifact_id) LIKE ?2 ESCAPE '\\'
@@ -581,6 +586,7 @@ impl ArtifactStore {
                     cursor_updated,
                     cursor_artifact,
                     fetch_limit,
+                    conversation_id.map(OpaqueId::as_str),
                 ],
                 artifact_from_row,
             )
@@ -598,6 +604,7 @@ impl ArtifactStore {
             .query_row(
                 "SELECT COUNT(*) FROM artifacts
                  WHERE owner_pubkey = ?1
+                   AND (?5 IS NULL OR conversation_id = ?5)
                    AND (?2 IS NULL
                      OR lower(title) LIKE ?2 ESCAPE '\\'
                      OR lower(artifact_id) LIKE ?2 ESCAPE '\\'
@@ -607,7 +614,13 @@ impl ArtifactStore {
                    AND (?4 = 'all'
                      OR (?4 = 'active' AND deleted_at IS NULL)
                      OR (?4 = 'deleted' AND deleted_at IS NOT NULL))",
-                params![owner_pubkey.as_str(), title_query, kind_filter, deleted],
+                params![
+                    owner_pubkey.as_str(),
+                    title_query,
+                    kind_filter,
+                    deleted,
+                    conversation_id.map(OpaqueId::as_str)
+                ],
                 |row| row.get(0),
             )
             .map_err(|_| ArtifactStoreError::Unavailable)?;
@@ -618,6 +631,7 @@ impl ArtifactStore {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn list(
         &self,
         owner_pubkey: &Hex64,
@@ -641,6 +655,26 @@ impl ArtifactStore {
         .map(|page| page.artifacts)
     }
 
+    pub(crate) fn list_for_conversation(
+        &self,
+        owner_pubkey: &Hex64,
+        conversation_id: &OpaqueId,
+        limit: u16,
+    ) -> Result<Vec<ArtifactRecord>, ArtifactStoreError> {
+        self.list_page_scoped(
+            owner_pubkey,
+            &ArtifactListQuery {
+                query: None,
+                kinds: Vec::new(),
+                deleted: ArtifactDeletedFilter::Active,
+                cursor: None,
+                limit,
+            },
+            Some(conversation_id),
+        )
+        .map(|page| page.artifacts)
+    }
+
     pub(crate) fn get(
         &self,
         owner_pubkey: &Hex64,
@@ -651,6 +685,19 @@ impl ArtifactStore {
             owner_pubkey.as_str(),
             artifact_id.as_str(),
         )
+    }
+
+    pub(crate) fn get_for_conversation(
+        &self,
+        owner_pubkey: &Hex64,
+        conversation_id: &OpaqueId,
+        artifact_id: &OpaqueId,
+    ) -> Result<ArtifactRecord, ArtifactStoreError> {
+        let artifact = self.get(owner_pubkey, artifact_id)?;
+        if artifact.conversation_id.as_deref() != Some(conversation_id.as_str()) {
+            return Err(ArtifactStoreError::NotFound);
+        }
+        Ok(artifact)
     }
 
     pub(crate) fn versions(
@@ -1110,9 +1157,14 @@ impl ArtifactStore {
         transaction
             .execute(
                 "UPDATE artifacts SET receipt_state = 'linked', updated_at = ?4
-                 WHERE owner_pubkey = ?1 AND artifact_id IN (
-                    SELECT artifact_id FROM artifact_receipts
-                    WHERE owner_pubkey = ?1 AND conversation_id = ?2 AND turn_id = ?3
+                 WHERE owner_pubkey = ?1 AND EXISTS (
+                    SELECT 1 FROM artifact_receipts
+                    WHERE artifact_receipts.owner_pubkey = artifacts.owner_pubkey
+                      AND artifact_receipts.artifact_id = artifacts.artifact_id
+                      AND artifact_receipts.version = artifacts.current_version
+                      AND artifact_receipts.conversation_id = ?2
+                      AND artifact_receipts.turn_id = ?3
+                      AND artifact_receipts.state = 'linked'
                  )",
                 params![
                     owner_pubkey.as_str(),
@@ -1162,9 +1214,14 @@ impl ArtifactStore {
         transaction
             .execute(
                 "UPDATE artifacts SET receipt_state = ?4, updated_at = ?5
-                 WHERE owner_pubkey = ?1 AND artifact_id IN (
-                    SELECT artifact_id FROM artifact_receipts
-                    WHERE owner_pubkey = ?1 AND conversation_id = ?2 AND turn_id = ?3
+                 WHERE owner_pubkey = ?1 AND EXISTS (
+                    SELECT 1 FROM artifact_receipts
+                    WHERE artifact_receipts.owner_pubkey = artifacts.owner_pubkey
+                      AND artifact_receipts.artifact_id = artifacts.artifact_id
+                      AND artifact_receipts.version = artifacts.current_version
+                      AND artifact_receipts.conversation_id = ?2
+                      AND artifact_receipts.turn_id = ?3
+                      AND artifact_receipts.state = ?4
                  )",
                 params![
                     owner_pubkey.as_str(),
@@ -1218,10 +1275,15 @@ impl ArtifactStore {
         transaction
             .execute(
                 "UPDATE artifacts SET receipt_state = ?5, updated_at = ?6
-                 WHERE owner_pubkey = ?1 AND artifact_id IN (
-                    SELECT artifact_id FROM artifact_receipts
-                    WHERE owner_pubkey = ?1 AND conversation_id = ?2
-                      AND resident_pubkey = ?3 AND dispatch_receipt_id = ?4
+                 WHERE owner_pubkey = ?1 AND EXISTS (
+                    SELECT 1 FROM artifact_receipts
+                    WHERE artifact_receipts.owner_pubkey = artifacts.owner_pubkey
+                      AND artifact_receipts.artifact_id = artifacts.artifact_id
+                      AND artifact_receipts.version = artifacts.current_version
+                      AND artifact_receipts.conversation_id = ?2
+                      AND artifact_receipts.resident_pubkey = ?3
+                      AND artifact_receipts.dispatch_receipt_id = ?4
+                      AND artifact_receipts.state = ?5
                  )",
                 params![
                     owner_pubkey.as_str(),

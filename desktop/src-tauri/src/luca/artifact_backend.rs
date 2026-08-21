@@ -3,9 +3,9 @@
 use std::path::{Path, PathBuf};
 
 use luca_protocol::{
-    ArtifactKindV1, ArtifactMetadataV1, ArtifactReadModeV1, ArtifactToolOperationV1,
-    ArtifactToolOutcomeV1, ArtifactToolRequestV1, ArtifactToolResultV1, OpaqueId, SafeU53,
-    ARTIFACT_TOOL_PROTOCOL,
+    ArtifactBrokerBindingV1, ArtifactKindV1, ArtifactMetadataV1, ArtifactReadModeV1,
+    ArtifactToolOperationV1, ArtifactToolOutcomeV1, ArtifactToolRequestV1, ArtifactToolResultV1,
+    OpaqueId, SafeU53, ARTIFACT_TOOL_PROTOCOL,
 };
 use tauri::{AppHandle, Manager};
 
@@ -111,6 +111,7 @@ impl DesktopArtifactBackend {
     ) -> Result<ArtifactToolOutcomeV1, ArtifactStoreError> {
         let mut store = ArtifactStore::open(&self.app_data_dir)?;
         let context = ArtifactWriteContext::from_broker(&request.binding);
+        require_artifact_conversation_scope(&store, &request.binding, &request.operation)?;
         match &request.operation {
             ArtifactToolOperationV1::ArtifactCreate(args) => {
                 let commit = store.create(&context, args, Some(canonical_working_root))?;
@@ -153,7 +154,11 @@ impl DesktopArtifactBackend {
             }
             ArtifactToolOperationV1::ArtifactList(args) => {
                 let artifacts = store
-                    .list(&request.binding.owner_pubkey, false, args.limit)?
+                    .list_for_conversation(
+                        &request.binding.owner_pubkey,
+                        &request.binding.conversation_id,
+                        args.limit,
+                    )?
                     .iter()
                     .map(Self::metadata)
                     .collect::<Result<Vec<_>, _>>()
@@ -218,6 +223,26 @@ impl DesktopArtifactBackend {
     }
 }
 
+fn require_artifact_conversation_scope(
+    store: &ArtifactStore,
+    binding: &ArtifactBrokerBindingV1,
+    operation: &ArtifactToolOperationV1,
+) -> Result<(), ArtifactStoreError> {
+    let artifact_id = match operation {
+        ArtifactToolOperationV1::ArtifactUpdate(args) => Some(&args.artifact_id),
+        ArtifactToolOperationV1::ArtifactRead(args) => Some(&args.artifact_id),
+        ArtifactToolOperationV1::CanvasPresent(args) => Some(&args.artifact_id),
+        ArtifactToolOperationV1::PreviewAttach(args) => Some(&args.artifact_id),
+        ArtifactToolOperationV1::ArtifactCreate(_)
+        | ArtifactToolOperationV1::ArtifactList(_)
+        | ArtifactToolOperationV1::PreviewDetach(_) => None,
+    };
+    if let Some(artifact_id) = artifact_id {
+        store.get_for_conversation(&binding.owner_pubkey, &binding.conversation_id, artifact_id)?;
+    }
+    Ok(())
+}
+
 impl ArtifactBrokerBackend for DesktopArtifactBackend {
     fn dispatch(
         &self,
@@ -262,6 +287,23 @@ impl ArtifactBrokerBackend for DesktopArtifactBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use luca_protocol::{
+        ArtifactCreateArgsV1, ArtifactReadArgsV1, ArtifactSourceV1, ArtifactUpdateArgsV1,
+        CanvasPresentArgsV1, Hex64, PreviewAttachArgsV1,
+    };
+
+    fn binding(conversation: &str) -> ArtifactBrokerBindingV1 {
+        ArtifactBrokerBindingV1 {
+            owner_pubkey: Hex64::parse("11".repeat(32)).unwrap(),
+            resident_pubkey: Hex64::parse("22".repeat(32)).unwrap(),
+            session_epoch: SafeU53::new(7).unwrap(),
+            turn_id: OpaqueId::parse("turn-1").unwrap(),
+            conversation_id: OpaqueId::parse(conversation).unwrap(),
+            dispatch_receipt_id: OpaqueId::parse("dispatch-1").unwrap(),
+            cancellation_epoch: SafeU53::new(7).unwrap(),
+            working_root_id: OpaqueId::parse("root-1").unwrap(),
+        }
+    }
 
     #[test]
     fn metadata_conversion_preserves_durable_identity_and_state() {
@@ -284,5 +326,69 @@ mod tests {
         assert_eq!(metadata.artifact_id.as_str(), "artifact-1");
         assert_eq!(metadata.current_version.get(), 3);
         assert!(!metadata.deleted);
+    }
+
+    #[test]
+    fn referenced_agent_operations_deny_cross_conversation_artifacts() {
+        let temp = tempfile::tempdir().unwrap();
+        let source_binding = binding("conversation-1");
+        let foreign_binding = binding("conversation-2");
+        let mut store = ArtifactStore::open(temp.path()).unwrap();
+        let created = store
+            .create(
+                &ArtifactWriteContext::from_broker(&source_binding),
+                &ArtifactCreateArgsV1 {
+                    title: "Conversation one".into(),
+                    kind: ArtifactKindV1::Html,
+                    source: ArtifactSourceV1::InlineText {
+                        content_utf8: "<h1>private</h1>".into(),
+                        declared_media_type: Some("text/html".into()),
+                    },
+                    idempotency_key: OpaqueId::parse("scope-create").unwrap(),
+                },
+                None,
+            )
+            .unwrap();
+        let artifact_id = OpaqueId::parse(created.artifact.artifact_id).unwrap();
+        let operations = [
+            ArtifactToolOperationV1::ArtifactUpdate(ArtifactUpdateArgsV1 {
+                artifact_id: artifact_id.clone(),
+                expected_current_version: SafeU53::new(1).unwrap(),
+                title: None,
+                source: ArtifactSourceV1::InlineText {
+                    content_utf8: "changed".into(),
+                    declared_media_type: None,
+                },
+                idempotency_key: OpaqueId::parse("scope-update").unwrap(),
+            }),
+            ArtifactToolOperationV1::ArtifactRead(ArtifactReadArgsV1 {
+                artifact_id: artifact_id.clone(),
+                version: None,
+                mode: ArtifactReadModeV1::Metadata,
+            }),
+            ArtifactToolOperationV1::CanvasPresent(CanvasPresentArgsV1 {
+                artifact_id: artifact_id.clone(),
+                version: None,
+            }),
+            ArtifactToolOperationV1::PreviewAttach(PreviewAttachArgsV1 {
+                artifact_id,
+                url: "http://127.0.0.1:4173".into(),
+            }),
+        ];
+        for operation in operations {
+            assert_eq!(
+                require_artifact_conversation_scope(&store, &foreign_binding, &operation),
+                Err(ArtifactStoreError::NotFound),
+                "{operation:?} crossed its broker conversation boundary",
+            );
+        }
+        assert!(store
+            .list_for_conversation(
+                &foreign_binding.owner_pubkey,
+                &foreign_binding.conversation_id,
+                10,
+            )
+            .unwrap()
+            .is_empty());
     }
 }

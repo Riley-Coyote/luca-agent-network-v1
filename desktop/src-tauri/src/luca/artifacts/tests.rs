@@ -28,6 +28,33 @@ fn context(owner: char) -> ArtifactWriteContext {
     }
 }
 
+fn context_for(
+    owner: char,
+    conversation: &str,
+    turn: &str,
+    dispatch: &str,
+) -> ArtifactWriteContext {
+    ArtifactWriteContext {
+        conversation_id: Some(id(conversation)),
+        turn_id: Some(id(turn)),
+        dispatch_receipt_id: Some(id(dispatch)),
+        ..context(owner)
+    }
+}
+
+fn blob_disk_bytes(store: &ArtifactStore) -> u64 {
+    fs::read_dir(store.root.join("blobs/sha256"))
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .flat_map(|shard| fs::read_dir(shard.path()).into_iter().flatten())
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.metadata().ok())
+        .filter(|metadata| metadata.is_file())
+        .map(|metadata| metadata.len())
+        .sum()
+}
+
 fn create_args(key: &str, content: &str) -> ArtifactCreateArgsV1 {
     ArtifactCreateArgsV1 {
         title: "Threshold study".into(),
@@ -203,6 +230,7 @@ fn owner_scope_delete_restore_and_receipt_link_are_isolated() {
     let second = store
         .create(&context('1'), &create_args("create-2", "unfinished"), None)
         .unwrap();
+
     assert_eq!(
         store
             .mark_turn_receipts(
@@ -283,6 +311,81 @@ fn quota_rejects_before_metadata_commit() {
         Err(ArtifactStoreError::QuotaExceeded)
     );
     assert!(store.list(&hex('1'), false, 10).unwrap().is_empty());
+    assert_eq!(blob_disk_bytes(&store), 0);
+}
+
+#[test]
+fn rejected_stale_update_does_not_publish_unreferenced_blob_bytes() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut store = ArtifactStore::open(temp.path()).unwrap();
+    let created = store
+        .create(&context('1'), &create_args("create", "v1"), None)
+        .unwrap();
+    store
+        .update(
+            &context('1'),
+            &update_args(&created.artifact.artifact_id, "winner", 1, "v2"),
+            None,
+        )
+        .unwrap();
+    let before = blob_disk_bytes(&store);
+    assert_eq!(
+        store.update(
+            &context('1'),
+            &update_args(&created.artifact.artifact_id, "loser", 1, "unreferenced"),
+            None,
+        ),
+        Err(ArtifactStoreError::Conflict { current_version: 2 })
+    );
+    assert_eq!(blob_disk_bytes(&store), before);
+}
+
+#[test]
+fn broker_conversation_scope_hides_other_conversations_without_narrowing_library() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut store = ArtifactStore::open(temp.path()).unwrap();
+    let first = store
+        .create(
+            &context_for('1', "conversation-1", "turn-1", "dispatch-1"),
+            &create_args("conversation-one", "one"),
+            None,
+        )
+        .unwrap();
+    let second = store
+        .create(
+            &context_for('1', "conversation-2", "turn-2", "dispatch-2"),
+            &create_args("conversation-two", "two"),
+            None,
+        )
+        .unwrap();
+
+    assert_eq!(
+        store.create(
+            &context_for('1', "conversation-2", "turn-2", "dispatch-2"),
+            &create_args("conversation-one", "one"),
+            None,
+        ),
+        Err(ArtifactStoreError::IdempotencyReuse)
+    );
+
+    assert_eq!(store.list(&hex('1'), false, 10).unwrap().len(), 2);
+    assert_eq!(
+        store
+            .list_for_conversation(&hex('1'), &id("conversation-1"), 10)
+            .unwrap()
+            .iter()
+            .map(|artifact| artifact.artifact_id.as_str())
+            .collect::<Vec<_>>(),
+        vec![first.artifact.artifact_id.as_str()]
+    );
+    assert_eq!(
+        store.get_for_conversation(
+            &hex('1'),
+            &id("conversation-1"),
+            &id(&second.artifact.artifact_id),
+        ),
+        Err(ArtifactStoreError::NotFound)
+    );
 }
 
 #[test]
@@ -571,6 +674,68 @@ fn accepted_receipt_link_reconciliation_is_idempotent() {
         .unwrap();
     assert_eq!(receipt.state, ArtifactReceiptStateV1::Linked);
     assert_eq!(receipt.message_id.as_deref(), Some(hex('a').as_str()));
+}
+
+#[test]
+fn older_receipt_settlement_never_overwrites_current_version_state() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut store = ArtifactStore::open(temp.path()).unwrap();
+    let created = store
+        .create(
+            &context_for('1', "conversation-1", "turn-1", "dispatch-1"),
+            &create_args("out-of-order-create", "v1"),
+            None,
+        )
+        .unwrap();
+    store
+        .update(
+            &context_for('1', "conversation-1", "turn-2", "dispatch-2"),
+            &update_args(
+                &created.artifact.artifact_id,
+                "out-of-order-update",
+                1,
+                "v2",
+            ),
+            None,
+        )
+        .unwrap();
+
+    store
+        .link_turn_receipts(&hex('1'), &id("conversation-1"), &id("turn-1"), &hex('a'))
+        .unwrap();
+    assert_eq!(
+        store
+            .get(&hex('1'), &id(&created.artifact.artifact_id))
+            .unwrap()
+            .receipt_state,
+        ArtifactReceiptStateV1::Provisional
+    );
+    store
+        .mark_dispatch_receipts(
+            &hex('1'),
+            &id("conversation-1"),
+            &hex('2'),
+            &id("dispatch-1"),
+            ArtifactReceiptStateV1::Interrupted,
+        )
+        .unwrap();
+    assert_eq!(
+        store
+            .get(&hex('1'), &id(&created.artifact.artifact_id))
+            .unwrap()
+            .receipt_state,
+        ArtifactReceiptStateV1::Provisional
+    );
+    store
+        .link_turn_receipts(&hex('1'), &id("conversation-1"), &id("turn-2"), &hex('b'))
+        .unwrap();
+    assert_eq!(
+        store
+            .get(&hex('1'), &id(&created.artifact.artifact_id))
+            .unwrap()
+            .receipt_state,
+        ArtifactReceiptStateV1::Linked
+    );
 }
 
 #[test]

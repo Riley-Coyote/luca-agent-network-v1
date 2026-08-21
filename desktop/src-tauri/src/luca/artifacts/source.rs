@@ -1,11 +1,13 @@
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, File},
     io::{Read, Write},
     path::{Component, Path, PathBuf},
 };
 
 #[cfg(unix)]
-use rustix::fs::{fstat, open, openat, FileType, Mode, OFlags};
+use rustix::fs::{
+    fchmod, fstat, mkdirat, open, openat, renameat, unlinkat, AtFlags, FileType, Mode, OFlags,
+};
 
 use image::ImageReader;
 use luca_protocol::{
@@ -345,51 +347,144 @@ fn authoritative_media_type(
     }
 }
 
+#[cfg(unix)]
+fn open_directory_nofollow(path: &Path) -> Result<std::os::fd::OwnedFd, ArtifactStoreError> {
+    open(
+        path,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(|error| {
+        if matches!(error, rustix::io::Errno::LOOP | rustix::io::Errno::NOTDIR) {
+            ArtifactStoreError::UnsafePath
+        } else {
+            ArtifactStoreError::Unavailable
+        }
+    })
+}
+
+#[cfg(unix)]
+fn open_or_create_directory_at(
+    parent: &std::os::fd::OwnedFd,
+    name: &str,
+) -> Result<std::os::fd::OwnedFd, ArtifactStoreError> {
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    match openat(parent, name, flags, Mode::empty()) {
+        Ok(directory) => return Ok(directory),
+        Err(error) if error != rustix::io::Errno::NOENT => {
+            return Err(
+                if matches!(error, rustix::io::Errno::LOOP | rustix::io::Errno::NOTDIR) {
+                    ArtifactStoreError::UnsafePath
+                } else {
+                    ArtifactStoreError::Unavailable
+                },
+            );
+        }
+        Err(_) => {}
+    }
+    match mkdirat(parent, name, Mode::from_raw_mode(0o700)) {
+        Ok(()) | Err(rustix::io::Errno::EXIST) => {}
+        Err(_) => return Err(ArtifactStoreError::Unavailable),
+    }
+    openat(parent, name, flags, Mode::empty()).map_err(|error| {
+        if matches!(error, rustix::io::Errno::LOOP | rustix::io::Errno::NOTDIR) {
+            ArtifactStoreError::UnsafePath
+        } else {
+            ArtifactStoreError::Unavailable
+        }
+    })
+}
+
+#[cfg(unix)]
+fn publish_blob_with_hooks_impl<F, G>(
+    blobs_root: &Path,
+    staging_root: &Path,
+    hash: &str,
+    bytes: &[u8],
+    before_shard_open: F,
+    before_rename: G,
+) -> Result<(), ArtifactStoreError>
+where
+    F: FnOnce(),
+    G: FnOnce(),
+{
+    blob_path(blobs_root, hash)?;
+    if hex::encode(Sha256::digest(bytes)) != hash {
+        return Err(ArtifactStoreError::CorruptBlob);
+    }
+    let shard = hash.get(..2).ok_or(ArtifactStoreError::InvalidSource)?;
+    let blobs = open_directory_nofollow(blobs_root)?;
+    let sha256 = open_or_create_directory_at(&blobs, "sha256")?;
+    before_shard_open();
+    let directory = open_or_create_directory_at(&sha256, shard)?;
+    match openat(
+        &directory,
+        hash,
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    ) {
+        Ok(descriptor) => {
+            let mut existing = Vec::new();
+            File::from(descriptor)
+                .read_to_end(&mut existing)
+                .map_err(|_| ArtifactStoreError::CorruptBlob)?;
+            return if existing == bytes {
+                Ok(())
+            } else {
+                Err(ArtifactStoreError::CorruptBlob)
+            };
+        }
+        Err(error) if error == rustix::io::Errno::NOENT => {}
+        Err(error) if error == rustix::io::Errno::LOOP => {
+            return Err(ArtifactStoreError::UnsafePath);
+        }
+        Err(_) => return Err(ArtifactStoreError::Unavailable),
+    }
+
+    let staging = open_directory_nofollow(staging_root)?;
+    let temporary = format!("{}.tmp", uuid::Uuid::new_v4().simple());
+    let descriptor = openat(
+        &staging,
+        temporary.as_str(),
+        OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::from_raw_mode(0o600),
+    )
+    .map_err(|_| ArtifactStoreError::Unavailable)?;
+    fchmod(&descriptor, Mode::from_raw_mode(0o600)).map_err(|_| ArtifactStoreError::Unavailable)?;
+    let mut file = File::from(descriptor);
+    file.write_all(bytes)
+        .and_then(|_| file.sync_all())
+        .map_err(|_| ArtifactStoreError::Unavailable)?;
+    drop(file);
+    before_rename();
+    if renameat(&staging, temporary.as_str(), &directory, hash).is_err() {
+        let _ = unlinkat(&staging, temporary.as_str(), AtFlags::empty());
+        return Err(ArtifactStoreError::Unavailable);
+    }
+    File::from(directory)
+        .sync_all()
+        .map_err(|_| ArtifactStoreError::Unavailable)?;
+    Ok(())
+}
+
+#[cfg(unix)]
 pub(super) fn publish_blob(
     blobs_root: &Path,
     staging_root: &Path,
     hash: &str,
     bytes: &[u8],
 ) -> Result<(), ArtifactStoreError> {
-    let shard = hash.get(..2).ok_or(ArtifactStoreError::InvalidSource)?;
-    let directory = blobs_root.join("sha256").join(shard);
-    ensure_private_directory(&directory)?;
-    let destination = directory.join(hash);
-    if destination.exists() {
-        let existing = read_blob(blobs_root, hash)?;
-        if existing != bytes {
-            return Err(ArtifactStoreError::CorruptBlob);
-        }
-        return Ok(());
-    }
+    publish_blob_with_hooks_impl(blobs_root, staging_root, hash, bytes, || {}, || {})
+}
 
-    ensure_private_directory(staging_root)?;
-    let temporary = staging_root.join(format!("{}.tmp", uuid::Uuid::new_v4().simple()));
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&temporary)
-        .map_err(|_| ArtifactStoreError::Unavailable)?;
-    set_private_file(&temporary)?;
-    file.write_all(bytes)
-        .and_then(|_| file.sync_all())
-        .map_err(|_| ArtifactStoreError::Unavailable)?;
-    drop(file);
-    match fs::rename(&temporary, &destination) {
-        Ok(()) => {}
-        Err(_) if destination.exists() => {
-            let _ = fs::remove_file(&temporary);
-        }
-        Err(_) => {
-            let _ = fs::remove_file(&temporary);
-            return Err(ArtifactStoreError::Unavailable);
-        }
-    }
-    set_private_file(&destination)?;
-    if let Ok(directory_file) = File::open(&directory) {
-        let _ = directory_file.sync_all();
-    }
-    Ok(())
+#[cfg(not(unix))]
+pub(super) fn publish_blob(
+    _blobs_root: &Path,
+    _staging_root: &Path,
+    _hash: &str,
+    _bytes: &[u8],
+) -> Result<(), ArtifactStoreError> {
+    Err(ArtifactStoreError::Unsupported)
 }
 
 pub(super) fn ensure_private_directory(path: &Path) -> Result<(), ArtifactStoreError> {
@@ -483,5 +578,72 @@ mod tests {
         file.read_to_end(&mut bytes).unwrap();
 
         assert_eq!(bytes, b"safe");
+    }
+
+    #[test]
+    fn publication_rejects_an_intermediate_shard_symlink_swap() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let blobs = root.path().join("blobs");
+        let staging = root.path().join("staging");
+        fs::create_dir(&blobs).unwrap();
+        fs::create_dir(&staging).unwrap();
+        fs::create_dir(blobs.join("sha256")).unwrap();
+        let bytes = b"descriptor publication";
+        let hash = hex::encode(Sha256::digest(bytes));
+        let shard = &hash[..2];
+        fs::create_dir(blobs.join("sha256").join(shard)).unwrap();
+
+        let result = publish_blob_with_hooks_impl(
+            &blobs,
+            &staging,
+            &hash,
+            bytes,
+            || {
+                fs::rename(
+                    blobs.join("sha256").join(shard),
+                    blobs.join("sha256/swapped"),
+                )
+                .unwrap();
+                symlink(outside.path(), blobs.join("sha256").join(shard)).unwrap();
+            },
+            || {},
+        );
+
+        assert!(matches!(result, Err(ArtifactStoreError::UnsafePath)));
+        assert!(!outside.path().join(&hash).exists());
+    }
+
+    #[test]
+    fn publication_swap_after_open_cannot_redirect_atomic_rename() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let blobs = root.path().join("blobs");
+        let staging = root.path().join("staging");
+        fs::create_dir(&blobs).unwrap();
+        fs::create_dir(&staging).unwrap();
+        let bytes = b"atomic descriptor publication";
+        let hash = hex::encode(Sha256::digest(bytes));
+        let shard = hash[..2].to_owned();
+
+        publish_blob_with_hooks_impl(
+            &blobs,
+            &staging,
+            &hash,
+            bytes,
+            || {},
+            || {
+                let directory = blobs.join("sha256").join(&shard);
+                fs::rename(&directory, blobs.join("sha256/parked")).unwrap();
+                symlink(outside.path(), directory).unwrap();
+            },
+        )
+        .unwrap();
+
+        assert!(!outside.path().join(&hash).exists());
+        assert_eq!(
+            fs::read(blobs.join("sha256/parked").join(hash)).unwrap(),
+            bytes
+        );
     }
 }

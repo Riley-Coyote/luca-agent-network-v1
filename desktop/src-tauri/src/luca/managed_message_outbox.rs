@@ -234,9 +234,17 @@ struct ManagedOutboxEntry {
     /// an upgrade never backfills arbitrary historical conversations.
     #[serde(default = "legacy_handoff_recorded")]
     handoff_recorded: bool,
+    /// Artifact-aware publication flips this false before final authority;
+    /// the row then remains recoverable until owner-local receipts settle.
+    #[serde(default = "legacy_artifact_receipts_settled")]
+    artifact_receipts_settled: bool,
 }
 
 const fn legacy_handoff_recorded() -> bool {
+    true
+}
+
+const fn legacy_artifact_receipts_settled() -> bool {
     true
 }
 
@@ -576,7 +584,8 @@ impl ManagedMessageOutbox {
                         | ManagedOutboxState::Cancelled
                         | ManagedOutboxState::Rejected
                 ) && (!entry.authority_finalized
-                    || (entry.state == ManagedOutboxState::Accepted && !entry.handoff_recorded)))
+                    || (entry.state == ManagedOutboxState::Accepted
+                        && (!entry.handoff_recorded || !entry.artifact_receipts_settled))))
             })
             .filter_map(|(key, entry)| {
                 Some(ManagedOutboxReconcileEntry {
@@ -710,6 +719,10 @@ impl ManagedMessageOutbox {
             initial_result_delivered: false,
             authority_finalized: false,
             handoff_recorded: false,
+            // The publication authority flips this false before finalizing an
+            // accepted row when artifact storage is configured. Authorities
+            // without artifacts retain the legacy terminal behavior.
+            artifact_receipts_settled: true,
         };
         let receipt = receipt_for(&request.idempotency_key, &entry);
         self.next_order = next_order;
@@ -1072,6 +1085,54 @@ impl ManagedMessageOutbox {
         Ok(())
     }
 
+    /// Record that artifact receipts have durably settled for an accepted final.
+    pub(crate) fn mark_artifact_receipts_settled(
+        &mut self,
+        idempotency_key: &Hex64,
+    ) -> Result<(), ManagedMessageOutboxError> {
+        let previous = self.entries.clone();
+        let entry = self
+            .entries
+            .get_mut(idempotency_key.as_str())
+            .ok_or(ManagedMessageOutboxError::NotFound)?;
+        if entry.state != ManagedOutboxState::Accepted || !entry.authority_finalized {
+            return Err(ManagedMessageOutboxError::InvalidTransition);
+        }
+        if entry.artifact_receipts_settled {
+            return Ok(());
+        }
+        entry.artifact_receipts_settled = true;
+        if let Err(error) = self.persist() {
+            self.entries = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Keep an accepted row recoverable while artifact receipts are settling.
+    pub(crate) fn mark_artifact_receipts_pending(
+        &mut self,
+        idempotency_key: &Hex64,
+    ) -> Result<(), ManagedMessageOutboxError> {
+        let previous = self.entries.clone();
+        let entry = self
+            .entries
+            .get_mut(idempotency_key.as_str())
+            .ok_or(ManagedMessageOutboxError::NotFound)?;
+        if entry.state != ManagedOutboxState::Accepted {
+            return Err(ManagedMessageOutboxError::InvalidTransition);
+        }
+        if !entry.artifact_receipts_settled {
+            return Ok(());
+        }
+        entry.artifact_receipts_settled = false;
+        if let Err(error) = self.persist() {
+            self.entries = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
     fn persist(&self) -> Result<(), ManagedMessageOutboxError> {
         let (Some(path), Some(passphrase)) = (&self.persistence_path, &self.passphrase) else {
             return Ok(());
@@ -1121,6 +1182,8 @@ impl ManagedMessageOutbox {
                         | ManagedOutboxState::Rejected
                 ) && entry.authority_finalized
                     && (entry.state != ManagedOutboxState::Accepted || entry.handoff_recorded)
+                    && (entry.state != ManagedOutboxState::Accepted
+                        || entry.artifact_receipts_settled)
             })
             .map(|(key, entry)| (entry.created_order, key.clone()))
             .collect();

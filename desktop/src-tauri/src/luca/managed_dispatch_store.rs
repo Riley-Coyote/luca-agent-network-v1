@@ -211,6 +211,20 @@ pub(crate) struct InterruptedManagedDispatchSummary {
     pub dispatch_receipt_id: String,
 }
 
+/// Exact owner-local coordinates needed to settle an artifact receipt after a
+/// restart terminalizes its managed dispatch. No message body or path is present.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RestartInterruptedArtifactReceiptBinding {
+    /// Owner whose local artifact catalog contains the receipt.
+    pub owner_pubkey: String,
+    /// Conversation authority frozen on the interrupted dispatch.
+    pub conversation_id: String,
+    /// Resident authority frozen on the interrupted dispatch.
+    pub resident_pubkey: String,
+    /// Exact owner trigger used as the artifact dispatch receipt identifier.
+    pub dispatch_receipt_id: String,
+}
+
 /// Body-free canonical dispatch authority for one exact resident pre-turn.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ContinuityDispatchAuthority {
@@ -884,6 +898,38 @@ impl ManagedDispatchStore {
             .collect::<Vec<_>>();
         summaries.sort_by(|left, right| left.dispatch_receipt_id.cmp(&right.dispatch_receipt_id));
         summaries
+    }
+
+    /// Return exact artifact-receipt coordinates for restart-interrupted work.
+    /// Re-reading these rows on every resident startup makes settlement
+    /// idempotently retryable when the artifact database was unavailable.
+    pub(crate) fn restart_interrupted_artifact_receipts_for_resident(
+        &self,
+        resident_pubkey: &str,
+    ) -> Vec<RestartInterruptedArtifactReceiptBinding> {
+        let resident_pubkey = resident_pubkey.to_ascii_lowercase();
+        let mut bindings = self
+            .dispatches
+            .values()
+            .filter(|dispatch| {
+                dispatch.resident_pubkey == resident_pubkey
+                    && dispatch.state == ManagedDispatchState::Interrupted
+                    && dispatch.interruption_reason
+                        == Some(ManagedDispatchInterruptionReason::Restart)
+            })
+            .map(|dispatch| RestartInterruptedArtifactReceiptBinding {
+                owner_pubkey: dispatch.owner_pubkey.clone(),
+                conversation_id: dispatch.conversation_id.clone(),
+                resident_pubkey: dispatch.resident_pubkey.clone(),
+                dispatch_receipt_id: dispatch.trigger_event_id.clone(),
+            })
+            .collect::<Vec<_>>();
+        bindings.sort_by(|left, right| {
+            left.conversation_id
+                .cmp(&right.conversation_id)
+                .then_with(|| left.dispatch_receipt_id.cmp(&right.dispatch_receipt_id))
+        });
+        bindings
     }
 
     /// Persist cancellation of exactly one claimed resident turn before the
@@ -3001,6 +3047,17 @@ mod tests {
             .interrupted_after_restart_for_conversation(&owner.public_key().to_hex(), CHANNEL_TWO,)
             .is_empty());
         assert_eq!(
+            store.restart_interrupted_artifact_receipts_for_resident(
+                &resident.public_key().to_hex(),
+            ),
+            vec![RestartInterruptedArtifactReceiptBinding {
+                owner_pubkey: owner.public_key().to_hex(),
+                conversation_id: CHANNEL_ONE.into(),
+                resident_pubkey: resident.public_key().to_hex(),
+                dispatch_receipt_id: trigger.id.to_hex(),
+            }]
+        );
+        assert_eq!(
             store.authorize_reconciliation(&request, &event_id, 103),
             Err(DispatchAuthorizationError::Terminal),
             "terminalization cannot authorize the same frozen event twice"
@@ -3013,6 +3070,15 @@ mod tests {
                 .expect("row")
                 .state,
             ManagedDispatchState::Interrupted
+        );
+        assert_eq!(
+            reloaded
+                .restart_interrupted_artifact_receipts_for_resident(
+                    &resident.public_key().to_hex(),
+                )
+                .len(),
+            1,
+            "restart-interrupted artifact settlement remains retryable after reload",
         );
     }
 

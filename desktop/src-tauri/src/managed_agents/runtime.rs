@@ -265,6 +265,29 @@ fn terminalize_restart_dispatches_if_proven(
     }
 }
 
+fn settle_restart_interrupted_artifact_receipts(
+    app: &AppHandle,
+    dispatch_store: &std::sync::Arc<
+        std::sync::Mutex<crate::luca::managed_dispatch_store::ManagedDispatchStore>,
+    >,
+    resident_pubkey: &str,
+) -> Result<(), String> {
+    let receipts = dispatch_store
+        .lock()
+        .map_err(|_| "managed dispatch store lock is unavailable".to_string())?
+        .restart_interrupted_artifact_receipts_for_resident(resident_pubkey);
+    for receipt in receipts {
+        crate::mark_cancelled_dispatch_receipts(
+            app,
+            &receipt.owner_pubkey,
+            &receipt.conversation_id,
+            &receipt.resident_pubkey,
+            &receipt.dispatch_receipt_id,
+        )?;
+    }
+    Ok(())
+}
+
 /// Binary name fragments for all known agent/harness processes that Buzz
 /// may spawn. Used by `process_belongs_to_us()` and the orphan sweep to
 /// identify processes we should clean up. Both hyphenated and underscored
@@ -2503,6 +2526,7 @@ pub fn spawn_agent_child(
     let broker_thread_name = format!("luca-signing-{}", &record.pubkey[..8]);
     let resident_for_broker = resident_pubkey.clone();
     let epoch_for_broker = session_epoch;
+    let app_for_broker = app.clone();
     let broker_thread =
         match std::thread::Builder::new()
             .name(broker_thread_name)
@@ -2514,10 +2538,20 @@ pub fn spawn_agent_child(
                     resident_for_broker.as_str(),
                     epoch_for_broker.get(),
                 ) {
-                    Ok(Some(interrupted)) if interrupted > 0 => eprintln!(
-                        "luca-signing: interrupted {interrupted} prior-epoch managed dispatch(es) after complete startup outbox reconciliation"
-                    ),
-                    Ok(Some(_)) => {}
+                    Ok(Some(interrupted)) => {
+                        if interrupted > 0 {
+                            eprintln!(
+                                "luca-signing: interrupted {interrupted} prior-epoch managed dispatch(es) after complete startup outbox reconciliation"
+                            );
+                        }
+                        if let Err(error) = settle_restart_interrupted_artifact_receipts(
+                            &app_for_broker,
+                            &dispatch_store,
+                            resident_for_broker.as_str(),
+                        ) {
+                            eprintln!("luca-artifacts: failed to settle restart-interrupted receipts: {error}");
+                        }
+                    }
                     Ok(None) => eprintln!(
                         "luca-signing: managed publication startup reconciliation deferred; preserving prior dispatch authority"
                     ),

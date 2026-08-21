@@ -434,6 +434,11 @@ impl ManagedMessagePublisher {
                     .map_err(|_| ManagedPublicationAuthorityError::Invalid)?,
             )
             .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+        if self.artifact_app_data_dir.is_some() {
+            outbox
+                .mark_artifact_receipts_pending(&entry.idempotency_key)
+                .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+        }
         {
             let mut store = self
                 .dispatch_store
@@ -458,11 +463,19 @@ impl ManagedMessagePublisher {
         if let Err(error) = self.record_handoff_job(entry, outbox) {
             eprintln!("luca-continuity: handoff job scheduling unavailable: {error:?}");
         }
-        self.settle_artifact_receipts(
-            &entry.request,
-            Some(entry.event_id.as_str()),
-            ArtifactReceiptStateV1::Linked,
-        );
+        if self
+            .settle_artifact_receipts(
+                &entry.request,
+                Some(entry.event_id.as_str()),
+                ArtifactReceiptStateV1::Linked,
+            )
+            .is_ok()
+        {
+            // Publication remains successful when the owner-local artifact
+            // store is transiently unavailable. The false durable bit keeps
+            // this encrypted row eligible for a later startup retry.
+            let _ = outbox.mark_artifact_receipts_settled(&entry.idempotency_key);
+        }
         Ok(())
     }
 
@@ -474,9 +487,9 @@ impl ManagedMessagePublisher {
         request: &ManagedMessagePublishRequestV1,
         final_message_id: Option<&str>,
         state: ArtifactReceiptStateV1,
-    ) {
+    ) -> Result<(), ()> {
         let Some(app_data_dir) = &self.artifact_app_data_dir else {
-            return;
+            return Ok(());
         };
         let result = (|| {
             let mut store = super::artifacts::ArtifactStore::open(app_data_dir).map_err(|_| ())?;
@@ -512,10 +525,12 @@ impl ManagedMessagePublisher {
                         serde_json::json!({ "reason": "receipt-settled" }),
                     );
                 }
+                Ok(())
             }
-            Ok(_) => {}
+            Ok(_) => Ok(()),
             Err(()) => {
                 eprintln!("luca-artifacts: receipt settlement unavailable");
+                Err(())
             }
         }
     }
@@ -613,7 +628,7 @@ impl ManagedMessagePublisher {
             } else {
                 ArtifactReceiptStateV1::Orphaned
             };
-        self.settle_artifact_receipts(&entry.request, None, receipt_state);
+        let _ = self.settle_artifact_receipts(&entry.request, None, receipt_state);
         Ok(())
     }
 
@@ -763,7 +778,7 @@ impl ManagedMessagePublisher {
                 ArtifactReceiptStateV1::Orphaned
             };
         drop(store);
-        self.settle_artifact_receipts(&entry.request, None, receipt_state);
+        let _ = self.settle_artifact_receipts(&entry.request, None, receipt_state);
         Ok(decision)
     }
 
@@ -784,6 +799,11 @@ impl ManagedMessagePublisher {
         now_unix_secs: u64,
     ) -> Result<(), ManagedPublicationAuthorityError> {
         if entry.state == ManagedOutboxState::Accepted {
+            if self.artifact_app_data_dir.is_some() {
+                outbox
+                    .mark_artifact_receipts_pending(&entry.idempotency_key)
+                    .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+            }
             {
                 let mut store = self
                     .dispatch_store
@@ -808,7 +828,11 @@ impl ManagedMessagePublisher {
                 &entry.request,
                 Some(entry.event_id.as_str()),
                 ArtifactReceiptStateV1::Linked,
-            );
+            )
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+            outbox
+                .mark_artifact_receipts_settled(&entry.idempotency_key)
+                .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
             self.record_handoff_job(&entry, outbox)?;
             return Ok(());
         }

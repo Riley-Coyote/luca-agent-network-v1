@@ -1,6 +1,7 @@
 use super::*;
 use std::{
     collections::VecDeque,
+    fs,
     io::{Read, Write},
     net::TcpListener,
     path::PathBuf,
@@ -792,6 +793,100 @@ fn accepted_outbox_restart_links_provisional_artifact_receipt_exactly_once() {
         .expect("receipts");
     assert_eq!(receipts.len(), 1);
     assert_eq!(receipts[0].linked_at, first.linked_at);
+}
+
+#[test]
+fn accepted_receipt_settlement_survives_transient_store_failure_and_recovers() {
+    let mut fixture = fixture();
+    let parent = tempfile::tempdir().expect("artifact parent");
+    let artifact_data = parent.path().join("active");
+    fs::create_dir(&artifact_data).expect("artifact app data");
+    let artifact_id = {
+        let mut store =
+            super::super::artifacts::ArtifactStore::open(&artifact_data).expect("artifact store");
+        let context = super::super::artifacts::ArtifactWriteContext {
+            owner_pubkey: fixture.request.owner_pubkey.clone(),
+            author_pubkey: fixture.request.resident_pubkey.clone(),
+            resident_pubkey: fixture.request.resident_pubkey.clone(),
+            conversation_id: Some(fixture.request.conversation_id.clone()),
+            turn_id: Some(fixture.request.turn_id.clone()),
+            dispatch_receipt_id: Some(fixture.request.dispatch_receipt_id.clone()),
+            working_root_id: None,
+            receipt_state: ArtifactReceiptStateV1::Provisional,
+        };
+        store
+            .create(
+                &context,
+                &ArtifactCreateArgsV1 {
+                    title: "Retryable receipt".into(),
+                    kind: ArtifactKindV1::Html,
+                    source: ArtifactSourceV1::InlineText {
+                        content_utf8: "<h1>retry</h1>".into(),
+                        declared_media_type: Some("text/html".into()),
+                    },
+                    idempotency_key: OpaqueId::parse("accepted-artifact-retry")
+                        .expect("artifact idempotency"),
+                },
+                None,
+            )
+            .expect("create provisional artifact")
+            .artifact
+            .artifact_id
+    };
+    fixture
+        .outbox
+        .mark_submitted(&fixture.request.idempotency_key, &fixture.session, false)
+        .expect("submitted");
+    fixture
+        .outbox
+        .mark_accepted(
+            &fixture.request.idempotency_key,
+            OpaqueId::parse(fixture.event_id.clone()).expect("receipt"),
+        )
+        .expect("accepted");
+    let parked = parent.path().join("parked");
+    fs::rename(&artifact_data, &parked).expect("park artifact data");
+    fs::write(&artifact_data, b"temporarily unavailable").expect("block artifact path");
+
+    let empty_store = Arc::new(Mutex::new(
+        ManagedDispatchStore::load(parent.path().join("empty-dispatches.json"))
+            .expect("empty store"),
+    ));
+    let state = Arc::new(Mutex::new(FakeRelayState::default()));
+    let mut publisher = ManagedMessagePublisher::with_transport(
+        fixture.resident.public_key().to_hex(),
+        Arc::clone(&empty_store),
+        Box::new(FakeRelayTransport {
+            state: Arc::clone(&state),
+        }),
+    )
+    .with_artifact_app_data_dir(artifact_data.clone());
+    assert_eq!(
+        publisher.reconcile_on_start(&mut fixture.outbox, &fixture.session),
+        Err(ManagedPublicationAuthorityError::Unavailable)
+    );
+    assert_eq!(fixture.outbox.reconciliation_entries().len(), 1);
+
+    fs::remove_file(&artifact_data).expect("remove blocker");
+    fs::rename(&parked, &artifact_data).expect("restore artifact data");
+    publisher
+        .reconcile_on_start(&mut fixture.outbox, &fixture.session)
+        .expect("retry receipt settlement");
+    assert!(fixture.outbox.reconciliation_entries().is_empty());
+    let store =
+        super::super::artifacts::ArtifactStore::open(&artifact_data).expect("reopen artifacts");
+    let receipt = store
+        .latest_receipt(
+            &fixture.request.owner_pubkey,
+            &OpaqueId::parse(artifact_id).expect("artifact id"),
+            1,
+        )
+        .expect("settled receipt");
+    assert_eq!(receipt.state, ArtifactReceiptStateV1::Linked);
+    assert_eq!(
+        receipt.message_id.as_deref(),
+        Some(fixture.event_id.as_str())
+    );
 }
 
 #[test]

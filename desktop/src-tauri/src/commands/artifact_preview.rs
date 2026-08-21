@@ -122,7 +122,7 @@ fn validate_app_artifact(
     let store = crate::luca::artifacts::ArtifactStore::open(&app_data_dir)
         .map_err(|error| error.code().to_string())?;
     let artifact = store
-        .get(&binding.owner_pubkey, artifact_id)
+        .get_for_conversation(&binding.owner_pubkey, &binding.conversation_id, artifact_id)
         .map_err(|_| "preview artifact was not found".to_string())?;
     if artifact.kind != ArtifactKindV1::App || artifact.deleted_at.is_some() {
         return Err("preview requires an active application artifact".to_string());
@@ -987,7 +987,7 @@ pub(crate) fn detach_preview_session_for_binding(
         let session = sessions
             .get_mut(preview_session_id.as_str())
             .ok_or_else(|| "preview session was not found".to_string())?;
-        if session.binding != *binding {
+        if !preview_session_matches_binding(session, binding) {
             return Err("preview session authority no longer matches".to_string());
         }
         session.cancel.cancel();
@@ -997,6 +997,13 @@ pub(crate) fn detach_preview_session_for_binding(
     };
     emit_preview_state(app, &view);
     Ok(view)
+}
+
+fn preview_session_matches_binding(
+    session: &StoredPreviewSession,
+    binding: &ArtifactBrokerBindingV1,
+) -> bool {
+    session.binding == *binding
 }
 
 /// Return one owner-scoped live preview session.
@@ -1449,5 +1456,14 @@ mod tests {
         session.view.status = ArtifactPreviewStatus::Stopped;
         apply_health_result(&mut session, ArtifactPreviewStatus::Ready, now());
         assert_eq!(session.view.status, ArtifactPreviewStatus::Stopped);
+    }
+
+    #[test]
+    fn preview_detach_authority_denies_cross_conversation_binding() {
+        let expected = binding(9, "dispatch-3");
+        let session = stored_session(expected.clone(), "session-3");
+        let mut foreign = expected;
+        foreign.conversation_id = OpaqueId::parse("conversation-2").unwrap();
+        assert!(!preview_session_matches_binding(&session, &foreign));
     }
 }
