@@ -1022,6 +1022,8 @@ pub struct ContextMessage {
 pub struct PromptChannelInfo {
     pub name: String,
     pub channel_type: String,
+    /// Whether this resident joined through the ordinary `guest` role.
+    pub is_guest: bool,
 }
 
 /// Minimal profile fields needed to label users in ACP prompts.
@@ -1128,7 +1130,14 @@ pub(crate) fn exchange_prompt_line(
     format!(
         "Exchange: this message is turn {} of {} in an exchange with {asker}, {origin}. Reply in \
          words; when the budget is spent the exchange pauses for your owner to decide.",
-        exchange.turn, exchange.bucket,
+        exchange.turn, exchange.bucket
+    )
+}
+
+fn visit_prompt_line(host_label: &str) -> String {
+    format!(
+        "You are a guest in {host_label}'s conversation; you have the conversation, so answer in \
+         context. When the exchange pauses or closes, you step back out."
     )
 }
 
@@ -1184,6 +1193,12 @@ pub(crate) fn format_event_block(
             "\n{}",
             exchange_prompt_line(exchange, &hex, profile_lookup)
         ));
+    }
+    if channel_info.is_some_and(|info| info.is_guest) {
+        let host_label = channel_info
+            .and_then(|info| sanitize_prompt_label(&info.name))
+            .unwrap_or_else(|| "this room".to_owned());
+        block.push_str(&format!("\n{}", visit_prompt_line(&host_label)));
     }
 
     // Always include tags — they carry structural information.
@@ -1878,6 +1893,28 @@ mod tests {
             "in an exchange with {}",
             author.chars().take(8).collect::<String>()
         )));
+    }
+
+    #[test]
+    fn a_guest_is_told_to_answer_with_the_hosts_conversation() {
+        let event = make_event("owner asks the guest");
+        let be = BatchEvent {
+            exchange: None,
+            event,
+            prompt_tag: "@mention".into(),
+            received_at: Instant::now(),
+        };
+        let channel = PromptChannelInfo {
+            name: "Coyote".to_owned(),
+            channel_type: "dm".to_owned(),
+            is_guest: true,
+        };
+        let block = format_event_block(Uuid::new_v4(), Some(&channel), &be, None);
+        assert!(block.contains(
+            "You are a guest in Coyote's conversation; you have the conversation, so answer in \
+             context. When the exchange pauses or closes, you step back out."
+        ));
+        assert!(!block.contains("Exchange:"));
     }
 
     #[test]
@@ -3393,6 +3430,7 @@ mod tests {
         let ci = PromptChannelInfo {
             name: "engineering".into(),
             channel_type: "stream".into(),
+            is_guest: false,
         };
 
         let prompt = format_prompt(
@@ -3425,6 +3463,7 @@ mod tests {
         let ci = PromptChannelInfo {
             name: "DM".into(),
             channel_type: "dm".into(),
+            is_guest: false,
         };
 
         let prompt = format_prompt(
@@ -3540,6 +3579,7 @@ mod tests {
         let ci = PromptChannelInfo {
             name: "DM".into(),
             channel_type: "dm".into(),
+            is_guest: false,
         };
         let ctx = ConversationContext::Dm {
             messages: vec![ContextMessage {
@@ -3800,6 +3840,7 @@ mod tests {
         let ci = PromptChannelInfo {
             name: "DM".into(),
             channel_type: "dm".into(),
+            is_guest: false,
         };
         // Thread context fetched (as the fetch path does for DM replies).
         let ctx = ConversationContext::Thread {
@@ -3859,6 +3900,7 @@ mod tests {
         let ci = PromptChannelInfo {
             name: "DM".into(),
             channel_type: "dm".into(),
+            is_guest: false,
         };
 
         // No context fetched — hints only.
@@ -4397,6 +4439,7 @@ mod tests {
         let ci = PromptChannelInfo {
             name: "DM".into(),
             channel_type: "dm".into(),
+            is_guest: false,
         };
 
         let prompt = format_prompt(
@@ -4462,6 +4505,7 @@ mod tests {
         let ci = PromptChannelInfo {
             name: "DM".into(),
             channel_type: "dm".into(),
+            is_guest: false,
         };
 
         let prompt = format_prompt(

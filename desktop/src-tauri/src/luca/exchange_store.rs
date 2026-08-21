@@ -1,6 +1,6 @@
 //! The owner's own record of the exchanges in this house.
 //!
-//! Two things live here and nothing else:
+//! Three things live here and nothing else:
 //!
 //! * **Heads** — the latest [`ExchangeRecordV1`] this desktop has seen for an
 //!   exchange id, replaced under the same last-writer-wins rule the relay uses
@@ -14,6 +14,8 @@
 //!   membership, or the spent set may have drifted between attempts), so the
 //!   first decision is written down and every later attempt reads it back
 //!   verbatim.
+//! * **Visits** — ordinary room memberships temporarily granted to a resident,
+//!   with the arrival threshold and the exchange (when any) that brought them.
 //!
 //! Nothing in here reaches the network. Persistence is the same atomically
 //! replaced, owner-only JSON file the managed dispatch store uses.
@@ -22,7 +24,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use luca_protocol::{ExchangeRecordV1, ExchangeTurnTag, Hex64};
+use luca_protocol::{ExchangeRecordV1, ExchangeTurnTag, Hex64, OpaqueId};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
@@ -31,6 +33,7 @@ use super::managed_dispatch_store::atomic_write_restricted;
 const STORE_SCHEMA: &str = "luca.exchange-store.v1";
 const MAX_HEADS: usize = 256;
 const MAX_DECISIONS: usize = 256;
+const MAX_VISITS: usize = 256;
 const MAX_STORE_BYTES: usize = 4 * 1024 * 1024;
 
 static GLOBAL_STORE: OnceLock<Arc<Mutex<ExchangeStore>>> = OnceLock::new();
@@ -46,13 +49,50 @@ pub(crate) struct ExchangeHead {
     pub event_id: Hex64,
 }
 
+/// One visit a frozen final is authorized to establish.
+///
+/// This lives on the decision before the membership write happens. Replaying
+/// the same final therefore settles the same grant instead of deriving another
+/// arrival from mutable room state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct VisitGrant {
+    /// Room the guest temporarily joins.
+    pub conversation_id: OpaqueId,
+    /// Same-owner resident joining as an ordinary member.
+    pub resident: Hex64,
+    /// Arrival threshold used by the visit timeline.
+    pub arrived_at: u64,
+    /// Exchange that caused the visit, when a resident minted it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exchange_id: Option<Hex64>,
+    /// Stable id carried in both threshold notes.
+    pub correlation_id: Hex64,
+}
+
+/// One currently active visit, persisted beside exchange heads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct VisitRecord {
+    /// Frozen grant that established the membership.
+    #[serde(flatten)]
+    pub grant: VisitGrant,
+    /// Whether the arrival threshold note reached the room.
+    #[serde(default)]
+    pub arrival_noted: bool,
+    /// Whether fade already removed the ordinary membership.
+    #[serde(default)]
+    pub membership_removed: bool,
+    /// Insertion order, used only to prune the oldest rows first.
+    #[serde(default)]
+    pub order: u64,
+}
+
 /// The frozen exchange placement for one managed final.
 ///
 /// `granted_p_tags` are the recipients a mint added to the resident's reply;
 /// `exchange` is the turn tag the final carries. `notes_published` records
 /// that the owner-key exchange-notes for this decision already reached the
 /// room, so a replay explains itself once rather than twice.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub(crate) struct ExchangeDecision {
     /// Turn tag applied to the final, if this final speaks inside an exchange.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -60,6 +100,21 @@ pub(crate) struct ExchangeDecision {
     /// Recipients added to the reply under a minted exchange's authority.
     #[serde(default)]
     pub granted_p_tags: Vec<Hex64>,
+    /// A fresh exchange inside another exchange replaces the old audience.
+    #[serde(default)]
+    pub replace_p_tags: bool,
+    /// Visit memberships this final is authorized to establish.
+    #[serde(default)]
+    pub visit_grants: Vec<VisitGrant>,
+    /// Exchange record this decision must publish before the final, if minted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mint_record: Option<ExchangeRecordV1>,
+    /// Stable relay ordering timestamp for `mint_record`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mint_created_at: Option<u64>,
+    /// Whether the record and widened dispatch audience were settled.
+    #[serde(default)]
+    pub mint_published: bool,
     /// Owner-key exchange-note sentences owed to the room for this decision.
     #[serde(default)]
     pub notes: Vec<String>,
@@ -77,6 +132,8 @@ struct PersistedExchangeStore {
     next_order: u64,
     heads: BTreeMap<String, ExchangeHead>,
     decisions: BTreeMap<String, ExchangeDecision>,
+    #[serde(default)]
+    visits: BTreeMap<String, VisitRecord>,
 }
 
 /// Bounded, owner-only store of exchange heads and frozen final decisions.
@@ -84,6 +141,7 @@ pub(crate) struct ExchangeStore {
     path: Option<PathBuf>,
     heads: BTreeMap<String, ExchangeHead>,
     decisions: BTreeMap<String, ExchangeDecision>,
+    visits: BTreeMap<String, VisitRecord>,
     next_order: u64,
 }
 
@@ -103,6 +161,7 @@ impl ExchangeStore {
             path: None,
             heads: BTreeMap::new(),
             decisions: BTreeMap::new(),
+            visits: BTreeMap::new(),
             next_order: 1,
         }
     }
@@ -114,6 +173,7 @@ impl ExchangeStore {
                 path: Some(path),
                 heads: BTreeMap::new(),
                 decisions: BTreeMap::new(),
+                visits: BTreeMap::new(),
                 next_order: 1,
             });
         }
@@ -128,6 +188,7 @@ impl ExchangeStore {
             || persisted.next_order == 0
             || persisted.heads.len() > MAX_HEADS
             || persisted.decisions.len() > MAX_DECISIONS
+            || persisted.visits.len() > MAX_VISITS
         {
             return Err("luca exchange store schema or row count is invalid".into());
         }
@@ -136,10 +197,23 @@ impl ExchangeStore {
                 return Err("luca exchange store head does not match its key".into());
             }
         }
+        for (key, visit) in &persisted.visits {
+            if key != &visit_key(&visit.grant.conversation_id, &visit.grant.resident)
+                || visit.grant.arrived_at == 0
+                || visit
+                    .grant
+                    .exchange_id
+                    .as_ref()
+                    .is_some_and(|exchange_id| exchange_id != &visit.grant.correlation_id)
+            {
+                return Err("luca exchange store visit does not match its key".into());
+            }
+        }
         Ok(Self {
             path: Some(path),
             heads: persisted.heads,
             decisions: persisted.decisions,
+            visits: persisted.visits,
             next_order: persisted.next_order,
         })
     }
@@ -250,6 +324,131 @@ impl ExchangeStore {
         Ok(())
     }
 
+    /// Record that a frozen mint reached the relay and dispatch authority.
+    pub(crate) fn mark_mint_published(&mut self, key: &str) -> Result<(), String> {
+        let previous = self.decisions.clone();
+        let Some(decision) = self.decisions.get_mut(key) else {
+            return Err("luca exchange decision is unknown".into());
+        };
+        if decision.mint_published {
+            return Ok(());
+        }
+        decision.mint_published = true;
+        if let Err(error) = self.persist() {
+            self.decisions = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// The active visit for one guest in one room, if any.
+    pub(crate) fn visit(
+        &self,
+        conversation_id: &OpaqueId,
+        resident: &Hex64,
+    ) -> Option<&VisitRecord> {
+        self.visits.get(&visit_key(conversation_id, resident))
+    }
+
+    /// All active visits in one room, in arrival order.
+    pub(crate) fn visits_in(&self, conversation_id: &OpaqueId) -> Vec<VisitRecord> {
+        let mut visits: Vec<VisitRecord> = self
+            .visits
+            .values()
+            .filter(|visit| &visit.grant.conversation_id == conversation_id)
+            .cloned()
+            .collect();
+        visits.sort_by_key(|visit| (visit.grant.arrived_at, visit.order));
+        visits
+    }
+
+    /// Record a newly granted visit, idempotently.
+    pub(crate) fn record_visit(&mut self, grant: VisitGrant) -> Result<VisitRecord, String> {
+        let key = visit_key(&grant.conversation_id, &grant.resident);
+        if let Some(existing) = self.visits.get(&key) {
+            return Ok(existing.clone());
+        }
+        if self.visits.len() == MAX_VISITS {
+            return Err("luca exchange store visit limit reached".into());
+        }
+        let previous = self.visits.clone();
+        let previous_order = self.next_order;
+        let record = VisitRecord {
+            grant,
+            arrival_noted: false,
+            membership_removed: false,
+            order: self.next_order,
+        };
+        self.next_order = self.next_order.saturating_add(1);
+        self.visits.insert(key, record.clone());
+        if let Err(error) = self.persist() {
+            self.visits = previous;
+            self.next_order = previous_order;
+            return Err(error);
+        }
+        Ok(record)
+    }
+
+    /// Remember that the room received this visit's arrival threshold.
+    pub(crate) fn mark_visit_arrival_noted(
+        &mut self,
+        conversation_id: &OpaqueId,
+        resident: &Hex64,
+    ) -> Result<(), String> {
+        let previous = self.visits.clone();
+        let Some(visit) = self.visits.get_mut(&visit_key(conversation_id, resident)) else {
+            return Err("luca visit is unknown".into());
+        };
+        if visit.arrival_noted {
+            return Ok(());
+        }
+        visit.arrival_noted = true;
+        if let Err(error) = self.persist() {
+            self.visits = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Forget a faded visit after its membership was removed.
+    pub(crate) fn remove_visit(
+        &mut self,
+        conversation_id: &OpaqueId,
+        resident: &Hex64,
+    ) -> Result<Option<VisitRecord>, String> {
+        let previous = self.visits.clone();
+        let removed = self.visits.remove(&visit_key(conversation_id, resident));
+        if removed.is_none() {
+            return Ok(None);
+        }
+        if let Err(error) = self.persist() {
+            self.visits = previous;
+            return Err(error);
+        }
+        Ok(removed)
+    }
+
+    /// Remember the irreversible membership half of fade before noting it.
+    pub(crate) fn mark_visit_membership_removed(
+        &mut self,
+        conversation_id: &OpaqueId,
+        resident: &Hex64,
+    ) -> Result<(), String> {
+        let previous = self.visits.clone();
+        let Some(visit) = self.visits.get_mut(&visit_key(conversation_id, resident)) else {
+            return Err("luca visit is unknown".into());
+        };
+        if visit.membership_removed {
+            return Ok(());
+        }
+        visit.membership_removed = true;
+        if let Err(error) = self.persist() {
+            self.visits = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
     /// Move one frozen decision onto a different turn of the *same* exchange.
     ///
     /// This is the only mutation a decision ever accepts, and it exists for one
@@ -315,6 +514,7 @@ impl ExchangeStore {
             next_order: self.next_order,
             heads: self.heads.clone(),
             decisions: self.decisions.clone(),
+            visits: self.visits.clone(),
         })
         .map_err(|error| format!("serialize luca exchange store: {error}"))?;
         if bytes.len() > MAX_STORE_BYTES {
@@ -326,6 +526,10 @@ impl ExchangeStore {
         }
         atomic_write_restricted(path, &bytes)
     }
+}
+
+fn visit_key(conversation_id: &OpaqueId, resident: &Hex64) -> String {
+    format!("{}:{}", conversation_id.as_str(), resident.as_str())
 }
 
 fn store_path(app: &AppHandle) -> Result<PathBuf, String> {

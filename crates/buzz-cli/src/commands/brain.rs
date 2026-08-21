@@ -29,9 +29,9 @@ pub async fn dispatch(command: BrainCmd, client: &BuzzClient) -> Result<(), CliE
 }
 
 fn require_owner(client: &BuzzClient) -> Result<PublicKey, CliError> {
-    let hex = client.auth_tag_owner_hex().ok_or_else(|| {
-        CliError::Auth("Brain review requests require BUZZ_AUTH_TAG".into())
-    })?;
+    let hex = client
+        .auth_tag_owner_hex()
+        .ok_or_else(|| CliError::Auth("Brain review requests require BUZZ_AUTH_TAG".into()))?;
     PublicKey::parse(&hex)
         .map_err(|error| CliError::Auth(format!("invalid owner attestation: {error}")))
 }

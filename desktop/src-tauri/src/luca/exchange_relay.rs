@@ -88,6 +88,28 @@ pub(crate) trait ExchangeRelay: Send {
         content: &str,
     ) -> Result<(), ExchangeRelayError>;
 
+    /// Add a same-owner resident to a room as an ordinary visiting member.
+    fn add_conversation_member(
+        &self,
+        _conversation_id: &OpaqueId,
+        _resident: &Hex64,
+    ) -> Result<(), ExchangeRelayError> {
+        Err(ExchangeRelayError::Unavailable(
+            "visit membership add is unavailable".to_owned(),
+        ))
+    }
+
+    /// Remove a visiting resident through the room's ordinary member path.
+    fn remove_conversation_member(
+        &self,
+        _conversation_id: &OpaqueId,
+        _resident: &Hex64,
+    ) -> Result<(), ExchangeRelayError> {
+        Err(ExchangeRelayError::Unavailable(
+            "visit membership removal is unavailable".to_owned(),
+        ))
+    }
+
     /// Everyone currently in `conversation_id` — channel members and DM
     /// participants alike.
     fn conversation_members(
@@ -265,14 +287,47 @@ impl ExchangeRelay for AppExchangeRelay {
         conversation_id: &OpaqueId,
         content: &str,
     ) -> Result<(), ExchangeRelayError> {
+        // The room's system voice is relay-signed, so the note is a command:
+        // the relay validates it and answers with its own kind-40099. A
+        // duplicate submission says nothing twice.
         let tag = Tag::parse(["h", conversation_id.as_str()]).map_err(|error| {
             ExchangeRelayError::Unavailable(format!("exchange note tag is invalid: {error}"))
         })?;
         let builder = EventBuilder::new(
-            Kind::Custom(buzz_core_pkg::kind::KIND_SYSTEM_MESSAGE as u16),
+            Kind::Custom(buzz_core_pkg::kind::KIND_LUCA_EXCHANGE_NOTE as u16),
             content.to_owned(),
         )
         .tags([tag]);
+        self.submit(builder).map(|_| ())
+    }
+
+    fn add_conversation_member(
+        &self,
+        conversation_id: &OpaqueId,
+        resident: &Hex64,
+    ) -> Result<(), ExchangeRelayError> {
+        let channel_id = uuid::Uuid::parse_str(conversation_id.as_str()).map_err(|error| {
+            ExchangeRelayError::Unavailable(format!("visit room id is invalid: {error}"))
+        })?;
+        let builder = crate::events::build_add_member(channel_id, resident.as_str(), Some("guest"))
+            .map_err(|error| {
+                ExchangeRelayError::Unavailable(format!("visit membership is invalid: {error}"))
+            })?;
+        self.submit(builder).map(|_| ())
+    }
+
+    fn remove_conversation_member(
+        &self,
+        conversation_id: &OpaqueId,
+        resident: &Hex64,
+    ) -> Result<(), ExchangeRelayError> {
+        let channel_id = uuid::Uuid::parse_str(conversation_id.as_str()).map_err(|error| {
+            ExchangeRelayError::Unavailable(format!("visit room id is invalid: {error}"))
+        })?;
+        let builder =
+            crate::events::build_remove_member(channel_id, resident.as_str()).map_err(|error| {
+                ExchangeRelayError::Unavailable(format!("visit membership is invalid: {error}"))
+            })?;
         self.submit(builder).map(|_| ())
     }
 

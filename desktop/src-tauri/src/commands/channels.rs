@@ -578,30 +578,6 @@ pub async fn create_channel(
     .await
 }
 
-/// Internal managed-operation seam for retry-stable private-room creation.
-///
-/// The registered owner command above remains random-ID and unchanged at its
-/// public boundary. Managed communication derives the UUID from its exact
-/// operation identity and may therefore safely recover a matching duplicate.
-pub(crate) async fn create_channel_with_exact_uuid(
-    channel_uuid: uuid::Uuid,
-    name: &str,
-    description: Option<&str>,
-    state: &AppState,
-) -> Result<ChannelInfo, String> {
-    create_channel_at_uuid(
-        channel_uuid,
-        name,
-        "stream",
-        "private",
-        description,
-        None,
-        true,
-        state,
-    )
-    .await
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn create_channel_at_uuid(
     channel_uuid: uuid::Uuid,

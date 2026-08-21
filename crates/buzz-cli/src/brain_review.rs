@@ -59,8 +59,9 @@ pub fn build_brain_review(
             channel_id,
         },
     };
-    let encrypted = encrypt_observer_payload(keys, owner, &payload)
-        .map_err(|error| CliError::Other(format!("could not encrypt Brain review request: {error}")))?;
+    let encrypted = encrypt_observer_payload(keys, owner, &payload).map_err(|error| {
+        CliError::Other(format!("could not encrypt Brain review request: {error}"))
+    })?;
     let event = buzz_sdk::build_agent_observer_frame(
         &owner.to_hex(),
         &keys.public_key().to_hex(),
@@ -103,8 +104,7 @@ mod tests {
             .iter()
             .any(|tag| tag == &[OBSERVER_FRAME_TAG, OBSERVER_FRAME_TELEMETRY]));
 
-        let decrypted: serde_json::Value =
-            decrypt_observer_payload(&owner, &built.event).unwrap();
+        let decrypted: serde_json::Value = decrypt_observer_payload(&owner, &built.event).unwrap();
         assert_eq!(decrypted["kind"], REQUEST_KIND);
         assert_eq!(decrypted["channelId"], CHANNEL);
         assert_eq!(decrypted["payload"]["type"], REQUEST_KIND);

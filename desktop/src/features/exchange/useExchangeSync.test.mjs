@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test, { mock } from "node:test";
 
 import { relayClient } from "@/shared/api/relayClient";
-import { KIND_LUCA_EXCHANGE } from "@/shared/constants/kinds";
+import {
+  KIND_LUCA_EXCHANGE,
+  KIND_STREAM_MESSAGE,
+} from "@/shared/constants/kinds";
 import { startExchangeSync } from "./useExchangeSync.ts";
 
 // Same fresh-start gap `startPersonaSync` guards: a live-only subscription
@@ -28,10 +31,12 @@ test("startExchangeSync backfills owner-authored heads before going live", () =>
   assert.deepEqual(fetchCalls[0].authors, ["owner-pubkey"]);
   assert.ok(fetchCalls[0].limit > 0, "backfill must ask for history");
 
-  assert.equal(liveCalls.length, 1, "must open exactly one live subscription");
+  assert.equal(liveCalls.length, 2, "must open both live subscriptions");
   assert.deepEqual(liveCalls[0].kinds, [KIND_LUCA_EXCHANGE]);
   assert.deepEqual(liveCalls[0].authors, ["owner-pubkey"]);
   assert.equal(liveCalls[0].limit, 0, "live subscription must not replay");
+  assert.deepEqual(liveCalls[1].kinds, [KIND_STREAM_MESSAGE]);
+  assert.equal(liveCalls[1].limit, 0, "turn subscription must not replay");
 
   mock.restoreAll();
 });

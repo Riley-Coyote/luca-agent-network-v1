@@ -26,6 +26,8 @@ struct FakeExchangeRelay {
     labels: Mutex<BTreeMap<String, String>>,
     published_records: Mutex<Vec<(ExchangeRecordV1, u64)>>,
     published_notes: Mutex<Vec<String>>,
+    added_members: Mutex<Vec<Hex64>>,
+    removed_members: Mutex<Vec<Hex64>>,
     refuse_record: Mutex<bool>,
     room_unavailable: Mutex<bool>,
     spent_unavailable: Mutex<bool>,
@@ -136,6 +138,32 @@ impl ExchangeRelay for FakeExchangeRelay {
             .lock()
             .expect("notes")
             .push(content.to_owned());
+        Ok(())
+    }
+
+    fn add_conversation_member(
+        &self,
+        _conversation_id: &OpaqueId,
+        resident: &Hex64,
+    ) -> Result<(), ExchangeRelayError> {
+        self.added_members
+            .lock()
+            .expect("added")
+            .push(resident.clone());
+        self.room.lock().expect("room").insert(resident.clone());
+        Ok(())
+    }
+
+    fn remove_conversation_member(
+        &self,
+        _conversation_id: &OpaqueId,
+        resident: &Hex64,
+    ) -> Result<(), ExchangeRelayError> {
+        self.removed_members
+            .lock()
+            .expect("removed")
+            .push(resident.clone());
+        self.room.lock().expect("room").remove(resident);
         Ok(())
     }
 
@@ -388,17 +416,46 @@ fn the_owner_can_ask_for_a_bigger_bucket_and_never_past_the_ceiling() {
 }
 
 #[test]
-fn mentioning_someone_who_is_not_here_writes_a_sentence_and_mints_nothing() {
+fn mentioning_someone_who_is_not_here_visits_and_mints_in_the_same_room() {
     let fixture = fixture();
     fixture.relay.seed_resident("Kai", &fixture.kai, false);
     let request = fixture.request("Maybe @Kai knows.");
     let plan = fixture.resolver().resolve(&request, NOW).expect("plan");
-    assert_eq!(plan, ExchangePlan::unchanged());
-    assert!(fixture.relay.records().is_empty());
+    let record = &fixture.relay.records()[0].0;
+    assert_eq!(record.conversation_id.as_str(), CHANNEL);
+    assert_eq!(plan.exchange.expect("turn").exchange_id, record.exchange_id);
+    assert_eq!(plan.granted_p_tags, vec![fixture.kai.clone()]);
+    assert_eq!(
+        fixture
+            .relay
+            .added_members
+            .lock()
+            .expect("added")
+            .as_slice(),
+        std::slice::from_ref(&fixture.kai)
+    );
     let notes = fixture.relay.notes();
     assert_eq!(notes.len(), 1);
-    assert!(notes[0].contains("asking across rooms comes next"));
-    assert!(notes[0].contains("Luca mentioned Kai"));
+    let note: serde_json::Value = serde_json::from_str(&notes[0]).expect("visit note");
+    assert_eq!(note["type"], "visit_arrived");
+    assert_eq!(note["resident"], fixture.kai.as_str());
+    assert_eq!(note["exchange_id"], record.exchange_id.as_str());
+}
+
+#[test]
+fn a_replayed_visit_adds_and_announces_the_guest_once() {
+    let fixture = fixture();
+    fixture.relay.seed_resident("Kai", &fixture.kai, false);
+    let request = fixture.request("Maybe @Kai knows.");
+    let first = fixture.resolver().resolve(&request, NOW).expect("first");
+    let replay = fixture
+        .resolver()
+        .resolve(&request, NOW + 60)
+        .expect("replay");
+    assert_eq!(first, replay);
+    assert_eq!(fixture.relay.added_members.lock().expect("added").len(), 1);
+    assert_eq!(fixture.relay.notes().len(), 1);
+    assert_eq!(fixture.relay.records().len(), 1);
 }
 
 #[test]
@@ -432,69 +489,6 @@ fn a_refused_record_is_a_refused_mint() {
         Err(ExchangeDenial::MintRefused)
     );
     assert!(fixture.relay.records().is_empty());
-}
-
-#[test]
-fn a_sibling_triggered_final_can_never_publish_outside_an_exchange() {
-    let fixture = fixture();
-    // Vektor is woken by Luca's message, not by the owner's: descendant depth 1.
-    let luca_keys = Keys::parse(&"a2".repeat(32)).expect("luca");
-    let sibling_trigger = EventBuilder::new(Kind::Custom(9), "Vektor, what do you think?")
-        .tags([
-            Tag::parse(["h", CHANNEL]).expect("h"),
-            Tag::parse(["p", fixture.vektor.as_str()]).expect("p"),
-        ])
-        .custom_created_at(Timestamp::from(NOW - 5))
-        .sign_with_keys(&luca_keys)
-        .expect("sibling trigger");
-    fixture
-        .dispatch
-        .lock()
-        .expect("dispatch")
-        .stage_descendant_event(
-            &sibling_trigger,
-            fixture.owner.as_str(),
-            &fixture.trigger_id,
-            &fixture.trigger_id,
-            "action-1",
-            &[fixture.vektor.as_str().to_owned()],
-            NOW,
-        )
-        .expect("stage descendant");
-    assert_eq!(
-        fixture
-            .dispatch
-            .lock()
-            .expect("dispatch")
-            .descendant_depth(&sibling_trigger.id.to_hex(), fixture.vektor.as_str())
-            .expect("depth"),
-        1
-    );
-
-    let receipt = OpaqueId::parse(sibling_trigger.id.to_hex()).expect("receipt");
-    let untagged = ManagedMessagePublishRequestV1 {
-        protocol: MESSAGE_PUBLISH_PROTOCOL.to_owned(),
-        turn_id: receipt.clone(),
-        idempotency_key: derive_message_publish_idempotency_key(&receipt, &fixture.vektor)
-            .expect("idempotency"),
-        owner_pubkey: fixture.owner.clone(),
-        resident_pubkey: fixture.vektor.clone(),
-        conversation_id: OpaqueId::parse(CHANNEL).expect("channel"),
-        thread_id: None,
-        root_event_id: None,
-        reply_event_id: None,
-        response_surface: Some(ManagedResponseSurfaceV1::Timeline),
-        resolved_p_tags: vec![fixture.luca.clone()],
-        final_draft: "I think it does.".to_owned(),
-        dispatch_receipt_id: receipt,
-        cancellation_epoch: SafeU53::new(7).expect("epoch"),
-        exchange: None,
-        bucket_hint: None,
-    };
-    assert_eq!(
-        fixture.resolver().resolve(&untagged, NOW),
-        Err(ExchangeDenial::Unknown)
-    );
 }
 
 #[test]
@@ -729,7 +723,7 @@ fn a_relay_that_cannot_count_the_spent_turns_refuses_rather_than_publishes_untag
 }
 
 #[test]
-fn naming_a_third_resident_from_inside_an_exchange_earns_a_sentence_not_a_hop() {
+fn naming_a_third_resident_from_inside_an_exchange_mints_a_second_exchange_in_place() {
     let fixture = fixture();
     fixture.relay.seed_resident("Kai", &fixture.kai, true);
     let record = fixture.exchange_record(None);
@@ -741,15 +735,60 @@ fn naming_a_third_resident_from_inside_an_exchange_earns_a_sentence_not_a_hop() 
         None,
     );
     let plan = fixture.resolver().resolve(&request, NOW).expect("plan");
-    assert_eq!(plan.exchange.expect("turn").turn, 2);
-    assert!(
-        plan.granted_p_tags.is_empty(),
-        "a third resident is never p-tagged from inside an exchange"
+    let new_turn = plan.exchange.clone().expect("turn");
+    assert_eq!(new_turn.turn, 1);
+    assert_ne!(new_turn.exchange_id, record.exchange_id);
+    assert_eq!(plan.granted_p_tags, vec![fixture.kai.clone()]);
+    let effective = plan.apply(&request).expect("effective fresh exchange");
+    assert_eq!(effective.resolved_p_tags, vec![fixture.kai.clone()]);
+    let records = fixture.relay.records();
+    assert_eq!(
+        records.len(),
+        1,
+        "the original was seeded; one fresh record publishes"
     );
-    assert!(fixture.relay.records().is_empty(), "no second exchange");
-    let notes = fixture.relay.notes();
-    assert_eq!(notes.len(), 1);
-    assert!(notes[0].contains("one hop is the limit for now"));
+    assert_eq!(records[0].0.conversation_id.as_str(), CHANNEL);
+    assert_eq!(records[0].0.depth, 2);
+    assert_eq!(
+        records[0].0.parent_exchange_id,
+        Some(record.exchange_id.clone())
+    );
+    assert_eq!(records[0].0.members, {
+        let mut members = vec![fixture.luca.clone(), fixture.kai.clone()];
+        members.sort();
+        members
+    });
+    assert!(
+        fixture.relay.notes().is_empty(),
+        "an in-room resident needs no visit note"
+    );
+}
+
+#[test]
+fn naming_an_absent_third_resident_visits_then_mints_a_second_exchange_here() {
+    let fixture = fixture();
+    fixture.relay.seed_resident("Kai", &fixture.kai, false);
+    let record = fixture.exchange_record(None);
+    fixture.relay.seed_head(&record, NOW);
+    let request = fixture.request_with(
+        "Good question — @Kai would know.",
+        vec![fixture.vektor.clone()],
+        Some(ExchangeTurnTag::new(record.exchange_id.clone(), 2).expect("turn")),
+        None,
+    );
+
+    let plan = fixture.resolver().resolve(&request, NOW).expect("plan");
+    let fresh = &fixture.relay.records()[0].0;
+    assert_ne!(fresh.exchange_id, record.exchange_id);
+    assert_eq!(fresh.conversation_id.as_str(), CHANNEL);
+    assert_eq!(fresh.depth, 2);
+    assert_eq!(fresh.parent_exchange_id, Some(record.exchange_id.clone()));
+    assert_eq!(plan.granted_p_tags, vec![fixture.kai.clone()]);
+    assert_eq!(fixture.relay.added_members.lock().expect("added").len(), 1);
+    let note: serde_json::Value =
+        serde_json::from_str(&fixture.relay.notes()[0]).expect("visit note");
+    assert_eq!(note["type"], "visit_arrived");
+    assert_eq!(note["exchange_id"], fresh.exchange_id.as_str());
 }
 
 // ── the retune after a lost race ────────────────────────────────────────────
@@ -849,6 +888,7 @@ fn applying_a_plan_keeps_the_recipients_sorted_and_unique() {
     let plan = ExchangePlan {
         exchange: Some(ExchangeTurnTag::new(Hex64::parse("7".repeat(64)).unwrap(), 1).unwrap()),
         granted_p_tags: vec![fixture.vektor.clone(), fixture.owner.clone()],
+        replace_p_tags: false,
     };
     let effective = plan.apply(&request).expect("apply");
     assert!(effective

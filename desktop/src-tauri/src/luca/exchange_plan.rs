@@ -25,10 +25,13 @@ use luca_protocol::{
     EXCHANGE_BUCKET_CEILING,
 };
 
-use super::exchange::{place_exchange, ExchangeDenial, ExchangeNote, Placement};
+use super::exchange::ExchangeDenial;
 use super::exchange_relay::ExchangeRelay;
-use super::exchange_store::{decision_key, ExchangeDecision, ExchangeHead, ExchangeStore};
+use super::exchange_store::{
+    decision_key, ExchangeDecision, ExchangeHead, ExchangeStore, VisitGrant,
+};
 use super::managed_dispatch_store::ManagedDispatchStore;
+use super::visits::settle_visit_grants;
 
 /// Longest `@name` token the mention scanner will consider.
 const MAX_MENTION_NAME_BYTES: usize = 64;
@@ -42,6 +45,8 @@ pub(crate) struct ExchangePlan {
     pub exchange: Option<ExchangeTurnTag>,
     /// Recipients added to the reply under a minted exchange's authority.
     pub granted_p_tags: Vec<Hex64>,
+    /// Replace the prior exchange's sibling audience for a fresh nested mint.
+    pub replace_p_tags: bool,
 }
 
 impl ExchangePlan {
@@ -56,13 +61,17 @@ impl ExchangePlan {
         &self,
         request: &ManagedMessagePublishRequestV1,
     ) -> Result<ManagedMessagePublishRequestV1, luca_protocol::MessagePublishError> {
-        if self.exchange.is_none() && self.granted_p_tags.is_empty() {
+        if self.exchange.is_none() && self.granted_p_tags.is_empty() && !self.replace_p_tags {
             return Ok(request.clone());
         }
         let mut effective = request.clone();
-        effective
-            .resolved_p_tags
-            .extend(self.granted_p_tags.iter().cloned());
+        if self.replace_p_tags {
+            effective.resolved_p_tags.clone_from(&self.granted_p_tags);
+        } else {
+            effective
+                .resolved_p_tags
+                .extend(self.granted_p_tags.iter().cloned());
+        }
         effective.resolved_p_tags.sort();
         effective.resolved_p_tags.dedup();
         effective.exchange = self.exchange.clone();
@@ -74,6 +83,9 @@ impl ExchangePlan {
 /// One resolution: what the final carries, and what the room is owed.
 struct Decided {
     plan: ExchangePlan,
+    visit_grants: Vec<VisitGrant>,
+    mint_record: Option<ExchangeRecordV1>,
+    mint_created_at: Option<u64>,
     /// Ready-to-publish `kind:40099` contents, frozen with the decision so a
     /// replay says exactly the same sentences.
     notes: Vec<String>,
@@ -83,6 +95,9 @@ impl Decided {
     fn unchanged() -> Self {
         Self {
             plan: ExchangePlan::unchanged(),
+            visit_grants: Vec::new(),
+            mint_record: None,
+            mint_created_at: None,
             notes: Vec::new(),
         }
     }
@@ -121,10 +136,12 @@ impl<'a> ExchangeResolver<'a> {
             request.resident_pubkey.as_str(),
         );
         if let Some(decision) = self.cached_decision(&key)? {
+            self.settle_decision(request, &key, &decision, now_unix_secs)?;
             self.settle_notes(request, &key, &decision);
             return Ok(ExchangePlan {
                 exchange: decision.exchange,
                 granted_p_tags: decision.granted_p_tags,
+                replace_p_tags: decision.replace_p_tags,
             });
         }
         let decided = match &request.exchange {
@@ -132,10 +149,12 @@ impl<'a> ExchangeResolver<'a> {
             None => self.mint_or_pass(request, now_unix_secs)?,
         };
         let frozen = self.freeze(&key, &decided)?;
+        self.settle_decision(request, &key, &frozen, now_unix_secs)?;
         self.settle_notes(request, &key, &frozen);
         Ok(ExchangePlan {
             exchange: frozen.exchange,
             granted_p_tags: frozen.granted_p_tags,
+            replace_p_tags: frozen.replace_p_tags,
         })
     }
 
@@ -191,14 +210,41 @@ impl<'a> ExchangeResolver<'a> {
         if !record.is_member(&request.resident_pubkey) {
             return Err(ExchangeDenial::NotMember);
         }
+        let mentioned = self.resolve_mentions(request)?;
+        let mentioned_pubkeys: BTreeSet<Hex64> =
+            mentioned.iter().map(|(_, pubkey)| pubkey.clone()).collect();
         // The owner is never a member, so a reply that addresses the owner from
         // inside an exchange is refused here rather than at the relay.
         if request
             .resolved_p_tags
             .iter()
-            .any(|pubkey| !record.is_member(pubkey))
+            .any(|pubkey| !record.is_member(pubkey) && !mentioned_pubkeys.contains(pubkey))
         {
             return Err(ExchangeDenial::NotMember);
+        }
+        let mut newly_addressed: Vec<Hex64> = mentioned
+            .into_iter()
+            .map(|(_, pubkey)| pubkey)
+            .filter(|pubkey| !record.is_member(pubkey))
+            .collect();
+        newly_addressed.sort();
+        newly_addressed.dedup();
+        if !newly_addressed.is_empty() {
+            let room = self
+                .relay
+                .conversation_members(&request.conversation_id)
+                .map_err(|error| {
+                    eprintln!("luca-exchange: visit mint refused — {error}");
+                    ExchangeDenial::MintRefused
+                })?;
+            return self.fresh_mint(
+                request,
+                &newly_addressed,
+                &room,
+                now_unix_secs,
+                true,
+                Some(&record),
+            );
         }
         let spent = self.spent(&record)?;
         self.guard_phase(&record, &spent, now_unix_secs)?;
@@ -212,38 +258,17 @@ impl<'a> ExchangeResolver<'a> {
         };
         let tag = ExchangeTurnTag::new(record.exchange_id.clone(), turn)
             .map_err(|_| ExchangeDenial::Exhausted)?;
-        let notes = self.third_resident_notes(request, &record)?;
         Ok(Decided {
             plan: ExchangePlan {
                 exchange: Some(tag),
                 granted_p_tags: Vec::new(),
+                replace_p_tags: false,
             },
-            notes,
+            visit_grants: Vec::new(),
+            mint_record: None,
+            mint_created_at: None,
+            notes: Vec::new(),
         })
-    }
-
-    /// A resident already inside an exchange who names a third resident gets one
-    /// sentence in the room and no new exchange. One hop is the limit for now.
-    fn third_resident_notes(
-        &self,
-        request: &ManagedMessagePublishRequestV1,
-        record: &ExchangeRecordV1,
-    ) -> Result<Vec<String>, ExchangeDenial> {
-        let mentioned = self.resolve_mentions(request)?;
-        let speaker = self.relay.display_name(&request.resident_pubkey);
-        Ok(mentioned
-            .into_iter()
-            .filter(|(_, pubkey)| !record.is_member(pubkey))
-            .map(|(name, _)| {
-                ExchangeNote::mentioned_a_third(
-                    Some(record.exchange_id.clone()),
-                    request.resident_pubkey.clone(),
-                    &speaker,
-                    &name,
-                )
-                .to_content()
-            })
-            .collect())
     }
 
     // ── mint ────────────────────────────────────────────────────────────────
@@ -285,69 +310,44 @@ impl<'a> ExchangeResolver<'a> {
         let mut addressed: Vec<Hex64> = mentioned.iter().map(|(_, key)| key.clone()).collect();
         addressed.sort();
         addressed.dedup();
-        let placement = place_exchange(
-            &room,
-            &addressed,
-            &request.owner_pubkey,
-            &request.resident_pubkey,
-        );
-        let in_room: Vec<Hex64> = match &placement {
-            Placement::InPlace { members } => members.clone(),
-            Placement::PairDm { .. } | Placement::NeedsProjectRoom { .. } => addressed
-                .iter()
-                .filter(|pubkey| room.contains(*pubkey))
-                .cloned()
-                .collect(),
-        };
-        let speaker = self.relay.display_name(&request.resident_pubkey);
-        let notes: Vec<String> = mentioned
-            .iter()
-            .filter(|(_, pubkey)| !room.contains(pubkey))
-            .map(|(name, _)| {
-                ExchangeNote::mentioned_someone_absent(
-                    request.resident_pubkey.clone(),
-                    &speaker,
-                    name,
-                )
-                .to_content()
-            })
-            .collect();
-        if in_room.is_empty() {
-            return Ok(Decided {
-                plan: ExchangePlan::unchanged(),
-                notes,
-            });
-        }
-        let tag = self.mint(request, &in_room, now_unix_secs)?;
-        Ok(Decided {
-            plan: ExchangePlan {
-                exchange: Some(tag),
-                granted_p_tags: in_room,
-            },
-            notes,
-        })
+        self.fresh_mint(request, &addressed, &room, now_unix_secs, false, None)
     }
 
-    fn mint(
+    fn fresh_mint(
         &self,
         request: &ManagedMessagePublishRequestV1,
-        in_room: &[Hex64],
+        addressed: &[Hex64],
+        room: &BTreeSet<Hex64>,
         now_unix_secs: u64,
-    ) -> Result<ExchangeTurnTag, ExchangeDenial> {
+        replace_p_tags: bool,
+        parent: Option<&ExchangeRecordV1>,
+    ) -> Result<Decided, ExchangeDenial> {
         // The dispatch receipt *is* the owner utterance that minted the budget.
         let root = Hex64::parse(request.dispatch_receipt_id.as_str().to_owned())
             .map_err(|_| ExchangeDenial::MintRefused)?;
-        let mut members = in_room.to_vec();
+        let mut members = addressed.to_vec();
         members.push(request.resident_pubkey.clone());
-        let record = ExchangeRecordV1::open(
-            request.owner_pubkey.clone(),
-            members,
-            request.conversation_id.clone(),
-            root,
-            request.resident_pubkey.clone(),
-            request.bucket_hint,
-            now_unix_secs,
-        )
+        let record = if let Some(parent) = parent {
+            ExchangeRecordV1::open_child(
+                parent,
+                members,
+                request.conversation_id.clone(),
+                root,
+                request.resident_pubkey.clone(),
+                request.bucket_hint,
+                now_unix_secs,
+            )
+        } else {
+            ExchangeRecordV1::open(
+                request.owner_pubkey.clone(),
+                members,
+                request.conversation_id.clone(),
+                root,
+                request.resident_pubkey.clone(),
+                request.bucket_hint,
+                now_unix_secs,
+            )
+        }
         .map_err(|error| {
             eprintln!("luca-exchange: mint refused — {error}");
             ExchangeDenial::MintRefused
@@ -359,43 +359,31 @@ impl<'a> ExchangeResolver<'a> {
             .head(&record.exchange_id)
             .map(|head| head.created_at);
         let created_at = buzz_core_pkg::engram::monotonic_created_at(now_unix_secs, prior);
-        let event_id = self
-            .relay
-            .publish_record(&record, created_at)
-            .map_err(|error| {
-                eprintln!("luca-exchange: the exchange record was refused — {error}");
-                ExchangeDenial::MintRefused
-            })?;
-        self.store
-            .lock()
-            .map_err(|_| ExchangeDenial::Unavailable)?
-            .upsert_head(ExchangeHead {
-                record: record.clone(),
-                created_at,
-                event_id,
-            })
-            .map_err(|error| {
-                eprintln!("luca-exchange: the exchange head could not be stored — {error}");
-                ExchangeDenial::MintRefused
-            })?;
-        let additional: Vec<String> = in_room
+        let tag = ExchangeTurnTag::new(record.exchange_id.clone(), 1)
+            .map_err(|_| ExchangeDenial::MintRefused)?;
+        let visit_grants = addressed
             .iter()
-            .map(|pubkey| pubkey.as_str().to_owned())
+            .filter(|resident| !room.contains(*resident))
+            .cloned()
+            .map(|resident| VisitGrant {
+                conversation_id: request.conversation_id.clone(),
+                resident,
+                arrived_at: now_unix_secs,
+                exchange_id: Some(record.exchange_id.clone()),
+                correlation_id: record.exchange_id.clone(),
+            })
             .collect();
-        self.dispatch
-            .lock()
-            .map_err(|_| ExchangeDenial::Unavailable)?
-            .grant_exchange_recipients(
-                request.dispatch_receipt_id.as_str(),
-                request.resident_pubkey.as_str(),
-                &additional,
-                now_unix_secs,
-            )
-            .map_err(|error| {
-                eprintln!("luca-exchange: the reply audience could not be widened — {error}");
-                ExchangeDenial::MintRefused
-            })?;
-        ExchangeTurnTag::new(record.exchange_id, 1).map_err(|_| ExchangeDenial::MintRefused)
+        Ok(Decided {
+            plan: ExchangePlan {
+                exchange: Some(tag),
+                granted_p_tags: addressed.to_vec(),
+                replace_p_tags,
+            },
+            visit_grants,
+            mint_record: Some(record),
+            mint_created_at: Some(created_at),
+            notes: Vec::new(),
+        })
     }
 
     // ── shared ──────────────────────────────────────────────────────────────
@@ -418,6 +406,11 @@ impl<'a> ExchangeResolver<'a> {
                 ExchangeDecision {
                     exchange: decided.plan.exchange.clone(),
                     granted_p_tags: decided.plan.granted_p_tags.clone(),
+                    replace_p_tags: decided.plan.replace_p_tags,
+                    visit_grants: decided.visit_grants.clone(),
+                    mint_record: decided.mint_record.clone(),
+                    mint_created_at: decided.mint_created_at,
+                    mint_published: false,
                     notes: decided.notes.clone(),
                     notes_published: false,
                     order: 0,
@@ -425,6 +418,76 @@ impl<'a> ExchangeResolver<'a> {
             )
             .map_err(|error| {
                 eprintln!("luca-exchange: the exchange decision could not be frozen — {error}");
+                ExchangeDenial::Unavailable
+            })
+    }
+
+    fn settle_decision(
+        &self,
+        request: &ManagedMessagePublishRequestV1,
+        key: &str,
+        decision: &ExchangeDecision,
+        now_unix_secs: u64,
+    ) -> Result<(), ExchangeDenial> {
+        settle_visit_grants(self.relay, self.store, &decision.visit_grants).map_err(|error| {
+            eprintln!("luca-exchange: visit could not be established — {error}");
+            ExchangeDenial::MintRefused
+        })?;
+        if decision.mint_published {
+            return Ok(());
+        }
+        let Some(record) = &decision.mint_record else {
+            if decision.mint_created_at.is_some() {
+                return Err(ExchangeDenial::Unavailable);
+            }
+            return Ok(());
+        };
+        let created_at = decision
+            .mint_created_at
+            .ok_or(ExchangeDenial::Unavailable)?;
+        let event_id = self
+            .relay
+            .publish_record(record, created_at)
+            .map_err(|error| {
+                eprintln!("luca-exchange: the exchange record was refused — {error}");
+                ExchangeDenial::MintRefused
+            })?;
+        self.store
+            .lock()
+            .map_err(|_| ExchangeDenial::Unavailable)?
+            .upsert_head(ExchangeHead {
+                record: record.clone(),
+                created_at,
+                event_id,
+            })
+            .map_err(|error| {
+                eprintln!("luca-exchange: the exchange head could not be stored — {error}");
+                ExchangeDenial::MintRefused
+            })?;
+        let additional: Vec<String> = decision
+            .granted_p_tags
+            .iter()
+            .map(|pubkey| pubkey.as_str().to_owned())
+            .collect();
+        self.dispatch
+            .lock()
+            .map_err(|_| ExchangeDenial::Unavailable)?
+            .grant_exchange_recipients(
+                request.dispatch_receipt_id.as_str(),
+                request.resident_pubkey.as_str(),
+                &additional,
+                now_unix_secs,
+            )
+            .map_err(|error| {
+                eprintln!("luca-exchange: the reply audience could not be widened — {error}");
+                ExchangeDenial::MintRefused
+            })?;
+        self.store
+            .lock()
+            .map_err(|_| ExchangeDenial::Unavailable)?
+            .mark_mint_published(key)
+            .map_err(|error| {
+                eprintln!("luca-exchange: the frozen mint could not be settled — {error}");
                 ExchangeDenial::Unavailable
             })
     }

@@ -81,7 +81,12 @@ function farthest(g: Graph, start: number) {
   const d = g.distFrom(start);
   let best = start;
   let bestD = -1;
-  for (const [k, v] of d) if (v > bestD) (bestD = v), (best = k);
+  for (const [k, v] of d) {
+    if (v > bestD) {
+      bestD = v;
+      best = k;
+    }
+  }
   return best;
 }
 
@@ -91,7 +96,10 @@ function heartOf(g: Graph) {
   let bestEcc = Number.POSITIVE_INFINITY;
   for (const k of g.cells) {
     const ecc = maxOf(g.distFrom(k));
-    if (ecc < bestEcc) (bestEcc = ecc), (best = k);
+    if (ecc < bestEcc) {
+      bestEcc = ecc;
+      best = k;
+    }
   }
   return best;
 }

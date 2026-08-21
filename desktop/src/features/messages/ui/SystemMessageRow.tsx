@@ -1,6 +1,7 @@
 import { SmilePlus } from "lucide-react";
 import * as React from "react";
 
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { EmojiPicker } from "@/features/custom-emoji/ui/EmojiPicker";
 import type {
   TimelineMessage,
@@ -52,15 +53,40 @@ type SystemMessagePayload = {
   // sentence the room is shown when an exchange did something the people in it
   // should know about. The sentence is written by the backend and rendered
   // as-is; `resident` and `exchange_id` are provenance, not copy.
+  // `conversation_id` names the room the exchange was placed in (a pair DM),
+  // when it was placed somewhere other than this one.
   exchange_id?: string | null;
   resident?: string;
   text?: string;
+  conversation_id?: string | null;
 };
 
 type SystemMessageDescription = {
   action: React.ReactNode;
   title: React.ReactNode;
 };
+
+// The channel UUID shape `routing_from_event` accepts on the backend. A note
+// whose room id does not look like one gets the sentence without the door.
+const CHANNEL_UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function ExchangeNoteRoomLink({ conversationId }: { conversationId: string }) {
+  const { goChannel } = useAppNavigation();
+  return (
+    <button
+      aria-label="Open their DM"
+      className="ml-1 rounded text-foreground/60 hover:text-foreground hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+      data-testid="exchange-note-room-link"
+      onClick={() => {
+        void goChannel(conversationId);
+      }}
+      type="button"
+    >
+      →
+    </button>
+  );
+}
 
 const MAX_VISIBLE_ADDITIONAL_MEMBER_NAMES = 3;
 
@@ -506,13 +532,26 @@ function describeSystemEvent(
       };
     case "exchange-note": {
       // One sentence, already whole (it names the residents it is about), so
-      // it renders like a moderation notice: a house label and the line.
+      // it renders like a moderation notice: a house label and the line. When
+      // the note names the room the exchange went to, the row carries a door.
       if (typeof payload.text !== "string" || payload.text.trim() === "") {
         return null;
       }
+      const noteRoomId =
+        typeof payload.conversation_id === "string" &&
+        CHANNEL_UUID_PATTERN.test(payload.conversation_id.trim())
+          ? payload.conversation_id.trim()
+          : null;
       return {
         title: "Exchange",
-        action: payload.text,
+        action: noteRoomId ? (
+          <>
+            {payload.text}
+            <ExchangeNoteRoomLink conversationId={noteRoomId} />
+          </>
+        ) : (
+          payload.text
+        ),
       };
     }
     case "message_deleted": {

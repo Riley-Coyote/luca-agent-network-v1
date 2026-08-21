@@ -1,6 +1,6 @@
 use super::*;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use luca_protocol::{ExchangeStateV1, EXCHANGE_DEFAULT_BUCKET, EXCHANGE_GO_INCREMENT};
 
@@ -15,99 +15,6 @@ const NOW: u64 = 1_700_000_000;
 
 fn hex(value: &str) -> Hex64 {
     Hex64::parse(value).expect("fixture hex64")
-}
-
-fn room(members: &[&str]) -> BTreeSet<Hex64> {
-    members.iter().map(|value| hex(value)).collect()
-}
-
-#[test]
-fn everyone_addressed_is_already_here_so_the_exchange_stays_in_place() {
-    let placement = place_exchange(
-        &room(&[OWNER, LUCA, VEKTOR]),
-        &[hex(VEKTOR)],
-        &hex(OWNER),
-        &hex(LUCA),
-    );
-    assert_eq!(
-        placement,
-        Placement::InPlace {
-            members: vec![hex(VEKTOR)]
-        }
-    );
-}
-
-#[test]
-fn placement_is_order_independent_and_deduplicated() {
-    let addressed = [hex(VEKTOR), hex(KAI), hex(VEKTOR)];
-    let placement = place_exchange(
-        &room(&[OWNER, LUCA, VEKTOR, KAI]),
-        &addressed,
-        &hex(OWNER),
-        &hex(LUCA),
-    );
-    assert_eq!(
-        placement,
-        Placement::InPlace {
-            members: vec![hex(VEKTOR), hex(KAI)]
-        }
-    );
-}
-
-#[test]
-fn one_person_elsewhere_is_a_pair_dm_with_the_owner_and_whoever_spoke() {
-    let placement = place_exchange(
-        &room(&[OWNER, LUCA]),
-        &[hex(VEKTOR)],
-        &hex(OWNER),
-        &hex(LUCA),
-    );
-    assert_eq!(
-        placement,
-        Placement::PairDm {
-            // Sorted: OWNER, then the speaker, then the resident elsewhere. A
-            // pair DM without the resident who did the addressing would not be
-            // the conversation anybody asked for.
-            participants: vec![hex(OWNER), hex(LUCA), hex(VEKTOR)]
-        }
-    );
-}
-
-#[test]
-fn the_speaker_is_never_listed_twice_in_a_pair_dm() {
-    // The speaker is in the origin room, so they can never be "outside" — but
-    // the union must still be a set if that ever changes.
-    let placement = place_exchange(&room(&[OWNER]), &[hex(LUCA)], &hex(OWNER), &hex(LUCA));
-    assert_eq!(
-        placement,
-        Placement::PairDm {
-            participants: vec![hex(OWNER), hex(LUCA)]
-        }
-    );
-}
-
-#[test]
-fn two_people_elsewhere_need_a_room_of_their_own() {
-    let placement = place_exchange(
-        &room(&[OWNER, LUCA]),
-        &[hex(KAI), hex(VEKTOR)],
-        &hex(OWNER),
-        &hex(LUCA),
-    );
-    assert_eq!(
-        placement,
-        Placement::NeedsProjectRoom {
-            addressed: vec![hex(VEKTOR), hex(KAI)]
-        }
-    );
-}
-
-#[test]
-fn addressing_nobody_places_nobody() {
-    assert_eq!(
-        place_exchange(&room(&[OWNER, LUCA]), &[], &hex(OWNER), &hex(LUCA)),
-        Placement::InPlace { members: vec![] }
-    );
 }
 
 #[test]
@@ -129,33 +36,6 @@ fn every_denial_has_a_code_the_protocol_accepts_and_a_sentence_to_read() {
     }
     assert_eq!(ExchangeDenial::Closed.code(), "exchange_closed");
     assert_eq!(ExchangeDenial::Exhausted.code(), "exchange_exhausted");
-}
-
-#[test]
-fn the_absent_mention_note_says_asking_across_rooms_comes_next() {
-    let note = ExchangeNote::mentioned_someone_absent(hex(LUCA), "Luca", "Vektor");
-    assert_eq!(
-        note.text,
-        "Luca mentioned Vektor, who isn't here — asking across rooms comes next."
-    );
-    let content: serde_json::Value =
-        serde_json::from_str(&note.to_content()).expect("note content is JSON");
-    assert_eq!(content["type"], "exchange-note");
-    assert_eq!(content["resident"], LUCA);
-    assert!(content["exchange_id"].is_null());
-    assert_eq!(content["text"], note.text);
-}
-
-#[test]
-fn the_third_resident_note_says_one_hop_is_the_limit() {
-    let note = ExchangeNote::mentioned_a_third(Some(hex(KAI)), hex(LUCA), "Luca", "Kai");
-    assert_eq!(
-        note.text,
-        "Luca mentioned Kai — one hop is the limit for now."
-    );
-    let content: serde_json::Value =
-        serde_json::from_str(&note.to_content()).expect("note content is JSON");
-    assert_eq!(content["exchange_id"], KAI);
 }
 
 #[test]

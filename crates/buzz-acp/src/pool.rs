@@ -1725,6 +1725,7 @@ async fn build_local_continuity_cognition_prompt(
         Some(info) => Some(PromptChannelInfo {
             name: info.name.clone(),
             channel_type: info.channel_type.clone(),
+            is_guest: info.is_guest,
         }),
         None => fetch_channel_info(conversation_id, &ctx.rest_client).await,
     };
@@ -1834,6 +1835,7 @@ async fn build_resident_journal_cognition_prompt(
             Some(info) => Some(PromptChannelInfo {
                 name: info.name.clone(),
                 channel_type: info.channel_type.clone(),
+                is_guest: info.is_guest,
             }),
             None => fetch_channel_info(conversation_id, &ctx.rest_client).await,
         };
@@ -2508,6 +2510,7 @@ pub async fn run_prompt_task(
             Some(ci) => Some(PromptChannelInfo {
                 name: ci.name.clone(),
                 channel_type: ci.channel_type.clone(),
+                is_guest: ci.is_guest,
             }),
             None => fetch_channel_info(b.channel_id, &ctx.rest_client).await,
         };
@@ -3064,22 +3067,30 @@ async fn fetch_channel_info(channel_id: Uuid, rest: &RestClient) -> Option<Promp
     use nostr::{Alphabet, SingleLetterTag};
 
     let d_tag = SingleLetterTag::lowercase(Alphabet::D);
-    let filter = nostr::Filter::new()
+    let metadata_filter = nostr::Filter::new()
         .kind(nostr::Kind::Custom(
             buzz_core::kind::KIND_NIP29_GROUP_METADATA as u16,
+        ))
+        .custom_tags(d_tag, [channel_id.to_string()]);
+    let members_filter = nostr::Filter::new()
+        .kind(nostr::Kind::Custom(
+            buzz_core::kind::KIND_NIP29_GROUP_MEMBERS as u16,
         ))
         .custom_tags(d_tag, [channel_id.to_string()]);
 
     fetch_with_retry(|| async {
         match timeout(
             CONTEXT_FETCH_TIMEOUT,
-            rest.query(std::slice::from_ref(&filter)),
+            rest.query(&[metadata_filter.clone(), members_filter.clone()]),
         )
         .await
         {
             Ok(Ok(json)) => {
                 let events = json.as_array()?;
-                let ev = events.first()?;
+                let ev = events.iter().find(|event| {
+                    event.get("kind").and_then(|kind| kind.as_u64())
+                        == Some(u64::from(buzz_core::kind::KIND_NIP29_GROUP_METADATA))
+                })?;
                 let tags = ev.get("tags")?.as_array()?;
                 let mut name = None;
                 let mut is_hidden = false;
@@ -3101,9 +3112,32 @@ async fn fetch_channel_info(channel_id: Uuid, rest: &RestClient) -> Option<Promp
                 } else {
                     "stream".to_string()
                 };
+                let resident_pubkey = rest.identity.public_key_hex();
+                let is_guest = events.iter().any(|event| {
+                    if event.get("kind").and_then(|kind| kind.as_u64())
+                        != Some(u64::from(buzz_core::kind::KIND_NIP29_GROUP_MEMBERS))
+                    {
+                        return false;
+                    }
+                    event
+                        .get("tags")
+                        .and_then(|tags| tags.as_array())
+                        .is_some_and(|tags| {
+                            tags.iter().any(|tag| {
+                                let Some(tag) = tag.as_array() else {
+                                    return false;
+                                };
+                                tag.first().and_then(|value| value.as_str()) == Some("p")
+                                    && tag.get(1).and_then(|value| value.as_str())
+                                        == Some(resident_pubkey.as_str())
+                                    && tag.get(3).and_then(|value| value.as_str()) == Some("guest")
+                            })
+                        })
+                });
                 Some(PromptChannelInfo {
                     name: name.unwrap_or("unknown").to_string(),
                     channel_type,
+                    is_guest,
                 })
             }
             Ok(Err(e)) => {
@@ -5493,7 +5527,8 @@ mod tests {
                 &plain,
                 &Some(PromptChannelInfo {
                     name: "room".into(),
-                    channel_type: "stream".into()
+                    channel_type: "stream".into(),
+                    is_guest: false,
                 }),
             ),
             ConversationHistoryScope::Room
@@ -5503,7 +5538,8 @@ mod tests {
                 &plain,
                 &Some(PromptChannelInfo {
                     name: "dm".into(),
-                    channel_type: "dm".into()
+                    channel_type: "dm".into(),
+                    is_guest: false,
                 }),
             ),
             ConversationHistoryScope::Dm
@@ -5514,7 +5550,8 @@ mod tests {
                     &plain,
                     &Some(PromptChannelInfo {
                         name: channel_type.into(),
-                        channel_type: channel_type.into()
+                        channel_type: channel_type.into(),
+                        is_guest: false,
                     }),
                 ),
                 ConversationHistoryScope::None
@@ -5538,7 +5575,8 @@ mod tests {
                 &room_event_batch(reply, room),
                 &Some(PromptChannelInfo {
                     name: "room".into(),
-                    channel_type: "stream".into()
+                    channel_type: "stream".into(),
+                    is_guest: false,
                 }),
             ),
             ConversationHistoryScope::Thread(root)
@@ -7068,6 +7106,7 @@ mod tests {
             crate::relay::ChannelInfo {
                 name: "dm".into(),
                 channel_type: "dm".into(),
+                is_guest: false,
             },
         );
         ctx.channel_info.insert(
@@ -7075,6 +7114,7 @@ mod tests {
             crate::relay::ChannelInfo {
                 name: "room".into(),
                 channel_type: "stream".into(),
+                is_guest: false,
             },
         );
 
