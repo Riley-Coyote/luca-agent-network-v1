@@ -176,26 +176,38 @@
   overflow: hidden;
 }
 
-/* The visit plate. A visit is a parenthesis in the room's conversation, from
-   "stepped in" to "stepped out"; every row between paints the same plate, and
-   because virtualized rows stack edge to edge the plate reads as one object.
-   `start` rounds the top, `end` rounds the bottom; a visit still under way
-   simply has no end row yet, so its plate stays open toward the newest
-   message. The fill is the plate token, never a border. */
+/* The visit rail. A visit is a parenthesis in the room's conversation, from
+   "stepped in" to "stepped out" — but a filled plate is a heavy way to say so.
+   One hairline down the left margin of the reading plane spans the passage
+   instead: the rows keep their own alignment and their own ground, and the
+   line alone holds them together. It begins at the arrival mark and ends at
+   the departure line; a visit still under way has no end row yet, so the rail
+   simply runs on toward the newest message. */
 :root[data-luca-shell] [data-luca-reading-plane][data-visit-span] {
-  background: var(--mn-plate);
+  position: relative;
 }
 
-:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="start"] {
-  border-top-left-radius: 1rem;
-  border-top-right-radius: 1rem;
-  padding-top: 0.375rem;
+:root[data-luca-shell] [data-luca-reading-plane][data-visit-span]::before {
+  background: hsl(var(--mn-ink) / 0.16);
+  border-radius: 1px;
+  bottom: 0;
+  content: "";
+  left: 0;
+  position: absolute;
+  top: 0;
+  width: 1px;
 }
 
-:root[data-luca-shell] [data-luca-reading-plane][data-visit-span="end"] {
-  border-bottom-left-radius: 1rem;
-  border-bottom-right-radius: 1rem;
-  padding-bottom: 0.25rem;
+/* Start and end at the note's own line, not at the row's edge, so the rail
+   reads as drawn between the two thresholds rather than clipped by them. */
+:root[data-luca-shell]
+  [data-luca-reading-plane][data-visit-span="start"]::before {
+  top: 1.0625rem;
+}
+
+:root[data-luca-shell]
+  [data-luca-reading-plane][data-visit-span="end"]::before {
+  bottom: 0.9375rem;
 }
 
 /* With the rail collapsed there is no seam to hug, so the left lip matches the

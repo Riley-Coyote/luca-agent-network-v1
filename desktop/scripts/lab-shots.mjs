@@ -232,6 +232,36 @@ for (const theme of themes) {
   // and assert the controls are still there, so a restyle cannot quietly drop
   // one of them. Done before the assertions so they can read it.
   const resident = {};
+  // Same card from a room, one tab along: the agent tabs must open the
+  // resident's card in place, not something different from the 1:1.
+  try {
+    await page.click('[role="tab"][data-testid^="drawer-context-agent-"]');
+    await page.waitForSelector('[data-testid="resident-drawer"]', {
+      timeout: 6000,
+    });
+    await page.waitForTimeout(400);
+    resident.fromRoomTab = await page
+      .locator('[data-testid="resident-drawer-model-trigger"]')
+      .count();
+    const tabBox = await page
+      .locator('[data-testid="conversation-context-panel"]')
+      .boundingBox();
+    if (tabBox) {
+      await page.screenshot({
+        path: path.join(out, "drawer-agent-tab.png"),
+        clip: {
+          x: Math.max(0, tabBox.x - 10),
+          y: Math.max(0, tabBox.y - 10),
+          width: tabBox.width + 20,
+          height: Math.min(900 - tabBox.y + 10, tabBox.height + 20),
+        },
+      });
+    }
+    await page.click('[data-testid="drawer-context-conversation"]');
+    await page.waitForTimeout(300);
+  } catch {
+    resident.fromRoomTab = 0;
+  }
   try {
     const dmLink = page
       .locator('[data-testid="app-sidebar"]')
@@ -317,6 +347,11 @@ for (const theme of themes) {
     "no mono type in drawer chrome",
     checks.monoInDrawer === 0,
     `(${checks.monoInDrawer} nodes)`,
+  );
+  expect(
+    "an agent tab opens the same resident card",
+    resident.fromRoomTab === 1,
+    `(${resident.fromRoomTab})`,
   );
   expect("resident drawer renders in a 1:1", resident.present);
   if (resident.present) {

@@ -62,6 +62,9 @@ type ConversationContextPanelProps = {
   widthPx: number;
 };
 
+/** The drawer's non-resident tab: the conversation itself. */
+const CONVERSATION_VIEW = "conversation";
+
 function isAgentMember(member: ChannelMember) {
   return member.isAgent || member.role === "bot";
 }
@@ -102,8 +105,9 @@ export function ConversationContextPanel({
   const membersQuery = useChannelMembersQuery(channel.id);
   const members = membersQuery.data ?? [];
   // A direct conversation with one managed resident is about the resident,
-  // not the room: the drawer becomes their card. Rooms and human DMs keep
-  // the conversation view below.
+  // not the room: the drawer opens on their card. Rooms open on the
+  // conversation — but the resident's card is the same card either way, one
+  // tab along, so the drawer never says two different things about an agent.
   const managedAgentsQuery = useManagedAgentsQuery();
   const personasQuery = usePersonasQuery();
   const { goAgent } = useAppNavigation();
@@ -145,6 +149,43 @@ export function ConversationContextPanel({
   const harnessLookup = useResidentHarnessLookup();
   const exchangeHistory = useRoomExchangeHistory(channel.id);
   const visitors = React.useMemo(() => openVisitors(messages), [messages]);
+
+  // Which tab the drawer is on. `null` is the default for this conversation —
+  // a resident's card in a 1:1, the conversation everywhere else.
+  const [drawerView, setDrawerView] = React.useState<string | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset per room.
+  React.useEffect(() => {
+    setDrawerView(null);
+  }, [channel.id]);
+  const residentFor = React.useCallback(
+    (pubkey: string) => {
+      const agent = (managedAgentsQuery.data ?? []).find(
+        (candidate) =>
+          normalizePubkey(candidate.pubkey) === normalizePubkey(pubkey),
+      );
+      if (!agent) return null;
+      const persona =
+        (personasQuery.data ?? []).find(
+          (candidate) => candidate.id === agent.personaId,
+        ) ?? null;
+      return { agent, persona };
+    },
+    [managedAgentsQuery.data, personasQuery.data],
+  );
+  const activeResident =
+    drawerView === CONVERSATION_VIEW
+      ? null
+      : drawerView
+        ? residentFor(drawerView)
+        : drawerResident;
+  const activeResidentReplying =
+    activeResident !== null &&
+    [...managedActivity.values()].some(
+      (activity) =>
+        normalizePubkey(activity.residentPubkey) ===
+          normalizePubkey(activeResident.agent.pubkey) &&
+        !["stopped", "failed", "needs_attention"].includes(activity.phase),
+    );
   const drawerAgents = React.useMemo<ConversationDrawerAgent[]>(() => {
     const candidates =
       agentMembers.length > 0
@@ -168,6 +209,21 @@ export function ConversationContextPanel({
             state: residentState(agent),
           }));
 
+    // The resident of a 1:1 is the drawer's default tab, so they must appear
+    // in the strip even when the DM has no member rows to derive them from.
+    if (drawerResident) {
+      candidates.push({
+        harness:
+          harnessLookup.get(normalizePubkey(drawerResident.agent.pubkey)) ??
+          null,
+        name: drawerResident.agent.name,
+        pubkey: drawerResident.agent.pubkey,
+        state: residentState(
+          agentByPubkey.get(normalizePubkey(drawerResident.agent.pubkey)),
+        ),
+      });
+    }
+
     return [
       ...new Map(
         candidates.map((agent) => [normalizePubkey(agent.pubkey), agent]),
@@ -178,6 +234,7 @@ export function ConversationContextPanel({
     agentMembers,
     agents,
     currentPubkey,
+    drawerResident,
     harnessLookup,
     profiles,
   ]);
@@ -203,7 +260,7 @@ export function ConversationContextPanel({
           <AuxiliaryPanelHeaderGroup>
             <AuxiliaryPanelHeaderTitleBlock
               title={
-                drawerResident ? drawerResident.agent.name : "Conversation"
+                activeResident ? activeResident.agent.name : "Conversation"
               }
             />
           </AuxiliaryPanelHeaderGroup>
@@ -211,40 +268,29 @@ export function ConversationContextPanel({
         </AuxiliaryPanelHeader>
       }
     >
-      {drawerResident ? (
-        <AuxiliaryPanelBody
-          className={cn(
-            "overflow-y-auto px-4 pb-6",
-            layout !== "split" && isSinglePanelView && "pt-13",
-          )}
-        >
-          <ResidentDrawer
-            agent={drawerResident.agent}
-            onOpenAgent={(section) =>
-              goAgent(drawerResident.agent.pubkey, { section })
-            }
-            persona={drawerResident.persona}
-            replying={[...managedActivity.values()].some(
-              (activity) =>
-                normalizePubkey(activity.residentPubkey) ===
-                  normalizePubkey(drawerResident.agent.pubkey) &&
-                !["stopped", "failed", "needs_attention"].includes(
-                  activity.phase,
-                ),
-            )}
+      <>
+        {/* One strip for both views: the tabs are how you move between the
+            conversation and a resident's card, in place, wherever you are. */}
+        <div className={cn(layout !== "split" && isSinglePanelView && "pt-13")}>
+          <ConversationDrawerNavigation
+            activePubkey={activeResident?.agent.pubkey ?? null}
+            agents={drawerAgents}
+            onOpenAgent={(pubkey) => setDrawerView(pubkey)}
+            onOpenConversation={() => setDrawerView(CONVERSATION_VIEW)}
           />
-        </AuxiliaryPanelBody>
-      ) : (
-        <>
-          <div
-            className={cn(layout !== "split" && isSinglePanelView && "pt-13")}
-          >
-            <ConversationDrawerNavigation
-              agents={drawerAgents}
-              onOpenAgent={onOpenResident}
-              onOpenConversation={() => undefined}
+        </div>
+        {activeResident ? (
+          <AuxiliaryPanelBody className="overflow-y-auto px-4 pb-6">
+            <ResidentDrawer
+              agent={activeResident.agent}
+              onOpenAgent={(section) =>
+                goAgent(activeResident.agent.pubkey, { section })
+              }
+              persona={activeResident.persona}
+              replying={activeResidentReplying}
             />
-          </div>
+          </AuxiliaryPanelBody>
+        ) : (
           <AuxiliaryPanelBody className="overflow-y-auto px-4 pb-6">
             <div className="space-y-6 pt-3">
               {/* Name only. The room's description already sits under the
@@ -433,8 +479,8 @@ export function ConversationContextPanel({
               </Button>
             </div>
           </AuxiliaryPanelBody>
-        </>
-      )}
+        )}
+      </>
     </AuxiliaryPanel>
   );
 }
