@@ -341,6 +341,12 @@ mesh-e2e-confidence:
     cargo run -p buzz-relay --example mesh_admission_smoke
     cargo run -p buzz-relay --example mesh_agent_e2e
 
+# Build the desktop shell into one self-contained HTML file (no dev server, no Tauri)
+shell-lab:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    node {{desktop_dir}}/scripts/build-shell-lab.mjs
+
 # Take desktop screenshots using the mock bridge
 desktop-screenshot *ARGS:
     #!/usr/bin/env bash

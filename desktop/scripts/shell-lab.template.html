@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Luca shell — design lab</title>
+    <!--
+      Boot backdrop. The real app reads a cached theme here; the lab always
+      opens on the first-party dark shell, so the floor is a constant. The app
+      CSS paints over it as soon as the bundle runs.
+    -->
+    <style>
+      html {
+        background-color: #050506;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+    </style>
+    <script>
+      // A memory-backed localStorage, installed before the bundle so nothing
+      // can read the real one first. Three reasons, all of them about a file://
+      // page: Safari refuses localStorage there outright; Chrome shares ONE
+      // store across every file:// page, so the lab would both read and clobber
+      // whatever else lives there; and a lab that forgets everything on reload
+      // shows the same scene every single time.
+      (() => {
+        const cells = new Map();
+        const shim = {
+          get length() {
+            return cells.size;
+          },
+          clear() {
+            cells.clear();
+          },
+          getItem(key) {
+            return cells.has(String(key)) ? cells.get(String(key)) : null;
+          },
+          key(index) {
+            return [...cells.keys()][index] ?? null;
+          },
+          removeItem(key) {
+            cells.delete(String(key));
+          },
+          setItem(key, value) {
+            cells.set(String(key), String(value));
+          },
+        };
+        try {
+          Object.defineProperty(window, "localStorage", {
+            configurable: true,
+            get: () => shim,
+          });
+        } catch {
+          /* Nothing to fall back to; the app's own try/catches take over. */
+        }
+      })();
+    </script>
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/testing/labEntry.tsx"></script>
+  </body>
+</html>
