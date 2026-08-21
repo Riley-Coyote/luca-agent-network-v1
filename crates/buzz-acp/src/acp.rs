@@ -432,10 +432,11 @@ pub struct AcpClient {
     observer_agent_index: Option<usize>,
     /// Best-effort context attached to raw ACP wire events.
     observer_context: ObserverContext,
-    /// Tool-call identifiers whose arguments/results may contain artifact
-    /// bodies, source paths, or preview URLs. Observer payloads retain only
-    /// body-free lifecycle metadata for these calls.
-    sensitive_artifact_tool_call_ids: std::collections::HashSet<String>,
+    /// Fail-closed observer state for a process that has received an Artifact
+    /// Canvas MCP projection. This state is deliberately sticky for the
+    /// process lifetime so delayed or out-of-order adapter frames cannot escape
+    /// after a rejected projection is retried without the sidecar.
+    artifact_observer: ArtifactObserverState,
     /// Most recently observed `_meta.goose.activeRunId` from a
     /// `session/update` notification of kind `session_info_update`.
     ///
@@ -838,7 +839,7 @@ impl AcpClient {
             observer: None,
             observer_agent_index: None,
             observer_context: ObserverContext::default(),
-            sensitive_artifact_tool_call_ids: std::collections::HashSet::new(),
+            artifact_observer: ArtifactObserverState::default(),
             active_run_id: None,
             steer_rx: None,
             goose_usage: UsageTracker::default(),
@@ -920,7 +921,7 @@ impl AcpClient {
 
     fn observe_inbound(&mut self, msg: &serde_json::Value) {
         let payload = if self.managed_identity {
-            observer_payload_for_managed_read(msg, &mut self.sensitive_artifact_tool_call_ids)
+            observer_payload_for_managed_read(msg, &mut self.artifact_observer)
         } else {
             msg.clone()
         };
@@ -971,6 +972,13 @@ impl AcpClient {
         system_prompt: Option<&str>,
         meta: Option<serde_json::Value>,
     ) -> Result<SessionNewResponse, AcpError> {
+        if self.managed_identity
+            && mcp_servers
+                .iter()
+                .any(|server| is_artifact_server_name(&server.name))
+        {
+            self.artifact_observer.guard_active = true;
+        }
         let mut params = serde_json::json!({
             "cwd": cwd,
             "mcpServers": mcp_servers,
@@ -1246,13 +1254,13 @@ impl AcpClient {
     /// Bind permission prompts observed during this ACP prompt to the exact
     /// harness turn. Cleared on every prompt return path.
     pub fn set_managed_turn_context(&mut self, turn_id: &str, conversation_id: Option<&str>) {
-        self.sensitive_artifact_tool_call_ids.clear();
+        self.artifact_observer.clear_tool_calls();
         self.managed_turn_id = Some(turn_id.to_owned());
         self.managed_conversation_id = conversation_id.map(str::to_owned);
     }
 
     pub fn clear_managed_turn_id(&mut self) {
-        self.sensitive_artifact_tool_call_ids.clear();
+        self.artifact_observer.clear_tool_calls();
         self.managed_turn_id = None;
         self.managed_conversation_id = None;
     }
@@ -2321,29 +2329,53 @@ fn serialized_len(value: &serde_json::Value) -> usize {
     serde_json::to_vec(value).map_or(0, |bytes| bytes.len())
 }
 
+#[derive(Default)]
+struct ArtifactObserverState {
+    guard_active: bool,
+    sensitive_tool_call_ids: std::collections::HashSet<String>,
+    ordinary_tool_call_ids: std::collections::HashSet<String>,
+}
+
+impl ArtifactObserverState {
+    fn clear_tool_calls(&mut self) {
+        self.sensitive_tool_call_ids.clear();
+        self.ordinary_tool_call_ids.clear();
+    }
+}
+
 fn observer_payload_for_managed_read(
     value: &serde_json::Value,
-    sensitive_tool_call_ids: &mut std::collections::HashSet<String>,
+    artifact_state: &mut ArtifactObserverState,
 ) -> serde_json::Value {
     if value.get("method").is_none() && value.get("id").is_some() {
-        let error_code = value.pointer("/error/code").cloned();
-        return serde_json::json!({
-            "jsonrpc": value.get("jsonrpc").cloned().unwrap_or(serde_json::Value::Null),
-            "id": value.get("id").cloned().unwrap_or(serde_json::Value::Null),
-            "status": if value.get("error").is_some() { "error" } else { "success" },
-            "errorCode": error_code,
-            "bodyRedacted": true,
-        });
+        return body_free_managed_frame(value);
     }
     let Some(update) = value.pointer("/params/update") else {
-        return value.clone();
+        return if artifact_state.guard_active {
+            body_free_managed_frame(value)
+        } else {
+            value.clone()
+        };
     };
     let update_type = update
         .get("sessionUpdate")
         .and_then(serde_json::Value::as_str);
     match update_type {
         Some("tool_call") => {
-            let Some(tool_name) = artifact_tool_name(update) else {
+            let guarded_tool_name = artifact_state
+                .guard_active
+                .then(|| nested_artifact_tool_name(update))
+                .flatten();
+            let Some(tool_name) = artifact_tool_name(update).or(guarded_tool_name) else {
+                if artifact_state.guard_active {
+                    if let Some(tool_call_id) =
+                        update.get("toolCallId").and_then(serde_json::Value::as_str)
+                    {
+                        artifact_state
+                            .ordinary_tool_call_ids
+                            .insert(tool_call_id.to_owned());
+                    }
+                }
                 return value.clone();
             };
             let tool_call_id = update
@@ -2351,7 +2383,10 @@ fn observer_payload_for_managed_read(
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("unknown");
             if tool_call_id != "unknown" {
-                sensitive_tool_call_ids.insert(tool_call_id.to_owned());
+                artifact_state
+                    .sensitive_tool_call_ids
+                    .insert(tool_call_id.to_owned());
+                artifact_state.ordinary_tool_call_ids.remove(tool_call_id);
             }
             serde_json::json!({
                 "jsonrpc": value.get("jsonrpc").cloned().unwrap_or(serde_json::Value::Null),
@@ -2374,17 +2409,31 @@ fn observer_payload_for_managed_read(
                 .get("toolCallId")
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("unknown");
-            let is_artifact_update = sensitive_tool_call_ids.contains(tool_call_id)
-                || artifact_tool_name(update).is_some();
+            let is_artifact_update = artifact_state
+                .sensitive_tool_call_ids
+                .contains(tool_call_id)
+                || artifact_tool_name(update).is_some()
+                || (artifact_state.guard_active && nested_artifact_tool_name(update).is_some());
             if !is_artifact_update {
-                return value.clone();
+                let known_ordinary = artifact_state.ordinary_tool_call_ids.contains(tool_call_id);
+                if matches!(
+                    update.get("status").and_then(serde_json::Value::as_str),
+                    Some("completed" | "failed")
+                ) {
+                    artifact_state.ordinary_tool_call_ids.remove(tool_call_id);
+                }
+                return if !artifact_state.guard_active || known_ordinary {
+                    value.clone()
+                } else {
+                    body_free_managed_frame(value)
+                };
             }
             let status = update
                 .get("status")
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("unknown");
             if matches!(status, "completed" | "failed") {
-                sensitive_tool_call_ids.remove(tool_call_id);
+                artifact_state.sensitive_tool_call_ids.remove(tool_call_id);
             }
             serde_json::json!({
                 "jsonrpc": value.get("jsonrpc").cloned().unwrap_or(serde_json::Value::Null),
@@ -2400,8 +2449,53 @@ fn observer_payload_for_managed_read(
                 }
             })
         }
+        Some("agent_message_chunk") if artifact_state.guard_active => {
+            safe_public_chunk_frame(value, update)
+        }
+        Some(_) if artifact_state.guard_active => body_free_managed_frame(value),
         _ => value.clone(),
     }
+}
+
+fn safe_public_chunk_frame(
+    value: &serde_json::Value,
+    update: &serde_json::Value,
+) -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": value.get("jsonrpc").cloned().unwrap_or(serde_json::Value::Null),
+        "method": "session/update",
+        "params": {
+            "sessionId": value.pointer("/params/sessionId").cloned().unwrap_or(serde_json::Value::Null),
+            "update": {
+                "sessionUpdate": update.get("sessionUpdate").cloned().unwrap_or(serde_json::Value::Null),
+                "content": {
+                    "type": update.pointer("/content/type").cloned().unwrap_or(serde_json::Value::Null),
+                    "text": update.pointer("/content/text").cloned().unwrap_or(serde_json::Value::Null),
+                }
+            }
+        }
+    })
+}
+
+fn body_free_managed_frame(value: &serde_json::Value) -> serde_json::Value {
+    let method = value
+        .get("method")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("response");
+    let update = value
+        .pointer("/params/update/sessionUpdate")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    serde_json::json!({
+        "jsonrpc": value.get("jsonrpc").cloned().unwrap_or(serde_json::Value::Null),
+        "id": value.get("id").cloned().unwrap_or(serde_json::Value::Null),
+        "method": method,
+        "sessionId": value.pointer("/params/sessionId").cloned().unwrap_or(serde_json::Value::Null),
+        "sessionUpdate": update,
+        "status": if value.get("error").is_some() { "error" } else { "observed" },
+        "errorCode": value.pointer("/error/code").cloned().unwrap_or(serde_json::Value::Null),
+        "bodyRedacted": true,
+    })
 }
 
 fn artifact_tool_name(update: &serde_json::Value) -> Option<&'static str> {
@@ -2426,6 +2520,17 @@ fn artifact_tool_name(update: &serde_json::Value) -> Option<&'static str> {
     .into_iter()
     .flatten()
     .find_map(qualified_artifact_tool_name)
+}
+
+fn nested_artifact_tool_name(value: &serde_json::Value) -> Option<&'static str> {
+    match value {
+        serde_json::Value::String(value) => {
+            artifact_leaf_tool_name(value).or_else(|| qualified_artifact_tool_name(value))
+        }
+        serde_json::Value::Array(values) => values.iter().find_map(nested_artifact_tool_name),
+        serde_json::Value::Object(values) => values.values().find_map(nested_artifact_tool_name),
+        _ => None,
+    }
 }
 
 fn is_artifact_server_name(value: &str) -> bool {
@@ -3553,7 +3658,7 @@ mod tests {
         const BODY: &str = "PRIVATE_ARTIFACT_BODY_SENTINEL";
         const PATH: &str = "private/source/path.md";
         const URL: &str = "http://127.0.0.1:4173/private";
-        let mut ids = std::collections::HashSet::new();
+        let mut artifact_state = ArtifactObserverState::default();
         let fixtures = [
             serde_json::json!({
                 "jsonrpc": "2.0",
@@ -3625,14 +3730,135 @@ mod tests {
             }),
         ];
         for fixture in fixtures {
-            let redacted = observer_payload_for_managed_read(&fixture, &mut ids);
+            let redacted = observer_payload_for_managed_read(&fixture, &mut artifact_state);
             let encoded = serde_json::to_string(&redacted).unwrap();
             assert!(!encoded.contains(BODY));
             assert!(!encoded.contains(PATH));
             assert!(!encoded.contains(URL));
             assert_eq!(redacted["params"]["update"]["bodyRedacted"], true);
         }
-        assert!(ids.is_empty());
+        assert!(artifact_state.sensitive_tool_call_ids.is_empty());
+    }
+
+    #[test]
+    fn artifact_enabled_observer_fails_closed_for_unknown_and_out_of_order_frames() {
+        const SENTINEL: &str = "PRIVATE_NESTED_ARTIFACT_SENTINEL";
+        let mut artifact_state = ArtifactObserverState {
+            guard_active: true,
+            ..ArtifactObserverState::default()
+        };
+        let fixtures = [
+            serde_json::json!({"nested": {"unknown": SENTINEL}}),
+            serde_json::json!({
+                "jsonrpc": "2.0", "method": "vendor/artifactEcho",
+                "params": {"nested": {"body": SENTINEL}}
+            }),
+            serde_json::json!({
+                "jsonrpc": "2.0", "method": "session/update",
+                "params": {"unexpected": {"nested": SENTINEL}}
+            }),
+            serde_json::json!({
+                "jsonrpc": "2.0", "method": "session/update",
+                "params": {"sessionId": "session-1", "update": {
+                    "sessionUpdate": "tool_call_update", "toolCallId": "out-of-order",
+                    "status": "completed", "rawOutput": {"body": SENTINEL}
+                }}
+            }),
+        ];
+        for fixture in fixtures {
+            let observed = observer_payload_for_managed_read(&fixture, &mut artifact_state);
+            let encoded = serde_json::to_string(&observed).unwrap();
+            assert!(!encoded.contains(SENTINEL));
+            assert_eq!(observed["bodyRedacted"], true);
+        }
+    }
+
+    #[test]
+    fn artifact_enabled_observer_keeps_unrelated_tool_lifecycle_observable() {
+        const ORDINARY_BODY: &str = "ordinary compiler output";
+        let mut artifact_state = ArtifactObserverState {
+            guard_active: true,
+            ..ArtifactObserverState::default()
+        };
+        let start = serde_json::json!({
+            "jsonrpc": "2.0", "method": "session/update",
+            "params": {"sessionId": "session-1", "update": {
+                "sessionUpdate": "tool_call", "toolCallId": "ordinary-1",
+                "title": "shell", "status": "in_progress",
+                "rawInput": {"command": "cargo check"}
+            }}
+        });
+        let completion = serde_json::json!({
+            "jsonrpc": "2.0", "method": "session/update",
+            "params": {"sessionId": "session-1", "update": {
+                "sessionUpdate": "tool_call_update", "toolCallId": "ordinary-1",
+                "status": "completed", "rawOutput": {"text": ORDINARY_BODY}
+            }}
+        });
+        assert_eq!(
+            observer_payload_for_managed_read(&start, &mut artifact_state),
+            start
+        );
+        assert_eq!(
+            observer_payload_for_managed_read(&completion, &mut artifact_state),
+            completion
+        );
+        assert!(artifact_state.ordinary_tool_call_ids.is_empty());
+    }
+
+    #[test]
+    fn artifact_enabled_observer_redacts_bare_and_nested_tool_signals() {
+        const SENTINEL: &str = "PRIVATE_BARE_ARTIFACT_SENTINEL";
+        let mut artifact_state = ArtifactObserverState {
+            guard_active: true,
+            ..ArtifactObserverState::default()
+        };
+        let fixtures = [
+            serde_json::json!({
+                "jsonrpc": "2.0", "method": "session/update",
+                "params": {"sessionId": "session-1", "update": {
+                    "sessionUpdate": "tool_call", "toolCallId": "bare-1",
+                    "title": "artifact_create", "rawInput": {"content_utf8": SENTINEL}
+                }}
+            }),
+            serde_json::json!({
+                "jsonrpc": "2.0", "method": "session/update",
+                "params": {"sessionId": "session-1", "update": {
+                    "sessionUpdate": "tool_call", "toolCallId": "nested-1",
+                    "title": "unknown-wrapper", "rawInput": {"nested": {
+                        "tool": "preview_attach", "url": SENTINEL
+                    }}
+                }}
+            }),
+        ];
+        for fixture in fixtures {
+            let observed = observer_payload_for_managed_read(&fixture, &mut artifact_state);
+            let encoded = serde_json::to_string(&observed).unwrap();
+            assert!(!encoded.contains(SENTINEL));
+            assert_eq!(observed["params"]["update"]["bodyRedacted"], true);
+        }
+    }
+
+    #[test]
+    fn artifact_enabled_observer_projects_only_public_chunk_schema() {
+        const PUBLIC_TEXT: &str = "The artifact is ready.";
+        const SENTINEL: &str = "PRIVATE_CHUNK_EXTENSION_SENTINEL";
+        let mut artifact_state = ArtifactObserverState {
+            guard_active: true,
+            ..ArtifactObserverState::default()
+        };
+        let frame = serde_json::json!({
+            "jsonrpc": "2.0", "method": "session/update",
+            "params": {"sessionId": "session-1", "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": PUBLIC_TEXT, "nested": SENTINEL},
+                "unknownExtension": {"echo": SENTINEL}
+            }}
+        });
+        let observed = observer_payload_for_managed_read(&frame, &mut artifact_state);
+        let encoded = serde_json::to_string(&observed).unwrap();
+        assert!(encoded.contains(PUBLIC_TEXT));
+        assert!(!encoded.contains(SENTINEL));
     }
 
     #[tokio::test]

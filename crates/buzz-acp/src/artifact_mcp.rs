@@ -20,7 +20,11 @@ use zeroize::Zeroize;
 
 use crate::acp::{EnvVar, McpServer};
 
+#[cfg(not(test))]
 const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+#[cfg(test)]
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+const PROBE_RECEIPT_MAX_BYTES: u64 = 256;
 
 const BROKER_PROTOCOL: &str = "luca.artifact.broker.v1";
 
@@ -226,15 +230,25 @@ impl ArtifactMcpConfig {
         }
     }
 
-    pub(crate) fn probe_server(&self) -> McpServer {
+    fn probe_server(&self, receipt: &DisposableProbeReceipt) -> McpServer {
         McpServer {
             name: "luca-artifact-compatibility-probe".into(),
             command: self.command.clone(),
             args: Vec::new(),
-            env: vec![EnvVar {
-                name: "LUCA_ARTIFACT_PROBE_MODE".into(),
-                value: "1".into(),
-            }],
+            env: vec![
+                EnvVar {
+                    name: "LUCA_ARTIFACT_PROBE_MODE".into(),
+                    value: "1".into(),
+                },
+                EnvVar {
+                    name: "LUCA_ARTIFACT_PROBE_ENDPOINT".into(),
+                    value: receipt.endpoint.clone(),
+                },
+                EnvVar {
+                    name: "LUCA_ARTIFACT_PROBE_NONCE".into(),
+                    value: receipt.nonce.clone(),
+                },
+            ],
         }
     }
 
@@ -272,6 +286,9 @@ impl ArtifactMcpConfig {
         let Some(adapter) = self.probe_adapter.as_ref() else {
             return ArtifactMcpSupport::Unavailable;
         };
+        let Ok(receipt) = DisposableProbeReceipt::bind().await else {
+            return ArtifactMcpSupport::Unavailable;
+        };
         let spawned = crate::acp::AcpClient::spawn_managed(
             &adapter.command,
             &adapter.args,
@@ -285,9 +302,15 @@ impl ArtifactMcpConfig {
         let outcome = tokio::time::timeout(PROBE_TIMEOUT, async {
             client.initialize().await?;
             let response = client
-                .session_new_full(cwd, vec![self.probe_server()], None)
+                .session_new_full(cwd, vec![self.probe_server(&receipt)], None)
                 .await?;
-            client.session_cancel(&response.session_id).await
+            let proof = receipt
+                .receive()
+                .await
+                .map_err(|_| crate::acp::AcpError::Protocol("artifact MCP probe failed".into()));
+            let cancellation = client.session_cancel(&response.session_id).await;
+            proof?;
+            cancellation
         })
         .await;
         client.shutdown().await;
@@ -295,6 +318,50 @@ impl ArtifactMcpConfig {
             Ok(Ok(())) => ArtifactMcpSupport::Supported,
             _ => ArtifactMcpSupport::Unavailable,
         }
+    }
+}
+
+struct DisposableProbeReceipt {
+    listener: tokio::net::TcpListener,
+    endpoint: String,
+    nonce: String,
+}
+
+impl DisposableProbeReceipt {
+    async fn bind() -> std::io::Result<Self> {
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await?;
+        let endpoint = listener.local_addr()?.to_string();
+        let nonce = uuid::Uuid::new_v4().simple().to_string();
+        Ok(Self {
+            listener,
+            endpoint,
+            nonce,
+        })
+    }
+
+    async fn receive(&self) -> std::io::Result<()> {
+        use tokio::io::AsyncReadExt;
+
+        let (stream, peer) = self.listener.accept().await?;
+        if !peer.ip().is_loopback() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "artifact MCP probe callback was not loopback",
+            ));
+        }
+        let mut body = Vec::new();
+        stream
+            .take(PROBE_RECEIPT_MAX_BYTES)
+            .read_to_end(&mut body)
+            .await?;
+        let expected = format!("{}\n", self.nonce);
+        if body != expected.as_bytes() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "artifact MCP probe callback was invalid",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -464,8 +531,8 @@ mod tests {
         assert_ne!(original, derive_turn_capability(&bootstrap, &changed));
     }
 
-    #[test]
-    fn probe_projection_contains_no_authority_and_caches_by_executable_fingerprint() {
+    #[tokio::test]
+    async fn probe_projection_contains_no_authority_and_caches_by_executable_fingerprint() {
         probe_cache().lock().unwrap().clear();
         let config = ArtifactMcpConfig {
             command: "/opt/luca/buzz-dev-mcp".into(),
@@ -474,10 +541,13 @@ mod tests {
             probe_key: Some(Sha256Ref::parse(format!("sha256:{}", "c".repeat(64))).unwrap()),
             probe_adapter: None,
         };
-        let server = config.probe_server();
+        let receipt = DisposableProbeReceipt::bind().await.unwrap();
+        let server = config.probe_server(&receipt);
         let serialized = serde_json::to_string(&server).unwrap();
-        assert_eq!(server.env.len(), 1);
+        assert_eq!(server.env.len(), 3);
         assert!(serialized.contains("LUCA_ARTIFACT_PROBE_MODE"));
+        assert!(serialized.contains("LUCA_ARTIFACT_PROBE_ENDPOINT"));
+        assert!(serialized.contains("LUCA_ARTIFACT_PROBE_NONCE"));
         for forbidden in [
             "LUCA_ARTIFACT_CAPABILITY",
             "LUCA_ARTIFACT_ENDPOINT",
@@ -523,5 +593,22 @@ mod tests {
         .unwrap()
         .unwrap();
         assert_eq!(config.effective_support(), ArtifactMcpSupport::Unavailable);
+    }
+
+    #[tokio::test]
+    async fn probe_receipt_requires_the_exact_one_shot_nonce() {
+        use tokio::io::AsyncWriteExt;
+
+        let receipt = DisposableProbeReceipt::bind().await.unwrap();
+        let endpoint = receipt.endpoint.clone();
+        let nonce = receipt.nonce.clone();
+        let sender = tokio::spawn(async move {
+            let mut stream = tokio::net::TcpStream::connect(endpoint).await.unwrap();
+            stream.write_all(nonce.as_bytes()).await.unwrap();
+            stream.write_all(b"\n").await.unwrap();
+            stream.shutdown().await.unwrap();
+        });
+        receipt.receive().await.unwrap();
+        sender.await.unwrap();
     }
 }

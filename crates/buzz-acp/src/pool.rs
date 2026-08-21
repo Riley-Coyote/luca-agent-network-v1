@@ -5013,7 +5013,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unknown_runtime_probe_is_capability_free_and_cached_by_fingerprint() {
+    async fn unknown_runtime_that_ignores_probe_mcp_is_cached_unavailable() {
         let mut ctx = make_prompt_context_no_owner();
         ctx.cwd = "/tmp".into();
         ctx.artifact_mcp = Some(crate::artifact_mcp::ArtifactMcpConfig::test_fixture(
@@ -5036,14 +5036,42 @@ mod tests {
             sleep 5
         "#;
         let mut agent = artifact_test_agent(script).await;
+        assert!(!resolve_artifact_mcp_support(&mut agent, &ctx).await);
+        assert_eq!(
+            ctx.artifact_mcp.as_ref().unwrap().effective_support(),
+            crate::artifact_mcp::ArtifactMcpSupport::Unavailable
+        );
+        // A second decision for the same executable fingerprint must use the
+        // cache and never touch the authoritative adapter process.
+        assert!(!resolve_artifact_mcp_support(&mut agent, &ctx).await);
+    }
+
+    #[tokio::test]
+    async fn unknown_runtime_with_initialized_probe_receipt_is_cached_supported() {
+        let mut ctx = make_prompt_context_no_owner();
+        ctx.cwd = "/tmp".into();
+        ctx.artifact_mcp = Some(crate::artifact_mcp::ArtifactMcpConfig::test_fixture(
+            crate::artifact_mcp::ArtifactMcpSupport::ProbePending,
+            'b',
+        )
+        .with_test_probe_adapter("bash", vec!["-c".into(), r#"
+            read -r INIT
+            echo '{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{}}}'
+            read -r REQ
+            ENDPOINT=$(printf '%s\n' "$REQ" | sed -E 's/.*"name":"LUCA_ARTIFACT_PROBE_ENDPOINT","value":"([^"]+)".*/\1/')
+            NONCE=$(printf '%s\n' "$REQ" | sed -E 's/.*"name":"LUCA_ARTIFACT_PROBE_NONCE","value":"([^"]+)".*/\1/')
+            HOST=${ENDPOINT%:*}
+            PORT=${ENDPOINT##*:}
+            printf '%s\n' "$NONCE" >"/dev/tcp/$HOST/$PORT"
+            echo '{"jsonrpc":"2.0","id":1,"result":{"sessionId":"probe-session"}}'
+            read -r CANCEL
+        "#.into()]));
+        let mut agent = artifact_test_agent("sleep 5").await;
         assert!(resolve_artifact_mcp_support(&mut agent, &ctx).await);
         assert_eq!(
             ctx.artifact_mcp.as_ref().unwrap().effective_support(),
             crate::artifact_mcp::ArtifactMcpSupport::Supported
         );
-        // A second decision for the same executable fingerprint must use the
-        // cache and never touch the authoritative adapter process.
-        assert!(resolve_artifact_mcp_support(&mut agent, &ctx).await);
     }
 
     #[tokio::test]

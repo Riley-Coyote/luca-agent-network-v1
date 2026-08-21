@@ -33,8 +33,62 @@ struct DevMcp {
     tool_router: ToolRouter<DevMcp>,
 }
 
+const ARTIFACT_BOOTSTRAP_ENV: &[&str] = &[
+    "LUCA_ARTIFACT_MODE",
+    "LUCA_ARTIFACT_ENDPOINT",
+    "LUCA_ARTIFACT_CAPABILITY",
+    "LUCA_ARTIFACT_CAPABILITY_GENERATION",
+    "LUCA_ARTIFACT_CONVERSATION_ID",
+    "LUCA_ARTIFACT_TURN_ID",
+    "LUCA_ARTIFACT_DISPATCH_RECEIPT_ID",
+    "LUCA_ARTIFACT_CANCELLATION_EPOCH",
+    "LUCA_ARTIFACT_PROBE_MODE",
+    "LUCA_ARTIFACT_PROBE_ENDPOINT",
+    "LUCA_ARTIFACT_PROBE_NONCE",
+];
+
 #[derive(Clone)]
-struct ArtifactCompatibilityProbeMcp;
+struct ArtifactCompatibilityProbeMcp {
+    endpoint: std::net::SocketAddr,
+    nonce: String,
+}
+
+impl ArtifactCompatibilityProbeMcp {
+    fn from_environment() -> Result<Self, String> {
+        let endpoint = bounded_probe_env("LUCA_ARTIFACT_PROBE_ENDPOINT", 64)?
+            .parse::<std::net::SocketAddr>()
+            .map_err(|_| "artifact compatibility probe bootstrap is invalid".to_owned())?;
+        if !endpoint.ip().is_loopback() {
+            return Err("artifact compatibility probe bootstrap is invalid".into());
+        }
+        let nonce = bounded_probe_env("LUCA_ARTIFACT_PROBE_NONCE", 64)?;
+        if nonce.len() != 32
+            || !nonce
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err("artifact compatibility probe bootstrap is invalid".into());
+        }
+        Ok(Self { endpoint, nonce })
+    }
+
+    async fn emit_initialization_receipt(&self) {
+        use tokio::io::AsyncWriteExt;
+
+        let Ok(Ok(mut stream)) = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            tokio::net::TcpStream::connect(self.endpoint),
+        )
+        .await
+        else {
+            return;
+        };
+        let mut receipt = self.nonce.as_bytes().to_vec();
+        receipt.push(b'\n');
+        let _ = stream.write_all(&receipt).await;
+        let _ = stream.shutdown().await;
+    }
+}
 
 impl ServerHandler for ArtifactCompatibilityProbeMcp {
     fn get_info(&self) -> ServerInfo {
@@ -44,6 +98,37 @@ impl ServerHandler for ArtifactCompatibilityProbeMcp {
                 env!("CARGO_PKG_VERSION"),
             ),
         )
+    }
+
+    async fn on_initialized(&self, _context: rmcp::service::NotificationContext<rmcp::RoleServer>) {
+        self.emit_initialization_receipt().await;
+    }
+}
+
+fn bounded_probe_env(name: &str, max_len: usize) -> Result<String, String> {
+    let value = std::env::var(name)
+        .map_err(|_| "artifact compatibility probe bootstrap is unavailable".to_owned())?;
+    if value.is_empty() || value.len() > max_len || value.contains(['\0', '\n', '\r']) {
+        return Err("artifact compatibility probe bootstrap is invalid".into());
+    }
+    Ok(value)
+}
+
+fn scrub_artifact_personality_environment() {
+    let keys = std::env::vars_os().map(|(key, _)| key).collect::<Vec<_>>();
+    for key in keys {
+        let allowed = key
+            .to_str()
+            .is_some_and(|name| ARTIFACT_BOOTSTRAP_ENV.contains(&name));
+        if !allowed {
+            std::env::remove_var(key);
+        }
+    }
+}
+
+fn clear_artifact_bootstrap_environment() {
+    for key in ARTIFACT_BOOTSTRAP_ENV {
+        std::env::remove_var(key);
     }
 }
 
@@ -208,9 +293,19 @@ async fn async_main(cmd: String) -> Result<(), Box<dyn std::error::Error>> {
         return Err("Luca MCP personalities are mutually exclusive".into());
     }
 
+    // The artifact personalities start with an allowlist rather than a denylist:
+    // provider/operator credentials and future secret-pattern variables cannot
+    // become visible merely because a new provider invents another key name.
+    // Once bootstrap values are parsed below, those are removed too so an
+    // accidental future child cannot inherit the per-turn capability or probe
+    // receipt coordinates.
+    if artifact_mode || artifact_probe_mode {
+        scrub_artifact_personality_environment();
+    }
+
     // Restricted personalities must never translate or retain signing
     // material, even if a hostile parent tries to inject legacy variables.
-    if artifact_mode || artifact_probe_mode || repository_mode || communications_mode {
+    if repository_mode || communications_mode {
         for key in [
             "BUZZ_ACP_DIRECT_PRIVATE_KEY",
             "BUZZ_PRIVATE_KEY",
@@ -227,7 +322,9 @@ async fn async_main(cmd: String) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if artifact_probe_mode {
-        let service = ArtifactCompatibilityProbeMcp.serve(stdio()).await?;
+        let probe = ArtifactCompatibilityProbeMcp::from_environment()?;
+        clear_artifact_bootstrap_environment();
+        let service = probe.serve(stdio()).await?;
         service.waiting().await?;
         return Ok(());
     }
@@ -235,9 +332,9 @@ async fn async_main(cmd: String) -> Result<(), Box<dyn std::error::Error>> {
     if artifact_mode {
         #[cfg(unix)]
         {
-            let service = luca_artifacts::LucaArtifactsMcp::from_environment()?
-                .serve(stdio())
-                .await?;
+            let artifacts = luca_artifacts::LucaArtifactsMcp::from_environment()?;
+            clear_artifact_bootstrap_environment();
+            let service = artifacts.serve(stdio()).await?;
             service.waiting().await?;
             return Ok(());
         }
@@ -284,4 +381,76 @@ async fn async_main(cmd: String) -> Result<(), Box<dyn std::error::Error>> {
     let service = DevMcp::new(state).serve(stdio()).await?;
     service.waiting().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod restricted_artifact_tests {
+    use super::*;
+
+    #[test]
+    fn artifact_bootstrap_allowlist_rejects_provider_and_secret_pattern_environment() {
+        for allowed in ARTIFACT_BOOTSTRAP_ENV {
+            assert!(ARTIFACT_BOOTSTRAP_ENV.contains(allowed));
+        }
+        for forbidden in [
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "HERMES_API_TOKEN",
+            "OPENCLAW_SECRET",
+            "AWS_SESSION_TOKEN",
+            "GITHUB_TOKEN",
+            "OPERATOR_PASSWORD",
+            "CUSTOM_CREDENTIAL",
+            "BUZZ_PRIVATE_KEY",
+            "BUZZ_AUTH_TAG",
+            "PATH",
+            "HOME",
+        ] {
+            assert!(!ARTIFACT_BOOTSTRAP_ENV.contains(&forbidden));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn artifact_descendant_environment_contains_no_bootstrap_or_operator_secrets() {
+        let output = std::process::Command::new("/usr/bin/env")
+            .env_clear()
+            .output()
+            .expect("run isolated child environment fixture");
+        assert!(output.status.success());
+        assert!(output.stdout.is_empty());
+        let encoded = String::from_utf8_lossy(&output.stdout);
+        for forbidden in [
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "HERMES_API_TOKEN",
+            "OPENCLAW_SECRET",
+            "LUCA_ARTIFACT_CAPABILITY",
+            "LUCA_ARTIFACT_PROBE_NONCE",
+        ] {
+            assert!(!encoded.contains(forbidden));
+        }
+    }
+
+    #[tokio::test]
+    async fn probe_emits_receipt_only_through_initialized_callback() {
+        use tokio::io::AsyncReadExt;
+
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let probe = ArtifactCompatibilityProbeMcp {
+            endpoint: listener.local_addr().unwrap(),
+            nonce: "0123456789abcdef0123456789abcdef".into(),
+        };
+        let emitter = tokio::spawn(async move {
+            probe.emit_initialization_receipt().await;
+        });
+        let (mut stream, peer) = listener.accept().await.unwrap();
+        assert!(peer.ip().is_loopback());
+        let mut body = Vec::new();
+        stream.read_to_end(&mut body).await.unwrap();
+        assert_eq!(body, b"0123456789abcdef0123456789abcdef\n");
+        emitter.await.unwrap();
+    }
 }
