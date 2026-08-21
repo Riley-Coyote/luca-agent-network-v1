@@ -10707,7 +10707,7 @@ export function maybeInstallE2eTauriMocks() {
               .includes(query)
           );
         });
-        return { artifacts, next_cursor: null, total: artifacts.length };
+        return artifacts;
       }
       case "get_artifact": {
         const artifactId = (
@@ -10736,19 +10736,31 @@ export function maybeInstallE2eTauriMocks() {
           (item) => item.id === input.artifactId,
         );
         if (!artifact) throw new Error("artifact unavailable");
+        const capability = String(artifact.preview.capability ?? "generic");
+        const previewType =
+          capability === "app"
+            ? "app"
+            : capability === "image"
+              ? "binary"
+              : capability === "generic"
+                ? "unsupported"
+                : "text";
         return {
-          artifact_id: artifact.id,
-          version: input.version ?? artifact.current_version,
-          version_id: artifact.current_version_id,
-          language: artifact.language,
+          previewType,
+          artifact,
+          version: {
+            artifact_id: artifact.id,
+            version: input.version ?? artifact.current_version,
+            media_type: artifact.media_type,
+            size_bytes: artifact.size_bytes ?? 0,
+          },
+          contentUtf8: artifact.preview.text ?? null,
+          contentBase64: artifact.preview.content_base64 ?? null,
           truncated: false,
-          availability: artifact.availability,
-          safe_message: null,
-          ...artifact.preview,
         };
       }
       case "list_artifact_receipts":
-        return { receipts: [] };
+        return [];
       case "get_preview_session":
       case "refresh_preview_health":
         return {
