@@ -119,6 +119,9 @@ pub(crate) fn shutdown_mesh_runtime(app: &tauri::AppHandle) {
 }
 
 pub(crate) fn shutdown_managed_agents(app: &tauri::AppHandle) -> Result<(), String> {
+    if let Err(error) = crate::commands::stop_all_preview_sessions() {
+        eprintln!("luca-artifacts: failed to revoke previews during shutdown: {error}");
+    }
     let state = app.state::<AppState>();
     let _restore_transition = state
         .managed_agent_restore_transition

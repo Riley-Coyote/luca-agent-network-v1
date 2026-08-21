@@ -1,7 +1,10 @@
 use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs},
-    sync::{Mutex, OnceLock},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex, OnceLock,
+    },
     time::Duration,
 };
 
@@ -14,9 +17,9 @@ use axum::{
 };
 use chrono::{SecondsFormat, Utc};
 use futures_util::{SinkExt, StreamExt, TryStreamExt};
-use luca_protocol::{ArtifactBrokerBindingV1, OpaqueId};
+use luca_protocol::{ArtifactBrokerBindingV1, ArtifactKindV1, OpaqueId, SafeU53};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{client_async, tungstenite};
 use tokio_util::sync::CancellationToken;
@@ -27,6 +30,7 @@ use crate::app_state::AppState;
 const MAX_PREVIEW_SESSIONS: usize = 32;
 const MAX_PROXY_REQUEST_BYTES: usize = 16 * 1024 * 1024;
 const PREVIEW_HEALTH_TIMEOUT: Duration = Duration::from_secs(2);
+static PREVIEW_REVOCATION_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -78,10 +82,12 @@ struct PinnedLoopbackTarget {
 struct PreviewProxyState {
     target: PinnedLoopbackTarget,
     proxy_origin: String,
+    expected_authority: String,
+    cancel: CancellationToken,
 }
 
 struct StoredPreviewSession {
-    owner_pubkey: String,
+    binding: ArtifactBrokerBindingV1,
     view: ArtifactPreviewSession,
     target: PinnedLoopbackTarget,
     cancel: CancellationToken,
@@ -99,6 +105,29 @@ fn now() -> String {
 
 fn current_owner(state: &AppState) -> Result<String, String> {
     state.signing_keys().map(|keys| keys.public_key().to_hex())
+}
+
+fn validate_app_artifact(
+    app: &AppHandle,
+    binding: &ArtifactBrokerBindingV1,
+    artifact_id: &OpaqueId,
+) -> Result<(), String> {
+    if current_owner(&app.state::<AppState>())? != binding.owner_pubkey.as_str() {
+        return Err("preview artifact was not found".to_string());
+    }
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "preview artifact store is unavailable".to_string())?;
+    let store = crate::luca::artifacts::ArtifactStore::open(&app_data_dir)
+        .map_err(|error| error.code().to_string())?;
+    let artifact = store
+        .get(&binding.owner_pubkey, artifact_id)
+        .map_err(|_| "preview artifact was not found".to_string())?;
+    if artifact.kind != ArtifactKindV1::App || artifact.deleted_at.is_some() {
+        return Err("preview requires an active application artifact".to_string());
+    }
+    Ok(())
 }
 
 fn parse_loopback_url(value: &str) -> Result<(Url, SocketAddr), String> {
@@ -164,6 +193,38 @@ fn upstream_url(target: &PinnedLoopbackTarget, request: &Request) -> Result<Url,
     Ok(url)
 }
 
+fn exact_authority(request: &Request, expected: &str) -> bool {
+    request
+        .headers()
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.eq_ignore_ascii_case(expected))
+}
+
+fn exact_origin(request: &Request, expected: &str) -> bool {
+    request
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| Url::parse(value).ok())
+        .is_some_and(|origin| {
+            origin.username().is_empty()
+                && origin.password().is_none()
+                && origin.path() == "/"
+                && origin.query().is_none()
+                && origin.fragment().is_none()
+                && origin.origin().ascii_serialization() == expected
+        })
+}
+
+fn request_origin_is_safe(request: &Request, expected: &str, websocket: bool) -> bool {
+    if request.headers().contains_key(header::ORIGIN) {
+        exact_origin(request, expected)
+    } else {
+        !websocket
+    }
+}
+
 fn forwarded_request_headers(source: &HeaderMap, upstream_origin: &str) -> HeaderMap {
     let mut headers = HeaderMap::new();
     for name in [
@@ -226,7 +287,32 @@ fn response_security_headers(headers: &mut HeaderMap, proxy_origin: &str) {
     );
 }
 
+fn host_only_set_cookie(value: &HeaderValue) -> Option<HeaderValue> {
+    let raw = value.to_str().ok()?;
+    let mut parts = raw.split(';');
+    let cookie = parts.next()?.trim();
+    if cookie.is_empty() {
+        return None;
+    }
+    let attributes = parts.filter(|attribute| {
+        let attribute = attribute.trim();
+        !attribute.is_empty()
+            && attribute
+                .split_once('=')
+                .is_none_or(|(name, _)| !name.trim().eq_ignore_ascii_case("domain"))
+    });
+    let mut rewritten = cookie.to_owned();
+    for attribute in attributes {
+        rewritten.push_str("; ");
+        rewritten.push_str(attribute.trim());
+    }
+    HeaderValue::from_str(&rewritten).ok()
+}
+
 async fn proxy_http(state: PreviewProxyState, request: Request) -> Response {
+    if state.cancel.is_cancelled() {
+        return (StatusCode::GONE, "preview session has stopped").into_response();
+    }
     let upstream = match upstream_url(&state.target, &request) {
         Ok(url) => url,
         Err(message) => return (StatusCode::BAD_REQUEST, message).into_response(),
@@ -234,7 +320,12 @@ async fn proxy_http(state: PreviewProxyState, request: Request) -> Response {
     let method = request.method().clone();
     let upstream_origin = state.target.base_url.origin().ascii_serialization();
     let headers = forwarded_request_headers(request.headers(), &upstream_origin);
-    let body = match to_bytes(request.into_body(), MAX_PROXY_REQUEST_BYTES).await {
+    let body = match tokio::select! {
+        _ = state.cancel.cancelled() => {
+            return (StatusCode::GONE, "preview session has stopped").into_response();
+        }
+        body = to_bytes(request.into_body(), MAX_PROXY_REQUEST_BYTES) => body,
+    } {
         Ok(bytes) => bytes,
         Err(_) => {
             return (
@@ -244,16 +335,20 @@ async fn proxy_http(state: PreviewProxyState, request: Request) -> Response {
                 .into_response()
         }
     };
-    let response = match state
+    let upstream_request = state
         .target
         .client
         .request(method, upstream)
         .headers(headers)
         .body(body)
         .timeout(Duration::from_secs(120))
-        .send()
-        .await
-    {
+        .send();
+    let response = match tokio::select! {
+        _ = state.cancel.cancelled() => {
+            return (StatusCode::GONE, "preview session has stopped").into_response();
+        }
+        response = upstream_request => response,
+    } {
         Ok(response) => response,
         Err(_) => {
             return (StatusCode::BAD_GATEWAY, "preview server is unreachable").into_response()
@@ -269,10 +364,14 @@ async fn proxy_http(state: PreviewProxyState, request: Request) -> Response {
         header::LAST_MODIFIED,
         header::CONTENT_RANGE,
         header::ACCEPT_RANGES,
-        header::SET_COOKIE,
     ] {
         if let Some(value) = response.headers().get(&name) {
             headers.insert(name, value.clone());
+        }
+    }
+    for value in response.headers().get_all(header::SET_COOKIE) {
+        if let Some(value) = host_only_set_cookie(value) {
+            headers.append(header::SET_COOKIE, value);
         }
     }
     if let Some(location) = response.headers().get(header::LOCATION) {
@@ -282,7 +381,10 @@ async fn proxy_http(state: PreviewProxyState, request: Request) -> Response {
         headers.insert(header::LOCATION, location);
     }
     response_security_headers(&mut headers, &state.proxy_origin);
-    let stream = response.bytes_stream().map_err(std::io::Error::other);
+    let stream = response
+        .bytes_stream()
+        .map_err(std::io::Error::other)
+        .take_until(state.cancel.cancelled_owned());
     (status, headers, Body::from_stream(stream)).into_response()
 }
 
@@ -369,13 +471,24 @@ async fn bridge_websocket(
     state: PreviewProxyState,
     request: Request,
 ) {
+    if state.cancel.is_cancelled() {
+        return;
+    }
     let Ok(upstream_request) = websocket_request(&state, &request) else {
         return;
     };
-    let Ok(stream) = TcpStream::connect(state.target.socket_addr).await else {
+    let stream = tokio::select! {
+        _ = state.cancel.cancelled() => return,
+        stream = TcpStream::connect(state.target.socket_addr) => stream,
+    };
+    let Ok(stream) = stream else {
         return;
     };
-    let Ok((upstream, _)) = client_async(upstream_request, stream).await else {
+    let upstream = tokio::select! {
+        _ = state.cancel.cancelled() => return,
+        upstream = client_async(upstream_request, stream) => upstream,
+    };
+    let Ok((upstream, _)) = upstream else {
         return;
     };
     let (mut canvas_tx, mut canvas_rx) = canvas.split();
@@ -402,6 +515,7 @@ async fn bridge_websocket(
         }
     };
     tokio::select! {
+        _ = state.cancel.cancelled() => {},
         _ = canvas_to_upstream => {},
         _ = upstream_to_canvas => {},
     }
@@ -416,6 +530,19 @@ async fn preview_proxy_handler(
         .get(header::UPGRADE)
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value.eq_ignore_ascii_case("websocket"));
+    if !exact_authority(&request, &state.expected_authority) {
+        return (
+            StatusCode::MISDIRECTED_REQUEST,
+            "preview authority was rejected",
+        )
+            .into_response();
+    }
+    if !request_origin_is_safe(&request, &state.proxy_origin, is_websocket) {
+        return (StatusCode::FORBIDDEN, "preview origin was rejected").into_response();
+    }
+    if state.cancel.is_cancelled() {
+        return (StatusCode::GONE, "preview session has stopped").into_response();
+    }
     if is_websocket {
         let (mut parts, body) = request.into_parts();
         let Ok(upgrade) = WebSocketUpgrade::from_request_parts(&mut parts, &state).await else {
@@ -436,7 +563,7 @@ async fn preview_proxy_handler(
 
 async fn spawn_preview_proxy(
     target: PinnedLoopbackTarget,
-) -> Result<(u16, CancellationToken), String> {
+) -> Result<(u16, String, CancellationToken), String> {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .map_err(|_| "preview proxy could not bind loopback".to_string())?;
@@ -444,10 +571,15 @@ async fn spawn_preview_proxy(
         .local_addr()
         .map_err(|_| "preview proxy address is unavailable".to_string())?
         .port();
+    let hostname = format!("luca-preview-{}.localhost", uuid::Uuid::new_v4().simple());
+    let expected_authority = format!("{hostname}:{port}");
+    let proxy_origin = format!("http://{expected_authority}");
     let cancel = CancellationToken::new();
     let state = PreviewProxyState {
         target,
-        proxy_origin: format!("http://127.0.0.1:{port}"),
+        proxy_origin,
+        expected_authority,
+        cancel: cancel.clone(),
     };
     let app = Router::new()
         .fallback(preview_proxy_handler)
@@ -458,11 +590,11 @@ async fn spawn_preview_proxy(
             .with_graceful_shutdown(shutdown.cancelled_owned())
             .await;
     });
-    Ok((port, cancel))
+    Ok((port, hostname, cancel))
 }
 
-fn proxy_url(port: u16, display_url: &Url) -> String {
-    let mut value = format!("http://127.0.0.1:{port}{}", display_url.path());
+fn proxy_url(hostname: &str, port: u16, display_url: &Url) -> String {
+    let mut value = format!("http://{hostname}:{port}{}", display_url.path());
     if let Some(query) = display_url.query() {
         value.push('?');
         value.push_str(query);
@@ -522,6 +654,64 @@ fn emit_canvas_present(app: &AppHandle, view: &ArtifactPreviewSession) {
     );
 }
 
+fn stop_matching_preview_sessions(
+    mut matches: impl FnMut(&StoredPreviewSession) -> bool,
+) -> Result<Vec<ArtifactPreviewSession>, String> {
+    let mut sessions = preview_sessions()
+        .lock()
+        .map_err(|_| "preview session state is unavailable".to_string())?;
+    PREVIEW_REVOCATION_GENERATION.fetch_add(1, Ordering::SeqCst);
+    let timestamp = now();
+    let mut stopped = Vec::new();
+    for session in sessions.values_mut().filter(|session| matches(session)) {
+        if session.view.status == ArtifactPreviewStatus::Stopped {
+            continue;
+        }
+        session.cancel.cancel();
+        session.view.status = ArtifactPreviewStatus::Stopped;
+        session.view.checked_at.clone_from(&timestamp);
+        stopped.push(session.view.clone());
+    }
+    Ok(stopped)
+}
+
+/// Revoke previews created by one exact managed dispatch authority.
+pub(crate) fn stop_preview_sessions_for_exact_dispatch(
+    owner_pubkey: &str,
+    conversation_id: &str,
+    resident_pubkey: &str,
+    session_epoch: u64,
+    dispatch_receipt_id: &str,
+) -> Result<usize, String> {
+    stop_matching_preview_sessions(|session| {
+        session.binding.owner_pubkey.as_str() == owner_pubkey
+            && session.binding.conversation_id.as_str() == conversation_id
+            && session.binding.resident_pubkey.as_str() == resident_pubkey
+            && session.binding.session_epoch.get() == session_epoch
+            && session.binding.dispatch_receipt_id.as_str() == dispatch_receipt_id
+    })
+    .map(|views| views.len())
+}
+
+/// Revoke every preview owned by one exact resident runtime epoch.
+pub(crate) fn stop_preview_sessions_for_resident_epoch(
+    owner_pubkey: &str,
+    resident_pubkey: &str,
+    session_epoch: SafeU53,
+) -> Result<usize, String> {
+    stop_matching_preview_sessions(|session| {
+        session.binding.owner_pubkey.as_str() == owner_pubkey
+            && session.binding.resident_pubkey.as_str() == resident_pubkey
+            && session.binding.session_epoch == session_epoch
+    })
+    .map(|views| views.len())
+}
+
+/// Revoke every process-local preview, including active upgraded connections.
+pub(crate) fn stop_all_preview_sessions() -> Result<usize, String> {
+    stop_matching_preview_sessions(|_| true).map(|views| views.len())
+}
+
 fn session_for_owner(
     owner_pubkey: &str,
     session_id: &str,
@@ -532,10 +722,24 @@ fn session_for_owner(
     let session = sessions
         .get(session_id)
         .ok_or_else(|| "preview session was not found".to_string())?;
-    if session.owner_pubkey != owner_pubkey {
+    if session.binding.owner_pubkey.as_str() != owner_pubkey {
         return Err("preview session was not found".to_string());
     }
     Ok(session.view.clone())
+}
+
+fn apply_health_result(
+    session: &mut StoredPreviewSession,
+    status: ArtifactPreviewStatus,
+    checked_at: String,
+) {
+    session.view.status =
+        if session.cancel.is_cancelled() || session.view.status == ArtifactPreviewStatus::Stopped {
+            ArtifactPreviewStatus::Stopped
+        } else {
+            status
+        };
+    session.view.checked_at = checked_at;
 }
 
 async fn update_preview_health(
@@ -543,22 +747,23 @@ async fn update_preview_health(
     owner_pubkey: &str,
     session_id: &str,
 ) -> Result<ArtifactPreviewSession, String> {
-    let (target, stopped) = {
+    let (target, cancel, stopped) = {
         let sessions = preview_sessions()
             .lock()
             .map_err(|_| "preview session state is unavailable".to_string())?;
         let session = sessions
             .get(session_id)
             .ok_or_else(|| "preview session was not found".to_string())?;
-        if session.owner_pubkey != owner_pubkey {
+        if session.binding.owner_pubkey.as_str() != owner_pubkey {
             return Err("preview session was not found".to_string());
         }
         (
             session.target.clone(),
+            session.cancel.clone(),
             session.view.status == ArtifactPreviewStatus::Stopped,
         )
     };
-    let status = if stopped {
+    let status = if stopped || cancel.is_cancelled() {
         ArtifactPreviewStatus::Stopped
     } else {
         match target
@@ -579,11 +784,10 @@ async fn update_preview_health(
         let session = sessions
             .get_mut(session_id)
             .ok_or_else(|| "preview session was not found".to_string())?;
-        if session.owner_pubkey != owner_pubkey {
+        if session.binding.owner_pubkey.as_str() != owner_pubkey {
             return Err("preview session was not found".to_string());
         }
-        session.view.status = status;
-        session.view.checked_at = now();
+        apply_health_result(session, status, now());
         session.view.clone()
     };
     emit_preview_state(app, &view);
@@ -597,19 +801,21 @@ pub(crate) async fn attach_preview_session(
     artifact_id: &OpaqueId,
     value: &str,
 ) -> Result<ArtifactPreviewSession, String> {
+    let revocation_generation = PREVIEW_REVOCATION_GENERATION.load(Ordering::SeqCst);
+    validate_app_artifact(app, binding, artifact_id)?;
     let (display_url, socket_addr) = parse_loopback_url(value)?;
     let target = PinnedLoopbackTarget {
         client: pinned_client(&display_url, socket_addr)?,
         base_url: display_url.clone(),
         socket_addr,
     };
-    let (port, cancel) = spawn_preview_proxy(target.clone()).await?;
+    let (port, hostname, cancel) = spawn_preview_proxy(target.clone()).await?;
     let timestamp = now();
     let view = ArtifactPreviewSession {
         id: uuid::Uuid::new_v4().to_string(),
         artifact_id: artifact_id.as_str().to_string(),
         display_url: display_url.to_string(),
-        proxy_url: proxy_url(port, &display_url),
+        proxy_url: proxy_url(&hostname, port, &display_url),
         status: ArtifactPreviewStatus::Starting,
         conversation_id: binding.conversation_id.as_str().to_string(),
         resident_pubkey: binding.resident_pubkey.as_str().to_string(),
@@ -617,10 +823,34 @@ pub(crate) async fn attach_preview_session(
         attached_at: timestamp.clone(),
         checked_at: timestamp,
     };
+    if let Err(error) = validate_app_artifact(app, binding, artifact_id) {
+        cancel.cancel();
+        return Err(error);
+    }
+    if crate::luca::communication_turn_registry::authorize(
+        binding.resident_pubkey.as_str(),
+        binding.session_epoch.get(),
+        binding.conversation_id.as_str(),
+        binding.turn_id.as_str(),
+        binding.dispatch_receipt_id.as_str(),
+    )
+    .is_err()
+    {
+        cancel.cancel();
+        return Err("preview authority is no longer active".to_string());
+    }
     let evicted = {
-        let mut sessions = preview_sessions()
-            .lock()
-            .map_err(|_| "preview session state is unavailable".to_string())?;
+        let mut sessions = match preview_sessions().lock() {
+            Ok(sessions) => sessions,
+            Err(_) => {
+                cancel.cancel();
+                return Err("preview session state is unavailable".to_string());
+            }
+        };
+        if PREVIEW_REVOCATION_GENERATION.load(Ordering::SeqCst) != revocation_generation {
+            cancel.cancel();
+            return Err("preview authority changed while attaching".to_string());
+        }
         let evicted = if sessions.len() >= MAX_PREVIEW_SESSIONS {
             sessions
                 .iter()
@@ -633,7 +863,7 @@ pub(crate) async fn attach_preview_session(
         sessions.insert(
             view.id.clone(),
             StoredPreviewSession {
-                owner_pubkey: binding.owner_pubkey.as_str().to_string(),
+                binding: binding.clone(),
                 view: view.clone(),
                 target,
                 cancel,
@@ -668,11 +898,7 @@ pub(crate) fn detach_preview_session_for_binding(
         let session = sessions
             .get_mut(preview_session_id.as_str())
             .ok_or_else(|| "preview session was not found".to_string())?;
-        if session.owner_pubkey != binding.owner_pubkey.as_str()
-            || session.view.resident_pubkey != binding.resident_pubkey.as_str()
-            || session.view.conversation_id != binding.conversation_id.as_str()
-            || session.view.turn_id != binding.turn_id.as_str()
-        {
+        if session.binding != *binding {
             return Err("preview session authority no longer matches".to_string());
         }
         session.cancel.cancel();
@@ -718,7 +944,7 @@ pub fn detach_preview_session(
         let session = sessions
             .get_mut(&preview_session_id)
             .ok_or_else(|| "preview session was not found".to_string())?;
-        if session.owner_pubkey != owner {
+        if session.binding.owner_pubkey.as_str() != owner {
             return Err("preview session was not found".to_string());
         }
         session.cancel.cancel();
@@ -734,6 +960,123 @@ pub fn detach_preview_session(
 mod tests {
     use super::*;
     use axum::{extract::ws::WebSocket, response::Html, routing::get};
+    use luca_protocol::Hex64;
+    use tokio::time::timeout;
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+
+    struct TestProxy {
+        upstream_task: tokio::task::JoinHandle<()>,
+        proxy_port: u16,
+        hostname: String,
+        cancel: CancellationToken,
+    }
+
+    impl Drop for TestProxy {
+        fn drop(&mut self) {
+            self.cancel.cancel();
+            self.upstream_task.abort();
+        }
+    }
+
+    fn resolved_client(hostname: &str, port: u16) -> reqwest::Client {
+        reqwest::Client::builder()
+            .resolve(
+                hostname,
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port),
+            )
+            .build()
+            .unwrap()
+    }
+
+    async fn spawn_test_proxy() -> TestProxy {
+        let upstream = Router::new()
+            .route("/", get(|| async { Html("<main>preview ready</main>") }))
+            .route(
+                "/socket",
+                get(|upgrade: WebSocketUpgrade| async move { upgrade.on_upgrade(echo_socket) }),
+            );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let upstream_port = listener.local_addr().unwrap().port();
+        let upstream_task = tokio::spawn(async move {
+            let _ = axum::serve(listener, upstream).await;
+        });
+        let (base_url, socket_addr) =
+            parse_loopback_url(&format!("http://127.0.0.1:{upstream_port}/")).unwrap();
+        let target = PinnedLoopbackTarget {
+            client: pinned_client(&base_url, socket_addr).unwrap(),
+            base_url,
+            socket_addr,
+        };
+        let (proxy_port, hostname, cancel) = spawn_preview_proxy(target).await.unwrap();
+        TestProxy {
+            upstream_task,
+            proxy_port,
+            hostname,
+            cancel,
+        }
+    }
+
+    async fn connect_proxy_websocket(
+        proxy: &TestProxy,
+        hostname: &str,
+        origin: &str,
+    ) -> Result<
+        (
+            tokio_tungstenite::WebSocketStream<TcpStream>,
+            tungstenite::http::Response<Option<Vec<u8>>>,
+        ),
+        tungstenite::Error,
+    > {
+        let mut request = format!("ws://{hostname}:{}/socket", proxy.proxy_port)
+            .into_client_request()
+            .unwrap();
+        request
+            .headers_mut()
+            .insert(header::ORIGIN, HeaderValue::from_str(origin).unwrap());
+        let stream = TcpStream::connect((Ipv4Addr::LOCALHOST, proxy.proxy_port))
+            .await
+            .unwrap();
+        client_async(request, stream).await
+    }
+
+    fn binding(epoch: u64, dispatch: &str) -> ArtifactBrokerBindingV1 {
+        ArtifactBrokerBindingV1 {
+            owner_pubkey: Hex64::parse("1".repeat(64)).unwrap(),
+            resident_pubkey: Hex64::parse("2".repeat(64)).unwrap(),
+            session_epoch: SafeU53::new(epoch).unwrap(),
+            turn_id: OpaqueId::parse(format!("turn-{epoch}")).unwrap(),
+            conversation_id: OpaqueId::parse("conversation-1").unwrap(),
+            dispatch_receipt_id: OpaqueId::parse(dispatch).unwrap(),
+            cancellation_epoch: SafeU53::new(epoch).unwrap(),
+            working_root_id: OpaqueId::parse("root-1").unwrap(),
+        }
+    }
+
+    fn stored_session(binding: ArtifactBrokerBindingV1, id: &str) -> StoredPreviewSession {
+        let (base_url, socket_addr) = parse_loopback_url("http://127.0.0.1:9/").unwrap();
+        let target = PinnedLoopbackTarget {
+            client: pinned_client(&base_url, socket_addr).unwrap(),
+            base_url,
+            socket_addr,
+        };
+        StoredPreviewSession {
+            binding: binding.clone(),
+            view: ArtifactPreviewSession {
+                id: id.into(),
+                artifact_id: format!("artifact-{id}"),
+                display_url: "http://127.0.0.1:9/".into(),
+                proxy_url: "http://unused.localhost/".into(),
+                status: ArtifactPreviewStatus::Ready,
+                conversation_id: binding.conversation_id.as_str().into(),
+                resident_pubkey: binding.resident_pubkey.as_str().into(),
+                turn_id: binding.turn_id.as_str().into(),
+                attached_at: now(),
+                checked_at: now(),
+            },
+            target,
+            cancel: CancellationToken::new(),
+        }
+    }
 
     #[test]
     fn accepts_only_the_three_explicit_loopback_host_forms() {
@@ -769,18 +1112,31 @@ mod tests {
                 base_url,
                 socket_addr,
             },
-            proxy_origin: "http://127.0.0.1:50000".into(),
+            proxy_origin: "http://capability.localhost:50000".into(),
+            expected_authority: "capability.localhost:50000".into(),
+            cancel: CancellationToken::new(),
         };
         assert_eq!(
             rewrite_location(&HeaderValue::from_static("/next"), &state)
                 .and_then(|value| value.to_str().ok().map(str::to_string)),
-            Some("http://127.0.0.1:50000/next".into())
+            Some("http://capability.localhost:50000/next".into())
         );
         assert!(rewrite_location(
             &HeaderValue::from_static("https://example.com/steal"),
             &state
         )
         .is_none());
+    }
+
+    #[test]
+    fn proxied_cookies_are_forced_to_the_unique_capability_host() {
+        let cookie = HeaderValue::from_static(
+            "session=secret; Domain=localhost; Path=/; HttpOnly; SameSite=Lax",
+        );
+        assert_eq!(
+            host_only_set_cookie(&cookie).and_then(|value| value.to_str().ok().map(str::to_owned)),
+            Some("session=secret; Path=/; HttpOnly; SameSite=Lax".into())
+        );
     }
 
     async fn echo_socket(mut socket: WebSocket) {
@@ -793,27 +1149,11 @@ mod tests {
 
     #[tokio::test]
     async fn proxy_preserves_http_and_same_server_websockets() {
-        let upstream = Router::new()
-            .route("/", get(|| async { Html("<main>preview ready</main>") }))
-            .route(
-                "/socket",
-                get(|upgrade: WebSocketUpgrade| async move { upgrade.on_upgrade(echo_socket) }),
-            );
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let upstream_port = listener.local_addr().unwrap().port();
-        let upstream_task = tokio::spawn(async move {
-            let _ = axum::serve(listener, upstream).await;
-        });
-        let (base_url, socket_addr) =
-            parse_loopback_url(&format!("http://127.0.0.1:{upstream_port}/")).unwrap();
-        let target = PinnedLoopbackTarget {
-            client: pinned_client(&base_url, socket_addr).unwrap(),
-            base_url,
-            socket_addr,
-        };
-        let (proxy_port, cancel) = spawn_preview_proxy(target).await.unwrap();
-
-        let response = reqwest::get(format!("http://127.0.0.1:{proxy_port}/"))
+        let proxy = spawn_test_proxy().await;
+        let client = resolved_client(&proxy.hostname, proxy.proxy_port);
+        let response = client
+            .get(format!("http://{}:{}/", proxy.hostname, proxy.proxy_port))
+            .send()
             .await
             .unwrap();
         let policy = response
@@ -825,13 +1165,13 @@ mod tests {
         assert!(policy.contains("default-src 'self'"));
         assert!(!policy.contains("https:"));
         assert!(!policy.contains(" ws:;"));
-        assert!(policy.contains(&format!("ws://127.0.0.1:{proxy_port}")));
+        assert!(policy.contains(&format!("ws://{}:{}", proxy.hostname, proxy.proxy_port)));
         assert_eq!(response.text().await.unwrap(), "<main>preview ready</main>");
 
-        let (mut socket, _) =
-            tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{proxy_port}/socket"))
-                .await
-                .unwrap();
+        let origin = format!("http://{}:{}", proxy.hostname, proxy.proxy_port);
+        let (mut socket, _) = connect_proxy_websocket(&proxy, &proxy.hostname, &origin)
+            .await
+            .unwrap();
         socket
             .send(tungstenite::Message::Text("hot reload".into()))
             .await
@@ -840,7 +1180,134 @@ mod tests {
             socket.next().await.unwrap().unwrap(),
             tungstenite::Message::Text("hot reload".into())
         );
-        cancel.cancel();
-        upstream_task.abort();
+    }
+
+    #[tokio::test]
+    async fn foreign_and_dns_rebinding_hosts_are_rejected() {
+        let proxy = spawn_test_proxy().await;
+        let response = reqwest::Client::new()
+            .get(format!("http://127.0.0.1:{}/", proxy.proxy_port))
+            .header(
+                header::HOST,
+                format!("attacker.example:{}", proxy.proxy_port),
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::MISDIRECTED_REQUEST);
+
+        let rebound = connect_proxy_websocket(
+            &proxy,
+            "attacker.example",
+            &format!("http://attacker.example:{}", proxy.proxy_port),
+        )
+        .await;
+        assert!(matches!(
+            rebound,
+            Err(tungstenite::Error::Http(response))
+                if response.status() == StatusCode::MISDIRECTED_REQUEST
+        ));
+    }
+
+    #[tokio::test]
+    async fn websocket_requires_the_exact_capability_origin() {
+        let proxy = spawn_test_proxy().await;
+        let rejected =
+            connect_proxy_websocket(&proxy, &proxy.hostname, "https://attacker.example").await;
+        assert!(matches!(
+            rejected,
+            Err(tungstenite::Error::Http(response))
+                if response.status() == StatusCode::FORBIDDEN
+        ));
+    }
+
+    #[tokio::test]
+    async fn capability_hosts_are_unique_and_cannot_share_preview_cookies() {
+        let first = spawn_test_proxy().await;
+        let second = spawn_test_proxy().await;
+        assert_ne!(first.hostname, second.hostname);
+        let client = resolved_client(&first.hostname, second.proxy_port);
+        let response = client
+            .get(format!("http://{}:{}/", first.hostname, second.proxy_port))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::MISDIRECTED_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn revocation_closes_an_already_open_websocket() {
+        let proxy = spawn_test_proxy().await;
+        let origin = format!("http://{}:{}", proxy.hostname, proxy.proxy_port);
+        let (mut socket, _) = connect_proxy_websocket(&proxy, &proxy.hostname, &origin)
+            .await
+            .unwrap();
+        proxy.cancel.cancel();
+        let result = timeout(Duration::from_secs(2), socket.next())
+            .await
+            .expect("revocation must close the WebSocket promptly");
+        assert!(matches!(
+            result,
+            None | Some(Err(_)) | Some(Ok(tungstenite::Message::Close(_)))
+        ));
+    }
+
+    #[test]
+    fn exact_and_epoch_revocation_stop_only_matching_sessions() {
+        stop_all_preview_sessions().unwrap();
+        let first = binding(7, "dispatch-1");
+        let second = binding(8, "dispatch-2");
+        {
+            let mut sessions = preview_sessions().lock().unwrap();
+            sessions.insert(
+                "session-1".into(),
+                stored_session(first.clone(), "session-1"),
+            );
+            sessions.insert(
+                "session-2".into(),
+                stored_session(second.clone(), "session-2"),
+            );
+        }
+        assert_eq!(
+            stop_preview_sessions_for_resident_epoch(
+                first.owner_pubkey.as_str(),
+                first.resident_pubkey.as_str(),
+                first.session_epoch,
+            )
+            .unwrap(),
+            1
+        );
+        {
+            let sessions = preview_sessions().lock().unwrap();
+            assert_eq!(
+                sessions["session-1"].view.status,
+                ArtifactPreviewStatus::Stopped
+            );
+            assert_eq!(
+                sessions["session-2"].view.status,
+                ArtifactPreviewStatus::Ready
+            );
+        }
+        assert_eq!(
+            stop_preview_sessions_for_exact_dispatch(
+                second.owner_pubkey.as_str(),
+                second.conversation_id.as_str(),
+                second.resident_pubkey.as_str(),
+                second.session_epoch.get(),
+                second.dispatch_receipt_id.as_str(),
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(stop_all_preview_sessions().unwrap(), 0);
+    }
+
+    #[test]
+    fn a_late_health_result_cannot_resurrect_a_detached_session() {
+        let mut session = stored_session(binding(9, "dispatch-3"), "session-3");
+        session.cancel.cancel();
+        session.view.status = ArtifactPreviewStatus::Stopped;
+        apply_health_result(&mut session, ArtifactPreviewStatus::Ready, now());
+        assert_eq!(session.view.status, ArtifactPreviewStatus::Stopped);
     }
 }

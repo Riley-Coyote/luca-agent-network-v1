@@ -45,6 +45,8 @@ fn managed_signing_registry_refuses_overlapping_outbox_owner() {
     super::register_managed_signing_broker(
         &resident,
         super::ManagedSigningBrokerOwner {
+            owner_pubkey: "11".repeat(32),
+            session_epoch: luca_protocol::SafeU53::new(1).expect("epoch"),
             shutdown: first_shutdown,
             handle: first,
         },
@@ -62,6 +64,8 @@ fn managed_signing_registry_refuses_overlapping_outbox_owner() {
     let overlapping = super::register_managed_signing_broker(
         &resident,
         super::ManagedSigningBrokerOwner {
+            owner_pubkey: "11".repeat(32),
+            session_epoch: luca_protocol::SafeU53::new(2).expect("epoch"),
             shutdown: second_shutdown,
             handle: overlapping,
         },

@@ -139,6 +139,20 @@ pub async fn apply_workspace(
         };
 
         // ── Apply all state changes (nothing below can fail) ──────────────────
+        let current_relay_url = relay::relay_ws_url_with_override(&state);
+        let current_owner_pubkey = state
+            .keys
+            .lock()
+            .map_err(|error| error.to_string())?
+            .public_key()
+            .to_hex();
+        let next_owner_pubkey = parsed_keys
+            .as_ref()
+            .map(|keys| keys.public_key().to_hex())
+            .unwrap_or_else(|| current_owner_pubkey.clone());
+        let workspace_identity_changed =
+            current_relay_url != relay_url || current_owner_pubkey != next_owner_pubkey;
+
         {
             let mut override_guard = state.relay_url_override.lock().map_err(|e| e.to_string())?;
             *override_guard = Some(relay_url);
@@ -150,6 +164,13 @@ pub async fn apply_workspace(
         if let Some(keys) = parsed_keys {
             let mut keys_guard = state.keys.lock().map_err(|e| e.to_string())?;
             *keys_guard = keys;
+        }
+        if workspace_identity_changed {
+            if let Err(error) = crate::commands::artifact_preview::stop_all_preview_sessions() {
+                eprintln!(
+                    "luca-artifacts: failed to revoke previews during workspace switch: {error}"
+                );
+            }
         }
 
         // Keep the backend-side reconcile guard aligned with the frontend

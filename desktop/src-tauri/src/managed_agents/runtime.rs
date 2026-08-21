@@ -83,6 +83,8 @@ fn native_runtime_env_policy(
 
 #[derive(Debug)]
 struct ManagedSigningBrokerOwner {
+    owner_pubkey: String,
+    session_epoch: luca_protocol::SafeU53,
     shutdown: crate::luca::signing_transport::DesktopBrokerShutdown,
     handle: JoinHandle<()>,
 }
@@ -161,6 +163,13 @@ pub(crate) fn join_managed_signing_broker(resident_pubkey: &str) -> Result<(), S
         .map_err(|_| "managed signing broker registry is unavailable".to_owned())?
         .remove(resident_pubkey);
     if let Some(owner) = owner {
+        if let Err(error) = crate::commands::stop_preview_sessions_for_resident_epoch(
+            &owner.owner_pubkey,
+            resident_pubkey,
+            owner.session_epoch,
+        ) {
+            eprintln!("luca-artifacts: failed to revoke resident previews: {error}");
+        }
         let shutdown_result = owner.shutdown.shutdown();
         let join_result = owner
             .handle
@@ -2347,7 +2356,7 @@ pub fn spawn_agent_child(
     })?;
     let child_pid = child.id();
     let binding = crate::luca::local_broker_session::LocalBrokerSessionBinding {
-        owner_pubkey,
+        owner_pubkey: owner_pubkey.clone(),
         resident_pubkey: resident_pubkey.clone(),
         acp_pid: child_pid,
         session_epoch,
@@ -2465,6 +2474,8 @@ pub fn spawn_agent_child(
     if let Err(owner) = register_managed_signing_broker(
         &record.pubkey,
         ManagedSigningBrokerOwner {
+            owner_pubkey: owner_pubkey.as_str().to_owned(),
+            session_epoch,
             shutdown: broker_shutdown,
             handle: broker_thread,
         },

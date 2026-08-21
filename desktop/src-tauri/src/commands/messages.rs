@@ -665,6 +665,18 @@ pub async fn cancel_managed_turn(
         );
         (cancellation, dispatch_receipt_id, session_epoch)
     };
+    if let Err(error) = crate::commands::artifact_preview::stop_preview_sessions_for_exact_dispatch(
+        &owner_pubkey,
+        &conversation_id,
+        &resident_pubkey,
+        active_session_epoch,
+        &active_dispatch_receipt_id,
+    ) {
+        // Preview cleanup is an independent capability boundary. A poisoned
+        // preview registry must not prevent the already-durable cancellation
+        // from continuing through the existing ACP watchdog path.
+        eprintln!("luca-artifacts: failed to revoke cancelled-turn previews: {error}");
+    }
     let cancellation = match cancellation {
         crate::luca::managed_dispatch_store::ExactDispatchCancellationResult::Cancelled(value) => {
             value
