@@ -49,8 +49,7 @@ function useLoop(playing: boolean, speed: number) {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, speed]);
+  }, [playing, speed, t]);
   let acc = 0;
   for (const step of PHASES) {
     if (t < acc + step.ms) {
@@ -254,6 +253,7 @@ function SpecimenB({ phase, progress }: LoopState) {
           <span
             className="inline-flex h-6 items-center gap-1"
             aria-label="thinking"
+            role="status"
           >
             {[0, 1, 2].map((i) => (
               <motion.span

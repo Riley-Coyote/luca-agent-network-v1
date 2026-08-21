@@ -604,20 +604,6 @@ fn collect_extra_files(dir: &Path) -> Vec<ExtraFile> {
     found
 }
 
-/// Which files back this resident's documents.
-///
-/// A record bound to a native runtime whose binding tells us where its files
-/// live answers [`DocumentsSource::Native`]: the kinds resolve to that
-/// runtime's own files (Hermes profile, OpenClaw workspace), read and written
-/// in place, and there is no assembly because the runtime composes its own
-/// prompt. Everything else is the resident's folder.
-pub(crate) fn source_for(record: Option<&ManagedAgentRecord>) -> DocumentsSource {
-    match native_layout_for(record) {
-        Some(_) => DocumentsSource::Native,
-        None => DocumentsSource::Folder,
-    }
-}
-
 /// The native layout behind a record, when it has one we can locate.
 pub(crate) fn native_layout_for(
     record: Option<&ManagedAgentRecord>,

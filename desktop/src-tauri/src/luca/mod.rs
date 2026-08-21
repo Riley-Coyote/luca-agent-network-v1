@@ -4,13 +4,7 @@
 // rotation, and relay APIs for the deferred long-range roadmap. Keep their
 // dead-code allowance local instead of weakening the desktop crate lint gate.
 #[cfg(unix)]
-pub(crate) mod communication_action_backend;
-pub(crate) mod communication_action_outbox;
-#[cfg(unix)]
-pub(crate) mod communication_action_publisher;
-#[cfg(unix)]
 pub(crate) mod communication_bridge;
-pub(crate) mod communication_event_vault;
 pub(crate) mod communication_turn_registry;
 pub(crate) mod connected_brain;
 #[allow(dead_code)]

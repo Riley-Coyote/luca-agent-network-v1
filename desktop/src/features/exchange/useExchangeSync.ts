@@ -13,7 +13,10 @@ import {
 } from "@/shared/api/exchanges";
 import { relayClient } from "@/shared/api/relayClient";
 import type { RelayEvent } from "@/shared/api/types";
-import { KIND_LUCA_EXCHANGE } from "@/shared/constants/kinds";
+import {
+  KIND_LUCA_EXCHANGE,
+  KIND_STREAM_MESSAGE,
+} from "@/shared/constants/kinds";
 
 const EXCHANGE_SYNC_KINDS = [KIND_LUCA_EXCHANGE];
 const EXCHANGE_BACKFILL_LIMIT = 200;
@@ -82,6 +85,35 @@ export function startExchangeSync(
       else unsub = dispose;
     });
 
+  // A paused exchange writes no new head. Watch turn-tagged messages across
+  // every room so a background room is re-read as soon as its bucket fills.
+  const pendingTurnRefreshes = new Map<string, Promise<void>>();
+  const dirtyTurnRefreshes = new Set<string>();
+  const refreshFromTurn = (exchangeId: string) => {
+    if (pendingTurnRefreshes.has(exchangeId)) {
+      dirtyTurnRefreshes.add(exchangeId);
+      return;
+    }
+
+    const pending = (async () => {
+      do {
+        dirtyTurnRefreshes.delete(exchangeId);
+        await refreshExchange(exchangeId);
+      } while (dirtyTurnRefreshes.has(exchangeId));
+    })().finally(() => pendingTurnRefreshes.delete(exchangeId));
+    pendingTurnRefreshes.set(exchangeId, pending);
+  };
+  let unsubTurns: (() => Promise<void>) | null = null;
+  void relayClient
+    .subscribeLive({ kinds: [KIND_STREAM_MESSAGE], limit: 0 }, (event) => {
+      const exchangeId = exchangeIdFromTags(event.tags);
+      if (exchangeId) refreshFromTurn(exchangeId);
+    })
+    .then((dispose) => {
+      if (onCancelled()) void dispose();
+      else unsubTurns = dispose;
+    });
+
   // Stop and Go re-sign the head locally; the backend hands back the settled
   // snapshot on the same event, so the strip does not wait for the relay echo.
   let unlistenUpdates: (() => void) | null = null;
@@ -99,7 +131,11 @@ export function startExchangeSync(
 
   return async () => {
     unlistenUpdates?.();
-    if (unsub) await unsub();
+    await Promise.all([
+      unsub?.(),
+      unsubTurns?.(),
+      ...pendingTurnRefreshes.values(),
+    ]);
   };
 }
 

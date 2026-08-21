@@ -243,9 +243,7 @@ test("start on open promises a fresh relaunch session and preserves identity", a
     .getByRole("navigation", { name: "Agent workspace" })
     .getByRole("button", { name: "Settings" })
     .click();
-  await expect(
-    page.getByText(/Starts when Polyphonic opens/),
-  ).toBeVisible();
+  await expect(page.getByText(/Starts when Polyphonic opens/)).toBeVisible();
   const startOnOpen = page.getByRole("switch", {
     name: "Wakes with the app",
   });

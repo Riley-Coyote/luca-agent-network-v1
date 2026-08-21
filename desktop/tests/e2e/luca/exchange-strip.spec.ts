@@ -264,3 +264,48 @@ test("a volley never badges its room, but a paused exchange does", async ({
   await page.waitForTimeout(1000);
   expect(await appBadgeState(page)).toEqual(baseline);
 });
+
+test("a background-room exchange badges when unseen turns pause it", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    managedAgents: residents(["general", "announcements"]),
+    exchanges: [
+      {
+        exchangeId: EXCHANGE_ID,
+        owner: OWNER_PUBKEY,
+        members: [LUCA.pubkey, VEKTOR.pubkey],
+        channelName: "announcements",
+        openedBy: LUCA.pubkey,
+        bucket: 3,
+        spent: 1,
+      },
+    ],
+  });
+  await page.goto("/?e2e=mock");
+  await page.getByTestId("channel-general").click();
+  await expect(page.getByTestId("chat-title")).toHaveText("general");
+  await waitForMockLiveSubscription(page, "announcements");
+  await expect(page.getByTestId("channel-unread-announcements")).toHaveCount(0);
+
+  await page.evaluate(
+    ({ exchangeId, luca, vektor }) => {
+      window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+        channelName: "announcements",
+        content: "Checking the runtime boundary.",
+        pubkey: vektor,
+        extraTags: [["exchange", exchangeId, "2"]],
+      });
+      window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+        channelName: "announcements",
+        content: "The boundary holds.",
+        pubkey: luca,
+        extraTags: [["exchange", exchangeId, "3"]],
+      });
+    },
+    { exchangeId: EXCHANGE_ID, luca: LUCA.pubkey, vektor: VEKTOR.pubkey },
+  );
+
+  await expect(page.getByTestId("chat-title")).toHaveText("general");
+  await expect(page.getByTestId("channel-unread-announcements")).toBeVisible();
+});

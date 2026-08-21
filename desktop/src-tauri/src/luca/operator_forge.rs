@@ -577,8 +577,10 @@ mod tests {
 
     #[test]
     fn legacy_schema_zero_is_upgraded_without_losing_preferences() {
-        let mut store = OperatorForgeStoreV1::default();
-        store.schema_version = 0;
+        let mut store = OperatorForgeStoreV1 {
+            schema_version: 0,
+            ..Default::default()
+        };
         let mut preferences = OperatorPreferencesV1::new("owner".into());
         preferences.schema_version = 0;
         preferences.default_runtime_target = Some(AgentRuntimeTargetV1::Managed {
@@ -602,8 +604,10 @@ mod tests {
 
     #[test]
     fn future_operator_store_schema_still_fails_closed() {
-        let mut store = OperatorForgeStoreV1::default();
-        store.schema_version = SCHEMA_VERSION + 1;
+        let store = OperatorForgeStoreV1 {
+            schema_version: SCHEMA_VERSION + 1,
+            ..Default::default()
+        };
 
         assert_eq!(
             migrate_store(store).unwrap_err(),
