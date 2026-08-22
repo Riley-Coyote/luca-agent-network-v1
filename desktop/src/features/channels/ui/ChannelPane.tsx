@@ -215,6 +215,13 @@ export const ChannelPane = React.memo(function ChannelPane({
   // Live exchanges belonging to this room, plus a re-read of the relay's spent
   // count whenever a turn-tagged message lands here.
   const roomExchanges = useRoomExchanges(activeChannelId);
+  // Open exchanges are ordinary resident activity and already remain available
+  // in the conversation details. The composer should interrupt the owner only
+  // when an exchange has paused and genuinely needs a decision.
+  const exchangesNeedingDecision = React.useMemo(
+    () => roomExchanges.filter((exchange) => exchange.phase === "paused"),
+    [roomExchanges],
+  );
   useExchangeTurnRefresh(messages);
   const activeChannelIdRef = React.useRef(activeChannelId);
   const channelPaneMountedRef = React.useRef(false);
@@ -951,9 +958,9 @@ export const ChannelPane = React.memo(function ChannelPane({
                   ref={composerWrapperRef}
                 >
                   <div className="pointer-events-none">
-                    {roomExchanges.length > 0 ? (
+                    {exchangesNeedingDecision.length > 0 ? (
                       <div className="luca-measure pointer-events-auto mb-2 grid gap-1">
-                        {roomExchanges.map((exchange) => (
+                        {exchangesNeedingDecision.map((exchange) => (
                           <ExchangeStrip
                             exchange={exchange}
                             key={exchange.record.exchangeId}

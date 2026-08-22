@@ -93,24 +93,21 @@ async function resolveExchangeCalls(page: Page) {
   );
 }
 
-test("the strip counts the bucket from the relay and pauses at the cap", async ({
+test("the composer only surfaces an exchange when it needs the owner", async ({
   page,
 }) => {
   await openGeneral(page, [openExchange()]);
 
   const strip = page.getByTestId("exchange-strip");
-  await expect(strip).toBeVisible();
-  await expect(strip).toContainText("Luca");
-  await expect(strip).toContainText("Vektor");
-  await expect(page.getByTestId("exchange-strip-count")).toHaveText("1 of 3");
-  // Nothing to decide while turns remain.
-  await expect(page.getByTestId("exchange-stop")).toHaveCount(0);
-  await expect(page.getByTestId("exchange-go")).toHaveCount(0);
+  await expect(strip).toHaveCount(0);
 
   await spendTheBucket(page);
 
-  await expect(page.getByTestId("exchange-strip-count")).toHaveText(
-    "Paused at 3 of 3",
+  await expect(strip).toBeVisible();
+  await expect(strip).toContainText("Luca");
+  await expect(strip).toContainText("Vektor");
+  await expect(page.getByTestId("exchange-strip-status")).toHaveText(
+    "Waiting for you",
   );
   await expect(strip).toHaveAttribute("data-exchange-phase", "paused");
   await expect(page.getByTestId("exchange-stop")).toBeVisible();
@@ -127,11 +124,7 @@ test("Let them go on grants three more turns", async ({ page }) => {
   await expect
     .poll(async () => resolveExchangeCalls(page))
     .toEqual([{ exchangeId: EXCHANGE_ID, action: "go" }]);
-  await expect(page.getByTestId("exchange-strip-count")).toHaveText("3 of 6");
-  await expect(page.getByTestId("exchange-strip")).toHaveAttribute(
-    "data-exchange-phase",
-    "open",
-  );
+  await expect(page.getByTestId("exchange-strip")).toHaveCount(0);
 });
 
 test("Stop here closes the exchange and the strip leaves the room", async ({
@@ -219,13 +212,13 @@ test("a placed exchange's note carries a door to the pair DM", async ({
 test("no signature raises the ceiling", async ({ page }) => {
   await openGeneral(page, [openExchange({ bucket: 10, spent: 10 })]);
 
-  await expect(page.getByTestId("exchange-strip-count")).toHaveText(
-    "Paused at 10 of 10",
+  await expect(page.getByTestId("exchange-strip-status")).toHaveText(
+    "Conversation limit reached",
   );
   await expect(page.getByTestId("exchange-stop")).toBeEnabled();
   const go = page.getByTestId("exchange-go");
   await expect(go).toBeDisabled();
-  await expect(go).toHaveAttribute("title", "at the ceiling");
+  await expect(go).toHaveAttribute("title", "Conversation limit reached");
 });
 
 /** The Luca sidebar shows one dot per unread room; the count lives on the app

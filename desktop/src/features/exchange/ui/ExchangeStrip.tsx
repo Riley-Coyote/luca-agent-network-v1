@@ -34,13 +34,13 @@ export type ExchangeStripProps = {
 };
 
 /**
- * One line for one live exchange, pinned above the composer beside the
- * permission card. It renders the object, never a local tally: `spent` and
- * `phase` come from the relay through `get_exchange`.
+ * One decision line for an exchange that has paused, pinned above the composer
+ * beside the permission card. Open exchanges stay in conversation details;
+ * they do not interrupt the owner with a technical turn counter.
  *
- * At the cap the line says so and hands the owner the only two decisions there
- * are — Stop here, or let them go on. "Let them go on" is unavailable at the
- * ceiling because no signature raises it.
+ * The line hands the owner the only two decisions there are — Stop here, or let
+ * them continue. Continuing is unavailable at the ceiling because no signature
+ * raises it.
  */
 export function ExchangeStrip({
   exchange,
@@ -48,8 +48,7 @@ export function ExchangeStrip({
   residentPersonaIdLookup,
 }: ExchangeStripProps) {
   const [resolving, setResolving] = React.useState<"stop" | "go" | null>(null);
-  const { record, spent, phase } = exchange;
-  const paused = phase === "paused";
+  const { record, phase } = exchange;
   const atCeiling = record.bucket >= EXCHANGE_BUCKET_CEILING;
   const names = record.members.map((pubkey) =>
     resolveUserLabel({ profiles, pubkey }),
@@ -75,7 +74,7 @@ export function ExchangeStrip({
 
   return (
     <section
-      aria-label={`Exchange between ${names.join(" and ")}`}
+      aria-label={`${names.join(" and ")} are waiting for your decision`}
       className="luca-exchange-strip flex min-h-9 w-full items-center gap-2.5 rounded-lg bg-plate-opaque px-3 py-1.5"
       data-exchange-phase={phase}
       data-testid="exchange-strip"
@@ -98,37 +97,33 @@ export function ExchangeStrip({
       <span
         className={cn(
           "shrink-0 text-2xs leading-none tabular-nums",
-          paused ? "text-ink-muted" : "text-ink-faint",
+          atCeiling ? "text-ink-muted" : "text-ink-faint",
         )}
-        data-testid="exchange-strip-count"
+        data-testid="exchange-strip-status"
       >
-        {paused
-          ? `Paused at ${spent} of ${record.bucket}`
-          : `${spent} of ${record.bucket}`}
+        {atCeiling ? "Conversation limit reached" : "Waiting for you"}
       </span>
-      {paused ? (
-        <span className="flex shrink-0 items-center gap-1.5">
-          <button
-            className={BUTTON_CLASS}
-            data-testid="exchange-stop"
-            disabled={resolving !== null}
-            onClick={() => void decide("stop")}
-            type="button"
-          >
-            Stop here
-          </button>
-          <button
-            className={BUTTON_CLASS}
-            data-testid="exchange-go"
-            disabled={resolving !== null || atCeiling}
-            onClick={() => void decide("go")}
-            title={atCeiling ? "at the ceiling" : undefined}
-            type="button"
-          >
-            Let them go on
-          </button>
-        </span>
-      ) : null}
+      <span className="flex shrink-0 items-center gap-1.5">
+        <button
+          className={BUTTON_CLASS}
+          data-testid="exchange-stop"
+          disabled={resolving !== null}
+          onClick={() => void decide("stop")}
+          type="button"
+        >
+          Stop here
+        </button>
+        <button
+          className={BUTTON_CLASS}
+          data-testid="exchange-go"
+          disabled={resolving !== null || atCeiling}
+          onClick={() => void decide("go")}
+          title={atCeiling ? "Conversation limit reached" : undefined}
+          type="button"
+        >
+          Let them continue
+        </button>
+      </span>
     </section>
   );
 }
