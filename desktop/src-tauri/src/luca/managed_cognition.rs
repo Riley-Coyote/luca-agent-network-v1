@@ -1,8 +1,10 @@
 //! Trusted desktop endpoint for private resident continuity cognition.
 
+use std::sync::{Arc, Mutex, OnceLock};
+
+#[cfg(unix)]
 use std::{
     io::{BufRead, BufReader, Read, Write},
-    sync::{Arc, Mutex, OnceLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -34,6 +36,7 @@ impl std::fmt::Display for ManagedCognitionError {
 
 impl std::error::Error for ManagedCognitionError {}
 
+#[cfg(unix)]
 struct Channel {
     reader: BufReader<std::os::unix::net::UnixStream>,
     writer: std::os::unix::net::UnixStream,
@@ -43,6 +46,7 @@ pub(crate) struct ManagedCognitionClient {
     resident_pubkey: luca_protocol::Hex64,
     session_epoch: SafeU53,
     binding_ref: Sha256Ref,
+    #[cfg(unix)]
     channel: Mutex<Channel>,
 }
 
@@ -57,6 +61,7 @@ impl std::fmt::Debug for ManagedCognitionClient {
     }
 }
 
+#[cfg(unix)]
 #[derive(Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 enum WireReply {
@@ -180,6 +185,7 @@ fn request_private(
 }
 
 impl ManagedCognitionClient {
+    #[cfg(unix)]
     fn request(
         &self,
         request: &ResidentPrivateCognitionRequestV1,
@@ -246,8 +252,17 @@ impl ManagedCognitionClient {
             WireReply::Unavailable { .. } => Err(ManagedCognitionError::Unavailable),
         }
     }
+
+    #[cfg(not(unix))]
+    fn request(
+        &self,
+        _request: &ResidentPrivateCognitionRequestV1,
+    ) -> Result<ResidentPrivateCognitionResultV1, ManagedCognitionError> {
+        Err(ManagedCognitionError::Unavailable)
+    }
 }
 
+#[cfg(unix)]
 fn map_io(error: std::io::Error) -> ManagedCognitionError {
     if matches!(
         error.kind(),
@@ -259,6 +274,7 @@ fn map_io(error: std::io::Error) -> ManagedCognitionError {
     }
 }
 
+#[cfg(unix)]
 fn unix_time_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

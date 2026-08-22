@@ -89,6 +89,7 @@ fn restart_dispatch_terminalization_requires_fully_terminal_startup_proof() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn managed_signing_registry_refuses_overlapping_outbox_owner() {
     let resident = format!("test-resident-{}", uuid::Uuid::new_v4());

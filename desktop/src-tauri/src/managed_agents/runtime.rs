@@ -264,12 +264,14 @@ pub(crate) fn join_managed_signing_broker(resident_pubkey: &str) -> Result<(), S
         ) {
             eprintln!("luca-artifacts: failed to revoke resident previews: {error}");
         }
+        #[cfg(unix)]
         let shutdown_result = owner.shutdown.shutdown();
         let join_result = owner
             .handle
             .join()
             .map_err(|_| "managed signing broker thread panicked".to_owned());
         join_result?;
+        #[cfg(unix)]
         shutdown_result
             .map_err(|error| format!("failed to stop managed signing broker: {error}"))?;
     }
@@ -1928,6 +1930,24 @@ fn assembled_documents_prompt(app: &AppHandle, record: &ManagedAgentRecord) -> O
 /// `owner_hex`: the workspace owner's pubkey, used as a fallback for legacy
 /// records that have no NIP-OA `auth_tag`. See `build_respond_to_env`.
 pub fn spawn_agent_child(
+    app: &AppHandle,
+    record: &ManagedAgentRecord,
+    owner_hex: Option<&str>,
+) -> Result<crate::managed_agents::ManagedAgentProcess, String> {
+    #[cfg(unix)]
+    {
+        spawn_agent_child_unix(app, record, owner_hex)
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = (app, record, owner_hex);
+        Err("managed residents require the device-local Unix transport".to_owned())
+    }
+}
+
+#[cfg(unix)]
+fn spawn_agent_child_unix(
     app: &AppHandle,
     record: &ManagedAgentRecord,
     owner_hex: Option<&str>,
