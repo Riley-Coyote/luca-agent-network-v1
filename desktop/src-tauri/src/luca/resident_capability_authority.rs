@@ -660,7 +660,8 @@ mod tests {
 
     #[test]
     fn storage_location_failure_cannot_expose_path_or_os_error() {
-        let raw = "failed to create /Users/owner/Library/Application Support/Luca: permission denied";
+        let raw =
+            "failed to create /Users/owner/Library/Application Support/Luca: permission denied";
         let error = redact_store_path_result::<std::path::PathBuf>(Err(raw.into()))
             .expect_err("synthetic base-directory failure");
         assert_eq!(error, STORE_UNAVAILABLE);

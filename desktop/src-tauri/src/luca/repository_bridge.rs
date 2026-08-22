@@ -687,9 +687,7 @@ fn current_managed_runtime_family(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        return match crate::managed_agents::known_acp_runtime(command)
-            .map(|runtime| runtime.id)
-        {
+        return match crate::managed_agents::known_acp_runtime(command).map(|runtime| runtime.id) {
             Some("claude") => "claude_code",
             Some("codex") => "codex",
             _ => "custom",

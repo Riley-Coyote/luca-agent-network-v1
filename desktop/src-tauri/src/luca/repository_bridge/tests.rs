@@ -7,19 +7,11 @@ use super::*;
 #[test]
 fn deceptive_custom_commands_do_not_claim_a_supported_runtime() {
     assert_eq!(
-        current_managed_runtime_family(
-            Some("codex"),
-            Some("my-codex-wrapper"),
-            None,
-        ),
+        current_managed_runtime_family(Some("codex"), Some("my-codex-wrapper"), None,),
         "custom"
     );
     assert_eq!(
-        current_managed_runtime_family(
-            Some("claude"),
-            Some("claude-helper-proxy"),
-            None,
-        ),
+        current_managed_runtime_family(Some("claude"), Some("claude-helper-proxy"), None,),
         "custom"
     );
 }

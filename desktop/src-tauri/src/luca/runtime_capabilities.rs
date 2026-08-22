@@ -136,7 +136,9 @@ mod tests {
             assert_eq!(manifest.family, family);
             assert!(!manifest.native_capabilities.is_empty());
             assert!(!manifest.general_command_fallback);
-            assert!(manifest.typed_harness_operations.contains(&"runtime_status"));
+            assert!(manifest
+                .typed_harness_operations
+                .contains(&"runtime_status"));
             assert_eq!(
                 manifest.full_access_translation,
                 "luca_scoped_operations_only_native_policy_unchanged"
