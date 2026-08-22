@@ -6,6 +6,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   writeFileSync,
 } from "node:fs";
@@ -19,6 +20,11 @@ test.setTimeout(240_000);
 
 const APP_BUNDLE = process.env.LUCA_ARTIFACT_NATIVE_APP ?? "";
 const APP_EXECUTABLE = join(APP_BUNDLE, "Contents/MacOS/buzz-desktop");
+const APP_BUILD_RECEIPT = join(
+  APP_BUNDLE,
+  "Contents/Resources/luca-artifact-native-build.json",
+);
+const ARTIFACT_SECURITY_BUNDLE_ID = "com.luca.agent-network.artifact-security";
 const BLOCKED_VECTORS = [
   "FETCH",
   "XHR",
@@ -154,16 +160,8 @@ function createRuntimeDiscoveryFixtures(root: string) {
 }
 
 async function launchNative(root: string, runtimeBin: string) {
-  const appBundle = join(root, "artifact-security-Luca.app");
-  shell("cp", ["-cR", APP_BUNDLE, appBundle]);
-  shell("/usr/libexec/PlistBuddy", [
-    "-c",
-    `Set :CFBundleIdentifier com.luca.agent-network.artifact-security.${randomUUID()}`,
-    join(appBundle, "Contents/Info.plist"),
-  ]);
-  const appExecutable = realpathSync(
-    join(appBundle, "Contents/MacOS/buzz-desktop"),
-  );
+  const appBundle = realpathSync(APP_BUNDLE);
+  const appExecutable = realpathSync(APP_EXECUTABLE);
   const home = join(root, "home");
   const keyringService = `buzz-desktop-dev.artifact-security-${randomUUID()}`;
   const stdoutPath = join(root, "native.stdout.log");
@@ -596,8 +594,36 @@ test.beforeAll(() => {
   ).not.toBe("");
   expect(
     existsSync(APP_EXECUTABLE),
-    "LUCA_ARTIFACT_NATIVE_APP must point to the exact-revision Luca.app",
+    "LUCA_ARTIFACT_NATIVE_APP must point to the dedicated exact-revision Artifact Security app",
   ).toBe(true);
+  expect(
+    existsSync(APP_BUILD_RECEIPT),
+    "the dedicated Artifact Security app must contain its exact-source build receipt",
+  ).toBe(true);
+
+  const bundleIdentifier = shell("/usr/libexec/PlistBuddy", [
+    "-c",
+    "Print :CFBundleIdentifier",
+    join(APP_BUNDLE, "Contents/Info.plist"),
+  ]);
+  expect(bundleIdentifier).toBe(ARTIFACT_SECURITY_BUNDLE_ID);
+  expect(
+    shell("/usr/libexec/PlistBuddy", [
+      "-c",
+      "Print :LucaArtifactNativeSecurityBundle",
+      join(APP_BUNDLE, "Contents/Info.plist"),
+    ]),
+  ).toBe("true");
+
+  shell("codesign", ["--verify", "--deep", "--strict", APP_BUNDLE]);
+  const receipt = JSON.parse(readFileSync(APP_BUILD_RECEIPT, "utf8")) as {
+    bundleIdentifier?: string;
+    sourceRevision?: string;
+    worktreeClean?: boolean;
+  };
+  expect(receipt.bundleIdentifier).toBe(ARTIFACT_SECURITY_BUNDLE_ID);
+  expect(receipt.sourceRevision).toBe(shell("git", ["rev-parse", "HEAD"]));
+  expect(receipt.worktreeClean).toBe(true);
 });
 
 test.afterAll(async () => {

@@ -1,0 +1,9 @@
+{
+  "identifier": "com.luca.agent-network.artifact-security",
+  "productName": "Luca Artifact Security",
+  "bundle": {
+    "macOS": {
+      "infoPlist": "ArtifactSecurityInfo.plist"
+    }
+  }
+}
