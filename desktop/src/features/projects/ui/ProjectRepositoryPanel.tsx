@@ -583,14 +583,14 @@ function FileContentPanel({
           const nextPath = directorySegments.slice(0, index + 1).join("/");
           return (
             <React.Fragment key={nextPath}>
-              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
               <BreadcrumbButton onClick={() => onOpenPath(nextPath)}>
                 {segment}
               </BreadcrumbButton>
             </React.Fragment>
           );
         })}
-        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
         <FileDiff className="h-4 w-4 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate px-1.5 py-1 font-mono text-xs text-foreground">
           {fileName}
@@ -785,7 +785,7 @@ export function RepositoryFilesPanel({
         )}
         {sourceControls && pathSegments.length > 0 ? (
           <>
-            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
             <BreadcrumbButton onClick={() => setCurrentPath("")}>
               Files
             </BreadcrumbButton>
@@ -795,7 +795,7 @@ export function RepositoryFilesPanel({
           const nextPath = pathSegments.slice(0, index + 1).join("/");
           return (
             <React.Fragment key={nextPath}>
-              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
               <BreadcrumbButton onClick={() => setCurrentPath(nextPath)}>
                 {segment}
               </BreadcrumbButton>

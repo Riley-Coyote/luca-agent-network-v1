@@ -925,7 +925,7 @@ function WelcomeState({
       data-testid="conversational-onboarding-welcome"
     >
       <div data-testid="prototype-step-origin">
-        <p className="mb-3 text-2xs font-semibold tracking-[0.09em] text-[var(--prototype-muted)] uppercase">
+        <p className="mb-3 text-2xs font-semibold tracking-caps text-[var(--prototype-muted)] uppercase">
           Your personal agent home
         </p>
         <h1
@@ -1298,7 +1298,7 @@ function ProposalCard() {
             A research partner named Atlas, using Codex on this Mac.
           </p>
         </div>
-        <span className="rounded-full bg-[var(--prototype-field)] px-2 py-1 text-badge font-medium tracking-[0.06em] text-[var(--prototype-muted)] uppercase">
+        <span className="rounded-full bg-[var(--prototype-field)] px-2 py-1 text-badge font-medium tracking-caps text-[var(--prototype-muted)] uppercase">
           Review
         </span>
       </div>
@@ -1400,7 +1400,7 @@ function ConversationState({
             </button>
           ))}
         </nav>
-        <p className="mb-2 mt-7 px-2 text-badge font-medium tracking-[0.09em] text-[var(--prototype-muted)] uppercase">
+        <p className="mb-2 mt-7 px-2 text-badge font-medium tracking-caps text-[var(--prototype-muted)] uppercase">
           Direct messages
         </p>
         <button

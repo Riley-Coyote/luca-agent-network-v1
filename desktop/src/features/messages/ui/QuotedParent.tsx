@@ -58,11 +58,11 @@ export function QuotedParent({
         {/* Normal case, not letterspaced caps. The quote is a fragment of
             conversation, and caps make it read as a system label — which is
             exactly what every messenger avoids here. */}
-        <span className="block truncate text-xs font-medium leading-4 text-muted-foreground/80">
+        <span className="block truncate text-xs font-medium leading-4 text-ink-faint">
           {resolved ? author : "message unavailable"}
         </span>
         {resolved ? (
-          <span className="line-clamp-2 block text-sm leading-5 text-muted-foreground/60 transition-colors group-hover/quote:text-muted-foreground/80">
+          <span className="line-clamp-2 block text-sm leading-5 text-ink-faint transition-colors group-hover/quote:text-ink-faint">
             {body}
           </span>
         ) : null}

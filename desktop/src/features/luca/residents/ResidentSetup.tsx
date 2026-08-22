@@ -72,7 +72,7 @@ export function ResidentSetup({
     >
       <div className="flex flex-col gap-5 border-b border-border/60 px-5 py-5 sm:flex-row sm:items-start sm:justify-between sm:px-6">
         <div className="max-w-2xl space-y-2">
-          <div className="flex items-center gap-2 font-mono text-2xs uppercase tracking-[0.16em] text-muted-foreground">
+          <div className="flex items-center gap-2 font-mono text-2xs uppercase tracking-caps-wide text-muted-foreground">
             <ShieldCheck aria-hidden="true" className="size-3.5" />
             Personal agent network
           </div>

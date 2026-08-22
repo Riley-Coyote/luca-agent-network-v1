@@ -60,7 +60,7 @@ export function OnboardingChrome({
         data-brand={brand}
         data-testid="onboarding-logo"
       >
-        <span className="font-mono text-xs font-medium uppercase tracking-[0.22em]">
+        <span className="font-mono text-xs font-medium uppercase tracking-caps-wider">
           Polyphonic
         </span>
       </span>

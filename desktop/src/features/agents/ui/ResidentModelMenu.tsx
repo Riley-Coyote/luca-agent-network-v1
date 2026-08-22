@@ -84,7 +84,7 @@ export function ResidentModelMenu({
             className={cn(
               variant === "field"
                 ? "flex h-10 w-full items-center justify-between gap-3 rounded-md border border-border/70 bg-foreground/[0.03] px-3 text-left text-sm leading-5 text-foreground transition-colors hover:bg-foreground/[0.05] focus-visible:border-foreground/50 focus-visible:outline-hidden active:bg-foreground/[0.06]"
-                : "inline-flex max-w-full items-center gap-1 rounded-sm text-sm leading-5 text-foreground/85 transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden",
+                : "inline-flex max-w-full items-center gap-1 rounded-sm text-sm leading-5 text-ink-muted transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden",
               "disabled:cursor-default disabled:opacity-60",
             )}
             data-testid={testId}
@@ -95,7 +95,7 @@ export function ResidentModelMenu({
             <span className="min-w-0 flex-1 truncate">{currentLabel}</span>
             <ChevronDown
               className={cn(
-                "shrink-0 text-muted-foreground/60",
+                "shrink-0 text-ink-faint",
                 variant === "field" ? "h-4 w-4" : "h-3.5 w-3.5",
               )}
             />
@@ -137,9 +137,7 @@ export function ResidentModelMenu({
         </DropdownMenuContent>
       </DropdownMenu>
       {variant === "field" ? (
-        <p className="mt-2 text-2xs leading-4 text-muted-foreground/70">
-          {helper}
-        </p>
+        <p className="mt-2 text-2xs leading-4 text-ink-faint">{helper}</p>
       ) : null}
     </div>
   );

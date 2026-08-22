@@ -45,7 +45,7 @@ export function TodoToolSummary({
         verb={actionLabel.verb}
       />
       {duration ? (
-        <span className="shrink-0 text-xs text-muted-foreground/60 group-open:text-foreground">
+        <span className="shrink-0 text-xs text-ink-faint group-open:text-foreground">
           {duration}
         </span>
       ) : null}
@@ -63,7 +63,7 @@ export function TodoToolSummary({
         ) : (
           <p
             className={cn(
-              "text-muted-foreground/80",
+              "text-ink-faint",
               isCompactPreview ? "text-xs" : "text-sm",
             )}
           >

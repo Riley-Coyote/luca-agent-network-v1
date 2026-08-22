@@ -18,12 +18,10 @@ export function TimelineRowShell({
 }) {
   return (
     <div
-      className={cn(
-        "mx-auto w-full max-w-[48rem] px-0",
-        useContentVisibility && "timeline-row-cv",
-      )}
+      className={cn("px-0", useContentVisibility && "timeline-row-cv")}
       data-luca-reading-plane
       data-timeline-item-key={getTimelineItemKey(item)}
+      data-visit-active-guests={item.activeVisitGuests?.join(",")}
       data-visit-span={item.visitSpan}
       data-visit-threshold={item.visitThreshold}
       style={useContentVisibility ? timelineRowReserveStyle(item) : undefined}

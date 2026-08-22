@@ -178,7 +178,7 @@ function ProjectDetailsDialog({
 
             <dl className="grid gap-2 sm:grid-cols-3">
               <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
-                <dt className="text-2xs uppercase tracking-[0.12em] text-muted-foreground">
+                <dt className="text-2xs uppercase tracking-caps-wide text-muted-foreground">
                   Rooms
                 </dt>
                 <dd className="mt-1 text-sm text-foreground">
@@ -186,7 +186,7 @@ function ProjectDetailsDialog({
                 </dd>
               </div>
               <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
-                <dt className="text-2xs uppercase tracking-[0.12em] text-muted-foreground">
+                <dt className="text-2xs uppercase tracking-caps-wide text-muted-foreground">
                   Sources
                 </dt>
                 <dd className="mt-1 text-sm text-foreground">
@@ -196,7 +196,7 @@ function ProjectDetailsDialog({
                 </dd>
               </div>
               <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
-                <dt className="text-2xs uppercase tracking-[0.12em] text-muted-foreground">
+                <dt className="text-2xs uppercase tracking-caps-wide text-muted-foreground">
                   Context
                 </dt>
                 <dd className="mt-1 text-sm text-foreground">
@@ -391,7 +391,7 @@ export function ProjectRoomNavigator({
                   onClick={() => onSelectRoom(channel.id)}
                   type="button"
                 >
-                  <span className="flex size-6 shrink-0 items-center justify-center text-muted-foreground/60">
+                  <span className="flex size-6 shrink-0 items-center justify-center text-ink-faint">
                     <ConversationTypeIcon
                       channel={channel}
                       className="size-4"
@@ -409,7 +409,7 @@ export function ProjectRoomNavigator({
                       >
                         {channel.name}
                       </span>
-                      <span className="shrink-0 text-2xs tabular-nums text-muted-foreground/65">
+                      <span className="shrink-0 text-2xs tabular-nums text-ink-faint">
                         {working
                           ? working.agentCount > 1
                             ? `${working.agentCount} working`

@@ -1,0 +1,10 @@
+reviewer: authority_review
+mode: read-only
+result: PASS
+verified:
+- frozen counts are 56 to 57 local branches, 18 to 21 origin refs, 47 to 48 worktrees, and 14 pre-existing dirty worktrees
+- later Artifact GA5 activity is excluded from the Wave 0 snapshot
+- rollback resolves to origin/archive/luca-v1.1-pre-consolidation-2026-08-21 at bef2e6c0
+- runtime-owned configuration policy is consistent across authority and control documents
+- train start is codex/visits at 9c9ef0df and bef2e6c0 is an ancestor
+- YAML parsing, program-control validation, and diff whitespace checks pass

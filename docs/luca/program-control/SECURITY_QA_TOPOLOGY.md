@@ -19,7 +19,9 @@ Required because functionality would otherwise be unsafe or dishonest:
 
 - stable resident identity and host-only signing;
 - no model/worker access to durable keys or native credentials;
-- native Hermes/OpenClaw configuration remains byte-stable;
+- discovery leaves native configuration byte-stable; explicit owner-approved
+  writes are journaled, use only the runtime's supported native store, expose no
+  credential value to Luca, and leave unrelated state byte-stable;
 - authorization/membership/recipient checks for the existing operation;
 - narrow confirmations only at the charter boundary;
 - cancellation/restart/duplicate/exactly-once behavior;

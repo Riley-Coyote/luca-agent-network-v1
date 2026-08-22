@@ -85,7 +85,7 @@ export function ConversationPresenceRail({
                 size={22}
               />
               {visiting ? (
-                <span className="text-3xs uppercase tracking-[0.08em] text-muted-foreground">
+                <span className="text-3xs uppercase tracking-caps text-muted-foreground">
                   visiting
                 </span>
               ) : null}

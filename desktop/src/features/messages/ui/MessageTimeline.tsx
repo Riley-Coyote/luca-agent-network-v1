@@ -7,6 +7,7 @@ import {
   selectTimelineIntroSurface,
 } from "@/features/messages/lib/timelineSnapshot";
 import { preloadTimelineImages } from "@/features/messages/lib/timelineImagePreload";
+import { openVisitors } from "@/features/messages/lib/visitSpans";
 import { useResidentMarksInMessages } from "@/features/messages/lib/conversationAppearancePreference";
 import type { TimelineMessage } from "@/features/messages/types";
 import type { MainTimelineEntry } from "@/features/messages/lib/threadPanel";
@@ -204,6 +205,10 @@ const MessageTimelineBase = React.forwardRef<
   ref,
 ) {
   const residentMarksEnabled = useResidentMarksInMessages(currentPubkey);
+  const visitorPubkeys = React.useMemo(
+    () => openVisitors(messages),
+    [messages],
+  );
   const internalScrollRef = React.useRef<HTMLDivElement>(null);
   const scrollContainerRef = externalScrollRef ?? internalScrollRef;
   const contentRef = React.useRef<HTMLDivElement>(null);
@@ -712,7 +717,7 @@ const MessageTimelineBase = React.forwardRef<
   return (
     <TooltipProvider delayDuration={200}>
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <VisitPresenceRail />
+        <VisitPresenceRail visitorPubkeys={visitorPubkeys} />
         {showUnreadPill ? (
           <div
             className={cn(

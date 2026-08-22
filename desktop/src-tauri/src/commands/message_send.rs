@@ -140,6 +140,25 @@ fn normalized_managed_audience(
     Ok(normalized)
 }
 
+fn remove_faded_residents_from_routing(
+    mentions: &mut Vec<String>,
+    managed_audience: &mut Option<ManagedAudienceIntentV1>,
+    faded: &[Hex64],
+) {
+    if faded.is_empty() {
+        return;
+    }
+    let faded: HashSet<&str> = faded.iter().map(Hex64::as_str).collect();
+    mentions.retain(|pubkey| !faded.contains(pubkey.trim().to_ascii_lowercase().as_str()));
+    match managed_audience {
+        Some(ManagedAudienceIntentV1::Conversation { resident_pubkeys })
+        | Some(ManagedAudienceIntentV1::Directed { resident_pubkeys }) => {
+            resident_pubkeys.retain(|pubkey| !faded.contains(pubkey.as_str()));
+        }
+        Some(ManagedAudienceIntentV1::None) | None => {}
+    }
+}
+
 async fn conversation_member_pubkeys(
     channel_id: &str,
     state: &AppState,
@@ -195,15 +214,16 @@ pub async fn send_channel_message(
     emoji_tags: Option<Vec<Vec<String>>>,
     mention_tags: Option<Vec<Vec<String>>>,
     mention_pubkeys: Option<Vec<String>>,
+    visit_mention_pubkeys: Option<Vec<String>>,
     kind: Option<u32>,
-    managed_audience: Option<ManagedAudienceIntentV1>,
+    mut managed_audience: Option<ManagedAudienceIntentV1>,
     response_surface: Option<ManagedResponseSurfaceV1>,
     state: State<'_, AppState>,
 ) -> Result<SendChannelMessageResponse, String> {
     let channel_uuid = uuid::Uuid::parse_str(&channel_id)
         .map_err(|_| format!("invalid channel UUID: {channel_id}"))?;
-    let mentions = mention_pubkeys.unwrap_or_default();
-    let mention_refs: Vec<&str> = mentions.iter().map(String::as_str).collect();
+    let mut mentions = mention_pubkeys.unwrap_or_default();
+    let visit_mentions = visit_mention_pubkeys.unwrap_or_else(|| mentions.clone());
     let media = media_tags.unwrap_or_default();
     let relay_media = relay_media_tags(&media);
     let emoji = emoji_tags.unwrap_or_default();
@@ -216,6 +236,38 @@ pub async fn send_channel_message(
     {
         return Err("managed conversation routing applies only to ordinary messages".into());
     }
+
+    let app = state
+        .app_handle
+        .lock()
+        .map_err(|error| error.to_string())?
+        .clone()
+        .ok_or_else(|| "application handle is unavailable".to_string())?;
+
+    if kind_num == buzz_core_pkg::kind::KIND_STREAM_MESSAGE {
+        let visit_store = crate::luca::exchange_store::global_exchange_store(&app)?;
+        let visit_app = app.clone();
+        let visit_channel = OpaqueId::parse(channel_id.clone())
+            .map_err(|error| format!("invalid visit conversation id: {error}"))?;
+        let fade_mentions = visit_mentions.clone();
+        let visit_now = chrono::Utc::now().timestamp().max(0) as u64;
+        let faded = tauri::async_runtime::spawn_blocking(move || {
+            let relay = crate::luca::exchange_relay::AppExchangeRelay::new(visit_app);
+            crate::luca::visits::fade_owner_message_visits(
+                &relay,
+                &visit_store,
+                &visit_channel,
+                &fade_mentions,
+                visit_now,
+            )
+        })
+        .await
+        .map_err(|error| format!("visit fade task failed: {error}"))?
+        .map_err(|error| error.to_string())?;
+        remove_faded_residents_from_routing(&mut mentions, &mut managed_audience, &faded);
+    }
+
+    let mention_refs: Vec<&str> = mentions.iter().map(String::as_str).collect();
 
     let builder = match kind_num {
         buzz_core_pkg::kind::KIND_FORUM_POST => events::build_forum_post(
@@ -270,13 +322,6 @@ pub async fn send_channel_message(
         }
     };
 
-    let app = state
-        .app_handle
-        .lock()
-        .map_err(|error| error.to_string())?
-        .clone()
-        .ok_or_else(|| "application handle is unavailable".to_string())?;
-
     // The owner event is signed before either visit authority or exact
     // activation authority is staged. Neither model output nor a relay replay
     // can alter this snapshot.
@@ -292,7 +337,6 @@ pub async fn send_channel_message(
             .map_err(|error| format!("invalid visit conversation id: {error}"))?;
         let visit_event_id = Hex64::parse(event.id.to_hex())
             .map_err(|error| format!("invalid owner message id: {error}"))?;
-        let visit_mentions = mentions.clone();
         let visit_now = event.created_at.as_secs();
         tauri::async_runtime::spawn_blocking(move || {
             let relay = crate::luca::exchange_relay::AppExchangeRelay::new(visit_app);
@@ -450,6 +494,30 @@ mod tests {
             Some(&HashSet::new()),
         )
         .is_err());
+    }
+
+    #[test]
+    fn faded_residents_are_removed_from_delivery_and_activation() {
+        let faded = Hex64::parse(key('a')).unwrap();
+        let retained = Hex64::parse(key('b')).unwrap();
+        let mut mentions = vec![faded.as_str().to_owned(), retained.as_str().to_owned()];
+        let mut audience = Some(ManagedAudienceIntentV1::Conversation {
+            resident_pubkeys: vec![faded.clone(), retained.clone()],
+        });
+
+        remove_faded_residents_from_routing(
+            &mut mentions,
+            &mut audience,
+            std::slice::from_ref(&faded),
+        );
+
+        assert_eq!(mentions, [retained.as_str()]);
+        assert_eq!(
+            audience,
+            Some(ManagedAudienceIntentV1::Conversation {
+                resident_pubkeys: vec![retained],
+            })
+        );
     }
 
     #[test]

@@ -63,9 +63,7 @@ export function ComposerReplyEditBanner({
             Replying to {replyTarget.author}
           </p>
           {replyTarget.body ? (
-            <p className="truncate text-muted-foreground/80">
-              {replyTarget.body}
-            </p>
+            <p className="truncate text-ink-faint">{replyTarget.body}</p>
           ) : null}
         </div>
         {onCancelReply ? (

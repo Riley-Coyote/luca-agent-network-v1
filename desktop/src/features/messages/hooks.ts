@@ -482,6 +482,7 @@ export function useSendMessageMutation(
       targetChannel?: Channel;
       content: string;
       mentionPubkeys?: string[];
+      explicitMentionPubkeys?: string[];
       parentEventId?: string | null;
       replyAuthorPubkey?: string | null;
       managedAudience?: ManagedAudienceIntentV1;
@@ -495,6 +496,7 @@ export function useSendMessageMutation(
       targetChannel,
       content,
       mentionPubkeys,
+      explicitMentionPubkeys,
       parentEventId,
       replyAuthorPubkey,
       managedAudience,
@@ -575,6 +577,7 @@ export function useSendMessageMutation(
         mentionTags,
         audience,
         responseSurface,
+        explicitMentionPubkeys,
       );
       const replyTags = parentEventId
         ? buildReplyTags(

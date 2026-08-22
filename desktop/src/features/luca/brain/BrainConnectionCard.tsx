@@ -74,7 +74,7 @@ export function BrainConnectionCard({
           {description}
         </p>
       </div>
-      <p className="mt-4 text-xs text-muted-foreground/80">{detail}</p>
+      <p className="mt-4 text-xs text-ink-faint">{detail}</p>
       <div className="mt-auto flex flex-wrap items-center gap-2 pt-5">
         <Button
           disabled={disabled}

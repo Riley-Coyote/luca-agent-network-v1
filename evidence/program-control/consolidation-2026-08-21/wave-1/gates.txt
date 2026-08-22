@@ -1,0 +1,33 @@
+Wave 1 gate receipt
+Date: 2026-08-21 through 2026-08-22
+Candidate source before receipt-only documentation: b9ca618f
+
+PASS  node desktop/scripts/lab-shots.mjs
+      Baseline on visits start; Void, light and Paper fixtures passed.
+PASS  node desktop/scripts/lab-shots.mjs
+      Post-typography; Void, light and Paper fixtures passed.
+PASS  just desktop-check
+      Seven pre-existing informational !important/file-size warnings; zero errors.
+PASS  just desktop-test
+      45 suites, 3,677 tests, zero failures.
+PASS  just desktop-build
+      Normal production frontend build completed.
+PASS  focused adaptive-theme and theme-loader tests
+      15 tests, zero failures.
+PASS  pnpm build:e2e; pnpm exec playwright test desktop/tests/e2e/luca/exchange-strip.spec.ts
+      8 tests, zero failures. The E2E build mode supplies the mock bridge.
+PASS  just desktop-tauri-clippy
+      Completed through just with sidecar stubs; warnings are denied.
+PASS  just desktop-tauri-test
+      1,977 library tests passed, 13 ignored, zero failed; 3 diagnostic tests
+      passed; main and doc-test targets passed. The visit arrival, stop-fade,
+      missing-head fade and owner-message fade tests all passed in this run.
+PASS  just ci
+      Formatting, workspace clippy, desktop/web/mobile checks, five root Rust
+      unit suites, 3,677 desktop tests, desktop and web production builds,
+      Tauri check and 1,977-test replay, and 525 mobile tests all passed. One
+      mobile test was intentionally skipped. Existing informational CSS,
+      file-size, chunk-size and dependency-version notices did not fail gates.
+
+Rust commands were serialized behind the shared LaCie Cargo target. No raw
+Cargo command was used for a Rust gate.

@@ -231,7 +231,7 @@ function ResidentActivityCard({ resident }: { resident: ActivityResident }) {
             <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
               {activity.detail}
             </p>
-            <p className="mt-2 font-mono text-2xs text-muted-foreground/75">
+            <p className="mt-2 font-mono text-2xs text-ink-faint">
               {formatActivityTime(activity.timestamp)}
             </p>
           </>

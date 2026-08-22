@@ -41,10 +41,7 @@ pub(crate) fn arrival_note(relay: &dyn ExchangeRelay, grant: &VisitGrant) -> Str
         r#type: "visit_arrived",
         resident: grant.resident.as_str(),
         exchange_id: grant.correlation_id.as_str(),
-        text: format!(
-            "{} is visiting — they can see this conversation from here on.",
-            relay.display_name(&grant.resident)
-        ),
+        text: format!("{} is visiting.", relay.display_name(&grant.resident)),
     })
     .expect("visit note payload is infallible")
 }
@@ -138,19 +135,8 @@ pub(crate) fn handle_owner_mentions(
     correlation_id: &Hex64,
     arrived_at: u64,
 ) -> Result<(), ExchangeRelayError> {
-    let mentioned: BTreeSet<Hex64> = mentioned_pubkeys
-        .iter()
-        .filter_map(|value| Hex64::parse(value.trim().to_ascii_lowercase()).ok())
-        .collect();
-    fade_visits(
-        relay,
-        store,
-        conversation_id,
-        VisitFadeTrigger::OwnerMessage {
-            mentioned: &mentioned,
-            now_unix_secs: arrived_at,
-        },
-    )?;
+    let mentioned = normalized_visit_mentions(mentioned_pubkeys);
+    fade_owner_message_visits(relay, store, conversation_id, mentioned_pubkeys, arrived_at)?;
     if mentioned.is_empty() {
         return Ok(());
     }
@@ -171,17 +157,48 @@ pub(crate) fn handle_owner_mentions(
     settle_visit_grants(relay, store, &grants)
 }
 
+fn normalized_visit_mentions(mentioned_pubkeys: &[String]) -> BTreeSet<Hex64> {
+    mentioned_pubkeys
+        .iter()
+        .filter_map(|value| Hex64::parse(value.trim().to_ascii_lowercase()).ok())
+        .collect()
+}
+
+/// Fade guests omitted by an owner message and return the residents removed.
+///
+/// The send command uses this before constructing the public message so stale
+/// sticky-audience recipients can be removed from that message's `p` tags.
+pub(crate) fn fade_owner_message_visits(
+    relay: &dyn ExchangeRelay,
+    store: &Arc<Mutex<ExchangeStore>>,
+    conversation_id: &OpaqueId,
+    mentioned_pubkeys: &[String],
+    now_unix_secs: u64,
+) -> Result<Vec<Hex64>, ExchangeRelayError> {
+    let mentioned = normalized_visit_mentions(mentioned_pubkeys);
+    fade_visits(
+        relay,
+        store,
+        conversation_id,
+        VisitFadeTrigger::OwnerMessage {
+            mentioned: &mentioned,
+            now_unix_secs,
+        },
+    )
+}
+
 /// Apply the complete V1 fade rule in one place.
 pub(crate) fn fade_visits(
     relay: &dyn ExchangeRelay,
     store: &Arc<Mutex<ExchangeStore>>,
     conversation_id: &OpaqueId,
     trigger: VisitFadeTrigger<'_>,
-) -> Result<(), ExchangeRelayError> {
+) -> Result<Vec<Hex64>, ExchangeRelayError> {
     let visits = store
         .lock()
         .map_err(|_| ExchangeRelayError::Unavailable("visit store is locked".to_owned()))?
         .visits_in(conversation_id);
+    let mut faded = Vec::new();
     for visit in visits {
         let should_fade = match &trigger {
             VisitFadeTrigger::OwnerMessage {
@@ -192,7 +209,13 @@ pub(crate) fn fade_visits(
                     let store = store.lock().map_err(|_| {
                         ExchangeRelayError::Unavailable("visit store is locked".to_owned())
                     })?;
-                    store.head(exchange_id).is_none_or(|head| {
+                    // A head we do not have is NOT evidence of an open exchange.
+                    // Reading it as open would strand the guest: this path would
+                    // never fade them, and `ExchangeStopped` cannot fire for an
+                    // exchange nobody holds. Fading is cheap and reversible — the
+                    // next mention starts a fresh visit — so an unknown head
+                    // fades rather than pins a membership row forever.
+                    store.head(exchange_id).is_some_and(|head| {
                         head.record.state == luca_protocol::ExchangeStateV1::Open
                             && head.record.deadline.get() >= *now_unix_secs
                     })
@@ -222,8 +245,9 @@ pub(crate) fn fade_visits(
             .map_err(|_| ExchangeRelayError::Unavailable("visit store is locked".to_owned()))?
             .remove_visit(conversation_id, &visit.grant.resident)
             .map_err(ExchangeRelayError::Unavailable)?;
+        faded.push(visit.grant.resident);
     }
-    Ok(())
+    Ok(faded)
 }
 
 #[cfg(test)]

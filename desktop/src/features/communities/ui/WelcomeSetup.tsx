@@ -118,7 +118,7 @@ export function WelcomeSetup({
                 <h1 className="text-title font-normal">
                   Join or create a community
                 </h1>
-                <p className="mt-3 text-sm leading-6 text-foreground/80">
+                <p className="mt-3 text-sm leading-6 text-ink-muted">
                   Join with an invite, create your own community, or reconnect
                   one you already have.
                 </p>
@@ -187,7 +187,7 @@ export function WelcomeSetup({
                 <h1 className="text-title font-normal">
                   Reconnect to your community
                 </h1>
-                <p className="mt-3 text-sm leading-6 text-foreground/80">
+                <p className="mt-3 text-sm leading-6 text-ink-muted">
                   Tell us your role so we can find the fastest way back in.
                 </p>
               </div>
@@ -251,7 +251,7 @@ export function WelcomeSetup({
                     ? "Reconnect to your community"
                     : "Join a community"}
                 </h1>
-                <p className="mt-3 text-sm leading-6 text-foreground/80">
+                <p className="mt-3 text-sm leading-6 text-ink-muted">
                   {page === "member"
                     ? "Enter the community URL or an invite link. Your role will be restored when you connect."
                     : "Enter the invite link or community URL you received."}
@@ -274,14 +274,14 @@ export function WelcomeSetup({
                     <p className="text-sm font-medium text-foreground">
                       Joining a private community?
                     </p>
-                    <p className="mt-2 text-sm leading-6 text-foreground/75">
+                    <p className="mt-2 text-sm leading-6 text-ink-muted">
                       Some communities need the owner to add you before you can
                       join. Copy your public ID and send it to the community
                       owner.
                     </p>
                     <div className="mt-4 flex items-center gap-3 rounded-xl border border-foreground/10 bg-background/35 px-4 py-3">
                       <code
-                        className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/80"
+                        className="min-w-0 flex-1 truncate font-mono text-xs text-ink-muted"
                         data-testid="welcome-join-npub"
                       >
                         {npub || "Loading…"}

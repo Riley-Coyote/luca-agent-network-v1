@@ -172,3 +172,27 @@ Exact-commit validation on that SHA:
 CTRL-004 was promoted to `source_tested` only after this receipt. The five team
 branches/worktrees are authorized from this exact common base. The integration
 train, release candidate, release worktree, P4, and P5 remain inactive.
+
+## PC-0004 — Consolidation Waves 0 and 1
+
+- Dates: 2026-08-21 through 2026-08-22.
+- Riley authorized the Luca Consolidation and Release Program, superseding the
+  earlier inactive-train boundary for this bounded release program only.
+- Wave 0 established `codex/v1-beta-consolidation` from visits
+  `9c9ef0df`, preserved all branches and worktrees, pushed the two local-only
+  candidates, and created the rollback ref for `luca/v1.1@bef2e6c0`.
+- Wave 0 authority commit `f4e96b08` passed independent review, control
+  validation, YAML parsing, diff checks and baseline lab shots.
+- Wave 1 replayed the exchange tail as `28d8e276`, `2e73ea19`, `f8371892`,
+  then typography/Paper as `05d59763`, `af5c4208`, followed by the bounded
+  gate-format repair `b9ca618f`.
+- Independent exchange and typography reviews passed. Visit thresholds,
+  connector arithmetic, sticky-presence behavior and the cancelled read-filter
+  boundary were preserved.
+- Focused exchange Playwright passed 8/8; desktop helper tests passed 3,677;
+  standalone Tauri tests passed 1,977 runnable tests plus 3 diagnostics; the
+  complete `just ci` boundary passed every Rust, desktop, web and mobile stage,
+  including 525 mobile tests with one intentional skip.
+- Wave 1 source evidence is bound to `b9ca618f`; this entry and its evidence
+  files are receipt-only control changes. Wave 2 may branch only from the final
+  committed receipt descendant reported by Program Integration.

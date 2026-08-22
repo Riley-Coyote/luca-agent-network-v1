@@ -17,5 +17,9 @@
 @import "./globals/video-review.css";
 @import "./globals/progress.css";
 @import "./globals/conversation-shell.css";
+/* Last: the type ramp and the ink roles both refine the shell layer above,
+   and a step's size/leading/tracking must win over any single value a
+   component surface set for itself. */
+@import "./globals/typography.css";
 
 @config "../../../tailwind.config.js";

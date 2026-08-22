@@ -14,6 +14,10 @@ import {
   parseBrainReviewRequest,
   type BrainReviewRequest,
 } from "@/features/luca/brain/brainReviewRequest";
+import {
+  parsePolyphonicSurfaceRequest,
+  type PolyphonicSurfaceRequest,
+} from "@/features/luca/polyphonicSurfaceRequest";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { useQueryClient } from "@tanstack/react-query";
 import { agentConfigSurfaceQueryKey } from "@/features/agents/hooks";
@@ -112,6 +116,13 @@ const brainReviewListeners = new Set<
     agentPubkey: string,
     observerChannelId: string | null,
     request: BrainReviewRequest,
+  ) => void
+>();
+const polyphonicSurfaceListeners = new Set<
+  (
+    agentPubkey: string,
+    observerChannelId: string | null,
+    request: PolyphonicSurfaceRequest,
   ) => void
 >();
 
@@ -414,6 +425,12 @@ async function handleRelayObserverEvent(
         listener(agentPubkey, parsed.channelId, brainReviewRequest);
       }
     }
+    const surfaceRequest = parsePolyphonicSurfaceRequest(parsed.payload);
+    if (surfaceRequest) {
+      for (const listener of polyphonicSurfaceListeners) {
+        listener(agentPubkey, parsed.channelId, surfaceRequest);
+      }
+    }
     if (parsed.kind === "session_config_captured") {
       void putAgentSessionConfig(agentPubkey, parsed.payload);
       onSessionConfigCaptured?.(agentPubkey);
@@ -542,6 +559,19 @@ export function subscribeBrainReviewRequests(
   brainReviewListeners.add(listener);
   return () => {
     brainReviewListeners.delete(listener);
+  };
+}
+
+export function subscribePolyphonicSurfaceRequests(
+  listener: (
+    agentPubkey: string,
+    observerChannelId: string | null,
+    request: PolyphonicSurfaceRequest,
+  ) => void,
+) {
+  polyphonicSurfaceListeners.add(listener);
+  return () => {
+    polyphonicSurfaceListeners.delete(listener);
   };
 }
 
@@ -751,6 +781,12 @@ export function injectObserverEventsForE2E(
     if (brainReviewRequest) {
       for (const listener of brainReviewListeners) {
         listener(agentPubkey, event.channelId, brainReviewRequest);
+      }
+    }
+    const surfaceRequest = parsePolyphonicSurfaceRequest(event.payload);
+    if (surfaceRequest) {
+      for (const listener of polyphonicSurfaceListeners) {
+        listener(agentPubkey, event.channelId, surfaceRequest);
       }
     }
   }

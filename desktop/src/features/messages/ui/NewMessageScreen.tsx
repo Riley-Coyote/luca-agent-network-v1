@@ -639,7 +639,7 @@ export function NewMessageScreen() {
                     data-testid="direct-runtime-contacts"
                   >
                     <p
-                      className="px-4 pb-1 pt-3 font-mono text-2xs uppercase tracking-[0.14em] text-muted-foreground"
+                      className="px-4 pb-1 pt-3 font-mono text-2xs uppercase tracking-caps-wide text-muted-foreground"
                       id="direct-runtime-contacts-label"
                     >
                       Message a runtime

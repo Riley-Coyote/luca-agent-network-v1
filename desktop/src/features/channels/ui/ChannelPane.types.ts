@@ -5,6 +5,7 @@ import type { ImetaMedia } from "@/features/messages/lib/imetaMediaMarkdown";
 import type { MainTimelineEntry } from "@/features/messages/lib/threadPanel";
 import type { ChannelWindowThreadSummary } from "@/features/messages/lib/channelWindowStore";
 import type { TimelineMessage } from "@/features/messages/types";
+import type { MessageComposerSendContext } from "@/features/messages/ui/messageComposerTypes";
 import type { TypingIndicatorEntry } from "@/features/messages/useChannelTyping";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import type { useChannelFind } from "@/features/search/useChannelFind";
@@ -112,12 +113,16 @@ export type ChannelPaneProps = {
     mentionPubkeys: string[],
     mediaTags?: string[][],
     channelId?: string | null,
+    threadContext?: MessageComposerSendContext | null,
+    explicitMentionPubkeys?: string[],
   ) => Promise<void>;
   onSendDirectedReply: (
     content: string,
     mentionPubkeys: string[],
     mediaTags?: string[][],
     channelId?: string | null,
+    threadContext?: MessageComposerSendContext | null,
+    explicitMentionPubkeys?: string[],
   ) => Promise<void>;
   onSendVideoReviewComment?: (
     message: TimelineMessage,
@@ -136,6 +141,7 @@ export type ChannelPaneProps = {
       threadHeadId: string | null;
       replyAuthorPubkey?: string | null;
     } | null,
+    explicitMentionPubkeys?: string[],
   ) => Promise<void>;
   onTargetReached?: (messageId: string) => void;
   onToggleReaction?: (

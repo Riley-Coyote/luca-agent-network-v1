@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
+import { waitForAnimations } from "../../helpers/animations";
 import { seedActiveIdentity } from "../../helpers/onboarding";
 
 const POLYPHONIC_PUBKEY = "10".repeat(32);
@@ -25,25 +26,14 @@ const CODEX_RUNTIME = {
   login_hint: null,
 };
 
-function settingsUrl(section: string) {
-  // installMockBridge supplies the deterministic bridge before bootstrap, so
-  // no top-level `e2e=mock` query is needed. Keeping browser search empty lets
-  // TanStack hash history preserve route search through back/forward exactly as
-  // the installed app does.
-  return `/#/settings?section=${section}`;
-}
-
 async function openSettingsSection(
   page: import("@playwright/test").Page,
-  section: "agents" | "connections" | "mobile",
+  section: string,
 ) {
-  const labels = {
-    agents: "Agents",
-    connections: "Connections & MCP",
-    mobile: "Mobile & devices",
-  } as const;
-  await page.goto(settingsUrl("profile"));
-  await page.getByRole("button", { name: labels[section] }).click();
+  await page.goto("/#/settings");
+  if (section !== "profile") {
+    await page.getByTestId(`settings-nav-${section}`).click();
+  }
 }
 
 test.beforeEach(async ({ page }) => {
@@ -101,7 +91,7 @@ test.beforeEach(async ({ page }) => {
 test("settings exposes only the Luca information architecture", async ({
   page,
 }) => {
-  await page.goto(settingsUrl("profile"));
+  await openSettingsSection(page, "profile");
 
   for (const label of [
     "Profile & identity",
@@ -129,7 +119,7 @@ test("settings exposes only the Luca information architecture", async ({
 
 test("one resident record agrees across settings, runtime, and MCP grants", async ({
   page,
-}) => {
+}, testInfo) => {
   await openSettingsSection(page, "agents");
 
   await expect(page.getByTestId("settings-agents")).toBeVisible();
@@ -155,12 +145,19 @@ test("one resident record agrees across settings, runtime, and MCP grants", asyn
   await expect(page.getByText("Configuration authority")).toBeVisible();
 
   await page.getByRole("button", { name: "Capabilities" }).click();
+  await expect(page.getByTestId("resident-access-control")).toBeVisible();
+  await expect(page.getByRole("radio", { name: /Standard/ })).toBeChecked();
+  await expect(page.getByText("Remembered permissions")).toBeVisible();
   await expect(
     page.getByTestId("agent-artifact-mcp-capability"),
   ).toHaveAttribute("data-capability-state", "not_reported");
   await expect(page.getByTestId("agent-artifact-mcp-capability")).toContainText(
     "Support not reported",
   );
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: testInfo.outputPath("capability-settings.png"),
+  });
   await page.getByRole("button", { name: "Manage MCP access" }).click();
   await expect(page).toHaveURL(/section=connections/);
   await expect(page.getByText("Hermes", { exact: true })).toBeVisible();

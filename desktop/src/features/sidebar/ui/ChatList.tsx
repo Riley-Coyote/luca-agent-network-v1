@@ -174,7 +174,7 @@ function ChatRow({
       onClick={() => onSelectChannel(channel.id)}
       type="button"
     >
-      <span className="flex size-5 shrink-0 items-center justify-center text-sidebar-foreground/45">
+      <span className="flex size-5 shrink-0 items-center justify-center text-ink-faint">
         {isMultiParticipant ? (
           <MessagesSquare aria-hidden className="size-3.5" />
         ) : (
@@ -202,11 +202,9 @@ function ChatRow({
             data-testid={`channel-unread-${channel.name}`}
           />
         ) : liveLabel ? (
-          <span className="truncate text-2xs text-sidebar-foreground/55">
-            {liveLabel}…
-          </span>
+          <span className="truncate text-2xs text-ink-faint">{liveLabel}…</span>
         ) : (
-          <span className="text-2xs tabular-nums text-sidebar-foreground/35">
+          <span className="text-2xs tabular-nums text-ink-faint">
             {relativeTime(channel.lastMessageAt)}
           </span>
         )}
@@ -275,7 +273,7 @@ function ProjectRow({
       onClick={() => onSelectProject(project.id, preferredRoomId)}
       type="button"
     >
-      <span className="flex size-5 shrink-0 items-center justify-center text-sidebar-foreground/45">
+      <span className="flex size-5 shrink-0 items-center justify-center text-ink-faint">
         <ProjectTypeIcon className="size-3.5" />
       </span>
       <span
@@ -293,11 +291,11 @@ function ProjectRow({
             className="size-1.5 self-center rounded-full bg-sidebar-foreground/70"
           />
         ) : workingCount > 0 ? (
-          <span className="truncate text-2xs text-sidebar-foreground/55">
+          <span className="truncate text-2xs text-ink-faint">
             {workingCount > 1 ? `${workingCount} working` : "working"}…
           </span>
         ) : (
-          <span className="text-2xs tabular-nums text-sidebar-foreground/35">
+          <span className="text-2xs tabular-nums text-ink-faint">
             {relativeTime(
               group.items.find((item) => item.channel.lastMessageAt)?.channel
                 .lastMessageAt ?? null,
@@ -381,11 +379,11 @@ export function ChatList({
   return (
     <div className="flex flex-col px-2" data-testid="chat-list">
       <div className="mt-2 flex flex-col" data-testid="chat-channels">
-        <div className="flex items-center justify-between px-2 pb-1 text-2xs font-medium uppercase tracking-[0.1em] text-sidebar-foreground/35">
+        <div className="flex items-center justify-between px-2 pb-1 text-2xs font-medium uppercase tracking-caps-wide text-ink-faint">
           <span>Channels</span>
           <button
             aria-label="New channel"
-            className="-mr-1 flex size-6 items-center justify-center rounded-md text-sidebar-foreground/45 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
+            className="-mr-1 flex size-6 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
             data-testid="create-channel"
             onClick={onCreateProject}
             title="New channel"
@@ -411,7 +409,7 @@ export function ChatList({
         })}
         {orderedProjects.length === 0 ? (
           <button
-            className="flex min-h-8 items-center gap-2.5 rounded-md px-2 text-left text-sm text-sidebar-foreground/45 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            className="flex min-h-8 items-center gap-2.5 rounded-md px-2 text-left text-sm text-ink-faint transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
             onClick={onCreateProject}
             type="button"
           >
@@ -427,11 +425,11 @@ export function ChatList({
       </div>
 
       <div className="mt-3 flex flex-col" data-testid="chat-direct-messages">
-        <div className="flex items-center justify-between px-2 pb-1 text-2xs font-medium uppercase tracking-[0.1em] text-sidebar-foreground/35">
+        <div className="flex items-center justify-between px-2 pb-1 text-2xs font-medium uppercase tracking-caps-wide text-ink-faint">
           <span>DMs</span>
           <button
             aria-label="New direct message"
-            className="-mr-1 flex size-6 items-center justify-center rounded-md text-sidebar-foreground/45 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
+            className="-mr-1 flex size-6 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
             data-testid="create-direct-message"
             onClick={onCreateDm}
             title="New direct message"

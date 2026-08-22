@@ -147,7 +147,7 @@ export function FeedSection({
         <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {title}
         </h2>
-        <span className="text-xs text-muted-foreground/70">{items.length}</span>
+        <span className="text-xs text-ink-faint">{items.length}</span>
       </div>
 
       {items.length === 0 ? (
@@ -155,9 +155,7 @@ export function FeedSection({
           <p className="text-sm font-medium text-muted-foreground">
             {emptyTitle}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground/70">
-            {emptyDescription}
-          </p>
+          <p className="mt-1 text-xs text-ink-faint">{emptyDescription}</p>
         </div>
       ) : (
         <div className="divide-y divide-border/60 rounded-md border border-border/60">
@@ -219,7 +217,7 @@ export function FeedSection({
                       #{item.channelName}
                     </span>
                   ) : null}
-                  <span className="ml-auto shrink-0 text-2xs text-muted-foreground/60">
+                  <span className="ml-auto shrink-0 text-2xs text-ink-faint">
                     {formatRelativeTime(item.createdAt)}
                   </span>
                 </div>

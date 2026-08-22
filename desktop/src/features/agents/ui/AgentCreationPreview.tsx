@@ -454,11 +454,11 @@ export function AgentCreationPreview({
 
             {/* URL input */}
             <div className="flex h-10 items-center gap-2.5 rounded-lg bg-muted px-3">
-              <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+              <Link2 className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
               <input
                 autoCapitalize="none"
                 autoCorrect="off"
-                className="min-w-0 flex-1 bg-transparent text-xs font-medium text-foreground outline-none placeholder:text-muted-foreground/50"
+                className="min-w-0 flex-1 bg-transparent text-xs font-medium text-foreground outline-none placeholder:text-ink-faint"
                 disabled={disabled || isUploading}
                 onChange={(event) => setAvatarUrlDraft(event.target.value)}
                 onKeyDown={(event) => {

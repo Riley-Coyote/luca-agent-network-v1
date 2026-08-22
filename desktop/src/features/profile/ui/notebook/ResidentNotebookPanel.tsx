@@ -335,7 +335,7 @@ function JournalJobStrip({
         <BookOpen className="size-3.5 shrink-0" />
       )}
       <div className="min-w-0 flex-1">
-        <p className="font-mono text-2xs uppercase tracking-[0.09em] text-foreground">
+        <p className="font-mono text-2xs uppercase tracking-caps text-foreground">
           Journal · {job.state}
         </p>
         {job.lastErrorCode ? (
@@ -424,7 +424,7 @@ function NewJournalPageForm({
         />
       </div>
       <button
-        className="font-mono text-2xs uppercase tracking-[0.09em] text-muted-foreground hover:text-foreground"
+        className="font-mono text-2xs uppercase tracking-caps text-muted-foreground hover:text-foreground"
         onClick={() => setSourcesOpen((value) => !value)}
         type="button"
       >

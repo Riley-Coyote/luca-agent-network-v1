@@ -172,7 +172,7 @@ export function ResidentNotebookDetailView({
           <ChevronLeft />
         </Button>
         <div className="min-w-0 flex-1">
-          <p className="font-mono text-2xs uppercase tracking-[0.11em] text-muted-foreground">
+          <p className="font-mono text-2xs uppercase tracking-caps-wide text-muted-foreground">
             {page
               ? "Resident-authored journal page"
               : notebookCategoryLabel(item.category)}
@@ -180,7 +180,7 @@ export function ResidentNotebookDetailView({
           <h4 className="mt-1 text-base font-medium leading-6 text-foreground">
             {page ? item.title || "Untitled page" : "Continuity note"}
           </h4>
-          <p className="mt-1 font-mono text-2xs uppercase tracking-[0.07em] text-muted-foreground">
+          <p className="mt-1 font-mono text-2xs uppercase tracking-caps text-muted-foreground">
             {item.authorship === "resident"
               ? "Kept by resident"
               : "Owner correction"}{" "}
@@ -204,10 +204,10 @@ export function ResidentNotebookDetailView({
           <SectionLabel>Owner annotations</SectionLabel>
           {detail.annotations.map((annotation) => (
             <div className="py-1" key={annotation.itemId}>
-              <p className="text-sm leading-6 text-foreground/85">
+              <p className="text-sm leading-6 text-ink-muted">
                 {annotation.body}
               </p>
-              <p className="mt-1 font-mono text-2xs uppercase tracking-[0.07em] text-muted-foreground">
+              <p className="mt-1 font-mono text-2xs uppercase tracking-caps text-muted-foreground">
                 Owner · {notebookTimestamp(annotation.updatedAt)}
               </p>
             </div>
@@ -376,7 +376,7 @@ function JournalPageBody({ item }: { item: ResidentNotebookItem }) {
       data-notebook-reading-plane
     >
       <Markdown
-        className="prose-sm max-w-none text-foreground/90"
+        className="prose-sm max-w-none text-ink"
         content={item.body}
         interactive={false}
       />
@@ -388,12 +388,12 @@ function MemoryNoteBody({ item }: { item: ResidentNotebookItem }) {
   return (
     <section className="space-y-3">
       {item.pinnedOwnerCorrection ? (
-        <div className="flex items-center gap-2 font-mono text-2xs uppercase tracking-[0.08em] text-muted-foreground">
+        <div className="flex items-center gap-2 font-mono text-2xs uppercase tracking-caps text-muted-foreground">
           <Pin className="size-3" /> Pinned owner authority
         </div>
       ) : null}
-      <p className="text-sm leading-6 text-foreground/90">{item.body}</p>
-      <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-2xs uppercase tracking-[0.07em] text-muted-foreground">
+      <p className="text-sm leading-6 text-ink">{item.body}</p>
+      <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-2xs uppercase tracking-caps text-muted-foreground">
         <span>{item.status}</span>
         <span>created {notebookTimestamp(item.createdAt)}</span>
       </div>
@@ -462,7 +462,7 @@ function RevisionHistory({
             )}
             key={revision.itemId}
           >
-            <div className="flex items-center justify-between gap-3 font-mono text-2xs uppercase tracking-[0.07em]">
+            <div className="flex items-center justify-between gap-3 font-mono text-2xs uppercase tracking-caps">
               <span>
                 Revision {revision.revision}
                 {revision.itemId === currentId ? " · current" : ""}
@@ -623,7 +623,7 @@ function QuietAction({
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="font-mono text-2xs uppercase tracking-[0.11em] text-muted-foreground">
+    <p className="font-mono text-2xs uppercase tracking-caps-wide text-muted-foreground">
       {children}
     </p>
   );

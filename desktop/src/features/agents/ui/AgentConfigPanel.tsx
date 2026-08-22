@@ -58,7 +58,7 @@ function ProvenanceHint({
   provenance: string;
 }) {
   return (
-    <span className="mt-0.5 flex items-center gap-1 text-2xs text-muted-foreground/70">
+    <span className="mt-0.5 flex items-center gap-1 text-2xs text-ink-faint">
       {locked ? (
         <PenOff aria-label="Read-only" className="h-3 w-3 shrink-0" />
       ) : null}
@@ -222,7 +222,7 @@ function NormalizedRow({
           {!(isPreSpawn && isAcpOnly) && field.overriddenValue ? (
             <span
               className={cn(
-                "ml-2 text-xs text-muted-foreground/60",
+                "ml-2 text-xs text-ink-faint",
                 field.origin !== "runtimeOverride" && "line-through",
               )}
               title={field.overriddenValue ?? undefined}
@@ -289,9 +289,7 @@ function AdvancedRow({
           )}
         </div>
         {provenance ? (
-          <div className="mt-0.5 text-2xs text-muted-foreground/70">
-            {provenance}
-          </div>
+          <div className="mt-0.5 text-2xs text-ink-faint">{provenance}</div>
         ) : null}
       </div>
     );

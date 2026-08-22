@@ -487,10 +487,10 @@ function DiffPreview({
               data-side={anchor?.side}
               data-testid={anchor ? "project-diff-line" : undefined}
             >
-              <span className="select-none border-border/40 border-r px-2 text-right text-muted-foreground/70">
+              <span className="select-none border-border/40 border-r px-2 text-right text-ink-faint">
                 {row.oldLine ?? " "}
               </span>
-              <span className="select-none border-border/40 border-r px-2 text-right text-muted-foreground/70">
+              <span className="select-none border-border/40 border-r px-2 text-right text-ink-faint">
                 {row.newLine ?? " "}
               </span>
               <span className="flex select-none items-center justify-center">
@@ -758,9 +758,7 @@ export function ProjectDiffFilesPanel({
       >
         <p>Could not load changed files for this {subjectLabel}.</p>
         {message ? (
-          <p className="font-mono text-xs text-muted-foreground/80">
-            {message}
-          </p>
+          <p className="font-mono text-xs text-ink-faint">{message}</p>
         ) : null}
       </div>
     );

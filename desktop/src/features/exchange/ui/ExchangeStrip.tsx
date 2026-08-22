@@ -92,13 +92,13 @@ export function ExchangeStrip({
           />
         ))}
       </span>
-      <span className="min-w-0 flex-1 truncate text-xs leading-none text-foreground/85">
+      <span className="min-w-0 flex-1 truncate text-xs leading-none text-ink-muted">
         {names.join(" · ")}
       </span>
       <span
         className={cn(
           "shrink-0 text-2xs leading-none tabular-nums",
-          paused ? "text-foreground/80" : "text-muted-foreground/75",
+          paused ? "text-ink-muted" : "text-ink-faint",
         )}
         data-testid="exchange-strip-count"
       >

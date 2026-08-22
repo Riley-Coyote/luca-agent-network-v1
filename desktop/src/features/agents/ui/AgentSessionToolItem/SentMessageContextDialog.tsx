@@ -162,14 +162,14 @@ function SentMessageContextSectionAccordion({
             </div>
             <div
               className={cn(
-                "mt-1 whitespace-pre-wrap break-all text-xs leading-5 text-foreground/70",
+                "mt-1 whitespace-pre-wrap break-all text-xs leading-5 text-ink-muted",
                 !open && "line-clamp-2",
               )}
             >
               {body.length > 0 ? (
                 body
               ) : (
-                <span className="italic text-foreground/50">No metadata.</span>
+                <span className="italic text-ink-faint">No metadata.</span>
               )}
             </div>
           </div>

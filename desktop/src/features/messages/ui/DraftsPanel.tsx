@@ -390,7 +390,7 @@ function DraftRow({
             >
               {channelLabel}
             </span>
-            <span className="shrink-0 text-muted-foreground/70">
+            <span className="shrink-0 text-ink-faint">
               {formatDraftCreatedAt(entry.draft)}
             </span>
             {isOrphaned ? (
@@ -635,7 +635,7 @@ export function DraftsPanel({
   if (items.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
-        <FileText className="h-8 w-8 text-muted-foreground/50" />
+        <FileText className="h-8 w-8 text-ink-faint" />
         <p className="text-sm text-muted-foreground">No drafts</p>
       </div>
     );

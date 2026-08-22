@@ -163,7 +163,7 @@ export function ExchangeHistory({
                     {meta}
                   </span>
                   {!expanded && first ? (
-                    <span className="mt-1 block truncate text-xs text-foreground/60">
+                    <span className="mt-1 block truncate text-xs text-ink-faint">
                       {first.body}
                     </span>
                   ) : null}
@@ -171,7 +171,7 @@ export function ExchangeHistory({
               </button>
               {first ? (
                 <button
-                  className="shrink-0 text-xs text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-hidden"
+                  className="shrink-0 text-xs text-ink-faint transition-colors hover:text-foreground focus-visible:outline-hidden"
                   onClick={() => revealMessage(first.id)}
                   title="Show in conversation"
                   type="button"
@@ -197,7 +197,7 @@ export function ExchangeHistory({
                       <span className="block text-xs font-medium leading-4 text-foreground">
                         {turn.author}
                       </span>
-                      <span className="mt-0.5 line-clamp-3 block text-xs leading-[1.45] text-foreground/70">
+                      <span className="mt-0.5 line-clamp-3 block text-xs leading-[1.45] text-ink-muted">
                         {turn.body}
                       </span>
                     </div>

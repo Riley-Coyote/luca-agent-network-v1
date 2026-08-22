@@ -52,7 +52,7 @@ export function IdentityKeyHelpDialog() {
       <OnboardingFooter className="max-w-none">
         <DialogTrigger asChild>
           <Button
-            className={`text-foreground/70 transition-opacity duration-300 hover:text-foreground motion-reduce:transition-none ${
+            className={`text-ink-muted transition-opacity duration-300 hover:text-foreground motion-reduce:transition-none ${
               isVisible ? "opacity-100" : "pointer-events-none opacity-0"
             }`}
             data-testid="identity-key-help-trigger"

@@ -99,7 +99,7 @@ export function ResidentDrawer({
         {/* The panel header already carries the name; the card leads with the
             mark, then who they are and how they are. */}
         <div className="min-w-0 flex-1 pt-0.5">
-          <p className="truncate text-base leading-6 text-foreground/90">
+          <p className="truncate text-base leading-6 text-ink">
             {role ?? "Resident"}
           </p>
           <p
@@ -115,10 +115,10 @@ export function ResidentDrawer({
                   : "bg-muted-foreground/40",
               )}
             />
-            <span className="text-foreground/80">{state.label}</span>
+            <span className="text-ink-muted">{state.label}</span>
             {model.runtimeLabel ? (
               <>
-                <span aria-hidden className="text-muted-foreground/40">
+                <span aria-hidden className="text-ink-ghost">
                   ·
                 </span>
                 <span>{model.runtimeLabel}</span>
@@ -148,7 +148,7 @@ export function ResidentDrawer({
         <div className="rounded-2xl bg-plate px-3 py-2.5">
           {instructions ? (
             <p
-              className="whitespace-pre-line text-sm leading-6 text-foreground/80"
+              className="whitespace-pre-line text-sm leading-6 text-ink-muted"
               data-testid="resident-drawer-instructions"
               style={{
                 display: "-webkit-box",
@@ -174,7 +174,7 @@ export function ResidentDrawer({
         </div>
         <div className="rounded-2xl bg-plate px-3 py-2.5">
           <p
-            className="text-sm leading-6 text-foreground/80"
+            className="text-sm leading-6 text-ink-muted"
             data-testid="resident-drawer-handoff"
           >
             {continuity?.handoff
@@ -188,13 +188,13 @@ export function ResidentDrawer({
 
       <section>
         <button
-          className="flex w-full items-center justify-between gap-3 rounded-2xl bg-plate px-3 py-2.5 text-left text-sm text-foreground/80 transition-colors hover:bg-plate-hover hover:text-foreground focus-visible:bg-plate-hover focus-visible:text-foreground focus-visible:outline-hidden"
+          className="flex w-full items-center justify-between gap-3 rounded-2xl bg-plate px-3 py-2.5 text-left text-sm text-ink-muted transition-colors hover:bg-plate-hover hover:text-foreground focus-visible:bg-plate-hover focus-visible:text-foreground focus-visible:outline-hidden"
           data-testid="resident-drawer-open-agent"
           onClick={() => onOpenAgent("documents")}
           type="button"
         >
           <span>Open {agent.name}</span>
-          <ArrowUpRight className="h-4 w-4 text-muted-foreground/60" />
+          <ArrowUpRight className="h-4 w-4 text-ink-faint" />
         </button>
       </section>
     </div>
@@ -206,7 +206,7 @@ export function ResidentDrawer({
 function Eyebrow({ children, id }: { children: React.ReactNode; id: string }) {
   return (
     <h3
-      className="mb-2 text-2xs font-medium uppercase tracking-[0.06em] text-muted-foreground/70"
+      className="mb-2 text-2xs font-medium uppercase tracking-caps text-ink-faint"
       id={id}
     >
       {children}

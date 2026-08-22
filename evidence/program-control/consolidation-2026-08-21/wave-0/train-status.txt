@@ -1,0 +1,7 @@
+ M AGENTS.md
+ M HANDOFF.md
+ M docs/luca/program-control/00_START_HERE.md
+ M docs/luca/program-control/PROGRAM_DASHBOARD.md
+?? docs/luca/program-control/CONSOLIDATION_LEDGER.yaml
+?? docs/luca/program-control/CONSOLIDATION_PLAN.md
+?? evidence/program-control/

@@ -1,0 +1,85 @@
+schema_version: 1
+program: luca-v1-beta-consolidation
+authorized_by: Riley
+authorized_on: 2026-08-21
+delivery_state: implemented_in_source
+coordinates:
+  train_branch: codex/v1-beta-consolidation
+  train_start: 9c9ef0df48ed5a45b2a17a136a94c8cdb7cdf048
+  tester_branch: luca/v1-beta
+  release_branch: luca/v1.1
+  pre_consolidation_release: bef2e6c0970d4d24040989297b5b4def75de73bf
+  rollback_ref: origin/archive/luca-v1.1-pre-consolidation-2026-08-21
+storage:
+  worktree_root: /Volumes/LaCie/Luca-Development/worktrees
+  build_root: /Volumes/LaCie/Luca-Development/build/consolidation
+  internal_large_writes_allowed: false
+inventory:
+  before:
+    local_branches: 56
+    origin_refs: 18
+    worktrees: 47
+  after_preservation_and_train:
+    local_branches: 57
+    origin_refs: 21
+    worktrees: 48
+  dirty_worktrees: 14
+  evidence: evidence/program-control/consolidation-2026-08-21/wave-0
+queue:
+  - id: authority
+    source: uncommitted canonical authority correction
+    integrated_sha: f4e96b08
+    state: source_tested
+    intent: one release branch and runtime-owned credential policy
+  - id: exchange-tail
+    source: origin/agent/exchange-object
+    source_sha: c8a004e0c73004923e9c2307fef9f477a0b85f63
+    commits: [7db4113d, feeb9a84, c8a004e0]
+    integrated_commits: [28d8e276, 2e73ea19, f8371892]
+    reviewed_sha: f8371892
+    state: source_tested
+  - id: typography
+    source: agent/typography
+    source_sha: eb4e81543e38bc79a6e8e1006c82dc4b00a0298e
+    commits: [0e2b67c2, eb4e8154]
+    integrated_commits: [05d59763, af5c4208, b9ca618f]
+    reviewed_sha: af5c4208
+    source_tested_sha: b9ca618f
+    state: source_tested
+  - id: capability-parity
+    source: codex/luca-capability-parity
+    source_sha: 4c13963ada358045c01d57c142475ba12bd79836
+    state: implemented_in_source
+    mode: selective_port
+    intentionally_not_taken: [7a1cf847, communication_action_backend, communication_broker_lease, "BUZZ_ACP_COMMUNICATIONS_MCP_*", advanced_communications_eligible]
+  - id: artifact-canvas
+    source: codex/artifact-production-candidate
+    source_sha: 7befcca7a36a0b0dd86f56a2013def12634b0e56
+    state: blocked
+    gate: GA5
+deferred:
+  - continuity-metabolism
+  - ambient-chat
+  - mobile-companion
+  - identity-notch
+  - landing
+  - marketing-northstar
+  - blackout-shell
+rejected:
+  - pair-dm-redirect
+superseded:
+  - canvas-static-preview
+promotion:
+  beta_sha: null
+  installed_verified_sha: null
+  release_sha: null
+waves:
+  wave_0:
+    state: source_tested
+    integrated_sha: f4e96b08
+    evidence: evidence/program-control/consolidation-2026-08-21/wave-0
+  wave_1:
+    state: source_tested
+    source_tested_sha: b9ca618f
+    evidence: evidence/program-control/consolidation-2026-08-21/wave-1
+    next: selective_capability_parity

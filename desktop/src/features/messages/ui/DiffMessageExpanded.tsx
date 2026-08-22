@@ -43,7 +43,7 @@ export default function DiffMessageExpanded({
               {filePath ?? "Diff Viewer"}
             </DialogTitle>
             {titleBadge && (
-              <span className="shrink-0 rounded-md border border-border/60 px-1.5 py-0.5 text-2xs uppercase tracking-[0.14em] text-muted-foreground">
+              <span className="shrink-0 rounded-md border border-border/60 px-1.5 py-0.5 text-2xs uppercase tracking-caps-wide text-muted-foreground">
                 {titleBadge}
               </span>
             )}

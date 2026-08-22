@@ -56,7 +56,8 @@ material data effects. Guarded/Restricted product modes are not Phase 1 work.
 
 - stable cryptographic resident identity and host signing;
 - resident/owner key and credential isolation from models and descendants;
-- read-only native Hermes/OpenClaw configuration;
+- read-only discovery plus explicit, owner-approved configuration through the
+  runtime's supported native store; credential values never enter Luca;
 - encrypted Brain and continuity storage;
 - cancellation, restart recovery, duplicate suppression, and exactly-once
   final publication;

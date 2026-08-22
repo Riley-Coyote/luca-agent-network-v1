@@ -79,9 +79,10 @@ satisfy an ancestry check.
 ## D-007 — Existing protections remain
 
 Stable cryptographic identity, host signing, key/credential isolation,
-read-only native configuration, encrypted Brain/continuity, cancellation,
-restart recovery, duplicate suppression, exactly-once final publication,
-authority separation, and honest readiness remain mandatory constraints.
+read-only discovery, journaled runtime-owned configuration, unrelated
+native-state immutability, encrypted Brain/continuity, cancellation, restart
+recovery, duplicate suppression, exactly-once final publication, authority
+separation, and honest readiness remain mandatory constraints.
 
 ## D-008 — Tester release coordinate
 
@@ -123,3 +124,16 @@ authority separation, and honest readiness remain mandatory constraints.
 - Status sequencing: CTRL-004 is `implemented_in_source` in the approval
   receipt and may become `source_tested` only after every control validator
   passes on the receipt's exact commit.
+
+## D-011 — Runtime-owned configuration supersedes the blanket read-only rule
+
+- Decision date: 2026-08-21.
+- Discovery/import remains read-only and must not mutate a runtime.
+- An explicit owner-approved configuration action may write only through the
+  selected runtime's supported native store and must be journaled.
+- Credential values are never displayed, retained, copied, or passed through
+  Luca; they may only be set directly into the runtime-owned store.
+- Protected-state proof must show that unrelated configuration, credentials,
+  memory, schedules, and workspaces remain unchanged.
+- This decision supersedes older blanket `read-only native configuration` text
+  while preserving native ownership and every credential-custody boundary.

@@ -157,8 +157,10 @@ times, and if it fails after your work, your change reached the UI and should be
 patched. Your job is the data those components read:
 - On arrival, the relay speaks one note in the room (the new 41013 kind, from the salvage) whose
   body is this JSON, exactly these keys:
-  `{"type":"visit_arrived","resident":"<guest hex pubkey>","exchange_id":"<hex>","text":"ziggy is visiting — they can see this conversation from here on."}`
-  (`text` is for clients that do not know the payload; the desktop writes its own line.) The desktop
+  `{"type":"visit_arrived","resident":"<guest hex pubkey>","exchange_id":"<hex>","text":"ziggy is visiting."}`
+  (`text` is for clients that do not know the payload; the desktop writes its own line. It says
+  nothing about what the guest can read — an earlier draft's "they can see this conversation from
+  here on" described the cancelled since-filter policy and must not come back; see B.) The desktop
   already routes 41013 into the timeline once the salvage commit's kind wiring is in (check
   `CHANNEL_EVENT_KINDS` / `CHANNEL_TIMELINE_CONTENT_KINDS` in `desktop/src/shared/constants/kinds.ts`
   include it); `timelineItems.ts` treats any row whose body parses as a visit payload as a system row.
@@ -213,3 +215,34 @@ who may create rooms. Do not build ahead.
 Commits (hash + one line) · gates run with results · every `NOTE(claude):` left · anything from the
 dead branch you consciously did NOT take and why it tempted you. Push `codex/visits`. Do not merge.
 A Claude session will review the diff before Riley merges.
+
+---
+
+## Review outcome — 2026-08-21, after Codex's implementation
+
+Reviewed at `6c436742`. The contract held: the note payload matches the desktop
+parser key for key, the notes arrive as relay-signed kind 40099 (so 41013 stays
+a relay command kind and needs no client wiring), and the cancelled since-filter
+stayed cancelled — no `since` anywhere in the diff, and `check_channel_membership`
+is untouched. `is_guest` is a membership label that adds the prompt line, not a
+gate. Nothing from the cleanup brief's do-not-restore list came back. The UI was
+not touched, and `lab-shots.mjs` measures green in all three themes.
+
+Three follow-up commits were pushed to this same branch rather than a second one:
+
+1. **`f4cac0db`** — the arrival note's `text` said the guest "can see this
+   conversation from here on", which describes the cancelled policy. **That error
+   was in this brief's example payload, not in the implementation** — the prose was
+   corrected on 2026-08-21 and the example was not, so it was implemented
+   faithfully. Both are fixed now; the payload example above carries a line saying
+   why the wording must not return.
+2. **`788b565b`** — `fade_visits` read a missing exchange head as an *open*
+   exchange, which strands a guest: neither trigger can then fade them. An unknown
+   head now fades.
+3. **`c4aaefae`** — the three `communication_turn_registry` tests cleared one
+   process-wide map while running in parallel and could wipe each other. A
+   pre-existing race, surfaced (not caused) by the visit work; they now serialize.
+
+Open, deliberately not done here: the branch is not merged, and Codex's three
+implementation commits have empty bodies — the reasoning for that work exists
+only in this brief.

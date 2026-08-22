@@ -1,0 +1,7 @@
+command: PLAYWRIGHT_BROWSERS_PATH=<external-build>/playwright node desktop/scripts/lab-shots.mjs
+source: codex/visits@9c9ef0df48ed5a45b2a17a136a94c8cdb7cdf048
+result: PASS
+buzz: drawer=360 inflow=true card=true seam=auto stripDelta=0 span=6/true doors=3 inset=true rail=true mono=0 resident=model:1 errors=0
+graphite: drawer=360 inflow=true card=true seam=auto stripDelta=0 span=6/true doors=3 inset=true rail=true mono=0 resident=model:1 errors=0
+catppuccin-latte: drawer=360 inflow=true card=true seam=auto stripDelta=0 span=6/true doors=3 inset=true rail=true mono=0 resident=model:1 errors=0
+generated-source-restored: design-lab/shell-lab.html

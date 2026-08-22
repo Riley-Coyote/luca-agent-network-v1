@@ -95,7 +95,7 @@ export function ResidentDocumentsSection({
           data-testid="resident-documents-native-note"
         >
           {runtimeName} keeps these files itself, in{" "}
-          <span className="font-mono text-xs text-muted-foreground/80">
+          <span className="font-mono text-xs text-ink-faint">
             {documents.data.dir}
           </span>
           . Edits go straight to them; {runtimeName} reads them when the
@@ -115,16 +115,16 @@ export function ResidentDocumentsSection({
                 data-testid={`resident-document-${kind}`}
                 key={kind}
               >
-                <span className="text-base leading-6 text-foreground/45">
+                <span className="text-base leading-6 text-ink-faint">
                   {meta.label}
                 </span>
                 <span
-                  className="whitespace-nowrap text-2xs text-muted-foreground/70"
+                  className="whitespace-nowrap text-2xs text-ink-faint"
                   data-testid={`resident-document-${kind}-status`}
                 >
                   Not part of {runtimeName}
                 </span>
-                <span className="col-span-2 text-sm leading-5 text-muted-foreground/60">
+                <span className="col-span-2 text-sm leading-5 text-ink-faint">
                   {meta.blurb}
                 </span>
               </li>
@@ -146,12 +146,12 @@ export function ResidentDocumentsSection({
                   <span
                     className={cn(
                       "text-base leading-6",
-                      exists ? "text-foreground" : "text-foreground/70",
+                      exists ? "text-foreground" : "text-ink-muted",
                     )}
                   >
                     {meta.label}
                   </span>
-                  <span className="hidden font-mono text-2xs text-muted-foreground/60 sm:inline">
+                  <span className="hidden font-mono text-2xs text-ink-faint sm:inline">
                     {entry?.fileName ?? meta.fileName}
                   </span>
                 </span>
@@ -167,12 +167,10 @@ export function ResidentDocumentsSection({
                 </span>
                 <span className="col-span-2 flex min-w-0 flex-wrap items-baseline gap-x-3 text-sm leading-5 text-muted-foreground">
                   <span>{documentWriterLabel(meta.writer, residentName)}</span>
-                  <span aria-hidden className="text-muted-foreground/40">
+                  <span aria-hidden className="text-ink-ghost">
                     ·
                   </span>
-                  <span className="min-w-0 text-muted-foreground/80">
-                    {meta.blurb}
-                  </span>
+                  <span className="min-w-0 text-ink-faint">{meta.blurb}</span>
                 </span>
               </button>
             </li>
@@ -182,7 +180,7 @@ export function ResidentDocumentsSection({
 
       <section className="mt-9" data-testid="resident-extra-files">
         <div className="flex items-baseline justify-between gap-4">
-          <h3 className="text-2xs uppercase tracking-[0.14em] text-muted-foreground">
+          <h3 className="text-2xs uppercase tracking-caps-wide text-muted-foreground">
             More files
           </h3>
           {!isNative ? (
@@ -212,7 +210,7 @@ export function ResidentDocumentsSection({
             <div className="min-w-0 flex-1">
               <input
                 aria-label="New file path"
-                className="h-9 w-full rounded-md border border-border/70 bg-foreground/[0.03] px-3 font-mono text-sm text-foreground placeholder:text-muted-foreground/60 focus-visible:border-foreground/50 focus-visible:outline-hidden"
+                className="h-9 w-full rounded-md border border-border/70 bg-foreground/[0.03] px-3 font-mono text-sm text-foreground placeholder:text-ink-faint focus-visible:border-foreground/50 focus-visible:outline-hidden"
                 data-testid="resident-new-file-path"
                 onChange={(event) => {
                   setNewFilePath(event.target.value);
@@ -241,7 +239,7 @@ export function ResidentDocumentsSection({
                   onClick={() => setSelected({ relPath: file.relPath })}
                   type="button"
                 >
-                  <span className="min-w-0 truncate font-mono text-sm text-foreground/85">
+                  <span className="min-w-0 truncate font-mono text-sm text-ink-muted">
                     {file.relPath}
                   </span>
                   <span className="whitespace-nowrap text-2xs tabular-nums text-muted-foreground">
@@ -260,7 +258,7 @@ export function ResidentDocumentsSection({
           </p>
         )}
         {documents.data ? (
-          <p className="mt-3 font-mono text-2xs text-muted-foreground/60">
+          <p className="mt-3 font-mono text-2xs text-ink-faint">
             {documents.data.dir}
           </p>
         ) : null}

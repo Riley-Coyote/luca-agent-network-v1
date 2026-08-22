@@ -36,7 +36,7 @@ const SIDEBAR_ROW_ACTION_VISIBILITY_CLASS =
 const SIDEBAR_ROW_ACTION_REPLACED_BADGE_CLASS =
   "max-md:opacity-0 md:group-focus-within/menu-item:opacity-0 md:group-hover/menu-item:opacity-0";
 const SIDEBAR_ROW_ICON_ACTION_CLASS =
-  "flex size-6 items-center justify-center p-1 text-sidebar-foreground/45 transition-colors hover:text-sidebar-foreground focus-visible:text-sidebar-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sidebar-ring peer-data-[active=true]/menu-button:text-sidebar-active-foreground/75 peer-data-[active=true]/menu-button:hover:text-sidebar-active-foreground [&>svg]:size-4 [&>svg]:shrink-0";
+  "flex size-6 items-center justify-center p-1 text-ink-faint transition-colors hover:text-sidebar-foreground focus-visible:text-sidebar-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-sidebar-ring peer-data-[active=true]/menu-button:text-sidebar-active-foreground/75 peer-data-[active=true]/menu-button:hover:text-sidebar-active-foreground [&>svg]:size-4 [&>svg]:shrink-0";
 function formatUnreadCount(count: number): string {
   return count > 99 ? "99+" : String(count);
 }
@@ -180,10 +180,7 @@ export function ChannelMenuButton({
       tooltip={resolvedLabel}
       type="button"
     >
-      <ConversationTypeIcon
-        channel={channel}
-        className="text-sidebar-foreground/55"
-      />
+      <ConversationTypeIcon channel={channel} className="text-ink-faint" />
       <span className="min-w-0 flex-1 truncate" data-sidebar-row-label>
         {resolvedLabel}
       </span>
@@ -205,9 +202,7 @@ export function ChannelMenuButton({
         <BellOff
           className={cn(
             "ml-auto h-4 w-4 shrink-0",
-            isActive
-              ? "text-sidebar-active-foreground/60"
-              : "text-sidebar-foreground/40",
+            isActive ? "text-sidebar-active-foreground/60" : "text-ink-faint",
           )}
         />
       ) : null}
@@ -400,7 +395,7 @@ export function SidebarSection({
             </SidebarMenu>
           ) : emptyState ? (
             <div
-              className="px-2 py-1 text-sm text-sidebar-foreground/60"
+              className="px-2 py-1 text-sm text-ink-faint"
               data-testid={`${testId}-empty`}
             >
               {emptyState}

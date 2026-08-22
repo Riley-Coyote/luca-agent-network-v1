@@ -216,10 +216,10 @@ export function WorkflowDetailPanel({
 
                         {isSelected ? (
                           <div className="border-t border-border/60 bg-background/60 px-4 py-4">
-                            <div className="mb-3 flex items-center gap-2 text-2xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                            <div className="mb-3 flex items-center gap-2 text-2xs font-medium uppercase tracking-caps-wider text-muted-foreground">
                               <span>Execution Trace</span>
                               {approvalsQuery.isFetching ? (
-                                <span className="text-2xs tracking-[0.12em] text-muted-foreground/80">
+                                <span className="text-2xs tracking-caps-wide text-ink-faint">
                                   Refreshing approvals...
                                 </span>
                               ) : null}

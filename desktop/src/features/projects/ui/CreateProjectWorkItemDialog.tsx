@@ -10,7 +10,7 @@ import { Textarea } from "@/shared/ui/textarea";
 const FIELD_SHELL_CLASS =
   "rounded-xl border border-input bg-muted/40 transition-colors hover:border-muted-foreground/40 focus-within:border-muted-foreground/50";
 const FIELD_CONTROL_CLASS =
-  "border-0 bg-transparent shadow-none outline-none ring-0 placeholder:text-muted-foreground/55 focus-visible:ring-0";
+  "border-0 bg-transparent shadow-none outline-none ring-0 placeholder:text-ink-faint focus-visible:ring-0";
 
 export type CreateProjectWorkItemDialogInput = {
   title: string;
@@ -157,7 +157,7 @@ export function CreateProjectWorkItemDialog({
               htmlFor={`${testIdPrefix}-body`}
             >
               Description
-              <span className="ml-1 text-xs font-normal text-muted-foreground/50">
+              <span className="ml-1 text-xs font-normal text-ink-faint">
                 Optional
               </span>
             </label>

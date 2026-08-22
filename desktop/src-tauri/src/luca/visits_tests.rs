@@ -163,7 +163,7 @@ fn owner_mention_visits_once_and_emits_the_exact_arrival_payload() {
         std::slice::from_ref(&guest)
     );
     assert_eq!(relay.notes.lock().expect("notes").as_slice(), [format!(
-        "{{\"type\":\"visit_arrived\",\"resident\":\"{}\",\"exchange_id\":\"{}\",\"text\":\"ziggy is visiting — they can see this conversation from here on.\"}}",
+        "{{\"type\":\"visit_arrived\",\"resident\":\"{}\",\"exchange_id\":\"{}\",\"text\":\"ziggy is visiting.\"}}",
         guest.as_str(),
         correlation().as_str()
     )]);
@@ -241,7 +241,7 @@ fn stopping_the_exchange_removes_its_guest_and_emits_left() {
     };
     settle_visit_grants(&relay, &store, &[grant]).expect("visit");
 
-    fade_visits(
+    let faded = fade_visits(
         &relay,
         &store,
         &channel(),
@@ -249,6 +249,48 @@ fn stopping_the_exchange_removes_its_guest_and_emits_left() {
     )
     .expect("fade");
 
+    assert_eq!(faded, std::slice::from_ref(&guest));
     assert_eq!(relay.removed.lock().expect("removed").as_slice(), [guest]);
     assert_eq!(relay.notes.lock().expect("notes").len(), 2);
+}
+
+#[test]
+fn a_visit_whose_exchange_head_is_missing_still_fades() {
+    // The guest arrived with an exchange, but no head for it is in the store —
+    // a pruned or never-recorded head. Treating that as "still open" would pin
+    // the membership row forever, because the stop trigger also needs the head.
+    let relay = FakeRelay::default();
+    let guest = guest();
+    relay.resident(&guest, "ziggy");
+    let store = Arc::new(Mutex::new(ExchangeStore::in_memory()));
+    let grant = VisitGrant {
+        conversation_id: channel(),
+        resident: guest.clone(),
+        arrived_at: 1_700_000_000,
+        exchange_id: Some(correlation()),
+        correlation_id: correlation(),
+    };
+    settle_visit_grants(&relay, &store, &[grant]).expect("visit");
+    assert!(store.lock().expect("store").head(&correlation()).is_none());
+
+    fade_visits(
+        &relay,
+        &store,
+        &channel(),
+        VisitFadeTrigger::OwnerMessage {
+            mentioned: &BTreeSet::new(),
+            now_unix_secs: 1_700_000_010,
+        },
+    )
+    .expect("fade");
+
+    assert_eq!(
+        relay.removed.lock().expect("removed").as_slice(),
+        std::slice::from_ref(&guest)
+    );
+    assert!(store
+        .lock()
+        .expect("store")
+        .visit(&channel(), &guest)
+        .is_none());
 }

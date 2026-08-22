@@ -12,6 +12,7 @@
 mod artifact;
 mod brain;
 mod canonical;
+mod capability;
 mod communications;
 mod connected_brain;
 mod continuity;
@@ -33,6 +34,7 @@ pub use canonical::{
     canonical_sha256, canonicalize, parse_and_canonicalize_strict, parse_strict_json,
     CanonicalError,
 };
+pub use capability::*;
 pub use communications::*;
 pub use connected_brain::*;
 pub use continuity::*;

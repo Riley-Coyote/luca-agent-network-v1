@@ -434,9 +434,12 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
 
   // All dark themes (paired dark + dark-only)
   const allDarkThemes = useMemo<SyntaxThemeName[]>(() => {
+    // Paper's dark counterpart is Void, which already leads this list as
+    // BUZZ_DARK_THEME_NAME — take it out of the paired run so "Void" appears
+    // once rather than twice.
     const pairedDark = pairedLight
       .map((l) => getThemePair(l))
-      .filter(Boolean) as SyntaxThemeName[];
+      .filter((name): name is SyntaxThemeName => !!name && !isBuzzTheme(name));
     return [BUZZ_DARK_THEME_NAME, ...pairedDark, ...darkOnly];
   }, [pairedLight, darkOnly]);
 

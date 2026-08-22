@@ -375,7 +375,7 @@ function ContinuityStatus({
   const job = data?.job;
   const active = job?.state === "pending" || job?.state === "running";
   return (
-    <div className="flex items-center justify-between gap-3 font-mono text-2xs uppercase tracking-[0.08em] text-muted-foreground">
+    <div className="flex items-center justify-between gap-3 font-mono text-2xs uppercase tracking-caps text-muted-foreground">
       <span>{data?.enabled ? data.availability : "disabled"}</span>
       <span className="flex items-center gap-1.5">
         {active ? <LoaderCircle className="size-3 animate-spin" /> : null}
@@ -406,7 +406,7 @@ function HandoffView({
       <div className="flex items-center justify-between gap-3 border-b border-border/50 px-4 py-3">
         <div>
           <p className="text-sm font-medium">Current handoff</p>
-          <p className="mt-0.5 font-mono text-badge uppercase tracking-[0.08em] text-muted-foreground">
+          <p className="mt-0.5 font-mono text-badge uppercase tracking-caps text-muted-foreground">
             {relativeDate(handoff.updatedAt)} · revision {handoff.revision}
             {handoff.pinnedOwnerCorrection ? " · owner corrected" : ""}
           </p>
@@ -424,9 +424,7 @@ function HandoffView({
         {handoff.summary ? (
           <div>
             <SectionLabel>Summary</SectionLabel>
-            <p className="mt-2 text-sm leading-6 text-foreground/90">
-              {handoff.summary}
-            </p>
+            <p className="mt-2 text-sm leading-6 text-ink">{handoff.summary}</p>
           </div>
         ) : null}
         <HandoffItems
@@ -502,7 +500,7 @@ function HandoffItems({
             key={`${field}-${item}`}
           >
             <span className="mt-2 size-1 shrink-0 rounded-full bg-muted-foreground/60" />
-            <span className="min-w-0 flex-1 text-sm leading-5 text-foreground/85">
+            <span className="min-w-0 flex-1 text-sm leading-5 text-ink-muted">
               {item}
             </span>
             <button
@@ -570,7 +568,7 @@ function HandoffEditor({
       {fields.map((field) => (
         <div className="block" key={field.key}>
           <label
-            className="flex items-center justify-between gap-2 text-xs font-medium text-foreground/85"
+            className="flex items-center justify-between gap-2 text-xs font-medium text-ink-muted"
             htmlFor={`resident-continuity-${field.key}`}
           >
             <span>{field.label}</span>
@@ -626,7 +624,7 @@ function ContinuityEmptyState({ availability }: { availability: string }) {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="font-mono text-badge uppercase tracking-[0.12em] text-muted-foreground">
+    <p className="font-mono text-badge uppercase tracking-caps-wide text-muted-foreground">
       {children}
     </p>
   );

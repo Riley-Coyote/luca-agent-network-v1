@@ -88,7 +88,7 @@ acceptance, and future hardening now have separate status and ownership.
 | AGT-202 | Agent Platform | product requirement | Complete in-app manual and conversational resident creation |
 | AGT-203 | Agent Platform | product requirement | Complete resident configuration start stop restart and relaunch controls |
 | AGT-204 | Agent Platform | product requirement | Make Agent Library Settings runtime health and MCP grants one coherent system |
-| AGT-205 | Agent Platform | existing architectural constraint | Preserve stable identity host signing credential isolation and native config immutability |
+| AGT-205 | Agent Platform | existing architectural constraint | Preserve stable identity, host signing, credential isolation, read-only discovery, runtime-owned configuration writes, and unrelated native-state immutability |
 | PRJ-201 | Projects, Brain & Connections | product requirement | Complete unified project creation with optional first room residents and sources |
 | PRJ-202 | Projects, Brain & Connections | product requirement | Complete repository folder source and Brain Setup entry points |
 | PRJ-203 | Projects, Brain & Connections | product requirement | Complete project details edit reopen recovery and empty states |

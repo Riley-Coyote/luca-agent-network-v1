@@ -388,7 +388,7 @@ export function HostedCommunityOnboarding({
       autoComplete="off"
       className={
         inline
-          ? "h-[2.375rem] w-[16.5rem] rounded-full border border-[color:var(--buzz-onboarding-backup-ink)]/25 bg-[rgb(var(--buzz-hosted-community-input-bg)/0.6)] px-6 text-center text-sm shadow-none placeholder:text-foreground/30 focus-visible:ring-1 focus-visible:ring-[color:var(--buzz-onboarding-backup-ink)]/40"
+          ? "h-[2.375rem] w-[16.5rem] rounded-full border border-[color:var(--buzz-onboarding-backup-ink)]/25 bg-[rgb(var(--buzz-hosted-community-input-bg)/0.6)] px-6 text-center text-sm shadow-none placeholder:text-ink-faint focus-visible:ring-1 focus-visible:ring-[color:var(--buzz-onboarding-backup-ink)]/40"
           : "h-auto min-w-0 flex-none rounded-none border-0 bg-transparent p-0 text-right font-mono !text-[rgb(var(--buzz-hosted-community-surface-fg))] shadow-none placeholder:!text-[rgb(var(--buzz-hosted-community-surface-fg))] placeholder:opacity-20 focus-visible:ring-0"
       }
       disabled={busy || atCommunityLimit}
@@ -473,7 +473,7 @@ export function HostedCommunityOnboarding({
         surface="textured"
       >
         <div className="mx-auto flex w-full max-w-sm flex-col items-center py-2 text-center">
-          <span className="mb-5 font-mono text-xs font-medium uppercase tracking-[0.22em] text-foreground">
+          <span className="mb-5 font-mono text-xs font-medium uppercase tracking-caps-wider text-foreground">
             Luca
           </span>
 
@@ -506,7 +506,7 @@ export function HostedCommunityOnboarding({
               )}
               {/* Quiet breadcrumb: Buzz itself is open source; this hosted
                     relay is the one account-backed piece of the flow. */}
-              <p className="mt-6 w-full border-t border-foreground/10 pt-4 text-xs leading-5 text-foreground/45">
+              <p className="mt-6 w-full border-t border-foreground/10 pt-4 text-xs leading-5 text-ink-faint">
                 Luca is open source. Builderlab hosts the relay for this
                 account.
               </p>
@@ -624,7 +624,7 @@ export function HostedCommunityOnboarding({
                                 community.slug ??
                                 "Hosted community"}
                             </p>
-                            <p className="mt-1 truncate text-sm text-foreground/55">
+                            <p className="mt-1 truncate text-sm text-ink-faint">
                               {community.normalized_host}
                             </p>
                           </div>

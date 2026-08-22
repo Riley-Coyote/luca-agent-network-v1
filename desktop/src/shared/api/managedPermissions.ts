@@ -7,7 +7,7 @@ import type {
   PendingManagedPermission,
 } from "@/shared/api/types";
 
-type RawManagedPermissionRequest = {
+type RawRuntimeManagedPermissionRequest = {
   protocol: "luca.managed.permission.v1";
   resident_pubkey: string;
   conversation_id: string;
@@ -19,6 +19,28 @@ type RawManagedPermissionRequest = {
   options: Array<{ option_id: string; name: string; kind: string }>;
 };
 
+type RawCapabilityManagedPermissionRequest = {
+  protocol: "luca.managed.permission.v2";
+  resident_pubkey: string;
+  conversation_id: string;
+  session_epoch: number;
+  turn_id: string;
+  request_id: string;
+  capability: import("@/shared/api/types").CapabilityKind;
+  risk: import("@/shared/api/types").CapabilityRisk;
+  operation: string;
+  operation_fingerprint: string;
+  resource: {
+    kind: string;
+    resource_ref: string;
+    display_name: string;
+  };
+};
+
+type RawManagedPermissionRequest =
+  | RawRuntimeManagedPermissionRequest
+  | RawCapabilityManagedPermissionRequest;
+
 type RawPendingManagedPermission = {
   pendingId: string;
   request: RawManagedPermissionRequest;
@@ -27,6 +49,25 @@ type RawPendingManagedPermission = {
 function normalizeRequest(
   request: RawManagedPermissionRequest,
 ): ManagedPermissionRequest {
+  if (request.protocol === "luca.managed.permission.v2") {
+    return {
+      protocol: request.protocol,
+      residentPubkey: request.resident_pubkey,
+      conversationId: request.conversation_id,
+      sessionEpoch: request.session_epoch,
+      turnId: request.turn_id,
+      requestId: request.request_id,
+      capability: request.capability,
+      risk: request.risk,
+      operation: request.operation,
+      operationFingerprint: request.operation_fingerprint,
+      resource: {
+        kind: request.resource.kind,
+        resourceRef: request.resource.resource_ref,
+        displayName: request.resource.display_name,
+      },
+    };
+  }
   return {
     protocol: request.protocol,
     residentPubkey: request.resident_pubkey,

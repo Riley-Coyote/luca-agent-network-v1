@@ -777,7 +777,7 @@ export function MessageThreadPanel({
             // Keying off `deferredThreadReplies` would flash "No replies" for a
             // frame while a non-empty list streams in on the deferred commit.
             <div className="rounded-2xl border border-dashed border-border/70 bg-card/40 px-4 py-6 text-center">
-              <p className="text-sm font-medium text-foreground/80">
+              <p className="text-sm font-medium text-ink-muted">
                 No replies in this branch yet
               </p>
               <p className="mt-1 text-xs text-muted-foreground">

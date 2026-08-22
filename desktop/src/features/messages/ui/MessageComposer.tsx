@@ -132,6 +132,7 @@ type MessageComposerProps = {
     mediaTags?: string[][],
     channelId?: string | null,
     threadContext?: MessageComposerSendContext | null,
+    explicitMentionPubkeys?: string[],
   ) => Promise<void>;
   placeholder?: string;
   profiles?: UserProfileLookup;

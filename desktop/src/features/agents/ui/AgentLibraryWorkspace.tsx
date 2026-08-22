@@ -165,14 +165,14 @@ export function AgentLibraryWorkspace({
               {resident.pubkey ? (
                 <>
                   <Dot />
-                  <span className="font-mono text-2xs text-muted-foreground/75">
+                  <span className="font-mono text-2xs text-ink-faint">
                     {truncatePubkey(resident.pubkey)}
                   </span>
                 </>
               ) : (
                 <>
                   <Dot />
-                  <span className="text-2xs text-muted-foreground/75">
+                  <span className="text-2xs text-ink-faint">
                     Identity created when started
                   </span>
                 </>
@@ -334,7 +334,7 @@ export function AgentLibraryWorkspace({
 
 function Dot() {
   return (
-    <span aria-hidden className="text-muted-foreground/40">
+    <span aria-hidden className="text-ink-ghost">
       ·
     </span>
   );
@@ -453,10 +453,10 @@ function NotebookSection({
           <details className="group border-y border-border/55 py-1">
             <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 py-2 text-sm font-medium focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring">
               <span>Current handoff</span>
-              <span className="font-mono text-2xs uppercase tracking-[0.1em] text-muted-foreground group-open:hidden">
+              <span className="font-mono text-2xs uppercase tracking-caps-wide text-muted-foreground group-open:hidden">
                 Show
               </span>
-              <span className="hidden font-mono text-2xs uppercase tracking-[0.1em] text-muted-foreground group-open:inline">
+              <span className="hidden font-mono text-2xs uppercase tracking-caps-wide text-muted-foreground group-open:inline">
                 Hide
               </span>
             </summary>
@@ -619,7 +619,7 @@ function SettingsSection({
                 type="button"
               >
                 <span>{channel.name}</span>
-                <span className="font-mono text-2xs uppercase tracking-[0.1em] text-muted-foreground">
+                <span className="font-mono text-2xs uppercase tracking-caps-wide text-muted-foreground">
                   Open
                 </span>
               </button>
@@ -693,7 +693,7 @@ function LedgerSection({
   return (
     <section className="grid gap-5 py-6 sm:grid-cols-[160px_minmax(0,1fr)]">
       <div>
-        <p className="font-mono text-2xs uppercase tracking-[0.15em] text-muted-foreground">
+        <p className="font-mono text-2xs uppercase tracking-caps-wide text-muted-foreground">
           {eyebrow}
         </p>
         <h3 className="mt-1 text-sm font-medium">{title}</h3>

@@ -19,7 +19,11 @@ const TOP_INSET = 10;
 
 type Pinned = { guest: string; top: number } | null;
 
-export function VisitPresenceRail() {
+export function VisitPresenceRail({
+  visitorPubkeys,
+}: {
+  visitorPubkeys: ReadonlySet<string>;
+}) {
   const [pinned, setPinned] = React.useState<Pinned>(null);
   const hostRef = React.useRef<HTMLDivElement | null>(null);
   const frame = React.useRef<number | null>(null);
@@ -43,34 +47,36 @@ export function VisitPresenceRail() {
         return;
       }
 
-      // The passage on screen: the run of rows that straddles the top of the
-      // viewport, or the first run visible below it.
-      let top = Number.POSITIVE_INFINITY;
-      let bottom = Number.NEGATIVE_INFINITY;
-      let found = false;
-      for (const row of rows) {
+      // Presence belongs only to the passage still open at the timeline tail.
+      // A viewport can contain an older completed passage and the current one
+      // at the same time; choosing the first visible run resurrected the older
+      // guest as a detached mark.
+      const activeRows = rows.filter((row) => {
+        if (!row.dataset.visitActiveGuests) return false;
         const rect = row.getBoundingClientRect();
-        if (rect.bottom < viewport.top || rect.top > viewport.bottom) continue;
-        const position = row.dataset.visitSpan;
-        if (found && (position === "first" || position === "only")) break;
-        top = Math.min(top, rect.top);
-        bottom = Math.max(bottom, rect.bottom);
-        found = true;
-      }
-      if (!found) {
+        return rect.bottom >= viewport.top && rect.top <= viewport.bottom;
+      });
+      if (activeRows.length === 0) {
         setPinned((current) => (current === null ? current : null));
         return;
       }
+      const rects = activeRows.map((row) => row.getBoundingClientRect());
+      const top = Math.min(...rects.map((rect) => rect.top));
+      const bottom = Math.max(...rects.map((rect) => rect.bottom));
 
-      // Whose visit: the nearest arrival door above the passage. Only the
-      // arrival note carries the guest's key.
-      const doors = [
-        ...scroller.querySelectorAll<HTMLElement>("[data-visit-guest]"),
-      ];
-      let guest: string | null = null;
-      for (const door of doors) {
-        if (door.getBoundingClientRect().top <= top + 1) {
-          guest = door.dataset.visitGuest ?? null;
+      // Historical passages keep their doors and connector, but they must not
+      // grow a floating presence mark after the guest has stepped out. The
+      // active passage carries its guests on every row, so virtualization does
+      // not turn an old passage into presence when its door is remounted.
+      const activeGuests = activeRows
+        .flatMap((row) => row.dataset.visitActiveGuests?.split(",") ?? [])
+        .filter(Boolean);
+      let guest: string | undefined;
+      for (let index = activeGuests.length - 1; index >= 0; index -= 1) {
+        const candidate = activeGuests[index];
+        if (candidate && visitorPubkeys.has(candidate.toLowerCase())) {
+          guest = candidate;
+          break;
         }
       }
       if (!guest) {
@@ -107,7 +113,7 @@ export function VisitPresenceRail() {
       observer.disconnect();
       mutations.disconnect();
     };
-  }, []);
+  }, [visitorPubkeys]);
 
   return (
     <div
@@ -119,12 +125,12 @@ export function VisitPresenceRail() {
     >
       {pinned ? (
         <div
-          className="mx-auto w-full max-w-[48rem] px-0"
+          className="luca-measure px-0"
           style={{ transform: `translateY(${pinned.top}px)` }}
         >
           <ResidentIdentityMark
             accessibleName="Visiting resident"
-            className="ml-1 text-foreground/45"
+            className="ml-1 text-ink-faint"
             decorative
             publicKey={pinned.guest}
             size={MARK_SIZE}
