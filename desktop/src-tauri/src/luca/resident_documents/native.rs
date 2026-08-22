@@ -508,6 +508,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn hermes_writes_through_a_symlink_and_keeps_the_link() {
         let dir = tempfile::tempdir().unwrap();
@@ -578,6 +579,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn openclaw_refuses_symlinks_and_resolves_the_workspace_from_state() {
         let state = tempfile::tempdir().unwrap();
@@ -628,6 +630,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_native_write_keeps_the_files_existing_mode() {
         use std::os::unix::fs::PermissionsExt as _;
