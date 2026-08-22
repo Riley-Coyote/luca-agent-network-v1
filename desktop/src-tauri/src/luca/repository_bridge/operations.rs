@@ -120,6 +120,9 @@ pub(super) fn prepare(
     arguments: &Value,
 ) -> Result<PreparedRepositoryOperationV1, String> {
     match operation {
+        RepositoryToolOperationV1::OperatorStatus => {
+            Err("operator status is handled by the broker".into())
+        }
         RepositoryToolOperationV1::List => {
             Err("repositories does not use a source operation".into())
         }
@@ -201,6 +204,9 @@ pub(super) fn execute(
     arguments: &Value,
 ) -> Result<RepositoryOperationResultV1, String> {
     match operation {
+        RepositoryToolOperationV1::OperatorStatus => {
+            Err("operator status is handled by the broker".into())
+        }
         RepositoryToolOperationV1::List => Err("repositories is handled by the broker".into()),
         RepositoryToolOperationV1::Tree => tree(root, decode(arguments)?),
         RepositoryToolOperationV1::Search => search(root, decode(arguments)?),

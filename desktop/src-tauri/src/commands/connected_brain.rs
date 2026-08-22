@@ -139,6 +139,7 @@ fn recall_state_value(state: BrainGrantStateV1) -> &'static str {
 
 fn operation_value(operation: RepositoryToolOperationV1) -> &'static str {
     match operation {
+        RepositoryToolOperationV1::OperatorStatus => "polyphonic_status",
         RepositoryToolOperationV1::List => "repositories",
         RepositoryToolOperationV1::Tree => "repo_tree",
         RepositoryToolOperationV1::Search => "repo_search",
