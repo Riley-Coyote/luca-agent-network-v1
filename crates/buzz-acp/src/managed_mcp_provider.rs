@@ -3,9 +3,11 @@
 //! Decoded values are never logged. Errors expose only a body-free code and
 //! fail soft at the caller.
 
-use std::io::Read;
-
 use serde::Deserialize;
+
+#[cfg(unix)]
+use std::io::Read;
+#[cfg(unix)]
 use zeroize::Zeroizing;
 
 use crate::acp::{EnvVar, McpServer};

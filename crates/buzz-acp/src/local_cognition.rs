@@ -7,10 +7,12 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use luca_protocol::{
-    ResidentPrivateCognitionRequestV1, ResidentPrivateCognitionResultV1, Sha256Ref,
-};
+use luca_protocol::{ResidentPrivateCognitionRequestV1, ResidentPrivateCognitionResultV1};
 use serde::Serialize;
+
+#[cfg(unix)]
+use luca_protocol::Sha256Ref;
+#[cfg(unix)]
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
 const INHERITED_FD: i32 = 5;

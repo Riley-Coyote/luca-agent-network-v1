@@ -15,7 +15,10 @@ use luca_protocol::{
     MAX_CONTINUITY_PACKET_BYTES, MAX_CONTINUITY_REFS,
 };
 use serde::{Deserialize, Serialize};
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroize;
+
+#[cfg(unix)]
+use zeroize::Zeroizing;
 
 /// Hard upper bound for one ACP continuity-provider resolution.
 pub const CONTINUITY_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(3);

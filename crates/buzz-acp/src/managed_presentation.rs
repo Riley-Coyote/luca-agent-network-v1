@@ -19,9 +19,15 @@ use crate::{
 
 const PRESENTATION_FD_ENV: &str = "LUCA_MANAGED_PRESENTATION_FD";
 
+#[cfg(unix)]
+type ManagedPresentationStream = tokio::net::UnixStream;
+
+#[cfg(not(unix))]
+type ManagedPresentationStream = tokio::io::DuplexStream;
+
 #[derive(Clone)]
 pub(crate) struct ManagedPresentationPublisher {
-    writer: Arc<tokio::sync::Mutex<tokio::net::UnixStream>>,
+    writer: Arc<tokio::sync::Mutex<ManagedPresentationStream>>,
     resident_pubkey: Hex64,
     session_epoch: SafeU53,
 }
