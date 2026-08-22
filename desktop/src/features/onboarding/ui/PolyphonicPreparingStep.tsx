@@ -14,6 +14,7 @@ import { useOperatorForgeSettingsQuery } from "@/features/agents/operatorForgeQu
 import { LUCA_GREETING_MARKER } from "@/features/luca/canonicalLucaResident";
 import { markLucaArrival } from "@/features/luca/lucaArrival";
 import { createLucaResident } from "@/features/luca/residents/api";
+import { getManagedAgentLog } from "@/shared/api/tauri";
 import { openDm } from "@/shared/api/tauriChannels";
 import { hasManagedAgentChannelMessageMarker } from "@/shared/api/tauriManagedAgentMessageMarkers";
 import { sendManagedAgentChannelMessage } from "@/shared/api/tauriManagedAgentMessages";
@@ -28,6 +29,23 @@ import { PolyphonicBrandMark } from "./PolyphonicThresholdField";
 
 const LUCA_PERSONA_ID = "builtin:fizz";
 const GREETING_MARKER = LUCA_GREETING_MARKER;
+const LUCA_READY_TIMEOUT_MS = 30_000;
+
+async function waitForLucaChannelSubscription(
+  pubkey: string,
+  channelId: string,
+) {
+  const readyMarker = `subscribed to channel ${channelId}`;
+  const deadline = Date.now() + LUCA_READY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const log = await getManagedAgentLog(pubkey, 160);
+    if (log.content.includes(readyMarker)) return;
+    await new Promise((resolve) => window.setTimeout(resolve, 200));
+  }
+  throw new Error(
+    "Luca started but did not finish connecting to this conversation. Retry setup to reconnect.",
+  );
+}
 
 /** Warm, particular, and honest about what has happened: a read-only look
  *  around this Mac. Luca lives here; this is not an assistant clearing its
@@ -98,11 +116,12 @@ export function PolyphonicPreparingStep({
           // never wait on a cold start. Every other resident wakes on send.
           const created = await createLucaResident({
             ...baseInput,
-            spawnAfterCreate: false,
+            spawnAfterCreate: true,
             startOnAppLaunch: true,
           });
           if (created.profileSyncError)
             throw new Error(created.profileSyncError);
+          if (created.spawnError) throw new Error(created.spawnError);
           lucaPubkey = created.resident.residentPubkey;
         }
 
@@ -144,6 +163,9 @@ export function PolyphonicPreparingStep({
           // The greeting is durable already; the conversation stages its
           // arrival once so the owner sees Luca about to speak, then speak.
           markLucaArrival(channel.id);
+        }
+        if (target.kind === "managed") {
+          await waitForLucaChannelSubscription(lucaPubkey, channel.id);
         }
         if (!cancelled) onComplete(channel.id);
       } catch (cause) {
