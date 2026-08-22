@@ -208,9 +208,24 @@ pub(crate) fn clear_resident(resident_pubkey: &str) -> usize {
     before.saturating_sub(turns.len())
 }
 
+/// Take the shared registry for one test, cleared and exclusive.
+///
+/// The registry is a single process-wide map, and every test that uses it
+/// starts by clearing it. Under cargo's parallel test threads that clear lands
+/// in the middle of a neighbour's run and wipes the turns it just recorded, so
+/// whichever test loses the race fails intermittently. Holding this guard for
+/// the body of a test makes clear-then-assert exclusive. A poisoned lock is
+/// recovered on purpose: the panicking test has already failed, and the rest
+/// should still run instead of cascading.
 #[cfg(test)]
-pub(crate) fn clear_all_for_test() {
+pub(crate) fn exclusive_registry_for_test() -> MutexGuard<'static, ()> {
+    static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let guard = TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     lock_registry().clear();
+    guard
 }
 
 #[cfg(test)]
@@ -241,7 +256,7 @@ mod tests {
 
     #[test]
     fn authority_exists_only_between_accepted_start_and_terminal_frames() {
-        clear_all_for_test();
+        let _registry = exclusive_registry_for_test();
         let resident = "11".repeat(32);
         let start = frame(
             &resident,
@@ -269,7 +284,7 @@ mod tests {
 
     #[test]
     fn concurrent_turns_require_their_exact_dispatch_and_session_clear_revokes_all() {
-        clear_all_for_test();
+        let _registry = exclusive_registry_for_test();
         let resident = "22".repeat(32);
         observe_accepted_frame(&frame(
             &resident,
@@ -300,7 +315,7 @@ mod tests {
 
     #[test]
     fn duplicate_start_conflicts_and_exact_terminal_cannot_revoke_a_sibling() {
-        clear_all_for_test();
+        let _registry = exclusive_registry_for_test();
         let resident = "33".repeat(32);
         let start_a = frame(
             &resident,
