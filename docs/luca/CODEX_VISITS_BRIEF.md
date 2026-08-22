@@ -130,8 +130,10 @@ times, and if it fails after your work, your change reached the UI and should be
 patched. Your job is the data those components read:
 - On arrival, the relay speaks one note in the room (the new 41013 kind, from the salvage) whose
   body is this JSON, exactly these keys:
-  `{"type":"visit_arrived","resident":"<guest hex pubkey>","exchange_id":"<hex>","text":"ziggy is visiting — they can see this conversation from here on."}`
-  (`text` is for clients that do not know the payload; the desktop writes its own line.) The desktop
+  `{"type":"visit_arrived","resident":"<guest hex pubkey>","exchange_id":"<hex>","text":"ziggy is visiting."}`
+  (`text` is for clients that do not know the payload; the desktop writes its own line. It says
+  nothing about what the guest can read — an earlier draft's "they can see this conversation from
+  here on" described the cancelled since-filter policy and must not come back; see B.) The desktop
   already routes 41013 into the timeline once the salvage commit's kind wiring is in (check
   `CHANNEL_EVENT_KINDS` / `CHANNEL_TIMELINE_CONTENT_KINDS` in `desktop/src/shared/constants/kinds.ts`
   include it); `timelineItems.ts` treats any row whose body parses as a visit payload as a system row.

@@ -41,10 +41,7 @@ pub(crate) fn arrival_note(relay: &dyn ExchangeRelay, grant: &VisitGrant) -> Str
         r#type: "visit_arrived",
         resident: grant.resident.as_str(),
         exchange_id: grant.correlation_id.as_str(),
-        text: format!(
-            "{} is visiting — they can see this conversation from here on.",
-            relay.display_name(&grant.resident)
-        ),
+        text: format!("{} is visiting.", relay.display_name(&grant.resident)),
     })
     .expect("visit note payload is infallible")
 }

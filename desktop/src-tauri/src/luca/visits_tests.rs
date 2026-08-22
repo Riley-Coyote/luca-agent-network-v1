@@ -163,7 +163,7 @@ fn owner_mention_visits_once_and_emits_the_exact_arrival_payload() {
         std::slice::from_ref(&guest)
     );
     assert_eq!(relay.notes.lock().expect("notes").as_slice(), [format!(
-        "{{\"type\":\"visit_arrived\",\"resident\":\"{}\",\"exchange_id\":\"{}\",\"text\":\"ziggy is visiting — they can see this conversation from here on.\"}}",
+        "{{\"type\":\"visit_arrived\",\"resident\":\"{}\",\"exchange_id\":\"{}\",\"text\":\"ziggy is visiting.\"}}",
         guest.as_str(),
         correlation().as_str()
     )]);
