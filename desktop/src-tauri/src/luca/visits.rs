@@ -189,7 +189,13 @@ pub(crate) fn fade_visits(
                     let store = store.lock().map_err(|_| {
                         ExchangeRelayError::Unavailable("visit store is locked".to_owned())
                     })?;
-                    store.head(exchange_id).is_none_or(|head| {
+                    // A head we do not have is NOT evidence of an open exchange.
+                    // Reading it as open would strand the guest: this path would
+                    // never fade them, and `ExchangeStopped` cannot fire for an
+                    // exchange nobody holds. Fading is cheap and reversible — the
+                    // next mention starts a fresh visit — so an unknown head
+                    // fades rather than pins a membership row forever.
+                    store.head(exchange_id).is_some_and(|head| {
                         head.record.state == luca_protocol::ExchangeStateV1::Open
                             && head.record.deadline.get() >= *now_unix_secs
                     })
