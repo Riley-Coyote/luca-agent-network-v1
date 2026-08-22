@@ -255,11 +255,6 @@ export function ChannelScreen({
     () => new Set(managedAgents.map((agent) => normalizePubkey(agent.pubkey))),
     [managedAgents],
   );
-  const sendMessageMutation = useSendMessageMutation(
-    activeChannel,
-    currentIdentity,
-    managedResidentPubkeys,
-  );
   const welcomeGuideAgent = React.useMemo(
     () => pickWelcomeGuideAgent(managedAgents),
     [managedAgents],
@@ -371,6 +366,19 @@ export function ChannelScreen({
       respondToLookup,
       resolvedMessages,
     ],
+  );
+  // Use the same formatted timeline that renders the visit affordance as the
+  // client-side activation source. The trusted send command independently
+  // enforces this boundary from its persisted visit store.
+  const visitorPubkeys = React.useMemo(
+    () => openVisitors(timelineMessages),
+    [timelineMessages],
+  );
+  const sendMessageMutation = useSendMessageMutation(
+    activeChannel,
+    currentIdentity,
+    managedResidentPubkeys,
+    visitorPubkeys,
   );
   const threadSummaries: ReadonlyMap<string, ChannelWindowThreadSummary> =
     React.useMemo(
@@ -740,11 +748,6 @@ export function ChannelScreen({
     setIsConversationContextOpen(true);
   }, [setProfilePanelPubkey]);
 
-  // Who is visiting right now, from the house notes in the timeline itself.
-  const visitorPubkeys = React.useMemo(
-    () => openVisitors(timelineMessages),
-    [timelineMessages],
-  );
   const channelHeader = React.useMemo(
     () => (
       <ChannelScreenHeader

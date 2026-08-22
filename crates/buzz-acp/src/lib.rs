@@ -3760,6 +3760,21 @@ mod agent_draft_prompt_tests {
         assert!(prompt.contains("single-quoted shell strings preserve `\\n` literally"));
         assert!(prompt.contains("buzz messages send ... --content -"));
     }
+
+    #[test]
+    fn managed_residents_bring_absent_siblings_into_the_current_conversation() {
+        let prompt = include_str!("luca_managed_prompt.md");
+        let normalized = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(normalized.contains("message, ask, consult, reach out to, or bring in"));
+        assert!(normalized.contains("do it in your next ordinary response"));
+        assert!(normalized.contains("An `@Name` is an action, not decoration"));
+        assert!(normalized.contains("use their plain display name without the `@`"));
+        assert!(normalized.contains("the same `@Name` starts a visit"));
+        assert!(normalized.contains("They receive this conversation and answer here"));
+        assert!(normalized.contains("Do not say you cannot reach them"));
+        assert!(!normalized.contains("I can't reach Vektor"));
+        assert!(!normalized.contains("leave the next step to the owner"));
+    }
 }
 
 fn dispatch_private_cognition(

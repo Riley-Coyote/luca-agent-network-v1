@@ -471,6 +471,7 @@ export function useSendMessageMutation(
   channel: Channel | null,
   identity: Identity | undefined,
   managedResidentPubkeys?: ReadonlySet<string>,
+  visitorPubkeys?: ReadonlySet<string>,
 ) {
   const queryClient = useQueryClient();
 
@@ -538,14 +539,18 @@ export function useSendMessageMutation(
         emojiTags,
         mentionTags,
       } = splitOutgoingTags(mediaTags);
+      // `mentionPubkeys` is the delivery set assembled by the composer and may
+      // already contain every DM participant. Only the separately captured
+      // explicit set is evidence that the owner intentionally addressed them.
       const audience =
         managedAudience ??
         (managedResidentPubkeys
           ? deriveManagedAudience({
               channel: effectiveChannel,
               managedResidentPubkeys,
-              explicitMentionPubkeys: mentionPubkeys,
+              explicitMentionPubkeys,
               replyAuthorPubkey,
+              visitorPubkeys,
             })
           : undefined);
       const recipientPubkeys = messageMentionPubkeys(
@@ -623,6 +628,7 @@ export function useSendMessageMutation(
       targetChannel,
       content,
       mentionPubkeys,
+      explicitMentionPubkeys,
       parentEventId,
       replyAuthorPubkey,
       managedAudience,
@@ -661,8 +667,9 @@ export function useSendMessageMutation(
           ? deriveManagedAudience({
               channel: effectiveChannel,
               managedResidentPubkeys,
-              explicitMentionPubkeys: mentionPubkeys,
+              explicitMentionPubkeys,
               replyAuthorPubkey,
+              visitorPubkeys,
             })
           : undefined);
       const recipientPubkeys = messageMentionPubkeys(

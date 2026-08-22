@@ -13,6 +13,7 @@ type ManagedAudienceInput = {
   managedResidentPubkeys: ReadonlySet<string>;
   explicitMentionPubkeys?: readonly string[];
   replyAuthorPubkey?: string | null;
+  visitorPubkeys?: ReadonlySet<string>;
 };
 
 function normalizedManagedSubset(
@@ -39,6 +40,7 @@ export function deriveManagedAudience({
   managedResidentPubkeys,
   explicitMentionPubkeys = [],
   replyAuthorPubkey = null,
+  visitorPubkeys = new Set(),
 }: ManagedAudienceInput): ManagedAudienceIntentV1 {
   const explicitResidents = normalizedManagedSubset(
     explicitMentionPubkeys,
@@ -60,10 +62,16 @@ export function deriveManagedAudience({
     return { mode: "none" };
   }
 
+  // Visit membership provides delivery visibility, not default activation.
+  // A fresh message wakes the conversation's resident audience while guests
+  // stay quiet until the owner explicitly mentions or replies to them.
+  const visitors = new Set(
+    [...visitorPubkeys].map((pubkey) => normalizePubkey(pubkey)),
+  );
   const conversationResidents = normalizedManagedSubset(
     [...channel.memberPubkeys, ...channel.participantPubkeys],
     managedResidentPubkeys,
-  );
+  ).filter((pubkey) => !visitors.has(pubkey));
   return conversationResidents.length > 0
     ? { mode: "conversation", resident_pubkeys: conversationResidents }
     : { mode: "none" };

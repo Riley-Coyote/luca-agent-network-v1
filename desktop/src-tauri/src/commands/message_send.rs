@@ -159,6 +159,51 @@ fn remove_faded_residents_from_routing(
     }
 }
 
+/// Temporary visit membership makes a resident able to see a DM, but it does
+/// not make that guest part of the room's default speaking audience. Directed
+/// mentions and replies remain exact and are deliberately left untouched.
+fn remove_visitors_from_conversation_activation(
+    managed_audience: &mut Option<ManagedAudienceIntentV1>,
+    visitor_pubkeys: &[Hex64],
+) {
+    let Some(ManagedAudienceIntentV1::Conversation { resident_pubkeys }) = managed_audience else {
+        return;
+    };
+    let visitors: HashSet<&str> = visitor_pubkeys.iter().map(Hex64::as_str).collect();
+    resident_pubkeys.retain(|pubkey| !visitors.contains(pubkey.as_str()));
+}
+
+/// Keep managed-resident `p` tags aligned with the trusted activation choice.
+///
+/// Room membership is enough for a resident to observe conversation traffic.
+/// A managed resident's `p` tag is therefore reserved for an actual wake. This
+/// also prevents the cross-device recovery path from interpreting a
+/// delivery-only tag as fresh activation authority.
+fn align_managed_recipients_with_activation(
+    mentions: &mut Vec<String>,
+    managed_audience: &Option<ManagedAudienceIntentV1>,
+    registered: &[String],
+) {
+    let Some(intent) = managed_audience else {
+        return;
+    };
+    let allowed: HashSet<&str> = match intent {
+        ManagedAudienceIntentV1::Conversation { resident_pubkeys }
+        | ManagedAudienceIntentV1::Directed { resident_pubkeys } => {
+            resident_pubkeys.iter().map(Hex64::as_str).collect()
+        }
+        ManagedAudienceIntentV1::None => HashSet::new(),
+    };
+    let managed: HashSet<String> = registered
+        .iter()
+        .map(|pubkey| pubkey.trim().to_ascii_lowercase())
+        .collect();
+    mentions.retain(|pubkey| {
+        let normalized = pubkey.trim().to_ascii_lowercase();
+        !managed.contains(&normalized) || allowed.contains(normalized.as_str())
+    });
+}
+
 async fn conversation_member_pubkeys(
     channel_id: &str,
     state: &AppState,
@@ -246,17 +291,19 @@ pub async fn send_channel_message(
 
     if kind_num == buzz_core_pkg::kind::KIND_STREAM_MESSAGE {
         let visit_store = crate::luca::exchange_store::global_exchange_store(&app)?;
+        let fade_store = std::sync::Arc::clone(&visit_store);
         let visit_app = app.clone();
         let visit_channel = OpaqueId::parse(channel_id.clone())
             .map_err(|error| format!("invalid visit conversation id: {error}"))?;
+        let fade_channel = visit_channel.clone();
         let fade_mentions = visit_mentions.clone();
         let visit_now = chrono::Utc::now().timestamp().max(0) as u64;
         let faded = tauri::async_runtime::spawn_blocking(move || {
             let relay = crate::luca::exchange_relay::AppExchangeRelay::new(visit_app);
             crate::luca::visits::fade_owner_message_visits(
                 &relay,
-                &visit_store,
-                &visit_channel,
+                &fade_store,
+                &fade_channel,
                 &fade_mentions,
                 visit_now,
             )
@@ -265,7 +312,21 @@ pub async fn send_channel_message(
         .map_err(|error| format!("visit fade task failed: {error}"))?
         .map_err(|error| error.to_string())?;
         remove_faded_residents_from_routing(&mut mentions, &mut managed_audience, &faded);
+        let active_visitors: Vec<Hex64> = visit_store
+            .lock()
+            .map_err(|_| "visit store is locked".to_owned())?
+            .visits_in(&visit_channel)
+            .into_iter()
+            .map(|visit| visit.grant.resident)
+            .collect();
+        remove_visitors_from_conversation_activation(&mut managed_audience, &active_visitors);
     }
+
+    let registered: Vec<String> = load_managed_agents(&app)?
+        .into_iter()
+        .map(|record| record.pubkey)
+        .collect();
+    align_managed_recipients_with_activation(&mut mentions, &managed_audience, &registered);
 
     let mention_refs: Vec<&str> = mentions.iter().map(String::as_str).collect();
 
@@ -353,10 +414,6 @@ pub async fn send_channel_message(
         .map_err(|error| format!("visit task failed: {error}"))?
         .map_err(|error| error.to_string())?;
     }
-    let registered: Vec<String> = load_managed_agents(&app)?
-        .into_iter()
-        .map(|record| record.pubkey)
-        .collect();
     let requires_membership_check = managed_audience
         .as_ref()
         .is_some_and(|intent| !matches!(intent, ManagedAudienceIntentV1::None));
@@ -518,6 +575,74 @@ mod tests {
                 resident_pubkeys: vec![retained],
             })
         );
+    }
+
+    #[test]
+    fn conversation_activation_excludes_visitors_but_directed_activation_keeps_them() {
+        let host = Hex64::parse(key('a')).unwrap();
+        let visitor = Hex64::parse(key('b')).unwrap();
+        let mut conversation = Some(ManagedAudienceIntentV1::Conversation {
+            resident_pubkeys: vec![host.clone(), visitor.clone()],
+        });
+
+        remove_visitors_from_conversation_activation(
+            &mut conversation,
+            std::slice::from_ref(&visitor),
+        );
+
+        assert_eq!(
+            conversation,
+            Some(ManagedAudienceIntentV1::Conversation {
+                resident_pubkeys: vec![host],
+            })
+        );
+
+        let mut directed = Some(ManagedAudienceIntentV1::Directed {
+            resident_pubkeys: vec![visitor.clone()],
+        });
+        remove_visitors_from_conversation_activation(&mut directed, std::slice::from_ref(&visitor));
+        assert_eq!(
+            directed,
+            Some(ManagedAudienceIntentV1::Directed {
+                resident_pubkeys: vec![visitor],
+            })
+        );
+    }
+
+    #[test]
+    fn managed_recipient_tags_match_exact_activation_without_hiding_humans() {
+        let host = key('a');
+        let visitor = key('b');
+        let human = key('c');
+        let registered = vec![host.clone(), visitor.clone()];
+
+        let mut conversation_mentions = vec![human.clone(), visitor.clone(), host.clone()];
+        align_managed_recipients_with_activation(
+            &mut conversation_mentions,
+            &Some(ManagedAudienceIntentV1::Conversation {
+                resident_pubkeys: vec![Hex64::parse(host.clone()).unwrap()],
+            }),
+            &registered,
+        );
+        assert_eq!(conversation_mentions, vec![human.clone(), host.clone()]);
+
+        let mut directed_mentions = vec![human.clone(), visitor.clone(), host];
+        align_managed_recipients_with_activation(
+            &mut directed_mentions,
+            &Some(ManagedAudienceIntentV1::Directed {
+                resident_pubkeys: vec![Hex64::parse(visitor.clone()).unwrap()],
+            }),
+            &registered,
+        );
+        assert_eq!(directed_mentions, vec![human.clone(), visitor]);
+
+        let mut none_mentions = vec![human.clone(), registered[0].clone()];
+        align_managed_recipients_with_activation(
+            &mut none_mentions,
+            &Some(ManagedAudienceIntentV1::None),
+            &registered,
+        );
+        assert_eq!(none_mentions, vec![human]);
     }
 
     #[test]

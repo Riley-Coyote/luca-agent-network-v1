@@ -8,7 +8,10 @@ const claude = "a".repeat(64);
 const codex = "b".repeat(64);
 const human = "c".repeat(64);
 
-function channel(members = [owner, claude, codex, human]) {
+function channel(
+  members = [owner, claude, codex, human],
+  participants = members,
+) {
   return {
     id: "00000000-0000-4000-8000-000000000001",
     name: "group",
@@ -22,7 +25,7 @@ function channel(members = [owner, claude, codex, human]) {
     lastMessageAt: null,
     archivedAt: null,
     participants: [],
-    participantPubkeys: members,
+    participantPubkeys: participants,
     isMember: true,
     ttlSeconds: null,
     ttlDeadline: null,
@@ -39,6 +42,29 @@ describe("deriveManagedAudience", () => {
         managedResidentPubkeys: managed,
       }),
       { mode: "conversation", resident_pubkeys: [claude, codex] },
+    );
+  });
+
+  it("keeps a fresh DM message on its durable host instead of waking a visitor", () => {
+    assert.deepEqual(
+      deriveManagedAudience({
+        channel: channel([owner, claude, codex]),
+        managedResidentPubkeys: managed,
+        visitorPubkeys: new Set([codex]),
+      }),
+      { mode: "conversation", resident_pubkeys: [claude] },
+    );
+  });
+
+  it("still activates a visitor when the owner explicitly mentions them", () => {
+    assert.deepEqual(
+      deriveManagedAudience({
+        channel: channel([owner, claude, codex]),
+        explicitMentionPubkeys: [codex],
+        managedResidentPubkeys: managed,
+        visitorPubkeys: new Set([codex]),
+      }),
+      { mode: "directed", resident_pubkeys: [codex] },
     );
   });
 
