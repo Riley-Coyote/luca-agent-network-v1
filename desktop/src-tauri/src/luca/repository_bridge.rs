@@ -501,9 +501,8 @@ fn preserve_terminal_operation_truth<T>(
     terminal_status: &'static str,
 ) -> T {
     if receipt_persistence.is_err() {
-        tracing::warn!(
-            terminal_status,
-            "capability receipt persistence failed after terminal repository operation"
+        eprintln!(
+            "buzz-desktop: capability receipt persistence failed after terminal repository operation ({terminal_status})"
         );
     }
     response
