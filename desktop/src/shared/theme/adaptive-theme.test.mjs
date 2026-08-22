@@ -5,7 +5,6 @@ import {
   contrastRatio,
   createGraphiteThemeVars,
   createLucaThemeVars,
-  createPaperThemeVars,
   createThemeVars,
   GRAPHITE_THEME_COLORS,
   hexToHsl,
@@ -29,7 +28,10 @@ import {
  */
 const AA = 4.5;
 
-function assertInkContract(name, { floor, surface, raised, ink, inkMuted, inkFaint, inkGhost }) {
+function assertInkContract(
+  name,
+  { floor, surface, raised, ink, inkMuted, inkFaint, inkGhost },
+) {
   for (const [ground, groundName] of [
     [surface, "surface"],
     [floor, "floor"],
@@ -73,10 +75,18 @@ test("Graphite holds the ink contract despite being deliberately quieter", () =>
 
 test("Paper reproduces Void's ink ratios, so hierarchy reads the same in both", () => {
   // Void's ladder, from conversation-shell.css, measured on its own surface.
-  const VOID = { surface: "#05050a", ink: "#ebedef", inkMuted: "#b4b6b8", inkFaint: "#86878a" };
+  const VOID = {
+    surface: "#05050a",
+    ink: "#ebedef",
+    inkMuted: "#b4b6b8",
+    inkFaint: "#86878a",
+  };
   for (const role of ["ink", "inkMuted", "inkFaint"]) {
     const voidRatio = contrastRatio(VOID[role], VOID.surface);
-    const paperRatio = contrastRatio(PAPER_THEME_COLORS[role], PAPER_THEME_COLORS.surface);
+    const paperRatio = contrastRatio(
+      PAPER_THEME_COLORS[role],
+      PAPER_THEME_COLORS.surface,
+    );
     const drift = Math.abs(paperRatio - voidRatio) / voidRatio;
     assert.ok(
       drift < 0.08,
