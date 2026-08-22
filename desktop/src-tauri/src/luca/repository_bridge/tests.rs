@@ -5,6 +5,81 @@ use serde_json::json;
 use super::*;
 
 #[test]
+fn deceptive_custom_commands_do_not_claim_a_supported_runtime() {
+    assert_eq!(
+        current_managed_runtime_family(
+            Some("codex"),
+            Some("my-codex-wrapper"),
+            None,
+        ),
+        "custom"
+    );
+    assert_eq!(
+        current_managed_runtime_family(
+            Some("claude"),
+            Some("claude-helper-proxy"),
+            None,
+        ),
+        "custom"
+    );
+}
+
+#[test]
+fn current_runtime_identity_replaces_the_create_time_snapshot() {
+    assert_eq!(
+        current_managed_runtime_family(Some("codex"), None, None),
+        "codex"
+    );
+    assert_eq!(
+        current_managed_runtime_family(Some("claude"), None, None),
+        "claude_code"
+    );
+    assert_eq!(
+        current_managed_runtime_family(Some("custom"), None, None),
+        "custom"
+    );
+}
+
+#[test]
+fn receipt_store_failure_cannot_reclassify_a_committed_operation() {
+    let response = RepositoryBrokerResponseV1 {
+        protocol: BROKER_PROTOCOL,
+        ok: true,
+        content: "operation committed".into(),
+        receipt: None,
+    };
+    let preserved = preserve_terminal_operation_truth(
+        response,
+        Err("synthetic receipt store failure".into()),
+        "committed",
+    );
+    assert!(preserved.ok);
+    assert_eq!(preserved.content, "operation committed");
+}
+
+#[test]
+fn repo_run_is_high_impact_and_each_command_has_a_distinct_confirmation() {
+    assert_eq!(
+        repository_risk(RepositoryToolOperationV1::Run),
+        CapabilityRisk::HighImpact
+    );
+    let source = OpaqueId::parse("source-1").expect("synthetic source");
+    let first = operation_fingerprint(
+        RepositoryToolOperationV1::Run,
+        &source,
+        &json!({"source_id": "source-1", "executable": "node", "args": ["first.js"]}),
+    )
+    .expect("first fingerprint");
+    let second = operation_fingerprint(
+        RepositoryToolOperationV1::Run,
+        &source,
+        &json!({"source_id": "source-1", "executable": "node", "args": ["second.js"]}),
+    )
+    .expect("second fingerprint");
+    assert_ne!(first, second);
+}
+
+#[test]
 fn conversation_capabilities_are_scoped_and_deterministic() {
     let master = format!("sha256:{}", "1".repeat(64));
     let first = derive_conversation_capability(&master, "conversation-a");

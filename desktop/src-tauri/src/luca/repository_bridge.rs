@@ -453,38 +453,60 @@ fn handle_frame(
                 result.changed_path_count,
             )?;
             retain_receipt(&state, receipt.clone());
-            record_capability_receipt(
+            let receipt_persistence = record_capability_receipt(
                 app,
                 context.owner_pubkey.as_str(),
                 &request,
                 CapabilityReceiptStatus::Committed,
                 "The repository operation completed and was validated.",
-            )?;
-            Ok(RepositoryBrokerResponseV1 {
-                protocol: BROKER_PROTOCOL,
-                ok: true,
-                content: result.content,
-                receipt: Some(receipt),
-            })
+            );
+            Ok(preserve_terminal_operation_truth(
+                RepositoryBrokerResponseV1 {
+                    protocol: BROKER_PROTOCOL,
+                    ok: true,
+                    content: result.content,
+                    receipt: Some(receipt),
+                },
+                receipt_persistence,
+                "committed",
+            ))
         }
         Err(error) => {
             let receipt = receipt(&request, RepositoryToolReceiptStatusV1::Failed, 0)?;
             retain_receipt(&state, receipt.clone());
-            record_capability_receipt(
+            let receipt_persistence = record_capability_receipt(
                 app,
                 context.owner_pubkey.as_str(),
                 &request,
                 CapabilityReceiptStatus::Failed,
                 "The repository operation failed without a committed success.",
-            )?;
-            Ok(RepositoryBrokerResponseV1 {
-                protocol: BROKER_PROTOCOL,
-                ok: false,
-                content: error,
-                receipt: Some(receipt),
-            })
+            );
+            Ok(preserve_terminal_operation_truth(
+                RepositoryBrokerResponseV1 {
+                    protocol: BROKER_PROTOCOL,
+                    ok: false,
+                    content: error,
+                    receipt: Some(receipt),
+                },
+                receipt_persistence,
+                "failed",
+            ))
         }
     }
+}
+
+fn preserve_terminal_operation_truth<T>(
+    response: T,
+    receipt_persistence: Result<(), String>,
+    terminal_status: &'static str,
+) -> T {
+    if receipt_persistence.is_err() {
+        tracing::warn!(
+            terminal_status,
+            "capability receipt persistence failed after terminal repository operation"
+        );
+    }
+    response
 }
 
 fn list_repositories(
@@ -530,6 +552,13 @@ fn operator_status(
                 .eq_ignore_ascii_case(context.resident_pubkey.as_str())
         })
         .ok_or_else(|| "managed resident is unavailable".to_string())?;
+    let personas = crate::managed_agents::load_personas(app)?;
+    let legacy_persona_runtime = record.persona_id.as_deref().and_then(|persona_id| {
+        personas
+            .iter()
+            .find(|persona| persona.id == persona_id)
+            .and_then(|persona| persona.runtime.as_deref())
+    });
     let (family, version, native_binding) = match record.native_runtime_binding.as_ref() {
         Some(crate::managed_agents::RuntimeBinding::Hermes {
             runtime_version, ..
@@ -537,13 +566,15 @@ fn operator_status(
         Some(crate::managed_agents::RuntimeBinding::Openclaw {
             runtime_version, ..
         }) => ("openclaw", Some(runtime_version.clone()), true),
-        None if record.agent_command.to_ascii_lowercase().contains("claude") => {
-            ("claude_code", None, false)
-        }
-        None if record.agent_command.to_ascii_lowercase().contains("codex") => {
-            ("codex", None, false)
-        }
-        None => ("custom", None, false),
+        None => (
+            current_managed_runtime_family(
+                record.runtime.as_deref(),
+                record.agent_command_override.as_deref(),
+                legacy_persona_runtime,
+            ),
+            None,
+            false,
+        ),
     };
     let running = record.runtime_pid.is_some();
     let runtime_state = if record.last_error.is_some() {
@@ -648,6 +679,35 @@ fn operator_status(
     })
 }
 
+fn current_managed_runtime_family(
+    runtime_id: Option<&str>,
+    command_override: Option<&str>,
+    legacy_persona_runtime: Option<&str>,
+) -> &'static str {
+    if let Some(command) = command_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return match crate::managed_agents::known_acp_runtime(command)
+            .map(|runtime| runtime.id)
+        {
+            Some("claude") => "claude_code",
+            Some("codex") => "codex",
+            _ => "custom",
+        };
+    }
+    let runtime = runtime_id
+        .and_then(crate::managed_agents::known_acp_runtime_exact)
+        .or_else(|| {
+            legacy_persona_runtime.and_then(crate::managed_agents::known_acp_runtime_exact)
+        });
+    match runtime.map(|runtime| runtime.id) {
+        Some("claude") => "claude_code",
+        Some("codex") => "codex",
+        _ => "custom",
+    }
+}
+
 fn repository_request(
     context: &BrokerContext,
     conversation_id: OpaqueId,
@@ -719,7 +779,13 @@ fn repository_capability(operation: RepositoryToolOperationV1) -> CapabilityKind
 }
 
 fn repository_risk(operation: RepositoryToolOperationV1) -> CapabilityRisk {
-    if operation.requires_permission() {
+    if operation == RepositoryToolOperationV1::Run {
+        // The repository runner constrains cwd, environment, and a narrow
+        // executable blocklist, but interpreters can still reach outside the
+        // repository or the network. Until native containment exists, every
+        // exact run is a non-durable, always-confirm operation.
+        CapabilityRisk::HighImpact
+    } else if operation.requires_permission() {
         CapabilityRisk::Elevated
     } else {
         CapabilityRisk::Routine
