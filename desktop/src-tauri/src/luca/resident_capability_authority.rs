@@ -22,6 +22,7 @@ use crate::managed_agents::storage::{atomic_write_json_restricted, managed_agent
 
 const SCHEMA_VERSION: u32 = 1;
 const STORE_FILE: &str = "resident-capability-authority-v1.json";
+const STORE_UNAVAILABLE: &str = "capability settings are unavailable";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -91,7 +92,14 @@ fn schema_version() -> u32 {
 }
 
 fn store_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    Ok(managed_agents_base_dir(app)?.join(STORE_FILE))
+    redact_store_path_result(managed_agents_base_dir(app).map(|base| base.join(STORE_FILE)))
+}
+
+fn redact_store_path_result<T>(result: Result<T, String>) -> Result<T, String> {
+    result.map_err(|_| {
+        tracing::warn!("capability authority storage location is unavailable");
+        STORE_UNAVAILABLE.to_owned()
+    })
 }
 
 fn store_transaction() -> &'static Mutex<()> {
@@ -648,5 +656,15 @@ mod tests {
         assert_eq!(error, "capability settings could not be persisted");
         assert!(!error.contains(&sensitive_path.to_string_lossy().to_string()));
         assert!(!error.to_ascii_lowercase().contains("directory"));
+    }
+
+    #[test]
+    fn storage_location_failure_cannot_expose_path_or_os_error() {
+        let raw = "failed to create /Users/owner/Library/Application Support/Luca: permission denied";
+        let error = redact_store_path_result::<std::path::PathBuf>(Err(raw.into()))
+            .expect_err("synthetic base-directory failure");
+        assert_eq!(error, STORE_UNAVAILABLE);
+        assert!(!error.contains("/Users/owner"));
+        assert!(!error.to_ascii_lowercase().contains("permission"));
     }
 }
