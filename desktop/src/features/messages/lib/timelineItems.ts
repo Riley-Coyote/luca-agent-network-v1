@@ -27,9 +27,11 @@ import { KIND_SYSTEM_MESSAGE } from "@/shared/constants/kinds";
 /**
  * Visit annotations shared by every row kind: where the row sits in a visit
  * plate (see `visitSpans.ts`), whether a message's author is visiting, and
- * whether an arrival row's visit is still open.
+ * whether an arrival row's visit is still open. Only the passage that is
+ * currently open carries `activeVisitGuests`; completed passages never do.
  */
 type VisitAnnotations = {
+  activeVisitGuests?: readonly string[];
   visitSpan?: VisitSpanPosition;
   visitThreshold?: VisitThreshold;
   authorVisiting?: boolean;

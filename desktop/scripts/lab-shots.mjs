@@ -373,6 +373,34 @@ for (const theme of themes) {
     await detail.close();
   }
 
+  // A completed visit remains legible as history, but it is no longer
+  // presence. Close the live fixture through the same mock event path the app
+  // uses, then prove the floating rail disappears while the passage remains.
+  await page.evaluate(() => {
+    const row = document.querySelector("[data-visit-active-guests]");
+    const resident = row
+      ?.getAttribute("data-visit-active-guests")
+      ?.split(",")[0];
+    const channelId = window.location.hash.match(/channels\/([^/?]+)/)?.[1];
+    if (!resident || !channelId) return;
+    window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+      channelId,
+      content: JSON.stringify({
+        exchange_id: "visual-audit",
+        resident,
+        type: "visit_left",
+      }),
+      createdAt: Math.floor(Date.now() / 1000) + 1,
+      kind: 40099,
+      pubkey: "deadbeef".repeat(8),
+    });
+  });
+  await page.waitForTimeout(500);
+  checks.closedVisitRailAbsent = await page.evaluate(() => {
+    const rail = document.querySelector('[data-testid="visit-presence-rail"]');
+    return rail ? !rail.hasAttribute("data-visit-present") : null;
+  });
+
   // The other half of the drawer: a 1:1 with a resident turns it into their
   // card — model selector, instructions, last handoff, open-agent. Capture it
   // and assert the controls are still there, so a restyle cannot quietly drop
@@ -508,6 +536,10 @@ for (const theme of themes) {
   expect("presence rail pins while a visit is on screen", checks.railPresent);
   expect("presence rail stays in the viewport", checks.railInView);
   expect("presence rail clears the message column", checks.railClearOfRows);
+  expect(
+    "completed visits do not resurrect the presence rail",
+    checks.closedVisitRailAbsent,
+  );
   expect(
     "no mono type in drawer chrome",
     checks.monoInDrawer === 0,

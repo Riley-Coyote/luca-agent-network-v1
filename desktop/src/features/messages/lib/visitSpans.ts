@@ -8,6 +8,7 @@
  *                   where it sits on the line that connects the speakers
  *   authorVisiting  this message's author is a guest at this point
  *   visitOpen       an arrival whose visit has not ended yet
+ *   activeVisitGuests  guests on the one passage still open at the tail
  *
  * The line connects the marks of people who SPOKE during the visit, so only
  * message rows carry a position on it; anything else inside the passage is
@@ -26,6 +27,7 @@ export type VisitSpanPosition = "first" | "middle" | "last" | "only" | "quiet";
 export type VisitThreshold = "enter" | "leave";
 
 type VisitAware = {
+  activeVisitGuests?: readonly string[];
   visitSpan?: VisitSpanPosition;
   visitThreshold?: VisitThreshold;
   authorVisiting?: boolean;
@@ -104,6 +106,12 @@ export function annotateVisitSpans(items: TimelineItem[]): void {
 
   // A visit that is still open when the timeline ends.
   closePassage(speakers, quiet);
+  if (open.size > 0) {
+    const activeVisitGuests = [...open];
+    for (const item of [...speakers, ...quiet]) {
+      item.activeVisitGuests = activeVisitGuests;
+    }
+  }
 }
 
 /** Residents visiting right now: stepped in, not yet stepped out. */

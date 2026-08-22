@@ -48,6 +48,15 @@ function memberJoinedEntry({ createdAt, id, target }) {
   return memberAddedEntry({ actor: target, createdAt, id, target });
 }
 
+function visitEntry({ createdAt, id, resident, type }) {
+  return entry({
+    id,
+    createdAt,
+    kind: KIND_SYSTEM_MESSAGE,
+    body: JSON.stringify({ exchange_id: id, resident, type }),
+  });
+}
+
 function kinds(items) {
   return items.map((item) => item.kind);
 }
@@ -101,6 +110,44 @@ test("buildTimelineItems: system messages flatten to a 'system' item", () => {
   ];
   const { items } = buildTimelineItems(entries, null);
   assert.deepEqual(kinds(items), ["day-divider", "message", "system"]);
+});
+
+test("buildTimelineItems: only the currently open visit carries active guests", () => {
+  const start = dayAt(2026, 6, 14);
+  const guest = "a".repeat(64);
+  const entries = [
+    visitEntry({
+      createdAt: start,
+      id: "old-arrival",
+      resident: guest,
+      type: "visit_arrived",
+    }),
+    entry({ id: "old-reply", createdAt: start + 60, pubkey: guest }),
+    visitEntry({
+      createdAt: start + 120,
+      id: "old-departure",
+      resident: guest,
+      type: "visit_left",
+    }),
+    visitEntry({
+      createdAt: start + 180,
+      id: "live-arrival",
+      resident: guest,
+      type: "visit_arrived",
+    }),
+    entry({ id: "live-reply", createdAt: start + 240, pubkey: guest }),
+  ];
+
+  const { items } = buildTimelineItems(entries, null);
+  const oldReply = items.find(
+    (item) => item.kind === "message" && item.entry.message.id === "old-reply",
+  );
+  const liveReply = items.find(
+    (item) => item.kind === "message" && item.entry.message.id === "live-reply",
+  );
+
+  assert.equal(oldReply?.activeVisitGuests, undefined);
+  assert.deepEqual(liveReply?.activeVisitGuests, [guest]);
 });
 
 test("buildTimelineItems: member additions by one actor group within five minutes", () => {
