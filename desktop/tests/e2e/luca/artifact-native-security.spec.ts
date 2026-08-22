@@ -50,8 +50,6 @@ type NativeLaunch = {
   home: string;
   keyringService: string;
   pid: number;
-  stderrPath: string;
-  stdoutPath: string;
 };
 
 type TripwireHit = {
@@ -164,8 +162,6 @@ async function launchNative(root: string, runtimeBin: string) {
   const appExecutable = realpathSync(APP_EXECUTABLE);
   const home = join(root, "home");
   const keyringService = `buzz-desktop-dev.artifact-security-${randomUUID()}`;
-  const stdoutPath = join(root, "native.stdout.log");
-  const stderrPath = join(root, "native.stderr.log");
   mkdirSync(home, { recursive: true });
   const before = new Set(liveNativePids(appExecutable));
   const path = `${runtimeBin}:/usr/bin:/bin:/usr/sbin:/sbin`;
@@ -188,10 +184,6 @@ async function launchNative(root: string, runtimeBin: string) {
       `BUZZ_DEV_KEYRING_SERVICE=${keyringService}`,
       "--env",
       "RUST_LOG=info",
-      "--stdout",
-      stdoutPath,
-      "--stderr",
-      stderrPath,
       appBundle,
     ],
     {
@@ -220,8 +212,6 @@ async function launchNative(root: string, runtimeBin: string) {
     home,
     keyringService,
     pid,
-    stderrPath,
-    stdoutPath,
   } satisfies NativeLaunch;
 }
 
