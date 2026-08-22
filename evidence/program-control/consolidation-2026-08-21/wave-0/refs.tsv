@@ -1,0 +1,78 @@
+2026-08-21 21:06:50 -0500	origin/codex/visits	9c9ef0df48ed5a45b2a17a136a94c8cdb7cdf048			Fix stale visit presence rail
+2026-08-21 21:06:50 -0500	codex/visits	9c9ef0df48ed5a45b2a17a136a94c8cdb7cdf048	origin/codex/visits		Fix stale visit presence rail
+2026-08-21 21:06:50 -0500	codex/v1-beta-consolidation	9c9ef0df48ed5a45b2a17a136a94c8cdb7cdf048			Fix stale visit presence rail
+2026-08-21 19:25:47 -0500	claude/visits-followups	ca2c297c72a10a30c8dccf5e5ec3d32f3dffd2a1	origin/codex/visits	[behind 2]	Record what the visit review found, in the doc we both read
+2026-08-21 08:48:40 -0500	origin/codex/artifact-production-candidate	7befcca7a36a0b0dd86f56a2013def12634b0e56			Record blocked Artifact Canvas native gate
+2026-08-21 08:48:40 -0500	codex/artifact-production-candidate	7befcca7a36a0b0dd86f56a2013def12634b0e56	origin/codex/artifact-production-candidate		Record blocked Artifact Canvas native gate
+2026-08-21 07:42:53 -0500	origin/agent/typography	eb4e81543e38bc79a6e8e1006c82dc4b00a0298e			Prove the Paper wiring the Appearance picker depends on
+2026-08-21 07:42:53 -0500	agent/typography	eb4e81543e38bc79a6e8e1006c82dc4b00a0298e	origin/agent/typography		Prove the Paper wiring the Appearance picker depends on
+2026-08-21 07:37:24 -0500	codex/artifact-runtime-b	351df89bc3f8fc3866a94dadd62beb990c3a4d60			test: add native artifact containment acceptance
+2026-08-21 07:34:15 -0500	codex/artifact-ui-production	c79ab4abf2b7bbad938e2e15ec66417ee42c4ca4			feat(desktop): ship artifact library and canvas
+2026-08-21 07:26:49 -0500	codex/artifact-finish-native	37dcbf4f7fc45465106cf4c798657ae6003d133d			fix: retain platform-compatible artifact database opens
+2026-08-21 07:08:48 -0500	origin/codex/luca-capability-parity	4c13963ada358045c01d57c142475ba12bd79836			fix(luca): wait for conversation subscription
+2026-08-21 07:08:48 -0500	codex/luca-capability-parity	4c13963ada358045c01d57c142475ba12bd79836	origin/codex/luca-capability-parity		fix(luca): wait for conversation subscription
+2026-08-21 06:54:03 -0500	codex/artifact-production-integration	6c19f14dcc83bb1b88672e8a945ce405c79752e4			Reconcile Artifact Canvas production gate
+2026-08-21 05:44:06 -0500	codex/agent-neutral-artifact-canvas	9a6bbed128fabe5c89c5f639eb9e415f3a0e616b			Quiet the artifact surfaces
+2026-08-21 05:43:34 -0500	origin/agent/exchange-object	c8a004e0c73004923e9c2307fef9f477a0b85f63			Run the Rust gates through just, not raw cargo
+2026-08-21 05:25:50 -0500	agent/exchange-object	b129849779d045389cdc6d9a118170f0bd5500b0	origin/agent/exchange-object	[behind 3]	Correct the visits brief: the base branch, the unpushed salvage, the finished UI
+2026-08-21 04:46:14 -0500	codex/artifact-preview-hardening	6001683366704870ae6875f2ff0cb895972ac00b			Harden artifact preview capability boundary
+2026-08-21 04:32:10 -0500	codex/artifact-ui	57b314cce54352d485a481e1c00e5bd4e696d06b			feat(desktop): add agent-neutral artifact canvas
+2026-08-21 04:28:20 -0500	codex/artifact-bridge	3e6fefa61bbc6951c8d71d043e05ad288f29759f			Add agent-neutral artifact MCP bridge
+2026-08-21 04:22:26 -0500	codex/artifact-storage	c561517a4f0a65cec46550e65ad0f9aa09aba937			Add durable local artifact storage
+2026-08-21 00:35:13 -0500	origin/agent/identity-glyphs	19bc7a0ca0857624297ab74f8ff90881b5ebf005			Notch v2: real harness marks, finer lattice, portrait eyes, eyes above indicators
+2026-08-21 00:35:13 -0500	agent/identity-glyphs	19bc7a0ca0857624297ab74f8ff90881b5ebf005	origin/agent/identity-glyphs		Notch v2: real harness marks, finer lattice, portrait eyes, eyes above indicators
+2026-08-20 21:17:02 -0500	codex/canvas-static-preview	350dd9d2eb72727bee6972a079562b73c4d7e44c			The shell in one file you can double-click, with a scene already in it
+2026-08-20 05:48:32 -0500	agent/pair-dm-placement	32b221823210280bc668ca0222c0af65cca03146			The desktop asks the house to speak: notes ride the command kind
+2026-08-20 04:35:20 -0500	origin/codex/cleanup-after-exchange	4522b1f8a190a169f9cb8ed4dcf4c5903b0992b1			Refresh paused background exchanges
+2026-08-20 04:35:20 -0500	codex/cleanup-after-exchange	4522b1f8a190a169f9cb8ed4dcf4c5903b0992b1	origin/codex/cleanup-after-exchange		Refresh paused background exchanges
+2026-08-18 22:36:30 -0500	origin/agent/onboarding-polish	f124ef8ac327ccc6d4ec2a1c4b849a452658a363			The status strip wraps at narrow widths instead of covering the name
+2026-08-18 22:36:30 -0500	agent/onboarding-polish	f124ef8ac327ccc6d4ec2a1c4b849a452658a363	origin/agent/onboarding-polish		The status strip wraps at narrow widths instead of covering the name
+2026-08-17 02:19:58 -0500	origin/luca/v1.1	bef2e6c0970d4d24040989297b5b4def75de73bf			Refine desktop navigation continuity
+2026-08-17 02:19:58 -0500	origin/archive/luca-v1.1-pre-consolidation-2026-08-21	bef2e6c0970d4d24040989297b5b4def75de73bf			Refine desktop navigation continuity
+2026-08-17 02:19:58 -0500	luca/v1.1	bef2e6c0970d4d24040989297b5b4def75de73bf	origin/luca/v1.1		Refine desktop navigation continuity
+2026-08-15 17:44:12 -0500	archive/luca-v1.1-rescue-onboarding-c4f	c4f784a6ba2208ad04c3cfd1ac00e10509a97dbb			feat(onboarding): enter Polyphonic through Luca
+2026-08-14 02:44:44 -0500	origin/codex/direct-buzz-messaging-rescue	df3a0e8b6ee254522a9e4dcee3a94346be2ab0a8			Refine channel creation flow
+2026-08-13 15:02:57 -0500	origin/agent/runtime-reliability	09acf70fb6c01117a5dc5cd46f75c356df9a70ad			Add Luca mobile companion with ChatGPT-style conversation Room
+2026-08-13 15:02:57 -0500	codex/polyphonic-landing-build	09acf70fb6c01117a5dc5cd46f75c356df9a70ad			Add Luca mobile companion with ChatGPT-style conversation Room
+2026-08-13 15:02:57 -0500	codex/conversation-model-rescue	09acf70fb6c01117a5dc5cd46f75c356df9a70ad			Add Luca mobile companion with ChatGPT-style conversation Room
+2026-08-13 15:02:57 -0500	agent/runtime-reliability	09acf70fb6c01117a5dc5cd46f75c356df9a70ad	origin/agent/runtime-reliability		Add Luca mobile companion with ChatGPT-style conversation Room
+2026-08-08 17:50:16 -0500	origin/agent/project-room-blackout-shell	34989f955cd11a3fae84078a6e113208c8ab1967			Finalize project navigation release handoff
+2026-08-08 03:10:39 -0500	archive/luca-v1.1-release-ad691	ad69195d9dd93b8ae165c81348f14182a74bc7dd			Record canonical V1.1 installed gate
+2026-08-08 03:10:39 -0500	agent/blackout-messaging-prototype	ad69195d9dd93b8ae165c81348f14182a74bc7dd			Record canonical V1.1 installed gate
+2026-08-08 02:08:36 -0500	origin/agent/v1.1-notebook-drawer	80890a85f3f081d7e9df2a4df61e2e937bc98d1c			Complete installed Agent Library smoke verification
+2026-08-08 02:08:36 -0500	agent/v1.1-notebook-drawer	80890a85f3f081d7e9df2a4df61e2e937bc98d1c	origin/agent/v1.1-notebook-drawer		Complete installed Agent Library smoke verification
+2026-08-06 22:21:16 -0500	agent/v1.1-design-integration	f858fa596f6c760dcbf3a6bde52a27c7b00a664b			feat(luca): replace chat inbox with conversation action
+2026-08-06 21:12:57 -0500	agent/v1.1-resident-notebook	32d8f85653c14e167945dec591589198b5a47896			Document selective Luca design integration
+2026-08-06 01:31:51 -0500	origin/agent/v1.1-v1.3-roadmap	7858522e7231596d88475bad69edc717530ff09b			docs: map Luca V1.1 through V1.3 continuity roadmap
+2026-08-06 01:31:51 -0500	agent/v1.1-v1.3-roadmap	7858522e7231596d88475bad69edc717530ff09b	origin/agent/v1.1-v1.3-roadmap		docs: map Luca V1.1 through V1.3 continuity roadmap
+2026-08-06 00:48:15 -0500	origin/agent/v1-functional-beta	36472636af120cb3213dcae84b3ff5827a7c8e93			Record final installed beta candidate
+2026-08-06 00:48:15 -0500	agent/v1-functional-beta	36472636af120cb3213dcae84b3ff5827a7c8e93	origin/agent/v1-functional-beta		Record final installed beta candidate
+2026-08-05 21:11:21 -0500	origin/agent/continuity-g2	dc1c2e63891ab0a53b2c4c948e0e7eed801d6f89			Record trusted capsule integration acceptance
+2026-08-05 21:11:21 -0500	agent/continuity-g2	dc1c2e63891ab0a53b2c4c948e0e7eed801d6f89	origin/agent/continuity-g2		Record trusted capsule integration acceptance
+2026-08-04 00:05:07 -0500	origin/luca/v1	6561ae8396474542cf34e5ce39ead7d8b83ff63a			Document Luca continuation handoff
+2026-08-04 00:05:07 -0500	origin	6561ae8396474542cf34e5ce39ead7d8b83ff63a			Document Luca continuation handoff
+2026-08-03 23:10:40 -0500	origin/agent/conversation-first-shell	d75d731b99ccc15e1701505801ed9253e3939142			Refine conversation-first shell
+2026-08-03 23:10:40 -0500	agent/conversation-first-shell	d75d731b99ccc15e1701505801ed9253e3939142	origin/agent/conversation-first-shell		Refine conversation-first shell
+2026-08-03 01:20:12 -0500	luca/v1	265c35434514ab4281f22c8839c1f8b3bae24eeb	origin/luca/v1	[behind 3]	Stabilize native agent imports and remove Buzz-facing defaults
+2026-08-02 02:15:38 -0500	luca/f17-retained-surfaces	e487d238e25bfd6b0795b6059ad66fdf07ce955a			test(luca): add F11 native proof harness
+2026-08-02 02:15:38 -0500	luca/f16-live-provider	e487d238e25bfd6b0795b6059ad66fdf07ce955a			test(luca): add F11 native proof harness
+2026-08-02 02:14:31 -0500	luca/f11-native-proof	0fa83c4810cad4af2801371efac3687e0995fac4			test(luca): add F11 native proof
+2026-08-02 01:36:51 -0500	luca/f19-owner-recovery	6ad5772c4b1f4f6e46308768e42bca927b608f89			fix(desktop): harden protected owner recovery
+2026-08-02 01:04:49 -0500	luca/f10-reliability	a8c2f874219749dffd870c8765454138f481fecc			docs(luca): add provisional F10 reliability evidence
+2026-08-02 01:03:49 -0500	luca/g1-evidence-hygiene	ad0d6f3d01eadda61c51226163a40c9050a7d088			chore(luca): sanitize historical G1 evidence logs
+2026-08-02 00:59:13 -0500	luca/f09-final-publisher	fd7610054874a2a34f534b56129ffff25e654bfe			fix(luca): close F09 probe authority findings
+2026-08-02 00:56:17 -0500	luca/g1-native-proof	b68d539be10fcfa90b12e54d5296f5f8fb92c572			test(luca): add native provisioning failpoint
+2026-08-02 00:28:22 -0500	origin/agent/vision-demo	f47d58ad2e436b091127e6fdd22d4c507bc8ac20			correct Mnemos dark palette
+2026-08-02 00:28:22 -0500	agent/vision-demo	f47d58ad2e436b091127e6fdd22d4c507bc8ac20	origin/agent/vision-demo		correct Mnemos dark palette
+2026-07-31 17:27:37 -0500	luca/g1-authority	76cc3d746c528472f0b28ba54ab5994b1f23ba95			docs(luca): add provisional F15 evidence
+2026-07-31 16:53:19 -0500	luca/g1-product-next	5b03bbb55c1ed5096a26b48fede3b5ab70d6791f			fix(luca): retire first-community recovery remnants
+2026-07-31 16:25:07 -0500	luca/g1-product	2cf3e9628e65f589f2337cc88de88a5f2bda68c5			fix(luca): focus personal home provisioning errors
+2026-07-31 15:59:46 -0500	luca/f09-desktop-authority	a79cdd84c304edabb8d9dd7a70b3f9fb610892e0			fix(luca): close managed probe authority races
+2026-07-27 23:36:11 -0500	luca/f14-managed	cad1dfe5fa9e59f87a8a15461d9fb7635af8b61f			feat(luca): add managed resident signing broker
+2026-07-27 22:36:53 -0500	luca/f13-relay-auth	c501d58106f75f9620d3b76c740a2a0c56cc3863			fix(luca): preserve owner-delegated relay auth
+2026-07-22 11:31:31 -0500	luca/m1-security	4a849e406497ed33c09047cf75dc9e840b1cf30e			fix(luca): anchor artifact scanner traversal
+2026-07-22 11:05:15 -0500	luca/m1-onboarding	dd544e1f9516e00d4adab402b4c103c8e4f986bb			test(luca): prove personal owner completion
+2026-07-22 10:53:04 -0500	luca/m1-navigation	5735f4f2bba2436581a9782b3cc987f9a9ace1e4			feat(luca): simplify personal navigation
+2026-07-22 10:43:47 -0500	luca/m1-shell	49af3258bc33cf5aee49859c8b2f738665ac60ce			feat(luca): establish dark personal shell
+2026-07-22 10:31:23 -0500	luca/m1-runtime	99606e151bf2581d435e0e8844986c36830edf15			fix(luca): keep resident fixture seeds ephemeral
+2026-07-21 23:28:16 +0000	main	7e34bee62cacaa9d8a96c14d5892a471b59a1983	upstream/main	[behind 297]	feat(relay): log NIP-98 pubkey attribution on HTTP bridge requests (#2206)

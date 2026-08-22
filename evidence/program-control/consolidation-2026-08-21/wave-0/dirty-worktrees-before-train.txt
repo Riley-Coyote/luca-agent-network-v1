@@ -1,0 +1,118 @@
+WORKTREE	dirty-01	agent/identity-glyphs	19bc7a0ca0857624297ab74f8ff90881b5ebf005
+ M HANDOFF.md
+ M desktop/playwright.config.ts
+ M desktop/src/testing/e2eBridge.ts
+ M desktop/tests/helpers/bridge.ts
+ M docs/luca/DOT_MATRIX_DESIGN.md
+ M prototypes/luca-mobile-companion/AGENTS.md
+ M prototypes/luca-mobile-companion/src/Prototype.tsx
+ M prototypes/luca-mobile-companion/src/prototype.css
+ M prototypes/luca-mobile-companion/tests/luca-full-app.spec.ts
+ M prototypes/luca-mobile-companion/tests/luca-v2.spec.ts
+?? Luca-Design-Artifacts.zip
+?? Polyphonic_Landing_Page_Blueprint.md
+?? Polyphonic_Landing_Prototype.zip
+?? design-artifacts/Luca-Design-Artifacts/
+?? desktop/_app.mjs
+?? desktop/_app2.mjs
+?? desktop/_ds.mjs
+?? desktop/_ds2.mjs
+?? desktop/src/shared/ui/dot-display/dot-top.png
+?? desktop/tests/e2e/marketing-northstar.spec.ts
+?? desktop/tests/fixtures/
+?? desktop/tests/helpers/marketingNorthstarAssertions.ts
+?? docs/luca/IOS_EXPERIENCE_STANDARD.md
+?? docs/luca/MACOS_EXPERIENCE_STANDARD.md
+?? docs/luca/MACOS_SHELL_AUDIT.md
+?? docs/luca/MOBILE_COMPANION_PROTOTYPE_RESEARCH.md
+?? docs/luca/artifacts/
+?? docs/luca/audits/
+?? docs/luca/unified-brain/
+?? evidence/M1/F01/
+?? evidence/M1/F02/
+?? evidence/M1/F03/artifact-scan.log
+?? evidence/M1/F03/artifact-secret-scan.json
+?? evidence/M1/F03/commands.log
+?? evidence/M1/F03/contract-validator.log
+?? evidence/M1/F03/desktop-test.log
+?? evidence/M1/F03/environment.json
+?? evidence/M1/F03/f03-playwright.log
+?? evidence/M1/F03/outputs/
+?? evidence/M1/F03/results.json
+?? evidence/M1/F03/review.json
+?? evidence/M1/F04/
+?? evidence/M1/F05/
+?? evidence/M1/F06/artifact-secret-scan.json
+?? evidence/M1/F06/commands.log
+?? evidence/M1/F06/desktop-test.log
+?? evidence/M1/F06/environment.json
+?? evidence/M1/F06/f06-playwright.log
+?? evidence/M1/F06/outputs/
+?? evidence/M1/F06/results.json
+?? evidence/M1/F06/review.json
+?? evidence/M1/F07/
+?? evidence/M1/F08/
+?? evidence/M1/F09/
+?? evidence/M1/F11/
+?? evidence/M1/F13/
+?? evidence/M1/F18/
+?? luca-theme-audit-preview.png
+?? notebook-concepts/
+?? polyphonic-landing/
+?? ref-mnemos-hero.png
+?? scripts/__pycache__/
+?? scripts/evidence/__pycache__/
+?? scripts/tests/__pycache__/
+?? void-theme-appearance.png
+WORKTREE	dirty-02	codex/agent-neutral-artifact-canvas	9a6bbed128fabe5c89c5f639eb9e415f3a0e616b
+?? node_modules
+WORKTREE	dirty-03	codex/artifact-production-integration	6c19f14dcc83bb1b88672e8a945ce405c79752e4
+?? desktop/tsconfig.node.tsbuildinfo
+?? desktop/tsconfig.tsbuildinfo
+?? desktop/vite.config.d.ts
+?? desktop/vite.config.js
+?? node_modules
+WORKTREE	dirty-04	codex/canvas-static-preview	350dd9d2eb72727bee6972a079562b73c4d7e44c
+ M design-lab/shell-lab.html
+ M desktop/src/app/App.tsx
+ M desktop/src/app/AppShell.tsx
+ M desktop/src/testing/labEntry.tsx
+?? desktop/src/features/artifacts/
+?? docs/luca/artifacts/
+WORKTREE	dirty-05	DETACHED	6561ae8396474542cf34e5ce39ead7d8b83ff63a
+ M desktop/src/app/AppShell.tsx
+?? desktop/src/features/luca-ambient-chat/
+?? desktop/tests/e2e/luca/ambient-chat.spec.ts
+WORKTREE	dirty-06	codex/polyphonic-landing-build	09acf70fb6c01117a5dc5cd46f75c356df9a70ad
+?? polyphonic-landing/
+WORKTREE	dirty-07	agent/typography	eb4e81543e38bc79a6e8e1006c82dc4b00a0298e
+ M AGENTS.md
+?? evidence/M1/F11/
+WORKTREE	dirty-08	agent/continuity-g2	dc1c2e63891ab0a53b2c4c948e0e7eed801d6f89
+ M crates/luca-continuity/src/lib.rs
+ M desktop/src-tauri/src/commands/agent_discovery.rs
+ M desktop/src-tauri/src/commands/managed_permissions.rs
+ M desktop/src-tauri/src/commands/messages.rs
+ M desktop/src-tauri/src/commands/mod.rs
+ M desktop/src-tauri/src/luca/managed_permission.rs
+ M desktop/src-tauri/src/luca/resident_registry.rs
+ M desktop/src-tauri/src/managed_agents/runtime/tests.rs
+?? crates/luca-continuity/src/metabolism.rs
+WORKTREE	dirty-09	luca/f16-live-provider	e487d238e25bfd6b0795b6059ad66fdf07ce955a
+?? desktop/tests/e2e/luca/f16.spec.ts
+WORKTREE	dirty-10	luca/f17-retained-surfaces	e487d238e25bfd6b0795b6059ad66fdf07ce955a
+?? desktop/tests/e2e/luca/f17.spec.ts
+?? evidence/M1/F17/
+WORKTREE	dirty-11	luca/f19-owner-recovery	6ad5772c4b1f4f6e46308768e42bca927b608f89
+?? evidence/M1/F19/
+WORKTREE	dirty-12	agent/pair-dm-placement	32b221823210280bc668ca0222c0af65cca03146
+ M crates/buzz-relay/src/handlers/command_executor.rs
+ M desktop/src-tauri/src/luca/exchange_plan.rs
+ M desktop/src-tauri/src/luca/exchange_plan_tests.rs
+ M desktop/src-tauri/src/luca/exchange_relay.rs
+ M desktop/src-tauri/src/luca/managed_dispatch_store.rs
+ M desktop/src-tauri/src/luca/signing_broker_exchange_tests.rs
+WORKTREE	dirty-13	luca/m1-security	4a849e406497ed33c09047cf75dc9e840b1cf30e
+?? scripts/evidence/__pycache__/
+WORKTREE	dirty-14	agent/blackout-messaging-prototype	ad69195d9dd93b8ae165c81348f14182a74bc7dd
+?? docs/luca/messaging-shell/

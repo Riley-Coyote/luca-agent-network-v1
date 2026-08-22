@@ -10,7 +10,7 @@ hardening to displace it.
 | R-03 | Routine communication becomes approval-heavy or rewritten | Direct mode, verbatim output, five narrow confirmation classes | Communications | Ordinary authorized local message requires approval or semantic transformation |
 | R-04 | A2A loops or duplicate finals damage trust | Minimal explicit activation plus existing cancel/restart/exact-publication safeguards | Communications | More than one final publication or hidden autonomous chain appears |
 | R-05 | Project/room membership implies data or tool authority | Preserve separate explicit grants and negative tests | Projects / Agent Platform | Membership alone unlocks filesystem, Brain, MCP, model, provider, budget, or external action |
-| R-06 | Native Hermes/OpenClaw state or credentials are copied/mutated | Read-only discovery/config, host custody, protected-state hashes | Agent Platform | Any unrelated native file, credential, memory, schedule, or workspace changes |
+| R-06 | Native runtime state or credentials are copied or mutated outside the selected operation | Read-only discovery; journaled owner-approved writes through supported runtime stores; credential values never enter Luca; protected-state hashes | Agent Platform | Any unrelated native file, credential, memory, schedule, or workspace changes |
 | R-07 | Inbox/Activity are rebuilt as a parallel workflow system | Restore existing projections/events first; add only a minimal projection if a visible flow proves it necessary | Communications | New store or receipt system is proposed without a missing visible requirement |
 | R-08 | Mnemos retrieval impersonates identity or overwrites resident authorship | Native profile authoritative; same runtime authors handoff/reflection; retrieval supplemental and attributed | Agent Platform / Projects | Substitute model authors identity/handoff or retrieved memory becomes sole identity |
 | R-09 | Continuity failure blocks conversation | Fail soft, disclose degradation, preserve conversation plane | Communications | Missing/locked/corrupt continuity prevents an otherwise valid conversation |
@@ -26,7 +26,8 @@ The following stays in P1–P3 because removing it would create data loss,
 identity confusion, authority leakage, or dishonest behavior:
 
 - stable identity and host signing;
-- credential/key isolation and native-config immutability;
+- credential/key isolation, read-only discovery, and unrelated native-config
+  immutability around journaled owner-approved runtime-store writes;
 - encrypted Brain/continuity storage already in use;
 - cancellation, restart recovery, duplicate suppression, exactly-once final;
 - membership/recipient checks and five narrow confirmation classes;

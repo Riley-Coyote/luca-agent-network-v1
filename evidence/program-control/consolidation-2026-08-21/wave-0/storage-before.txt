@@ -1,0 +1,3 @@
+label	size	used	available	capacity
+internal-data	926Gi	850Gi	45Gi	95%
+external-build	1.8Ti	719Gi	594Gi	55%

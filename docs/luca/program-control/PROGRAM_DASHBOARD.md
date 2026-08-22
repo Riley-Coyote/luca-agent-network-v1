@@ -1,18 +1,18 @@
 # Luca program dashboard
 
-Updated: 2026-08-12
+Updated: 2026-08-21
 
 ## Executive state
 
 | Item | State | Next gate |
 |---|---|---|
-| Revised control package | `source_tested` on `b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b` | Riley revised-graph decision |
-| Product-truth and reuse audit | `source_tested` on the same exact commit | Riley revised-graph decision |
-| Riley revised-graph approval | CTRL-004 `source_tested` on `7cc3bc54278eba8300b7c02bd94bd07a4b39e2f3` | Create and verify five teams from this base |
-| Five product teams | Authorized; not yet created | Create from exact CTRL-004 base and initialize reports/capsules |
-| P1 integration train | `inactive / not created` | P1/P2 team source gates |
-| Product/shared-file writes | `not authorized` | CTRL-004 and bounded task activation |
-| Proposed tester release | `luca/v1-beta` | P3 installed proof and promotion approval |
+| Consolidation program | `active` | Complete Wave 0 authority receipt |
+| Integration train | `implemented_in_source` at visits start `9c9ef0df` | Exchange tail and typography review |
+| Capability parity | `implemented_in_source` at `4c13963a` | Selective port without retired communications machinery |
+| Artifact Canvas | `blocked` at `7befcca7` | Native GA5 containment and real-runtime proof |
+| Tester release | `planned` as `luca/v1-beta` | One unchanged installed candidate |
+| Integrated release | `bef2e6c0` on `luca/v1.1` | Fast-forward only after accepted beta proof |
+| New feature work | `frozen` | Resume only after consolidation promotion |
 
 ## Product classification
 
@@ -49,7 +49,8 @@ changes, broad broadcasts, and material data effects.
 
 ## Current stop boundary
 
-Do not create team worktrees, dispatch kickoff prompts, open a train, merge
-product commits, or modify product/shared files. If exact-commit validation,
-ancestry, worktree cleanliness, required-file, YAML/reference, link, or branch
-non-activation checks fail, CTRL-003 remains unpromoted and work stops.
+Stop the affected lane on ancestry drift, unexpected dirt, shared-file or
+semantic conflict, visit-geometry drift, native credential exposure, duplicate
+publication, Artifact containment failure, gate failure, source/bundle
+mismatch, or substantial internal-disk output. No branch or worktree is
+deleted, cleaned, reset, stashed, or repurposed by this program.

@@ -98,7 +98,8 @@ accepted visible workflow proves it necessary. Do not introduce a parallel
 message/room/signing plane, generalized leases/outboxes/receipts, advanced
 causal graphs, unrestricted reply chains, or NIP-17.
 
-Preserve stable identity, host signing, key/credential isolation, native-config
+Preserve stable identity, host signing, key/credential isolation, read-only
+discovery, journaled runtime-owned configuration, unrelated native-state
 immutability, cancellation/restart/duplicate suppression/exactly-once, and
 truthful privacy/readiness. One activated task, named files, bounded commit,
 focused tests, and exact evidence at a time. Request Program leases for shared

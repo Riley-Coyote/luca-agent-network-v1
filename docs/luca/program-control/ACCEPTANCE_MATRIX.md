@@ -38,11 +38,11 @@ match observed behavior.
 | P2-A1 | A clean profile completes identity, first resident, Brain/source choice, readiness, and first useful destination without dead ends. |
 | P2-A2 | Returning profiles bypass onboarding; interrupted onboarding and recovery resume without duplication or data loss. |
 | P2-A3 | Onboarding passes keyboard, screen-reader naming, reduced motion, 390×844, and desktop-width checks. |
-| P2-A4 | Hermes/OpenClaw discovery and import show native identity, readiness, degraded state, and no native-config mutation. |
+| P2-A4 | Runtime discovery/import shows native identity, readiness, and degradation without mutation; any later explicit configuration write is owner-approved, journaled, and uses only the runtime-owned store. |
 | P2-A5 | Manual and conversational resident creation converge on one reviewed, transactional native creation path. |
 | P2-A6 | Start, stop, restart, relaunch, cancel, unavailable, and reconnect states are operable and truthful. |
 | P2-A7 | Agent Library, Settings, runtime health, model/provider choice, and MCP grants agree on the same resident record. |
-| P2-A8 | Stable crypto identity, host signing, credential isolation, and read-only native configuration pass protected-state checks. |
+| P2-A8 | Stable crypto identity, host signing, credential isolation, read-only discovery, credential-value non-exposure, and unrelated native-state immutability around journaled owner-approved writes pass protected-state checks. |
 | P2-A9 | One flow creates an optional project, first room, existing/new/no residents, and repository/folder/no sources. |
 | P2-A10 | Add Folder, repository connection, source details, grants, stale/reconfirm, and disconnect are complete and legible. |
 | P2-A11 | Project details support edit, reopen, empty states, moved-source recovery, and recoverable deletion. |

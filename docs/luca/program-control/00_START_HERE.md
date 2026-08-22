@@ -1,6 +1,11 @@
 # Luca program control — start here
 
-Updated: 2026-08-12
+Updated: 2026-08-21
+
+> **Active override:** Riley authorized the consolidation program on
+> 2026-08-21. `CONSOLIDATION_PLAN.md` and `CONSOLIDATION_LEDGER.yaml` supersede
+> the historical branch coordinates and activation state below while retaining
+> this package's evidence, ownership, exact-SHA, review, and stop rules.
 
 This package controls the next Luca delivery sequence. The governing order is:
 
@@ -8,26 +13,22 @@ This package controls the next Luca delivery sequence. The governing order is:
 2. build Mnemos felt continuity and identity on that working product;
 3. add optional production/security hardening only where it remains useful.
 
-The package is documentation and status only. It does not authorize product
-implementation, shared-file writes, team activation, an integration train, or
-release publication.
+The historical package was documentation and status only. The active override
+authorizes only the bounded consolidation lanes and train described in
+`CONSOLIDATION_PLAN.md`; it does not authorize unrelated product work.
 
-## Current coordinate
+## Current consolidation coordinate
 
-- Branch: `codex/program-control`
-- Worktree:
-  `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-program-control`
-- Audited ancestor: `f1f1eb3b135cae287c372c3210da635f324a1f81`
-- Canonical integration source: `codex/conversation-communication-integration`
-- Proposed combined tester release: `luca/v1-beta`
-- Proposed release worktree:
-  `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-release-v1-beta`
-- Exact pre-promotion revised-control validation commit:
-  `b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b`
+- Train: `codex/v1-beta-consolidation`
+- Train worktree: `/Volumes/LaCie/Luca-Development/worktrees/luca-v1-beta-consolidation`
+- Starting source: `codex/visits` at `9c9ef0df48ed5a45b2a17a136a94c8cdb7cdf048`
+- Candidate proof branch: `luca/v1-beta`
+- Integrated release authority after proof: `luca/v1.1`
+- Rollback ref: `origin/archive/luca-v1.1-pre-consolidation-2026-08-21`
+- Large build root: `/Volumes/LaCie/Luca-Development/build/consolidation/`
 
-The exact revised-control validation commit is recorded in `RUN_LOG.md` after
-the documentation commit exists and every validator passes against that
-commit. Riley approval of the revised graph remains a separate gate.
+The consolidation ledger records each exact source, candidate, review, gate,
+installed bundle, promotion, and rollback coordinate.
 
 ## Read order
 
@@ -75,15 +76,7 @@ or release completion.
 
 ## Current gate
 
-The prior control package and its corrected release name remain historical
-facts. CTRL-003 is `source_tested` on the exact pre-promotion commit above.
-Riley explicitly approved the revised graph and authorized CTRL-004 on
-2026-08-12. The approval receipt passed the full validator set at exact commit
-`7cc3bc54278eba8300b7c02bd94bd07a4b39e2f3`; CTRL-004 is `source_tested` and
-team activation is authorized from that common base. Until the team worktrees
-are created and verified:
-
-- all five product teams are inactive;
-- all proposed team worktrees and branches remain uncreated;
-- the P1 integration train remains uncreated;
-- no product code or shared product file may be written.
+Wave 0 is active. Local-only production candidates are preserved remotely, the
+train starts from the reviewed visits head, dirty worktrees remain frozen, and
+new feature development remains paused. Artifact Canvas may not enter the train
+until its native GA5 verdict is `PASS` on an exact SHA.

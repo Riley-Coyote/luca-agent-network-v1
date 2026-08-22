@@ -10,8 +10,10 @@ Buzz product assumptions in the upstream guide below. In particular:
   DMs and multi-agent conversations.
 - Buzz remains the messaging/event/UI foundation; do not rebuild its transport.
 - Resident cryptographic identity is stable across runtime/model changes.
-- Native Hermes/OpenClaw configuration is read-only and credentials are never
-  copied into Luca.
+- Native Hermes/OpenClaw/Codex/Claude Code agents may be configured from Luca
+  through each runtime's own supported store. Credentials are never displayed,
+  retained, or copied into Luca; a credential may only be set directly into the
+  runtime-owned store. See `docs/luca/agent-config/RUNTIME_CONFIG_ATLAS.md`.
 - `luca/v1.1` is the integrated release branch. Historical feature branches,
   including `agent/runtime-reliability` and `agent/vision-demo`, are reference
   coordinates and must not be merged wholesale.

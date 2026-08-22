@@ -27,8 +27,10 @@ state, and publication.
 ## IF-04 — Resident identity and native runtimes
 
 Cryptographic resident identity is stable across model/runtime/session changes.
-Hermes/OpenClaw configuration and credentials remain native-owned and read-only
-to Luca. Readiness claims name the exact runtime state observed.
+Discovery is read-only. Explicit owner-approved configuration may write only
+through the selected runtime's supported native store and must be journaled.
+Credential values never enter Luca; unrelated runtime state remains unchanged.
+Readiness claims name the exact runtime state observed.
 
 ## IF-05 — Organization is not authority
 

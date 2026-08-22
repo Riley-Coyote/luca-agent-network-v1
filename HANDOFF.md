@@ -1,28 +1,22 @@
 # Luca V1 continuation handoff
 
-> **Current control override (2026-08-12):** Begin with
+> **Current consolidation override (2026-08-21):** Begin with
 > [`docs/luca/program-control/00_START_HERE.md`](docs/luca/program-control/00_START_HERE.md)
-> and then
-> [`docs/luca/program-status/00_START_HERE.md`](docs/luca/program-status/00_START_HERE.md).
-> The active order is P0 verified control/product truth, P1 complete visible
-> messaging/A2A, P2 projects/native agents/Inbox/Activity/app UX, P3 installed
-> functional beta, P4 Mnemos felt continuity, and P5 optional hardening/deferred
-> expansion. The proposed combined tester release is `luca/v1-beta`.
+> and [`docs/luca/program-control/CONSOLIDATION_PLAN.md`](docs/luca/program-control/CONSOLIDATION_PLAN.md).
+> New feature work is frozen while the approved production-intended branches
+> are assembled on `codex/v1-beta-consolidation`, proven unchanged through
+> `luca/v1-beta`, and then promoted to `luca/v1.1` at the same exact SHA.
 >
-> The revised graph is not yet Riley-approved. Product teams, integration
-> train, release candidate, product implementation, and shared-file writes are
-> inactive. The program-control branch is documentation/status only. The
-> revised control package passed exact-commit validation at
-> `b63d7ca8f41f9c46e71c07dae364ab0aa4f70e8b`. Riley explicitly approved the
-> P0–P5 graph and authorized CTRL-004 on 2026-08-12. CTRL-004 is source-tested
-> on exact approval receipt `7cc3bc54278eba8300b7c02bd94bd07a4b39e2f3`;
-> five-team read-only activation is authorized from that common base.
+> Riley approved this consolidation on 2026-08-21. Program Integration &
+> Release is active; bounded feature lanes may produce candidate commits, but
+> only Program may write the train or claim integrated, installed, or released
+> status. `main` remains the untouched Buzz baseline.
 >
 > The detailed milestone material below remains historical architecture and
 > evidence. Its older continuation/release priority statements do not override
-> the current P0–P5 control package.
+> the current consolidation overlay.
 
-Updated: 2026-08-12
+Updated: 2026-08-21
 
 Repository: `Riley-Coyote/luca-agent-network-v1`
 
@@ -136,7 +130,9 @@ Authority rules:
 - ACP/model/tool descendants never receive owner or resident signing authority.
 - A resident identity is separate from its mutable runtime binding.
 - Messages succeed without Mnemos, Capsule, or post-turn cognition.
-- Native discovery/import never edits Hermes or OpenClaw configuration.
+- Discovery/import remains non-mutating. Explicit owner-approved configuration
+  uses the runtime's supported native store without displaying, retaining, or
+  copying credentials into Luca.
 - Raw reasoning stays private. Only final responses and explicit activity state
   belong in the conversation UX.
 
@@ -187,7 +183,8 @@ Authority rules:
 - Re-import reuses the resident key and refreshes only a revalidated binding.
 - Offline/missing runtimes leave the same resident visible as degraded; Luca
   never substitutes another profile, agent, gateway, or runtime.
-- Luca does not copy credentials or mutate native configuration.
+- Luca does not display, retain, or copy credentials. Explicit configuration
+  writes only through the selected runtime's supported native store.
 
 ### Relaunch recovery
 

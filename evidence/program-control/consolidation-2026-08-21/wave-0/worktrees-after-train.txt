@@ -1,0 +1,191 @@
+worktree wt-01
+HEAD 19bc7a0ca0857624297ab74f8ff90881b5ebf005
+branch refs/heads/agent/identity-glyphs
+
+worktree wt-02
+HEAD ca2c297c72a10a30c8dccf5e5ec3d32f3dffd2a1
+branch refs/heads/claude/visits-followups
+
+worktree wt-03
+HEAD 3e6fefa61bbc6951c8d71d043e05ad288f29759f
+branch refs/heads/codex/artifact-bridge
+
+worktree wt-04
+HEAD 9a6bbed128fabe5c89c5f639eb9e415f3a0e616b
+branch refs/heads/codex/agent-neutral-artifact-canvas
+
+worktree wt-05
+HEAD 37dcbf4f7fc45465106cf4c798657ae6003d133d
+branch refs/heads/codex/artifact-finish-native
+
+worktree wt-06
+HEAD 6001683366704870ae6875f2ff0cb895972ac00b
+branch refs/heads/codex/artifact-preview-hardening
+
+worktree wt-07
+HEAD 7befcca7a36a0b0dd86f56a2013def12634b0e56
+branch refs/heads/codex/artifact-production-candidate
+
+worktree wt-08
+HEAD 6c19f14dcc83bb1b88672e8a945ce405c79752e4
+branch refs/heads/codex/artifact-production-integration
+
+worktree wt-09
+HEAD 351df89bc3f8fc3866a94dadd62beb990c3a4d60
+branch refs/heads/codex/artifact-runtime-b
+
+worktree wt-10
+HEAD c561517a4f0a65cec46550e65ad0f9aa09aba937
+branch refs/heads/codex/artifact-storage
+
+worktree wt-11
+HEAD 57b314cce54352d485a481e1c00e5bd4e696d06b
+branch refs/heads/codex/artifact-ui
+
+worktree wt-12
+HEAD c79ab4abf2b7bbad938e2e15ec66417ee42c4ca4
+branch refs/heads/codex/artifact-ui-production
+
+worktree wt-13
+HEAD 350dd9d2eb72727bee6972a079562b73c4d7e44c
+branch refs/heads/codex/canvas-static-preview
+
+worktree wt-14
+HEAD 4c13963ada358045c01d57c142475ba12bd79836
+branch refs/heads/codex/luca-capability-parity
+
+worktree wt-15
+HEAD 4522b1f8a190a169f9cb8ed4dcf4c5903b0992b1
+branch refs/heads/codex/cleanup-after-exchange
+
+worktree wt-16
+HEAD 9c9ef0df48ed5a45b2a17a136a94c8cdb7cdf048
+branch refs/heads/codex/visits
+
+worktree wt-17
+HEAD 6561ae8396474542cf34e5ce39ead7d8b83ff63a
+detached
+
+worktree wt-18
+HEAD 09acf70fb6c01117a5dc5cd46f75c356df9a70ad
+branch refs/heads/codex/conversation-model-rescue
+
+worktree wt-19
+HEAD 09acf70fb6c01117a5dc5cd46f75c356df9a70ad
+branch refs/heads/codex/polyphonic-landing-build
+
+worktree wt-20
+HEAD eb4e81543e38bc79a6e8e1006c82dc4b00a0298e
+branch refs/heads/agent/typography
+
+worktree wt-21
+HEAD dc1c2e63891ab0a53b2c4c948e0e7eed801d6f89
+branch refs/heads/agent/continuity-g2
+
+worktree wt-22
+HEAD a79cdd84c304edabb8d9dd7a70b3f9fb610892e0
+branch refs/heads/luca/f09-desktop-authority
+
+worktree wt-23
+HEAD fd7610054874a2a34f534b56129ffff25e654bfe
+branch refs/heads/luca/f09-final-publisher
+
+worktree wt-24
+HEAD a8c2f874219749dffd870c8765454138f481fecc
+branch refs/heads/luca/f10-reliability
+
+worktree wt-25
+HEAD 0fa83c4810cad4af2801371efac3687e0995fac4
+branch refs/heads/luca/f11-native-proof
+
+worktree wt-26
+HEAD c501d58106f75f9620d3b76c740a2a0c56cc3863
+branch refs/heads/luca/f13-relay-auth
+
+worktree wt-27
+HEAD cad1dfe5fa9e59f87a8a15461d9fb7635af8b61f
+branch refs/heads/luca/f14-managed
+
+worktree wt-28
+HEAD e487d238e25bfd6b0795b6059ad66fdf07ce955a
+branch refs/heads/luca/f16-live-provider
+
+worktree wt-29
+HEAD e487d238e25bfd6b0795b6059ad66fdf07ce955a
+branch refs/heads/luca/f17-retained-surfaces
+
+worktree wt-30
+HEAD 6ad5772c4b1f4f6e46308768e42bca927b608f89
+branch refs/heads/luca/f19-owner-recovery
+
+worktree wt-31
+HEAD 36472636af120cb3213dcae84b3ff5827a7c8e93
+branch refs/heads/agent/v1-functional-beta
+
+worktree wt-32
+HEAD 76cc3d746c528472f0b28ba54ab5994b1f23ba95
+branch refs/heads/luca/g1-authority
+
+worktree wt-33
+HEAD ad0d6f3d01eadda61c51226163a40c9050a7d088
+branch refs/heads/luca/g1-evidence-hygiene
+
+worktree wt-34
+HEAD b68d539be10fcfa90b12e54d5296f5f8fb92c572
+branch refs/heads/luca/g1-native-proof
+
+worktree wt-35
+HEAD 2cf3e9628e65f589f2337cc88de88a5f2bda68c5
+branch refs/heads/luca/g1-product
+
+worktree wt-36
+HEAD 5b03bbb55c1ed5096a26b48fede3b5ab70d6791f
+branch refs/heads/luca/g1-product-next
+
+worktree wt-37
+HEAD 5735f4f2bba2436581a9782b3cc987f9a9ace1e4
+branch refs/heads/luca/m1-navigation
+
+worktree wt-38
+HEAD dd544e1f9516e00d4adab402b4c103c8e4f986bb
+branch refs/heads/luca/m1-onboarding
+
+worktree wt-39
+HEAD 32b221823210280bc668ca0222c0af65cca03146
+branch refs/heads/agent/pair-dm-placement
+
+worktree wt-40
+HEAD 99606e151bf2581d435e0e8844986c36830edf15
+branch refs/heads/luca/m1-runtime
+
+worktree wt-41
+HEAD 4a849e406497ed33c09047cf75dc9e840b1cf30e
+branch refs/heads/luca/m1-security
+
+worktree wt-42
+HEAD 49af3258bc33cf5aee49859c8b2f738665ac60ce
+branch refs/heads/luca/m1-shell
+
+worktree wt-43
+HEAD 80890a85f3f081d7e9df2a4df61e2e937bc98d1c
+branch refs/heads/agent/v1.1-notebook-drawer
+
+worktree wt-44
+HEAD 32d8f85653c14e167945dec591589198b5a47896
+branch refs/heads/agent/v1.1-resident-notebook
+
+worktree wt-45
+HEAD ad69195d9dd93b8ae165c81348f14182a74bc7dd
+branch refs/heads/agent/blackout-messaging-prototype
+
+worktree wt-46
+HEAD 7858522e7231596d88475bad69edc717530ff09b
+branch refs/heads/agent/v1.1-v1.3-roadmap
+
+worktree wt-47
+HEAD f47d58ad2e436b091127e6fdd22d4c507bc8ac20
+branch refs/heads/agent/vision-demo
+
+worktree wt-48
+HEAD 9c9ef0df48ed5a45b2a17a136a94c8cdb7cdf048
+branch refs/heads/codex/v1-beta-consolidation
