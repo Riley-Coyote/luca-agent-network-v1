@@ -137,6 +137,47 @@ function clickWebviewButton(pid: number, name: string) {
   );
 }
 
+function polyphonicChapter(heading: string) {
+  const escapedHeading = appleScriptText(heading);
+  return `group "${escapedHeading}" of group 1 of UI element 1 of scroll area 1 of group 1 of group 1 of window 1`;
+}
+
+function clickPolyphonicContinue(
+  pid: number,
+  heading: string,
+  actionGroup: number,
+) {
+  return appleScript(
+    pid,
+    `click button "Continue" of group ${actionGroup} of ${polyphonicChapter(heading)}`,
+  );
+}
+
+function polyphonicContinueEnabled(
+  pid: number,
+  heading: string,
+  actionGroup: number,
+) {
+  return (
+    appleScript(
+      pid,
+      `get enabled of button "Continue" of group ${actionGroup} of ${polyphonicChapter(heading)}`,
+    ) === "true"
+  );
+}
+
+function typePolyphonicOwnerName(pid: number, value: string) {
+  const heading = "Bring your agents together.";
+  appleScript(
+    pid,
+    `click text field "What should Luca call you?" of group 4 of ${polyphonicChapter(heading)}`,
+  );
+  shell("osascript", [
+    "-e",
+    `tell application "System Events" to keystroke "${appleScriptText(value)}"`,
+  ]);
+}
+
 function createRuntimeDiscoveryFixtures(root: string) {
   const binDir = join(root, "runtime-bin");
   mkdirSync(binDir, { recursive: true });
@@ -235,28 +276,25 @@ async function stopNative(launch: NativeLaunch) {
 async function completeOwnerSetup(launch: NativeLaunch) {
   await waitForText(launch.pid, "Begin setup");
   clickWebviewButton(launch.pid, "Begin setup");
-  await waitForText(launch.pid, "Your agents, working as one network");
-  clickWebviewButton(launch.pid, "Begin setup");
-  await waitForText(launch.pid, "Create owner identity");
-  clickWebviewButton(launch.pid, "Create owner identity");
-  await waitForText(launch.pid, "Your owner identity is secured");
-  clickWebviewButton(launch.pid, "Next");
-
-  await waitForText(launch.pid, "Prepare your resident setup", 45_000);
-  await waitForText(launch.pid, "READY", 45_000);
-  clickWebviewButton(launch.pid, "Next");
-  await waitForText(
-    launch.pid,
-    "Choose your default runtime and model",
-    30_000,
-  );
+  const ownerHeading = "Bring your agents together.";
+  await waitForText(launch.pid, ownerHeading);
+  typePolyphonicOwnerName(launch.pid, "Artifact Owner");
   await waitForTree(
     launch.pid,
-    (tree) => tree.includes("button Next"),
-    "enabled final onboarding action",
-    30_000,
+    () => polyphonicContinueEnabled(launch.pid, ownerHeading, 6),
+    "enabled owner onboarding action",
   );
-  clickWebviewButton(launch.pid, "Next");
+  clickPolyphonicContinue(launch.pid, ownerHeading, 6);
+
+  const runtimeHeading = "Choose what powers Luca";
+  await waitForText(launch.pid, runtimeHeading, 45_000);
+  await waitForTree(
+    launch.pid,
+    () => polyphonicContinueEnabled(launch.pid, runtimeHeading, 4),
+    "enabled runtime onboarding action",
+    45_000,
+  );
+  clickPolyphonicContinue(launch.pid, runtimeHeading, 4);
   await waitForTree(
     launch.pid,
     (tree) => tree.includes("button Library"),
