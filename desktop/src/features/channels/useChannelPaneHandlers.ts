@@ -7,6 +7,7 @@ import type {
   useToggleReactionMutation,
 } from "@/features/messages/hooks";
 import { resolveThreadReplyTarget } from "@/features/messages/hooks";
+import type { MessageComposerSendContext } from "@/features/messages/ui/messageComposerTypes";
 
 /**
  * Stable callback references for ChannelPane so that keystroke-driven
@@ -297,10 +298,13 @@ export function useChannelPaneHandlers({
       mentionPubkeys: string[],
       mediaTags?: string[][],
       channelId?: string | null,
+      _threadContext?: MessageComposerSendContext | null,
+      explicitMentionPubkeys?: string[],
     ) => {
       await sendMutateRef.current({
         content,
         mentionPubkeys,
+        explicitMentionPubkeys,
         mediaTags,
         channelId: channelId ?? undefined,
       });
@@ -314,6 +318,8 @@ export function useChannelPaneHandlers({
       mentionPubkeys: string[],
       mediaTags?: string[][],
       channelId?: string | null,
+      _threadContext?: MessageComposerSendContext | null,
+      explicitMentionPubkeys?: string[],
     ) => {
       const target = directedReplyTargetRef.current;
       if (!target) return;
@@ -322,6 +328,7 @@ export function useChannelPaneHandlers({
         content,
         mediaTags,
         mentionPubkeys,
+        explicitMentionPubkeys,
         parentEventId: target.id,
         replyAuthorPubkey: target.pubkey ?? null,
         responseSurface: "timeline",
@@ -344,6 +351,7 @@ export function useChannelPaneHandlers({
         threadHeadId: string | null;
         replyAuthorPubkey?: string | null;
       } | null,
+      explicitMentionPubkeys?: string[],
     ) => {
       // Resolve target using captured submit-time context (race-free) or live
       // refs (legacy path). When threadContext is supplied, no live-ref reads
@@ -373,6 +381,7 @@ export function useChannelPaneHandlers({
       const sentMessage = await sendMutateRef.current({
         content,
         mentionPubkeys,
+        explicitMentionPubkeys,
         parentEventId,
         replyAuthorPubkey: threadContext?.replyAuthorPubkey ?? null,
         responseSurface: "thread",

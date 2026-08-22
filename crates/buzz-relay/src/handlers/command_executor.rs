@@ -654,9 +654,10 @@ async fn handle_dm_hide(
 /// Longest sentence an exchange note may carry, in bytes.
 const MAX_EXCHANGE_NOTE_TEXT_BYTES: usize = 1024;
 
-/// The validated fields of one exchange-note command, rebuilt server-side so
-/// the room only ever renders a payload this handler chose to say.
+/// The validated fields of one house-note command, rebuilt server-side so the
+/// room only ever renders a payload this handler chose to say.
 struct ExchangeNoteFields {
+    note_type: String,
     exchange_id: Option<String>,
     resident_hex: String,
     text: String,
@@ -665,16 +666,19 @@ struct ExchangeNoteFields {
 
 /// Validate an exchange-note command's content without touching the database.
 ///
-/// Everything shape-checkable is checked here: the payload must be the one
+/// Everything shape-checkable is checked here: the payload must be a supported
 /// note type, the sentence must exist and fit, the resident must be a pubkey,
 /// and the optional exchange id and room pointer must look like what they
-/// claim to be. Ownership and membership stay with the handler.
+/// claim to be. Visit thresholds require an exchange id. Ownership and
+/// membership stay with the handler.
 fn validate_exchange_note_content(content: &str) -> Result<ExchangeNoteFields, &'static str> {
     let payload: serde_json::Value =
         serde_json::from_str(content).map_err(|_| "exchange note is not JSON")?;
-    if payload.get("type").and_then(serde_json::Value::as_str) != Some("exchange-note") {
-        return Err("exchange note type must be exchange-note");
-    }
+    let note_type = payload
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .filter(|note_type| matches!(*note_type, "exchange-note" | "visit_arrived" | "visit_left"))
+        .ok_or("exchange note type is not supported")?;
     let text = payload
         .get("text")
         .and_then(serde_json::Value::as_str)
@@ -696,12 +700,16 @@ fn validate_exchange_note_content(content: &str) -> Result<ExchangeNoteFields, &
         Some(serde_json::Value::String(id)) if is_hex64(id) => Some(id.clone()),
         Some(_) => return Err("exchange note exchange_id is not an exchange id"),
     };
+    if note_type != "exchange-note" && exchange_id.is_none() {
+        return Err("visit note needs an exchange id");
+    }
     let conversation_id = match payload.get("conversation_id") {
         None | Some(serde_json::Value::Null) => None,
         Some(serde_json::Value::String(id)) if Uuid::parse_str(id).is_ok() => Some(id.clone()),
         Some(_) => return Err("exchange note conversation_id is not a channel id"),
     };
     Ok(ExchangeNoteFields {
+        note_type: note_type.to_owned(),
         exchange_id,
         resident_hex: resident_hex.to_owned(),
         text: text.to_owned(),
@@ -709,11 +717,30 @@ fn validate_exchange_note_content(content: &str) -> Result<ExchangeNoteFields, &
     })
 }
 
+fn exchange_note_system_payload(fields: &ExchangeNoteFields) -> serde_json::Value {
+    if fields.note_type == "exchange-note" {
+        serde_json::json!({
+            "type": fields.note_type,
+            "exchange_id": fields.exchange_id,
+            "resident": fields.resident_hex,
+            "text": fields.text,
+            "conversation_id": fields.conversation_id,
+        })
+    } else {
+        serde_json::json!({
+            "type": fields.note_type,
+            "resident": fields.resident_hex,
+            "exchange_id": fields.exchange_id,
+            "text": fields.text,
+        })
+    }
+}
+
 fn is_hex64(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-/// Luca exchange note: the owner asks the house to say one sentence in a room.
+/// Luca house note: the owner asks the house to say one sentence in a room.
 ///
 /// The author must be a member of the room and must own the resident the
 /// sentence is about; the relay then answers with a relay-signed kind:40099
@@ -778,13 +805,7 @@ async fn handle_exchange_note(
         tenant,
         state,
         channel_id,
-        serde_json::json!({
-            "type": "exchange-note",
-            "exchange_id": fields.exchange_id,
-            "resident": fields.resident_hex,
-            "text": fields.text,
-            "conversation_id": fields.conversation_id,
-        }),
+        exchange_note_system_payload(&fields),
     )
     .await
     {
@@ -1476,7 +1497,9 @@ async fn resume_workflow_after_approval(
 
 #[cfg(test)]
 mod exchange_note_tests {
-    use super::{validate_exchange_note_content, MAX_EXCHANGE_NOTE_TEXT_BYTES};
+    use super::{
+        exchange_note_system_payload, validate_exchange_note_content, MAX_EXCHANGE_NOTE_TEXT_BYTES,
+    };
 
     fn note(extra: &str) -> String {
         format!(
@@ -1510,6 +1533,36 @@ mod exchange_note_tests {
         let fields = validate_exchange_note_content(&note("")).expect("a bare note validates");
         assert_eq!(fields.exchange_id, None);
         assert_eq!(fields.conversation_id, None);
+    }
+
+    #[test]
+    fn visit_notes_validate_and_rebuild_with_the_exact_timeline_payload() {
+        for note_type in ["visit_arrived", "visit_left"] {
+            let content = format!(
+                r#"{{"type":"{note_type}","resident":"{}","exchange_id":"{}","text":"Anima is visiting."}}"#,
+                "ab".repeat(32),
+                "cd".repeat(32),
+            );
+            let fields = validate_exchange_note_content(&content).expect("visit note validates");
+            assert_eq!(
+                exchange_note_system_payload(&fields),
+                serde_json::json!({
+                    "type": note_type,
+                    "resident": "ab".repeat(32),
+                    "exchange_id": "cd".repeat(32),
+                    "text": "Anima is visiting.",
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn a_visit_note_without_an_exchange_id_is_refused() {
+        let content = format!(
+            r#"{{"type":"visit_arrived","resident":"{}","text":"Anima is visiting."}}"#,
+            "ab".repeat(32),
+        );
+        assert!(validate_exchange_note_content(&content).is_err());
     }
 
     #[test]

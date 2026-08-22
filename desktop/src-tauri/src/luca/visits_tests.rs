@@ -241,7 +241,7 @@ fn stopping_the_exchange_removes_its_guest_and_emits_left() {
     };
     settle_visit_grants(&relay, &store, &[grant]).expect("visit");
 
-    fade_visits(
+    let faded = fade_visits(
         &relay,
         &store,
         &channel(),
@@ -249,6 +249,7 @@ fn stopping_the_exchange_removes_its_guest_and_emits_left() {
     )
     .expect("fade");
 
+    assert_eq!(faded, std::slice::from_ref(&guest));
     assert_eq!(relay.removed.lock().expect("removed").as_slice(), [guest]);
     assert_eq!(relay.notes.lock().expect("notes").len(), 2);
 }

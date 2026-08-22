@@ -3,7 +3,6 @@ import { toast } from "sonner";
 
 import {
   type CreateChannelManagedAgentInput,
-  useAttachManagedAgentToChannelMutation,
   useAvailableAcpRuntimes,
   useCreateChannelManagedAgentMutation,
   useManagedAgentsQuery,
@@ -90,6 +89,7 @@ type UseMentionSendFlowOptions = {
         parentEventId: string | null;
         threadHeadId: string | null;
       } | null,
+      explicitMentionPubkeys?: string[],
     ) => Promise<void>
   >;
   richText: Pick<
@@ -190,7 +190,6 @@ export function useMentionSendFlow({
   }, []);
 
   const addMembersMutation = useAddChannelMembersMutation(channelId);
-  const attachAgentMutation = useAttachManagedAgentToChannelMutation(channelId);
   const createPersonaAgentMutation =
     useCreateChannelManagedAgentMutation(channelId);
   const provisionPersonaAgentMutation =
@@ -235,7 +234,7 @@ export function useMentionSendFlow({
     async (
       mentionPubkeys: string[],
       capturedChannelId: string,
-      preparedParticipantPubkeys: string[] = [],
+      _preparedParticipantPubkeys: string[] = [],
       preparedManagedAgents: ManagedAgent[] = [],
     ) => {
       if (!capturedChannelId || mentionPubkeys.length === 0) {
@@ -249,10 +248,10 @@ export function useMentionSendFlow({
       for (const agent of preparedManagedAgents) {
         managedAgentsByPubkey.set(normalizePubkey(agent.pubkey), agent);
       }
-      const participantPubkeys = new Set([
-        ...mentions.memberPubkeys,
-        ...preparedParticipantPubkeys.map(normalizePubkey),
-      ]);
+      // Mention readiness starts the resident but does not change room
+      // membership. The signed message command establishes a temporary guest
+      // membership after it has frozen the exact mention set; pre-attaching
+      // here would turn every visit into a permanent ordinary member.
       const errors: string[] = [];
       const pubkeys: string[] = [];
 
@@ -263,20 +262,12 @@ export function useMentionSendFlow({
         }
 
         try {
-          if (participantPubkeys.has(pubkey)) {
-            if (isProviderBackedAgent(agent)) {
-              if (agent.status !== "deployed") {
-                await startAgentMutation.mutateAsync(agent.pubkey);
-              }
-            } else if (!isManagedAgentRunning(agent)) {
+          if (isProviderBackedAgent(agent)) {
+            if (agent.status !== "deployed") {
               await startAgentMutation.mutateAsync(agent.pubkey);
             }
-          } else {
-            await attachAgentMutation.mutateAsync({
-              channelId: capturedChannelId,
-              agent,
-              role: "bot",
-            });
+          } else if (!isManagedAgentRunning(agent)) {
+            await startAgentMutation.mutateAsync(agent.pubkey);
           }
           pubkeys.push(pubkey);
         } catch (error) {
@@ -294,12 +285,7 @@ export function useMentionSendFlow({
         pubkeys: uniqueNormalizedPubkeys(pubkeys),
       };
     },
-    [
-      attachAgentMutation,
-      getManagedAgentsByPubkey,
-      mentions.memberPubkeys,
-      startAgentMutation,
-    ],
+    [getManagedAgentsByPubkey, startAgentMutation],
   );
 
   const createMentionedPersonaAgents = React.useCallback(
@@ -528,6 +514,7 @@ export function useMentionSendFlow({
             outgoingTags,
             sendChannelId,
             draft.capturedThreadContext,
+            effectiveExplicitAgentPubkeys,
           );
           if (effectiveExplicitAgentPubkeys.length > 0) {
             // Promote only explicitly authored agents that remained effective
@@ -931,13 +918,11 @@ export function useMentionSendFlow({
       isMentionSendPending ||
       isCompleteSendPending ||
       addMembersMutation.isPending ||
-      attachAgentMutation.isPending ||
       createPersonaAgentMutation.isPending ||
       startAgentMutation.isPending,
     isPreparingMentionSend:
       isMentionSendPending ||
       isCompleteSendPending ||
-      attachAgentMutation.isPending ||
       createPersonaAgentMutation.isPending ||
       startAgentMutation.isPending,
     nonMemberPromptError,

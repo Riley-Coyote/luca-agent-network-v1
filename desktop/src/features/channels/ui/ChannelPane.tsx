@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useMediaUpload } from "@/features/messages/lib/useMediaUpload";
 import { MessageComposer } from "@/features/messages/ui/MessageComposer";
+import type { MessageComposerSendContext } from "@/features/messages/ui/messageComposerTypes";
 import { ComposerTimeoutBanner } from "@/features/moderation/ui/ComposerTimeoutBanner";
 import { useTimeoutState } from "@/features/moderation/lib/timeoutStore";
 import { isModerationDm } from "@/features/moderation/lib/moderationDm";
@@ -378,6 +379,8 @@ export const ChannelPane = React.memo(function ChannelPane({
       mentionPubkeys: string[],
       mediaTags?: string[][],
       channelId?: string | null,
+      _threadContext?: MessageComposerSendContext | null,
+      explicitMentionPubkeys?: string[],
     ) => {
       const shouldCompleteWelcomeBanner =
         isActiveWelcomeChannel &&
@@ -385,7 +388,14 @@ export const ChannelPane = React.memo(function ChannelPane({
           mentionsKnownAgent(mentionPubkeys, knownAgentPubkeys));
 
       messageTimelineRef.current?.scrollToBottomOnNextUpdate();
-      await onSendMessage(content, mentionPubkeys, mediaTags, channelId);
+      await onSendMessage(
+        content,
+        mentionPubkeys,
+        mediaTags,
+        channelId,
+        undefined,
+        explicitMentionPubkeys,
+      );
 
       if (
         channelId &&
@@ -477,9 +487,18 @@ export const ChannelPane = React.memo(function ChannelPane({
       mentionPubkeys: string[],
       mediaTags?: string[][],
       channelId?: string | null,
+      _threadContext?: MessageComposerSendContext | null,
+      explicitMentionPubkeys?: string[],
     ) => {
       messageTimelineRef.current?.scrollToBottomOnNextUpdate();
-      await onSendDirectedReply(content, mentionPubkeys, mediaTags, channelId);
+      await onSendDirectedReply(
+        content,
+        mentionPubkeys,
+        mediaTags,
+        channelId,
+        undefined,
+        explicitMentionPubkeys,
+      );
     },
     [onSendDirectedReply],
   );
