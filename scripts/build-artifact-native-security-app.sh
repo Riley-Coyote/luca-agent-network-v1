@@ -47,8 +47,12 @@ TARGET=$(rustc -vV | /usr/bin/sed -n 's|host: ||p')
 BINARIES_DIR="$REPO_ROOT/desktop/src-tauri/binaries"
 mkdir -p "$BINARIES_DIR"
 for bin in buzz-acp buzz-agent buzz-dev-mcp git-credential-nostr buzz; do
-    /usr/bin/ditto "$CARGO_TARGET_DIR/debug/$bin" "$BINARIES_DIR/$bin-$TARGET"
-    chmod +x "$BINARIES_DIR/$bin-$TARGET"
+    source_binary="$CARGO_TARGET_DIR/debug/$bin"
+    bundled_binary="$BINARIES_DIR/$bin-$TARGET"
+    if [[ ! -f "$bundled_binary" ]] || ! cmp -s "$source_binary" "$bundled_binary"; then
+        /usr/bin/ditto "$source_binary" "$bundled_binary"
+        chmod +x "$bundled_binary"
+    fi
 done
 
 echo "Building dedicated $PRODUCT_NAME.app..."
