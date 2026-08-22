@@ -1,7 +1,8 @@
 # Projects — grouping rooms by the work they belong to
 
-**Status:** navigation and device-local projection implemented; project/source
-creation belongs to the Brain Setup slice.
+**Status:** navigation, device-local projection, and device-local runtime
+context defaults implemented. Connected-source discovery remains owned by the
+Brain surface.
 
 **Visual authority:**
 [`project-navigation/VISUAL_FIDELITY_CONTRACT.md`](project-navigation/VISUAL_FIDELITY_CONTRACT.md).
@@ -14,8 +15,12 @@ creation belongs to the Brain Setup slice.
 - DMs and rooms without a project remain directly available under `Rooms`.
 - Selecting a project opens its remembered or most recently active room; it is
   never a second-click inbox.
-- A project changes navigation only. It does not grant filesystem, memory,
-  tool, resident, or runtime authority.
+- A project may supply device-local working-context defaults to its rooms. It
+  still does not grant Brain access, relay authority, resident ownership, or
+  tool permission.
+- A room may replace the inherited working folder or add room-only sources.
+  Those changes stay in that room until the owner explicitly selects **Save to
+  project**.
 
 The persistent global rail stays unchanged. Project rooms appear in the
 contextual navigator inside the main application card rather than nested below
@@ -32,6 +37,8 @@ Agent Library.
 | `features/sidebar/ui/ChatList.tsx` | Loose rooms plus one global-rail row per project. |
 | `app/routes/ChannelRouteScreen.tsx` | Derives project context while keeping `/channels/:channelId` canonical. |
 | `app/routes/projects.$projectId.tsx` | Empty-project and project-entry route; preserves the older repository-project route for unrelated IDs. |
+| `src-tauri/src/luca/conversation_context.rs` | Owner/relay-scoped native authority for project defaults, room overrides, opaque source bindings, availability, revisions, and exact dispatch snapshots. |
+| `features/luca/context/ConversationContextComposerSurface.tsx` | Single composer entry point, compact context chip, inheritance-aware drawer, missing-folder recovery, and local change marker. |
 
 The local projection is versioned and scoped by owner public key and relay, so
 one identity or home cannot inherit another's project organization. Existing
@@ -44,34 +51,41 @@ A local filesystem path must never appear in a relay event, room metadata,
 message, evidence log, or public project identifier. It discloses the owner's
 username and directory layout and is different on every device.
 
-Brain Setup may later bind a reviewed project ID to an absolute local path.
-That binding must remain device-local. A moved or missing path changes only the
+The native context authority resolves a project or room's opaque connected
+source IDs through the existing device-local connected-source store. Absolute
+paths never enter renderer persistence, project metadata, relay events,
+messages, or context receipts. A moved or missing path changes only the
 working-context status; it never deletes or hides the project or its rooms.
 
-## Brain Setup handoff
+## Brain and runtime boundary
 
-Brain Setup should use the existing frontend seam rather than inventing a
-second project store:
+Brain Setup continues to use the existing frontend seam rather than inventing
+a second project catalog:
 
 - `replaceRoomProjects(ownerPubkey, relayUrl, projects)` commits the reviewed
   catalog.
 - `assignRoomProject(ownerPubkey, relayUrl, channelId, projectId)` assigns or
   unassigns exactly one room.
-- `workingContextStatus` is presentation metadata only until trusted native
-  path commands are added.
+- `workingContextStatus` is a coarse project-list projection. The native
+  `ConversationContextViewV1` is authoritative for per-room readiness.
 
-The next slice still needs to design and implement:
+The context layer now provides:
 
-1. discovery and preview of repositories, folders, and other intelligence;
-2. explicit project creation/import confirmation;
-3. a trusted native path binding that never crosses the renderer/relay privacy
-   boundary;
-4. room creation/assignment UX using the approved project navigator;
+1. one optional primary working folder and bounded additional sources;
+2. project inheritance, isolated room overrides, explicit promotion, and
+   optimistic revision checks;
+3. trusted native path resolution that never crosses the renderer/relay
+   privacy boundary;
+4. exact context freezing before a managed owner event is published; and
 5. source grants that remain separate from project membership.
+
+Selecting a source for runtime context does not create a Brain grant. Brain
+retrieval remains limited to grants already held by the resident. Native folder
+access follows the selected runtime adapter's existing approval behavior.
 
 ## Do not
 
-- Do not create a global "current project" runtime mode.
+- Do not create a global "current project" runtime mode or a process-wide cwd.
 - Do not put local paths on the relay.
 - Do not give every resident in a room automatic source or memory access.
 - Do not make a room belong to multiple projects without redesigning the
