@@ -187,3 +187,34 @@ who may create rooms. Do not build ahead.
 Commits (hash + one line) · gates run with results · every `NOTE(claude):` left · anything from the
 dead branch you consciously did NOT take and why it tempted you. Push `codex/visits`. Do not merge.
 A Claude session will review the diff before Riley merges.
+
+---
+
+## Review outcome — 2026-08-21, after Codex's implementation
+
+Reviewed at `6c436742`. The contract held: the note payload matches the desktop
+parser key for key, the notes arrive as relay-signed kind 40099 (so 41013 stays
+a relay command kind and needs no client wiring), and the cancelled since-filter
+stayed cancelled — no `since` anywhere in the diff, and `check_channel_membership`
+is untouched. `is_guest` is a membership label that adds the prompt line, not a
+gate. Nothing from the cleanup brief's do-not-restore list came back. The UI was
+not touched, and `lab-shots.mjs` measures green in all three themes.
+
+Three follow-up commits were pushed to this same branch rather than a second one:
+
+1. **`f4cac0db`** — the arrival note's `text` said the guest "can see this
+   conversation from here on", which describes the cancelled policy. **That error
+   was in this brief's example payload, not in the implementation** — the prose was
+   corrected on 2026-08-21 and the example was not, so it was implemented
+   faithfully. Both are fixed now; the payload example above carries a line saying
+   why the wording must not return.
+2. **`788b565b`** — `fade_visits` read a missing exchange head as an *open*
+   exchange, which strands a guest: neither trigger can then fade them. An unknown
+   head now fades.
+3. **`c4aaefae`** — the three `communication_turn_registry` tests cleared one
+   process-wide map while running in parallel and could wipe each other. A
+   pre-existing race, surfaced (not caused) by the visit work; they now serialize.
+
+Open, deliberately not done here: the branch is not merged, and Codex's three
+implementation commits have empty bodies — the reasoning for that work exists
+only in this brief.
