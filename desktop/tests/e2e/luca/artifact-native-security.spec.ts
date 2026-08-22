@@ -235,6 +235,8 @@ async function stopNative(launch: NativeLaunch) {
 async function completeOwnerSetup(launch: NativeLaunch) {
   await waitForText(launch.pid, "Begin setup");
   clickWebviewButton(launch.pid, "Begin setup");
+  await waitForText(launch.pid, "Your agents, working as one network");
+  clickWebviewButton(launch.pid, "Begin setup");
   await waitForText(launch.pid, "Create owner identity");
   clickWebviewButton(launch.pid, "Create owner identity");
   await waitForText(launch.pid, "Your owner identity is secured");
