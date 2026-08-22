@@ -668,6 +668,15 @@ pub struct OwnerBrainContextReceiptV1 {
     pub duration_ms: SafeU53,
     /// Canonical receipt creation timestamp.
     pub created_at: CanonicalTimestamp,
+    /// Whether this source was explicitly selected for the conversation.
+    /// Background sources remain eligible only through their existing grant.
+    pub selected_context: bool,
+    /// Number of explicitly selected conversation sources that contributed
+    /// at least one chunk to this bounded request.
+    pub selected_source_count: SafeU53,
+    /// Number of relevant background sources that contributed at least one
+    /// fallback chunk to this bounded request.
+    pub background_source_count: SafeU53,
 }
 
 #[derive(Deserialize)]
@@ -686,6 +695,16 @@ struct RawOwnerBrainContextReceiptV1 {
     truncated: bool,
     duration_ms: SafeU53,
     created_at: CanonicalTimestamp,
+    #[serde(default)]
+    selected_context: bool,
+    #[serde(default = "zero_safe_u53")]
+    selected_source_count: SafeU53,
+    #[serde(default = "zero_safe_u53")]
+    background_source_count: SafeU53,
+}
+
+fn zero_safe_u53() -> SafeU53 {
+    SafeU53::new(0).expect("zero is always a safe integer")
 }
 
 impl From<RawOwnerBrainContextReceiptV1> for OwnerBrainContextReceiptV1 {
@@ -704,6 +723,9 @@ impl From<RawOwnerBrainContextReceiptV1> for OwnerBrainContextReceiptV1 {
             truncated: raw.truncated,
             duration_ms: raw.duration_ms,
             created_at: raw.created_at,
+            selected_context: raw.selected_context,
+            selected_source_count: raw.selected_source_count,
+            background_source_count: raw.background_source_count,
         }
     }
 }
@@ -722,6 +744,13 @@ impl OwnerBrainContextReceiptV1 {
             || ready == self.selected_chunk_hashes.is_empty()
             || ready != (self.selected_byte_count.get() > 0)
             || self.selected_byte_count.get() > MAX_OWNER_BRAIN_RETRIEVAL_BYTES as u64
+            || self.selected_source_count.get() > MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS as u64
+            || self.background_source_count.get() > MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS as u64
+            || self
+                .selected_source_count
+                .get()
+                .saturating_add(self.background_source_count.get())
+                > MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS as u64
         {
             Err(ContinuityError::Binding)
         } else {

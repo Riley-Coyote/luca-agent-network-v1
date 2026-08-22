@@ -972,6 +972,21 @@ impl AcpClient {
         system_prompt: Option<&str>,
         meta: Option<serde_json::Value>,
     ) -> Result<SessionNewResponse, AcpError> {
+        self.session_new_full_with_context(cwd, &[], mcp_servers, system_prompt, meta)
+            .await
+    }
+
+    /// Send `session/new` with an explicitly capability-gated multi-root
+    /// workspace. Callers must pass additional directories only when the
+    /// initialize response advertised support.
+    pub async fn session_new_full_with_context(
+        &mut self,
+        cwd: &str,
+        additional_directories: &[String],
+        mcp_servers: Vec<McpServer>,
+        system_prompt: Option<&str>,
+        meta: Option<serde_json::Value>,
+    ) -> Result<SessionNewResponse, AcpError> {
         if self.managed_identity
             && mcp_servers
                 .iter()
@@ -983,6 +998,15 @@ impl AcpClient {
             "cwd": cwd,
             "mcpServers": mcp_servers,
         });
+        if !additional_directories.is_empty() {
+            params["additionalDirectories"] = serde_json::Value::Array(
+                additional_directories
+                    .iter()
+                    .cloned()
+                    .map(serde_json::Value::String)
+                    .collect(),
+            );
+        }
         if let Some(sp) = system_prompt {
             params["systemPrompt"] = serde_json::Value::String(sp.to_owned());
         }
@@ -4433,6 +4457,39 @@ mod tests {
             received["params"]["systemPrompt"].as_str(),
             Some("Custom system prompt"),
             "systemPrompt should be included in params when Some"
+        );
+    }
+
+    #[tokio::test]
+    async fn session_new_full_serializes_negotiated_additional_directories() {
+        let script = r#"
+            read -t 2 _init
+            echo '{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"additionalDirectories":true}}}}'
+            read -t 2 REQ
+            echo '{"jsonrpc":"2.0","id":1,"result":{"sessionId":"ses_context","_receivedRequest":'"$REQ"'}}'
+            sleep 1
+        "#;
+        let mut client = spawn_script(script).await;
+        client
+            .initialize()
+            .await
+            .expect("initialize should succeed");
+
+        let resp = client
+            .session_new_full_with_context(
+                "/work/primary",
+                &["/work/library".into(), "/work/design".into()],
+                vec![],
+                None,
+                None,
+            )
+            .await
+            .expect("context session should succeed");
+        let params = &resp.raw["_receivedRequest"]["params"];
+        assert_eq!(params["cwd"], "/work/primary");
+        assert_eq!(
+            params["additionalDirectories"],
+            serde_json::json!(["/work/library", "/work/design"])
         );
     }
 

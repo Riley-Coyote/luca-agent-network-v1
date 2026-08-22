@@ -1164,10 +1164,8 @@ fn any_respawn_in_flight(crash_history: &[SlotCircuit]) -> bool {
 /// Result of a background respawn task.
 struct RespawnResult {
     index: usize,
-    /// Tuple: (initialized client, protocol version, supports_goose_steer).
-    /// The third element is always `true` — the supervisor uses
-    /// try-and-tolerate for the steer extension.
-    result: Result<(AcpClient, u32, String)>,
+    /// Tuple: client, protocol version, agent name, additional-root support.
+    result: Result<(AcpClient, u32, String, bool)>,
 }
 
 /// Outcome of a non-cancelling steer attempt, forwarded from a per-attempt
@@ -1211,7 +1209,7 @@ impl RespawnGuard {
     /// Send the result and disarm the guard. Uses `try_send` (sync) so there
     /// is no await boundary between marking `sent` and actually enqueueing —
     /// cancellation cannot slip between the two.
-    fn send(mut self, result: Result<(AcpClient, u32, String)>) {
+    fn send(mut self, result: Result<(AcpClient, u32, String, bool)>) {
         // Invariant: try_send succeeds because the channel capacity equals the
         // slot count, and respawn_in_flight guarantees at most one outstanding
         // result per slot. If this ever fails, the channel sizing or the
@@ -1403,6 +1401,8 @@ async fn tokio_main() -> Result<()> {
                             }),
                         );
                         let agent_name = normalized_agent_name(&init_result);
+                        let additional_directories_supported =
+                            supports_additional_directories(&init_result);
                         agent_slots.push(Some(OwnedAgent {
                             index: i,
                             acp,
@@ -1413,6 +1413,7 @@ async fn tokio_main() -> Result<()> {
                             agent_name,
                             goose_system_prompt_supported: None,
                             protocol_version,
+                            additional_directories_supported,
                         }));
                     }
                     Ok(Err(e)) => {
@@ -1974,7 +1975,7 @@ async fn tokio_main() -> Result<()> {
         while let Ok(rr) = respawn_rx.try_recv() {
             crash_history[rr.index].respawn_in_flight = false;
             match rr.result {
-                Ok((acp, protocol_version, agent_name)) => {
+                Ok((acp, protocol_version, agent_name, additional_directories_supported)) => {
                     let agent = OwnedAgent {
                         index: rr.index,
                         acp,
@@ -1985,6 +1986,7 @@ async fn tokio_main() -> Result<()> {
                         agent_name,
                         goose_system_prompt_supported: None,
                         protocol_version,
+                        additional_directories_supported,
                     };
                     pool.return_agent(agent);
                     tracing::info!(agent = rr.index, "respawn complete");
@@ -2848,7 +2850,7 @@ async fn tokio_main() -> Result<()> {
     // Drain any respawn results that completed before the abort. Explicitly
     // shut down returned agents instead of relying on AcpClient::Drop.
     while let Ok(rr) = respawn_rx.try_recv() {
-        if let Ok((mut acp, _, _)) = rr.result {
+        if let Ok((mut acp, _, _, _)) = rr.result {
             acp.shutdown().await;
             tracing::debug!(agent = rr.index, "reaped respawned agent on shutdown");
         }
@@ -3998,6 +4000,13 @@ fn normalized_agent_name(init_result: &serde_json::Value) -> String {
         .to_ascii_lowercase()
 }
 
+fn supports_additional_directories(init_result: &serde_json::Value) -> bool {
+    init_result
+        .pointer("/agentCapabilities/sessionCapabilities/additionalDirectories")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
 // ── spawn_and_init ────────────────────────────────────────────────────────────
 /// Spawn an agent subprocess and run the MCP `initialize` handshake.
 ///
@@ -4011,7 +4020,7 @@ async fn spawn_and_init(
     managed_identity: bool,
     agent_index: usize,
     observer: Option<observer::ObserverHandle>,
-) -> Result<(AcpClient, u32, String)> {
+) -> Result<(AcpClient, u32, String, bool)> {
     let mut acp = if managed_identity {
         AcpClient::spawn_managed(command, args, extra_env, has_generated_codex_config).await
     } else {
@@ -4032,7 +4041,13 @@ async fn spawn_and_init(
                 }),
             );
             let agent_name = normalized_agent_name(&init_result);
-            Ok((acp, protocol_version, agent_name))
+            let additional_directories_supported = supports_additional_directories(&init_result);
+            Ok((
+                acp,
+                protocol_version,
+                agent_name,
+                additional_directories_supported,
+            ))
         }
         Err(e) => {
             // Explicitly shut down the spawned child to prevent zombie/leak.
@@ -5329,6 +5344,21 @@ mod error_outcome_emission_tests {
         );
     }
 
+    #[test]
+    fn additional_directory_support_is_capability_negotiated() {
+        assert!(supports_additional_directories(&serde_json::json!({
+            "agentCapabilities": {
+                "sessionCapabilities": { "additionalDirectories": true }
+            }
+        })));
+        assert!(!supports_additional_directories(&serde_json::json!({
+            "agentCapabilities": {
+                "sessionCapabilities": { "additionalDirectories": false }
+            }
+        })));
+        assert!(!supports_additional_directories(&serde_json::json!({})));
+    }
+
     /// Spawn a real but inert agent subprocess (`cat`) so the error paths have
     /// an `OwnedAgent` to move into respawn or return to the pool. The error
     /// branches never talk to the subprocess.
@@ -5347,6 +5377,7 @@ mod error_outcome_emission_tests {
             // Error branches under test never read this; 1 is the legacy
             // non-systemPrompt path, the simplest valid value.
             protocol_version: 1,
+            additional_directories_supported: false,
         }
     }
 

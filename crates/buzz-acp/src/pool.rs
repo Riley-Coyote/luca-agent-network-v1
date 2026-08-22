@@ -106,6 +106,9 @@ pub struct SessionState {
     /// fetch fails — all fail open. Cleared on session invalidation alongside
     /// `core_sections` so the next session picks up any canvas change.
     pub canvas_sections: HashMap<Uuid, String>,
+    /// Hash-only native root binding applied to each cached channel session.
+    /// Filesystem paths are intentionally absent from reusable harness state.
+    pub native_context_refs: HashMap<Uuid, String>,
 }
 
 impl SessionState {
@@ -130,6 +133,7 @@ impl SessionState {
         self.turn_counts.remove(channel_id);
         self.core_sections.remove(channel_id);
         self.canvas_sections.remove(channel_id);
+        self.native_context_refs.remove(channel_id);
         self.sessions.remove(channel_id).is_some()
     }
 
@@ -141,6 +145,7 @@ impl SessionState {
         self.heartbeat_turn_count = 0;
         self.core_sections.clear();
         self.canvas_sections.clear();
+        self.native_context_refs.clear();
     }
 
     #[cfg(test)]
@@ -149,6 +154,36 @@ impl SessionState {
             || self.turn_counts.contains_key(channel_id)
             || self.core_sections.contains_key(channel_id)
             || self.canvas_sections.contains_key(channel_id)
+            || self.native_context_refs.contains_key(channel_id)
+    }
+}
+
+/// Reconcile one room's cached session against the exact native-root digest.
+/// Brain-only source changes intentionally reuse the session because they do
+/// not change this digest.
+fn reconcile_native_context(
+    state: &mut SessionState,
+    channel_id: &Uuid,
+    current_ref: String,
+    managed_context_present: bool,
+) -> bool {
+    if !state.sessions.contains_key(channel_id) {
+        return false;
+    }
+    match state.native_context_refs.get(channel_id) {
+        Some(previous) if previous == &current_ref => false,
+        Some(_) => {
+            state.invalidate_channel(channel_id);
+            true
+        }
+        None if managed_context_present => {
+            state.invalidate_channel(channel_id);
+            true
+        }
+        None => {
+            state.native_context_refs.insert(*channel_id, current_ref);
+            false
+        }
     }
 }
 
@@ -174,6 +209,8 @@ pub struct OwnedAgent {
     pub goose_system_prompt_supported: Option<bool>,
     /// Protocol version reported by the agent in its initialize response.
     pub protocol_version: u32,
+    /// Exact initialize capability gate for ACP additionalDirectories.
+    pub additional_directories_supported: bool,
 }
 
 fn has_system_prompt_support(
@@ -764,6 +801,26 @@ const CONTROL_CANCEL_GRACE: Duration = Duration::from_secs(5);
 /// Timeout for permission-mode requests (`session/set_config_option` with `configId: "mode"`).
 const PERMISSION_MODE_TIMEOUT: Duration = Duration::from_secs(5);
 
+fn negotiated_additional_directories(
+    additional_directories: &[String],
+    supported: bool,
+) -> Vec<String> {
+    if supported {
+        additional_directories.to_vec()
+    } else {
+        Vec::new()
+    }
+}
+
+#[derive(Default)]
+struct SessionCreationContext<'a> {
+    agent_core: Option<&'a str>,
+    agent_canvas: Option<&'a str>,
+    communications_turn: Option<&'a crate::communications_mcp::CommunicationsTurnBindingV1>,
+    artifact_turn: Option<&'a crate::artifact_mcp::ArtifactTurnBindingV1>,
+    managed_context: Option<&'a crate::continuity_provider::ManagedSessionContextResultV1>,
+}
+
 /// Create a new ACP session via `session_new_full()`, populate model capabilities
 /// on the agent (first session only), and apply `desired_model` if set.
 ///
@@ -774,10 +831,7 @@ async fn create_session_and_apply_model(
     agent: &mut OwnedAgent,
     ctx: &PromptContext,
     source: &PromptSource,
-    agent_core: Option<&str>,
-    agent_canvas: Option<&str>,
-    communications_turn: Option<&crate::communications_mcp::CommunicationsTurnBindingV1>,
-    artifact_turn: Option<&crate::artifact_mcp::ArtifactTurnBindingV1>,
+    session_context: SessionCreationContext<'_>,
 ) -> Result<String, AcpError> {
     // Build base_prompt + system_prompt + agent core + canvas metadata into a
     // single prompt. Standard protocol-v2 agents receive it in `session/new`;
@@ -786,6 +840,19 @@ async fn create_session_and_apply_model(
     // its own `[Agent Memory — core]` header, and canvas carries its own
     // `[Channel Canvas]` header; both are appended with a blank-line separator.
     let is_goose = agent.agent_name == "goose";
+    let session_cwd = session_context
+        .managed_context
+        .and_then(|context| context.cwd.as_deref())
+        .unwrap_or(&ctx.cwd);
+    let additional_directories = session_context
+        .managed_context
+        .map(|context| {
+            negotiated_additional_directories(
+                &context.additional_directories,
+                agent.additional_directories_supported,
+            )
+        })
+        .unwrap_or_default();
     let combined_system_prompt = if matches!(source, PromptSource::Continuity(_)) {
         Some(CONTINUITY_COGNITION_SYSTEM_PROMPT.to_owned())
     } else {
@@ -794,17 +861,17 @@ async fn create_session_and_apply_model(
                 with_core(
                     with_team(
                         framed_system_prompt(
-                            &ctx.cwd,
+                            session_cwd,
                             ctx.base_prompt,
                             ctx.system_prompt.as_deref(),
                         ),
                         ctx.team_instructions.as_deref(),
                     ),
-                    agent_core,
+                    session_context.agent_core,
                 ),
-                agent_canvas,
+                session_context.agent_canvas,
             ),
-            communications_turn.is_some(),
+            session_context.communications_turn.is_some(),
         )
     };
 
@@ -822,8 +889,8 @@ async fn create_session_and_apply_model(
     let privileged_policy = privileged_session_mcp_policy(
         source,
         ctx.repository_mcp.is_some(),
-        communications_turn.is_some(),
-        artifact_turn.is_some(),
+        session_context.communications_turn.is_some(),
+        session_context.artifact_turn.is_some(),
     );
     let artifact_projection_allowed =
         privileged_policy.artifact && resolve_artifact_mcp_support(agent, ctx).await;
@@ -837,14 +904,14 @@ async fn create_session_and_apply_model(
     if let (true, Some(communications_mcp), Some(turn)) = (
         privileged_policy.communications,
         ctx.communications_mcp.as_ref(),
-        communications_turn,
+        session_context.communications_turn,
     ) {
         mcp_servers.push(communications_mcp.server_for_turn(turn));
     }
     if let (true, Some(artifact_mcp), Some(turn)) = (
         artifact_projection_allowed,
         ctx.artifact_mcp.as_ref(),
-        artifact_turn,
+        session_context.artifact_turn,
     ) {
         mcp_servers.push(artifact_mcp.server_for_turn(turn));
     }
@@ -858,8 +925,9 @@ async fn create_session_and_apply_model(
     });
     let resp = match agent
         .acp
-        .session_new_full_with_meta(
-            &ctx.cwd,
+        .session_new_full_with_context(
+            session_cwd,
+            &additional_directories,
             mcp_servers,
             session_new_system_prompt(
                 is_goose,
@@ -885,8 +953,9 @@ async fn create_session_and_apply_model(
             );
             agent
                 .acp
-                .session_new_full_with_meta(
-                    &ctx.cwd,
+                .session_new_full_with_context(
+                    session_cwd,
+                    &additional_directories,
                     fallback_servers.unwrap_or_default(),
                     session_new_system_prompt(
                         is_goose,
@@ -1815,6 +1884,54 @@ async fn managed_continuity_prompt_block(
     crate::continuity_provider::continuity_prompt_block(result)
 }
 
+async fn managed_session_context(
+    ctx: &PromptContext,
+    batch: &FlushBatch,
+) -> Result<Option<crate::continuity_provider::ManagedSessionContextResultV1>, AcpError> {
+    let Some(managed) = ctx.managed_final_publisher.as_ref() else {
+        return Ok(None);
+    };
+    let Some(trigger) = last_eligible_managed_trigger(batch, &managed.owner_pubkey) else {
+        return Ok(None);
+    };
+    let now_unix_ms: u64 = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| AcpError::Protocol("local context clock is unavailable".into()))?
+        .as_millis()
+        .try_into()
+        .map_err(|_| AcpError::Protocol("local context clock is invalid".into()))?;
+    let deadline_unix_ms = now_unix_ms
+        .checked_add(crate::continuity_provider::CONTINUITY_RESOLUTION_TIMEOUT.as_millis() as u64)
+        .ok_or_else(|| AcpError::Protocol("local context deadline is invalid".into()))?;
+    let intent = crate::continuity_provider::ManagedSessionContextIntentV1::new(
+        luca_protocol::OpaqueId::parse(Uuid::new_v4().to_string())
+            .map_err(|_| AcpError::Protocol("local context request is invalid".into()))?,
+        managed.resident_pubkey.clone(),
+        managed.session_epoch,
+        luca_protocol::OpaqueId::parse(batch.channel_id.to_string())
+            .map_err(|_| AcpError::Protocol("local context room is invalid".into()))?,
+        luca_protocol::Hex64::parse(trigger.id.to_hex())
+            .map_err(|_| AcpError::Protocol("local context trigger is invalid".into()))?,
+        luca_protocol::SafeU53::new(deadline_unix_ms)
+            .map_err(|_| AcpError::Protocol("local context deadline is invalid".into()))?,
+    )
+    .ok_or_else(|| AcpError::Protocol("local context request is invalid".into()))?;
+    let result = crate::continuity_provider::resolve_inherited_managed_session_context(&intent)
+        .await
+        .ok_or_else(|| AcpError::Protocol("conversation context is unavailable".into()))?;
+    use crate::continuity_provider::ManagedSessionContextStatusV1 as Status;
+    match result.status {
+        Status::Empty => Ok(None),
+        Status::Ready | Status::Degraded => Ok(Some(result)),
+        Status::MissingPrimary => Err(AcpError::Protocol(
+            "working folder is unavailable; relink it or continue without it".into(),
+        )),
+        Status::Denied | Status::Unavailable => Err(AcpError::Protocol(
+            "conversation context is unavailable".into(),
+        )),
+    }
+}
+
 fn canonical_continuity_timestamp() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
@@ -2165,6 +2282,55 @@ pub async fn run_prompt_task(
         .unwrap_or_default();
     let _reaction_guard = ReactionGuard::new(ctx.rest_client.clone(), reaction_ids.clone());
 
+    // Resolve the exact dispatch snapshot before any session is selected or
+    // created. A native-root change rotates only this room. Brain-only changes
+    // keep the provider session because their native root digest is unchanged.
+    let resolved_managed_context = match (&source, batch.as_ref()) {
+        (PromptSource::Channel(_), Some(batch)) => match managed_session_context(&ctx, batch).await
+        {
+            Ok(context) => context,
+            Err(error) => {
+                send_prompt_result(
+                    &result_tx,
+                    &turn_id,
+                    agent,
+                    source,
+                    PromptOutcome::Error(error),
+                    requeue_batch_if_queue(&ctx, Some(batch.clone())),
+                );
+                return;
+            }
+        },
+        _ => None,
+    };
+    let mut context_rotated_session = false;
+    if let PromptSource::Channel(cid) = &source {
+        let current_ref = resolved_managed_context
+            .as_ref()
+            .and_then(|context| context.native_roots_ref.as_ref())
+            .map(|value| value.as_str().to_owned())
+            .unwrap_or_else(|| "luca.default-native-context.v1".to_owned());
+        context_rotated_session = reconcile_native_context(
+            &mut agent.state,
+            cid,
+            current_ref,
+            resolved_managed_context.is_some(),
+        );
+        agent.acp.observe(
+            "conversation_context_resolved",
+            serde_json::json!({
+                "status": resolved_managed_context.as_ref().map(|context| context.status),
+                "revision": resolved_managed_context.as_ref().map(|context| context.revision.get()),
+                "selectedSourceCount": resolved_managed_context.as_ref().map_or(0, |context| context.selected_source_ids.len()),
+                "additionalDirectoryCount": resolved_managed_context.as_ref().map_or(0, |context| context.additional_directories.len()),
+                "additionalDirectoriesSupported": agent.additional_directories_supported,
+                "additionalDirectoriesApplied": agent.additional_directories_supported
+                    && resolved_managed_context.as_ref().is_some_and(|context| !context.additional_directories.is_empty()),
+                "rotatedSession": context_rotated_session,
+            }),
+        );
+    }
+
     //
     // Core memory is delivered inside the system prompt the harness already
     // builds (system role for protocol >= 2, the `[System]` user-message
@@ -2307,10 +2473,13 @@ pub async fn run_prompt_task(
                     &mut agent,
                     &ctx,
                     &source,
-                    agent_core.as_deref(),
-                    agent_canvas.as_deref(),
-                    communications_turn.as_ref(),
-                    artifact_turn.as_ref(),
+                    SessionCreationContext {
+                        agent_core: agent_core.as_deref(),
+                        agent_canvas: agent_canvas.as_deref(),
+                        communications_turn: communications_turn.as_ref(),
+                        artifact_turn: artifact_turn.as_ref(),
+                        managed_context: resolved_managed_context.as_ref(),
+                    },
                 )
                 .await
                 {
@@ -2320,12 +2489,22 @@ pub async fn run_prompt_task(
                             "created session {sid} for channel {cid}"
                         );
                         agent.state.sessions.insert(*cid, sid.clone());
+                        let native_ref = resolved_managed_context
+                            .as_ref()
+                            .and_then(|context| context.native_roots_ref.as_ref())
+                            .map(|value| value.as_str().to_owned())
+                            .unwrap_or_else(|| "luca.default-native-context.v1".to_owned());
+                        agent.state.native_context_refs.insert(*cid, native_ref);
                         agent.state.turn_counts.remove(cid);
                         // Commit canvas only after session creation succeeds (I3).
                         if let Some((pending_cid, section)) = pending_canvas.take() {
                             agent.state.canvas_sections.insert(pending_cid, section);
                         }
-                        (sid, true, policy.first_channel_session)
+                        (
+                            sid,
+                            true,
+                            policy.first_channel_session && !context_rotated_session,
+                        )
                     }
                     Err(AcpError::AgentExited) => {
                         agent.state.invalidate_all();
@@ -2360,7 +2539,10 @@ pub async fn run_prompt_task(
                 (sid.clone(), false, false)
             } else {
                 match create_session_and_apply_model(
-                    &mut agent, &ctx, &source, None, None, None, None,
+                    &mut agent,
+                    &ctx,
+                    &source,
+                    SessionCreationContext::default(),
                 )
                 .await
                 {
@@ -2400,8 +2582,13 @@ pub async fn run_prompt_task(
             }
         }
         PromptSource::Continuity(_) => {
-            match create_session_and_apply_model(&mut agent, &ctx, &source, None, None, None, None)
-                .await
+            match create_session_and_apply_model(
+                &mut agent,
+                &ctx,
+                &source,
+                SessionCreationContext::default(),
+            )
+            .await
             {
                 Ok(sid) => {
                     tracing::info!(
@@ -4946,6 +5133,73 @@ mod tests {
     }
 
     #[test]
+    fn native_root_change_rotates_only_the_affected_room_session() {
+        let changed = Uuid::new_v4();
+        let sibling = Uuid::new_v4();
+        let mut state = SessionState::default();
+        state.sessions.insert(changed, "session-changed".into());
+        state.sessions.insert(sibling, "session-sibling".into());
+        state.native_context_refs.insert(changed, "roots-a".into());
+        state
+            .native_context_refs
+            .insert(sibling, "roots-sibling".into());
+
+        assert!(reconcile_native_context(
+            &mut state,
+            &changed,
+            "roots-b".into(),
+            true,
+        ));
+        assert!(!state.sessions.contains_key(&changed));
+        assert_eq!(
+            state.sessions.get(&sibling).map(String::as_str),
+            Some("session-sibling")
+        );
+    }
+
+    #[test]
+    fn brain_only_context_change_reuses_the_native_session() {
+        let channel = Uuid::new_v4();
+        let mut state = SessionState::default();
+        state.sessions.insert(channel, "session-stable".into());
+        state
+            .native_context_refs
+            .insert(channel, "roots-stable".into());
+
+        assert!(!reconcile_native_context(
+            &mut state,
+            &channel,
+            "roots-stable".into(),
+            true,
+        ));
+        assert_eq!(
+            state.sessions.get(&channel).map(String::as_str),
+            Some("session-stable")
+        );
+    }
+
+    #[test]
+    fn additional_directories_are_applied_only_after_capability_negotiation() {
+        let roots = vec!["/workspace/one".to_owned(), "/workspace/two".to_owned()];
+        assert!(negotiated_additional_directories(&roots, false).is_empty());
+        assert_eq!(negotiated_additional_directories(&roots, true), roots);
+    }
+
+    #[test]
+    fn replacement_session_prompt_keeps_resident_home_documents() {
+        let framed = framed_system_prompt(
+            "/workspace/relinked",
+            Some("resident harness base"),
+            Some("soul.md\nself-model.md\nuser-model.md"),
+        )
+        .expect("replacement session prompt");
+        assert!(framed.contains("[Workspace]\n"));
+        assert!(framed.contains("`/workspace/relinked`"));
+        assert!(framed.contains("resident harness base"));
+        assert!(framed.contains("soul.md\nself-model.md\nuser-model.md"));
+    }
+
+    #[test]
     fn communications_authority_prompt_is_present_only_for_enabled_turns() {
         assert_eq!(
             with_communications(Some("base".into()), false),
@@ -5000,6 +5254,7 @@ mod tests {
             agent_name: "unknown".into(),
             goose_system_prompt_supported: None,
             protocol_version: 2,
+            additional_directories_supported: false,
         }
     }
 
@@ -5164,10 +5419,10 @@ while read -r _; do :; done
             &mut agent,
             &ctx,
             &PromptSource::Channel(Uuid::new_v4()),
-            None,
-            None,
-            None,
-            Some(&artifact_turn()),
+            SessionCreationContext {
+                artifact_turn: Some(&artifact_turn()),
+                ..SessionCreationContext::default()
+            },
         )
         .await
         .expect("conversation session survives rejected artifact projection");
@@ -7101,6 +7356,7 @@ while read -r _; do :; done
             agent_name: "unknown".into(),
             goose_system_prompt_supported: None,
             protocol_version: 2,
+            additional_directories_supported: false,
         };
 
         // Simulate dispatch: install a steer receiver (normally done by
@@ -7159,6 +7415,7 @@ while read -r _; do :; done
             agent_name: "unknown".into(),
             goose_system_prompt_supported: None,
             protocol_version: 2,
+            additional_directories_supported: false,
         };
 
         // Simulate a completed turn: `steer_rx` was consumed by the read loop

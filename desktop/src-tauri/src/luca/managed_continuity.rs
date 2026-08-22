@@ -17,7 +17,7 @@ use luca_protocol::{
     ContinuityLayerResultV1, ContinuityLayerStatusV1, Hex64, OpaqueId, ProviderEgressV1, SafeU53,
     Sha256Ref, CONTINUITY_PROTOCOL, MAX_CONTINUITY_PACKET_BYTES, MAX_CONTINUITY_REFS,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use zeroize::Zeroizing;
 
@@ -32,6 +32,8 @@ use super::{
 };
 
 const INTENT_PROTOCOL: &str = "luca.managed.continuity-intent.v1";
+const SESSION_CONTEXT_INTENT_PROTOCOL: &str = "luca.managed.session-context-intent.v1";
+const SESSION_CONTEXT_RESULT_PROTOCOL: &str = "luca.managed.session-context-result.v1";
 const MAX_FRAME_BYTES: usize = 384 * 1024;
 const MAX_CUE_BYTES: usize = 4 * 1024;
 const MAX_RESOLUTION_MILLIS: u64 = 3_000;
@@ -48,6 +50,72 @@ const LAYERS: [&str; 5] = [
 enum AuthorizedPacketWrite {
     Written,
     Denied,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct IntentEnvelopeV1 {
+    protocol: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManagedSessionContextIntentV1 {
+    protocol: String,
+    request_id: OpaqueId,
+    resident_pubkey: Hex64,
+    session_epoch: SafeU53,
+    conversation_id: OpaqueId,
+    trigger_event_id: Hex64,
+    deadline_unix_ms: SafeU53,
+}
+
+impl ManagedSessionContextIntentV1 {
+    fn validate(&self) -> bool {
+        self.protocol == SESSION_CONTEXT_INTENT_PROTOCOL
+            && self.session_epoch.get() > 0
+            && self.deadline_unix_ms.get() > 0
+    }
+}
+
+impl std::fmt::Debug for ManagedSessionContextIntentV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ManagedSessionContextIntentV1")
+            .field("protocol", &self.protocol)
+            .field("request_id", &self.request_id)
+            .field("resident_pubkey", &self.resident_pubkey)
+            .field("session_epoch", &self.session_epoch)
+            .field("conversation_id", &self.conversation_id)
+            .field("trigger_event_id", &self.trigger_event_id)
+            .field("deadline_unix_ms", &self.deadline_unix_ms)
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ManagedSessionContextStatusV1 {
+    Empty,
+    Ready,
+    MissingPrimary,
+    Degraded,
+    Denied,
+    Unavailable,
+}
+
+#[derive(Serialize)]
+struct ManagedSessionContextResultV1 {
+    protocol: String,
+    request_id: OpaqueId,
+    resident_pubkey: Hex64,
+    status: ManagedSessionContextStatusV1,
+    snapshot_ref: Option<Sha256Ref>,
+    revision: SafeU53,
+    cwd: Option<String>,
+    additional_directories: Vec<String>,
+    selected_source_ids: Vec<OpaqueId>,
+    native_roots_ref: Option<Sha256Ref>,
 }
 
 /// Strict mirror of the authority-minimized ACP request. Its custom Debug
@@ -180,6 +248,24 @@ fn serve(
         if frame.len() > MAX_FRAME_BYTES || frame.last() != Some(&b'\n') {
             break;
         }
+        let Ok(envelope) = serde_json::from_slice::<IntentEnvelopeV1>(&frame) else {
+            break;
+        };
+        if envelope.protocol == SESSION_CONTEXT_INTENT_PROTOCOL {
+            let Ok(intent) = serde_json::from_slice::<ManagedSessionContextIntentV1>(&frame) else {
+                break;
+            };
+            if !intent.validate()
+                || intent.resident_pubkey != resident_pubkey
+                || intent.session_epoch != session_epoch
+            {
+                break;
+            }
+            if write_session_context_result(&app, &mut writer, &intent).is_err() {
+                break;
+            }
+            continue;
+        }
         let Ok(mut intent) = serde_json::from_slice::<ManagedContinuityTurnIntentV1>(&frame) else {
             break;
         };
@@ -255,6 +341,19 @@ fn serve(
             continue;
         };
 
+        let selected_source_ids = authority
+            .context_binding
+            .as_ref()
+            .and_then(|binding| {
+                super::conversation_context::selected_sources_for_dispatch(
+                    &app,
+                    &authority.owner_pubkey,
+                    &authority.conversation_id,
+                    binding,
+                )
+                .ok()
+            })
+            .unwrap_or_default();
         let request = ContinuityContextRequestV1 {
             protocol: CONTINUITY_PROTOCOL.into(),
             request_id: intent.request_id.clone(),
@@ -284,6 +383,7 @@ fn serve(
                 binding_ref: request.binding_ref.clone(),
                 provider_egress: request.provider_egress,
                 cue: cue.clone(),
+                selected_source_ids,
                 deadline,
             },
         );
@@ -339,6 +439,123 @@ fn serve(
             }
         }
     }
+}
+
+#[cfg(unix)]
+fn write_session_context_result(
+    app: &AppHandle,
+    writer: &mut std::os::unix::net::UnixStream,
+    intent: &ManagedSessionContextIntentV1,
+) -> std::io::Result<()> {
+    let unavailable = |status| ManagedSessionContextResultV1 {
+        protocol: SESSION_CONTEXT_RESULT_PROTOCOL.to_owned(),
+        request_id: intent.request_id.clone(),
+        resident_pubkey: intent.resident_pubkey.clone(),
+        status,
+        snapshot_ref: None,
+        revision: SafeU53::new(0).expect("zero is a safe revision sentinel"),
+        cwd: None,
+        additional_directories: Vec::new(),
+        selected_source_ids: Vec::new(),
+        native_roots_ref: None,
+    };
+    let now_unix_ms = unix_time_millis();
+    let result = if now_unix_ms >= intent.deadline_unix_ms.get() {
+        unavailable(ManagedSessionContextStatusV1::Unavailable)
+    } else {
+        let authority = global_dispatch_store(app).ok().and_then(|store| {
+            store
+                .lock()
+                .ok()?
+                .authorize_continuity_turn(
+                    intent.trigger_event_id.as_str(),
+                    intent.resident_pubkey.as_str(),
+                    intent.conversation_id.as_str(),
+                    intent.session_epoch.get(),
+                    now_unix_ms / 1_000,
+                )
+                .ok()
+        });
+        match authority {
+            None => unavailable(ManagedSessionContextStatusV1::Denied),
+            Some(authority) => match authority.context_binding {
+                None => unavailable(ManagedSessionContextStatusV1::Empty),
+                Some(snapshot) => {
+                    let state = app.state::<AppState>();
+                    match super::conversation_context::resolve_dispatch_context(
+                        app,
+                        &state,
+                        &authority.owner_pubkey,
+                        &authority.conversation_id,
+                        &snapshot,
+                    ) {
+                        Ok(resolved) => {
+                            let cwd = resolved
+                                .cwd
+                                .as_ref()
+                                .and_then(|path| path.to_str())
+                                .map(str::to_owned);
+                            let additional_directories = resolved
+                                .additional_directories
+                                .iter()
+                                .map(|path| path.to_str().map(str::to_owned))
+                                .collect::<Option<Vec<_>>>();
+                            match (
+                                resolved.cwd.is_none() || cwd.is_some(),
+                                additional_directories,
+                            ) {
+                                (true, Some(additional_directories)) => {
+                                    ManagedSessionContextResultV1 {
+                                        protocol: SESSION_CONTEXT_RESULT_PROTOCOL.to_owned(),
+                                        request_id: intent.request_id.clone(),
+                                        resident_pubkey: intent.resident_pubkey.clone(),
+                                        status: if resolved.degraded {
+                                            ManagedSessionContextStatusV1::Degraded
+                                        } else {
+                                            ManagedSessionContextStatusV1::Ready
+                                        },
+                                        snapshot_ref: Some(resolved.snapshot_ref),
+                                        revision: SafeU53::new(resolved.revision).unwrap_or_else(
+                                            |_| SafeU53::new(0).expect("zero safe sentinel"),
+                                        ),
+                                        cwd,
+                                        additional_directories,
+                                        selected_source_ids: resolved.selected_source_ids,
+                                        native_roots_ref: Some(resolved.native_roots_ref),
+                                    }
+                                }
+                                _ => unavailable(ManagedSessionContextStatusV1::Unavailable),
+                            }
+                        }
+                        Err(error) if error == "conversation_context:missing_primary" => {
+                            unavailable(ManagedSessionContextStatusV1::MissingPrimary)
+                        }
+                        Err(_) => unavailable(ManagedSessionContextStatusV1::Unavailable),
+                    }
+                }
+            },
+        }
+    };
+    let bytes = serde_json::to_vec(&result)
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "context encoding"))?;
+    if bytes.len() >= MAX_FRAME_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "context frame exceeds bound",
+        ));
+    }
+    let remaining = intent
+        .deadline_unix_ms
+        .get()
+        .saturating_sub(unix_time_millis())
+        .clamp(1, MAX_RESOLUTION_MILLIS);
+    writer.set_write_timeout(Some(Duration::from_millis(remaining)))?;
+    let write = writer
+        .write_all(&bytes)
+        .and_then(|_| writer.write_all(b"\n"))
+        .and_then(|_| writer.flush());
+    let _ = writer.set_write_timeout(None);
+    write
 }
 
 fn load_owner_brain_context_layer(

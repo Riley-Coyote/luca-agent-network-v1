@@ -510,6 +510,26 @@ impl AppState {
         )
     }
 
+    /// Rebind one existing connected source to a newly selected local folder
+    /// without changing its opaque identity or resident grants.
+    pub(crate) fn rebind_connected_brain_source(
+        &self,
+        owner_pubkey: luca_protocol::Hex64,
+        source_id: luca_protocol::OpaqueId,
+        candidate: crate::luca::connected_brain::ConnectedBrainDiscoveryCandidateV1,
+        build: crate::luca::connected_brain::ConnectedBrainIndexBuildV1,
+    ) -> Result<crate::luca::owner_brain_store::ConnectedBrainConnectResultV1, OwnerBrainStoreError>
+    {
+        crate::luca::owner_brain_store::rebind_source(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            source_id,
+            candidate,
+            build,
+        )
+    }
+
     /// Read body-free connected source and repository-grant inventory.
     pub(crate) fn read_connected_brain_catalog(
         &self,

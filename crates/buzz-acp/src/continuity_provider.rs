@@ -11,19 +11,161 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use futures_util::future::BoxFuture;
 use luca_protocol::{
     canonicalize, ContinuityContextRequestV1, ContinuityContextResultV1, ContinuityLayerResultV1,
-    ContinuityLayerStatusV1, Hex64, OpaqueId, SafeU53, CONTINUITY_PROTOCOL,
+    ContinuityLayerStatusV1, Hex64, OpaqueId, SafeU53, Sha256Ref, CONTINUITY_PROTOCOL,
     MAX_CONTINUITY_PACKET_BYTES, MAX_CONTINUITY_REFS,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, Zeroizing};
 
 /// Hard upper bound for one ACP continuity-provider resolution.
 pub const CONTINUITY_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(3);
 
 const MANAGED_CONTINUITY_INTENT_PROTOCOL: &str = "luca.managed.continuity-intent.v1";
+const MANAGED_SESSION_CONTEXT_INTENT_PROTOCOL: &str = "luca.managed.session-context-intent.v1";
+const MANAGED_SESSION_CONTEXT_RESULT_PROTOCOL: &str = "luca.managed.session-context-result.v1";
 const MANAGED_CONTINUITY_INHERITED_FD: i32 = 4;
 const MANAGED_CONTINUITY_MAX_FRAME_BYTES: usize = 384 * 1024;
 pub(crate) const MAX_MANAGED_RETRIEVAL_CUE_BYTES: usize = 4 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ManagedSessionContextStatusV1 {
+    Empty,
+    Ready,
+    MissingPrimary,
+    Degraded,
+    Denied,
+    Unavailable,
+}
+
+/// Authority-minimized request for the exact dispatch's device-local roots.
+#[derive(Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct ManagedSessionContextIntentV1 {
+    protocol: String,
+    request_id: OpaqueId,
+    resident_pubkey: Hex64,
+    session_epoch: SafeU53,
+    conversation_id: OpaqueId,
+    trigger_event_id: Hex64,
+    deadline_unix_ms: SafeU53,
+}
+
+impl ManagedSessionContextIntentV1 {
+    pub(crate) fn new(
+        request_id: OpaqueId,
+        resident_pubkey: Hex64,
+        session_epoch: SafeU53,
+        conversation_id: OpaqueId,
+        trigger_event_id: Hex64,
+        deadline_unix_ms: SafeU53,
+    ) -> Option<Self> {
+        let value = Self {
+            protocol: MANAGED_SESSION_CONTEXT_INTENT_PROTOCOL.to_owned(),
+            request_id,
+            resident_pubkey,
+            session_epoch,
+            conversation_id,
+            trigger_event_id,
+            deadline_unix_ms,
+        };
+        value.is_valid().then_some(value)
+    }
+
+    fn is_valid(&self) -> bool {
+        self.protocol == MANAGED_SESSION_CONTEXT_INTENT_PROTOCOL
+            && self.session_epoch.get() > 0
+            && self.deadline_unix_ms.get() > 0
+    }
+}
+
+impl std::fmt::Debug for ManagedSessionContextIntentV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ManagedSessionContextIntentV1")
+            .field("protocol", &self.protocol)
+            .field("request_id", &self.request_id)
+            .field("resident_pubkey", &self.resident_pubkey)
+            .field("session_epoch", &self.session_epoch)
+            .field("conversation_id", &self.conversation_id)
+            .field("trigger_event_id", &self.trigger_event_id)
+            .field("deadline_unix_ms", &self.deadline_unix_ms)
+            .finish()
+    }
+}
+
+/// Local-only response. Path-bearing fields exist only on the inherited
+/// desktop-to-harness socket and are never observed or persisted.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ManagedSessionContextResultV1 {
+    protocol: String,
+    request_id: OpaqueId,
+    resident_pubkey: Hex64,
+    pub(crate) status: ManagedSessionContextStatusV1,
+    pub(crate) snapshot_ref: Option<Sha256Ref>,
+    pub(crate) revision: SafeU53,
+    pub(crate) cwd: Option<String>,
+    pub(crate) additional_directories: Vec<String>,
+    pub(crate) selected_source_ids: Vec<OpaqueId>,
+    pub(crate) native_roots_ref: Option<Sha256Ref>,
+}
+
+impl ManagedSessionContextResultV1 {
+    fn is_valid_for(&self, intent: &ManagedSessionContextIntentV1) -> bool {
+        if self.protocol != MANAGED_SESSION_CONTEXT_RESULT_PROTOCOL
+            || self.request_id != intent.request_id
+            || self.resident_pubkey != intent.resident_pubkey
+            || self.additional_directories.len() > 32
+            || self.selected_source_ids.len() > 32
+            || self
+                .cwd
+                .as_ref()
+                .is_some_and(|path| !std::path::Path::new(path).is_absolute())
+            || self
+                .additional_directories
+                .iter()
+                .any(|path| !std::path::Path::new(path).is_absolute())
+        {
+            return false;
+        }
+        let has_context = matches!(
+            self.status,
+            ManagedSessionContextStatusV1::Ready | ManagedSessionContextStatusV1::Degraded
+        );
+        if has_context
+            != (self.snapshot_ref.is_some()
+                && self.revision.get() > 0
+                && self.native_roots_ref.is_some())
+        {
+            return false;
+        }
+        let mut selected = self.selected_source_ids.clone();
+        selected.sort();
+        selected.dedup();
+        selected == self.selected_source_ids
+    }
+}
+
+impl std::fmt::Debug for ManagedSessionContextResultV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ManagedSessionContextResultV1")
+            .field("protocol", &self.protocol)
+            .field("request_id", &self.request_id)
+            .field("resident_pubkey", &self.resident_pubkey)
+            .field("status", &self.status)
+            .field("snapshot_ref", &self.snapshot_ref)
+            .field("revision", &self.revision)
+            .field("cwd", &self.cwd.as_ref().map(|_| "[LOCAL PATH]"))
+            .field(
+                "additional_directory_count",
+                &self.additional_directories.len(),
+            )
+            .field("selected_source_count", &self.selected_source_ids.len())
+            .field("native_roots_ref", &self.native_roots_ref)
+            .finish()
+    }
+}
 
 /// One managed turn's authority-minimized lookup intent.
 ///
@@ -282,6 +424,47 @@ impl ManagedContinuityLookup for InheritedManagedContinuityClient {
 }
 
 #[cfg(unix)]
+impl InheritedManagedContinuityClient {
+    async fn resolve_session_context(
+        &self,
+        intent: &ManagedSessionContextIntentV1,
+    ) -> Result<ManagedSessionContextResultV1, ManagedContinuityChannelError> {
+        use tokio::io::AsyncWriteExt;
+
+        let now = unix_time_millis();
+        let remaining = Duration::from_millis(intent.deadline_unix_ms.get().saturating_sub(now))
+            .min(CONTINUITY_RESOLUTION_TIMEOUT);
+        if remaining.is_zero() {
+            return Err(ManagedContinuityChannelError);
+        }
+        let deadline = tokio::time::Instant::now() + remaining;
+        let mut channel = tokio::time::timeout_at(deadline, self.channel.lock())
+            .await
+            .map_err(|_| ManagedContinuityChannelError)?;
+        let bytes =
+            Zeroizing::new(serde_json::to_vec(intent).map_err(|_| ManagedContinuityChannelError)?);
+        if bytes.len() > MANAGED_CONTINUITY_MAX_FRAME_BYTES {
+            return Err(ManagedContinuityChannelError);
+        }
+        tokio::time::timeout_at(deadline, async {
+            channel.reader.get_mut().write_all(&bytes).await?;
+            channel.reader.get_mut().write_all(b"\n").await?;
+            channel.reader.get_mut().flush().await
+        })
+        .await
+        .map_err(|_| ManagedContinuityChannelError)?
+        .map_err(|_| ManagedContinuityChannelError)?;
+        let line = read_bounded_continuity_line(&mut channel, deadline).await?;
+        let result: ManagedSessionContextResultV1 =
+            serde_json::from_slice(&line).map_err(|_| ManagedContinuityChannelError)?;
+        result
+            .is_valid_for(intent)
+            .then_some(result)
+            .ok_or(ManagedContinuityChannelError)
+    }
+}
+
+#[cfg(unix)]
 async fn read_bounded_continuity_line(
     channel: &mut InheritedManagedContinuityChannel,
     deadline: tokio::time::Instant,
@@ -346,6 +529,29 @@ pub(crate) async fn resolve_inherited_managed_continuity(
             }
         };
         return resolve_managed_lookup_fail_soft(client.as_ref(), intent).await;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = intent;
+        None
+    }
+}
+
+/// Resolve one dispatch's roots before `session/new`. Unlike Brain retrieval,
+/// an unavailable local authority is not silently converted into a default
+/// directory: callers must surface an honest turn error.
+pub(crate) async fn resolve_inherited_managed_session_context(
+    intent: &ManagedSessionContextIntentV1,
+) -> Option<ManagedSessionContextResultV1> {
+    if !intent.is_valid() {
+        return None;
+    }
+    #[cfg(unix)]
+    {
+        let client = InheritedManagedContinuityClient::from_inherited_fd()
+            .ok()
+            .flatten()?;
+        return client.resolve_session_context(intent).await.ok();
     }
     #[cfg(not(unix))]
     {

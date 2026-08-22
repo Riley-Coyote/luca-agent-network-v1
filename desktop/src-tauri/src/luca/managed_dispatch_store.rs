@@ -22,7 +22,8 @@ use super::managed_dispatch_routing::routing_from_event;
 const STORE_SCHEMA_V1: &str = "luca.managed-dispatch-store.v1";
 const STORE_SCHEMA_V2: &str = "luca.managed-dispatch-store.v2";
 const STORE_SCHEMA_V3: &str = "luca.managed-dispatch-store.v3";
-const STORE_SCHEMA: &str = "luca.managed-dispatch-store.v4";
+const STORE_SCHEMA_V4: &str = "luca.managed-dispatch-store.v4";
+const STORE_SCHEMA: &str = "luca.managed-dispatch-store.v5";
 const MAX_DISPATCHES: usize = 512;
 const DISPATCH_TTL_SECONDS: u64 = 30 * 60;
 const CONTINUITY_DISPATCH_DOMAIN: &str = "luca.continuity.dispatch-set.v1";
@@ -111,6 +112,10 @@ pub(crate) struct ActiveDispatch {
     /// and lifetime tuple.
     #[serde(default)]
     pub(crate) artifact_bindings: Vec<ManagedArtifactBinding>,
+    /// Minimal reference to the exact device-local conversation snapshot
+    /// frozen before this owner event was submitted.
+    #[serde(default)]
+    pub(crate) context_binding: Option<super::conversation_context::DispatchContextBindingV1>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -233,6 +238,7 @@ pub(crate) struct ContinuityDispatchAuthority {
     pub(crate) conversation_id: OpaqueId,
     pub(crate) trigger_event_id: Hex64,
     pub(crate) canonical_dispatch_ref: Sha256Ref,
+    pub(crate) context_binding: Option<super::conversation_context::DispatchContextBindingV1>,
 }
 
 /// Result of an exact cancellation attempt, so callers never need to infer a
@@ -263,7 +269,11 @@ impl ManagedDispatchStore {
                 .map_err(|error| format!("parse managed dispatch store: {error}"))?;
             if !matches!(
                 persisted.schema.as_str(),
-                STORE_SCHEMA_V1 | STORE_SCHEMA_V2 | STORE_SCHEMA_V3 | STORE_SCHEMA
+                STORE_SCHEMA_V1
+                    | STORE_SCHEMA_V2
+                    | STORE_SCHEMA_V3
+                    | STORE_SCHEMA_V4
+                    | STORE_SCHEMA
             ) || persisted.dispatches.len() > MAX_DISPATCHES
             {
                 return Err("managed dispatch store schema or row count is invalid".into());
@@ -377,6 +387,7 @@ impl ManagedDispatchStore {
                 || candidate.root_event_id != row.root_event_id
                 || candidate.reply_event_id != row.reply_event_id
                 || candidate.response_surface != row.response_surface
+                || candidate.context_binding != row.context_binding
             {
                 return Err(DispatchAuthorizationError::Ambiguous);
             }
@@ -404,6 +415,14 @@ impl ManagedDispatchStore {
             "root_event_id": row.root_event_id,
             "reply_event_id": row.reply_event_id,
             "response_surface": row.response_surface,
+            "context_snapshot_ref": row
+                .context_binding
+                .as_ref()
+                .map(|snapshot| snapshot.snapshot_ref.as_str()),
+            "context_revision": row
+                .context_binding
+                .as_ref()
+                .map(|snapshot| snapshot.revision),
             "resident_pubkeys": residents,
         }))
         .map_err(|_| DispatchAuthorizationError::Persistence)?;
@@ -419,6 +438,19 @@ impl ManagedDispatchStore {
                 .map_err(|_| DispatchAuthorizationError::Persistence)?,
             canonical_dispatch_ref: Sha256Ref::parse(format!("sha256:{digest}"))
                 .map_err(|_| DispatchAuthorizationError::Persistence)?,
+            context_binding: row.context_binding.clone(),
+        })
+    }
+
+    /// Context editing is disabled only while a resident dispatch in this
+    /// conversation is pending or active.
+    pub(crate) fn conversation_has_active_turn(&self, conversation_id: &str) -> bool {
+        self.dispatches.values().any(|dispatch| {
+            dispatch.conversation_id == conversation_id
+                && matches!(
+                    dispatch.state,
+                    ManagedDispatchState::Pending | ManagedDispatchState::Active
+                )
         })
     }
 
@@ -559,6 +591,7 @@ impl ManagedDispatchStore {
     /// Atomically stage owner dispatches with desktop-issued immutable upload
     /// bindings. This is additive to v3; callers without attachments continue
     /// without attachments retain the same staging behavior.
+    #[cfg(test)]
     pub(crate) fn stage_owner_event_with_artifacts(
         &mut self,
         event: &Event,
@@ -566,6 +599,28 @@ impl ManagedDispatchStore {
         artifact_bindings: &[ManagedArtifactBinding],
         now_unix_secs: u64,
     ) -> Result<Vec<(String, String)>, String> {
+        self.stage_owner_event_with_artifacts_and_context(
+            event,
+            managed_residents,
+            artifact_bindings,
+            None,
+            now_unix_secs,
+        )
+    }
+
+    /// Stage owner dispatches with immutable artifact and conversation-context
+    /// bindings. Both bindings are path-free and exact for the signed event.
+    pub(crate) fn stage_owner_event_with_artifacts_and_context(
+        &mut self,
+        event: &Event,
+        managed_residents: &[String],
+        artifact_bindings: &[ManagedArtifactBinding],
+        context_binding: Option<super::conversation_context::DispatchContextBindingV1>,
+        now_unix_secs: u64,
+    ) -> Result<Vec<(String, String)>, String> {
+        if let Some(binding) = &context_binding {
+            binding.validate()?;
+        }
         if event.kind != nostr::Kind::Custom(9)
             || !event.verify_id()
             || !event.verify_signature()
@@ -626,6 +681,7 @@ impl ManagedDispatchStore {
                 published_event_id: None,
                 outbox_finalized: false,
                 artifact_bindings: artifact_bindings.clone(),
+                context_binding: context_binding.clone(),
             };
             if let Some(existing) = self.dispatches.get(&key) {
                 if existing.trigger_event_id != candidate.trigger_event_id
@@ -640,6 +696,7 @@ impl ManagedDispatchStore {
                     || existing.submitted_event_id != candidate.submitted_event_id
                     || existing.outbox_finalized != candidate.outbox_finalized
                     || existing.artifact_bindings != candidate.artifact_bindings
+                    || existing.context_binding != candidate.context_binding
                 {
                     return Err("managed dispatch id collision".into());
                 }
@@ -741,6 +798,7 @@ impl ManagedDispatchStore {
             published_event_id: None,
             outbox_finalized: false,
             artifact_bindings: Vec::new(),
+            context_binding: None,
         };
         let previous = self.dispatches.clone();
         self.dispatches.insert(key.clone(), candidate);
@@ -1813,6 +1871,9 @@ fn validate_dispatch(dispatch: &ActiveDispatch) -> Result<(), String> {
     if dispatch.session_epoch == Some(0) {
         return Err("managed dispatch session epoch is invalid".into());
     }
+    if let Some(binding) = &dispatch.context_binding {
+        binding.validate()?;
+    }
     let coherent = match dispatch.state {
         ManagedDispatchState::Pending => {
             dispatch.session_epoch.is_none()
@@ -2003,6 +2064,39 @@ mod tests {
             exchange: None,
             bucket_hint: None,
         }
+    }
+
+    #[test]
+    fn managed_dispatch_persists_only_context_snapshot_reference_and_revision() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("dispatches.json");
+        let owner = Keys::generate();
+        let resident = Keys::generate();
+        let trigger = event(&owner, &resident, CHANNEL_ONE, "use selected context");
+        let binding = super::super::conversation_context::DispatchContextBindingV1 {
+            protocol: "luca.conversation-context-binding.v1".into(),
+            snapshot_ref: Sha256Ref::parse(format!("sha256:{}", "3".repeat(64)))
+                .expect("snapshot ref"),
+            revision: 7,
+        };
+        let mut store = ManagedDispatchStore::load(path.clone()).expect("load");
+        store
+            .stage_owner_event_with_artifacts_and_context(
+                &trigger,
+                &[resident.public_key().to_hex()],
+                &[],
+                Some(binding),
+                100,
+            )
+            .expect("stage context dispatch");
+
+        let wire = std::fs::read_to_string(path).expect("read persisted dispatch");
+        assert!(wire.contains("context_binding"));
+        assert!(wire.contains("snapshot_ref"));
+        assert!(wire.contains("\"revision\":7"));
+        assert!(!wire.contains("primary_source_id"));
+        assert!(!wire.contains("additional_source_ids"));
+        assert!(!wire.contains("selected_source_ids"));
     }
 
     #[test]

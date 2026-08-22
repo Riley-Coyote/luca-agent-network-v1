@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use super::*;
 
 pub(super) struct RankedOwnerBrainChunkV1 {
@@ -7,6 +9,7 @@ pub(super) struct RankedOwnerBrainChunkV1 {
     pub(super) body: RetrievalText,
     pub(super) content_hash: Sha256Ref,
     pub(super) score: i64,
+    pub(super) selected_context: bool,
 }
 
 pub(super) struct OwnerBrainSourceDecisionV1 {
@@ -131,6 +134,7 @@ pub(super) fn retrieve_from_generation(
                     body: RetrievalText::from(record.body()),
                     content_hash: content_hash.clone(),
                     score: hit.score(),
+                    selected_context: request.selected_source_ids.contains(&source_id),
                 });
             }
         }
@@ -146,13 +150,7 @@ pub(super) fn retrieve_from_generation(
     candidates.extend(connected_candidates);
     decisions.extend(connected_decisions);
     require_before_deadline(request.deadline)?;
-    candidates.sort_by(|left, right| {
-        right
-            .score
-            .cmp(&left.score)
-            .then_with(|| left.chunk_id.cmp(&right.chunk_id))
-            .then_with(|| left.source_id.cmp(&right.source_id))
-    });
+    candidates.sort_by(compare_ranked_candidates);
 
     let mut selected = Vec::new();
     let mut selected_hashes = BTreeSet::new();
@@ -183,6 +181,22 @@ pub(super) fn retrieve_from_generation(
         .and_then(|value| SafeU53::new(value).ok())
         .ok_or(OwnerBrainStoreError::Invalid)?;
     let created_at = canonical_timestamp(Utc::now()).map_err(|_| OwnerBrainStoreError::Invalid)?;
+    let selected_source_count = selected
+        .iter()
+        .filter(|chunk| request.selected_source_ids.contains(&chunk.source_id))
+        .map(|chunk| &chunk.source_id)
+        .collect::<BTreeSet<_>>()
+        .len();
+    let background_source_count = selected
+        .iter()
+        .filter(|chunk| !request.selected_source_ids.contains(&chunk.source_id))
+        .map(|chunk| &chunk.source_id)
+        .collect::<BTreeSet<_>>()
+        .len();
+    let selected_source_count =
+        SafeU53::new(selected_source_count as u64).map_err(|_| OwnerBrainStoreError::Invalid)?;
+    let background_source_count =
+        SafeU53::new(background_source_count as u64).map_err(|_| OwnerBrainStoreError::Invalid)?;
     let mut receipts = Vec::with_capacity(decisions.len());
     for decision in &decisions {
         let mut hashes = selected
@@ -223,6 +237,9 @@ pub(super) fn retrieve_from_generation(
                     .count(),
             duration_ms: elapsed_ms,
             created_at: created_at.clone(),
+            selected_context: request.selected_source_ids.contains(&decision.source_id),
+            selected_source_count,
+            background_source_count,
         };
         receipt
             .validate()
@@ -249,6 +266,18 @@ pub(super) fn retrieve_from_generation(
         selected,
         receipts,
     })
+}
+
+fn compare_ranked_candidates(
+    left: &RankedOwnerBrainChunkV1,
+    right: &RankedOwnerBrainChunkV1,
+) -> Ordering {
+    right
+        .selected_context
+        .cmp(&left.selected_context)
+        .then_with(|| right.score.cmp(&left.score))
+        .then_with(|| left.chunk_id.cmp(&right.chunk_id))
+        .then_with(|| left.source_id.cmp(&right.source_id))
 }
 
 fn active_source_ids(
@@ -346,5 +375,32 @@ pub(super) fn require_before_deadline(deadline: Instant) -> Result<(), OwnerBrai
         Err(OwnerBrainStoreError::Timeout)
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod selected_context_tests {
+    use super::*;
+
+    fn candidate(source: &str, chunk: &str, score: i64, selected: bool) -> RankedOwnerBrainChunkV1 {
+        RankedOwnerBrainChunkV1 {
+            source_id: OpaqueId::parse(source.to_owned()).expect("source"),
+            grant_id: OpaqueId::parse(format!("grant-{source}")).expect("grant"),
+            chunk_id: OpaqueId::parse(chunk.to_owned()).expect("chunk"),
+            body: RetrievalText::from("context"),
+            content_hash: Sha256Ref::parse(format!("sha256:{}", "aa".repeat(32))).expect("hash"),
+            score,
+            selected_context: selected,
+        }
+    }
+
+    #[test]
+    fn selected_context_outranks_a_higher_scoring_background_source() {
+        let mut candidates = [
+            candidate("background", "chunk-background", 10_000, false),
+            candidate("selected", "chunk-selected", 10, true),
+        ];
+        candidates.sort_by(compare_ranked_candidates);
+        assert_eq!(candidates[0].source_id.as_str(), "selected");
     }
 }

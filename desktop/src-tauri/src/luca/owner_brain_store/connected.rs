@@ -134,6 +134,27 @@ pub(crate) fn connect_source(
     connect_source_with_runtime(&root, runtime, owner_pubkey, candidate, build, authorities)
 }
 
+/// Rebind one existing connected source to a newly selected local root while
+/// preserving its opaque source ID and all existing resident grants.
+pub(crate) fn rebind_source(
+    lifecycle: &ContinuityLifecycleLock,
+    runtime_state: &Mutex<ContinuityRuntimeState>,
+    owner_pubkey: Hex64,
+    source_id: OpaqueId,
+    candidate: ConnectedBrainDiscoveryCandidateV1,
+    build: ConnectedBrainIndexBuildV1,
+) -> Result<ConnectedBrainConnectResultV1, OwnerBrainStoreError> {
+    let _guard = lifecycle
+        .lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+    let root = load_root_key()?;
+    let mut state = runtime_state
+        .lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+    let runtime = ready_runtime_mut(&mut state, &owner_pubkey)?;
+    rebind_source_with_runtime(&root, runtime, owner_pubkey, source_id, candidate, build)
+}
+
 pub(crate) fn read_connected_catalog(
     lifecycle: &ContinuityLifecycleLock,
     runtime_state: &Mutex<ContinuityRuntimeState>,
@@ -147,6 +168,88 @@ pub(crate) fn read_connected_catalog(
         .map_err(|_| OwnerBrainStoreError::Unavailable)?;
     let runtime = ready_runtime(&state, owner_pubkey)?;
     read_connected_catalog_with_runtime(runtime, load_root_key)
+}
+
+pub(crate) fn rebind_source_with_runtime(
+    root: &ContinuityMasterKey,
+    runtime: &mut ContinuityRuntime,
+    owner_pubkey: Hex64,
+    source_id: OpaqueId,
+    candidate: ConnectedBrainDiscoveryCandidateV1,
+    build: ConnectedBrainIndexBuildV1,
+) -> Result<ConnectedBrainConnectResultV1, OwnerBrainStoreError> {
+    if candidate.source_kind != ConnectedBrainSourceKindV1::Repository {
+        return Err(OwnerBrainStoreError::Invalid);
+    }
+    let key_version = runtime
+        .store
+        .active_owner_key_version(&owner_pubkey)
+        .map_err(map_store_read_error)?;
+    let namespace = owner_brain_namespace(&owner_pubkey, key_version)?;
+    let namespace_key =
+        derive_namespace_key(root, &namespace).map_err(|_| OwnerBrainStoreError::Invalid)?;
+    let generation = runtime
+        .store
+        .load_revision_generation(&owner_pubkey)
+        .map_err(map_store_read_error)?
+        .ok_or(OwnerBrainStoreError::Invalid)?;
+    let existing = find_connected_manifest(
+        &generation,
+        &namespace,
+        namespace_key.as_bytes(),
+        &source_id,
+    )?
+    .ok_or(OwnerBrainStoreError::Invalid)?;
+    if existing.source.source_kind != ConnectedBrainSourceKindV1::Repository
+        || existing.source.status == ConnectedBrainSourceStatusV1::Disconnected
+    {
+        return Err(OwnerBrainStoreError::Invalid);
+    }
+    let (build, pages) = bounded_index_pages(&source_id, build)?;
+    let root_ref = canonical_sha256(&serde_json::json!({
+        "domain": "connected-source-rebind-root.v1",
+        "canonical_root": candidate
+            .canonical_root
+            .to_str()
+            .ok_or(OwnerBrainStoreError::Invalid)?,
+    }))
+    .map_err(|_| OwnerBrainStoreError::Invalid)?;
+    let persistence_revision = sha_ref_for(&serde_json::json!({
+        "domain": "connected-index-rebind.v1",
+        "source_id": source_id,
+        "index_revision": build.index_revision,
+        "root_ref": root_ref,
+    }))?;
+    persist_connected_index(
+        runtime,
+        Some(&generation),
+        namespace,
+        namespace_key.as_bytes(),
+        owner_pubkey.clone(),
+        source_id.clone(),
+        &candidate,
+        build,
+        pages,
+        Some(&existing),
+        key_version,
+        Some(persistence_revision),
+    )?;
+    let source =
+        connected_source_by_id(root, runtime, &source_id)?.ok_or(OwnerBrainStoreError::Invalid)?;
+    super::connected_lifecycle::purge_orphaned_index_pages(
+        runtime,
+        &owner_pubkey,
+        &source_id,
+        &source.index_page_lineage_ids,
+    )?;
+    Ok(ConnectedBrainConnectResultV1 {
+        source: ConnectedBrainSourceSummaryV1 {
+            source: source.source,
+            item_count: source.item_count,
+            entry_count: source.entry_count,
+        },
+        replayed: false,
+    })
 }
 
 pub(super) fn read_connected_catalog_with_runtime(
@@ -265,6 +368,7 @@ pub(super) fn connect_source_with_runtime(
             pages,
             existing.as_ref().map(|(manifest, _)| manifest),
             key_version,
+            None,
         )?;
     }
     let source =
@@ -371,6 +475,7 @@ fn persist_connected_index(
     pages: Vec<ConnectedBrainIndexPageV1>,
     existing: Option<&ConnectedBrainManifestV1>,
     key_version: SafeU53,
+    persistence_revision_override: Option<Sha256Ref>,
 ) -> Result<(), OwnerBrainStoreError> {
     let address = owner_brain_source_address(namespace, source_id.clone())?;
     let now = canonical_timestamp(Utc::now()).map_err(|_| OwnerBrainStoreError::Invalid)?;
@@ -389,16 +494,18 @@ fn persist_connected_index(
     } else {
         None
     };
-    let persistence_revision = reconnect_generation
-        .map(|fingerprint| {
-            sha_ref_for(&serde_json::json!({
-                "domain": "connected-index-reconnect",
-                "index_revision": build.index_revision,
-                "reconnect_generation": fingerprint,
-            }))
-        })
-        .transpose()?
-        .unwrap_or_else(|| build.index_revision.clone());
+    let persistence_revision = persistence_revision_override.unwrap_or(
+        reconnect_generation
+            .map(|fingerprint| {
+                sha_ref_for(&serde_json::json!({
+                    "domain": "connected-index-reconnect",
+                    "index_revision": build.index_revision,
+                    "reconnect_generation": fingerprint,
+                }))
+            })
+            .transpose()?
+            .unwrap_or_else(|| build.index_revision.clone()),
+    );
     let page_lineages = pages
         .iter()
         .map(|page| {

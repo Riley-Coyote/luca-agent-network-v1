@@ -428,6 +428,14 @@ pub async fn send_channel_message(
         &registered,
         conversation_members.as_ref(),
     )?;
+    // Freeze only opaque source coordinates for this exact local dispatch.
+    // Canonical paths stay in the native connected-source store and are
+    // resolved by the inherited harness channel immediately before session/new.
+    let context_binding = if managed_residents.is_empty() || content.trim() == "!cancel" {
+        None
+    } else {
+        crate::luca::conversation_context::freeze_for_dispatch(&app, &channel_id)?
+    };
 
     let dispatch_store = if managed_residents.is_empty() {
         None
@@ -449,10 +457,11 @@ pub async fn send_channel_message(
         } else {
             let now = chrono::Utc::now().timestamp().max(0) as u64;
             let artifact_bindings = resolve_managed_artifact_bindings(&media, now)?;
-            store.stage_owner_event_with_artifacts(
+            store.stage_owner_event_with_artifacts_and_context(
                 &event,
                 &managed_residents,
                 &artifact_bindings,
+                context_binding,
                 now,
             )?
         }

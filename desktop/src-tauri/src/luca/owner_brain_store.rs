@@ -270,6 +270,9 @@ pub(crate) struct OwnerBrainRetrievalRequestV1 {
     pub binding_ref: Sha256Ref,
     pub provider_egress: ProviderEgressV1,
     pub cue: RetrievalText,
+    /// Context sources selected for this conversation. This changes ranking,
+    /// never grants access: every source still passes its existing grant.
+    pub selected_source_ids: BTreeSet<OpaqueId>,
     pub deadline: Instant,
 }
 
@@ -283,6 +286,7 @@ impl std::fmt::Debug for OwnerBrainRetrievalRequestV1 {
             .field("binding_ref", &self.binding_ref)
             .field("provider_egress", &self.provider_egress)
             .field("cue", &"[REDACTED]")
+            .field("selected_source_count", &self.selected_source_ids.len())
             .finish()
     }
 }

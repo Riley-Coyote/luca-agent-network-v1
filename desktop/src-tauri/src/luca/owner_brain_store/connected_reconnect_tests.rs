@@ -141,10 +141,110 @@ fn disconnected_repository_reconnects_unchanged_without_reviving_forgotten_pages
             binding_ref: authority.binding_ref,
             provider_egress: ProviderEgressV1::Remote,
             cue: RetrievalText::from("reconnect bird heron"),
+            selected_source_ids: std::collections::BTreeSet::new(),
             deadline: Instant::now() + std::time::Duration::from_secs(2),
         },
     )
     .unwrap();
     assert_eq!(retrieved.status, ContinuityLayerStatusV1::Ready);
     assert!(!retrieved.selected.is_empty());
+}
+
+#[test]
+fn moved_repository_rebind_preserves_source_identity_and_grants() {
+    let temp = tempfile::tempdir().unwrap();
+    let first_repository = temp.path().join("repository-first");
+    let moved_repository = temp.path().join("repository-moved");
+    for repository in [&first_repository, &moved_repository] {
+        fs::create_dir(repository).unwrap();
+        std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repository)
+            .status()
+            .unwrap();
+    }
+    fs::write(
+        first_repository.join("fact.md"),
+        "The old signal is quartz.",
+    )
+    .unwrap();
+    fs::write(
+        moved_repository.join("fact.md"),
+        "The moved repository signal is juniper.",
+    )
+    .unwrap();
+    let root = ContinuityMasterKey::new_for_test([41_u8; 32]);
+    let mut runtime = runtime(&temp);
+    let first_candidate = candidate(&first_repository);
+    let source_id = source_id_for_candidate(&first_candidate).unwrap();
+    let authority = ConnectedBrainResidentAuthorityV1 {
+        resident_pubkey: Hex64::parse("c".repeat(64)).unwrap(),
+        binding_ref: Sha256Ref::parse(format!("sha256:{}", "2".repeat(64))).unwrap(),
+        provider_egress: ProviderEgressV1::Remote,
+    };
+    connect_source_with_runtime(
+        &root,
+        &mut runtime,
+        owner(),
+        first_candidate.clone(),
+        build_index(&source_id, &first_candidate).unwrap(),
+        std::slice::from_ref(&authority),
+    )
+    .unwrap();
+
+    let moved_candidate = candidate(&moved_repository);
+    let rebound = rebind_source_with_runtime(
+        &root,
+        &mut runtime,
+        owner(),
+        source_id.clone(),
+        moved_candidate.clone(),
+        build_index(&source_id, &moved_candidate).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(rebound.source.source.source_id, source_id);
+
+    let generation = runtime
+        .store
+        .load_revision_generation(&owner())
+        .unwrap()
+        .unwrap();
+    let key_version = runtime.store.active_owner_key_version(&owner()).unwrap();
+    let namespace = owner_brain_namespace(&owner(), key_version).unwrap();
+    let namespace_key = derive_namespace_key(&root, &namespace).unwrap();
+    let binding = find_connected_binding(
+        &generation,
+        &namespace,
+        namespace_key.as_bytes(),
+        &source_id,
+    )
+    .unwrap();
+    assert_eq!(
+        PathBuf::from(binding.canonical_root),
+        moved_repository.canonicalize().unwrap()
+    );
+
+    let retrieved = retrieve_from_generation(
+        &generation,
+        &namespace,
+        namespace_key.as_bytes(),
+        OwnerBrainRetrievalRequestV1 {
+            request_id: OpaqueId::parse("request-rebound-repository").unwrap(),
+            owner_pubkey: owner(),
+            resident_pubkey: authority.resident_pubkey,
+            binding_ref: authority.binding_ref,
+            provider_egress: ProviderEgressV1::Remote,
+            cue: RetrievalText::from("moved repository juniper"),
+            selected_source_ids: std::collections::BTreeSet::from([source_id.clone()]),
+            deadline: Instant::now() + std::time::Duration::from_secs(2),
+        },
+    )
+    .unwrap();
+    assert_eq!(retrieved.status, ContinuityLayerStatusV1::Ready);
+    assert!(retrieved
+        .selected
+        .iter()
+        .all(|chunk| chunk.source_id == source_id));
+    assert_eq!(retrieved.receipts[0].selected_source_count.get(), 1);
+    assert_eq!(retrieved.receipts[0].background_source_count.get(), 0);
 }

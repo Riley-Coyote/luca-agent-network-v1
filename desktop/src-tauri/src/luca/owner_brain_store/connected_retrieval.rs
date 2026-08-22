@@ -126,6 +126,7 @@ pub(super) fn connected_candidates(
                     .ok()
                     .and_then(|value| value.checked_mul(1_000))
                     .ok_or(OwnerBrainStoreError::Invalid)?,
+                selected_context: request.selected_source_ids.contains(&source_id),
             });
         }
         decisions.push(OwnerBrainSourceDecisionV1 {

@@ -199,6 +199,7 @@ fn connected_repository_is_body_free_at_rest_and_hash_verified_on_retrieval() {
             binding_ref: binding('1'),
             provider_egress: ProviderEgressV1::Remote,
             cue: RetrievalText::from("launch color cobalt"),
+            selected_source_ids: std::collections::BTreeSet::new(),
             deadline: Instant::now() + std::time::Duration::from_secs(2),
         },
     )
@@ -219,6 +220,7 @@ fn connected_repository_is_body_free_at_rest_and_hash_verified_on_retrieval() {
             binding_ref: binding('1'),
             provider_egress: ProviderEgressV1::Remote,
             cue: RetrievalText::from("launch color cobalt"),
+            selected_source_ids: std::collections::BTreeSet::new(),
             deadline: Instant::now() + std::time::Duration::from_secs(2),
         },
     )
@@ -313,6 +315,7 @@ fn connected_refresh_reconfirm_future_resident_and_disconnect_are_fail_closed() 
             binding_ref: changed_binding.binding_ref.clone(),
             provider_egress: ProviderEgressV1::Remote,
             cue: RetrievalText::from("release bird heron"),
+            selected_source_ids: std::collections::BTreeSet::new(),
             deadline: Instant::now() + std::time::Duration::from_secs(2),
         },
     )
@@ -465,6 +468,7 @@ fn connected_refresh_reconfirm_future_resident_and_disconnect_are_fail_closed() 
             binding_ref: changed_binding.binding_ref,
             provider_egress: ProviderEgressV1::Remote,
             cue: RetrievalText::from("release bird heron"),
+            selected_source_ids: std::collections::BTreeSet::new(),
             deadline: Instant::now() + std::time::Duration::from_secs(2),
         },
     )
@@ -825,6 +829,7 @@ fn retrieval_request(
         binding_ref,
         provider_egress: ProviderEgressV1::Unknown,
         cue: RetrievalText::from(cue),
+        selected_source_ids: std::collections::BTreeSet::new(),
         deadline: Instant::now() + std::time::Duration::from_secs(2),
     }
 }
@@ -910,6 +915,8 @@ fn retrieval_checks_grant_before_source_decryption_and_is_bounded() {
     assert_eq!(retrieved.receipts.len(), 1);
     assert_eq!(retrieved.receipts[0].status, ContinuityLayerStatusV1::Ready);
     assert!(retrieved.receipts[0].truncated);
+    assert_eq!(retrieved.receipts[0].selected_source_count.get(), 0);
+    assert_eq!(retrieved.receipts[0].background_source_count.get(), 1);
     let receipt_json = serde_json::to_string(&retrieved.receipts).unwrap();
     assert!(!receipt_json.contains("vesper"));
     assert!(!receipt_json.contains(source_path.to_str().unwrap()));
