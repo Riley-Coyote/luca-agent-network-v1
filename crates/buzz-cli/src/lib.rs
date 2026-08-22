@@ -3,12 +3,14 @@ pub mod brain_review;
 mod client;
 mod commands;
 mod error;
+pub mod polyphonic_surface;
 mod validate;
 
 use clap::{Parser, Subcommand};
 use client::BuzzClient;
 use error::CliError;
 use nostr::Keys;
+use serde::Serialize;
 use uuid::Uuid;
 
 /// Run the Buzz CLI from raw arguments (including `argv[0]`).
@@ -168,6 +170,9 @@ enum Cmd {
     /// Ask the owner's Desktop to open private Brain review
     #[command(subcommand)]
     Brain(BrainCmd),
+    /// Open an owner-scoped Polyphonic setup or settings surface
+    #[command(subcommand)]
+    Polyphonic(PolyphonicCmd),
     /// Send, read, search, and manage messages
     #[command(subcommand)]
     Messages(MessagesCmd),
@@ -255,6 +260,39 @@ pub enum BrainCmd {
         /// Current conversation UUID
         #[arg(long)]
         channel: String,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Serialize, clap::ValueEnum)]
+#[serde(rename_all = "snake_case")]
+pub enum PolyphonicSurfaceArg {
+    Onboarding,
+    Runtime,
+    NativeAgents,
+    Brain,
+    Profile,
+    Appearance,
+    Recovery,
+    Access,
+}
+
+impl std::fmt::Display for PolyphonicSurfaceArg {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let value = serde_json::to_value(self).map_err(|_| std::fmt::Error)?;
+        formatter.write_str(value.as_str().ok_or(std::fmt::Error)?)
+    }
+}
+
+#[derive(Subcommand)]
+pub enum PolyphonicCmd {
+    /// Open the requested surface in the owner's desktop app
+    Open {
+        /// Current conversation UUID
+        #[arg(long)]
+        channel: String,
+        /// Product surface to open
+        #[arg(long, value_enum)]
+        surface: PolyphonicSurfaceArg,
     },
 }
 
@@ -1775,6 +1813,7 @@ async fn run(cli: Cli) -> Result<(), CliError> {
     match cli.command {
         Cmd::Agents(sub) => commands::agents::dispatch(sub, &client).await,
         Cmd::Brain(sub) => commands::brain::dispatch(sub, &client).await,
+        Cmd::Polyphonic(sub) => commands::polyphonic::dispatch(sub, &client).await,
         Cmd::Messages(sub) => commands::messages::dispatch(sub, &client, &cli.format).await,
         Cmd::Channels(sub) => commands::channels::dispatch(sub, &client, &cli.format).await,
         Cmd::Canvas(sub) => commands::channels::dispatch_canvas(sub, &client).await,
@@ -1826,6 +1865,7 @@ mod tests {
             "notes",
             "pack",
             "patches",
+            "polyphonic",
             "pr",
             "reactions",
             "repos",
@@ -1884,6 +1924,7 @@ mod tests {
                 "unarchive"
             ]
         );
+        assert_eq!(names(&cmd, "polyphonic"), vec!["open"]);
         assert_eq!(
             names(&cmd, "messages"),
             vec![
