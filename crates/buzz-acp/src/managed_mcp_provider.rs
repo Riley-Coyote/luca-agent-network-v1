@@ -3,6 +3,8 @@
 //! Decoded values are never logged. Errors expose only a body-free code and
 //! fail soft at the caller.
 
+#![cfg_attr(not(unix), allow(dead_code))]
+
 use serde::Deserialize;
 
 #[cfg(unix)]

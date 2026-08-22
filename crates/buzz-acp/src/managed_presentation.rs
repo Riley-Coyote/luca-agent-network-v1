@@ -1,5 +1,7 @@
 //! Sanitized one-way presentation feed from the managed ACP host to desktop.
 
+#![cfg_attr(not(unix), allow(dead_code))]
+
 use std::{collections::HashMap, sync::Arc};
 
 use luca_protocol::{

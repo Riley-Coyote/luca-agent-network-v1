@@ -73,7 +73,9 @@ const ARTIFACT_TOOL_NAMES: &[&str] = &[
     "preview_detach",
 ];
 
+#[cfg(unix)]
 const MANAGED_PERMISSION_MAX_FRAME_BYTES: usize = 64 * 1024;
+#[cfg(unix)]
 const MANAGED_PERMISSION_CLIENT_DEADLINE_SECS: u64 = 125;
 #[cfg(unix)]
 static MANAGED_PERMISSION_CLIENT: std::sync::OnceLock<std::sync::Arc<ManagedPermissionClient>> =

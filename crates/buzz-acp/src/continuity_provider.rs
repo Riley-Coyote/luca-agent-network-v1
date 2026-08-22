@@ -4,6 +4,8 @@
 //! persistence authority. A provider failure is represented as typed context
 //! data so ordinary conversation dispatch remains available.
 
+#![cfg_attr(not(unix), allow(dead_code))]
+
 use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

@@ -5,6 +5,8 @@
 //! tool-free session on the already configured resident runtime/model, and
 //! returns validated private output without relay publication authority.
 
+#![cfg_attr(not(unix), allow(dead_code))]
+
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use luca_protocol::{ResidentPrivateCognitionRequestV1, ResidentPrivateCognitionResultV1};
