@@ -1,0 +1,9 @@
+Wave 1 storage receipt
+Date: 2026-08-21
+
+Shared external build cache: 8.8G
+Integration train worktree: 538M
+LaCie filesystem: 1.8Ti total, 728Gi used, 585Gi available
+
+One serialized Cargo target was used. No second target or new large internal
+worktree was created by Wave 1.

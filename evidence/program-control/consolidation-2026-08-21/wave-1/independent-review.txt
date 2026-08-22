@@ -1,0 +1,29 @@
+Wave 1 independent review receipt
+Date: 2026-08-21
+
+Exchange checkpoint: PASS at f8371892.
+
+- Required source order is preserved.
+- feeb9a84 and c8a004e0 are exact patch-id matches.
+- 7db4113d differs only because its CSS-format hunk already existed on the
+  visits base; the lab assertion and drawer fragment removal landed.
+- Frozen exchange, visit, presence-rail, protocol and connector geometry are
+  unchanged except for the intended lab assertion and render-neutral drawer
+  structure.
+- No retired broker path or cancelled visit since-filter was added.
+
+Typography checkpoint: PASS at af5c4208.
+
+- Required source order is preserved.
+- The ConversationContextPanel resolution retains the current visitor drawer,
+  Between agents section and ExchangeHistory while applying every intended ink
+  and tracking substitution.
+- Paper is registered as light, paired with Void, mapped to the bundled light
+  syntax baseline and covered by the intended proof tests.
+- Visit thresholds and connector arithmetic are unchanged.
+- Sticky visitor behavior is unchanged; timeline and rail share the intentional
+  45rem reading measure.
+- The generated design-lab shell bundle was excluded and remains byte-identical
+  to the pre-typography checkpoint.
+
+Reviewer disposition: no actionable findings.

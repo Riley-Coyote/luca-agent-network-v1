@@ -1,15 +1,15 @@
 # Luca program dashboard
 
-Updated: 2026-08-21
+Updated: 2026-08-22
 
 ## Executive state
 
 | Item | State | Next gate |
 |---|---|---|
-| Consolidation program | `active` | Complete Wave 0 authority receipt |
-| Integration train | `implemented_in_source` at visits start `9c9ef0df` | Exchange tail and typography review |
+| Consolidation program | `active` | Selectively reconcile capability parity |
+| Integration train | Wave 1 `source_tested` at `b9ca618f` before receipt-only control update | Capability candidate review |
 | Capability parity | `implemented_in_source` at `4c13963a` | Selective port without retired communications machinery |
-| Artifact Canvas | `blocked` at `7befcca7` | Native GA5 containment and real-runtime proof |
+| Artifact Canvas | active on preserved candidate lane | Exact-revision GA5 containment and real-runtime proof |
 | Tester release | `planned` as `luca/v1-beta` | One unchanged installed candidate |
 | Integrated release | `bef2e6c0` on `luca/v1.1` | Fast-forward only after accepted beta proof |
 | New feature work | `frozen` | Resume only after consolidation promotion |

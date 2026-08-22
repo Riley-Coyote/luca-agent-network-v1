@@ -1,0 +1,7 @@
+lane	source_commit	integrated_commit	result	note
+exchange-tail	7db4113d	28d8e276	PASS	Replayed first; its CSS-format hunk was already present on the visits base.
+exchange-tail	feeb9a84	2e73ea19	PASS	Replayed second; exact patch-id match.
+exchange-tail	c8a004e0	f8371892	PASS	Replayed third; exact patch-id match.
+typography	0e2b67c2	05d59763	PASS	Replayed fourth; one semantic drawer conflict retained current visit UI and applied the complete typography patch.
+typography	eb4e8154	af5c4208	PASS	Replayed fifth; exact patch-id match.
+typography-gate-repair	Wave 1 local	b9ca618f	PASS	Formatting-only repair to the new Paper adaptive-theme proof.
