@@ -4,7 +4,7 @@ import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
 
 /**
  * The right drawer of a direct conversation with a resident is the resident:
- * their mark and state, their model (changeable in place), the first lines of
+ * their mark and state, read-only runtime/model metadata, the first lines of
  * their instructions, their last handoff, and a way to their page. A DM with
  * a person keeps the conversation view.
  */
@@ -35,7 +35,12 @@ test("a resident DM's drawer is the resident, and opens their page", async ({
   await expect(page.getByTestId("resident-drawer-state")).toContainText(
     "Ready",
   );
-  await expect(page.getByTestId("resident-drawer-model-trigger")).toBeVisible();
+  await expect(
+    page.getByTestId("resident-drawer-runtime-metadata"),
+  ).toContainText("Default model");
+  await expect(page.getByTestId("resident-drawer-model-trigger")).toHaveCount(
+    0,
+  );
   await expect(page.getByTestId("resident-drawer-handoff")).toBeVisible();
 
   await page.getByTestId("resident-drawer-open-agent").click();

@@ -257,6 +257,7 @@ type E2eConfig = {
     nativeResidentDiscoveryError?: string;
     createManagedAgentErrors?: (string | null)[];
     connectedBrainConnectErrors?: (string | null)[];
+    conversationContextFixture?: "ready" | "multiple" | "missing";
     personas?: MockPersonaSeed[];
     teams?: MockTeamSeed[];
     relayAgents?: MockRelayAgentSeed[];
@@ -10737,6 +10738,29 @@ export function maybeInstallE2eTauriMocks() {
         status: "needs_attention",
       }));
     }
+    if (getConfig()?.mock?.conversationContextFixture === "multiple") {
+      connectedSources = [
+        ...connectedSources,
+        {
+          sourceId: "connected-codex-history",
+          sourceKind: "codex_history",
+          displayName: "Codex history",
+          status: "current",
+          itemCount: 128,
+          entryCount: 256,
+          lastRefreshedAt: "2026-08-09T03:18:00Z",
+        },
+        {
+          sourceId: "connected-claude-history",
+          sourceKind: "claude_history",
+          displayName: "Claude Code history",
+          status: "current",
+          itemCount: 94,
+          entryCount: 188,
+          lastRefreshedAt: "2026-08-08T22:40:00Z",
+        },
+      ];
+    }
   };
   const connectedBrainInventory = () => {
     initializeConnectedMode();
@@ -10750,6 +10774,141 @@ export function maybeInstallE2eTauriMocks() {
       repositoryReceipts: connectedRepositoryReceipts.filter((receipt) =>
         connectedSources.some((source) => source.sourceId === receipt.sourceId),
       ),
+    };
+  };
+  type MockConversationContextRecord = {
+    projectId: string | null;
+    primaryMode: "inherit" | "none" | "source";
+    primarySourceId: string | null;
+    additionalSourceIds: string[];
+    revision: number;
+  };
+  type MockProjectContextRecord = {
+    primarySourceId: string | null;
+    additionalSourceIds: string[];
+    revision: number;
+  };
+  let conversationContextRevision = 1;
+  const mockConversationContexts = new Map<
+    string,
+    MockConversationContextRecord
+  >();
+  const mockProjectContexts = new Map<string, MockProjectContextRecord>();
+  const nextConversationContextRevision = () => {
+    const revision = conversationContextRevision;
+    conversationContextRevision += 1;
+    return revision;
+  };
+  const validContextSourceIds = (sourceIds: readonly string[]) => [
+    ...new Set(
+      sourceIds.filter((sourceId) =>
+        connectedSources.some((source) => source.sourceId === sourceId),
+      ),
+    ),
+  ];
+  const mockConversationContextView = (conversationId: string) => {
+    const room = mockConversationContexts.get(conversationId);
+    if (!room) throw new Error("conversation context has not been initialized");
+    const project = room.projectId
+      ? mockProjectContexts.get(room.projectId)
+      : undefined;
+    const primarySourceId =
+      room.primaryMode === "source"
+        ? room.primarySourceId
+        : room.primaryMode === "none"
+          ? null
+          : (project?.primarySourceId ?? null);
+    const primaryOrigin = room.primaryMode === "inherit" ? "project" : "room";
+    const additional: Array<{ sourceId: string; origin: "project" | "room" }> =
+      [];
+    const seen = new Set<string>();
+    for (const sourceId of project?.additionalSourceIds ?? []) {
+      if (sourceId !== primarySourceId && !seen.has(sourceId)) {
+        seen.add(sourceId);
+        additional.push({ sourceId, origin: "project" });
+      }
+    }
+    for (const sourceId of room.additionalSourceIds) {
+      if (sourceId !== primarySourceId && !seen.has(sourceId)) {
+        seen.add(sourceId);
+        additional.push({ sourceId, origin: "room" });
+      }
+    }
+    const projectSource = (sourceId: string, role: string, origin: string) => {
+      const source = connectedSources.find(
+        (candidate) => candidate.sourceId === sourceId,
+      );
+      if (!source) return null;
+      const missing =
+        role === "working_folder" &&
+        getConfig()?.mock?.conversationContextFixture === "missing";
+      return {
+        sourceId,
+        label: source.displayName,
+        role,
+        origin,
+        sourceKind: source.sourceKind,
+        availability: missing
+          ? "missing"
+          : source.status === "current"
+            ? "available"
+            : "needs_attention",
+        nativeDirectory: source.sourceKind === "repository",
+      };
+    };
+    const primary = primarySourceId
+      ? projectSource(primarySourceId, "working_folder", primaryOrigin)
+      : null;
+    const additionalSources = additional
+      .map(({ sourceId, origin }) =>
+        projectSource(sourceId, "additional_source", origin),
+      )
+      .filter((source) => source !== null);
+    const status =
+      primary?.availability === "missing"
+        ? "missing_primary"
+        : [primary, ...additionalSources].some(
+              (source) => source && source.availability !== "available",
+            )
+          ? "degraded"
+          : primary || additionalSources.length > 0
+            ? "ready"
+            : "empty";
+    return {
+      conversationId,
+      projectId: room.projectId,
+      primary,
+      additionalSources,
+      status,
+      revision: Math.max(room.revision, project?.revision ?? 0),
+      capabilities: [
+        {
+          label: "Working folder access",
+          state:
+            primary?.availability === "available"
+              ? "available"
+              : primary
+                ? "needs_attention"
+                : "runtime_managed",
+          detail:
+            primary?.availability === "available"
+              ? "Used as the native working directory on the next turn"
+              : primary
+                ? "Relink this folder before native tools can use it"
+                : "No primary folder is selected for this room",
+        },
+        {
+          label: "Additional folder access",
+          state: "runtime_managed",
+          detail:
+            "Negotiated with the resident's selected runtime; Brain access remains available",
+        },
+        {
+          label: "MCPs, skills, and plugins",
+          state: "runtime_managed",
+          detail: "Uses the runtime's existing configuration",
+        },
+      ],
     };
   };
   const brainFixtureMode = () => {
@@ -11071,6 +11230,181 @@ export function maybeInstallE2eTauriMocks() {
                 : "focus",
           changed: false,
         };
+      case "sync_conversation_context": {
+        initializeConnectedMode();
+        const input = (
+          (payload ?? {}) as {
+            input?: {
+              conversationId?: string;
+              projectId?: string | null;
+              projectSourceIds?: string[];
+            };
+          }
+        ).input;
+        const conversationId = input?.conversationId;
+        if (!conversationId) throw new Error("conversation id is required");
+        const projectId = input.projectId ?? null;
+        if (projectId && !mockProjectContexts.has(projectId)) {
+          const valid = validContextSourceIds(input.projectSourceIds ?? []);
+          const primarySourceId =
+            valid.find(
+              (sourceId) =>
+                connectedSources.find((source) => source.sourceId === sourceId)
+                  ?.sourceKind === "repository",
+            ) ?? null;
+          mockProjectContexts.set(projectId, {
+            primarySourceId,
+            additionalSourceIds: valid.filter(
+              (sourceId) => sourceId !== primarySourceId,
+            ),
+            revision: nextConversationContextRevision(),
+          });
+        }
+        const current = mockConversationContexts.get(conversationId);
+        if (!current) {
+          mockConversationContexts.set(conversationId, {
+            projectId,
+            primaryMode: "inherit",
+            primarySourceId: null,
+            additionalSourceIds: [],
+            revision: nextConversationContextRevision(),
+          });
+        } else if (current.projectId !== projectId) {
+          current.projectId = projectId;
+          current.revision = nextConversationContextRevision();
+        }
+        return mockConversationContextView(conversationId);
+      }
+      case "get_conversation_context": {
+        const conversationId = (
+          (payload ?? {}) as { input?: { conversationId?: string } }
+        ).input?.conversationId;
+        if (!conversationId) throw new Error("conversation id is required");
+        return mockConversationContextView(conversationId);
+      }
+      case "update_conversation_context": {
+        const input = (
+          (payload ?? {}) as {
+            input?: {
+              conversationId?: string;
+              projectId?: string | null;
+              expectedRevision?: number;
+              primaryMode?: "inherit" | "none" | "source";
+              primarySourceId?: string | null;
+              additionalSourceIds?: string[];
+            };
+          }
+        ).input;
+        const conversationId = input?.conversationId;
+        if (!conversationId) throw new Error("conversation id is required");
+        const current = mockConversationContexts.get(conversationId);
+        if (!current) throw new Error("conversation context is unavailable");
+        const effective = mockConversationContextView(conversationId);
+        if (
+          input.expectedRevision !== effective.revision ||
+          current.projectId !== (input.projectId ?? null)
+        ) {
+          throw new Error(
+            "conversation context changed; refresh and try again",
+          );
+        }
+        current.projectId = input.projectId ?? null;
+        current.primaryMode = input.primaryMode ?? "none";
+        current.primarySourceId = input.primarySourceId ?? null;
+        current.additionalSourceIds = validContextSourceIds(
+          input.additionalSourceIds ?? [],
+        );
+        current.revision = nextConversationContextRevision();
+        return mockConversationContextView(conversationId);
+      }
+      case "promote_conversation_context_to_project": {
+        const input = (
+          (payload ?? {}) as {
+            input?: {
+              conversationId?: string;
+              projectId?: string | null;
+              expectedRevision?: number;
+            };
+          }
+        ).input;
+        const conversationId = input?.conversationId;
+        const projectId = input?.projectId;
+        if (!conversationId || !projectId) {
+          throw new Error("project context is required");
+        }
+        const view = mockConversationContextView(conversationId);
+        if (input.expectedRevision !== view.revision) {
+          throw new Error(
+            "conversation context changed; refresh and try again",
+          );
+        }
+        mockProjectContexts.set(projectId, {
+          primarySourceId: view.primary?.sourceId ?? null,
+          additionalSourceIds: view.additionalSources.map(
+            (source: { sourceId: string }) => source.sourceId,
+          ),
+          revision: nextConversationContextRevision(),
+        });
+        const current = mockConversationContexts.get(conversationId);
+        if (!current) throw new Error("conversation context is unavailable");
+        current.projectId = projectId;
+        current.primaryMode = "inherit";
+        current.primarySourceId = null;
+        current.additionalSourceIds = [];
+        current.revision = nextConversationContextRevision();
+        return mockConversationContextView(conversationId);
+      }
+      case "remove_conversation_context_override": {
+        const input = (
+          (payload ?? {}) as {
+            input?: { conversationId?: string; expectedRevision?: number };
+          }
+        ).input;
+        const conversationId = input?.conversationId;
+        if (!conversationId) throw new Error("conversation id is required");
+        const current = mockConversationContexts.get(conversationId);
+        if (!current) throw new Error("conversation context is unavailable");
+        if (
+          input.expectedRevision !==
+          mockConversationContextView(conversationId).revision
+        ) {
+          throw new Error(
+            "conversation context changed; refresh and try again",
+          );
+        }
+        current.primaryMode = "inherit";
+        current.primarySourceId = null;
+        current.additionalSourceIds = [];
+        current.revision = nextConversationContextRevision();
+        return mockConversationContextView(conversationId);
+      }
+      case "pick_conversation_context_folder": {
+        const input = (
+          (payload ?? {}) as {
+            input?: { conversationId?: string; expectedRevision?: number };
+          }
+        ).input;
+        const conversationId = input?.conversationId;
+        if (!conversationId) throw new Error("conversation id is required");
+        const current = mockConversationContexts.get(conversationId);
+        if (!current) throw new Error("conversation context is unavailable");
+        if (
+          input.expectedRevision !==
+          mockConversationContextView(conversationId).revision
+        ) {
+          throw new Error(
+            "conversation context changed; refresh and try again",
+          );
+        }
+        const repository = connectedSources.find(
+          (source) => source.sourceKind === "repository",
+        );
+        if (!repository) throw new Error("Connect a folder in Brain first.");
+        current.primaryMode = "source";
+        current.primarySourceId = repository.sourceId;
+        current.revision = nextConversationContextRevision();
+        return mockConversationContextView(conversationId);
+      }
       case "discover_connected_brain_sources":
       case "list_connected_brain_sources":
         return connectedBrainInventory();

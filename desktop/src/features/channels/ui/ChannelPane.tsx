@@ -98,6 +98,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   channelManagementOpen = false,
   conversationContextOpen = false,
   currentPubkey,
+  projectContext = null,
   editTarget = null,
   fetchOlder,
   header,
@@ -443,6 +444,13 @@ export const ChannelPane = React.memo(function ChannelPane({
     pendingActivityByPubkey,
     presentationStateByPubkey,
   } = useConversationPresentation(activeChannelId);
+  const contextChangesDisabled = React.useMemo(
+    () =>
+      [...presentationStateByPubkey.values()].some(
+        (state) => !isTerminalConversationActivity(state),
+      ),
+    [presentationStateByPubkey],
+  );
   const managedResponseSlots = useManagedResponseSlots(activeChannelId);
   const handleRetryResident = React.useCallback(
     async ({ residentPubkey, uiKey }: ActivityShelfRetryTarget) => {
@@ -1023,6 +1031,16 @@ export const ChannelPane = React.memo(function ChannelPane({
                       channelId={activeChannel?.id ?? null}
                       channelName={activeChannel?.name ?? "channel"}
                       channelType={activeChannel?.channelType ?? null}
+                      conversationContext={
+                        activeChannel
+                          ? {
+                              conversationId: activeChannel.id,
+                              conversationName: activeChannel.name,
+                              project: projectContext,
+                              changesDisabled: contextChangesDisabled,
+                            }
+                          : null
+                      }
                       containerClassName="luca-measure pointer-events-auto px-0"
                       disabled={isComposerDisabled}
                       editTarget={mainEditTarget}

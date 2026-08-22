@@ -45,6 +45,10 @@ import {
 import { useLinkEditor } from "@/features/messages/lib/useLinkEditor";
 import { useComposerSpoilerParticles } from "@/features/messages/lib/useComposerSpoilerParticles";
 import { useTypingBroadcast } from "@/features/messages/useTypingBroadcast";
+import {
+  ConversationContextComposerSurface,
+  type ConversationContextComposerConfig,
+} from "@/features/luca/context/ConversationContextComposerSurface";
 import { getBuzzCodeBlockClipboardText } from "@/shared/lib/codeBlockClipboard";
 import { cn } from "@/shared/lib/cn";
 import type { ChannelType } from "@/shared/api/types";
@@ -74,6 +78,7 @@ type MessageComposerProps = {
   channelId?: string | null;
   channelName: string;
   channelType?: ChannelType | null;
+  conversationContext?: ConversationContextComposerConfig | null;
   containerClassName?: string;
   disabled?: boolean;
   draftKey?: string;
@@ -152,6 +157,7 @@ function MessageComposerImpl({
   channelId = null,
   channelName,
   channelType = null,
+  conversationContext = null,
   containerClassName,
   disabled = false,
   draftKey,
@@ -186,6 +192,13 @@ function MessageComposerImpl({
   } = useComposerContentState();
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = React.useState(false);
   const [isFormattingOpen, setIsFormattingOpen] = React.useState(false);
+  const [isContextOpen, setIsContextOpen] = React.useState(false);
+  const [isContextSendBlocked, setIsContextSendBlocked] = React.useState(false);
+  const isContextSendBlockedRef = React.useRef(false);
+  isContextSendBlockedRef.current = isContextSendBlocked;
+  React.useEffect(() => {
+    if (!conversationContext) setIsContextSendBlocked(false);
+  }, [conversationContext]);
   const [spoileredAttachmentUrls, setSpoileredAttachmentUrls] = React.useState<
     Set<string>
   >(() => new Set());
@@ -674,6 +687,7 @@ function MessageComposerImpl({
     if (
       (!trimmed && !hasMedia) ||
       disabledRef.current ||
+      isContextSendBlockedRef.current ||
       isSendingRef.current ||
       isUploadingRef.current ||
       mentionSendFlow.isPreparingMentionSend
@@ -918,11 +932,13 @@ function MessageComposerImpl({
   const sendDisabled = React.useMemo(
     () =>
       disabled ||
+      isContextSendBlocked ||
       media.isUploading ||
       mentionSendFlow.isPreparingMentionSend ||
       (isContentEmpty && media.pendingImeta.length === 0),
     [
       disabled,
+      isContextSendBlocked,
       media.isUploading,
       mentionSendFlow.isPreparingMentionSend,
       isContentEmpty,
@@ -985,6 +1001,14 @@ function MessageComposerImpl({
           className="absolute inset-x-0 bottom-0 h-5 bg-transparent"
         />
         <div className="relative flex w-full flex-col gap-0">
+          {conversationContext ? (
+            <ConversationContextComposerSurface
+              config={conversationContext}
+              onOpenChange={setIsContextOpen}
+              onSendBlockedChange={setIsContextSendBlocked}
+              open={isContextOpen}
+            />
+          ) : null}
           <ComposerReplyEditBanner
             isEditing={editTarget != null}
             replyTarget={replyTarget}
@@ -1101,6 +1125,9 @@ function MessageComposerImpl({
               onEmojiSelect={insertEmoji}
               onFormattingToggle={handleFormattingToggle}
               onLinkButton={linkEditor.openFromToolbar}
+              onOpenContext={
+                conversationContext ? () => setIsContextOpen(true) : undefined
+              }
               onOpenMentionPicker={openMentionPicker}
               onPaperclip={handlePaperclipClick}
               sendDisabled={sendDisabled}

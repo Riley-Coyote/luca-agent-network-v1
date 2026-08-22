@@ -6,6 +6,7 @@ import type { MainTimelineEntry } from "@/features/messages/lib/threadPanel";
 import type { ChannelWindowThreadSummary } from "@/features/messages/lib/channelWindowStore";
 import type { TimelineMessage } from "@/features/messages/types";
 import type { MessageComposerSendContext } from "@/features/messages/ui/messageComposerTypes";
+import type { ConversationProjectContext } from "@/features/luca/context/ConversationContextComposerSurface";
 import type { TypingIndicatorEntry } from "@/features/messages/useChannelTyping";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import type { useChannelFind } from "@/features/search/useChannelFind";
@@ -40,6 +41,7 @@ export type ChannelPaneProps = {
   channelManagementOpen?: boolean;
   conversationContextOpen?: boolean;
   currentPubkey?: string;
+  projectContext?: ConversationProjectContext | null;
   editTarget?: {
     author: string;
     body: string;

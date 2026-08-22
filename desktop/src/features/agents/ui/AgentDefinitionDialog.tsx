@@ -852,6 +852,13 @@ export function AgentDefinitionDialog({
                 value={runtimeDropdownValue}
               />
               {runtimeWarning}
+              {isCreateMode ? (
+                <p className="text-2xs leading-4 text-muted-foreground">
+                  Choose the runtime you want this resident to keep across
+                  rooms. Their name, identity, and documents remain theirs even
+                  if you change it later.
+                </p>
+              ) : null}
             </div>
 
             {modelFieldVisible ? (

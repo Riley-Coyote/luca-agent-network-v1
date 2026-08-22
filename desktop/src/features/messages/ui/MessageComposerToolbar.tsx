@@ -3,6 +3,7 @@ import {
   ALargeSmall,
   ArrowUp,
   AtSign,
+  FolderPlus,
   Mic,
   Paperclip,
   Plus,
@@ -49,6 +50,7 @@ export const MessageComposerToolbar = React.memo(
     onEmojiSelect,
     onFormattingToggle,
     onLinkButton,
+    onOpenContext,
     onOpenMentionPicker,
     onPaperclip,
     sendDisabled,
@@ -72,6 +74,7 @@ export const MessageComposerToolbar = React.memo(
     onEmojiSelect: (emoji: string) => void;
     onFormattingToggle: (pressed: boolean) => void;
     onLinkButton: () => void;
+    onOpenContext?: () => void;
     onOpenMentionPicker: () => void;
     onPaperclip: () => void;
     sendDisabled: boolean;
@@ -158,6 +161,12 @@ export const MessageComposerToolbar = React.memo(
                   <Paperclip />
                   Attach files
                 </DropdownMenuItem>
+                {onOpenContext ? (
+                  <DropdownMenuItem onSelect={onOpenContext}>
+                    <FolderPlus />
+                    Add context
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuItem onSelect={() => onFormattingToggle(true)}>
                   <ALargeSmall />
                   Formatting

@@ -246,6 +246,15 @@ export function ChannelRouteScreen({
       autoSendDraftKey={autoSendDraftKey}
       currentIdentity={identityQuery.data}
       currentProfile={profileQuery.data}
+      projectContext={
+        projectViewModel
+          ? {
+              projectId: projectViewModel.projectId,
+              label: projectViewModel.label,
+              sourceIds: projectViewModel.sourceIds,
+            }
+          : null
+      }
       onCloseForumPost={() => {
         void closeForumPost(channelId);
       }}

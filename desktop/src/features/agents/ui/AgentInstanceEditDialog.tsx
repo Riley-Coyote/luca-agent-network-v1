@@ -958,6 +958,11 @@ export function AgentInstanceEditDialog({
                   </span>
                 </p>
               ) : null}
+              <p className="text-2xs leading-4 text-muted-foreground">
+                For a one-off task, message a resident already using the runtime
+                you need. Changing this restarts the resident and affects every
+                room; their identity and documents stay the same.
+              </p>
             </div>
             {/* LLM provider */}
             {llmProviderFieldVisible ? (

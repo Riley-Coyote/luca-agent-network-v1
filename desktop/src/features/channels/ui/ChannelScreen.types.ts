@@ -4,6 +4,7 @@ import type {
   Profile,
   RelayEvent,
 } from "@/shared/api/types";
+import type { ConversationProjectContext } from "@/features/luca/context/ConversationContextComposerSurface";
 
 export type ChannelScreenProps = {
   activeChannel: Channel | null;
@@ -16,6 +17,7 @@ export type ChannelScreenProps = {
   autoSendDraftKey: string | null;
   currentIdentity?: Identity;
   currentProfile?: Profile;
+  projectContext?: ConversationProjectContext | null;
   onCloseForumPost: () => void;
   onSelectForumPost: (postId: string) => void;
   selectedForumPostId: string | null;

@@ -82,6 +82,7 @@ export function ChannelScreen({
   autoSendDraftKey,
   currentIdentity,
   currentProfile,
+  projectContext,
   onCloseForumPost,
   onSelectForumPost,
   selectedForumPostId,
@@ -854,6 +855,7 @@ export function ChannelScreen({
                 channelManagementOpen={channelManagementOpen}
                 conversationContextOpen={isConversationContextOpen}
                 currentPubkey={currentPubkey}
+                projectContext={projectContext}
                 canResetThreadPanelWidth={canResetThreadPanelWidth}
                 fetchOlder={fetchOlder}
                 header={channelHeader}

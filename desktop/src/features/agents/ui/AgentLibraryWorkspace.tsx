@@ -147,19 +147,12 @@ export function AgentLibraryWorkspace({
               data-testid="agent-strip-runtime"
             >
               <span>{residentSourceLabel(resident)}</span>
-              {managedAgent ? (
+              {managedAgent || resident.modelLabel ? (
                 <>
                   <Dot />
-                  <ResidentModelMenu
-                    agent={managedAgent}
-                    testId="agent-strip-model"
-                    variant="inline"
-                  />
-                </>
-              ) : resident.modelLabel ? (
-                <>
-                  <Dot />
-                  <span>{resident.modelLabel}</span>
+                  <span data-testid="agent-strip-model">
+                    {resident.modelLabel ?? "Default model"}
+                  </span>
                 </>
               ) : null}
               {resident.pubkey ? (
@@ -510,11 +503,20 @@ function SettingsSection({
               Model
             </span>
             <div className="max-w-sm">
+              <p className="mb-2 text-2xs leading-4 text-muted-foreground">
+                For a one-off task, use a resident already running the model you
+                need.
+              </p>
               <ResidentModelMenu
                 agent={managedAgent}
                 testId="agent-settings-model"
                 variant="field"
               />
+              <p className="mt-2 text-2xs leading-4 text-muted-foreground">
+                This choice follows the resident into every room. Changing it
+                restarts the resident; their name, identity, and documents stay
+                the same.
+              </p>
             </div>
           </div>
         ) : resident.modelLabel ? (
