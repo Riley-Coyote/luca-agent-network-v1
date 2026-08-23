@@ -471,6 +471,8 @@ export const ChannelPane = React.memo(function ChannelPane({
           [retry.residentPubkey],
           retry.mediaTags,
           activeChannelId,
+          undefined,
+          [retry.residentPubkey],
         );
       } catch (error) {
         toast.error(

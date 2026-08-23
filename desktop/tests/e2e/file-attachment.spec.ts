@@ -25,7 +25,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("upload a file and see a FileCard in the timeline", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?e2e=mock");
   await page.getByTestId("channel-general").click();
   await expect(page.getByTestId("chat-title")).toHaveText("general");
 
@@ -67,7 +67,7 @@ test("upload a file and see a FileCard in the timeline", async ({ page }) => {
 test("dropping a file on the channel column attaches it to the composer", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?e2e=mock");
   await page.getByTestId("channel-general").click();
   await expect(page.getByTestId("chat-title")).toHaveText("general");
 
@@ -100,7 +100,7 @@ test("forum posts emit a FileCard for generic attachments, not a broken image", 
   // and lost its label. The fix routes forum/notes posts through the same
   // `buildOutgoingMessage` builder as chat. This test would fail (no FileCard)
   // if ForumComposer ever drifts back to hand-building media markdown.
-  await page.goto("/");
+  await page.goto("/?e2e=mock");
 
   // "watercooler" is a seeded forum the mock identity is a member of.
   await page.getByTestId("channel-watercooler").click();
