@@ -22,6 +22,7 @@ type E2eWindow = Window & {
 };
 
 const E2E_DEFAULT_PUBKEY = "deadbeef".repeat(8);
+const E2E_IDENTITY_OVERRIDE_STORAGE_KEY = "buzz:e2e-identity-override.v1";
 const E2E_COMMUNITY_ID = "e2e-default-community";
 const ONBOARDING_COMPLETION_STORAGE_KEY_PREFIX = "buzz-onboarding-complete.v1:";
 const DEV_STATE_RESET_PARAM = "resetDevState";
@@ -125,10 +126,24 @@ function configureDevE2eBridgeFromUrl() {
       : {}),
   };
 
+  let activePubkey = E2E_DEFAULT_PUBKEY;
+  try {
+    const identityOverride = JSON.parse(
+      window.localStorage.getItem(E2E_IDENTITY_OVERRIDE_STORAGE_KEY) ?? "null",
+    ) as { pubkey?: unknown } | null;
+    if (typeof identityOverride?.pubkey === "string") {
+      activePubkey = identityOverride.pubkey;
+    }
+  } catch {
+    // The mock bridge owns malformed identity fixture behavior. Keep its
+    // deterministic fallback community aligned with the default identity.
+  }
+
   const community = {
     addedAt: new Date().toISOString(),
     id: E2E_COMMUNITY_ID,
     name: "E2E Test",
+    pubkey: activePubkey,
     relayUrl: "ws://localhost:3000",
   };
   window.localStorage.setItem("buzz-communities", JSON.stringify([community]));
