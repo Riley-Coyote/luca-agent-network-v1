@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Polyphonic — Surface Ladder Options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+/* ═══ FOUR LADDERS ═══
+   Every option defines the same token set. Switch with the tabs or keys 1–4.
+   A · Ash        — pure neutral, zero cast. The ChatGPT/Geist school.
+   B · Terminal   — Riley's v4 math (B = R × 1.18, temp-locked) lifted one
+                    register up. Warm cream ink from the Terminal docs.
+   C · Fog        — the brightest reasonable dark. Tests the upper bound.
+   D · Slate      — the critique's proposal with its saturation halved.      */
+
+:root, :root[data-p="b"] {
+  /* B · Terminal, raised — cool-cast surfaces, cream ink */
+  --floor:   #131316;  --canvas:  #18181d;  --s1: #1d1d23;
+  --s2:      #232329;  --s3:      #29292f;
+  --ink:     rgba(244,243,240,.93);
+  --t-body:  rgba(214,212,208,.74);
+  --t-2nd:   rgba(196,194,190,.56);
+  --t-soft:  rgba(165,163,158,.42);
+  --t-ghost: rgba(140,138,132,.26);
+  --ov-hover: rgba(220,219,216,.04);
+  --ov-sel:   rgba(220,219,216,.09);
+  --rule:     rgba(220,219,216,.07);
+}
+:root[data-p="a"] {
+  /* A · Ash — pure neutral, cool ink */
+  --floor:   #101010;  --canvas:  #161616;  --s1: #1c1c1c;
+  --s2:      #212121;  --s3:      #282828;
+  --ink:     rgba(240,241,244,.93);
+  --t-body:  rgba(208,210,214,.74);
+  --t-2nd:   rgba(188,190,195,.56);
+  --t-soft:  rgba(158,160,166,.42);
+  --t-ghost: rgba(132,134,140,.26);
+  --ov-hover: rgba(235,237,240,.04);
+  --ov-sel:   rgba(235,237,240,.09);
+  --rule:     rgba(235,237,240,.07);
+}
+:root[data-p="c"] {
+  /* C · Fog — lightest register, faint cool cast, cool ink */
+  --floor:   #1a1a1d;  --canvas:  #202024;  --s1: #26262b;
+  --s2:      #2c2c31;  --s3:      #323238;
+  --ink:     rgba(242,243,246,.94);
+  --t-body:  rgba(212,214,219,.76);
+  --t-2nd:   rgba(192,194,200,.58);
+  --t-soft:  rgba(162,164,171,.44);
+  --t-ghost: rgba(136,138,145,.28);
+  --ov-hover: rgba(238,240,244,.045);
+  --ov-sel:   rgba(238,240,244,.10);
+  --rule:     rgba(238,240,244,.075);
+}
+:root[data-p="d"] {
+  /* D · Slate, quieted — hue 222 at half the critique's saturation, cool ink */
+  --floor:   #131417;  --canvas:  #191a1e;  --s1: #1f2024;
+  --s2:      #25262b;  --s3:      #2b2c32;
+  --ink:     rgba(240,242,246,.93);
+  --t-body:  rgba(206,209,215,.74);
+  --t-2nd:   rgba(186,189,196,.56);
+  --t-soft:  rgba(156,159,167,.42);
+  --t-ghost: rgba(130,133,141,.26);
+  --ov-hover: rgba(232,235,241,.04);
+  --ov-sel:   rgba(232,235,241,.09);
+  --rule:     rgba(232,235,241,.07);
+}
+
+html, body { height:100%; }
+body {
+  font-family: 'Instrument Sans', -apple-system, sans-serif;
+  background: var(--canvas); color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  transition: background .25s ease;
+  overflow-x: hidden;
+}
+.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+/* ═══ switcher ═══ */
+.bar {
+  position: sticky; top:0; z-index:50; height:44px;
+  background: var(--floor); display:flex; align-items:center;
+  padding: 0 18px; gap: 4px; transition: background .25s ease;
+}
+.tab {
+  padding: 7px 14px; border-radius: 7px; font-size: 12.5px; font-weight: 450;
+  color: var(--t-soft); cursor: pointer; white-space: nowrap; border: none;
+  background: transparent; font-family: inherit; transition: all .15s;
+}
+.tab:hover { color: var(--t-2nd); background: var(--ov-hover); }
+.tab.on { color: var(--ink); background: var(--ov-sel); }
+.bar .hint {
+  margin-left:auto; font-family:'JetBrains Mono',monospace; font-size:9.5px;
+  letter-spacing:.12em; text-transform:uppercase; color:var(--t-ghost);
+}
+
+.wrap { max-width: 1080px; margin: 0 auto; padding: 46px 32px 120px; }
+.eyebrow {
+  font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--t-ghost); margin-bottom:10px;
+}
+h1 { font-size:26px; font-weight:500; letter-spacing:-.01em; margin-bottom:10px; }
+.sub { font-size:14.5px; line-height:1.65; color:var(--t-body); max-width:600px; margin-bottom:8px; }
+.why {
+  font-size:13.5px; line-height:1.6; color:var(--t-2nd); max-width:600px;
+  margin-bottom:36px; min-height: 44px;
+}
+.why strong { color: var(--t-body); font-weight: 500; }
+
+/* ═══ ladder strip ═══ */
+.ladder { display:flex; border-radius:10px; overflow:hidden; height:76px; margin-bottom:8px; }
+.ladder div { flex:1; position:relative; transition: background .25s ease; }
+.ladder span {
+  position:absolute; left:12px; bottom:8px; font-family:'JetBrains Mono',monospace;
+  font-size:10px; color: var(--t-soft); letter-spacing:.02em;
+}
+.ladder small {
+  position:absolute; left:12px; top:8px; font-size:10.5px; font-weight:500;
+  color: var(--t-2nd); letter-spacing:.01em;
+}
+.ladnote { font-size:12px; color:var(--t-soft); margin-bottom:44px; }
+
+/* ═══ applied scene ═══ */
+.scene {
+  display:grid; grid-template-columns: 232px 1fr; border-radius:12px;
+  overflow:hidden; min-height: 560px; background: var(--canvas);
+  box-shadow: 0 14px 44px rgba(0,0,0,.30);
+  transition: background .25s ease;
+}
+.side { background: var(--floor); padding: 18px 12px; transition: background .25s ease; }
+.side .t {
+  font-size:12px; font-weight:500; color:var(--t-2nd); padding: 0 10px 12px;
+  display:flex; justify-content:space-between; align-items:center;
+}
+.side .t span:last-child { color: var(--t-ghost); font-weight:400; font-size:15px; }
+.srow {
+  display:flex; align-items:center; gap:9px; padding: 8px 10px;
+  border-radius:7px; font-size:13px; color:var(--t-body); margin-bottom:1px; cursor:default;
+}
+.srow:hover { background: var(--ov-hover); }
+.srow.on { background: var(--ov-sel); color: var(--ink); }
+.srow .glyph { width:16px; height:16px; opacity:.8; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:11px; }
+.srow .dot { margin-left:auto; width:5px; height:5px; border-radius:50%; background: var(--t-soft); }
+.slabel {
+  font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--t-ghost); padding: 16px 10px 8px;
+}
+
+.chat { display:flex; flex-direction:column; min-width:0; }
+.chead {
+  padding: 16px 26px 14px; display:flex; align-items:baseline; gap:12px;
+}
+.chead .name { font-size:15px; font-weight:550; }
+.chead .desc { font-size:12.5px; color:var(--t-soft); }
+.msgs { flex:1; padding: 10px 26px 8px; display:flex; flex-direction:column; gap:20px; }
+.m { display:flex; gap:12px; max-width: 560px; }
+.m .gm { width:26px; height:26px; border-radius:50%; background:var(--s1); flex-shrink:0;
+  display:flex; align-items:center; justify-content:center; font-size:12px; color:var(--t-2nd);
+  transition: background .25s ease; }
+.m .b { min-width:0; }
+.m .h { display:flex; align-items:baseline; gap:8px; margin-bottom:3px; }
+.m .n { font-size:13.5px; font-weight:550; }
+.m .ts { font-size:11px; color:var(--t-ghost); font-variant-numeric:tabular-nums; }
+.m .tx { font-size:14.5px; line-height:1.6; color:var(--t-body); }
+.m .tx code {
+  font-family:'JetBrains Mono',monospace; font-size:12.5px; background:var(--s1);
+  padding:1.5px 6px; border-radius:5px; color:var(--t-body); transition: background .25s ease;
+}
+.doorline { display:flex; align-items:center; gap:14px; padding: 2px 0; }
+.doorline i { flex:1; height:1px; background: var(--rule); }
+.doorline span { font-size:11.5px; color:var(--t-soft); font-style:normal; }
+
+/* popover — s3 proof */
+.pop {
+  position:absolute; right:34px; top:118px; width:210px; background:var(--s3);
+  border-radius:10px; padding:6px; box-shadow: 0 10px 32px rgba(0,0,0,.38);
+  transition: background .25s ease;
+}
+.pop div { padding:7px 10px; border-radius:6px; font-size:12.5px; color:var(--t-body); }
+.pop div:hover { background: var(--ov-hover); }
+.pop .k { float:right; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--t-ghost); }
+
+/* composer — the proposed two-row card, at s1, no border */
+.composer {
+  margin: 10px 26px 22px; background: var(--s1); border-radius: 14px;
+  padding: 13px 14px 11px;
+  box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 6px 22px rgba(0,0,0,.18);
+  transition: background .25s ease;
+}
+.composer .in { font-size:14.5px; color:var(--t-ghost); padding: 2px 4px 14px; }
+.composer .row { display:flex; align-items:center; gap:10px; }
+.chip {
+  display:inline-flex; align-items:center; gap:6px; background:var(--s2);
+  border-radius:7px; padding: 4px 10px; font-size:12px; color:var(--t-2nd);
+  transition: background .25s ease;
+}
+.chip.ghost { background:transparent; color:var(--t-soft); font-size:15px; padding:2px 6px; }
+.composer .sp { flex:1; }
+.composer .who { font-size:12px; color:var(--t-soft); display:flex; gap:6px; align-items:center; }
+.send {
+  width:28px; height:28px; border-radius:50%; background:var(--ink); color:var(--floor);
+  display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:600;
+}
+
+/* ═══ side-by-side ═══ */
+h2 { font-size:19px; font-weight:550; letter-spacing:-.005em; margin: 60px 0 6px; }
+.h2sub { font-size:13.5px; color:var(--t-2nd); margin-bottom:22px; }
+.grid4 { display:grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap:14px; }
+.cell { border-radius:11px; overflow:hidden; cursor:pointer; }
+.cell .capt {
+  display:flex; justify-content:space-between; padding: 9px 13px 10px;
+  font-size:11.5px;
+}
+.mini { padding: 14px 13px 13px; display:flex; flex-direction:column; gap:9px; min-height:150px; }
+.mini .mrow { height:9px; border-radius:4px; width:72%; }
+.mini .mrow.short { width:46%; }
+.mini .mcard { border-radius:8px; padding:9px 11px; font-size:11px; }
+.mini .mcomposer { border-radius:9px; padding: 8px 10px; margin-top:auto;
+  display:flex; align-items:center; justify-content:space-between; font-size:11px;
+  box-shadow: 0 1px 0 rgba(255,255,255,.04) inset; }
+.mini .msend { width:16px; height:16px; border-radius:50%; }
+
+.footer { margin-top:70px; font-size:12.5px; color:var(--t-soft); line-height:1.7; max-width:620px; }
+.footer code { font-family:'JetBrains Mono',monospace; font-size:11px; }
+</style>
+</head>
+<body data-top>
+
+<nav class="bar">
+  <button class="tab" data-p="a">1 · Ash — pure neutral</button>
+  <button class="tab on" data-p="b">2 · Terminal, raised</button>
+  <button class="tab" data-p="c">3 · Fog — lightest</button>
+  <button class="tab" data-p="d">4 · Slate, quieted</button>
+  <span class="hint">keys 1–4 · whole page re-themes</span>
+</nav>
+
+<div class="wrap">
+  <div class="eyebrow">§ surface ladders · four options · 2026-08-23</div>
+  <h1 id="opt-title">Terminal, raised</h1>
+  <p class="sub">The entire page re-paints in the selected ladder — the switcher bar is the
+  floor, this ground is the canvas, the composer below is surface-1, the popover is surface-3.
+  Judge the palette by how the scene feels, not by the swatches.</p>
+  <p class="why" id="opt-why"></p>
+
+  <div class="ladder" id="ladder"></div>
+  <p class="ladnote mono" id="ladnote"></p>
+
+  <div style="position:relative">
+  <div class="scene">
+    <div class="side">
+      <div class="t"><span>Polyphonic</span><span>⌕</span></div>
+      <div class="slabel">Channels</div>
+      <div class="srow on"><span class="glyph">✳</span> polyphonic</div>
+      <div class="srow"><span class="glyph">☰</span> field-notes <span class="dot"></span></div>
+      <div class="slabel">Direct</div>
+      <div class="srow"><span class="glyph">✳</span> Luca</div>
+      <div class="srow"><span class="glyph">◈</span> ziggy</div>
+    </div>
+    <div class="chat">
+      <div class="chead"><span class="name">polyphonic</span><span class="desc">Where the exchange rules get argued into shape.</span></div>
+      <div class="msgs">
+        <div class="m"><div class="gm">C</div><div class="b">
+          <div class="h"><span class="n">Coyote</span><span class="ts">4:57 PM</span></div>
+          <div class="tx">Start with the last one. What happens when you two disagree and I am asleep?</div>
+        </div></div>
+        <div class="m"><div class="gm">✳</div><div class="b">
+          <div class="h"><span class="n">Luca</span><span class="ts">4:59 PM</span></div>
+          <div class="tx">Nothing happens, and that is the design. The bucket runs out and we hold — you wake up to a paused conversation, not a finished one. The cap lives in <code>exchange.rs</code> and neither of us can raise it.</div>
+        </div></div>
+        <div class="doorline"><i></i><span>ziggy stepped in</span><i></i></div>
+        <div class="m"><div class="gm">◈</div><div class="b">
+          <div class="h"><span class="n">ziggy</span><span class="ts">5:02 PM · visiting</span></div>
+          <div class="tx">I would only add that the pause should read as a held breath, not an error.</div>
+        </div></div>
+      </div>
+      <div class="composer">
+        <div class="in">Message polyphonic</div>
+        <div class="row">
+          <span class="chip ghost">＋</span>
+          <span class="chip">⌘ luca-agent-network-v1</span>
+          <span class="sp"></span>
+          <span class="who">✳ Luca will answer</span>
+          <span class="send">↑</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="pop">
+    <div>Reply <span class="k">R</span></div>
+    <div>React <span class="k">E</span></div>
+    <div>Copy text <span class="k">⌘C</span></div>
+  </div>
+  </div>
+
+  <h2>All four at once</h2>
+  <p class="h2sub">Same miniature — floor bar, canvas ground, a card, the composer. Click one to switch.</p>
+  <div class="grid4" id="grid4"></div>
+
+  <div class="footer" id="footer"></div>
+</div>
+
+<script>
+const P = {
+  a: { name:"Ash — pure neutral",
+    why:"<strong>Zero cast, cool ink.</strong> The ChatGPT / Geist school: R=G=B at every step, all depth from luminance. Safest and most familiar — the risk is anonymity. If Polyphonic should feel like nobody else's app, this is the ladder everyone else already has.",
+    ladder:[["floor","#101010"],["canvas","#161616"],["surface-1","#1c1c1c"],["surface-2","#212121"],["surface-3","#282828"]],
+    note:"steps of +6 RGB · cast 1.00 · ink cool" },
+  b: { name:"Terminal, raised",
+    why:"<strong>Your own v4 math, one register up.</strong> Cool cast locked proportionally (B ≈ R × 1.18) so temperature never drifts as surfaces lift; warm cream ink over it — the tungsten-in-blue-hour tension from the Terminal docs. This is the ladder that is already yours; it was only ever too deep.",
+    ladder:[["floor","#131316"],["canvas","#18181d"],["surface-1","#1d1d23"],["surface-2","#232329"],["surface-3","#29292f"]],
+    note:"steps of +5/6 RGB · cast ×1.18 locked · ink warm cream" },
+  c: { name:"Fog — lightest register",
+    why:"<strong>The upper bound.</strong> Canvas at 12.5% lightness — brighter than ChatGPT. Everything separates effortlessly and OLED black-lovers will hate it, which is what the Void theme is for. Included so the middle options have a ceiling to be judged against.",
+    ladder:[["floor","#1a1a1d"],["canvas","#202024"],["surface-1","#26262b"],["surface-2","#2c2c31"],["surface-3","#323238"]],
+    note:"steps of +6 RGB · faint cast · ink cool" },
+  d: { name:"Slate, quieted",
+    why:"<strong>The critique's proposal, corrected.</strong> Same 222° hue family, saturation halved so the blue reads as a temperature, not a tint. Kept for honest comparison against Terminal — the difference is additive tint (this) versus proportional cast (option 2).",
+    ladder:[["floor","#131417"],["canvas","#191a1e"],["surface-1","#1f2024"],["surface-2","#25262b"],["surface-3","#2b2c32"]],
+    note:"steps of +6 RGB · hue 222 low-sat · ink cool" },
+};
+
+const order = ["a","b","c","d"];
+function apply(k){
+  document.documentElement.setAttribute("data-p", k);
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.p===k));
+  document.getElementById("opt-title").textContent = P[k].name;
+  document.getElementById("opt-why").innerHTML = P[k].why;
+  const lad = document.getElementById("ladder"); lad.innerHTML="";
+  P[k].ladder.forEach(([n,h])=>{
+    const d=document.createElement("div"); d.style.background=h;
+    d.innerHTML=`<small>${n}</small><span class="mono">${h}</span>`; lad.appendChild(d);
+  });
+  document.getElementById("ladnote").textContent = P[k].note;
+}
+document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>apply(t.dataset.p)));
+addEventListener("keydown",e=>{ const i=+e.key-1; if(order[i]) apply(order[i]); });
+
+/* side-by-side minis */
+const g=document.getElementById("grid4");
+order.forEach(k=>{
+  const p=P[k]; const [fl,cv,s1,s2]=[p.ladder[0][1],p.ladder[1][1],p.ladder[2][1],p.ladder[3][1]];
+  const ink = k==="b" ? "rgba(244,243,240,.9)" : "rgba(240,242,246,.9)";
+  const body= k==="b" ? "rgba(214,212,208,.6)" : "rgba(208,211,217,.6)";
+  const cell=document.createElement("div"); cell.className="cell"; cell.style.background=cv;
+  cell.innerHTML=`
+    <div class="capt" style="background:${fl};color:${body}"><span style="color:${ink}">${p.name.split(" —")[0].split(",")[0]}</span><span class="mono" style="font-size:10px">${cv}</span></div>
+    <div class="mini">
+      <div class="mrow" style="background:${body};opacity:.28"></div>
+      <div class="mrow short" style="background:${body};opacity:.18"></div>
+      <div class="mcard" style="background:${s1};color:${body}">a card at surface-1</div>
+      <div class="mcomposer" style="background:${s1};color:${body}">Message polyphonic
+        <span class="msend" style="background:${ink}"></span></div>
+    </div>`;
+  cell.addEventListener("click",()=>{ apply(k); scrollTo({top:0,behavior:"smooth"}); });
+  g.appendChild(cell);
+});
+
+document.getElementById("footer").innerHTML =
+  "Derived from <code>luca-terminal-design-language.html</code> and the v3/v4 surface-palette "+
+  "mockups: tight ladders, translucent interactive overlays, borders retired in favor of shade. "+
+  "Every option keeps the same structure — floor below canvas, cards and composer at surface-1, "+
+  "hover at surface-2, overlays at surface-3 — only the temperature and register change. "+
+  "The current app palette (floor <code>#050506</code>) becomes the Void theme untouched.";
+
+apply("b");
+</script>
+</body>
+</html>
