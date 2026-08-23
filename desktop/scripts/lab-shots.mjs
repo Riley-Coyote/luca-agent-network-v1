@@ -402,7 +402,7 @@ for (const theme of themes) {
   });
 
   // The other half of the drawer: a 1:1 with a resident turns it into their
-  // card — model selector, instructions, last handoff, open-agent. Capture it
+  // card — runtime block (read-only since 0c1af5b9), instructions, last handoff, open-agent. Capture it
   // and assert the controls are still there, so a restyle cannot quietly drop
   // one of them. Done before the assertions so they can read it.
   const resident = {};
@@ -415,7 +415,7 @@ for (const theme of themes) {
     });
     await page.waitForTimeout(400);
     resident.fromRoomTab = await page
-      .locator('[data-testid="resident-drawer-model-trigger"]')
+      .locator('[data-testid="resident-drawer-runtime-metadata"]')
       .count();
     const tabBox = await page
       .locator('[data-testid="conversation-context-panel"]')
@@ -455,7 +455,7 @@ for (const theme of themes) {
     await page.waitForTimeout(500);
     resident.present = true;
     resident.model = await page
-      .locator('[data-testid="resident-drawer-model-trigger"]')
+      .locator('[data-testid="resident-drawer-runtime-metadata"]')
       .count();
     // Section headings, not the filled-in bodies: a resident with no
     // instructions yet still has to show the section (and its Write link).
@@ -546,14 +546,14 @@ for (const theme of themes) {
     `(${checks.monoInDrawer} nodes)`,
   );
   expect(
-    "an agent tab opens the same resident card",
+    "an agent tab opens the same resident card (runtime block)",
     resident.fromRoomTab === 1,
     `(${resident.fromRoomTab})`,
   );
   expect("resident drawer renders in a 1:1", resident.present);
   if (resident.present) {
     expect(
-      "resident drawer keeps the model selector",
+      "resident drawer keeps the runtime block",
       resident.model === 1,
       `(${resident.model})`,
     );
