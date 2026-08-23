@@ -649,6 +649,61 @@ test("sends the first message from the new direct message composer", async ({
   await expect(page.getByTestId("message-timeline")).toContainText(message);
 });
 
+test("keeps a directed resident mention exact on the first group message", async ({
+  page,
+}) => {
+  const claude = TEST_IDENTITIES.alice;
+  const codex = TEST_IDENTITIES.charlie;
+  await installMockBridge(page, {
+    managedAgents: [
+      { name: "Claude Code", pubkey: claude.pubkey, status: "running" },
+      { name: "Codex", pubkey: codex.pubkey, status: "running" },
+    ],
+    searchProfiles: [
+      { displayName: "Claude Code", isAgent: true, pubkey: claude.pubkey },
+      { displayName: "Codex", isAgent: true, pubkey: codex.pubkey },
+    ],
+  });
+  await page.goto("/?e2e=mock");
+  await expect(page.getByTestId("new-message-page")).toBeVisible();
+
+  for (const { query, resident } of [
+    { query: "Claude", resident: claude },
+    { query: "Codex", resident: codex },
+  ]) {
+    await page.getByTestId("new-dm-search").fill(query);
+    await page.getByTestId(`new-dm-result-${resident.pubkey}`).click();
+  }
+
+  const input = page.getByTestId("message-input");
+  await input.fill("@Claude");
+  await expect(
+    page
+      .getByTestId("mention-autocomplete")
+      .locator("button", { hasText: "Claude Code" }),
+  ).toBeVisible();
+  await input.press("Enter");
+  await page.keyboard.type(" handle this turn alone");
+  await expect(
+    input.locator(".agent-mention-highlight", { hasText: "Claude Code" }),
+  ).toBeVisible();
+
+  await page.getByTestId("send-message").click();
+  await expect(page.getByTestId("chat-title")).toContainText("Claude Code");
+  await expect(page.getByTestId("chat-title")).toContainText("Codex");
+
+  const directSend = (await readCommandPayloadLog(page))
+    .filter((entry) => entry.command === "send_channel_message")
+    .at(-1)?.payload;
+  expect(directSend).toMatchObject({
+    managedAudience: {
+      mode: "directed",
+      resident_pubkeys: [claude.pubkey],
+    },
+    visitMentionPubkeys: [claude.pubkey],
+  });
+});
+
 test("creates the DM before preparing a persona mention", async ({ page }) => {
   await installMockBridge(page, {
     activePersonaIds: ["builtin:fizz"],

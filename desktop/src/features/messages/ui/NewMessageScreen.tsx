@@ -41,6 +41,7 @@ import { Skeleton } from "@/shared/ui/skeleton";
 import { MessageComposer } from "./MessageComposer";
 import { DirectRuntimeContactRow } from "./DirectRuntimeContactRow";
 import { NewMessageResultRow } from "./NewMessageResultRow";
+import type { MessageComposerSendContext } from "./messageComposerTypes";
 import {
   formatRecipientName,
   useNewMessageRecipients,
@@ -57,10 +58,23 @@ export function NewMessageScreen() {
   const currentPubkey = identityQuery.data?.pubkey;
   const runtimesQuery = useAcpRuntimesQuery();
   const managedAgentsQuery = useManagedAgentsQuery();
+  const managedResidentPubkeys = React.useMemo(
+    () =>
+      new Set(
+        (managedAgentsQuery.data ?? []).map((agent) =>
+          normalizePubkey(agent.pubkey),
+        ),
+      ),
+    [managedAgentsQuery.data],
+  );
   const startManagedAgentMutation = useStartManagedAgentMutation();
   const openDmMutation = useOpenDmMutation();
   const upsertCachedChannel = useUpsertCachedChannel();
-  const sendMessageMutation = useSendMessageMutation(null, identityQuery.data);
+  const sendMessageMutation = useSendMessageMutation(
+    null,
+    identityQuery.data,
+    managedResidentPubkeys,
+  );
   const { goChannel, goSettings } = useAppNavigation();
 
   const [isRecipientPickerOpen, setIsRecipientPickerOpen] =
@@ -376,6 +390,8 @@ export function NewMessageScreen() {
       mentionPubkeys: string[],
       mediaTags?: string[][],
       targetChannelId?: string | null,
+      _threadContext?: MessageComposerSendContext | null,
+      explicitMentionPubkeys?: string[],
     ) => {
       const preparedDirectMessage = preparedDirectMessageRef.current;
       const directMessage =
@@ -397,6 +413,7 @@ export function NewMessageScreen() {
           targetChannel: directMessage,
           content,
           mentionPubkeys,
+          explicitMentionPubkeys,
           mediaTags,
         });
       } catch (error) {
