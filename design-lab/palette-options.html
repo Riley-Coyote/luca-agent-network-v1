@@ -10,35 +10,19 @@
 <style>
 *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 
-/* ═══ FOUR NEUTRAL LADDERS ═══
-   Riley picked Ash and asked for richer neutrals around it — surfaces that
-   never blend, depth from light and shadow so subtle you only notice its
-   absence. Switch with the tabs or keys 1–4.
-   1 · Ash          — the pick, unchanged. +6 steps, quiet craft.
-   2 · Ash, carved  — same neutral family, wider steps: nothing ever blends.
-   3 · Studio       — same family, depth from a light model: whisper
-                      gradients within surfaces, shadows tiered by elevation.
-   4 · Ash, cream   — Ash's exact surfaces, the Terminal docs' warm cream
-                      ink over them. Richness from ink temperature alone.  */
+/* ═══ ROUND THREE — FOUR NEUTRAL WORLDS ═══
+   Carved won round two as structure. These are genuinely different rooms
+   built on the same philosophy — pure neutral, no cast, depth earned.
+   1 · Carved       — the anchor. Wide steps, quiet craft, cool ink.
+   2 · Chiaroscuro  — darker ground, surfaces leap much higher: bright
+                      objects in a dim room. The dramatic reading.
+   3 · Daylight     — the whole register lifted; brighter than ChatGPT.
+                      The airy reading.
+   4 · Composite    — the proposal: carved's steps + cream ink + a
+                      restrained studio light. Riley's two favorites, married. */
 
 :root, :root[data-p="a"] {
-  /* 1 · Ash — the pick, unchanged */
-  --floor:   #101010;  --canvas:  #161616;  --s1: #1c1c1c;
-  --s2:      #212121;  --s3:      #282828;
-  --grad-s1: var(--s1);
-  --sh-raise:   0 1px 0 rgba(255,255,255,.04) inset, 0 6px 22px rgba(0,0,0,.18);
-  --sh-overlay: 0 10px 32px rgba(0,0,0,.38);
-  --ink:     rgba(240,241,244,.93);
-  --t-body:  rgba(208,210,214,.74);
-  --t-2nd:   rgba(188,190,195,.56);
-  --t-soft:  rgba(158,160,166,.42);
-  --t-ghost: rgba(132,134,140,.26);
-  --ov-hover: rgba(235,237,240,.04);
-  --ov-sel:   rgba(235,237,240,.09);
-  --rule:     rgba(235,237,240,.07);
-}
-:root[data-p="b"] {
-  /* 2 · Ash, carved — wider steps, surfaces unmistakable */
+  /* 1 · Carved — the anchor */
   --floor:   #0e0e0e;  --canvas:  #171717;  --s1: #202020;
   --s2:      #282828;  --s3:      #313131;
   --grad-s1: var(--s1);
@@ -53,38 +37,56 @@
   --ov-sel:   rgba(235,237,240,.10);
   --rule:     rgba(235,237,240,.07);
 }
-:root[data-p="c"] {
-  /* 3 · Studio — Ash-family base, depth from the light model:
-     every raised surface is lit faintly from above (a whisper gradient,
-     ~2% within the surface), and shadows are tiered by elevation. */
-  --floor:   #111111;  --canvas:  #191919;  --s1: #212121;
-  --s2:      #272727;  --s3:      #2d2d2d;
-  --grad-s1: linear-gradient(180deg, #242424, #1f1f1f);
-  --sh-raise:   0 1px 0 rgba(255,255,255,.06) inset, 0 2px 6px rgba(0,0,0,.16), 0 10px 28px rgba(0,0,0,.22);
-  --sh-overlay: 0 1px 0 rgba(255,255,255,.05) inset, 0 4px 10px rgba(0,0,0,.24), 0 18px 48px rgba(0,0,0,.44);
+:root[data-p="b"] {
+  /* 2 · Chiaroscuro — dim room, bright objects. The spread does the drama:
+     ground stays low, everything raised leaps +17 or more. */
+  --floor:   #0c0c0c;  --canvas:  #131313;  --s1: #242424;
+  --s2:      #2b2b2b;  --s3:      #383838;
+  --grad-s1: var(--s1);
+  --sh-raise:   0 1px 0 rgba(255,255,255,.05) inset, 0 8px 26px rgba(0,0,0,.28);
+  --sh-overlay: 0 16px 44px rgba(0,0,0,.5);
   --ink:     rgba(240,241,244,.93);
   --t-body:  rgba(208,210,214,.74);
   --t-2nd:   rgba(188,190,195,.56);
   --t-soft:  rgba(158,160,166,.42);
   --t-ghost: rgba(132,134,140,.26);
-  --ov-hover: rgba(235,237,240,.04);
-  --ov-sel:   rgba(235,237,240,.09);
+  --ov-hover: rgba(235,237,240,.05);
+  --ov-sel:   rgba(235,237,240,.11);
   --rule:     rgba(235,237,240,.07);
 }
-:root[data-p="d"] {
-  /* 4 · Ash, cream — Ash's exact surfaces, warm cream ink over them */
-  --floor:   #101010;  --canvas:  #161616;  --s1: #1c1c1c;
-  --s2:      #212121;  --s3:      #282828;
+:root[data-p="c"] {
+  /* 3 · Daylight — the register lifted whole. Brighter than ChatGPT;
+     shadows nearly retire because the steps carry everything. */
+  --floor:   #1c1c1c;  --canvas:  #242424;  --s1: #2d2d2d;
+  --s2:      #343434;  --s3:      #3c3c3c;
   --grad-s1: var(--s1);
-  --sh-raise:   0 1px 0 rgba(255,255,255,.04) inset, 0 6px 22px rgba(0,0,0,.18);
-  --sh-overlay: 0 10px 32px rgba(0,0,0,.38);
+  --sh-raise:   0 1px 0 rgba(255,255,255,.05) inset, 0 4px 16px rgba(0,0,0,.14);
+  --sh-overlay: 0 10px 30px rgba(0,0,0,.32);
+  --ink:     rgba(242,243,246,.94);
+  --t-body:  rgba(212,214,218,.78);
+  --t-2nd:   rgba(192,194,199,.60);
+  --t-soft:  rgba(164,166,172,.46);
+  --t-ghost: rgba(138,140,146,.30);
+  --ov-hover: rgba(238,240,244,.05);
+  --ov-sel:   rgba(238,240,244,.11);
+  --rule:     rgba(238,240,244,.08);
+}
+:root[data-p="d"] {
+  /* 4 · Composite — the proposal. Carved's exact surfaces; the Terminal
+     docs' cream ink; studio's light dialed to a whisper (gradient inside
+     raised surfaces, shadows tiered but restrained). */
+  --floor:   #0e0e0e;  --canvas:  #171717;  --s1: #202020;
+  --s2:      #282828;  --s3:      #313131;
+  --grad-s1: linear-gradient(180deg, #222222, #1f1f1f);
+  --sh-raise:   0 1px 0 rgba(255,255,255,.055) inset, 0 2px 6px rgba(0,0,0,.14), 0 8px 24px rgba(0,0,0,.20);
+  --sh-overlay: 0 1px 0 rgba(255,255,255,.05) inset, 0 4px 10px rgba(0,0,0,.22), 0 16px 42px rgba(0,0,0,.42);
   --ink:     rgba(244,243,240,.93);
   --t-body:  rgba(214,212,208,.74);
   --t-2nd:   rgba(196,194,190,.56);
   --t-soft:  rgba(165,163,158,.42);
   --t-ghost: rgba(140,138,132,.26);
-  --ov-hover: rgba(220,219,216,.04);
-  --ov-sel:   rgba(220,219,216,.09);
+  --ov-hover: rgba(220,219,216,.045);
+  --ov-sel:   rgba(220,219,216,.10);
   --rule:     rgba(220,219,216,.07);
 }
 
@@ -249,16 +251,16 @@ h2 { font-size:19px; font-weight:550; letter-spacing:-.005em; margin: 60px 0 6px
 <body data-top>
 
 <nav class="bar">
-  <button class="tab on" data-p="a">1 · Ash</button>
-  <button class="tab" data-p="b">2 · Ash, carved</button>
-  <button class="tab" data-p="c">3 · Studio</button>
-  <button class="tab" data-p="d">4 · Ash, cream</button>
+  <button class="tab on" data-p="a">1 · Carved</button>
+  <button class="tab" data-p="b">2 · Chiaroscuro</button>
+  <button class="tab" data-p="c">3 · Daylight</button>
+  <button class="tab" data-p="d">4 · Composite</button>
   <span class="hint">keys 1–4 · whole page re-themes</span>
 </nav>
 
 <div class="wrap">
   <div class="eyebrow">§ surface ladders · four options · 2026-08-23</div>
-  <h1 id="opt-title">Ash — the pick</h1>
+  <h1 id="opt-title">Carved — the anchor</h1>
   <p class="sub">The entire page re-paints in the selected ladder — the switcher bar is the
   floor, this ground is the canvas, the composer below is surface-1, the popover is surface-3.
   Judge the palette by how the scene feels, not by the swatches.</p>
@@ -323,22 +325,22 @@ h2 { font-size:19px; font-weight:550; letter-spacing:-.005em; margin: 60px 0 6px
 
 <script>
 const P = {
-  a: { name:"Ash — the pick",
-    why:"<strong>Unchanged from round one.</strong> Pure neutral, +6 steps, quiet craft. The baseline the other three are judged against — flip away and back to feel what each variation adds.",
-    ladder:[["floor","#101010"],["canvas","#161616"],["surface-1","#1c1c1c"],["surface-2","#212121"],["surface-3","#282828"]],
-    note:"steps of +6 RGB · cast 1.00 · ink cool · craft quiet" },
-  b: { name:"Ash, carved",
-    why:"<strong>Wider steps — nothing ever blends.</strong> Same neutral family, but every step is +8/9 RGB, so sidebar, ground, card and overlay are unmistakably four different things at any screen brightness. The richness is contrast doing structure's job.",
+  a: { name:"Carved — the anchor",
+    why:"<strong>Round two's winner, unchanged.</strong> Pure neutral, +9 steps, quiet craft, cool ink. Everything else in this round is judged against it.",
     ladder:[["floor","#0e0e0e"],["canvas","#171717"],["surface-1","#202020"],["surface-2","#282828"],["surface-3","#313131"]],
-    note:"steps of +9 RGB · cast 1.00 · ink cool · craft quiet" },
-  c: { name:"Studio",
-    why:"<strong>Depth from light, not steps.</strong> Ash-family surfaces, but every raised object is lit faintly from above — a ~2% gradient within the surface, a brighter lit edge, and shadows tiered by elevation (cards throw close shadows, overlays throw deep ones). The option you asked for: light you don't notice until it's gone.",
-    ladder:[["floor","#111111"],["canvas","#191919"],["surface-1","#212121"],["surface-2","#272727"],["surface-3","#2d2d2d"]],
-    note:"steps of +8 RGB · cast 1.00 · ink cool · craft: gradients + tiered shadows + lit edges" },
-  d: { name:"Ash, cream",
-    why:"<strong>Ash's exact surfaces, warm cream ink.</strong> The one move kept from your Terminal docs: every ground stays perfectly neutral, and all the warmth lives in the text — tungsten light on grey stone. Richness from ink temperature alone; flip 1↔4 to feel it.",
-    ladder:[["floor","#101010"],["canvas","#161616"],["surface-1","#1c1c1c"],["surface-2","#212121"],["surface-3","#282828"]],
-    note:"steps of +6 RGB · cast 1.00 · ink warm cream · craft quiet" },
+    note:"steps of +9 RGB · ink cool · craft quiet" },
+  b: { name:"Chiaroscuro",
+    why:"<strong>A dim room with bright objects.</strong> The ground stays low and everything raised leaps — canvas to card is +17, canvas to popover +37. The composer and cards genuinely glow out of the dark. The most dramatic neutral that is still calm.",
+    ladder:[["floor","#0c0c0c"],["canvas","#131313"],["surface-1","#242424"],["surface-2","#2b2b2b"],["surface-3","#383838"]],
+    note:"ground low, raised leaps +17…+37 · ink cool · deep shadows" },
+  c: { name:"Daylight",
+    why:"<strong>The whole register lifted.</strong> Canvas at 14% — brighter than ChatGPT. Surfaces separate effortlessly, shadows nearly retire, ink relaxes because the ground carries more light. The airy reading of the same philosophy; the furthest from Void.",
+    ladder:[["floor","#1c1c1c"],["canvas","#242424"],["surface-1","#2d2d2d"],["surface-2","#343434"],["surface-3","#3c3c3c"]],
+    note:"steps of +8 RGB · ink cool, relaxed · shadows light" },
+  d: { name:"Composite — the proposal",
+    why:"<strong>Your two favorites, married.</strong> Carved's exact surfaces and steps; cream ink over them (all the warmth in the text, none on any surface); and studio's light at a whisper — a ~1% gradient inside raised objects, shadows tiered by elevation. Flip 1↔4: same room, warmer light, finer depth.",
+    ladder:[["floor","#0e0e0e"],["canvas","#171717"],["surface-1","#202020"],["surface-2","#282828"],["surface-3","#313131"]],
+    note:"carved steps · ink warm cream · studio light at whisper strength" },
 };
 
 const order = ["a","b","c","d"];
@@ -378,8 +380,9 @@ order.forEach(k=>{
 });
 
 document.getElementById("footer").innerHTML =
-  "Round two — neutrals only, per Riley: keep Ash, make it rich without color. The axes "+
-  "explored: step width (carved), a light model (studio), and ink temperature (cream). "+
+  "Round three — four genuinely different rooms in the Ash philosophy. Carved anchors; "+
+  "chiaroscuro spreads the ladder, daylight lifts it whole, and the composite marries "+
+  "Riley\u2019s round-two favorites (carved steps + cream ink) with a whisper of studio light. "+
   "Every option keeps the same structure — floor below canvas, cards and composer at surface-1, "+
   "hover at surface-2, overlays at surface-3 — only the temperature and register change. "+
   "The current app palette (floor <code>#050506</code>) becomes the Void theme untouched.";
