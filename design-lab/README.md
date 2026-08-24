@@ -41,12 +41,13 @@ fast-forward it and rebuild.
   and `typography.css`, and its identity marks come from the real
   `glyph.ts`, so only what it *adds* is new — a card that splits, a card
   that holds a widget, cards that tile, and a card that leaves the floor.
-  Both palettes are real: Slate (the linear-dose default) and Paper, copied
-  from `adaptive-theme.ts`. The Glass toggle expresses the same ladder as a
-  tint over the desktop — one material for the floor, white-alpha lifts for
-  every rung above it, and the two quietest ink roles re-solved so AA holds.
-  Scenes: `?theme=paper`, `?glass=off`, `?tile=1`, `?place=1`, `?lift=1`,
-  `?laws=1`. Brief: `docs/luca/EXTENSIONS.md`.
+  Three real palettes — Slate, Inverse and Paper, copied from
+  `adaptive-theme.ts`. Glass changes the FLOOR ONLY: cards stay opaque and on
+  the ladder, and the floor takes the desktop's hue while keeping its own
+  luminance (`mix-blend-mode: luminosity`, which is what vibrancy is), so every
+  contrast ratio is identical to the opaque build no matter what the wallpaper
+  is. Scenes: `?theme=slate|inverse|paper`, `?glass=off`, `?tile=1`,
+  `?place=1`, `?lift=1`, `?laws=1`. Brief: `docs/luca/EXTENSIONS.md`.
 - `visit-variants.html` (this folder) — the structural options explored for
   the visit design before the threshold construction won.
 

@@ -45,6 +45,20 @@
   --lift-shadow:0 34px 84px rgb(0 0 0/.58);
   color-scheme:dark;
 }
+[data-theme="inverse"]{
+  /* INVERSE — the Slate ladder with rail and content swapped, verbatim from
+     adaptive-theme.ts: a light rail #1b1c1d over a deep ground #0d0e0f.
+     Same lean (B = R+2, G = R+1), same spans. Riley, 2026-08-24. */
+  --floor:#1b1c1d; --navigator:#1b1c1d; --surface:#0d0e0f; --raised:#1d1e1f;
+  --hover:#252627; --recess:#070809; --border:#2a2c2f; --border-strong:#35373a;
+  --ink:#f4f3f0; --ink-muted:#c4c3bf; --ink-faint:#97968f; --ink-ghost:#706f6e;
+  --wash:rgb(255 255 255/.05); --wash-2:rgb(255 255 255/.085);
+  --plate:rgb(244 243 240/.04); --plate-hover:rgb(244 243 240/.07);
+  --lit:inset 0 1px 0 rgb(255 255 255/.06);
+  --app-shadow:0 40px 120px rgb(0 0 0/.62);
+  --lift-shadow:0 34px 84px rgb(0 0 0/.58);
+  color-scheme:dark;
+}
 [data-theme="paper"]{
   /* PAPER — the authored light palette, verbatim from adaptive-theme.ts.
      Warm ground (hue 38), cool ink (hue 222), contrast-matched to Void. */
@@ -75,48 +89,44 @@
   --card-border:var(--border);
   --blur-floor:none; --blur-card:none;
 }
-/* ONE MATERIAL, THEN LIFTS.
-   The first pass gave each rung its own tint over the desktop, and measurement
-   killed it: over a bright wallpaper the dark card composited LIGHTER than the
-   dark floor and the ladder inverted. So only the floor is a material; every
-   rung above it is a WHITE-ALPHA lift on that material — the same rule the
-   shipping CSS already states for hover and selection, extended to elevation.
-   Monotonic by construction, whatever is on the desktop.
+/* GLASS IS THE FLOOR. NOTHING ELSE.
+   The floor is the one surface that becomes a material — the desktop reads
+   through it, in both modes, as a permanent property of the shell rather than
+   a theme. Cards stay exactly as they ship: opaque, on the ladder, elevation
+   by lightness.
 
-   The brightness clamp on the backdrop is the second half: without it a white
-   wallpaper drags the whole ground up and the faintest ink role falls under
-   the 4.5:1 AA floor. Clamped, the ground stays near its token value and the
-   desktop contributes movement and hue rather than luminance. */
-[data-glass="on"]{
-  --floor-bg:color-mix(in srgb, var(--floor) 74%, transparent);
-  --card-bg:rgb(255 255 255/.05);
-  --raised-bg:rgb(255 255 255/.105);
-  --recess-bg:rgb(0 0 0/.16);
-  --card-border:var(--border-strong);
-  --blur-floor:blur(44px) saturate(180%) brightness(.62);
-  --blur-card:none;
-  /* THE INK IS RE-SOLVED, NOT THE GLASS.
-     The ladder defines each ink role by the contrast it holds against its own
-     surface, so when the ground moves the roles move with it. Muting the glass
-     until the old values passed would have thrown away the effect; lifting the
-     two quietest roles keeps AA (>=4.5:1 for anything text-bearing, >=3:1 for
-     focus) and lets the desktop actually read through. Measured worst case is
-     a pure-white wallpaper. */
-  --ink-faint:#aaa8a1;
-  --ink-ghost:#8a8881;
-}
-[data-theme="paper"][data-glass="on"]{
-  --floor-bg:color-mix(in srgb, var(--floor) 78%, transparent);
-  --card-bg:rgb(255 255 255/.62);
-  --raised-bg:rgb(255 255 255/.9);
-  --recess-bg:rgb(21 22 27/.045);
-  --blur-floor:blur(44px) saturate(150%) brightness(1.16);
-  /* Paper's ground darkens over a dark wallpaper, so its quiet roles go the
-     other way — darker, same rule. */
-  --ink-faint:#54586380;
-  --ink-faint:#4f535e;
-  --ink-ghost:#6e727c;
-}
+   THIS IS WHAT DECIDES THE DARK PALETTE. A translucent floor drifts with the
+   wallpaper; an opaque card does not. In Slate the card is only fourteen
+   levels above the floor, so a bright desktop lifts the floor past the card
+   and the ladder inverts — measured, not guessed. INVERSE is the ladder built
+   for this: a light rail over a deep conversation ground, already in
+   adaptive-theme.ts. Its floor is the LIGHT end, so the wallpaper pushes it
+   toward the card's own direction and the order can never break. It is also
+   exactly the structure of the references — a bright glass rail beside a dark
+   reading pane. Paper is the same shape in daylight. */
+/* HOW THE FLOOR IS A MATERIAL WITHOUT COSTING ANYTHING.
+   Alpha-based glass trades luminance for colour: the desktop lightens or
+   darkens the ground, which is what broke the ladder on Slate and what pulled
+   the rail's own text under AA at both extremes (measured: 1.62:1 on a white
+   desktop, 2.04:1 on a black one).
+
+   So the floor does not blend by alpha. It takes the desktop's HUE AND
+   SATURATION and keeps its OWN LUMINANCE — `mix-blend-mode: luminosity` over
+   a blurred, heavily saturated copy of the wallpaper. That is what vibrancy
+   actually is, and it means the floor's lightness is exactly its token value
+   no matter what is behind it: the ladder cannot invert, every contrast ratio
+   is identical to the opaque build, and the colour still moves with the
+   desktop. In the app this is the same result `window-vibrancy`'s
+   NSVisualEffectView gives for free.
+
+   `--vib` is how much colour is allowed through. */
+:root{ --vib:0; }
+[data-glass="on"]{ --vib:1; }
+.vib{position:absolute;inset:0;z-index:0;pointer-events:none;opacity:var(--vib);
+  transition:opacity .3s var(--ease)}
+.vib::before{content:"";position:absolute;inset:-90px;filter:blur(60px) saturate(260%)}
+.vib::after{content:"";position:absolute;inset:0;background:var(--floor);
+  mix-blend-mode:luminosity}
 
 :root{
   --mn-card-lip:8px; --mn-header-height:56px; --mn-reading-measure:45rem;
@@ -151,6 +161,22 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
     radial-gradient(60% 50% at 40% -10%, rgba(232,86,132,.55) 0 24%, transparent 60%),
     linear-gradient(162deg,#3a2416,#2a1c3c 44%,#12224e 74%,#0a1330);
 }
+.vib::before{
+  background:
+    radial-gradient(78% 60% at 88% -6%, rgba(255,146,74,.78) 0 26%, transparent 62%),
+    radial-gradient(70% 60% at 2% 100%, rgba(126,96,232,.72) 0 26%, transparent 64%),
+    radial-gradient(120% 92% at 56% 106%, rgba(38,96,224,.80) 0 30%, transparent 74%),
+    radial-gradient(60% 50% at 40% -10%, rgba(232,86,132,.55) 0 24%, transparent 60%),
+    linear-gradient(162deg,#3a2416,#2a1c3c 44%,#12224e 74%,#0a1330);
+}
+[data-theme="paper"] .vib::before{
+  background:
+    radial-gradient(78% 60% at 88% -6%, rgba(255,192,122,.92) 0 26%, transparent 62%),
+    radial-gradient(70% 60% at 2% 100%, rgba(186,168,244,.86) 0 26%, transparent 64%),
+    radial-gradient(120% 92% at 56% 106%, rgba(128,172,240,.86) 0 30%, transparent 74%),
+    radial-gradient(60% 50% at 40% -10%, rgba(255,158,186,.62) 0 24%, transparent 60%),
+    linear-gradient(162deg,#fbeadb,#efe6f6 44%,#dce7fa 74%,#cbd9f4);
+}
 [data-theme="paper"] .desk{
   background:
     radial-gradient(78% 60% at 88% -6%, rgba(255,192,122,.92) 0 26%, transparent 62%),
@@ -183,13 +209,14 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .app{
   position:relative;width:min(1440px,100%);height:min(900px,100%);max-height:100%;
   display:flex;border-radius:12px;overflow:hidden;
-  background:var(--floor-bg);            /* THE FLOOR */
-  backdrop-filter:var(--blur-floor);-webkit-backdrop-filter:var(--blur-floor);
+  background:var(--floor);               /* THE FLOOR */
+  isolation:isolate;
   box-shadow:var(--app-shadow);
 }
 
 /* ── the rail sits ON the floor — it is not a card ────────────── */
 .rail{
+  position:relative;z-index:1;
   width:264px;flex:none;display:flex;flex-direction:column;
   padding:0 8px 10px;background:transparent;
 }
@@ -218,6 +245,7 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 
 /* ── the floor's working area: cards, separated by the lip ────── */
 .floor{
+  position:relative;z-index:1;
   flex:1;min-width:0;display:flex;gap:var(--mn-card-lip);
   padding:var(--mn-card-lip) var(--mn-card-lip) var(--mn-card-lip) 1px;
 }
@@ -445,7 +473,9 @@ body.laws .lifted{box-shadow:0 34px 84px rgb(0 0 0 / .58), inset 0 0 0 1.5px rgb
 <div class="lab">
   <b>Study</b>
   <button id="t-glass" class="on">Glass</button>
-  <button id="t-theme">Paper</button>
+  <button id="t-slate" class="on">Slate</button>
+  <button id="t-inverse">Inverse</button>
+  <button id="t-paper">Paper</button>
   <button id="t-split" class="on">Split drawer</button>
   <button id="t-tile">Tile two chats</button>
   <button id="t-place">Vektor's place</button>
@@ -455,6 +485,7 @@ body.laws .lifted{box-shadow:0 34px 84px rgb(0 0 0 / .58), inset 0 0 0 1.5px rgb
 
 <main class="stage">
 <section class="app" id="app">
+  <div class="vib" aria-hidden="true"></div>
 
   <!-- ── the rail, directly on the floor ── -->
   <aside class="rail" data-law="floor">
@@ -839,12 +870,12 @@ glassBtn.onclick=()=>{
   glassBtn.classList.toggle("on",on);
   say(on?"Glass — every rung of the ladder, as a tint over the desktop":"Opaque — the ladder as it ships today");
 };
-const themeBtn=document.getElementById("t-theme");
-themeBtn.onclick=()=>{
-  const paper=document.documentElement.dataset.theme!=="paper";
-  document.documentElement.dataset.theme=paper?"paper":"slate";
-  themeBtn.textContent=paper?"Slate":"Paper";
-};
+const themes={slate:document.getElementById("t-slate"),inverse:document.getElementById("t-inverse"),paper:document.getElementById("t-paper")};
+function setTheme(name){
+  document.documentElement.dataset.theme=name;
+  for(const k in themes) themes[k].classList.toggle("on",k===name);
+}
+for(const k in themes) themes[k].onclick=()=>setTheme(k);
 
 const lawsBtn=document.getElementById("t-laws");
 lawsBtn.onclick=()=>{document.body.classList.toggle("laws");lawsBtn.classList.toggle("on",document.body.classList.contains("laws"))};
@@ -895,7 +926,7 @@ document.documentElement.dataset.theme="slate";
 
 const q=new URLSearchParams(location.search);
 if(q.get("glass")==="off") glassBtn.click();
-if(q.get("theme")==="paper") themeBtn.click();
+if(["slate","inverse","paper"].includes(q.get("theme"))) setTheme(q.get("theme"));
 if(q.get("tile")==="1") tileBtn.click();
 if(q.get("place")==="1") showPlace(true);
 if(q.get("lift")==="1") setLift(true);
