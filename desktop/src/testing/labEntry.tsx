@@ -229,20 +229,25 @@ async function buildScene() {
 
   for (const key of ROOM_ORDER) {
     const room = LAB_ROOMS[key];
-    await withPinnedUuid(room.id, () =>
-      invokeMock("create_channel", {
-        channelType: "stream",
-        description: room.description,
-        name: room.name,
-        visibility: "open",
-      }),
-    );
+    // Rooms with residents are GROUP CONVERSATIONS (channelType "dm"), the
+    // way the real product creates them — this is what selects the quiet
+    // direct-conversation furniture (compact hover bubble, no quick-react
+    // row). Only a room with no residents falls back to a plain channel;
+    // the scene ran everything as "stream" channels for a while and the lab
+    // wore channel furniture the product never shows.
     if (room.residents.length > 0) {
-      await invokeMock("add_channel_members", {
-        channelId: room.id,
-        pubkeys: room.residents,
-        role: "bot",
-      });
+      await withPinnedUuid(room.id, () =>
+        invokeMock("open_dm", { pubkeys: room.residents }),
+      );
+    } else {
+      await withPinnedUuid(room.id, () =>
+        invokeMock("create_channel", {
+          channelType: "stream",
+          description: room.description,
+          name: room.name,
+          visibility: "open",
+        }),
+      );
     }
     sayAll(room.id, LAB_TRANSCRIPTS[key]);
   }
