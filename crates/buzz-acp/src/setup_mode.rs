@@ -18,8 +18,9 @@
 //!   passed by the desktop and does NOT re-derive readiness.
 //! * **Normal startup gains no second readiness path.** The early branch is
 //!   entered only when `BUZZ_ACP_SETUP_PAYLOAD` is set.
-//! * `spawn_key_refusal`-class identity failures are outside this path: no
-//!   valid key → no safe process to post as the agent.
+//! * Setup publication follows the configured identity boundary: legacy
+//!   harnesses sign locally, while Luca-managed residents use the existing
+//!   typed relay-auth and final-publication broker.
 //!
 //! # Nudge mechanics
 //!
@@ -32,7 +33,7 @@
 //! 5. Build and publish a nudge reply (surface-correct copy).
 //! 6. Deduplicate by event-id (reconnect replay must not double-nudge).
 
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 
 use anyhow::Result;
 use buzz_core::kind::{
@@ -72,8 +73,9 @@ pub(crate) enum AcpAvailabilityStatus {
 
 use crate::{
     classify_author,
-    config::Config,
+    config::{Config, IdentityConfig},
     event_mentions_agent, filter,
+    luca_final_publisher::{ManagedFinalPublisherContext, ManagedFinalTurn},
     relay::{HarnessRelay, RelayEventPublisher},
 };
 
@@ -313,27 +315,43 @@ pub(crate) async fn run_setup_listener(config: Config, payload: SetupPayload) ->
         "buzz-acp entering setup mode"
     );
 
-    let keys = config.identity.legacy_keys().cloned().ok_or_else(|| {
-        anyhow::anyhow!(
-            "managed setup nudge publication is unavailable; complete setup in the Luca desktop"
-        )
-    })?;
-    let pubkey_hex = keys.public_key().to_hex();
+    let pubkey_hex = config.identity.public_key().to_hex();
 
     // Parse BUZZ_AUTH_TAG for relay membership / NIP-OA.
-    let relay_auth_tag: Option<nostr::Tag> = std::env::var("BUZZ_AUTH_TAG")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .and_then(|s| buzz_sdk::nip_oa::parse_auth_tag(&s).ok());
+    let relay_auth_tag: Option<nostr::Tag> = if config.identity.is_managed() {
+        None
+    } else {
+        std::env::var("BUZZ_AUTH_TAG")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .and_then(|s| buzz_sdk::nip_oa::parse_auth_tag(&s).ok())
+    };
 
     let startup_watermark: u64 = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
 
-    let mut relay = HarnessRelay::connect(&config.relay_url, &keys, &pubkey_hex, relay_auth_tag)
-        .await
-        .map_err(|e| anyhow::anyhow!("setup-mode relay connect error: {e}"))?;
+    let mut relay = match &config.identity {
+        IdentityConfig::Legacy(keys) => {
+            HarnessRelay::connect(&config.relay_url, keys, &pubkey_hex, relay_auth_tag).await
+        }
+        IdentityConfig::Managed {
+            resident_pubkey,
+            broker,
+            owner_attestation,
+            ..
+        } => {
+            HarnessRelay::connect_managed(
+                &config.relay_url,
+                resident_pubkey.clone(),
+                Arc::clone(broker),
+                owner_attestation.clone(),
+            )
+            .await
+        }
+    }
+    .map_err(|e| anyhow::anyhow!("setup-mode relay connect error: {e}"))?;
 
     if let Err(e) = relay.set_startup_watermark(startup_watermark).await {
         tracing::warn!("setup-mode: failed to set startup watermark: {e}");
@@ -348,7 +366,7 @@ pub(crate) async fn run_setup_listener(config: Config, payload: SetupPayload) ->
 
     // Resolve owner for author-gate (same priority as normal mode).
     let startup_owner = crate::resolve_agent_owner(&config);
-    let owner_cache = crate::OwnerCache::new(startup_owner);
+    let owner_cache = crate::OwnerCache::new(startup_owner.clone());
 
     // Discover channels and subscribe (using a "mentions" rule so we get
     // notified when someone @-mentions the agent).
@@ -384,7 +402,23 @@ pub(crate) async fn run_setup_listener(config: Config, payload: SetupPayload) ->
         }
     }
 
-    let publisher = relay.event_publisher();
+    let publisher = match &config.identity {
+        IdentityConfig::Legacy(keys) => SetupNudgePublisher::Legacy {
+            relay: relay.event_publisher(),
+            keys: keys.clone(),
+        },
+        IdentityConfig::Managed {
+            resident_pubkey,
+            broker,
+            session_epoch,
+            ..
+        } => SetupNudgePublisher::Managed(ManagedFinalPublisherContext {
+            broker: Arc::clone(broker),
+            owner_pubkey: crate::managed_final_owner(startup_owner.as_deref())?,
+            resident_pubkey: resident_pubkey.clone(),
+            session_epoch: *session_epoch,
+        }),
+    };
     let rest_client = relay.rest_client();
 
     // Deduplicate by event-id so reconnect replay cannot double-nudge.
@@ -454,8 +488,9 @@ pub(crate) async fn run_setup_listener(config: Config, payload: SetupPayload) ->
         .is_some();
 
         // Pure gate: author gate verdict + event-id dedup.
-        if !should_nudge_for_event(
-            buzz_event.event.id,
+        if !should_nudge_for_setup_event(
+            publisher.managed_owner(),
+            &buzz_event.event,
             allowed,
             filter_matched,
             &mut nudged_event_ids,
@@ -466,7 +501,6 @@ pub(crate) async fn run_setup_listener(config: Config, payload: SetupPayload) ->
         // Build and publish the setup nudge.
         if let Err(e) = publish_setup_nudge(
             &publisher,
-            &keys,
             buzz_event.channel_id,
             &buzz_event.event,
             &payload,
@@ -484,6 +518,48 @@ pub(crate) async fn run_setup_listener(config: Config, payload: SetupPayload) ->
     }
 
     Ok(())
+}
+
+enum SetupNudgePublisher {
+    Legacy {
+        relay: RelayEventPublisher,
+        keys: nostr::Keys,
+    },
+    Managed(ManagedFinalPublisherContext),
+}
+
+impl SetupNudgePublisher {
+    fn managed_owner(&self) -> Option<&luca_protocol::Hex64> {
+        match self {
+            Self::Legacy { .. } => None,
+            Self::Managed(context) => Some(&context.owner_pubkey),
+        }
+    }
+}
+
+/// Apply the narrower managed publication authority before event-id dedup.
+///
+/// Legacy setup listeners preserve their existing event surface. A managed
+/// final, however, is authorized only for the configured owner's exact valid
+/// kind:9 dispatch, so workflow events and non-owner messages must never enter
+/// the dedup set and then fail later at the typed broker boundary.
+#[must_use]
+fn should_nudge_for_setup_event(
+    managed_owner: Option<&luca_protocol::Hex64>,
+    event: &nostr::Event,
+    author_allowed: bool,
+    filter_matched: bool,
+    nudged_event_ids: &mut HashSet<EventId>,
+) -> bool {
+    if managed_owner.is_some_and(|owner| !ManagedFinalTurn::is_eligible_trigger(owner, event, None))
+    {
+        tracing::debug!(
+            event_id = %event.id,
+            "setup-mode: event is outside managed publication authority"
+        );
+        return false;
+    }
+    should_nudge_for_event(event.id, author_allowed, filter_matched, nudged_event_ids)
 }
 
 /// Outcome of the pure per-event gate checks in setup mode.
@@ -593,9 +669,54 @@ async fn handle_setup_membership(
 
 /// Build and publish a setup nudge reply to the triggering event.
 ///
-/// Threading: flat reply to the thread root if one exists; otherwise reply
-/// to the triggering event itself. P-tags the asker.
+/// Legacy publication keeps the historical flat reply to the thread root.
+/// Managed publication uses the exact app-staged dispatch route and typed
+/// broker, just like an ordinary managed final. Both paths P-tag the asker.
 async fn publish_setup_nudge(
+    publisher: &SetupNudgePublisher,
+    channel_id: Uuid,
+    triggering_event: &nostr::Event,
+    payload: &SetupPayload,
+) -> Result<()> {
+    match publisher {
+        SetupNudgePublisher::Legacy { relay, keys } => {
+            publish_legacy_setup_nudge(relay, keys, channel_id, triggering_event, payload).await
+        }
+        SetupNudgePublisher::Managed(context) => {
+            let turn_id = triggering_event.id.to_hex();
+            let turn = ManagedFinalTurn::from_triggering_event(
+                context,
+                &turn_id,
+                channel_id,
+                triggering_event,
+                None,
+            )
+            .map_err(|error| anyhow::anyhow!("invalid managed setup nudge route: {error}"))?;
+            let now_unix_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+                .try_into()
+                .unwrap_or(u64::MAX);
+            match turn
+                .handoff(
+                    Arc::clone(&context.broker),
+                    payload.nudge_body(),
+                    now_unix_ms,
+                )
+                .await?
+            {
+                luca_protocol::ManagedMessagePublishResultV1::Published { .. }
+                | luca_protocol::ManagedMessagePublishResultV1::Replayed { .. } => Ok(()),
+                result => Err(anyhow::anyhow!(
+                    "managed setup nudge publication was not accepted: {result:?}"
+                )),
+            }
+        }
+    }
+}
+
+async fn publish_legacy_setup_nudge(
     publisher: &RelayEventPublisher,
     keys: &nostr::Keys,
     channel_id: Uuid,
@@ -1043,6 +1164,205 @@ mod tests {
         assert!(
             !second,
             "replay of the same event-id must be rejected (dedup)"
+        );
+    }
+
+    fn signed_setup_trigger(
+        author: &nostr::Keys,
+        resident: &nostr::Keys,
+        kind: u32,
+    ) -> nostr::Event {
+        let channel = "11111111-1111-4111-8111-111111111111";
+        let resident_pubkey = resident.public_key().to_hex();
+        nostr::EventBuilder::new(nostr::Kind::Custom(kind as u16), "help")
+            .tags([
+                nostr::Tag::parse(["h", channel]).expect("h tag"),
+                nostr::Tag::parse(["p", resident_pubkey.as_str()]).expect("p tag"),
+            ])
+            .sign_with_keys(author)
+            .expect("signed setup trigger")
+    }
+
+    fn fixture_pubkey(keys: &nostr::Keys) -> luca_protocol::Hex64 {
+        luca_protocol::Hex64::parse(keys.public_key().to_hex()).expect("fixture pubkey")
+    }
+
+    #[test]
+    fn managed_setup_gate_accepts_exact_owner_kind_nine() {
+        let owner = nostr::Keys::generate();
+        let resident = nostr::Keys::generate();
+        let trigger = signed_setup_trigger(&owner, &resident, KIND_STREAM_MESSAGE);
+        let owner_pubkey = fixture_pubkey(&owner);
+        let mut dedup = HashSet::new();
+
+        assert!(should_nudge_for_setup_event(
+            Some(&owner_pubkey),
+            &trigger,
+            true,
+            true,
+            &mut dedup,
+        ));
+        assert_eq!(dedup, HashSet::from([trigger.id]));
+    }
+
+    #[test]
+    fn managed_setup_gate_skips_workflow_approval_event() {
+        let owner = nostr::Keys::generate();
+        let resident = nostr::Keys::generate();
+        let trigger = signed_setup_trigger(&owner, &resident, KIND_WORKFLOW_APPROVAL_REQUESTED);
+        let owner_pubkey = fixture_pubkey(&owner);
+        let mut dedup = HashSet::new();
+
+        assert!(!should_nudge_for_setup_event(
+            Some(&owner_pubkey),
+            &trigger,
+            true,
+            true,
+            &mut dedup,
+        ));
+        assert!(dedup.is_empty());
+    }
+
+    #[test]
+    fn managed_setup_gate_skips_non_owner_kind_nine() {
+        let owner = nostr::Keys::generate();
+        let sibling = nostr::Keys::generate();
+        let resident = nostr::Keys::generate();
+        let trigger = signed_setup_trigger(&sibling, &resident, KIND_STREAM_MESSAGE);
+        let owner_pubkey = fixture_pubkey(&owner);
+        let mut dedup = HashSet::new();
+
+        assert!(!should_nudge_for_setup_event(
+            Some(&owner_pubkey),
+            &trigger,
+            true,
+            true,
+            &mut dedup,
+        ));
+        assert!(dedup.is_empty());
+    }
+
+    #[test]
+    fn unsupported_managed_setup_triggers_never_mutate_dedup() {
+        let owner = nostr::Keys::generate();
+        let sibling = nostr::Keys::generate();
+        let resident = nostr::Keys::generate();
+        let workflow = signed_setup_trigger(&owner, &resident, KIND_WORKFLOW_APPROVAL_REQUESTED);
+        let non_owner = signed_setup_trigger(&sibling, &resident, KIND_STREAM_MESSAGE);
+        let owner_pubkey = fixture_pubkey(&owner);
+        let sentinel = fake_event_id(0xCC);
+        let mut dedup = HashSet::from([sentinel]);
+
+        for trigger in [&workflow, &non_owner] {
+            assert!(!should_nudge_for_setup_event(
+                Some(&owner_pubkey),
+                trigger,
+                true,
+                true,
+                &mut dedup,
+            ));
+        }
+        assert_eq!(dedup, HashSet::from([sentinel]));
+    }
+
+    #[test]
+    fn legacy_setup_gate_preserves_workflow_approval_behavior() {
+        let owner = nostr::Keys::generate();
+        let resident = nostr::Keys::generate();
+        let trigger = signed_setup_trigger(&owner, &resident, KIND_WORKFLOW_APPROVAL_REQUESTED);
+        let mut dedup = HashSet::new();
+
+        assert!(should_nudge_for_setup_event(
+            None, &trigger, true, true, &mut dedup,
+        ));
+        assert_eq!(dedup, HashSet::from([trigger.id]));
+    }
+
+    #[test]
+    fn managed_setup_nudge_uses_exact_owner_dispatch_for_typed_publication() {
+        use luca_protocol::{Hex64, SafeU53};
+        use nostr::{EventBuilder, Keys, Kind, Tag};
+
+        let owner = Keys::generate();
+        let resident = Keys::generate();
+        let channel_id =
+            Uuid::parse_str("11111111-1111-4111-8111-111111111111").expect("fixture channel");
+        let channel = channel_id.to_string();
+        let resident_pubkey = resident.public_key().to_hex();
+        let trigger = EventBuilder::new(Kind::Custom(KIND_STREAM_MESSAGE as u16), "help")
+            .tags([
+                Tag::parse(["h", channel.as_str()]).expect("h tag"),
+                Tag::parse(["p", resident_pubkey.as_str()]).expect("p tag"),
+            ])
+            .sign_with_keys(&owner)
+            .expect("signed trigger");
+        let owner_pubkey = Hex64::parse(owner.public_key().to_hex()).expect("owner pubkey");
+        let resident_pubkey = Hex64::parse(resident_pubkey).expect("resident pubkey");
+        let turn_id = trigger.id.to_hex();
+
+        let turn = ManagedFinalTurn::from_triggering_event_parts(
+            &owner_pubkey,
+            &resident_pubkey,
+            SafeU53::new(7).expect("session epoch"),
+            &turn_id,
+            channel_id,
+            &trigger,
+            None,
+        )
+        .expect("managed setup route");
+        let payload = SetupPayload {
+            agent_name: "Anima".to_owned(),
+            agent_pubkey: resident_pubkey.as_str().to_owned(),
+            requirements: vec![RequirementPayload::CliLogin {
+                probe_args: vec!["claude".to_owned(), "auth".to_owned(), "status".to_owned()],
+                setup_copy: "run `claude login`".to_owned(),
+                availability: AcpAvailabilityStatus::Available,
+            }],
+        };
+        let expected_body = payload.nudge_body();
+        let request = turn
+            .request(expected_body.clone())
+            .expect("typed setup publication request");
+
+        assert_eq!(request.turn_id.as_str(), trigger.id.to_hex());
+        assert_eq!(request.dispatch_receipt_id.as_str(), trigger.id.to_hex());
+        assert_eq!(request.owner_pubkey, owner_pubkey.clone());
+        assert_eq!(request.resident_pubkey, resident_pubkey);
+        assert_eq!(request.conversation_id.as_str(), channel);
+        assert_eq!(request.resolved_p_tags, vec![owner_pubkey]);
+        assert_eq!(request.final_draft, expected_body);
+    }
+
+    #[test]
+    fn managed_setup_nudge_rejects_unadmitted_sibling_trigger() {
+        use luca_protocol::{Hex64, SafeU53};
+        use nostr::{EventBuilder, Keys, Kind, Tag};
+
+        let owner = Keys::generate();
+        let resident = Keys::generate();
+        let sibling = Keys::generate();
+        let channel_id =
+            Uuid::parse_str("22222222-2222-4222-8222-222222222222").expect("fixture channel");
+        let channel = channel_id.to_string();
+        let trigger = EventBuilder::new(Kind::Custom(KIND_STREAM_MESSAGE as u16), "help")
+            .tags([Tag::parse(["h", channel.as_str()]).expect("h tag")])
+            .sign_with_keys(&sibling)
+            .expect("signed trigger");
+        let turn_id = trigger.id.to_hex();
+
+        let result = ManagedFinalTurn::from_triggering_event_parts(
+            &Hex64::parse(owner.public_key().to_hex()).expect("owner pubkey"),
+            &Hex64::parse(resident.public_key().to_hex()).expect("resident pubkey"),
+            SafeU53::new(7).expect("session epoch"),
+            &turn_id,
+            channel_id,
+            &trigger,
+            None,
+        );
+
+        assert!(
+            result.is_err(),
+            "setup mode must not invent exchange admission for a sibling trigger"
         );
     }
 
