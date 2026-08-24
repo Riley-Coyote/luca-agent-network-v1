@@ -10,86 +10,51 @@
 <style>
 *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 
-/* ═══ ROUND FOUR — THE BLIND-SPOT CHECK ═══
-   Riley worries his taste (cream ink) may be a personal mood, not the
-   generally-right call, and names OpenAI's neutrals as his north star.
-   This round brackets the warmth question:
-   1 · Composite    — the winner so far. Cream ink. The anchor.
-   2 · Neutral      — identical in every token except the ink, which is
-                      dead-neutral. Flip 1<->2: the ONLY difference is warmth.
-   3 · OpenAI room  — the honest translation of ChatGPT's world: lifted
-                      register, soft neutral ink, larger radii, shadows
-                      nearly retired.
-   4 · Frost        — the cool pole: ink with a blue whisper, bracketing
-                      warmth from the other side.                          */
+/* ═══ ROUND FIVE — THE TALLER LADDER, IN FOUR TEMPERATURES ═══
+   All four share the SAME lightness staircase (the council's widened spans:
+   ground→card 9.1 L*, sidebar edge 6.3 L*). They differ only in temperature,
+   each dosed by the colorist to stay under the tint-perception threshold.
+   Switch with the tabs or keys 1–4.
+   1 · Council   — pure neutral. The control.
+   2 · Cool      — blue held 4 points over red at every altitude. The
+                   Polyphonic-web / Codex family.
+   3 · Violet    — the blue-magenta direction (the "B" dose that survives
+                   real displays; the finer violet axis needs less).
+   4 · Skylight  — the colorist's recommendation: cool at depth, warm at
+                   altitude, like real light. The tint crosses zero between
+                   the well and the card.                                   */
 
 :root, :root[data-p="a"] {
-  /* 1 · Composite — the winner. Carved steps, cream ink, whisper light */
-  --floor:   #0e0e0e;  --canvas:  #171717;  --s1: #202020;
-  --s2:      #282828;  --s3:      #313131;
-  --rad: 14px;
-  --grad-s1: linear-gradient(180deg, #222222, #1f1f1f);
-  --sh-raise:   0 1px 0 rgba(255,255,255,.055) inset, 0 2px 6px rgba(0,0,0,.14), 0 8px 24px rgba(0,0,0,.20);
-  --sh-overlay: 0 1px 0 rgba(255,255,255,.05) inset, 0 4px 10px rgba(0,0,0,.22), 0 16px 42px rgba(0,0,0,.42);
-  --ink:     rgba(244,243,240,.93);
-  --t-body:  rgba(214,212,208,.74);
-  --t-2nd:   rgba(196,194,190,.56);
-  --t-soft:  rgba(165,163,158,.42);
-  --t-ghost: rgba(140,138,132,.26);
-  --ov-hover: rgba(220,219,216,.045);
-  --ov-sel:   rgba(220,219,216,.10);
-  --rule:     rgba(220,219,216,.07);
+  --floor:  #0e0e0e; --canvas: #1c1c1c; --recess: #141414;
+  --sheet:  #252525; --s1: #2f2f2f; --s2: #383838; --s3: #3a3a3a;
+  --ink: rgba(244,243,240,.93); --t-body: #b9b8b5; --t-2nd: #929292;
+  --t-soft: #838383; --t-ghost: #6a6a6a;
+  --ov-hover: rgba(238,238,238,.05); --ov-sel: rgba(238,238,238,.10);
+  --rule: rgba(238,238,238,.07);
 }
 :root[data-p="b"] {
-  /* 2 · Neutral — the composite with the warmth surgically removed */
-  --floor:   #0e0e0e;  --canvas:  #171717;  --s1: #202020;
-  --s2:      #282828;  --s3:      #313131;
-  --rad: 14px;
-  --grad-s1: linear-gradient(180deg, #222222, #1f1f1f);
-  --sh-raise:   0 1px 0 rgba(255,255,255,.055) inset, 0 2px 6px rgba(0,0,0,.14), 0 8px 24px rgba(0,0,0,.20);
-  --sh-overlay: 0 1px 0 rgba(255,255,255,.05) inset, 0 4px 10px rgba(0,0,0,.22), 0 16px 42px rgba(0,0,0,.42);
-  --ink:     rgba(242,242,242,.93);
-  --t-body:  rgba(211,211,211,.74);
-  --t-2nd:   rgba(193,193,193,.56);
-  --t-soft:  rgba(162,162,162,.42);
-  --t-ghost: rgba(136,136,136,.26);
-  --ov-hover: rgba(236,236,236,.045);
-  --ov-sel:   rgba(236,236,236,.10);
-  --rule:     rgba(236,236,236,.07);
+  --floor:  #0d0e11; --canvas: #1b1c1f; --recess: #131417;
+  --sheet:  #252629; --s1: #2e2f32; --s2: #37383b; --s3: #393a3d;
+  --ink: rgba(244,243,240,.93); --t-body: #b7b8bc; --t-2nd: #909297;
+  --t-soft: #818388; --t-ghost: #686a6f;
+  --ov-hover: rgba(235,238,244,.05); --ov-sel: rgba(235,238,244,.10);
+  --rule: rgba(235,238,244,.07);
 }
 :root[data-p="c"] {
-  /* 3 · OpenAI room — ChatGPT's world, honestly translated */
-  --floor:   #171717;  --canvas:  #212121;  --s1: #2a2a2a;
-  --s2:      #2f2f2f;  --s3:      #373737;
-  --rad: 22px;
-  --grad-s1: var(--s1);
-  --sh-raise:   0 3px 12px rgba(0,0,0,.10);
-  --sh-overlay: 0 8px 28px rgba(0,0,0,.28);
-  --ink:     rgba(236,236,236,.92);
-  --t-body:  rgba(205,205,205,.76);
-  --t-2nd:   rgba(180,180,180,.58);
-  --t-soft:  rgba(150,150,150,.46);
-  --t-ghost: rgba(125,125,125,.32);
-  --ov-hover: rgba(236,236,236,.05);
-  --ov-sel:   rgba(236,236,236,.10);
-  --rule:     rgba(236,236,236,.08);
+  --floor:  #100e11; --canvas: #1e1c1f; --recess: #161417;
+  --sheet:  #282629; --s1: #312f32; --s2: #3a383b; --s3: #3c3a3d;
+  --ink: rgba(244,243,240,.93); --t-body: #b9b7ba; --t-2nd: #949295;
+  --t-soft: #858386; --t-ghost: #6c6a6d;
+  --ov-hover: rgba(240,235,242,.05); --ov-sel: rgba(240,235,242,.10);
+  --rule: rgba(240,235,242,.07);
 }
 :root[data-p="d"] {
-  /* 4 · Frost — the cool pole */
-  --floor:   #0e0e0e;  --canvas:  #171717;  --s1: #202020;
-  --s2:      #282828;  --s3:      #313131;
-  --rad: 14px;
-  --grad-s1: linear-gradient(180deg, #222222, #1f1f1f);
-  --sh-raise:   0 1px 0 rgba(255,255,255,.055) inset, 0 2px 6px rgba(0,0,0,.14), 0 8px 24px rgba(0,0,0,.20);
-  --sh-overlay: 0 1px 0 rgba(255,255,255,.05) inset, 0 4px 10px rgba(0,0,0,.22), 0 16px 42px rgba(0,0,0,.42);
-  --ink:     rgba(238,241,247,.93);
-  --t-body:  rgba(205,210,220,.74);
-  --t-2nd:   rgba(185,191,202,.56);
-  --t-soft:  rgba(153,159,171,.42);
-  --t-ghost: rgba(126,132,144,.26);
-  --ov-hover: rgba(230,235,244,.045);
-  --ov-sel:   rgba(230,235,244,.10);
-  --rule:     rgba(230,235,244,.07);
+  --floor:  #0d0e13; --canvas: #1b1c20; --recess: #121419;
+  --sheet:  #252629; --s1: #302f2d; --s2: #393835; --s3: #3b3a37;
+  --ink: rgba(244,243,240,.93); --t-body: #b8b7b3; --t-2nd: #a9a6a1;
+  --t-soft: #989590; --t-ghost: #6e6c68;
+  --ov-hover: rgba(240,238,232,.05); --ov-sel: rgba(240,238,232,.10);
+  --rule: rgba(240,238,232,.07);
 }
 
 html, body { height:100%; }
@@ -102,7 +67,6 @@ body {
 }
 .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
 
-/* ═══ switcher ═══ */
 .bar {
   position: sticky; top:0; z-index:50; height:44px;
   background: var(--floor); display:flex; align-items:center;
@@ -126,40 +90,38 @@ body {
   text-transform:uppercase; color:var(--t-ghost); margin-bottom:10px;
 }
 h1 { font-size:26px; font-weight:500; letter-spacing:-.01em; margin-bottom:10px; }
-.sub { font-size:14.5px; line-height:1.65; color:var(--t-body); max-width:600px; margin-bottom:8px; }
+.sub { font-size:14.5px; line-height:1.65; color:var(--t-body); max-width:620px; margin-bottom:8px; }
 .why {
-  font-size:13.5px; line-height:1.6; color:var(--t-2nd); max-width:600px;
-  margin-bottom:36px; min-height: 44px;
+  font-size:13.5px; line-height:1.6; color:var(--t-2nd); max-width:620px;
+  margin-bottom:34px; min-height: 44px;
 }
 .why strong { color: var(--t-body); font-weight: 500; }
 
-/* ═══ ladder strip ═══ */
 .ladder { display:flex; border-radius:10px; overflow:hidden; height:76px; margin-bottom:8px; }
 .ladder div { flex:1; position:relative; transition: background .25s ease; }
 .ladder span {
-  position:absolute; left:12px; bottom:8px; font-family:'JetBrains Mono',monospace;
-  font-size:10px; color: var(--t-soft); letter-spacing:.02em;
+  position:absolute; left:10px; bottom:8px; font-family:'JetBrains Mono',monospace;
+  font-size:9.5px; color: var(--t-soft); letter-spacing:.02em;
 }
 .ladder small {
-  position:absolute; left:12px; top:8px; font-size:10.5px; font-weight:500;
+  position:absolute; left:10px; top:8px; font-size:10px; font-weight:500;
   color: var(--t-2nd); letter-spacing:.01em;
 }
-.ladnote { font-size:12px; color:var(--t-soft); margin-bottom:44px; }
+.ladnote { font-size:12px; color:var(--t-soft); margin-bottom:34px; }
 
+/* temperature proof: the option's ground beside a pure-neutral twin */
+.proof { display:flex; gap:0; border-radius:10px; overflow:hidden; height:104px; margin-bottom:8px; }
+.proof div { flex:1; position:relative; }
+.proof small {
+  position:absolute; left:12px; top:10px; font-size:10.5px; font-weight:500;
+  color:var(--t-2nd); letter-spacing:.01em;
+}
+.proof span {
+  position:absolute; left:12px; bottom:9px; font-family:'JetBrains Mono',monospace;
+  font-size:9.5px; color:var(--t-soft);
+}
+.proofnote { font-size:12px; color:var(--t-soft); margin-bottom:44px; }
 
-/* ═══ ink temperature panel — all temps at once, on the live s1 surface ═══ */
-.inkpanel { margin: -18px 0 44px; }
-.inkpanel .cols { display:grid; grid-template-columns: repeat(5, 1fr); border-radius: 10px; overflow:hidden; }
-.inkcol { background: var(--s1); padding: 18px 16px 16px; transition: background .25s ease; }
-.inkcol + .inkcol { box-shadow: -1px 0 0 rgba(0,0,0,.25); }
-.inkcol .big { font-size: 34px; font-weight: 500; letter-spacing: -.01em; margin-bottom: 8px; }
-.inkcol .par { font-size: 12.5px; line-height: 1.55; }
-.inkcol .lab { font-family:'JetBrains Mono',monospace; font-size: 9px; letter-spacing: .11em;
-  text-transform: uppercase; margin-top: 12px; }
-.inkcol .rgbv { font-family:'JetBrains Mono',monospace; font-size: 9px; margin-top: 3px; opacity: .8; }
-.inkpanel .note { font-size: 12px; color: var(--t-soft); margin-top: 8px; }
-
-/* ═══ applied scene ═══ */
 .scene {
   display:grid; grid-template-columns: 232px 1fr; border-radius:12px;
   overflow:hidden; min-height: 560px; background: var(--canvas);
@@ -186,9 +148,7 @@ h1 { font-size:26px; font-weight:500; letter-spacing:-.01em; margin-bottom:10px;
 }
 
 .chat { display:flex; flex-direction:column; min-width:0; }
-.chead {
-  padding: 16px 26px 14px; display:flex; align-items:baseline; gap:12px;
-}
+.chead { padding: 16px 26px 14px; display:flex; align-items:baseline; gap:12px; }
 .chead .name { font-size:15px; font-weight:550; }
 .chead .desc { font-size:12.5px; color:var(--t-soft); }
 .msgs { flex:1; padding: 10px 26px 8px; display:flex; flex-direction:column; gap:20px; }
@@ -207,90 +167,87 @@ h1 { font-size:26px; font-weight:500; letter-spacing:-.01em; margin-bottom:10px;
 }
 .doorline { display:flex; align-items:center; gap:14px; padding: 2px 0; }
 .doorline i { flex:1; height:1px; background: var(--rule); }
-.doorline span { font-size:11.5px; color:var(--t-soft); font-style:normal; }
+.doorline span { font-size:11.5px; color:var(--t-soft); }
 
-/* popover — s3 proof */
 .pop {
   position:absolute; right:34px; top:118px; width:210px; background:var(--s3);
-  border-radius: calc(var(--rad) - 4px); padding:6px; box-shadow: var(--sh-overlay);
+  border-radius:10px; padding:6px; box-shadow: 0 10px 32px rgba(0,0,0,.38);
   transition: background .25s ease;
 }
 .pop div { padding:7px 10px; border-radius:6px; font-size:12.5px; color:var(--t-body); }
 .pop div:hover { background: var(--ov-hover); }
 .pop .k { float:right; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--t-ghost); }
 
-/* composer — the proposed two-row card, at s1, no border */
+/* the recess well + composer — the shipped reply anatomy, on each candidate */
+.wellwrap { margin: 10px 26px 0; }
+.well {
+  background: var(--recess); border-radius: 12px 12px 0 0;
+  margin-bottom: -14px; padding: 6px 16px 20px;
+  display:flex; align-items:center; gap:8px;
+  font-size:12.5px; color:var(--t-2nd);
+  box-shadow: inset 0 5px 8px -5px rgb(0 0 0 / 0.6), inset 0 -1px 0 rgb(255 255 255 / 0.054);
+  transition: background .25s ease;
+}
+.well .x { margin-left:auto; color:var(--t-soft); font-size:14px; }
 .composer {
-  margin: 10px 26px 22px; background: var(--grad-s1); border-radius: var(--rad);
+  position:relative; background: var(--s1); border-radius: 14px;
   padding: 13px 14px 11px;
-  box-shadow: var(--sh-raise);
+  box-shadow: 0 1px 0 rgba(255,255,255,.055) inset;
   transition: background .25s ease;
 }
-.composer .in { font-size:14.5px; color:var(--t-ghost); padding: 2px 4px 14px; }
+.composer .in { font-size:14.5px; color:var(--t-soft); padding: 2px 4px 14px; }
 .composer .row { display:flex; align-items:center; gap:10px; }
-.chip {
-  display:inline-flex; align-items:center; gap:6px; background:var(--s2);
-  border-radius:7px; padding: 4px 10px; font-size:12px; color:var(--t-2nd);
-  transition: background .25s ease;
-}
-.chip.ghost { background:transparent; color:var(--t-soft); font-size:15px; padding:2px 6px; }
 .composer .sp { flex:1; }
-.composer .who { font-size:12px; color:var(--t-soft); display:flex; gap:6px; align-items:center; }
 .send {
-  width:28px; height:28px; border-radius:50%; background:var(--ink); color:var(--floor);
+  width:28px; height:28px; border-radius:50%; background:var(--ink); color:var(--s1);
   display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:600;
 }
+.chiprow { display:flex; gap:14px; padding: 8px 6px 14px; color: var(--t-soft); font-size:15px; }
 
-/* ═══ side-by-side ═══ */
 h2 { font-size:19px; font-weight:550; letter-spacing:-.005em; margin: 60px 0 6px; }
 .h2sub { font-size:13.5px; color:var(--t-2nd); margin-bottom:22px; }
 .grid4 { display:grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap:14px; }
 .cell { border-radius:11px; overflow:hidden; cursor:pointer; }
-.cell .capt {
-  display:flex; justify-content:space-between; padding: 9px 13px 10px;
-  font-size:11.5px;
-}
+.cell .capt { display:flex; justify-content:space-between; padding: 9px 13px 10px; font-size:11.5px; }
 .mini { padding: 14px 13px 13px; display:flex; flex-direction:column; gap:9px; min-height:150px; }
 .mini .mrow { height:9px; border-radius:4px; width:72%; }
 .mini .mrow.short { width:46%; }
-.mini .mcard { border-radius:8px; padding:9px 11px; font-size:11px; }
-.mini .mcomposer { border-radius:9px; padding: 8px 10px; margin-top:auto;
+.mini .mwell { border-radius:8px 8px 0 0; padding:6px 11px 16px; font-size:10.5px; margin-bottom:-10px; }
+.mini .mcomposer { border-radius:9px; padding: 8px 10px; position:relative;
   display:flex; align-items:center; justify-content:space-between; font-size:11px;
-  box-shadow: 0 1px 0 rgba(255,255,255,.04) inset; }
+  box-shadow: 0 1px 0 rgba(255,255,255,.05) inset; }
 .mini .msend { width:16px; height:16px; border-radius:50%; }
 
-.footer { margin-top:70px; font-size:12.5px; color:var(--t-soft); line-height:1.7; max-width:620px; }
+.footer { margin-top:70px; font-size:12.5px; color:var(--t-soft); line-height:1.7; max-width:640px; }
 .footer code { font-family:'JetBrains Mono',monospace; font-size:11px; }
 </style>
 </head>
-<body data-top>
+<body>
 
 <nav class="bar">
-  <button class="tab on" data-p="a">1 · Composite</button>
-  <button class="tab" data-p="b">2 · Neutral</button>
-  <button class="tab" data-p="c">3 · OpenAI room</button>
-  <button class="tab" data-p="d">4 · Frost</button>
+  <button class="tab on" data-p="a">1 · Council — neutral</button>
+  <button class="tab" data-p="b">2 · Cool whisper</button>
+  <button class="tab" data-p="c">3 · Violet whisper</button>
+  <button class="tab" data-p="d">4 · Skylight</button>
   <span class="hint">keys 1–4 · whole page re-themes</span>
 </nav>
 
 <div class="wrap">
-  <div class="eyebrow">§ surface ladders · four options · 2026-08-23</div>
-  <h1 id="opt-title">Composite — the winner so far</h1>
-  <p class="sub">The entire page re-paints in the selected ladder — the switcher bar is the
-  floor, this ground is the canvas, the composer below is surface-1, the popover is surface-3.
-  Judge the palette by how the scene feels, not by the swatches.</p>
+  <div class="eyebrow">§ surface ladders · round five · the taller staircase, in four temperatures</div>
+  <h1 id="opt-title">Council — neutral</h1>
+  <p class="sub">All four options share the <strong>same taller staircase</strong> — the fix for
+  "flat and muddled" (each surface now clearly sits on the one below). They differ only in
+  <strong>temperature</strong>: how the greys lean, dosed to stay below the point where you could
+  name a color. The reply well and composer below are the shipped anatomy on each candidate.</p>
   <p class="why" id="opt-why"></p>
 
   <div class="ladder" id="ladder"></div>
   <p class="ladnote mono" id="ladnote"></p>
 
-  <div class="inkpanel">
-    <div class="cols" id="inkcols"></div>
-    <p class="note">The same text in five ink temperatures on the live surface-1 — juxtaposed, because
-    a 2–4 point temperature never survives an A/B flip but is obvious side by side. The three middle
-    columns are options 4 · 2 · 1; the outer two are the same directions at double dose, in case the
-    honest doses are too quiet to choose between.</p>
-  </div>
+  <div class="proof" id="proof"></div>
+  <p class="proofnote">Temperature proof: the candidate's ground beside a pure-neutral twin at the
+  same brightness. If you can see the seam between them, the lean exists; if either half looks
+  like "a color" on its own, the dose is wrong.</p>
 
   <div style="position:relative">
   <div class="scene">
@@ -320,15 +277,13 @@ h2 { font-size:19px; font-weight:550; letter-spacing:-.005em; margin: 60px 0 6px
           <div class="tx">I would only add that the pause should read as a held breath, not an error.</div>
         </div></div>
       </div>
-      <div class="composer">
-        <div class="in">Message polyphonic</div>
-        <div class="row">
-          <span class="chip ghost">＋</span>
-          <span class="chip">⌘ luca-agent-network-v1</span>
-          <span class="sp"></span>
-          <span class="who">✳ Luca will answer</span>
-          <span class="send">↑</span>
+      <div class="wellwrap">
+        <div class="well">↩&nbsp; Replying to Coyote <span class="x">×</span></div>
+        <div class="composer">
+          <div class="in">Message…</div>
+          <div class="row"><span class="sp"></span><span class="send">↑</span></div>
         </div>
+        <div class="chiprow">＋ &nbsp;☺&nbsp; 🎙</div>
       </div>
     </div>
   </div>
@@ -340,30 +295,37 @@ h2 { font-size:19px; font-weight:550; letter-spacing:-.005em; margin: 60px 0 6px
   </div>
 
   <h2>All four at once</h2>
-  <p class="h2sub">Same miniature — floor bar, canvas ground, a card, the composer. Click one to switch.</p>
+  <p class="h2sub">Same miniature — floor bar, ground, the reply well, the composer. Click one to switch.</p>
   <div class="grid4" id="grid4"></div>
 
-  <div class="footer" id="footer"></div>
+  <div class="footer">
+    All four ladders keep identical brightness steps (the council's widened staircase); only the
+    lean differs, held constant per altitude as an offset rule — never a percentage, which is the
+    mistake that made an earlier attempt visibly blue. Skylight is the colorist's recommendation:
+    the cool of its depths and the warmth of its raised surfaces read as light, not color, and the
+    cream text is lit by the same source as the surfaces it sits on. Full analysis in
+    <code>design-lab/council/</code>.
+  </div>
 </div>
 
 <script>
 const P = {
-  a: { name:"Composite — the winner so far",
-    why:"<strong>The anchor.</strong> Carved steps, cream ink, whisper light — unchanged from round three. Everything else this round exists to test whether its warmth is right or a mood.",
-    ladder:[["floor","#0e0e0e"],["canvas","#171717"],["surface-1","#202020"],["surface-2","#282828"],["surface-3","#313131"]],
-    note:"carved steps - ink warm cream - whisper light" },
-  b: { name:"Neutral — warmth removed",
-    why:"<strong>Identical to the composite in every token except the ink.</strong> Dead-neutral text (R=G=B), same surfaces, same shadows, same steps. Flip 1 and 2 slowly — the only thing changing is the temperature of the light. This is the direct answer to the too-warm worry.",
-    ladder:[["floor","#0e0e0e"],["canvas","#171717"],["surface-1","#202020"],["surface-2","#282828"],["surface-3","#313131"]],
-    note:"surfaces IDENTICAL to option 1 by design - only the ink moves" },
-  c: { name:"OpenAI room",
-    why:"<strong>ChatGPT's world, honestly translated.</strong> Lifted register (canvas #212121, their exact value), dead-neutral soft ink at their gentler contrast, radii up to 22, shadows nearly retired — hierarchy from spacing and type, not chrome. If their feel is the north star, this is what it costs and buys on our furniture.",
-    ladder:[["floor","#171717"],["canvas","#212121"],["surface-1","#2a2a2a"],["surface-2","#2f2f2f"],["surface-3","#373737"]],
-    note:"their register - ink neutral, soft - radii 22 - shadows minimal" },
-  d: { name:"Frost — the cool pole",
-    why:"<strong>The opposite departure.</strong> Composite's exact structure, ink with a blue whisper — the direction round one over-shot, at a dose that reads as temperature. Bracketing the warmth question from the other side, so 1, 2 and 4 form a scale: warm, none, cool.",
-    ladder:[["floor","#0e0e0e"],["canvas","#171717"],["surface-1","#202020"],["surface-2","#282828"],["surface-3","#313131"]],
-    note:"surfaces IDENTICAL to option 1 by design - only the ink moves" },
+  a: { name:"Council — neutral",
+    why:"<strong>The control.</strong> The taller staircase with zero lean — exactly what the experts prescribed before your temperature request. Every grey is mathematically pure. Judge the others against this: anything you feel flipping away from here is the temperature itself.",
+    ladder:[["floor","#0e0e0e"],["ground","#1c1c1c"],["well","#141414"],["card","#2f2f2f"],["hover","#383838"],["menu","#3a3a3a"]],
+    note:"pure neutral - the staircase everyone shares", ground:"#1c1c1c", twin:"#1c1c1c" },
+  b: { name:"Cool whisper",
+    why:"<strong>Your web app's family, dosed correctly.</strong> Blue is held exactly 4 points above red at every altitude — a constant lean, so it never grows into a nameable blue the way percentage-based tints do. Same neighborhood as your Polyphonic web ground and the Codex floor you pointed at.",
+    ladder:[["floor","#0d0e11"],["ground","#1b1c1f"],["well","#131417"],["card","#2e2f32"],["hover","#37383b"],["menu","#393a3d"]],
+    note:"blue +4 over red, constant at every altitude - temperature, never tint", ground:"#1b1c1f", twin:"#1c1c1c" },
+  c: { name:"Violet whisper",
+    why:"<strong>The blue-magenta direction.</strong> Red and blue both lean slightly over green. The eye is twice as sharp on this axis, so the dose is smaller than cool's to be equally invisible — this is the strong-enough version that survives real displays; a fainter one would vanish into panel noise.",
+    ladder:[["floor","#100e11"],["ground","#1e1c1f"],["well","#161417"],["card","#312f32"],["hover","#3a383b"],["menu","#3c3a3d"]],
+    note:"red +2 / blue +3 over green - the finest usable violet lean", ground:"#1e1c1f", twin:"#1c1c1c" },
+  d: { name:"Skylight — the colorist's pick",
+    why:"<strong>Cool at depth, warm at altitude — like real light.</strong> The floor and the reply well lean cool (skylight fill); the composer and menus lean faintly warm (they have risen into the lamp). No single surface is nameable, but each layer differs from its neighbor in BOTH brightness and temperature — depth on two channels. And the cream text is lit by the same source as the warm surfaces it sits on: the ink stops being tolerated and becomes explained.",
+    ladder:[["floor","#0d0e13"],["ground","#1b1c20"],["well","#121419"],["card","#302f2d"],["hover","#393835"],["menu","#3b3a37"]],
+    note:"cool below, warm above - the lean crosses zero between well and card", ground:"#1b1c20", twin:"#1c1c1c" },
 };
 
 const order = ["a","b","c","d"];
@@ -378,54 +340,29 @@ function apply(k){
     d.innerHTML=`<small>${n}</small><span class="mono">${h}</span>`; lad.appendChild(d);
   });
   document.getElementById("ladnote").textContent = P[k].note;
+  const pr = document.getElementById("proof"); pr.innerHTML =
+    `<div style="background:${P[k].ground}"><small>this option's ground</small><span class="mono">${P[k].ground}</span></div>`+
+    `<div style="background:${P[k].twin}"><small>pure neutral twin</small><span class="mono">${P[k].twin}</span></div>`;
 }
 document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>apply(t.dataset.p)));
 addEventListener("keydown",e=>{ const i=+e.key-1; if(order[i]) apply(order[i]); });
 
-/* side-by-side minis */
 const g=document.getElementById("grid4");
 order.forEach(k=>{
-  const p=P[k]; const [fl,cv,s1,s2]=[p.ladder[0][1],p.ladder[1][1],p.ladder[2][1],p.ladder[3][1]];
-  const ink = k==="a" ? "rgba(244,243,240,.9)" : k==="d" ? "rgba(238,241,247,.9)" : "rgba(240,240,240,.9)";
-  const body= k==="a" ? "rgba(214,212,208,.6)" : k==="d" ? "rgba(205,210,220,.6)" : "rgba(209,209,209,.6)";
-  const cell=document.createElement("div"); cell.className="cell"; cell.style.background=cv;
+  const p=P[k];
+  const [fl,gr,we,ca]=[p.ladder[0][1],p.ladder[1][1],p.ladder[2][1],p.ladder[3][1]];
+  const cell=document.createElement("div"); cell.className="cell"; cell.style.background=gr;
   cell.innerHTML=`
-    <div class="capt" style="background:${fl};color:${body}"><span style="color:${ink}">${p.name.split(" —")[0].split(",")[0]}</span><span class="mono" style="font-size:10px">${cv}</span></div>
+    <div class="capt" style="background:${fl};color:#8a8a8a"><span style="color:#d9d8d5">${p.name.split(" —")[0]}</span><span class="mono" style="font-size:10px">${gr}</span></div>
     <div class="mini">
-      <div class="mrow" style="background:${body};opacity:.28"></div>
-      <div class="mrow short" style="background:${body};opacity:.18"></div>
-      <div class="mcard" style="background:${s1};color:${body}">a card at surface-1</div>
-      <div class="mcomposer" style="background:${s1};color:${body}">Message polyphonic
-        <span class="msend" style="background:${ink}"></span></div>
+      <div class="mrow" style="background:#9a9a9a;opacity:.28"></div>
+      <div class="mrow short" style="background:#9a9a9a;opacity:.18"></div>
+      <div class="mwell" style="background:${we};color:#8f8f8f;box-shadow:inset 0 4px 6px -4px rgb(0 0 0/.55)">↩ Replying to Coyote</div>
+      <div class="mcomposer" style="background:${ca};color:#a6a5a2">Message…
+        <span class="msend" style="background:rgba(244,243,240,.93)"></span></div>
     </div>`;
   cell.addEventListener("click",()=>{ apply(k); scrollTo({top:0,behavior:"smooth"}); });
   g.appendChild(cell);
-});
-
-document.getElementById("footer").innerHTML =
-  "Round four, the blind-spot check: does the composite’s cream ink hold up against dead-neutral, the OpenAI register, and a cool pole? Options 1, 2 and 4 differ ONLY in ink temperature. "+
-  "Every option keeps the same structure — floor below canvas, cards and composer at surface-1, "+
-  "hover at surface-2, overlays at surface-3 — only the temperature and register change. "+
-  "The current app palette (floor <code>#050506</code>) becomes the Void theme untouched.";
-
-
-/* ink panel: five temperatures, same alphas the options use */
-const INKS = [
-  ["frost ×2",  [230,236,248], [188,199,218]],
-  ["frost — opt 4", [238,241,247], [205,210,220]],
-  ["neutral — opt 2", [242,242,242], [211,211,211]],
-  ["cream — opt 1", [244,243,240], [214,212,208]],
-  ["cream ×2",  [250,246,238], [224,216,202]],
-];
-const ic = document.getElementById("inkcols");
-INKS.forEach(([lab, hi, lo]) => {
-  const d = document.createElement("div"); d.className = "inkcol";
-  const H = `rgba(${hi.join(",")},.93)`, L = `rgba(${lo.join(",")},.74)`;
-  d.innerHTML = `<div class="big" style="color:${H}">Aa</div>
-    <div class="par" style="color:${L}">The bucket runs out and we hold. You wake up to a paused conversation, not a finished one.</div>
-    <div class="lab" style="color:${L}">${lab}</div>
-    <div class="rgbv" style="color:${L}">${hi.join(" · ")}</div>`;
-  ic.appendChild(d);
 });
 
 apply("a");
