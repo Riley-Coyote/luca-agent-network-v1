@@ -785,9 +785,13 @@
  * card's radius or the corners open a gap), and the card's own shadow
  * falling on it is what sells "behind". */
 :root[data-luca-shell] .luca-reply-sheet {
+  /* Biased toward the ground (25% card / 75% ground): at a 55% mix the sheet
+   * sat ~5 RGB from the card and the two read as one shade. The deck needs
+   * the CARD boundary to be the visible one — the sheet is the quiet layer,
+   * the card is the object. */
   background: color-mix(
     in srgb,
-    hsl(var(--mn-raised)) 55%,
+    hsl(var(--mn-raised)) 25%,
     hsl(var(--mn-surface))
   );
   border-radius: 12px 12px 0 0;

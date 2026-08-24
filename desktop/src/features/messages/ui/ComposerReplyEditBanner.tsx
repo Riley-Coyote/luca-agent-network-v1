@@ -34,7 +34,7 @@ export function replyBannerVariant(): "card" | "sheet" {
 const IN_CARD_CLASS =
   "flex gap-2 px-1 pb-2 pt-1 text-sm leading-5 text-muted-foreground";
 const SHEET_CLASS =
-  "luca-reply-sheet relative z-0 -mb-3.5 flex gap-2 px-4 pb-5 pt-1.5 text-sm leading-5 text-muted-foreground";
+  "luca-reply-sheet relative z-0 -mb-3.5 flex gap-2 px-4 pb-5 pt-1 text-sm leading-5 text-muted-foreground";
 const BANNER_CLASS =
   replyBannerVariant() === "sheet" ? SHEET_CLASS : IN_CARD_CLASS;
 
@@ -84,7 +84,10 @@ export function ComposerReplyEditBanner({
   if (replyTarget) {
     return (
       <div
-        className={cn(BANNER_CLASS, "items-start")}
+        className={cn(
+          BANNER_CLASS,
+          replyBannerVariant() === "sheet" ? "items-center" : "items-start",
+        )}
         data-testid="reply-target"
       >
         <CornerUpLeft aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
@@ -92,7 +95,9 @@ export function ComposerReplyEditBanner({
           <p className="truncate font-medium text-ink-muted">
             Replying to {replyTarget.author}
           </p>
-          {replyTarget.body ? (
+          {/* The sheet names WHO — the message itself is right there in the
+           * timeline. The in-card fallback keeps the quote line. */}
+          {replyTarget.body && replyBannerVariant() === "card" ? (
             <p className="truncate text-ink-faint">{replyTarget.body}</p>
           ) : null}
         </div>
