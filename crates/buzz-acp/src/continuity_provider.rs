@@ -116,10 +116,8 @@ pub(crate) struct ManagedSessionContextResultV1 {
 }
 
 impl ManagedSessionContextResultV1 {
-    fn is_valid_for(&self, intent: &ManagedSessionContextIntentV1) -> bool {
+    fn is_valid(&self) -> bool {
         if self.protocol != MANAGED_SESSION_CONTEXT_RESULT_PROTOCOL
-            || self.request_id != intent.request_id
-            || self.resident_pubkey != intent.resident_pubkey
             || self.additional_directories.len() > 32
             || self.selected_source_ids.len() > 32
             || self
@@ -148,6 +146,12 @@ impl ManagedSessionContextResultV1 {
         selected.sort();
         selected.dedup();
         selected == self.selected_source_ids
+    }
+
+    fn is_valid_for(&self, intent: &ManagedSessionContextIntentV1) -> bool {
+        self.is_valid()
+            && self.request_id == intent.request_id
+            && self.resident_pubkey == intent.resident_pubkey
     }
 }
 
@@ -297,6 +301,18 @@ struct InheritedManagedContinuityChannel {
 }
 
 #[cfg(unix)]
+#[derive(Deserialize)]
+struct ManagedContinuityResponseEnvelope {
+    protocol: String,
+}
+
+#[cfg(unix)]
+enum ManagedContinuityResponseFrame {
+    Continuity(ContinuityContextResultV1),
+    SessionContext(ManagedSessionContextResultV1),
+}
+
+#[cfg(unix)]
 static MANAGED_CONTINUITY_CLIENT: std::sync::OnceLock<
     std::sync::Arc<InheritedManagedContinuityClient>,
 > = std::sync::OnceLock::new();
@@ -401,28 +417,40 @@ impl ManagedContinuityLookup for InheritedManagedContinuityClient {
 
             loop {
                 let line = read_bounded_continuity_line(&mut channel, deadline).await?;
-                let mut result: ContinuityContextResultV1 =
-                    serde_json::from_slice(&line).map_err(|_| ManagedContinuityChannelError)?;
-                if result.validate().is_err() {
-                    zeroize_result_packet(&mut result);
-                    return Err(ManagedContinuityChannelError);
-                }
-                if result.request_id == intent.request_id
-                    && result.resident_pubkey == intent.resident_pubkey
-                {
-                    return Ok(result);
-                }
+                match decode_managed_continuity_response(&line)? {
+                    ManagedContinuityResponseFrame::Continuity(mut result) => {
+                        if result.validate().is_err() {
+                            zeroize_result_packet(&mut result);
+                            return Err(ManagedContinuityChannelError);
+                        }
+                        if result.request_id == intent.request_id
+                            && result.resident_pubkey == intent.resident_pubkey
+                        {
+                            return Ok(result);
+                        }
 
-                // A prior request can time out while the trusted desktop is
-                // still resolving it. Discard that late, valid response and
-                // remain synchronized until this request's exact echo arrives.
-                tracing::warn!(
-                    target: "luca::continuity",
-                    stale_request_id = result.request_id.as_str(),
-                    expected_request_id = intent.request_id.as_str(),
-                    "discarded stale managed continuity response"
-                );
-                zeroize_result_packet(&mut result);
+                        warn_stale_managed_response(
+                            CONTINUITY_PROTOCOL,
+                            &result.request_id,
+                            CONTINUITY_PROTOCOL,
+                            &intent.request_id,
+                        );
+                        zeroize_result_packet(&mut result);
+                    }
+                    ManagedContinuityResponseFrame::SessionContext(mut result) => {
+                        if !result.is_valid() {
+                            zeroize_session_context_result(&mut result);
+                            return Err(ManagedContinuityChannelError);
+                        }
+                        warn_stale_managed_response(
+                            MANAGED_SESSION_CONTEXT_RESULT_PROTOCOL,
+                            &result.request_id,
+                            CONTINUITY_PROTOCOL,
+                            &intent.request_id,
+                        );
+                        zeroize_session_context_result(&mut result);
+                    }
+                }
             }
         })
     }
@@ -459,13 +487,40 @@ impl InheritedManagedContinuityClient {
         .await
         .map_err(|_| ManagedContinuityChannelError)?
         .map_err(|_| ManagedContinuityChannelError)?;
-        let line = read_bounded_continuity_line(&mut channel, deadline).await?;
-        let result: ManagedSessionContextResultV1 =
-            serde_json::from_slice(&line).map_err(|_| ManagedContinuityChannelError)?;
-        result
-            .is_valid_for(intent)
-            .then_some(result)
-            .ok_or(ManagedContinuityChannelError)
+        loop {
+            let line = read_bounded_continuity_line(&mut channel, deadline).await?;
+            match decode_managed_continuity_response(&line)? {
+                ManagedContinuityResponseFrame::SessionContext(mut result) => {
+                    if !result.is_valid() {
+                        zeroize_session_context_result(&mut result);
+                        return Err(ManagedContinuityChannelError);
+                    }
+                    if result.is_valid_for(intent) {
+                        return Ok(result);
+                    }
+                    warn_stale_managed_response(
+                        MANAGED_SESSION_CONTEXT_RESULT_PROTOCOL,
+                        &result.request_id,
+                        MANAGED_SESSION_CONTEXT_RESULT_PROTOCOL,
+                        &intent.request_id,
+                    );
+                    zeroize_session_context_result(&mut result);
+                }
+                ManagedContinuityResponseFrame::Continuity(mut result) => {
+                    if result.validate().is_err() {
+                        zeroize_result_packet(&mut result);
+                        return Err(ManagedContinuityChannelError);
+                    }
+                    warn_stale_managed_response(
+                        CONTINUITY_PROTOCOL,
+                        &result.request_id,
+                        MANAGED_SESSION_CONTEXT_RESULT_PROTOCOL,
+                        &intent.request_id,
+                    );
+                    zeroize_result_packet(&mut result);
+                }
+            }
+        }
     }
 }
 
@@ -511,9 +566,55 @@ async fn read_bounded_continuity_line(
     }
 }
 
+#[cfg(unix)]
+fn decode_managed_continuity_response(
+    line: &[u8],
+) -> Result<ManagedContinuityResponseFrame, ManagedContinuityChannelError> {
+    let envelope: ManagedContinuityResponseEnvelope =
+        serde_json::from_slice(line).map_err(|_| ManagedContinuityChannelError)?;
+    match envelope.protocol.as_str() {
+        CONTINUITY_PROTOCOL => serde_json::from_slice(line)
+            .map(ManagedContinuityResponseFrame::Continuity)
+            .map_err(|_| ManagedContinuityChannelError),
+        MANAGED_SESSION_CONTEXT_RESULT_PROTOCOL => serde_json::from_slice(line)
+            .map(ManagedContinuityResponseFrame::SessionContext)
+            .map_err(|_| ManagedContinuityChannelError),
+        _ => Err(ManagedContinuityChannelError),
+    }
+}
+
+#[cfg(unix)]
+fn warn_stale_managed_response(
+    stale_protocol: &str,
+    stale_request_id: &OpaqueId,
+    expected_protocol: &str,
+    expected_request_id: &OpaqueId,
+) {
+    // A prior request can time out while the trusted desktop is still
+    // resolving it. Discard that late, valid response and remain synchronized
+    // until this request's exact protocol and authority echo arrives.
+    tracing::warn!(
+        target: "luca::continuity",
+        stale_protocol,
+        stale_request_id = stale_request_id.as_str(),
+        expected_protocol,
+        expected_request_id = expected_request_id.as_str(),
+        "discarded stale managed inherited-channel response"
+    );
+}
+
 fn zeroize_result_packet(result: &mut ContinuityContextResultV1) {
     if let Some(packet) = result.packet.as_mut() {
         packet.content.zeroize();
+    }
+}
+
+fn zeroize_session_context_result(result: &mut ManagedSessionContextResultV1) {
+    if let Some(cwd) = result.cwd.as_mut() {
+        cwd.zeroize();
+    }
+    for directory in &mut result.additional_directories {
+        directory.zeroize();
     }
 }
 
@@ -862,6 +963,40 @@ mod tests {
         .expect("managed intent")
     }
 
+    #[cfg(unix)]
+    fn session_context_intent(
+        request_id: &str,
+        deadline_unix_ms: u64,
+    ) -> ManagedSessionContextIntentV1 {
+        ManagedSessionContextIntentV1::new(
+            OpaqueId::parse(request_id).expect("session-context request id"),
+            Hex64::parse("3".repeat(64)).expect("resident pubkey"),
+            SafeU53::new(1).expect("session epoch"),
+            OpaqueId::parse("conversation-1").expect("conversation id"),
+            Hex64::parse("7".repeat(64)).expect("trigger id"),
+            SafeU53::new(deadline_unix_ms).expect("session-context deadline"),
+        )
+        .expect("session-context intent")
+    }
+
+    #[cfg(unix)]
+    fn session_context_result(
+        intent: &ManagedSessionContextIntentV1,
+    ) -> ManagedSessionContextResultV1 {
+        ManagedSessionContextResultV1 {
+            protocol: MANAGED_SESSION_CONTEXT_RESULT_PROTOCOL.to_owned(),
+            request_id: intent.request_id.clone(),
+            resident_pubkey: intent.resident_pubkey.clone(),
+            status: ManagedSessionContextStatusV1::Empty,
+            snapshot_ref: None,
+            revision: SafeU53::new(0).expect("empty revision"),
+            cwd: None,
+            additional_directories: Vec::new(),
+            selected_source_ids: Vec::new(),
+            native_roots_ref: None,
+        }
+    }
+
     struct CountingManagedLookup {
         calls: AtomicUsize,
         response: Mutex<Option<ScriptedContinuityResponse>>,
@@ -1097,14 +1232,14 @@ mod tests {
 
         let mut first_request = request();
         first_request.deadline_unix_ms =
-            SafeU53::new(unix_time_millis() + 50).expect("first deadline");
+            SafeU53::new(unix_time_millis() + 500).expect("first deadline");
         let first_intent = managed_intent(&first_request);
         let first_result = result_for(&first_request, ContinuityLayerStatusV1::Ready);
 
         let mut second_request = request();
         second_request.request_id = OpaqueId::parse("request-2").expect("second request id");
         second_request.deadline_unix_ms =
-            SafeU53::new(unix_time_millis() + 2_000).expect("second deadline");
+            SafeU53::new(unix_time_millis() + 5_000).expect("second deadline");
         let second_intent = managed_intent(&second_request);
         let second_result = result_for(&second_request, ContinuityLayerStatusV1::Ready);
 
@@ -1122,7 +1257,7 @@ mod tests {
             // Begin the first response before its client-side deadline but do
             // not finish the NDJSON frame until after timeout. This proves the
             // persistent reader retains both read-ahead and partial lines.
-            tokio::time::sleep(Duration::from_millis(25)).await;
+            tokio::time::sleep(Duration::from_millis(250)).await;
             reader
                 .get_mut()
                 .write_all(&first_frame[..split])
@@ -1133,7 +1268,7 @@ mod tests {
                 .flush()
                 .await
                 .expect("flush partial first response");
-            tokio::time::sleep(Duration::from_millis(75)).await;
+            tokio::time::sleep(Duration::from_millis(500)).await;
             reader
                 .get_mut()
                 .write_all(&first_frame[split..])
@@ -1181,6 +1316,195 @@ mod tests {
             .await
             .expect("second response after stale frame");
         assert_eq!(resolved.request_id, second_request.request_id);
+        server.await.expect("server task");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn inherited_channel_drains_late_continuity_before_session_context() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+        let (client_stream, server_stream) = tokio::net::UnixStream::pair().expect("socket pair");
+        let client = InheritedManagedContinuityClient::from_stream(client_stream);
+
+        let mut continuity_request = request();
+        continuity_request.deadline_unix_ms =
+            SafeU53::new(unix_time_millis() + 500).expect("continuity deadline");
+        let continuity_intent = managed_intent(&continuity_request);
+        let continuity_result = result_for(&continuity_request, ContinuityLayerStatusV1::Ready);
+
+        let session_intent =
+            session_context_intent("session-context-request-2", unix_time_millis() + 5_000);
+        let session_result = session_context_result(&session_intent);
+        let expected_session_request_id = session_intent.request_id.clone();
+
+        let server = tokio::spawn(async move {
+            let mut reader = tokio::io::BufReader::new(server_stream);
+            let mut request_line = String::new();
+            reader
+                .read_line(&mut request_line)
+                .await
+                .expect("read continuity request");
+            let request_envelope: ManagedContinuityResponseEnvelope =
+                serde_json::from_str(&request_line).expect("continuity request envelope");
+            assert_eq!(
+                request_envelope.protocol,
+                MANAGED_CONTINUITY_INTENT_PROTOCOL
+            );
+
+            tokio::time::sleep(Duration::from_millis(750)).await;
+            let late_continuity =
+                serde_json::to_vec(&continuity_result).expect("late continuity frame");
+            reader
+                .get_mut()
+                .write_all(&late_continuity)
+                .await
+                .expect("write late continuity frame");
+            reader
+                .get_mut()
+                .write_all(b"\n")
+                .await
+                .expect("finish late continuity frame");
+            reader
+                .get_mut()
+                .flush()
+                .await
+                .expect("flush late continuity frame");
+
+            request_line.clear();
+            reader
+                .read_line(&mut request_line)
+                .await
+                .expect("read session-context request");
+            let request_envelope: ManagedContinuityResponseEnvelope =
+                serde_json::from_str(&request_line).expect("session-context request envelope");
+            assert_eq!(
+                request_envelope.protocol,
+                MANAGED_SESSION_CONTEXT_INTENT_PROTOCOL
+            );
+            let session_frame = serde_json::to_vec(&session_result).expect("session-context frame");
+            reader
+                .get_mut()
+                .write_all(&session_frame)
+                .await
+                .expect("write session-context frame");
+            reader
+                .get_mut()
+                .write_all(b"\n")
+                .await
+                .expect("finish session-context frame");
+            reader
+                .get_mut()
+                .flush()
+                .await
+                .expect("flush session-context frame");
+        });
+
+        assert!(
+            resolve_managed_lookup_fail_soft(&client, &continuity_intent)
+                .await
+                .is_none()
+        );
+        let resolved = client
+            .resolve_session_context(&session_intent)
+            .await
+            .expect("session context after stale continuity frame");
+        assert_eq!(resolved.request_id, expected_session_request_id);
+        server.await.expect("server task");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn inherited_channel_drains_late_session_context_before_continuity() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+        let (client_stream, server_stream) = tokio::net::UnixStream::pair().expect("socket pair");
+        let client = InheritedManagedContinuityClient::from_stream(client_stream);
+
+        let session_intent =
+            session_context_intent("session-context-request-1", unix_time_millis() + 500);
+        let session_result = session_context_result(&session_intent);
+
+        let mut continuity_request = request();
+        continuity_request.request_id =
+            OpaqueId::parse("continuity-request-2").expect("continuity request id");
+        continuity_request.deadline_unix_ms =
+            SafeU53::new(unix_time_millis() + 5_000).expect("continuity deadline");
+        let continuity_intent = managed_intent(&continuity_request);
+        let continuity_result = result_for(&continuity_request, ContinuityLayerStatusV1::Ready);
+        let expected_continuity_request_id = continuity_request.request_id.clone();
+
+        let server = tokio::spawn(async move {
+            let mut reader = tokio::io::BufReader::new(server_stream);
+            let mut request_line = String::new();
+            reader
+                .read_line(&mut request_line)
+                .await
+                .expect("read session-context request");
+            let request_envelope: ManagedContinuityResponseEnvelope =
+                serde_json::from_str(&request_line).expect("session-context request envelope");
+            assert_eq!(
+                request_envelope.protocol,
+                MANAGED_SESSION_CONTEXT_INTENT_PROTOCOL
+            );
+
+            tokio::time::sleep(Duration::from_millis(750)).await;
+            let late_session =
+                serde_json::to_vec(&session_result).expect("late session-context frame");
+            reader
+                .get_mut()
+                .write_all(&late_session)
+                .await
+                .expect("write late session-context frame");
+            reader
+                .get_mut()
+                .write_all(b"\n")
+                .await
+                .expect("finish late session-context frame");
+            reader
+                .get_mut()
+                .flush()
+                .await
+                .expect("flush late session-context frame");
+
+            request_line.clear();
+            reader
+                .read_line(&mut request_line)
+                .await
+                .expect("read continuity request");
+            let request_envelope: ManagedContinuityResponseEnvelope =
+                serde_json::from_str(&request_line).expect("continuity request envelope");
+            assert_eq!(
+                request_envelope.protocol,
+                MANAGED_CONTINUITY_INTENT_PROTOCOL
+            );
+            let continuity_frame =
+                serde_json::to_vec(&continuity_result).expect("continuity frame");
+            reader
+                .get_mut()
+                .write_all(&continuity_frame)
+                .await
+                .expect("write continuity frame");
+            reader
+                .get_mut()
+                .write_all(b"\n")
+                .await
+                .expect("finish continuity frame");
+            reader
+                .get_mut()
+                .flush()
+                .await
+                .expect("flush continuity frame");
+        });
+
+        assert!(client
+            .resolve_session_context(&session_intent)
+            .await
+            .is_err());
+        let resolved = resolve_managed_lookup_fail_soft(&client, &continuity_intent)
+            .await
+            .expect("continuity response after stale session-context frame");
+        assert_eq!(resolved.request_id, expected_continuity_request_id);
         server.await.expect("server task");
     }
 
