@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
 
 const CHANNEL_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
+const PRESENTATION_EVENT = "luca://managed-presentation";
 const RESIDENTS = [
   { name: "Claude Code", pubkey: TEST_IDENTITIES.alice.pubkey },
   { name: "Codex", pubkey: TEST_IDENTITIES.charlie.pubkey },
@@ -22,6 +23,83 @@ async function openConversation(page: Page) {
   await page.goto("/?e2e=mock");
   await page.getByTestId("channel-general").click();
   await expect(page.getByTestId("chat-title")).toHaveText("general");
+}
+
+async function openGroupDirectConversation(page: Page) {
+  const firstMessage = "Start one independent response each.";
+  await installMockBridge(page, {
+    managedAgents: RESIDENTS.slice(0, 2).map((resident) => ({
+      channelNames: ["general"],
+      name: resident.name,
+      pubkey: resident.pubkey,
+      status: "running" as const,
+    })),
+    searchProfiles: [TEST_IDENTITIES.alice, TEST_IDENTITIES.charlie].map(
+      (identity) => ({
+        displayName: identity.username,
+        isAgent: true,
+        pubkey: identity.pubkey,
+      }),
+    ),
+  });
+  await page.goto("/?e2e=mock");
+  await page.getByTestId("new-message-page").waitFor({ state: "visible" });
+  for (const resident of RESIDENTS.slice(0, 2)) {
+    await page.getByTestId("new-dm-search").fill(resident.name);
+    await page.getByTestId(`new-dm-result-${resident.pubkey}`).click();
+  }
+  await page.getByTestId("message-input").fill(firstMessage);
+  await page.getByTestId("send-message").click();
+  await expect(page).toHaveURL(/\/channels\//);
+  const { conversationId, receiptId } = await page.evaluate(async (content) => {
+    const sends = (window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? []).filter(
+      (entry) => entry.command === "send_channel_message",
+    );
+    const conversationId = String(
+      (sends.at(-1)?.payload as { channelId?: unknown } | undefined)
+        ?.channelId ?? "",
+    );
+    const search = (await window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.(
+      "search_messages",
+      { q: content, limit: 10 },
+    )) as
+      | {
+          hits?: Array<{
+            channel_id?: string | null;
+            content?: string;
+            event_id?: string;
+          }>;
+        }
+      | undefined;
+    const receiptId =
+      search?.hits?.find(
+        (hit) => hit.channel_id === conversationId && hit.content === content,
+      )?.event_id ?? "";
+    return { conversationId, receiptId };
+  }, firstMessage);
+  if (!conversationId || !receiptId) {
+    throw new Error("Expected a Group DM conversation and dispatch receipt.");
+  }
+  for (const [index, resident] of RESIDENTS.slice(0, 2).entries()) {
+    await page.evaluate(
+      ({ eventName, frame }) => {
+        window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.(eventName, frame);
+      },
+      {
+        eventName: PRESENTATION_EVENT,
+        frame: {
+          protocol: "luca.managed.presentation.v1",
+          kind: "turn_started",
+          resident_pubkey: resident.pubkey,
+          conversation_id: conversationId,
+          turn_id: `group-stop-all-${index}`,
+          dispatch_receipt_id: receiptId,
+          session_epoch: 7,
+          sequence: 1,
+        },
+      },
+    );
+  }
 }
 
 async function seedResidentActivity(page: Page) {
@@ -99,6 +177,38 @@ test("activity shelf keeps three stable residents and discloses the rest", async
   ).toContainText("Mara");
   await page.keyboard.press("Escape");
   await expect(disclosure).toBeFocused();
+});
+
+test("multi-resident direct conversations expose Stop all", async ({
+  page,
+}) => {
+  await openGroupDirectConversation(page);
+
+  const shelf = page.getByTestId("conversation-activity-shelf");
+  await expect(shelf).toHaveAttribute("data-active-count", "2");
+  const stopAll = page.getByRole("button", {
+    name: "Stop all active residents in this conversation",
+  });
+  await expect(stopAll).toBeVisible();
+  await expect(stopAll).toBeEnabled();
+  await stopAll.click();
+
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? [])
+          .filter((entry) => entry.command === "cancel_managed_turn")
+          .map((entry) =>
+            String(
+              (entry.payload as { residentPubkey?: unknown }).residentPubkey,
+            ),
+          )
+          .sort(),
+      ),
+    )
+    .toEqual(
+      [TEST_IDENTITIES.alice.pubkey, TEST_IDENTITIES.charlie.pubkey].sort(),
+    );
 });
 
 test("activity shelf collapses and settles motion at compact Mac size", async ({

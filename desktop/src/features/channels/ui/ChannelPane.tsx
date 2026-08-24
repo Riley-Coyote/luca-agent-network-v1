@@ -556,7 +556,8 @@ export const ChannelPane = React.memo(function ChannelPane({
   // the terminal states that need the owner (interrupted, needs attention),
   // because a resident who failed before saying anything has no row. Rooms
   // with several residents keep the full shelf.
-  const isDirectConversation = activeChannel?.channelType === "dm";
+  const isDirectConversation =
+    activeChannel?.channelType === "dm" && agentSessionAgents.length <= 1;
   const stripActivity = isDirectConversation
     ? undefined
     : pendingActivityByPubkey;
