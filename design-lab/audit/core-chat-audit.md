@@ -54,3 +54,32 @@ transition on composer focus, no arrival motion on own rows.
 - Scroll behavior end to end (pin, break-pin, jump-to-latest, growth).
 - Empty/edge states inventory.
 - Cross against the frontier checklist when it lands.
+
+## Hotspot pass 1 — lab-testable items (2026-08-24, late)
+
+Run live against the built shell (mock bridge). Checklist IDs from
+`frontier-checklist.md`:
+
+- ✅ S1.11/H10 — focus stays in the composer after send; next keystroke types
+- ✅ S1.13/H1 — optimistic message renders exactly once (no echo duplication)
+- ✅ S1.4 — send control disabled on empty composer
+- ✅ S1.7 — held/repeated Enter sends exactly once
+- ✅ S1.25/S1.27/H4 — draft survives a conversation switch and does not leak
+  into the other conversation
+- ✅ S1.9 (observed) — composer clears immediately on send
+
+**Early read: the messaging PLUMBING inherited from Buzz is healthier than
+feared** — the classic fork failures (dup sends, draft loss, focus loss) all
+pass. The losses are concentrated in the EXPERIENCE layers: motion (F3),
+activity display (F1 ceiling), streaming choreography, message anatomy.
+
+**Scene bug found by the audit itself:** the group-conversation conversion
+renamed the rooms (field-notes → "Vektor", polyphonic → "ziggy, Luca") — the
+room-naming task is confirmed real and affects the scene AND the product.
+
+## Next: the live session
+
+Streaming/awaiting/interruption items (S2.*, S3.*, S8.*) and real activity
+choreography can only be judged against a running agent — needs the relay up,
+the Dev app rebuilt (or lab against a live harness), and a real multi-step
+task driven end to end. That session produces the rest of the gap inventory.
