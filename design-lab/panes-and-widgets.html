@@ -33,51 +33,108 @@
         there is no lightness ladder left to fight.
    ══════════════════════════════════════════════════════════════════ */
 :root{
-  color-scheme: dark;
+  /* SLATE — the linear-dose ladder, the shipping default
+     (conversation-shell.css, decided 2026-08-24) */
+  --floor:#0d0e0f; --navigator:#0d0e0f; --surface:#1b1c1d; --raised:#2e2f30;
+  --hover:#37383a; --recess:#131415; --border:#2a2c2f; --border-strong:#35373a;
+  --ink:#f7f5ef; --ink-muted:#c5c3bd; --ink-faint:#98968f; --ink-ghost:#726f6b;
+  --wash:rgb(255 255 255/.04); --wash-2:rgb(255 255 255/.07);
+  --plate:rgb(247 245 239/.035); --plate-hover:rgb(247 245 239/.06);
+  --lit:inset 0 1px 0 rgb(255 255 255/.06);
+  --app-shadow:0 40px 120px rgb(0 0 0/.62);
+  --lift-shadow:0 34px 84px rgb(0 0 0/.58);
+  color-scheme:dark;
+}
+[data-theme="paper"]{
+  /* PAPER — the authored light palette, verbatim from adaptive-theme.ts.
+     Warm ground (hue 38), cool ink (hue 222), contrast-matched to Void. */
+  --floor:#f6f4f2; --navigator:#f8f7f5; --surface:#fcfbf9; --raised:#fefdfd;
+  --hover:#eeedea; --recess:#eceae6; --border:#ebeae6; --border-strong:#dcd8d2;
+  --ink:#15161b; --ink-muted:#3d4048; --ink-faint:#60646f; --ink-ghost:#848892;
+  --wash:rgb(21 22 27/.045); --wash-2:rgb(21 22 27/.08);
+  --plate:rgb(21 22 27/.032); --plate-hover:rgb(21 22 27/.055);
+  --lit:inset 0 1px 0 rgb(255 255 255/.9);
+  --app-shadow:0 40px 110px rgb(38 34 30/.30);
+  --lift-shadow:0 30px 74px rgb(38 34 30/.26);
+  color-scheme:light;
+}
 
-  /* the linear-dose ladder — verbatim */
-  --mn-floor: 210 7.143% 5.490%;
-  --mn-surface: 210 3.571% 10.980%;
-  --mn-raised: 210 2.128% 18.431%;
-  --mn-hover: 210 1.786% 21.961%;
-  --mn-recess: 210 5.000% 7.843%;
-  --mn-border: 216 5.618% 17.451%;
-  --mn-border-strong: 216 4.505% 21.765%;
+/* ── SURFACE MODE ──────────────────────────────────────────────────
+   OPAQUE is the ladder as shipped: elevation is lightness, nothing is
+   see-through. GLASS keeps the same ladder but expresses each rung as a
+   tint over the blurred desktop — which is what the app's own
+   window-vibrancy (NSVisualEffectView + `transparent: true`, both already
+   wired in tauri.conf.json) actually does. The rungs must still read in
+   order: floor < card < raised. The alphas below are chosen so they do.
+   ────────────────────────────────────────────────────────────────── */
+:root{
+  --floor-bg:var(--floor);
+  --card-bg:var(--surface);
+  --raised-bg:var(--raised);
+  --recess-bg:var(--recess);
+  --card-border:var(--border);
+  --blur-floor:none; --blur-card:none;
+}
+/* ONE MATERIAL, THEN LIFTS.
+   The first pass gave each rung its own tint over the desktop, and measurement
+   killed it: over a bright wallpaper the dark card composited LIGHTER than the
+   dark floor and the ladder inverted. So only the floor is a material; every
+   rung above it is a WHITE-ALPHA lift on that material — the same rule the
+   shipping CSS already states for hover and selection, extended to elevation.
+   Monotonic by construction, whatever is on the desktop.
 
-  /* the ink ladder — cream, hue 45 at whisper saturation */
-  --mn-ink: 45 15% 95%;
-  --mn-ink-muted: 45 4% 76%;
-  --mn-ink-faint: 45 3% 58%;
-  --mn-ink-ghost: 45 2% 44%;
+   The brightness clamp on the backdrop is the second half: without it a white
+   wallpaper drags the whole ground up and the faintest ink role falls under
+   the 4.5:1 AA floor. Clamped, the ground stays near its token value and the
+   desktop contributes movement and hue rather than luminance. */
+[data-glass="on"]{
+  --floor-bg:color-mix(in srgb, var(--floor) 74%, transparent);
+  --card-bg:rgb(255 255 255/.05);
+  --raised-bg:rgb(255 255 255/.105);
+  --recess-bg:rgb(0 0 0/.16);
+  --card-border:var(--border-strong);
+  --blur-floor:blur(44px) saturate(180%) brightness(.62);
+  --blur-card:none;
+  /* THE INK IS RE-SOLVED, NOT THE GLASS.
+     The ladder defines each ink role by the contrast it holds against its own
+     surface, so when the ground moves the roles move with it. Muting the glass
+     until the old values passed would have thrown away the effect; lifting the
+     two quietest roles keeps AA (>=4.5:1 for anything text-bearing, >=3:1 for
+     focus) and lets the desktop actually read through. Measured worst case is
+     a pure-white wallpaper. */
+  --ink-faint:#aaa8a1;
+  --ink-ghost:#8a8881;
+}
+[data-theme="paper"][data-glass="on"]{
+  --floor-bg:color-mix(in srgb, var(--floor) 78%, transparent);
+  --card-bg:rgb(255 255 255/.62);
+  --raised-bg:rgb(255 255 255/.9);
+  --recess-bg:rgb(21 22 27/.045);
+  --blur-floor:blur(44px) saturate(150%) brightness(1.16);
+  /* Paper's ground darkens over a dark wallpaper, so its quiet roles go the
+     other way — darker, same rule. */
+  --ink-faint:#54586380;
+  --ink-faint:#4f535e;
+  --ink-ghost:#6e727c;
+}
 
-  --mn-plate: hsl(var(--mn-ink) / .035);
-  --mn-plate-hover: hsl(var(--mn-ink) / .06);
-  --mn-lit-edge: inset 0 1px 0 rgb(255 255 255 / .06);
-  --mn-card-lip: 8px;
-  --mn-header-height: 56px;
-  --mn-reading-measure: 45rem;
-
-  /* hover and selection are WHITE-ALPHA, never a second tint */
-  --wash: rgb(255 255 255 / .04);
-  --wash-2: rgb(255 255 255 / .07);
-
+:root{
+  --mn-card-lip:8px; --mn-header-height:56px; --mn-reading-measure:45rem;
   --font-ui:"Instrument Sans","Avenir Next","Segoe UI",sans-serif;
   --font-reading:"Inter",ui-sans-serif,system-ui,sans-serif;
   --font-mono:"Fragment Mono","SFMono-Regular","SF Mono",monospace;
-
   --type-micro:.6875rem; --type-label:.75rem; --type-ui:.875rem;
-  --type-body:1rem;      --type-title:1.0625rem; --type-heading:1.375rem;
+  --type-body:1rem; --type-title:1.0625rem; --type-heading:1.375rem;
   --eyebrow-tracking:.14em;
-
   --ease:cubic-bezier(.22,1,.36,1);
 }
 
 *{box-sizing:border-box}
 html,body{height:100%}
 body{
-  margin:0;overflow:hidden;background:#08090b;
+  margin:0;overflow:hidden;background:var(--floor);
   font-family:var(--font-ui);font-size:var(--type-ui);
-  color:hsl(var(--mn-ink));-webkit-font-smoothing:antialiased;
+  color:var(--ink);-webkit-font-smoothing:antialiased;
 }
 button,textarea,input{font:inherit;color:inherit;background:none;border:0;padding:0}
 button{cursor:pointer;-webkit-tap-highlight-color:transparent}
@@ -88,63 +145,75 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .desk{
   position:fixed;inset:0;
   background:
-    radial-gradient(90% 70% at 88% -6%, rgba(150,104,72,.20) 0 30%, transparent 64%),
-    radial-gradient(80% 70% at 4% 96%, rgba(58,52,104,.24) 0 30%, transparent 66%),
-    linear-gradient(162deg,#14151a,#12141d 46%,#0d1018);
+    radial-gradient(78% 60% at 88% -6%, rgba(255,146,74,.78) 0 26%, transparent 62%),
+    radial-gradient(70% 60% at 2% 100%, rgba(126,96,232,.72) 0 26%, transparent 64%),
+    radial-gradient(120% 92% at 56% 106%, rgba(38,96,224,.80) 0 30%, transparent 74%),
+    radial-gradient(60% 50% at 40% -10%, rgba(232,86,132,.55) 0 24%, transparent 60%),
+    linear-gradient(162deg,#3a2416,#2a1c3c 44%,#12224e 74%,#0a1330);
+}
+[data-theme="paper"] .desk{
+  background:
+    radial-gradient(78% 60% at 88% -6%, rgba(255,192,122,.92) 0 26%, transparent 62%),
+    radial-gradient(70% 60% at 2% 100%, rgba(186,168,244,.86) 0 26%, transparent 64%),
+    radial-gradient(120% 92% at 56% 106%, rgba(128,172,240,.86) 0 30%, transparent 74%),
+    radial-gradient(60% 50% at 40% -10%, rgba(255,158,186,.62) 0 24%, transparent 60%),
+    linear-gradient(162deg,#fbeadb,#efe6f6 44%,#dce7fa 74%,#cbd9f4);
 }
 
 /* ── lab bar ──────────────────────────────────────────────────── */
 .lab{
   position:fixed;top:13px;left:50%;transform:translateX(-50%);z-index:80;
   display:flex;align-items:center;gap:1px;padding:4px;
-  background:hsl(var(--mn-raised) / .82);
+  background:var(--raised-bg);
   backdrop-filter:blur(26px) saturate(180%);-webkit-backdrop-filter:blur(26px) saturate(180%);
-  border:1px solid hsl(var(--mn-border-strong));border-radius:10px;
-  box-shadow:0 18px 40px rgb(0 0 0 / .5), var(--mn-lit-edge);
+  border:1px solid var(--border-strong);border-radius:10px;
+  box-shadow:0 18px 40px rgb(0 0 0 / .5), var(--lit);
 }
 .lab b{
   font-family:var(--font-mono);font-size:var(--type-micro);font-weight:400;
   letter-spacing:var(--eyebrow-tracking);text-transform:uppercase;
-  color:hsl(var(--mn-ink-faint));padding:0 10px 0 7px;
+  color:var(--ink-faint);padding:0 10px 0 7px;
 }
-.lab button{padding:5px 10px;border-radius:6px;font-size:var(--type-label);color:hsl(var(--mn-ink-muted));transition:background .14s var(--ease),color .14s var(--ease)}
-.lab button:hover{background:var(--wash);color:hsl(var(--mn-ink))}
-.lab button.on{background:var(--wash-2);color:hsl(var(--mn-ink))}
+.lab button{padding:5px 10px;border-radius:6px;font-size:var(--type-label);color:var(--ink-muted);transition:background .14s var(--ease),color .14s var(--ease)}
+.lab button:hover{background:var(--wash);color:var(--ink)}
+.lab button.on{background:var(--wash-2);color:var(--ink)}
 
 /* ── the window ───────────────────────────────────────────────── */
 .stage{position:fixed;inset:0;display:grid;grid-template:1fr/1fr;place-items:center;padding:56px 30px 30px}
 .app{
   position:relative;width:min(1440px,100%);height:min(900px,100%);max-height:100%;
   display:flex;border-radius:12px;overflow:hidden;
-  background:hsl(var(--mn-floor));            /* THE FLOOR */
-  box-shadow:0 40px 120px rgb(0 0 0 / .62);
+  background:var(--floor-bg);            /* THE FLOOR */
+  backdrop-filter:var(--blur-floor);-webkit-backdrop-filter:var(--blur-floor);
+  box-shadow:var(--app-shadow);
 }
 
 /* ── the rail sits ON the floor — it is not a card ────────────── */
 .rail{
   width:264px;flex:none;display:flex;flex-direction:column;
-  padding:0 8px 10px;background:hsl(var(--mn-floor));
+  padding:0 8px 10px;background:transparent;
 }
 .lights{display:flex;gap:8px;padding:15px 8px 20px}
-.lights i{width:11px;height:11px;border-radius:50%;background:rgb(255 255 255 / .12)}
+.lights i{width:11px;height:11px;border-radius:50%;background:rgb(255 255 255 / .16)}
+[data-theme="paper"] .lights i{background:rgb(21 22 27 / .16)}
 .railrow{
   display:flex;align-items:center;gap:10px;width:100%;padding:6px 8px;border-radius:6px;
-  color:hsl(var(--mn-ink-muted));font-size:var(--type-ui);text-align:left;
+  color:var(--ink-muted);font-size:var(--type-ui);text-align:left;
   transition:background .13s var(--ease),color .13s var(--ease);
 }
-.railrow:hover{background:var(--wash);color:hsl(var(--mn-ink))}
-.railrow.on{background:var(--wash-2);color:hsl(var(--mn-ink))}
-.railrow .g{width:16px;display:grid;place-items:center;color:hsl(var(--mn-ink-faint));flex:none}
-.railrow .r{margin-left:auto;font-family:var(--font-mono);font-size:var(--type-micro);color:hsl(var(--mn-ink-ghost))}
+.railrow:hover{background:var(--wash);color:var(--ink)}
+.railrow.on{background:var(--wash-2);color:var(--ink)}
+.railrow .g{width:16px;display:grid;place-items:center;color:var(--ink-faint);flex:none}
+.railrow .r{margin-left:auto;font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-ghost)}
 .eyebrow{
   font-family:var(--font-ui);font-size:var(--type-micro);font-weight:500;
   letter-spacing:var(--eyebrow-tracking);text-transform:uppercase;
-  color:hsl(var(--mn-ink-ghost));padding:0 8px;margin:22px 0 6px;
+  color:var(--ink-ghost);padding:0 8px;margin:22px 0 6px;
 }
-.dot{width:5px;height:5px;border-radius:50%;background:hsl(var(--mn-ink-faint));flex:none;margin-left:auto}
+.dot{width:5px;height:5px;border-radius:50%;background:var(--ink-faint);flex:none;margin-left:auto}
 .railfoot{
   margin-top:auto;display:flex;align-items:center;gap:9px;padding:12px 8px 0;
-  font-size:var(--type-label);color:hsl(var(--mn-ink-faint));
+  font-size:var(--type-label);color:var(--ink-faint);
 }
 
 /* ── the floor's working area: cards, separated by the lip ────── */
@@ -163,8 +232,9 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 /* THE CARD */
 .card{
   display:flex;flex-direction:column;min-height:0;min-width:0;flex:1;
-  background:hsl(var(--mn-surface));
-  border:1px solid hsl(var(--mn-border));border-radius:10px;overflow:hidden;
+  background:var(--card-bg);
+  border:1px solid var(--card-border);border-radius:10px;overflow:hidden;
+  backdrop-filter:var(--blur-card);-webkit-backdrop-filter:var(--blur-card);
 }
 .card.fixed{flex:none}
 .card-head{
@@ -172,13 +242,13 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
   padding:0 14px 0 16px;
 }
 .card-head h2{font-size:var(--type-title);font-weight:500;letter-spacing:-.014em;margin:0;line-height:1.25}
-.card-head p{margin:1px 0 0;font-size:var(--type-micro);color:hsl(var(--mn-ink-faint));letter-spacing:.005em}
+.card-head p{margin:1px 0 0;font-size:var(--type-micro);color:var(--ink-faint);letter-spacing:.005em}
 .card-head .acts{margin-left:auto;display:flex;gap:1px}
 .ic{
   width:28px;height:28px;display:grid;place-items:center;border-radius:6px;flex:none;
-  color:hsl(var(--mn-ink-faint));transition:background .14s var(--ease),color .14s var(--ease);
+  color:var(--ink-faint);transition:background .14s var(--ease),color .14s var(--ease);
 }
-.ic:hover{background:var(--wash);color:hsl(var(--mn-ink))}
+.ic:hover{background:var(--wash);color:var(--ink)}
 .body{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column}
 .body>.hang{margin-top:auto}
 .body::-webkit-scrollbar{width:10px}
@@ -188,139 +258,139 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .thread{padding:0 20px;max-width:var(--mn-reading-measure)}
 .rule{
   display:flex;align-items:center;gap:12px;margin:6px 0 20px;
-  font-size:var(--type-micro);color:hsl(var(--mn-ink-ghost));
+  font-size:var(--type-micro);color:var(--ink-ghost);
 }
-.rule::before,.rule::after{content:"";flex:1;height:1px;background:hsl(var(--mn-border))}
+.rule::before,.rule::after{content:"";flex:1;height:1px;background:var(--border)}
 .turn{display:grid;grid-template-columns:22px 1fr;gap:11px;margin-bottom:22px}
-.turn>[data-mark]{color:hsl(var(--mn-ink-faint));margin-top:2px}
+.turn>[data-mark]{color:var(--ink-faint);margin-top:2px}
 .turn .who{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}
 .turn .who b{font-size:var(--type-ui);font-weight:500;letter-spacing:-.002em}
-.turn .who .tag{font-size:var(--type-micro);color:hsl(var(--mn-ink-ghost))}
+.turn .who .tag{font-size:var(--type-micro);color:var(--ink-ghost)}
 .turn p{
   margin:0 0 9px;font-family:var(--font-reading);font-size:var(--type-body);
-  line-height:1.68;letter-spacing:-.003em;color:hsl(var(--mn-ink-muted));
+  line-height:1.68;letter-spacing:-.003em;color:var(--ink-muted);
 }
 .turn p:last-child{margin-bottom:0}
 /* the owner speaks in a raised pill, flush right — as in the shell */
 .mine{display:flex;justify-content:flex-end;margin-bottom:22px}
 .mine div{
   max-width:32rem;padding:9px 14px;border-radius:12px;
-  background:hsl(var(--mn-raised));box-shadow:var(--mn-lit-edge);
+  background:var(--raised-bg);box-shadow:var(--lit);
   font-family:var(--font-reading);font-size:var(--type-body);line-height:1.6;
-  letter-spacing:-.003em;color:hsl(var(--mn-ink));
+  letter-spacing:-.003em;color:var(--ink);
 }
 .offer{
   display:inline-flex;align-items:center;gap:8px;margin-top:10px;
-  font-size:var(--type-label);color:hsl(var(--mn-ink-faint));
+  font-size:var(--type-label);color:var(--ink-faint);
 }
-.offer::before{content:"";width:13px;height:1px;background:hsl(var(--mn-ink-ghost))}
+.offer::before{content:"";width:13px;height:1px;background:var(--ink-ghost)}
 
 /* composer — the one surface allowed a soft shadow and a lit edge */
 .composer{flex:none;padding:6px 20px 14px;max-width:var(--mn-reading-measure)}
 .well{
-  background:hsl(var(--mn-recess));border:1px solid hsl(var(--mn-border));
-  border-radius:10px;padding:9px 12px;box-shadow:var(--mn-lit-edge);
+  background:var(--recess-bg);border:1px solid var(--border);
+  border-radius:10px;padding:9px 12px;box-shadow:var(--lit);
 }
 .well textarea{
   width:100%;resize:none;height:24px;min-height:24px;outline:none;
   font-family:var(--font-reading);font-size:var(--type-body);line-height:1.5;
 }
-.well textarea::placeholder{color:hsl(var(--mn-ink-ghost))}
+.well textarea::placeholder{color:var(--ink-ghost)}
 .tools{display:flex;align-items:center;gap:2px;padding:8px 2px 0}
-.tools .mode{font-size:var(--type-label);color:hsl(var(--mn-ink-faint));padding:0 6px}
+.tools .mode{font-size:var(--type-label);color:var(--ink-faint);padding:0 6px}
 .go{
   margin-left:auto;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
-  background:hsl(var(--mn-raised));color:hsl(var(--mn-ink));box-shadow:var(--mn-lit-edge);
+  background:var(--raised-bg);color:var(--ink);box-shadow:var(--lit);
 }
 
 /* ── drawer contents ──────────────────────────────────────────── */
 .seg{display:flex;gap:2px;padding:0 12px 10px}
 .seg button{
   padding:5px 11px;border-radius:6px;font-size:var(--type-label);
-  color:hsl(var(--mn-ink-faint));display:flex;align-items:center;gap:6px;
+  color:var(--ink-faint);display:flex;align-items:center;gap:6px;
 }
-.seg button:hover{background:var(--wash);color:hsl(var(--mn-ink-muted))}
-.seg button.on{background:var(--mn-plate);color:hsl(var(--mn-ink))}
+.seg button:hover{background:var(--wash);color:var(--ink-muted)}
+.seg button.on{background:var(--plate);color:var(--ink)}
 .pad{padding:0 12px}
 .lab-eyebrow{
   font-size:var(--type-micro);font-weight:500;letter-spacing:var(--eyebrow-tracking);
-  text-transform:uppercase;color:hsl(var(--mn-ink-ghost));margin:16px 4px 7px;
+  text-transform:uppercase;color:var(--ink-ghost);margin:16px 4px 7px;
 }
-.plate{background:var(--mn-plate);border-radius:8px;padding:4px}
+.plate{background:var(--plate);border-radius:8px;padding:4px}
 .plate-row{
   display:flex;align-items:center;gap:10px;width:100%;padding:8px 8px;border-radius:6px;
   text-align:left;transition:background .13s var(--ease);
 }
-.plate-row:hover{background:var(--mn-plate-hover)}
-.plate-row .t{font-size:var(--type-ui);color:hsl(var(--mn-ink))}
-.plate-row .s{font-size:var(--type-micro);color:hsl(var(--mn-ink-faint));margin-top:1px}
-.plate-row .r{margin-left:auto;font-family:var(--font-mono);font-size:var(--type-micro);color:hsl(var(--mn-ink-ghost))}
+.plate-row:hover{background:var(--plate-hover)}
+.plate-row .t{font-size:var(--type-ui);color:var(--ink)}
+.plate-row .s{font-size:var(--type-micro);color:var(--ink-faint);margin-top:1px}
+.plate-row .r{margin-left:auto;font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-ghost)}
 .between{
-  background:var(--mn-plate);border-radius:8px;padding:10px 11px;margin-bottom:7px;
+  background:var(--plate);border-radius:8px;padding:10px 11px;margin-bottom:7px;
 }
-.between .h{display:flex;align-items:center;gap:8px;font-size:var(--type-label);color:hsl(var(--mn-ink-muted))}
-.between .h .r{margin-left:auto;font-size:var(--type-micro);color:hsl(var(--mn-ink-faint))}
+.between .h{display:flex;align-items:center;gap:8px;font-size:var(--type-label);color:var(--ink-muted)}
+.between .h .r{margin-left:auto;font-size:var(--type-micro);color:var(--ink-faint)}
 .between .said{display:grid;grid-template-columns:16px 1fr;gap:8px;margin-top:9px}
-.between .said b{display:block;font-size:var(--type-micro);color:hsl(var(--mn-ink-muted));margin-bottom:2px}
+.between .said b{display:block;font-size:var(--type-micro);color:var(--ink-muted);margin-bottom:2px}
 .between .said p{
   margin:0;font-family:var(--font-reading);font-size:var(--type-label);line-height:1.55;
-  color:hsl(var(--mn-ink-faint));
+  color:var(--ink-faint);
 }
 .watch{
   flex:none;display:flex;align-items:center;gap:9px;padding:11px 16px;
-  border-top:1px solid hsl(var(--mn-border));font-size:var(--type-label);
-  color:hsl(var(--mn-ink-faint));
+  border-top:1px solid var(--border);font-size:var(--type-label);
+  color:var(--ink-faint);
 }
-.watch button{margin-left:auto;padding:4px 10px;border-radius:6px;color:hsl(var(--mn-ink-muted));font-size:var(--type-label)}
-.watch button:hover{background:var(--wash);color:hsl(var(--mn-ink))}
+.watch button{margin-left:auto;padding:4px 10px;border-radius:6px;color:var(--ink-muted);font-size:var(--type-label)}
+.watch button:hover{background:var(--wash);color:var(--ink)}
 
 /* ── the widget · an instrument, set like print ────────────────── */
 .rows{padding:2px 12px}
 .row{
   display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:11px;
-  padding:10px 4px;border-bottom:1px solid hsl(var(--mn-border));
+  padding:10px 4px;border-bottom:1px solid var(--border);
 }
 .rows .row:last-child{border-bottom:0}
-.row .t{font-size:var(--type-ui);color:hsl(var(--mn-ink-muted));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.row .s{font-size:var(--type-micro);color:hsl(var(--mn-ink-ghost));margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.row .v{font-family:var(--font-mono);font-size:var(--type-micro);color:hsl(var(--mn-ink-faint))}
+.row .t{font-size:var(--type-ui);color:var(--ink-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .s{font-size:var(--type-micro);color:var(--ink-ghost);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .v{font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-faint)}
 .ring{width:22px;height:22px;transform:rotate(-90deg)}
 .ring circle{fill:none;stroke-width:1.5}
-.ring .b{stroke:hsl(var(--mn-border-strong))}
-.ring .f{stroke:hsl(var(--mn-ink-faint));stroke-linecap:round}
+.ring .b{stroke:var(--border-strong)}
+.ring .f{stroke:var(--ink-faint);stroke-linecap:round}
 .idle{width:22px;display:grid;place-items:center}
-.idle i{width:5px;height:5px;border-radius:50%;background:hsl(var(--mn-ink-ghost))}
+.idle i{width:5px;height:5px;border-radius:50%;background:var(--ink-ghost)}
 .sign{
   flex:none;display:flex;align-items:center;gap:9px;padding:10px 16px;
-  border-top:1px solid hsl(var(--mn-border));
-  font-family:var(--font-mono);font-size:var(--type-micro);color:hsl(var(--mn-ink-ghost));
+  border-top:1px solid var(--border);
+  font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-ghost);
 }
-.sign .by{margin-left:auto;display:flex;align-items:center;gap:7px;color:hsl(var(--mn-ink-faint))}
+.sign .by{margin-left:auto;display:flex;align-items:center;gap:7px;color:var(--ink-faint)}
 
 /* ── the agent's place ────────────────────────────────────────── */
 .place{padding:0 20px 30px;max-width:var(--mn-reading-measure)}
 .hero{display:grid;grid-template-columns:52px 1fr;gap:16px;padding:4px 0 26px}
 .hero h1{font-size:var(--type-heading);font-weight:500;letter-spacing:-.021em;margin:0 0 7px;line-height:1.25}
-.hero p{margin:0;font-family:var(--font-reading);font-size:var(--type-ui);line-height:1.62;color:hsl(var(--mn-ink-faint));max-width:52ch}
+.hero p{margin:0;font-family:var(--font-reading);font-size:var(--type-ui);line-height:1.62;color:var(--ink-faint);max-width:52ch}
 .sect{margin-bottom:26px}
-.made-row{display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:11px;padding:10px 0;border-top:1px solid hsl(var(--mn-border));width:100%;text-align:left}
-.made-row .t{font-size:var(--type-ui);color:hsl(var(--mn-ink-muted))}
-.made-row .s{font-size:var(--type-micro);color:hsl(var(--mn-ink-ghost));margin-top:2px}
-.made-row .v{font-family:var(--font-mono);font-size:var(--type-micro);color:hsl(var(--mn-ink-ghost))}
-.made-row:hover .t{color:hsl(var(--mn-ink))}
+.made-row{display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:11px;padding:10px 0;border-top:1px solid var(--border);width:100%;text-align:left}
+.made-row .t{font-size:var(--type-ui);color:var(--ink-muted)}
+.made-row .s{font-size:var(--type-micro);color:var(--ink-ghost);margin-top:2px}
+.made-row .v{font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-ghost)}
+.made-row:hover .t{color:var(--ink)}
 .gal{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
 .tile{text-align:left}
 .tile .art{
   aspect-ratio:4/3;border-radius:7px;overflow:hidden;display:block;
-  background:hsl(var(--mn-raised));box-shadow:var(--mn-lit-edge);
+  background:var(--raised-bg);box-shadow:var(--lit);
 }
-.tile b{display:block;font-size:var(--type-label);font-weight:400;color:hsl(var(--mn-ink-muted));margin-top:8px}
-.tile span{display:block;font-family:var(--font-mono);font-size:var(--type-micro);color:hsl(var(--mn-ink-ghost));margin-top:2px}
+.tile b{display:block;font-size:var(--type-label);font-weight:400;color:var(--ink-muted);margin-top:8px}
+.tile span{display:block;font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-ghost);margin-top:2px}
 .art.ladder{display:flex;flex-direction:column}
 .art.ladder i{flex:1}
 .art.notch{display:grid;place-items:start center}
-.art.notch::before{content:"";width:42%;height:26%;border-radius:0 0 9px 9px;background:hsl(var(--mn-floor))}
-.art.sheet{display:grid;grid-template-columns:repeat(4,1fr);align-content:center;justify-items:center;gap:6px;padding:9px;color:hsl(var(--mn-ink-faint))}
+.art.notch::before{content:"";width:42%;height:26%;border-radius:0 0 9px 9px;background:var(--floor-bg)}
+.art.sheet{display:grid;grid-template-columns:repeat(4,1fr);align-content:center;justify-items:center;gap:6px;padding:9px;color:var(--ink-faint)}
 .art.fog{position:relative}
 .art.fog::before,.art.fog::after{content:"";position:absolute;border-radius:5px;border:1px solid rgb(255 255 255 / .07)}
 .art.fog::before{inset:16% 34% 30% 12%;background:rgb(255 255 255 / .04)}
@@ -330,16 +400,16 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .lifted{
   position:fixed;z-index:70;display:none;flex-direction:column;
   left:calc(50% + 190px);top:56%;width:376px;height:326px;min-width:300px;min-height:210px;
-  background:hsl(var(--mn-surface) / .80);
-  backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);
-  border:1px solid hsl(var(--mn-border-strong));border-radius:11px;overflow:hidden;
-  box-shadow:0 34px 84px rgb(0 0 0 / .58), var(--mn-lit-edge);
+  background:color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter:blur(44px) saturate(190%);-webkit-backdrop-filter:blur(44px) saturate(190%);
+  border:1px solid var(--border-strong);border-radius:11px;overflow:hidden;
+  box-shadow:var(--lift-shadow), var(--lit);
 }
 .lifted.open{display:flex}
 .lifted .card-head{cursor:grab;height:48px}
 .lifted .card-head:active{cursor:grabbing}
 .grip{position:absolute;right:3px;bottom:3px;width:15px;height:15px;cursor:nwse-resize}
-.grip::after{content:"";position:absolute;right:4px;bottom:4px;width:6px;height:6px;border-right:1.5px solid hsl(var(--mn-ink-ghost));border-bottom:1.5px solid hsl(var(--mn-ink-ghost))}
+.grip::after{content:"";position:absolute;right:4px;bottom:4px;width:6px;height:6px;border-right:1.5px solid var(--ink-ghost);border-bottom:1.5px solid var(--ink-ghost)}
 
 /* ── laws overlay ─────────────────────────────────────────────── */
 body.laws .rail,body.laws .card,body.laws .lifted{position:relative}
@@ -358,10 +428,10 @@ body.laws .lifted{box-shadow:0 34px 84px rgb(0 0 0 / .58), inset 0 0 0 1.5px rgb
 .toast{
   position:fixed;left:50%;bottom:44px;transform:translate(-50%,10px);z-index:75;
   display:flex;align-items:center;gap:9px;padding:9px 14px;opacity:0;pointer-events:none;
-  background:hsl(var(--mn-raised) / .9);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
-  border:1px solid hsl(var(--mn-border-strong));border-radius:8px;
-  box-shadow:0 18px 40px rgb(0 0 0 / .5), var(--mn-lit-edge);
-  font-size:var(--type-label);color:hsl(var(--mn-ink-muted));
+  background:var(--raised-bg);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+  border:1px solid var(--border-strong);border-radius:8px;
+  box-shadow:0 18px 40px rgb(0 0 0 / .5), var(--lit);
+  font-size:var(--type-label);color:var(--ink-muted);
   transition:opacity .2s var(--ease),transform .2s var(--ease);
 }
 .toast.on{opacity:1;transform:translate(-50%,0)}
@@ -374,6 +444,8 @@ body.laws .lifted{box-shadow:0 34px 84px rgb(0 0 0 / .58), inset 0 0 0 1.5px rgb
 
 <div class="lab">
   <b>Study</b>
+  <button id="t-glass" class="on">Glass</button>
+  <button id="t-theme">Paper</button>
   <button id="t-split" class="on">Split drawer</button>
   <button id="t-tile">Tile two chats</button>
   <button id="t-place">Vektor's place</button>
@@ -406,8 +478,8 @@ body.laws .lifted{box-shadow:0 34px 84px rgb(0 0 0 / .58), inset 0 0 0 1.5px rgb
 
     <div class="railfoot">
       <span data-mark="riley" data-size="22"></span>
-      <div><div style="font-size:var(--type-label);color:hsl(var(--mn-ink-muted))">Coyote</div>
-      <div style="font-size:var(--type-micro);color:hsl(var(--mn-ink-ghost))">Personal workspace</div></div>
+      <div><div style="font-size:var(--type-label);color:var(--ink-muted)">Coyote</div>
+      <div style="font-size:var(--type-micro);color:var(--ink-ghost)">Personal workspace</div></div>
     </div>
   </aside>
 
@@ -630,7 +702,7 @@ body.laws .lifted{box-shadow:0 34px 84px rgb(0 0 0 / .58), inset 0 0 0 1.5px rgb
   <div class="grip" id="lift-grip"></div>
 </section>
 
-<div class="toast" id="toast"><span class="dot" style="margin:0;background:hsl(var(--mn-ink-faint))"></span><span id="toast-copy"></span></div>
+<div class="toast" id="toast"><span class="dot" style="margin:0;background:var(--ink-faint)"></span><span id="toast-copy"></span></div>
 
 <script>
 /* Real identity marks, from the repo's own generator
@@ -760,6 +832,20 @@ document.getElementById("close-drawer").onclick=()=>{
   drawer.toggleAttribute("hidden",true); lipH.toggleAttribute("hidden",true);
 };
 
+const glassBtn=document.getElementById("t-glass");
+glassBtn.onclick=()=>{
+  const on=document.documentElement.dataset.glass!=="on";
+  document.documentElement.dataset.glass=on?"on":"off";
+  glassBtn.classList.toggle("on",on);
+  say(on?"Glass — every rung of the ladder, as a tint over the desktop":"Opaque — the ladder as it ships today");
+};
+const themeBtn=document.getElementById("t-theme");
+themeBtn.onclick=()=>{
+  const paper=document.documentElement.dataset.theme!=="paper";
+  document.documentElement.dataset.theme=paper?"paper":"slate";
+  themeBtn.textContent=paper?"Slate":"Paper";
+};
+
 const lawsBtn=document.getElementById("t-laws");
 lawsBtn.onclick=()=>{document.body.classList.toggle("laws");lawsBtn.classList.toggle("on",document.body.classList.contains("laws"))};
 
@@ -804,7 +890,12 @@ lawsBtn.onclick=()=>{document.body.classList.toggle("laws");lawsBtn.classList.to
   h.addEventListener("pointerup",e=>{h.releasePointerCapture(e.pointerId);b=null});
 })();
 
+document.documentElement.dataset.glass="on";
+document.documentElement.dataset.theme="slate";
+
 const q=new URLSearchParams(location.search);
+if(q.get("glass")==="off") glassBtn.click();
+if(q.get("theme")==="paper") themeBtn.click();
 if(q.get("tile")==="1") tileBtn.click();
 if(q.get("place")==="1") showPlace(true);
 if(q.get("lift")==="1") setLift(true);
