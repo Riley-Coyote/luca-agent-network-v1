@@ -7,9 +7,12 @@ import { Button } from "@/shared/ui/button";
  * TWO TREATMENTS, one being chosen in the lab (2026-08-23) — delete the
  * loser once Riley picks:
  *
- * "sheet" (default) — a layer that rises from behind the composer card:
- * inset from the card's edges, an intermediate shade between ground and
- * card, bottom tucked under the card, 220ms rise. The visual system lives
+ * "sheet" (default) — a layer that rises from behind the composer card,
+ * at the card's exact width: the composer is one object with a deck of
+ * its own sheets, not two stacked boxes. Intermediate shade between
+ * ground and card, bottom tucked under the card past its radius, 220ms
+ * rise. (Same-width per Riley: an inset sheet read as a separate object,
+ * and a sheet taller than the card inverted the depth hierarchy.) The visual system lives
  * in conversation-shell.css as .luca-reply-sheet.
  *
  * "card" — the row lives inside the composer card above the text, the way
@@ -31,7 +34,7 @@ export function replyBannerVariant(): "card" | "sheet" {
 const IN_CARD_CLASS =
   "flex gap-2 px-1 pb-2 pt-1 text-sm leading-5 text-muted-foreground";
 const SHEET_CLASS =
-  "luca-reply-sheet relative z-0 mx-3 -mb-3 flex gap-2 px-4 pb-5 pt-2 text-sm leading-5 text-muted-foreground";
+  "luca-reply-sheet relative z-0 -mb-3.5 flex gap-2 px-4 pb-5 pt-1.5 text-sm leading-5 text-muted-foreground";
 const BANNER_CLASS =
   replyBannerVariant() === "sheet" ? SHEET_CLASS : IN_CARD_CLASS;
 
@@ -60,9 +63,7 @@ export function ComposerReplyEditBanner({
       >
         <Pencil aria-hidden className="h-4 w-4 shrink-0" />
         <div className="min-w-0 flex-1">
-          <p className="truncate font-medium text-foreground">
-            Editing message
-          </p>
+          <p className="truncate font-medium text-ink-muted">Editing message</p>
         </div>
         {onCancelEdit ? (
           <Button
@@ -88,7 +89,7 @@ export function ComposerReplyEditBanner({
       >
         <CornerUpLeft aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
         <div className="min-w-0 flex-1">
-          <p className="truncate font-medium text-foreground">
+          <p className="truncate font-medium text-ink-muted">
             Replying to {replyTarget.author}
           </p>
           {replyTarget.body ? (
