@@ -3,9 +3,13 @@ import test from "node:test";
 
 import {
   contrastRatio,
+  createAshThemeVars,
   createGraphiteThemeVars,
+  createInverseThemeVars,
   createLucaThemeVars,
+  createPaperThemeVars,
   createThemeVars,
+  createVoidThemeVars,
   ASH_THEME_COLORS,
   GRAPHITE_THEME_COLORS,
   hexToHsl,
@@ -14,6 +18,11 @@ import {
   PAPER_THEME_COLORS,
   VOID_THEME_COLORS,
 } from "./adaptive-theme.ts";
+import {
+  MN_ROLE_VARS,
+  SIGNAL_VARS,
+  THEME_CLEAR_VARS,
+} from "./role-registry.ts";
 
 /**
  * THE INK CONTRACT.
@@ -157,7 +166,6 @@ test("Graphite projects the approved charcoal study onto the Luca shell", () => 
   assert.equal(isDark, true);
   for (const [token, color] of [
     ["--mn-floor", GRAPHITE_THEME_COLORS.floor],
-    ["--mn-navigator", GRAPHITE_THEME_COLORS.navigator],
     ["--mn-surface", GRAPHITE_THEME_COLORS.surface],
     ["--mn-raised", GRAPHITE_THEME_COLORS.raised],
     ["--mn-hover", GRAPHITE_THEME_COLORS.hover],
@@ -246,4 +254,79 @@ test("a syntax-derived palette gets the same ink-derived focus", () => {
   const { vars } = createThemeVars("#1e1e2e", "#cdd6f4", "#9399b2");
   assert.equal(vars["--mn-focus"], vars["--mn-ink-faint"]);
   assert.notEqual(vars["--mn-focus"], vars["--mn-ink"]);
+});
+
+/**
+ * THE VOCABULARY CONTRACT.
+ *
+ * Builders may speak only in roles (`--mn-*`) and signals; semantic tokens
+ * belong to the stylesheet mapping, which derives them from the roles. A
+ * builder that writes `--background` or `--sidebar-background` inline
+ * shadows the entire semantic layer — and because inline styles survive
+ * theme switches unless cleared, one such key froze the rail's color across
+ * every subsequent theme change. These three tests make that whole failure
+ * class unrepresentable: emissions are bounded by the registry, the role
+ * scale must be complete, and the clear list is provably a superset of
+ * everything any builder can write.
+ */
+const NAMED_BUILDERS = [
+  ["Luca", createLucaThemeVars()],
+  ["Graphite", createGraphiteThemeVars()],
+  ["Void", createVoidThemeVars()],
+  ["Ash", createAshThemeVars()],
+  ["Inverse", createInverseThemeVars()],
+  ["Paper", createPaperThemeVars()],
+];
+const DERIVED_SAMPLES = [
+  ["vitesse-dark-ish", createThemeVars("#121212", "#dbd7ca", "#758575")],
+  ["github-light-ish", createThemeVars("#ffffff", "#24292f", "#57606a")],
+];
+
+test("builders speak only in roles and signals", () => {
+  const allowed = new Set([...MN_ROLE_VARS, ...SIGNAL_VARS]);
+  for (const [name, { vars }] of [...NAMED_BUILDERS, ...DERIVED_SAMPLES]) {
+    for (const key of Object.keys(vars)) {
+      assert.ok(
+        allowed.has(key),
+        `${name} emits ${key}, which is neither a role nor a signal`,
+      );
+    }
+  }
+});
+
+test("every shell-recoloring builder emits the complete role scale", () => {
+  for (const [name, { vars }] of [
+    ...NAMED_BUILDERS.filter(([n]) => n !== "Luca"),
+    ...DERIVED_SAMPLES,
+  ]) {
+    for (const role of MN_ROLE_VARS) {
+      assert.equal(
+        typeof vars[role],
+        "string",
+        `${name} is missing ${role} — a partial ladder falls back to Slate`,
+      );
+    }
+  }
+});
+
+test("the clear list covers every key any builder can emit", () => {
+  const clearable = new Set(THEME_CLEAR_VARS);
+  for (const [name, { vars }] of [...NAMED_BUILDERS, ...DERIVED_SAMPLES]) {
+    for (const key of Object.keys(vars)) {
+      assert.ok(
+        clearable.has(key),
+        `${name} emits ${key}, which applyTheme would never clear — it would leak into the next theme`,
+      );
+    }
+  }
+});
+
+test("a derived palette digs its recess below the surface in both modes", () => {
+  for (const [name, { isDark, vars }] of DERIVED_SAMPLES) {
+    const l = (hsl) => Number(hsl.split(" ")[2].replace("%", ""));
+    assert.ok(
+      l(vars["--mn-recess"]) < l(vars["--mn-surface"]),
+      `${name} (isDark=${isDark}): recess must sit below the surface, not float above it`,
+    );
+  }
 });

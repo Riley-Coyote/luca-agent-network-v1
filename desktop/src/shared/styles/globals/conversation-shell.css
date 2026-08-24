@@ -50,7 +50,6 @@
    *
    * The old near-black ladder lives on as the Void theme, untouched. */
   --mn-floor: 210 7.143% 5.490%;
-  --mn-navigator: 210 7.143% 5.490%;
   --mn-surface: 210 3.571% 10.980%;
   --mn-raised: 210 2.128% 18.431%;
   --mn-hover: 210 1.786% 21.961%;
@@ -577,7 +576,7 @@
 }
 
 :root[data-luca-shell] .luca-project-room-navigator {
-  background: hsl(var(--mn-navigator));
+  background: hsl(var(--mn-floor));
   border-right: 1px solid hsl(var(--mn-border));
   display: flex;
   flex: 1;
@@ -765,7 +764,7 @@
 
 :root[data-luca-shell] .luca-project-mobile-back {
   align-items: center;
-  background: hsl(var(--mn-navigator));
+  background: hsl(var(--mn-floor));
   border-bottom: 1px solid hsl(var(--mn-border));
   color: hsl(var(--mn-ink-muted));
   display: flex;

@@ -10,7 +10,7 @@
 }
 
 .artifact-library {
-  background: hsl(var(--mn-navigator));
+  background: hsl(var(--mn-floor));
   border-right: 1px solid hsl(var(--mn-border));
   display: flex;
   flex-direction: column;
@@ -339,7 +339,7 @@
 
 .artifact-canvas__bar {
   align-items: center;
-  background: hsl(var(--mn-navigator));
+  background: hsl(var(--mn-floor));
   border-bottom: 1px solid hsl(var(--mn-border));
   display: flex;
   justify-content: space-between;
@@ -483,7 +483,7 @@
 
 .artifact-preview__code,
 .artifact-source {
-  background: hsl(var(--mn-navigator));
+  background: hsl(var(--mn-floor));
   border: 1px solid hsl(var(--mn-border));
   min-height: 100%;
 }
@@ -635,7 +635,7 @@
 
 .artifact-canvas__footer {
   align-items: center;
-  background: hsl(var(--mn-navigator));
+  background: hsl(var(--mn-floor));
   border-top: 1px solid hsl(var(--mn-border));
   color: hsl(var(--mn-ink-faint));
   display: flex;

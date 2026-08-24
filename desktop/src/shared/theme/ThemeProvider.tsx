@@ -21,6 +21,7 @@ import {
   createThemeVars,
   hexToHsl,
 } from "./adaptive-theme";
+import { THEME_CLEAR_VARS } from "./role-registry";
 import {
   GRAPHITE_THEME_NAME,
   PAPER_THEME_NAME,
@@ -37,6 +38,12 @@ import {
 
 export const THEME_STORAGE_KEY = "buzz-theme";
 const CACHE_KEY = "buzz-theme-cache";
+/**
+ * Bump when the shape or vocabulary of the cached var map changes. v1 caches
+ * (pre role-registry) contain semantic keys that must never be replayed onto
+ * the root — a stale cache is discarded rather than migrated.
+ */
+const THEME_CACHE_VERSION = 2;
 export const ACCENT_STORAGE_KEY = "buzz-accent-color";
 export const NEUTRAL_ACCENT = "neutral";
 const FOLLOW_SYSTEM_KEY = "buzz-follow-system";
@@ -452,7 +459,14 @@ function applyCachedVars(): string | null {
   try {
     const cached = window.localStorage.getItem(CACHE_KEY);
     if (!cached) return null;
-    const { themeName, vars, isDark } = JSON.parse(cached);
+    const { version, themeName, vars, isDark } = JSON.parse(cached);
+    if (version !== THEME_CACHE_VERSION) {
+      // A cache written by an older vocabulary (e.g. one that inlined
+      // semantic tokens) must not touch the root; the async theme load
+      // repaints moments later from the current builders.
+      window.localStorage.removeItem(CACHE_KEY);
+      return null;
+    }
     const root = document.documentElement;
     for (const [key, value] of Object.entries(vars)) {
       root.style.setProperty(key, value as string);
@@ -476,27 +490,6 @@ function applyCachedVars(): string | null {
 
 /** The latest theme load is the only one allowed to write document styles. */
 let themeApplyRequest = 0;
-
-const LUCA_SHELL_THEME_VARIABLES = [
-  "--mn-floor",
-  "--mn-navigator",
-  "--mn-surface",
-  "--mn-raised",
-  "--mn-hover",
-  "--mn-glass",
-  "--mn-surface-raised",
-  "--mn-surface-hover",
-  "--mn-border",
-  "--mn-border-strong",
-  "--mn-ink",
-  "--mn-ink-muted",
-  "--mn-ink-faint",
-  "--mn-ink-ghost",
-  "--mn-focus",
-  // Paper restates the lit edge as a shadow beneath rather than a highlight
-  // above, so it has to be cleared when returning to a dark palette.
-  "--mn-lit-edge",
-] as const;
 
 /** Apply a theme: load data, derive CSS vars, set them on :root. */
 async function applyTheme(
@@ -527,7 +520,7 @@ async function applyTheme(
   // first; when returning to the first-party theme, the audited CSS defaults
   // must become authoritative again instead of being shadowed by stale inline
   // variables from the prior theme.
-  for (const key of LUCA_SHELL_THEME_VARIABLES) {
+  for (const key of THEME_CLEAR_VARS) {
     root.style.removeProperty(key);
   }
   for (const [key, value] of Object.entries(vars)) {
@@ -560,7 +553,12 @@ async function applyTheme(
   try {
     window.localStorage.setItem(
       CACHE_KEY,
-      JSON.stringify({ themeName: name, vars, isDark }),
+      JSON.stringify({
+        version: THEME_CACHE_VERSION,
+        themeName: name,
+        vars,
+        isDark,
+      }),
     );
   } catch {
     // Storage full — non-critical

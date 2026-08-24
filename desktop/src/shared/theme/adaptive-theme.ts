@@ -1,3 +1,5 @@
+import type { MnRoleVar } from "./role-registry";
+
 /**
  * Adaptive Theme Engine
  *
@@ -285,7 +287,6 @@ export interface ThemeResult {
  */
 export const VOID_THEME_COLORS = {
   floor: "#000000",
-  navigator: "#030304",
   surface: "#050506",
   raised: "#070708",
   hover: "#0a0a0b",
@@ -307,7 +308,6 @@ export const VOID_THEME_COLORS = {
  */
 export const ASH_THEME_COLORS = {
   floor: "#0e0e0e",
-  navigator: "#0e0e0e",
   surface: "#171717",
   raised: "#202020",
   hover: "#282828",
@@ -330,7 +330,6 @@ export const ASH_THEME_COLORS = {
  */
 export const INVERSE_THEME_COLORS = {
   floor: "#1b1c1d",
-  navigator: "#1b1c1d",
   surface: "#0d0e0f",
   raised: "#1d1e1f",
   hover: "#252627",
@@ -347,7 +346,6 @@ export const INVERSE_THEME_COLORS = {
 
 export const GRAPHITE_THEME_COLORS = {
   floor: "#0d0d0f",
-  navigator: "#0d0d0f",
   surface: "#101012",
   raised: "#151517",
   hover: "#18181b",
@@ -388,7 +386,6 @@ export const GRAPHITE_THEME_COLORS = {
  */
 export const PAPER_THEME_COLORS = {
   floor: "#f6f4f2",
-  navigator: "#f8f7f5",
   surface: "#fcfbf9",
   raised: "#fefdfd",
   hover: "#eeedea",
@@ -427,21 +424,22 @@ export function createLucaThemeVars(): ThemeResult {
     vars: {
       "--destructive": "0 67% 60%",
       "--destructive-foreground": "0 0% 100%",
-      "--chart-1": "213 94% 68%",
-      "--chart-2": "160 48% 58%",
-      "--chart-3": "37 66% 62%",
-      "--chart-4": "284 46% 70%",
-      "--chart-5": "0 67% 68%",
-      "--huddle-drawer-surface": "222 15% 10%",
-      "--huddle-control-surface": "222 12% 16%",
-      "--huddle-control-hover-surface": "222 11% 20%",
-      "--huddle-control-chevron-surface": "222 14% 12%",
-      "--huddle-control-chevron-hover-surface": "222 12% 16%",
-      "--huddle-control-foreground": "215 20% 92%",
-      "--huddle-popover-surface": "222 14% 12%",
-      "--huddle-popover-border": "220 10% 22%",
-      "--huddle-tooltip-surface": "222 12% 16%",
-      "--huddle-tooltip-foreground": "215 20% 92%",
+      // The huddle chrome rides the shell's own ladder by indirection. These
+      // are inline custom properties referencing other custom properties, so
+      // they resolve against whichever --mn-* scale is live: the stylesheet's
+      // Slate values for the default theme, a named palette's inline ladder
+      // otherwise. The old literals here were hue-222 at up to 15% chroma —
+      // the blue-leaning strip against a hue-210 <=7% shell.
+      "--huddle-drawer-surface": "var(--mn-raised)",
+      "--huddle-control-surface": "var(--mn-hover)",
+      "--huddle-control-hover-surface": "var(--mn-border)",
+      "--huddle-control-chevron-surface": "var(--mn-surface)",
+      "--huddle-control-chevron-hover-surface": "var(--mn-hover)",
+      "--huddle-control-foreground": "var(--mn-ink)",
+      "--huddle-popover-surface": "var(--mn-raised)",
+      "--huddle-popover-border": "var(--mn-border-strong)",
+      "--huddle-tooltip-surface": "var(--mn-hover)",
+      "--huddle-tooltip-foreground": "var(--mn-ink)",
       "--status-added": "#67c587",
       "--status-deleted": "#ef7b7b",
       "--status-modified": "#d6a95c",
@@ -451,46 +449,60 @@ export function createLucaThemeVars(): ThemeResult {
   };
 }
 
+/** The shape every named palette shares. */
+interface ThemeColors {
+  floor: string;
+  surface: string;
+  raised: string;
+  hover: string;
+  glass: string;
+  recess: string;
+  border: string;
+  borderStrong: string;
+  ink: string;
+  inkMuted: string;
+  inkFaint: string;
+  inkGhost: string;
+  focus: string;
+}
+
+/**
+ * Project a palette's ladder onto the shell's role scale. Every named theme
+ * goes through this one function, so a palette IS its ladder — builders
+ * cannot drift from each other or from the role registry, and a new palette
+ * is a ThemeColors const plus one call.
+ */
+function projectLadder(colors: ThemeColors): Record<MnRoleVar, string> {
+  return {
+    "--mn-floor": hexToHsl(colors.floor),
+    "--mn-surface": hexToHsl(colors.surface),
+    "--mn-raised": hexToHsl(colors.raised),
+    "--mn-hover": hexToHsl(colors.hover),
+    "--mn-glass": hexToHsl(colors.glass),
+    "--mn-recess": hexToHsl(colors.recess),
+    "--mn-border": hexToHsl(colors.border),
+    "--mn-border-strong": hexToHsl(colors.borderStrong),
+    "--mn-ink": hexToHsl(colors.ink),
+    "--mn-ink-muted": hexToHsl(colors.inkMuted),
+    "--mn-ink-faint": hexToHsl(colors.inkFaint),
+    "--mn-ink-ghost": hexToHsl(colors.inkGhost),
+    "--mn-focus": hexToHsl(colors.focus),
+  };
+}
+
 /**
  * Build the Graphite app palette while retaining Luca's audited semantic
  * signal colors. Only shell and huddle surfaces are recolored; provider marks,
- * destructive actions, Git status, charts, and warnings keep their established
- * semantic identities.
+ * destructive actions, Git status, and warnings keep their established
+ * semantic identities. The huddle chrome follows by var-indirection onto the
+ * ladder this builder emits.
  */
 export function createGraphiteThemeVars(): ThemeResult {
-  const semanticVars = createLucaThemeVars().vars;
-  const colors = GRAPHITE_THEME_COLORS;
-
   return {
     isDark: true,
     vars: {
-      ...semanticVars,
-      "--mn-floor": hexToHsl(colors.floor),
-      "--mn-navigator": hexToHsl(colors.navigator),
-      "--mn-surface": hexToHsl(colors.surface),
-      "--mn-raised": hexToHsl(colors.raised),
-      "--mn-hover": hexToHsl(colors.hover),
-      "--mn-glass": hexToHsl(colors.glass),
-      "--mn-surface-raised": hexToHsl(colors.raised),
-      "--mn-surface-hover": hexToHsl(colors.hover),
-      "--mn-border": hexToHsl(colors.border),
-      "--mn-border-strong": hexToHsl(colors.borderStrong),
-      "--mn-ink": hexToHsl(colors.ink),
-      "--mn-ink-muted": hexToHsl(colors.inkMuted),
-      "--mn-ink-faint": hexToHsl(colors.inkFaint),
-      "--mn-focus": hexToHsl(colors.focus),
-      "--huddle-drawer-surface": hexToHsl(colors.raised),
-      "--huddle-control-surface": hexToHsl(colors.hover),
-      "--huddle-control-hover-surface": hexToHsl(colors.border),
-      "--huddle-control-chevron-surface": hexToHsl(colors.surface),
-      "--huddle-control-chevron-hover-surface": hexToHsl(colors.hover),
-      "--huddle-control-foreground": hexToHsl(colors.ink),
-      "--huddle-popover-surface": hexToHsl(colors.raised),
-      "--huddle-popover-border": hexToHsl(colors.borderStrong),
-      "--huddle-tooltip-surface": hexToHsl(colors.hover),
-      "--huddle-tooltip-foreground": hexToHsl(colors.ink),
-      "--mn-ink-ghost": hexToHsl(colors.inkGhost),
-      "--mn-recess": hexToHsl(colors.recess),
+      ...createLucaThemeVars().vars,
+      ...projectLadder(GRAPHITE_THEME_COLORS),
     },
   };
 }
@@ -501,117 +513,33 @@ export function createGraphiteThemeVars(): ThemeResult {
  * colors stay.
  */
 export function createVoidThemeVars(): ThemeResult {
-  const semanticVars = createLucaThemeVars().vars;
-  const colors = VOID_THEME_COLORS;
-
   return {
     isDark: true,
     vars: {
-      ...semanticVars,
-      "--mn-floor": hexToHsl(colors.floor),
-      "--mn-navigator": hexToHsl(colors.navigator),
-      "--mn-surface": hexToHsl(colors.surface),
-      "--mn-raised": hexToHsl(colors.raised),
-      "--mn-hover": hexToHsl(colors.hover),
-      "--mn-glass": hexToHsl(colors.glass),
-      "--mn-surface-raised": hexToHsl(colors.raised),
-      "--mn-surface-hover": hexToHsl(colors.hover),
-      "--mn-border": hexToHsl(colors.border),
-      "--mn-border-strong": hexToHsl(colors.borderStrong),
-      "--mn-ink": hexToHsl(colors.ink),
-      "--mn-ink-muted": hexToHsl(colors.inkMuted),
-      "--mn-ink-faint": hexToHsl(colors.inkFaint),
-      "--mn-focus": hexToHsl(colors.focus),
-      "--huddle-drawer-surface": hexToHsl(colors.raised),
-      "--huddle-control-surface": hexToHsl(colors.hover),
-      "--huddle-control-hover-surface": hexToHsl(colors.border),
-      "--huddle-control-chevron-surface": hexToHsl(colors.surface),
-      "--huddle-control-chevron-hover-surface": hexToHsl(colors.hover),
-      "--huddle-control-foreground": hexToHsl(colors.ink),
-      "--huddle-popover-surface": hexToHsl(colors.raised),
-      "--huddle-popover-border": hexToHsl(colors.borderStrong),
-      "--huddle-tooltip-surface": hexToHsl(colors.hover),
-      "--huddle-tooltip-foreground": hexToHsl(colors.ink),
-      "--mn-ink-ghost": hexToHsl(colors.inkGhost),
-      "--mn-recess": hexToHsl(colors.recess),
+      ...createLucaThemeVars().vars,
+      ...projectLadder(VOID_THEME_COLORS),
     },
   };
 }
 
 /** Build the Ash app palette — the preserved carved-neutral shell. */
 export function createAshThemeVars(): ThemeResult {
-  const semanticVars = createLucaThemeVars().vars;
-  const colors = ASH_THEME_COLORS;
-
   return {
     isDark: true,
     vars: {
-      ...semanticVars,
-      "--mn-floor": hexToHsl(colors.floor),
-      "--mn-navigator": hexToHsl(colors.navigator),
-      "--mn-surface": hexToHsl(colors.surface),
-      "--mn-raised": hexToHsl(colors.raised),
-      "--mn-hover": hexToHsl(colors.hover),
-      "--mn-glass": hexToHsl(colors.glass),
-      "--mn-surface-raised": hexToHsl(colors.raised),
-      "--mn-surface-hover": hexToHsl(colors.hover),
-      "--mn-border": hexToHsl(colors.border),
-      "--mn-border-strong": hexToHsl(colors.borderStrong),
-      "--mn-ink": hexToHsl(colors.ink),
-      "--mn-ink-muted": hexToHsl(colors.inkMuted),
-      "--mn-ink-faint": hexToHsl(colors.inkFaint),
-      "--mn-focus": hexToHsl(colors.focus),
-      "--huddle-drawer-surface": hexToHsl(colors.raised),
-      "--huddle-control-surface": hexToHsl(colors.hover),
-      "--huddle-control-hover-surface": hexToHsl(colors.border),
-      "--huddle-control-chevron-surface": hexToHsl(colors.surface),
-      "--huddle-control-chevron-hover-surface": hexToHsl(colors.hover),
-      "--huddle-control-foreground": hexToHsl(colors.ink),
-      "--huddle-popover-surface": hexToHsl(colors.raised),
-      "--huddle-popover-border": hexToHsl(colors.borderStrong),
-      "--huddle-tooltip-surface": hexToHsl(colors.hover),
-      "--huddle-tooltip-foreground": hexToHsl(colors.ink),
-      "--mn-ink-ghost": hexToHsl(colors.inkGhost),
-      "--mn-recess": hexToHsl(colors.recess),
+      ...createLucaThemeVars().vars,
+      ...projectLadder(ASH_THEME_COLORS),
     },
   };
 }
 
 /** Build the Inverse app palette — the light-rail arrangement. */
 export function createInverseThemeVars(): ThemeResult {
-  const semanticVars = createLucaThemeVars().vars;
-  const colors = INVERSE_THEME_COLORS;
-
   return {
     isDark: true,
     vars: {
-      ...semanticVars,
-      "--mn-floor": hexToHsl(colors.floor),
-      "--mn-navigator": hexToHsl(colors.navigator),
-      "--mn-surface": hexToHsl(colors.surface),
-      "--mn-raised": hexToHsl(colors.raised),
-      "--mn-hover": hexToHsl(colors.hover),
-      "--mn-glass": hexToHsl(colors.glass),
-      "--mn-surface-raised": hexToHsl(colors.raised),
-      "--mn-surface-hover": hexToHsl(colors.hover),
-      "--mn-border": hexToHsl(colors.border),
-      "--mn-border-strong": hexToHsl(colors.borderStrong),
-      "--mn-ink": hexToHsl(colors.ink),
-      "--mn-ink-muted": hexToHsl(colors.inkMuted),
-      "--mn-ink-faint": hexToHsl(colors.inkFaint),
-      "--mn-focus": hexToHsl(colors.focus),
-      "--huddle-drawer-surface": hexToHsl(colors.raised),
-      "--huddle-control-surface": hexToHsl(colors.hover),
-      "--huddle-control-hover-surface": hexToHsl(colors.border),
-      "--huddle-control-chevron-surface": hexToHsl(colors.surface),
-      "--huddle-control-chevron-hover-surface": hexToHsl(colors.hover),
-      "--huddle-control-foreground": hexToHsl(colors.ink),
-      "--huddle-popover-surface": hexToHsl(colors.raised),
-      "--huddle-popover-border": hexToHsl(colors.borderStrong),
-      "--huddle-tooltip-surface": hexToHsl(colors.hover),
-      "--huddle-tooltip-foreground": hexToHsl(colors.ink),
-      "--mn-ink-ghost": hexToHsl(colors.inkGhost),
-      "--mn-recess": hexToHsl(colors.recess),
+      ...createLucaThemeVars().vars,
+      ...projectLadder(INVERSE_THEME_COLORS),
     },
   };
 }
@@ -641,22 +569,7 @@ export function createPaperThemeVars(): ThemeResult {
   return {
     isDark: false,
     vars: {
-      "--mn-floor": hexToHsl(colors.floor),
-      "--mn-navigator": hexToHsl(colors.navigator),
-      "--mn-surface": hexToHsl(colors.surface),
-      "--mn-raised": hexToHsl(colors.raised),
-      "--mn-hover": hexToHsl(colors.hover),
-      "--mn-glass": hexToHsl(colors.glass),
-      "--mn-surface-raised": hexToHsl(colors.raised),
-      "--mn-surface-hover": hexToHsl(colors.hover),
-      "--mn-border": hexToHsl(colors.border),
-      "--mn-border-strong": hexToHsl(colors.borderStrong),
-      "--mn-ink": hexToHsl(colors.ink),
-      "--mn-ink-muted": hexToHsl(colors.inkMuted),
-      "--mn-ink-faint": hexToHsl(colors.inkFaint),
-      "--mn-ink-ghost": hexToHsl(colors.inkGhost),
-      "--mn-recess": hexToHsl(colors.recess),
-      "--mn-focus": hexToHsl(colors.focus),
+      ...projectLadder(colors),
 
       // (1) The ramp's far end, which on paper is the ink end.
       "--primary": hexToHsl(colors.ink),
@@ -664,24 +577,22 @@ export function createPaperThemeVars(): ThemeResult {
       "--sidebar-primary": hexToHsl(colors.ink),
       "--sidebar-primary-foreground": hexToHsl(colors.surface),
 
-      // (2) Depth from a shadow beneath rather than a highlight above.
-      "--mn-lit-edge": "0 1px 1.5px rgb(21 22 27 / 0.045)",
+      // (2) Depth cues for light grounds — the lit edge and contact shadow —
+      // live in the stylesheet under `:root[data-luca-shell]:not(.dark)`,
+      // expressed in the palette's own ink, so every light palette (authored
+      // or derived) gets them without builder participation.
 
       // (3) Signals restated for a light ground.
       "--destructive": "0 64% 44%",
       "--destructive-foreground": hexToHsl(colors.surface),
-      "--chart-1": "213 72% 46%",
-      "--chart-2": "160 44% 34%",
-      "--chart-3": "37 62% 38%",
-      "--chart-4": "284 38% 46%",
-      "--chart-5": "0 58% 48%",
       "--status-added": "#1c7a45",
       "--status-deleted": "#b3352f",
       "--status-modified": "#8a6212",
       "--ui-warning": "#8a6212",
       "--ui-warning-bg": "rgb(138 98 18 / 10%)",
 
-      // The huddle bar keeps its own dark canvas in both modes.
+      // The huddle bar keeps its own dark canvas in both modes — it is a
+      // video-call surface, so it does not ride the paper ladder.
       "--huddle-drawer-surface": "0 0% 0%",
       "--huddle-control-surface": "0 0% 20%",
       "--huddle-control-hover-surface": "0 0% 24%",
@@ -697,10 +608,12 @@ export function createPaperThemeVars(): ThemeResult {
 }
 
 /**
- * Derive a full set of shadcn CSS variables from syntax theme colors.
- *
- * Takes bg, fg, comment hex colors (+ optional git decoration colors) and
- * returns the var map ready to apply via style.setProperty().
+ * Derive the shell's role scale (plus signal tokens) from syntax theme
+ * colors. Semantic tokens are NOT emitted — the stylesheet mapping in
+ * conversation-shell.css derives them from these roles, exactly as it does
+ * for the authored palettes. Takes bg, fg, comment hex colors (+ optional
+ * git decoration colors) and returns the var map ready to apply via
+ * style.setProperty().
  */
 export function createThemeVars(
   syntaxBg: string,
@@ -781,8 +694,7 @@ export function createThemeVars(
       "--mn-glass": hexToHsl(
         isDark ? adjust(chromeColor, -0.08) : adjust(chromeColor, 0.04),
       ),
-      "--mn-surface-raised": hexToHsl(elevate(0.025)),
-      "--mn-surface-hover": hexToHsl(hoverBg),
+      "--mn-recess": hexToHsl(mix(primaryBg, "#000000", isDark ? 0.3 : 0.06)),
       "--mn-border": hexToHsl(borderColor),
       "--mn-border-strong": hexToHsl(
         mix(borderColor, syntaxFg, isDark ? 0.22 : 0.16),
@@ -796,13 +708,7 @@ export function createThemeVars(
       // hard white hairline around every focused control.
       "--mn-focus": hexToHsl(inkFaintHex),
 
-      // Backgrounds
-      "--background": hexToHsl(primaryBg),
-      "--card": hexToHsl(primaryBg),
-      "--popover": hexToHsl(elevate(0.08)),
-      "--muted": hexToHsl(hoverBg),
-      "--accent": hexToHsl(hoverBg),
-      "--secondary": hexToHsl(hoverBg),
+      // The huddle's video canvas — its own decision per mode, not a role.
       "--huddle-drawer-surface": isDark ? hexToHsl(hoverBg) : "0 0% 0%",
       "--huddle-control-surface": hexToHsl(huddleControlBg),
       "--huddle-control-hover-surface": hexToHsl(huddleControlHoverBg),
@@ -814,30 +720,9 @@ export function createThemeVars(
       "--huddle-tooltip-surface": hexToHsl(huddleTooltipBg),
       "--huddle-tooltip-foreground": huddleControlFg,
 
-      // Foregrounds
-      "--foreground": textFg,
-      "--card-foreground": textFg,
-      "--popover-foreground": textFg,
-      "--muted-foreground": mutedFg,
-      "--accent-foreground": textFg,
-      "--secondary-foreground": textFg,
-
       // Destructive
       "--destructive": hexToHsl(accentRed),
       "--destructive-foreground": primaryFg,
-
-      // Borders
-      "--border": hexToHsl(borderColor),
-      "--input": hexToHsl(borderColor),
-      "--ring": textFg,
-
-      // Sidebar
-      "--sidebar-background": hexToHsl(chromeColor),
-      "--sidebar-foreground": textFg,
-      "--sidebar-accent": hexToHsl(primaryBg),
-      "--sidebar-accent-foreground": textFg,
-      "--sidebar-border": hexToHsl(borderColor),
-      "--sidebar-ring": hexToHsl(borderColor),
 
       // Status colors (hex — used directly via var())
       "--status-added": accentGreen,

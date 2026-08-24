@@ -56,7 +56,20 @@ async function loadThemePreviewVars(name: SyntaxThemeName) {
     deleted: info.deleted,
     modified: info.modified,
   });
-  return [name, vars] as const;
+  // Builders speak in roles only; the tile's semantic slots are derived here
+  // with the same role assignments the stylesheet mapping uses.
+  return [
+    name,
+    {
+      "--background": vars["--mn-surface"],
+      "--foreground": vars["--mn-ink"],
+      "--border": vars["--mn-border"],
+      "--muted": vars["--mn-raised"],
+      "--muted-foreground": vars["--mn-ink-muted"],
+      "--sidebar-background": vars["--mn-floor"],
+      "--sidebar-foreground": vars["--mn-ink"],
+    } satisfies ThemePreviewVars,
+  ] as const;
 }
 
 export function preloadThemePreviewVars() {
