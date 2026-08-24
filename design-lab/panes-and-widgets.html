@@ -122,9 +122,9 @@ html[data-theme="light"] .desk{
 .lab button.on{color:var(--ink);background:var(--fill-2)}
 
 /* ── the window ──────────────────────────────────────────── */
-.stage{position:fixed;inset:0;display:grid;place-items:center;padding:60px 36px 36px}
+.stage{position:fixed;inset:0;display:grid;grid-template:1fr/1fr;place-items:center;padding:60px 36px 36px}
 .app{
-  position:relative;width:min(1440px,100%);height:min(886px,100%);
+  position:relative;width:min(1440px,100%);height:min(886px,100%);max-height:100%;
   display:grid;grid-template-columns:232px 1fr;
   border-radius:19px;overflow:hidden;
   border:1px solid var(--hair-lit);box-shadow:var(--shadow-app);
@@ -372,6 +372,8 @@ body.laws .float{box-shadow:var(--shadow-lift),inset 0 0 0 1.5px rgba(127,201,18
 .toast.on{opacity:1;transform:translate(-50%,0)}
 .toast i{width:5px;height:5px;border-radius:50%;background:var(--accent)}
 [hidden]{display:none!important}
+  @media (max-height:820px){ .stage{padding:52px 20px 20px} }
+  @media (max-height:620px){ .stage{padding:48px 12px 12px} .app{border-radius:14px} }
 </style>
 </head>
 <body>
