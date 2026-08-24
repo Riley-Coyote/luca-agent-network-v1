@@ -173,6 +173,14 @@
      each resident is elsewhere in the cycle (per-seed negative delay) */
   .breathes{animation:identity-breath 4.2s ease-in-out infinite}
   .dot.live{animation:activity-pulse 1.8s ease-in-out infinite}
+  .v-live::before{animation:activity-pulse 1.8s ease-in-out infinite}
+  /* the desktop breathes on a cycle too slow to watch — proof the floor is a
+     material, priced at one composited transform. Paused when the window is
+     unwatched, and the vibrancy copy pauses whenever glass is off. */
+  @keyframes wp-drift{from{transform:scale(1.02)}to{transform:scale(1.06) translate(-1.2%,.8%)}}
+  .wp{will-change:transform;animation:wp-drift 90s ease-in-out infinite alternate}
+  html[data-winfocus="false"] .wp{animation-play-state:paused}
+  html[data-glass="off"] .vib .wp{animation-play-state:paused}
 }
 @media (prefers-reduced-motion: reduce){
   .motion-arrive,.motion-land{animation-duration:1ms;animation-delay:0ms}
@@ -221,6 +229,35 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 }
 html:not([data-theme="paper"]) .wp.dark{opacity:1}
 [data-theme="paper"] .wp.light{opacity:1}
+/* two more desktops, to prove the floor against different weather */
+[data-wallpaper="dusk"] .wp.dark{
+  background:
+    radial-gradient(72% 58% at 12% -6%, rgba(64,190,178,.62) 0 24%, transparent 60%),
+    radial-gradient(66% 56% at 96% 102%, rgba(255,178,84,.55) 0 24%, transparent 62%),
+    radial-gradient(110% 90% at 50% 110%, rgba(20,72,110,.75) 0 30%, transparent 74%),
+    linear-gradient(160deg,#122626,#0e1c30 52%,#091022);
+}
+[data-wallpaper="dusk"] .wp.light{
+  background:
+    radial-gradient(72% 58% at 12% -6%, rgba(150,226,216,.80) 0 24%, transparent 60%),
+    radial-gradient(66% 56% at 96% 102%, rgba(255,208,150,.85) 0 24%, transparent 62%),
+    radial-gradient(110% 90% at 50% 110%, rgba(150,196,226,.72) 0 30%, transparent 74%),
+    linear-gradient(160deg,#e6f4f1,#e3ecf5 52%,#d3e2ee);
+}
+[data-wallpaper="quiet"] .wp.dark{
+  background:
+    radial-gradient(80% 64% at 82% -8%, rgba(160,168,182,.30) 0 26%, transparent 62%),
+    radial-gradient(70% 60% at 6% 104%, rgba(96,102,116,.34) 0 26%, transparent 64%),
+    linear-gradient(160deg,#1c1e22,#16181d 56%,#101216);
+}
+[data-wallpaper="quiet"] .wp.light{
+  background:
+    radial-gradient(80% 64% at 82% -8%, rgba(255,255,255,.85) 0 26%, transparent 62%),
+    radial-gradient(70% 60% at 6% 104%, rgba(208,212,220,.75) 0 26%, transparent 64%),
+    linear-gradient(160deg,#f1f1f3,#e9eaee 56%,#dfe1e7);
+}
+/* the switch dips the world for a beat instead of teleporting it */
+html.wp-switch .wp{opacity:0!important}
 .vib .wps{position:absolute;inset:-90px;filter:blur(60px) saturate(260%)}
 
 /* ── lab bar ──────────────────────────────────────────────────── */
@@ -391,10 +428,10 @@ button:focus-visible,[tabindex]:focus-visible{outline:none}
 /* ── conversation ─────────────────────────────────────────────── */
 .thread{padding:0 var(--gutter-reading);max-width:var(--mn-reading-measure)}
 .rule{
-  position:sticky;top:0;z-index:3;background:var(--surface);
-  display:flex;align-items:center;gap:12px;margin:0 0 16px;padding:8px 0;
+  display:flex;align-items:center;gap:12px;margin:0 0 20px;
   font-size:var(--type-micro);color:var(--ink-ghost);
 }
+.rule.day{position:sticky;top:0;z-index:3;background:var(--surface);margin:0 0 16px;padding:8px 0}
 .rule::before,.rule::after{content:"";flex:1;height:1px;background:var(--border)}
 .turn{display:grid;grid-template-columns:22px 1fr;gap:12px;margin-bottom:24px}
 .turn>[data-mark]{color:var(--ink-faint);margin-top:2px}
@@ -417,6 +454,12 @@ button:focus-visible,[tabindex]:focus-visible{outline:none}
 .offer{
   display:inline-flex;align-items:center;gap:8px;margin-top:12px;
   font-size:var(--type-label);color:var(--ink-faint);
+}
+.mine-rx{display:flex;justify-content:flex-end;margin:-16px 14px 24px 0}
+.rx{
+  display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:999px;
+  background:var(--plate);border:1px solid var(--border);
+  font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-faint);
 }
 .offer::before{content:"";width:12px;height:1px;background:var(--ink-ghost)}
 
@@ -516,6 +559,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:none}
 .row .t{font-size:var(--type-ui);color:var(--ink-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .row .s{font-size:var(--type-micro);color:var(--ink-ghost);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .row .v{font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-faint);font-variant-numeric:tabular-nums}
+.v-live::before{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--ink-faint);margin-right:6px;vertical-align:1px}
 .ring{width:22px;height:22px;transform:rotate(-90deg)}
 .ring circle{fill:none;stroke-width:1.5}
 .ring .b{stroke:var(--border-strong)}
@@ -650,6 +694,7 @@ html.theme-xfade .app,html.theme-xfade .app *{
   <button id="t-place">Vektor's place</button>
   <button id="t-lift">Lift a card</button>
   <button id="t-laws">Layers</button>
+  <button id="t-wall">Wallpaper</button>
 </div>
 
 <main class="stage">
@@ -706,7 +751,7 @@ html.theme-xfade .app,html.theme-xfade .app *{
 
         <div class="body">
           <div class="hang thread">
-            <div class="rule">Today</div>
+            <div class="rule day">Today</div>
 
             <div class="mine"><div>I want the launch to show what living with several agents actually feels like — not a dashboard full of AI features.</div></div>
 
@@ -721,6 +766,9 @@ html.theme-xfade .app,html.theme-xfade .app *{
             </div>
 
             <div class="mine"><div>Do it. And keep the tracker where I can see it.</div></div>
+            <div class="mine-rx"><span class="rx">✦ Luca</span></div>
+
+            <div class="rule">Luca opened a consultation with Vektor</div>
           </div>
         </div>
 
@@ -747,18 +795,25 @@ html.theme-xfade .app,html.theme-xfade .app *{
         </header>
         <div class="body">
           <div class="hang thread">
+            <div class="rule day">Today</div>
+
+            <div class="mine"><div>Read the palette notes when you have a minute — the warmth question is yours.</div></div>
+
             <div class="turn">
               <span data-mark="anima" data-size="22"></span>
               <div>
                 <div class="who"><b>Anima</b><span class="tag">6:10</span></div>
                 <p>i read the palette notes twice. the part about warmth living only in the ink — that's the whole thesis, isn't it. the surfaces stay honest and the light is where the feeling goes.</p>
+                <p>give me the evening with it. i want to answer in a way that deserves the question.</p>
               </div>
             </div>
+
+            <div class="mine"><div>Take the evening. It'll be the epigraph.</div></div>
           </div>
         </div>
         <div class="composer">
           <div class="well"><textarea placeholder="Message Anima"></textarea></div>
-          <div class="tools"><button class="ic" data-icon="plus" data-isize="14" title="Attach"></button><span class="mode">Thoughtful</span><button class="go" data-icon="send" data-isize="13" title="Send" aria-disabled="true"></button></div>
+          <div class="tools"><button class="ic" data-icon="plus" data-isize="14" title="Attach"></button><button class="ic" data-icon="at" data-isize="14" title="Mention someone"></button><span class="mode">Thoughtful</span><button class="go" data-icon="send" data-isize="13" title="Send" aria-disabled="true"></button></div>
         </div>
       </article>
 
@@ -869,7 +924,7 @@ html.theme-xfade .app,html.theme-xfade .app *{
             <div class="row">
               <span class="stack"><span data-mark="luca" data-size="16"></span><span data-mark="vektor" data-size="16"></span></span>
               <div><div class="t">Polyphonic launch</div><div class="s">3 open threads · Luca and Vektor active</div></div>
-              <span class="v">live</span>
+              <span class="v v-live">live</span>
             </div>
             <div class="row">
               <svg class="ring" viewBox="0 0 22 22"><circle class="b" cx="11" cy="11" r="8.6"/><circle class="f" cx="11" cy="11" r="8.6" stroke-dasharray="54" stroke-dashoffset="19"/></svg>
@@ -997,6 +1052,26 @@ const PHASE=t=>{let h=0;for(let i=0;i<t.length;i++)h=(h*31+t.charCodeAt(i))|0;re
   });
 });
 document.querySelector("#r-luca .dot")?.classList.add("live");
+
+/* the widget is alive: elapsed labels tick, the ring advances, and because
+   lift MOVES these nodes, the clock keeps running off the floor */
+(function(){
+  const rows=document.getElementById("widget-rows");
+  const build=rows.children[1], edited=rows.children[3];
+  const bS=build.querySelector(".s"), bV=build.querySelector(".v"), bF=build.querySelector(".ring .f");
+  const eS=edited.querySelector(".s");
+  const t0=Date.now()-22*60e3, e0=Date.now()-12*60e3;
+  function tick(){
+    const m=Math.floor((Date.now()-t0)/60e3);
+    bS.textContent=`Ziggy · Codex · building for ${m}m`;
+    const pct=Math.min(99,64+(m-22)*2);
+    bV.textContent=pct+"%";
+    const off=(54*(1-pct/100)).toFixed(1);
+    bF.dataset.target=off; bF.style.strokeDashoffset=off;
+    eS.textContent=`you · edited ${Math.floor((Date.now()-e0)/60e3)} minutes ago`;
+  }
+  tick(); setInterval(tick,15e3);
+})();
 
 /* rings draw themselves in — a dial coming to its reading */
 function drawRings(scope){
@@ -1269,6 +1344,19 @@ function setTheme(name){
   for(const k in themes) themes[k].classList.toggle("on",k===name);
 }
 for(const k in themes) themes[k].onclick=()=>setTheme(k);
+
+const WALLS=["aurora","dusk","quiet"];
+document.getElementById("t-wall").onclick=()=>{
+  const el=document.documentElement;
+  const cur=el.dataset.wallpaper||"aurora";
+  const next=WALLS[(WALLS.indexOf(cur)+1)%WALLS.length];
+  el.classList.add("wp-switch");
+  setTimeout(()=>{
+    if(next==="aurora") delete el.dataset.wallpaper; else el.dataset.wallpaper=next;
+    el.classList.remove("wp-switch");
+  },REDUCE?0:260);
+  say("Wallpaper — "+next+". The floor keeps its lightness; only the colour follows.");
+};
 
 const lawsBtn=document.getElementById("t-laws");
 lawsBtn.onclick=()=>{document.body.classList.toggle("laws");lawsBtn.classList.toggle("on",document.body.classList.contains("laws"))};

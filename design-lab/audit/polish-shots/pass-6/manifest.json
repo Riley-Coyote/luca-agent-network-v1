@@ -1,0 +1,421 @@
+{
+  "pass": "6",
+  "when": "2026-08-24T12:39:58.600Z",
+  "shots": {
+    "default--inverse": {
+      "sha": "eeda793d2226e4cf",
+      "animations": 10,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ],
+      "floorProbe": {
+        "mean": [
+          0,
+          17,
+          160
+        ],
+        "token": "#1b1c1d",
+        "delta": 0.018,
+        "noise": 7.7
+      }
+    },
+    "default--inverse--opaque": {
+      "sha": "216d92a182b91353",
+      "animations": 10,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ]
+    },
+    "default--slate": {
+      "sha": "f05f3eb6a4b22e69",
+      "animations": 10,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ],
+      "floorProbe": {
+        "mean": [
+          0,
+          8,
+          80
+        ],
+        "token": "#0d0e0f",
+        "delta": 0.0033,
+        "noise": 4.9
+      }
+    },
+    "default--slate--opaque": {
+      "sha": "94027df3762b0a73",
+      "animations": 10,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ]
+    },
+    "default--paper": {
+      "sha": "6084a35d3c8d6239",
+      "animations": 10,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ],
+      "floorProbe": {
+        "mean": [
+          240,
+          245,
+          255
+        ],
+        "token": "#f6f4f2",
+        "delta": 0.002,
+        "noise": 0.6
+      }
+    },
+    "default--paper--opaque": {
+      "sha": "dd2f4d8edca58e51",
+      "animations": 10,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ]
+    },
+    "tile--inverse": {
+      "sha": "d2a51b2cfd768795",
+      "animations": 11,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ]
+    },
+    "tile--slate": {
+      "sha": "647e5e20b38d2de6",
+      "animations": 11,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ]
+    },
+    "tile--paper": {
+      "sha": "3179bb192743d040",
+      "animations": 11,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ]
+    },
+    "place--inverse": {
+      "sha": "c4ceb9f96a404803",
+      "animations": 10,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ]
+    },
+    "place--slate": {
+      "sha": "33e3374f9b43f63d",
+      "animations": 10,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ]
+    },
+    "place--paper": {
+      "sha": "4df67c834da89af8",
+      "animations": 10,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ]
+    },
+    "lift--inverse": {
+      "sha": "b19b8b46121d7e53",
+      "animations": 10,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ]
+    },
+    "lift--slate": {
+      "sha": "cdb7930e67d0da26",
+      "animations": 10,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ]
+    },
+    "lift--paper": {
+      "sha": "e8e92bc4c0e521ac",
+      "animations": 10,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ]
+    },
+    "laws--inverse": {
+      "sha": "04622f3a7b291c31",
+      "animations": 10,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ]
+    },
+    "laws--slate": {
+      "sha": "0a26c4bf4b33b588",
+      "animations": 10,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ]
+    },
+    "laws--paper": {
+      "sha": "76a999bfb0d618ca",
+      "animations": 10,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ]
+    },
+    "drawer-closed--inverse": {
+      "sha": "eab09f206cd5c396",
+      "animations": 10,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ]
+    },
+    "drawer-closed--slate": {
+      "sha": "928b58bd045d224a",
+      "animations": 10,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ]
+    },
+    "drawer-closed--paper": {
+      "sha": "d710df7e2fd8074f",
+      "animations": 10,
+      "ambient": [
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "wp-drift",
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath",
+        "activity-pulse"
+      ]
+    }
+  },
+  "checks": [
+    {
+      "ok": true,
+      "label": "default--inverse: floor luminance pinned to token (Δ 0.0180)"
+    },
+    {
+      "ok": true,
+      "label": "default--slate: floor luminance pinned to token (Δ 0.0033)"
+    },
+    {
+      "ok": true,
+      "label": "default--paper: floor luminance pinned to token (Δ 0.0020)"
+    },
+    {
+      "ok": true,
+      "label": "reduced-motion: zero ambient animations (found: none)"
+    },
+    {
+      "ok": true,
+      "label": "all 21 scene shots distinct"
+    }
+  ],
+  "focusWalk": "BUTTON.on",
+  "vsPrevious": {
+    "changed": [
+      "default--inverse",
+      "default--inverse--opaque",
+      "default--slate",
+      "default--slate--opaque",
+      "default--paper",
+      "default--paper--opaque",
+      "tile--inverse",
+      "tile--slate",
+      "tile--paper",
+      "place--inverse",
+      "place--slate",
+      "place--paper",
+      "lift--inverse",
+      "lift--slate",
+      "lift--paper",
+      "laws--inverse",
+      "laws--slate",
+      "laws--paper",
+      "drawer-closed--inverse",
+      "drawer-closed--slate",
+      "drawer-closed--paper"
+    ],
+    "unchanged": []
+  }
+}
