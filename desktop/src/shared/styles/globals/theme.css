@@ -47,12 +47,6 @@
     --sidebar-accent-foreground: 234 16.02% 35.49%;
     --sidebar-border: 225 13.56% 76.86%;
     --sidebar-ring: 225 13.56% 76.86%;
-    /* Exact Buzz palette tokens; components consume these semantically. */
-    --buzz-gradient-light-top: #e6e6b6;
-    --buzz-gradient-light-bottom: #c4d0da;
-    --buzz-gradient-dark-top: #4a4616;
-    --buzz-gradient-dark-bottom: #0a1423;
-    --buzz-content-dark: 0 0% 10.1960784314%;
     /* Hosted-community onboarding intentionally keeps this light palette in
        both app themes; semantic tokens keep component code color-agnostic. */
     --buzz-hosted-community-surface-fg: 23 23 23;
@@ -207,127 +201,10 @@
  * Item hover/active states use `bg-sidebar-accent` / `bg-sidebar-active`
  * (distinct tokens) and are intentionally left untouched.
  */
-:root[data-buzz-sidebar],
-:root[data-buzz-sidebar].dark {
-  --buzz-gradient-top: var(--buzz-gradient-light-top);
-  --buzz-gradient-bottom: var(--buzz-gradient-light-bottom);
-  --buzz-muted-foreground: rgb(0 0 0 / 40%);
-  --buzz-search-surface: rgb(0 0 0 / 4%);
-  --buzz-chrome-foreground: rgb(0 0 0 / 50%);
-  --buzz-channel-fg: inherit;
-  --buzz-dm-fg: inherit;
-  --buzz-nav-fg: inherit;
-  --buzz-hover-surface: rgb(0 0 0 / 4%);
-  --buzz-sidebar-scrollbar-thumb: var(--buzz-hover-surface);
-  --buzz-active-fill: 0 0% 0%;
-  --buzz-active-surface: rgb(0 0 0 / 7%);
-  --buzz-active-foreground: var(--foreground);
-}
-
-/*
- * Dark variant (Buzz Dark). Reuses the GitHub Dark base palette; only the
- * Buzz color tokens change, so every downstream rule (gradient fill, hover,
- * search box, muted labels, active pill) adapts automatically. The `.dark`
- * class is set on the document root whenever a dark theme is active.
- */
-:root[data-buzz-sidebar].dark {
-  --buzz-gradient-top: var(--buzz-gradient-dark-top);
-  --buzz-gradient-bottom: var(--buzz-gradient-dark-bottom);
-  --buzz-muted-foreground: rgb(255 255 255 / 40%);
-  --buzz-search-surface: rgb(255 255 255 / 4%);
-  --buzz-chrome-foreground: rgb(255 255 255 / 50%);
-  --buzz-hover-surface: rgb(255 255 255 / 4%);
-  --buzz-active-fill: 0 0% 100%;
-  --buzz-active-surface: color-mix(
-    in srgb,
-    hsl(var(--buzz-active-fill)) 16%,
-    transparent
-  );
-  --buzz-active-foreground: 0 0% 100%;
-}
-
-/* Keep the subtle content-card lift in Buzz Light only. */
-:root[data-buzz-sidebar]:not(.dark) [data-buzz-content-surface] {
-  box-shadow:
-    -1px -1px 0 0 hsl(var(--sidebar-border) / 0.45),
-    0 0 4px 0 rgb(0 0 0 / 7%);
-}
-
-/* Let the content card's shadow feather into the surrounding gradient. */
-:root[data-buzz-sidebar]:not(.dark) [data-buzz-shadow-viewport] {
-  overflow: visible;
-}
-
-/*
- * Buzz Dark uses a warmer neutral for the inset main/settings content canvas.
- * Override `--background` locally as well as the surface fill so descendant
- * headers and panes using `bg-background` remain visually continuous.
- */
-:root[data-buzz-sidebar].dark [data-buzz-content-surface] {
-  --background: var(--buzz-content-dark);
-  background-color: hsl(var(--background));
-}
-
 :root[data-buzz-sidebar] .buzz-huddle-app-surface {
   background-color: transparent;
   background-image: none;
   isolation: isolate;
-}
-
-/*
- * Keep both Buzz gradients painted and switch only which layer is visible.
- * WKWebView can retain the old raster when `background-image` is replaced on
- * a translucent surface. The center content already follows `.dark`, so using
- * that same state for layer visibility keeps both surfaces in lockstep.
- */
-:root[data-buzz-sidebar] .buzz-theme-gradient-layer-light {
-  background-image: linear-gradient(
-    to bottom,
-    var(--buzz-gradient-light-top),
-    var(--buzz-gradient-light-bottom)
-  );
-  background-size: 100vw 100vh;
-  background-repeat: no-repeat;
-}
-
-:root[data-buzz-sidebar] .buzz-theme-gradient-layer-dark {
-  background-image: linear-gradient(
-    to bottom,
-    var(--buzz-gradient-dark-top),
-    var(--buzz-gradient-dark-bottom)
-  );
-  background-size: 100vw 100vh;
-  background-repeat: no-repeat;
-}
-
-:root[data-buzz-sidebar]:not(.dark) .buzz-theme-gradient-layer-light,
-:root[data-buzz-sidebar].dark .buzz-theme-gradient-layer-dark {
-  opacity: 1;
-}
-
-/* The mobile sidebar is portaled outside the app surface. */
-:root[data-buzz-sidebar]:not(.dark)
-  [data-sidebar="sidebar"][data-mobile="true"].bg-sidebar {
-  background-color: transparent;
-  background-image: linear-gradient(
-    to bottom,
-    var(--buzz-gradient-light-top),
-    var(--buzz-gradient-light-bottom)
-  );
-  background-size: 100vw 100vh;
-  background-repeat: no-repeat;
-}
-
-:root[data-buzz-sidebar].dark
-  [data-sidebar="sidebar"][data-mobile="true"].bg-sidebar {
-  background-color: transparent;
-  background-image: linear-gradient(
-    to bottom,
-    var(--buzz-gradient-dark-top),
-    var(--buzz-gradient-dark-bottom)
-  );
-  background-size: 100vw 100vh;
-  background-repeat: no-repeat;
 }
 
 /* All in-shell chrome reveals the single gradient painted above. */
@@ -569,160 +446,6 @@
  * frosted layer on the outer canvases only; nested sidebar/header/footer
  * surfaces pass through so the nav reads as one continuous pane.
  */
-:root[data-buzz-translucent] {
-  --buzz-translucency-gradient-alpha: 70%;
-  --buzz-translucency-wash-alpha: 2.4%;
-}
-
-:root[data-buzz-translucent] .buzz-theme-gradient-layer-light {
-  /* Buzz color wash above a neutral frost wash. */
-  background-image:
-    linear-gradient(
-      to bottom,
-      color-mix(
-        in srgb,
-        var(--buzz-gradient-light-top)
-          var(--buzz-translucency-gradient-alpha, 70%),
-        transparent
-      ),
-      color-mix(
-        in srgb,
-        var(--buzz-gradient-light-bottom)
-          var(--buzz-translucency-gradient-alpha, 70%),
-        transparent
-      )
-    ),
-    linear-gradient(
-      to bottom,
-      color-mix(
-        in srgb,
-        #ffffff var(--buzz-translucency-wash-alpha, 2.4%),
-        transparent
-      ),
-      color-mix(
-        in srgb,
-        #ffffff var(--buzz-translucency-wash-alpha, 2.4%),
-        transparent
-      )
-    );
-  background-size:
-    100vw 100vh,
-    100vw 100vh;
-  background-repeat: no-repeat, no-repeat;
-}
-
-:root[data-buzz-translucent] .buzz-theme-gradient-layer-dark {
-  background-image:
-    linear-gradient(
-      to bottom,
-      color-mix(
-        in srgb,
-        var(--buzz-gradient-dark-top)
-          var(--buzz-translucency-gradient-alpha, 70%),
-        transparent
-      ),
-      color-mix(
-        in srgb,
-        var(--buzz-gradient-dark-bottom)
-          var(--buzz-translucency-gradient-alpha, 70%),
-        transparent
-      )
-    ),
-    linear-gradient(
-      to bottom,
-      color-mix(
-        in srgb,
-        #12161d var(--buzz-translucency-wash-alpha, 2.4%),
-        transparent
-      ),
-      color-mix(
-        in srgb,
-        #12161d var(--buzz-translucency-wash-alpha, 2.4%),
-        transparent
-      )
-    );
-  background-size:
-    100vw 100vh,
-    100vw 100vh;
-  background-repeat: no-repeat, no-repeat;
-}
-
-:root[data-buzz-translucent]:not(.dark)
-  [data-sidebar="sidebar"][data-mobile="true"].bg-sidebar {
-  background-color: transparent;
-  background-image:
-    linear-gradient(
-      to bottom,
-      color-mix(
-        in srgb,
-        var(--buzz-gradient-light-top)
-          var(--buzz-translucency-gradient-alpha, 70%),
-        transparent
-      ),
-      color-mix(
-        in srgb,
-        var(--buzz-gradient-light-bottom)
-          var(--buzz-translucency-gradient-alpha, 70%),
-        transparent
-      )
-    ),
-    linear-gradient(
-      to bottom,
-      color-mix(
-        in srgb,
-        #ffffff var(--buzz-translucency-wash-alpha, 2.4%),
-        transparent
-      ),
-      color-mix(
-        in srgb,
-        #ffffff var(--buzz-translucency-wash-alpha, 2.4%),
-        transparent
-      )
-    );
-  background-size:
-    100vw 100vh,
-    100vw 100vh;
-  background-repeat: no-repeat, no-repeat;
-}
-
-:root[data-buzz-translucent].dark
-  [data-sidebar="sidebar"][data-mobile="true"].bg-sidebar {
-  background-color: transparent;
-  background-image:
-    linear-gradient(
-      to bottom,
-      color-mix(
-        in srgb,
-        var(--buzz-gradient-dark-top)
-          var(--buzz-translucency-gradient-alpha, 70%),
-        transparent
-      ),
-      color-mix(
-        in srgb,
-        var(--buzz-gradient-dark-bottom)
-          var(--buzz-translucency-gradient-alpha, 70%),
-        transparent
-      )
-    ),
-    linear-gradient(
-      to bottom,
-      color-mix(
-        in srgb,
-        #12161d var(--buzz-translucency-wash-alpha, 2.4%),
-        transparent
-      ),
-      color-mix(
-        in srgb,
-        #12161d var(--buzz-translucency-wash-alpha, 2.4%),
-        transparent
-      )
-    );
-  background-size:
-    100vw 100vh,
-    100vw 100vh;
-  background-repeat: no-repeat, no-repeat;
-}
-
 :root[data-buzz-translucent] [data-testid="app-sidebar"],
 :root[data-buzz-translucent] [data-buzz-glass-inset],
 :root[data-buzz-translucent] [data-buzz-glass-footer-wrap],
@@ -789,76 +512,13 @@
  * Luca's mounted shell does not consume those layers.
  */
 /*
- * The `--mn-*` scale itself is defined ONCE, in `globals/conversation-shell.css`
- * (imported last). This block only maps that scale onto semantic tokens.
- *
- * It previously declared its own, lighter copy of the scale here. Because this
- * selector list includes the compound `:root[data-luca-shell].dark`, it
- * outranked the production values on specificity no matter the import order —
- * so the shell silently painted from this copy while the intended palette sat
- * dead. Add values here again and that regression returns.
+ * The `--mn-*` scale AND its semantic mapping are defined once, in
+ * `globals/conversation-shell.css`. This file used to carry a second copy of
+ * the mapping whose `.dark` compound selector outranked the canonical block
+ * only in dark mode — so `--card` and `--muted` silently meant different
+ * roles in light and dark. One mapping, one meaning. Add tokens there, not
+ * here.
  */
-:root[data-luca-shell],
-:root[data-luca-shell].dark {
-  --luca-shell-canvas: hsl(var(--mn-floor));
-  --luca-shell-sidebar: hsl(var(--mn-floor));
-  --luca-shell-surface: hsl(var(--mn-surface));
-  --luca-shell-elevated: hsl(var(--mn-raised));
-  --luca-shell-border: hsl(var(--mn-border));
-  --luca-shell-focus: hsl(var(--mn-focus));
-  --background: var(--mn-surface);
-  --foreground: var(--mn-ink);
-  --card: var(--mn-surface);
-  --card-foreground: var(--mn-ink);
-  --popover: var(--mn-raised);
-  --popover-foreground: var(--mn-ink);
-  --secondary: var(--mn-raised);
-  --secondary-foreground: var(--mn-ink);
-  --muted: var(--mn-raised);
-  --muted-foreground: var(--mn-ink-muted);
-  --accent: var(--mn-hover);
-  --accent-foreground: var(--mn-ink);
-  --border: var(--mn-border);
-  --input: var(--mn-border-strong);
-  --ring: var(--mn-focus);
-  --sidebar: var(--mn-floor);
-  --sidebar-background: var(--mn-floor);
-  --sidebar-foreground: var(--mn-ink);
-  --sidebar-accent: var(--mn-raised);
-  --sidebar-accent-foreground: var(--mn-ink);
-  --sidebar-border: var(--mn-border);
-  --sidebar-ring: var(--mn-focus);
-  --buzz-muted-foreground: hsl(var(--mn-ink-muted));
-  --buzz-search-surface: rgb(255 255 255 / 5%);
-  --buzz-chrome-foreground: hsl(var(--mn-ink-muted));
-  --buzz-hover-surface: rgb(255 255 255 / 6%);
-  --buzz-sidebar-scrollbar-thumb: hsl(var(--mn-ink) / 0.14);
-  --buzz-active-fill: var(--mn-ink);
-  --buzz-active-surface: hsl(var(--mn-ink) / 0.1);
-  /* BARE HSL TRIPLET, not a colour. It feeds --sidebar-active-foreground, which
-     Tailwind consumes as hsl(var(...)); wrapping it here yields hsl(hsl(...)),
-     which is invalid at computed-value time, so `color` silently falls back to
-     the inherited ink and the active item renders its glyph in the same value
-     as its own fill — a blank plate. It must also CONTRAST with
-     --buzz-active-fill above (near-white ink), hence the canvas, not the ink. */
-  --buzz-active-foreground: var(--mn-floor);
-  --buzz-channel-fg: hsl(var(--mn-ink-muted));
-  --buzz-dm-fg: hsl(var(--mn-ink-muted));
-  --buzz-nav-fg: hsl(var(--mn-ink));
-}
-
-:root[data-luca-shell].dark {
-  color-scheme: dark;
-}
-
-:root[data-luca-shell]:not(.dark) {
-  color-scheme: light;
-}
-
-:root[data-luca-shell] .luca-theme-shell-layer {
-  background-color: var(--luca-shell-canvas);
-  background-image: none;
-}
 
 :root[data-luca-shell] .buzz-huddle-app-surface,
 :root[data-luca-shell] .group\/sidebar-wrapper,
@@ -866,7 +526,7 @@
 :root[data-luca-shell] [data-buzz-glass-inset],
 :root[data-luca-shell] [data-buzz-glass-footer-wrap],
 :root[data-luca-shell] [data-testid="community-rail"].bg-sidebar {
-  background-color: var(--luca-shell-sidebar);
+  background-color: hsl(var(--mn-floor));
   background-image: none;
 }
 
@@ -877,8 +537,8 @@
      the corner masks) painted a visibly different colour than the card. It
      must track the card, not diverge from it. */
   --background: var(--mn-surface);
-  background-color: var(--luca-shell-surface);
-  border: 1px solid var(--luca-shell-border);
+  background-color: hsl(var(--mn-surface));
+  border: 1px solid hsl(var(--mn-border));
   box-shadow: none;
 }
 
@@ -890,13 +550,8 @@
 
 :root[data-luca-shell].dark
   [data-sidebar="sidebar"][data-mobile="true"].bg-sidebar {
-  background-color: var(--luca-shell-sidebar);
+  background-color: hsl(var(--mn-floor));
   background-image: none;
-}
-
-:root[data-luca-shell] :focus-visible {
-  outline: 2px solid var(--luca-shell-focus);
-  outline-offset: 2px;
 }
 
 :root[data-luca-shell] :is(button, a, [role="button"], [role="tab"]) {
@@ -925,6 +580,6 @@
 :root[data-buzz-translucent] body,
 :root[data-buzz-translucent] .buzz-huddle-shell,
 :root[data-buzz-translucent] .buzz-huddle-app-surface {
-  background-color: var(--luca-shell-canvas);
+  background-color: hsl(var(--mn-floor));
   background-image: none;
 }

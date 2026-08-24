@@ -387,7 +387,12 @@ export const GRAPHITE_THEME_COLORS = {
 export const PAPER_THEME_COLORS = {
   floor: "#f6f4f2",
   surface: "#fcfbf9",
-  raised: "#fefdfd",
+  /* Paper cannot elevate toward white — the surface is already 98% white, so
+   * a lighter "raised" (#fefdfd, the old value) sat INVISIBLY above the page
+   * and every muted fill mapped to it vanished. On paper, quiet fills read as
+   * a step of shade instead: raised sits below the surface, the way printed
+   * matter tints a panel. */
+  raised: "#f3f1ee",
   hover: "#eeedea",
   glass: "#f1f0ed",
   recess: "#eceae6",

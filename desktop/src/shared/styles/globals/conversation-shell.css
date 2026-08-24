@@ -58,9 +58,6 @@
   --mn-recess: 210 5.000% 7.843%;
   /* Below the floor. Used only where a surface must read as a recess. */
   --mn-glass: 210 10.000% 3.922%;
-  /* Aliases consumed by the semantic mappings in theme.css. */
-  --mn-surface-raised: 210 2.128% 18.431%;
-  --mn-surface-hover: 210 1.786% 21.961%;
   --mn-border: 216 5.618% 17.451%;
   --mn-border-strong: 216 4.505% 21.765%;
   /* THE INK LADDER. Four roles, defined by the contrast each one holds
@@ -116,6 +113,13 @@
    * makes a flat object read as physical without a gradient or a drop shadow,
    * both of which fight a lightness-based elevation model. */
   --mn-lit-edge: inset 0 1px 0 rgb(255 255 255 / 0.06);
+  /* The lit edge's rest state: same geometry at alpha 0, so a transition
+   * between the two interpolates instead of snapping. Any surface that
+   * animates the lit edge on must rest on this, never on a literal. */
+  --mn-lit-edge-off: inset 0 1px 0 rgb(255 255 255 / 0);
+  /* The one contact shadow floating overlays may wear (hover action bars,
+   * menus that sit over scrolling content). Solved per mode below. */
+  --mn-contact-shadow: 0 1px 3px rgb(0 0 0 / 0.28);
 
   /* The plate: the one borderless group surface. Ink at a small alpha rather
    * than a grey step, so it reads the same in Void, Graphite and every light
@@ -126,6 +130,11 @@
   --mn-plate-opaque: color-mix(
     in srgb,
     hsl(var(--mn-ink)) 3.5%,
+    hsl(var(--mn-surface))
+  );
+  --mn-plate-opaque-hover: color-mix(
+    in srgb,
+    hsl(var(--mn-ink)) 6%,
     hsl(var(--mn-surface))
   );
 
@@ -152,13 +161,13 @@
 
   --background: var(--mn-surface);
   --foreground: var(--mn-ink);
-  --card: var(--mn-raised);
+  --card: var(--mn-surface);
   --card-foreground: var(--mn-ink);
   --popover: var(--mn-raised);
   --popover-foreground: var(--mn-ink);
-  --secondary: var(--mn-hover);
+  --secondary: var(--mn-raised);
   --secondary-foreground: var(--mn-ink);
-  --muted: var(--mn-hover);
+  --muted: var(--mn-raised);
   --muted-foreground: var(--mn-ink-muted);
   --accent: var(--mn-hover);
   --accent-foreground: var(--mn-ink);
@@ -172,21 +181,36 @@
   --primary: 220 6.6% 87.9%;
   --primary-foreground: var(--mn-floor);
 
-  --sidebar: var(--mn-floor);
+  --sidebar-background: var(--mn-floor);
   --sidebar-foreground: var(--mn-ink);
   --sidebar-primary: 220 6.6% 87.9%;
   --sidebar-primary-foreground: var(--mn-floor);
-  --sidebar-accent: var(--mn-hover);
+  --sidebar-accent: var(--mn-raised);
   --sidebar-accent-foreground: var(--mn-ink);
   --sidebar-border: var(--mn-border);
   --sidebar-ring: var(--mn-focus);
   --sidebar-active: var(--mn-hover);
   --sidebar-active-foreground: var(--mn-ink);
-  /* --buzz-active-surface is used directly as a colour; --buzz-active-foreground
-     feeds --sidebar-active-foreground and is re-wrapped by Tailwind, so it stays
-     a bare triplet. See the note in theme.css. */
-  --buzz-active-surface: hsl(var(--mn-hover));
-  --buzz-active-foreground: var(--mn-ink);
+  /* Legacy Buzz chrome tokens, derived from the roles so they follow every
+     palette. The fills are ink-alpha rather than white-alpha: ink flips with
+     the palette, so a light theme gets a darkening wash for free. */
+  --buzz-muted-foreground: hsl(var(--mn-ink-muted));
+  --buzz-search-surface: hsl(var(--mn-ink) / 0.05);
+  --buzz-chrome-foreground: hsl(var(--mn-ink-muted));
+  --buzz-hover-surface: hsl(var(--mn-ink) / 0.06);
+  --buzz-sidebar-scrollbar-thumb: hsl(var(--mn-ink) / 0.14);
+  --buzz-active-fill: var(--mn-ink);
+  --buzz-active-surface: hsl(var(--mn-ink) / 0.1);
+  /* BARE HSL TRIPLET, not a colour. It feeds --sidebar-active-foreground, which
+     Tailwind consumes as hsl(var(...)); wrapping it here yields hsl(hsl(...)),
+     which is invalid at computed-value time, so `color` silently falls back to
+     the inherited ink and the active item renders its glyph in the same value
+     as its own fill — a blank plate. It must also CONTRAST with
+     --buzz-active-fill above (near-white ink), hence the canvas, not the ink. */
+  --buzz-active-foreground: var(--mn-floor);
+  --buzz-channel-fg: hsl(var(--mn-ink-muted));
+  --buzz-dm-fg: hsl(var(--mn-ink-muted));
+  --buzz-nav-fg: hsl(var(--mn-ink));
 }
 
 :root[data-luca-shell].dark {
@@ -195,14 +219,22 @@
 
 :root[data-luca-shell]:not(.dark) {
   color-scheme: light;
+  /* Light grounds read depth from a hairline shadow beneath, not a white
+   * highlight above — a 6% white inset does nothing on a surface that is
+   * already near-white. Expressed in the palette's own ink so every light
+   * palette (authored or derived) casts a correctly-tinted edge without
+   * emitting a value of its own. */
+  --mn-lit-edge: 0 1px 1.5px hsl(var(--mn-ink) / 0.045);
+  --mn-lit-edge-off: 0 1px 1.5px hsl(var(--mn-ink) / 0);
+  --mn-contact-shadow: 0 1px 2px rgb(0 0 0 / 0.1);
 }
 
 /* ------------------------------------------------------------------
  * THE FOCUS CONTRACT — shell-wide, and the whole of it.
  *
- * WHAT WAS ACTUALLY ON SCREEN. Not the Tailwind rings — one rule, in
- * `theme.css` (search `:root[data-luca-shell] :focus-visible`), painting
- * `outline: 2px solid var(--luca-shell-focus); outline-offset: 2px` on every
+ * WHAT WAS ACTUALLY ON SCREEN. Not the Tailwind rings — one rule, formerly
+ * in `theme.css` (deleted in the mapping consolidation), painting
+ * `outline: 2px solid` of the focus color, offset 2px, on every
  * focusable element in the app. Two pixels of saturated blue, held two pixels
  * off the element, with the page showing through the gap. That is the ring in
  * the capture. And because the rule is unlayered while Tailwind's utilities
@@ -223,11 +255,8 @@
  * the 3:1 floor for focus indicators. Such an element declares the ink its
  * edge should move toward; everything else inherits the default.
  *
- * The type selector is load-bearing: it lifts this one notch above the
- * `theme.css` rule so the override does not depend on import order. When the
- * two files are next reconciled, delete that rule and drop the `*` here.
  * ------------------------------------------------------------------ */
-:root[data-luca-shell] *:focus-visible {
+:root[data-luca-shell] :focus-visible {
   outline: 1px solid var(--mn-focus-edge, hsl(var(--mn-focus)));
   outline-offset: -1px;
 }
