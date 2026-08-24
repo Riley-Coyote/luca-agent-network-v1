@@ -104,6 +104,11 @@ pub(crate) struct ResetContext<'a> {
     pub keychain: &'a dyn ResetKeychain,
     pub home_dir: Option<PathBuf>,
     pub is_dev: bool,
+    /// Whether reset may remove machine-global legacy state below `$HOME`.
+    /// Disposable acceptance bundles set this to false so resetting their
+    /// isolated profile cannot remove the canonical Nest migration source,
+    /// agent config, or CLI symlink.
+    pub allow_global_home_cleanup: bool,
 }
 
 /// Entry point called from `lib.rs` setup (before migrations).
@@ -133,6 +138,7 @@ pub(crate) fn run_boot_reset(app_data_dir: &Path) -> ResetOutcome {
         keychain: &store,
         home_dir,
         is_dev,
+        allow_global_home_cleanup: !crate::managed_agents::native_state_isolation_requested(),
     };
 
     run_boot_reset_with_keychain(ctx)
@@ -215,11 +221,13 @@ pub(crate) fn run_boot_reset_with_keychain(ctx: ResetContext<'_>) -> ResetOutcom
     if let Some(ref nest) = ctx.nest_dir {
         let _ = std::fs::remove_dir_all(nest);
     }
-    if let Some(ref home) = ctx.home_dir {
-        let _ = std::fs::remove_dir_all(home.join(".sprout"));
-        let _ = std::fs::remove_dir_all(home.join(".config").join("buzz-agent"));
-        let link_name = crate::managed_agents::cli_link_name(ctx.is_dev);
-        let _ = std::fs::remove_file(home.join(".local").join("bin").join(link_name));
+    if ctx.allow_global_home_cleanup {
+        if let Some(ref home) = ctx.home_dir {
+            let _ = std::fs::remove_dir_all(home.join(".sprout"));
+            let _ = std::fs::remove_dir_all(home.join(".config").join("buzz-agent"));
+            let link_name = crate::managed_agents::cli_link_name(ctx.is_dev);
+            let _ = std::fs::remove_file(home.join(".local").join("bin").join(link_name));
+        }
     }
 
     // ── Step 4: keychain — LAST so we can read keys before deleting ──────────
@@ -408,6 +416,7 @@ mod tests {
             keychain,
             home_dir: None, // skip nest/sprout/CLI ops in unit tests
             is_dev,
+            allow_global_home_cleanup: true,
         }
     }
 
@@ -451,6 +460,7 @@ mod tests {
             keychain: &kc,
             home_dir: None,
             is_dev: false,
+            allow_global_home_cleanup: true,
         };
 
         let outcome = run_boot_reset_with_keychain(ctx);
@@ -564,6 +574,7 @@ mod tests {
             keychain: &kc,
             home_dir: None,
             is_dev: true,
+            allow_global_home_cleanup: true,
         };
 
         let outcome = run_boot_reset_with_keychain(ctx);
@@ -600,6 +611,7 @@ mod tests {
             keychain: &kc,
             home_dir: None,
             is_dev: false,
+            allow_global_home_cleanup: true,
         };
 
         let outcome = run_boot_reset_with_keychain(ctx);
@@ -607,6 +619,51 @@ mod tests {
         assert!(outcome.completed, "wipe must complete");
         assert!(!prod_nest.exists(), "prod nest must be wiped");
         assert!(dev_nest.exists(), "dev nest must survive");
+    }
+
+    #[test]
+    fn isolated_reset_preserves_machine_global_home_state() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path().join("home");
+        let app_data = home
+            .join("Library")
+            .join("Application Support")
+            .join("com.luca.agent-network.dev.stability");
+        let isolated_nest = tmp.path().join("native-state").join("nest");
+        let legacy_nest_canary = home.join(".sprout").join("canary");
+        let agent_config_canary = home.join(".config").join("buzz-agent").join("canary");
+        let cli_link = home.join(".local").join("bin").join("buzz");
+        for directory in [
+            app_data.as_path(),
+            isolated_nest.as_path(),
+            legacy_nest_canary.parent().unwrap(),
+            agent_config_canary.parent().unwrap(),
+            cli_link.parent().unwrap(),
+        ] {
+            std::fs::create_dir_all(directory).unwrap();
+        }
+        std::fs::write(&legacy_nest_canary, "legacy knowledge").unwrap();
+        std::fs::write(&agent_config_canary, "native config").unwrap();
+        std::fs::write(&cli_link, "canonical cli").unwrap();
+        write_sentinel(&app_data).unwrap();
+
+        let keychain = FakeKeychain::ok();
+        let outcome = run_boot_reset_with_keychain(ResetContext {
+            app_data_dir: &app_data,
+            legacy_app_data_dir: None,
+            nest_dir: Some(isolated_nest.clone()),
+            keychain: &keychain,
+            home_dir: Some(home),
+            is_dev: false,
+            allow_global_home_cleanup: false,
+        });
+
+        assert!(outcome.completed, "isolated reset must complete");
+        assert!(!app_data.exists(), "isolated app data must be removed");
+        assert!(!isolated_nest.exists(), "isolated Nest must be removed");
+        assert!(legacy_nest_canary.is_file(), "legacy Nest must survive");
+        assert!(agent_config_canary.is_file(), "agent config must survive");
+        assert!(cli_link.is_file(), "canonical CLI link must survive");
     }
 
     // ── Test 8: legacy app-data removed on reset ──────────────────────────────
@@ -633,6 +690,7 @@ mod tests {
             keychain: &kc,
             home_dir: None,
             is_dev: false,
+            allow_global_home_cleanup: true,
         };
 
         let outcome = run_boot_reset_with_keychain(ctx);
@@ -716,6 +774,7 @@ mod tests {
             keychain: &kc,
             home_dir: None,
             is_dev: true,
+            allow_global_home_cleanup: true,
         };
         let outcome = run_boot_reset_with_keychain(ctx);
         assert!(outcome.completed, "reset must complete");
@@ -810,6 +869,7 @@ mod tests {
             keychain: &kc1,
             home_dir: Some(tmp.path().to_path_buf()),
             is_dev: false,
+            allow_global_home_cleanup: true,
         };
         let first = run_boot_reset_with_keychain(ctx1);
         assert!(first.failed, "first attempt must fail");
@@ -833,6 +893,7 @@ mod tests {
             keychain: &kc2,
             home_dir: Some(tmp.path().to_path_buf()),
             is_dev: false,
+            allow_global_home_cleanup: true,
         };
         let second = run_boot_reset_with_keychain(ctx2);
         assert!(second.completed, "second attempt must complete");

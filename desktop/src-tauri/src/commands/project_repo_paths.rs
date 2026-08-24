@@ -3,7 +3,7 @@
 //! Shared by the project git commands (snapshots, sync status, push) and the
 //! project terminal launcher.
 
-use crate::managed_agents::nest_dir;
+use crate::managed_agents::{native_state_isolation_requested, nest_dir};
 use url::Url;
 
 fn local_repo_name_candidate(value: &str) -> Option<String> {
@@ -145,13 +145,26 @@ pub(crate) fn find_local_repo_dir(
 }
 
 pub(crate) fn default_repos_root_candidates() -> Vec<std::path::PathBuf> {
+    default_repos_root_candidates_for(
+        nest_dir(),
+        dirs::home_dir(),
+        native_state_isolation_requested(),
+    )
+}
+
+fn default_repos_root_candidates_for(
+    nest: Option<std::path::PathBuf>,
+    home: Option<std::path::PathBuf>,
+    isolation_requested: bool,
+) -> Vec<std::path::PathBuf> {
     let mut candidates = Vec::new();
-    candidates.extend(nest_dir().map(|path| path.join("REPOS")));
-    candidates.extend(
-        dirs::home_dir()
-            .map(|home| home.join(".buzz").join("REPOS"))
-            .filter(|path| !candidates.iter().any(|candidate| candidate == path)),
-    );
+    candidates.extend(nest.map(|path| path.join("REPOS")));
+    if !isolation_requested {
+        candidates.extend(
+            home.map(|home| home.join(".buzz").join("REPOS"))
+                .filter(|path| !candidates.iter().any(|candidate| candidate == path)),
+        );
+    }
     candidates
 }
 
@@ -189,4 +202,29 @@ pub(crate) fn canonical_repos_roots(
         return Err("reposDir is not accessible".to_string());
     }
     Ok(roots)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn isolated_repository_fallback_never_includes_canonical_buzz() {
+        let home = std::path::PathBuf::from("/Users/fixture");
+        let nest = std::path::PathBuf::from("/private/tmp/acceptance/native-state/nest");
+        assert_eq!(
+            default_repos_root_candidates_for(Some(nest.clone()), Some(home.clone()), true),
+            vec![nest.join("REPOS")]
+        );
+        assert!(default_repos_root_candidates_for(None, Some(home), true).is_empty());
+    }
+
+    #[test]
+    fn ordinary_repository_fallback_remains_compatible() {
+        let home = std::path::PathBuf::from("/Users/fixture");
+        assert_eq!(
+            default_repos_root_candidates_for(None, Some(home.clone()), false),
+            vec![home.join(".buzz/REPOS")]
+        );
+    }
 }

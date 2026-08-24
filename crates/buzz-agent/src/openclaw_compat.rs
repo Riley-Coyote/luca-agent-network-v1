@@ -10,7 +10,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     process::{Command, Stdio},
     sync::Arc,
 };
@@ -31,13 +31,16 @@ const MAX_FRAME_BYTES: usize = 1024 * 1024;
 const MAX_PROMPT_BYTES: usize = 256 * 1024;
 const MAX_STDOUT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_STDERR_BYTES: usize = 64 * 1024;
+const MAX_ISOLATED_CONFIG_BYTES: u64 = 2 * 1024 * 1024;
 const REPOSITORY_SERVER_NAME: &str = "luca-repositories";
 const COMMUNICATIONS_SERVER_NAME: &str = "luca-communications";
-const OPENCLAW_BOOTSTRAP_ENV_KEYS: [&str; 4] = [
+const OPENCLAW_BOOTSTRAP_ENV_KEYS: [&str; 6] = [
     "LUCA_OPENCLAW_AGENT_ID",
     "LUCA_OPENCLAW_COMMAND",
     "LUCA_OPENCLAW_CONFIG_PATH",
     "LUCA_OPENCLAW_STATE_DIR",
+    "LUCA_NATIVE_STATE_ISOLATION_ROOT",
+    "LUCA_OPENCLAW_ISOLATED_CONFIG_PATH",
 ];
 const REPOSITORY_ENV_KEYS: [&str; 4] = [
     "LUCA_REPOSITORY_MODE",
@@ -71,8 +74,19 @@ struct CompatConfig {
     openclaw_command: PathBuf,
     native_config_path: PathBuf,
     native_state_dir: PathBuf,
+    isolation: Option<NativeStateIsolation>,
     agent_id: String,
     temporary_root: PathBuf,
+}
+
+#[derive(Clone)]
+struct NativeStateIsolation {
+    root_dir: PathBuf,
+    config_path: PathBuf,
+    home_dir: PathBuf,
+    state_dir: PathBuf,
+    agent_dir: PathBuf,
+    session_store: PathBuf,
 }
 
 struct CompatSession {
@@ -95,6 +109,17 @@ struct TurnWorkspace {
 
 impl TurnWorkspace {
     fn create(config: &CompatConfig, servers: &[McpServerStdio]) -> Result<Self, String> {
+        if let Some(isolation) = &config.isolation {
+            validate_isolation_directory(&isolation.home_dir, &isolation.root_dir)?;
+            validate_isolation_directory(&isolation.state_dir, &isolation.root_dir)?;
+            validate_isolation_directory(&isolation.agent_dir, &isolation.state_dir)?;
+            validate_isolation_file_target(&isolation.session_store, &isolation.state_dir)?;
+            validate_isolated_fixture_config(
+                &isolation.config_path,
+                &config.agent_id,
+                &isolation.agent_dir,
+            )?;
+        }
         let directory = config.temporary_root.join(random_token()?);
         fs::create_dir(&directory).map_err(|_| "turn workspace unavailable".to_owned())?;
         secure_directory(&directory)?;
@@ -103,7 +128,17 @@ impl TurnWorkspace {
             directory,
             overlay_path,
         };
-        write_overlay(&workspace.overlay_path, &config.native_config_path, servers)?;
+        let source_config_path = config
+            .isolation
+            .as_ref()
+            .map(|isolation| isolation.config_path.as_path())
+            .unwrap_or(&config.native_config_path);
+        write_overlay(
+            &workspace.overlay_path,
+            source_config_path,
+            config.isolation.as_ref(),
+            servers,
+        )?;
         Ok(workspace)
     }
 }
@@ -174,6 +209,12 @@ fn load_config(agent_id: Option<&str>) -> Result<CompatConfig, String> {
         .filter(|value| valid_agent_id(value))
         .map(str::to_owned)
         .ok_or_else(|| "OpenClaw compatibility binding is invalid".to_owned())?;
+    let isolation = resolve_native_state_isolation(
+        &native_state_dir,
+        &agent_id,
+        std::env::var_os("LUCA_NATIVE_STATE_ISOLATION_ROOT").as_deref(),
+        std::env::var_os("LUCA_OPENCLAW_ISOLATED_CONFIG_PATH").as_deref(),
+    )?;
     let temporary_root = PathBuf::from("/tmp").join(format!("luca-oc-{}", random_token()?));
     fs::create_dir(&temporary_root)
         .map_err(|_| "OpenClaw compatibility workspace could not be created".to_owned())?;
@@ -182,9 +223,192 @@ fn load_config(agent_id: Option<&str>) -> Result<CompatConfig, String> {
         openclaw_command,
         native_config_path,
         native_state_dir,
+        isolation,
         agent_id,
         temporary_root,
     })
+}
+
+fn resolve_native_state_isolation(
+    native_state_dir: &Path,
+    agent_id: &str,
+    isolation_root: Option<&std::ffi::OsStr>,
+    isolated_config_path: Option<&std::ffi::OsStr>,
+) -> Result<Option<NativeStateIsolation>, String> {
+    let (Some(isolation_root), Some(isolated_config_path)) = (isolation_root, isolated_config_path)
+    else {
+        return if isolation_root.is_none() && isolated_config_path.is_none() {
+            Ok(None)
+        } else {
+            Err("OpenClaw compatibility isolation fixture is unavailable".into())
+        };
+    };
+    if isolation_root.is_empty() {
+        return Err("OpenClaw compatibility isolation is invalid".into());
+    }
+    let isolation_root = PathBuf::from(isolation_root);
+    if !isolation_root.is_absolute()
+        || isolation_root
+            .components()
+            .any(|component| matches!(component, Component::CurDir | Component::ParentDir))
+    {
+        return Err("OpenClaw compatibility isolation is invalid".into());
+    }
+    let canonical_root = isolation_root
+        .canonicalize()
+        .map_err(|_| "OpenClaw compatibility isolation is unavailable".to_owned())?;
+    if canonical_root != isolation_root
+        || !canonical_root.is_dir()
+        || broad_isolation_root(&canonical_root)
+        || canonical_root.starts_with(native_state_dir)
+        || native_state_dir.starts_with(&canonical_root)
+    {
+        return Err("OpenClaw compatibility isolation is invalid".into());
+    }
+    let isolated_config_path = PathBuf::from(isolated_config_path);
+    if !isolated_config_path.is_absolute()
+        || isolated_config_path
+            .components()
+            .any(|component| matches!(component, Component::CurDir | Component::ParentDir))
+    {
+        return Err("OpenClaw compatibility isolation fixture is invalid".into());
+    }
+    let canonical_config_path = isolated_config_path
+        .canonicalize()
+        .map_err(|_| "OpenClaw compatibility isolation fixture is unavailable".to_owned())?;
+    if canonical_config_path != isolated_config_path
+        || !canonical_config_path.is_file()
+        || canonical_config_path == canonical_root
+        || !canonical_config_path.starts_with(&canonical_root)
+    {
+        return Err("OpenClaw compatibility isolation fixture is invalid".into());
+    }
+    let runtime_root = canonical_root.join("openclaw");
+    let agent_root = runtime_root.join(agent_id);
+    let home_dir = agent_root.join("home");
+    let state_dir = agent_root.join("state");
+    let agents_dir = state_dir.join("agents");
+    let selected_agent_root = agents_dir.join(agent_id);
+    let agent_dir = selected_agent_root.join("agent");
+    let sessions_dir = selected_agent_root.join("sessions");
+    let session_store = sessions_dir.join("sessions.json");
+    validate_isolated_fixture_config(&canonical_config_path, agent_id, &agent_dir)?;
+    ensure_isolation_directory(&runtime_root)?;
+    ensure_isolation_directory(&agent_root)?;
+    ensure_isolation_directory(&home_dir)?;
+    ensure_isolation_directory(&state_dir)?;
+    ensure_isolation_directory(&agents_dir)?;
+    ensure_isolation_directory(&selected_agent_root)?;
+    ensure_isolation_directory(&agent_dir)?;
+    ensure_isolation_directory(&sessions_dir)?;
+    validate_isolation_file_target(&session_store, &state_dir)?;
+    Ok(Some(NativeStateIsolation {
+        root_dir: canonical_root,
+        config_path: canonical_config_path,
+        home_dir,
+        state_dir,
+        agent_dir,
+        session_store,
+    }))
+}
+
+fn broad_isolation_root(path: &Path) -> bool {
+    if path.parent().is_none() {
+        return true;
+    }
+    [std::env::temp_dir(), PathBuf::from("/tmp")]
+        .into_iter()
+        .filter_map(|candidate| candidate.canonicalize().ok())
+        .any(|candidate| candidate == path)
+}
+
+fn validate_isolated_fixture_config(
+    config_path: &Path,
+    agent_id: &str,
+    required_agent_dir: &Path,
+) -> Result<(), String> {
+    if config_path.canonicalize().ok().as_deref() != Some(config_path) {
+        return Err("OpenClaw compatibility isolation fixture is invalid".into());
+    }
+    let metadata = fs::metadata(config_path)
+        .map_err(|_| "OpenClaw compatibility isolation fixture is unavailable".to_owned())?;
+    if metadata.len() > MAX_ISOLATED_CONFIG_BYTES {
+        return Err("OpenClaw compatibility isolation fixture is invalid".into());
+    }
+    let bytes = fs::read(config_path)
+        .map_err(|_| "OpenClaw compatibility isolation fixture is unavailable".to_owned())?;
+    let config: Value = serde_json::from_slice(&bytes)
+        .map_err(|_| "OpenClaw compatibility isolation fixture is invalid".to_owned())?;
+    if contains_include_directive(&config) {
+        return Err("OpenClaw compatibility isolation fixture is invalid".into());
+    }
+    if let Some(entries) = config.pointer("/agents/list").and_then(Value::as_array) {
+        for entry in entries {
+            let selected = entry
+                .get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| id.eq_ignore_ascii_case(agent_id));
+            if !selected {
+                continue;
+            }
+            let Some(configured_agent_dir) = entry.get("agentDir") else {
+                continue;
+            };
+            if configured_agent_dir.as_str().map(Path::new) != Some(required_agent_dir) {
+                return Err("OpenClaw compatibility isolation fixture is invalid".into());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn contains_include_directive(value: &Value) -> bool {
+    match value {
+        Value::Object(object) => {
+            object.contains_key("$include") || object.values().any(contains_include_directive)
+        }
+        Value::Array(values) => values.iter().any(contains_include_directive),
+        _ => false,
+    }
+}
+
+fn ensure_isolation_directory(path: &Path) -> Result<(), String> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() => {}
+        Ok(_) => return Err("OpenClaw compatibility isolation is invalid".into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => fs::create_dir(path)
+            .map_err(|_| "OpenClaw compatibility isolation is unavailable".to_owned())?,
+        Err(_) => return Err("OpenClaw compatibility isolation is unavailable".into()),
+    }
+    secure_directory(path)
+}
+
+fn validate_isolation_directory(path: &Path, allowed_root: &Path) -> Result<(), String> {
+    let canonical = path
+        .canonicalize()
+        .map_err(|_| "OpenClaw compatibility isolation is unavailable".to_owned())?;
+    if canonical != path || !canonical.is_dir() || !canonical.starts_with(allowed_root) {
+        return Err("OpenClaw compatibility isolation is invalid".into());
+    }
+    Ok(())
+}
+
+fn validate_isolation_file_target(path: &Path, allowed_root: &Path) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "OpenClaw compatibility isolation is invalid".to_owned())?;
+    validate_isolation_directory(parent, allowed_root)?;
+    match fs::symlink_metadata(path) {
+        Ok(metadata)
+            if metadata.file_type().is_file()
+                && !metadata.file_type().is_symlink()
+                && path.canonicalize().ok().as_deref() == Some(path) =>
+        {
+            Ok(())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        _ => Err("OpenClaw compatibility isolation is invalid".into()),
+    }
 }
 
 fn canonical_file_env(key: &str) -> Result<PathBuf, String> {
@@ -639,6 +863,11 @@ fn build_command(
     prompt: &str,
 ) -> Command {
     let mut command = Command::new(&config.openclaw_command);
+    let include_root = config
+        .isolation
+        .as_ref()
+        .map(|isolation| isolation.root_dir.as_path())
+        .unwrap_or(&config.native_state_dir);
     command
         .args([
             "agent",
@@ -657,9 +886,28 @@ fn build_command(
         .stderr(Stdio::piped())
         .env("OPENCLAW_CONFIG_PATH", overlay_path)
         .env("OPENCLAW_STATE_DIR", &config.native_state_dir)
-        .env("OPENCLAW_INCLUDE_ROOTS", &config.native_state_dir)
+        .env("OPENCLAW_INCLUDE_ROOTS", include_root)
         .env("OPENCLAW_HIDE_BANNER", "1")
         .env("OPENCLAW_SUPPRESS_NOTES", "1");
+    if let Some(isolation) = &config.isolation {
+        // OPENCLAW_STATE_DIR alone is not enough: OpenClaw also discovers and
+        // migrates legacy state from its effective home. Acceptance bundles
+        // give the subprocess a private OpenClaw home so those migrations never
+        // inspect or archive files in the imported native home.
+        command
+            .env("OPENCLAW_HOME", &isolation.home_dir)
+            // OpenClaw keeps transcripts, device auth, workspace attestations,
+            // queues, and other runtime-owned mutable files below its state
+            // root. The acceptance runtime receives a persistent, disposable
+            // state root instead of the imported native store.
+            .env("OPENCLAW_STATE_DIR", &isolation.state_dir)
+            .env("OPENCLAW_AGENT_DIR", &isolation.agent_dir)
+            // These are OpenClaw's existing immutable-config and read-only auth
+            // guards. Missing fixture credentials fail closed; native
+            // credentials are never copied into the disposable instance.
+            .env("OPENCLAW_AUTH_STORE_READONLY", "1")
+            .env("OPENCLAW_NIX_MODE", "1");
+    }
     for key in OPENCLAW_BOOTSTRAP_ENV_KEYS {
         command.env_remove(key);
     }
@@ -677,7 +925,8 @@ fn build_command(
 
 fn write_overlay(
     path: &Path,
-    native_config_path: &Path,
+    source_config_path: &Path,
+    isolation: Option<&NativeStateIsolation>,
     servers: &[McpServerStdio],
 ) -> Result<(), String> {
     let mut projected = serde_json::Map::new();
@@ -700,15 +949,36 @@ fn write_overlay(
         .keys()
         .map(|name| format!("{name}__*"))
         .collect::<Vec<_>>();
-    let overlay = if projected.is_empty() {
-        json!({ "$include": native_config_path })
-    } else {
-        json!({
-            "$include": native_config_path,
-            "mcp": { "servers": projected },
-            "tools": { "alsoAllow": also_allow }
-        })
-    };
+    if isolation.is_none() {
+        // Keep the ordinary imported-runtime overlay exactly as it was before
+        // disposable-state support existed.
+        let overlay = if projected.is_empty() {
+            json!({ "$include": source_config_path })
+        } else {
+            json!({
+                "$include": source_config_path,
+                "mcp": { "servers": projected },
+                "tools": { "alsoAllow": also_allow }
+            })
+        };
+        let bytes = serde_json::to_vec(&overlay).map_err(|_| "turn overlay invalid".to_owned())?;
+        fs::write(path, bytes).map_err(|_| "turn overlay unavailable".to_owned())?;
+        return secure_file(path);
+    }
+    let isolation = isolation.ok_or_else(|| "turn overlay invalid".to_owned())?;
+    // OpenClaw's agent command otherwise seeds missing bootstrap files into a
+    // configured native workspace. The disposable instance uses only its
+    // separately provisioned fixture config and keeps every writable store
+    // below its isolated state root.
+    let mut overlay = json!({
+        "$include": source_config_path,
+        "agents": { "defaults": { "skipBootstrap": true } },
+        "session": { "store": isolation.session_store }
+    });
+    if !projected.is_empty() {
+        overlay["mcp"] = json!({ "servers": projected });
+        overlay["tools"] = json!({ "alsoAllow": also_allow });
+    }
     let bytes = serde_json::to_vec(&overlay).map_err(|_| "turn overlay invalid".to_owned())?;
     fs::write(path, bytes).map_err(|_| "turn overlay unavailable".to_owned())?;
     secure_file(path)
@@ -806,6 +1076,44 @@ fn secure_file(_path: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
     use crate::types::EnvVar;
+
+    #[cfg(unix)]
+    fn write_executable(path: &Path, body: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::write(path, body).expect("write executable fixture");
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+            .expect("secure executable fixture");
+    }
+
+    fn snapshot_tree(root: &Path) -> BTreeMap<PathBuf, Option<Vec<u8>>> {
+        fn visit(root: &Path, current: &Path, snapshot: &mut BTreeMap<PathBuf, Option<Vec<u8>>>) {
+            let relative = current
+                .strip_prefix(root)
+                .expect("snapshot path")
+                .to_owned();
+            let metadata = std::fs::symlink_metadata(current).expect("snapshot metadata");
+            if metadata.is_dir() {
+                snapshot.insert(relative, None);
+                let mut children = std::fs::read_dir(current)
+                    .expect("snapshot directory")
+                    .map(|entry| entry.expect("snapshot entry").path())
+                    .collect::<Vec<_>>();
+                children.sort();
+                for child in children {
+                    visit(root, &child, snapshot);
+                }
+            } else {
+                snapshot.insert(
+                    relative,
+                    Some(std::fs::read(current).expect("snapshot file")),
+                );
+            }
+        }
+
+        let mut snapshot = BTreeMap::new();
+        visit(root, root, &mut snapshot);
+        snapshot
+    }
 
     fn repository_server(capability: &str) -> McpServerStdio {
         McpServerStdio {
@@ -1022,6 +1330,16 @@ mod tests {
             openclaw_command: PathBuf::from("/opt/openclaw"),
             native_config_path: PathBuf::from("/native/openclaw.json"),
             native_state_dir: PathBuf::from("/native"),
+            isolation: Some(NativeStateIsolation {
+                root_dir: PathBuf::from("/tmp/luca-test"),
+                config_path: PathBuf::from("/tmp/luca-test/fixture.json"),
+                home_dir: PathBuf::from("/tmp/luca-test/home"),
+                state_dir: PathBuf::from("/tmp/luca-test/state"),
+                agent_dir: PathBuf::from("/tmp/luca-test/state/agents/main/agent"),
+                session_store: PathBuf::from(
+                    "/tmp/luca-test/state/agents/main/sessions/sessions.json",
+                ),
+            }),
             agent_id: "main".into(),
             temporary_root: PathBuf::from("/tmp/luca-test"),
         };
@@ -1058,6 +1376,417 @@ mod tests {
             .collect::<Vec<_>>()
             .join(" ");
         assert!(!arguments.contains("sha256:"));
+        assert!(command.get_envs().any(|(name, value)| {
+            name == "OPENCLAW_HOME" && value == Some(std::ffi::OsStr::new("/tmp/luca-test/home"))
+        }));
+        assert!(command.get_envs().any(|(name, value)| {
+            name == "OPENCLAW_STATE_DIR"
+                && value == Some(std::ffi::OsStr::new("/tmp/luca-test/state"))
+        }));
+        assert!(command.get_envs().any(|(name, value)| {
+            name == "OPENCLAW_AGENT_DIR"
+                && value
+                    == Some(std::ffi::OsStr::new(
+                        "/tmp/luca-test/state/agents/main/agent",
+                    ))
+        }));
+        assert!(command.get_envs().any(|(name, value)| {
+            name == "OPENCLAW_INCLUDE_ROOTS"
+                && value == Some(std::ffi::OsStr::new("/tmp/luca-test"))
+        }));
+        assert!(!command.get_envs().any(|(name, value)| {
+            name == "OPENCLAW_STATE_DIR" && value == Some(std::ffi::OsStr::new("/native"))
+        }));
+        assert!(command.get_envs().any(|(name, value)| {
+            name == "OPENCLAW_AUTH_STORE_READONLY" && value == Some(std::ffi::OsStr::new("1"))
+        }));
+        assert!(command.get_envs().any(|(name, value)| {
+            name == "OPENCLAW_NIX_MODE" && value == Some(std::ffi::OsStr::new("1"))
+        }));
+        assert!(command.get_envs().any(|(name, value)| {
+            name == "LUCA_NATIVE_STATE_ISOLATION_ROOT" && value.is_none()
+        }));
+    }
+
+    #[test]
+    fn ordinary_runtime_preserves_the_native_openclaw_state_contract() {
+        let config = CompatConfig {
+            openclaw_command: PathBuf::from("/opt/openclaw"),
+            native_config_path: PathBuf::from("/native/openclaw.json"),
+            native_state_dir: PathBuf::from("/native"),
+            isolation: None,
+            agent_id: "main".into(),
+            temporary_root: PathBuf::from("/tmp/luca-test"),
+        };
+        let command = build_command(
+            &config,
+            Path::new("/tmp/overlay.json"),
+            Path::new("/tmp"),
+            "agent:main:luca-test",
+            "prompt",
+        );
+        assert!(command.get_envs().any(|(name, value)| {
+            name == "OPENCLAW_STATE_DIR" && value == Some(std::ffi::OsStr::new("/native"))
+        }));
+        for key in [
+            "OPENCLAW_HOME",
+            "OPENCLAW_AUTH_STORE_READONLY",
+            "OPENCLAW_NIX_MODE",
+        ] {
+            assert!(!command.get_envs().any(|(name, _)| name == key));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn explicit_isolation_root_resolves_agent_local_home_and_state() {
+        let fixture = tempfile::tempdir().expect("fixture");
+        let fixture_root = fixture.path().canonicalize().expect("canonical fixture");
+        let native_state = fixture_root.join("native");
+        let isolation_root = fixture_root.join("acceptance");
+        std::fs::create_dir(&native_state).expect("native state");
+        std::fs::create_dir(&isolation_root).expect("isolation root");
+        let isolated_config = isolation_root.join("fixture.json");
+        std::fs::write(&isolated_config, "{}\n").expect("isolated config");
+        let isolation = resolve_native_state_isolation(
+            &native_state,
+            "main",
+            Some(isolation_root.as_os_str()),
+            Some(isolated_config.as_os_str()),
+        )
+        .expect("isolation")
+        .expect("isolation enabled");
+        assert_eq!(isolation.root_dir, isolation_root);
+        assert_eq!(isolation.config_path, isolated_config);
+        assert_eq!(
+            isolation.home_dir,
+            isolation_root.join("openclaw/main/home")
+        );
+        assert_eq!(
+            isolation.state_dir,
+            isolation_root.join("openclaw/main/state")
+        );
+        assert_eq!(
+            isolation.agent_dir,
+            isolation_root.join("openclaw/main/state/agents/main/agent")
+        );
+        assert_eq!(
+            isolation.session_store,
+            isolation_root.join("openclaw/main/state/agents/main/sessions/sessions.json")
+        );
+        assert!(isolation.home_dir.is_dir());
+        assert!(isolation.state_dir.is_dir());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn isolation_root_cannot_overlap_the_imported_native_store() {
+        let fixture = tempfile::tempdir().expect("fixture");
+        let fixture_root = fixture.path().canonicalize().expect("canonical fixture");
+        let native_state = fixture_root.join("native");
+        let nested = native_state.join("acceptance");
+        std::fs::create_dir(&native_state).expect("native state");
+        std::fs::create_dir(&nested).expect("nested root");
+        let isolated_config = nested.join("fixture.json");
+        std::fs::write(&isolated_config, "{}\n").expect("isolated config");
+        for invalid in [
+            fixture_root.as_path(),
+            native_state.as_path(),
+            nested.as_path(),
+        ] {
+            assert!(resolve_native_state_isolation(
+                &native_state,
+                "main",
+                Some(invalid.as_os_str()),
+                Some(isolated_config.as_os_str()),
+            )
+            .is_err());
+        }
+        assert!(resolve_native_state_isolation(
+            &native_state,
+            "main",
+            Some(std::ffi::OsStr::new("relative/acceptance")),
+            Some(isolated_config.as_os_str()),
+        )
+        .is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn isolated_fixture_must_be_canonical_below_root_and_path_safe() {
+        use std::os::unix::fs::symlink;
+
+        let fixture = tempfile::tempdir().expect("fixture");
+        let fixture_root = fixture.path().canonicalize().expect("canonical fixture");
+        let native_state = fixture_root.join("native");
+        let isolation_root = fixture_root.join("acceptance");
+        std::fs::create_dir(&native_state).expect("native state");
+        std::fs::create_dir(&isolation_root).expect("isolation root");
+        assert_eq!(
+            resolve_native_state_isolation(
+                &native_state,
+                "main",
+                Some(isolation_root.as_os_str()),
+                None,
+            )
+            .err()
+            .as_deref(),
+            Some("OpenClaw compatibility isolation fixture is unavailable")
+        );
+        let missing_config = isolation_root.join("missing.json");
+        assert_eq!(
+            resolve_native_state_isolation(
+                &native_state,
+                "main",
+                Some(isolation_root.as_os_str()),
+                Some(missing_config.as_os_str()),
+            )
+            .err()
+            .as_deref(),
+            Some("OpenClaw compatibility isolation fixture is unavailable")
+        );
+        let outside_config = fixture_root.join("outside.json");
+        std::fs::write(&outside_config, "{}\n").expect("outside config");
+        assert!(resolve_native_state_isolation(
+            &native_state,
+            "main",
+            Some(isolation_root.as_os_str()),
+            Some(outside_config.as_os_str()),
+        )
+        .is_err());
+
+        let linked_config = isolation_root.join("linked.json");
+        symlink(&outside_config, &linked_config).expect("config symlink");
+        assert!(resolve_native_state_isolation(
+            &native_state,
+            "main",
+            Some(isolation_root.as_os_str()),
+            Some(linked_config.as_os_str()),
+        )
+        .is_err());
+
+        let isolated_config = isolation_root.join("fixture.json");
+        std::fs::write(&isolated_config, r#"{"$include":"outside.json"}"#)
+            .expect("included config");
+        assert!(resolve_native_state_isolation(
+            &native_state,
+            "main",
+            Some(isolation_root.as_os_str()),
+            Some(isolated_config.as_os_str()),
+        )
+        .is_err());
+
+        let unsafe_agent_dir = native_state.join("agents/main/agent");
+        std::fs::write(
+            &isolated_config,
+            serde_json::to_vec(&json!({
+                "agents": { "list": [{ "id": "main", "agentDir": unsafe_agent_dir }] }
+            }))
+            .expect("unsafe fixture json"),
+        )
+        .expect("unsafe config");
+        assert!(resolve_native_state_isolation(
+            &native_state,
+            "main",
+            Some(isolation_root.as_os_str()),
+            Some(isolated_config.as_os_str()),
+        )
+        .is_err());
+
+        let required_agent_dir = isolation_root.join("openclaw/main/state/agents/main/agent");
+        std::fs::write(
+            &isolated_config,
+            serde_json::to_vec(&json!({
+                "agents": { "list": [{ "id": "MAIN", "agentDir": required_agent_dir }] }
+            }))
+            .expect("safe fixture json"),
+        )
+        .expect("safe config");
+        assert!(resolve_native_state_isolation(
+            &native_state,
+            "main",
+            Some(isolation_root.as_os_str()),
+            Some(isolated_config.as_os_str()),
+        )
+        .expect("safe isolation")
+        .is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn isolated_session_store_rejects_a_symlink_escape() {
+        use std::os::unix::fs::symlink;
+
+        let fixture = tempfile::tempdir().expect("fixture");
+        let fixture_root = fixture.path().canonicalize().expect("canonical fixture");
+        let native_state = fixture_root.join("native");
+        let native_sessions = native_state.join("sessions");
+        let isolation_root = fixture_root.join("acceptance");
+        let selected_agent_root = isolation_root.join("openclaw/main/state/agents/main");
+        std::fs::create_dir_all(&native_sessions).expect("native sessions");
+        std::fs::create_dir(&isolation_root).expect("isolation root");
+        std::fs::create_dir_all(&selected_agent_root).expect("isolated agent root");
+        symlink(&native_sessions, selected_agent_root.join("sessions")).expect("sessions symlink");
+        let isolated_config = isolation_root.join("fixture.json");
+        std::fs::write(&isolated_config, "{}\n").expect("isolated config");
+        let native_before = snapshot_tree(&native_state);
+        assert!(resolve_native_state_isolation(
+            &native_state,
+            "main",
+            Some(isolation_root.as_os_str()),
+            Some(isolated_config.as_os_str()),
+        )
+        .is_err());
+        assert_eq!(snapshot_tree(&native_state), native_before);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn isolation_never_repermissions_the_caller_root_and_rejects_temp_root() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let fixture = tempfile::tempdir().expect("fixture");
+        let fixture_root = fixture.path().canonicalize().expect("canonical fixture");
+        let native_state = fixture_root.join("native");
+        let isolation_root = fixture_root.join("acceptance");
+        std::fs::create_dir(&native_state).expect("native state");
+        std::fs::create_dir(&isolation_root).expect("isolation root");
+        std::fs::set_permissions(&isolation_root, std::fs::Permissions::from_mode(0o751))
+            .expect("caller root mode");
+        let isolated_config = isolation_root.join("fixture.json");
+        std::fs::write(&isolated_config, "{}\n").expect("isolated config");
+        resolve_native_state_isolation(
+            &native_state,
+            "main",
+            Some(isolation_root.as_os_str()),
+            Some(isolated_config.as_os_str()),
+        )
+        .expect("isolated state");
+        let root_mode = std::fs::metadata(&isolation_root)
+            .expect("caller root metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(root_mode, 0o751);
+
+        let broad_root = std::env::temp_dir()
+            .canonicalize()
+            .expect("canonical temp root");
+        assert!(resolve_native_state_isolation(
+            Path::new("/Users/fixture/.openclaw"),
+            "main",
+            Some(broad_root.as_os_str()),
+            Some(isolated_config.as_os_str()),
+        )
+        .is_err());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn isolated_fake_runtime_leaves_the_imported_native_tree_unchanged() {
+        let fixture = tempfile::tempdir().expect("fixture");
+        let fixture_root = fixture.path().canonicalize().expect("canonical fixture");
+        let native_state = fixture_root.join("native");
+        let native_agent_dir = native_state.join("agents/main/agent");
+        let native_sessions = native_state.join("agents/main/sessions");
+        std::fs::create_dir_all(&native_agent_dir).expect("native agent dir");
+        std::fs::create_dir_all(&native_sessions).expect("native sessions");
+        let native_config_path = native_state.join("openclaw.json");
+        std::fs::write(
+            &native_config_path,
+            serde_json::to_vec(&json!({
+                "agents": { "list": [{ "id": "main", "agentDir": native_agent_dir }] },
+                "session": { "store": native_sessions.join("sessions.json") }
+            }))
+            .expect("native config json"),
+        )
+        .expect("native config");
+        std::fs::write(native_agent_dir.join("auth-profiles.json"), "native-auth\n")
+            .expect("native auth");
+        std::fs::write(
+            native_agent_dir.join("workspace-attestation.json"),
+            "native-workspace\n",
+        )
+        .expect("native workspace attestation");
+        std::fs::write(native_sessions.join("sessions.json"), "native-sessions\n")
+            .expect("native sessions store");
+
+        let isolation_root = fixture_root.join("acceptance");
+        std::fs::create_dir(&isolation_root).expect("isolation root");
+        let isolated_config_path = isolation_root.join("fixture.json");
+        std::fs::write(
+            &isolated_config_path,
+            serde_json::to_vec(&json!({
+                "agents": { "list": [{ "id": "main" }] },
+                "session": { "store": native_sessions.join("sessions.json") }
+            }))
+            .expect("isolated config json"),
+        )
+        .expect("isolated config");
+        let isolation = resolve_native_state_isolation(
+            &native_state,
+            "main",
+            Some(isolation_root.as_os_str()),
+            Some(isolated_config_path.as_os_str()),
+        )
+        .expect("isolation")
+        .expect("isolation enabled");
+        let fake_runtime = fixture_root.join("fake-openclaw");
+        write_executable(
+            &fake_runtime,
+            r#"#!/bin/sh
+set -eu
+cp "$OPENCLAW_CONFIG_PATH" "$OPENCLAW_STATE_DIR/overlay-seen.json"
+printf 'isolated-state\n' > "$OPENCLAW_STATE_DIR/fake-session"
+printf 'isolated-home\n' > "$OPENCLAW_HOME/fake-home"
+printf 'isolated-agent\n' > "$OPENCLAW_AGENT_DIR/fake-auth"
+printf '%s\n' '{"payloads":[{"text":"fixture-ok"}]}'
+"#,
+        );
+        let temporary_root = fixture_root.join("turns");
+        std::fs::create_dir(&temporary_root).expect("turn root");
+        let config = CompatConfig {
+            openclaw_command: fake_runtime,
+            native_config_path,
+            native_state_dir: native_state.clone(),
+            isolation: Some(isolation.clone()),
+            agent_id: "main".into(),
+            temporary_root,
+        };
+        let native_before = snapshot_tree(&native_state);
+        let (_cancel_tx, mut cancel_rx) = watch::channel(false);
+        let response = run_openclaw_turn(
+            &config,
+            "session-fixture",
+            &fixture_root,
+            &[],
+            "hello",
+            &mut cancel_rx,
+        )
+        .await
+        .expect("fake runtime turn");
+        assert_eq!(response.as_deref(), Some("fixture-ok"));
+        assert_eq!(snapshot_tree(&native_state), native_before);
+        assert!(isolation.state_dir.join("fake-session").is_file());
+        assert!(isolation.home_dir.join("fake-home").is_file());
+        assert!(isolation.agent_dir.join("fake-auth").is_file());
+        let seen_overlay =
+            std::fs::read(isolation.state_dir.join("overlay-seen.json")).expect("captured overlay");
+        let seen_overlay: Value =
+            serde_json::from_slice(&seen_overlay).expect("captured overlay json");
+        assert_eq!(
+            seen_overlay.get("$include").and_then(Value::as_str),
+            isolated_config_path.to_str()
+        );
+        assert_eq!(
+            seen_overlay
+                .pointer("/session/store")
+                .and_then(Value::as_str),
+            isolation.session_store.to_str()
+        );
+        assert!(!serde_json::to_string(&seen_overlay)
+            .expect("serialized overlay")
+            .contains(native_state.to_str().expect("native state path")));
     }
 
     #[test]
@@ -1086,21 +1815,82 @@ mod tests {
     #[test]
     fn turn_workspace_removes_its_overlay_on_drop() {
         let fixture = tempfile::tempdir().expect("fixture");
-        let native_config_path = fixture.path().join("native.json");
+        let fixture_root = fixture.path().canonicalize().expect("canonical fixture");
+        let native_config_path = fixture_root.join("native.json");
         std::fs::write(&native_config_path, "{}\n").expect("native config");
-        let temporary_root = fixture.path().join("turns");
+        let isolated_config_path = fixture_root.join("isolated.json");
+        std::fs::write(&isolated_config_path, "{}\n").expect("isolated config");
+        let temporary_root = fixture_root.join("turns");
         std::fs::create_dir(&temporary_root).expect("turn root");
+        let isolated_home = fixture_root.join("isolated-home");
+        let isolated_state = fixture_root.join("isolated-state");
+        let isolated_agent = isolated_state.join("agents/main/agent");
+        let isolated_sessions = isolated_state.join("agents/main/sessions");
+        std::fs::create_dir(&isolated_home).expect("isolated home");
+        std::fs::create_dir_all(&isolated_agent).expect("isolated agent dir");
+        std::fs::create_dir(&isolated_sessions).expect("isolated sessions dir");
         let config = CompatConfig {
             openclaw_command: PathBuf::from("/opt/openclaw"),
             native_config_path,
-            native_state_dir: fixture.path().to_owned(),
+            native_state_dir: fixture_root.clone(),
+            isolation: Some(NativeStateIsolation {
+                root_dir: fixture_root.clone(),
+                config_path: isolated_config_path.clone(),
+                home_dir: isolated_home,
+                state_dir: isolated_state,
+                agent_dir: isolated_agent,
+                session_store: isolated_sessions.join("sessions.json"),
+            }),
             agent_id: "main".into(),
             temporary_root,
         };
         let workspace = TurnWorkspace::create(&config, &[]).expect("turn workspace");
         let directory = workspace.directory.clone();
         assert!(workspace.overlay_path.is_file());
+        let overlay: Value = serde_json::from_slice(
+            &std::fs::read(&workspace.overlay_path).expect("read turn overlay"),
+        )
+        .expect("parse turn overlay");
+        assert_eq!(
+            overlay.pointer("/agents/defaults/skipBootstrap"),
+            Some(&Value::Bool(true))
+        );
+        assert_eq!(
+            overlay.get("$include").and_then(Value::as_str),
+            isolated_config_path.to_str()
+        );
+        assert_eq!(
+            overlay.pointer("/session/store").and_then(Value::as_str),
+            fixture_root
+                .join("isolated-state/agents/main/sessions/sessions.json")
+                .to_str()
+        );
         drop(workspace);
         assert!(!directory.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ordinary_turn_overlay_does_not_change_native_bootstrap_behavior() {
+        let fixture = tempfile::tempdir().expect("fixture");
+        let native_config_path = fixture.path().join("native.json");
+        std::fs::write(&native_config_path, "{}\n").expect("native config");
+        let expected_overlay = serde_json::to_vec(&json!({ "$include": &native_config_path }))
+            .expect("expected ordinary overlay");
+        let temporary_root = fixture.path().join("turns");
+        std::fs::create_dir(&temporary_root).expect("turn root");
+        let config = CompatConfig {
+            openclaw_command: PathBuf::from("/opt/openclaw"),
+            native_config_path,
+            native_state_dir: fixture.path().to_owned(),
+            isolation: None,
+            agent_id: "main".into(),
+            temporary_root,
+        };
+        let workspace = TurnWorkspace::create(&config, &[]).expect("turn workspace");
+        assert_eq!(
+            std::fs::read(&workspace.overlay_path).expect("read turn overlay"),
+            expected_overlay
+        );
     }
 }

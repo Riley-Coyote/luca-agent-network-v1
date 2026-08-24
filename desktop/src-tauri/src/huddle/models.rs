@@ -24,6 +24,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::managed_agents::nest_dir;
+
 // ── Integrity verification ────────────────────────────────────────────────────
 //
 // All model artifacts are verified against pinned SHA-256 hashes before
@@ -539,23 +541,33 @@ impl ModelSlot {
 /// Cheap to clone — all inner state is behind `Arc`.
 #[derive(Clone)]
 pub struct ModelManager {
-    /// `~/.buzz/models/`
+    /// Resolved shared or isolated model cache.
     models_dir: PathBuf,
     stt: ModelSlot,
     tts: ModelSlot,
 }
 
 impl ModelManager {
-    /// Create a new `ModelManager` rooted at `~/.buzz/models/`.
+    /// Create a new `ModelManager` rooted at the ordinary shared model cache or
+    /// below the process Nest when native-state isolation is requested.
     ///
-    /// Returns `None` if the home directory cannot be resolved.
+    /// Returns `None` if the required root cannot be resolved. An isolated
+    /// process never reads or downloads voice models under `~/.buzz`.
     pub fn new() -> Option<Self> {
-        let models_dir = dirs::home_dir()?.join(".buzz").join("models");
-        Some(Self {
+        let models_dir = resolve_models_dir(
+            nest_dir(),
+            dirs::home_dir(),
+            crate::managed_agents::native_state_isolation_requested(),
+        )?;
+        Some(Self::new_at_models_dir(models_dir))
+    }
+
+    fn new_at_models_dir(models_dir: PathBuf) -> Self {
+        Self {
             models_dir,
             stt: ModelSlot::new(STT_MODEL_DIR_NAME, STT_EXPECTED_FILES, STT_MODEL_VERSION),
             tts: ModelSlot::new(TTS_MODEL_DIR_NAME, TTS_EXPECTED_FILES, TTS_MODEL_VERSION),
-        })
+        }
     }
 
     // ── STT accessors ────────────────────────────────────────────────────────
@@ -857,6 +869,17 @@ impl ModelManager {
     }
 }
 
+fn resolve_models_dir(
+    nest: Option<PathBuf>,
+    home: Option<PathBuf>,
+    isolation_requested: bool,
+) -> Option<PathBuf> {
+    if isolation_requested {
+        return nest.map(|path| path.join("models"));
+    }
+    home.map(|path| path.join(".buzz").join("models"))
+}
+
 // ── Process-global singleton ──────────────────────────────────────────────────
 
 static GLOBAL_MODEL_MANAGER: OnceLock<Option<ModelManager>> = OnceLock::new();
@@ -940,5 +963,29 @@ mod tests {
 
         std::fs::remove_file(model_dir.join(TTS_LICENSE_FILE_NAME)).expect("remove sidecar");
         assert!(!slot.is_ready(temp.path()));
+    }
+
+    #[test]
+    fn model_manager_roots_models_below_the_process_nest() {
+        let isolated_nest = PathBuf::from("/private/tmp/acceptance/native-state/nest");
+        let models_dir = resolve_models_dir(
+            Some(isolated_nest.clone()),
+            Some(PathBuf::from("/Users/fixture")),
+            true,
+        )
+        .expect("isolated models dir");
+        let manager = ModelManager::new_at_models_dir(models_dir);
+        assert_eq!(manager.models_dir, isolated_nest.join("models"));
+        assert!(!manager.models_dir.starts_with("/Users/fixture/.buzz"));
+    }
+
+    #[test]
+    fn model_manager_preserves_the_ordinary_shared_cache() {
+        let home = PathBuf::from("/Users/fixture");
+        assert_eq!(
+            resolve_models_dir(Some(home.join(".buzz-dev")), Some(home.clone()), false),
+            Some(home.join(".buzz/models"))
+        );
+        assert_eq!(resolve_models_dir(None, Some(home), true), None);
     }
 }

@@ -374,14 +374,18 @@ pub fn run() {
             //
             // init_nest_dir is called early here (normally it runs inside
             // run_boot_migrations) so reset::run_boot_reset can call nest_dir().
-            let reset_outcome = if let Ok(data_dir) = app_handle.path().app_data_dir() {
-                let is_dev_for_reset = data_dir
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(crate::migration::is_dev_data_dir_name)
-                    .unwrap_or(false);
-                crate::managed_agents::init_nest_dir(is_dev_for_reset);
-                crate::reset::run_boot_reset(&data_dir)
+            let app_data_dir = app_handle.path().app_data_dir().ok();
+            let is_dev_for_reset = app_data_dir
+                .as_ref()
+                .and_then(|data_dir| data_dir.file_name())
+                .and_then(|name| name.to_str())
+                .map(crate::migration::is_dev_data_dir_name)
+                .unwrap_or(false);
+            crate::managed_agents::init_nest_dir(is_dev_for_reset);
+            let native_state_isolation_requested =
+                crate::managed_agents::native_state_isolation_requested();
+            let reset_outcome = if let Some(data_dir) = app_data_dir.as_ref() {
+                crate::reset::run_boot_reset(data_dir)
             } else {
                 crate::reset::ResetOutcome::default()
             };
@@ -545,8 +549,8 @@ pub fn run() {
 
             // Create the Buzz nest (~/.buzz or ~/.buzz-dev for dev builds) before
             // agents are restored, so default_agent_workdir() resolves to the
-            // nest directory. Non-fatal: agents fall back to $HOME if nest
-            // creation fails.
+            // nest directory. Ordinary launches fall back to $HOME if nest
+            // creation fails; explicitly isolated launches fail closed.
             if let Err(error) = ensure_nest() {
                 eprintln!("buzz-desktop: failed to create nest: {error}");
             }
@@ -561,10 +565,16 @@ pub fn run() {
             // not be resolved (transiently unavailable external volume), it
             // returns false so we skip restore this launch rather than let an
             // agent clone into the wrong REPOS. See managed_agents::repos.
-            let restore_agents = match managed_agents::nest_dir() {
-                Some(nest) => managed_agents::resolve_repos_at_boot(&nest),
-                None => true,
-            };
+            let nest = managed_agents::nest_dir();
+            let repos_ready = nest
+                .as_deref()
+                .map(managed_agents::resolve_repos_at_boot)
+                .unwrap_or(true);
+            let restore_agents = managed_agents::managed_agent_restore_allowed(
+                nest.is_some(),
+                managed_agents::native_state_isolation_requested(),
+                repos_ready,
+            );
 
             // Carry the agent's knowledge from the legacy nest (~/.sprout) into
             // the live nest after it exists. Must run after ensure_nest() so the
@@ -573,7 +583,10 @@ pub fn run() {
             // the now-inert ~/.sprout; the frontend dedupes the toast.
             // Suppressed when a reset completed this boot: the nest was wiped and
             // a fresh ~/.sprout-less state is exactly what we want.
-            if !reset_outcome.completed && migration::migrate_legacy_nest() {
+            if !native_state_isolation_requested
+                && !reset_outcome.completed
+                && migration::migrate_legacy_nest()
+            {
                 let _ = app_handle.emit("legacy-nest-migrated", ());
             }
 
@@ -592,10 +605,13 @@ pub fn run() {
 
             // Create/update the local CLI symlink pointing to the
             // bundled CLI binary. Non-fatal: agents find CLI via PATH.
-            if let Ok(exe) = std::env::current_exe() {
-                if let Some(parent) = exe.parent() {
-                    if let Err(error) = managed_agents::ensure_cli_symlink(parent, is_dev_nest) {
-                        eprintln!("buzz-desktop: failed to create CLI symlink: {error}");
+            if !native_state_isolation_requested {
+                if let Ok(exe) = std::env::current_exe() {
+                    if let Some(parent) = exe.parent() {
+                        if let Err(error) = managed_agents::ensure_cli_symlink(parent, is_dev_nest)
+                        {
+                            eprintln!("buzz-desktop: failed to create CLI symlink: {error}");
+                        }
                     }
                 }
             }
