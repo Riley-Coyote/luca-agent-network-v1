@@ -39,11 +39,17 @@ export function managedOperationalCopy(
       };
     case "runtime":
       return {
-        label: "Resident stopped unexpectedly · Retry",
+        label: "Resident couldn’t respond · Retry",
         tone: "attention",
       };
     default:
-      return { label: "No response arrived · Retry", tone: "attention" };
+      return {
+        label:
+          phase === "needs_attention"
+            ? "No response arrived"
+            : "No response arrived · Retry",
+        tone: "attention",
+      };
   }
 }
 

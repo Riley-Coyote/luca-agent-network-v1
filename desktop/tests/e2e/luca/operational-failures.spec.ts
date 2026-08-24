@@ -132,7 +132,7 @@ test("typed failures preserve sibling text and retry only the exact resident", a
     .filter({ hasText: "Codex partial survives." });
   await expect(
     claudeResponse.getByTestId("managed-response-status"),
-  ).toHaveText("Resident stopped unexpectedly · Retry");
+  ).toHaveText("Resident couldn’t respond · Retry");
   await expect(codexResponse.getByTestId("managed-response-status")).toHaveText(
     "Response couldn’t be published · Retry",
   );

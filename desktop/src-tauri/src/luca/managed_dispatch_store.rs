@@ -44,6 +44,8 @@ pub(crate) enum ManagedDispatchState {
     Rejected,
     /// One exact resident final reached relay acceptance.
     Published,
+    /// The resident turn ended without a publishable final response.
+    Failed,
     /// The desktop restarted after dispatch but before a terminal result.
     Interrupted,
 }
@@ -257,6 +259,11 @@ pub(crate) struct ManagedDispatchStore {
 }
 
 impl ManagedDispatchStore {
+    #[cfg(test)]
+    pub(crate) fn set_persistence_path_for_test(&mut self, path: PathBuf) {
+        self.path = path;
+    }
+
     /// Load a bounded store, rejecting malformed or unsupported state.
     pub(crate) fn load(path: PathBuf) -> Result<Self, String> {
         let dispatches = if path.exists() {
@@ -359,6 +366,7 @@ impl ManagedDispatchStore {
             ManagedDispatchState::Cancelled => return Err(DispatchAuthorizationError::Cancelled),
             ManagedDispatchState::Rejected
             | ManagedDispatchState::Published
+            | ManagedDispatchState::Failed
             | ManagedDispatchState::Interrupted => {
                 return Err(DispatchAuthorizationError::Terminal)
             }
@@ -505,6 +513,7 @@ impl ManagedDispatchStore {
                 }
                 ManagedDispatchState::Rejected
                 | ManagedDispatchState::Published
+                | ManagedDispatchState::Failed
                 | ManagedDispatchState::Interrupted => {
                     return Err(DispatchAuthorizationError::Terminal)
                 }
@@ -573,8 +582,78 @@ impl ManagedDispatchStore {
             }
             ManagedDispatchState::Rejected
             | ManagedDispatchState::Published
+            | ManagedDispatchState::Failed
             | ManagedDispatchState::Interrupted => Err(DispatchAuthorizationError::Terminal),
         }
+    }
+
+    /// Durably terminalize one exact managed turn that ended without a final.
+    ///
+    /// This is the linearization point before a retryable failure becomes
+    /// visible to the owner. It deliberately refuses a row once final-event
+    /// bytes have been frozen so an explicit retry can never race an older
+    /// publication that may still reach the relay.
+    pub(crate) fn fail_exact(
+        &mut self,
+        trigger_event_id: &str,
+        resident_pubkey: &str,
+        conversation_id: &str,
+        session_epoch: u64,
+    ) -> Result<(), DispatchAuthorizationError> {
+        if session_epoch == 0 {
+            return Err(DispatchAuthorizationError::WrongSession);
+        }
+        let normalized_trigger = trigger_event_id.to_ascii_lowercase();
+        let normalized_resident = resident_pubkey.to_ascii_lowercase();
+        let key = (normalized_trigger.clone(), normalized_resident.clone());
+        let has_trigger = self
+            .dispatches
+            .keys()
+            .any(|(trigger, _)| trigger == &normalized_trigger);
+        let active_epoch = self.active_sessions.get(&normalized_resident).copied();
+        let previous = self.dispatches.clone();
+        let dispatch = self.dispatches.get_mut(&key).ok_or({
+            if has_trigger {
+                DispatchAuthorizationError::WrongResident
+            } else {
+                DispatchAuthorizationError::Unknown
+            }
+        })?;
+        if dispatch.conversation_id != conversation_id {
+            return Err(DispatchAuthorizationError::WrongConversation);
+        }
+        if dispatch.resident_pubkey != normalized_resident {
+            return Err(DispatchAuthorizationError::WrongResident);
+        }
+        if dispatch.session_epoch != Some(session_epoch) || active_epoch != Some(session_epoch) {
+            return Err(DispatchAuthorizationError::WrongSession);
+        }
+        match dispatch.state {
+            ManagedDispatchState::Active => {
+                if dispatch.submitted_event_id.is_some()
+                    || dispatch.published_event_id.is_some()
+                    || dispatch.outbox_finalized
+                {
+                    return Err(DispatchAuthorizationError::Terminal);
+                }
+                dispatch.state = ManagedDispatchState::Failed;
+                dispatch.interruption_reason = None;
+                dispatch.outbox_finalized = true;
+            }
+            ManagedDispatchState::Failed => return Ok(()),
+            ManagedDispatchState::Cancelled => return Err(DispatchAuthorizationError::Cancelled),
+            ManagedDispatchState::Pending => return Err(DispatchAuthorizationError::WrongSession),
+            ManagedDispatchState::Rejected
+            | ManagedDispatchState::Published
+            | ManagedDispatchState::Interrupted => {
+                return Err(DispatchAuthorizationError::Terminal)
+            }
+        }
+        if self.persist().is_err() {
+            self.dispatches = previous;
+            return Err(DispatchAuthorizationError::Persistence);
+        }
+        Ok(())
     }
 
     /// Atomically stage rows for all managed residents named by one exact owner event.
@@ -1073,6 +1152,7 @@ impl ManagedDispatchStore {
             ManagedDispatchState::Cancelled
             | ManagedDispatchState::Rejected
             | ManagedDispatchState::Published
+            | ManagedDispatchState::Failed
             | ManagedDispatchState::Interrupted => {
                 Ok(ExactDispatchCancellationResult::AlreadyTerminal)
             }
@@ -1199,6 +1279,7 @@ impl ManagedDispatchStore {
                 }
                 ManagedDispatchState::Rejected
                 | ManagedDispatchState::Published
+                | ManagedDispatchState::Failed
                 | ManagedDispatchState::Interrupted => {
                     return Err(DispatchAuthorizationError::Terminal)
                 }
@@ -1310,6 +1391,7 @@ impl ManagedDispatchStore {
             ManagedDispatchState::Cancelled => return Err(DispatchAuthorizationError::Cancelled),
             ManagedDispatchState::Rejected
             | ManagedDispatchState::Published
+            | ManagedDispatchState::Failed
             | ManagedDispatchState::Interrupted => {
                 return Err(DispatchAuthorizationError::Terminal)
             }
@@ -1372,6 +1454,7 @@ impl ManagedDispatchStore {
             }
             ManagedDispatchState::Rejected
             | ManagedDispatchState::Published
+            | ManagedDispatchState::Failed
             | ManagedDispatchState::Interrupted => {
                 return Err(DispatchAuthorizationError::Terminal)
             }
@@ -1411,6 +1494,7 @@ impl ManagedDispatchStore {
             ManagedDispatchState::Pending => Err(DispatchAuthorizationError::WrongSession),
             ManagedDispatchState::Rejected
             | ManagedDispatchState::Published
+            | ManagedDispatchState::Failed
             | ManagedDispatchState::Interrupted => Err(DispatchAuthorizationError::Terminal),
             ManagedDispatchState::Active => Err(DispatchAuthorizationError::WrongSession),
         }
@@ -1440,6 +1524,7 @@ impl ManagedDispatchStore {
             ManagedDispatchState::Pending => return Err(DispatchAuthorizationError::WrongSession),
             ManagedDispatchState::Rejected
             | ManagedDispatchState::Published
+            | ManagedDispatchState::Failed
             | ManagedDispatchState::Interrupted => {
                 return Err(DispatchAuthorizationError::Terminal)
             }
@@ -1528,9 +1613,9 @@ impl ManagedDispatchStore {
             ManagedDispatchState::Cancelled => Ok(ManagedDispatchReconciliation::Cancelled),
             ManagedDispatchState::Rejected => Ok(ManagedDispatchReconciliation::Rejected),
             ManagedDispatchState::Pending => Err(DispatchAuthorizationError::WrongSession),
-            ManagedDispatchState::Published | ManagedDispatchState::Interrupted => {
-                Err(DispatchAuthorizationError::Terminal)
-            }
+            ManagedDispatchState::Published
+            | ManagedDispatchState::Failed
+            | ManagedDispatchState::Interrupted => Err(DispatchAuthorizationError::Terminal),
         }
     }
 
@@ -1761,6 +1846,7 @@ impl ManagedDispatchStore {
                     ManagedDispatchState::Cancelled
                         | ManagedDispatchState::Rejected
                         | ManagedDispatchState::Published
+                        | ManagedDispatchState::Failed
                         | ManagedDispatchState::Interrupted
                 ) && row.outbox_finalized)
                     || (row.state == ManagedDispatchState::Pending
@@ -1888,6 +1974,12 @@ fn validate_dispatch(dispatch: &ActiveDispatch) -> Result<(), String> {
         }
         ManagedDispatchState::Cancelled => dispatch.published_event_id.is_none(),
         ManagedDispatchState::Rejected => dispatch.published_event_id.is_none(),
+        ManagedDispatchState::Failed => {
+            dispatch.session_epoch.is_some()
+                && dispatch.submitted_event_id.is_none()
+                && dispatch.published_event_id.is_none()
+                && dispatch.outbox_finalized
+        }
         ManagedDispatchState::Interrupted => {
             dispatch.published_event_id.is_none()
                 && dispatch.interruption_reason == Some(ManagedDispatchInterruptionReason::Restart)
@@ -2505,6 +2597,218 @@ mod tests {
             .expect("dispatch");
         assert_eq!(row.state, ManagedDispatchState::Active);
         assert_eq!(row.session_epoch, Some(11));
+    }
+
+    #[test]
+    fn exact_failure_is_durable_terminal_and_revokes_late_authority() {
+        let owner = Keys::parse(&"63".repeat(32)).expect("owner");
+        let resident = Keys::parse(&"64".repeat(32)).expect("resident");
+        let outsider = Keys::parse(&"65".repeat(32)).expect("outsider");
+        let trigger = event(&owner, &resident, CHANNEL_ONE, "provider failed");
+        let temp = tempfile::tempdir().expect("temp");
+        let path = temp.path().join("dispatches.json");
+        let mut store = ManagedDispatchStore::load(path.clone()).expect("store");
+        store
+            .stage_owner_event(&trigger, &[resident.public_key().to_hex()], 100)
+            .expect("stage");
+        store
+            .activate_session(&resident.public_key().to_hex(), 12)
+            .expect("session");
+        store
+            .bind_communication_turn_start(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_ONE,
+                12,
+                101,
+            )
+            .expect("bind");
+        assert!(store.conversation_has_active_turn(CHANNEL_ONE));
+        assert_eq!(
+            store.fail_exact(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_TWO,
+                12,
+            ),
+            Err(DispatchAuthorizationError::WrongConversation)
+        );
+        assert_eq!(
+            store.fail_exact(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_ONE,
+                13,
+            ),
+            Err(DispatchAuthorizationError::WrongSession)
+        );
+        assert_eq!(
+            store.fail_exact(
+                &trigger.id.to_hex(),
+                &outsider.public_key().to_hex(),
+                CHANNEL_ONE,
+                12,
+            ),
+            Err(DispatchAuthorizationError::WrongResident)
+        );
+
+        store
+            .fail_exact(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_ONE,
+                12,
+            )
+            .expect("terminalize failure");
+        store
+            .fail_exact(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_ONE,
+                12,
+            )
+            .expect("idempotent failure");
+        assert!(!store.conversation_has_active_turn(CHANNEL_ONE));
+        assert_eq!(
+            store.recheck_communication_turn(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_ONE,
+                12,
+                102,
+            ),
+            Err(DispatchAuthorizationError::Terminal)
+        );
+        assert_eq!(
+            store.authorize_publication(
+                &request(&owner, &resident, &trigger, CHANNEL_ONE, 12),
+                102,
+            ),
+            Err(DispatchAuthorizationError::Terminal)
+        );
+        assert_eq!(
+            store
+                .cancel_exact(
+                    &owner.public_key().to_hex(),
+                    CHANNEL_ONE,
+                    &resident.public_key().to_hex(),
+                    &trigger.id.to_hex(),
+                    12,
+                )
+                .expect("already terminal"),
+            ExactDispatchCancellationResult::AlreadyTerminal
+        );
+
+        let reloaded = ManagedDispatchStore::load(path).expect("reload");
+        let row = reloaded
+            .dispatches
+            .get(&(trigger.id.to_hex(), resident.public_key().to_hex()))
+            .expect("failed row");
+        assert_eq!(row.state, ManagedDispatchState::Failed);
+        assert!(row.outbox_finalized);
+        assert_eq!(row.submitted_event_id, None);
+        assert_eq!(row.published_event_id, None);
+        assert_eq!(row.interruption_reason, None);
+    }
+
+    #[test]
+    fn exact_failure_rolls_back_on_persistence_error() {
+        let owner = Keys::parse(&"66".repeat(32)).expect("owner");
+        let resident = Keys::parse(&"67".repeat(32)).expect("resident");
+        let trigger = event(&owner, &resident, CHANNEL_ONE, "persist failure");
+        let temp = tempfile::tempdir().expect("temp");
+        let valid_path = temp.path().join("dispatches.json");
+        let directory_target = temp.path().join("directory-target");
+        std::fs::create_dir(&directory_target).expect("directory target");
+        let mut store = ManagedDispatchStore::load(valid_path.clone()).expect("store");
+        store
+            .stage_owner_event(&trigger, &[resident.public_key().to_hex()], 100)
+            .expect("stage");
+        store
+            .activate_session(&resident.public_key().to_hex(), 14)
+            .expect("session");
+        store
+            .bind_communication_turn_start(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_ONE,
+                14,
+                101,
+            )
+            .expect("bind");
+
+        store.path = directory_target;
+        assert_eq!(
+            store.fail_exact(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_ONE,
+                14,
+            ),
+            Err(DispatchAuthorizationError::Persistence)
+        );
+        let row = store
+            .dispatches
+            .get(&(trigger.id.to_hex(), resident.public_key().to_hex()))
+            .expect("rolled back row");
+        assert_eq!(row.state, ManagedDispatchState::Active);
+        assert!(!row.outbox_finalized);
+        assert!(store.conversation_has_active_turn(CHANNEL_ONE));
+
+        store.path = valid_path;
+        store
+            .fail_exact(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_ONE,
+                14,
+            )
+            .expect("retry failure persistence");
+    }
+
+    #[test]
+    fn exact_failure_refuses_a_frozen_final() {
+        let owner = Keys::parse(&"68".repeat(32)).expect("owner");
+        let resident = Keys::parse(&"69".repeat(32)).expect("resident");
+        let trigger = event(&owner, &resident, CHANNEL_ONE, "publication race");
+        let temp = tempfile::tempdir().expect("temp");
+        let mut store =
+            ManagedDispatchStore::load(temp.path().join("dispatches.json")).expect("store");
+        store
+            .stage_owner_event(&trigger, &[resident.public_key().to_hex()], 100)
+            .expect("stage");
+        store
+            .activate_session(&resident.public_key().to_hex(), 16)
+            .expect("session");
+        store
+            .authorize_publication(&request(&owner, &resident, &trigger, CHANNEL_ONE, 16), 101)
+            .expect("authorize");
+        let event_id = "ef".repeat(32);
+        store
+            .begin_submission(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                16,
+                &event_id,
+            )
+            .expect("freeze final");
+
+        assert_eq!(
+            store.fail_exact(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_ONE,
+                16,
+            ),
+            Err(DispatchAuthorizationError::Terminal)
+        );
+        store
+            .mark_published(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                &event_id,
+            )
+            .expect("frozen final remains authoritative");
     }
 
     #[test]

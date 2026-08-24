@@ -77,6 +77,10 @@ describe("resolveManagedPresentationRetry", () => {
     for (const candidate of [
       { residentPubkey: "c".repeat(64), turn: turn() },
       { residentPubkey: RESIDENT, turn: turn({ phase: "writing" }) },
+      {
+        residentPubkey: RESIDENT,
+        turn: turn({ failure: null, phase: "needs_attention" }),
+      },
       { residentPubkey: RESIDENT, turn: turn({ finalMessageId: "signed" }) },
     ]) {
       assert.equal(

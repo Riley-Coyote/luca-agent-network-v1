@@ -16,6 +16,24 @@ const MAX_TERMINAL_TOMBSTONES: usize = 512;
 
 type FrameKey = (String, String, String);
 
+fn terminalize_failed_dispatch(
+    dispatch_store: &std::sync::Arc<
+        std::sync::Mutex<super::managed_dispatch_store::ManagedDispatchStore>,
+    >,
+    frame: &ManagedPresentationFrameV1,
+) -> bool {
+    dispatch_store.lock().is_ok_and(|mut store| {
+        store
+            .fail_exact(
+                frame.dispatch_receipt_id.as_str(),
+                frame.resident_pubkey.as_str(),
+                frame.conversation_id.as_str(),
+                frame.session_epoch.get(),
+            )
+            .is_ok()
+    })
+}
+
 #[derive(Clone)]
 struct PresentationFrameGate {
     resident_pubkey: Hex64,
@@ -258,9 +276,7 @@ fn serve(
                     continue;
                 }
             }
-            ManagedPresentationKindV1::Completed
-            | ManagedPresentationKindV1::Cancelled
-            | ManagedPresentationKindV1::Failed => {
+            ManagedPresentationKindV1::Completed | ManagedPresentationKindV1::Cancelled => {
                 // Revoke before the terminal frame is visible. This ordering is
                 // the synchronous cancellation/publication race boundary.
                 super::communication_turn_registry::revoke_exact(
@@ -270,6 +286,24 @@ fn serve(
                     frame.turn_id.as_str(),
                     frame.dispatch_receipt_id.as_str(),
                 );
+            }
+            ManagedPresentationKindV1::Failed => {
+                // The owner-visible Retry creates a fresh signed dispatch. End
+                // the old turn's process and durable authority before exposing
+                // that action, so a late final can never race the replacement.
+                super::communication_turn_registry::revoke_exact(
+                    frame.resident_pubkey.as_str(),
+                    frame.session_epoch.get(),
+                    frame.conversation_id.as_str(),
+                    frame.turn_id.as_str(),
+                    frame.dispatch_receipt_id.as_str(),
+                );
+                if !terminalize_failed_dispatch(&dispatch_store, &frame) {
+                    eprintln!(
+                        "luca-managed-presentation: failed dispatch terminalization; suppressing retryable frame"
+                    );
+                    continue;
+                }
             }
             ManagedPresentationKindV1::Phase | ManagedPresentationKindV1::PublicChunk => {
                 let active = super::communication_turn_registry::authorize(
@@ -304,7 +338,13 @@ fn serve(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use luca_protocol::{ManagedPresentationKindV1, OpaqueId, MANAGED_PRESENTATION_PROTOCOL};
+    use luca_protocol::{
+        ManagedPresentationFailureV1, ManagedPresentationKindV1, OpaqueId,
+        MANAGED_PRESENTATION_PROTOCOL,
+    };
+    use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
+
+    const CONVERSATION_ID: &str = "11111111-1111-4111-8111-111111111111";
 
     fn frame(
         resident_pubkey: Hex64,
@@ -325,6 +365,55 @@ mod tests {
             public_chunk: None,
             failure: None,
         }
+    }
+
+    fn active_failed_frame(
+        path: std::path::PathBuf,
+    ) -> (
+        std::sync::Arc<
+            std::sync::Mutex<super::super::managed_dispatch_store::ManagedDispatchStore>,
+        >,
+        ManagedPresentationFrameV1,
+    ) {
+        let owner = Keys::parse(&"31".repeat(32)).expect("owner");
+        let resident = Keys::parse(&"32".repeat(32)).expect("resident");
+        let trigger = EventBuilder::new(Kind::Custom(9), "provider failure")
+            .tags([
+                Tag::parse(["h", CONVERSATION_ID]).expect("h tag"),
+                Tag::public_key(owner.public_key()),
+                Tag::public_key(resident.public_key()),
+            ])
+            .custom_created_at(Timestamp::from(100))
+            .sign_with_keys(&owner)
+            .expect("sign trigger");
+        let mut store = super::super::managed_dispatch_store::ManagedDispatchStore::load(path)
+            .expect("dispatch store");
+        store
+            .stage_owner_event(&trigger, &[resident.public_key().to_hex()], 100)
+            .expect("stage dispatch");
+        store
+            .activate_session(&resident.public_key().to_hex(), 7)
+            .expect("activate session");
+        store
+            .bind_communication_turn_start(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CONVERSATION_ID,
+                7,
+                101,
+            )
+            .expect("bind turn");
+        let mut failed = frame(
+            Hex64::parse(resident.public_key().to_hex()).expect("resident pubkey"),
+            SafeU53::new(7).expect("epoch"),
+            2,
+            ManagedPresentationKindV1::Failed,
+        );
+        failed.conversation_id = OpaqueId::parse(CONVERSATION_ID).expect("conversation");
+        failed.dispatch_receipt_id =
+            OpaqueId::parse(trigger.id.to_hex()).expect("dispatch receipt");
+        failed.failure = Some(ManagedPresentationFailureV1::Runtime);
+        (std::sync::Arc::new(std::sync::Mutex::new(store)), failed)
     }
 
     #[test]
@@ -384,5 +473,66 @@ mod tests {
             3,
             ManagedPresentationKindV1::Completed,
         )));
+    }
+
+    #[test]
+    fn failed_frame_persists_before_it_becomes_emission_eligible() {
+        let temp = tempfile::tempdir().expect("temp");
+        let path = temp.path().join("dispatches.json");
+        let (store, failed) = active_failed_frame(path.clone());
+
+        assert!(terminalize_failed_dispatch(&store, &failed));
+        let mut locked = store.lock().expect("store lock");
+        assert!(!locked.conversation_has_active_turn(CONVERSATION_ID));
+        assert_eq!(
+            locked.begin_submission(
+                failed.dispatch_receipt_id.as_str(),
+                failed.resident_pubkey.as_str(),
+                failed.session_epoch.get(),
+                &"ab".repeat(32),
+            ),
+            Err(super::super::managed_dispatch_store::DispatchAuthorizationError::Terminal)
+        );
+        drop(locked);
+
+        let reloaded = super::super::managed_dispatch_store::ManagedDispatchStore::load(path)
+            .expect("reload failed dispatch");
+        assert!(!reloaded.conversation_has_active_turn(CONVERSATION_ID));
+        assert_eq!(
+            reloaded.recheck_communication_turn(
+                failed.dispatch_receipt_id.as_str(),
+                failed.resident_pubkey.as_str(),
+                CONVERSATION_ID,
+                failed.session_epoch.get(),
+                102,
+            ),
+            Err(super::super::managed_dispatch_store::DispatchAuthorizationError::Terminal)
+        );
+    }
+
+    #[test]
+    fn failed_frame_is_suppressed_when_terminal_persistence_fails() {
+        let temp = tempfile::tempdir().expect("temp");
+        let valid_path = temp.path().join("dispatches.json");
+        let invalid_path = temp.path().join("directory-target");
+        std::fs::create_dir(&invalid_path).expect("directory target");
+        let (store, failed) = active_failed_frame(valid_path);
+        store
+            .lock()
+            .expect("store lock")
+            .set_persistence_path_for_test(invalid_path);
+
+        assert!(!terminalize_failed_dispatch(&store, &failed));
+        assert!(store
+            .lock()
+            .expect("store lock")
+            .recheck_communication_turn(
+                failed.dispatch_receipt_id.as_str(),
+                failed.resident_pubkey.as_str(),
+                CONVERSATION_ID,
+                failed.session_epoch.get(),
+                102,
+            )
+            .is_ok());
     }
 }

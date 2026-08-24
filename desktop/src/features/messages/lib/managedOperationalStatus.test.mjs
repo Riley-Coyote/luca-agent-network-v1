@@ -11,7 +11,7 @@ import {
 describe("managed operational presentation", () => {
   it("maps typed failures without protocol terminology", () => {
     assert.deepEqual(managedOperationalCopy("failed", "runtime"), {
-      label: "Resident stopped unexpectedly · Retry",
+      label: "Resident couldn’t respond · Retry",
       tone: "attention",
     });
     assert.equal(
@@ -21,6 +21,10 @@ describe("managed operational presentation", () => {
     assert.equal(
       managedOperationalCopy("finalizing", null).label,
       "Finalizing response",
+    );
+    assert.equal(
+      managedOperationalCopy("needs_attention", null).label,
+      "No response arrived",
     );
   });
 

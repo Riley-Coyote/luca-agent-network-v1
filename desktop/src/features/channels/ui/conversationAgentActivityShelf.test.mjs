@@ -149,11 +149,20 @@ describe("conversationAgentActivityShelf", () => {
       activityShelfRetryTarget("failed", "resident", "managed:resident:2"),
       { residentPubkey: "resident", uiKey: "managed:resident:2" },
     );
+    assert.equal(
+      activityShelfRetryTarget(
+        "needs_attention",
+        "resident",
+        "managed:resident:3",
+      ),
+      null,
+    );
     assert.deepEqual(
       activityShelfRetryTarget(
         "needs_attention",
         "resident",
         "managed:resident:3",
+        true,
       ),
       { residentPubkey: "resident", uiKey: "managed:resident:3" },
     );
