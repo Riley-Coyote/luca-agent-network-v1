@@ -91,6 +91,325 @@ fn restart_dispatch_terminalization_requires_fully_terminal_startup_proof() {
 
 #[cfg(unix)]
 #[test]
+fn child_exit_before_turn_started_terminalizes_pending_dispatch() {
+    let owner = nostr::Keys::parse(&"71".repeat(32)).expect("owner");
+    let resident = nostr::Keys::parse(&"72".repeat(32)).expect("resident");
+    let resident_pubkey = resident.public_key().to_hex();
+    let conversation_id = "33333333-3333-4333-8333-333333333333";
+    let trigger = nostr::EventBuilder::new(nostr::Kind::Custom(9), "start work")
+        .tags(vec![
+            nostr::Tag::parse(["h", conversation_id]).expect("h tag"),
+            nostr::Tag::public_key(owner.public_key()),
+            nostr::Tag::public_key(resident.public_key()),
+        ])
+        .custom_created_at(nostr::Timestamp::from(100))
+        .sign_with_keys(&owner)
+        .expect("sign owner event");
+    let temp = tempfile::tempdir().expect("temp");
+    let dispatch_store = std::sync::Arc::new(std::sync::Mutex::new(
+        crate::luca::managed_dispatch_store::ManagedDispatchStore::load(
+            temp.path().join("dispatches.json"),
+        )
+        .expect("store"),
+    ));
+    {
+        let mut store = dispatch_store.lock().expect("store lock");
+        store
+            .stage_owner_event(&trigger, std::slice::from_ref(&resident_pubkey), 100)
+            .expect("stage pending dispatch");
+        store
+            .activate_session(&resident_pubkey, 41)
+            .expect("activate process epoch");
+    }
+
+    let mut child = std::process::Command::new("/bin/sh")
+        .args(["-c", "exit 0"])
+        .spawn()
+        .expect("spawn exited child");
+    let child_pid = child.id();
+    child.wait().expect("wait for child exit");
+    let mut record = fixture(RespondTo::Anyone, vec![], Some("tag".into()));
+    record.pubkey = resident_pubkey.clone();
+    record.runtime_pid = Some(child_pid);
+    let mut records = vec![record];
+    let mut runtimes = std::collections::HashMap::from([(
+        resident_pubkey.clone(),
+        crate::managed_agents::ManagedAgentProcess {
+            child,
+            log_path: temp.path().join("agent.log"),
+            spawn_config_hash: 0,
+            setup_mode: true,
+            adapter_availability: None,
+        },
+    )]);
+    let mut terminalized = 0;
+    let mut deferred = Vec::new();
+
+    let (changed, exited) = super::sync_managed_agent_processes_with_exit_handler(
+        &mut records,
+        &mut runtimes,
+        "test-instance",
+        |exited| {
+            let cleanup = super::terminalize_unclaimed_dispatches_for_exited_processes(
+                &dispatch_store,
+                exited,
+                100,
+            )
+            .expect("terminalize exited process dispatch");
+            terminalized = cleanup.terminalized;
+            deferred = cleanup.deferred;
+        },
+    );
+
+    assert!(changed);
+    assert_eq!(exited, vec![resident_pubkey.clone()]);
+    assert!(runtimes.is_empty());
+    assert_eq!(terminalized, 0);
+    assert_eq!(deferred.len(), 1);
+    assert!(
+        dispatch_store
+            .lock()
+            .expect("store lock")
+            .conversation_has_active_turn(conversation_id),
+        "fresh replayable dispatch stays pending"
+    );
+    let cleanup = deferred.pop().expect("deferred exact cleanup");
+    assert_eq!(cleanup.cleanup_at_unix_secs, 106);
+    assert!(dispatch_store
+        .lock()
+        .expect("store lock")
+        .recheck_deferred_process_exit_cleanup(&cleanup, cleanup.cleanup_at_unix_secs)
+        .expect("post-grace cleanup"));
+    let store = dispatch_store.lock().expect("store lock");
+    assert!(!store.conversation_has_active_turn(conversation_id));
+    assert!(matches!(
+        store.authorize_continuity_turn(
+            &trigger.id.to_hex(),
+            &resident_pubkey,
+            conversation_id,
+            41,
+            101,
+        ),
+        Err(crate::luca::managed_dispatch_store::DispatchAuthorizationError::Terminal)
+    ));
+}
+
+#[test]
+fn due_exit_cleanup_waits_for_replacement_activation_before_rechecking() {
+    let owner = nostr::Keys::parse(&"73".repeat(32)).expect("owner");
+    let resident = nostr::Keys::parse(&"74".repeat(32)).expect("resident");
+    let resident_pubkey = resident.public_key().to_hex();
+    let conversation_id = "44444444-4444-4444-8444-444444444444";
+    let trigger = nostr::EventBuilder::new(nostr::Kind::Custom(9), "replace resident")
+        .tags(vec![
+            nostr::Tag::parse(["h", conversation_id]).expect("h tag"),
+            nostr::Tag::public_key(owner.public_key()),
+            nostr::Tag::public_key(resident.public_key()),
+        ])
+        .custom_created_at(nostr::Timestamp::from(100))
+        .sign_with_keys(&owner)
+        .expect("sign owner event");
+    let temp = tempfile::tempdir().expect("temp");
+    let dispatch_store = std::sync::Arc::new(std::sync::Mutex::new(
+        crate::luca::managed_dispatch_store::ManagedDispatchStore::load(
+            temp.path().join("dispatches.json"),
+        )
+        .expect("store"),
+    ));
+    let cleanup = {
+        let mut store = dispatch_store.lock().expect("store lock");
+        store
+            .stage_owner_event(&trigger, std::slice::from_ref(&resident_pubkey), 100)
+            .expect("stage pending dispatch");
+        store
+            .activate_session(&resident_pubkey, 51)
+            .expect("activate exited epoch");
+        let mut cleanup = store
+            .terminalize_unclaimed_after_process_exit(&resident_pubkey, 100)
+            .expect("defer replayable dispatch");
+        assert_eq!(cleanup.terminalized, 0);
+        assert_eq!(cleanup.deferred.len(), 1);
+        cleanup.deferred.pop().expect("exact deferred cleanup")
+    };
+    assert_eq!(cleanup.cleanup_at_unix_secs, 106);
+
+    let mut start_guard = super::ManagedResidentStartGuard::begin(&resident_pubkey)
+        .expect("mark replacement start in progress");
+    let cleanup_store = std::sync::Arc::clone(&dispatch_store);
+    let cleanup_for_thread = cleanup.clone();
+    let (due_tx, due_rx) = std::sync::mpsc::channel();
+    let cleanup_thread = std::thread::spawn(move || {
+        due_tx.send(()).expect("announce due cleanup");
+        super::recheck_deferred_process_exit_after_resident_start(
+            &cleanup_store,
+            &cleanup_for_thread,
+            || 106,
+        )
+    });
+    due_rx.recv().expect("cleanup reached due point");
+
+    start_guard
+        .activate_session(std::sync::Arc::clone(&dispatch_store), 52)
+        .expect("activate replacement epoch");
+    start_guard.commit();
+    assert!(!cleanup_thread
+        .join()
+        .expect("join cleanup thread")
+        .expect("recheck deferred cleanup"));
+
+    dispatch_store
+        .lock()
+        .expect("store lock")
+        .bind_communication_turn_start(
+            &trigger.id.to_hex(),
+            &resident_pubkey,
+            conversation_id,
+            52,
+            107,
+        )
+        .expect("replacement claims preserved dispatch");
+}
+
+#[test]
+fn failed_replacement_start_restores_exit_epoch_for_deferred_cleanup() {
+    let owner = nostr::Keys::parse(&"75".repeat(32)).expect("owner");
+    let resident = nostr::Keys::parse(&"76".repeat(32)).expect("resident");
+    let resident_pubkey = resident.public_key().to_hex();
+    let conversation_id = "55555555-5555-4555-8555-555555555555";
+    let trigger = nostr::EventBuilder::new(nostr::Kind::Custom(9), "failed replacement")
+        .tags(vec![
+            nostr::Tag::parse(["h", conversation_id]).expect("h tag"),
+            nostr::Tag::public_key(owner.public_key()),
+            nostr::Tag::public_key(resident.public_key()),
+        ])
+        .custom_created_at(nostr::Timestamp::from(100))
+        .sign_with_keys(&owner)
+        .expect("sign owner event");
+    let temp = tempfile::tempdir().expect("temp");
+    let dispatch_store = std::sync::Arc::new(std::sync::Mutex::new(
+        crate::luca::managed_dispatch_store::ManagedDispatchStore::load(
+            temp.path().join("dispatches.json"),
+        )
+        .expect("store"),
+    ));
+    let cleanup = {
+        let mut store = dispatch_store.lock().expect("store lock");
+        store
+            .stage_owner_event(&trigger, std::slice::from_ref(&resident_pubkey), 100)
+            .expect("stage pending dispatch");
+        store
+            .activate_session(&resident_pubkey, 61)
+            .expect("activate exited epoch");
+        store
+            .terminalize_unclaimed_after_process_exit(&resident_pubkey, 100)
+            .expect("defer replayable dispatch")
+            .deferred
+            .pop()
+            .expect("exact deferred cleanup")
+    };
+
+    let mut failed_start = super::ManagedResidentStartGuard::begin(&resident_pubkey)
+        .expect("mark failed replacement start");
+    failed_start
+        .activate_session(std::sync::Arc::clone(&dispatch_store), 62)
+        .expect("activate provisional replacement epoch");
+    drop(failed_start);
+
+    assert!(super::recheck_deferred_process_exit_after_resident_start(
+        &dispatch_store,
+        &cleanup,
+        || 106,
+    )
+    .expect("old exit cleanup terminalizes after rollback"));
+    assert!(!dispatch_store
+        .lock()
+        .expect("store lock")
+        .conversation_has_active_turn(conversation_id));
+}
+
+#[test]
+fn exact_exit_recheck_holds_start_registry_against_replacement_activation() {
+    let owner = nostr::Keys::parse(&"77".repeat(32)).expect("owner");
+    let resident = nostr::Keys::parse(&"78".repeat(32)).expect("resident");
+    let resident_pubkey = resident.public_key().to_hex();
+    let conversation_id = "66666666-6666-4666-8666-666666666666";
+    let trigger = nostr::EventBuilder::new(nostr::Kind::Custom(9), "atomic cleanup")
+        .tags(vec![
+            nostr::Tag::parse(["h", conversation_id]).expect("h tag"),
+            nostr::Tag::public_key(owner.public_key()),
+            nostr::Tag::public_key(resident.public_key()),
+        ])
+        .custom_created_at(nostr::Timestamp::from(100))
+        .sign_with_keys(&owner)
+        .expect("sign owner event");
+    let temp = tempfile::tempdir().expect("temp");
+    let dispatch_store = std::sync::Arc::new(std::sync::Mutex::new(
+        crate::luca::managed_dispatch_store::ManagedDispatchStore::load(
+            temp.path().join("dispatches.json"),
+        )
+        .expect("store"),
+    ));
+    let cleanup = {
+        let mut store = dispatch_store.lock().expect("store lock");
+        store
+            .stage_owner_event(&trigger, std::slice::from_ref(&resident_pubkey), 100)
+            .expect("stage pending dispatch");
+        store
+            .activate_session(&resident_pubkey, 71)
+            .expect("activate exited epoch");
+        store
+            .terminalize_unclaimed_after_process_exit(&resident_pubkey, 100)
+            .expect("defer replayable dispatch")
+            .deferred
+            .pop()
+            .expect("exact deferred cleanup")
+    };
+
+    let store_lock = dispatch_store.lock().expect("hold dispatch store");
+    let cleanup_store = std::sync::Arc::clone(&dispatch_store);
+    let cleanup_for_thread = cleanup.clone();
+    let (quiescent_tx, quiescent_rx) = std::sync::mpsc::channel();
+    let cleanup_thread = std::thread::spawn(move || {
+        super::recheck_deferred_process_exit_after_resident_start_with_observer(
+            &cleanup_store,
+            &cleanup_for_thread,
+            || 106,
+            || quiescent_tx.send(()).expect("announce registry quiescence"),
+        )
+    });
+    quiescent_rx
+        .recv()
+        .expect("cleanup holds start registry before store recheck");
+    assert!(matches!(
+        super::managed_resident_starts().0.try_lock(),
+        Err(std::sync::TryLockError::WouldBlock)
+    ));
+
+    let replacement_store = std::sync::Arc::clone(&dispatch_store);
+    let replacement_pubkey = resident_pubkey.clone();
+    let replacement_thread = std::thread::spawn(move || {
+        let mut replacement = super::ManagedResidentStartGuard::begin(&replacement_pubkey)
+            .expect("begin replacement after exact cleanup");
+        replacement
+            .activate_session(replacement_store, 72)
+            .expect("activate replacement epoch");
+        replacement.commit();
+    });
+    drop(store_lock);
+
+    assert!(cleanup_thread
+        .join()
+        .expect("join cleanup thread")
+        .expect("atomic exact cleanup"));
+    replacement_thread.join().expect("join replacement thread");
+    assert!(!dispatch_store
+        .lock()
+        .expect("store lock")
+        .conversation_has_active_turn(conversation_id));
+}
+
+#[cfg(unix)]
+#[test]
 fn managed_signing_registry_refuses_overlapping_outbox_owner() {
     let resident = format!("test-resident-{}", uuid::Uuid::new_v4());
     let (first_endpoint, first_child) =

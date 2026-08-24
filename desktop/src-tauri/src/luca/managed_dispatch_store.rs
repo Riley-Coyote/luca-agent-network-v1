@@ -251,6 +251,23 @@ pub(crate) enum ExactDispatchCancellationResult {
     AlreadyTerminal,
 }
 
+/// Exact body-free recheck scheduled for one send that was still inside the
+/// managed harness replay window when its resident process exited.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeferredProcessExitDispatchCleanup {
+    pub(crate) dispatch_receipt_id: String,
+    pub(crate) resident_pubkey: String,
+    pub(crate) session_epoch: u64,
+    pub(crate) cleanup_at_unix_secs: u64,
+}
+
+/// Immediate and deferred outcomes from one resident process exit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProcessExitDispatchCleanup {
+    pub(crate) terminalized: usize,
+    pub(crate) deferred: Vec<DeferredProcessExitDispatchCleanup>,
+}
+
 /// Bounded desktop-owned store. It contains no resident secret or model output.
 pub(crate) struct ManagedDispatchStore {
     path: PathBuf,
@@ -317,17 +334,46 @@ impl ManagedDispatchStore {
     }
 
     /// Mark the only currently valid broker session for a resident.
+    #[cfg(test)]
     pub(crate) fn activate_session(
         &mut self,
         resident_pubkey: &str,
         session_epoch: u64,
     ) -> Result<(), String> {
+        self.replace_active_session_for_start(resident_pubkey, session_epoch)
+            .map(|_| ())
+    }
+
+    pub(crate) fn replace_active_session_for_start(
+        &mut self,
+        resident_pubkey: &str,
+        session_epoch: u64,
+    ) -> Result<Option<u64>, String> {
         if session_epoch == 0 {
             return Err("managed dispatch session epoch must be nonzero".into());
         }
-        self.active_sessions
-            .insert(resident_pubkey.to_ascii_lowercase(), session_epoch);
-        Ok(())
+        Ok(self
+            .active_sessions
+            .insert(resident_pubkey.to_ascii_lowercase(), session_epoch))
+    }
+
+    pub(crate) fn restore_active_session_after_failed_start(
+        &mut self,
+        resident_pubkey: &str,
+        failed_session_epoch: u64,
+        previous_session_epoch: Option<u64>,
+    ) -> bool {
+        let resident_pubkey = resident_pubkey.to_ascii_lowercase();
+        if self.active_sessions.get(&resident_pubkey).copied() != Some(failed_session_epoch) {
+            return false;
+        }
+        if let Some(previous_session_epoch) = previous_session_epoch {
+            self.active_sessions
+                .insert(resident_pubkey, previous_session_epoch);
+        } else {
+            self.active_sessions.remove(&resident_pubkey);
+        }
+        true
     }
 
     /// Resolve one immutable pre-turn authority and the complete resident set
@@ -654,6 +700,108 @@ impl ManagedDispatchStore {
             return Err(DispatchAuthorizationError::Persistence);
         }
         Ok(())
+    }
+
+    /// Durably fail unclaimed work older than the harness replay window and
+    /// return exact deferred rechecks for fresher sends.
+    ///
+    /// A replacement session may replay an owner send created within
+    /// [`WAKE_REPLAY_GRACE_SECS`] of its startup. Those rows remain `Pending`
+    /// until the first second after that window; each returned recheck binds
+    /// only the exact row observed at process exit, so later sends are never
+    /// swept accidentally. Active and terminal rows remain untouched.
+    pub(crate) fn terminalize_unclaimed_after_process_exit(
+        &mut self,
+        resident_pubkey: &str,
+        now_unix_secs: u64,
+    ) -> Result<ProcessExitDispatchCleanup, String> {
+        let resident_pubkey = resident_pubkey.to_ascii_lowercase();
+        let Some(session_epoch) = self.active_sessions.get(&resident_pubkey).copied() else {
+            return Ok(ProcessExitDispatchCleanup {
+                terminalized: 0,
+                deferred: Vec::new(),
+            });
+        };
+        let previous = self.dispatches.clone();
+        let mut terminalized = 0;
+        let mut deferred = Vec::new();
+        for dispatch in self.dispatches.values_mut() {
+            if dispatch.resident_pubkey != resident_pubkey
+                || dispatch.state != ManagedDispatchState::Pending
+                || dispatch.session_epoch.is_some()
+            {
+                continue;
+            }
+            let cleanup_at_unix_secs = dispatch
+                .created_at
+                .saturating_add(WAKE_REPLAY_GRACE_SECS)
+                .saturating_add(1);
+            if now_unix_secs < cleanup_at_unix_secs {
+                deferred.push(DeferredProcessExitDispatchCleanup {
+                    dispatch_receipt_id: dispatch.trigger_event_id.clone(),
+                    resident_pubkey: resident_pubkey.clone(),
+                    session_epoch,
+                    cleanup_at_unix_secs,
+                });
+                continue;
+            }
+            dispatch.session_epoch = Some(session_epoch);
+            dispatch.state = ManagedDispatchState::Failed;
+            dispatch.interruption_reason = None;
+            dispatch.outbox_finalized = true;
+            terminalized += 1;
+        }
+        if terminalized > 0 {
+            if let Err(error) = self.persist() {
+                self.dispatches = previous;
+                return Err(error);
+            }
+        }
+        deferred.sort_by(|left, right| {
+            left.cleanup_at_unix_secs
+                .cmp(&right.cleanup_at_unix_secs)
+                .then_with(|| left.dispatch_receipt_id.cmp(&right.dispatch_receipt_id))
+        });
+        Ok(ProcessExitDispatchCleanup {
+            terminalized,
+            deferred,
+        })
+    }
+
+    /// Recheck one exact post-exit row after its replay window has elapsed.
+    /// A replacement that already claimed the row wins because only an
+    /// epoch-less `Pending` row can transition here.
+    pub(crate) fn recheck_deferred_process_exit_cleanup(
+        &mut self,
+        cleanup: &DeferredProcessExitDispatchCleanup,
+        now_unix_secs: u64,
+    ) -> Result<bool, String> {
+        if now_unix_secs < cleanup.cleanup_at_unix_secs {
+            return Ok(false);
+        }
+        let key = (
+            cleanup.dispatch_receipt_id.to_ascii_lowercase(),
+            cleanup.resident_pubkey.to_ascii_lowercase(),
+        );
+        let previous = self.dispatches.clone();
+        let Some(dispatch) = self.dispatches.get_mut(&key) else {
+            return Ok(false);
+        };
+        if self.active_sessions.get(&cleanup.resident_pubkey) != Some(&cleanup.session_epoch)
+            || dispatch.state != ManagedDispatchState::Pending
+            || dispatch.session_epoch.is_some()
+        {
+            return Ok(false);
+        }
+        dispatch.session_epoch = Some(cleanup.session_epoch);
+        dispatch.state = ManagedDispatchState::Failed;
+        dispatch.interruption_reason = None;
+        dispatch.outbox_finalized = true;
+        if let Err(error) = self.persist() {
+            self.dispatches = previous;
+            return Err(error);
+        }
+        Ok(true)
     }
 
     /// Atomically stage rows for all managed residents named by one exact owner event.
@@ -2063,6 +2211,13 @@ pub(crate) fn global_dispatch_store(
     })?))
 }
 
+/// Return the process-global dispatch authority only after some caller has
+/// initialized it. A pending managed send necessarily initializes this store,
+/// so process-exit cleanup never needs an `AppHandle` or a second store load.
+pub(crate) fn initialized_dispatch_store() -> Option<Arc<Mutex<ManagedDispatchStore>>> {
+    GLOBAL_STORE.get().map(Arc::clone)
+}
+
 /// Replace a desktop-owned authority file atomically, owner-readable only.
 pub(super) fn atomic_write_restricted(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let mut file = AtomicWriteFile::open(path)
@@ -2709,6 +2864,137 @@ mod tests {
         assert_eq!(row.submitted_event_id, None);
         assert_eq!(row.published_event_id, None);
         assert_eq!(row.interruption_reason, None);
+    }
+
+    #[test]
+    fn process_exit_terminalization_is_resident_scoped_in_a_multi_resident_room() {
+        let owner = Keys::parse(&"68".repeat(32)).expect("owner");
+        let first = Keys::parse(&"69".repeat(32)).expect("first resident");
+        let second = Keys::parse(&"6a".repeat(32)).expect("second resident");
+        let trigger = EventBuilder::new(Kind::Custom(9), "work together")
+            .tags(vec![
+                Tag::parse(["h", CHANNEL_ONE]).expect("h tag"),
+                Tag::public_key(owner.public_key()),
+                Tag::public_key(first.public_key()),
+                Tag::public_key(second.public_key()),
+            ])
+            .custom_created_at(Timestamp::from(100))
+            .sign_with_keys(&owner)
+            .expect("sign owner event");
+        let temp = tempfile::tempdir().expect("temp");
+        let path = temp.path().join("dispatches.json");
+        let mut store = ManagedDispatchStore::load(path.clone()).expect("store");
+        store
+            .stage_owner_event(
+                &trigger,
+                &[first.public_key().to_hex(), second.public_key().to_hex()],
+                100,
+            )
+            .expect("stage both residents");
+        store
+            .activate_session(&first.public_key().to_hex(), 21)
+            .expect("first session");
+        store
+            .activate_session(&second.public_key().to_hex(), 22)
+            .expect("second session");
+
+        let first_cleanup = store
+            .terminalize_unclaimed_after_process_exit(&first.public_key().to_hex(), 106)
+            .expect("terminalize first exit");
+        assert_eq!(first_cleanup.terminalized, 1);
+        assert!(first_cleanup.deferred.is_empty());
+        assert!(
+            store.conversation_has_active_turn(CHANNEL_ONE),
+            "the second resident remains independently runnable"
+        );
+        let first_row = store
+            .dispatches
+            .get(&(trigger.id.to_hex(), first.public_key().to_hex()))
+            .expect("first row");
+        assert_eq!(first_row.state, ManagedDispatchState::Failed);
+        assert_eq!(first_row.session_epoch, Some(21));
+        assert!(first_row.outbox_finalized);
+        let second_row = store
+            .dispatches
+            .get(&(trigger.id.to_hex(), second.public_key().to_hex()))
+            .expect("second row");
+        assert_eq!(second_row.state, ManagedDispatchState::Pending);
+        assert_eq!(second_row.session_epoch, None);
+
+        let second_cleanup = store
+            .terminalize_unclaimed_after_process_exit(&second.public_key().to_hex(), 106)
+            .expect("terminalize second exit");
+        assert_eq!(second_cleanup.terminalized, 1);
+        assert!(second_cleanup.deferred.is_empty());
+        assert!(!store.conversation_has_active_turn(CHANNEL_ONE));
+        let reloaded = ManagedDispatchStore::load(path).expect("reload");
+        for (resident, epoch) in [
+            (first.public_key().to_hex(), 21),
+            (second.public_key().to_hex(), 22),
+        ] {
+            let row = reloaded
+                .dispatches
+                .get(&(trigger.id.to_hex(), resident))
+                .expect("terminal row");
+            assert_eq!(row.state, ManagedDispatchState::Failed);
+            assert_eq!(row.session_epoch, Some(epoch));
+            assert!(row.outbox_finalized);
+        }
+    }
+
+    #[test]
+    fn replacement_epoch_supersedes_old_exit_cleanup_before_claim() {
+        let owner = Keys::parse(&"6b".repeat(32)).expect("owner");
+        let resident = Keys::parse(&"6c".repeat(32)).expect("resident");
+        let trigger = event(&owner, &resident, CHANNEL_ONE, "replay me");
+        let temp = tempfile::tempdir().expect("temp");
+        let mut store =
+            ManagedDispatchStore::load(temp.path().join("dispatches.json")).expect("store");
+        store
+            .stage_owner_event(&trigger, &[resident.public_key().to_hex()], 100)
+            .expect("stage");
+        store
+            .activate_session(&resident.public_key().to_hex(), 31)
+            .expect("exited session");
+
+        let mut exit_cleanup = store
+            .terminalize_unclaimed_after_process_exit(&resident.public_key().to_hex(), 100)
+            .expect("defer fresh row");
+        assert_eq!(exit_cleanup.terminalized, 0);
+        assert_eq!(exit_cleanup.deferred.len(), 1);
+        let deferred = exit_cleanup.deferred.pop().expect("exact deferred row");
+        assert_eq!(deferred.cleanup_at_unix_secs, 106);
+
+        store
+            .activate_session(&resident.public_key().to_hex(), 32)
+            .expect("replacement session");
+        assert!(!store
+            .recheck_deferred_process_exit_cleanup(&deferred, 106)
+            .expect("old epoch cleanup cannot fail replacement work"));
+        let pending = store
+            .dispatches
+            .get(&(trigger.id.to_hex(), resident.public_key().to_hex()))
+            .expect("replacement-pending row");
+        assert_eq!(pending.state, ManagedDispatchState::Pending);
+        assert_eq!(pending.session_epoch, None);
+
+        store
+            .bind_communication_turn_start(
+                &trigger.id.to_hex(),
+                &resident.public_key().to_hex(),
+                CHANNEL_ONE,
+                32,
+                107,
+            )
+            .expect("replacement claims replayed send");
+
+        let row = store
+            .dispatches
+            .get(&(trigger.id.to_hex(), resident.public_key().to_hex()))
+            .expect("claimed row");
+        assert_eq!(row.state, ManagedDispatchState::Active);
+        assert_eq!(row.session_epoch, Some(32));
+        assert!(!row.outbox_finalized);
     }
 
     #[test]

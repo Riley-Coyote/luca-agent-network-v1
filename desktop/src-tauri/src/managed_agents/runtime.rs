@@ -1,7 +1,7 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     io::Read,
-    sync::{Mutex, OnceLock},
+    sync::{Condvar, Mutex, OnceLock},
     thread::JoinHandle,
 };
 
@@ -1535,11 +1535,262 @@ pub fn kill_stale_tracked_processes(
     changed
 }
 
+fn managed_resident_starts() -> &'static (Mutex<HashSet<String>>, Condvar) {
+    static STARTS: OnceLock<(Mutex<HashSet<String>>, Condvar)> = OnceLock::new();
+    STARTS.get_or_init(|| (Mutex::new(HashSet::new()), Condvar::new()))
+}
+
+struct ManagedResidentStartGuard {
+    resident_pubkey: String,
+    activation: Option<ManagedResidentSessionActivation>,
+}
+
+struct ManagedResidentSessionActivation {
+    dispatch_store:
+        std::sync::Arc<std::sync::Mutex<crate::luca::managed_dispatch_store::ManagedDispatchStore>>,
+    session_epoch: u64,
+    previous_session_epoch: Option<u64>,
+}
+
+impl ManagedResidentStartGuard {
+    fn begin(resident_pubkey: &str) -> Result<Self, String> {
+        let resident_pubkey = resident_pubkey.to_ascii_lowercase();
+        let (starts, _) = managed_resident_starts();
+        let mut starts = starts
+            .lock()
+            .map_err(|_| "managed resident start registry is unavailable".to_string())?;
+        if !starts.insert(resident_pubkey.clone()) {
+            return Err("managed resident start is already in progress".into());
+        }
+        Ok(Self {
+            resident_pubkey,
+            activation: None,
+        })
+    }
+
+    fn activate_session(
+        &mut self,
+        dispatch_store: std::sync::Arc<
+            std::sync::Mutex<crate::luca::managed_dispatch_store::ManagedDispatchStore>,
+        >,
+        session_epoch: u64,
+    ) -> Result<(), String> {
+        if self.activation.is_some() {
+            return Err("managed resident start session is already active".into());
+        }
+        let previous_session_epoch = dispatch_store
+            .lock()
+            .map_err(|_| "managed dispatch store lock is unavailable".to_string())?
+            .replace_active_session_for_start(&self.resident_pubkey, session_epoch)?;
+        self.activation = Some(ManagedResidentSessionActivation {
+            dispatch_store,
+            session_epoch,
+            previous_session_epoch,
+        });
+        Ok(())
+    }
+
+    fn commit(mut self) {
+        self.activation = None;
+    }
+}
+
+impl Drop for ManagedResidentStartGuard {
+    fn drop(&mut self) {
+        let (starts, changed) = managed_resident_starts();
+        if let Ok(mut starts) = starts.lock() {
+            if let Some(activation) = self.activation.take() {
+                match activation.dispatch_store.lock() {
+                    Ok(mut store) => {
+                        store.restore_active_session_after_failed_start(
+                            &self.resident_pubkey,
+                            activation.session_epoch,
+                            activation.previous_session_epoch,
+                        );
+                    }
+                    Err(_) => eprintln!(
+                        "luca-managed-dispatch: failed to restore session after resident start failure"
+                    ),
+                }
+            }
+            starts.remove(&self.resident_pubkey);
+        }
+        changed.notify_all();
+    }
+}
+
+fn lock_quiescent_managed_resident_starts(
+    resident_pubkey: &str,
+) -> Result<std::sync::MutexGuard<'static, HashSet<String>>, String> {
+    let resident_pubkey = resident_pubkey.to_ascii_lowercase();
+    let (starts, changed) = managed_resident_starts();
+    let mut starts = starts
+        .lock()
+        .map_err(|_| "managed resident start registry is unavailable".to_string())?;
+    while starts.contains(&resident_pubkey) {
+        starts = changed
+            .wait(starts)
+            .map_err(|_| "managed resident start registry is unavailable".to_string())?;
+    }
+    Ok(starts)
+}
+
+fn terminalize_unclaimed_dispatches_for_exited_processes(
+    dispatch_store: &std::sync::Arc<
+        std::sync::Mutex<crate::luca::managed_dispatch_store::ManagedDispatchStore>,
+    >,
+    exited_pubkeys: &[String],
+    now_unix_secs: u64,
+) -> Result<crate::luca::managed_dispatch_store::ProcessExitDispatchCleanup, String> {
+    let mut store = dispatch_store
+        .lock()
+        .map_err(|_| "managed dispatch store lock is unavailable".to_string())?;
+    let mut terminalized = 0;
+    let mut deferred = Vec::new();
+    for pubkey in exited_pubkeys {
+        let cleanup = store.terminalize_unclaimed_after_process_exit(pubkey, now_unix_secs)?;
+        terminalized += cleanup.terminalized;
+        deferred.extend(cleanup.deferred);
+    }
+    deferred.sort_by(|left, right| {
+        left.cleanup_at_unix_secs
+            .cmp(&right.cleanup_at_unix_secs)
+            .then_with(|| left.dispatch_receipt_id.cmp(&right.dispatch_receipt_id))
+            .then_with(|| left.resident_pubkey.cmp(&right.resident_pubkey))
+    });
+    Ok(
+        crate::luca::managed_dispatch_store::ProcessExitDispatchCleanup {
+            terminalized,
+            deferred,
+        },
+    )
+}
+
+fn process_exit_now_unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or(0)
+}
+
+fn recheck_deferred_process_exit_after_resident_start<F>(
+    dispatch_store: &std::sync::Arc<
+        std::sync::Mutex<crate::luca::managed_dispatch_store::ManagedDispatchStore>,
+    >,
+    cleanup: &crate::luca::managed_dispatch_store::DeferredProcessExitDispatchCleanup,
+    now_unix_secs: F,
+) -> Result<bool, String>
+where
+    F: FnOnce() -> u64,
+{
+    recheck_deferred_process_exit_after_resident_start_with_observer(
+        dispatch_store,
+        cleanup,
+        now_unix_secs,
+        || {},
+    )
+}
+
+fn recheck_deferred_process_exit_after_resident_start_with_observer<F, O>(
+    dispatch_store: &std::sync::Arc<
+        std::sync::Mutex<crate::luca::managed_dispatch_store::ManagedDispatchStore>,
+    >,
+    cleanup: &crate::luca::managed_dispatch_store::DeferredProcessExitDispatchCleanup,
+    now_unix_secs: F,
+    quiescent_observer: O,
+) -> Result<bool, String>
+where
+    F: FnOnce() -> u64,
+    O: FnOnce(),
+{
+    let starts = lock_quiescent_managed_resident_starts(&cleanup.resident_pubkey)?;
+    quiescent_observer();
+    let now_unix_secs = now_unix_secs();
+    let result = dispatch_store
+        .lock()
+        .map_err(|_| "managed dispatch store lock is unavailable".to_string())?
+        .recheck_deferred_process_exit_cleanup(cleanup, now_unix_secs);
+    drop(starts);
+    result
+}
+
+fn schedule_deferred_process_exit_dispatch_cleanup(
+    dispatch_store: &std::sync::Arc<
+        std::sync::Mutex<crate::luca::managed_dispatch_store::ManagedDispatchStore>,
+    >,
+    deferred: Vec<crate::luca::managed_dispatch_store::DeferredProcessExitDispatchCleanup>,
+) {
+    if deferred.is_empty() {
+        return;
+    }
+    let dispatch_store = std::sync::Arc::clone(dispatch_store);
+    if let Err(error) = std::thread::Builder::new()
+        .name("luca-dispatch-exit-cleanup".into())
+        .spawn(move || {
+            for cleanup in deferred {
+                loop {
+                    let now = process_exit_now_unix_secs();
+                    if now >= cleanup.cleanup_at_unix_secs {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(
+                        cleanup.cleanup_at_unix_secs.saturating_sub(now),
+                    ));
+                }
+                let result = recheck_deferred_process_exit_after_resident_start(
+                    &dispatch_store,
+                    &cleanup,
+                    process_exit_now_unix_secs,
+                );
+                if let Err(error) = result {
+                    eprintln!(
+                        "luca-managed-dispatch: deferred process-exit cleanup failed: {error}"
+                    );
+                }
+            }
+        })
+    {
+        eprintln!("luca-managed-dispatch: failed to schedule process-exit cleanup: {error}");
+    }
+}
+
 pub fn sync_managed_agent_processes(
     records: &mut [ManagedAgentRecord],
     runtimes: &mut HashMap<String, ManagedAgentProcess>,
     instance_id: &str,
 ) -> (bool, Vec<String>) {
+    sync_managed_agent_processes_with_exit_handler(records, runtimes, instance_id, |exited| {
+        let Some(dispatch_store) =
+            crate::luca::managed_dispatch_store::initialized_dispatch_store()
+        else {
+            return;
+        };
+        match terminalize_unclaimed_dispatches_for_exited_processes(
+            &dispatch_store,
+            exited,
+            process_exit_now_unix_secs(),
+        ) {
+            Ok(cleanup) => {
+                schedule_deferred_process_exit_dispatch_cleanup(&dispatch_store, cleanup.deferred);
+            }
+            Err(error) => {
+                eprintln!(
+                    "luca-managed-dispatch: failed to terminalize work orphaned by process exit: {error}"
+                );
+            }
+        }
+    })
+}
+
+fn sync_managed_agent_processes_with_exit_handler<F>(
+    records: &mut [ManagedAgentRecord],
+    runtimes: &mut HashMap<String, ManagedAgentProcess>,
+    instance_id: &str,
+    mut handle_exits: F,
+) -> (bool, Vec<String>)
+where
+    F: FnMut(&[String]),
+{
     let mut changed = false;
     let mut exited = Vec::new();
 
@@ -1618,6 +1869,13 @@ pub fn sync_managed_agent_processes(
         }
         changed = true;
         exited_pubkeys.push(record.pubkey.clone());
+    }
+
+    if !exited_pubkeys.is_empty() {
+        // The process and its broker authority are already gone. Resolve only
+        // rows that never reached TurnStarted; active/frozen work keeps using
+        // its existing exact-session failure and reconciliation paths.
+        handle_exits(&exited_pubkeys);
     }
 
     (changed, exited_pubkeys)
@@ -2598,6 +2856,7 @@ fn spawn_agent_child_unix(
         command.creation_flags(CREATE_NO_WINDOW);
     }
 
+    let mut resident_start_guard = ManagedResidentStartGuard::begin(resident_pubkey.as_str())?;
     let mut child = command.spawn().map_err(|error| {
         format!(
             "failed to spawn `{}` for agent {}: {error}",
@@ -2619,10 +2878,6 @@ fn spawn_agent_child_unix(
     };
     let publisher_setup = (|| -> Result<_, String> {
         let dispatch_store = crate::luca::managed_dispatch_store::global_dispatch_store(app)?;
-        dispatch_store
-            .lock()
-            .map_err(|_| "managed dispatch store lock is unavailable".to_string())?
-            .activate_session(resident_pubkey.as_str(), session_epoch.get())?;
         let outbox_path = app_data_dir
             .join("luca")
             .join("managed-outbox")
@@ -2636,6 +2891,8 @@ fn spawn_agent_child_unix(
             runtime_binding_ref.clone(),
         )
         .map_err(|error| format!("failed to bind managed message publisher: {error}"))?;
+        resident_start_guard
+            .activate_session(std::sync::Arc::clone(&dispatch_store), session_epoch.get())?;
         Ok((outbox_path, publisher, dispatch_store))
     })();
     let (outbox_path, publisher, dispatch_store) = match publisher_setup {
@@ -2791,22 +3048,24 @@ fn spawn_agent_child_unix(
     // Windows: assign the harness to a Job Object so its whole tree dies with
     // the handle. The Unix process-group equivalent is set above.
     #[cfg(windows)]
-    return Ok(super::process_lifecycle::finish_spawn(
+    let process = super::process_lifecycle::finish_spawn(
         child,
         log_path,
         spawn_config_hash,
         spawned_setup_mode,
         spawned_adapter_availability,
         &record.name,
-    ));
+    );
     #[cfg(not(windows))]
-    Ok(crate::managed_agents::ManagedAgentProcess {
+    let process = crate::managed_agents::ManagedAgentProcess {
         child,
         log_path,
         spawn_config_hash,
         setup_mode: spawned_setup_mode,
         adapter_availability: spawned_adapter_availability,
-    })
+    };
+    resident_start_guard.commit();
+    Ok(process)
 }
 
 fn child_rust_log_filter() -> String {
