@@ -3,12 +3,37 @@ import { CornerUpLeft, Pencil, X } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 
-/* Lives INSIDE the composer card, above the text row — the card is the one
- * box on screen, and reply/edit context is part of the message being made,
- * not a second surface stacked on top. No border, no background: it inherits
- * the card and separates by spacing alone. */
-const BANNER_CLASS =
+/**
+ * TWO TREATMENTS, one being chosen in the lab (2026-08-23) — delete the
+ * loser once Riley picks:
+ *
+ * "sheet" (default) — a layer that rises from behind the composer card:
+ * inset from the card's edges, an intermediate shade between ground and
+ * card, bottom tucked under the card, 220ms rise. The visual system lives
+ * in conversation-shell.css as .luca-reply-sheet.
+ *
+ * "card" — the row lives inside the composer card above the text, the way
+ * attachments stack; no surface of its own.
+ *
+ * Lab comparison: append ?replyStyle=card to the shell-lab URL.
+ */
+export function replyBannerVariant(): "card" | "sheet" {
+  try {
+    return new URLSearchParams(window.location.search).get("replyStyle") ===
+      "card"
+      ? "card"
+      : "sheet";
+  } catch {
+    return "sheet";
+  }
+}
+
+const IN_CARD_CLASS =
   "flex gap-2 px-1 pb-2 pt-1 text-sm leading-5 text-muted-foreground";
+const SHEET_CLASS =
+  "luca-reply-sheet relative z-0 mx-3 -mb-3 flex gap-2 px-4 pb-5 pt-2 text-sm leading-5 text-muted-foreground";
+const BANNER_CLASS =
+  replyBannerVariant() === "sheet" ? SHEET_CLASS : IN_CARD_CLASS;
 
 /**
  * The "Editing message" / "Replying to …" context row at the top of the
