@@ -46,6 +46,7 @@
     0 40px 120px rgb(0 0 0/.62);
   --app-hairline:inset 0 0 0 1px rgb(255 255 255/.055);
   --lift-shadow:0 34px 84px rgb(0 0 0/.58);
+  --pop-shadow:0 18px 40px rgb(0 0 0/.5);
   color-scheme:dark;
 }
 [data-theme="inverse"]{
@@ -63,6 +64,7 @@
     0 40px 120px rgb(0 0 0/.62);
   --app-hairline:inset 0 0 0 1px rgb(255 255 255/.055);
   --lift-shadow:0 34px 84px rgb(0 0 0/.58);
+  --pop-shadow:0 18px 40px rgb(0 0 0/.5);
   color-scheme:dark;
 }
 [data-theme="paper"]{
@@ -79,6 +81,7 @@
     0 40px 110px rgb(38 34 30/.30);
   --app-hairline:inset 0 0 0 1px rgb(255 255 255/.55);
   --lift-shadow:0 30px 74px rgb(38 34 30/.26);
+  --pop-shadow:0 18px 40px rgb(38 34 30/.28);
   color-scheme:light;
 }
 
@@ -146,6 +149,34 @@
   --motion-ease-standard:cubic-bezier(.25,1,.5,1);
   --motion-ease-arrival:cubic-bezier(.16,1,.3,1);
   --ease-spring:cubic-bezier(.34,1.56,.64,1);
+}
+
+/* ── MOTION ──────────────────────────────────────────────────────
+   The arrival doctrine, from the shipping shell: a resident's turn ARRIVES —
+   500ms, from below, through 2px of blur — because someone spoke and that is
+   news. Your own message, and anything the user themselves caused, LANDS:
+   the same direction, a third of the time, no blur. Ambient motion (breath,
+   pulse) exists only for the living and only when motion is welcome. */
+@keyframes arrive{from{opacity:0;transform:translateY(.75rem);filter:blur(2px)}to{opacity:1;transform:translateY(0);filter:blur(0)}}
+@keyframes land{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.motion-arrive{animation:arrive var(--motion-duration-arrival) var(--motion-ease-arrival) both}
+.motion-land{animation:land var(--motion-duration-land) var(--motion-ease-standard) both}
+[data-stagger]{animation-delay:calc(var(--i,0)*40ms)}
+
+@media (prefers-reduced-motion: no-preference){
+  @keyframes identity-breath{0%,100%{opacity:.86}50%{opacity:1}}
+  @keyframes activity-pulse{0%,100%{opacity:.42}50%{opacity:.86}}
+  /* the whole mark dims and lifts together — never individual cells — and
+     each resident is elsewhere in the cycle (per-seed negative delay) */
+  .breathes{animation:identity-breath 4.2s ease-in-out infinite}
+  .dot.live{animation:activity-pulse 1.8s ease-in-out infinite}
+}
+@media (prefers-reduced-motion: reduce){
+  .motion-arrive,.motion-land{animation-duration:1ms;animation-delay:0ms}
+  @keyframes arrive{from,to{opacity:1;transform:none;filter:none}}
+  @keyframes land{from,to{opacity:1;transform:none}}
+  .toast{transition-duration:1ms}
+  .ring .f{transition:none}
 }
 
 *{box-sizing:border-box}
@@ -252,7 +283,7 @@ html[data-winfocus="false"] .tl svg{opacity:0!important}
   letter-spacing:var(--eyebrow-tracking);text-transform:uppercase;
   color:var(--ink-ghost);padding:0 8px;margin:24px 0 8px;
 }
-.dot{width:5px;height:5px;border-radius:50%;background:var(--ink-faint);flex:none;margin-left:auto}
+.dot{width:5px;height:5px;border-radius:50%;background:var(--ink-faint);flex:none;margin-left:auto;opacity:.68}
 .railfoot{
   margin-top:auto;display:flex;align-items:center;gap:8px;padding:12px 8px 0;
   font-size:var(--type-label);color:var(--ink-faint);
@@ -266,7 +297,8 @@ html[data-winfocus="false"] .tl svg{opacity:0!important}
   /* the rail's own 8px inset supplies the left lip — one lip, not two */
 }
 .col{display:flex;flex-direction:column;gap:var(--mn-card-lip);min-width:0;min-height:0}
-.col.main{flex:1}
+.col.main{flex:1;position:relative}
+.card.overlaying{position:absolute;inset:0;z-index:2}
 .col.side{width:368px;flex:none}
 .lip-v{width:1px;flex:none;margin:0 -4px;cursor:col-resize;position:relative}
 .lip-v::after{content:"";position:absolute;inset:0 -4px}
@@ -279,6 +311,13 @@ html[data-winfocus="false"] .tl svg{opacity:0!important}
 }
 .lip-v:hover::before,.lip-h:hover::before,
 .lip-v.dragging::before,.lip-h.dragging::before{opacity:1}
+/* the deck: the widget's slot in the column. Splitting the drawer OPENS this
+   surface (grid-rows 0fr→1fr, the shell's sheet-deck construction) rather
+   than flipping a flag — interruptible because it is a transition. */
+.deck{display:grid;grid-template-rows:1fr;flex:none;transition:grid-template-rows var(--motion-duration-standard) var(--motion-ease-standard)}
+.deck.closed{grid-template-rows:0fr}
+.deck-inner{min-height:0;overflow:hidden;display:flex}
+.deck-inner>.card{flex:1;min-width:0}
 
 /* THE CARD */
 .card{
@@ -428,7 +467,7 @@ html[data-winfocus="false"] .tl svg{opacity:0!important}
 .ring{width:22px;height:22px;transform:rotate(-90deg)}
 .ring circle{fill:none;stroke-width:1.5}
 .ring .b{stroke:var(--border-strong)}
-.ring .f{stroke:var(--ink-faint);stroke-linecap:round}
+.ring .f{stroke:var(--ink-faint);stroke-linecap:round;transition:stroke-dashoffset var(--motion-duration-draw) var(--motion-ease-arrival)}
 .idle{width:22px;display:grid;place-items:center}
 .idle i{width:5px;height:5px;border-radius:50%;background:var(--ink-ghost)}
 .sign{
@@ -483,7 +522,7 @@ html[data-winfocus="false"] .tl svg{opacity:0!important}
 /* ── LIFTED: the one place translucency belongs ───────────────── */
 .lifted{
   position:fixed;z-index:70;display:none;flex-direction:column;
-  left:calc(50% + 190px);top:56%;width:376px;height:326px;min-width:300px;min-height:210px;
+  width:376px;height:326px;min-width:300px;min-height:210px;
   background:color-mix(in srgb, var(--surface) 82%, transparent);
   backdrop-filter:blur(44px) saturate(190%);-webkit-backdrop-filter:blur(44px) saturate(190%);
   border:1px solid var(--border-strong);border-radius:var(--radius-4);overflow:hidden;
@@ -492,6 +531,9 @@ html[data-winfocus="false"] .tl svg{opacity:0!important}
 .lifted.open{display:flex}
 .lifted .card-head{cursor:grab}
 .lifted .card-head:active{cursor:grabbing}
+.lifted.dragging{box-shadow:0 48px 110px rgb(0 0 0/.66), var(--lit)}
+[data-theme="paper"] .lifted.dragging{box-shadow:0 44px 96px rgb(38 34 30/.34), var(--lit)}
+.lift-content{display:flex;flex-direction:column;min-height:0;flex:1}
 .grip{position:absolute;right:4px;bottom:4px;width:16px;height:16px;cursor:nwse-resize}
 .grip::after{content:"";position:absolute;right:4px;bottom:4px;width:6px;height:6px;border-right:1.5px solid var(--ink-ghost);border-bottom:1.5px solid var(--ink-ghost)}
 
@@ -510,16 +552,32 @@ body.laws .rail{box-shadow:inset 0 0 0 1.5px rgb(141 143 147 / .7)}
 body.laws .card{box-shadow:inset 0 0 0 1.5px rgb(201 198 189 / .55)}
 body.laws .lifted{box-shadow:var(--lift-shadow), var(--lit), inset 0 0 0 1.5px rgb(127 176 201 / .85)}
 
+/* lab narration, not shell UI — it reports what a scene just did, from the
+   quietest corner, and burns a visible fuse so its exit is never a surprise */
 .toast{
-  position:fixed;left:50%;bottom:44px;transform:translate(-50%,10px);z-index:75;
-  display:flex;align-items:center;gap:8px;padding:8px 14px;opacity:0;pointer-events:none;
+  position:fixed;right:24px;bottom:20px;z-index:75;overflow:hidden;
+  display:flex;align-items:center;gap:8px;padding:8px 14px 9px;opacity:0;pointer-events:none;
+  transform:translateY(8px) scale(.98);
   background:var(--raised);
   border:1px solid var(--border-strong);border-radius:var(--radius-3);
-  box-shadow:0 18px 40px rgb(0 0 0 / .5), var(--lit);
+  box-shadow:var(--pop-shadow), var(--lit);
   font-size:var(--type-label);color:var(--ink-muted);
   transition:opacity var(--motion-duration-fast) var(--motion-ease-standard),transform var(--motion-duration-fast) var(--motion-ease-standard);
 }
-.toast.on{opacity:1;transform:translate(-50%,0)}
+.toast.on{
+  opacity:1;transform:none;
+  transition-duration:var(--motion-duration-standard);
+  transition-timing-function:var(--ease-spring);
+}
+.toast .timer{position:absolute;left:10px;right:10px;bottom:0;height:1px;background:var(--ink-ghost);transform-origin:left;transform:scaleX(0)}
+@keyframes toast-fuse{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+/* a theme change crossfades the surfaces (three properties only — shadows
+   and filters are excluded, they do not interpolate cheaply) */
+html.theme-xfade .app,html.theme-xfade .app *{
+  transition:background-color 300ms var(--motion-ease-standard),
+             color 300ms var(--motion-ease-standard),
+             border-color 300ms var(--motion-ease-standard)!important;
+}
 @media (max-height:820px){ .stage{padding:48px 16px 16px} }
 @media (max-height:620px){ .stage{padding:44px 8px 8px} }
 </style>
@@ -740,6 +798,7 @@ body.laws .lifted{box-shadow:var(--lift-shadow), var(--lit), inset 0 0 0 1.5px r
       <div class="lip-h" id="lip-h" title="Drag to resize"></div>
 
       <!-- the widget: a card that holds neither a chat nor an artifact -->
+      <div class="deck" id="widget-deck"><div class="deck-inner">
       <article class="card fixed" id="card-widget" data-law="card">
         <header class="card-head compact">
           <div><h2>What's alive right now</h2></div>
@@ -775,26 +834,28 @@ body.laws .lifted{box-shadow:var(--lift-shadow), var(--lit), inset 0 0 0 1.5px r
         </div>
         <div class="sign"><span>reads · projects · conversations · activity</span><span class="by"><span data-mark="vektor" data-size="12"></span>v3</span></div>
       </article>
+      </div></div>
     </div>
   </div>
 </section>
 </main>
 
-<!-- a card that left the floor -->
+<!-- the shell a card moves into when it leaves the floor. Its organs are
+     MOVED here, never copied — painted marks and live tickers survive the
+     trip, and docking moves them home again. -->
 <section class="lifted" id="lifted" data-law="lifted">
   <header class="card-head compact" id="lift-head">
-    <div><h2>What's alive right now</h2><p>Off the floor · above everything</p></div>
+    <div><h2 id="lift-title">Off the floor</h2><p>Above everything · drag me</p></div>
     <div class="acts">
       <button class="ic" data-icon="dockback" id="lift-dock" title="Put it back on the floor"></button>
-      <button class="ic" data-icon="close" id="lift-close"></button>
+      <button class="ic" data-icon="close" id="lift-close" title="Put it back on the floor"></button>
     </div>
   </header>
-  <div class="body"><div class="rows" id="lift-rows"></div></div>
-  <div class="sign"><span>reads · projects · conversations · activity</span><span class="by"><span data-mark="vektor" data-size="12"></span>v3</span></div>
+  <div class="lift-content" id="lift-content"></div>
   <div class="grip" id="lift-grip"></div>
 </section>
 
-<div class="toast" id="toast"><span class="dot"></span><span id="toast-copy"></span></div>
+<div class="toast" id="toast"><span class="dot"></span><span id="toast-copy"></span><i class="timer" id="toast-timer" aria-hidden="true"></i></div>
 
 <script>
 /* Real identity marks, from the repo's own generator
@@ -868,60 +929,194 @@ function paint(scope){
 }
 paint();
 
+/* the living layer: idle residents breathe, elsewhere in the cycle by seed
+   (same phase derivation as IdentityMark.tsx); Luca's presence dot pulses */
+const PHASE=t=>{let h=0;for(let i=0;i<t.length;i++)h=(h*31+t.charCodeAt(i))|0;return (Math.abs(h)%4200)/1000};
+["luca","vektor","anima","ziggy"].forEach(seed=>{
+  document.querySelectorAll(`.railrow [data-mark="${seed}"]`).forEach(el=>{
+    el.classList.add("breathes"); el.style.animationDelay=`-${PHASE(seed)}s`;
+  });
+});
+document.querySelector("#r-luca .dot")?.classList.add("live");
+
+/* rings draw themselves in — a dial coming to its reading */
+function drawRings(scope){
+  (scope||document).querySelectorAll(".ring .f").forEach(f=>{
+    if(!f.dataset.target) f.dataset.target=f.getAttribute("stroke-dashoffset")||"0";
+    if(REDUCE){ f.style.strokeDashoffset=f.dataset.target; return; }
+    f.style.strokeDashoffset="54";
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{ f.style.strokeDashoffset=f.dataset.target; }));
+  });
+}
+
+const REDUCE=matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* toast: one at a time, first-in-first-out, with a burning fuse. Muted while
+   the page boots so a URL scene never narrates its own construction. */
 const toast=document.getElementById("toast"), toastCopy=document.getElementById("toast-copy");
-let tt; const say=m=>{toastCopy.textContent=m;toast.classList.add("on");clearTimeout(tt);tt=setTimeout(()=>toast.classList.remove("on"),2400)};
+const toastTimer=document.getElementById("toast-timer");
+const toastQ=[]; let toastBusy=false, booting=true;
+function say(m){
+  if(booting) return;
+  /* narration follows the hand: a newer line replaces anything still waiting */
+  toastQ.length=0; toastQ.push(m); pumpToast();
+}
+function pumpToast(){
+  if(toastBusy||!toastQ.length) return;
+  toastBusy=true;
+  toastCopy.textContent=toastQ.shift();
+  toast.classList.add("on");
+  toastTimer.style.animation="none"; void toastTimer.offsetWidth;
+  toastTimer.style.animation="toast-fuse 2400ms linear both";
+  setTimeout(()=>{
+    toast.classList.remove("on");
+    setTimeout(()=>{ toastBusy=false; pumpToast(); },200);
+  },2400);
+}
 
 const widget=document.getElementById("card-widget"), lipH=document.getElementById("lip-h");
 const drawer=document.getElementById("card-drawer");
 const conv=document.getElementById("card-conv"), conv2=document.getElementById("card-conv2"), place=document.getElementById("card-place");
-const lifted=document.getElementById("lifted"), liftRows=document.getElementById("lift-rows");
+const lifted=document.getElementById("lifted");
 
 const splitBtn=document.getElementById("t-split");
+const deck=document.getElementById("widget-deck");
+function syncLip(){ lipH.hidden = drawer.hidden || deck.hidden; }
+function openDeck(animate=true){
+  deck.hidden=false;
+  if(animate&&!REDUCE){ deck.classList.add("closed"); void deck.offsetHeight; deck.classList.remove("closed"); }
+  else deck.classList.remove("closed");
+  splitBtn.classList.add("on"); syncLip();
+}
+function closeDeck(animate=true){
+  splitBtn.classList.remove("on");
+  const done=()=>{ deck.hidden=true; syncLip(); };
+  if(animate&&!REDUCE&&!deck.hidden){
+    deck.classList.add("closed");
+    const te=e=>{ if(e.propertyName!=="grid-template-rows")return;
+      deck.removeEventListener("transitionend",te);
+      if(deck.classList.contains("closed")) done(); };
+    deck.addEventListener("transitionend",te);
+    syncLip();
+  } else { deck.classList.add("closed"); done(); }
+}
 splitBtn.onclick=()=>{
-  const on=widget.hasAttribute("hidden");
-  widget.toggleAttribute("hidden",!on); lipH.toggleAttribute("hidden",!on);
-  splitBtn.classList.toggle("on",on);
-  say(on?"The drawer split — two cards, one lip between them":"Widget card closed");
+  if(liftSrc===widget) dockLift(false);
+  const on=deck.hidden||deck.classList.contains("closed");
+  if(on){ openDeck(); say("The drawer split — two cards, one lip between them"); }
+  else { closeDeck(); say("Widget card closed"); }
 };
 
 const tileBtn=document.getElementById("t-tile");
-tileBtn.onclick=()=>{
-  const on=conv2.hasAttribute("hidden");
-  conv2.toggleAttribute("hidden",!on);
-  document.getElementById("col-main").style.flexDirection = on ? "row" : "column";
+function setTile(on){
+  if(liftSrc) dockLift(false);
+  if(!place.hidden) showPlace(false,false);
+  if(on===!conv2.hidden){ tileBtn.classList.toggle("on",on); return; }
+  const colMain=document.getElementById("col-main");
+  /* FLIP by measured width — a transform scale would distort the text */
+  const w0=conv.getBoundingClientRect().width;
+  conv2.hidden=!on; colMain.style.flexDirection=on?"row":"column";
+  const w1=conv.getBoundingClientRect().width;
+  if(!REDUCE&&Math.abs(w0-w1)>1){
+    conv.style.flex="0 0 auto";
+    conv.animate([{width:w0+"px"},{width:w1+"px"}],
+      {duration:240,easing:"cubic-bezier(.25,1,.5,1)"})
+      .onfinish=()=>{ conv.style.flex=""; };
+    if(on){ conv2.classList.remove("motion-arrive"); void conv2.offsetWidth; conv2.classList.add("motion-arrive"); }
+  }
   tileBtn.classList.toggle("on",on);
+}
+tileBtn.onclick=()=>{
+  const on=conv2.hidden;
+  setTile(on);
   say(on?"Two chats, side by side — a grid of chats is just cards on the floor":"Back to one chat");
 };
 
 const placeBtn=document.getElementById("t-place");
-function showPlace(on){
-  conv.toggleAttribute("hidden",on);
+function showPlace(on,narrate=true){
+  if(liftSrc) dockLift(false);
+  if(on===conv.hidden){ syncPlaceChrome(on); return; }
   if(on){ conv2.setAttribute("hidden",""); tileBtn.classList.remove("on"); document.getElementById("col-main").style.flexDirection="column"; }
-  place.toggleAttribute("hidden",!on);
+  const IN=on?place:conv, OUT=on?conv:place;
+  if(!REDUCE){
+    IN.hidden=false; IN.classList.add("overlaying");
+    IN.animate([{opacity:0,transform:"translateY(6px)"},{opacity:1,transform:"none"}],
+      {duration:240,easing:"cubic-bezier(.16,1,.3,1)"});
+    OUT.animate([{opacity:1},{opacity:0}],{duration:180,easing:"cubic-bezier(.25,1,.5,1)"})
+      .onfinish=()=>{ OUT.hidden=true; IN.classList.remove("overlaying"); };
+  } else { IN.hidden=false; OUT.hidden=true; }
+  if(on) drawRings(place);
+  syncPlaceChrome(on);
+  if(on&&narrate) say("Vektor's place — nothing in it is hidden from you");
+}
+function syncPlaceChrome(on){
   placeBtn.classList.toggle("on",on);
   document.getElementById("r-vektor").classList.toggle("on",on);
   document.getElementById("r-luca").classList.toggle("on",!on);
-  if(on) say("Vektor's place — nothing in it is hidden from you");
 }
-placeBtn.onclick=()=>showPlace(place.hasAttribute("hidden"));
+placeBtn.onclick=()=>showPlace(place.hidden);
 document.getElementById("r-vektor").onclick=()=>showPlace(true);
 document.getElementById("r-luca").onclick=()=>showPlace(false);
 
 const liftBtn=document.getElementById("t-lift");
-function setLift(on){
-  if(on){ liftRows.innerHTML=document.getElementById("widget-rows").innerHTML; paint(lifted); }
-  lifted.classList.toggle("open",on); liftBtn.classList.toggle("on",on);
-  widget.toggleAttribute("hidden",on);
-  lipH.toggleAttribute("hidden",on);
-  splitBtn.classList.toggle("on",!on);
-  if(on) say("Off the floor — the only surface in the system that is translucent");
+const liftContent=document.getElementById("lift-content");
+const liftTitle=document.getElementById("lift-title");
+let liftSrc=null;
+function hideSource(src){
+  if(src===widget) closeDeck(true);
+  else { src.hidden=true; if(src===drawer) syncLip(); }
 }
-liftBtn.onclick=()=>setLift(!lifted.classList.contains("open"));
-document.querySelectorAll("[data-lift]").forEach(b=>b.onclick=()=>setLift(true));
-document.getElementById("lift-close").onclick=()=>setLift(false);
-document.getElementById("lift-dock").onclick=()=>{setLift(false);say("Back on the floor")};
+function showSource(src){
+  if(src===widget) openDeck(true);
+  else {
+    src.hidden=false; if(src===drawer) syncLip();
+    if(!REDUCE){ src.classList.remove("motion-land"); void src.offsetWidth; src.classList.add("motion-land"); }
+  }
+}
+function openLift(src){
+  if(liftSrc===src) return;
+  if(liftSrc) dockLift(false);
+  liftSrc=src;
+  const r=src.getBoundingClientRect();
+  liftTitle.textContent=src.querySelector(".card-head h2").textContent;
+  /* MOVE the organs — copies would orphan painted marks and live tickers */
+  [...src.children]
+    .filter(el=>!el.classList.contains("card-head")&&!el.classList.contains("scrollmark"))
+    .forEach(el=>liftContent.appendChild(el));
+  hideSource(src);
+  lifted.style.left=Math.max(4,Math.min(innerWidth-380,r.left))+"px";
+  lifted.style.top=Math.max(4,Math.min(innerHeight-220,r.top))+"px";
+  lifted.style.width=Math.max(300,Math.min(640,r.width))+"px";
+  lifted.style.height=Math.max(210,Math.min(720,r.height))+"px";
+  lifted.classList.add("open"); liftBtn.classList.add("on");
+  if(!REDUCE) lifted.animate([
+    {opacity:0,transform:"scale(.985) translateY(4px)"},
+    {opacity:1,transform:"scale(1.015) translateY(-3px)",offset:.7},
+    {opacity:1,transform:"none"}
+  ],{duration:280,easing:"cubic-bezier(.25,1,.5,1)"});
+  say("Off the floor — the only surface in the system that is translucent");
+}
+function dockLift(animate=true){
+  if(!liftSrc) return;
+  const src=liftSrc; liftSrc=null;
+  const fin=()=>{
+    lifted.classList.remove("open");
+    [...liftContent.children].forEach(el=>src.appendChild(el));
+    showSource(src);
+    liftBtn.classList.remove("on");
+  };
+  if(animate&&!REDUCE){
+    lifted.animate([{opacity:1,transform:"scale(1)"},{opacity:0,transform:"scale(.97) translateY(4px)"}],
+      {duration:180,easing:"cubic-bezier(.25,1,.5,1)"}).onfinish=fin;
+  } else fin();
+}
+liftBtn.onclick=()=>{ if(liftSrc) { dockLift(); say("Back on the floor"); } else openLift(widget); };
+document.querySelectorAll("[data-lift]").forEach(b=>b.onclick=()=>openLift(b.closest(".card")));
+document.getElementById("lift-close").onclick=()=>{ dockLift(); say("Back on the floor"); };
+document.getElementById("lift-dock").onclick=()=>{ dockLift(); say("Back on the floor"); };
+addEventListener("keydown",e=>{ if(e.key==="Escape"&&liftSrc){ dockLift(); say("Back on the floor"); } });
 document.getElementById("close-drawer").onclick=()=>{
-  drawer.toggleAttribute("hidden",true); lipH.toggleAttribute("hidden",true);
+  drawer.hidden=true; syncLip();
 };
 
 const glassBtn=document.getElementById("t-glass");
@@ -933,7 +1128,13 @@ glassBtn.onclick=()=>{
 };
 const themes={slate:document.getElementById("t-slate"),inverse:document.getElementById("t-inverse"),paper:document.getElementById("t-paper")};
 function setTheme(name){
-  document.documentElement.dataset.theme=name;
+  const el=document.documentElement;
+  if(!REDUCE&&!booting&&el.dataset.theme&&el.dataset.theme!==name){
+    el.classList.add("theme-xfade");
+    clearTimeout(setTheme._t);
+    setTheme._t=setTimeout(()=>el.classList.remove("theme-xfade"),340);
+  }
+  el.dataset.theme=name;
   for(const k in themes) themes[k].classList.toggle("on",k===name);
 }
 for(const k in themes) themes[k].onclick=()=>setTheme(k);
@@ -941,22 +1142,49 @@ for(const k in themes) themes[k].onclick=()=>setTheme(k);
 const lawsBtn=document.getElementById("t-laws");
 lawsBtn.onclick=()=>{document.body.classList.toggle("laws");lawsBtn.classList.toggle("on",document.body.classList.contains("laws"))};
 
-/* drag + resize the lifted card */
+/* drag: the pointer writes a TARGET; a rAF loop lerps toward it and writes a
+   composited transform, so the panel trails the hand like a physical object
+   and never fights layout. Release bakes the transform into left/top and
+   settles the scale. */
 (function(){
-  const h=document.getElementById("lift-head"); let d=null;
+  const h=document.getElementById("lift-head");
+  let drag=null, raf=0, cur={x:0,y:0}, tgt={x:0,y:0}, base={x:0,y:0};
+  const step=()=>{
+    const k=REDUCE?1:.22;
+    cur.x+=(tgt.x-cur.x)*k; cur.y+=(tgt.y-cur.y)*k;
+    lifted.style.transform=`translate3d(${(cur.x-base.x).toFixed(2)}px,${(cur.y-base.y).toFixed(2)}px,0) scale(1.01)`;
+    if(drag||Math.hypot(tgt.x-cur.x,tgt.y-cur.y)>.5) raf=requestAnimationFrame(step);
+    else settle();
+  };
+  function settle(){
+    raf=0;
+    lifted.style.left=cur.x.toFixed(1)+"px"; lifted.style.top=cur.y.toFixed(1)+"px";
+    lifted.style.transform=""; lifted.classList.remove("dragging");
+    if(!REDUCE) lifted.animate([{transform:"scale(1.01)"},{transform:"scale(1)"}],
+      {duration:160,easing:"cubic-bezier(.25,1,.5,1)"});
+  }
   h.addEventListener("pointerdown",e=>{
     if(e.target.closest("button"))return;
     const r=lifted.getBoundingClientRect();
-    d={id:e.pointerId,dx:e.clientX-r.left,dy:e.clientY-r.top};
+    base={x:r.left,y:r.top}; cur={x:r.left,y:r.top}; tgt={x:r.left,y:r.top};
+    drag={id:e.pointerId,dx:e.clientX-r.left,dy:e.clientY-r.top};
     lifted.style.left=r.left+"px"; lifted.style.top=r.top+"px";
+    lifted.classList.add("dragging");
     h.setPointerCapture(e.pointerId);
+    if(!raf) raf=requestAnimationFrame(step);
   });
   h.addEventListener("pointermove",e=>{
-    if(!d||d.id!==e.pointerId)return;
-    lifted.style.left=Math.max(4,Math.min(innerWidth-lifted.offsetWidth-4,e.clientX-d.dx))+"px";
-    lifted.style.top=Math.max(4,Math.min(innerHeight-lifted.offsetHeight-4,e.clientY-d.dy))+"px";
+    if(!drag||drag.id!==e.pointerId)return;
+    tgt.x=Math.max(4,Math.min(innerWidth-lifted.offsetWidth-4,e.clientX-drag.dx));
+    tgt.y=Math.max(4,Math.min(innerHeight-lifted.offsetHeight-4,e.clientY-drag.dy));
   });
-  h.addEventListener("pointerup",e=>{if(d){h.releasePointerCapture(e.pointerId);d=null}});
+  h.addEventListener("pointerup",e=>{ if(!drag)return; h.releasePointerCapture(e.pointerId); drag=null; });
+  addEventListener("resize",()=>{
+    if(!lifted.classList.contains("open")||raf)return;
+    const r=lifted.getBoundingClientRect();
+    lifted.style.left=Math.max(4,Math.min(innerWidth-lifted.offsetWidth-4,r.left))+"px";
+    lifted.style.top=Math.max(4,Math.min(innerHeight-lifted.offsetHeight-4,r.top))+"px";
+  });
   const g=document.getElementById("lift-grip"); let z=null;
   g.addEventListener("pointerdown",e=>{e.stopPropagation();
     z={id:e.pointerId,x:e.clientX,y:e.clientY,w:lifted.offsetWidth,h:lifted.offsetHeight};
@@ -1019,8 +1247,10 @@ if(q.get("glass")==="off") glassBtn.click();
 if(["slate","inverse","paper"].includes(q.get("theme"))) setTheme(q.get("theme"));
 if(q.get("tile")==="1") tileBtn.click();
 if(q.get("place")==="1") showPlace(true);
-if(q.get("lift")==="1") setLift(true);
+if(q.get("lift")==="1") openLift(widget);
 if(q.get("laws")==="1") lawsBtn.click();
+drawRings(document);
+requestAnimationFrame(()=>{ booting=false; });
 </script>
 </body>
 </html>
