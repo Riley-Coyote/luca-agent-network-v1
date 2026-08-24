@@ -72,6 +72,30 @@
   --pop-shadow:0 18px 40px rgb(0 0 0/.5);
   color-scheme:dark;
 }
+[data-theme="onyx"]{
+  /* ONYX — the dark-FLOOR dark mode, drawn the way Apple draws it. Their
+     primary dark semantic (HIG Dark Mode): base recedes dimmer, elevated
+     advances brighter — floor darkest, cards lifted. The rungs sit on
+     Apple's own published dark ramp (#1C1C1E / #2C2C2E — elevated system
+     backgrounds), whose grey chemistry is B=R+2, G=R: within one count of
+     the house linear-dose lean, independently derived. Floor stays a
+     breath above Apple's #000 base — pure black is hostile — and carries
+     the desktop-tint whisper when opaque. Cream ink per the house. */
+  --floor:#0a0a0c; --surface:#1c1c1e; --raised:#2c2c2e; --recess:#131315;
+  --border:#303033; --border-strong:#3c3c3f;
+  --ink:#f5f4f0; --ink-muted:#c6c5c0; --ink-faint:#a6a5a1; --ink-ghost:#757470;
+  --wash:rgb(255 255 255/.05); --wash-2:rgb(255 255 255/.09);
+  --plate:rgb(245 244 240/.045); --plate-hover:rgb(245 244 240/.075);
+  --lit:inset 0 1px 0 rgb(255 255 255/.07);
+  --app-shadow:
+    0 0 0 1px rgb(0 0 0/.55),
+    0 2px 8px rgb(0 0 0/.42),
+    0 40px 120px rgb(0 0 0/.68);
+  --app-hairline:inset 0 0 0 1px rgb(255 255 255/.055);
+  --lift-shadow:0 34px 84px rgb(0 0 0/.62);
+  --pop-shadow:0 18px 40px rgb(0 0 0/.55);
+  color-scheme:dark;
+}
 [data-theme="smoke"]{
   /* SMOKE — the palette built FOR dark glass, from Apple's own protocol
      (HIG Materials + Dark Mode, researched 2026-08-24):
@@ -159,6 +183,7 @@
    token. The tint is static (drift stays paused when glass is off), exactly
    as the OS tints. */
 [data-theme="smoke"]:not([data-glass="on"]){ --vib:.16; }
+[data-theme="onyx"]:not([data-glass="on"]){ --vib:.14; }
 /* The accessibility contract: reduced transparency collapses every glass
    and tint to the solid tokens — the same switch the OS honors. */
 @media (prefers-reduced-transparency: reduce){ .vib{display:none} }
@@ -308,6 +333,11 @@ html.wp-switch .wp{opacity:0!important}
    This is the HIG's "blurs and adjusts the luminosity", built in CSS. */
 [data-theme="smoke"] .vib .wps{filter:blur(60px) saturate(245%) brightness(.68)}
 [data-theme="smoke"] .vib::after{background:rgb(9 10 14/.36);mix-blend-mode:normal}
+/* Onyx's glass runs the same construction pressed darker — the floor stays
+   the darkest thing on screen, embers under black glass — so toggling glass
+   never flips the palette's structure. */
+[data-theme="onyx"] .vib .wps{filter:blur(60px) saturate(235%) brightness(.42)}
+[data-theme="onyx"] .vib::after{background:rgb(5 5 8/.55);mix-blend-mode:normal}
 
 /* ── lab bar ──────────────────────────────────────────────────── */
 .lab{
@@ -739,11 +769,12 @@ html.theme-xfade .app,html.theme-xfade .app *{
   <button id="t-slate">Slate</button>
   <button id="t-inverse">Inverse</button>
   <button id="t-smoke">Smoke</button>
+  <button id="t-onyx">Onyx</button>
   <button id="t-paper">Paper</button>
-  <button id="t-split" class="on">Split drawer</button>
-  <button id="t-tile">Tile two chats</button>
-  <button id="t-place">Vektor's place</button>
-  <button id="t-lift">Lift a card</button>
+  <button id="t-split" class="on">Split</button>
+  <button id="t-tile">Tile</button>
+  <button id="t-place">Place</button>
+  <button id="t-lift">Lift</button>
   <button id="t-laws">Layers</button>
   <button id="t-wall">Wallpaper</button>
 </div>
@@ -1383,7 +1414,7 @@ glassBtn.onclick=()=>{
   glassBtn.classList.toggle("on",on);
   say(on?"Glass — the floor takes the desktop\u2019s colour, never its lightness":"Opaque — the floor as a solid");
 };
-const themes={slate:document.getElementById("t-slate"),inverse:document.getElementById("t-inverse"),smoke:document.getElementById("t-smoke"),paper:document.getElementById("t-paper")};
+const themes={slate:document.getElementById("t-slate"),inverse:document.getElementById("t-inverse"),smoke:document.getElementById("t-smoke"),onyx:document.getElementById("t-onyx"),paper:document.getElementById("t-paper")};
 function setTheme(name){
   const el=document.documentElement;
   if(!REDUCE&&!booting&&el.dataset.theme&&el.dataset.theme!==name){
@@ -1514,7 +1545,7 @@ setTheme("inverse");
 
 const q=new URLSearchParams(location.search);
 if(q.get("glass")==="off") glassBtn.click();
-if(["slate","inverse","smoke","paper"].includes(q.get("theme"))) setTheme(q.get("theme"));
+if(["slate","inverse","smoke","onyx","paper"].includes(q.get("theme"))) setTheme(q.get("theme"));
 if(q.get("tile")==="1") tileBtn.click();
 if(q.get("place")==="1") showPlace(true);
 if(q.get("lift")==="1") openLift(widget);

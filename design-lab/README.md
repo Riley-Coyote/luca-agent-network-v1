@@ -41,12 +41,15 @@ fast-forward it and rebuild.
   and `typography.css`, and its identity marks come from the real
   `glyph.ts`, so only what it *adds* is new — a card that splits, a card
   that holds a widget, cards that tile, and a card that leaves the floor.
-  Four palettes — Slate, Inverse (the default) and Paper from
-  `adaptive-theme.ts`, plus SMOKE, the palette designed FOR dark glass from
-  Apple's HIG protocol (glass has no inherent colour; it dims and blurs the
+  Five palettes — Slate, Inverse and Paper from `adaptive-theme.ts`, plus
+  two designed from Apple's HIG protocol: SMOKE (the dark-glass default —
+  light glowing rail over a velvet plane) (glass has no inherent colour; it dims and blurs the
   desktop into a legibility band — a scrim near Apple's published 35% — over
-  a near-black velvet reading plane). Smoke's harness check is faint-ink AA
-  over the sampled smoke, not luminance pinning. Glass changes the FLOOR ONLY: cards stay opaque and on
+  a near-black velvet reading plane) and ONYX (the dark-FLOOR opaque: Apple's
+  base/elevated semantics on their published dark ramp #1C1C1E/#2C2C2E,
+  whose grey chemistry B=R+2 matches the house linear-dose lean; deep-smoke
+  when glassed, desktop-tint whisper when opaque). Smoke and Onyx's harness
+  check is faint-ink AA over the sampled glass, not luminance pinning. Glass changes the FLOOR ONLY: cards stay opaque and on
   the ladder, and the floor takes the desktop's hue while keeping its own
   luminance (`mix-blend-mode: luminosity`, which is what vibrancy is). Built
   to native-macOS grade: real traffic lights on the shell's own geometry
