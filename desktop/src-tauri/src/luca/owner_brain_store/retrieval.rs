@@ -298,7 +298,7 @@ fn select_bounded_candidates(
         .partition(|candidate| candidate.selected_context);
     let mut deferred_selected = Vec::new();
     for candidate in selected_candidates {
-        if let Err(candidate) = try_select_candidate(
+        if let Some(candidate) = try_select_candidate(
             &mut selected,
             &mut selected_hashes,
             &mut selected_bytes,
@@ -322,11 +322,11 @@ fn select_bounded_candidates(
                 MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS,
                 MAX_OWNER_BRAIN_RETRIEVAL_BYTES,
             ) {
-                Ok(()) => {
+                None => {
                     background_selected = true;
                     continue;
                 }
-                Err(candidate) => deferred_background.push(candidate),
+                Some(candidate) => deferred_background.push(candidate),
             }
         } else {
             deferred_background.push(candidate);
@@ -354,18 +354,18 @@ fn try_select_candidate(
     candidate: RankedOwnerBrainChunkV1,
     chunk_limit: usize,
     byte_limit: usize,
-) -> Result<(), RankedOwnerBrainChunkV1> {
+) -> Option<RankedOwnerBrainChunkV1> {
     let body_bytes = candidate.body.as_str().len();
     if selected.len() >= chunk_limit
         || selected_hashes.contains(&candidate.content_hash)
         || selected_bytes.saturating_add(body_bytes) > byte_limit
     {
-        return Err(candidate);
+        return Some(candidate);
     }
     *selected_bytes += body_bytes;
     selected_hashes.insert(candidate.content_hash.clone());
     selected.push(candidate);
-    Ok(())
+    None
 }
 
 fn active_source_ids(
