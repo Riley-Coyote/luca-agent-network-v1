@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it, beforeEach, afterEach, mock } from "node:test";
 
 import {
+  cancelActiveAgentTurn,
   syncAgentTurnsFromEvents,
   syncActiveAgentTurnsFromObserver,
   getActiveTurnsForAgent,
@@ -49,6 +50,42 @@ describe("activeAgentTurnsStore", () => {
   });
 
   describe("seq filtering", () => {
+    it("keeps a watchdog-cancelled turn terminal when late frames arrive", () => {
+      syncAgentTurnsFromEvents(AGENT, [
+        makeEvent({
+          seq: 1,
+          turnId: "cancelled-turn",
+          channelId: "cancelled-channel",
+        }),
+      ]);
+      cancelActiveAgentTurn(AGENT, "cancelled-channel", "cancelled-turn");
+      assert.equal(getActiveTurnsForAgent(AGENT).length, 0);
+
+      syncAgentTurnsFromEvents(AGENT, [
+        makeEvent({
+          seq: 2,
+          kind: "turn_liveness",
+          turnId: "cancelled-turn",
+          channelId: "cancelled-channel",
+          timestamp: "2024-01-01T00:00:01Z",
+        }),
+      ]);
+      assert.equal(getActiveTurnsForAgent(AGENT).length, 0);
+
+      syncAgentTurnsFromEvents(AGENT, [
+        makeEvent({
+          seq: 3,
+          turnId: "fresh-turn",
+          channelId: "fresh-channel",
+          timestamp: "2024-01-01T00:00:02Z",
+        }),
+      ]);
+      assert.deepEqual(
+        [...channelIdsOf(getActiveTurnsForAgent(AGENT))],
+        ["fresh-channel"],
+      );
+    });
+
     it("processes events with increasing seq", () => {
       syncAgentTurnsFromEvents(AGENT, [
         makeEvent({ seq: 1, turnId: "t1", channelId: "c1" }),

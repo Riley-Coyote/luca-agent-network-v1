@@ -251,7 +251,10 @@ function resurrectTurn(agentPubkey: string, event: ObserverEvent): boolean {
 }
 
 function recordTerminal(agentKey: string, turnId: string, terminalAt: number) {
-  if (!Number.isFinite(terminalAt)) return;
+  // Positive infinity is reserved for an explicit native cancellation: the
+  // watchdog replaced that process, so this exact turn ID must never revive.
+  // The bounded tombstone map still prevents unbounded retention.
+  if (Number.isNaN(terminalAt)) return;
   let terminals = terminalAtByAgent.get(agentKey);
   if (!terminals) {
     terminals = new Map();
@@ -304,6 +307,22 @@ function endTurn(
     activeTurnsByAgent.delete(key);
   }
   invalidateCache(key);
+}
+
+/**
+ * Remove one exact turn after the native cancellation watchdog has completed.
+ *
+ * A killed ACP host cannot be relied on to emit `turn_completed`. Record the
+ * terminal permanently for this exact turn ID so delayed observer frames from
+ * the replaced process cannot resurrect the cancelled activity badge.
+ */
+export function cancelActiveAgentTurn(
+  agentPubkey: string,
+  channelId: string,
+  turnId?: string | null,
+): void {
+  endTurn(agentPubkey, turnId ?? null, channelId, Number.POSITIVE_INFINITY);
+  notifyListeners();
 }
 
 /** True when every tracked turn for one agent is stale, but only until the
