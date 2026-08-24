@@ -39,7 +39,7 @@ export const LAB_RESIDENTS = {
   },
 } as const;
 
-export type LabRoomKey = "polyphonic" | "fieldNotes";
+export type LabRoomKey = "polyphonic" | "fieldNotes" | "drafts";
 
 export type LabRoom = {
   /** Pinned so the exchange can reference the room before it is created. */
@@ -57,6 +57,17 @@ export type LabRoom = {
  * shows ziggy mid-visit today, and a finished visit from yesterday.
  */
 export const LAB_ROOMS: Record<LabRoomKey, LabRoom> = {
+  /**
+   * Deliberately empty — the composer-design stage. With no messages, the
+   * composer is the only object in the room, which is the hardest state for
+   * it to look right in: nothing above it to borrow structure from.
+   */
+  drafts: {
+    description: "Nothing here yet. The composer carries the whole room.",
+    id: "e8d2b7a1-4c96-4f30-b2a8-6e1f9c3d5a72",
+    name: "drafts",
+    residents: [],
+  },
   fieldNotes: {
     description: "Reading notes, plates worth stealing, half-formed things.",
     id: "b0c9d2e4-5f61-4a83-9c07-2d5e8f1a4b63",
@@ -105,6 +116,7 @@ export type LabTurn = {
 const YESTERDAY = 24 * 60;
 
 export const LAB_TRANSCRIPTS: Record<LabRoomKey, LabTurn[]> = {
+  drafts: [],
   fieldNotes: [
     {
       from: LAB_RESIDENTS.vektor.pubkey,

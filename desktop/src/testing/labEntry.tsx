@@ -54,7 +54,7 @@ import "@fontsource/doto/400.css";
 import "@/shared/styles/globals.css";
 
 const RELAY_URL = "ws://localhost:3000";
-const ROOM_ORDER: LabRoomKey[] = ["fieldNotes", "polyphonic"];
+const ROOM_ORDER: LabRoomKey[] = ["fieldNotes", "polyphonic", "drafts"];
 
 type MockChannelRow = { id: string; is_member?: boolean };
 
