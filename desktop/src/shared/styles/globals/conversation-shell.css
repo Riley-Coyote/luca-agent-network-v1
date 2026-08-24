@@ -839,7 +839,10 @@
  * shades instead of squeezing between them. */
 :root[data-luca-shell] .luca-sheet-deck[data-variant="recess"] .luca-reply-sheet {
   background: hsl(0 0% 6.3%);
-  box-shadow: inset 0 2px 4px rgb(0 0 0 / 0.4);
+  /* Light falls from above: a well takes shade from its TOP edge only. The
+   * negative spread stops the blur from wrapping the sides and bottom —
+   * a shadow on all four edges reads as a border ring, not as depth. */
+  box-shadow: inset 0 5px 8px -5px rgb(0 0 0 / 0.6);
 }
 
 /* The composer card: the only box on screen, and it holds only the text and
