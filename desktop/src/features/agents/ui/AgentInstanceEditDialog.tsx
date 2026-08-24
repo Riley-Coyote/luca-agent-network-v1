@@ -10,6 +10,7 @@ import {
   useBakedBuildEnvKeysQuery,
   usePersonasQuery,
   useStartManagedAgentMutation,
+  useStopManagedAgentMutation,
   useUpdateManagedAgentMutation,
 } from "@/features/agents/hooks";
 import { isManagedAgentActive } from "@/features/agents/lib/managedAgentControlActions";
@@ -107,6 +108,7 @@ export function AgentInstanceEditDialog({
 }) {
   const updateMutation = useUpdateManagedAgentMutation();
   const startMutation = useStartManagedAgentMutation();
+  const stopMutation = useStopManagedAgentMutation();
   const runtimesQuery = useAcpRuntimesQuery({ enabled: open });
   const configSurfaceQuery = useAgentConfigSurface(open ? agent.pubkey : null);
   const runtimes = runtimesQuery.data ?? [];
@@ -198,6 +200,8 @@ export function AgentInstanceEditDialog({
         runtimes.find((r) => r.id === agent.agentCommand.trim());
       setSelectedRuntimeId(matched ? matched.id : "custom");
       updateMutation.reset();
+      startMutation.reset();
+      stopMutation.reset();
     }
   }, [open, agent.pubkey]);
 
@@ -595,6 +599,10 @@ export function AgentInstanceEditDialog({
     originalRuntimeSupportsProvider,
   });
 
+  const savePending =
+    updateMutation.isPending ||
+    stopMutation.isPending ||
+    startMutation.isPending;
   const canSubmit =
     computeEditAgentFormValidity({
       name,
@@ -609,7 +617,7 @@ export function AgentInstanceEditDialog({
       requiredEnvKeyMissing,
     }) &&
     providerValid &&
-    !updateMutation.isPending &&
+    !savePending &&
     !isAvatarUploadPending;
 
   async function handleSubmit() {
@@ -718,6 +726,26 @@ export function AgentInstanceEditDialog({
       };
 
       const result = await updateMutation.mutateAsync(input);
+      const runtimeBindingChanged =
+        input.agentCommand !== undefined ||
+        input.model !== undefined ||
+        input.provider !== undefined;
+      let updatedAgent = result.agent;
+
+      // Runtime/model choices are explicit owner gestures and must take effect
+      // before the dialog closes. The general drift policy intentionally waits
+      // for a long idle window; relying on it here leaves the previous provider
+      // live and able to answer new room messages with a stale binding. Stop
+      // first so a failed replacement runtime can never fall back to the old
+      // process. Intentionally stopped residents remain stopped.
+      if (
+        runtimeBindingChanged &&
+        agent.backend.type === "local" &&
+        agent.status === "running"
+      ) {
+        await stopMutation.mutateAsync(agent.pubkey);
+        updatedAgent = await startMutation.mutateAsync(agent.pubkey);
+      }
       if (autoRestartOnConfigChange !== agent.autoRestartOnConfigChange) {
         // Standalone setter (mirrors start-on-app-launch) — not part of
         // UpdateManagedAgentInput, so the frozen update shape stays frozen.
@@ -727,18 +755,18 @@ export function AgentInstanceEditDialog({
         );
       }
       handleOpenChange(false);
-      onUpdated?.(result.agent);
+      onUpdated?.(updatedAgent);
       // The auto-restart policy deliberately never fires for a stopped or
       // failing agent (a broken agent must not auto-loop), so an edit meant
       // to FIX one silently waits for a manual start. Offer that start
       // explicitly instead of relying on the user to know the policy.
-      if (!isManagedAgentActive(result.agent)) {
-        const startedName = result.agent.name;
+      if (!isManagedAgentActive(updatedAgent)) {
+        const startedName = updatedAgent.name;
         toast(`${startedName} saved while stopped.`, {
           action: {
             label: "Start now",
             onClick: () => {
-              startMutation.mutate(result.agent.pubkey, {
+              startMutation.mutate(updatedAgent.pubkey, {
                 onSuccess: () => toast.success(`${startedName} started.`),
                 onError: (error) =>
                   toast.error(
@@ -843,7 +871,7 @@ export function AgentInstanceEditDialog({
         footer={
           <div className="flex w-full items-center justify-end gap-2">
             <Button
-              disabled={updateMutation.isPending || isAvatarUploadPending}
+              disabled={savePending || isAvatarUploadPending}
               onClick={() => handleOpenChange(false)}
               type="button"
               variant="outline"
@@ -856,7 +884,7 @@ export function AgentInstanceEditDialog({
               onClick={() => void handleSubmit()}
               type="button"
             >
-              {updateMutation.isPending ? "Saving..." : "Save changes"}
+              {savePending ? "Saving..." : "Save changes"}
             </Button>
           </div>
         }
@@ -1179,6 +1207,16 @@ export function AgentInstanceEditDialog({
             {updateMutation.error instanceof Error ? (
               <p className="text-sm text-destructive">
                 {updateMutation.error.message}
+              </p>
+            ) : null}
+            {stopMutation.error instanceof Error ? (
+              <p className="text-sm text-destructive">
+                {stopMutation.error.message}
+              </p>
+            ) : null}
+            {startMutation.error instanceof Error ? (
+              <p className="text-sm text-destructive">
+                {startMutation.error.message}
               </p>
             ) : null}
           </div>

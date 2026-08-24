@@ -9036,7 +9036,9 @@ async function handleUpdateManagedAgent(args: {
   input: {
     pubkey: string;
     name?: string;
+    agentCommand?: string;
     model?: string | null;
+    provider?: string | null;
     systemPrompt?: string | null;
     envVars?: Record<string, string>;
     respondTo?: "owner-only" | "allowlist" | "anyone";
@@ -9047,8 +9049,17 @@ async function handleUpdateManagedAgent(args: {
   if (args.input.name !== undefined) {
     agent.name = args.input.name;
   }
+  if (args.input.agentCommand !== undefined) {
+    agent.agent_command = args.input.agentCommand;
+    agent.needs_restart = agent.status === "running";
+  }
   if (args.input.model !== undefined) {
     agent.model = args.input.model;
+    agent.needs_restart = agent.status === "running";
+  }
+  if (args.input.provider !== undefined) {
+    agent.provider = args.input.provider;
+    agent.needs_restart = agent.status === "running";
   }
   if (args.input.systemPrompt !== undefined) {
     agent.system_prompt = args.input.systemPrompt;

@@ -277,3 +277,80 @@ test("start on open promises a fresh relaunch session and preserves identity", a
   await page.getByRole("button", { name: "Advanced…" }).click();
   await expect(page.getByTestId("edit-agent-dialog")).toBeVisible();
 });
+
+async function editResidentCommand(
+  page: import("@playwright/test").Page,
+  command: string,
+) {
+  await page
+    .getByRole("navigation", { name: "Agent workspace" })
+    .getByRole("button", { name: "Settings" })
+    .click();
+  await page.getByTestId("agent-settings-advanced").click();
+  const dialog = page.getByTestId("edit-agent-dialog");
+  await dialog.getByRole("button", { name: "Advanced" }).click();
+  await dialog.getByLabel("Agent command").fill(command);
+  await dialog.getByTestId("edit-agent-dialog-submit").click();
+  return dialog;
+}
+
+test("editing a running resident runtime stops the stale process before starting the replacement", async ({
+  page,
+}) => {
+  await installLibraryBridge(page);
+  await openResident(page, LUCA_PUBKEY);
+
+  const dialog = await editResidentCommand(
+    page,
+    "luca-acceptance-replacement-runtime",
+  );
+
+  await expect(dialog).toHaveCount(0);
+  expect(await lifecycleCommands(page)).toEqual([
+    "stop_managed_agent",
+    "start_managed_agent",
+  ]);
+  const resident = await readManagedResident(page, LUCA_PUBKEY);
+  expect(resident?.status).toBe("running");
+});
+
+test("an unavailable replacement runtime leaves the old process stopped and reports the failure", async ({
+  page,
+}) => {
+  await installLibraryBridge(page, {
+    startManagedAgentErrors: ["Replacement runtime is unavailable"],
+  });
+  await openResident(page, LUCA_PUBKEY);
+
+  const dialog = await editResidentCommand(
+    page,
+    "luca-acceptance-missing-runtime",
+  );
+
+  await expect(
+    dialog.getByText("Replacement runtime is unavailable"),
+  ).toBeVisible();
+  expect(await lifecycleCommands(page)).toEqual([
+    "stop_managed_agent",
+    "start_managed_agent",
+  ]);
+  const resident = await readManagedResident(page, LUCA_PUBKEY);
+  expect(resident?.status).toBe("stopped");
+});
+
+test("editing a stopped resident runtime preserves its stopped state", async ({
+  page,
+}) => {
+  await installLibraryBridge(page);
+  await openResident(page, MARA_PUBKEY);
+
+  const dialog = await editResidentCommand(
+    page,
+    "luca-acceptance-replacement-runtime",
+  );
+
+  await expect(dialog).toHaveCount(0);
+  expect(await lifecycleCommands(page)).toEqual([]);
+  const resident = await readManagedResident(page, MARA_PUBKEY);
+  expect(resident?.status).toBe("stopped");
+});
