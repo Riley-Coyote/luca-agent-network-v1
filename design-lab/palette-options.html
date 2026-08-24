@@ -10,51 +10,46 @@
 <style>
 *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 
-/* ═══ ROUND FIVE — THE TALLER LADDER, IN FOUR TEMPERATURES ═══
-   All four share the SAME lightness staircase (the council's widened spans:
-   ground→card 9.1 L*, sidebar edge 6.3 L*). They differ only in temperature,
-   each dosed by the colorist to stay under the tint-perception threshold.
-   Switch with the tabs or keys 1–4.
-   1 · Council   — pure neutral. The control.
-   2 · Cool      — blue held 4 points over red at every altitude. The
-                   Polyphonic-web / Codex family.
-   3 · Violet    — the blue-magenta direction (the "B" dose that survives
-                   real displays; the finer violet axis needs less).
-   4 · Skylight  — the colorist's recommendation: cool at depth, warm at
-                   altitude, like real light. The tint crosses zero between
-                   the well and the card.                                   */
+/* ═══ ROUND SIX — THE DOSE SWEEP ═══
+   The researcher measured the field (Linear's live CSS, Apple's AppKit on
+   this machine, Radix source): the trick is G = R + 1 — leaving green on
+   red injects a violet cast, the lean people can NAME. And the shipped
+   doses are small: Linear's whole canvas runs blue +2 over red ("felt, not
+   describable"); Radix slate's app background is +3; +4 is the edge.
+   All four options share the taller staircase and G = R + 1; only the blue
+   dose changes. Hovers are white-alpha (never a second tinted hex). */
 
 :root, :root[data-p="a"] {
   --floor:  #0e0e0e; --canvas: #1c1c1c; --recess: #141414;
   --sheet:  #252525; --s1: #2f2f2f; --s2: #383838; --s3: #3a3a3a;
   --ink: rgba(244,243,240,.93); --t-body: #b9b8b5; --t-2nd: #929292;
   --t-soft: #838383; --t-ghost: #6a6a6a;
-  --ov-hover: rgba(238,238,238,.05); --ov-sel: rgba(238,238,238,.10);
-  --rule: rgba(238,238,238,.07);
+  --ov-hover: rgba(255,255,255,.05); --ov-sel: rgba(255,255,255,.10);
+  --rule: rgba(255,255,255,.07);
 }
 :root[data-p="b"] {
-  --floor:  #0d0e11; --canvas: #1b1c1f; --recess: #131417;
-  --sheet:  #252629; --s1: #2e2f32; --s2: #37383b; --s3: #393a3d;
-  --ink: rgba(244,243,240,.93); --t-body: #b7b8bc; --t-2nd: #909297;
-  --t-soft: #818388; --t-ghost: #686a6f;
-  --ov-hover: rgba(235,238,244,.05); --ov-sel: rgba(235,238,244,.10);
-  --rule: rgba(235,238,244,.07);
+  --floor:  #0d0e0f; --canvas: #1b1c1d; --recess: #131415;
+  --sheet:  #242526; --s1: #2e2f30; --s2: #373839; --s3: #393a3b;
+  --ink: rgba(244,243,240,.93); --t-body: #b8b8b6; --t-2nd: #919293;
+  --t-soft: #828384; --t-ghost: #696a6b;
+  --ov-hover: rgba(255,255,255,.05); --ov-sel: rgba(255,255,255,.10);
+  --rule: rgba(255,255,255,.07);
 }
 :root[data-p="c"] {
-  --floor:  #100e11; --canvas: #1e1c1f; --recess: #161417;
-  --sheet:  #282629; --s1: #312f32; --s2: #3a383b; --s3: #3c3a3d;
-  --ink: rgba(244,243,240,.93); --t-body: #b9b7ba; --t-2nd: #949295;
-  --t-soft: #858386; --t-ghost: #6c6a6d;
-  --ov-hover: rgba(240,235,242,.05); --ov-sel: rgba(240,235,242,.10);
-  --rule: rgba(240,235,242,.07);
+  --floor:  #0d0e10; --canvas: #1b1c1e; --recess: #131416;
+  --sheet:  #242527; --s1: #2e2f31; --s2: #37383a; --s3: #393a3c;
+  --ink: rgba(244,243,240,.93); --t-body: #b8b8b7; --t-2nd: #919294;
+  --t-soft: #828385; --t-ghost: #696a6c;
+  --ov-hover: rgba(255,255,255,.05); --ov-sel: rgba(255,255,255,.10);
+  --rule: rgba(255,255,255,.07);
 }
 :root[data-p="d"] {
-  --floor:  #0d0e13; --canvas: #1b1c20; --recess: #121419;
-  --sheet:  #252629; --s1: #302f2d; --s2: #393835; --s3: #3b3a37;
-  --ink: rgba(244,243,240,.93); --t-body: #b8b7b3; --t-2nd: #a9a6a1;
-  --t-soft: #989590; --t-ghost: #6e6c68;
-  --ov-hover: rgba(240,238,232,.05); --ov-sel: rgba(240,238,232,.10);
-  --rule: rgba(240,238,232,.07);
+  --floor:  #0d0e11; --canvas: #1b1c1f; --recess: #131417;
+  --sheet:  #242528; --s1: #2e2f32; --s2: #37383b; --s3: #393a3d;
+  --ink: rgba(244,243,240,.93); --t-body: #b7b8bc; --t-2nd: #909297;
+  --t-soft: #818388; --t-ghost: #686a6f;
+  --ov-hover: rgba(255,255,255,.05); --ov-sel: rgba(255,255,255,.10);
+  --rule: rgba(255,255,255,.07);
 }
 
 html, body { height:100%; }
@@ -225,20 +220,20 @@ h2 { font-size:19px; font-weight:550; letter-spacing:-.005em; margin: 60px 0 6px
 <body>
 
 <nav class="bar">
-  <button class="tab on" data-p="a">1 · Council — neutral</button>
-  <button class="tab" data-p="b">2 · Cool whisper</button>
-  <button class="tab" data-p="c">3 · Violet whisper</button>
-  <button class="tab" data-p="d">4 · Skylight</button>
+  <button class="tab on" data-p="a">1 · Neutral · +0</button>
+  <button class="tab" data-p="b">2 · Linear dose · +2</button>
+  <button class="tab" data-p="c">3 · Slate dose · +3</button>
+  <button class="tab" data-p="d">4 · The edge · +4</button>
   <span class="hint">keys 1–4 · whole page re-themes</span>
 </nav>
 
 <div class="wrap">
-  <div class="eyebrow">§ surface ladders · round five · the taller staircase, in four temperatures</div>
-  <h1 id="opt-title">Council — neutral</h1>
-  <p class="sub">All four options share the <strong>same taller staircase</strong> — the fix for
-  "flat and muddled" (each surface now clearly sits on the one below). They differ only in
-  <strong>temperature</strong>: how the greys lean, dosed to stay below the point where you could
-  name a color. The reply well and composer below are the shipped anatomy on each candidate.</p>
+  <div class="eyebrow">§ surface ladders · round six · the dose sweep</div>
+  <h1 id="opt-title">Neutral — +0</h1>
+  <p class="sub">Same taller staircase in all four; the only change is the <strong>blue dose</strong>, in
+  single steps from zero to the perception edge — with the researched trick applied throughout
+  (green rides one step above red, which kills the violet cast that made earlier tints nameable).
+  The winner lives somewhere on this row.</p>
   <p class="why" id="opt-why"></p>
 
   <div class="ladder" id="ladder"></div>
@@ -299,33 +294,33 @@ h2 { font-size:19px; font-weight:550; letter-spacing:-.005em; margin: 60px 0 6px
   <div class="grid4" id="grid4"></div>
 
   <div class="footer">
-    All four ladders keep identical brightness steps (the council's widened staircase); only the
-    lean differs, held constant per altitude as an offset rule — never a percentage, which is the
-    mistake that made an earlier attempt visibly blue. Skylight is the colorist's recommendation:
-    the cool of its depths and the warmth of its raised surfaces read as light, not color, and the
-    cream text is lit by the same source as the surfaces it sits on. Full analysis in
+    The dose sweep, built on measured practice: Linear's production CSS runs its entire canvas at
+    blue +2 (felt, never describable); Radix slate — the industry's most-used cool neutral — doses
+    its app background at +3 and reserves more only for borders; +4 is where large fields start
+    being describable. All hover/selection states are pure white at alpha, never a second tinted
+    value — stacked tint is what crosses into nameable. Full research with sources in
     <code>design-lab/council/</code>.
   </div>
 </div>
 
 <script>
 const P = {
-  a: { name:"Council — neutral",
-    why:"<strong>The control.</strong> The taller staircase with zero lean — exactly what the experts prescribed before your temperature request. Every grey is mathematically pure. Judge the others against this: anything you feel flipping away from here is the temperature itself.",
+  a: { name:"Neutral — +0",
+    why:"<strong>The control.</strong> Mathematically pure greys. ChatGPT, Figma, Apple's own window backgrounds and Vercel all ship exactly this — zero lean is a completely legitimate ending.",
     ladder:[["floor","#0e0e0e"],["ground","#1c1c1c"],["well","#141414"],["card","#2f2f2f"],["hover","#383838"],["menu","#3a3a3a"]],
-    note:"pure neutral - the staircase everyone shares", ground:"#1c1c1c", twin:"#1c1c1c" },
-  b: { name:"Cool whisper",
-    why:"<strong>Your web app's family, dosed correctly.</strong> Blue is held exactly 4 points above red at every altitude — a constant lean, so it never grows into a nameable blue the way percentage-based tints do. Same neighborhood as your Polyphonic web ground and the Codex floor you pointed at.",
+    note:"R = G = B - what ChatGPT, Figma and Apple windows ship", ground:"#1c1c1c", twin:"#1c1c1c" },
+  b: { name:"Linear dose — +2",
+    why:"<strong>What Linear ships on every large surface</strong> — the app with the strongest reputation for exactly this quality. Blue +2 over red, green splitting the difference. Their own redesign notes say they arrived here by REDUCING the blue. The researcher's verdict: felt, not describable, on any display.",
+    ladder:[["floor","#0d0e0f"],["ground","#1b1c1d"],["well","#131415"],["card","#2e2f30"],["hover","#373839"],["menu","#393a3b"]],
+    note:"B = R+2, G = R+1 - Linear's canvas rule, felt not describable", ground:"#1b1c1d", twin:"#1c1c1c" },
+  c: { name:"Slate dose — +3",
+    why:"<strong>Radix slate's app-background dose</strong> — the most-used cool neutral in the industry, at the exact strength it uses for full-canvas surfaces. Detectable in an A/B swatch, not detectable in use. The researcher's stated upper bound: never go past this on a full-width surface.",
+    ladder:[["floor","#0d0e10"],["ground","#1b1c1e"],["well","#131416"],["card","#2e2f31"],["hover","#37383a"],["menu","#393a3c"]],
+    note:"B = R+3, G = R+1 - Radix slate step-1/2 dose, the upper bound", ground:"#1b1c1e", twin:"#1c1c1c" },
+  d: { name:"The edge — +4",
+    why:"<strong>Round five's cool whisper, kept for reference.</strong> This is the dose you said was growing on you but still too strong — and the research agrees: +4 is the boundary where large fields start being describable. Linear only allows this strength on small chips, never on a canvas.",
     ladder:[["floor","#0d0e11"],["ground","#1b1c1f"],["well","#131417"],["card","#2e2f32"],["hover","#37383b"],["menu","#393a3d"]],
-    note:"blue +4 over red, constant at every altitude - temperature, never tint", ground:"#1b1c1f", twin:"#1c1c1c" },
-  c: { name:"Violet whisper",
-    why:"<strong>The blue-magenta direction.</strong> Red and blue both lean slightly over green. The eye is twice as sharp on this axis, so the dose is smaller than cool's to be equally invisible — this is the strong-enough version that survives real displays; a fainter one would vanish into panel noise.",
-    ladder:[["floor","#100e11"],["ground","#1e1c1f"],["well","#161417"],["card","#312f32"],["hover","#3a383b"],["menu","#3c3a3d"]],
-    note:"red +2 / blue +3 over green - the finest usable violet lean", ground:"#1e1c1f", twin:"#1c1c1c" },
-  d: { name:"Skylight — the colorist's pick",
-    why:"<strong>Cool at depth, warm at altitude — like real light.</strong> The floor and the reply well lean cool (skylight fill); the composer and menus lean faintly warm (they have risen into the lamp). No single surface is nameable, but each layer differs from its neighbor in BOTH brightness and temperature — depth on two channels. And the cream text is lit by the same source as the warm surfaces it sits on: the ink stops being tolerated and becomes explained.",
-    ladder:[["floor","#0d0e13"],["ground","#1b1c20"],["well","#121419"],["card","#302f2d"],["hover","#393835"],["menu","#3b3a37"]],
-    note:"cool below, warm above - the lean crosses zero between well and card", ground:"#1b1c20", twin:"#1c1c1c" },
+    note:"B = R+4, G = R+1 - the perception edge; small-element territory", ground:"#1b1c1f", twin:"#1c1c1c" },
 };
 
 const order = ["a","b","c","d"];
