@@ -37,6 +37,7 @@ import {
   useToggleReactionMutation,
 } from "@/features/messages/hooks";
 import { formatTimelineMessages } from "@/features/messages/lib/formatTimelineMessages";
+import { resolveThreadQueryRootId } from "@/features/messages/lib/independentThreadPanel";
 import {
   channelWindowThreadSummaries,
   type ChannelWindowThreadSummary,
@@ -186,10 +187,16 @@ export function ChannelScreen({
   }, [activeChannelId, openThreadHeadId]);
   const messagesQuery = useChannelMessagesQuery(activeChannel);
   const windowQuery = useChannelWindowQuery(activeChannel);
-  const threadRepliesQuery = useThreadReplies(
+  const { handleFindSearchHit, resolvedMessages } = useResolvedChannelMessages({
     activeChannel,
-    effectiveOpenThreadHeadId,
+    messages: messagesQuery.data,
+    targetMessageEvents,
+  });
+  const threadQueryRootId = React.useMemo(
+    () => resolveThreadQueryRootId(resolvedMessages, effectiveOpenThreadHeadId),
+    [effectiveOpenThreadHeadId, resolvedMessages],
   );
+  const threadRepliesQuery = useThreadReplies(activeChannel, threadQueryRootId);
   useChannelSubscription(activeChannel);
   const { fetchOlder, hasOlderMessages, historyExhausted, isFetchingOlder } =
     useFetchOlderMessages(activeChannel);
@@ -211,11 +218,6 @@ export function ChannelScreen({
   const deleteMessageMutation = useDeleteMessageMutation(activeChannel);
   const editMessageMutation = useEditMessageMutation(activeChannel);
   const joinChannelMutation = useJoinChannelMutation(activeChannelId);
-  const { handleFindSearchHit, resolvedMessages } = useResolvedChannelMessages({
-    activeChannel,
-    messages: messagesQuery.data,
-    targetMessageEvents,
-  });
   const threadReplyEvents = threadRepliesQuery.data ?? EMPTY_RELAY_EVENTS;
   const {
     entranceMessageId: welcomeEntranceMessageId,

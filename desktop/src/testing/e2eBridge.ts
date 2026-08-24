@@ -5135,40 +5135,17 @@ async function handleGetThreadReplies(
 
   let subtree: RelayEvent[];
   if (!identity) {
-    // Mock store: walk the reply forest transitively from the root so nested
-    // replies (reply-to-a-reply) are included, matching thread_metadata depth.
+    // Production `get_thread_replies` keys strictly on
+    // `thread_metadata.root_event_id`. Mirror that contract here: an
+    // intermediate reply is not itself a valid query root, even though the UI
+    // may use it as a focused presentation head.
     const events = args.channelId
       ? getMockMessageStore(args.channelId)
       : Array.from(mockMessages.values()).flat();
-    const byId = new Map(events.map((event) => [event.id, event]));
-    const root = byId.get(args.rootEventId);
-    const collected: RelayEvent[] = [];
-    const included = new Set<string>();
-    if (!root) {
-      subtree = collected;
-    } else {
-      const frontier = new Set<string>([root.id]);
-      for (;;) {
-        let added = false;
-        for (const event of events) {
-          if (included.has(event.id)) {
-            continue;
-          }
-          const ref = getThreadReferenceFromTags(event.tags);
-          if (!ref.parentEventId || !frontier.has(ref.parentEventId)) {
-            continue;
-          }
-          included.add(event.id);
-          collected.push(event);
-          frontier.add(event.id);
-          added = true;
-        }
-        if (!added) {
-          break;
-        }
-      }
-      subtree = collected;
-    }
+    subtree = events.filter(
+      (event) =>
+        getThreadReferenceFromTags(event.tags).rootEventId === args.rootEventId,
+    );
   } else {
     // Config mode: exercise the real bridge thread path over /query.
     const events = await relayQuery(config, [filter]);
