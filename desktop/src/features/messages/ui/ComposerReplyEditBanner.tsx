@@ -3,12 +3,16 @@ import { CornerUpLeft, Pencil, X } from "lucide-react";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 
+/* Lives INSIDE the composer card, above the text row — the card is the one
+ * box on screen, and reply/edit context is part of the message being made,
+ * not a second surface stacked on top. No border, no background: it inherits
+ * the card and separates by spacing alone. */
 const BANNER_CLASS =
-  "relative z-0 -mb-2 flex transform-gpu gap-2 rounded-t-lg border border-b-0 border-border bg-muted px-4 pb-4 pt-2.5 text-sm leading-5 text-muted-foreground transition-colors";
+  "flex gap-2 px-1 pb-2 pt-1 text-sm leading-5 text-muted-foreground";
 
 /**
- * The "Editing message" / "Replying to …" banner that sits above the composer
- * input. Edit takes precedence over reply (matching the composer's own
+ * The "Editing message" / "Replying to …" context row at the top of the
+ * composer card, above the text. Edit takes precedence over reply (matching the composer's own
  * `editTarget ? … : replyTarget ? …` ordering). Rendered as a sibling so
  * MessageComposer stays under the file-size guard; purely presentational.
  */

@@ -1012,12 +1012,6 @@ function MessageComposerImpl({
               open={isContextOpen}
             />
           ) : null}
-          <ComposerReplyEditBanner
-            isEditing={editTarget != null}
-            replyTarget={replyTarget}
-            onCancelEdit={onCancelEdit}
-            onCancelReply={onCancelReply}
-          />
           <form
             className="relative z-10 isolate rounded-xl border bg-muted px-3 py-2 transition-colors"
             data-testid="message-composer"
@@ -1036,6 +1030,12 @@ function MessageComposerImpl({
             }}
           >
             {ownsDropZone && media.isDragOver && <DropZoneOverlay />}
+            <ComposerReplyEditBanner
+              isEditing={editTarget != null}
+              replyTarget={replyTarget}
+              onCancelEdit={onCancelEdit}
+              onCancelReply={onCancelReply}
+            />
             <EmojiAutocomplete
               onSelect={applyEmojiInsert}
               selectedIndex={emojiAutocomplete.emojiSelectedIndex}

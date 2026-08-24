@@ -787,10 +787,12 @@
   background: hsl(var(--mn-raised));
   border-color: transparent;
   border-radius: 12px;
+  /* The frontier dose: present enough that its absence would flatten the
+   * card, quiet enough that nobody would name it. */
   box-shadow:
     var(--mn-lit-edge),
-    0 2px 6px rgb(0 0 0 / 0.14),
-    0 8px 24px rgb(0 0 0 / 0.16);
+    0 1px 2px rgb(0 0 0 / 0.08),
+    0 5px 14px rgb(0 0 0 / 0.09);
   min-height: 46px;
 }
 
