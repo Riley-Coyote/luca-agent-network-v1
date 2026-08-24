@@ -258,6 +258,26 @@ export interface ThemeResult {
  * from shipping unreadable meta text.
  */
 /**
+ * THE FOCUS RULE, which every palette below obeys: `focus` is the palette's
+ * OWN `inkFaint`, never a hue of its own.
+ *
+ * Focus in this system is the focused element's border moving toward the ink
+ * it is written in — brightening on a dark ground, darkening on paper. One
+ * sentence, and Paper falls out of it for free: its ink is near-black, so its
+ * focus darkens in place instead of inverting into a glow. Every palette here
+ * previously carried a saturated blue (`#60a5fa`, and `#1f5fc4` on Paper),
+ * which put an accent hue on a surface the system reserves for slate-as-signal
+ * and made keyboard focus the loudest colour on screen.
+ *
+ * `inkFaint` — not `ink`, not `inkGhost` — is the anchor because it is the
+ * QUIETEST ink role that still clears the 3:1 non-text contrast floor
+ * (WCAG 2.2 SC 1.4.11) against every surface on the palette's own ladder.
+ * Measured against the raised surface, the brightest thing focus lands on:
+ * Void 5.5:1 · Ash 6.1:1 · Slate 5.1:1 · Graphite 4.3:1 · Paper 5.9:1.
+ * `inkGhost` measures 2.7:1 on the same surfaces — visible, but under the bar,
+ * which is why the ladder stops here and not one rung lower.
+ */
+/**
  * Void — the original blackout ladder, exactly as it shipped as the default
  * before the Composite scale landed (2026-08-23). Pure black floor and all:
  * that violates the no-pure-black rule for defaults, but Void is chosen, not
@@ -277,7 +297,7 @@ export const VOID_THEME_COLORS = {
   inkMuted: "#b4b6b8",
   inkFaint: "#858788",
   inkGhost: "#626364",
-  focus: "#60a5fa",
+  focus: "#858788",
 } as const;
 
 /**
@@ -299,7 +319,7 @@ export const ASH_THEME_COLORS = {
   inkMuted: "#c4c3bf",
   inkFaint: "#97968f",
   inkGhost: "#706f6e",
-  focus: "#60a5fa",
+  focus: "#97968f",
 } as const;
 
 /**
@@ -322,7 +342,7 @@ export const INVERSE_THEME_COLORS = {
   inkMuted: "#c4c3bf",
   inkFaint: "#97968f",
   inkGhost: "#706f6e",
-  focus: "#60a5fa",
+  focus: "#97968f",
 } as const;
 
 export const GRAPHITE_THEME_COLORS = {
@@ -339,7 +359,7 @@ export const GRAPHITE_THEME_COLORS = {
   inkMuted: "#9d9da2",
   inkFaint: "#8a8a8f",
   inkGhost: "#5d5d62",
-  focus: "#d6d6d8",
+  focus: "#8a8a8f",
 } as const;
 
 /**
@@ -380,7 +400,7 @@ export const PAPER_THEME_COLORS = {
   inkMuted: "#3d4048",
   inkFaint: "#60646f",
   inkGhost: "#848892",
-  focus: "#1f5fc4",
+  focus: "#60646f",
 } as const;
 
 /**
@@ -771,7 +791,10 @@ export function createThemeVars(
       "--mn-ink-muted": mutedFg,
       "--mn-ink-faint": hexToHsl(inkFaintHex),
       "--mn-ink-ghost": hexToHsl(inkGhostHex),
-      "--mn-focus": textFg,
+      // Same focus rule as the authored palettes: the faint ink role, which
+      // is solved against this theme's own surfaces above. Full ink read as a
+      // hard white hairline around every focused control.
+      "--mn-focus": hexToHsl(inkFaintHex),
 
       // Backgrounds
       "--background": hexToHsl(primaryBg),

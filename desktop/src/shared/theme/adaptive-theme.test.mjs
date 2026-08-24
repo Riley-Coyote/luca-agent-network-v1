@@ -6,10 +6,13 @@ import {
   createGraphiteThemeVars,
   createLucaThemeVars,
   createThemeVars,
+  ASH_THEME_COLORS,
   GRAPHITE_THEME_COLORS,
   hexToHsl,
+  INVERSE_THEME_COLORS,
   luminance,
   PAPER_THEME_COLORS,
+  VOID_THEME_COLORS,
 } from "./adaptive-theme.ts";
 
 /**
@@ -189,4 +192,58 @@ test("Graphite preserves semantic colors and accessible secondary copy", () => {
   const contrast =
     (Math.max(surface, muted) + 0.05) / (Math.min(surface, muted) + 0.05);
   assert.ok(contrast >= 4.5, `secondary copy contrast was ${contrast}`);
+});
+
+/**
+ * THE FOCUS CONTRACT.
+ *
+ * Focus is the focused element's own edge moving toward the ink it is written
+ * in — never a hue of its own, and never quieter than a person can see. Two
+ * failures are guarded here, both of which shipped:
+ *
+ *   HUE. Every palette carried a saturated blue (`#60a5fa`, `#1f5fc4` on
+ *   Paper) while the system's only accent is slate-as-signal. A focus ring was
+ *   the most colourful thing on screen.
+ *
+ *   CONTRAST. The replacement cannot simply be quiet. WCAG 2.2 SC 1.4.11 puts
+ *   a 3:1 floor on a focus indicator against what it sits on, and the raised
+ *   surface — the brightest ground focus lands on in a dark palette — is the
+ *   worst case. `inkGhost` measures ~2.7:1 there, which is why the rule anchors
+ *   on `inkFaint` and not one rung lower.
+ */
+const FOCUS_INDICATOR_FLOOR = 3;
+
+test("every palette's focus is ink-derived, never an accent hue", () => {
+  for (const [name, palette] of [
+    ["Void", VOID_THEME_COLORS],
+    ["Ash", ASH_THEME_COLORS],
+    ["Inverse", INVERSE_THEME_COLORS],
+    ["Graphite", GRAPHITE_THEME_COLORS],
+    ["Paper", PAPER_THEME_COLORS],
+  ]) {
+    assert.equal(
+      palette.focus,
+      palette.inkFaint,
+      `${name}: focus must be the faint ink role, not a colour of its own`,
+    );
+
+    for (const [ground, groundName] of [
+      [palette.surface, "surface"],
+      [palette.floor, "floor"],
+      [palette.raised, "raised"],
+      [palette.hover, "hover"],
+    ]) {
+      const ratio = contrastRatio(palette.focus, ground);
+      assert.ok(
+        ratio >= FOCUS_INDICATOR_FLOOR,
+        `${name}: focus on ${groundName} is ${ratio.toFixed(2)}:1, under the 3:1 focus-indicator floor`,
+      );
+    }
+  }
+});
+
+test("a syntax-derived palette gets the same ink-derived focus", () => {
+  const { vars } = createThemeVars("#1e1e2e", "#cdd6f4", "#9399b2");
+  assert.equal(vars["--mn-focus"], vars["--mn-ink-faint"]);
+  assert.notEqual(vars["--mn-focus"], vars["--mn-ink"]);
 });

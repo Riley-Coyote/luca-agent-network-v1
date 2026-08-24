@@ -130,11 +130,14 @@ test("typed failures preserve sibling text and retry only the exact resident", a
   const codexResponse = page
     .locator("[data-managed-response-ui-key]")
     .filter({ hasText: "Codex partial survives." });
+  // The status line states the outcome; the Retry control below states the
+  // action. It used to say both, which put the word "Retry" on a paragraph
+  // nobody can press.
   await expect(
     claudeResponse.getByTestId("managed-response-status"),
-  ).toHaveText("Resident stopped unexpectedly · Retry");
+  ).toHaveText("Resident stopped unexpectedly");
   await expect(codexResponse.getByTestId("managed-response-status")).toHaveText(
-    "Response couldn’t be published · Retry",
+    "Response couldn’t be published",
   );
 
   await page.getByRole("button", { name: "Retry Claude Code" }).click();

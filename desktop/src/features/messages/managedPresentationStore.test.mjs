@@ -5,6 +5,7 @@ import {
   acknowledgeManagedPresentationReconciliation,
   completeManagedPresentation,
   completeManagedPresentationForConversation,
+  dismissManagedPresentationActivity,
   expireManagedPresentationDeadlinesForTests,
   flushManagedPresentationSchedulerForTests,
   getManagedPresentationActivitySnapshot,
@@ -549,29 +550,38 @@ describe("managedPresentationStore", () => {
     assert.equal(getManagedPresentationTurn(originalUiKey).sessionEpoch, 7);
   });
 
-  it("preserves visible partial text and discards unseen text on cancellation", () => {
+  it("a stopped turn keeps every grapheme it received, not only the painted ones", () => {
     seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
     ingestManagedPresentationFrame(frame("turn_started", 1));
     ingestManagedPresentationFrame(
       frame("public_chunk", 2, { public_chunk: "Partial backlog" }),
     );
+    // Two paint ticks of a fifteen-character chunk: the rest is received and
+    // verified but still queued behind the 40ms reveal cadence.
     flushManagedPresentationSchedulerForTests();
     flushManagedPresentationSchedulerForTests();
     assert.equal(turn().visibleText, "Part");
+    assert.equal(turn().bufferedText, "ial backlog");
 
     ingestManagedPresentationFrame(frame("cancelled", 3));
     assert.equal(turn().phase, "stopped");
-    assert.equal(turn().visibleText, "Part");
-    assert.equal(turn().receivedText, "Part");
+    // Stop is pressed mid-stream by design, so this is the ordinary case. The
+    // tail was already in hand; cutting it here would truncate the answer
+    // mid-word and then blame the runtime for it.
+    assert.equal(turn().visibleText, "Partial backlog");
+    assert.equal(turn().receivedText, "Partial backlog");
     assert.equal(turn().bufferedText, "");
+
+    // What arrives AFTER the turn ended is a different question, and still no.
     ingestManagedPresentationFrame(
       frame("public_chunk", 4, { public_chunk: "must stay discarded" }),
     );
     flushAll();
-    assert.equal(turn().visibleText, "Part");
+    assert.equal(turn().visibleText, "Partial backlog");
+    assert.equal(turn().receivedText, "Partial backlog");
   });
 
-  it("preserves visible partial text on failure", () => {
+  it("a failed turn keeps every grapheme it received", () => {
     seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
     ingestManagedPresentationFrame(frame("turn_started", 1));
     ingestManagedPresentationFrame(
@@ -579,12 +589,33 @@ describe("managedPresentationStore", () => {
     );
     flushManagedPresentationSchedulerForTests();
     flushManagedPresentationSchedulerForTests();
+    assert.equal(turn().visibleText, "Part");
+
     ingestManagedPresentationFrame(
       frame("failed", 3, { failure: "publication" }),
     );
     assert.equal(turn().phase, "failed");
     assert.equal(turn().failure, "publication");
-    assert.equal(turn().visibleText, "Part");
+    assert.equal(turn().visibleText, "Partial failure");
+    assert.equal(turn().receivedText, "Partial failure");
+    assert.equal(turn().bufferedText, "");
+  });
+
+  it("a turn that dies before its first paint still lands a row", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 2, { public_chunk: "Never painted" }),
+    );
+    // No paint tick at all — every grapheme is still queued.
+    assert.equal(turn().visibleText, "");
+    ingestManagedPresentationFrame(frame("failed", 3, { failure: "runtime" }));
+
+    // A response slot is granted only to a turn with visible text, so before
+    // the flush this turn had no row anywhere and its words were unreachable.
+    assert.equal(turn().visibleText, "Never painted");
+    flushManagedPresentationSchedulerForTests();
+    assert.equal(getManagedResponseSlotsSnapshot(conversationId).length, 1);
   });
 
   it("classifies exact signed reconciliation and retains the finalized turn", () => {
@@ -950,28 +981,104 @@ describe("managedPresentationStore", () => {
       0,
     );
     assert.equal(getManagedPresentationTurn(stopped.uiKey).phase, "stopped");
-    assert.equal(getManagedPresentationTurn(stopped.uiKey).visibleText, "Pa");
+    // The whole chunk, not the two graphemes that had been painted when Stop
+    // landed — which is what this test's own title always claimed.
+    assert.equal(
+      getManagedPresentationTurn(stopped.uiKey).visibleText,
+      "Partial response",
+    );
     disposeActivity();
     disposeRow();
   });
 
-  it("briefly projects needs-attention state and then expires only the activity", () => {
+  it("keeps a needs-attention turn actionable until the owner dismisses it", () => {
     seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
     const pending = turn();
     expireManagedPresentationDeadlinesForTests(pending.deadlineAt);
     flushManagedPresentationSchedulerForTests(pending.deadlineAt);
+    const attention =
+      getManagedPresentationActivitySnapshot(conversationId).get(
+        residentPubkey,
+      );
+    assert.equal(attention.phase, "needs_attention");
+
+    // Far past the brief acknowledgement window a stopped turn would have used.
+    const wellBeyondBrief = pending.deadlineAt + 60_000;
+    expireManagedPresentationDeadlinesForTests(wellBeyondBrief);
+    flushManagedPresentationSchedulerForTests(wellBeyondBrief);
     assert.equal(
       getManagedPresentationActivitySnapshot(conversationId).get(residentPubkey)
-        .phase,
+        ?.phase,
       "needs_attention",
+      "an unwitnessed failure must still be retryable minutes later",
     );
-    expireManagedPresentationDeadlinesForTests(pending.deadlineAt + 4_001);
-    flushManagedPresentationSchedulerForTests(pending.deadlineAt + 4_001);
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).get(residentPubkey)
+        .uiKey,
+      attention.uiKey,
+      "retry needs the same exact presentation identity it was offered with",
+    );
+
+    dismissManagedPresentationActivity(attention.uiKey, conversationId);
     assert.equal(
       getManagedPresentationActivitySnapshot(conversationId).size,
       0,
     );
     assert.equal(turn().phase, "needs_attention");
+  });
+
+  it("does not resurrect an outcome the owner already dismissed", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    const pending = turn();
+    expireManagedPresentationDeadlinesForTests(pending.deadlineAt);
+    flushManagedPresentationSchedulerForTests(pending.deadlineAt);
+    const { uiKey } =
+      getManagedPresentationActivitySnapshot(conversationId).get(
+        residentPubkey,
+      );
+    dismissManagedPresentationActivity(uiKey, conversationId);
+
+    replaceManagedPresentationReceipt(receiptId, "durable:receipt");
+    flushAll();
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).size,
+      0,
+      "republishing a dismissed turn must not bring its line back",
+    );
+  });
+
+  it("a retry supersedes the failure it was launched from", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(frame("failed", 2, { failure: "runtime" }));
+    flushAll();
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).get(residentPubkey)
+        .phase,
+      "failed",
+    );
+
+    const retryReceipt = "retry:after-failure";
+    seedManagedPresentations(conversationId, retryReceipt, [residentPubkey]);
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).get(residentPubkey)
+        .phase,
+      "thinking",
+    );
+
+    reconcileManagedPresentationFinal(
+      residentPubkey,
+      retryReceipt,
+      conversationId,
+      "retry-final",
+      "Second time lucky",
+    );
+    flushAll();
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).size,
+      0,
+      "the answered retry must not uncover the failure it replaced",
+    );
   });
 
   it("aggregates concurrent turns to one resident and reveals the surviving turn", () => {
@@ -1014,5 +1121,138 @@ describe("managedPresentationStore", () => {
       0,
     );
     dispose();
+  });
+
+  it("accumulates rich activity across a turn and keeps it after the answer", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    ingestManagedPresentationFrame(
+      frame("turn_started", 1, {
+        activity: {
+          kind: "web",
+          label: "Searching the web",
+          detail: "https://www.nodejs.org/docs",
+          status: "active",
+          step: 1,
+        },
+      }),
+    );
+    ingestManagedPresentationFrame(
+      frame("phase", 2, {
+        phase: "working",
+        activity: {
+          kind: "web",
+          label: "Searching the web",
+          detail: "https://www.nodejs.org/docs",
+          status: "done",
+          count: 8,
+          step: 1,
+        },
+      }),
+    );
+    ingestManagedPresentationFrame(
+      frame("phase", 3, {
+        phase: "working",
+        activity: {
+          kind: "file",
+          label: "Reading conversation-shell.css",
+          detail: "desktop/src/shared/styles/globals/conversation-shell.css",
+          step: 2,
+        },
+      }),
+    );
+    flushAll();
+
+    const live =
+      getManagedPresentationActivitySnapshot(conversationId).get(
+        residentPubkey,
+      );
+    assert.deepEqual(
+      live.steps.map((entry) => [entry.step, entry.kind, entry.status]),
+      [
+        [1, "web", "done"],
+        [2, "file", "active"],
+      ],
+    );
+    assert.equal(live.steps[0].count, 8);
+    assert.ok(live.startedAt > 0, "the wait has a desktop-clock anchor");
+
+    reconcileManagedPresentationFinal(
+      residentPubkey,
+      receiptId,
+      conversationId,
+      "final-1",
+      "Here is the answer.",
+    );
+    flushAll();
+    const settled =
+      getManagedPresentationActivitySnapshot(conversationId).get(
+        residentPubkey,
+      );
+    assert.ok(
+      settled,
+      "a narrated run keeps its work summary after the answer",
+    );
+    assert.equal(settled.settled, true);
+    assert.deepEqual(
+      settled.steps.map((entry) => entry.status),
+      ["done", "done"],
+      "a clean finish settles the step that was still running",
+    );
+  });
+
+  it("an un-narrated answer still takes its indicator away", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    flushAll();
+    reconcileManagedPresentationFinal(
+      residentPubkey,
+      receiptId,
+      conversationId,
+      "final-plain",
+      "No tools were harmed.",
+    );
+    flushAll();
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).size,
+      0,
+    );
+  });
+
+  it("ignores malformed activity without disturbing the turn", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    ingestManagedPresentationFrame(
+      frame("turn_started", 1, { activity: { label: 42, kind: 7 } }),
+    );
+    ingestManagedPresentationFrame(
+      frame("phase", 2, { phase: "writing", activity: "not an object" }),
+    );
+    flushAll();
+    const activity =
+      getManagedPresentationActivitySnapshot(conversationId).get(
+        residentPubkey,
+      );
+    assert.equal(activity.phase, "writing", "the turn advanced regardless");
+    assert.deepEqual(activity.steps, [], "nothing showable, nothing shown");
+  });
+
+  it("keeps an unfinished step unfinished when the runtime dies", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    ingestManagedPresentationFrame(
+      frame("turn_started", 1, {
+        activity: { kind: "command", label: "Running pnpm test", step: 1 },
+      }),
+    );
+    ingestManagedPresentationFrame(frame("failed", 2, { failure: "runtime" }));
+    flushAll();
+    const activity =
+      getManagedPresentationActivitySnapshot(conversationId).get(
+        residentPubkey,
+      );
+    assert.equal(activity.phase, "failed");
+    assert.equal(
+      activity.steps[0].status,
+      "active",
+      "a step that never finished must not be reported as done",
+    );
   });
 });

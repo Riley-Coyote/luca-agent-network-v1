@@ -324,6 +324,7 @@ mod tests {
             phase: None,
             public_chunk: None,
             failure: None,
+            activity: None,
         }
     }
 

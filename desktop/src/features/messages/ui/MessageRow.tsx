@@ -38,6 +38,8 @@ import {
   KIND_STREAM_MESSAGE_DIFF,
 } from "@/shared/constants/kinds";
 import { getConfigNudgeAuthorPubkey } from "@/features/messages/ui/configNudgeAuthPubkey";
+import { formatFullDateTime } from "@/features/messages/lib/dateFormatters";
+import { useIdentityQuery } from "@/shared/api/hooks";
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { useChannelNavigation } from "@/shared/context/ChannelNavigationContext";
@@ -66,6 +68,47 @@ import { UserAvatar } from "@/shared/ui/UserAvatar";
 const DiffMessage = React.lazy(() => import("./DiffMessage"));
 const DiffMessageExpanded = React.lazy(() => import("./DiffMessageExpanded"));
 const EMPTY_INTERRUPTED_RECEIPTS: ReadonlySet<string> = new Set();
+
+/**
+ * Which school the timeline draws the owner's turn in.
+ *
+ *   bubble   the owner's turn is a compact plate anchored right; the
+ *            resident keeps the full reading measure, the gutter mark and
+ *            the name row. A person's turns are short and gain from a
+ *            bubble's compactness; a resident's are documents — code,
+ *            tables, long prose — and need the whole measure.
+ *   surface  both turns stay left at full width and the owner's is set
+ *            apart by a quiet plate instead of by position.
+ *
+ * COMPARISON AFFORDANCE, not a product setting: `?anatomy=surface` in the
+ * URL switches schools so the two can be seen side by side in the lab. Read
+ * once at module load — the schools are not something the running app moves
+ * between, and re-reading per row would cost a URL parse on every render.
+ */
+type MessageAnatomy = "bubble" | "surface";
+
+function readMessageAnatomy(): MessageAnatomy {
+  if (typeof window === "undefined") return "bubble";
+  const { hash, search } = window.location;
+  // Hash routes carry their own query string; look in both so the switch
+  // works whichever entry point the lab was opened through.
+  const hashQuery = hash.includes("?") ? hash.slice(hash.indexOf("?")) : "";
+  const value =
+    new URLSearchParams(search).get("anatomy") ??
+    new URLSearchParams(hashQuery).get("anatomy");
+  return value === "surface" ? "surface" : "bubble";
+}
+
+const MESSAGE_ANATOMY: MessageAnatomy = readMessageAnatomy();
+
+/**
+ * How young a row must be, at its first render, to still count as landing.
+ * A mount alone cannot mean "just arrived" — the virtualized list remounts
+ * rows every time they scroll back into view, and animating those would make
+ * the whole history twitch. Five seconds is far longer than any send takes
+ * and far shorter than the gap to the previous session's messages.
+ */
+const OWN_ROW_LANDING_WINDOW_MS = 5_000;
 
 export type ThreadDepthGuideAction = {
   active?: boolean;
@@ -187,6 +230,23 @@ export const MessageRow = React.memo(
     const [badgeBurstEmoji, setBadgeBurstEmoji] = React.useState<string | null>(
       null,
     );
+    // Whose turn this is. The identity query is cached forever and shared by
+    // every consumer, so a row asking for it costs one subscription to a value
+    // that never changes — cheaper than threading a pubkey down through five
+    // components that have no other use for it.
+    const identityQuery = useIdentityQuery();
+    const ownerPubkey = identityQuery.data?.pubkey;
+    const isOwnMessage = Boolean(
+      ownerPubkey &&
+        message.pubkey &&
+        normalizePubkey(ownerPubkey) === normalizePubkey(message.pubkey),
+    );
+    const ownBubble = isOwnMessage && MESSAGE_ANATOMY === "bubble";
+    // Captured on the FIRST render only: a row that scrolls back into view
+    // must not re-land. See OWN_ROW_LANDING_WINDOW_MS.
+    const rowIsFresh = React.useRef(
+      Date.now() - message.createdAt * 1_000 < OWN_ROW_LANDING_WINDOW_MS,
+    ).current;
     const handleEntranceAnimationEnd = React.useCallback(
       (event: React.AnimationEvent<HTMLElement>) => {
         if (
@@ -472,6 +532,15 @@ export const MessageRow = React.memo(
     const showResidentMarkGutter = Boolean(
       residentMarksEnabled && message.pubkey,
     );
+    // Whether this row actually DRAWS something in the 21px mark column, as
+    // opposed to holding the slot open. A visit passage runs its connector
+    // through that column and reserves the mark's height as a gap, so a row
+    // that keeps the slot empty — a continuation, or the owner's own turn in
+    // the bubble school — has to be told apart from one that fills it, or the
+    // line breaks across it. Read from the reading plane by
+    // `message-anatomy.css`; see THE CONNECTOR THROUGH AN EMPTY SLOT there.
+    const paintsResidentMark =
+      showResidentMarkGutter && !isContinuation && !ownBubble;
     const guideBleedRem = isThreadReplyLayout ? 0.25 : 0;
     const authorNode = message.pubkey ? (
       <MessageAuthorText hoverUnderline>{message.author}</MessageAuthorText>
@@ -488,6 +557,10 @@ export const MessageRow = React.memo(
               ? "sm:top-0 sm:-translate-y-1/2"
               : "sm:top-1 sm:translate-y-0",
           )}
+          // The seam `message-anatomy.css` needs to give this pill a real
+          // elevation over the owner's plate. MessageActionBar takes no
+          // className, so the anchor has to sit on the wrapper.
+          data-message-action-bar
         >
           <MessageActionBar
             channelId={channelId}
@@ -516,24 +589,18 @@ export const MessageRow = React.memo(
         </div>
       );
 
-    const statusMetadataNode =
-      message.pending || message.edited ? (
-        <>
-          {message.pending ? (
-            <p className="font-medium uppercase tracking-caps-wide text-primary/80">
-              Sending
-            </p>
-          ) : null}
-          {message.edited ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <p className="text-ink-faint">(edited)</p>
-              </TooltipTrigger>
-              <TooltipContent>This message has been edited</TooltipContent>
-            </Tooltip>
-          ) : null}
-        </>
-      ) : null;
+    // Nothing marks a send in flight. The message is on screen — that is the
+    // feedback. The uppercase accent label that used to sit here fired on
+    // every message, spent the one signal colour on a non-event, and read as
+    // a warning. A slow send discloses itself elsewhere, on its own clock.
+    const statusMetadataNode = message.edited ? (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <p className="text-ink-faint">(edited)</p>
+        </TooltipTrigger>
+        <TooltipContent>This message has been edited</TooltipContent>
+      </Tooltip>
+    ) : null;
 
     const managedStatusNode = (() => {
       if (interruptedOwnerReceipt) {
@@ -556,8 +623,14 @@ export const MessageRow = React.memo(
         <p
           className={cn(
             "mt-1 text-xs",
+            // A recoverable state is not an alarm. This sentence sits in the
+            // reading column at full measure, and painting it `destructive`
+            // spent the system's one signal colour on a paragraph — the shape
+            // the canon allows on a status MARK and nowhere else. The
+            // resident's mark carries the hue; the sentence states the outcome
+            // in ink. Same division the activity shelf makes.
             status.tone === "attention"
-              ? "text-destructive"
+              ? "text-ink-muted"
               : "text-muted-foreground",
           )}
           data-testid="managed-response-status"
@@ -595,8 +668,11 @@ export const MessageRow = React.memo(
               : "thinking"))
         : // The "writing" phase can arrive a beat before the first chunk;
           // until words exist the row keeps a word rather than going bare.
+          // The runtime's own narration wins here for the same reason it wins
+          // above: it says what is being written, and the phase word only says
+          // that something is. Falls back when nothing was narrated.
           residentMarkLive === "writing" && message.body === ""
-          ? "writing"
+          ? (message.managedPresentation?.activityLabel ?? "writing")
           : null;
 
     // In a direct conversation the row is where a reply is stopped: one quiet
@@ -615,7 +691,20 @@ export const MessageRow = React.memo(
 
     const inlineMetadataNode = (
       <div className="flex shrink-0 items-baseline gap-2 text-xs">
-        <MessageTimestamp createdAt={message.createdAt} time={message.time} />
+        {/* The clock is available, not announced: it fades in when the row is
+            hovered or holds focus (see message-anatomy.css) and reserves its
+            box the rest of the time, so revealing it never moves a word.
+            Hover is a pointer-only gesture and reaches neither the keyboard
+            nor a screen reader, so the exact moment rides on `title` (the
+            accessible description) and on `datetime` — both readable whether
+            or not a pointer ever crosses the row. */}
+        <time
+          data-message-time
+          dateTime={new Date(message.createdAt * 1_000).toISOString()}
+          title={formatFullDateTime(message.createdAt)}
+        >
+          <MessageTimestamp createdAt={message.createdAt} time={message.time} />
+        </time>
         {authorVisiting ? (
           // Presence is lighter, words are equal: one whispered word after the
           // time is the only thing that marks a guest's message.
@@ -660,8 +749,12 @@ export const MessageRow = React.memo(
       ) : null;
 
     const headerNode = isContinuation ? null : (
-      <MessageHeaderRow>
-        {message.pubkey ? (
+      <MessageHeaderRow className="luca-msg-header">
+        {/* Anchored right, the owner's turn needs no name: position says whose
+            it is. The words stay in the markup — a screen reader still hears
+            who spoke — but the popover trigger goes, because an invisible
+            control that can still take focus is worse than no control. */}
+        {message.pubkey && !ownBubble ? (
           <UserProfilePopover
             pubkey={message.pubkey}
             role={profilePopoverRole}
@@ -755,6 +848,13 @@ export const MessageRow = React.memo(
     return (
       <div
         className="relative"
+        // On the row's outermost box, which the visit connector is matched
+        // against from the reading plane two levels up
+        // (`[data-visit-span] > div > this`). `message-anatomy.css` spells
+        // that depth out with `:has(> * > …)` rather than a loose descendant,
+        // so a quoted parent's nested row cannot satisfy it. If this box ever
+        // moves relative to the plane, that selector moves with it.
+        data-row-mark={paintsResidentMark ? "mark" : "none"}
         style={
           isThreadReplyLayout && indentRem > 0
             ? { paddingLeft: threadReplyLength(indentRem) }
@@ -923,6 +1023,15 @@ export const MessageRow = React.memo(
             playEntrance &&
               !message.managedPresentation &&
               "motion-enter-conversation",
+            // Your own words land; a resident's arrive. The blurred 500 ms
+            // entrance says "someone spoke" — news. Nothing about your own
+            // message is news, so it gets the shorter, unblurred one. That
+            // asymmetry is the grammar of the timeline, not a shortcut.
+            isOwnMessage &&
+              rowIsFresh &&
+              !playEntrance &&
+              !message.managedPresentation &&
+              "motion-land-own",
             "py-1.5",
             hoverBackground
               ? "mx-1 px-2 hover:bg-muted/45 focus-within:bg-muted/45"
@@ -937,6 +1046,8 @@ export const MessageRow = React.memo(
               ? "-mx-4 rounded-none px-6 before:absolute before:-inset-y-1.5 before:inset-x-0 before:animate-[route-target-highlight-fade_2s_ease-out_forwards] before:bg-primary/10 before:content-[''] motion-reduce:before:animate-none sm:-mx-6 sm:px-8"
               : "",
           )}
+          data-message-anatomy={MESSAGE_ANATOMY}
+          data-message-side={isOwnMessage ? "own" : "other"}
           data-message-id={message.id}
           data-managed-response-phase={message.managedPresentation?.phase}
           data-managed-final-reconciliation={
@@ -956,8 +1067,20 @@ export const MessageRow = React.memo(
             // 21 px: a multiple of the glyph's 7-cell edge, so the mark's cells
             // sit on whole pixels at 1x and 2x and the live mark can redraw the
             // resting glyph seamlessly. The person's disc shares the slot.
-            <span className="mt-0.5 flex w-[21px] shrink-0 justify-center">
-              {isContinuation ? (
+            // The slot stays occupied even when nothing is drawn in it. The
+            // visit passage measures its connector from this column — the line
+            // is centred on +22.5 px from the passage inset, derived from the
+            // article's own padding and this 21 px — so emptying the slot is
+            // fine but removing it would move a hairline that is checked to
+            // half a pixel.
+            <span
+              className="mt-0.5 flex w-[21px] shrink-0 justify-center"
+              data-message-mark
+            >
+              {isContinuation || ownBubble ? (
+                // Anchored right, the owner's turn says who it is by where it
+                // sits; a disc on the far left of the same row would be an
+                // orphan pointing back at a column the words no longer use.
                 <span aria-hidden className="size-[21px]" />
               ) : message.isAgent ? (
                 <ResidentIdentityMark
@@ -978,13 +1101,17 @@ export const MessageRow = React.memo(
               )}
             </span>
           ) : null}
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div
+            className="flex min-w-0 flex-1 flex-col gap-0.5"
+            data-message-column
+          >
             {headerNode}
             <div
               className={cn(
                 bodyContainerClass,
                 message.managedPresentation && "managed-response-content",
               )}
+              data-message-plate
             >
               {messageBodyNode}
             </div>

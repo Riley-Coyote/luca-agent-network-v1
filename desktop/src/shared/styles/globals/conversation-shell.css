@@ -49,21 +49,21 @@
    *   derive from the channel rule and convert.
    *
    * The old near-black ladder lives on as the Void theme, untouched. */
-  --mn-floor: 210.00 7.143% 5.490%;
-  --mn-navigator: 210.00 7.143% 5.490%;
-  --mn-surface: 210.00 3.571% 10.980%;
-  --mn-raised: 210.00 2.128% 18.431%;
-  --mn-hover: 210.00 1.786% 21.961%;
+  --mn-floor: 210 7.143% 5.490%;
+  --mn-navigator: 210 7.143% 5.490%;
+  --mn-surface: 210 3.571% 10.980%;
+  --mn-raised: 210 2.128% 18.431%;
+  --mn-hover: 210 1.786% 21.961%;
   /* The recess: the reply well opens below the ground (see the composer
    * rules). On the ladder, not below the floor. */
-  --mn-recess: 210.00 5.000% 7.843%;
+  --mn-recess: 210 5.000% 7.843%;
   /* Below the floor. Used only where a surface must read as a recess. */
-  --mn-glass: 210.00 10.000% 3.922%;
+  --mn-glass: 210 10.000% 3.922%;
   /* Aliases consumed by the semantic mappings in theme.css. */
-  --mn-surface-raised: 210.00 2.128% 18.431%;
-  --mn-surface-hover: 210.00 1.786% 21.961%;
-  --mn-border: 216.00 5.618% 17.451%;
-  --mn-border-strong: 216.00 4.505% 21.765%;
+  --mn-surface-raised: 210 2.128% 18.431%;
+  --mn-surface-hover: 210 1.786% 21.961%;
+  --mn-border: 216 5.618% 17.451%;
+  --mn-border-strong: 216 4.505% 21.765%;
   /* THE INK LADDER. Four roles, defined by the contrast each one holds
    * against the conversation surface rather than by a lightness that looked
    * right. Void sets the reference shape, and Paper is solved to reproduce it
@@ -96,7 +96,21 @@
   --mn-ink-muted: 45 4% 76%;
   --mn-ink-faint: 45 3% 58%;
   --mn-ink-ghost: 45 2% 44%;
-  --mn-focus: 213 94% 68%;
+  /* FOCUS IS NOT A COLOUR OF ITS OWN. It is the focused element's border
+   * moving toward the ink it is written in — brightening here, darkening on
+   * Paper. This was `213 94% 68%`, a saturated blue: an accent hue in a system
+   * whose only accent is slate-as-signal, and the loudest thing on screen the
+   * moment anyone touched Tab.
+   *
+   * The faint ink role is the anchor because it is the quietest ink the ladder
+   * has that still clears the 3:1 non-text contrast floor (WCAG 2.2 SC 1.4.11)
+   * on every surface focus can land on — 5.1:1 on the raised card, the
+   * brightest of them. The ghost role measures 2.7:1 there and is therefore
+   * one rung too quiet to carry a focus indicator.
+   *
+   * The per-palette twin of this value lives in `shared/theme/adaptive-theme.ts`;
+   * both obey the same rule. */
+  --mn-focus: var(--mn-ink-faint);
 
   /* The one light effect this system uses: a 1px lit top edge on raised
    * objects, simulating light from above catching the bevel. This is what
@@ -182,6 +196,76 @@
 
 :root[data-luca-shell]:not(.dark) {
   color-scheme: light;
+}
+
+/* ------------------------------------------------------------------
+ * THE FOCUS CONTRACT — shell-wide, and the whole of it.
+ *
+ * WHAT WAS ACTUALLY ON SCREEN. Not the Tailwind rings — one rule, in
+ * `theme.css` (search `:root[data-luca-shell] :focus-visible`), painting
+ * `outline: 2px solid var(--luca-shell-focus); outline-offset: 2px` on every
+ * focusable element in the app. Two pixels of saturated blue, held two pixels
+ * off the element, with the page showing through the gap. That is the ring in
+ * the capture. And because the rule is unlayered while Tailwind's utilities
+ * live in `@layer utilities`, it silently outranked the
+ * `focus-visible:outline-hidden` that a hundred components had already asked
+ * for — no specificity fight, layer order alone. Components could not opt out
+ * of it, which is why nobody noticed it was the source.
+ *
+ * WHAT REPLACES IT. The same idea the canon states: the element's own edge
+ * changes colour, in place. A 1px outline pulled INSIDE by its own width sits
+ * exactly where a border sits and follows the same corner radius, so it reads
+ * as the element gaining a hairline rather than as anything drawn around it.
+ * Keeping it universal is deliberate: focus stays guaranteed-visible on every
+ * focusable thing in the app, including the surfaces nobody has styled.
+ *
+ * `--mn-focus-edge` is the opt-out for objects whose ground is inverted — a
+ * near-white primary pill, where the faint ink role lands at 2.0:1 and fails
+ * the 3:1 floor for focus indicators. Such an element declares the ink its
+ * edge should move toward; everything else inherits the default.
+ *
+ * The type selector is load-bearing: it lifts this one notch above the
+ * `theme.css` rule so the override does not depend on import order. When the
+ * two files are next reconciled, delete that rule and drop the `*` here.
+ * ------------------------------------------------------------------ */
+:root[data-luca-shell] *:focus-visible {
+  outline: 1px solid var(--mn-focus-edge, hsl(var(--mn-focus)));
+  outline-offset: -1px;
+}
+
+/* No gap, anywhere. `ring-offset-*` pushes a ring away from the element and
+ * fills the space with the page colour — border, hole, ring: the exact shape
+ * this system does not have, spread across ~100 components that are not safe
+ * to edit one by one. Collapsing the offset while any focus state is live puts
+ * the ring back on the edge it belongs to. A ring drawn for something other
+ * than focus (a selected-state marker, say) never matches and is untouched. */
+:root[data-luca-shell] :is(:focus, :focus-visible, :focus-within) {
+  --tw-ring-offset-width: 0px;
+}
+
+/* And no second edge on the focused element itself, where the contract above
+ * has already drawn one — a `ring-1` there is the same line twice.
+ *
+ * Scoped to the element that HOLDS focus, deliberately. A container drawing a
+ * ring because a descendant is focused (`focus-within:ring-*`, `has-[…]:ring`)
+ * is making a different statement — this box is the one you are working in —
+ * and that statement is the canon's, so it stays. `--tw-ring-color` is
+ * registered `inherits: false`, so this cannot leak down into children. */
+:root[data-luca-shell] :is(:focus, :focus-visible) {
+  --tw-ring-color: transparent;
+}
+
+/* The two writing surfaces are the standing exception, and they asked for it
+ * first: a composer or a document editor shows focus by its CARD's border
+ * brightening, and the text area itself draws nothing — you should not be
+ * typing inside a box that has drawn a line around your own words. Both said
+ * so in `composer.css` already, and both were being overruled by the shell
+ * rule this contract replaces (their `outline: none` never won a specificity
+ * fight it did not know it was in). Restating it here keeps the new contract
+ * from repeating the old one's mistake. */
+:root[data-luca-shell]
+  :is(.rich-text-composer .tiptap, .resident-document-textarea):focus-visible {
+  outline: none;
 }
 
 :root[data-luca-shell] .luca-theme-shell-layer {
@@ -533,16 +617,6 @@
   color: hsl(var(--mn-ink));
 }
 
-:root[data-luca-shell]
-  :is(
-    .luca-project-icon-button,
-    .luca-project-room-row,
-    .luca-project-mobile-back
-  ):focus-visible {
-  outline: 2px solid hsl(var(--mn-focus));
-  outline-offset: -2px;
-}
-
 :root[data-luca-shell] .luca-project-room-search {
   align-items: center;
   background: hsl(var(--mn-raised));
@@ -841,9 +915,7 @@
  * paint a dark band across the tuck — which reads as the sheet curving away
  * beneath the card. With the deck itself carrying the depth, the card keeps
  * only its lit edge for the duration; alone, it keeps its full shadow. */
-:root[data-luca-shell]
-  .luca-sheet-deck
-  + [data-testid="message-composer"] {
+:root[data-luca-shell] .luca-sheet-deck + [data-testid="message-composer"] {
   /* Over the dark well the card needs no drop shadow (a soft shadow would
    * paint a gradient band across the tuck); its lit edge alone carries it. */
   box-shadow: var(--mn-lit-edge);

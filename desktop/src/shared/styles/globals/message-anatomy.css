@@ -7,4 +7,326 @@
  * how a domain can adjust a shell default without editing the shell.
  *
  * Owns: MessageRow and its immediate surface.
+ *
+ * ONE GEOMETRY IS OFF LIMITS HERE. The visit passage draws its connector
+ * from the row's own box: the hairline sits at the passage inset + 22.5px,
+ * which is the article's `mx-1` (4px) plus its `px-2` (8px) plus half the
+ * 21px mark column, and the line meets the mark 8px down, which is the
+ * article's `py-1.5` (6px) plus the mark's `mt-0.5` (2px). Both are checked
+ * to half a pixel by `scripts/lab-shots.mjs`. Nothing in this file may touch
+ * the article's own padding or margin, or the width of the mark column —
+ * a 4px change to `px-2` moves that hairline out of its column. Everything
+ * below therefore paints INSIDE the row, never around it.
  * ------------------------------------------------------------------ */
+
+:root {
+  /* Between `instant` (120ms, feedback) and `fast` (180ms, state change).
+   * A message landing is neither: it is a thing appearing where you already
+   * decided it would appear. Belongs in motion.css once the choreographer's
+   * token set lands; kept here so this domain does not reach into that file. */
+  --motion-duration-land: 160ms;
+}
+
+/* ------------------------------------------------------------------
+ * THE CONNECTOR THROUGH AN EMPTY SLOT
+ *
+ * The passage line is drawn per row in two segments with the mark's 21px
+ * reserved between them. That is right for a row that DRAWS a mark and wrong
+ * for one that only holds the slot open — a continuation, or the owner's own
+ * turn in the bubble school, where position says who it is and no disc is
+ * painted. Measured on the tail passage before this rule: the last row of the
+ * visit was the owner's, and it drew an 8px stub from its top edge down to a
+ * mark that does not exist, then stopped — 700px to the left of the message
+ * it belonged to, with a rounded cap floating in blank space. Two owner rows
+ * in a row turned the connector into a dashed line.
+ *
+ * So a row with an empty slot closes the gap: its lower segment starts where
+ * the upper one ended and the line simply passes through. The upper segment is
+ * deliberately untouched — its height is the measurement `lab-shots.mjs`
+ * checks the connector's meeting point by, and it stays exactly where it was.
+ * Nothing here touches the column's width or the article's padding either;
+ * only which pixels of the line get painted.
+ *
+ * `first` and `only` are the exception: they have nothing above them to
+ * continue, so a segment on an unmarked row would start in mid-air. They stay
+ * dark, and the line begins at the first row that has a mark to begin on.
+ * ------------------------------------------------------------------ */
+:root[data-luca-shell]
+  [data-luca-reading-plane][data-visit-span]:has(
+    > * > [data-row-mark="none"]
+  )::after {
+  display: block;
+  top: var(--mn-visit-mark-top, 8px);
+}
+
+:root[data-luca-shell]
+  [data-luca-reading-plane][data-visit-span="first"]:has(
+    > * > [data-row-mark="none"]
+  )::after,
+:root[data-luca-shell]
+  [data-luca-reading-plane][data-visit-span="only"]:has(
+    > * > [data-row-mark="none"]
+  )::after {
+  display: none;
+}
+
+/* The same argument at the other end of the passage. `first` and `only` stay
+ * dark because they have nothing ABOVE to continue; a mark-less `last` has
+ * nothing BELOW to reach, which is the same fault seen from the other side.
+ * BOTH its segments go dark, and the line ends on the last mark it actually
+ * had.
+ *
+ * Both halves are load-bearing, and each was measured wrong once. The upper
+ * segment drew an 8px stub from the row's top edge into blank space, rounded
+ * cap and all, ~700px left of the owner's plate it appeared to point at.
+ * Suppressing only that then exposed the other half: the pass-through rule
+ * above outranks the base `[data-visit-span="last"]::after { display: none }`,
+ * so the lower segment came back and ran to the row's bottom — past the end
+ * of the passage. A mark-less last row draws no connector at all.
+ *
+ * Only `display` changes. The segments keep their computed heights, which is
+ * the measurement `lab-shots.mjs` checks the connector's meeting point by. */
+:root[data-luca-shell]
+  [data-luca-reading-plane][data-visit-span="last"]:has(
+    > * > [data-row-mark="none"]
+  )::before,
+:root[data-luca-shell]
+  [data-luca-reading-plane][data-visit-span="last"]:has(
+    > * > [data-row-mark="none"]
+  )::after {
+  display: none;
+}
+
+/* ------------------------------------------------------------------
+ * THE CLOCK, ON DEMAND
+ *
+ * Every row carried its time at all times, which is how a column of six
+ * exchanges reads as a table of metadata rather than as talk. The time is
+ * still there — it fades in under the pointer and whenever anything in the
+ * row holds focus — and it never moves a word when it does, because it
+ * keeps its box the whole time and only opacity changes.
+ *
+ * Hover is a pointer gesture and reaches neither the keyboard nor a screen
+ * reader, so the moment also rides on the row's `<time datetime>` and its
+ * `title` — the exact instant is in the accessible layer whether or not it is
+ * painted. Day dividers are untouched: the reader still needs date anchors.
+ * ------------------------------------------------------------------ */
+:root[data-luca-shell] [data-message-time] {
+  opacity: 0;
+  transition: opacity var(--motion-duration-instant) var(--motion-ease-standard);
+}
+
+:root[data-luca-shell] [data-testid="message-row"]:hover [data-message-time],
+:root[data-luca-shell]
+  [data-testid="message-row"]:focus-within
+  [data-message-time] {
+  opacity: 1;
+}
+
+/* ------------------------------------------------------------------
+ * THE TWO SCHOOLS
+ *
+ * A person's turns are short; a resident's are documents — code, tables,
+ * long prose. So the default school compresses the owner's turn into a plate
+ * anchored at the right of the reading plane and leaves the resident's exactly
+ * as it was: full measure, gutter mark, name row.
+ *
+ * `?anatomy=surface` switches to the other school for comparison — both turns
+ * left at full width, the owner's set apart by a quiet plate. Both schools
+ * separate by POSITION and SHADE, so both survive a greyscale screenshot;
+ * neither leans on a hue.
+ * ------------------------------------------------------------------ */
+
+/* --- The bubble school (default) --------------------------------- */
+
+/* The turn lays out along one line instead of two: the plate takes the right
+   edge and the meta strip sits to its left, in the slack the plate leaves
+   behind. That is what buys the clock a home without costing the row a line of
+   height. Baselines, not box tops: the time then sits on the plate's first
+   line rather than floating above its padding. */
+:root[data-luca-shell]
+  [data-message-anatomy="bubble"][data-message-side="own"]
+  [data-message-column] {
+  align-items: baseline;
+  flex-direction: row;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+:root[data-luca-shell]
+  [data-message-anatomy="bubble"][data-message-side="own"]
+  [data-message-column]
+  > .luca-msg-header {
+  flex: 0 0 auto;
+}
+
+/* Your own name over your own words, in a room you are always in, is the
+   metadata the timeline can most afford to lose. Position says who it is.
+   Taken out of sight rather than out of the document: a screen reader still
+   reads the author of every turn, and `display: none` would also make the row
+   unwaitable for the tools that block on an author being on screen. */
+:root[data-luca-shell]
+  [data-message-anatomy="bubble"][data-message-side="own"]
+  [data-testid="message-author"] {
+  block-size: 1px;
+  clip-path: inset(50%);
+  inline-size: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+}
+
+/* THE PLATE. `--mn-raised` is the card step of the ladder — a full stop above
+   the conversation ground, legible at any screen brightness without an
+   outline. The lit top edge is the system's one light effect and is what
+   makes a flat fill read as an object. No tail: this is a document app, not
+   a messenger. */
+:root[data-luca-shell]
+  [data-message-anatomy="bubble"][data-message-side="own"]
+  [data-message-column]
+  > [data-message-plate] {
+  background: hsl(var(--mn-raised));
+  border-radius: 14px;
+  box-shadow: var(--mn-lit-edge);
+  flex: 0 1 auto;
+  /* The row's own `-mt-0.5` optically hangs a first line off an author name;
+     with the name gone the plate's padding does that work instead. */
+  margin-top: 0;
+  /* 72% of the reading MEASURE — of the column the words are set in, not of
+     whatever the window happens to be — capped at the column so a narrowed
+     window cannot push the plate past its own row. Wide enough for a
+     paragraph, short enough that the ragged right edge stays a shape whose
+     length the eye can read at a glance. */
+  max-width: min(100%, calc(var(--mn-reading-measure) * 0.72));
+  min-width: 0;
+  padding: 8px 14px;
+  transition: background-color var(--motion-duration-instant)
+    var(--motion-ease-standard);
+}
+
+/* The shell paints a hover band across the whole row. Under a right-anchored
+   plate that band is a full-measure rectangle around a small object — so the
+   row stays quiet and the plate itself lifts one step instead. */
+:root[data-luca-shell]
+  [data-message-anatomy="bubble"][data-message-side="own"]:hover,
+:root[data-luca-shell]
+  [data-message-anatomy="bubble"][data-message-side="own"]:focus-within {
+  background: transparent;
+}
+
+:root[data-luca-shell]
+  [data-message-anatomy="bubble"][data-message-side="own"]:hover
+  [data-message-column]
+  > [data-message-plate],
+:root[data-luca-shell]
+  [data-message-anatomy="bubble"][data-message-side="own"]:focus-within
+  [data-message-column]
+  > [data-message-plate] {
+  background: hsl(var(--mn-hover));
+}
+
+/* THE HOVER ACTIONS, OVER A PLATE. Everywhere else this pill floats over the
+   conversation ground and its near-background fill is fine. Over the owner's
+   plate it is not: measured, the pill sat 2 RGB from the plate it covered, so
+   the two merged and the pill read as a dent punched into the bubble rather
+   than an object above it — and it lands on the plate's top-right corner,
+   where the 14px radius and the lit edge are exactly what tells you the plate
+   is a plate.
+
+   The fix is elevation, which is what the pill was missing: one step past the
+   shade the plate itself takes on hover, plus a lit edge and a contact shadow.
+   `color-mix` off `--mn-hover` rather than a fixed grey because that keeps the
+   step in whatever direction the palette's ladder runs — 11 RGB above the
+   plate's hover shade in the four dark themes, 11 below it in Paper.
+
+   A floating overlay is the one place the canon licenses a hairline, and this
+   is one. `> * > *` is the pill: MessageActionBar takes no className, and its
+   root is a transparent hit-area wrapper around the single visible element. */
+:root[data-luca-shell]
+  [data-message-anatomy="bubble"][data-message-side="own"]
+  [data-message-action-bar]
+  > *
+  > * {
+  background-color: color-mix(
+    in srgb,
+    hsl(var(--mn-ink)) 6%,
+    hsl(var(--mn-hover))
+  );
+  border-color: hsl(var(--mn-ink) / 0.08);
+  box-shadow:
+    var(--mn-lit-edge),
+    0 1px 3px rgb(0 0 0 / 0.28);
+}
+
+/* --- The surface school (?anatomy=surface) ----------------------- */
+
+/* Both turns keep the left edge and the full measure; the owner's turn is
+   separated by the plate tint — ink at 3.5%, the one borderless group surface,
+   which holds its weight in every palette without a per-theme value.
+   Deliberately painted on the ROW, not on the body: name, mark and words then
+   sit inside one object, and the article's own padding — which the visit
+   connector is measured from — is left exactly as it was. */
+:root[data-luca-shell]
+  [data-message-anatomy="surface"][data-message-side="own"] {
+  background: var(--mn-plate);
+}
+
+:root[data-luca-shell]
+  [data-message-anatomy="surface"][data-message-side="own"]:hover,
+:root[data-luca-shell]
+  [data-message-anatomy="surface"][data-message-side="own"]:focus-within {
+  background: var(--mn-plate-hover);
+}
+
+/* ------------------------------------------------------------------
+ * LANDING
+ *
+ * A resident's turn ARRIVES: 500ms, blurred, from below — someone spoke, and
+ * that is news. Your own message is not news. It LANDS: the same direction,
+ * a third of the time, no blur, because it appears exactly where you already
+ * decided it would. Keeping the two apart is what lets the eye tell an
+ * answer from an echo without reading either.
+ * ------------------------------------------------------------------ */
+.motion-land-own {
+  animation: motion-land-own var(--motion-duration-land)
+    var(--motion-ease-standard) both;
+}
+
+@keyframes motion-land-own {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .motion-land-own {
+    animation-duration: 1ms;
+  }
+
+  @keyframes motion-land-own {
+    from,
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /* The clock still appears and the plate still lifts — they just stop
+     travelling there. Removing the state change entirely would cost the
+     information; removing the transition costs only the motion. */
+  :root[data-luca-shell] [data-message-time],
+  :root[data-luca-shell]
+    [data-message-anatomy="bubble"][data-message-side="own"]
+    [data-message-column]
+    > [data-message-plate] {
+    transition: none;
+  }
+}

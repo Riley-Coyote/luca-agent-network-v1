@@ -8,3 +8,396 @@
  *
  * Owns: ConversationAgentActivityStrip and its immediate surface.
  * ------------------------------------------------------------------ */
+
+/* --- The live line -------------------------------------------------------
+ * The shelf sits under a live answer, so everything here is quieter than the
+ * conversation it reports on: faint ink, no accent, no fill. Hierarchy inside
+ * the line comes from opacity role alone — label, then detail, then clock.
+ */
+
+:root[data-luca-shell] .luca-activity-item__state {
+  align-items: baseline;
+  display: flex;
+  gap: 6px;
+}
+
+/* THE LINE SITS ON THE ROW'S CENTRE, NOT ON ITS CEILING.
+ *
+ * A baseline group in a flex line packs to cross-START, and this button is
+ * 28px tall to carry its hit target — so the whole left half of the shelf was
+ * riding against the top edge while the pulse and the Stop/Retry control sat
+ * centred beside it. Measured in the shipped stylesheets on a 28px row: the
+ * resident's name 8.00px above the row's centre, the state label 7.50px above,
+ * control and pulse both 0.00. More than a quarter of the row's height, on the
+ * one line the eye reads left to right.
+ *
+ * `align-content: center` + `flex-wrap: wrap` is the textbook way to centre a
+ * baseline group, and it is wrong here: wrapping is decided from the items'
+ * hypothetical sizes BEFORE any shrinking, so a state line longer than the row
+ * dropped onto a second line inside a container still 28px tall. Measured that
+ * way — name −8.50, label +9.00, both clipped. It centres the common case by
+ * breaking the long one.
+ *
+ * Centring the items instead costs the shared baseline between the 12px name
+ * and the 11px state word: with `line-height: 1` on both, their baselines end
+ * up about 0.3px apart, which is a third of a device pixel at 1× and nothing
+ * at 2×. The detail and the clock still share a baseline with the label —
+ * `__state` keeps `align-items: baseline` — so the line the eye actually reads
+ * as one run of type is untouched.
+ */
+:root[data-luca-shell] .luca-activity-item__resident {
+  align-items: center;
+}
+
+:root[data-luca-shell] .luca-activity-item__label {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:root[data-luca-shell] .luca-activity-item__detail {
+  color: hsl(var(--mn-ink-faint) / 0.82);
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Paths and commands are read as objects; prose is read as a sentence. Mono
+ * is reserved for the object — the label above it is a sentence and takes the
+ * UI face, whether it is a phase word or a resident's own narration. */
+:root[data-luca-shell] .luca-activity-item__label,
+:root[data-luca-shell] .luca-activity-step__label,
+:root[data-luca-shell] .luca-activity-item__detail[data-mono="false"],
+:root[data-luca-shell] .luca-activity-step__detail[data-mono="false"] {
+  font-family: var(--font-ui);
+}
+
+/* Fixed-width and anchored right: the label beside it changes as the work
+ * changes, and a clock that slides with every new sentence is unreadable.
+ * The right padding keeps it from reading as a label on the Stop control. */
+:root[data-luca-shell] .luca-activity-item__elapsed {
+  color: hsl(var(--mn-ink-faint) / 0.7);
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  padding-inline: 10px 8px;
+}
+
+/* --- The ramp ------------------------------------------------------------
+ * The shelf's own stylesheet predates typography.css and sets its sizes as
+ * literals. Most land on the ramp by coincidence (11px = micro, 12px = label)
+ * but three do not: the step count and the step detail sit at 10px, below the
+ * smallest step the ramp has, and the state line carries 0.015em where micro
+ * is 0.005em. Three values is how a scale starts fragmenting again.
+ *
+ * Nothing here changes what the hierarchy is made of. The detail stays
+ * subordinate to its label the way the canon asks — by ink role and by face,
+ * `ink-faint / 0.78` in mono under `ink / 0.86` in the UI face — rather than
+ * by a size the ramp does not contain.
+ */
+:root[data-luca-shell] .luca-activity-item__state,
+:root[data-luca-shell] .luca-activity-item__steps,
+:root[data-luca-shell] .luca-activity-step,
+:root[data-luca-shell] .luca-activity-step__detail {
+  font-size: var(--type-micro-size);
+  letter-spacing: var(--type-micro-tracking);
+}
+
+:root[data-luca-shell] .luca-activity-item__name {
+  font-size: var(--type-label-size);
+  letter-spacing: var(--type-label-tracking);
+}
+
+/* The popover's heading is a resident's name and a count, both lowercase. It
+ * was carrying 0.04em — the air capitals need and lowercase does not. */
+:root[data-luca-shell] .luca-activity-popover__heading {
+  letter-spacing: var(--type-micro-tracking);
+}
+
+/* --- Persistent outcomes -------------------------------------------------
+ * A failure now waits for the owner instead of expiring, so it needs a way
+ * out that is present but not competing with Retry.
+ */
+
+/* THE SIGNAL IS THE MARK, NOT THE SENTENCE.
+ *
+ * The shelf paints the whole item `hsl(var(--destructive) / 0.84)` when a
+ * resident needs attention. Today that reaches almost nothing — every child in
+ * the line names its own ink — but it is one unstyled child away from a full
+ * row of saturated red, which is precisely the failure the timeline's own
+ * status line already has: a 591px flat run of `rgb(221,85,85)` in the reading
+ * column, where the canon allows colour on a status *mark* and nowhere else.
+ *
+ * So the row states the outcome in ink and the 5px pulse carries the hue. That
+ * is the pattern `agent-identity.css` argues for on the fault chip, and it is
+ * the one this shelf was already accidentally getting right. Made deliberate
+ * here, and made safe against the next child that forgets to name its colour.
+ */
+:root[data-luca-shell]
+  .luca-activity-item[data-activity-state="needs-attention"] {
+  color: hsl(var(--mn-ink-muted));
+}
+
+:root[data-luca-shell] .luca-activity-item__dismiss {
+  align-items: center;
+  /* At rest so the focus outline has a corner to follow. Declaring it only on
+   * focus made the shape of the control part of the state change. */
+  border-radius: 5px;
+  color: hsl(var(--mn-ink-ghost));
+  display: inline-flex;
+  flex: 0 0 auto;
+  justify-content: center;
+  min-height: 24px;
+  min-width: 24px;
+  opacity: 0;
+  pointer-events: auto;
+  transition:
+    color var(--motion-duration-instant) var(--motion-ease-standard),
+    opacity var(--motion-duration-instant) var(--motion-ease-standard);
+}
+
+/* Revealed on approach, but never hidden from the keyboard. */
+:root[data-luca-shell] .luca-activity-item:hover .luca-activity-item__dismiss,
+:root[data-luca-shell]
+  .luca-activity-item:focus-within
+  .luca-activity-item__dismiss,
+:root[data-luca-shell] .luca-activity-item__dismiss:focus-visible {
+  opacity: 1;
+}
+
+:root[data-luca-shell] .luca-activity-item__dismiss:hover {
+  color: hsl(var(--mn-ink));
+}
+
+/* --- Focus, drawn once ---------------------------------------------------
+ * THE FOCUS CONTRACT in conversation-shell.css already gives every focusable
+ * thing in the app one indicator: a 1px outline pulled inside by its own
+ * width, on the element's own edge, following its own radius. The shelf
+ * predates that contract and still asks for a second line of its own —
+ * `box-shadow: 0 0 0 1px`, which by definition sits OUTSIDE the border box.
+ *
+ * Measured on a focused Retry with the real stylesheets in their real order:
+ * `outline: 1px solid rgb(151,150,145)` at `-1px`, AND
+ * `box-shadow: rgb(151,150,145) 0 0 0 1px`. Two parallel hairlines a pixel
+ * apart, for one state — border, hole, ring, the exact shape this system does
+ * not have. The same rules also re-declared `border-radius: 5px` on focus, so
+ * the disclosure pill's corners went 6px → 5px the moment it was tabbed to:
+ * the control changed shape to say it had been reached.
+ *
+ * Both go. Where an element needs a corner for the outline to follow, it
+ * carries that corner at rest (above, and below).
+ */
+:root[data-luca-shell] .luca-activity-item__resident:focus-visible,
+:root[data-luca-shell] .luca-activity-item__action:focus-visible,
+:root[data-luca-shell] .luca-activity-disclosure:focus-visible,
+:root[data-luca-shell] .luca-activity-shelf__stop-all:focus-visible,
+:root[data-luca-shell] .luca-activity-popover__stop-all:focus-visible {
+  box-shadow: none;
+}
+
+/* The bare-text controls have no box of their own, so they take the corner
+ * here — one step inside the item's 6px, which is where an inner radius
+ * belongs. Rest and focus are listed together on purpose: the shelf declares
+ * the radius from inside its `:focus-visible` rule, which outranks any rest
+ * value, so stating one without the other is how the jump got in. */
+:root[data-luca-shell] .luca-activity-item__resident,
+:root[data-luca-shell] .luca-activity-item__resident:focus-visible,
+:root[data-luca-shell] .luca-activity-item__action,
+:root[data-luca-shell] .luca-activity-item__action:focus-visible,
+:root[data-luca-shell] .luca-activity-popover__stop-all,
+:root[data-luca-shell] .luca-activity-popover__stop-all:focus-visible {
+  border-radius: 5px;
+}
+
+/* The two pill controls already carry 6px at rest, and keep it when reached. */
+:root[data-luca-shell] .luca-activity-disclosure:focus-visible,
+:root[data-luca-shell] .luca-activity-shelf__stop-all:focus-visible {
+  border-radius: 6px;
+}
+
+/* --- The settled summary -------------------------------------------------
+ * A finished run keeps its record after the answer lands. It must read as
+ * past tense at a glance: no pulse, ghost ink, nothing to stop.
+ */
+
+:root[data-luca-shell] .luca-activity-item[data-activity-state="settled"] {
+  color: hsl(var(--mn-ink-faint));
+}
+
+:root[data-luca-shell]
+  .luca-activity-item[data-activity-state="settled"]
+  .luca-activity-pulse[data-state="settled"] {
+  /* The pulse's own "keep animating" rule in conversation-shell.css names the
+   * three states it stops for, and settled is not one of them. Matching its
+   * specificity exactly is what lets this later import win — dropping the
+   * `[data-state]` here silently loses by one and the finished run breathes. */
+  animation: none;
+  color: hsl(var(--mn-ink-ghost));
+  opacity: 0.5;
+}
+
+/* --- The work history ----------------------------------------------------
+ * One line per step, in step order, never reordered. The step count is the
+ * only thing the collapsed shelf shows; the lines live behind it.
+ */
+
+:root[data-luca-shell] .luca-activity-item__steps {
+  align-items: center;
+  background: var(--mn-plate);
+  border: 1px solid hsl(var(--mn-border-strong) / 0.9);
+  border-radius: 999px;
+  color: hsl(var(--mn-ink-faint));
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  justify-content: center;
+  line-height: 1;
+  min-height: 18px;
+  min-width: 18px;
+  outline: none;
+  padding-inline: 5px;
+  pointer-events: auto;
+  transition:
+    border-color var(--motion-duration-instant) var(--motion-ease-standard),
+    color var(--motion-duration-instant) var(--motion-ease-standard);
+}
+
+:root[data-luca-shell] .luca-activity-item__steps:hover {
+  background: var(--mn-plate-hover);
+  border-color: hsl(var(--mn-ink) / 0.18);
+  color: hsl(var(--mn-ink));
+}
+
+/* Focus brightens the element's own border in place. */
+:root[data-luca-shell] .luca-activity-item__steps:focus-visible {
+  border-color: hsl(var(--mn-ink) / 0.28);
+}
+
+:root[data-luca-shell] .luca-activity-steps__list {
+  display: grid;
+  gap: 3px;
+  max-height: 17rem;
+  overflow-y: auto;
+}
+
+:root[data-luca-shell] .luca-activity-step {
+  align-items: baseline;
+  color: hsl(var(--mn-ink-muted) / 0.78);
+  display: flex;
+  gap: 7px;
+  line-height: var(--type-micro-leading);
+  min-width: 0;
+  padding: 2px 3px;
+}
+
+:root[data-luca-shell] .luca-activity-step[data-status="active"] {
+  color: hsl(var(--mn-ink) / 0.86);
+}
+
+:root[data-luca-shell] .luca-activity-step[data-status="failed"] {
+  color: hsl(var(--destructive) / 0.8);
+}
+
+:root[data-luca-shell] .luca-activity-step__label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:root[data-luca-shell] .luca-activity-step__detail {
+  color: hsl(var(--mn-ink-faint) / 0.78);
+  flex: 1 1 auto;
+  font-family: var(--font-mono);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The mark carries status: a live step is lit, a settled one is a plain dot. */
+:root[data-luca-shell] .luca-activity-step__mark {
+  align-self: center;
+  background: currentColor;
+  border-radius: 999px;
+  flex: 0 0 4px;
+  height: 4px;
+  opacity: 0.55;
+  width: 4px;
+}
+
+/* Where a favicon would go. Reserved at its final size so a locally-sourced
+ * icon could appear later without moving a single character. */
+:root[data-luca-shell] .luca-activity-step__favicon {
+  align-self: center;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  flex: 0 0 8px;
+  height: 8px;
+  opacity: 0.45;
+  width: 8px;
+}
+
+:root[data-luca-shell]
+  .luca-activity-step[data-live="true"]
+  .luca-activity-step__mark,
+:root[data-luca-shell]
+  .luca-activity-step[data-live="true"]
+  .luca-activity-step__favicon {
+  opacity: 0.86;
+}
+
+/* Guarded by no-preference rather than switched off afterwards: an override
+ * would have to out-specify this selector, and a rule that only *tries* to
+ * respect reduced motion is worse than none. Here the motion never exists. */
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-luca-shell]
+    .luca-activity-step[data-live="true"]
+    .luca-activity-step__mark,
+  :root[data-luca-shell]
+    .luca-activity-step[data-live="true"]
+    .luca-activity-step__favicon {
+    animation: luca-activity-pulse 1.8s ease-in-out infinite;
+  }
+}
+
+/* A step still marked active under a turn that already ended never finished.
+ * It is not lit and it does not claim a count — it simply stopped there. */
+:root[data-luca-shell]
+  .luca-activity-step[data-status="active"][data-live="false"] {
+  color: hsl(var(--mn-ink-faint) / 0.72);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-luca-shell] .luca-activity-item__dismiss {
+    transition: none;
+  }
+
+  /* The shelf's own reduced-motion rule cannot reach the pulse: the rule that
+   * starts the animation carries three :not() clauses and out-specifies it, so
+   * the breathing dot kept breathing for everyone who asked it not to. Matched
+   * here clause for clause — measured, not assumed. */
+  :root[data-luca-shell]
+    .luca-activity-pulse:not([data-state="stopped"]):not(
+      [data-state="interrupted"]
+    ):not([data-state="needs-attention"]) {
+    animation: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root[data-luca-shell] .luca-activity-item__detail,
+  :root[data-luca-shell] .luca-activity-item__elapsed,
+  :root[data-luca-shell] .luca-activity-item__steps,
+  :root[data-luca-shell] .luca-activity-item__dismiss,
+  :root[data-luca-shell] .luca-activity-step,
+  :root[data-luca-shell] .luca-activity-step__detail {
+    color: hsl(var(--mn-ink));
+  }
+}

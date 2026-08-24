@@ -1,11 +1,22 @@
 import * as React from "react";
-import { RotateCcw, Square } from "lucide-react";
+import { RotateCcw, Square, X } from "lucide-react";
 
 import type { AgentActivity } from "@/features/agents/lib/activityPhase";
 import type { BotActivityAgent } from "@/features/channels/ui/BotActivityBar";
 import type { ChannelAgentSessionAgent } from "@/features/channels/ui/useChannelAgentSessions";
-import type { ManagedConversationActivity } from "@/features/messages/managedPresentationTypes";
-import { managedOperationalCopy } from "@/features/messages/lib/managedOperationalStatus";
+import type {
+  ManagedConversationActivity,
+  ManagedTurnActivityStep,
+} from "@/features/messages/managedPresentationTypes";
+import { dismissManagedPresentationActivity } from "@/features/messages/managedPresentationActivityStore";
+import {
+  managedActivityRunSummary,
+  managedActivityStepDetail,
+  managedActivityStepIsMono,
+  managedActivityStepLabel,
+  managedElapsedReadout,
+  managedOperationalCopy,
+} from "@/features/messages/lib/managedOperationalStatus";
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
@@ -15,10 +26,14 @@ import {
   type ActivityShelfRetryTarget,
   type ConversationActivityState,
   activityAnnouncementDelta,
+  activityLongWaitLabel,
   activityShelfRetryTarget,
   activityShelfOverflow,
+  activityWaitTier,
   conversationActivityLabel,
+  currentActivityStep,
   isTerminalConversationActivity,
+  nextActivityWaitChangeMs,
   reconcileActivityShelfSlots,
 } from "./conversationAgentActivityShelf";
 import { useResidentStopControl } from "./useResidentStopControl";
@@ -47,6 +62,9 @@ export type ConversationAgentActivityStripProps = {
   idleContent?: React.ReactNode;
 };
 
+/** Shared so an un-narrated item keeps one identity between renders. */
+const EMPTY_STEPS: readonly ManagedTurnActivityStep[] = [];
+
 type ActivityShelfItem = {
   key: string;
   name: string;
@@ -55,7 +73,38 @@ type ActivityShelfItem = {
   state: ConversationActivityState;
   canStop: boolean;
   detail: string | null;
+  /** Set only when the owner may close this line themselves. */
+  dismissUiKey: string | null;
+  /** Null when this line came from an observer phase with no managed turn
+   *  behind it: there is no honest clock to start, so none is shown. */
+  startedAt: number | null;
+  steps: readonly ManagedTurnActivityStep[];
 };
+
+/** A resident is still working; nothing has settled and nothing has failed. */
+function isLiveState(state: ConversationActivityState) {
+  return (
+    state === "waking" ||
+    state === "thinking" ||
+    state === "working" ||
+    state === "writing" ||
+    state === "finalizing" ||
+    state === "stopping"
+  );
+}
+
+/**
+ * Outcomes the owner has to close themselves. A stopped turn is excluded on
+ * purpose: the owner pressed Stop, so they already know, and the partial
+ * response stays in the timeline either way — that line may fade on its own.
+ */
+function isDismissableState(state: ConversationActivityState) {
+  return (
+    state === "settled" ||
+    state === "interrupted" ||
+    state === "needs-attention"
+  );
+}
 
 function stateForActivity(activity: AgentActivity | null | undefined) {
   switch (activity?.phase) {
@@ -93,9 +142,170 @@ function ActivityPulse({ state }: { state: ConversationActivityState }) {
   );
 }
 
+/**
+ * The shelf's only ticking clock.
+ *
+ * The clock lives in this leaf rather than in the strip so a passing second
+ * repaints one span — the item, the shelf, and the timeline above it all stay
+ * still. It runs only while the resident is live; a finished line has nothing
+ * left to count.
+ *
+ * And it wakes only when the line would actually read differently: a chained
+ * timeout to the next tier boundary while there is no clock on screen, then
+ * once a second once there is. A fixed interval spent its first ten wakes
+ * repainting identical words, in the ten seconds the resident is most likely
+ * to be streaming into the row directly above this one.
+ */
+function ActivityWait({
+  detail,
+  label,
+  mono,
+  startedAt,
+}: {
+  detail: string | null;
+  label: string;
+  mono: boolean;
+  startedAt: number;
+}) {
+  const [now, setNow] = React.useState(() => Date.now());
+  const elapsed = Math.max(0, now - startedAt);
+  // Scheduled from the elapsed value this render actually PAINTED, not from a
+  // fresh clock read, so the next wake lands where the line's own arithmetic
+  // says it should — and so each tick re-arms the one after it.
+  React.useEffect(() => {
+    const id = setTimeout(
+      () => setNow(Date.now()),
+      nextActivityWaitChangeMs(elapsed),
+    );
+    return () => clearTimeout(id);
+  }, [elapsed]);
+  const tier = activityWaitTier(elapsed);
+  // Under a few seconds the app does not narrate its own latency at all.
+  if (tier === "indicator")
+    return <span className="luca-activity-item__state" />;
+  const showElapsed = tier === "elapsed" || tier === "long";
+  return (
+    <span className="luca-activity-item__state">
+      <span className="luca-activity-item__label">
+        {tier === "long" ? activityLongWaitLabel(label) : label}
+      </span>
+      {detail ? (
+        <span
+          className="luca-activity-item__detail"
+          data-mono={mono ? "true" : "false"}
+        >
+          {detail}
+        </span>
+      ) : null}
+      {showElapsed ? (
+        <span className="luca-activity-item__elapsed">
+          {managedElapsedReadout(elapsed)}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/** One narrated step. Lines are placed by their ordinal and never move again;
+ *  a repeated ordinal updates in place, so nothing reorders under the eye. */
+function ActivityStepLine({
+  live,
+  step,
+}: {
+  live: boolean;
+  step: ManagedTurnActivityStep;
+}) {
+  const detail = managedActivityStepDetail(step);
+  return (
+    <div
+      className="luca-activity-step"
+      data-live={live && step.status === "active" ? "true" : "false"}
+      data-status={step.status}
+    >
+      {step.kind === "web" ? (
+        // A reserved, neutral mark rather than a favicon: fetching one would
+        // tell a third party which pages this conversation touched. The box is
+        // sized here so a locally-sourced icon could land without any shift.
+        <span aria-hidden="true" className="luca-activity-step__favicon" />
+      ) : (
+        <span aria-hidden="true" className="luca-activity-step__mark" />
+      )}
+      <span className="luca-activity-step__label">
+        {managedActivityStepLabel(step)}
+      </span>
+      {detail ? (
+        <span
+          className="luca-activity-step__detail"
+          data-mono={managedActivityStepIsMono(step.kind) ? "true" : "false"}
+        >
+          {detail}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/** The work history, kept out of the collapsed line but never discarded. */
+function ActivitySteps({ item }: { item: ActivityShelfItem }) {
+  const live = isLiveState(item.state);
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          aria-label={`What ${item.name} did: ${item.steps.length} ${
+            item.steps.length === 1 ? "step" : "steps"
+          }`}
+          className="luca-activity-item__steps"
+          type="button"
+        >
+          {item.steps.length}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        aria-label={`What ${item.name} did`}
+        className="luca-activity-popover luca-activity-steps w-96 p-2"
+        side="top"
+        sideOffset={8}
+      >
+        <div className="luca-activity-popover__heading">
+          <span>{item.name}</span>
+          <span>
+            {item.steps.length} {item.steps.length === 1 ? "step" : "steps"}
+          </span>
+        </div>
+        <div className="luca-activity-steps__list">
+          {item.steps.map((step) => (
+            <ActivityStepLine
+              key={`${step.step}:${step.label}`}
+              live={live}
+              step={step}
+            />
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * The settled state of a narrated run, or the plain phase word. Live turns do
+ * not resolve their text here — see `ActivityWait`, which decides how much to
+ * say based on how long the owner has been waiting.
+ */
+function settledStateLabel(item: ActivityShelfItem): string {
+  if (item.state === "settled") {
+    return managedActivityRunSummary(item.steps) ?? "Done";
+  }
+  if (item.state === "interrupted")
+    return conversationActivityLabel(item.state);
+  return item.detail ?? conversationActivityLabel(item.state);
+}
+
 function ActivityItem({
   compact = false,
   item,
+  onDismiss,
   onOpenResident,
   onRetryResident,
   onStop,
@@ -103,16 +313,15 @@ function ActivityItem({
 }: {
   compact?: boolean;
   item: ActivityShelfItem;
+  onDismiss: (item: ActivityShelfItem) => void;
   onOpenResident: (pubkey: string) => void;
   onRetryResident?: (target: ActivityShelfRetryTarget) => void;
   onStop: (pubkey: string) => void;
   replacement?: boolean;
 }) {
   const terminal = isTerminalConversationActivity(item.state);
-  const stateLabel =
-    item.state === "interrupted"
-      ? conversationActivityLabel(item.state)
-      : (item.detail ?? conversationActivityLabel(item.state));
+  const live = isLiveState(item.state);
+  const step = currentActivityStep(item.steps);
   return (
     <div
       className={cn(
@@ -132,8 +341,26 @@ function ActivityItem({
         type="button"
       >
         <span className="luca-activity-item__name">{item.name}</span>
-        <span className="luca-activity-item__state">{stateLabel}</span>
+        {live && item.startedAt !== null ? (
+          <ActivityWait
+            detail={step ? managedActivityStepDetail(step) : null}
+            label={
+              step
+                ? managedActivityStepLabel(step)
+                : conversationActivityLabel(item.state)
+            }
+            mono={step ? managedActivityStepIsMono(step.kind) : false}
+            startedAt={item.startedAt}
+          />
+        ) : (
+          <span className="luca-activity-item__state">
+            <span className="luca-activity-item__label">
+              {settledStateLabel(item)}
+            </span>
+          </span>
+        )}
       </button>
+      {item.steps.length > 0 ? <ActivitySteps item={item} /> : null}
       {item.retryTarget && onRetryResident ? (
         <button
           aria-label={`Retry ${item.name}`}
@@ -146,7 +373,7 @@ function ActivityItem({
           <RotateCcw aria-hidden="true" className="h-3 w-3" />
           <span>Retry</span>
         </button>
-      ) : !terminal ? (
+      ) : !terminal && item.state !== "settled" ? (
         <button
           aria-label={`Stop ${item.name}`}
           className="luca-activity-item__action"
@@ -158,6 +385,17 @@ function ActivityItem({
           <span>{item.state === "stopping" ? "Stopping" : "Stop"}</span>
         </button>
       ) : null}
+      {item.dismissUiKey ? (
+        <button
+          aria-label={`Dismiss ${item.name}`}
+          className="luca-activity-item__dismiss"
+          data-testid={`resident-activity-dismiss-${item.key}`}
+          onClick={() => onDismiss(item)}
+          type="button"
+        >
+          <X aria-hidden="true" className="h-3 w-3" />
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -165,6 +403,7 @@ function ActivityItem({
 function ActivityDisclosure({
   items,
   label,
+  onDismiss,
   onOpenResident,
   onRetryResident,
   onStop,
@@ -172,6 +411,7 @@ function ActivityDisclosure({
 }: {
   items: ActivityShelfItem[];
   label: string;
+  onDismiss: (item: ActivityShelfItem) => void;
   onOpenResident: (pubkey: string) => void;
   onRetryResident?: (target: ActivityShelfRetryTarget) => void;
   onStop: (pubkey: string) => void;
@@ -206,6 +446,7 @@ function ActivityDisclosure({
               compact
               item={item}
               key={item.key}
+              onDismiss={onDismiss}
               onOpenResident={onOpenResident}
               onRetryResident={onRetryResident}
               onStop={onStop}
@@ -336,13 +577,23 @@ export function ConversationAgentActivityStrip({
       const local = localStates.get(key);
       const presentation = presentationStates.get(key);
       const observed = stateForActivity(observerActivity.get(key));
-      const state =
+      const resolvedState =
         local ??
         presentation ??
         observed ??
         (isSessionReady(sessions.get(key)) ? "thinking" : "needs-attention");
       const pubkey = agent?.pubkey ?? key;
       const processActivity = presentationActivity.get(key);
+      // A retained work summary reports its turn's phase as "finalizing", and
+      // the presentation state is derived from that same phase — so the settled
+      // flag is the only thing that tells a finished run from a live one, and
+      // it has to outrank both. Reading the phase alone would leave a Stop
+      // button under an answer that already arrived. A local stop still wins:
+      // that is an owner action in flight, and it is about to be the truth.
+      const state =
+        processActivity?.settled && !local
+          ? ("settled" as const)
+          : resolvedState;
       items.set(key, {
         key,
         name: agent?.name ?? "Resident",
@@ -364,6 +615,12 @@ export function ConversationAgentActivityStrip({
                 processActivity?.phase ?? "thinking",
                 processActivity?.failure ?? null,
               )?.label ?? null),
+        dismissUiKey:
+          isDismissableState(state) && processActivity?.uiKey
+            ? processActivity.uiKey
+            : null,
+        startedAt: processActivity?.startedAt ?? null,
+        steps: processActivity?.steps ?? EMPTY_STEPS,
       });
     }
     return items;
@@ -415,6 +672,10 @@ export function ConversationAgentActivityStrip({
   ].slice(0, slotState.current.capacity);
   const overflowCount = activityShelfOverflow(slotState.current).length;
   const stoppableItems = orderedItems.filter((item) => item.canStop);
+  // A retained work summary is background information. Someone typing right
+  // now is not, so the settled row yields the shelf back for the duration.
+  const liveItems = orderedItems.filter((item) => item.state !== "settled");
+  const showIdleContent = liveItems.length === 0 && Boolean(idleContent);
 
   const handleStopResident = React.useCallback(
     (pubkey: string) => void stopResidents([pubkey]),
@@ -426,6 +687,19 @@ export function ConversationAgentActivityStrip({
       onRetryResident?.(target);
     },
     [clearLocalState, onRetryResident],
+  );
+  const handleDismissResident = React.useCallback(
+    (item: ActivityShelfItem) => {
+      if (!item.dismissUiKey) return;
+      // Both halves have to go, or the local stop state re-seeds the line the
+      // owner just closed.
+      clearLocalState(item.pubkey);
+      dismissManagedPresentationActivity(
+        item.dismissUiKey,
+        channelId ?? undefined,
+      );
+    },
+    [channelId, clearLocalState],
   );
   const handleStopAll = React.useCallback(
     () => void stopResidents(stoppableItems.map((item) => item.pubkey)),
@@ -453,20 +727,25 @@ export function ConversationAgentActivityStrip({
       className="luca-activity-shelf"
       data-active-count={orderedItems.length}
       data-state={
-        orderedItems.length > 0 ? "active" : idleContent ? "typing" : "idle"
+        showIdleContent
+          ? "typing"
+          : orderedItems.length > 0
+            ? "active"
+            : idleContent
+              ? "typing"
+              : "idle"
       }
       data-testid="conversation-activity-shelf"
     >
       <div className="luca-activity-shelf__inner">
-        {orderedItems.length === 0 && idleContent ? (
+        {showIdleContent ? (
           <div className="luca-activity-shelf__idle-content">{idleContent}</div>
         ) : null}
         <div
           className="luca-activity-shelf__slots"
           data-testid="conversation-activity-slots"
           style={{
-            visibility:
-              orderedItems.length === 0 && idleContent ? "hidden" : undefined,
+            visibility: showIdleContent ? "hidden" : undefined,
             gridTemplateColumns: `repeat(${Math.max(
               1,
               slotState.current.capacity,
@@ -483,6 +762,7 @@ export function ConversationAgentActivityStrip({
                 <ActivityItem
                   item={itemsByKey.get(slot.residentKey) as ActivityShelfItem}
                   key={slot.residentKey}
+                  onDismiss={handleDismissResident}
                   onOpenResident={onOpenResident}
                   onRetryResident={
                     onRetryResident ? handleRetryResident : undefined
@@ -499,6 +779,7 @@ export function ConversationAgentActivityStrip({
             <ActivityDisclosure
               items={orderedItems}
               label={`+${overflowCount} working`}
+              onDismiss={handleDismissResident}
               onOpenResident={onOpenResident}
               onRetryResident={
                 onRetryResident ? handleRetryResident : undefined
@@ -523,7 +804,12 @@ export function ConversationAgentActivityStrip({
           <div className="luca-activity-shelf__compact">
             <ActivityDisclosure
               items={orderedItems}
-              label={`${orderedItems.length} residents working`}
+              label={
+                liveItems.length > 0
+                  ? `${orderedItems.length} residents working`
+                  : `${orderedItems.length} residents`
+              }
+              onDismiss={handleDismissResident}
               onOpenResident={onOpenResident}
               onRetryResident={
                 onRetryResident ? handleRetryResident : undefined

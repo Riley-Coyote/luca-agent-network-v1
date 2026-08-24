@@ -79,6 +79,11 @@ type MessageComposerAudienceContext = {
 type MessageComposerProps = {
   audienceContext?: MessageComposerAudienceContext | null;
   channelId?: string | null;
+  /**
+   * Part of the caller-facing shape; nothing in the composer reads it. The
+   * placeholder deliberately does not name the room — the header already
+   * does, and a group room has no name worth printing ("ziggy, Luca").
+   */
   channelName: string;
   channelType?: ChannelType | null;
   conversationContext?: ConversationContextComposerConfig | null;
@@ -158,7 +163,6 @@ type MessageComposerProps = {
 function MessageComposerImpl({
   audienceContext = null,
   channelId = null,
-  channelName,
   channelType = null,
   conversationContext = null,
   containerClassName,
@@ -295,6 +299,7 @@ function MessageComposerImpl({
   const onEditSaveRef = React.useRef(onEditSave);
   const onEditLastOwnMessageRef = React.useRef(onEditLastOwnMessage);
   const editTargetRef = React.useRef(editTarget);
+  const replyTargetRef = React.useRef(replyTarget);
   const extractMentionPubkeysRef = React.useRef(mentions.extractMentionPubkeys);
   const ownerPubkeyRef = React.useRef(ownerPubkey);
   disabledRef.current = disabled;
@@ -304,6 +309,7 @@ function MessageComposerImpl({
   onEditSaveRef.current = onEditSave;
   onEditLastOwnMessageRef.current = onEditLastOwnMessage;
   editTargetRef.current = editTarget;
+  replyTargetRef.current = replyTarget;
   extractMentionPubkeysRef.current = mentions.extractMentionPubkeys;
   ownerPubkeyRef.current = ownerPubkey;
 
@@ -335,12 +341,12 @@ function MessageComposerImpl({
     });
   }, []);
 
-  const computedPlaceholder = editTarget
-    ? "Edit your message"
-    : (placeholder ??
-      (replyTarget
-        ? `Reply to ${replyTarget.author} in #${channelName}`
-        : `Message ${channelName}`));
+  // One string, every conversation type. Naming the room here said it twice
+  // (the header already does) and turned group rooms into "Message ziggy,
+  // Luca"; reply and edit are named by the recess sitting directly above the
+  // card. The prop stays for a caller with a genuine gate to announce
+  // ("Choose a recipient…"), not for naming the room.
+  const computedPlaceholder = placeholder ?? "Message…";
 
   const richText = useRichTextEditor({
     placeholder: computedPlaceholder,
@@ -836,10 +842,20 @@ function MessageComposerImpl({
         return;
       }
 
-      // Escape in edit mode
+      // Escape closes whatever is attached to the composer, and only that. It
+      // takes the edit target first because editing is the state the composer
+      // is *in* — leaving it restores the draft — while a reply is a target
+      // the draft is merely pointed at. Either way the words you have typed
+      // survive: Escape dismisses the attachment, never the message.
       if (event.key === "Escape" && editTargetRef.current && onCancelEdit) {
         event.preventDefault();
         onCancelEdit();
+        return;
+      }
+
+      if (event.key === "Escape" && replyTargetRef.current && onCancelReply) {
+        event.preventDefault();
+        onCancelReply();
         return;
       }
     },
@@ -853,6 +869,7 @@ function MessageComposerImpl({
       linkEditor.isCardOpen,
       linkEditor.focusCardFirstControl,
       onCancelEdit,
+      onCancelReply,
     ],
   );
 
@@ -1018,8 +1035,13 @@ function MessageComposerImpl({
             onCancelEdit={onCancelEdit}
             onCancelReply={onCancelReply}
           />
+          {/* The card carries no `transition-colors`: that moves ten
+           * properties at once, and on this card only the focus border is
+           * allowed to move — the background must hold still and the height
+           * must never ease. The one border-color transition it does want
+           * lives in composer-states.css. */}
           <form
-            className="relative z-10 isolate rounded-xl border bg-muted px-3 py-2 transition-colors"
+            className="relative z-10 isolate rounded-xl border bg-muted px-3 py-2"
             data-testid="message-composer"
             onDragEnter={ownsDropZone ? media.handleDragEnter : undefined}
             onDragLeave={ownsDropZone ? media.handleDragLeave : undefined}
@@ -1122,22 +1144,24 @@ function MessageComposerImpl({
               >
                 <EditorContent editor={richText.editor} />
               </div>
+              {/* Armed or disarmed — that is the button's whole vocabulary.
+               * A send is not information: the user caused it, and the
+               * message appearing in the timeline is the confirmation. A
+               * spinner here would announce, in peripheral vision, something
+               * they already know they did. The arrow stays, always, and the
+               * button never moves or changes size. Armed, the glyph is cut
+               * to the card's own shade, so it reads as a hole punched
+               * through the ink rather than a second colour. Arm/disarm
+               * timing is in composer-states.css. */}
               <Button
                 aria-label={isSending ? "Sending" : "Send message"}
-                className="mb-0.5 size-7 shrink-0 rounded-full bg-ink text-background shadow-none hover:bg-ink/90 disabled:bg-plate disabled:text-ink-ghost disabled:opacity-100"
+                className="mb-0.5 size-7 shrink-0 rounded-full bg-ink text-muted shadow-none hover:bg-ink/90 disabled:bg-plate disabled:text-ink-ghost disabled:opacity-100"
                 data-testid="send-message"
                 disabled={sendDisabled || isSending}
                 size="icon"
                 type="submit"
               >
-                {isSending ? (
-                  <span
-                    aria-hidden
-                    className="size-3.5 animate-spin rounded-full border border-current border-t-transparent"
-                  />
-                ) : (
-                  <ArrowUp aria-hidden className="size-3.5" />
-                )}
+                <ArrowUp aria-hidden className="size-3.5" />
               </Button>
             </div>
           </form>

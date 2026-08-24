@@ -5,9 +5,12 @@
 use std::{collections::HashMap, sync::Arc};
 
 use luca_protocol::{
-    Hex64, ManagedPresentationFailureV1, ManagedPresentationFrameV1, ManagedPresentationKindV1,
-    ManagedPresentationPhaseV1, OpaqueId, SafeU53, MANAGED_PRESENTATION_PROTOCOL,
-    MAX_MANAGED_PRESENTATION_CHUNK_BYTES, MAX_MANAGED_PRESENTATION_FRAME_BYTES,
+    Hex64, ManagedPresentationActivityKindV1, ManagedPresentationActivityStatusV1,
+    ManagedPresentationActivityV1, ManagedPresentationFailureV1, ManagedPresentationFrameV1,
+    ManagedPresentationKindV1, ManagedPresentationPhaseV1, OpaqueId, SafeU53,
+    MANAGED_PRESENTATION_PROTOCOL, MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES,
+    MAX_MANAGED_PRESENTATION_ACTIVITY_LABEL_BYTES, MAX_MANAGED_PRESENTATION_CHUNK_BYTES,
+    MAX_MANAGED_PRESENTATION_FRAME_BYTES,
 };
 use tokio::io::AsyncWriteExt;
 
@@ -41,6 +44,7 @@ struct TurnState {
     sequence: u64,
     phase: Option<ManagedPresentationPhaseV1>,
     public_text: PublicTextStream,
+    activity: ActivityLedger,
     terminal_emitted: bool,
 }
 
@@ -222,6 +226,7 @@ impl ManagedPresentationPublisher {
                     sequence: 0,
                     phase: None,
                     public_text: PublicTextStream::default(),
+                    activity: ActivityLedger::default(),
                     terminal_emitted: false,
                 };
                 self.emit(
@@ -264,13 +269,33 @@ impl ManagedPresentationPublisher {
                             }
                         }
                     }
-                    Some("tool_call" | "tool_call_update" | "plan") => {
+                    Some(marker @ ("tool_call" | "tool_call_update" | "plan")) => {
                         // Public text that resumes after this marker starts a
                         // new paragraph instead of gluing onto the sentence
                         // written before the tool call.
                         state.public_text.mark_boundary();
-                        self.emit_phase(state, ManagedPresentationPhaseV1::Working)
-                            .await;
+                        // A step the runtime named gets its own line; a plan,
+                        // or a runtime that named nothing, leaves the phase
+                        // word to speak for itself exactly as before.
+                        let named = match marker {
+                            "tool_call" => state.activity.start(update),
+                            "tool_call_update" => state.activity.settle(update),
+                            _ => None,
+                        };
+                        match named {
+                            Some(activity) => {
+                                self.emit_activity(
+                                    state,
+                                    ManagedPresentationPhaseV1::Working,
+                                    activity,
+                                )
+                                .await;
+                            }
+                            None => {
+                                self.emit_phase(state, ManagedPresentationPhaseV1::Working)
+                                    .await;
+                            }
+                        }
                     }
                     _ => {}
                 }
@@ -401,6 +426,28 @@ impl ManagedPresentationPublisher {
         .await;
     }
 
+    /// Emit one named step.
+    ///
+    /// Unlike [`Self::emit_phase`] this never dedupes: two file reads in a row
+    /// are two lines even though the phase word beneath them never moved.
+    async fn emit_activity(
+        &self,
+        state: &mut TurnState,
+        phase: ManagedPresentationPhaseV1,
+        activity: ManagedPresentationActivityV1,
+    ) {
+        state.phase = Some(phase);
+        self.emit_frame(
+            state,
+            ManagedPresentationKindV1::Phase,
+            Some(phase),
+            None,
+            None,
+            Some(activity),
+        )
+        .await;
+    }
+
     async fn emit(
         &self,
         state: &mut TurnState,
@@ -408,6 +455,19 @@ impl ManagedPresentationPublisher {
         phase: Option<ManagedPresentationPhaseV1>,
         public_chunk: Option<String>,
         failure: Option<ManagedPresentationFailureV1>,
+    ) {
+        self.emit_frame(state, kind, phase, public_chunk, failure, None)
+            .await;
+    }
+
+    async fn emit_frame(
+        &self,
+        state: &mut TurnState,
+        kind: ManagedPresentationKindV1,
+        phase: Option<ManagedPresentationPhaseV1>,
+        public_chunk: Option<String>,
+        failure: Option<ManagedPresentationFailureV1>,
+        activity: Option<ManagedPresentationActivityV1>,
     ) {
         state.sequence = state.sequence.saturating_add(1);
         let Ok(sequence) = SafeU53::new(state.sequence) else {
@@ -425,6 +485,7 @@ impl ManagedPresentationPublisher {
             phase,
             public_chunk,
             failure,
+            activity,
         };
         if frame.validate().is_err() {
             return;
@@ -467,6 +528,407 @@ fn bounded_chunks(value: &str) -> Vec<String> {
         remaining = &remaining[end..];
     }
     parts
+}
+
+/// Activity steps tracked for one turn before the harness stops assigning
+/// ordinals. A runtime that opens more tool calls than this in a single turn
+/// keeps working; its later steps simply fall back to the phase word.
+const MAX_TRACKED_ACTIVITY_STEPS: usize = 256;
+
+/// One turn's activity ledger, keyed by ACP `toolCallId` so a settling update
+/// lands on the line its start frame opened instead of appending a new one.
+#[derive(Default)]
+struct ActivityLedger {
+    next_step: u64,
+    open: HashMap<String, OpenActivityStep>,
+}
+
+struct OpenActivityStep {
+    step: u64,
+    kind: ManagedPresentationActivityKindV1,
+    label: String,
+    detail: Option<String>,
+}
+
+impl ActivityLedger {
+    /// Translate a `tool_call` into the step that opens its line.
+    ///
+    /// Returns `None` when the runtime reported nothing we can name — the
+    /// caller then falls back to the phase word rather than inventing one.
+    fn start(&mut self, update: &serde_json::Value) -> Option<ManagedPresentationActivityV1> {
+        if self.open.len() >= MAX_TRACKED_ACTIVITY_STEPS {
+            return None;
+        }
+        let kind = activity_kind(update);
+        let detail = activity_detail(kind, update);
+        let label = activity_label(kind, update, detail.as_deref())?;
+        self.next_step = self.next_step.saturating_add(1);
+        let step = self.next_step;
+        if let Some(tool_call_id) = tool_call_id(update) {
+            self.open.insert(
+                tool_call_id,
+                OpenActivityStep {
+                    step,
+                    kind,
+                    label: label.clone(),
+                    detail: detail.clone(),
+                },
+            );
+        }
+        Some(ManagedPresentationActivityV1 {
+            label,
+            kind,
+            detail,
+            status: Some(ManagedPresentationActivityStatusV1::Active),
+            count: None,
+            step: SafeU53::new(step).ok(),
+        })
+    }
+
+    /// Translate a `tool_call_update` into the step that closes its line.
+    ///
+    /// Only a terminal status settles: an `in_progress` update carries nothing
+    /// the owner has not already seen, and emitting one per update would turn
+    /// a single step into a stream of identical lines.
+    fn settle(&mut self, update: &serde_json::Value) -> Option<ManagedPresentationActivityV1> {
+        let status = match update.get("status").and_then(serde_json::Value::as_str)? {
+            "completed" => ManagedPresentationActivityStatusV1::Done,
+            "failed" => ManagedPresentationActivityStatusV1::Failed,
+            _ => return None,
+        };
+        let opened = tool_call_id(update).and_then(|id| self.open.remove(&id));
+        let (step, kind, label, detail) = match opened {
+            Some(opened) => (Some(opened.step), opened.kind, opened.label, opened.detail),
+            // A runtime that reports the completion without a matching start
+            // still gets a line, built from the update itself.
+            None => {
+                let kind = activity_kind(update);
+                let detail = activity_detail(kind, update);
+                let label = activity_label(kind, update, detail.as_deref())?;
+                (None, kind, label, detail)
+            }
+        };
+        Some(ManagedPresentationActivityV1 {
+            label,
+            kind,
+            detail,
+            status: Some(status),
+            count: activity_count(update),
+            step: step.and_then(|step| SafeU53::new(step).ok()),
+        })
+    }
+}
+
+fn tool_call_id(update: &serde_json::Value) -> Option<String> {
+    let value = update.get("toolCallId")?.as_str()?;
+    // Long enough for every adapter id in this tree; short enough that a
+    // runtime cannot grow the per-turn ledger with the key alone.
+    (!value.is_empty() && value.len() <= 128).then(|| value.to_owned())
+}
+
+/// Classify one step from what the runtime reported.
+///
+/// The ACP `kind` field (`read`/`edit`/`search`/`execute`/`fetch`/`think`/…)
+/// is the first source. Runtimes that put a bare tool name there instead — or
+/// that only report a name — are covered by the same table, which is why it
+/// carries both vocabularies. Anything unrecognised is `Other`, never a guess.
+fn activity_kind(update: &serde_json::Value) -> ManagedPresentationActivityKindV1 {
+    for field in ["kind", "toolName", "title"] {
+        let Some(text) = update.get(field).and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        for token in tool_tokens(text) {
+            if let Some(kind) = activity_kind_for_token(&token) {
+                return kind;
+            }
+        }
+    }
+    ManagedPresentationActivityKindV1::Other
+}
+
+/// Reduce a runtime's tool label to the tokens worth classifying: the whole
+/// normalized name first, then its trailing one or two segments, which is how
+/// an MCP name (`mcp__brave__web_search`, `mcp.luca-artifacts-0a.artifact_create`)
+/// gives up the leaf tool it actually is.
+fn tool_tokens(value: &str) -> Vec<String> {
+    let normalized: String = value
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let parts: Vec<&str> = normalized
+        .split('_')
+        .filter(|part| !part.is_empty())
+        .collect();
+    let mut tokens = vec![parts.join("_")];
+    if parts.len() > 2 {
+        tokens.push(parts[parts.len() - 2..].join("_"));
+    }
+    if parts.len() > 1 {
+        tokens.push(parts[parts.len() - 1].to_owned());
+    }
+    tokens.retain(|token| !token.is_empty());
+    tokens
+}
+
+fn activity_kind_for_token(token: &str) -> Option<ManagedPresentationActivityKindV1> {
+    let kind = match token {
+        // ACP ToolKind, as the spec names it.
+        "read" | "edit" | "delete" | "move" => ManagedPresentationActivityKindV1::File,
+        "search" => ManagedPresentationActivityKindV1::Search,
+        "execute" => ManagedPresentationActivityKindV1::Command,
+        "fetch" => ManagedPresentationActivityKindV1::Web,
+        "think" => ManagedPresentationActivityKindV1::Thinking,
+        // Tool names, as the runtimes in this tree actually report them.
+        "read_file" | "write_file" | "write" | "str_replace" | "str_replace_editor"
+        | "apply_patch" | "edit_file" | "create_file" | "view_image" | "notebook_edit" => {
+            ManagedPresentationActivityKindV1::File
+        }
+        "grep" | "glob" | "find" | "codebase_search" => ManagedPresentationActivityKindV1::Search,
+        "shell" | "bash" | "run" | "run_command" | "terminal" | "exec" | "command" => {
+            ManagedPresentationActivityKindV1::Command
+        }
+        "web_search" | "websearch" | "web_fetch" | "webfetch" | "browse" | "fetch_url"
+        | "url_fetch" | "http_fetch" => ManagedPresentationActivityKindV1::Web,
+        "reason" | "thinking" | "thought" => ManagedPresentationActivityKindV1::Thinking,
+        _ => return None,
+    };
+    Some(kind)
+}
+
+/// The one fact about a step an owner can act on: the domain, the path, the
+/// command, the pattern. Never a result, a body, or a rendered payload.
+fn activity_detail(
+    kind: ManagedPresentationActivityKindV1,
+    update: &serde_json::Value,
+) -> Option<String> {
+    let raw = match kind {
+        ManagedPresentationActivityKindV1::Command => first_string(
+            update,
+            &["/rawInput/command", "/rawInput/cmd", "/rawInput/script"],
+        ),
+        ManagedPresentationActivityKindV1::File => location_path(update).or_else(|| {
+            first_string(
+                update,
+                &[
+                    "/rawInput/path",
+                    "/rawInput/file_path",
+                    "/rawInput/filePath",
+                    "/rawInput/relative_path",
+                    "/rawInput/abs_path",
+                    "/rawInput/notebook_path",
+                ],
+            )
+        }),
+        ManagedPresentationActivityKindV1::Web => {
+            return first_string(update, &["/rawInput/url", "/rawInput/uri"])
+                .as_deref()
+                .and_then(bare_domain)
+        }
+        ManagedPresentationActivityKindV1::Search => first_string(
+            update,
+            &[
+                "/rawInput/pattern",
+                "/rawInput/query",
+                "/rawInput/q",
+                "/rawInput/search",
+            ],
+        ),
+        ManagedPresentationActivityKindV1::Thinking | ManagedPresentationActivityKindV1::Other => {
+            None
+        }
+    };
+    raw.as_deref()
+        .and_then(|value| bounded_text(value, MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES))
+}
+
+fn first_string(update: &serde_json::Value, pointers: &[&str]) -> Option<String> {
+    pointers.iter().find_map(|pointer| {
+        update
+            .pointer(pointer)
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned)
+    })
+}
+
+/// ACP reports the files a tool touches as `locations`; the first is the one
+/// the step is about.
+fn location_path(update: &serde_json::Value) -> Option<String> {
+    update
+        .pointer("/locations/0/path")
+        .and_then(serde_json::Value::as_str)
+        .map(ToOwned::to_owned)
+}
+
+/// Reduce a URL to its bare host.
+///
+/// The domain is what an owner reads; the path and query are where a payload
+/// (or a token in a query string) would hide. Userinfo is dropped outright —
+/// `https://user:secret@host` must never reach the surface as credentials.
+fn bare_domain(value: &str) -> Option<String> {
+    let rest = value
+        .trim()
+        .strip_prefix("https://")
+        .or_else(|| value.trim().strip_prefix("http://"))?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let host = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, after)| after);
+    let host = host.split(':').next()?;
+    (!host.is_empty()
+        && host.len() <= 255
+        && host
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '-')))
+    .then(|| host.to_ascii_lowercase())
+}
+
+/// The sentence the owner reads.
+///
+/// A runtime that already writes a human title keeps it — that is the ACP
+/// field's whole purpose. Runtimes that report a bare tool name (`read_file`,
+/// `shell`) get a sentence built from the kind and the detail instead, so the
+/// surface reads the same whichever runtime answered.
+fn activity_label(
+    kind: ManagedPresentationActivityKindV1,
+    update: &serde_json::Value,
+    detail: Option<&str>,
+) -> Option<String> {
+    let title = update
+        .get("title")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|title| bounded_text(title, MAX_MANAGED_PRESENTATION_ACTIVITY_LABEL_BYTES));
+    // A title with a space is prose the runtime wrote; a single token is the
+    // tool's identifier wearing the title's clothes.
+    if let Some(title) = title.as_deref().filter(|title| title.contains(' ')) {
+        return Some(title.to_owned());
+    }
+    let sentence = match kind {
+        ManagedPresentationActivityKindV1::File => {
+            let verb = if is_write_token(update) {
+                "Editing"
+            } else {
+                "Reading"
+            };
+            match detail.and_then(file_name) {
+                Some(name) => format!("{verb} {name}"),
+                None => format!("{verb} a file"),
+            }
+        }
+        ManagedPresentationActivityKindV1::Command => match detail {
+            Some(command) => format!("Running {command}"),
+            None => "Running a command".to_owned(),
+        },
+        ManagedPresentationActivityKindV1::Search => match detail {
+            Some(pattern) => format!("Searching for {pattern}"),
+            None => "Searching".to_owned(),
+        },
+        ManagedPresentationActivityKindV1::Web => match detail {
+            Some(domain) => format!("Reading {domain}"),
+            None => "Searching the web".to_owned(),
+        },
+        ManagedPresentationActivityKindV1::Thinking => "Thinking".to_owned(),
+        // Nothing was recognised and the runtime wrote no prose. A bare tool
+        // name is better than a phase word, but an empty title is not.
+        ManagedPresentationActivityKindV1::Other => title?,
+    };
+    bounded_text(&sentence, MAX_MANAGED_PRESENTATION_ACTIVITY_LABEL_BYTES)
+}
+
+fn is_write_token(update: &serde_json::Value) -> bool {
+    for field in ["kind", "toolName", "title"] {
+        let Some(text) = update.get(field).and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        if tool_tokens(text).iter().any(|token| {
+            matches!(
+                token.as_str(),
+                "edit"
+                    | "delete"
+                    | "move"
+                    | "write"
+                    | "write_file"
+                    | "edit_file"
+                    | "create_file"
+                    | "str_replace"
+                    | "str_replace_editor"
+                    | "apply_patch"
+                    | "notebook_edit"
+            )
+        }) {
+            return true;
+        }
+    }
+    false
+}
+
+fn file_name(path: &str) -> Option<String> {
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    (!name.is_empty()).then(|| name.to_owned())
+}
+
+/// A count only when the runtime reported one. Nothing here counts content
+/// blocks or output lines — an invented number reads exactly like a real one.
+fn activity_count(update: &serde_json::Value) -> Option<SafeU53> {
+    for pointer in [
+        "/rawOutput/count",
+        "/rawOutput/total",
+        "/rawOutput/matches",
+        "/rawOutput/resultCount",
+    ] {
+        if let Some(count) = update.pointer(pointer).and_then(serde_json::Value::as_u64) {
+            return SafeU53::new(count).ok();
+        }
+    }
+    for pointer in [
+        "/rawOutput/results",
+        "/rawOutput/files",
+        "/rawOutput/matches",
+    ] {
+        if let Some(values) = update
+            .pointer(pointer)
+            .and_then(serde_json::Value::as_array)
+        {
+            return SafeU53::new(values.len() as u64).ok();
+        }
+    }
+    None
+}
+
+/// Collapse whitespace, refuse anything that could rewrite the line it renders
+/// on, and clip to the protocol's bound with a visible cut.
+///
+/// The protocol validates the same rule and would drop the whole frame; doing
+/// it here costs only the activity, so a noisy title never loses the turn.
+fn bounded_text(value: &str, max_bytes: usize) -> Option<String> {
+    let collapsed = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty()
+        || collapsed.chars().any(|character| {
+            character.is_control()
+                || matches!(
+                    character,
+                    '\u{2028}' | '\u{2029}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+                )
+        })
+    {
+        return None;
+    }
+    if collapsed.len() <= max_bytes {
+        return Some(collapsed);
+    }
+    const ELLIPSIS: &str = "…";
+    let mut end = max_bytes.saturating_sub(ELLIPSIS.len());
+    while end > 0 && !collapsed.is_char_boundary(end) {
+        end -= 1;
+    }
+    (end > 0).then(|| format!("{}{ELLIPSIS}", &collapsed[..end]))
 }
 
 #[cfg(test)]
@@ -626,6 +1088,495 @@ mod tests {
             None
         );
         assert_eq!(gate.push(SILENT_ACTION_SENTINEL), None);
+    }
+
+    // ── Rich activity ────────────────────────────────────────────────────
+    //
+    // The fixtures below are the shapes this tree's runtimes actually put on
+    // the wire, plus the reduced shape the artifact guard leaves behind. A
+    // runtime that reports none of them must produce no activity at all.
+
+    fn frame_with(activity: Option<ManagedPresentationActivityV1>) -> ManagedPresentationFrameV1 {
+        ManagedPresentationFrameV1 {
+            protocol: MANAGED_PRESENTATION_PROTOCOL.into(),
+            kind: ManagedPresentationKindV1::Phase,
+            resident_pubkey: Hex64::parse("11".repeat(32)).unwrap(),
+            conversation_id: OpaqueId::parse("conversation-1").unwrap(),
+            turn_id: OpaqueId::parse("turn-1").unwrap(),
+            dispatch_receipt_id: OpaqueId::parse("22".repeat(32)).unwrap(),
+            session_epoch: SafeU53::new(7).unwrap(),
+            sequence: SafeU53::new(1).unwrap(),
+            phase: Some(ManagedPresentationPhaseV1::Working),
+            public_chunk: None,
+            failure: None,
+            activity,
+        }
+    }
+
+    #[test]
+    fn a_shell_tool_call_becomes_a_command_step() {
+        let mut ledger = ActivityLedger::default();
+        let activity = ledger
+            .start(&serde_json::json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": "call-shell-rg",
+                "status": "executing",
+                "title": "shell",
+                "kind": "shell",
+                "rawInput": {"command": "rg -n \"get_event\" desktop/src"},
+            }))
+            .expect("a named step");
+        assert_eq!(activity.kind, ManagedPresentationActivityKindV1::Command);
+        assert_eq!(
+            activity.detail.as_deref(),
+            Some("rg -n \"get_event\" desktop/src")
+        );
+        assert_eq!(activity.label, "Running rg -n \"get_event\" desktop/src");
+        assert_eq!(
+            activity.status,
+            Some(ManagedPresentationActivityStatusV1::Active)
+        );
+        assert_eq!(activity.step.map(SafeU53::get), Some(1));
+        assert_eq!(frame_with(Some(activity)).validate(), Ok(()));
+    }
+
+    #[test]
+    fn a_file_read_names_the_file_from_acp_locations() {
+        let mut ledger = ActivityLedger::default();
+        let activity = ledger
+            .start(&serde_json::json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": "call-read",
+                "title": "Read",
+                "kind": "read",
+                "locations": [{"path": "desktop/src/styles/conversation-shell.css"}],
+            }))
+            .expect("a named step");
+        assert_eq!(activity.kind, ManagedPresentationActivityKindV1::File);
+        assert_eq!(activity.label, "Reading conversation-shell.css");
+        assert_eq!(
+            activity.detail.as_deref(),
+            Some("desktop/src/styles/conversation-shell.css")
+        );
+    }
+
+    #[test]
+    fn a_write_tool_reads_as_editing_not_reading() {
+        let mut ledger = ActivityLedger::default();
+        let activity = ledger
+            .start(&serde_json::json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": "call-edit",
+                "title": "str_replace",
+                "kind": "edit",
+                "rawInput": {"path": "crates/buzz-acp/src/managed_presentation.rs"},
+            }))
+            .expect("a named step");
+        assert_eq!(activity.label, "Editing managed_presentation.rs");
+    }
+
+    #[test]
+    fn a_web_fetch_carries_the_bare_domain_and_never_the_url() {
+        let mut ledger = ActivityLedger::default();
+        let activity = ledger
+            .start(&serde_json::json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": "call-fetch",
+                "title": "web_fetch",
+                "kind": "fetch",
+                "rawInput": {"url": "https://user:s3cret@NodeJS.org:443/api/fs.html?token=abc#frag"},
+            }))
+            .expect("a named step");
+        assert_eq!(activity.kind, ManagedPresentationActivityKindV1::Web);
+        assert_eq!(activity.detail.as_deref(), Some("nodejs.org"));
+        assert_eq!(activity.label, "Reading nodejs.org");
+    }
+
+    #[test]
+    fn a_web_search_without_a_url_still_reads_as_the_web() {
+        let mut ledger = ActivityLedger::default();
+        let activity = ledger
+            .start(&serde_json::json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": "call-search",
+                "title": "mcp__brave__web_search",
+                "rawInput": {"query": "acp tool call schema"},
+            }))
+            .expect("a named step");
+        assert_eq!(activity.kind, ManagedPresentationActivityKindV1::Web);
+        assert_eq!(activity.detail, None);
+        assert_eq!(activity.label, "Searching the web");
+    }
+
+    #[test]
+    fn a_grep_names_the_pattern_it_searched_for() {
+        let mut ledger = ActivityLedger::default();
+        let activity = ledger
+            .start(&serde_json::json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": "call-grep",
+                "title": "grep",
+                "rawInput": {"pattern": "emit_phase"},
+            }))
+            .expect("a named step");
+        assert_eq!(activity.kind, ManagedPresentationActivityKindV1::Search);
+        assert_eq!(activity.label, "Searching for emit_phase");
+    }
+
+    #[test]
+    fn a_runtime_written_title_survives_verbatim() {
+        let mut ledger = ActivityLedger::default();
+        let activity = ledger
+            .start(&serde_json::json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": "call-prose",
+                "title": "Reading the conversation shell stylesheet",
+                "kind": "read",
+            }))
+            .expect("a named step");
+        assert_eq!(activity.label, "Reading the conversation shell stylesheet");
+    }
+
+    #[test]
+    fn the_artifact_guarded_shape_still_names_the_step() {
+        // With the artifact guard active the observer strips rawInput and
+        // locations; title / kind / status are all that survive.
+        let mut ledger = ActivityLedger::default();
+        let activity = ledger
+            .start(&serde_json::json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": "call-artifact",
+                "title": "artifact_create",
+                "kind": "other",
+                "status": "pending",
+                "bodyRedacted": true,
+            }))
+            .expect("a named step");
+        assert_eq!(activity.kind, ManagedPresentationActivityKindV1::Other);
+        assert_eq!(activity.label, "artifact_create");
+        assert_eq!(activity.detail, None);
+    }
+
+    #[test]
+    fn a_step_the_runtime_did_not_name_produces_nothing() {
+        let mut ledger = ActivityLedger::default();
+        assert!(ledger
+            .start(&serde_json::json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": "call-anonymous",
+            }))
+            .is_none());
+        assert!(ledger
+            .start(&serde_json::json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": "call-blank",
+                "title": "   ",
+            }))
+            .is_none());
+    }
+
+    #[test]
+    fn a_completion_settles_the_line_its_start_opened() {
+        let mut ledger = ActivityLedger::default();
+        let start = ledger
+            .start(&serde_json::json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": "call-1",
+                "title": "grep",
+                "rawInput": {"pattern": "emit_phase"},
+            }))
+            .expect("a named step");
+        let settled = ledger
+            .settle(&serde_json::json!({
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": "call-1",
+                "status": "completed",
+                "rawOutput": {"count": 3},
+            }))
+            .expect("a settling step");
+        assert_eq!(settled.step, start.step);
+        assert_eq!(settled.label, start.label);
+        assert_eq!(settled.kind, start.kind);
+        assert_eq!(
+            settled.status,
+            Some(ManagedPresentationActivityStatusV1::Done)
+        );
+        assert_eq!(settled.count.map(SafeU53::get), Some(3));
+    }
+
+    #[test]
+    fn a_failed_completion_settles_as_failed() {
+        let mut ledger = ActivityLedger::default();
+        ledger
+            .start(&serde_json::json!({
+                "sessionUpdate": "tool_call", "toolCallId": "call-1",
+                "title": "shell", "rawInput": {"command": "pnpm test"},
+            }))
+            .expect("a named step");
+        let settled = ledger
+            .settle(&serde_json::json!({
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": "call-1",
+                "status": "failed",
+            }))
+            .expect("a settling step");
+        assert_eq!(
+            settled.status,
+            Some(ManagedPresentationActivityStatusV1::Failed)
+        );
+        assert_eq!(settled.count, None);
+        assert_eq!(settled.label, "Running pnpm test");
+    }
+
+    #[test]
+    fn an_in_progress_update_settles_nothing() {
+        let mut ledger = ActivityLedger::default();
+        ledger
+            .start(&serde_json::json!({
+                "sessionUpdate": "tool_call", "toolCallId": "call-1",
+                "title": "shell", "rawInput": {"command": "pnpm test"},
+            }))
+            .expect("a named step");
+        for status in ["pending", "in_progress", "executing"] {
+            assert!(ledger
+                .settle(&serde_json::json!({
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": "call-1",
+                    "status": status,
+                }))
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn a_completion_without_a_matching_start_still_gets_a_line() {
+        let mut ledger = ActivityLedger::default();
+        let settled = ledger
+            .settle(&serde_json::json!({
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": "orphan",
+                "status": "completed",
+                "title": "shell",
+                "rawInput": {"command": "pnpm test"},
+            }))
+            .expect("a settling step");
+        assert_eq!(settled.step, None);
+        assert_eq!(settled.label, "Running pnpm test");
+    }
+
+    #[test]
+    fn steps_number_in_the_order_the_runtime_opened_them() {
+        let mut ledger = ActivityLedger::default();
+        let mut steps = Vec::new();
+        for (index, command) in ["pnpm test", "cargo test", "just ci"].iter().enumerate() {
+            let activity = ledger
+                .start(&serde_json::json!({
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": format!("call-{index}"),
+                    "title": "shell",
+                    "rawInput": {"command": command},
+                }))
+                .expect("a named step");
+            steps.push(activity.step.map(SafeU53::get));
+        }
+        assert_eq!(steps, vec![Some(1), Some(2), Some(3)]);
+    }
+
+    #[test]
+    fn the_ledger_stops_growing_after_its_cap() {
+        let mut ledger = ActivityLedger::default();
+        for index in 0..MAX_TRACKED_ACTIVITY_STEPS {
+            assert!(ledger
+                .start(&serde_json::json!({
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": format!("call-{index}"),
+                    "title": "shell",
+                    "rawInput": {"command": "pnpm test"},
+                }))
+                .is_some());
+        }
+        assert!(ledger
+            .start(&serde_json::json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": "one-too-many",
+                "title": "shell",
+                "rawInput": {"command": "pnpm test"},
+            }))
+            .is_none());
+    }
+
+    #[test]
+    fn an_over_long_command_is_clipped_visibly_and_still_validates() {
+        let mut ledger = ActivityLedger::default();
+        let command = "echo ".to_owned() + &"x".repeat(4_000);
+        let activity = ledger
+            .start(&serde_json::json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": "call-long",
+                "title": "shell",
+                "rawInput": {"command": command},
+            }))
+            .expect("a named step");
+        let detail = activity.detail.clone().expect("a clipped command");
+        assert!(detail.len() <= MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES);
+        assert!(detail.ends_with('…'), "a clipped command must show the cut");
+        assert!(activity.label.len() <= MAX_MANAGED_PRESENTATION_ACTIVITY_LABEL_BYTES);
+        assert_eq!(frame_with(Some(activity)).validate(), Ok(()));
+    }
+
+    #[test]
+    fn a_multi_line_title_collapses_instead_of_losing_the_frame() {
+        let mut ledger = ActivityLedger::default();
+        let activity = ledger
+            .start(&serde_json::json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": "call-noisy",
+                "title": "Reading the shell\n\tstylesheet",
+                "kind": "read",
+            }))
+            .expect("a named step");
+        assert_eq!(activity.label, "Reading the shell stylesheet");
+        assert_eq!(frame_with(Some(activity)).validate(), Ok(()));
+    }
+
+    #[test]
+    fn a_bidi_override_in_a_title_costs_the_activity_not_the_turn() {
+        let mut ledger = ActivityLedger::default();
+        assert!(ledger
+            .start(&serde_json::json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": "call-bidi",
+                "title": "Reading \u{202e}sdrawkcab",
+            }))
+            .is_none());
+        assert_eq!(frame_with(None).validate(), Ok(()));
+    }
+
+    #[test]
+    fn only_a_reported_count_becomes_a_count() {
+        assert_eq!(
+            activity_count(&serde_json::json!({
+                "rawOutput": {"results": [1, 2, 3, 4]},
+            }))
+            .map(SafeU53::get),
+            Some(4)
+        );
+        // Content blocks and output text are not a result count; inventing one
+        // reads exactly like a real one.
+        assert_eq!(
+            activity_count(&serde_json::json!({
+                "content": [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}],
+                "rawOutput": "three\nlines\nhere",
+            })),
+            None
+        );
+    }
+
+    /// Drive the real ingest path over a real socket: the ledger is only half
+    /// the story, and a wiring mistake between the two would be invisible to
+    /// every test above.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_ingest_path_streams_one_activity_frame_per_named_step() {
+        use tokio::io::AsyncReadExt;
+
+        let (desktop, harness) = std::os::unix::net::UnixStream::pair().expect("socketpair");
+        desktop.set_nonblocking(true).expect("nonblocking");
+        harness.set_nonblocking(true).expect("nonblocking");
+        let publisher = ManagedPresentationPublisher {
+            writer: Arc::new(tokio::sync::Mutex::new(
+                tokio::net::UnixStream::from_std(harness).expect("harness end"),
+            )),
+            resident_pubkey: Hex64::parse("11".repeat(32)).unwrap(),
+            session_epoch: SafeU53::new(7).unwrap(),
+        };
+
+        fn observer_event(kind: &str, payload: serde_json::Value) -> ObserverEvent {
+            ObserverEvent {
+                seq: 1,
+                timestamp: "1970-01-01T00:00:00Z".into(),
+                kind: kind.into(),
+                agent_index: None,
+                channel_id: Some("conversation-1".into()),
+                session_id: None,
+                turn_id: Some("turn-1".into()),
+                started_at: None,
+                payload,
+            }
+        }
+
+        fn acp_read(update: serde_json::Value) -> ObserverEvent {
+            observer_event(
+                "acp_read",
+                serde_json::json!({"params": {"update": update}}),
+            )
+        }
+
+        let mut turns = HashMap::new();
+        publisher
+            .ingest(
+                observer_event(
+                    "turn_started",
+                    serde_json::json!({"managedDispatchReceiptId": "22".repeat(32)}),
+                ),
+                &mut turns,
+            )
+            .await;
+        for update in [
+            serde_json::json!({
+                "sessionUpdate": "tool_call", "toolCallId": "call-1",
+                "title": "shell", "rawInput": {"command": "pnpm test"},
+            }),
+            // A plan is not a step: it must leave the phase word alone.
+            serde_json::json!({"sessionUpdate": "plan"}),
+            serde_json::json!({
+                "sessionUpdate": "tool_call_update", "toolCallId": "call-1",
+                "status": "completed", "rawOutput": {"count": 2},
+            }),
+        ] {
+            publisher.ingest(acp_read(update), &mut turns).await;
+        }
+        drop(publisher);
+
+        let mut desktop = tokio::net::UnixStream::from_std(desktop).expect("desktop end");
+        let mut raw = Vec::new();
+        desktop.read_to_end(&mut raw).await.expect("frames");
+        let frames: Vec<ManagedPresentationFrameV1> = String::from_utf8(raw)
+            .expect("utf8")
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("a valid frame"))
+            .collect();
+
+        // turn_started, the opening Thinking phase, then exactly two activity
+        // frames — the plan in between adds none.
+        assert_eq!(frames.len(), 4, "frames: {frames:?}");
+        assert_eq!(frames[0].kind, ManagedPresentationKindV1::TurnStarted);
+        assert_eq!(frames[1].phase, Some(ManagedPresentationPhaseV1::Thinking));
+        assert!(frames[1].activity.is_none());
+
+        let start = frames[2].activity.as_ref().expect("the opening step");
+        assert_eq!(frames[2].kind, ManagedPresentationKindV1::Phase);
+        assert_eq!(frames[2].phase, Some(ManagedPresentationPhaseV1::Working));
+        assert_eq!(start.label, "Running pnpm test");
+        assert_eq!(start.kind, ManagedPresentationActivityKindV1::Command);
+        assert_eq!(
+            start.status,
+            Some(ManagedPresentationActivityStatusV1::Active)
+        );
+        assert_eq!(start.step.map(SafeU53::get), Some(1));
+
+        let settled = frames[3].activity.as_ref().expect("the settling step");
+        assert_eq!(
+            settled.status,
+            Some(ManagedPresentationActivityStatusV1::Done)
+        );
+        assert_eq!(settled.count.map(SafeU53::get), Some(2));
+        assert_eq!(settled.step, start.step);
+
+        for (index, frame) in frames.iter().enumerate() {
+            assert_eq!(frame.validate(), Ok(()));
+            assert_eq!(frame.sequence.get(), index as u64 + 1);
+        }
     }
 
     #[test]

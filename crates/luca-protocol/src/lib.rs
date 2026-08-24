@@ -62,9 +62,12 @@ pub use managed_permission::{
     MANAGED_PERMISSION_TIMEOUT_SECS,
 };
 pub use managed_presentation::{
-    ManagedPresentationError, ManagedPresentationFailureV1, ManagedPresentationFrameV1,
-    ManagedPresentationKindV1, ManagedPresentationPhaseV1, MANAGED_PRESENTATION_PROTOCOL,
-    MAX_MANAGED_PRESENTATION_CHUNK_BYTES, MAX_MANAGED_PRESENTATION_FRAME_BYTES,
+    ManagedPresentationActivityKindV1, ManagedPresentationActivityStatusV1,
+    ManagedPresentationActivityV1, ManagedPresentationError, ManagedPresentationFailureV1,
+    ManagedPresentationFrameV1, ManagedPresentationKindV1, ManagedPresentationPhaseV1,
+    MANAGED_PRESENTATION_PROTOCOL, MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES,
+    MAX_MANAGED_PRESENTATION_ACTIVITY_LABEL_BYTES, MAX_MANAGED_PRESENTATION_CHUNK_BYTES,
+    MAX_MANAGED_PRESENTATION_FRAME_BYTES,
 };
 pub use message_publish::{
     derive_message_publish_idempotency_key, ManagedMessagePublishRequestV1,

@@ -45,6 +45,7 @@ import {
 } from "@/features/luca/canonicalLucaResident";
 import { useLucaArrival } from "@/features/luca/lucaArrival";
 import { pendingReplyRows } from "@/features/messages/lib/pendingReplyRows";
+import { usePendingReplyClock } from "@/features/messages/lib/usePendingReplyClock";
 import { LucaGreetingChoicesContext } from "@/features/luca/ui/lucaGreetingChoicesContext";
 import {
   ResidentStopContext,
@@ -644,21 +645,44 @@ export const ChannelPane = React.memo(function ChannelPane({
     () => (isDirectConversation ? [] : composerWorkingBotPubkeys),
     [composerWorkingBotPubkeys, isDirectConversation],
   );
+  // Advances only at the moments the awaiting row's own sentence changes, and
+  // not at all while nobody is waiting — see `usePendingReplyClock`.
+  const pendingReplyNow = usePendingReplyClock(
+    managedActivity,
+    managedResponseSlots,
+  );
   // A reply is coming, here: one row per resident who is thinking or working
   // but has no text yet, at the tail of the conversation.
+  //
+  // EXACTLY ONE SURFACE OWNS THE WAIT, and which one depends on the room.
+  // In a 1:1 it is this row, because it sits where the answer will appear —
+  // when text arrives it fills in place and nothing jumps. So the row carries
+  // the whole disclosure there: what is being done, then for how long, then
+  // that it is taking a while. In a room the shelf owns it instead: a room can
+  // have several residents working at once, and the shelf is built for N while
+  // this row is built for the one answer you are watching for.
+  //
+  // The shelf already stands down in a DM (`stripWorkingPubkeys` above empties
+  // itself there). This is the other half of the same switch — without it a
+  // room drew both indicators for the same wait.
   const pendingRows = React.useMemo(
     () =>
-      pendingReplyRows({
-        managedActivity,
-        observerActivity: agentActivityRows,
-        slots: managedResponseSlots,
-        profiles,
-        residentPersonaIdLookup,
-      }),
+      isDirectConversation
+        ? pendingReplyRows({
+            managedActivity,
+            observerActivity: agentActivityRows,
+            slots: managedResponseSlots,
+            profiles,
+            residentPersonaIdLookup,
+            now: pendingReplyNow,
+          })
+        : [],
     [
       agentActivityRows,
+      isDirectConversation,
       managedActivity,
       managedResponseSlots,
+      pendingReplyNow,
       profiles,
       residentPersonaIdLookup,
     ],
@@ -1088,6 +1112,11 @@ export const ChannelPane = React.memo(function ChannelPane({
                           ? threadReplyTargetMessage
                           : directedReplyTargetMessage
                       }
+                      // Only the gates announce themselves here. An open
+                      // channel names nothing: the header already says where
+                      // you are, and naming the room again turned a group DM
+                      // into "Message ziggy, Luca". Undefined hands the
+                      // composer its own one string for every conversation.
                       placeholder={
                         timeoutState.active
                           ? "You're timed out by community moderators."
@@ -1098,10 +1127,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                               : activeChannel?.channelType === "forum"
                                 ? "Forum posting is not wired in this pass."
                                 : activeChannel
-                                  ? activeChannel.channelType === "dm" &&
-                                    directMessageIntro
-                                    ? `Message ${directMessageIntro.displayName}`
-                                    : `Message ${activeChannel.name}`
+                                  ? undefined
                                   : "Select a channel"
                       }
                       showTopBorder={false}

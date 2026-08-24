@@ -5,7 +5,7 @@ import * as timelinePlacement from "@/features/messages/lib/managedTimelineProje
 import {
   expireManagedPresentationActivity,
   getNearestManagedPresentationActivityExpiry,
-  MANAGED_TERMINAL_ACTIVITY_MS,
+  managedTerminalActivityUntil,
   removeManagedPresentationActivity,
   resetManagedPresentationActivityStore,
   upsertManagedPresentationActivity,
@@ -26,7 +26,12 @@ import {
   withinManagedPresentationPublicTextLimit,
 } from "@/features/messages/managedPresentationProtocol";
 import { classifyManagedFinalReconciliation } from "@/features/messages/managedPresentationReconciliation";
-import { dedupeManagedOperationalStatuses } from "@/features/messages/lib/managedOperationalStatus";
+import {
+  dedupeManagedOperationalStatuses,
+  mergeManagedActivityStep,
+  parseManagedActivityStep,
+  settleManagedActivitySteps,
+} from "@/features/messages/lib/managedOperationalStatus";
 import type { ManagedConversationOperationalStatus } from "@/shared/api/types";
 import { ManagedPresentationScheduler } from "@/features/messages/managedPresentationScheduler";
 import {
@@ -35,6 +40,7 @@ import {
   type ManagedPresentationRow,
   type ManagedPresentationTurn,
   type ManagedResponseSlot,
+  type ManagedTurnActivityStep,
   type RawManagedPresentationFrame,
 } from "@/features/messages/managedPresentationTypes";
 
@@ -66,6 +72,8 @@ const EMPTY_KEYS: readonly string[] = [];
 const EMPTY_SLOTS: readonly ManagedResponseSlot[] = [];
 const EMPTY_LEGACY: readonly ManagedPresentationRow[] = [];
 const EMPTY_OPERATIONAL_RECEIPTS: ReadonlySet<string> = new Set();
+/** Shared so an un-narrated turn keeps one identity across republications. */
+const NO_ACTIVITY_STEPS: readonly ManagedTurnActivityStep[] = [];
 
 let unlisten: UnlistenFn | null = null;
 let listenerPromise: Promise<void> | null = null;
@@ -96,6 +104,7 @@ function createTurn(
   const normalizedPubkey = residentPubkey.toLowerCase();
   const now = Date.now();
   return {
+    activitySteps: NO_ACTIVITY_STEPS,
     anchorKey: null,
     anchorAt: 0,
     bufferedText: "",
@@ -117,6 +126,7 @@ function createTurn(
     sessionEpoch: 0,
     signedText: null,
     slotOrdinal: null,
+    startedAt: now,
     turnId: `pending:${receiptId}:${normalizedPubkey}`,
     uiKey: managedPresentationUiKey(normalizedPubkey, receiptId),
     visibleText: "",
@@ -168,6 +178,41 @@ function activateTerminalResponseSlot(
 ): ManagedPresentationTurn {
   if (turn.slotOrdinal !== null || turn.visibleText.length === 0) return turn;
   return activateResponseSlot(turn, now);
+}
+
+/**
+ * A turn is ending with text still in the paint queue.
+ *
+ * THE UNPAINTED TAIL IS NOT UNFINISHED TEXT. It arrived, it passed validation,
+ * it is already counted in `receivedText` — it simply had not reached the
+ * screen yet, because the reveal scheduler paints graphemes on a 40ms cadence
+ * and Stop lands whenever the owner presses it. Stop is *designed* to be
+ * pressed mid-stream, so this is the common case, not the edge one.
+ *
+ * These branches used to write `receivedText: visibleText` and drop the
+ * buffer, throwing away everything between the last painted grapheme and the
+ * terminal frame — measured at 28 of 68 characters, cut mid-word, when the
+ * frame arrived 150ms after a chunk. The row then printed "Stopped · Response
+ * may be incomplete" over a response the UI itself had truncated, which blames
+ * the runtime for the desktop's own loss.
+ *
+ * So the tail is painted in one step instead of discarded. That also gives a
+ * turn that died before its first paint tick a row at all: `visibleText` was
+ * empty there, and `activateTerminalResponseSlot` above refuses a slot to a
+ * turn with no visible text.
+ */
+function flushUnpaintedTail(
+  turn: ManagedPresentationTurn,
+): ManagedPresentationTurn {
+  const complete = turn.visibleText + turn.bufferedText;
+  return {
+    ...turn,
+    bufferedText: "",
+    // Restated rather than left alone: the three fields describe one string,
+    // and this is the moment the turn stops changing.
+    receivedText: complete,
+    visibleText: complete,
+  };
 }
 function legacyPhase(
   phase: ManagedPresentationDisplayPhase,
@@ -403,7 +448,7 @@ function processDeadlines(now = Date.now()): void {
     stageTurnPublication(
       next,
       current.slotOrdinal === null && next.slotOrdinal !== null,
-      now + MANAGED_TERMINAL_ACTIVITY_MS,
+      managedTerminalActivityUntil(next.phase, now),
     );
   }
   scheduler.requestPaint();
@@ -494,6 +539,33 @@ function frameBase(
   };
 }
 
+function phaseWord(phase: ManagedPresentationDisplayPhase): string {
+  return `${phase.charAt(0).toUpperCase()}${phase.slice(1)}`.replace(/_/g, " ");
+}
+
+/**
+ * Fold this frame's optional activity object into the turn's narration.
+ *
+ * Every field is untrusted and the whole object is optional, so a frame that
+ * carries nothing — or carries nonsense — returns the turn unchanged and the
+ * surface falls back to the phase word it has always shown.
+ */
+function withFrameActivity(
+  turn: ManagedPresentationTurn,
+  frame: RawManagedPresentationFrame,
+): ManagedPresentationTurn {
+  const parsed = parseManagedActivityStep(
+    frame.activity,
+    turn.activitySteps.length + 1,
+    phaseWord(frame.phase ?? turn.phase),
+  );
+  if (!parsed) return turn;
+  const activitySteps = mergeManagedActivityStep(turn.activitySteps, parsed);
+  return activitySteps === turn.activitySteps
+    ? turn
+    : { ...turn, activitySteps };
+}
+
 export function ingestManagedPresentationFrame(frameValue: unknown): void {
   if (!validManagedPresentationFrame(frameValue)) return;
   const frame = frameValue;
@@ -521,7 +593,7 @@ export function ingestManagedPresentationFrame(frameValue: unknown): void {
     return;
   }
 
-  let next = frameBase(current, frame);
+  let next = withFrameActivity(frameBase(current, frame), frame);
   let topologyChanged = false;
   switch (frame.kind) {
     case "turn_started":
@@ -538,7 +610,12 @@ export function ingestManagedPresentationFrame(frameValue: unknown): void {
       break;
     }
     case "completed":
-      next = { ...next, deadlineAt: null, phase: "finalizing" };
+      next = {
+        ...next,
+        activitySteps: settleManagedActivitySteps(next.activitySteps),
+        deadlineAt: null,
+        phase: "finalizing",
+      };
       terminalDrainDeadlines.set(
         next.uiKey,
         Date.now() + MANAGED_TERMINAL_DRAIN_TARGET_MS,
@@ -549,13 +626,11 @@ export function ingestManagedPresentationFrame(frameValue: unknown): void {
     case "cancelled":
       clearPending(next.uiKey);
       next = activateTerminalResponseSlot(
-        {
+        flushUnpaintedTail({
           ...next,
-          bufferedText: "",
           deadlineAt: null,
           phase: "stopped",
-          receivedText: next.visibleText,
-        },
+        }),
         Date.now(),
       );
       topologyChanged =
@@ -565,14 +640,12 @@ export function ingestManagedPresentationFrame(frameValue: unknown): void {
     case "failed":
       clearPending(next.uiKey);
       next = activateTerminalResponseSlot(
-        {
+        flushUnpaintedTail({
           ...next,
-          bufferedText: "",
           deadlineAt: null,
           failure: frame.failure ?? "runtime",
           phase: "failed",
-          receivedText: next.visibleText,
-        },
+        }),
         Date.now(),
       );
       topologyChanged =
@@ -583,9 +656,7 @@ export function ingestManagedPresentationFrame(frameValue: unknown): void {
   stageTurnPublication(
     next,
     topologyChanged,
-    ["stopped", "failed"].includes(next.phase)
-      ? Date.now() + MANAGED_TERMINAL_ACTIVITY_MS
-      : undefined,
+    managedTerminalActivityUntil(next.phase, Date.now()),
   );
   scheduleNearestDeadline();
 }
@@ -668,7 +739,7 @@ export function failManagedPresentationWake(
   stageTurnPublication(
     next,
     current.slotOrdinal === null && next.slotOrdinal !== null,
-    now + MANAGED_TERMINAL_ACTIVITY_MS,
+    managedTerminalActivityUntil(next.phase, now),
   );
   scheduler.requestPaint();
 }
@@ -701,14 +772,12 @@ export function hydrateManagedOperationalStatuses(
       }
       clearPending(current.uiKey);
       const next = activateTerminalResponseSlot(
-        {
+        flushUnpaintedTail({
           ...current,
-          bufferedText: "",
           deadlineAt: null,
           failure: "runtime",
           phase: "needs_attention",
-          receivedText: current.visibleText,
-        },
+        }),
         Date.now(),
       );
       terminalUiKeys.add(next.uiKey);
@@ -755,6 +824,13 @@ function mergeReceiptRace(
   if (!optimistic || !authenticated) return;
   const merged: ManagedPresentationTurn = {
     ...authenticated,
+    // The owner started waiting when the optimistic turn was seeded, and the
+    // narration may have begun on either half of the race.
+    activitySteps: authenticated.activitySteps.reduce(
+      mergeManagedActivityStep,
+      optimistic.activitySteps,
+    ),
+    startedAt: Math.min(optimistic.startedAt, authenticated.startedAt),
     anchorAt:
       authenticated.slotOrdinal !== null
         ? authenticated.anchorAt
@@ -801,9 +877,7 @@ function mergeReceiptRace(
   upsertManagedPresentationActivity(
     merged,
     creationOrdinals.get(optimisticUiKey) ?? 0,
-    ["stopped", "failed", "needs_attention"].includes(merged.phase)
-      ? Date.now() + MANAGED_TERMINAL_ACTIVITY_MS
-      : undefined,
+    managedTerminalActivityUntil(merged.phase, Date.now()),
   );
   rebuildConversationTopology(merged.conversationId);
   rebuildLegacySnapshot(merged.conversationId);
@@ -873,6 +947,7 @@ export function reconcileManagedPresentationFinal(
   lookupToUiKey.set(finalLookupKey, current.uiKey);
   let next: ManagedPresentationTurn = {
     ...current,
+    activitySteps: settleManagedActivitySteps(current.activitySteps),
     deadlineAt: null,
     dispatchReceiptId,
     durableReceiptId: dispatchReceiptId,
@@ -1082,6 +1157,7 @@ export function subscribeManagedPresentationLegacy(
 }
 
 export {
+  dismissManagedPresentationActivity,
   getManagedPresentationActivitySnapshot,
   subscribeManagedPresentationActivity,
 } from "@/features/messages/managedPresentationActivityStore";

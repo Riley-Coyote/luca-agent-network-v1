@@ -3,15 +3,34 @@ import { readFile } from "node:fs/promises";
 import { describe, it } from "node:test";
 
 import {
+  ACTIVITY_ELAPSED_AFTER_MS,
+  ACTIVITY_LONG_WAIT_AFTER_MS,
+  ACTIVITY_PHASE_WORD_AFTER_MS,
   EMPTY_ACTIVITY_SHELF_SLOTS,
   activityAnnouncementDelta,
+  activityLongWaitLabel,
   activityShelfRetryTarget,
   activityShelfOverflow,
   activityStopOutcome,
+  activityWaitTier,
   conversationActivityLabel,
+  currentActivityStep,
   isTerminalConversationActivity,
+  nextActivityWaitChangeMs,
   reconcileActivityShelfSlots,
 } from "./conversationAgentActivityShelf.ts";
+
+function step(overrides = {}) {
+  return {
+    count: null,
+    detail: null,
+    kind: "other",
+    label: "Working",
+    status: "active",
+    step: 1,
+    ...overrides,
+  };
+}
 
 describe("conversationAgentActivityShelf", () => {
   it("keeps visible residents in stable positions as hidden work advances", () => {
@@ -99,6 +118,12 @@ describe("conversationAgentActivityShelf", () => {
     assert.equal(
       conversationActivityLabel("needs-attention"),
       "Needs attention",
+    );
+    assert.equal(conversationActivityLabel("settled"), "Done");
+    assert.equal(
+      isTerminalConversationActivity("settled"),
+      false,
+      "a run that answered is finished, not unfinished business",
     );
     assert.equal(isTerminalConversationActivity("stopped"), true);
     assert.equal(isTerminalConversationActivity("interrupted"), true);
@@ -230,5 +255,99 @@ describe("conversationAgentActivityShelf", () => {
 
     assert.ok(residentRule);
     assert.match(residentRule[1], /min-height:\s*28px/);
+  });
+
+  it("still announces the reply when the work summary stays behind", () => {
+    const working = new Map([["luca", { name: "Luca", state: "writing" }]]);
+    assert.equal(
+      activityAnnouncementDelta(
+        working,
+        new Map([["luca", { name: "Luca", state: "settled" }]]),
+      ),
+      "Luca replied",
+      "the line no longer departs, so the departure cannot carry the news",
+    );
+  });
+});
+
+describe("wait disclosure", () => {
+  it("says nothing about ordinary latency and more as the wait grows", () => {
+    assert.equal(activityWaitTier(0), "indicator");
+    assert.equal(
+      activityWaitTier(ACTIVITY_PHASE_WORD_AFTER_MS - 1),
+      "indicator",
+    );
+    assert.equal(activityWaitTier(ACTIVITY_PHASE_WORD_AFTER_MS), "phase");
+    assert.equal(activityWaitTier(ACTIVITY_ELAPSED_AFTER_MS - 1), "phase");
+    assert.equal(activityWaitTier(ACTIVITY_ELAPSED_AFTER_MS), "elapsed");
+    assert.equal(activityWaitTier(ACTIVITY_LONG_WAIT_AFTER_MS - 1), "elapsed");
+    assert.equal(activityWaitTier(ACTIVITY_LONG_WAIT_AFTER_MS), "long");
+    assert.equal(activityWaitTier(10 * 60_000), "long");
+    assert.ok(
+      ACTIVITY_PHASE_WORD_AFTER_MS < ACTIVITY_ELAPSED_AFTER_MS &&
+        ACTIVITY_ELAPSED_AFTER_MS < ACTIVITY_LONG_WAIT_AFTER_MS,
+    );
+  });
+
+  it("sleeps to the next thing it would say, not to the next second", () => {
+    // Below the clock the words are fixed, so the only wake worth taking is
+    // the tier boundary itself.
+    assert.equal(nextActivityWaitChangeMs(0), ACTIVITY_PHASE_WORD_AFTER_MS);
+    assert.equal(nextActivityWaitChangeMs(ACTIVITY_PHASE_WORD_AFTER_MS - 1), 1);
+    assert.equal(
+      nextActivityWaitChangeMs(ACTIVITY_PHASE_WORD_AFTER_MS),
+      ACTIVITY_ELAPSED_AFTER_MS - ACTIVITY_PHASE_WORD_AFTER_MS,
+    );
+    // Once the clock is on screen, align to the whole second so the digits
+    // turn on the second rather than on the turn's own start offset.
+    assert.equal(nextActivityWaitChangeMs(ACTIVITY_ELAPSED_AFTER_MS), 1_000);
+    assert.equal(
+      nextActivityWaitChangeMs(ACTIVITY_ELAPSED_AFTER_MS + 250),
+      750,
+    );
+    assert.equal(
+      nextActivityWaitChangeMs(ACTIVITY_LONG_WAIT_AFTER_MS - 400),
+      400,
+    );
+    // Never zero: a zero-delay chain would spin.
+    for (const elapsed of [0, 1, 999, 3_000, 9_999, 10_000, 61_234]) {
+      assert.ok(
+        nextActivityWaitChangeMs(elapsed) > 0,
+        `expected a positive wait at ${elapsed}ms`,
+      );
+    }
+  });
+
+  it("acknowledges a long wait without inventing a new sentence", () => {
+    assert.equal(activityLongWaitLabel("Thinking"), "Still thinking");
+    assert.equal(
+      activityLongWaitLabel("Reading MessageRow.tsx"),
+      "Still reading MessageRow.tsx",
+    );
+    assert.equal(activityLongWaitLabel("Still thinking"), "Still thinking");
+    assert.equal(activityLongWaitLabel(""), "");
+  });
+
+  it("collapses a run to whatever is happening now", () => {
+    assert.equal(currentActivityStep([]), null);
+    const steps = [
+      step({ status: "done", step: 1 }),
+      step({ label: "Reading", status: "active", step: 2 }),
+      step({ label: "Waiting", status: "active", step: 3 }),
+    ];
+    assert.equal(
+      currentActivityStep(steps).step,
+      3,
+      "the newest live step wins",
+    );
+    const finished = [
+      step({ status: "done", step: 1 }),
+      step({ label: "Reading", status: "done", step: 2 }),
+    ];
+    assert.equal(
+      currentActivityStep(finished).step,
+      2,
+      "with nothing live, the last thing that ran is the line",
+    );
   });
 });

@@ -36,10 +36,43 @@ export type ManagedFinalReconciliation =
   | "divergent";
 
 /**
+ * What a resident is doing for its owner, in the owner's words.
+ *
+ * Full owner-visibility: anything an agent does for its owner may be shown to
+ * that owner. What may never travel is the *body* of the work — a bare domain,
+ * a path, a command, a count are the whole vocabulary. No prompts, no file
+ * contents, no response payloads, no credentials.
+ */
+export type ManagedActivityKind =
+  | "web"
+  | "file"
+  | "command"
+  | "search"
+  | "thinking"
+  | "other";
+
+export type ManagedActivityStatus = "active" | "done" | "failed";
+
+export type ManagedTurnActivityStep = {
+  /** 1-based ordinal within the turn. Lines sort by it and, once placed,
+   *  never reorder — a late frame updates its line where it already sits. */
+  step: number;
+  kind: ManagedActivityKind;
+  /** Human sentence, present tense while active: "Searching the web". */
+  label: string;
+  /** web → bare domain · file → path · command → the command string. */
+  detail: string | null;
+  status: ManagedActivityStatus;
+  count: number | null;
+};
+
+/**
  * Renderer-only state for one managed response. Public bodies and local
  * placement data never leave process memory or become relay/outbox records.
  */
 export type ManagedPresentationTurn = {
+  /** Work narration accumulated across this turn's frames, in step order. */
+  activitySteps: readonly ManagedTurnActivityStep[];
   anchorKey: string | null;
   anchorAt: number;
   bufferedText: string;
@@ -59,6 +92,10 @@ export type ManagedPresentationTurn = {
   sequence: number;
   sessionEpoch: number;
   slotOrdinal: number | null;
+  /** Desktop-clock anchor for elapsed displays. Set once when the turn is
+   *  seeded and never advanced by a later frame, so "how long have I waited"
+   *  measures the owner's wait rather than the gap since the last frame. */
+  startedAt: number;
   turnId: string;
   uiKey: string;
   visibleText: string;
@@ -81,6 +118,10 @@ export type ManagedResidentActivity = {
   failure: ManagedPresentationFailure | null;
   phase: ManagedPresentationDisplayPhase;
   residentPubkey: string;
+  /** A run whose answer already landed, kept only for its work summary. */
+  settled: boolean;
+  startedAt: number;
+  steps: readonly ManagedTurnActivityStep[];
   uiKey: string;
 };
 
@@ -111,6 +152,21 @@ export type ManagedPresentationRow = {
   turnId: string;
 };
 
+/**
+ * The activity object exactly as it arrives — every field unknown until it is
+ * parsed. The desktop reads this defensively: an unknown kind becomes "other",
+ * a missing label falls back to the phase word, and anything malformed is
+ * dropped without disturbing the turn it rode in on.
+ */
+export type RawManagedPresentationActivity = {
+  label?: unknown;
+  kind?: unknown;
+  detail?: unknown;
+  status?: unknown;
+  count?: unknown;
+  step?: unknown;
+};
+
 export type RawManagedPresentationFrame = {
   protocol: "luca.managed.presentation.v1";
   kind: ManagedPresentationKind;
@@ -123,6 +179,8 @@ export type RawManagedPresentationFrame = {
   phase?: ManagedPresentationWirePhase;
   public_chunk?: string;
   failure?: ManagedPresentationFailure;
+  /** Optional everywhere. A frame without it behaves exactly as before. */
+  activity?: RawManagedPresentationActivity;
 };
 
 export function managedPresentationUiKey(

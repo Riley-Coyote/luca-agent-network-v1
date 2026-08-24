@@ -407,6 +407,16 @@ export function TopbarSearch({
 }: TopbarSearchProps) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [selectedMenuIndex, setSelectedMenuIndex] = React.useState(0);
+  // Opening a person or an agent is the one result kind that has to travel to
+  // the relay before it has anywhere to go, so it is the one kind that can be
+  // slow and the one kind that can fail. Both states are held here.
+  const [openingResultKey, setOpeningResultKey] = React.useState<string | null>(
+    null,
+  );
+  const [openFailure, setOpenFailure] = React.useState<{
+    name: string;
+    result: SearchResult;
+  } | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
   const dialogInputRef = React.useRef<HTMLInputElement>(null);
   const { cancelDeferredModalOpen, openAfterExit, openNextFrame } =
@@ -472,14 +482,22 @@ export function TopbarSearch({
   const isShowingSuggestions =
     debouncedQuery.length < MIN_SEARCH_QUERY_LENGTH &&
     trimmedQuery.length < MIN_SEARCH_QUERY_LENGTH;
+  // A result that leads nowhere is worse than no result: without an
+  // `onOpenUser` handler a person or agent row would highlight, accept Return,
+  // and do nothing. Drop the whole kind rather than ship the dead end.
+  const canOpenUsers = Boolean(onOpenUser);
   const searchableResults = React.useMemo(
     () =>
-      results.filter(
-        (result) =>
-          result.kind !== "user" ||
-          normalizePubkey(result.user.pubkey) !== currentPubkeyNormalized,
-      ),
-    [currentPubkeyNormalized, results],
+      results.filter((result) => {
+        if (result.kind !== "user") {
+          return true;
+        }
+        return (
+          canOpenUsers &&
+          normalizePubkey(result.user.pubkey) !== currentPubkeyNormalized
+        );
+      }),
+    [canOpenUsers, currentPubkeyNormalized, results],
   );
   const searchResultSections = React.useMemo(
     () => groupSearchResults(searchableResults),
@@ -508,23 +526,59 @@ export function TopbarSearch({
 
       cancelDeferredModalOpen();
       setSelectedMenuIndex(0);
+      setOpenFailure(null);
+      setOpeningResultKey(null);
       setIsOpen(false);
     },
     [cancelDeferredModalOpen, openSearchDialog],
   );
 
-  const openResult = React.useCallback(
-    (result: SearchResult) => {
-      setIsOpen(false);
-      setQuery("");
-
-      if (result.kind === "channel") {
-        onOpenChannel(result.channel.id);
+  // Every other kind resolves to a route the app already holds, so the palette
+  // can close on the keystroke. A user resolves to a conversation that may not
+  // exist yet — the relay is asked to open or create it. Closing first is what
+  // turned a failed open into "Return did nothing": the dialog vanished, the
+  // rejection was swallowed, and the app stayed exactly where it was. So this
+  // one kind holds the palette open until the conversation is real, and says
+  // so plainly when it is not.
+  const openUserResult = React.useCallback(
+    async (result: SearchResult & { kind: "user" }) => {
+      if (!onOpenUser) {
         return;
       }
 
+      setOpenFailure(null);
+      setOpeningResultKey(resultKey(result));
+
+      try {
+        await onOpenUser(result.user);
+        setOpeningResultKey(null);
+        setIsOpen(false);
+        setQuery("");
+      } catch {
+        // The underlying error is a relay string ("relay returned 404 …") and
+        // has no business in front of the owner. What they can act on is the
+        // name they picked and the fact that it can be tried again.
+        setOpeningResultKey(null);
+        setOpenFailure({ name: getUserDisplayName(result.user), result });
+      }
+    },
+    [onOpenUser, setQuery],
+  );
+
+  const openResult = React.useCallback(
+    (result: SearchResult) => {
       if (result.kind === "user") {
-        void onOpenUser?.(result.user);
+        void openUserResult(result);
+        return;
+      }
+
+      setIsOpen(false);
+      setQuery("");
+      setOpenFailure(null);
+      setOpeningResultKey(null);
+
+      if (result.kind === "channel") {
+        onOpenChannel(result.channel.id);
         return;
       }
 
@@ -554,8 +608,8 @@ export function TopbarSearch({
       onCreateChannel,
       onOpenChannel,
       onOpenResult,
-      onOpenUser,
       openAfterExit,
+      openUserResult,
       setQuery,
     ],
   );
@@ -613,13 +667,18 @@ export function TopbarSearch({
 
       if (event.key === "Enter" && !event.nativeEvent.isComposing) {
         event.preventDefault();
+        // One open at a time: Return is held down easily, and a second
+        // in-flight request would race the first for the destination.
+        if (openingResultKey !== null) {
+          return;
+        }
         const result = activeResults[selectedMenuIndex];
         if (result) {
           openResult(result);
         }
       }
     },
-    [activeResults, openResult, selectedMenuIndex],
+    [activeResults, openResult, openingResultKey, selectedMenuIndex],
   );
 
   const renderSearchResultRow = (result: SearchResult, index: number) => {
@@ -658,8 +717,10 @@ export function TopbarSearch({
           : result.kind === "user"
             ? getUserSecondaryLabel(result.user)
             : truncateResultText(result.hit.content);
-    const trailingLabel =
-      result.kind === "channel"
+    const isOpening = openingResultKey === resultKey(result);
+    const trailingLabel = isOpening
+      ? "Opening"
+      : result.kind === "channel"
         ? getChannelSuggestionMeta(result.channel)
         : result.kind === "message"
           ? formatRelativeTime(result.hit.createdAt)
@@ -667,6 +728,7 @@ export function TopbarSearch({
 
     return (
       <button
+        aria-busy={isOpening || undefined}
         aria-selected={index === selectedMenuIndex}
         className={cn(
           "search-result-row flex w-full gap-3 rounded-lg px-3 text-left transition-colors",
@@ -676,6 +738,7 @@ export function TopbarSearch({
             ? "bg-muted/45 text-foreground"
             : "hover:bg-muted/35",
         )}
+        disabled={openingResultKey !== null && !isOpening}
         key={resultKey(result)}
         onClick={() => openResult(result)}
         onMouseEnter={() => setSelectedMenuIndex(index)}
@@ -811,8 +874,11 @@ export function TopbarSearch({
   ) : isSearchLoading && searchableResults.length === 0 ? (
     <SearchResultsSkeleton />
   ) : searchQuery.error instanceof Error && searchableResults.length === 0 ? (
-    <p className="px-4 py-5 text-sm text-destructive">
-      {searchQuery.error.message}
+    // The thrown message is a relay string with an HTTP status in it. What the
+    // owner can act on is that search is the part that is down, not the app.
+    <p className="px-4 py-5 text-sm text-ink-muted">
+      Search isn&rsquo;t reachable right now. Your conversations are still in
+      the sidebar.
     </p>
   ) : searchableResults.length === 0 ? (
     <p className="px-4 py-5 text-sm text-muted-foreground">
@@ -894,6 +960,8 @@ export function TopbarSearch({
                 onChange={(event) => {
                   setQuery(event.target.value);
                   setSelectedMenuIndex(0);
+                  // The notice names a result the new query may not contain.
+                  setOpenFailure(null);
                 }}
                 onKeyDown={handleDialogInputKeyDown}
                 spellCheck={false}
@@ -905,6 +973,31 @@ export function TopbarSearch({
             </kbd>
           </div>
           {searchResultContent}
+          {openFailure ? (
+            /* Contained, quiet, and self-clearing: the notice sits on the
+             * dialog's own hairline instead of shouting in red, names the
+             * thing that failed, and keeps the one action worth offering. */
+            <div
+              className="flex items-center gap-3 border-t border-border/70 px-4 py-3 text-sm"
+              data-testid="search-open-failure"
+              role="status"
+            >
+              <span className="min-w-0 flex-1 text-ink-muted">
+                Couldn&rsquo;t open the conversation with{" "}
+                <span className="text-foreground">{openFailure.name}</span>
+                {". "}
+                Check your connection.
+              </span>
+              <button
+                className="shrink-0 rounded-md border border-transparent px-2 py-1 text-ink-muted transition-colors hover:text-foreground focus-visible:border-ring focus-visible:text-foreground focus-visible:outline-hidden"
+                data-testid="search-open-failure-retry"
+                onClick={() => openResult(openFailure.result)}
+                type="button"
+              >
+                Retry
+              </button>
+            </div>
+          ) : null}
         </DialogContent>
       </Dialog>
     </div>

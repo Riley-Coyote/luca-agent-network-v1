@@ -705,7 +705,12 @@ function VirtualizedTimelineRows({
       <PreserveVirtualizedItemVisibilityContext value={isPrepend}>
         <VList
           ref={listRef}
-          className="h-full min-h-0 w-full overflow-y-auto overflow-x-hidden overscroll-contain px-2 pt-[var(--channel-top-chrome-height,4.5rem)]"
+          // This scroller pads its own top by the chrome height, and sticky
+          // offsets are measured from the padding edge — so the day pill's
+          // header clearance has to be discounted by that padding or the two
+          // stack and the pill parks a whole chrome-height below the header it
+          // is supposed to hug. `scripts/lab-shots.mjs` checks it to 12px.
+          className="h-full min-h-0 w-full overflow-y-auto overflow-x-hidden overscroll-contain px-2 pt-[var(--channel-top-chrome-height,4.5rem)] [--buzz-day-pill-sticky-top:calc(var(--buzz-channel-content-top-padding,5.75rem)_-_var(--channel-top-chrome-height,4.5rem))]"
           data={items}
           item={VirtualizedTimelineItemShell}
           itemSize={estimateItemSize}

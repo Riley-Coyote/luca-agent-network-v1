@@ -1261,9 +1261,22 @@ test("shows capped participant stack in group direct message header", async ({
   await expect(page.getByTestId("chat-title")).toContainText("+1 more");
   await expect(page.getByTestId("chat-title")).not.toContainText("outsider");
   const chatTitle = await page.getByTestId("chat-title").innerText();
-  await expect(
-    page.getByTestId("message-input").locator("[data-placeholder]").first(),
-  ).toHaveAttribute("data-placeholder", `Message ${chatTitle}`);
+  // The composer names no room. The title directly above it already says who
+  // is here, and repeating a group's roster inside the card read as
+  // "Message alice, bob, charlie, +1 more" — so one string serves every
+  // conversation, and the roster must not come back.
+  const composerPlaceholder = page
+    .getByTestId("message-input")
+    .locator("[data-placeholder]")
+    .first();
+  await expect(composerPlaceholder).toHaveAttribute(
+    "data-placeholder",
+    "Message…",
+  );
+  await expect(composerPlaceholder).not.toHaveAttribute(
+    "data-placeholder",
+    `Message ${chatTitle}`,
+  );
   const composerColors = await page
     .getByTestId("message-input")
     .evaluate((element) => {

@@ -60,6 +60,7 @@ import {
 } from "@/features/sidebar/ui/CustomChannelSection";
 import { CreateChannelDialog } from "@/features/sidebar/ui/CreateChannelDialog";
 import { SidebarProfileCard } from "@/features/sidebar/ui/SidebarProfileCard";
+import { SidebarConnectionStatusCard } from "@/features/sidebar/ui/SidebarConnectionStatusCard";
 import { SidebarRelayConnectionCard } from "@/features/sidebar/ui/SidebarRelayConnectionCard";
 import {
   SidebarLoadingContent,
@@ -824,12 +825,6 @@ export function AppSidebar({
                   )}
                 </>
               ) : null}
-
-              {errorMessage && !relayConnectionCard.hasRelayUnreachableError ? (
-                <div className="px-3 py-2 text-sm text-destructive">
-                  {errorMessage}
-                </div>
-              ) : null}
             </div>
           </SidebarContent>
         </div>
@@ -846,6 +841,20 @@ export function AppSidebar({
           ) : null}
 
           <SidebarFooter>
+            {/* One slot for connection state. The unreachable case and the
+                answered-badly case never coexist — `useSidebarRelayConnectionCard`
+                suppresses its card whenever the error is application-level —
+                so they belong in the same place, wearing the same card, rather
+                than one in the footer and one as loose red text halfway up the
+                channel list. */}
+            {errorMessage &&
+            !relayConnectionCard.hasRelayUnreachableError &&
+            (isMobile ? openMobile : sidebarOpen) ? (
+              <SidebarConnectionStatusCard
+                className="mb-2"
+                errorMessage={errorMessage}
+              />
+            ) : null}
             {relayConnectionCard.showSidebarRelayConnectionCard &&
             (isMobile ? openMobile : sidebarOpen) ? (
               <SidebarRelayConnectionCard

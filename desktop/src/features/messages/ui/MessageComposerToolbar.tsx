@@ -266,14 +266,10 @@ export const MessageComposerToolbar = React.memo(
             size="icon"
             type="submit"
           >
-            {isSending ? (
-              <span
-                aria-hidden
-                className="size-3.5 animate-spin rounded-full border border-current border-t-transparent"
-              />
-            ) : (
-              <ArrowUp aria-hidden className="size-3.5" />
-            )}
+            {/* Same rule as the message composer's send control: the button
+             * shows armed vs disarmed and nothing else. The spinner announced
+             * an event the user had just caused, in the corner of their eye. */}
+            <ArrowUp aria-hidden className="size-3.5" />
           </Button>
         ) : null}
 

@@ -1,9 +1,13 @@
+import type { ManagedTurnActivityStep } from "@/features/messages/managedPresentationTypes";
+
 export type ConversationActivityState =
   | "waking"
   | "thinking"
   | "working"
   | "writing"
   | "finalizing"
+  /** The answer landed; only the record of the work it took remains. */
+  | "settled"
   | "stopping"
   | "stopped"
   | "interrupted"
@@ -70,6 +74,8 @@ export function conversationActivityLabel(
       return "Writing";
     case "finalizing":
       return "Finalizing";
+    case "settled":
+      return "Done";
     case "stopping":
       return "Stopping";
     case "stopped":
@@ -126,7 +132,11 @@ export function activityAnnouncementDelta(
   for (const [key, item] of current) {
     const prior = previous.get(key);
     if (prior?.state === item.state) continue;
-    if (item.state === "stopped") {
+    if (item.state === "settled") {
+      // The line no longer leaves when the answer arrives, so the departure
+      // that used to carry this announcement never happens.
+      announcements.push(`${item.name} replied`);
+    } else if (item.state === "stopped") {
       announcements.push(`${item.name} stopped`);
     } else if (item.state === "interrupted") {
       announcements.push(`${item.name} was interrupted after restart`);
@@ -199,4 +209,78 @@ export function activityShelfOverflow(state: ActivityShelfSlotState): string[] {
     state.slots.filter((key): key is string => key !== null),
   );
   return state.order.filter((key) => !visible.has(key));
+}
+
+/* -------------------------------------------------------------------------
+ * How much the shelf says, and when.
+ *
+ * A wait is not one thing. Under a few seconds it is simply how long a thought
+ * takes and narrating it is noise; past ten it is a silence the owner starts
+ * to read as a hang; past thirty it is something the app should acknowledge
+ * rather than keep presenting as ordinary.
+ * ---------------------------------------------------------------------- */
+
+/** Normal latency goes unnarrated: the indicator is the whole message. */
+export const ACTIVITY_PHASE_WORD_AFTER_MS = 3_000;
+/** Silence starts to read as a hang, and a number is reassurance. */
+export const ACTIVITY_ELAPSED_AFTER_MS = 10_000;
+/** Long enough that saying "still" is honest rather than fussy. */
+export const ACTIVITY_LONG_WAIT_AFTER_MS = 30_000;
+
+export type ActivityWaitTier = "indicator" | "phase" | "elapsed" | "long";
+
+export function activityWaitTier(elapsedMs: number): ActivityWaitTier {
+  if (elapsedMs >= ACTIVITY_LONG_WAIT_AFTER_MS) return "long";
+  if (elapsedMs >= ACTIVITY_ELAPSED_AFTER_MS) return "elapsed";
+  if (elapsedMs >= ACTIVITY_PHASE_WORD_AFTER_MS) return "phase";
+  return "indicator";
+}
+
+/**
+ * How long until the line could say something different.
+ *
+ * Before the clock appears, the only thing that can change is which tier the
+ * wait has reached — so the line sleeps to that boundary instead of waking
+ * every second to repaint the same words. That is ten wasted renders per turn
+ * in the ten seconds a resident is most likely to be streaming into the row
+ * directly above it.
+ *
+ * Once the clock is on screen it genuinely changes every second, and the wait
+ * is aligned to the next whole one so the digits turn on the second rather
+ * than on whichever millisecond the turn happened to start.
+ */
+export function nextActivityWaitChangeMs(elapsedMs: number): number {
+  if (elapsedMs < ACTIVITY_PHASE_WORD_AFTER_MS) {
+    return ACTIVITY_PHASE_WORD_AFTER_MS - elapsedMs;
+  }
+  if (elapsedMs < ACTIVITY_ELAPSED_AFTER_MS) {
+    return ACTIVITY_ELAPSED_AFTER_MS - elapsedMs;
+  }
+  return 1_000 - (elapsedMs % 1_000);
+}
+
+/**
+ * Acknowledge the wait without inventing a new sentence for it. "Still" in
+ * front of whatever the resident already said is true for a phase word and
+ * for a rich label alike — "Still thinking", "Still reading MessageRow.tsx".
+ */
+export function activityLongWaitLabel(label: string): string {
+  if (label.length === 0) return label;
+  if (label.startsWith("Still ")) return label;
+  return `Still ${label.charAt(0).toLowerCase()}${label.slice(1)}`;
+}
+
+/**
+ * The one line a collapsed shelf shows for a narrated run: whatever is running
+ * now, or — once everything has settled — the last thing that ran.
+ */
+export function currentActivityStep(
+  steps: readonly ManagedTurnActivityStep[],
+): ManagedTurnActivityStep | null {
+  if (steps.length === 0) return null;
+  for (let index = steps.length - 1; index >= 0; index -= 1) {
+    const step = steps[index];
+    if (step?.status === "active") return step;
+  }
+  return steps[steps.length - 1] ?? null;
 }

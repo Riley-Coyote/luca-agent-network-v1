@@ -205,9 +205,12 @@ test("timeline agent send remains one-shot and returns to the placeholder", asyn
   await input.press("Enter");
 
   await expect(input).toHaveText("", { timeout: 500 });
+  // The placeholder coming back is the proof the editor emptied itself. The
+  // string is the composer's one placeholder for every room now, not the
+  // channel's name.
   await expect(input.locator("[data-placeholder]").first()).toHaveAttribute(
     "data-placeholder",
-    "Message #general",
+    "Message…",
     { timeout: 500 },
   );
   await expect(input).toBeFocused();

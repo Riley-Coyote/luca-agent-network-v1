@@ -4,15 +4,33 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/shared/lib/cn";
 
+/**
+ * FOCUS IS NOT DRAWN HERE, AND THAT IS THE POINT.
+ *
+ * This shipped as `focus-visible:ring-1 ring-ring` — a saturated-blue ring
+ * outside the border box. It was also, as it turns out, inert: an unlayered
+ * `:root[data-luca-shell] :focus-visible` rule in the global stylesheet
+ * outranked every focus utility in the app and painted its own 2px offset
+ * outline instead. Both are gone; the shell now draws one in-place hairline on
+ * the focused element's own edge, for every focusable thing, once. See THE
+ * FOCUS CONTRACT in `globals/conversation-shell.css`.
+ *
+ * What a button still gets to decide is the COLOUR of that edge, and only when
+ * its ground is inverted. The contract's default is the faint ink role, solved
+ * against the app's dark surfaces; on a near-white primary pill that lands at
+ * 2.0:1, under the 3:1 floor for focus indicators. So the two filled variants
+ * name the ink they are written in instead — which inverts correctly on Paper
+ * for free, because there the same token is already the dark end of the ramp.
+ */
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground shadow hover:bg-primary/90",
+          "bg-primary text-primary-foreground shadow hover:bg-primary/90 [--mn-focus-edge:hsl(var(--primary-foreground)/0.7)]",
         destructive:
-          "bg-destructive text-destructive-foreground shadow-xs hover:bg-destructive/90",
+          "bg-destructive text-destructive-foreground shadow-xs hover:bg-destructive/90 [--mn-focus-edge:hsl(var(--destructive-foreground)/0.7)]",
         outline: "border border-input/40 bg-background hover:bg-muted/70",
         secondary:
           "bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80",

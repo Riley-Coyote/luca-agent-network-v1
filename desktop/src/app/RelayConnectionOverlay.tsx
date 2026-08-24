@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "motion/react";
-import { AlertCircle } from "lucide-react";
 
+import { SidebarConnectionStatusCard } from "@/features/sidebar/ui/SidebarConnectionStatusCard";
 import { SidebarRelayConnectionCard } from "@/features/sidebar/ui/SidebarRelayConnectionCard";
 import type { useSidebarRelayConnectionCard } from "@/features/sidebar/ui/useSidebarRelayConnectionCard";
 import { cn } from "@/shared/lib/cn";
@@ -23,7 +23,7 @@ type RelayConnectionOverlayProps = {
  *
  * Also surfaces non-unreachable disconnect errors (e.g. auth rejections)
  * when the sidebar is hidden, since those errors are only rendered inside
- * the sidebar content area which is off-canvas when collapsed.
+ * the sidebar footer, which is off-canvas when collapsed.
  */
 export function RelayConnectionOverlay({
   card,
@@ -96,13 +96,13 @@ export function RelayConnectionOverlay({
           key="relay-error-overlay"
           transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
         >
-          <div
-            className="pointer-events-auto flex items-center gap-2 rounded-xl bg-background px-3 py-2.5 text-sm text-destructive shadow-md"
-            data-testid="relay-error-overlay"
-            role="alert"
-          >
-            <AlertCircle aria-hidden="true" className="h-4 w-4 shrink-0" />
-            <span className="flex-1">{errorMessage}</span>
+          {/* Same card the open sidebar shows, so the collapsed rail does not
+              get its own, worse, version of the connection voice. */}
+          <div className="pointer-events-auto rounded-xl bg-background shadow-md">
+            <SidebarConnectionStatusCard
+              errorMessage={errorMessage ?? ""}
+              testId="relay-error-overlay"
+            />
           </div>
         </motion.div>
       ) : null}

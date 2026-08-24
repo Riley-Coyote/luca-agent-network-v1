@@ -8,3 +8,181 @@
  *
  * Owns: MessageComposer and its immediate surface.
  * ------------------------------------------------------------------ */
+
+:root {
+  /* Arming and disarming are asymmetric on purpose. Granting an affordance
+   * can be gentle; taking one away has to be quick, or backspacing fast past
+   * the last character strobes the button. 140ms is a step the shared ramp
+   * does not carry (instant 120 / fast 180), so the pair is named here beside
+   * the rules that spend it. 90ms is the choreographer's tap duration; alias
+   * it onto --motion-duration-tap if motion.css ever grows one. */
+  --composer-duration-arm: 140ms;
+  --composer-duration-disarm: 90ms;
+}
+
+/* Focus is the card's own border brightening in place. border-color and the
+ * lit edge are the ONLY properties licensed to move here. The background must
+ * hold still, and a height transition would turn every text wrap into a slide,
+ * which is the single largest cause of a composer feeling soggy. */
+[data-testid="message-composer"] {
+  transition:
+    border-color var(--motion-duration-instant) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-instant) var(--motion-ease-standard);
+}
+
+/* WHAT HOLDS THE CARD OFF THE GROUND IS THE SHADE STEP, NOT AN EDGE.
+ *
+ * Measured at 1440×900 in the default palette: card #2e2f30 over ground
+ * #1b1c1d is a 19-RGB step, while the 12% focus hairline composites to
+ * #464646 — a 24-RGB step drawn ON TOP of that card. The edge was a bigger
+ * value jump than the plane change it decorated, and because the composer
+ * autofocuses it was on screen 100% of the time; in an empty room that reads
+ * as a form field, which is the one thing this card is not.
+ *
+ * 6% ink composites to ~#3a3a3b, a 12-RGB step — quieter than the plane it
+ * sits on. Capped rather than removed because two palettes still lean on it:
+ * graphite's card→ground step measures 5 RGB and ash's 9, and there the
+ * hairline is the only thing holding the card off the ground. Widening those
+ * ladders is the palette's work; until it lands, the mark stays, quiet.
+ *
+ * The lit edge takes over as the object cue — one inset highlight, the
+ * system's single light effect, the same one the owner's plate wears. */
+:root[data-luca-shell] [data-testid="message-composer"] {
+  border-color: transparent;
+  box-shadow: var(--mn-lit-edge);
+}
+
+:root[data-luca-shell] [data-testid="message-composer"]:focus-within {
+  border-color: hsl(var(--mn-ink) / 0.06);
+}
+
+/* The inverted state model: this control is almost always focused, so BLUR is
+ * the state worth marking. The card loses its highlight and goes flat, which
+ * is what a plane does when the light moves elsewhere. Alpha 0 rather than
+ * `none` keeps the shadow list interpolable, so the change eases rather than
+ * cutting. */
+:root[data-luca-shell] [data-testid="message-composer"]:not(:focus-within) {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0);
+}
+
+/* At the tuck the card should read as sinking into the recess, and two light
+ * lines stacked a pixel apart — focus hairline over lit edge — read as a
+ * raised lip instead. The highlight wins that pixel; the border yields it for
+ * as long as the well is open. */
+:root[data-luca-shell]
+  .luca-sheet-deck
+  + [data-testid="message-composer"]:focus-within {
+  border-top-color: transparent;
+}
+
+/* The send button has two states, armed and disarmed, and never moves between
+ * them — it is the one point a hand aims at hundreds of times a day. Each
+ * duration is declared on the state being ENTERED, so a crossing picks up its
+ * own timing with no JS: `disabled` is driven by the composer's empty /
+ * non-empty boolean, and a keystroke that does not cross it changes no style
+ * at all. That is what keeps the transition off the keystroke hot path.
+ *
+ * `:enabled` is load-bearing, not decoration. theme.css gives every button in
+ * the shell a blanket `transition: … 150ms ease` at specificity (0,3,0); the
+ * bare descendant pair here is (0,2,0) and silently loses to it, which reads
+ * as a symmetric 150ms arm AND disarm. The pseudo-class buys the third point
+ * so source order can decide, and it happens to name the state exactly: armed
+ * IS enabled.
+ *
+ * border-color is listed at the card's focus duration rather than the arm
+ * one: every button rests on a transparent border and colours it on keyboard
+ * focus, and focus should read at the same speed on the button as on the card
+ * around it. Only these three properties move — `transition-colors` would
+ * also ease fill, stroke and the gradient stops. */
+[data-testid="message-composer"] [data-testid="send-message"]:enabled {
+  transition:
+    background-color var(--composer-duration-arm) var(--motion-ease-standard),
+    color var(--composer-duration-arm) var(--motion-ease-standard),
+    border-color var(--motion-duration-instant) var(--motion-ease-standard);
+}
+
+[data-testid="message-composer"] [data-testid="send-message"]:disabled {
+  transition:
+    background-color var(--composer-duration-disarm) var(--motion-ease-standard),
+    color var(--composer-duration-disarm) var(--motion-ease-standard),
+    border-color var(--motion-duration-instant) var(--motion-ease-standard);
+}
+
+/* The placeholder is the typed text minus its ink: same face, size, leading
+ * and tracking, inherited from .tiptap. A placeholder set at a different size
+ * or weight makes the field flinch the moment typing starts. Only the ink
+ * role differs, and it comes from the ladder — never an alpha on a
+ * foreground, which cannot hold its ratio when the ink goes near-black on
+ * paper. */
+:root[data-luca-shell]
+  [data-testid="message-composer"]
+  .rich-text-composer
+  .tiptap
+  p.is-editor-empty:first-child::before {
+  color: hsl(var(--mn-ink-faint));
+}
+
+/* ------------------------------------------------------------------
+ * THE NAKED BASELINE ROW
+ *
+ * The chrome under the card sits on the ground with no surface behind it, so
+ * its only weight is the glyphs themselves — and they were arriving at full
+ * ink: 15.5:1 against the ground, while the placeholder, the one thing in the
+ * composer you are required to read, measured 4.5:1. Decoration was running
+ * 3.4× the contrast of content.
+ *
+ * The colour is set on the ROW and inherited, not on the glyphs: a variant
+ * that names its own ink (the recording button's destructive fill, an active
+ * toggle) declares it on the button itself, and a direct declaration beats an
+ * inherited one whatever the specificity. So the quiet default reaches every
+ * glyph that has no opinion and nothing that does.
+ *
+ * This supersedes the shell's `[data-size="icon"]` rule, which never matched:
+ * the Button component takes `size` as a prop and emits no such attribute.
+ * ------------------------------------------------------------------ */
+:root[data-luca-shell] [data-testid="message-composer-toolbar"] {
+  color: hsl(var(--mn-ink-muted) / 0.72);
+}
+
+/* Hover is the only moment this row may draw a hit target — a naked glyph has
+ * no discoverable edge — so the plate exists, but it is ink at an alpha rather
+ * than the shell's hover SHADE. That shade (#373839) sits a full step above
+ * the composer card, which put a 32px chrome button on a higher plane than the
+ * card above it and inverted the elevation ladder. At 5% ink the plate lands
+ * between the ground and the card: present under the pointer, never a surface.
+ *
+ * Excluded: anything already pressed. An active toggle and a live recording
+ * both hold their own fill, and that fill is the state. */
+:root[data-luca-shell]
+  [data-testid="message-composer-toolbar"]
+  button:not([aria-pressed="true"]) {
+  transition:
+    background-color var(--composer-duration-disarm) linear,
+    color var(--composer-duration-disarm) linear;
+}
+
+:root[data-luca-shell]
+  [data-testid="message-composer-toolbar"]
+  button:not([aria-pressed="true"]):hover {
+  background-color: hsl(var(--mn-ink) / 0.05);
+}
+
+/* Press lands instantly and releases on the hover ramp — a 16px glyph cannot
+ * be scaled legibly, so the plate carries the whole of the feedback. */
+:root[data-luca-shell]
+  [data-testid="message-composer-toolbar"]
+  button:not([aria-pressed="true"]):active {
+  background-color: hsl(var(--mn-ink) / 0.09);
+  transition-duration: 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-testid="message-composer"],
+  [data-testid="message-composer"] [data-testid="send-message"]:enabled,
+  [data-testid="message-composer"] [data-testid="send-message"]:disabled,
+  :root[data-luca-shell]
+    [data-testid="message-composer-toolbar"]
+    button:not([aria-pressed="true"]) {
+    transition: none;
+  }
+}
