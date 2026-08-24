@@ -146,6 +146,19 @@ h1 { font-size:26px; font-weight:500; letter-spacing:-.01em; margin-bottom:10px;
 }
 .ladnote { font-size:12px; color:var(--t-soft); margin-bottom:44px; }
 
+
+/* ═══ ink temperature panel — all temps at once, on the live s1 surface ═══ */
+.inkpanel { margin: -18px 0 44px; }
+.inkpanel .cols { display:grid; grid-template-columns: repeat(5, 1fr); border-radius: 10px; overflow:hidden; }
+.inkcol { background: var(--s1); padding: 18px 16px 16px; transition: background .25s ease; }
+.inkcol + .inkcol { box-shadow: -1px 0 0 rgba(0,0,0,.25); }
+.inkcol .big { font-size: 34px; font-weight: 500; letter-spacing: -.01em; margin-bottom: 8px; }
+.inkcol .par { font-size: 12.5px; line-height: 1.55; }
+.inkcol .lab { font-family:'JetBrains Mono',monospace; font-size: 9px; letter-spacing: .11em;
+  text-transform: uppercase; margin-top: 12px; }
+.inkcol .rgbv { font-family:'JetBrains Mono',monospace; font-size: 9px; margin-top: 3px; opacity: .8; }
+.inkpanel .note { font-size: 12px; color: var(--t-soft); margin-top: 8px; }
+
 /* ═══ applied scene ═══ */
 .scene {
   display:grid; grid-template-columns: 232px 1fr; border-radius:12px;
@@ -271,6 +284,14 @@ h2 { font-size:19px; font-weight:550; letter-spacing:-.005em; margin: 60px 0 6px
   <div class="ladder" id="ladder"></div>
   <p class="ladnote mono" id="ladnote"></p>
 
+  <div class="inkpanel">
+    <div class="cols" id="inkcols"></div>
+    <p class="note">The same text in five ink temperatures on the live surface-1 — juxtaposed, because
+    a 2–4 point temperature never survives an A/B flip but is obvious side by side. The three middle
+    columns are options 4 · 2 · 1; the outer two are the same directions at double dose, in case the
+    honest doses are too quiet to choose between.</p>
+  </div>
+
   <div style="position:relative">
   <div class="scene">
     <div class="side">
@@ -334,7 +355,7 @@ const P = {
   b: { name:"Neutral — warmth removed",
     why:"<strong>Identical to the composite in every token except the ink.</strong> Dead-neutral text (R=G=B), same surfaces, same shadows, same steps. Flip 1 and 2 slowly — the only thing changing is the temperature of the light. This is the direct answer to the too-warm worry.",
     ladder:[["floor","#0e0e0e"],["canvas","#171717"],["surface-1","#202020"],["surface-2","#282828"],["surface-3","#313131"]],
-    note:"carved steps - ink dead neutral - whisper light" },
+    note:"surfaces IDENTICAL to option 1 by design - only the ink moves" },
   c: { name:"OpenAI room",
     why:"<strong>ChatGPT's world, honestly translated.</strong> Lifted register (canvas #212121, their exact value), dead-neutral soft ink at their gentler contrast, radii up to 22, shadows nearly retired — hierarchy from spacing and type, not chrome. If their feel is the north star, this is what it costs and buys on our furniture.",
     ladder:[["floor","#171717"],["canvas","#212121"],["surface-1","#2a2a2a"],["surface-2","#2f2f2f"],["surface-3","#373737"]],
@@ -342,7 +363,7 @@ const P = {
   d: { name:"Frost — the cool pole",
     why:"<strong>The opposite departure.</strong> Composite's exact structure, ink with a blue whisper — the direction round one over-shot, at a dose that reads as temperature. Bracketing the warmth question from the other side, so 1, 2 and 4 form a scale: warm, none, cool.",
     ladder:[["floor","#0e0e0e"],["canvas","#171717"],["surface-1","#202020"],["surface-2","#282828"],["surface-3","#313131"]],
-    note:"carved steps - ink cool whisper - whisper light" },
+    note:"surfaces IDENTICAL to option 1 by design - only the ink moves" },
 };
 
 const order = ["a","b","c","d"];
@@ -386,6 +407,26 @@ document.getElementById("footer").innerHTML =
   "Every option keeps the same structure — floor below canvas, cards and composer at surface-1, "+
   "hover at surface-2, overlays at surface-3 — only the temperature and register change. "+
   "The current app palette (floor <code>#050506</code>) becomes the Void theme untouched.";
+
+
+/* ink panel: five temperatures, same alphas the options use */
+const INKS = [
+  ["frost ×2",  [230,236,248], [188,199,218]],
+  ["frost — opt 4", [238,241,247], [205,210,220]],
+  ["neutral — opt 2", [242,242,242], [211,211,211]],
+  ["cream — opt 1", [244,243,240], [214,212,208]],
+  ["cream ×2",  [250,246,238], [224,216,202]],
+];
+const ic = document.getElementById("inkcols");
+INKS.forEach(([lab, hi, lo]) => {
+  const d = document.createElement("div"); d.className = "inkcol";
+  const H = `rgba(${hi.join(",")},.93)`, L = `rgba(${lo.join(",")},.74)`;
+  d.innerHTML = `<div class="big" style="color:${H}">Aa</div>
+    <div class="par" style="color:${L}">The bucket runs out and we hold. You wake up to a paused conversation, not a finished one.</div>
+    <div class="lab" style="color:${L}">${lab}</div>
+    <div class="rgbv" style="color:${L}">${hi.join(" · ")}</div>`;
+  ic.appendChild(d);
+});
 
 apply("a");
 </script>
