@@ -41,28 +41,30 @@ fast-forward it and rebuild.
   and `typography.css`, and its identity marks come from the real
   `glyph.ts`, so only what it *adds* is new — a card that splits, a card
   that holds a widget, cards that tile, and a card that leaves the floor.
-  Five palettes — Slate, Inverse and Paper from `adaptive-theme.ts`, plus
-  two designed from Apple's HIG protocol: SMOKE (the dark-glass default —
-  light glowing rail over a velvet plane) (glass has no inherent colour; it dims and blurs the
-  desktop into a legibility band — a scrim near Apple's published 35% — over
-  a near-black velvet reading plane) and ONYX (the dark-FLOOR opaque: Apple's
-  base/elevated semantics on their published dark ramp #1C1C1E/#2C2C2E,
-  whose grey chemistry B=R+2 matches the house linear-dose lean; deep-smoke
-  when glassed, desktop-tint whisper when opaque). Smoke and Onyx's harness
-  check is faint-ink AA over the sampled glass, not luminance pinning. Glass changes the FLOOR ONLY: cards stay opaque and on
-  the ladder, and the floor takes the desktop's hue while keeping its own
-  luminance (`mix-blend-mode: luminosity`, which is what vibrancy is). Built
-  to native-macOS grade: real traffic lights on the shell's own geometry
+  Six palettes — Slate, Inverse and Paper from `adaptive-theme.ts`, plus
+  three designed from Apple's HIG protocol: SMOKE (glowing rail over a
+  velvet plane), DRAGON GLASS (Smoke's palette under the Dark material —
+  the blackout preset) and ONYX (Apple base/elevated semantics on their
+  published dark ramp #1C1C1E/#2C2C2E, whose grey chemistry B=R+2 matches
+  the house linear-dose lean). GLASS IS A THEME-AGNOSTIC MATERIAL SYSTEM:
+  three weights — Light (pearl) / Neutral (smoke) / Dark (blackout) —
+  chosen within ink polarity (dark themes: neutral or dark; light themes:
+  light). Every theme declares a default and integrates by construction;
+  the old luminosity plate is retired; every theme desktop-tints when
+  opaque, and reduced transparency collapses everything to solid. Glass
+  changes the FLOOR ONLY: cards stay opaque and on the ladder. Built to
+  native-macOS grade: real traffic lights on the shell's own geometry
   (x=16, y=23), the house motion ramp from `motion.css` (split/tile/place
   choreographed; lift MOVES a card's organs into a draggable panel with a
   lagged-lerp drag, so live tickers survive the trip), five states per
   element with in-place focus, overlay scrollbars per `scrollbars.css`,
-  seed-phased identity breath, a drifting wallpaper the floor probe measures
+  seed-phased identity breath, a drifting wallpaper the probe measures
   through, and full reduced-motion neutralization.
-  Scenes: `?theme=slate|inverse|paper`, `?glass=off`, `?tile=1`, `?place=1`,
+  Scenes: `?theme=slate|inverse|smoke|dragon|onyx|paper`,
+  `?material=light|neutral|dark`, `?glass=off`, `?tile=1`, `?place=1`,
   `?lift=1`, `?laws=1`, `?wall=dusk|quiet`. Verify with
   `node design-lab/verify-panes.mjs --pass N` (matrix shots, hash gate,
-  ambient-under-reduce assertion, floor-luminance probe).
+  ambient-under-reduce assertion, faint-AA-over-material probe).
   Brief: `docs/luca/EXTENSIONS.md`.
 - `visit-variants.html` (this folder) — the structural options explored for
   the visit design before the threshold construction won.

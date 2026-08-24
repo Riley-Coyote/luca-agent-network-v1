@@ -158,7 +158,34 @@ adaptive-theme mapping table and possibly a preview list). Display names for
 pickers: **"Smoke"** and **"Onyx"** (strings table §9). The app's DEFAULT
 theme does not change in this port.
 
-### A3. Shell CSS — the glass states
+### A3′ AMENDMENT (2026-08-24, supersedes A3's per-theme alphas)
+
+Glass is a THEME-AGNOSTIC MATERIAL SYSTEM — three weights, exactly these:
+
+| Material | Backdrop treatment (native blur + this CSS filter in the study) | Scrim overlay |
+|---|---|---|
+| `light` | `saturate(210%) brightness(1.14)` | `rgb(250 249 247 / .56)` |
+| `neutral` | `saturate(245%) brightness(.68)` | `rgb(9 10 14 / .36)` |
+| `dark` | `saturate(235%) brightness(.42)` | `rgb(5 5 8 / .55)` |
+
+- In the app, NSVisualEffectView supplies the blur; the CSS layer paints the
+  scrim at the alphas above when glass is on, the whisper when opaque
+  (`.15` dark themes, `.12` paper), and `1` under reduced transparency.
+- Polarity guard (hard rule): dark-ink themes (paper) take `light` only;
+  light-ink themes take `neutral` or `dark`. Theme defaults:
+  slate/inverse/smoke → neutral · dragon/onyx → dark · paper → light.
+- **DRAGON GLASS** is a sixth registered theme: token-identical to Smoke
+  (alias `SMOKE_THEME_COLORS`; do not duplicate the values), default
+  material `dark`, display name `Dragon Glass`.
+- Appearance settings gain a material picker beside the Glass toggle,
+  shown only when the active theme allows two materials. Strings in §9.
+- The luminosity-blend construction is retired everywhere.
+- Acceptance replaces per-theme checks: for every theme × its allowed
+  materials, faint ink ≥ 4.5:1 over the sampled rail (§A6 probe).
+  Study reference numbers: neutral 5.45–6.54 · dark 7.79 · light 5.34.
+
+### A3. Shell CSS — the glass states (original — the state mechanics stand;
+its per-theme alphas are superseded by A3′)
 
 All of this goes in `conversation-shell.css` (or a new
 `glass-floor.css` imported immediately after it — your call is pre-made:
@@ -374,7 +401,9 @@ runs via the e2e bridge; screenshots hash-distinct; evidence in the PR via
 
 | Where | String |
 |---|---|
-| Theme picker names | `Smoke` · `Onyx` |
+| Theme picker names | `Smoke` · `Dragon Glass` · `Onyx` |
+| Material picker label | `Glass material` |
+| Material option names | `Light` · `Neutral` · `Dark` |
 | Appearance setting label | `Glass floor` |
 | Appearance setting sub-copy | `The floor takes the desktop's colour. Off keeps a whisper of it.` |
 | Widget title | `What's alive right now` |
