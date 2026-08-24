@@ -10,73 +10,24 @@
 <style>
 *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 
-/* ═══ ROUND THREE — FOUR NEUTRAL WORLDS ═══
-   Carved won round two as structure. These are genuinely different rooms
-   built on the same philosophy — pure neutral, no cast, depth earned.
-   1 · Carved       — the anchor. Wide steps, quiet craft, cool ink.
-   2 · Chiaroscuro  — darker ground, surfaces leap much higher: bright
-                      objects in a dim room. The dramatic reading.
-   3 · Daylight     — the whole register lifted; brighter than ChatGPT.
-                      The airy reading.
-   4 · Composite    — the proposal: carved's steps + cream ink + a
-                      restrained studio light. Riley's two favorites, married. */
+/* ═══ ROUND FOUR — THE BLIND-SPOT CHECK ═══
+   Riley worries his taste (cream ink) may be a personal mood, not the
+   generally-right call, and names OpenAI's neutrals as his north star.
+   This round brackets the warmth question:
+   1 · Composite    — the winner so far. Cream ink. The anchor.
+   2 · Neutral      — identical in every token except the ink, which is
+                      dead-neutral. Flip 1<->2: the ONLY difference is warmth.
+   3 · OpenAI room  — the honest translation of ChatGPT's world: lifted
+                      register, soft neutral ink, larger radii, shadows
+                      nearly retired.
+   4 · Frost        — the cool pole: ink with a blue whisper, bracketing
+                      warmth from the other side.                          */
 
 :root, :root[data-p="a"] {
-  /* 1 · Carved — the anchor */
+  /* 1 · Composite — the winner. Carved steps, cream ink, whisper light */
   --floor:   #0e0e0e;  --canvas:  #171717;  --s1: #202020;
   --s2:      #282828;  --s3:      #313131;
-  --grad-s1: var(--s1);
-  --sh-raise:   0 1px 0 rgba(255,255,255,.045) inset, 0 6px 22px rgba(0,0,0,.20);
-  --sh-overlay: 0 12px 36px rgba(0,0,0,.42);
-  --ink:     rgba(240,241,244,.93);
-  --t-body:  rgba(208,210,214,.74);
-  --t-2nd:   rgba(188,190,195,.56);
-  --t-soft:  rgba(158,160,166,.42);
-  --t-ghost: rgba(132,134,140,.26);
-  --ov-hover: rgba(235,237,240,.045);
-  --ov-sel:   rgba(235,237,240,.10);
-  --rule:     rgba(235,237,240,.07);
-}
-:root[data-p="b"] {
-  /* 2 · Chiaroscuro — dim room, bright objects. The spread does the drama:
-     ground stays low, everything raised leaps +17 or more. */
-  --floor:   #0c0c0c;  --canvas:  #131313;  --s1: #242424;
-  --s2:      #2b2b2b;  --s3:      #383838;
-  --grad-s1: var(--s1);
-  --sh-raise:   0 1px 0 rgba(255,255,255,.05) inset, 0 8px 26px rgba(0,0,0,.28);
-  --sh-overlay: 0 16px 44px rgba(0,0,0,.5);
-  --ink:     rgba(240,241,244,.93);
-  --t-body:  rgba(208,210,214,.74);
-  --t-2nd:   rgba(188,190,195,.56);
-  --t-soft:  rgba(158,160,166,.42);
-  --t-ghost: rgba(132,134,140,.26);
-  --ov-hover: rgba(235,237,240,.05);
-  --ov-sel:   rgba(235,237,240,.11);
-  --rule:     rgba(235,237,240,.07);
-}
-:root[data-p="c"] {
-  /* 3 · Daylight — the register lifted whole. Brighter than ChatGPT;
-     shadows nearly retire because the steps carry everything. */
-  --floor:   #1c1c1c;  --canvas:  #242424;  --s1: #2d2d2d;
-  --s2:      #343434;  --s3:      #3c3c3c;
-  --grad-s1: var(--s1);
-  --sh-raise:   0 1px 0 rgba(255,255,255,.05) inset, 0 4px 16px rgba(0,0,0,.14);
-  --sh-overlay: 0 10px 30px rgba(0,0,0,.32);
-  --ink:     rgba(242,243,246,.94);
-  --t-body:  rgba(212,214,218,.78);
-  --t-2nd:   rgba(192,194,199,.60);
-  --t-soft:  rgba(164,166,172,.46);
-  --t-ghost: rgba(138,140,146,.30);
-  --ov-hover: rgba(238,240,244,.05);
-  --ov-sel:   rgba(238,240,244,.11);
-  --rule:     rgba(238,240,244,.08);
-}
-:root[data-p="d"] {
-  /* 4 · Composite — the proposal. Carved's exact surfaces; the Terminal
-     docs' cream ink; studio's light dialed to a whisper (gradient inside
-     raised surfaces, shadows tiered but restrained). */
-  --floor:   #0e0e0e;  --canvas:  #171717;  --s1: #202020;
-  --s2:      #282828;  --s3:      #313131;
+  --rad: 14px;
   --grad-s1: linear-gradient(180deg, #222222, #1f1f1f);
   --sh-raise:   0 1px 0 rgba(255,255,255,.055) inset, 0 2px 6px rgba(0,0,0,.14), 0 8px 24px rgba(0,0,0,.20);
   --sh-overlay: 0 1px 0 rgba(255,255,255,.05) inset, 0 4px 10px rgba(0,0,0,.22), 0 16px 42px rgba(0,0,0,.42);
@@ -88,6 +39,57 @@
   --ov-hover: rgba(220,219,216,.045);
   --ov-sel:   rgba(220,219,216,.10);
   --rule:     rgba(220,219,216,.07);
+}
+:root[data-p="b"] {
+  /* 2 · Neutral — the composite with the warmth surgically removed */
+  --floor:   #0e0e0e;  --canvas:  #171717;  --s1: #202020;
+  --s2:      #282828;  --s3:      #313131;
+  --rad: 14px;
+  --grad-s1: linear-gradient(180deg, #222222, #1f1f1f);
+  --sh-raise:   0 1px 0 rgba(255,255,255,.055) inset, 0 2px 6px rgba(0,0,0,.14), 0 8px 24px rgba(0,0,0,.20);
+  --sh-overlay: 0 1px 0 rgba(255,255,255,.05) inset, 0 4px 10px rgba(0,0,0,.22), 0 16px 42px rgba(0,0,0,.42);
+  --ink:     rgba(242,242,242,.93);
+  --t-body:  rgba(211,211,211,.74);
+  --t-2nd:   rgba(193,193,193,.56);
+  --t-soft:  rgba(162,162,162,.42);
+  --t-ghost: rgba(136,136,136,.26);
+  --ov-hover: rgba(236,236,236,.045);
+  --ov-sel:   rgba(236,236,236,.10);
+  --rule:     rgba(236,236,236,.07);
+}
+:root[data-p="c"] {
+  /* 3 · OpenAI room — ChatGPT's world, honestly translated */
+  --floor:   #171717;  --canvas:  #212121;  --s1: #2a2a2a;
+  --s2:      #2f2f2f;  --s3:      #373737;
+  --rad: 22px;
+  --grad-s1: var(--s1);
+  --sh-raise:   0 3px 12px rgba(0,0,0,.10);
+  --sh-overlay: 0 8px 28px rgba(0,0,0,.28);
+  --ink:     rgba(236,236,236,.92);
+  --t-body:  rgba(205,205,205,.76);
+  --t-2nd:   rgba(180,180,180,.58);
+  --t-soft:  rgba(150,150,150,.46);
+  --t-ghost: rgba(125,125,125,.32);
+  --ov-hover: rgba(236,236,236,.05);
+  --ov-sel:   rgba(236,236,236,.10);
+  --rule:     rgba(236,236,236,.08);
+}
+:root[data-p="d"] {
+  /* 4 · Frost — the cool pole */
+  --floor:   #0e0e0e;  --canvas:  #171717;  --s1: #202020;
+  --s2:      #282828;  --s3:      #313131;
+  --rad: 14px;
+  --grad-s1: linear-gradient(180deg, #222222, #1f1f1f);
+  --sh-raise:   0 1px 0 rgba(255,255,255,.055) inset, 0 2px 6px rgba(0,0,0,.14), 0 8px 24px rgba(0,0,0,.20);
+  --sh-overlay: 0 1px 0 rgba(255,255,255,.05) inset, 0 4px 10px rgba(0,0,0,.22), 0 16px 42px rgba(0,0,0,.42);
+  --ink:     rgba(238,241,247,.93);
+  --t-body:  rgba(205,210,220,.74);
+  --t-2nd:   rgba(185,191,202,.56);
+  --t-soft:  rgba(153,159,171,.42);
+  --t-ghost: rgba(126,132,144,.26);
+  --ov-hover: rgba(230,235,244,.045);
+  --ov-sel:   rgba(230,235,244,.10);
+  --rule:     rgba(230,235,244,.07);
 }
 
 html, body { height:100%; }
@@ -197,7 +199,7 @@ h1 { font-size:26px; font-weight:500; letter-spacing:-.01em; margin-bottom:10px;
 /* popover — s3 proof */
 .pop {
   position:absolute; right:34px; top:118px; width:210px; background:var(--s3);
-  border-radius:10px; padding:6px; box-shadow: var(--sh-overlay);
+  border-radius: calc(var(--rad) - 4px); padding:6px; box-shadow: var(--sh-overlay);
   transition: background .25s ease;
 }
 .pop div { padding:7px 10px; border-radius:6px; font-size:12.5px; color:var(--t-body); }
@@ -206,7 +208,7 @@ h1 { font-size:26px; font-weight:500; letter-spacing:-.01em; margin-bottom:10px;
 
 /* composer — the proposed two-row card, at s1, no border */
 .composer {
-  margin: 10px 26px 22px; background: var(--grad-s1); border-radius: 14px;
+  margin: 10px 26px 22px; background: var(--grad-s1); border-radius: var(--rad);
   padding: 13px 14px 11px;
   box-shadow: var(--sh-raise);
   transition: background .25s ease;
@@ -251,16 +253,16 @@ h2 { font-size:19px; font-weight:550; letter-spacing:-.005em; margin: 60px 0 6px
 <body data-top>
 
 <nav class="bar">
-  <button class="tab on" data-p="a">1 · Carved</button>
-  <button class="tab" data-p="b">2 · Chiaroscuro</button>
-  <button class="tab" data-p="c">3 · Daylight</button>
-  <button class="tab" data-p="d">4 · Composite</button>
+  <button class="tab on" data-p="a">1 · Composite</button>
+  <button class="tab" data-p="b">2 · Neutral</button>
+  <button class="tab" data-p="c">3 · OpenAI room</button>
+  <button class="tab" data-p="d">4 · Frost</button>
   <span class="hint">keys 1–4 · whole page re-themes</span>
 </nav>
 
 <div class="wrap">
   <div class="eyebrow">§ surface ladders · four options · 2026-08-23</div>
-  <h1 id="opt-title">Carved — the anchor</h1>
+  <h1 id="opt-title">Composite — the winner so far</h1>
   <p class="sub">The entire page re-paints in the selected ladder — the switcher bar is the
   floor, this ground is the canvas, the composer below is surface-1, the popover is surface-3.
   Judge the palette by how the scene feels, not by the swatches.</p>
@@ -325,22 +327,22 @@ h2 { font-size:19px; font-weight:550; letter-spacing:-.005em; margin: 60px 0 6px
 
 <script>
 const P = {
-  a: { name:"Carved — the anchor",
-    why:"<strong>Round two's winner, unchanged.</strong> Pure neutral, +9 steps, quiet craft, cool ink. Everything else in this round is judged against it.",
+  a: { name:"Composite — the winner so far",
+    why:"<strong>The anchor.</strong> Carved steps, cream ink, whisper light — unchanged from round three. Everything else this round exists to test whether its warmth is right or a mood.",
     ladder:[["floor","#0e0e0e"],["canvas","#171717"],["surface-1","#202020"],["surface-2","#282828"],["surface-3","#313131"]],
-    note:"steps of +9 RGB · ink cool · craft quiet" },
-  b: { name:"Chiaroscuro",
-    why:"<strong>A dim room with bright objects.</strong> The ground stays low and everything raised leaps — canvas to card is +17, canvas to popover +37. The composer and cards genuinely glow out of the dark. The most dramatic neutral that is still calm.",
-    ladder:[["floor","#0c0c0c"],["canvas","#131313"],["surface-1","#242424"],["surface-2","#2b2b2b"],["surface-3","#383838"]],
-    note:"ground low, raised leaps +17…+37 · ink cool · deep shadows" },
-  c: { name:"Daylight",
-    why:"<strong>The whole register lifted.</strong> Canvas at 14% — brighter than ChatGPT. Surfaces separate effortlessly, shadows nearly retire, ink relaxes because the ground carries more light. The airy reading of the same philosophy; the furthest from Void.",
-    ladder:[["floor","#1c1c1c"],["canvas","#242424"],["surface-1","#2d2d2d"],["surface-2","#343434"],["surface-3","#3c3c3c"]],
-    note:"steps of +8 RGB · ink cool, relaxed · shadows light" },
-  d: { name:"Composite — the proposal",
-    why:"<strong>Your two favorites, married.</strong> Carved's exact surfaces and steps; cream ink over them (all the warmth in the text, none on any surface); and studio's light at a whisper — a ~1% gradient inside raised objects, shadows tiered by elevation. Flip 1↔4: same room, warmer light, finer depth.",
+    note:"carved steps - ink warm cream - whisper light" },
+  b: { name:"Neutral — warmth removed",
+    why:"<strong>Identical to the composite in every token except the ink.</strong> Dead-neutral text (R=G=B), same surfaces, same shadows, same steps. Flip 1 and 2 slowly — the only thing changing is the temperature of the light. This is the direct answer to the too-warm worry.",
     ladder:[["floor","#0e0e0e"],["canvas","#171717"],["surface-1","#202020"],["surface-2","#282828"],["surface-3","#313131"]],
-    note:"carved steps · ink warm cream · studio light at whisper strength" },
+    note:"carved steps - ink dead neutral - whisper light" },
+  c: { name:"OpenAI room",
+    why:"<strong>ChatGPT's world, honestly translated.</strong> Lifted register (canvas #212121, their exact value), dead-neutral soft ink at their gentler contrast, radii up to 22, shadows nearly retired — hierarchy from spacing and type, not chrome. If their feel is the north star, this is what it costs and buys on our furniture.",
+    ladder:[["floor","#171717"],["canvas","#212121"],["surface-1","#2a2a2a"],["surface-2","#2f2f2f"],["surface-3","#373737"]],
+    note:"their register - ink neutral, soft - radii 22 - shadows minimal" },
+  d: { name:"Frost — the cool pole",
+    why:"<strong>The opposite departure.</strong> Composite's exact structure, ink with a blue whisper — the direction round one over-shot, at a dose that reads as temperature. Bracketing the warmth question from the other side, so 1, 2 and 4 form a scale: warm, none, cool.",
+    ladder:[["floor","#0e0e0e"],["canvas","#171717"],["surface-1","#202020"],["surface-2","#282828"],["surface-3","#313131"]],
+    note:"carved steps - ink cool whisper - whisper light" },
 };
 
 const order = ["a","b","c","d"];
@@ -363,8 +365,8 @@ addEventListener("keydown",e=>{ const i=+e.key-1; if(order[i]) apply(order[i]); 
 const g=document.getElementById("grid4");
 order.forEach(k=>{
   const p=P[k]; const [fl,cv,s1,s2]=[p.ladder[0][1],p.ladder[1][1],p.ladder[2][1],p.ladder[3][1]];
-  const ink = k==="d" ? "rgba(244,243,240,.9)" : "rgba(240,242,246,.9)";
-  const body= k==="d" ? "rgba(214,212,208,.6)" : "rgba(208,211,217,.6)";
+  const ink = k==="a" ? "rgba(244,243,240,.9)" : k==="d" ? "rgba(238,241,247,.9)" : "rgba(240,240,240,.9)";
+  const body= k==="a" ? "rgba(214,212,208,.6)" : k==="d" ? "rgba(205,210,220,.6)" : "rgba(209,209,209,.6)";
   const cell=document.createElement("div"); cell.className="cell"; cell.style.background=cv;
   cell.innerHTML=`
     <div class="capt" style="background:${fl};color:${body}"><span style="color:${ink}">${p.name.split(" —")[0].split(",")[0]}</span><span class="mono" style="font-size:10px">${cv}</span></div>
@@ -380,9 +382,7 @@ order.forEach(k=>{
 });
 
 document.getElementById("footer").innerHTML =
-  "Round three — four genuinely different rooms in the Ash philosophy. Carved anchors; "+
-  "chiaroscuro spreads the ladder, daylight lifts it whole, and the composite marries "+
-  "Riley\u2019s round-two favorites (carved steps + cream ink) with a whisper of studio light. "+
+  "Round four, the blind-spot check: does the composite’s cream ink hold up against dead-neutral, the OpenAI register, and a cool pole? Options 1, 2 and 4 differ ONLY in ink temperature. "+
   "Every option keeps the same structure — floor below canvas, cards and composer at surface-1, "+
   "hover at surface-2, overlays at surface-3 — only the temperature and register change. "+
   "The current app palette (floor <code>#050506</code>) becomes the Void theme untouched.";
