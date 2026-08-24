@@ -13,9 +13,9 @@
 
    Every token below is copied from the shipping shell —
    desktop/src/shared/styles/globals/conversation-shell.css (the
-   linear-dose ladder, decided 2026-08-24) and typography.css (the
-   eight-step ramp). Nothing here is invented, so what the study adds
-   can be judged on its own.
+   linear-dose ladder, decided 2026-08-24), typography.css (the type
+   ramp) and motion.css / composer-states.css (the motion ramp). Nothing
+   here is invented, so what the study adds can be judged on its own.
 
    THE SYSTEM IT INHERITS: the floor is the ground and the rail sits
    directly on it. Everything else is a CARD lying on that floor,
@@ -35,8 +35,7 @@
 :root{
   /* SLATE — the linear-dose ladder, the shipping default
      (conversation-shell.css, decided 2026-08-24) */
-  --floor:#0d0e0f; --navigator:#0d0e0f; --surface:#1b1c1d; --raised:#2e2f30;
-  --hover:#37383a; --recess:#131415; --border:#2a2c2f; --border-strong:#35373a;
+  --floor:#0d0e0f; --surface:#1b1c1d; --raised:#2e2f30; --recess:#131415; --border:#2a2c2f; --border-strong:#35373a;
   --ink:#f7f5ef; --ink-muted:#c5c3bd; --ink-faint:#98968f; --ink-ghost:#726f6b;
   --wash:rgb(255 255 255/.04); --wash-2:rgb(255 255 255/.07);
   --plate:rgb(247 245 239/.035); --plate-hover:rgb(247 245 239/.06);
@@ -49,8 +48,7 @@
   /* INVERSE — the Slate ladder with rail and content swapped, verbatim from
      adaptive-theme.ts: a light rail #1b1c1d over a deep ground #0d0e0f.
      Same lean (B = R+2, G = R+1), same spans. Riley, 2026-08-24. */
-  --floor:#1b1c1d; --navigator:#1b1c1d; --surface:#0d0e0f; --raised:#1d1e1f;
-  --hover:#252627; --recess:#070809; --border:#2a2c2f; --border-strong:#35373a;
+  --floor:#1b1c1d; --surface:#0d0e0f; --raised:#1d1e1f; --recess:#070809; --border:#2a2c2f; --border-strong:#35373a;
   --ink:#f4f3f0; --ink-muted:#c4c3bf; --ink-faint:#97968f; --ink-ghost:#706f6e;
   --wash:rgb(255 255 255/.05); --wash-2:rgb(255 255 255/.085);
   --plate:rgb(244 243 240/.04); --plate-hover:rgb(244 243 240/.07);
@@ -62,8 +60,7 @@
 [data-theme="paper"]{
   /* PAPER — the authored light palette, verbatim from adaptive-theme.ts.
      Warm ground (hue 38), cool ink (hue 222), contrast-matched to Void. */
-  --floor:#f6f4f2; --navigator:#f8f7f5; --surface:#fcfbf9; --raised:#fefdfd;
-  --hover:#eeedea; --recess:#eceae6; --border:#ebeae6; --border-strong:#dcd8d2;
+  --floor:#f6f4f2; --surface:#fcfbf9; --raised:#fefdfd; --recess:#eceae6; --border:#ebeae6; --border-strong:#dcd8d2;
   --ink:#15161b; --ink-muted:#3d4048; --ink-faint:#60646f; --ink-ghost:#848892;
   --wash:rgb(21 22 27/.045); --wash-2:rgb(21 22 27/.08);
   --plate:rgb(21 22 27/.032); --plate-hover:rgb(21 22 27/.055);
@@ -73,22 +70,6 @@
   color-scheme:light;
 }
 
-/* ── SURFACE MODE ──────────────────────────────────────────────────
-   OPAQUE is the ladder as shipped: elevation is lightness, nothing is
-   see-through. GLASS keeps the same ladder but expresses each rung as a
-   tint over the blurred desktop — which is what the app's own
-   window-vibrancy (NSVisualEffectView + `transparent: true`, both already
-   wired in tauri.conf.json) actually does. The rungs must still read in
-   order: floor < card < raised. The alphas below are chosen so they do.
-   ────────────────────────────────────────────────────────────────── */
-:root{
-  --floor-bg:var(--floor);
-  --card-bg:var(--surface);
-  --raised-bg:var(--raised);
-  --recess-bg:var(--recess);
-  --card-border:var(--border);
-  --blur-floor:none; --blur-card:none;
-}
 /* GLASS IS THE FLOOR. NOTHING ELSE.
    The floor is the one surface that becomes a material — the desktop reads
    through it, in both modes, as a permanent property of the shell rather than
@@ -123,20 +104,36 @@
 :root{ --vib:0; }
 [data-glass="on"]{ --vib:1; }
 .vib{position:absolute;inset:0;z-index:0;pointer-events:none;opacity:var(--vib);
-  transition:opacity .3s var(--ease)}
-.vib::before{content:"";position:absolute;inset:-90px;filter:blur(60px) saturate(260%)}
+  transition:opacity var(--motion-duration-standard) var(--motion-ease-standard)}
 .vib::after{content:"";position:absolute;inset:0;background:var(--floor);
   mix-blend-mode:luminosity}
 
 :root{
-  --mn-card-lip:8px; --mn-header-height:56px; --mn-reading-measure:45rem;
+  /* geometry — structural gaps live on the 4/8 grid; a component may sit
+     off it only where the TOTAL is a native metric (28px rows, 56px header) */
+  --mn-card-lip:8px; --mn-header-height:56px; --mn-header-compact:48px;
+  --mn-reading-measure:45rem;
+  --inset-card:16px; --inset-compact:12px; --gutter-reading:20px;
+  --radius-1:4px; --radius-2:6px; --radius-3:8px; --radius-4:10px; --radius-5:12px;
+
   --font-ui:"Instrument Sans","Avenir Next","Segoe UI",sans-serif;
   --font-reading:"Inter",ui-sans-serif,system-ui,sans-serif;
   --font-mono:"Fragment Mono","SFMono-Regular","SF Mono",monospace;
   --type-micro:.6875rem; --type-label:.75rem; --type-ui:.875rem;
   --type-body:1rem; --type-title:1.0625rem; --type-heading:1.375rem;
   --eyebrow-tracking:.14em;
-  --ease:cubic-bezier(.22,1,.36,1);
+
+  /* motion — the house ramp, verbatim from the shipping shell's motion.css
+     and composer-states.css. Feedback is instant; a state change is fast;
+     panels move at standard; a resident's turn ARRIVES at arrival while your
+     own message LANDS at land. The spring overshoots and is spent rarely. */
+  --motion-duration-instant:120ms; --motion-duration-land:160ms;
+  --motion-duration-fast:180ms; --motion-duration-standard:240ms;
+  --motion-duration-arrival:500ms; --motion-duration-draw:1.2s;
+  --composer-duration-arm:140ms; --composer-duration-disarm:90ms;
+  --motion-ease-standard:cubic-bezier(.25,1,.5,1);
+  --motion-ease-arrival:cubic-bezier(.16,1,.3,1);
+  --ease-spring:cubic-bezier(.34,1.56,.64,1);
 }
 
 *{box-sizing:border-box}
@@ -151,9 +148,16 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 [hidden]{display:none!important}
 .mark{display:block;flex:none}
 
-/* the desktop — visible only where a card has left the window */
-.desk{
-  position:fixed;inset:0;
+/* the desktop — one wallpaper definition, two consumers. `.desk` shows it
+   behind the window; `.vib .wps` is the blurred, saturated copy the floor's
+   luminosity plate reads its colour from. Each holds a dark and a light
+   layer so a theme change CROSSFADES the world instead of cutting it. */
+.desk{position:fixed;inset:0;background:#101114;overflow:hidden}
+.wp{
+  position:absolute;inset:0;opacity:0;
+  transition:opacity var(--motion-duration-standard) var(--motion-ease-standard);
+}
+.wp.dark{
   background:
     radial-gradient(78% 60% at 88% -6%, rgba(255,146,74,.78) 0 26%, transparent 62%),
     radial-gradient(70% 60% at 2% 100%, rgba(126,96,232,.72) 0 26%, transparent 64%),
@@ -161,15 +165,7 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
     radial-gradient(60% 50% at 40% -10%, rgba(232,86,132,.55) 0 24%, transparent 60%),
     linear-gradient(162deg,#3a2416,#2a1c3c 44%,#12224e 74%,#0a1330);
 }
-.vib::before{
-  background:
-    radial-gradient(78% 60% at 88% -6%, rgba(255,146,74,.78) 0 26%, transparent 62%),
-    radial-gradient(70% 60% at 2% 100%, rgba(126,96,232,.72) 0 26%, transparent 64%),
-    radial-gradient(120% 92% at 56% 106%, rgba(38,96,224,.80) 0 30%, transparent 74%),
-    radial-gradient(60% 50% at 40% -10%, rgba(232,86,132,.55) 0 24%, transparent 60%),
-    linear-gradient(162deg,#3a2416,#2a1c3c 44%,#12224e 74%,#0a1330);
-}
-[data-theme="paper"] .vib::before{
+.wp.light{
   background:
     radial-gradient(78% 60% at 88% -6%, rgba(255,192,122,.92) 0 26%, transparent 62%),
     radial-gradient(70% 60% at 2% 100%, rgba(186,168,244,.86) 0 26%, transparent 64%),
@@ -177,38 +173,32 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
     radial-gradient(60% 50% at 40% -10%, rgba(255,158,186,.62) 0 24%, transparent 60%),
     linear-gradient(162deg,#fbeadb,#efe6f6 44%,#dce7fa 74%,#cbd9f4);
 }
-[data-theme="paper"] .desk{
-  background:
-    radial-gradient(78% 60% at 88% -6%, rgba(255,192,122,.92) 0 26%, transparent 62%),
-    radial-gradient(70% 60% at 2% 100%, rgba(186,168,244,.86) 0 26%, transparent 64%),
-    radial-gradient(120% 92% at 56% 106%, rgba(128,172,240,.86) 0 30%, transparent 74%),
-    radial-gradient(60% 50% at 40% -10%, rgba(255,158,186,.62) 0 24%, transparent 60%),
-    linear-gradient(162deg,#fbeadb,#efe6f6 44%,#dce7fa 74%,#cbd9f4);
-}
+html:not([data-theme="paper"]) .wp.dark{opacity:1}
+[data-theme="paper"] .wp.light{opacity:1}
+.vib .wps{position:absolute;inset:-90px;filter:blur(60px) saturate(260%)}
 
 /* ── lab bar ──────────────────────────────────────────────────── */
 .lab{
-  position:fixed;top:13px;left:50%;transform:translateX(-50%);z-index:80;
-  display:flex;align-items:center;gap:1px;padding:4px;
-  background:var(--raised-bg);
-  backdrop-filter:blur(26px) saturate(180%);-webkit-backdrop-filter:blur(26px) saturate(180%);
-  border:1px solid var(--border-strong);border-radius:10px;
+  position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:80;
+  display:flex;align-items:center;gap:2px;padding:4px;
+  background:var(--raised);
+  border:1px solid var(--border-strong);border-radius:var(--radius-4);
   box-shadow:0 18px 40px rgb(0 0 0 / .5), var(--lit);
 }
 .lab b{
   font-family:var(--font-mono);font-size:var(--type-micro);font-weight:400;
   letter-spacing:var(--eyebrow-tracking);text-transform:uppercase;
-  color:var(--ink-faint);padding:0 10px 0 7px;
+  color:var(--ink-faint);padding:0 10px 0 8px;
 }
-.lab button{padding:5px 10px;border-radius:6px;font-size:var(--type-label);color:var(--ink-muted);transition:background .14s var(--ease),color .14s var(--ease)}
+.lab button{padding:4px 10px;border-radius:var(--radius-2);font-size:var(--type-label);color:var(--ink-muted);transition:background var(--motion-duration-instant) var(--motion-ease-standard),color var(--motion-duration-instant) var(--motion-ease-standard)}
 .lab button:hover{background:var(--wash);color:var(--ink)}
 .lab button.on{background:var(--wash-2);color:var(--ink)}
 
 /* ── the window ───────────────────────────────────────────────── */
-.stage{position:fixed;inset:0;display:grid;grid-template:1fr/1fr;place-items:center;padding:56px 30px 30px}
+.stage{position:fixed;inset:0;display:grid;grid-template:1fr/1fr;place-items:center;padding:56px 32px 32px}
 .app{
   position:relative;width:min(1440px,100%);height:min(900px,100%);max-height:100%;
-  display:flex;border-radius:12px;overflow:hidden;
+  display:flex;border-radius:var(--radius-5);overflow:hidden;
   background:var(--floor);               /* THE FLOOR */
   isolation:isolate;
   box-shadow:var(--app-shadow);
@@ -224,9 +214,10 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .lights i{width:11px;height:11px;border-radius:50%;background:rgb(255 255 255 / .16)}
 [data-theme="paper"] .lights i{background:rgb(21 22 27 / .16)}
 .railrow{
-  display:flex;align-items:center;gap:10px;width:100%;padding:6px 8px;border-radius:6px;
+  /* 6+16+6 = a 28px row — the native sidebar metric */
+  display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border-radius:var(--radius-2);
   color:var(--ink-muted);font-size:var(--type-ui);text-align:left;
-  transition:background .13s var(--ease),color .13s var(--ease);
+  transition:background var(--motion-duration-instant) var(--motion-ease-standard),color var(--motion-duration-instant) var(--motion-ease-standard);
 }
 .railrow:hover{background:var(--wash);color:var(--ink)}
 .railrow.on{background:var(--wash-2);color:var(--ink)}
@@ -235,11 +226,11 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .eyebrow{
   font-family:var(--font-ui);font-size:var(--type-micro);font-weight:500;
   letter-spacing:var(--eyebrow-tracking);text-transform:uppercase;
-  color:var(--ink-ghost);padding:0 8px;margin:22px 0 6px;
+  color:var(--ink-ghost);padding:0 8px;margin:24px 0 8px;
 }
 .dot{width:5px;height:5px;border-radius:50%;background:var(--ink-faint);flex:none;margin-left:auto}
 .railfoot{
-  margin-top:auto;display:flex;align-items:center;gap:9px;padding:12px 8px 0;
+  margin-top:auto;display:flex;align-items:center;gap:8px;padding:12px 8px 0;
   font-size:var(--type-label);color:var(--ink-faint);
 }
 
@@ -247,7 +238,8 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .floor{
   position:relative;z-index:1;
   flex:1;min-width:0;display:flex;gap:var(--mn-card-lip);
-  padding:var(--mn-card-lip) var(--mn-card-lip) var(--mn-card-lip) 1px;
+  padding:var(--mn-card-lip);padding-left:0;
+  /* the rail's own 8px inset supplies the left lip — one lip, not two */
 }
 .col{display:flex;flex-direction:column;gap:var(--mn-card-lip);min-width:0;min-height:0}
 .col.main{flex:1}
@@ -260,21 +252,24 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 /* THE CARD */
 .card{
   display:flex;flex-direction:column;min-height:0;min-width:0;flex:1;
-  background:var(--card-bg);
-  border:1px solid var(--card-border);border-radius:10px;overflow:hidden;
-  backdrop-filter:var(--blur-card);-webkit-backdrop-filter:var(--blur-card);
+  background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--radius-4);overflow:hidden;
 }
 .card.fixed{flex:none}
 .card-head{
-  height:var(--mn-header-height);flex:none;display:flex;align-items:center;gap:11px;
-  padding:0 14px 0 16px;
+  height:var(--mn-header-height);flex:none;display:flex;align-items:center;gap:12px;
+  /* text insets from the card edge; the right side is shallower because the
+     28px icon buttons carry their own internal air */
+  padding:0 var(--inset-compact) 0 var(--inset-card);
 }
+.card-head.compact{height:var(--mn-header-compact)}
+.card-head.compact h2{font-size:var(--type-ui)}
 .card-head h2{font-size:var(--type-title);font-weight:500;letter-spacing:-.014em;margin:0;line-height:1.25}
-.card-head p{margin:1px 0 0;font-size:var(--type-micro);color:var(--ink-faint);letter-spacing:.005em}
-.card-head .acts{margin-left:auto;display:flex;gap:1px}
+.card-head p{margin:2px 0 0;font-size:var(--type-micro);color:var(--ink-faint);letter-spacing:.005em}
+.card-head .acts{margin-left:auto;display:flex;gap:2px}
 .ic{
-  width:28px;height:28px;display:grid;place-items:center;border-radius:6px;flex:none;
-  color:var(--ink-faint);transition:background .14s var(--ease),color .14s var(--ease);
+  width:28px;height:28px;display:grid;place-items:center;border-radius:var(--radius-2);flex:none;
+  color:var(--ink-faint);transition:background var(--motion-duration-instant) var(--motion-ease-standard),color var(--motion-duration-instant) var(--motion-ease-standard);
 }
 .ic:hover{background:var(--wash);color:var(--ink)}
 .body{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column}
@@ -283,41 +278,41 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .body::-webkit-scrollbar-thumb{background:var(--wash-2);border-radius:5px;border:3px solid transparent;background-clip:content-box}
 
 /* ── conversation ─────────────────────────────────────────────── */
-.thread{padding:0 20px;max-width:var(--mn-reading-measure)}
+.thread{padding:0 var(--gutter-reading);max-width:var(--mn-reading-measure)}
 .rule{
-  display:flex;align-items:center;gap:12px;margin:6px 0 20px;
+  display:flex;align-items:center;gap:12px;margin:8px 0 20px;
   font-size:var(--type-micro);color:var(--ink-ghost);
 }
 .rule::before,.rule::after{content:"";flex:1;height:1px;background:var(--border)}
-.turn{display:grid;grid-template-columns:22px 1fr;gap:11px;margin-bottom:22px}
+.turn{display:grid;grid-template-columns:22px 1fr;gap:12px;margin-bottom:24px}
 .turn>[data-mark]{color:var(--ink-faint);margin-top:2px}
-.turn .who{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}
+.turn .who{display:flex;align-items:baseline;gap:8px;margin-bottom:4px}
 .turn .who b{font-size:var(--type-ui);font-weight:500;letter-spacing:-.002em}
 .turn .who .tag{font-size:var(--type-micro);color:var(--ink-ghost)}
 .turn p{
-  margin:0 0 9px;font-family:var(--font-reading);font-size:var(--type-body);
+  margin:0 0 8px;font-family:var(--font-reading);font-size:var(--type-body);
   line-height:1.68;letter-spacing:-.003em;color:var(--ink-muted);
 }
 .turn p:last-child{margin-bottom:0}
 /* the owner speaks in a raised pill, flush right — as in the shell */
-.mine{display:flex;justify-content:flex-end;margin-bottom:22px}
+.mine{display:flex;justify-content:flex-end;margin-bottom:24px}
 .mine div{
-  max-width:32rem;padding:9px 14px;border-radius:12px;
-  background:var(--raised-bg);box-shadow:var(--lit);
+  max-width:32rem;padding:8px 14px;border-radius:var(--radius-5);
+  background:var(--raised);box-shadow:var(--lit);
   font-family:var(--font-reading);font-size:var(--type-body);line-height:1.6;
   letter-spacing:-.003em;color:var(--ink);
 }
 .offer{
-  display:inline-flex;align-items:center;gap:8px;margin-top:10px;
+  display:inline-flex;align-items:center;gap:8px;margin-top:12px;
   font-size:var(--type-label);color:var(--ink-faint);
 }
-.offer::before{content:"";width:13px;height:1px;background:var(--ink-ghost)}
+.offer::before{content:"";width:12px;height:1px;background:var(--ink-ghost)}
 
 /* composer — the one surface allowed a soft shadow and a lit edge */
-.composer{flex:none;padding:6px 20px 14px;max-width:var(--mn-reading-measure)}
+.composer{flex:none;padding:8px var(--gutter-reading) 16px;max-width:var(--mn-reading-measure)}
 .well{
-  background:var(--recess-bg);border:1px solid var(--border);
-  border-radius:10px;padding:9px 12px;box-shadow:var(--lit);
+  background:var(--recess);border:1px solid var(--border);
+  border-radius:var(--radius-4);padding:8px 12px;box-shadow:var(--lit);
 }
 .well textarea{
   width:100%;resize:none;height:24px;min-height:24px;outline:none;
@@ -328,54 +323,55 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .tools .mode{font-size:var(--type-label);color:var(--ink-faint);padding:0 6px}
 .go{
   margin-left:auto;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
-  background:var(--raised-bg);color:var(--ink);box-shadow:var(--lit);
+  background:var(--raised);color:var(--ink);box-shadow:var(--lit);
 }
 
 /* ── drawer contents ──────────────────────────────────────────── */
-.seg{display:flex;gap:2px;padding:0 12px 10px}
+.seg{display:flex;gap:2px;padding:0 var(--inset-compact) 12px}
 .seg button{
-  padding:5px 11px;border-radius:6px;font-size:var(--type-label);
+  padding:4px 10px;border-radius:var(--radius-2);font-size:var(--type-label);
   color:var(--ink-faint);display:flex;align-items:center;gap:6px;
 }
 .seg button:hover{background:var(--wash);color:var(--ink-muted)}
 .seg button.on{background:var(--plate);color:var(--ink)}
-.pad{padding:0 12px}
+.pad{padding:0 var(--inset-compact)}
 .lab-eyebrow{
   font-size:var(--type-micro);font-weight:500;letter-spacing:var(--eyebrow-tracking);
-  text-transform:uppercase;color:var(--ink-ghost);margin:16px 4px 7px;
+  text-transform:uppercase;color:var(--ink-ghost);margin:16px 4px 8px;
 }
-.plate{background:var(--plate);border-radius:8px;padding:4px}
+.place .lab-eyebrow{margin-left:0;margin-right:0}
+.plate{background:var(--plate);border-radius:var(--radius-3);padding:4px}
 .plate-row{
-  display:flex;align-items:center;gap:10px;width:100%;padding:8px 8px;border-radius:6px;
-  text-align:left;transition:background .13s var(--ease);
+  display:flex;align-items:center;gap:12px;width:100%;padding:8px 8px;border-radius:var(--radius-2);
+  text-align:left;transition:background var(--motion-duration-instant) var(--motion-ease-standard);
 }
 .plate-row:hover{background:var(--plate-hover)}
 .plate-row .t{font-size:var(--type-ui);color:var(--ink)}
 .plate-row .s{font-size:var(--type-micro);color:var(--ink-faint);margin-top:1px}
 .plate-row .r{margin-left:auto;font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-ghost)}
 .between{
-  background:var(--plate);border-radius:8px;padding:10px 11px;margin-bottom:7px;
+  background:var(--plate);border-radius:var(--radius-3);padding:12px;margin-bottom:8px;
 }
 .between .h{display:flex;align-items:center;gap:8px;font-size:var(--type-label);color:var(--ink-muted)}
 .between .h .r{margin-left:auto;font-size:var(--type-micro);color:var(--ink-faint)}
-.between .said{display:grid;grid-template-columns:16px 1fr;gap:8px;margin-top:9px}
+.between .said{display:grid;grid-template-columns:16px 1fr;gap:8px;margin-top:8px}
 .between .said b{display:block;font-size:var(--type-micro);color:var(--ink-muted);margin-bottom:2px}
 .between .said p{
   margin:0;font-family:var(--font-reading);font-size:var(--type-label);line-height:1.55;
   color:var(--ink-faint);
 }
 .watch{
-  flex:none;display:flex;align-items:center;gap:9px;padding:11px 16px;
+  flex:none;display:flex;align-items:center;gap:8px;padding:12px var(--inset-card);
   border-top:1px solid var(--border);font-size:var(--type-label);
   color:var(--ink-faint);
 }
-.watch button{margin-left:auto;padding:4px 10px;border-radius:6px;color:var(--ink-muted);font-size:var(--type-label)}
+.watch button{margin-left:auto;padding:4px 10px;border-radius:var(--radius-2);color:var(--ink-muted);font-size:var(--type-label)}
 .watch button:hover{background:var(--wash);color:var(--ink)}
 
 /* ── the widget · an instrument, set like print ────────────────── */
-.rows{padding:2px 12px}
+.rows{padding:0 var(--inset-compact)}
 .row{
-  display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:11px;
+  display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:12px;
   padding:10px 4px;border-bottom:1px solid var(--border);
 }
 .rows .row:last-child{border-bottom:0}
@@ -389,19 +385,25 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .idle{width:22px;display:grid;place-items:center}
 .idle i{width:5px;height:5px;border-radius:50%;background:var(--ink-ghost)}
 .sign{
-  flex:none;display:flex;align-items:center;gap:9px;padding:10px 16px;
+  flex:none;display:flex;align-items:center;gap:8px;padding:12px var(--inset-card);
   border-top:1px solid var(--border);
   font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-ghost);
 }
-.sign .by{margin-left:auto;display:flex;align-items:center;gap:7px;color:var(--ink-faint)}
+.sign .by{margin-left:auto;display:flex;align-items:center;gap:8px;color:var(--ink-faint)}
+#card-widget{height:var(--widget-h,320px)}
+.stack{display:flex}
+.stack [data-mark]+[data-mark]{margin-left:-6px}
+.foot-name{font-size:var(--type-label);color:var(--ink-muted)}
+.foot-sub{font-size:var(--type-micro);color:var(--ink-ghost)}
+.toast .dot{margin:0;background:var(--ink-faint)}
 
 /* ── the agent's place ────────────────────────────────────────── */
-.place{padding:0 20px 30px;max-width:var(--mn-reading-measure)}
-.hero{display:grid;grid-template-columns:52px 1fr;gap:16px;padding:4px 0 26px}
-.hero h1{font-size:var(--type-heading);font-weight:500;letter-spacing:-.021em;margin:0 0 7px;line-height:1.25}
+.place{padding:0 var(--gutter-reading) 32px;max-width:var(--mn-reading-measure)}
+.hero{display:grid;grid-template-columns:52px 1fr;gap:16px;padding:8px 0 24px}
+.hero h1{font-size:var(--type-heading);font-weight:500;letter-spacing:-.021em;margin:0 0 8px;line-height:1.25}
 .hero p{margin:0;font-family:var(--font-reading);font-size:var(--type-ui);line-height:1.62;color:var(--ink-faint);max-width:52ch}
-.sect{margin-bottom:26px}
-.made-row{display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:11px;padding:10px 0;border-top:1px solid var(--border);width:100%;text-align:left}
+.sect{margin-bottom:24px}
+.made-row{display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border);width:100%;text-align:left}
 .made-row .t{font-size:var(--type-ui);color:var(--ink-muted)}
 .made-row .s{font-size:var(--type-micro);color:var(--ink-ghost);margin-top:2px}
 .made-row .v{font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-ghost)}
@@ -409,20 +411,27 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .gal{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
 .tile{text-align:left}
 .tile .art{
-  aspect-ratio:4/3;border-radius:7px;overflow:hidden;display:block;
-  background:var(--raised-bg);box-shadow:var(--lit);
+  aspect-ratio:4/3;border-radius:var(--radius-3);overflow:hidden;display:block;
+  background:var(--raised);box-shadow:var(--lit);
 }
 .tile b{display:block;font-size:var(--type-label);font-weight:400;color:var(--ink-muted);margin-top:8px}
 .tile span{display:block;font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-ghost);margin-top:2px}
+/* the ladder tile depicts a value ladder in the CURRENT palette: each step
+   is more ink mixed into the recess, so it stays monotonic in every theme */
 .art.ladder{display:flex;flex-direction:column}
 .art.ladder i{flex:1}
+.art.ladder i:nth-child(1){background:var(--recess)}
+.art.ladder i:nth-child(2){background:color-mix(in srgb,var(--ink) 5%,var(--recess))}
+.art.ladder i:nth-child(3){background:color-mix(in srgb,var(--ink) 10%,var(--recess))}
+.art.ladder i:nth-child(4){background:color-mix(in srgb,var(--ink) 16%,var(--recess))}
+.art.ladder i:nth-child(5){background:color-mix(in srgb,var(--ink) 24%,var(--recess))}
 .art.notch{display:grid;place-items:start center}
-.art.notch::before{content:"";width:42%;height:26%;border-radius:0 0 9px 9px;background:var(--floor-bg)}
+.art.notch::before{content:"";width:42%;height:26%;border-radius:0 0 var(--radius-3) var(--radius-3);background:var(--floor)}
 .art.sheet{display:grid;grid-template-columns:repeat(4,1fr);align-content:center;justify-items:center;gap:6px;padding:9px;color:var(--ink-faint)}
 .art.fog{position:relative}
-.art.fog::before,.art.fog::after{content:"";position:absolute;border-radius:5px;border:1px solid rgb(255 255 255 / .07)}
-.art.fog::before{inset:16% 34% 30% 12%;background:rgb(255 255 255 / .04)}
-.art.fog::after{inset:32% 12% 14% 36%;background:rgb(255 255 255 / .08)}
+.art.fog::before,.art.fog::after{content:"";position:absolute;border-radius:var(--radius-1);border:1px solid var(--border-strong)}
+.art.fog::before{inset:16% 34% 30% 12%;background:var(--wash)}
+.art.fog::after{inset:32% 12% 14% 36%;background:var(--wash-2)}
 
 /* ── LIFTED: the one place translucency belongs ───────────────── */
 .lifted{
@@ -430,50 +439,51 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
   left:calc(50% + 190px);top:56%;width:376px;height:326px;min-width:300px;min-height:210px;
   background:color-mix(in srgb, var(--surface) 82%, transparent);
   backdrop-filter:blur(44px) saturate(190%);-webkit-backdrop-filter:blur(44px) saturate(190%);
-  border:1px solid var(--border-strong);border-radius:11px;overflow:hidden;
+  border:1px solid var(--border-strong);border-radius:var(--radius-4);overflow:hidden;
   box-shadow:var(--lift-shadow), var(--lit);
 }
 .lifted.open{display:flex}
-.lifted .card-head{cursor:grab;height:48px}
+.lifted .card-head{cursor:grab}
 .lifted .card-head:active{cursor:grabbing}
-.grip{position:absolute;right:3px;bottom:3px;width:15px;height:15px;cursor:nwse-resize}
+.grip{position:absolute;right:4px;bottom:4px;width:16px;height:16px;cursor:nwse-resize}
 .grip::after{content:"";position:absolute;right:4px;bottom:4px;width:6px;height:6px;border-right:1.5px solid var(--ink-ghost);border-bottom:1.5px solid var(--ink-ghost)}
 
 /* ── laws overlay ─────────────────────────────────────────────── */
 body.laws .rail,body.laws .card,body.laws .lifted{position:relative}
 body.laws .rail::after,body.laws .card::after,body.laws .lifted::after{
   content:attr(data-law);position:absolute;z-index:60;pointer-events:none;top:7px;right:8px;
+  /* diagnostic chrome — deliberately sub-ramp, it labels the UI, it is not UI */
   font-family:var(--font-mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;
-  padding:3px 6px;border-radius:4px;
+  padding:2px 6px;border-radius:var(--radius-1);
 }
 body.laws .rail::after{background:#8d8f93;color:#0d0e0f;left:8px;right:auto}
 body.laws .card::after{background:#c9c6bd;color:#1b1c1d}
 body.laws .lifted::after{background:#7fb0c9;color:#06161f;left:8px;right:auto}
 body.laws .rail{box-shadow:inset 0 0 0 1.5px rgb(141 143 147 / .7)}
 body.laws .card{box-shadow:inset 0 0 0 1.5px rgb(201 198 189 / .55)}
-body.laws .lifted{box-shadow:0 34px 84px rgb(0 0 0 / .58), inset 0 0 0 1.5px rgb(127 176 201 / .85)}
+body.laws .lifted{box-shadow:var(--lift-shadow), var(--lit), inset 0 0 0 1.5px rgb(127 176 201 / .85)}
 
 .toast{
   position:fixed;left:50%;bottom:44px;transform:translate(-50%,10px);z-index:75;
-  display:flex;align-items:center;gap:9px;padding:9px 14px;opacity:0;pointer-events:none;
-  background:var(--raised-bg);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
-  border:1px solid var(--border-strong);border-radius:8px;
+  display:flex;align-items:center;gap:8px;padding:8px 14px;opacity:0;pointer-events:none;
+  background:var(--raised);
+  border:1px solid var(--border-strong);border-radius:var(--radius-3);
   box-shadow:0 18px 40px rgb(0 0 0 / .5), var(--lit);
   font-size:var(--type-label);color:var(--ink-muted);
-  transition:opacity .2s var(--ease),transform .2s var(--ease);
+  transition:opacity var(--motion-duration-fast) var(--motion-ease-standard),transform var(--motion-duration-fast) var(--motion-ease-standard);
 }
 .toast.on{opacity:1;transform:translate(-50%,0)}
-@media (max-height:820px){ .stage{padding:50px 18px 18px} }
-@media (max-height:620px){ .stage{padding:46px 10px 10px} }
+@media (max-height:820px){ .stage{padding:48px 16px 16px} }
+@media (max-height:620px){ .stage{padding:44px 8px 8px} }
 </style>
 </head>
 <body>
-<div class="desk"></div>
+<div class="desk"><div class="wp dark"></div><div class="wp light"></div></div>
 
 <div class="lab">
   <b>Study</b>
-  <button id="t-glass" class="on">Glass</button>
-  <button id="t-slate" class="on">Slate</button>
+  <button id="t-glass">Glass</button>
+  <button id="t-slate">Slate</button>
   <button id="t-inverse">Inverse</button>
   <button id="t-paper">Paper</button>
   <button id="t-split" class="on">Split drawer</button>
@@ -485,7 +495,7 @@ body.laws .lifted{box-shadow:0 34px 84px rgb(0 0 0 / .58), inset 0 0 0 1.5px rgb
 
 <main class="stage">
 <section class="app" id="app">
-  <div class="vib" aria-hidden="true"></div>
+  <div class="vib" aria-hidden="true"><div class="wps"><div class="wp dark"></div><div class="wp light"></div></div></div>
 
   <!-- ── the rail, directly on the floor ── -->
   <aside class="rail" data-law="floor">
@@ -509,8 +519,8 @@ body.laws .lifted{box-shadow:0 34px 84px rgb(0 0 0 / .58), inset 0 0 0 1.5px rgb
 
     <div class="railfoot">
       <span data-mark="riley" data-size="22"></span>
-      <div><div style="font-size:var(--type-label);color:var(--ink-muted)">Coyote</div>
-      <div style="font-size:var(--type-micro);color:var(--ink-ghost)">Personal workspace</div></div>
+      <div><div class="foot-name">Coyote</div>
+      <div class="foot-sub">Personal workspace</div></div>
     </div>
   </aside>
 
@@ -610,7 +620,7 @@ body.laws .lifted{box-shadow:0 34px 84px rgb(0 0 0 / .58), inset 0 0 0 1.5px rgb
             </div>
 
             <div class="sect">
-              <p class="lab-eyebrow" style="margin-left:0">Now</p>
+              <p class="lab-eyebrow">Now</p>
               <div class="made-row">
                 <svg class="ring" viewBox="0 0 22 22"><circle class="b" cx="11" cy="11" r="8.6"/><circle class="f" cx="11" cy="11" r="8.6" stroke-dasharray="54" stroke-dashoffset="36"/></svg>
                 <div><div class="t">Fog test — every surface at equal alpha</div><div class="s">their own time · started 41 minutes ago</div></div>
@@ -619,14 +629,14 @@ body.laws .lifted{box-shadow:0 34px 84px rgb(0 0 0 / .58), inset 0 0 0 1.5px rgb
             </div>
 
             <div class="sect">
-              <p class="lab-eyebrow" style="margin-left:0">Conversations</p>
+              <p class="lab-eyebrow">Conversations</p>
               <button class="made-row"><span data-mark="luca" data-size="18"></span><span class="t">Luca × Vektor — the glass hierarchy</span><span class="v">observing</span></button>
               <button class="made-row"><span data-mark="anima" data-size="18"></span><span class="t">Anima × Vektor — colour and grief</span><span class="v">yesterday</span></button>
               <button class="made-row"><span data-mark="riley" data-size="18"></span><span class="t">You × Vektor — the palette ladder</span><span class="v">Friday</span></button>
             </div>
 
             <div class="sect">
-              <p class="lab-eyebrow" style="margin-left:0">Gallery · 23</p>
+              <p class="lab-eyebrow">Gallery · 23</p>
               <div class="gal">
                 <button class="tile"><span class="art ladder"></span><b>Palette ladder</b><span>v4 · Friday</span></button>
                 <button class="tile"><span class="art notch"></span><b>Notch study</b><span>v2 · Thursday</span></button>
@@ -645,8 +655,8 @@ body.laws .lifted{box-shadow:0 34px 84px rgb(0 0 0 / .58), inset 0 0 0 1.5px rgb
 
       <!-- the drawer, as it is today -->
       <article class="card" id="card-drawer" data-law="card">
-        <header class="card-head">
-          <div><h2 style="font-size:var(--type-ui);font-weight:500">Conversation</h2></div>
+        <header class="card-head compact">
+          <div><h2>Conversation</h2></div>
           <div class="acts">
             <button class="ic" data-lift title="Lift this card"></button>
             <button class="ic" data-icon="close" id="close-drawer"></button>
@@ -679,9 +689,9 @@ body.laws .lifted{box-shadow:0 34px 84px rgb(0 0 0 / .58), inset 0 0 0 1.5px rgb
       <div class="lip-h" id="lip-h" title="Drag to resize"></div>
 
       <!-- the widget: a card that holds neither a chat nor an artifact -->
-      <article class="card fixed" id="card-widget" data-law="card" style="height:318px">
-        <header class="card-head" style="height:48px">
-          <div><h2 style="font-size:var(--type-ui);font-weight:500">What's alive right now</h2></div>
+      <article class="card fixed" id="card-widget" data-law="card">
+        <header class="card-head compact">
+          <div><h2>What's alive right now</h2></div>
           <div class="acts">
             <button class="ic" data-icon="open" title="Open as its own card"></button>
             <button class="ic" data-lift title="Lift this card"></button>
@@ -691,7 +701,7 @@ body.laws .lifted{box-shadow:0 34px 84px rgb(0 0 0 / .58), inset 0 0 0 1.5px rgb
         <div class="body">
           <div class="rows" id="widget-rows">
             <div class="row">
-              <span style="display:flex"><span data-mark="luca" data-size="16"></span><span data-mark="vektor" data-size="16" style="margin-left:-6px"></span></span>
+              <span class="stack"><span data-mark="luca" data-size="16"></span><span data-mark="vektor" data-size="16"></span></span>
               <div><div class="t">Polyphonic launch</div><div class="s">3 open threads · Luca and Vektor active</div></div>
               <span class="v">live</span>
             </div>
@@ -721,8 +731,8 @@ body.laws .lifted{box-shadow:0 34px 84px rgb(0 0 0 / .58), inset 0 0 0 1.5px rgb
 
 <!-- a card that left the floor -->
 <section class="lifted" id="lifted" data-law="lifted">
-  <header class="card-head" id="lift-head">
-    <div><h2 style="font-size:var(--type-ui);font-weight:500">What's alive right now</h2><p>Off the floor · above everything</p></div>
+  <header class="card-head compact" id="lift-head">
+    <div><h2>What's alive right now</h2><p>Off the floor · above everything</p></div>
     <div class="acts">
       <button class="ic" data-icon="dockback" id="lift-dock" title="Put it back on the floor"></button>
       <button class="ic" data-icon="close" id="lift-close"></button>
@@ -733,7 +743,7 @@ body.laws .lifted{box-shadow:0 34px 84px rgb(0 0 0 / .58), inset 0 0 0 1.5px rgb
   <div class="grip" id="lift-grip"></div>
 </section>
 
-<div class="toast" id="toast"><span class="dot" style="margin:0;background:var(--ink-faint)"></span><span id="toast-copy"></span></div>
+<div class="toast" id="toast"><span class="dot"></span><span id="toast-copy"></span></div>
 
 <script>
 /* Real identity marks, from the repo's own generator
@@ -801,7 +811,7 @@ function paint(scope){
   });
   s.querySelectorAll(".art.ladder").forEach(el=>{
     if(el.dataset.painted) return;
-    el.innerHTML = ["#0d0e0f","#131415","#1b1c1d","#2a2c2f","#2e2f30"].map(c=>`<i style="background:${c}"></i>`).join("");
+    el.innerHTML = "<i></i>".repeat(5); // steps are painted by theme tokens in CSS
     el.dataset.painted="1";
   });
 }
@@ -868,7 +878,7 @@ glassBtn.onclick=()=>{
   const on=document.documentElement.dataset.glass!=="on";
   document.documentElement.dataset.glass=on?"on":"off";
   glassBtn.classList.toggle("on",on);
-  say(on?"Glass — every rung of the ladder, as a tint over the desktop":"Opaque — the ladder as it ships today");
+  say(on?"Glass — the floor takes the desktop\u2019s colour, never its lightness":"Opaque — the floor as a solid");
 };
 const themes={slate:document.getElementById("t-slate"),inverse:document.getElementById("t-inverse"),paper:document.getElementById("t-paper")};
 function setTheme(name){
@@ -917,12 +927,15 @@ lawsBtn.onclick=()=>{document.body.classList.toggle("laws");lawsBtn.classList.to
   const h=document.getElementById("lip-h"); let b=null;
   h.addEventListener("pointerdown",e=>{b={id:e.pointerId,y:e.clientY,h:widget.offsetHeight};h.setPointerCapture(e.pointerId)});
   h.addEventListener("pointermove",e=>{if(!b||b.id!==e.pointerId)return;
-    widget.style.height=Math.max(170,Math.min(640,b.h-(e.clientY-b.y)))+"px"});
+    widget.style.setProperty("--widget-h",Math.max(170,Math.min(640,b.h-(e.clientY-b.y)))+"px")});
   h.addEventListener("pointerup",e=>{h.releasePointerCapture(e.pointerId);b=null});
 })();
 
+/* boot: JS is the single authority on default state, so markup and script
+   can never disagree. Inverse is the study's hero — Riley, 2026-08-24. */
 document.documentElement.dataset.glass="on";
-document.documentElement.dataset.theme="slate";
+glassBtn.classList.add("on");
+setTheme("inverse");
 
 const q=new URLSearchParams(location.search);
 if(q.get("glass")==="off") glassBtn.click();
