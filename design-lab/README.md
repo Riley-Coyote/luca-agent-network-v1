@@ -41,13 +41,22 @@ fast-forward it and rebuild.
   and `typography.css`, and its identity marks come from the real
   `glyph.ts`, so only what it *adds* is new — a card that splits, a card
   that holds a widget, cards that tile, and a card that leaves the floor.
-  Three real palettes — Slate, Inverse and Paper, copied from
+  Three real palettes — Slate, Inverse (the default) and Paper, from
   `adaptive-theme.ts`. Glass changes the FLOOR ONLY: cards stay opaque and on
   the ladder, and the floor takes the desktop's hue while keeping its own
-  luminance (`mix-blend-mode: luminosity`, which is what vibrancy is), so every
-  contrast ratio is identical to the opaque build no matter what the wallpaper
-  is. Scenes: `?theme=slate|inverse|paper`, `?glass=off`, `?tile=1`,
-  `?place=1`, `?lift=1`, `?laws=1`. Brief: `docs/luca/EXTENSIONS.md`.
+  luminance (`mix-blend-mode: luminosity`, which is what vibrancy is). Built
+  to native-macOS grade: real traffic lights on the shell's own geometry
+  (x=16, y=23), the house motion ramp from `motion.css` (split/tile/place
+  choreographed; lift MOVES a card's organs into a draggable panel with a
+  lagged-lerp drag, so live tickers survive the trip), five states per
+  element with in-place focus, overlay scrollbars per `scrollbars.css`,
+  seed-phased identity breath, a drifting wallpaper the floor probe measures
+  through, and full reduced-motion neutralization.
+  Scenes: `?theme=slate|inverse|paper`, `?glass=off`, `?tile=1`, `?place=1`,
+  `?lift=1`, `?laws=1`, `?wall=dusk|quiet`. Verify with
+  `node design-lab/verify-panes.mjs --pass N` (matrix shots, hash gate,
+  ambient-under-reduce assertion, floor-luminance probe).
+  Brief: `docs/luca/EXTENSIONS.md`.
 - `visit-variants.html` (this folder) — the structural options explored for
   the visit design before the threshold construction won.
 

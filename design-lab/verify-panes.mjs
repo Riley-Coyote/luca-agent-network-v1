@@ -48,6 +48,8 @@ const SCENES = {
   place: { q: "&place=1" },
   lift: { q: "&lift=1" },
   laws: { q: "&laws=1" },
+  "wall-dusk": { q: "&wall=dusk" },
+  "wall-quiet": { q: "&wall=quiet" },
   "drawer-closed": {
     q: "",
     prep: async (page) => {

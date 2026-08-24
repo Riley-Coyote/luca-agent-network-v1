@@ -54,7 +54,12 @@
      adaptive-theme.ts: a light rail #1b1c1d over a deep ground #0d0e0f.
      Same lean (B = R+2, G = R+1), same spans. Riley, 2026-08-24. */
   --floor:#1b1c1d; --surface:#0d0e0f; --raised:#1d1e1f; --recess:#070809; --border:#2a2c2f; --border-strong:#35373a;
-  --ink:#f4f3f0; --ink-muted:#c4c3bf; --ink-faint:#97968f; --ink-ghost:#706f6e;
+  /* faint is re-solved for this study: the vibrancy floor's luminosity blend
+     pins gamma-space luma, and a saturated wallpaper can still lift WCAG
+     linear luminance by up to +.019 (measured). The palette's #97968f fell to
+     4.45:1 there; one step up holds 5.0:1 at the worst drift phase. Roles are
+     contrast solutions, not lightnesses — this IS the ladder's own method. */
+  --ink:#f4f3f0; --ink-muted:#c4c3bf; --ink-faint:#a3a29b; --ink-ghost:#706f6e;
   --wash:rgb(255 255 255/.05); --wash-2:rgb(255 255 255/.085);
   --plate:rgb(244 243 240/.04); --plate-hover:rgb(244 243 240/.07);
   --lit:inset 0 1px 0 rgb(255 255 255/.06);
@@ -273,7 +278,7 @@ html.wp-switch .wp{opacity:0!important}
   letter-spacing:var(--eyebrow-tracking);text-transform:uppercase;
   color:var(--ink-faint);padding:0 10px 0 8px;
 }
-.lab button{padding:4px 10px;border-radius:var(--radius-2);font-size:var(--type-label);color:var(--ink-muted);transition:background var(--motion-duration-instant) var(--motion-ease-standard),color var(--motion-duration-instant) var(--motion-ease-standard)}
+.lab button{padding:4px 10px;border-radius:var(--radius-2);white-space:nowrap;font-size:var(--type-label);color:var(--ink-muted);transition:background var(--motion-duration-instant) var(--motion-ease-standard),color var(--motion-duration-instant) var(--motion-ease-standard)}
 .lab button:hover{background:var(--wash);color:var(--ink)}
 .lab button.on{background:var(--wash-2);color:var(--ink)}
 
@@ -317,13 +322,14 @@ html[data-winfocus="false"] .tl svg{opacity:0!important}
 .railrow:hover{background:var(--wash);color:var(--ink)}
 .railrow.on{background:var(--wash-2);color:var(--ink)}
 .railrow .g{width:16px;display:grid;place-items:center;color:var(--ink-faint);flex:none}
-.railrow .r{margin-left:auto;font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-ghost);font-variant-numeric:tabular-nums}
+/* ghost is decorative and disabled ONLY — anything read is at least faint */
+.railrow .r{margin-left:auto;font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-faint);font-variant-numeric:tabular-nums}
 /* the trailing column does four different jobs; each dresses for its own */
 .railrow .r-status{font-family:var(--font-ui);letter-spacing:.02em}
 .eyebrow{
   font-family:var(--font-ui);font-size:var(--type-micro);font-weight:500;
   letter-spacing:var(--eyebrow-tracking);text-transform:uppercase;
-  color:var(--ink-ghost);padding:0 8px;margin:24px 0 8px;
+  color:var(--ink-faint);padding:0 8px;margin:24px 0 8px;
 }
 .dot{width:5px;height:5px;border-radius:50%;background:var(--ink-faint);flex:none;margin-left:auto;opacity:.68}
 .railfoot{
@@ -429,7 +435,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:none}
 .thread{padding:0 var(--gutter-reading);max-width:var(--mn-reading-measure)}
 .rule{
   display:flex;align-items:center;gap:12px;margin:0 0 20px;
-  font-size:var(--type-micro);color:var(--ink-ghost);
+  font-size:var(--type-micro);color:var(--ink-faint);
 }
 .rule.day{position:sticky;top:0;z-index:3;background:var(--surface);margin:0 0 16px;padding:8px 0}
 .rule::before,.rule::after{content:"";flex:1;height:1px;background:var(--border)}
@@ -437,7 +443,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:none}
 .turn>[data-mark]{color:var(--ink-faint);margin-top:2px}
 .turn .who{display:flex;align-items:baseline;gap:8px;margin-bottom:4px}
 .turn .who b{font-size:var(--type-ui);font-weight:500;letter-spacing:-.002em}
-.turn .who .tag{font-size:var(--type-micro);color:var(--ink-ghost);font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.turn .who .tag{font-size:var(--type-micro);color:var(--ink-faint);font-family:var(--font-mono);font-variant-numeric:tabular-nums}
 .turn p{
   margin:0 0 8px;font-family:var(--font-reading);font-size:var(--type-body);
   line-height:1.68;letter-spacing:var(--track-body);color:var(--ink-muted);
@@ -508,7 +514,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:none}
 .pad{padding:0 var(--inset-compact)}
 .lab-eyebrow{
   font-size:var(--type-micro);font-weight:500;letter-spacing:var(--eyebrow-tracking);
-  text-transform:uppercase;color:var(--ink-ghost);margin:16px 4px 8px;
+  text-transform:uppercase;color:var(--ink-faint);margin:16px 4px 8px;
 }
 .place .lab-eyebrow{margin-left:0;margin-right:0}
 .plate{background:var(--plate);border-radius:var(--radius-3);padding:4px}
@@ -557,7 +563,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:none}
 }
 .rows .row:last-child{border-bottom:0}
 .row .t{font-size:var(--type-ui);color:var(--ink-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.row .s{font-size:var(--type-micro);color:var(--ink-ghost);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .s{font-size:var(--type-micro);color:var(--ink-faint);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .row .v{font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-faint);font-variant-numeric:tabular-nums}
 .v-live::before{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--ink-faint);margin-right:6px;vertical-align:1px}
 .ring{width:22px;height:22px;transform:rotate(-90deg)}
@@ -569,7 +575,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:none}
 .sign{
   flex:none;display:flex;align-items:center;gap:8px;padding:12px var(--inset-card);
   border-top:1px solid var(--border);min-width:0;
-  font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-ghost);
+  font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-faint);
 }
 .sign>span:first-child{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .sign .by{flex:none}
@@ -578,7 +584,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:none}
 .stack{display:flex}
 .stack [data-mark]+[data-mark]{margin-left:-6px}
 .foot-name{font-size:var(--type-label);color:var(--ink-muted)}
-.foot-sub{font-size:var(--type-micro);color:var(--ink-ghost)}
+.foot-sub{font-size:var(--type-micro);color:var(--ink-faint)}
 .toast .dot{margin:0;background:var(--ink-faint)}
 
 /* ── the agent's place ────────────────────────────────────────── */
@@ -589,8 +595,8 @@ button:focus-visible,[tabindex]:focus-visible{outline:none}
 .sect{margin-bottom:24px}
 .made-row{display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border);width:100%;text-align:left}
 .made-row .t{font-size:var(--type-ui);color:var(--ink-muted)}
-.made-row .s{font-size:var(--type-micro);color:var(--ink-ghost);margin-top:2px}
-.made-row .v{font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-ghost);font-variant-numeric:tabular-nums}
+.made-row .s{font-size:var(--type-micro);color:var(--ink-faint);margin-top:2px}
+.made-row .v{font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-faint);font-variant-numeric:tabular-nums}
 .made-row:hover .t{color:var(--ink)}
 .gal{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
 .tile{text-align:left}
@@ -599,7 +605,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:none}
   background:var(--raised);box-shadow:var(--lit);
 }
 .tile b{display:block;font-size:var(--type-label);font-weight:400;color:var(--ink-muted);margin-top:8px}
-.tile span{display:block;font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-ghost);margin-top:2px}
+.tile span{display:block;font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-faint);margin-top:2px}
 /* the ladder tile depicts a value ladder in the CURRENT palette: each step
    is more ink mixed into the recess, so it stays monotonic in every theme */
 .art.ladder{display:flex;flex-direction:column}
@@ -1468,6 +1474,7 @@ if(q.get("tile")==="1") tileBtn.click();
 if(q.get("place")==="1") showPlace(true);
 if(q.get("lift")==="1") openLift(widget);
 if(q.get("laws")==="1") lawsBtn.click();
+if(["dusk","quiet"].includes(q.get("wall"))) document.documentElement.dataset.wallpaper=q.get("wall");
 drawRings(document);
 requestAnimationFrame(()=>{ booting=false; });
 </script>
