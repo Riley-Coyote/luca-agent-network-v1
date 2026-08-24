@@ -30,18 +30,25 @@
    * ACCESSIBILITY IS A CONSTRAINT ON THIS TABLE, not a review afterthought.
    * Re-run the contrast audit whenever a surface or ink value changes.
    * ------------------------------------------------------------------ */
-  --mn-floor: 0 0% 0%;
-  --mn-navigator: 220 8% 1.2%;
-  --mn-surface: 220 8% 2.1%;
-  --mn-raised: 220 7% 2.8%;
-  --mn-hover: 220 6% 4.2%;
+  /* THE COMPOSITE LADDER (decided 2026-08-23, design-lab/palette-options.html).
+   * Pure neutral — R=G=B, no cast; the surfaces carry no temperature at all.
+   * Steps are wide (+9 RGB) so sidebar, ground, card and raised object are
+   * unmistakably different things at any screen brightness, and separation
+   * comes from SHADE, not from outlines: the card hairlines this scale used
+   * to require are retired below. The old near-black ladder was a blackout
+   * palette doing a default's job; it moves to the Void theme, preserved. */
+  --mn-floor: 0 0% 5.5%;
+  --mn-navigator: 0 0% 5.5%;
+  --mn-surface: 0 0% 9%;
+  --mn-raised: 0 0% 12.5%;
+  --mn-hover: 0 0% 15.7%;
   /* Below the floor. Used only where a surface must read as a recess. */
-  --mn-glass: 0 0% 0%;
+  --mn-glass: 0 0% 3.5%;
   /* Aliases consumed by the semantic mappings in theme.css. */
-  --mn-surface-raised: 220 7% 2.8%;
-  --mn-surface-hover: 220 6% 4.2%;
-  --mn-border: 220 5% 10.5%;
-  --mn-border-strong: 220 4% 15.5%;
+  --mn-surface-raised: 0 0% 12.5%;
+  --mn-surface-hover: 0 0% 15.7%;
+  --mn-border: 0 0% 17%;
+  --mn-border-strong: 0 0% 22%;
   /* THE INK LADDER. Four roles, defined by the contrast each one holds
    * against the conversation surface rather than by a lightness that looked
    * right. Void sets the reference shape, and Paper is solved to reproduce it
@@ -64,17 +71,23 @@
    * Do not express a fifth level by putting an alpha on one of these. That
    * habit is what collapsed the light palettes: alphas tuned against
    * near-white ink land far below AA once the ink is near-black. */
-  --mn-ink: 220 11.8% 93.1%;
-  --mn-ink-muted: 220 2.7% 71.5%;
-  --mn-ink-faint: 220 1.6% 53.2%;
-  --mn-ink-ghost: 220 1.5% 39%;
+  /* Cream, not cool: the one warmth in the system lives in the ink — every
+   * surface stays perfectly neutral, and the text carries tungsten light
+   * (hue 45 at whisper saturation, from the Terminal design docs). At this
+   * dose the warmth is imperceptible as tint; it reads as gentleness. Ratios
+   * re-audited against the new raised surface (#202020): 14.5 / 8.6 / 5.2 /
+   * 3.1 — the same roles the old ladder held, on the lighter ground. */
+  --mn-ink: 45 15% 95%;
+  --mn-ink-muted: 45 4% 76%;
+  --mn-ink-faint: 45 3% 58%;
+  --mn-ink-ghost: 45 2% 44%;
   --mn-focus: 213 94% 68%;
 
   /* The one light effect this system uses: a 1px lit top edge on raised
    * objects, simulating light from above catching the bevel. This is what
    * makes a flat object read as physical without a gradient or a drop shadow,
    * both of which fight a lightness-based elevation model. */
-  --mn-lit-edge: inset 0 1px 0 rgb(255 255 255 / 0.035);
+  --mn-lit-edge: inset 0 1px 0 rgb(255 255 255 / 0.05);
 
   /* The plate: the one borderless group surface. Ink at a small alpha rather
    * than a grey step, so it reads the same in Void, Graphite and every light
@@ -201,7 +214,10 @@
 
 :root[data-luca-shell] [data-luca-card] {
   background: hsl(var(--mn-surface));
-  border: 1px solid hsl(var(--mn-border));
+  /* No outline: on the composite ladder the card sits a full shade step
+   * above the floor, so the edge draws itself. Hairlines survive only on
+   * floating overlays, where content scrolls beneath. */
+  border: none;
   border-radius: var(--radius);
   box-shadow: none;
   overflow: hidden;
