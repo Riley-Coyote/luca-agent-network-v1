@@ -363,6 +363,26 @@ html[data-winfocus="false"] .tl svg{opacity:0!important}
 }
 .scrollmark.on{opacity:1}
 
+/* ── STATES ──────────────────────────────────────────────────────
+   Five per interactive element, never browser defaults. Focus is the house
+   law: the element BRIGHTENS IN PLACE — an inset hairline at the quietest
+   ink that clears the non-text floor — never an offset ring. Pressed
+   deepens the wash; icons give a hair under the finger. */
+button:focus-visible,[tabindex]:focus-visible{outline:none}
+.railrow:focus-visible,.lab button:focus-visible,.ic:focus-visible,
+.seg button:focus-visible,.plate-row:focus-visible,.made-row:focus-visible,
+.tile:focus-visible,.watch button:focus-visible,.go:focus-visible,
+.reopen:focus-visible{box-shadow:inset 0 0 0 1px var(--ink-faint)}
+.railrow:active,.lab button:active,.seg button:active,.watch button:active,
+.plate-row:active,.reopen:active{background:var(--wash-2)}
+.ic:active,.go:active{transform:scale(.96)}
+.ic{transition:background var(--motion-duration-instant) var(--motion-ease-standard),color var(--motion-duration-instant) var(--motion-ease-standard),transform var(--motion-duration-instant) var(--motion-ease-standard)}
+.tile:hover .art{filter:brightness(1.07)}
+.tile:hover b{color:var(--ink)}
+.tile .art{transition:filter var(--motion-duration-instant) var(--motion-ease-standard)}
+.lip-v:focus-visible::before,.lip-h:focus-visible::before{opacity:1;background:var(--ink-faint)}
+.grip:focus-visible::after{border-color:var(--ink-faint)}
+
 /* ── conversation ─────────────────────────────────────────────── */
 .thread{padding:0 var(--gutter-reading);max-width:var(--mn-reading-measure)}
 .rule{
@@ -399,7 +419,11 @@ html[data-winfocus="false"] .tl svg{opacity:0!important}
 .well{
   background:var(--recess);border:1px solid var(--border);
   border-radius:var(--radius-4);padding:8px 12px;box-shadow:var(--lit);
+  /* border-color is the only property licensed to move — a background shift
+     would repaint under every keystroke, a height ease would make wrapping soggy */
+  transition:border-color var(--motion-duration-instant) var(--motion-ease-standard);
 }
+.well:focus-within{border-color:var(--ink-faint)}
 .well textarea{
   width:100%;resize:none;height:24px;min-height:24px;outline:none;
   font-family:var(--font-reading);font-size:var(--type-body);line-height:1.5;
@@ -407,19 +431,31 @@ html[data-winfocus="false"] .tl svg{opacity:0!important}
 .well textarea::placeholder{color:var(--ink-ghost)}
 .tools{display:flex;align-items:center;gap:2px;padding:8px 2px 0}
 .tools .mode{font-size:var(--type-label);color:var(--ink-faint);padding:0 6px}
+/* granting an affordance can be gentle; taking one away has to be quick */
 .go{
   margin-left:auto;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
   background:var(--raised);color:var(--ink);box-shadow:var(--lit);
+  opacity:.35;cursor:default;
+  transition:opacity var(--composer-duration-disarm) var(--motion-ease-standard),transform var(--motion-duration-instant) var(--motion-ease-standard);
 }
+.go.armed{opacity:1;cursor:pointer;transition-duration:var(--composer-duration-arm),var(--motion-duration-instant)}
 
 /* ── drawer contents ──────────────────────────────────────────── */
-.seg{display:flex;gap:2px;padding:0 var(--inset-compact) 12px}
-.seg button{
-  padding:4px 10px;border-radius:var(--radius-2);font-size:var(--type-label);
-  color:var(--ink-faint);display:flex;align-items:center;gap:6px;
+.seg{display:flex;gap:2px;padding:0 var(--inset-compact) 12px;position:relative}
+/* one selection vocabulary: the same wash the rail speaks, carried by a
+   pill that slides between choices instead of teleporting */
+.seg-pill{
+  position:absolute;top:0;height:calc(100% - 12px);border-radius:var(--radius-2);
+  background:var(--wash-2);
+  transition:left var(--motion-duration-fast) var(--motion-ease-standard),width var(--motion-duration-fast) var(--motion-ease-standard);
 }
-.seg button:hover{background:var(--wash);color:var(--ink-muted)}
-.seg button.on{background:var(--plate);color:var(--ink)}
+.seg button{
+  position:relative;padding:4px 10px;border-radius:var(--radius-2);font-size:var(--type-label);
+  color:var(--ink-faint);display:flex;align-items:center;gap:6px;
+  transition:color var(--motion-duration-instant) var(--motion-ease-standard);
+}
+.seg button:hover{color:var(--ink-muted)}
+.seg button.on{color:var(--ink)}
 .pad{padding:0 var(--inset-compact)}
 .lab-eyebrow{
   font-size:var(--type-micro);font-weight:500;letter-spacing:var(--eyebrow-tracking);
@@ -453,6 +489,16 @@ html[data-winfocus="false"] .tl svg{opacity:0!important}
 }
 .watch button{margin-left:auto;padding:4px 10px;border-radius:var(--radius-2);color:var(--ink-muted);font-size:var(--type-label)}
 .watch button:hover{background:var(--wash);color:var(--ink)}
+
+/* the way back: closing the drawer leaves a quiet chip, not a dead end */
+.reopen{
+  display:flex;align-items:center;gap:8px;flex:none;
+  padding:8px var(--inset-compact);border-radius:var(--radius-4);
+  background:var(--surface);border:1px solid var(--border);
+  color:var(--ink-muted);font-size:var(--type-label);text-align:left;
+  transition:color var(--motion-duration-instant) var(--motion-ease-standard),background var(--motion-duration-instant) var(--motion-ease-standard);
+}
+.reopen:hover{color:var(--ink);background:var(--wash)}
 
 /* ── the widget · an instrument, set like print ────────────────── */
 .rows{padding:0 var(--inset-compact)}
@@ -585,7 +631,7 @@ html.theme-xfade .app,html.theme-xfade .app *{
 <body>
 <div class="desk"><div class="wp dark"></div><div class="wp light"></div></div>
 
-<div class="lab">
+<div class="lab" role="toolbar" aria-label="Study controls">
   <b>Study</b>
   <button id="t-glass">Glass</button>
   <button id="t-slate">Slate</button>
@@ -646,7 +692,7 @@ html.theme-xfade .app,html.theme-xfade .app *{
           <div class="acts">
             <button class="ic" data-icon="consult" title="Ask another resident"></button>
             <button class="ic" data-lift title="Lift this card"></button>
-            <button class="ic" data-icon="more"></button>
+            <button class="ic" data-icon="more" title="Conversation options"></button>
           </div>
         </header>
 
@@ -673,10 +719,10 @@ html.theme-xfade .app,html.theme-xfade .app *{
         <div class="composer">
           <div class="well"><textarea placeholder="Message Luca"></textarea></div>
           <div class="tools">
-            <button class="ic" data-icon="plus" data-isize="14"></button>
-            <button class="ic" data-icon="at" data-isize="14"></button>
+            <button class="ic" data-icon="plus" data-isize="14" title="Attach"></button>
+            <button class="ic" data-icon="at" data-isize="14" title="Mention someone"></button>
             <span class="mode">Thoughtful</span>
-            <button class="go" data-icon="send" data-isize="13"></button>
+            <button class="go" data-icon="send" data-isize="13" title="Send" aria-disabled="true"></button>
           </div>
         </div>
       </article>
@@ -688,7 +734,7 @@ html.theme-xfade .app,html.theme-xfade .app *{
           <div><h2>Anima</h2><p>Direct message · voice study</p></div>
           <div class="acts">
             <button class="ic" data-lift title="Lift this card"></button>
-            <button class="ic" data-icon="more"></button>
+            <button class="ic" data-icon="more" title="Conversation options"></button>
           </div>
         </header>
         <div class="body">
@@ -704,7 +750,7 @@ html.theme-xfade .app,html.theme-xfade .app *{
         </div>
         <div class="composer">
           <div class="well"><textarea placeholder="Message Anima"></textarea></div>
-          <div class="tools"><button class="ic" data-icon="plus" data-isize="14"></button><span class="mode">Thoughtful</span><button class="go" data-icon="send" data-isize="13"></button></div>
+          <div class="tools"><button class="ic" data-icon="plus" data-isize="14" title="Attach"></button><span class="mode">Thoughtful</span><button class="go" data-icon="send" data-isize="13" title="Send" aria-disabled="true"></button></div>
         </div>
       </article>
 
@@ -715,7 +761,7 @@ html.theme-xfade .app,html.theme-xfade .app *{
           <div><h2>Vektor's place</h2><p>Their conversations, their gallery, what they're on now</p></div>
           <div class="acts">
             <button class="ic" data-lift title="Lift this card"></button>
-            <button class="ic" data-icon="more"></button>
+            <button class="ic" data-icon="more" title="Place options"></button>
           </div>
         </header>
         <div class="body">
@@ -758,9 +804,11 @@ html.theme-xfade .app,html.theme-xfade .app *{
       </article>
     </div>
 
-    <div class="lip-v" id="lip-v" title="Drag to resize"></div>
+    <div class="lip-v" id="lip-v" title="Drag to resize" tabindex="0" role="separator" aria-orientation="vertical" aria-label="Resize columns — arrow keys" aria-valuemin="300" aria-valuemax="620"></div>
 
     <div class="col side" id="col-side">
+
+      <button class="reopen" id="reopen-drawer" hidden><span data-icon="consult" data-isize="13"></span>Conversation</button>
 
       <!-- the drawer, as it is today -->
       <article class="card" id="card-drawer" data-law="card">
@@ -771,10 +819,10 @@ html.theme-xfade .app,html.theme-xfade .app *{
             <button class="ic" data-icon="close" id="close-drawer"></button>
           </div>
         </header>
-        <div class="seg">
-          <button class="on" data-icon="consult" data-isize="13"><span>Conversation</span></button>
-          <button><span data-mark="luca" data-size="13"></span><span>Luca</span></button>
-          <button><span data-mark="vektor" data-size="13"></span><span>Vektor</span></button>
+        <div class="seg" role="radiogroup" aria-label="Drawer view">
+          <button class="on" role="radio" aria-checked="true" data-icon="consult" data-isize="13"><span>Conversation</span></button>
+          <button role="radio" aria-checked="false"><span data-mark="luca" data-size="13"></span><span>Luca</span></button>
+          <button role="radio" aria-checked="false"><span data-mark="vektor" data-size="13"></span><span>Vektor</span></button>
         </div>
         <div class="body">
           <div class="pad">
@@ -795,7 +843,7 @@ html.theme-xfade .app,html.theme-xfade .app *{
         <div class="watch"><span>You can see everything here</span><button>Join</button></div>
       </article>
 
-      <div class="lip-h" id="lip-h" title="Drag to resize"></div>
+      <div class="lip-h" id="lip-h" title="Drag to resize" tabindex="0" role="separator" aria-orientation="horizontal" aria-label="Resize widget — arrow keys" aria-valuemin="170" aria-valuemax="640"></div>
 
       <!-- the widget: a card that holds neither a chat nor an artifact -->
       <div class="deck" id="widget-deck"><div class="deck-inner">
@@ -805,7 +853,7 @@ html.theme-xfade .app,html.theme-xfade .app *{
           <div class="acts">
             <button class="ic" data-icon="open" title="Open as its own card"></button>
             <button class="ic" data-lift title="Lift this card"></button>
-            <button class="ic" data-icon="close"></button>
+            <button class="ic" data-icon="close" title="Close widget"></button>
           </div>
         </header>
         <div class="body">
@@ -852,10 +900,10 @@ html.theme-xfade .app,html.theme-xfade .app *{
     </div>
   </header>
   <div class="lift-content" id="lift-content"></div>
-  <div class="grip" id="lift-grip"></div>
+  <div class="grip" id="lift-grip" tabindex="0" role="separator" aria-label="Resize panel — arrow keys"></div>
 </section>
 
-<div class="toast" id="toast"><span class="dot"></span><span id="toast-copy"></span><i class="timer" id="toast-timer" aria-hidden="true"></i></div>
+<div class="toast" id="toast" role="status" aria-live="polite"><span class="dot"></span><span id="toast-copy"></span><i class="timer" id="toast-timer" aria-hidden="true"></i></div>
 
 <script>
 /* Real identity marks, from the repo's own generator
@@ -1051,8 +1099,10 @@ function showPlace(on,narrate=true){
 }
 function syncPlaceChrome(on){
   placeBtn.classList.toggle("on",on);
-  document.getElementById("r-vektor").classList.toggle("on",on);
-  document.getElementById("r-luca").classList.toggle("on",!on);
+  const rv=document.getElementById("r-vektor"), rl=document.getElementById("r-luca");
+  rv.classList.toggle("on",on); rl.classList.toggle("on",!on);
+  rv.setAttribute("aria-current",on?"true":"false");
+  rl.setAttribute("aria-current",!on?"true":"false");
 }
 placeBtn.onclick=()=>showPlace(place.hidden);
 document.getElementById("r-vektor").onclick=()=>showPlace(true);
@@ -1115,9 +1165,79 @@ document.querySelectorAll("[data-lift]").forEach(b=>b.onclick=()=>openLift(b.clo
 document.getElementById("lift-close").onclick=()=>{ dockLift(); say("Back on the floor"); };
 document.getElementById("lift-dock").onclick=()=>{ dockLift(); say("Back on the floor"); };
 addEventListener("keydown",e=>{ if(e.key==="Escape"&&liftSrc){ dockLift(); say("Back on the floor"); } });
+const reopenBtn=document.getElementById("reopen-drawer");
 document.getElementById("close-drawer").onclick=()=>{
-  drawer.hidden=true; syncLip();
+  drawer.hidden=true; reopenBtn.hidden=false; syncLip();
 };
+reopenBtn.onclick=()=>{
+  drawer.hidden=false; reopenBtn.hidden=true; syncLip();
+  if(!REDUCE){ drawer.classList.remove("motion-land"); void drawer.offsetWidth; drawer.classList.add("motion-land"); }
+};
+
+/* the segmented control: one sliding pill carries the selection */
+(function(){
+  const seg=document.querySelector(".seg");
+  const pill=document.createElement("i");
+  pill.className="seg-pill"; pill.setAttribute("aria-hidden","true");
+  seg.prepend(pill);
+  const btns=[...seg.querySelectorAll("button")];
+  function placePill(){
+    const on=seg.querySelector("button.on"); if(!on) return;
+    pill.style.left=on.offsetLeft+"px"; pill.style.width=on.offsetWidth+"px";
+  }
+  function select(b){
+    btns.forEach(x=>{ x.classList.toggle("on",x===b); x.setAttribute("aria-checked",x===b?"true":"false"); });
+    placePill();
+  }
+  btns.forEach(b=>b.addEventListener("click",()=>select(b)));
+  seg.addEventListener("keydown",e=>{
+    if(e.key!=="ArrowLeft"&&e.key!=="ArrowRight")return;
+    e.preventDefault();
+    const i=btns.indexOf(seg.querySelector("button.on"));
+    const j=(i+(e.key==="ArrowRight"?1:-1)+btns.length)%btns.length;
+    select(btns[j]); btns[j].focus();
+  });
+  document.fonts.ready.then(placePill); placePill();
+})();
+
+/* the composer arms when there is something to send */
+document.querySelectorAll(".composer").forEach(c=>{
+  const ta=c.querySelector("textarea"), go=c.querySelector(".go");
+  if(!ta||!go) return;
+  ta.addEventListener("input",()=>{
+    const armed=ta.value.trim().length>0;
+    go.classList.toggle("armed",armed);
+    go.setAttribute("aria-disabled",armed?"false":"true");
+  });
+});
+
+/* the lips and the grip answer arrow keys in 16px steps */
+(function(){
+  const side=document.getElementById("col-side");
+  const setV=w=>{ side.style.width=w+"px"; document.getElementById("lip-v").setAttribute("aria-valuenow",Math.round(w)); };
+  const setH=h2=>{ widget.style.setProperty("--widget-h",h2+"px"); lipH.setAttribute("aria-valuenow",Math.round(h2)); };
+  document.getElementById("lip-v").addEventListener("keydown",e=>{
+    if(e.key!=="ArrowLeft"&&e.key!=="ArrowRight")return;
+    e.preventDefault();
+    setV(Math.max(300,Math.min(620,side.offsetWidth+(e.key==="ArrowLeft"?16:-16))));
+  });
+  lipH.addEventListener("keydown",e=>{
+    if(e.key!=="ArrowUp"&&e.key!=="ArrowDown")return;
+    e.preventDefault();
+    setH(Math.max(170,Math.min(640,widget.offsetHeight+(e.key==="ArrowUp"?16:-16))));
+  });
+  document.getElementById("lift-grip").addEventListener("keydown",e=>{
+    const k=e.key;
+    if(!k.startsWith("Arrow"))return;
+    e.preventDefault();
+    if(k==="ArrowLeft"||k==="ArrowRight")
+      lifted.style.width=Math.max(300,Math.min(640,lifted.offsetWidth+(k==="ArrowRight"?16:-16)))+"px";
+    else
+      lifted.style.height=Math.max(210,Math.min(720,lifted.offsetHeight+(k==="ArrowDown"?16:-16)))+"px";
+  });
+  document.getElementById("lip-v").setAttribute("aria-valuenow",side.offsetWidth);
+  lipH.setAttribute("aria-valuenow",widget.offsetHeight);
+})();
 
 const glassBtn=document.getElementById("t-glass");
 glassBtn.onclick=()=>{
