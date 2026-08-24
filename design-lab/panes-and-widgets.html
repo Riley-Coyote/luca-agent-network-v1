@@ -72,6 +72,34 @@
   --pop-shadow:0 18px 40px rgb(0 0 0/.5);
   color-scheme:dark;
 }
+[data-theme="smoke"]{
+  /* SMOKE — the palette built FOR dark glass, from Apple's own protocol
+     (HIG Materials + Dark Mode, researched 2026-08-24):
+     glass "has no inherent color — it takes on colors from the content
+     behind it", and the regular variant "blurs and ADJUSTS the luminosity"
+     of the backdrop rather than pinning it. So Smoke's floor is not a grey
+     pane wearing the wallpaper's hue: it is the wallpaper itself, blurred,
+     saturation pulled forward, compressed into a dark band under a scrim
+     (Apple's published dimming layer is 35% for bright content; ours runs
+     deeper because the wallpapers are vivid). The reading plane goes to a
+     near-black velvet — deeper than Inverse — so the glowing rail reads as
+     a jewel box, and the ink stays cream per the house. Cool lean per the
+     linear-dose rule (B=R+2, G=R+1) at every altitude. */
+  --floor:#17181d; --surface:#0e0f13; --raised:#1b1c21; --recess:#08090c;
+  --border:#25262b; --border-strong:#31323a;
+  --ink:#f4f3f0; --ink-muted:#c6c5c0; --ink-faint:#a6a5a1; --ink-ghost:#747370;
+  --wash:rgb(255 255 255/.055); --wash-2:rgb(255 255 255/.095);
+  --plate:rgb(244 243 240/.045); --plate-hover:rgb(244 243 240/.075);
+  --lit:inset 0 1px 0 rgb(255 255 255/.07);
+  --app-shadow:
+    0 0 0 1px rgb(0 0 0/.5),
+    0 2px 8px rgb(0 0 0/.4),
+    0 40px 120px rgb(0 0 0/.66);
+  --app-hairline:inset 0 0 0 1px rgb(255 255 255/.06);
+  --lift-shadow:0 34px 84px rgb(0 0 0/.6);
+  --pop-shadow:0 18px 40px rgb(0 0 0/.55);
+  color-scheme:dark;
+}
 [data-theme="paper"]{
   /* PAPER — the authored light palette, verbatim from adaptive-theme.ts.
      Warm ground (hue 38), cool ink (hue 222), contrast-matched to Void. */
@@ -264,6 +292,11 @@ html:not([data-theme="paper"]) .wp.dark{opacity:1}
 /* the switch dips the world for a beat instead of teleporting it */
 html.wp-switch .wp{opacity:0!important}
 .vib .wps{position:absolute;inset:-90px;filter:blur(60px) saturate(260%)}
+/* Smoke does NOT pin luminance. The backdrop keeps its own light, dimmed
+   into a band: saturation forward, brightness compressed, then the scrim.
+   This is the HIG's "blurs and adjusts the luminosity", built in CSS. */
+[data-theme="smoke"] .vib .wps{filter:blur(60px) saturate(245%) brightness(.68)}
+[data-theme="smoke"] .vib::after{background:rgb(9 10 14/.36);mix-blend-mode:normal}
 
 /* ── lab bar ──────────────────────────────────────────────────── */
 .lab{
@@ -694,6 +727,7 @@ html.theme-xfade .app,html.theme-xfade .app *{
   <button id="t-glass">Glass</button>
   <button id="t-slate">Slate</button>
   <button id="t-inverse">Inverse</button>
+  <button id="t-smoke">Smoke</button>
   <button id="t-paper">Paper</button>
   <button id="t-split" class="on">Split drawer</button>
   <button id="t-tile">Tile two chats</button>
@@ -1338,7 +1372,7 @@ glassBtn.onclick=()=>{
   glassBtn.classList.toggle("on",on);
   say(on?"Glass — the floor takes the desktop\u2019s colour, never its lightness":"Opaque — the floor as a solid");
 };
-const themes={slate:document.getElementById("t-slate"),inverse:document.getElementById("t-inverse"),paper:document.getElementById("t-paper")};
+const themes={slate:document.getElementById("t-slate"),inverse:document.getElementById("t-inverse"),smoke:document.getElementById("t-smoke"),paper:document.getElementById("t-paper")};
 function setTheme(name){
   const el=document.documentElement;
   if(!REDUCE&&!booting&&el.dataset.theme&&el.dataset.theme!==name){
@@ -1469,7 +1503,7 @@ setTheme("inverse");
 
 const q=new URLSearchParams(location.search);
 if(q.get("glass")==="off") glassBtn.click();
-if(["slate","inverse","paper"].includes(q.get("theme"))) setTheme(q.get("theme"));
+if(["slate","inverse","smoke","paper"].includes(q.get("theme"))) setTheme(q.get("theme"));
 if(q.get("tile")==="1") tileBtn.click();
 if(q.get("place")==="1") showPlace(true);
 if(q.get("lift")==="1") openLift(widget);

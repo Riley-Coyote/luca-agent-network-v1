@@ -41,8 +41,12 @@ fast-forward it and rebuild.
   and `typography.css`, and its identity marks come from the real
   `glyph.ts`, so only what it *adds* is new — a card that splits, a card
   that holds a widget, cards that tile, and a card that leaves the floor.
-  Three real palettes — Slate, Inverse (the default) and Paper, from
-  `adaptive-theme.ts`. Glass changes the FLOOR ONLY: cards stay opaque and on
+  Four palettes — Slate, Inverse (the default) and Paper from
+  `adaptive-theme.ts`, plus SMOKE, the palette designed FOR dark glass from
+  Apple's HIG protocol (glass has no inherent colour; it dims and blurs the
+  desktop into a legibility band — a scrim near Apple's published 35% — over
+  a near-black velvet reading plane). Smoke's harness check is faint-ink AA
+  over the sampled smoke, not luminance pinning. Glass changes the FLOOR ONLY: cards stay opaque and on
   the ladder, and the floor takes the desktop's hue while keeping its own
   luminance (`mix-blend-mode: luminosity`, which is what vibrancy is). Built
   to native-macOS grade: real traffic lights on the shell's own geometry

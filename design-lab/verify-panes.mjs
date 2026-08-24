@@ -40,7 +40,7 @@ const PREV = path.join(HERE, "audit", "polish-shots", `pass-${Number(PASS) - 1}`
 fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT, { recursive: true });
 
-const THEMES = ["inverse", "slate", "paper"];
+const THEMES = ["inverse", "slate", "smoke", "paper"];
 /** Scene → { q: URL params, prep: async page steps before the shot } */
 const SCENES = {
   default: { q: "" },
@@ -181,10 +181,25 @@ for (const [scene, def] of Object.entries(SCENES)) {
           delta: +delta.toFixed(4),
           noise: +noise.toFixed(1),
         };
-        note(
-          delta < 0.02,
-          `${name}: floor luminance pinned to token (Δ ${delta.toFixed(4)}${noise > 12 ? ", noisy sample" : ""})`,
-        );
+        if (theme === "smoke") {
+          // Smoke's floor is DESIGNED to keep the backdrop's light (HIG:
+          // glass "adjusts the luminosity"), so the invariant here is not
+          // pinning — it is that the quietest rail ink still clears AA.
+          const faint = await page.evaluate(() =>
+            getComputedStyle(document.documentElement).getPropertyValue("--ink-faint").trim());
+          const ratio = (() => {
+            const L1 = luminance(hexToRgb(faint)), L2 = lumSample;
+            const [hi, lo] = [L1, L2].sort((a2, b2) => b2 - a2);
+            return (hi + 0.05) / (lo + 0.05);
+          })();
+          manifest.shots[name].floorProbe.faintRatio = +ratio.toFixed(2);
+          note(ratio >= 4.5, `${name}: faint ink holds AA on the smoke (${ratio.toFixed(2)}:1)`);
+        } else {
+          note(
+            delta < 0.02,
+            `${name}: floor luminance pinned to token (Δ ${delta.toFixed(4)}${noise > 12 ? ", noisy sample" : ""})`,
+          );
+        }
       }
     }
   }
