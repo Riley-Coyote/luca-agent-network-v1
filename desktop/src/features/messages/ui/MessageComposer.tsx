@@ -56,10 +56,7 @@ import { getBuzzCodeBlockClipboardText } from "@/shared/lib/codeBlockClipboard";
 import { cn } from "@/shared/lib/cn";
 import type { ChannelType } from "@/shared/api/types";
 import { ChannelAutocomplete } from "./ChannelAutocomplete";
-import {
-  ComposerReplyEditBanner,
-  replyBannerVariant,
-} from "./ComposerReplyEditBanner";
+import { ComposerReplyEditBanner } from "./ComposerReplyEditBanner";
 import { ComposerAttachments, DropZoneOverlay } from "./ComposerAttachments";
 import { EmojiAutocomplete } from "./EmojiAutocomplete";
 import {
@@ -1015,14 +1012,12 @@ function MessageComposerImpl({
               open={isContextOpen}
             />
           ) : null}
-          {replyBannerVariant() !== "card" ? (
-            <ComposerReplyEditBanner
-              isEditing={editTarget != null}
-              replyTarget={replyTarget}
-              onCancelEdit={onCancelEdit}
-              onCancelReply={onCancelReply}
-            />
-          ) : null}
+          <ComposerReplyEditBanner
+            isEditing={editTarget != null}
+            replyTarget={replyTarget}
+            onCancelEdit={onCancelEdit}
+            onCancelReply={onCancelReply}
+          />
           <form
             className="relative z-10 isolate rounded-xl border bg-muted px-3 py-2 transition-colors"
             data-testid="message-composer"
@@ -1041,14 +1036,6 @@ function MessageComposerImpl({
             }}
           >
             {ownsDropZone && media.isDragOver && <DropZoneOverlay />}
-            {replyBannerVariant() === "card" ? (
-              <ComposerReplyEditBanner
-                isEditing={editTarget != null}
-                replyTarget={replyTarget}
-                onCancelEdit={onCancelEdit}
-                onCancelReply={onCancelReply}
-              />
-            ) : null}
             <EmojiAutocomplete
               onSelect={applyEmojiInsert}
               selectedIndex={emojiAutocomplete.emojiSelectedIndex}

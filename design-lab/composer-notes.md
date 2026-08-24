@@ -47,3 +47,17 @@ The trick that makes CC feel thin — the card and the chrome are SEPARATED:
   mention ziggy while absent → visit).
 - `field-notes` — vektor's room; mentioning ziggy here stages the
   "will be brought in" hint.
+
+## DECIDED 2026-08-24: the reply context is the RECESS
+
+Chosen from the four-way comparison (seam deck · in-card row · shade tier ·
+recess; final two were card vs recess). The reply opens a dark well below the
+conversation surface (#101010, shade from its top lip only, clipped-reveal
+entrance); the composer card floats above it untouched. Riley: "i might tweak
+it later but it looks good." The losing variants and the ?replyStyle switcher
+are deleted; the council reports in `council/` record the reasoning.
+
+Still open on the composer: the audience hint (baseline row, right side), the
+send-moment cleanup the choreographer specced (delete spinner + SENDING label,
+arm/disarm timing, border-color transition), and the room-name fix for the
+scene ("Message ziggy, Luca" should say the room's name).

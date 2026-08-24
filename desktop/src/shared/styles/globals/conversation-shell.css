@@ -778,26 +778,21 @@
   line-height: var(--type-micro-leading);
 }
 
-/* The reply/edit sheet: a layer that rises from BEHIND the composer card.
- * It is inset from the card's edges and sits on an intermediate shade —
- * between the ground and the card — so the eye reads three depths: ground,
- * sheet, card. Its bottom tucks under the card (the tuck must exceed the
- * card's radius or the corners open a gap), and the card's own shadow
- * falling on it is what sells "behind". */
+/* The reply/edit recess: a well that opens BELOW the conversation surface —
+ * the composer card floats above it, untouched. Depth by stepping away from
+ * the crowded surface shades instead of squeezing between them (two shade
+ * attempts died in the ground-card gap; see design-lab/council/). The well
+ * takes shade from its top lip only — light falls from above, and a shadow
+ * on all four edges reads as a border ring, not depth. */
 :root[data-luca-shell] .luca-reply-sheet {
-  /* SEAM (default): the sheet is the SAME shade as the card — sheets in a
-   * deck are the same paper. Depth comes from the seam where the card
-   * occludes it, not from a third grey; two shades give three planes, and
-   * this survives any palette retune. Shade attempts died twice: there is
-   * no third value in the current ground-to-card gap. */
-  background: hsl(var(--mn-raised));
+  background: hsl(0 0% 6.3%);
   border-radius: 12px 12px 0 0;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05);
+  box-shadow: inset 0 5px 8px -5px rgb(0 0 0 / 0.6);
 }
 
-/* The deck wrapper: the sheet is REVEALED, not translated — a clip opening
- * is what "pulled from behind the card" looks like; a translate+fade is a
- * thing appearing above the card. Content fades in after the plane exists. */
+/* The deck wrapper: the recess is REVEALED, not translated — a clip opening
+ * is what "opens beneath the composer" looks like. Content fades in after
+ * the plane exists. */
 :root[data-luca-shell] .luca-sheet-deck {
   display: grid;
   grid-template-rows: 1fr;
@@ -827,42 +822,6 @@
   }
 }
 
-/* TIER: the colorist's mid-shade sheet — legible only on the taller ladder
- * this variant is previewed with (the lab injects the ladder override). */
-:root[data-luca-shell] .luca-sheet-deck[data-variant="tier"] .luca-reply-sheet {
-  background: hsl(var(--mn-sheet-tier, 0 0% 14.5%));
-}
-
-/* RECESS: Riley's direction — the reply opens a WELL below the conversation
- * shade instead of a shelf above it. A recess loses the highlight and takes
- * an inner shadow from its own top edge; it steps AWAY from the crowded
- * shades instead of squeezing between them. */
-:root[data-luca-shell] .luca-sheet-deck[data-variant="recess"] .luca-reply-sheet {
-  background: hsl(0 0% 6.3%);
-  /* Light falls from above: a well takes shade from its TOP edge only. The
-   * negative spread stops the blur from wrapping the sides and bottom —
-   * a shadow on all four edges reads as a border ring, not as depth. */
-  box-shadow: inset 0 5px 8px -5px rgb(0 0 0 / 0.6);
-}
-
-/* The composer card: the only box on screen, and it holds only the text and
- * the send control. It sits a full shade step above the card ground, so it
- * needs NO outline at rest — the lit top edge and a close shadow carry its
- * physicality. The chrome row (attach, emoji, mic) renders BELOW this card,
- * naked on the ground: one box is what keeps the composer thin. */
-:root[data-luca-shell] [data-testid="message-composer"] {
-  background: hsl(var(--mn-raised));
-  border-color: transparent;
-  border-radius: 12px;
-  /* The frontier dose: present enough that its absence would flatten the
-   * card, quiet enough that nobody would name it. */
-  box-shadow:
-    var(--mn-lit-edge),
-    0 1px 2px rgb(0 0 0 / 0.08),
-    0 5px 14px rgb(0 0 0 / 0.09);
-  min-height: 46px;
-}
-
 /* While a sheet is up, the card's drop shadows would fall ON the sheet and
  * paint a dark band across the tuck — which reads as the sheet curving away
  * beneath the card. With the deck itself carrying the depth, the card keeps
@@ -870,12 +829,9 @@
 :root[data-luca-shell]
   .luca-sheet-deck
   + [data-testid="message-composer"] {
-  /* The seam: a hard dark line where the card overlaps the sheet — this is
-   * the entire depth cue for the seam variant, and it stops the card's soft
-   * shadows from painting a gradient band across the tuck. */
-  box-shadow:
-    var(--mn-lit-edge),
-    0 -1px 0 rgb(0 0 0 / 0.45);
+  /* Over the dark well the card needs no drop shadow (a soft shadow would
+   * paint a gradient band across the tuck); its lit edge alone carries it. */
+  box-shadow: var(--mn-lit-edge);
 }
 
 /* Focus is the card's own border brightening in place — the canon focus,
