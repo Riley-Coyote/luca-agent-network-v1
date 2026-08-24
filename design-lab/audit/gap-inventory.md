@@ -8,9 +8,23 @@ This plus Riley's own list becomes the big pass.*
 
 ## P0 — actively harmful (users lose information or trust)
 
-1. **Failure states erase themselves.** The error row + its Retry self-delete
-   ~7s after a failed response; no record remains. (S1.18-20, S2.13, live)
-   Fix: failed turns persist in the timeline until acted on; Retry survives.
+1. **Failure states erase themselves — and Codex's newest fix makes it fatal.**
+   MECHANISM VERIFIED IN SOURCE (2026-08-24, not inferred):
+   `managedPresentationActivityStore.ts` treats `failed` / `stopped` /
+   `needs_attention` as "brief terminal" states and deletes them after
+   `MANAGED_TERMINAL_ACTIVITY_MS = 4_000` — four seconds. The Retry affordance
+   renders in exactly ONE place, `ConversationAgentActivityStrip.tsx`, which is
+   fed by that store. So Retry exists for 4s, then is gone with no persistent
+   record anywhere (`managedOperationalStatus` only formats a live phase).
+   THE INTERACTION: Codex's `5206296e9 fix(runtime): make failed turn retries
+   explicit` (stability lane, 01:44 today) stops auto-requeuing failed turns —
+   "explicit owner retry required". Correct backend behavior, but it assumes a
+   retry affordance that survives. Together: **a failed turn is unrecoverable
+   unless the owner is watching the screen during a 4-second window**, and
+   nothing afterward says it happened. (S1.18-20, S2.13; live + source)
+   Fix: a failed turn leaves a PERSISTENT timeline row carrying its Retry;
+   `isBriefTerminal` stops applying to `failed`. Coordinate with Codex — their
+   change and this one are two halves of one behavior.
 2. **A dead backend is invisible at every layer.** /health lies over a dead DB;
    /ready exists unused; the app's only signal is one raw red string; cached /
    live / gone conversations are indistinguishable, and conversations silently
