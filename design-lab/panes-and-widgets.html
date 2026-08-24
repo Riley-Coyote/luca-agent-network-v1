@@ -136,6 +136,9 @@
   --font-mono:"Fragment Mono","SFMono-Regular","SF Mono",monospace;
   --type-micro:.6875rem; --type-label:.75rem; --type-ui:.875rem;
   --type-body:1rem; --type-title:1.0625rem; --type-heading:1.375rem;
+  /* tracking rides the ramp — tighter as size rises, open at the small end */
+  --track-heading:-.021em; --track-title:-.014em; --track-body:-.003em;
+  --track-ui:-.002em; --track-micro:.005em;
   --eyebrow-tracking:.14em;
 
   /* motion — the house ramp, verbatim from the shipping shell's motion.css
@@ -183,7 +186,7 @@
 html,body{height:100%}
 body{
   margin:0;overflow:hidden;background:var(--floor);
-  font-family:var(--font-ui);font-size:var(--type-ui);
+  font-family:var(--font-ui);font-size:var(--type-ui);letter-spacing:var(--track-ui);
   color:var(--ink);-webkit-font-smoothing:antialiased;
 }
 button,textarea,input{font:inherit;color:inherit;background:none;border:0;padding:0}
@@ -277,7 +280,9 @@ html[data-winfocus="false"] .tl svg{opacity:0!important}
 .railrow:hover{background:var(--wash);color:var(--ink)}
 .railrow.on{background:var(--wash-2);color:var(--ink)}
 .railrow .g{width:16px;display:grid;place-items:center;color:var(--ink-faint);flex:none}
-.railrow .r{margin-left:auto;font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-ghost)}
+.railrow .r{margin-left:auto;font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-ghost);font-variant-numeric:tabular-nums}
+/* the trailing column does four different jobs; each dresses for its own */
+.railrow .r-status{font-family:var(--font-ui);letter-spacing:.02em}
 .eyebrow{
   font-family:var(--font-ui);font-size:var(--type-micro);font-weight:500;
   letter-spacing:var(--eyebrow-tracking);text-transform:uppercase;
@@ -335,8 +340,8 @@ html[data-winfocus="false"] .tl svg{opacity:0!important}
 }
 .card-head.compact{height:var(--mn-header-compact)}
 .card-head.compact h2{font-size:var(--type-ui)}
-.card-head h2{font-size:var(--type-title);font-weight:500;letter-spacing:-.014em;margin:0;line-height:1.25}
-.card-head p{margin:2px 0 0;font-size:var(--type-micro);color:var(--ink-faint);letter-spacing:.005em}
+.card-head h2{font-size:var(--type-title);font-weight:500;letter-spacing:var(--track-title);margin:0;line-height:1.25}
+.card-head p{margin:2px 0 0;font-size:var(--type-micro);color:var(--ink-faint);letter-spacing:var(--track-micro)}
 .card-head .acts{margin-left:auto;display:flex;gap:2px}
 .ic{
   width:28px;height:28px;display:grid;place-items:center;border-radius:var(--radius-2);flex:none;
@@ -386,7 +391,8 @@ button:focus-visible,[tabindex]:focus-visible{outline:none}
 /* ── conversation ─────────────────────────────────────────────── */
 .thread{padding:0 var(--gutter-reading);max-width:var(--mn-reading-measure)}
 .rule{
-  display:flex;align-items:center;gap:12px;margin:8px 0 20px;
+  position:sticky;top:0;z-index:3;background:var(--surface);
+  display:flex;align-items:center;gap:12px;margin:0 0 16px;padding:8px 0;
   font-size:var(--type-micro);color:var(--ink-ghost);
 }
 .rule::before,.rule::after{content:"";flex:1;height:1px;background:var(--border)}
@@ -394,10 +400,10 @@ button:focus-visible,[tabindex]:focus-visible{outline:none}
 .turn>[data-mark]{color:var(--ink-faint);margin-top:2px}
 .turn .who{display:flex;align-items:baseline;gap:8px;margin-bottom:4px}
 .turn .who b{font-size:var(--type-ui);font-weight:500;letter-spacing:-.002em}
-.turn .who .tag{font-size:var(--type-micro);color:var(--ink-ghost)}
+.turn .who .tag{font-size:var(--type-micro);color:var(--ink-ghost);font-family:var(--font-mono);font-variant-numeric:tabular-nums}
 .turn p{
   margin:0 0 8px;font-family:var(--font-reading);font-size:var(--type-body);
-  line-height:1.68;letter-spacing:-.003em;color:var(--ink-muted);
+  line-height:1.68;letter-spacing:var(--track-body);color:var(--ink-muted);
 }
 .turn p:last-child{margin-bottom:0}
 /* the owner speaks in a raised pill, flush right — as in the shell */
@@ -406,7 +412,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:none}
   max-width:32rem;padding:8px 14px;border-radius:var(--radius-5);
   background:var(--raised);box-shadow:var(--lit);
   font-family:var(--font-reading);font-size:var(--type-body);line-height:1.6;
-  letter-spacing:-.003em;color:var(--ink);
+  letter-spacing:var(--track-body);color:var(--ink);
 }
 .offer{
   display:inline-flex;align-items:center;gap:8px;margin-top:12px;
@@ -509,7 +515,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:none}
 .rows .row:last-child{border-bottom:0}
 .row .t{font-size:var(--type-ui);color:var(--ink-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .row .s{font-size:var(--type-micro);color:var(--ink-ghost);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.row .v{font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-faint)}
+.row .v{font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-faint);font-variant-numeric:tabular-nums}
 .ring{width:22px;height:22px;transform:rotate(-90deg)}
 .ring circle{fill:none;stroke-width:1.5}
 .ring .b{stroke:var(--border-strong)}
@@ -518,9 +524,11 @@ button:focus-visible,[tabindex]:focus-visible{outline:none}
 .idle i{width:5px;height:5px;border-radius:50%;background:var(--ink-ghost)}
 .sign{
   flex:none;display:flex;align-items:center;gap:8px;padding:12px var(--inset-card);
-  border-top:1px solid var(--border);
+  border-top:1px solid var(--border);min-width:0;
   font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-ghost);
 }
+.sign>span:first-child{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.sign .by{flex:none}
 .sign .by{margin-left:auto;display:flex;align-items:center;gap:8px;color:var(--ink-faint)}
 #card-widget{height:var(--widget-h,320px)}
 .stack{display:flex}
@@ -532,13 +540,13 @@ button:focus-visible,[tabindex]:focus-visible{outline:none}
 /* ── the agent's place ────────────────────────────────────────── */
 .place{padding:0 var(--gutter-reading) 32px;max-width:var(--mn-reading-measure)}
 .hero{display:grid;grid-template-columns:52px 1fr;gap:16px;padding:8px 0 24px}
-.hero h1{font-size:var(--type-heading);font-weight:500;letter-spacing:-.021em;margin:0 0 8px;line-height:1.25}
+.hero h1{font-size:var(--type-heading);font-weight:500;letter-spacing:var(--track-heading);margin:0 0 8px;line-height:1.25}
 .hero p{margin:0;font-family:var(--font-reading);font-size:var(--type-ui);line-height:1.62;color:var(--ink-faint);max-width:52ch}
 .sect{margin-bottom:24px}
 .made-row{display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border);width:100%;text-align:left}
 .made-row .t{font-size:var(--type-ui);color:var(--ink-muted)}
 .made-row .s{font-size:var(--type-micro);color:var(--ink-ghost);margin-top:2px}
-.made-row .v{font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-ghost)}
+.made-row .v{font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-ghost);font-variant-numeric:tabular-nums}
 .made-row:hover .t{color:var(--ink)}
 .gal{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
 .tile{text-align:left}
@@ -656,7 +664,7 @@ html.theme-xfade .app,html.theme-xfade .app *{
       <span class="tl g"><svg width="8" height="8" viewBox="0 0 10 10" fill="rgba(0,63,0,.6)"><path d="M2.5 5.6V2.5h3.1z"/><path d="M7.5 4.4v3.1H4.4z"/></svg></span>
     </div>
 
-    <button class="railrow"><span class="g" data-icon="search" data-isize="14"></span>Search everything<span class="r">⌘K</span></button>
+    <button class="railrow"><span class="g" data-icon="search" data-isize="14"></span>Search everything<span class="r r-key">⌘K</span></button>
     <button class="railrow"><span class="g" data-icon="grid" data-isize="14"></span>Library</button>
     <button class="railrow"><span class="g" data-icon="plus" data-isize="14"></span>New conversation</button>
     <button class="railrow"><span class="g" data-icon="pulse" data-isize="14"></span>Activity</button>
@@ -664,13 +672,13 @@ html.theme-xfade .app,html.theme-xfade .app *{
 
     <p class="eyebrow">Residents</p>
     <button class="railrow on" id="r-luca"><span data-mark="luca" data-size="16"></span>Luca<i class="dot"></i></button>
-    <button class="railrow" id="r-vektor"><span data-mark="vektor" data-size="16"></span>Vektor<span class="r">works</span></button>
-    <button class="railrow" id="r-anima"><span data-mark="anima" data-size="16"></span>Anima<span class="r">2</span></button>
-    <button class="railrow"><span data-mark="ziggy" data-size="16"></span>Ziggy<span class="r">64%</span></button>
+    <button class="railrow" id="r-vektor"><span data-mark="vektor" data-size="16"></span>Vektor<span class="r r-status">works</span></button>
+    <button class="railrow" id="r-anima"><span data-mark="anima" data-size="16"></span>Anima<span class="r r-count">2</span></button>
+    <button class="railrow"><span data-mark="ziggy" data-size="16"></span>Ziggy<span class="r r-count">64%</span></button>
 
     <p class="eyebrow">Projects</p>
-    <button class="railrow"><span class="g" data-icon="diamond" data-isize="13"></span>Polyphonic launch</button>
-    <button class="railrow"><span class="g" data-icon="diamond" data-isize="13"></span>Living memory</button>
+    <button class="railrow"><span class="g" data-icon="diamond" data-isize="12"></span>Polyphonic launch</button>
+    <button class="railrow"><span class="g" data-icon="diamond" data-isize="12"></span>Living memory</button>
 
     <div class="railfoot">
       <span data-mark="riley" data-size="22"></span>
@@ -808,7 +816,7 @@ html.theme-xfade .app,html.theme-xfade .app *{
 
     <div class="col side" id="col-side">
 
-      <button class="reopen" id="reopen-drawer" hidden><span data-icon="consult" data-isize="13"></span>Conversation</button>
+      <button class="reopen" id="reopen-drawer" hidden><span data-icon="consult" data-isize="12"></span>Conversation</button>
 
       <!-- the drawer, as it is today -->
       <article class="card" id="card-drawer" data-law="card">
@@ -820,7 +828,7 @@ html.theme-xfade .app,html.theme-xfade .app *{
           </div>
         </header>
         <div class="seg" role="radiogroup" aria-label="Drawer view">
-          <button class="on" role="radio" aria-checked="true" data-icon="consult" data-isize="13"><span>Conversation</span></button>
+          <button class="on" role="radio" aria-checked="true" data-icon="consult" data-isize="12"><span>Conversation</span></button>
           <button role="radio" aria-checked="false"><span data-mark="luca" data-size="13"></span><span>Luca</span></button>
           <button role="radio" aria-checked="false"><span data-mark="vektor" data-size="13"></span><span>Vektor</span></button>
         </div>
@@ -943,10 +951,13 @@ const ICONS={
   pulse:`<path d="M1.6 7h2.6l1.5-4 2.6 8 1.5-4h2.6"/>`,
   diamond:`<path d="M7 2.2L11.8 7 7 11.8 2.2 7z"/>`,
   consult:`<circle cx="5.4" cy="7" r="3.4"/><circle cx="8.6" cy="7" r="3.4"/>`,
-  lift:`<rect x="2.2" y="4.4" width="7" height="7" rx="1.6"/><path d="M6.4 4.4V2.4h5.4v5.4H9.6"/>`,
-  open:`<path d="M5.2 2.6h6.2v6.2M11.4 2.6L5.6 8.4M8.2 11.4H2.6V5.8"/>`,
+  /* three journeys for a card, drawn as three different sentences:
+     lift = it leaves, open = it becomes its own card, dock = it returns */
+  lift:`<rect x="2.4" y="4.6" width="6.8" height="6.8" rx="1.6"/><path d="M8 6l3.4-3.4M11.6 4.8V2.4H9.2"/>`,
+  open:`<rect x="2.4" y="2.4" width="9.2" height="9.2" rx="1.8"/><path d="M2.4 5.4h9.2"/>`,
   close:`<path d="M3.4 3.4l7.2 7.2M10.6 3.4l-7.2 7.2"/>`,
-  dockback:`<path d="M8.8 11.4H2.6V5.2M2.6 11.4l5.8-5.8M5.8 2.6h5.6v5.6"/>`,
+  dockback:`<rect x="2.4" y="4.6" width="6.8" height="6.8" rx="1.6"/><path d="M11.6 2.4L8.2 5.8M8.2 3.4v2.4h2.4"/>`,
+  /* deliberately filled — the native ellipsis is a filled glyph */
   more:`<circle cx="3.2" cy="7" r=".85" fill="currentColor" stroke="none"/><circle cx="7" cy="7" r=".85" fill="currentColor" stroke="none"/><circle cx="10.8" cy="7" r=".85" fill="currentColor" stroke="none"/>`,
 };
 function paint(scope){
@@ -960,7 +971,7 @@ function paint(scope){
   s.querySelectorAll("[data-icon]").forEach(el=>{
     if(el.dataset.painted) return;
     const n = Number(el.dataset.isize||14);
-    const svg = `<svg width="${n}" height="${n}" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[el.dataset.icon]||""}</svg>`;
+    const svg = `<svg width="${n}" height="${n}" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[el.dataset.icon]||""}</svg>`;
     el.insertAdjacentHTML("afterbegin", svg);
     el.dataset.painted="1";
   });

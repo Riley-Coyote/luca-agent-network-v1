@@ -1,0 +1,316 @@
+{
+  "pass": "5",
+  "when": "2026-08-24T12:37:08.645Z",
+  "shots": {
+    "default--inverse": {
+      "sha": "9b46d3c8089531b7",
+      "animations": 5,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ],
+      "floorProbe": {
+        "mean": [
+          0,
+          17,
+          163
+        ],
+        "token": "#1b1c1d",
+        "delta": 0.0187,
+        "noise": 7
+      }
+    },
+    "default--inverse--opaque": {
+      "sha": "d7fcb3f025d7aca4",
+      "animations": 5,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ]
+    },
+    "default--slate": {
+      "sha": "78bad71e3556b1ce",
+      "animations": 5,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ],
+      "floorProbe": {
+        "mean": [
+          0,
+          8,
+          82
+        ],
+        "token": "#0d0e0f",
+        "delta": 0.0035,
+        "noise": 4.8
+      }
+    },
+    "default--slate--opaque": {
+      "sha": "921841fe7dae4cd1",
+      "animations": 5,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ]
+    },
+    "default--paper": {
+      "sha": "861062351fd5d6c2",
+      "animations": 5,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ],
+      "floorProbe": {
+        "mean": [
+          240,
+          244,
+          255
+        ],
+        "token": "#f6f4f2",
+        "delta": 0.0006,
+        "noise": 0.7
+      }
+    },
+    "default--paper--opaque": {
+      "sha": "9d27ce233d39377c",
+      "animations": 5,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ]
+    },
+    "tile--inverse": {
+      "sha": "3e07db7515a2518f",
+      "animations": 6,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ]
+    },
+    "tile--slate": {
+      "sha": "74bc1f83c60d8f96",
+      "animations": 6,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ]
+    },
+    "tile--paper": {
+      "sha": "97786d499ad2dcb1",
+      "animations": 6,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ]
+    },
+    "place--inverse": {
+      "sha": "f5dadb39bc31b464",
+      "animations": 5,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ]
+    },
+    "place--slate": {
+      "sha": "389c52367b7fa2c0",
+      "animations": 5,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ]
+    },
+    "place--paper": {
+      "sha": "0c286ae65a0bd42e",
+      "animations": 5,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ]
+    },
+    "lift--inverse": {
+      "sha": "53656507d648a508",
+      "animations": 5,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ]
+    },
+    "lift--slate": {
+      "sha": "2ab1d49dd4e188a0",
+      "animations": 5,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ]
+    },
+    "lift--paper": {
+      "sha": "26353bdc178bf740",
+      "animations": 5,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ]
+    },
+    "laws--inverse": {
+      "sha": "f7350b37819f6475",
+      "animations": 5,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ]
+    },
+    "laws--slate": {
+      "sha": "3d6a266691c5eb8d",
+      "animations": 5,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ]
+    },
+    "laws--paper": {
+      "sha": "8f835326a34f1948",
+      "animations": 5,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ]
+    },
+    "drawer-closed--inverse": {
+      "sha": "06ecd3631bc466f9",
+      "animations": 5,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ]
+    },
+    "drawer-closed--slate": {
+      "sha": "4a930eab468278d5",
+      "animations": 5,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ]
+    },
+    "drawer-closed--paper": {
+      "sha": "f88811c7c3ec1846",
+      "animations": 5,
+      "ambient": [
+        "identity-breath",
+        "activity-pulse",
+        "identity-breath",
+        "identity-breath",
+        "identity-breath"
+      ]
+    }
+  },
+  "checks": [
+    {
+      "ok": true,
+      "label": "default--inverse: floor luminance pinned to token (Δ 0.0187)"
+    },
+    {
+      "ok": true,
+      "label": "default--slate: floor luminance pinned to token (Δ 0.0035)"
+    },
+    {
+      "ok": true,
+      "label": "default--paper: floor luminance pinned to token (Δ 0.0006)"
+    },
+    {
+      "ok": true,
+      "label": "reduced-motion: zero ambient animations (found: none)"
+    },
+    {
+      "ok": true,
+      "label": "all 21 scene shots distinct"
+    }
+  ],
+  "focusWalk": "BUTTON.on",
+  "vsPrevious": {
+    "changed": [
+      "default--inverse",
+      "default--inverse--opaque",
+      "default--slate",
+      "default--slate--opaque",
+      "default--paper",
+      "default--paper--opaque",
+      "tile--inverse",
+      "tile--slate",
+      "tile--paper",
+      "place--inverse",
+      "place--slate",
+      "place--paper",
+      "lift--inverse",
+      "lift--slate",
+      "lift--paper",
+      "laws--inverse",
+      "laws--slate",
+      "laws--paper",
+      "drawer-closed--inverse",
+      "drawer-closed--slate",
+      "drawer-closed--paper"
+    ],
+    "unchanged": []
+  }
+}
