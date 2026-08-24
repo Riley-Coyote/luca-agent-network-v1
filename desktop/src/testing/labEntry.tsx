@@ -224,6 +224,55 @@ function sayAll(channelId: string, turns: LabTurn[]) {
   }
 }
 
+function installLadderLab() {
+  // A safe trial of the INVERTED arrangement (light rail, dark content —
+  // the Codex layout Riley pointed at): the shipped ladder is untouched;
+  // this override exists only in the lab, behind ?ladder=inverted.
+  const params = new URLSearchParams(window.location.search);
+  const inverted = params.get("ladder") === "inverted";
+  if (inverted) {
+    const style = document.createElement("style");
+    // Same Linear lean (B=R+2, G=R+1), same wide spans — the rail and the
+    // conversation ground swap places, and the objects re-seat on the new
+    // dark ground: composer lifts to the rail's own shade, the recess digs
+    // toward true dark.
+    style.textContent = `:root[data-luca-shell] {
+      --mn-floor: 210.00 3.571% 10.980%;      /* #1b1c1d — the light rail */
+      --mn-navigator: 210.00 3.571% 10.980%;
+      --mn-surface: 210.00 7.143% 5.490%;     /* #0d0e0f — dark content */
+      --mn-raised: 210.00 3.333% 11.765%;     /* #1d1e1f — composer above */
+      --mn-surface-raised: 210.00 3.333% 11.765%;
+      --mn-hover: 210.00 2.632% 14.902%;      /* #252627 */
+      --mn-surface-hover: 210.00 2.632% 14.902%;
+      --mn-recess: 210.00 12.500% 3.137%;     /* #070809 — the well digs */
+      --mn-glass: 210.00 20.000% 1.961%;
+    }`;
+    document.head.appendChild(style);
+  }
+  const bar = document.createElement("div");
+  bar.style.cssText =
+    "position:fixed;bottom:10px;left:10px;z-index:9999;display:flex;gap:4px;" +
+    "font:11px/1 Inter,sans-serif;background:rgba(20,20,21,.92);padding:6px;" +
+    "border-radius:8px;color:#999";
+  for (const [v, label] of [
+    ["standard", "standard"],
+    ["inverted", "inverted"],
+  ]) {
+    const a = document.createElement("a");
+    const p = new URLSearchParams(window.location.search);
+    if (v === "inverted") p.set("ladder", "inverted");
+    else p.delete("ladder");
+    a.href = `${window.location.pathname}${p.size ? `?${p.toString()}` : ""}`;
+    a.textContent = label;
+    const on = inverted === (v === "inverted");
+    a.style.cssText =
+      `padding:4px 8px;border-radius:5px;color:${on ? "#eee" : "#888"};` +
+      `background:${on ? "rgba(255,255,255,.12)" : "transparent"};text-decoration:none`;
+    bar.appendChild(a);
+  }
+  document.body.appendChild(bar);
+}
+
 async function buildScene() {
   await clearStockChannels();
 
@@ -293,6 +342,7 @@ async function boot() {
   configureBridge();
   maybeInstallE2eTauriMocks();
   await buildScene();
+  installLadderLab();
   renderApp();
 }
 
