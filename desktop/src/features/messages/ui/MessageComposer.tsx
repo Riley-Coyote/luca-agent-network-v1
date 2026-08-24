@@ -193,6 +193,7 @@ function MessageComposerImpl({
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = React.useState(false);
   const [isFormattingOpen, setIsFormattingOpen] = React.useState(false);
   const [isContextOpen, setIsContextOpen] = React.useState(false);
+  const contextAddButtonRef = React.useRef<HTMLButtonElement>(null);
   const [isContextSendBlocked, setIsContextSendBlocked] = React.useState(false);
   const isContextSendBlockedRef = React.useRef(false);
   isContextSendBlockedRef.current = isContextSendBlocked;
@@ -1004,6 +1005,7 @@ function MessageComposerImpl({
           {conversationContext ? (
             <ConversationContextComposerSurface
               config={conversationContext}
+              fallbackFocusRef={contextAddButtonRef}
               onOpenChange={setIsContextOpen}
               onSendBlockedChange={setIsContextSendBlocked}
               open={isContextOpen}
@@ -1107,6 +1109,7 @@ function MessageComposerImpl({
             )}
 
             <MessageComposerToolbar
+              addButtonRef={contextAddButtonRef}
               composerDisabled={disabled}
               editor={richText.editor}
               extraActions={toolbarExtraActions}

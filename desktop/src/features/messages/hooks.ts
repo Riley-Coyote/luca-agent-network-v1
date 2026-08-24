@@ -7,6 +7,7 @@ import {
   channelWindowKey,
   threadRepliesKey,
 } from "@/features/messages/lib/messageQueryKeys";
+import { isMissingPrimaryContextSendError } from "@/features/messages/lib/conversationContextSendError";
 import {
   buildReplyTags,
   getThreadReference,
@@ -750,6 +751,14 @@ export function useSendMessageMutation(
       recordTimeoutFromRejection(error?.message);
       if (!context) {
         return;
+      }
+      if (isMissingPrimaryContextSendError(error)) {
+        // The folder can move after the last context read. Re-resolve the
+        // native view immediately so the preserved draft gains the inline
+        // Relink / Continue without it recovery instead of failing silently.
+        void queryClient.invalidateQueries({
+          queryKey: ["conversation-context", context.channelId],
+        });
       }
       removeManagedPresentationsByReceipt(context.optimisticId);
 

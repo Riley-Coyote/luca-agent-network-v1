@@ -291,6 +291,8 @@ type E2eConfig = {
     closeChannelLiveSubscriptionOnce?: boolean;
     /** Reject successive kind-9 sends with these messages, then resume. */
     sendMessageErrors?: string[];
+    /** Reject successive `send_channel_message` commands before relay publish. */
+    sendChannelMessageErrors?: string[];
     /** Reject successive managed-agent starts, then resume. */
     startManagedAgentErrors?: string[];
     /** Delay (ms) after snapshotting a thread-replies page so E2E tests can
@@ -9255,6 +9257,8 @@ async function handleSendChannelMessage(
       window.setTimeout(resolve, sendMessageDelayMs),
     );
   }
+  const commandError = config?.mock?.sendChannelMessageErrors?.shift();
+  if (commandError) throw new Error(commandError);
 
   // NIP-92 imeta attachments. The real relay echoes these back on the stored
   // event; mirror that here so attachment renderers (FileCard, images, video)

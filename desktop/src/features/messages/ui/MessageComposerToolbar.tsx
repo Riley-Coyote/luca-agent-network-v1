@@ -31,6 +31,7 @@ import { SelectionFormattingTray } from "./SelectionFormattingTray";
 
 export const MessageComposerToolbar = React.memo(
   function MessageComposerToolbar({
+    addButtonRef,
     children,
     audioRecordingElapsedSeconds = 0,
     audioRecordingStatus = "idle",
@@ -55,6 +56,7 @@ export const MessageComposerToolbar = React.memo(
     onPaperclip,
     sendDisabled,
   }: {
+    addButtonRef?: React.Ref<HTMLButtonElement>;
     children?: React.ReactNode;
     audioRecordingElapsedSeconds?: number;
     audioRecordingStatus?: AudioAttachmentRecorderStatus;
@@ -139,6 +141,7 @@ export const MessageComposerToolbar = React.memo(
                       data-testid="message-composer-add"
                       disabled={composerDisabled}
                       onMouseDown={onCaptureSelection}
+                      ref={addButtonRef}
                       size="icon"
                       type="button"
                       variant="ghost"
