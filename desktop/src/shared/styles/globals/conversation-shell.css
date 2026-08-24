@@ -826,6 +826,16 @@
   min-height: 46px;
 }
 
+/* While a sheet is up, the card's drop shadows would fall ON the sheet and
+ * paint a dark band across the tuck — which reads as the sheet curving away
+ * beneath the card. With the deck itself carrying the depth, the card keeps
+ * only its lit edge for the duration; alone, it keeps its full shadow. */
+:root[data-luca-shell]
+  .luca-reply-sheet
+  + [data-testid="message-composer"] {
+  box-shadow: var(--mn-lit-edge);
+}
+
 /* Focus is the card's own border brightening in place — the canon focus,
  * never a second ring. The composer autofocuses, so focus-within is its
  * PRACTICAL resting state: the brightness must be livable full-time. A
