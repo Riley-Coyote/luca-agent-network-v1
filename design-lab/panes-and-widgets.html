@@ -151,6 +151,17 @@
    `--vib` is how much colour is allowed through. */
 :root{ --vib:0; }
 [data-glass="on"]{ --vib:1; }
+/* DESKTOP TINTING — Apple's treatment for the OPAQUE dark floor (HIG Dark
+   Mode, macOS): window backgrounds "pick up color from the current desktop
+   picture", and neutral custom surfaces should carry "some transparency" to
+   harmonize. So opaque Smoke is not a different idea than glass Smoke — it
+   is the same smoked construction at a homeopathic dose over the solid
+   token. The tint is static (drift stays paused when glass is off), exactly
+   as the OS tints. */
+[data-theme="smoke"]:not([data-glass="on"]){ --vib:.16; }
+/* The accessibility contract: reduced transparency collapses every glass
+   and tint to the solid tokens — the same switch the OS honors. */
+@media (prefers-reduced-transparency: reduce){ .vib{display:none} }
 .vib{position:absolute;inset:0;z-index:0;pointer-events:none;opacity:var(--vib);
   transition:opacity var(--motion-duration-standard) var(--motion-ease-standard)}
 .vib::after{content:"";position:absolute;inset:0;background:var(--floor);

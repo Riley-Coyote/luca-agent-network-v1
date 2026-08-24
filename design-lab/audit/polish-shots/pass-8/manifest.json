@@ -1,9 +1,9 @@
 {
   "pass": "8",
-  "when": "2026-08-24T14:20:20.937Z",
+  "when": "2026-08-24T14:30:06.293Z",
   "shots": {
     "default--inverse": {
-      "sha": "21b06f978bf59461",
+      "sha": "b172b91158d64cdf",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -29,7 +29,7 @@
       }
     },
     "default--inverse--opaque": {
-      "sha": "c2c6250c61b07522",
+      "sha": "54d71863016193eb",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -45,7 +45,7 @@
       ]
     },
     "default--slate": {
-      "sha": "89e2a43291fd2092",
+      "sha": "3c6d13addec15cca",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -71,7 +71,7 @@
       }
     },
     "default--slate--opaque": {
-      "sha": "20a147b92ec00753",
+      "sha": "847e98369696bafc",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -87,7 +87,7 @@
       ]
     },
     "default--smoke": {
-      "sha": "386ce8a714bd7774",
+      "sha": "b5c1027db2e22f5e",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -114,7 +114,7 @@
       }
     },
     "default--smoke--opaque": {
-      "sha": "ef1f07e63ebefcbe",
+      "sha": "5910c768585ff73a",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -130,7 +130,7 @@
       ]
     },
     "default--paper": {
-      "sha": "20712f56da0bdc3c",
+      "sha": "6a6042faa5060a04",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -156,7 +156,7 @@
       }
     },
     "default--paper--opaque": {
-      "sha": "c751c1eeac5817ba",
+      "sha": "4565c446ca8e04ef",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -172,7 +172,7 @@
       ]
     },
     "tile--inverse": {
-      "sha": "6a636cca418e67db",
+      "sha": "dfe745891ca6589a",
       "animations": 11,
       "ambient": [
         "wp-drift",
@@ -188,7 +188,7 @@
       ]
     },
     "tile--slate": {
-      "sha": "0636618caa5d1393",
+      "sha": "584f88edc52dfc0a",
       "animations": 11,
       "ambient": [
         "wp-drift",
@@ -204,7 +204,7 @@
       ]
     },
     "tile--smoke": {
-      "sha": "0bbf39da12d77f84",
+      "sha": "b416a30bb97db142",
       "animations": 11,
       "ambient": [
         "wp-drift",
@@ -220,7 +220,7 @@
       ]
     },
     "tile--paper": {
-      "sha": "54b67e4985bddd6f",
+      "sha": "54450487570f9332",
       "animations": 11,
       "ambient": [
         "wp-drift",
@@ -236,7 +236,7 @@
       ]
     },
     "place--inverse": {
-      "sha": "6d50e572a22ebdd0",
+      "sha": "d65016a5001f509a",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -252,7 +252,7 @@
       ]
     },
     "place--slate": {
-      "sha": "8efb0e15a14fe6aa",
+      "sha": "677b8ad7649a687a",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -268,7 +268,7 @@
       ]
     },
     "place--smoke": {
-      "sha": "004b1b376dab8fca",
+      "sha": "96299437a40e4c45",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -284,7 +284,7 @@
       ]
     },
     "place--paper": {
-      "sha": "dd9eb187bda2d174",
+      "sha": "86a61c82589d2cba",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -300,7 +300,7 @@
       ]
     },
     "lift--inverse": {
-      "sha": "5d0374eeb4954013",
+      "sha": "c8be2fab3d30b5d1",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -316,7 +316,7 @@
       ]
     },
     "lift--slate": {
-      "sha": "89d3b43e0d39dad1",
+      "sha": "ea623213f8977c10",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -332,7 +332,7 @@
       ]
     },
     "lift--smoke": {
-      "sha": "11ee9e86de9e45a5",
+      "sha": "db2b861abf7777f6",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -348,7 +348,7 @@
       ]
     },
     "lift--paper": {
-      "sha": "c0772f269490c1aa",
+      "sha": "3bbf223e76c55484",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -364,7 +364,7 @@
       ]
     },
     "laws--inverse": {
-      "sha": "cad83cdb9770a56f",
+      "sha": "0e4d5a4195344111",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -380,7 +380,7 @@
       ]
     },
     "laws--slate": {
-      "sha": "c5794b1965ec741f",
+      "sha": "fab2816df56d6d44",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -396,7 +396,7 @@
       ]
     },
     "laws--smoke": {
-      "sha": "4db3b1f07e0f1e25",
+      "sha": "a26be262b70d7b0f",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -412,7 +412,7 @@
       ]
     },
     "laws--paper": {
-      "sha": "3b1deb2cd6d819fd",
+      "sha": "a97008de992c42dd",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -428,7 +428,7 @@
       ]
     },
     "wall-dusk--inverse": {
-      "sha": "9361b65bf838bb3e",
+      "sha": "29fcddc4198688b8",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -444,7 +444,7 @@
       ]
     },
     "wall-dusk--slate": {
-      "sha": "7067e8477a8e4824",
+      "sha": "c8853caf3a229c64",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -460,7 +460,7 @@
       ]
     },
     "wall-dusk--smoke": {
-      "sha": "0e407f853e2e745f",
+      "sha": "0f63036019af124c",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -476,7 +476,7 @@
       ]
     },
     "wall-dusk--paper": {
-      "sha": "e3188b7af8503e13",
+      "sha": "9e8a972f4d5b1bf2",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -492,7 +492,7 @@
       ]
     },
     "wall-quiet--inverse": {
-      "sha": "fb6ce2f059c65f37",
+      "sha": "62002b871bf7b9ec",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -508,7 +508,7 @@
       ]
     },
     "wall-quiet--slate": {
-      "sha": "52c9e58da9bb84ed",
+      "sha": "c606149ddf842155",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -524,7 +524,7 @@
       ]
     },
     "wall-quiet--smoke": {
-      "sha": "8a6e81dfe212fac2",
+      "sha": "8735a3d3f890f888",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -540,7 +540,7 @@
       ]
     },
     "wall-quiet--paper": {
-      "sha": "295935552b117ec7",
+      "sha": "9c7753e8e7744fa9",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -556,7 +556,7 @@
       ]
     },
     "drawer-closed--inverse": {
-      "sha": "8c7d1afef69f1b2f",
+      "sha": "f7edc661425dd94d",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -572,7 +572,7 @@
       ]
     },
     "drawer-closed--slate": {
-      "sha": "dfefeae38328a3bb",
+      "sha": "103986d8439a0187",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -588,7 +588,7 @@
       ]
     },
     "drawer-closed--smoke": {
-      "sha": "22aa100125b90899",
+      "sha": "e174e2cfbc3f8e5a",
       "animations": 10,
       "ambient": [
         "wp-drift",
@@ -604,7 +604,7 @@
       ]
     },
     "drawer-closed--paper": {
-      "sha": "77733f968800182a",
+      "sha": "19f00058d47d262f",
       "animations": 10,
       "ambient": [
         "wp-drift",
