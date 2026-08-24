@@ -785,31 +785,61 @@
  * card's radius or the corners open a gap), and the card's own shadow
  * falling on it is what sells "behind". */
 :root[data-luca-shell] .luca-reply-sheet {
-  /* Biased toward the ground (25% card / 75% ground): at a 55% mix the sheet
-   * sat ~5 RGB from the card and the two read as one shade. The deck needs
-   * the CARD boundary to be the visible one — the sheet is the quiet layer,
-   * the card is the object. */
-  background: color-mix(
-    in srgb,
-    hsl(var(--mn-raised)) 25%,
-    hsl(var(--mn-surface))
-  );
+  /* SEAM (default): the sheet is the SAME shade as the card — sheets in a
+   * deck are the same paper. Depth comes from the seam where the card
+   * occludes it, not from a third grey; two shades give three planes, and
+   * this survives any palette retune. Shade attempts died twice: there is
+   * no third value in the current ground-to-card gap. */
+  background: hsl(var(--mn-raised));
   border-radius: 12px 12px 0 0;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.03);
-  animation: luca-sheet-rise 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05);
 }
 
-@keyframes luca-sheet-rise {
+/* The deck wrapper: the sheet is REVEALED, not translated — a clip opening
+ * is what "pulled from behind the card" looks like; a translate+fade is a
+ * thing appearing above the card. Content fades in after the plane exists. */
+:root[data-luca-shell] .luca-sheet-deck {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: luca-deck-open 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+:root[data-luca-shell] .luca-sheet-deck > * {
+  min-height: 0;
+  overflow: hidden;
+}
+:root[data-luca-shell] .luca-sheet-deck .luca-reply-sheet {
+  animation: luca-deck-content 120ms linear 60ms backwards;
+}
+@keyframes luca-deck-open {
+  from {
+    grid-template-rows: 0fr;
+  }
+}
+@keyframes luca-deck-content {
   from {
     opacity: 0;
-    transform: translateY(10px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-luca-shell] .luca-sheet-deck,
+  :root[data-luca-shell] .luca-sheet-deck .luca-reply-sheet {
+    animation: none;
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  :root[data-luca-shell] .luca-reply-sheet {
-    animation: none;
-  }
+/* TIER: the colorist's mid-shade sheet — legible only on the taller ladder
+ * this variant is previewed with (the lab injects the ladder override). */
+:root[data-luca-shell] .luca-sheet-deck[data-variant="tier"] .luca-reply-sheet {
+  background: hsl(var(--mn-sheet-tier, 0 0% 14.5%));
+}
+
+/* RECESS: Riley's direction — the reply opens a WELL below the conversation
+ * shade instead of a shelf above it. A recess loses the highlight and takes
+ * an inner shadow from its own top edge; it steps AWAY from the crowded
+ * shades instead of squeezing between them. */
+:root[data-luca-shell] .luca-sheet-deck[data-variant="recess"] .luca-reply-sheet {
+  background: hsl(0 0% 6.3%);
+  box-shadow: inset 0 2px 4px rgb(0 0 0 / 0.4);
 }
 
 /* The composer card: the only box on screen, and it holds only the text and
@@ -835,9 +865,14 @@
  * beneath the card. With the deck itself carrying the depth, the card keeps
  * only its lit edge for the duration; alone, it keeps its full shadow. */
 :root[data-luca-shell]
-  .luca-reply-sheet
+  .luca-sheet-deck
   + [data-testid="message-composer"] {
-  box-shadow: var(--mn-lit-edge);
+  /* The seam: a hard dark line where the card overlaps the sheet — this is
+   * the entire depth cue for the seam variant, and it stops the card's soft
+   * shadows from painting a gradient band across the tuck. */
+  box-shadow:
+    var(--mn-lit-edge),
+    0 -1px 0 rgb(0 0 0 / 0.45);
 }
 
 /* Focus is the card's own border brightening in place — the canon focus,

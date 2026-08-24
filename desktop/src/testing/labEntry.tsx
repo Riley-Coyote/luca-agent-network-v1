@@ -224,6 +224,40 @@ function sayAll(channelId: string, turns: LabTurn[]) {
   }
 }
 
+function installReplyVariantLab() {
+  const params = new URLSearchParams(window.location.search);
+  const variant = params.get("replyStyle") ?? "seam";
+  document.documentElement.dataset.replyVariant = variant;
+  if (variant === "tier") {
+    // Preview the colorist's taller ladder — this override exists only in
+    // the lab; the shipping ladder decision is separate.
+    const style = document.createElement("style");
+    style.textContent = `:root[data-luca-shell] {
+      --mn-surface: 0 0% 11%; --mn-raised: 0 0% 18.4%;
+      --mn-surface-raised: 0 0% 18.4%; --mn-hover: 0 0% 22%;
+      --mn-surface-hover: 0 0% 22%; --mn-sheet-tier: 0 0% 14.5%;
+    }`;
+    document.head.appendChild(style);
+  }
+  const bar = document.createElement("div");
+  bar.style.cssText =
+    "position:fixed;bottom:10px;left:10px;z-index:9999;display:flex;gap:4px;" +
+    "font:11px/1 Inter,sans-serif;background:rgba(20,20,20,.9);padding:6px;" +
+    "border-radius:8px;color:#999";
+  for (const v of ["seam", "card", "tier", "recess"]) {
+    const a = document.createElement("a");
+    const p = new URLSearchParams(window.location.search);
+    p.set("replyStyle", v);
+    a.href = `${window.location.pathname}?${p.toString()}`;
+    a.textContent = v;
+    a.style.cssText =
+      `padding:4px 8px;border-radius:5px;color:${v === variant ? "#eee" : "#888"};` +
+      `background:${v === variant ? "rgba(255,255,255,.12)" : "transparent"};text-decoration:none`;
+    bar.appendChild(a);
+  }
+  document.body.appendChild(bar);
+}
+
 async function buildScene() {
   await clearStockChannels();
 
@@ -293,6 +327,7 @@ async function boot() {
   configureBridge();
   maybeInstallE2eTauriMocks();
   await buildScene();
+  installReplyVariantLab();
   renderApp();
 }
 

@@ -1015,7 +1015,7 @@ function MessageComposerImpl({
               open={isContextOpen}
             />
           ) : null}
-          {replyBannerVariant() === "sheet" ? (
+          {replyBannerVariant() !== "card" ? (
             <ComposerReplyEditBanner
               isEditing={editTarget != null}
               replyTarget={replyTarget}

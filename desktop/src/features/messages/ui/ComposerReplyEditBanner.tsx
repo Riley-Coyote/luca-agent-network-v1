@@ -4,30 +4,27 @@ import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 
 /**
- * TWO TREATMENTS, one being chosen in the lab (2026-08-23) — delete the
- * loser once Riley picks:
+ * FOUR TREATMENTS under comparison in the lab (2026-08-24) — the loser set
+ * gets deleted once Riley picks. Switch with ?replyStyle= in the lab URL:
  *
- * "sheet" (default) — a layer that rises from behind the composer card,
- * at the card's exact width: the composer is one object with a deck of
- * its own sheets, not two stacked boxes. Intermediate shade between
- * ground and card, bottom tucked under the card past its radius, 220ms
- * rise. (Same-width per Riley: an inset sheet read as a separate object,
- * and a sheet taller than the card inverted the depth hierarchy.) The visual system lives
- * in conversation-shell.css as .luca-reply-sheet.
- *
- * "card" — the row lives inside the composer card above the text, the way
- * attachments stack; no surface of its own.
- *
- * Lab comparison: append ?replyStyle=card to the shell-lab URL.
+ * "seam" (default) — the choreographer's deck: the sheet is the SAME shade
+ *   as the card; depth comes from the dark seam where the card occludes it,
+ *   and the sheet is REVEALED by a clip, not translated.
+ * "card" — the craftsman's one-box: the row lives inside the composer card.
+ * "tier" — the colorist's shade-tier, previewed on the taller ladder the
+ *   lab injects for this variant only.
+ * "recess" — Riley's idea, the colorist's plan B: the reply opens a well
+ *   BELOW the conversation shade instead of a shelf above it.
  */
-export function replyBannerVariant(): "card" | "sheet" {
+export type ReplyBannerVariant = "seam" | "card" | "tier" | "recess";
+
+export function replyBannerVariant(): ReplyBannerVariant {
   try {
-    return new URLSearchParams(window.location.search).get("replyStyle") ===
-      "card"
-      ? "card"
-      : "sheet";
+    const v = new URLSearchParams(window.location.search).get("replyStyle");
+    if (v === "card" || v === "tier" || v === "recess") return v;
+    return "seam";
   } catch {
-    return "sheet";
+    return "seam";
   }
 }
 
@@ -36,7 +33,7 @@ const IN_CARD_CLASS =
 const SHEET_CLASS =
   "luca-reply-sheet relative z-0 -mb-3.5 flex gap-2 px-4 pb-5 pt-1 text-sm leading-5 text-muted-foreground";
 const BANNER_CLASS =
-  replyBannerVariant() === "sheet" ? SHEET_CLASS : IN_CARD_CLASS;
+  replyBannerVariant() === "card" ? IN_CARD_CLASS : SHEET_CLASS;
 
 /**
  * The "Editing message" / "Replying to …" context row at the top of the
@@ -82,11 +79,12 @@ export function ComposerReplyEditBanner({
   }
 
   if (replyTarget) {
-    return (
+    const variant = replyBannerVariant();
+    const row = (
       <div
         className={cn(
           BANNER_CLASS,
-          replyBannerVariant() === "sheet" ? "items-center" : "items-start",
+          variant === "card" ? "items-start" : "items-center",
         )}
         data-testid="reply-target"
       >
@@ -113,6 +111,12 @@ export function ComposerReplyEditBanner({
             <X className="h-4 w-4" />
           </Button>
         ) : null}
+      </div>
+    );
+    if (variant === "card") return row;
+    return (
+      <div className="luca-sheet-deck" data-variant={variant}>
+        {row}
       </div>
     );
   }
