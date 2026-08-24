@@ -36,6 +36,22 @@ export const GRAPHITE_THEME_NAME = "graphite";
 export const VOID_THEME_NAME = "void";
 
 /**
+ * Ash — the carved-neutral ladder (pure R=G=B greys, cream ink) Riley chose
+ * on 2026-08-23, preserved as a named theme when the default moved to the
+ * Linear-dose (Slate) ladder the next night. Kept for a live three-way
+ * trial: Ash / Slate / Inverse.
+ */
+export const ASH_THEME_NAME = "ash";
+
+/**
+ * Inverse — the Slate ladder with rail and content swapped: a light rail
+ * over a deep conversation ground (the arrangement Riley kept returning to
+ * in Codex). Same lean, same spans; the stage goes dark and the furniture
+ * recedes.
+ */
+export const INVERSE_THEME_NAME = "inverse";
+
+/**
  * Paper — the first-party LIGHT palette, and Void's counterpart.
  *
  * Until it existed the shell had no authored light mode at all: choosing
@@ -58,6 +74,10 @@ export const GRAPHITE_BASE_THEME: SyntaxThemeName = "github-dark";
 /** Void shares the dark syntax baseline of the shell it used to be. */
 export const VOID_BASE_THEME: SyntaxThemeName = "github-dark";
 
+/** Ash and Inverse are arrangements of the same dark shell. */
+export const ASH_BASE_THEME: SyntaxThemeName = "github-dark";
+export const INVERSE_BASE_THEME: SyntaxThemeName = "github-dark";
+
 /** Paper is the light shell, so its code blocks take the light baseline. */
 export const PAPER_BASE_THEME: SyntaxThemeName = "github-light";
 
@@ -77,6 +97,8 @@ export function resolveShikiThemeName(name: string): SyntaxThemeName {
   if (name === BUZZ_DARK_THEME_NAME) return BUZZ_DARK_BASE_THEME;
   if (name === GRAPHITE_THEME_NAME) return GRAPHITE_BASE_THEME;
   if (name === VOID_THEME_NAME) return VOID_BASE_THEME;
+  if (name === ASH_THEME_NAME) return ASH_BASE_THEME;
+  if (name === INVERSE_THEME_NAME) return INVERSE_BASE_THEME;
   if (name === PAPER_THEME_NAME) return PAPER_BASE_THEME;
   return name as SyntaxThemeName;
 }
@@ -89,6 +111,8 @@ export const SYNTAX_THEMES = [
   "graphite",
   "paper",
   "void",
+  "ash",
+  "inverse",
   "andromeeda",
   "aurora-x",
   "ayu-dark",
@@ -188,6 +212,8 @@ const themeImports: Record<
   graphite: () => import("shiki/themes/github-dark.mjs"),
   paper: () => import("shiki/themes/github-light.mjs"),
   void: () => import("shiki/themes/github-dark.mjs"),
+  ash: () => import("shiki/themes/github-dark.mjs"),
+  inverse: () => import("shiki/themes/github-dark.mjs"),
   andromeeda: () => import("shiki/themes/andromeeda.mjs"),
   "aurora-x": () => import("shiki/themes/aurora-x.mjs"),
   "ayu-dark": () => import("shiki/themes/ayu-dark.mjs"),

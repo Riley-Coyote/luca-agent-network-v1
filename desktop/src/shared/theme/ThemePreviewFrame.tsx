@@ -39,6 +39,32 @@ export const DARK_PREVIEW_VARS: ThemePreviewVars = {
  * duplicated only so the default can be previewed while another theme is
  * active.
  */
+/** Appearance-tile snapshot of the default Slate (Linear-dose) shell. */
+export const SLATE_PREVIEW_VARS: ThemePreviewVars = {
+  "--background": "210 3.6% 11%",
+  "--border": "216 5.6% 17.5%",
+  "--foreground": "45 15% 95%",
+  "--muted": "210 2.1% 18.4%",
+  "--muted-foreground": "45 4% 76%",
+  "--primary": "45 8% 90%",
+  "--primary-foreground": "210 3.6% 11%",
+  "--sidebar-background": "210 7.1% 5.5%",
+  "--sidebar-foreground": "45 15% 95%",
+};
+
+/** Appearance-tile snapshot of Inverse — light rail over a dark ground. */
+export const INVERSE_PREVIEW_VARS: ThemePreviewVars = {
+  "--background": "210 7.1% 5.5%",
+  "--border": "216 5.6% 17.5%",
+  "--foreground": "45 15% 95%",
+  "--muted": "210 3.3% 11.8%",
+  "--muted-foreground": "45 3% 76%",
+  "--primary": "45 8% 90%",
+  "--primary-foreground": "210 7.1% 5.5%",
+  "--sidebar-background": "210 3.6% 11%",
+  "--sidebar-foreground": "45 15% 95%",
+};
+
 export const ASH_PREVIEW_VARS: ThemePreviewVars = {
   "--background": "0 0% 9%",
   "--border": "0 0% 17%",

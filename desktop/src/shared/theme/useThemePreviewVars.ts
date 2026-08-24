@@ -7,12 +7,16 @@ import {
   BUZZ_DARK_THEME_NAME,
   BUZZ_THEME_NAME,
   GRAPHITE_THEME_NAME,
+  ASH_THEME_NAME,
+  INVERSE_THEME_NAME,
   VOID_THEME_NAME,
   isLightTheme,
   loadThemeData,
 } from "./theme-loader";
 import {
   ASH_PREVIEW_VARS,
+  INVERSE_PREVIEW_VARS,
+  SLATE_PREVIEW_VARS,
   DARK_PREVIEW_VARS,
   GRAPHITE_PREVIEW_VARS,
   LIGHT_PREVIEW_VARS,
@@ -31,7 +35,13 @@ let themePreviewVarsPromise: Promise<ThemePreviewVarsByTheme> | null = null;
 
 async function loadThemePreviewVars(name: SyntaxThemeName) {
   if (name === BUZZ_THEME_NAME || name === BUZZ_DARK_THEME_NAME) {
+    return [name, SLATE_PREVIEW_VARS] as const;
+  }
+  if (name === ASH_THEME_NAME) {
     return [name, ASH_PREVIEW_VARS] as const;
+  }
+  if (name === INVERSE_THEME_NAME) {
+    return [name, INVERSE_PREVIEW_VARS] as const;
   }
   if (name === VOID_THEME_NAME) {
     return [name, VOID_PREVIEW_VARS] as const;

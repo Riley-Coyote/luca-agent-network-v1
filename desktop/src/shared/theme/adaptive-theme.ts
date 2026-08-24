@@ -270,12 +270,58 @@ export const VOID_THEME_COLORS = {
   raised: "#070708",
   hover: "#0a0a0b",
   glass: "#000000",
+  recess: "#020203",
   border: "#191a1c",
   borderStrong: "#262729",
   ink: "#ebedef",
   inkMuted: "#b4b6b8",
   inkFaint: "#858788",
   inkGhost: "#626364",
+  focus: "#60a5fa",
+} as const;
+
+/**
+ * Ash — the original carved-neutral ladder, exactly as decided 2026-08-23:
+ * pure greys (R=G=B), +9 RGB steps, cream ink. Preserved unchanged when the
+ * Linear-dose ladder took the default.
+ */
+export const ASH_THEME_COLORS = {
+  floor: "#0e0e0e",
+  navigator: "#0e0e0e",
+  surface: "#171717",
+  raised: "#202020",
+  hover: "#282828",
+  glass: "#090909",
+  recess: "#101010",
+  border: "#2b2b2b",
+  borderStrong: "#383838",
+  ink: "#f4f3f0",
+  inkMuted: "#c4c3bf",
+  inkFaint: "#97968f",
+  inkGhost: "#706f6e",
+  focus: "#60a5fa",
+} as const;
+
+/**
+ * Inverse — the Slate (Linear-dose) ladder with rail and content swapped:
+ * light rail #1b1c1d over a deep conversation ground #0d0e0f. Same lean
+ * (B = R+2, G = R+1), same spans; objects re-seat on the dark ground and
+ * the recess digs toward true dark. Riley, 2026-08-24.
+ */
+export const INVERSE_THEME_COLORS = {
+  floor: "#1b1c1d",
+  navigator: "#1b1c1d",
+  surface: "#0d0e0f",
+  raised: "#1d1e1f",
+  hover: "#252627",
+  glass: "#050607",
+  recess: "#070809",
+  border: "#2a2c2f",
+  borderStrong: "#35373a",
+  ink: "#f4f3f0",
+  inkMuted: "#c4c3bf",
+  inkFaint: "#97968f",
+  inkGhost: "#706f6e",
   focus: "#60a5fa",
 } as const;
 
@@ -286,6 +332,7 @@ export const GRAPHITE_THEME_COLORS = {
   raised: "#151517",
   hover: "#18181b",
   glass: "#0b0b0d",
+  recess: "#0a0a0b",
   border: "#242426",
   borderStrong: "#333336",
   ink: "#eaeaef",
@@ -326,6 +373,7 @@ export const PAPER_THEME_COLORS = {
   raised: "#fefdfd",
   hover: "#eeedea",
   glass: "#f1f0ed",
+  recess: "#eceae6",
   border: "#ebeae6",
   borderStrong: "#dcd8d2",
   ink: "#15161b",
@@ -422,6 +470,7 @@ export function createGraphiteThemeVars(): ThemeResult {
       "--huddle-tooltip-surface": hexToHsl(colors.hover),
       "--huddle-tooltip-foreground": hexToHsl(colors.ink),
       "--mn-ink-ghost": hexToHsl(colors.inkGhost),
+      "--mn-recess": hexToHsl(colors.recess),
     },
   };
 }
@@ -464,6 +513,85 @@ export function createVoidThemeVars(): ThemeResult {
       "--huddle-tooltip-surface": hexToHsl(colors.hover),
       "--huddle-tooltip-foreground": hexToHsl(colors.ink),
       "--mn-ink-ghost": hexToHsl(colors.inkGhost),
+      "--mn-recess": hexToHsl(colors.recess),
+    },
+  };
+}
+
+/** Build the Ash app palette — the preserved carved-neutral shell. */
+export function createAshThemeVars(): ThemeResult {
+  const semanticVars = createLucaThemeVars().vars;
+  const colors = ASH_THEME_COLORS;
+
+  return {
+    isDark: true,
+    vars: {
+      ...semanticVars,
+      "--mn-floor": hexToHsl(colors.floor),
+      "--mn-navigator": hexToHsl(colors.navigator),
+      "--mn-surface": hexToHsl(colors.surface),
+      "--mn-raised": hexToHsl(colors.raised),
+      "--mn-hover": hexToHsl(colors.hover),
+      "--mn-glass": hexToHsl(colors.glass),
+      "--mn-surface-raised": hexToHsl(colors.raised),
+      "--mn-surface-hover": hexToHsl(colors.hover),
+      "--mn-border": hexToHsl(colors.border),
+      "--mn-border-strong": hexToHsl(colors.borderStrong),
+      "--mn-ink": hexToHsl(colors.ink),
+      "--mn-ink-muted": hexToHsl(colors.inkMuted),
+      "--mn-ink-faint": hexToHsl(colors.inkFaint),
+      "--mn-focus": hexToHsl(colors.focus),
+      "--huddle-drawer-surface": hexToHsl(colors.raised),
+      "--huddle-control-surface": hexToHsl(colors.hover),
+      "--huddle-control-hover-surface": hexToHsl(colors.border),
+      "--huddle-control-chevron-surface": hexToHsl(colors.surface),
+      "--huddle-control-chevron-hover-surface": hexToHsl(colors.hover),
+      "--huddle-control-foreground": hexToHsl(colors.ink),
+      "--huddle-popover-surface": hexToHsl(colors.raised),
+      "--huddle-popover-border": hexToHsl(colors.borderStrong),
+      "--huddle-tooltip-surface": hexToHsl(colors.hover),
+      "--huddle-tooltip-foreground": hexToHsl(colors.ink),
+      "--mn-ink-ghost": hexToHsl(colors.inkGhost),
+      "--mn-recess": hexToHsl(colors.recess),
+    },
+  };
+}
+
+/** Build the Inverse app palette — the light-rail arrangement. */
+export function createInverseThemeVars(): ThemeResult {
+  const semanticVars = createLucaThemeVars().vars;
+  const colors = INVERSE_THEME_COLORS;
+
+  return {
+    isDark: true,
+    vars: {
+      ...semanticVars,
+      "--mn-floor": hexToHsl(colors.floor),
+      "--mn-navigator": hexToHsl(colors.navigator),
+      "--mn-surface": hexToHsl(colors.surface),
+      "--mn-raised": hexToHsl(colors.raised),
+      "--mn-hover": hexToHsl(colors.hover),
+      "--mn-glass": hexToHsl(colors.glass),
+      "--mn-surface-raised": hexToHsl(colors.raised),
+      "--mn-surface-hover": hexToHsl(colors.hover),
+      "--mn-border": hexToHsl(colors.border),
+      "--mn-border-strong": hexToHsl(colors.borderStrong),
+      "--mn-ink": hexToHsl(colors.ink),
+      "--mn-ink-muted": hexToHsl(colors.inkMuted),
+      "--mn-ink-faint": hexToHsl(colors.inkFaint),
+      "--mn-focus": hexToHsl(colors.focus),
+      "--huddle-drawer-surface": hexToHsl(colors.raised),
+      "--huddle-control-surface": hexToHsl(colors.hover),
+      "--huddle-control-hover-surface": hexToHsl(colors.border),
+      "--huddle-control-chevron-surface": hexToHsl(colors.surface),
+      "--huddle-control-chevron-hover-surface": hexToHsl(colors.hover),
+      "--huddle-control-foreground": hexToHsl(colors.ink),
+      "--huddle-popover-surface": hexToHsl(colors.raised),
+      "--huddle-popover-border": hexToHsl(colors.borderStrong),
+      "--huddle-tooltip-surface": hexToHsl(colors.hover),
+      "--huddle-tooltip-foreground": hexToHsl(colors.ink),
+      "--mn-ink-ghost": hexToHsl(colors.inkGhost),
+      "--mn-recess": hexToHsl(colors.recess),
     },
   };
 }
@@ -507,6 +635,7 @@ export function createPaperThemeVars(): ThemeResult {
       "--mn-ink-muted": hexToHsl(colors.inkMuted),
       "--mn-ink-faint": hexToHsl(colors.inkFaint),
       "--mn-ink-ghost": hexToHsl(colors.inkGhost),
+      "--mn-recess": hexToHsl(colors.recess),
       "--mn-focus": hexToHsl(colors.focus),
 
       // (1) The ramp's far end, which on paper is the ink end.

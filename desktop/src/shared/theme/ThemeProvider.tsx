@@ -13,6 +13,8 @@ import { invokeTauri } from "@/shared/api/tauri";
 import { isMacPlatform } from "@/shared/lib/platform";
 import {
   createGraphiteThemeVars,
+  createAshThemeVars,
+  createInverseThemeVars,
   createVoidThemeVars,
   createLucaThemeVars,
   createPaperThemeVars,
@@ -22,6 +24,8 @@ import {
 import {
   GRAPHITE_THEME_NAME,
   PAPER_THEME_NAME,
+  ASH_THEME_NAME,
+  INVERSE_THEME_NAME,
   VOID_THEME_NAME,
   SYNTAX_THEMES,
   type SyntaxThemeName,
@@ -250,7 +254,9 @@ export function isFixedNeutralTheme(themeName: string): boolean {
     isBuzzTheme(themeName) ||
     themeName === GRAPHITE_THEME_NAME ||
     themeName === PAPER_THEME_NAME ||
-    themeName === VOID_THEME_NAME
+    themeName === VOID_THEME_NAME ||
+    themeName === ASH_THEME_NAME ||
+    themeName === INVERSE_THEME_NAME
   );
 }
 
@@ -505,6 +511,8 @@ async function applyTheme(
     if (isBuzzTheme(name)) return createLucaThemeVars();
     if (name === GRAPHITE_THEME_NAME) return createGraphiteThemeVars();
     if (name === VOID_THEME_NAME) return createVoidThemeVars();
+    if (name === ASH_THEME_NAME) return createAshThemeVars();
+    if (name === INVERSE_THEME_NAME) return createInverseThemeVars();
     if (name === PAPER_THEME_NAME) return createPaperThemeVars();
     return createThemeVars(info.bg, info.fg, info.comment, {
       added: info.added,

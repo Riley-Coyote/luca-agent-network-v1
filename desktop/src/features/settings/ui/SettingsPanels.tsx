@@ -208,9 +208,9 @@ export const settingsSections: SettingsSectionDescriptor[] = [
 ];
 
 function formatThemeLabel(name: string): string {
-  // The default shell is the Composite ladder, named for the exploration
-  // round that produced it; Void is now its own named theme below.
-  if (isBuzzTheme(name)) return "Ash";
+  // The default shell is the Linear-dose ladder ("Slate"); Ash (the
+  // carved neutral), Inverse and Void are named themes of their own.
+  if (isBuzzTheme(name)) return "Slate";
 
   return name
     .split("-")
