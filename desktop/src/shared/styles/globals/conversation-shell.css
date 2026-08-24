@@ -30,25 +30,40 @@
    * ACCESSIBILITY IS A CONSTRAINT ON THIS TABLE, not a review afterthought.
    * Re-run the contrast audit whenever a surface or ink value changes.
    * ------------------------------------------------------------------ */
-  /* THE COMPOSITE LADDER (decided 2026-08-23, design-lab/palette-options.html).
-   * Pure neutral — R=G=B, no cast; the surfaces carry no temperature at all.
-   * Steps are wide (+9 RGB) so sidebar, ground, card and raised object are
-   * unmistakably different things at any screen brightness, and separation
-   * comes from SHADE, not from outlines: the card hairlines this scale used
-   * to require are retired below. The old near-black ladder was a blackout
-   * palette doing a default's job; it moves to the Void theme, preserved. */
-  --mn-floor: 0 0% 5.5%;
-  --mn-navigator: 0 0% 5.5%;
-  --mn-surface: 0 0% 9%;
-  --mn-raised: 0 0% 12.5%;
-  --mn-hover: 0 0% 15.7%;
+  /* THE LINEAR-DOSE LADDER (decided 2026-08-24, round six of
+   * design-lab/palette-options.html; research in design-lab/council/).
+   * Two rules, both measured from shipped practice, do everything here:
+   *
+   *   THE STAIRCASE — the council's widened spans. Ground 11%, card 18.4%:
+   *   each surface clearly sits on the one below at any screen brightness,
+   *   with no outlines. This is the fix for "flat and muddled".
+   *
+   *   THE LEAN — B = R+2, G = R+1, constant at every altitude. Linear's
+   *   canvas rule: a cool you feel and can never name. Green riding one
+   *   count above red is what kills the violet cast that makes a tint
+   *   nameable; the constant offset is what keeps the chroma from growing
+   *   with lightness (the failure of percentage-based tints). Borders,
+   *   being small, may carry more (B = R+5); hover/selection fills must be
+   *   WHITE-ALPHA, never a second tinted value — stacked tint is what
+   *   crosses into nameable. Never re-derive these in HSL percentages;
+   *   derive from the channel rule and convert.
+   *
+   * The old near-black ladder lives on as the Void theme, untouched. */
+  --mn-floor: 210.00 7.143% 5.490%;
+  --mn-navigator: 210.00 7.143% 5.490%;
+  --mn-surface: 210.00 3.571% 10.980%;
+  --mn-raised: 210.00 2.128% 18.431%;
+  --mn-hover: 210.00 1.786% 21.961%;
+  /* The recess: the reply well opens below the ground (see the composer
+   * rules). On the ladder, not below the floor. */
+  --mn-recess: 210.00 5.000% 7.843%;
   /* Below the floor. Used only where a surface must read as a recess. */
-  --mn-glass: 0 0% 3.5%;
+  --mn-glass: 210.00 10.000% 3.922%;
   /* Aliases consumed by the semantic mappings in theme.css. */
-  --mn-surface-raised: 0 0% 12.5%;
-  --mn-surface-hover: 0 0% 15.7%;
-  --mn-border: 0 0% 17%;
-  --mn-border-strong: 0 0% 22%;
+  --mn-surface-raised: 210.00 2.128% 18.431%;
+  --mn-surface-hover: 210.00 1.786% 21.961%;
+  --mn-border: 216.00 5.618% 17.451%;
+  --mn-border-strong: 216.00 4.505% 21.765%;
   /* THE INK LADDER. Four roles, defined by the contrast each one holds
    * against the conversation surface rather than by a lightness that looked
    * right. Void sets the reference shape, and Paper is solved to reproduce it
@@ -87,7 +102,7 @@
    * objects, simulating light from above catching the bevel. This is what
    * makes a flat object read as physical without a gradient or a drop shadow,
    * both of which fight a lightness-based elevation model. */
-  --mn-lit-edge: inset 0 1px 0 rgb(255 255 255 / 0.05);
+  --mn-lit-edge: inset 0 1px 0 rgb(255 255 255 / 0.06);
 
   /* The plate: the one borderless group surface. Ink at a small alpha rather
    * than a grey step, so it reads the same in Void, Graphite and every light
@@ -785,7 +800,7 @@
  * takes shade from its top lip only — light falls from above, and a shadow
  * on all four edges reads as a border ring, not depth. */
 :root[data-luca-shell] .luca-reply-sheet {
-  background: hsl(0 0% 6.3%);
+  background: hsl(var(--mn-recess));
   border-radius: 12px 12px 0 0;
   box-shadow: inset 0 5px 8px -5px rgb(0 0 0 / 0.6);
 }
