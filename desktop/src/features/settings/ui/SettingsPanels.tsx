@@ -208,7 +208,9 @@ export const settingsSections: SettingsSectionDescriptor[] = [
 ];
 
 function formatThemeLabel(name: string): string {
-  if (isBuzzTheme(name)) return "Void";
+  // The default shell is the Composite ladder, named for the exploration
+  // round that produced it; Void is now its own named theme below.
+  if (isBuzzTheme(name)) return "Ash";
 
   return name
     .split("-")
@@ -434,9 +436,10 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
 
   // All dark themes (paired dark + dark-only)
   const allDarkThemes = useMemo<SyntaxThemeName[]>(() => {
-    // Paper's dark counterpart is Void, which already leads this list as
-    // BUZZ_DARK_THEME_NAME — take it out of the paired run so "Void" appears
-    // once rather than twice.
+    // Paper's dark counterpart is Ash (the default shell), which already
+    // leads this list as BUZZ_DARK_THEME_NAME — take it out of the paired
+    // run so "Ash" appears once rather than twice. Void follows as its own
+    // named dark theme.
     const pairedDark = pairedLight
       .map((l) => getThemePair(l))
       .filter((name): name is SyntaxThemeName => !!name && !isBuzzTheme(name));

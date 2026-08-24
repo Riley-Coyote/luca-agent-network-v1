@@ -257,6 +257,28 @@ export interface ThemeResult {
  * conversation ground), which preserves the study's hush and stops the theme
  * from shipping unreadable meta text.
  */
+/**
+ * Void — the original blackout ladder, exactly as it shipped as the default
+ * before the Composite scale landed (2026-08-23). Pure black floor and all:
+ * that violates the no-pure-black rule for defaults, but Void is chosen, not
+ * inherited — preserving it unchanged is the point.
+ */
+export const VOID_THEME_COLORS = {
+  floor: "#000000",
+  navigator: "#030304",
+  surface: "#050506",
+  raised: "#070708",
+  hover: "#0a0a0b",
+  glass: "#000000",
+  border: "#191a1c",
+  borderStrong: "#262729",
+  ink: "#ebedef",
+  inkMuted: "#b4b6b8",
+  inkFaint: "#858788",
+  inkGhost: "#626364",
+  focus: "#60a5fa",
+} as const;
+
 export const GRAPHITE_THEME_COLORS = {
   floor: "#0d0d0f",
   navigator: "#0d0d0f",
@@ -370,6 +392,48 @@ export function createLucaThemeVars(): ThemeResult {
 export function createGraphiteThemeVars(): ThemeResult {
   const semanticVars = createLucaThemeVars().vars;
   const colors = GRAPHITE_THEME_COLORS;
+
+  return {
+    isDark: true,
+    vars: {
+      ...semanticVars,
+      "--mn-floor": hexToHsl(colors.floor),
+      "--mn-navigator": hexToHsl(colors.navigator),
+      "--mn-surface": hexToHsl(colors.surface),
+      "--mn-raised": hexToHsl(colors.raised),
+      "--mn-hover": hexToHsl(colors.hover),
+      "--mn-glass": hexToHsl(colors.glass),
+      "--mn-surface-raised": hexToHsl(colors.raised),
+      "--mn-surface-hover": hexToHsl(colors.hover),
+      "--mn-border": hexToHsl(colors.border),
+      "--mn-border-strong": hexToHsl(colors.borderStrong),
+      "--mn-ink": hexToHsl(colors.ink),
+      "--mn-ink-muted": hexToHsl(colors.inkMuted),
+      "--mn-ink-faint": hexToHsl(colors.inkFaint),
+      "--mn-focus": hexToHsl(colors.focus),
+      "--huddle-drawer-surface": hexToHsl(colors.raised),
+      "--huddle-control-surface": hexToHsl(colors.hover),
+      "--huddle-control-hover-surface": hexToHsl(colors.border),
+      "--huddle-control-chevron-surface": hexToHsl(colors.surface),
+      "--huddle-control-chevron-hover-surface": hexToHsl(colors.hover),
+      "--huddle-control-foreground": hexToHsl(colors.ink),
+      "--huddle-popover-surface": hexToHsl(colors.raised),
+      "--huddle-popover-border": hexToHsl(colors.borderStrong),
+      "--huddle-tooltip-surface": hexToHsl(colors.hover),
+      "--huddle-tooltip-foreground": hexToHsl(colors.ink),
+      "--mn-ink-ghost": hexToHsl(colors.inkGhost),
+    },
+  };
+}
+
+/**
+ * Build the Void app palette — the preserved blackout shell. Same recipe as
+ * Graphite: only shell and huddle surfaces recolor; audited semantic signal
+ * colors stay.
+ */
+export function createVoidThemeVars(): ThemeResult {
+  const semanticVars = createLucaThemeVars().vars;
+  const colors = VOID_THEME_COLORS;
 
   return {
     isDark: true,

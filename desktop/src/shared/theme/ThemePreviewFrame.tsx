@@ -34,9 +34,26 @@ export const DARK_PREVIEW_VARS: ThemePreviewVars = {
 };
 
 /**
- * Appearance-tile snapshot of Luca's first-party blackout palette. Runtime
+ * Appearance-tile snapshot of the default Composite (Ash) shell. Runtime
  * authority remains `conversation-shell.css`; this small semantic subset is
- * duplicated only so Void can be previewed while another theme is active.
+ * duplicated only so the default can be previewed while another theme is
+ * active.
+ */
+export const ASH_PREVIEW_VARS: ThemePreviewVars = {
+  "--background": "0 0% 9%",
+  "--border": "0 0% 17%",
+  "--foreground": "45 15% 95%",
+  "--muted": "0 0% 12.5%",
+  "--muted-foreground": "45 4% 76%",
+  "--primary": "45 8% 90%",
+  "--primary-foreground": "0 0% 9%",
+  "--sidebar-background": "0 0% 5.5%",
+  "--sidebar-foreground": "45 15% 95%",
+};
+
+/**
+ * Appearance-tile snapshot of Void, the preserved blackout palette — the
+ * values the shell itself carried before the Composite scale landed.
  */
 export const VOID_PREVIEW_VARS: ThemePreviewVars = {
   "--background": "220 8% 2.1%",
