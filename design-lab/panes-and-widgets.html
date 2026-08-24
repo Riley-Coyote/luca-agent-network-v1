@@ -40,7 +40,11 @@
   --wash:rgb(255 255 255/.04); --wash-2:rgb(255 255 255/.07);
   --plate:rgb(247 245 239/.035); --plate-hover:rgb(247 245 239/.06);
   --lit:inset 0 1px 0 rgb(255 255 255/.06);
-  --app-shadow:0 40px 120px rgb(0 0 0/.62);
+  --app-shadow:
+    0 0 0 1px rgb(0 0 0/.45),
+    0 2px 8px rgb(0 0 0/.35),
+    0 40px 120px rgb(0 0 0/.62);
+  --app-hairline:inset 0 0 0 1px rgb(255 255 255/.055);
   --lift-shadow:0 34px 84px rgb(0 0 0/.58);
   color-scheme:dark;
 }
@@ -53,7 +57,11 @@
   --wash:rgb(255 255 255/.05); --wash-2:rgb(255 255 255/.085);
   --plate:rgb(244 243 240/.04); --plate-hover:rgb(244 243 240/.07);
   --lit:inset 0 1px 0 rgb(255 255 255/.06);
-  --app-shadow:0 40px 120px rgb(0 0 0/.62);
+  --app-shadow:
+    0 0 0 1px rgb(0 0 0/.45),
+    0 2px 8px rgb(0 0 0/.35),
+    0 40px 120px rgb(0 0 0/.62);
+  --app-hairline:inset 0 0 0 1px rgb(255 255 255/.055);
   --lift-shadow:0 34px 84px rgb(0 0 0/.58);
   color-scheme:dark;
 }
@@ -65,7 +73,11 @@
   --wash:rgb(21 22 27/.045); --wash-2:rgb(21 22 27/.08);
   --plate:rgb(21 22 27/.032); --plate-hover:rgb(21 22 27/.055);
   --lit:inset 0 1px 0 rgb(255 255 255/.9);
-  --app-shadow:0 40px 110px rgb(38 34 30/.30);
+  --app-shadow:
+    0 0 0 1px rgb(38 34 30/.22),
+    0 2px 8px rgb(38 34 30/.16),
+    0 40px 110px rgb(38 34 30/.30);
+  --app-hairline:inset 0 0 0 1px rgb(255 255 255/.55);
   --lift-shadow:0 30px 74px rgb(38 34 30/.26);
   color-scheme:light;
 }
@@ -201,7 +213,7 @@ html:not([data-theme="paper"]) .wp.dark{opacity:1}
   display:flex;border-radius:var(--radius-5);overflow:hidden;
   background:var(--floor);               /* THE FLOOR */
   isolation:isolate;
-  box-shadow:var(--app-shadow);
+  box-shadow:var(--app-shadow), var(--app-hairline);
 }
 
 /* ── the rail sits ON the floor — it is not a card ────────────── */
@@ -210,9 +222,21 @@ html:not([data-theme="paper"]) .wp.dark{opacity:1}
   width:264px;flex:none;display:flex;flex-direction:column;
   padding:0 8px 10px;background:transparent;
 }
-.lights{display:flex;gap:8px;padding:15px 8px 20px}
-.lights i{width:11px;height:11px;border-radius:50%;background:rgb(255 255 255 / .16)}
-[data-theme="paper"] .lights i{background:rgb(21 22 27 / .16)}
+/* traffic lights — the real anatomy, on the shell's own derivation:
+   first dot x = rail inset 8 + cluster pad 8 = 16; the cluster occupies the
+   42px title band under the 8px lip, so the dots centre at y = 8+21 = 29,
+   i.e. trafficLightPosition y = 23 for a 12px light. Decorative here
+   (aria-hidden): a browser study must not offer a fake close. */
+.lights{display:flex;align-items:center;gap:8px;height:42px;margin-top:var(--mn-card-lip);padding:0 8px;flex:none}
+.tl{position:relative;width:12px;height:12px;border-radius:50%;flex:none}
+.tl::after{content:"";position:absolute;inset:0;border-radius:50%;box-shadow:inset 0 0 0 .5px rgb(0 0 0/.15)}
+.tl.r{background:#FF5F57}.tl.y{background:#FEBC2E}.tl.g{background:#28C840}
+.tl svg{position:absolute;inset:0;margin:auto;opacity:0;transition:opacity var(--motion-duration-instant) var(--motion-ease-standard)}
+.lights:hover .tl svg{opacity:1}
+/* an unfocused window loses its colour — exactly as the OS does it */
+html[data-winfocus="false"] .tl{background:rgb(255 255 255/.16)}
+html[data-winfocus="false"][data-theme="paper"] .tl{background:rgb(21 22 27/.16)}
+html[data-winfocus="false"] .tl svg{opacity:0!important}
 .railrow{
   /* 6+16+6 = a 28px row — the native sidebar metric */
   display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border-radius:var(--radius-2);
@@ -248,9 +272,17 @@ html:not([data-theme="paper"]) .wp.dark{opacity:1}
 .lip-v::after{content:"";position:absolute;inset:0 -4px}
 .lip-h{height:1px;flex:none;margin:-4px 0;cursor:row-resize;position:relative}
 .lip-h::after{content:"";position:absolute;inset:-4px 0}
+/* the lip answers the pointer before it is dragged */
+.lip-v::before,.lip-h::before{
+  content:"";position:absolute;inset:0;background:var(--border-strong);opacity:0;
+  transition:opacity var(--motion-duration-instant) var(--motion-ease-standard);
+}
+.lip-v:hover::before,.lip-h:hover::before,
+.lip-v.dragging::before,.lip-h.dragging::before{opacity:1}
 
 /* THE CARD */
 .card{
+  position:relative;
   display:flex;flex-direction:column;min-height:0;min-width:0;flex:1;
   background:var(--surface);
   border:1px solid var(--border);border-radius:var(--radius-4);overflow:hidden;
@@ -274,8 +306,23 @@ html:not([data-theme="paper"]) .wp.dark{opacity:1}
 .ic:hover{background:var(--wash);color:var(--ink)}
 .body{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column}
 .body>.hang{margin-top:auto}
+/* overlay scrollbars, the shipped construction: WebKit will not re-resolve
+   ::-webkit-scrollbar styles on class changes and the standard scrollbar-color
+   property disables the ::-webkit-* layer entirely — so the native thumb is
+   transparent-but-grabbable with a pointer reveal, and scroll-time visibility
+   is a separate .scrollmark element the card owns (it fades 900ms after the
+   last scroll, like the OS). */
 .body::-webkit-scrollbar{width:10px}
-.body::-webkit-scrollbar-thumb{background:var(--wash-2);border-radius:5px;border:3px solid transparent;background-clip:content-box}
+.body::-webkit-scrollbar-thumb{background:transparent;border-radius:5px;border:3px solid transparent;background-clip:content-box}
+.body::-webkit-scrollbar-thumb:hover,
+.body::-webkit-scrollbar-thumb:active{background:var(--wash-2);border-radius:5px;border:3px solid transparent;background-clip:content-box}
+.scrollmark{
+  position:absolute;right:3px;width:4px;border-radius:2px;z-index:5;
+  background:color-mix(in srgb, var(--ink) 30%, transparent);
+  opacity:0;pointer-events:none;
+  transition:opacity var(--motion-duration-fast) var(--motion-ease-standard);
+}
+.scrollmark.on{opacity:1}
 
 /* ── conversation ─────────────────────────────────────────────── */
 .thread{padding:0 var(--gutter-reading);max-width:var(--mn-reading-measure)}
@@ -499,7 +546,11 @@ body.laws .lifted{box-shadow:var(--lift-shadow), var(--lit), inset 0 0 0 1.5px r
 
   <!-- ── the rail, directly on the floor ── -->
   <aside class="rail" data-law="floor">
-    <div class="lights"><i></i><i></i><i></i></div>
+    <div class="lights" aria-hidden="true">
+      <span class="tl r"><svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="rgba(77,0,0,.65)" stroke-width="1.1" stroke-linecap="round"><path d="M2.8 2.8l4.4 4.4M7.2 2.8L2.8 7.2"/></svg></span>
+      <span class="tl y"><svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="rgba(105,62,0,.7)" stroke-width="1.1" stroke-linecap="round"><path d="M2.4 5h5.2"/></svg></span>
+      <span class="tl g"><svg width="8" height="8" viewBox="0 0 10 10" fill="rgba(0,63,0,.6)"><path d="M2.5 5.6V2.5h3.1z"/><path d="M7.5 4.4v3.1H4.4z"/></svg></span>
+    </div>
 
     <button class="railrow"><span class="g" data-icon="search" data-isize="14"></span>Search everything<span class="r">⌘K</span></button>
     <button class="railrow"><span class="g" data-icon="grid" data-isize="14"></span>Library</button>
@@ -920,16 +971,42 @@ lawsBtn.onclick=()=>{document.body.classList.toggle("laws");lawsBtn.classList.to
 (function(){
   const side=document.getElementById("col-side");
   const v=document.getElementById("lip-v"); let a=null;
-  v.addEventListener("pointerdown",e=>{a={id:e.pointerId,x:e.clientX,w:side.offsetWidth};v.setPointerCapture(e.pointerId)});
+  v.addEventListener("pointerdown",e=>{a={id:e.pointerId,x:e.clientX,w:side.offsetWidth};v.classList.add("dragging");v.setPointerCapture(e.pointerId)});
   v.addEventListener("pointermove",e=>{if(!a||a.id!==e.pointerId)return;
     side.style.width=Math.max(300,Math.min(620,a.w-(e.clientX-a.x)))+"px"});
-  v.addEventListener("pointerup",e=>{v.releasePointerCapture(e.pointerId);a=null});
+  v.addEventListener("pointerup",e=>{v.releasePointerCapture(e.pointerId);v.classList.remove("dragging");a=null});
   const h=document.getElementById("lip-h"); let b=null;
-  h.addEventListener("pointerdown",e=>{b={id:e.pointerId,y:e.clientY,h:widget.offsetHeight};h.setPointerCapture(e.pointerId)});
+  h.addEventListener("pointerdown",e=>{b={id:e.pointerId,y:e.clientY,h:widget.offsetHeight};h.classList.add("dragging");h.setPointerCapture(e.pointerId)});
   h.addEventListener("pointermove",e=>{if(!b||b.id!==e.pointerId)return;
     widget.style.setProperty("--widget-h",Math.max(170,Math.min(640,b.h-(e.clientY-b.y)))+"px")});
-  h.addEventListener("pointerup",e=>{h.releasePointerCapture(e.pointerId);b=null});
+  h.addEventListener("pointerup",e=>{h.releasePointerCapture(e.pointerId);h.classList.remove("dragging");b=null});
 })();
+
+/* the window loses its colour when it loses the user */
+const setWinFocus=f=>document.documentElement.dataset.winfocus=f?"true":"false";
+addEventListener("blur",()=>setWinFocus(false));
+addEventListener("focus",()=>setWinFocus(true));
+setWinFocus(document.hasFocus());
+
+/* scroll-time scrollbar indicators — one per scroller, owned by its card */
+document.querySelectorAll(".body").forEach(body=>{
+  const host=body.parentElement;
+  const mark=document.createElement("i");
+  mark.className="scrollmark"; mark.setAttribute("aria-hidden","true");
+  host.appendChild(mark);
+  let hide;
+  const place=()=>{
+    const ratio=body.clientHeight/body.scrollHeight;
+    if(ratio>=1){ mark.classList.remove("on"); return; }
+    const track=body.clientHeight-8;
+    const h=Math.max(24,track*ratio);
+    const y=body.offsetTop+4+(track-h)*(body.scrollTop/(body.scrollHeight-body.clientHeight));
+    mark.style.height=h+"px"; mark.style.top=y+"px";
+    mark.classList.add("on");
+    clearTimeout(hide); hide=setTimeout(()=>mark.classList.remove("on"),900);
+  };
+  body.addEventListener("scroll",place,{passive:true});
+});
 
 /* boot: JS is the single authority on default state, so markup and script
    can never disagree. Inverse is the study's hero — Riley, 2026-08-24. */

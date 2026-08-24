@@ -1,0 +1,190 @@
+{
+  "pass": "2",
+  "when": "2026-08-24T12:20:14.653Z",
+  "shots": {
+    "default--inverse": {
+      "sha": "bcc7348eef421933",
+      "animations": 0,
+      "ambient": [],
+      "floorProbe": {
+        "mean": [
+          0,
+          17,
+          163
+        ],
+        "token": "#1b1c1d",
+        "delta": 0.0187,
+        "noise": 7
+      }
+    },
+    "default--inverse--opaque": {
+      "sha": "c666d314fa721a8e",
+      "animations": 0,
+      "ambient": []
+    },
+    "default--slate": {
+      "sha": "6c85822aed8f5bbd",
+      "animations": 0,
+      "ambient": [],
+      "floorProbe": {
+        "mean": [
+          0,
+          8,
+          82
+        ],
+        "token": "#0d0e0f",
+        "delta": 0.0035,
+        "noise": 4.8
+      }
+    },
+    "default--slate--opaque": {
+      "sha": "48fe2a62359c7105",
+      "animations": 0,
+      "ambient": []
+    },
+    "default--paper": {
+      "sha": "82cccf957548d884",
+      "animations": 0,
+      "ambient": [],
+      "floorProbe": {
+        "mean": [
+          240,
+          244,
+          255
+        ],
+        "token": "#f6f4f2",
+        "delta": 0.0006,
+        "noise": 0.7
+      }
+    },
+    "default--paper--opaque": {
+      "sha": "7e90f099649ae11e",
+      "animations": 0,
+      "ambient": []
+    },
+    "tile--inverse": {
+      "sha": "93c426cfa53b96f5",
+      "animations": 0,
+      "ambient": []
+    },
+    "tile--slate": {
+      "sha": "15ecbf0d815db75d",
+      "animations": 0,
+      "ambient": []
+    },
+    "tile--paper": {
+      "sha": "982100a9a7bf11af",
+      "animations": 2,
+      "ambient": []
+    },
+    "place--inverse": {
+      "sha": "eec40be38d18bec3",
+      "animations": 0,
+      "ambient": []
+    },
+    "place--slate": {
+      "sha": "0e2fb615206cd47d",
+      "animations": 0,
+      "ambient": []
+    },
+    "place--paper": {
+      "sha": "a6da22fab102e2da",
+      "animations": 0,
+      "ambient": []
+    },
+    "lift--inverse": {
+      "sha": "b249f3166a0adb62",
+      "animations": 0,
+      "ambient": []
+    },
+    "lift--slate": {
+      "sha": "711d205df0b2991c",
+      "animations": 0,
+      "ambient": []
+    },
+    "lift--paper": {
+      "sha": "a643b1db4431239d",
+      "animations": 0,
+      "ambient": []
+    },
+    "laws--inverse": {
+      "sha": "16f404431b6f142d",
+      "animations": 0,
+      "ambient": []
+    },
+    "laws--slate": {
+      "sha": "3e68a2c2f5270bb8",
+      "animations": 0,
+      "ambient": []
+    },
+    "laws--paper": {
+      "sha": "3ad092c8a0e599f5",
+      "animations": 0,
+      "ambient": []
+    },
+    "drawer-closed--inverse": {
+      "sha": "5c60bbce7fce6a20",
+      "animations": 0,
+      "ambient": []
+    },
+    "drawer-closed--slate": {
+      "sha": "59ea2eabc87e0fe5",
+      "animations": 0,
+      "ambient": []
+    },
+    "drawer-closed--paper": {
+      "sha": "7555b22b15b28c39",
+      "animations": 0,
+      "ambient": []
+    }
+  },
+  "checks": [
+    {
+      "ok": true,
+      "label": "default--inverse: floor luminance pinned to token (Δ 0.0187)"
+    },
+    {
+      "ok": true,
+      "label": "default--slate: floor luminance pinned to token (Δ 0.0035)"
+    },
+    {
+      "ok": true,
+      "label": "default--paper: floor luminance pinned to token (Δ 0.0006)"
+    },
+    {
+      "ok": true,
+      "label": "reduced-motion: zero ambient animations (found: none)"
+    },
+    {
+      "ok": true,
+      "label": "all 21 scene shots distinct"
+    }
+  ],
+  "focusWalk": "BUTTON.on",
+  "vsPrevious": {
+    "changed": [
+      "default--inverse",
+      "default--inverse--opaque",
+      "default--slate",
+      "default--slate--opaque",
+      "default--paper",
+      "default--paper--opaque",
+      "tile--inverse",
+      "tile--slate",
+      "tile--paper",
+      "place--inverse",
+      "place--slate",
+      "place--paper",
+      "lift--inverse",
+      "lift--slate",
+      "lift--paper",
+      "laws--inverse",
+      "laws--slate",
+      "laws--paper",
+      "drawer-closed--inverse",
+      "drawer-closed--slate",
+      "drawer-closed--paper"
+    ],
+    "unchanged": []
+  }
+}
