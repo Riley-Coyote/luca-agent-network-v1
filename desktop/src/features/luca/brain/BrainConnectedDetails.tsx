@@ -32,6 +32,7 @@ export function BrainConnectedDetails({
   inventory,
   isMutating,
   kind,
+  onConnect,
   onDisconnect,
   onReconfirm,
   onRefresh,
@@ -41,6 +42,7 @@ export function BrainConnectedDetails({
   inventory: ConnectedBrainInventory;
   isMutating: boolean;
   kind: ConnectedBrainSourceKind;
+  onConnect: () => void;
   onDisconnect: (sourceId: string) => void;
   onReconfirm: (sourceId: string, residentPubkey: string) => void;
   onRefresh: (sourceId: string) => void;
@@ -143,16 +145,28 @@ export function BrainConnectedDetails({
       )}
 
       {discoveries.length > 0 ? (
-        <section className="rounded-xl border border-border/50 bg-card/15 px-4 py-3.5">
-          <p className="text-xs font-medium">Found on this device</p>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            {discoveries.length} available source
-            {discoveries.length === 1 ? "" : "s"} ·{" "}
-            {discoveries
-              .slice(0, 4)
-              .map((source) => source.displayName)
-              .join(", ")}
-          </p>
+        <section className="flex flex-col gap-3 rounded-xl border border-border/50 bg-card/15 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-medium">Found on this device</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              {discoveries.length} available source
+              {discoveries.length === 1 ? "" : "s"} ·{" "}
+              {discoveries
+                .slice(0, 4)
+                .map((source) => source.displayName)
+                .join(", ")}
+            </p>
+          </div>
+          <Button
+            className="shrink-0"
+            disabled={isMutating}
+            onClick={onConnect}
+            size="xs"
+            type="button"
+            variant="outline"
+          >
+            Connect {discoveries.length === 1 ? "source" : "sources"}
+          </Button>
         </section>
       ) : null}
 
