@@ -1,0 +1,10 @@
+/* ------------------------------------------------------------------
+ * Agent activity and failure states — persistent failures, elapsed disclosure.
+ *
+ * Imported AFTER conversation-shell.css deliberately: the shell file
+ * establishes the scale and the base surfaces, and this layer refines one
+ * domain on top of it. Same-specificity rules here therefore win, which is
+ * how a domain can adjust a shell default without editing the shell.
+ *
+ * Owns: ConversationAgentActivityStrip and its immediate surface.
+ * ------------------------------------------------------------------ */

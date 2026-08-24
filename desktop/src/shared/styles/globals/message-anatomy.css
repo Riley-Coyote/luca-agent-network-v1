@@ -1,0 +1,10 @@
+/* ------------------------------------------------------------------
+ * Message anatomy — user/agent differentiation, timestamp reveal, arrival motion.
+ *
+ * Imported AFTER conversation-shell.css deliberately: the shell file
+ * establishes the scale and the base surfaces, and this layer refines one
+ * domain on top of it. Same-specificity rules here therefore win, which is
+ * how a domain can adjust a shell default without editing the shell.
+ *
+ * Owns: MessageRow and its immediate surface.
+ * ------------------------------------------------------------------ */
