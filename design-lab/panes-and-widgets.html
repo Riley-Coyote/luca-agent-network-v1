@@ -1,0 +1,797 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panes &amp; Widgets — Polyphonic shell study</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=Inter+Tight:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+/* ─────────────────────────────────────────────────────────────
+   TOKENS
+   Dark is native. Ash carries the content plane; glass carries
+   the frame and anything lifted. Nothing else is translucent.
+   ───────────────────────────────────────────────────────────── */
+:root{
+  color-scheme: dark;
+
+  /* ink — a cool opacity cascade, never a set of greys */
+  --ink:        rgba(236,238,240,.94);
+  --ink-2:      rgba(236,238,240,.72);
+  --ink-3:      rgba(236,238,240,.46);
+  --ink-4:      rgba(236,238,240,.30);
+  --hair:       rgba(255,238,220,.085);
+  --hair-lit:   rgba(255,255,255,.10);
+
+  /* content — Ash, opaque */
+  --plane:      #171717;
+  --plane-2:    #1c1c1c;
+  --plane-3:    #232323;
+  --fill:       rgba(255,255,255,.055);
+  --fill-2:     rgba(255,255,255,.10);
+
+  /* frame + lifted — glass */
+  --frame:      rgba(18,19,23,.58);
+  --lifted:     rgba(28,29,34,.86);
+
+  --accent:     #6d93c9;
+
+  --shadow-app: 0 40px 120px rgba(0,0,0,.58), 0 2px 6px rgba(0,0,0,.4);
+  --shadow-lift:0 32px 80px rgba(0,0,0,.55), 0 3px 14px rgba(0,0,0,.34);
+
+  /* type */
+  --sans:"Inter","SF Pro Text",-apple-system,BlinkMacSystemFont,sans-serif;
+  --disp:"Inter Tight","Inter",-apple-system,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SF Mono",monospace;
+  --t-display: 27px;
+  --t-title:   15px;
+  --t-body:    15px;
+  --t-ui:      13px;
+  --t-meta:    11.5px;
+  --t-label:   9.5px;
+
+  --u: 8px;               /* the base unit; everything is a multiple */
+  --ease: cubic-bezier(.22,1,.36,1);
+}
+html[data-theme="light"]{
+  color-scheme: light;
+  --ink:        rgba(24,25,28,.92);
+  --ink-2:      rgba(24,25,28,.68);
+  --ink-3:      rgba(24,25,28,.44);
+  --ink-4:      rgba(24,25,28,.28);
+  --hair:       rgba(40,36,30,.10);
+  --hair-lit:   rgba(255,255,255,.70);
+  --plane:      #FBFAF8;
+  --plane-2:    #F5F3F0;
+  --plane-3:    #EDEAE5;
+  --fill:       rgba(24,25,28,.045);
+  --fill-2:     rgba(24,25,28,.085);
+  --frame:      rgba(250,249,247,.56);
+  --lifted:     rgba(252,251,249,.90);
+  --accent:     #3D5A80;
+  --shadow-app: 0 40px 110px rgba(30,34,48,.30), 0 2px 6px rgba(30,34,48,.10);
+  --shadow-lift:0 30px 76px rgba(30,34,48,.24), 0 3px 12px rgba(30,34,48,.10);
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;overflow:hidden;background:#0d0e12;color:var(--ink);
+  font-family:var(--sans);font-size:var(--t-ui);font-weight:400;
+  letter-spacing:-.005em;-webkit-font-smoothing:antialiased;
+}
+button,textarea,input{font:inherit;color:inherit;background:none;border:0;padding:0}
+button{cursor:pointer;-webkit-tap-highlight-color:transparent}
+.mark{display:block;flex:none}
+
+/* the desktop the glass reveals — quiet on purpose */
+.desk{
+  position:fixed;inset:0;
+  background:
+    radial-gradient(90% 70% at 88% -6%,  rgba(150,104,72,.22) 0 30%, transparent 64%),
+    radial-gradient(80% 70% at 4% 96%,   rgba(58,52,104,.26) 0 30%, transparent 66%),
+    radial-gradient(120% 100% at 62% 104%, rgba(26,50,104,.34) 0 36%, transparent 76%),
+    linear-gradient(162deg,#15161c,#14161f 44%,#111725 74%,#0b0e18);
+}
+html[data-theme="light"] .desk{
+  background:
+    radial-gradient(90% 70% at 90% -6%,  rgba(255,220,182,.60) 0 30%, transparent 64%),
+    radial-gradient(80% 70% at 2% 98%,   rgba(206,200,232,.56) 0 30%, transparent 66%),
+    radial-gradient(120% 100% at 62% 104%, rgba(158,184,226,.58) 0 36%, transparent 76%),
+    linear-gradient(162deg,#f2eee9,#ecebef 44%,#e4e9f3 74%,#d6deee);
+}
+
+/* ── lab bar ─────────────────────────────────────────────── */
+.lab{
+  position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:60;
+  display:flex;align-items:center;gap:2px;padding:4px;
+  background:var(--lifted);backdrop-filter:blur(30px) saturate(180%);
+  -webkit-backdrop-filter:blur(30px) saturate(180%);
+  border:1px solid var(--hair-lit);border-radius:11px;box-shadow:var(--shadow-lift);
+}
+.lab b{
+  font-family:var(--mono);font-size:var(--t-label);font-weight:400;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--ink-4);padding:0 10px 0 8px;
+}
+.lab button{
+  padding:5px 10px;border-radius:7px;font-size:12px;color:var(--ink-3);
+  transition:color .15s var(--ease),background .15s var(--ease);
+}
+.lab button:hover{color:var(--ink);background:var(--fill)}
+.lab button.on{color:var(--ink);background:var(--fill-2)}
+
+/* ── the window ──────────────────────────────────────────── */
+.stage{position:fixed;inset:0;display:grid;place-items:center;padding:60px 36px 36px}
+.app{
+  position:relative;width:min(1440px,100%);height:min(886px,100%);
+  display:grid;grid-template-columns:232px 1fr;
+  border-radius:19px;overflow:hidden;
+  border:1px solid var(--hair-lit);box-shadow:var(--shadow-app);
+}
+
+/* ── FRAME · glass ───────────────────────────────────────── */
+.rail{
+  display:flex;flex-direction:column;padding:0 12px 12px;
+  background:var(--frame);
+  backdrop-filter:blur(36px) saturate(190%);-webkit-backdrop-filter:blur(36px) saturate(190%);
+  border-right:1px solid var(--hair);
+}
+.lights{display:flex;gap:8px;padding:16px 6px 26px}
+.lights i{width:11px;height:11px;border-radius:50%;background:rgba(255,255,255,.13)}
+html[data-theme="light"] .lights i{background:rgba(24,25,28,.15)}
+
+.me{display:flex;align-items:center;gap:10px;padding:0 6px 22px;color:var(--ink)}
+.me-n{font-size:13.5px;font-weight:500;letter-spacing:-.012em;line-height:1.2}
+.me-s{font-size:var(--t-meta);color:var(--ink-4);margin-top:2px;letter-spacing:0}
+
+.new{
+  display:flex;align-items:center;gap:9px;margin:0 0 28px;padding:8px 10px;
+  border-radius:8px;background:var(--fill);color:var(--ink-2);font-size:var(--t-ui);
+  transition:background .15s var(--ease),color .15s var(--ease);
+}
+.new:hover{background:var(--fill-2);color:var(--ink)}
+.new kbd{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--ink-4)}
+
+.label{
+  font-family:var(--mono);font-size:var(--t-label);font-weight:400;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ink-4);padding:0 6px;margin:0 0 10px;
+  display:flex;align-items:center;gap:10px;
+}
+.label::after{content:"";flex:1;height:1px;background:var(--hair)}
+.group{margin-bottom:26px}
+
+.row{
+  display:flex;align-items:center;gap:10px;width:100%;padding:6px;border-radius:7px;
+  color:var(--ink-3);font-size:var(--t-ui);text-align:left;letter-spacing:-.004em;
+  transition:background .14s var(--ease),color .14s var(--ease);
+}
+.row:hover{background:var(--fill);color:var(--ink-2)}
+.row.on{background:var(--fill-2);color:var(--ink)}
+.row .g{width:18px;text-align:center;font-size:11px;color:var(--ink-4)}
+.row .r{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-4);font-variant-numeric:tabular-nums}
+.live{width:5px;height:5px;border-radius:50%;background:var(--accent);margin-left:auto;flex:none}
+.foot{
+  margin-top:auto;display:flex;align-items:center;gap:9px;padding:14px 6px 0;
+  border-top:1px solid var(--hair);font-size:var(--t-meta);color:var(--ink-4);
+}
+
+.work{display:flex;flex-direction:column;min-width:0}
+.tabs{
+  display:flex;align-items:center;gap:2px;padding:0 10px;height:46px;flex:none;
+  background:var(--frame);
+  backdrop-filter:blur(32px) saturate(185%);-webkit-backdrop-filter:blur(32px) saturate(185%);
+  border-bottom:1px solid var(--hair);
+}
+.tab{
+  display:flex;align-items:center;gap:8px;max-width:230px;padding:6px 10px;border-radius:7px;
+  font-size:12.5px;color:var(--ink-4);letter-spacing:-.004em;
+  transition:color .15s var(--ease),background .15s var(--ease);
+}
+.tab:hover{color:var(--ink-2);background:var(--fill)}
+.tab.on{color:var(--ink);background:var(--fill-2)}
+.tab span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ic{
+  width:26px;height:26px;display:grid;place-items:center;border-radius:6px;flex:none;
+  color:var(--ink-4);font-size:13px;transition:color .15s var(--ease),background .15s var(--ease);
+}
+.ic:hover{color:var(--ink);background:var(--fill)}
+
+/* ── CONTENT · Ash, opaque, carved by hairlines ──────────── */
+.dock{display:flex;flex:1;min-height:0;background:var(--plane)}
+.main{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0}
+.vdiv{width:1px;flex:none;background:var(--hair);cursor:col-resize;position:relative}
+.vdiv::after{content:"";position:absolute;inset:0 -3px;cursor:col-resize}
+.side{width:372px;flex:none;display:flex;flex-direction:column;min-height:0}
+.hdiv{height:1px;flex:none;background:var(--hair);cursor:row-resize;position:relative}
+.hdiv::after{content:"";position:absolute;inset:-3px 0;cursor:row-resize}
+
+.head{display:flex;align-items:center;gap:11px;padding:20px 26px 18px;flex:none}
+.head h2{font-family:var(--disp);font-size:var(--t-title);font-weight:500;letter-spacing:-.016em;margin:0;line-height:1.2}
+.head p{margin:2px 0 0;font-size:var(--t-meta);color:var(--ink-4)}
+.head .acts{margin-left:auto;display:flex;gap:2px}
+
+.scroll{flex:1;min-height:0;overflow:auto;padding:0 26px;display:flex;flex-direction:column}
+.scroll>.hang{margin-top:auto}
+.scroll::-webkit-scrollbar{width:9px}
+.scroll::-webkit-scrollbar-thumb{background:var(--fill-2);border-radius:5px;border:3px solid transparent;background-clip:content-box}
+
+/* conversation — one alignment line, generous rhythm, no bubbles */
+.day{
+  font-family:var(--mono);font-size:var(--t-label);letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink-4);padding-bottom:22px;
+}
+.msg{display:grid;grid-template-columns:22px 1fr;gap:12px;margin-bottom:26px}
+.msg>[data-mark]{color:var(--ink-3);margin-top:1px}
+.msg .by{display:flex;align-items:baseline;gap:9px;margin-bottom:5px}
+.msg .by b{font-size:12.5px;font-weight:500;color:var(--ink);letter-spacing:-.008em}
+.msg .by time{font-family:var(--mono);font-size:10.5px;color:var(--ink-4);font-variant-numeric:tabular-nums}
+.msg p{margin:0 0 10px;font-size:var(--t-body);line-height:1.62;color:var(--ink-2);max-width:58ch}
+.msg p:last-child{margin-bottom:0}
+.offer{
+  display:inline-flex;align-items:center;gap:8px;margin-top:12px;
+  font-size:12px;color:var(--ink-3);
+}
+.offer::before{content:"";width:14px;height:1px;background:var(--accent)}
+
+/* composer — thin silhouette: a field, then a naked tool row on the floor */
+.compose{flex:none;padding:8px 26px 20px}
+.field{
+  border:1px solid var(--hair);border-radius:10px;background:var(--plane-2);
+  box-shadow:inset 0 1px var(--hair-lit);padding:9px 13px;
+}
+.field textarea{width:100%;resize:none;height:23px;min-height:23px;font-size:var(--t-body);line-height:1.5;outline:none}
+.field textarea::placeholder{color:var(--ink-4)}
+.tools{display:flex;align-items:center;gap:4px;padding:9px 2px 0}
+.mode{font-size:var(--t-meta);color:var(--ink-3);padding:0 6px}
+.go{
+  margin-left:auto;width:27px;height:27px;border-radius:50%;
+  background:var(--ink);color:var(--plane);display:grid;place-items:center;font-size:12px;
+}
+
+/* side panes */
+.pane{display:flex;flex-direction:column;min-height:0;flex:1}
+.pane.fixed{flex:none}
+.p-head{display:flex;align-items:center;gap:10px;padding:16px 20px 12px;flex:none}
+.p-head .t{font-size:12.5px;font-weight:500;letter-spacing:-.008em;color:var(--ink)}
+.p-head .s{font-size:var(--t-meta);color:var(--ink-4);margin-top:1px}
+.p-head .acts{margin-left:auto;display:flex;gap:1px}
+.p-body{flex:1;min-height:0;overflow:auto;padding:0 20px;display:flex;flex-direction:column}
+.p-body>.hang{margin-top:auto}
+.p-body::-webkit-scrollbar{width:9px}
+.p-body::-webkit-scrollbar-thumb{background:var(--fill-2);border-radius:5px;border:3px solid transparent;background-clip:content-box}
+.stack{display:flex;align-items:center}
+.stack .mark:nth-child(2){margin-left:-7px}
+
+.said{display:grid;grid-template-columns:18px 1fr;gap:10px;margin-bottom:18px}
+.said>[data-mark]{color:var(--ink-4);margin-top:2px}
+.said b{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);margin-bottom:3px}
+.said p{margin:0;font-size:13px;line-height:1.58;color:var(--ink-3);max-width:46ch}
+.sysline{
+  font-family:var(--mono);font-size:var(--t-label);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-4);margin-bottom:18px;
+}
+.watch{
+  flex:none;display:flex;align-items:center;gap:10px;margin:0 20px;padding:12px 0 16px;
+  border-top:1px solid var(--hair);font-size:var(--t-meta);color:var(--ink-4);
+}
+.watch button{margin-left:auto;font-size:var(--t-meta);color:var(--ink-2);padding:4px 10px;border-radius:6px}
+.watch button:hover{background:var(--fill);color:var(--ink)}
+
+/* ── the widget · a printed instrument ───────────────────── */
+.inst{display:flex;flex-direction:column;min-height:0;flex:1}
+.inst .p-body{padding:0 20px}
+.line{
+  display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:12px;
+  padding:11px 0;border-bottom:1px solid var(--hair);
+}
+.line:last-child{border-bottom:0}
+.line .t1{font-size:12.5px;color:var(--ink-2);letter-spacing:-.006em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.line .t2{font-size:11px;color:var(--ink-4);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.line .v{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.ring{width:22px;height:22px;transform:rotate(-90deg)}
+.ring circle{fill:none;stroke-width:1.5}
+.ring .b{stroke:var(--fill-2)}
+.ring .f{stroke:var(--accent);stroke-linecap:round}
+.pulse{width:22px;display:grid;place-items:center}
+.pulse i{width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.pulse.idle i{background:var(--ink-4)}
+.sig{
+  flex:none;display:flex;align-items:center;gap:9px;margin:0 20px;padding:12px 0 16px;
+  border-top:1px solid var(--hair);
+  font-family:var(--mono);font-size:var(--t-label);letter-spacing:.11em;color:var(--ink-4);
+}
+.sig .by{margin-left:auto;display:flex;align-items:center;gap:7px;letter-spacing:.06em}
+
+/* ── the agent's place ───────────────────────────────────── */
+.place{padding-bottom:40px}
+.hero{display:grid;grid-template-columns:56px 1fr;gap:18px;padding:6px 0 34px}
+.hero h1{font-family:var(--disp);font-size:var(--t-display);font-weight:300;letter-spacing:-.026em;margin:0 0 8px;line-height:1.05}
+.hero p{margin:0;font-size:14px;line-height:1.6;color:var(--ink-3);max-width:54ch}
+.sect{margin-bottom:34px}
+.now{display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--hair)}
+.now .t1{font-size:13px;color:var(--ink-2)}
+.now .t2{font-size:11px;color:var(--ink-4);margin-top:3px}
+.now .v{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-4)}
+.thread{display:grid;grid-template-columns:18px 1fr auto;align-items:center;gap:11px;padding:11px 0;border-top:1px solid var(--hair);width:100%;text-align:left}
+.thread:hover .t1{color:var(--ink)}
+.thread .t1{font-size:12.5px;color:var(--ink-2);transition:color .14s var(--ease)}
+.thread .v{font-family:var(--mono);font-size:10.5px;color:var(--ink-4)}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.made{text-align:left}
+.made .art{aspect-ratio:4/3;border-radius:7px;border:1px solid var(--hair);overflow:hidden;position:relative}
+.made b{display:block;font-size:12px;font-weight:400;color:var(--ink-2);margin-top:9px;letter-spacing:-.004em}
+.made span{display:block;font-family:var(--mono);font-size:10px;color:var(--ink-4);margin-top:3px}
+.made:hover .art{border-color:var(--hair-lit)}
+.art.ladder{display:flex;flex-direction:column;background:var(--plane-2)}
+.art.ladder i{flex:1}
+.art.notch{background:var(--plane-3);display:grid;place-items:start center}
+.art.notch::before{content:"";width:44%;height:26%;border-radius:0 0 10px 10px;background:#0a0a0a}
+.art.sheet{background:var(--plane-2);display:grid;grid-template-columns:repeat(4,1fr);align-content:center;justify-items:center;gap:7px;padding:10px;color:var(--ink-3)}
+.art.fog{background:var(--plane-2);position:relative;overflow:hidden}
+.art.fog::before,.art.fog::after{content:"";position:absolute;border-radius:6px;border:1px solid var(--hair-lit)}
+.art.fog::before{inset:16% 34% 30% 12%;background:rgba(255,255,255,.05)}
+.art.fog::after{inset:32% 12% 14% 36%;background:rgba(255,255,255,.09)}
+
+/* ── LIFTED · glass, and only here ───────────────────────── */
+.float{
+  position:absolute;z-index:40;display:none;flex-direction:column;
+  left:880px;top:452px;width:378px;height:322px;min-width:300px;min-height:220px;
+  background:var(--lifted);
+  backdrop-filter:blur(44px) saturate(200%);-webkit-backdrop-filter:blur(44px) saturate(200%);
+  border:1px solid var(--hair-lit);border-radius:14px;box-shadow:var(--shadow-lift);overflow:hidden;
+}
+.float.open{display:flex}
+.float .p-head{cursor:grab;padding:14px 16px 10px}
+.float .p-head:active{cursor:grabbing}
+.float .p-body,.float .sig,.float .watch{padding-left:16px;padding-right:16px;margin:0}
+.grip{position:absolute;right:3px;bottom:3px;width:15px;height:15px;cursor:nwse-resize}
+.grip::after{content:"";position:absolute;right:4px;bottom:4px;width:6px;height:6px;border-right:1.5px solid var(--ink-4);border-bottom:1.5px solid var(--ink-4)}
+
+/* ── laws overlay ────────────────────────────────────────── */
+body.laws .rail,body.laws .tabs,body.laws .dock,body.laws .float{position:relative}
+body.laws .rail::after,body.laws .tabs::after,body.laws .dock::after,body.laws .float::after{
+  content:attr(data-law);position:absolute;z-index:52;pointer-events:none;
+  font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+  padding:3px 7px;border-radius:5px;top:8px;right:8px;
+}
+body.laws .rail::after,body.laws .tabs::after{background:#6d93c9;color:#0b0f16}
+body.laws .dock::after{background:#c9a86d;color:#171106}
+body.laws .float::after{background:#7fc9b4;color:#06201a}
+body.laws .rail,body.laws .tabs{box-shadow:inset 0 0 0 1.5px rgba(109,147,201,.75)}
+body.laws .dock{box-shadow:inset 0 0 0 1.5px rgba(201,168,109,.7)}
+body.laws .float{box-shadow:var(--shadow-lift),inset 0 0 0 1.5px rgba(127,201,180,.85)}
+
+.toast{
+  position:absolute;left:50%;bottom:20px;transform:translate(-50%,10px);z-index:55;
+  display:flex;align-items:center;gap:9px;padding:9px 14px;opacity:0;pointer-events:none;
+  background:var(--lifted);backdrop-filter:blur(30px);-webkit-backdrop-filter:blur(30px);
+  border:1px solid var(--hair-lit);border-radius:9px;box-shadow:var(--shadow-lift);
+  font-size:12px;color:var(--ink-2);transition:opacity .22s var(--ease),transform .22s var(--ease);
+}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+.toast i{width:5px;height:5px;border-radius:50%;background:var(--accent)}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="desk"></div>
+
+<div class="lab">
+  <b>Panes &amp; widgets</b>
+  <button id="t-theme">Light</button>
+  <button id="t-split" class="on">Split drawer</button>
+  <button id="t-place">Vektor's place</button>
+  <button id="t-float">Tear off</button>
+  <button id="t-laws">Laws</button>
+</div>
+
+<main class="stage">
+<section class="app" id="app">
+
+  <aside class="rail" data-law="frame · glass">
+    <div class="lights"><i></i><i></i><i></i></div>
+
+    <div class="me">
+      <span data-mark="riley" data-size="26"></span>
+      <div><div class="me-n">Riley Coyote</div><div class="me-s">Polyphonic</div></div>
+    </div>
+
+    <button class="new"><span data-icon="plus" data-isize="13"></span><span>New conversation</span><kbd>⌘N</kbd></button>
+
+    <div class="group">
+      <p class="label">Home</p>
+      <button class="row"><span class="g" data-icon="clock" data-isize="13"></span>Today<span class="r">4</span></button>
+      <button class="row"><span class="g" data-icon="note" data-isize="13"></span>Notebook</button>
+      <button class="row"><span class="g" data-icon="grid" data-isize="13"></span>Library<span class="r">12</span></button>
+    </div>
+
+    <div class="group">
+      <p class="label">Residents</p>
+      <button class="row on" id="r-luca"><span data-mark="luca" data-size="18"></span>Luca<i class="live"></i></button>
+      <button class="row" id="r-vektor"><span data-mark="vektor" data-size="18"></span>Vektor<span class="r">works</span></button>
+      <button class="row" id="r-anima"><span data-mark="anima" data-size="18"></span>Anima<span class="r">2</span></button>
+      <button class="row" id="r-ziggy"><span data-mark="ziggy" data-size="18"></span>Ziggy<span class="r">64%</span></button>
+    </div>
+
+    <div class="group">
+      <p class="label">Projects</p>
+      <button class="row"><span class="g" data-icon="diamond" data-isize="12"></span>Polyphonic launch</button>
+      <button class="row"><span class="g" data-icon="diamond" data-isize="12"></span>Living memory</button>
+    </div>
+
+    <div class="foot"><span class="live" style="margin:0"></span>4 residents · 1 working<button class="ic" style="margin-left:auto" data-icon="gear"></button></div>
+  </aside>
+
+  <section class="work">
+    <nav class="tabs" data-law="frame · glass">
+      <button class="tab on"><span data-mark="luca" data-size="14"></span><span>Luca · Launch direction</span></button>
+      <button class="tab"><span data-mark="mythos" data-size="14"></span><span>Launch studio</span></button>
+      <button class="tab"><span data-icon="widget" data-isize="13"></span><span>What's alive</span></button>
+      <button class="ic" style="margin-left:4px" data-icon="plus"></button>
+    </nav>
+
+    <div class="dock" id="dock" data-law="content · ash">
+      <div class="main" id="col-main">
+
+        <!-- ── conversation ───────────────────────────── -->
+        <div class="pane" id="pane-conv">
+          <div class="head">
+            <span data-mark="luca" data-size="24"></span>
+            <div><h2>Luca</h2><p>With you · shaping the launch story</p></div>
+            <div class="acts">
+              <button class="ic" title="Ask another resident" data-icon="consult"></button>
+              <button class="ic" data-float title="Tear off" data-icon="tear"></button>
+              <button class="ic" data-icon="more"></button>
+            </div>
+          </div>
+
+          <div class="scroll">
+            <div class="hang">
+            <p class="day">Today · 9:42 PM</p>
+
+            <div class="msg">
+              <span data-mark="riley" data-size="22"></span>
+              <div>
+                <div class="by"><b>You</b><time>9:42</time></div>
+                <p>I want the launch to show what living with several agents actually feels like — not a dashboard full of AI features.</p>
+              </div>
+            </div>
+
+            <div class="msg">
+              <span data-mark="luca" data-size="22"></span>
+              <div>
+                <div class="by"><b>Luca</b><time>9:43</time></div>
+                <p>Then it should open on relationship, not capability. One conversation in focus; the rest of the network present at the edges.</p>
+                <p>If I need Vektor's eye on the shell, that exchange should unfold beside us — not replace this room.</p>
+                <div class="offer">Ready to ask Vektor for a visual systems pass</div>
+              </div>
+            </div>
+
+            <div class="msg">
+              <span data-mark="riley" data-size="22"></span>
+              <div>
+                <div class="by"><b>You</b><time>9:44</time></div>
+                <p>Do it. And keep the tracker where I can see it.</p>
+              </div>
+            </div>
+            </div>
+          </div>
+
+          <div class="compose">
+            <div class="field"><textarea placeholder="Write to Luca…"></textarea></div>
+            <div class="tools">
+              <button class="ic" data-icon="search"></button><button class="ic" data-icon="at"></button>
+              <span class="mode">Thoughtful</span>
+              <button class="go" data-icon="send" data-isize="13"></button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── the agent's place ──────────────────────── -->
+        <div class="pane" id="pane-place" hidden>
+          <div class="head">
+            <span data-mark="vektor" data-size="24"></span>
+            <div><h2>Vektor's place</h2><p>Their conversations, their gallery, what they're on now</p></div>
+            <div class="acts">
+              <button class="ic" data-float title="Tear off" data-icon="tear"></button>
+              <button class="ic" data-icon="more"></button>
+            </div>
+          </div>
+
+          <div class="scroll place">
+            <div class="hero">
+              <span data-mark="vektor" data-size="56"></span>
+              <div>
+                <h1>Vektor</h1>
+                <p>Visual systems. Working on the shell's glass hierarchy since Tuesday. Made twenty-three things this month — six of them nobody asked for.</p>
+              </div>
+            </div>
+
+            <div class="sect">
+              <p class="label">Now</p>
+              <div class="now">
+                <svg class="ring" viewBox="0 0 22 22"><circle class="b" cx="11" cy="11" r="8.6"/><circle class="f" cx="11" cy="11" r="8.6" stroke-dasharray="54" stroke-dashoffset="36"/></svg>
+                <div><div class="t1">Fog test — every surface at equal alpha</div><div class="t2">their own time · started 41 minutes ago</div></div>
+                <span class="v">unasked</span>
+              </div>
+            </div>
+
+            <div class="sect">
+              <p class="label">Conversations</p>
+              <button class="thread"><span data-mark="luca" data-size="18"></span><span class="t1">Luca × Vektor — the glass hierarchy</span><span class="v">observing</span></button>
+              <button class="thread"><span data-mark="anima" data-size="18"></span><span class="t1">Anima × Vektor — colour and grief</span><span class="v">yesterday</span></button>
+              <button class="thread"><span data-mark="riley" data-size="18"></span><span class="t1">You × Vektor — the palette ladder</span><span class="v">Friday</span></button>
+            </div>
+
+            <div class="sect">
+              <p class="label">Gallery · 23</p>
+              <div class="grid">
+                <button class="made"><span class="art ladder"></span><b>Palette ladder</b><span>v4 · Friday</span></button>
+                <button class="made"><span class="art notch"></span><b>Notch study</b><span>v2 · Thursday</span></button>
+                <button class="made"><span class="art sheet" data-sheet></span><b>Glyph sheet</b><span>v7 · Tuesday</span></button>
+                <button class="made"><span class="art fog"></span><b>Fog test</b><span>v1 · today</span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="vdiv" id="vdiv" title="Drag to resize"></div>
+
+      <div class="side" id="col-side">
+
+        <!-- ── consultation · no closed doors ─────────── -->
+        <div class="pane" id="pane-consult">
+          <div class="p-head">
+            <span class="stack"><span data-mark="luca" data-size="18"></span><span data-mark="vektor" data-size="18"></span></span>
+            <div><div class="t">Luca × Vektor</div><div class="s">Consultation</div></div>
+            <div class="acts">
+              <button class="ic" title="Open as tab" data-icon="open"></button>
+              <button class="ic" data-float title="Tear off" data-icon="tear"></button>
+              <button class="ic" id="close-consult" data-icon="close"></button>
+            </div>
+          </div>
+          <div class="p-body">
+            <div class="hang">
+            <p class="sysline">Luca reached out to Vektor</p>
+            <div class="said"><span data-mark="luca" data-size="18"></span><div><b>Luca</b><p>Riley wants glass, but Ash landed two days ago. What survives?</p></div></div>
+            <div class="said"><span data-mark="vektor" data-size="18"></span><div><b>Vektor</b><p>The reading plane. If every surface is equally transparent it becomes fog. Give the frame to glass; keep Ash where the words are.</p></div></div>
+            <div class="said"><span data-mark="luca" data-size="18"></span><div><b>Luca</b><p>Then translucency can mean exactly one thing: this is lifted.</p></div></div>
+            </div>
+          </div>
+          <div class="watch"><span>You can see everything here</span><button>Join</button></div>
+        </div>
+
+        <div class="hdiv" id="hdiv" title="Drag to resize"></div>
+
+        <!-- ── the widget ─────────────────────────────── -->
+        <div class="pane inst fixed" id="pane-widget" style="height:326px">
+          <div class="p-head">
+            <div><div class="t">What's alive right now</div><div class="s">Widget</div></div>
+            <div class="acts">
+              <button class="ic" title="Open as tab" data-icon="open"></button>
+              <button class="ic" data-float title="Tear off" data-icon="tear"></button>
+              <button class="ic" data-icon="close"></button>
+            </div>
+          </div>
+          <div class="p-body" id="widget-body">
+            <div class="line">
+              <span class="stack"><span data-mark="luca" data-size="16"></span><span data-mark="vektor" data-size="16"></span></span>
+              <div><div class="t1">Polyphonic launch</div><div class="t2">3 open threads · Luca and Vektor active</div></div>
+              <span class="v">live</span>
+            </div>
+            <div class="line">
+              <svg class="ring" viewBox="0 0 22 22"><circle class="b" cx="11" cy="11" r="8.6"/><circle class="f" cx="11" cy="11" r="8.6" stroke-dasharray="54" stroke-dashoffset="19"/></svg>
+              <div><div class="t1">Landing page — hero section</div><div class="t2">Ziggy · Codex · building for 22m</div></div>
+              <span class="v">64%</span>
+            </div>
+            <div class="line">
+              <span data-mark="anima" data-size="18"></span>
+              <div><div class="t1">Voice study</div><div class="t2">Anima · waiting on you</div></div>
+              <span class="v">6:10 PM</span>
+            </div>
+            <div class="line">
+              <span class="pulse idle"><i></i></span>
+              <div><div class="t1">Shell lab — panes and widgets</div><div class="t2">you · edited 12 minutes ago</div></div>
+              <span class="v">—</span>
+            </div>
+          </div>
+          <div class="sig">
+            <span>reads · projects · conversations · activity</span>
+            <span class="by"><span data-mark="vektor" data-size="12"></span>v3</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── lifted ─────────────────────────────────────── -->
+  <section class="float" id="float" data-law="lifted · glass">
+    <div class="p-head" id="f-head">
+      <div><div class="t">What's alive right now</div><div class="s">Floating · always on top</div></div>
+      <div class="acts">
+        <button class="ic" id="f-dock" title="Put it back" data-icon="dockback"></button>
+        <button class="ic" id="f-close" data-icon="close"></button>
+      </div>
+    </div>
+    <div class="p-body" id="f-body"></div>
+    <div class="sig"><span>reads · projects · conversations · activity</span><span class="by"><span data-mark="vektor" data-size="12"></span>v3</span></div>
+    <div class="grip" id="f-grip"></div>
+  </section>
+
+  <div class="toast" id="toast"><i></i><span id="toast-copy"></span></div>
+</section>
+</main>
+
+<script>
+/* Real identity marks, generated by the repo's own glyph.ts
+   (desktop/src/shared/ui/dot-display/identity/glyph.ts) — 7×7 lattice,
+   mirror or 2-fold rotational, drawn joined so one geometry survives
+   every size. Same seed, same mark, forever. */
+const MARKS = {
+  riley:  "1110111001110000010000011100001010001111100100010",
+  luca:   "0110000010001101011100101010011101011000100000110",
+  vektor: "0111110010001001000100110110001010011101110100010",
+  anima:  "0110000001110001101110100010111011000111000000110",
+  ziggy:  "0110110110001110000011100011010001001111100100010",
+  mythos: "0111100110000001100000011100000011000000110011110",
+};
+function markSVG(seed, size){
+  const c = MARKS[seed]; if(!c) return "";
+  const N = 7, p = size/8, o = p*0.5;
+  const lit = (x,y) => x>=0 && y>=0 && x<N && y<N && c[y*N+x] === "1";
+  const r = (size <= 20 ? .44 : size <= 40 ? .36 : .30) * p;
+  let d = "";
+  for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+    if(!lit(x,y)) continue;
+    const X = o + x*p, Y = o + y*p;
+    d += `<rect x="${X.toFixed(2)}" y="${Y.toFixed(2)}" width="${p.toFixed(2)}" height="${p.toFixed(2)}" rx="${r.toFixed(2)}"/>`;
+    if(lit(x+1,y)) d += `<rect x="${(X+p*.5).toFixed(2)}" y="${Y.toFixed(2)}" width="${p.toFixed(2)}" height="${p.toFixed(2)}"/>`;
+    if(lit(x,y+1)) d += `<rect x="${X.toFixed(2)}" y="${(Y+p*.5).toFixed(2)}" width="${p.toFixed(2)}" height="${p.toFixed(2)}"/>`;
+  }
+  return `<svg class="mark" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true"><g fill="currentColor">${d}</g></svg>`;
+}
+const ICONS={plus:`<path d="M7 2.6v8.8M2.6 7h8.8"/>`,search:`<circle cx="6.3" cy="6.3" r="3.7"/><path d="M9.1 9.1L11.6 11.6"/>`,at:`<circle cx="7" cy="7" r="2.6"/><path d="M9.6 7v1.4a1.9 1.9 0 0 0 3.8 0V7A6.4 6.4 0 1 0 9.6 12.8"/>`,send:`<path d="M7 11.6V2.9M3.4 6.4L7 2.8l3.6 3.6"/>`,gear:`<circle cx="7" cy="7" r="2.2"/><path d="M7 1.6v1.5M7 10.9v1.5M12.4 7h-1.5M3.1 7H1.6M10.8 3.2l-1 1M4.2 9.8l-1 1M10.8 10.8l-1-1M4.2 4.2l-1-1"/>`,clock:`<circle cx="7" cy="7" r="5"/><path d="M7 4.1V7l2 1.4"/>`,note:`<path d="M7 1.9l1.5 3.6L12 7l-3.5 1.5L7 12.1 5.5 8.5 2 7l3.5-1.5z"/>`,grid:`<rect x="2.2" y="2.2" width="4.2" height="4.2" rx="1"/><rect x="7.6" y="2.2" width="4.2" height="4.2" rx="1"/><rect x="2.2" y="7.6" width="4.2" height="4.2" rx="1"/><rect x="7.6" y="7.6" width="4.2" height="4.2" rx="1"/>`,diamond:`<path d="M7 2.2L11.8 7 7 11.8 2.2 7z"/>`,consult:`<circle cx="5.4" cy="7" r="3.4"/><circle cx="8.6" cy="7" r="3.4"/>`,tear:`<rect x="2.2" y="3.6" width="6.4" height="6.4" rx="1.4"/><path d="M8.2 3.6V2.4h3.4v3.4h-1.2"/>`,open:`<path d="M5.2 2.6h6.2v6.2M11.4 2.6L5.6 8.4M8.2 11.4H2.6V5.8"/>`,close:`<path d="M3.4 3.4l7.2 7.2M10.6 3.4l-7.2 7.2"/>`,dockback:`<path d="M8.8 11.4H2.6V5.2M2.6 11.4l5.8-5.8M5.8 2.6h5.6v5.6"/>`,more:`<circle cx="3.2" cy="7" r=".85" fill="currentColor" stroke="none"/><circle cx="7" cy="7" r=".85" fill="currentColor" stroke="none"/><circle cx="10.8" cy="7" r=".85" fill="currentColor" stroke="none"/>`,widget:`<rect x="2.2" y="2.2" width="9.6" height="9.6" rx="2"/><path d="M2.2 5.6h9.6"/>`};
+function paintIcons(scope){
+  (scope||document).querySelectorAll("[data-icon]").forEach(el => {
+    if(el.dataset.painted) return;
+    const n = Number(el.dataset.isize||14);
+    el.innerHTML = `<svg width="${n}" height="${n}" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[el.dataset.icon]||""}</svg>`;
+    el.style.display="grid"; el.style.placeItems="center"; el.dataset.painted="1";
+  });
+}
+function paintSheet(){
+  const seeds=["luca","vektor","anima","ziggy","riley","mythos","luca","vektor"];
+  document.querySelectorAll("[data-sheet]").forEach(el=>{
+    if(el.dataset.painted) return;
+    el.innerHTML = seeds.map(s=>markSVG(s,17)).join(""); el.dataset.painted="1";
+  });
+}
+function paintLadder(){
+  document.querySelectorAll(".art.ladder").forEach(el=>{
+    if(el.dataset.painted) return;
+    el.innerHTML = ["#0e0e0e","#171717","#202020","#282828","#313131"].map(c=>`<i style="background:${c}"></i>`).join("");
+    el.dataset.painted="1";
+  });
+}
+function paintMarks(scope){
+  (scope||document).querySelectorAll("[data-mark]").forEach(el => {
+    if(el.dataset.painted) return;
+    el.innerHTML = markSVG(el.dataset.mark, Number(el.dataset.size||22));
+    el.style.display = "block"; el.style.flex = "none";
+    el.dataset.painted = "1";
+  });
+}
+paintMarks(); paintIcons(); paintSheet(); paintLadder();
+
+const root = document.documentElement, app = document.getElementById("app");
+const toast = document.getElementById("toast"), toastCopy = document.getElementById("toast-copy");
+let tt; const say = m => { toastCopy.textContent = m; toast.classList.add("on");
+  clearTimeout(tt); tt = setTimeout(()=>toast.classList.remove("on"), 2300); };
+
+const themeBtn = document.getElementById("t-theme");
+themeBtn.onclick = () => {
+  const light = root.dataset.theme !== "light";
+  root.dataset.theme = light ? "light" : "dark";
+  themeBtn.textContent = light ? "Dark" : "Light";
+};
+
+const lawsBtn = document.getElementById("t-laws");
+lawsBtn.onclick = () => {
+  document.body.classList.toggle("laws");
+  lawsBtn.classList.toggle("on", document.body.classList.contains("laws"));
+};
+
+const splitBtn = document.getElementById("t-split");
+const widget = document.getElementById("pane-widget"), hdiv = document.getElementById("hdiv");
+splitBtn.onclick = () => {
+  const on = widget.hasAttribute("hidden");
+  widget.toggleAttribute("hidden", !on); hdiv.toggleAttribute("hidden", !on);
+  splitBtn.classList.toggle("on", on);
+  say(on ? "Drawer split — the widget opened below" : "Widget closed");
+};
+
+const placeBtn = document.getElementById("t-place");
+const conv = document.getElementById("pane-conv"), place = document.getElementById("pane-place");
+function showPlace(on){
+  conv.toggleAttribute("hidden", on); place.toggleAttribute("hidden", !on);
+  placeBtn.classList.toggle("on", on);
+  document.getElementById("r-vektor").classList.toggle("on", on);
+  document.getElementById("r-luca").classList.toggle("on", !on);
+  if(on) say("Vektor's place — nothing in it is hidden from you");
+}
+placeBtn.onclick = () => showPlace(place.hasAttribute("hidden"));
+document.getElementById("r-vektor").onclick = () => showPlace(true);
+document.getElementById("r-luca").onclick = () => showPlace(false);
+
+const float = document.getElementById("float"), fBody = document.getElementById("f-body");
+const floatBtn = document.getElementById("t-float");
+function setFloat(on){
+  if(on){ fBody.innerHTML = document.getElementById("widget-body").innerHTML; }
+  float.classList.toggle("open", on); floatBtn.classList.toggle("on", on);
+  /* a torn-off pane leaves the dock — it is the same object, moved */
+  widget.toggleAttribute("hidden", on);
+  hdiv.toggleAttribute("hidden", on || widget.dataset.closed === "1");
+  splitBtn.classList.toggle("on", !on);
+  if(on) say("Torn off — the pane left the drawer");
+}
+floatBtn.onclick = () => setFloat(!float.classList.contains("open"));
+document.querySelectorAll("[data-float]").forEach(b => b.onclick = () => setFloat(true));
+document.getElementById("f-close").onclick = () => setFloat(false);
+document.getElementById("f-dock").onclick = () => { setFloat(false); say("Docked back into the drawer"); };
+document.getElementById("close-consult").onclick = () => {
+  document.getElementById("pane-consult").toggleAttribute("hidden", true);
+  hdiv.toggleAttribute("hidden", true);
+};
+
+/* drag + resize the lifted window */
+(function(){
+  const h = document.getElementById("f-head"); let d = null;
+  h.addEventListener("pointerdown", e => {
+    if(e.target.closest("button")) return;
+    const r = float.getBoundingClientRect(), a = app.getBoundingClientRect();
+    d = { id:e.pointerId, dx:e.clientX-r.left, dy:e.clientY-r.top, a };
+    h.setPointerCapture(e.pointerId);
+  });
+  h.addEventListener("pointermove", e => {
+    if(!d || d.id !== e.pointerId) return;
+    float.style.left = Math.max(8, Math.min(d.a.width - float.offsetWidth - 8, e.clientX - d.a.left - d.dx)) + "px";
+    float.style.top  = Math.max(8, Math.min(d.a.height - float.offsetHeight - 8, e.clientY - d.a.top - d.dy)) + "px";
+  });
+  h.addEventListener("pointerup", e => { if(d){ h.releasePointerCapture(e.pointerId); d = null; } });
+
+  const g = document.getElementById("f-grip"); let z = null;
+  g.addEventListener("pointerdown", e => { e.stopPropagation();
+    z = { id:e.pointerId, x:e.clientX, y:e.clientY, w:float.offsetWidth, h:float.offsetHeight };
+    g.setPointerCapture(e.pointerId); });
+  g.addEventListener("pointermove", e => { if(!z || z.id !== e.pointerId) return;
+    float.style.width  = Math.max(300, Math.min(640, z.w + e.clientX - z.x)) + "px";
+    float.style.height = Math.max(220, Math.min(700, z.h + e.clientY - z.y)) + "px"; });
+  g.addEventListener("pointerup", e => { g.releasePointerCapture(e.pointerId); z = null; });
+})();
+
+/* pane dividers */
+(function(){
+  const side = document.getElementById("col-side");
+  const v = document.getElementById("vdiv"); let a = null;
+  v.addEventListener("pointerdown", e => { a = { id:e.pointerId, x:e.clientX, w:side.offsetWidth }; v.setPointerCapture(e.pointerId); });
+  v.addEventListener("pointermove", e => { if(!a || a.id !== e.pointerId) return;
+    side.style.width = Math.max(300, Math.min(620, a.w - (e.clientX - a.x))) + "px"; });
+  v.addEventListener("pointerup", e => { v.releasePointerCapture(e.pointerId); a = null; });
+
+  const h = document.getElementById("hdiv"); let b = null;
+  h.addEventListener("pointerdown", e => { b = { id:e.pointerId, y:e.clientY, h:widget.offsetHeight }; h.setPointerCapture(e.pointerId); });
+  h.addEventListener("pointermove", e => { if(!b || b.id !== e.pointerId) return;
+    widget.style.height = Math.max(180, Math.min(640, b.h - (e.clientY - b.y))) + "px"; });
+  h.addEventListener("pointerup", e => { h.releasePointerCapture(e.pointerId); b = null; });
+})();
+
+const q = new URLSearchParams(location.search);
+if(q.get("theme") === "light") themeBtn.click();
+if(q.get("place") === "1") showPlace(true);
+if(q.get("float") === "1") setFloat(true);
+if(q.get("laws") === "1") lawsBtn.click();
+</script>
+</body>
+</html>
