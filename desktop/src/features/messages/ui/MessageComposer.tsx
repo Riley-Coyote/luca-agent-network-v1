@@ -1,4 +1,7 @@
+import { ArrowUp } from "lucide-react";
 import * as React from "react";
+
+import { Button } from "@/shared/ui/button";
 
 import { EditorContent } from "@tiptap/react";
 import { useChannelLinks } from "@/features/messages/lib/useChannelLinks";
@@ -1016,7 +1019,7 @@ function MessageComposerImpl({
             onCancelReply={onCancelReply}
           />
           <form
-            className="relative z-10 isolate rounded-lg border border-border bg-card px-2 py-1.5 shadow-none"
+            className="relative z-10 isolate rounded-xl border bg-muted px-3 py-2 transition-colors"
             data-testid="message-composer"
             onDragEnter={ownsDropZone ? media.handleDragEnter : undefined}
             onDragLeave={ownsDropZone ? media.handleDragLeave : undefined}
@@ -1106,32 +1109,10 @@ function MessageComposerImpl({
               </div>
             )}
 
-            <MessageComposerToolbar
-              composerDisabled={disabled}
-              editor={richText.editor}
-              extraActions={toolbarExtraActions}
-              formattingDisabled={disabled}
-              isEmojiPickerOpen={isEmojiPickerOpen}
-              isFormattingOpen={isFormattingOpen}
-              isSending={isSending}
-              isUploading={media.isUploading}
-              audioRecordingElapsedSeconds={audioRecorder.elapsedSeconds}
-              audioRecordingStatus={audioRecorder.status}
-              onCaptureSelection={handleCaptureSelection}
-              onAudioRecordCancel={audioRecorder.cancel}
-              onAudioRecordStart={audioRecorder.start}
-              onAudioRecordStop={audioRecorder.stop}
-              onEmojiPickerOpenChange={setIsEmojiPickerOpen}
-              onEmojiSelect={insertEmoji}
-              onFormattingToggle={handleFormattingToggle}
-              onLinkButton={linkEditor.openFromToolbar}
-              onOpenContext={
-                conversationContext ? () => setIsContextOpen(true) : undefined
-              }
-              onOpenMentionPicker={openMentionPicker}
-              onPaperclip={handlePaperclipClick}
-              sendDisabled={sendDisabled}
-            >
+            {/* The card holds only what the message IS: the text, and the one
+             * control that commits it. Everything else lives on the baseline
+             * row below, on the ground. */}
+            <div className="flex items-end gap-2">
               {/* biome-ignore lint/a11y/noStaticElementInteractions: keydown handler bridges Tiptap editor to autocomplete and submit */}
               <div
                 className="rich-text-composer relative max-h-40 min-w-0 flex-1 overflow-y-auto"
@@ -1141,8 +1122,49 @@ function MessageComposerImpl({
               >
                 <EditorContent editor={richText.editor} />
               </div>
-            </MessageComposerToolbar>
+              <Button
+                aria-label={isSending ? "Sending" : "Send message"}
+                className="mb-0.5 size-7 shrink-0 rounded-full bg-ink text-background shadow-none hover:bg-ink/90 disabled:bg-plate disabled:text-ink-ghost disabled:opacity-100"
+                data-testid="send-message"
+                disabled={sendDisabled || isSending}
+                size="icon"
+                type="submit"
+              >
+                {isSending ? (
+                  <span
+                    aria-hidden
+                    className="size-3.5 animate-spin rounded-full border border-current border-t-transparent"
+                  />
+                ) : (
+                  <ArrowUp aria-hidden className="size-3.5" />
+                )}
+              </Button>
+            </div>
           </form>
+          <MessageComposerToolbar
+            composerDisabled={disabled}
+            editor={richText.editor}
+            extraActions={toolbarExtraActions}
+            formattingDisabled={disabled}
+            isEmojiPickerOpen={isEmojiPickerOpen}
+            isFormattingOpen={isFormattingOpen}
+            isUploading={media.isUploading}
+            audioRecordingElapsedSeconds={audioRecorder.elapsedSeconds}
+            audioRecordingStatus={audioRecorder.status}
+            onCaptureSelection={handleCaptureSelection}
+            onAudioRecordCancel={audioRecorder.cancel}
+            onAudioRecordStart={audioRecorder.start}
+            onAudioRecordStop={audioRecorder.stop}
+            onEmojiPickerOpenChange={setIsEmojiPickerOpen}
+            onEmojiSelect={insertEmoji}
+            onFormattingToggle={handleFormattingToggle}
+            onLinkButton={linkEditor.openFromToolbar}
+            onOpenContext={
+              conversationContext ? () => setIsContextOpen(true) : undefined
+            }
+            onOpenMentionPicker={openMentionPicker}
+            onPaperclip={handlePaperclipClick}
+          />
         </div>
       </footer>
 

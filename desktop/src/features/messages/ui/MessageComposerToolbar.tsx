@@ -32,6 +32,8 @@ import { SelectionFormattingTray } from "./SelectionFormattingTray";
 export const MessageComposerToolbar = React.memo(
   function MessageComposerToolbar({
     children,
+    isSending = false,
+    sendDisabled,
     audioRecordingElapsedSeconds = 0,
     audioRecordingStatus = "idle",
     composerDisabled,
@@ -40,7 +42,6 @@ export const MessageComposerToolbar = React.memo(
     formattingDisabled,
     isEmojiPickerOpen,
     isFormattingOpen,
-    isSending,
     isUploading,
     onCaptureSelection,
     onAudioRecordCancel,
@@ -53,9 +54,16 @@ export const MessageComposerToolbar = React.memo(
     onOpenContext,
     onOpenMentionPicker,
     onPaperclip,
-    sendDisabled,
   }: {
+    /**
+     * Legacy slot: the forum composer still renders its input inside this
+     * row. The message composer no longer does — its card holds the input
+     * and the send control, and this row sits naked on the ground below.
+     */
     children?: React.ReactNode;
+    isSending?: boolean;
+    /** When provided, an in-row send button renders (forum layout only). */
+    sendDisabled?: boolean;
     audioRecordingElapsedSeconds?: number;
     audioRecordingStatus?: AudioAttachmentRecorderStatus;
     composerDisabled: boolean;
@@ -64,7 +72,6 @@ export const MessageComposerToolbar = React.memo(
     formattingDisabled: boolean;
     isEmojiPickerOpen: boolean;
     isFormattingOpen: boolean;
-    isSending: boolean;
     isUploading: boolean;
     onCaptureSelection: () => void;
     onAudioRecordCancel?: () => void;
@@ -77,7 +84,6 @@ export const MessageComposerToolbar = React.memo(
     onOpenContext?: () => void;
     onOpenMentionPicker: () => void;
     onPaperclip: () => void;
-    sendDisabled: boolean;
   }) {
     const isRecording = audioRecordingStatus === "recording";
     const isAudioAvailable = Boolean(onAudioRecordStart);
@@ -96,8 +102,12 @@ export const MessageComposerToolbar = React.memo(
               : "Audio recording is available in conversations";
 
     return (
+      /* The baseline row. It sits BELOW the composer card, directly on the
+       * conversation ground — no surface, no border. One box on screen (the
+       * card, which is only text) is what keeps the composer thin; chrome
+       * that lives inside a box reads as a second object. */
       <div
-        className="flex min-w-0 shrink-0 items-center gap-0.5"
+        className="flex min-w-0 shrink-0 items-center gap-0.5 px-1 pt-1"
         data-testid="message-composer-toolbar"
       >
         <SelectionFormattingTray
@@ -247,6 +257,26 @@ export const MessageComposerToolbar = React.memo(
           <TooltipContent>{audioButtonLabel}</TooltipContent>
         </Tooltip>
 
+        {sendDisabled !== undefined ? (
+          <Button
+            aria-label={isSending ? "Sending" : "Send message"}
+            className="ml-1 size-7 rounded-full border border-border/70 bg-secondary p-0 text-secondary-foreground shadow-none hover:bg-accent"
+            data-testid="send-message"
+            disabled={sendDisabled || isSending}
+            size="icon"
+            type="submit"
+          >
+            {isSending ? (
+              <span
+                aria-hidden
+                className="size-3.5 animate-spin rounded-full border border-current border-t-transparent"
+              />
+            ) : (
+              <ArrowUp aria-hidden className="size-3.5" />
+            )}
+          </Button>
+        ) : null}
+
         <span aria-live="polite" className="sr-only">
           {audioRecordingStatus === "requesting"
             ? "Requesting microphone access"
@@ -254,24 +284,6 @@ export const MessageComposerToolbar = React.memo(
               ? "Preparing audio attachment"
               : ""}
         </span>
-
-        <Button
-          aria-label={isSending ? "Sending" : "Send message"}
-          className="ml-1 size-7 rounded-full border border-border/70 bg-secondary p-0 text-secondary-foreground shadow-none hover:bg-accent"
-          data-testid="send-message"
-          disabled={sendDisabled || isSending}
-          size="icon"
-          type="submit"
-        >
-          {isSending ? (
-            <span
-              aria-hidden
-              className="size-3.5 animate-spin rounded-full border border-current border-t-transparent"
-            />
-          ) : (
-            <ArrowUp aria-hidden className="size-3.5" />
-          )}
-        </Button>
       </div>
     );
   },
