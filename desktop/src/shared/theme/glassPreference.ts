@@ -91,7 +91,32 @@ function readStored(key: string): string | null {
 }
 
 let storedGlassFloor = parseGlassFloor(readStored(GLASS_STORAGE_KEY));
-let storedGlassMaterial = parseGlassMaterial(
+type StoredGlassMaterials = Record<string, GlassMaterial>;
+const EMPTY_STORED_GLASS_MATERIALS: StoredGlassMaterials = {};
+
+function parseStoredGlassMaterials(value: string | null): StoredGlassMaterials {
+  if (!value) return {};
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      return {};
+    const materials: StoredGlassMaterials = {};
+    for (const [themeName, candidate] of Object.entries(parsed)) {
+      const material = parseGlassMaterial(
+        typeof candidate === "string" ? candidate : null,
+      );
+      if (material) materials[themeName] = material;
+    }
+    return materials;
+  } catch {
+    // The first glass-shell candidate stored one scalar globally. Treat that
+    // value as unset: carrying it forward would make one theme's choice sticky
+    // across every other theme and defeat their authored defaults.
+    return {};
+  }
+}
+
+let storedGlassMaterials = parseStoredGlassMaterials(
   readStored(GLASS_MATERIAL_STORAGE_KEY),
 );
 
@@ -112,8 +137,12 @@ function getStoredGlassFloorSnapshot(): GlassFloor | null {
   return storedGlassFloor;
 }
 
-function getStoredGlassMaterialSnapshot(): GlassMaterial | null {
-  return storedGlassMaterial;
+function getStoredGlassMaterialSnapshot(): StoredGlassMaterials {
+  return storedGlassMaterials;
+}
+
+function getStoredGlassMaterialServerSnapshot(): StoredGlassMaterials {
+  return EMPTY_STORED_GLASS_MATERIALS;
 }
 
 function getServerSnapshot(): null {
@@ -135,10 +164,9 @@ export function getGlassMaterial(
   isDark: boolean,
 ): GlassMaterial {
   const fallback = defaultMaterialFor(themeName, isDark);
-  if (!storedGlassMaterial) return fallback;
-  return allowedMaterials(isDark).includes(storedGlassMaterial)
-    ? storedGlassMaterial
-    : fallback;
+  const stored = storedGlassMaterials[themeName];
+  if (!stored) return fallback;
+  return allowedMaterials(isDark).includes(stored) ? stored : fallback;
 }
 
 /** Update the glass setting and notify all subscribed components. */
@@ -155,11 +183,17 @@ export function setGlassFloor(value: GlassFloor): void {
 }
 
 /** Update the material weight and notify all subscribed components. */
-export function setGlassMaterial(value: GlassMaterial): void {
-  storedGlassMaterial = value;
+export function setGlassMaterial(
+  themeName: string,
+  value: GlassMaterial,
+): void {
+  storedGlassMaterials = { ...storedGlassMaterials, [themeName]: value };
 
   try {
-    globalThis.localStorage?.setItem(GLASS_MATERIAL_STORAGE_KEY, value);
+    globalThis.localStorage?.setItem(
+      GLASS_MATERIAL_STORAGE_KEY,
+      JSON.stringify(storedGlassMaterials),
+    );
   } catch {
     // Persistence is best-effort; the in-memory value still applies.
   }
@@ -186,12 +220,13 @@ export function useGlassMaterial(
   themeName: string,
   isDark: boolean,
 ): GlassMaterial {
-  const stored = React.useSyncExternalStore(
+  const storedByTheme = React.useSyncExternalStore(
     subscribe,
     getStoredGlassMaterialSnapshot,
-    getServerSnapshot,
+    getStoredGlassMaterialServerSnapshot,
   );
   const fallback = defaultMaterialFor(themeName, isDark);
+  const stored = storedByTheme[themeName];
   if (!stored) return fallback;
   return allowedMaterials(isDark).includes(stored) ? stored : fallback;
 }

@@ -767,7 +767,9 @@ function GlassMaterialSetting({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-72">
           <DropdownMenuRadioGroup
-            onValueChange={(next) => setGlassMaterial(next as GlassMaterial)}
+            onValueChange={(next) =>
+              setGlassMaterial(themeName, next as GlassMaterial)
+            }
             value={glassMaterial}
           >
             {options.map((option) => (
