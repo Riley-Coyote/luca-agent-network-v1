@@ -11,6 +11,18 @@
    apply only when data-luca-glass is present, which is never stamped for
    buzz themes. */
 
+/* The plate scrims the DESKTOP, not a painted body: everything between the
+   NSVisualEffectView and the plate must yield. Mirrors the legacy
+   data-buzz-translucent clearing (theme.css) as a parallel system. */
+:root[data-luca-shell][data-luca-glass][data-material],
+:root[data-luca-shell][data-luca-glass][data-material] body,
+:root[data-luca-shell][data-luca-glass][data-material] .buzz-huddle-shell,
+:root[data-luca-shell][data-luca-glass][data-material]
+  .buzz-huddle-app-surface {
+  background-color: transparent;
+  background-image: none;
+}
+
 :root[data-luca-shell][data-luca-glass] .luca-theme-shell-layer {
   background-image: none;
 }
@@ -81,6 +93,16 @@
   :root[data-luca-shell][data-luca-glass][data-material]
     .luca-theme-shell-layer,
   :root[data-luca-shell][data-luca-glass] .luca-theme-shell-layer {
+    background-color: hsl(var(--mn-floor));
+  }
+
+  /* The cleared layers come back too, or the window collapses to a solid
+     plate floating over a transparent shell. */
+  :root[data-luca-shell][data-luca-glass][data-material],
+  :root[data-luca-shell][data-luca-glass][data-material] body,
+  :root[data-luca-shell][data-luca-glass][data-material] .buzz-huddle-shell,
+  :root[data-luca-shell][data-luca-glass][data-material]
+    .buzz-huddle-app-surface {
     background-color: hsl(var(--mn-floor));
   }
 }
