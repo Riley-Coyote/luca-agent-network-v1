@@ -431,20 +431,24 @@ pub(crate) async fn resolve_exchange(
             .map_err(|error| format!("exchange id is invalid: {error}"))?;
         let relay = AppExchangeRelay::new(app.clone());
         let store = global_exchange_store(&app)?;
+        let now_unix_secs = now_unix_secs()?;
         let snapshot = apply_owner_decision(
             &relay,
             &store,
             &exchange_id,
             &owner_pubkey(&app)?,
             action.as_str(),
-            now_unix_secs()?,
+            now_unix_secs,
         )?;
         if action == "stop" && snapshot.phase == ExchangePhase::Closed {
             fade_visits(
                 &relay,
                 &store,
                 &snapshot.record.conversation_id,
-                VisitFadeTrigger::ExchangeStopped(&snapshot.record.exchange_id),
+                VisitFadeTrigger::ExchangeStopped {
+                    exchange_id: &snapshot.record.exchange_id,
+                    now_unix_secs,
+                },
             )
             .map_err(|error| error.to_string())?;
         }

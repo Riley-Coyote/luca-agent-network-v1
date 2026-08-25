@@ -223,6 +223,22 @@ impl ExchangeStore {
         self.heads.get(exchange_id.as_str())
     }
 
+    /// Whether this room has a known, open, non-expired exchange involving a resident.
+    pub(crate) fn has_open_exchange_involving(
+        &self,
+        conversation_id: &OpaqueId,
+        resident: &Hex64,
+        now_unix_secs: u64,
+    ) -> bool {
+        self.heads.values().any(|head| {
+            let record = &head.record;
+            &record.conversation_id == conversation_id
+                && record.members.contains(resident)
+                && record.state == luca_protocol::ExchangeStateV1::Open
+                && record.deadline.get() >= now_unix_secs
+        })
+    }
+
     /// Replace the stored head when the candidate is genuinely newer.
     ///
     /// The rule mirrors the relay's NIP-33 replacement: a later `created_at`
