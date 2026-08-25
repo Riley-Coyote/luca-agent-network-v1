@@ -27,7 +27,7 @@ import { CommunityOnboardingProvider } from "@/features/onboarding/communityOnbo
 import { NostrBindConsentDialog } from "@/features/profile/ui/NostrBindConsentDialog";
 import { UpdaterProvider } from "@/features/settings/hooks/UpdaterProvider";
 import { KIND_SYSTEM_MESSAGE } from "@/shared/constants/kinds";
-import { ThemeProvider } from "@/shared/theme/ThemeProvider";
+import { ThemeProvider, useTheme } from "@/shared/theme/ThemeProvider";
 import { EmojiBurstProvider } from "@/shared/ui/EmojiBurstProvider";
 import { PoofBurstProvider } from "@/shared/ui/PoofBurstProvider";
 import { Toaster } from "@/shared/ui/sonner";
@@ -263,6 +263,21 @@ async function buildScene() {
   window.location.hash = `#/channels/${openRoomId}`;
 }
 
+/**
+ * Harness hook: lab-shots switches themes IN PAGE (not by reload) to prove
+ * a departing palette leaves nothing behind on the root. Test-only export;
+ * the lab is never shipped.
+ */
+function LabThemeHandle() {
+  const { setTheme } = useTheme();
+  React.useEffect(() => {
+    (
+      window as unknown as { __labSetTheme?: (name: string) => void }
+    ).__labSetTheme = setTheme;
+  }, [setTheme]);
+  return null;
+}
+
 function renderApp() {
   document.documentElement.setAttribute("data-luca-shell", "");
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
@@ -270,6 +285,7 @@ function renderApp() {
       <CommunitiesProvider>
         <CommunityOnboardingProvider>
           <ThemeProvider defaultTheme="buzz">
+            <LabThemeHandle />
             <TooltipProvider delayDuration={300}>
               <EmojiBurstProvider>
                 <PoofBurstProvider>

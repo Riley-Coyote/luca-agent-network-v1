@@ -83,6 +83,28 @@ dot-display/identity/*`, `trafficLightPosition` in `tauri.conf.json`.
 
 ## 4 · Chunk A — palettes + the vibrancy floor
 
+> **AMENDMENT (2026-08-24, theme consolidation — read before A1/A2).** The
+> theme system was consolidated after this plan was written (branch
+> `design/lab`, commits "role registry" → "one semantic mapping" →
+> "floor is one surface"). Three mechanical deltas for this chunk:
+>
+> 1. **Drop the `navigator` field** from `SMOKE_THEME_COLORS` /
+>    `ONYX_THEME_COLORS`. The role was collapsed into `floor`; the
+>    `ThemeColors` interface in `adaptive-theme.ts` no longer has it and
+>    `projectLadder()` will not read it.
+> 2. **Builders are one line now.** A new named theme's builder is
+>    `{ isDark, vars: { ...createLucaThemeVars().vars, ...projectLadder(COLORS) } }`
+>    — do NOT hand-emit `--mn-*` keys or any semantic token. A contract
+>    test (`adaptive-theme.test.mjs`, "builders speak only in roles and
+>    signals") fails the build if a builder emits anything outside
+>    `MN_ROLE_VARS ∪ SIGNAL_VARS` from `role-registry.ts`. If glass needs
+>    genuinely new tokens, add them to the registry in the same change.
+> 3. **The semantic mapping lives ONLY in `conversation-shell.css`**
+>    (theme.css's copy is deleted). Add glass-state CSS beside the scale
+>    there, per §A3′; do not re-introduce a mapping in theme.css.
+>
+> Everything else in this chunk stands.
+
 ### A1. Palette exports (verbatim)
 
 Append to `adaptive-theme.ts` beside the existing exports, with these exact

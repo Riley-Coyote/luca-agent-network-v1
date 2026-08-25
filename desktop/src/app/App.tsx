@@ -315,7 +315,6 @@ function PersonalHomeProvisioningError({
   );
 }
 
-
 const IDENTITY_NOT_READY_MESSAGE = "Your Luca identity is not ready yet.";
 function PersonalHomeGate({
   activeCommunity,

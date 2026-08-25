@@ -74,7 +74,6 @@ export function previewVarsFromLadder(colors: ThemeColors): ThemePreviewVars {
   };
 }
 
-
 function hsl(vars: ThemePreviewVars | null, key: string) {
   return `hsl(${vars?.[key] ?? LIGHT_PREVIEW_VARS[key]})`;
 }

@@ -30,7 +30,10 @@ const opt = (name, fallback) => {
   const i = args.indexOf(name);
   return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
 };
-const themes = opt("--themes", "buzz,graphite,catppuccin-latte").split(",");
+const themes = opt(
+  "--themes",
+  "buzz,graphite,void,ash,inverse,paper,catppuccin-latte,vitesse-dark,vesper",
+).split(",");
 
 if (!flag("--no-build")) {
   execSync("node scripts/build-shell-lab.mjs", {
@@ -484,6 +487,106 @@ for (const theme of themes) {
     resident.present = false;
   }
 
+  // ── Theme-system contract (the consolidation's own assertions) ──
+  const themeChecks = await page.evaluate(() => {
+    const q = (sel) => document.querySelector(sel);
+    const rgb = (str) => {
+      const m = String(str).match(/[\d.]+/g);
+      if (!m) return null;
+      // color(srgb r g b) comes back 0..1; rgb() comes back 0..255.
+      const v = m.slice(0, 3).map(Number);
+      return String(str).startsWith("color(") ? v.map((x) => x * 255) : v;
+    };
+    const bgOf = (el) => (el ? getComputedStyle(el).backgroundColor : null);
+    const transparent = (c) => !c || c === "rgba(0, 0, 0, 0)";
+    // Resolve a custom property to actual pixels through a probe element, so
+    // var() indirection (e.g. the huddle family) resolves like real paint.
+    const probe = document.createElement("div");
+    document.body.appendChild(probe);
+    const resolve = (expr) => {
+      probe.style.backgroundColor = "";
+      probe.style.backgroundColor = expr;
+      return getComputedStyle(probe).backgroundColor;
+    };
+    const shellLayer = bgOf(q(".luca-theme-shell-layer"));
+    const railRaw = bgOf(q('[data-sidebar="sidebar"]'));
+    const insetRaw = bgOf(q("[data-buzz-glass-inset]"));
+    const railEffective = transparent(railRaw) ? shellLayer : railRaw;
+    const groundEffective = transparent(insetRaw) ? shellLayer : insetRaw;
+    const plate = q('[data-message-side="own"] [data-message-plate]');
+    const surfaceBg = bgOf(q("[data-luca-conversation-surface]"));
+    const plateBg = plate ? bgOf(plate) : null;
+    const delta = (a, b) => {
+      const ra = rgb(a);
+      const rb = rgb(b);
+      if (!ra || !rb) return null;
+      return Math.max(...ra.map((x, i) => Math.abs(x - rb[i])));
+    };
+    const hueSat = (c) => {
+      const v = rgb(c);
+      if (!v) return null;
+      const [r, g, b] = v.map((x) => x / 255);
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const d = max - min;
+      let h = 0;
+      if (d > 0) {
+        if (max === r) h = ((g - b) / d) % 6;
+        else if (max === g) h = (b - r) / d + 2;
+        else h = (r - g) / d + 4;
+        h = (h * 60 + 360) % 360;
+      }
+      const l = (max + min) / 2;
+      const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+      return { h, s: sat };
+    };
+    const drawerResolved = resolve("hsl(var(--huddle-drawer-surface))");
+    const surfaceHS = hueSat(surfaceBg);
+    const drawerHS = hueSat(drawerResolved);
+    // The blue-strip class of bug: a huddle surface leaning into the 215–235
+    // hue band at real chroma while the shell's own surface does not.
+    const huddleOffFamily =
+      drawerHS && surfaceHS
+        ? drawerHS.h >= 215 &&
+          drawerHS.h <= 235 &&
+          drawerHS.s > 0.1 &&
+          Math.abs(drawerHS.h - surfaceHS.h) > 30
+        : null;
+    // Active rail row legibility: WCAG contrast of the row's text against
+    // the pill it sits on.
+    const active = q('[data-sidebar="sidebar"] [data-active="true"]');
+    let activeContrast = null;
+    if (active) {
+      const lum = (c) => {
+        const v = rgb(c);
+        if (!v) return null;
+        const [r, g, b] = v.map((x) => {
+          const n = x / 255;
+          return n <= 0.03928 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4;
+        });
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      const fg = lum(getComputedStyle(active).color);
+      const bgC = transparent(bgOf(active)) ? railEffective : bgOf(active);
+      const bg = lum(bgC);
+      if (fg !== null && bg !== null) {
+        const [hi, lo] = fg > bg ? [fg, bg] : [bg, fg];
+        activeContrast = (hi + 0.05) / (lo + 0.05);
+      }
+    }
+    probe.remove();
+    return {
+      railEffective,
+      groundEffective,
+      railFloorEqual: railEffective === groundEffective,
+      plateDelta: delta(plateBg, surfaceBg),
+      huddleOffFamily,
+      activeContrast:
+        activeContrast === null ? null : Math.round(activeContrast * 100) / 100,
+    };
+  });
+  Object.assign(checks, themeChecks);
+
   const expect = (name, ok, detail) => {
     if (ok === null || ok === undefined) return;
     if (!ok) failures.push(`${theme}: ${name} ${detail ?? ""}`.trim());
@@ -573,6 +676,25 @@ for (const theme of themes) {
       `(${resident.openAgent})`,
     );
   }
+  expect(
+    "rail and floor are one surface",
+    checks.railFloorEqual,
+    `(rail ${checks.railEffective} vs ground ${checks.groundEffective})`,
+  );
+  expect(
+    "owner plate reads against the card",
+    checks.plateDelta !== null ? checks.plateDelta >= 4 : null,
+    `(Δ${checks.plateDelta})`,
+  );
+  expect(
+    "huddle surface stays in the shell's family",
+    checks.huddleOffFamily === null ? null : !checks.huddleOffFamily,
+  );
+  expect(
+    "active rail row is legible",
+    checks.activeContrast !== null ? checks.activeContrast >= 4.5 : null,
+    `(${checks.activeContrast}:1)`,
+  );
   if (theme === "graphite") {
     expect(
       "graphite sidebar rgb(13, 13, 15)",
@@ -596,6 +718,83 @@ for (const theme of themes) {
   await page.close();
 }
 
+// ── The switch tortures: a departing palette must leave nothing behind. ──
+// In-page switches (not fresh loads), because stale inline vars only show
+// when a theme is REPLACED. Route: derived → named → light → dark crosses
+// every builder family.
+{
+  const page = await browser.newPage({
+    viewport: { width: 1440, height: 900 },
+  });
+  await page.goto(`http://127.0.0.1:${port}/shell-lab.html?theme=vitesse-dark`);
+  await page.waitForSelector("[data-message-plate]", { timeout: 20000 });
+  await page.waitForTimeout(1200);
+  const step = async (name, expectFloor) => {
+    await page.evaluate((n) => window.__labSetTheme?.(n), name);
+    await page.waitForTimeout(900);
+    return page.evaluate((wantFloor) => {
+      const style = document.documentElement.getAttribute("style") ?? "";
+      // --sidebar-primary/-active pairs are accent-system-owned and pinned
+      // inline by design (applyAccentColor); every OTHER semantic token
+      // inline is a leak.
+      const semantic = (
+        style.match(
+          /--(?:background|foreground|card|popover|muted|accent|secondary|border|input|ring|sidebar-[a-z-]+)\s*:/g,
+        ) ?? []
+      ).filter(
+        (k) => !/^--sidebar-(?:primary|active)(?:-foreground)?\s*:/.test(k),
+      );
+      const retired = style.match(
+        /--mn-(?:navigator|surface-raised|surface-hover)\s*:/g,
+      );
+      const probe = document.createElement("div");
+      document.body.appendChild(probe);
+      probe.style.backgroundColor = "hsl(var(--mn-floor))";
+      const floor = getComputedStyle(probe).backgroundColor;
+      probe.style.backgroundColor = "hsl(var(--mn-recess))";
+      const recess = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return {
+        semanticInline: semantic,
+        retiredInline: retired ?? [],
+        floorIs: floor,
+        floorOk: wantFloor ? floor === wantFloor : true,
+        recess,
+      };
+    }, expectFloor);
+  };
+  const seq = [
+    ["graphite", "rgb(13, 13, 15)"],
+    ["paper", "rgb(246, 244, 242)"],
+    ["void", "rgb(0, 0, 0)"],
+    ["buzz-dark", "rgb(13, 14, 15)"],
+  ];
+  const seen = {};
+  for (const [name, wantFloor] of seq) {
+    const r = await step(name, wantFloor);
+    seen[name] = r;
+    if (r.semanticInline.length) {
+      failures.push(
+        `switch→${name}: semantic tokens pinned inline (${r.semanticInline.join(" ")})`,
+      );
+    }
+    if (r.retiredInline.length) {
+      failures.push(
+        `switch→${name}: retired tokens pinned inline (${r.retiredInline.join(" ")})`,
+      );
+    }
+    if (!r.floorOk) {
+      failures.push(`switch→${name}: floor did not follow (${r.floorIs})`);
+    }
+  }
+  // Paper's cream recess must not survive into Void.
+  if (seen.void && /rgb\(2[23]\d,/.test(seen.void.recess)) {
+    failures.push(`switch→void: paper recess leaked (${seen.void.recess})`);
+  }
+  report.__switches = seen;
+  await page.close();
+}
+
 await browser.close();
 server.close();
 fs.mkdirSync(OUT_ROOT, { recursive: true });
@@ -605,6 +804,14 @@ fs.writeFileSync(
 );
 
 for (const [theme, r] of Object.entries(report)) {
+  if (theme === "__switches") {
+    for (const [name, sw] of Object.entries(r)) {
+      console.log(
+        `switch→${name.padEnd(11)} floor=${sw.floorOk} inline-semantic=${sw.semanticInline.length} inline-retired=${sw.retiredInline.length}`,
+      );
+    }
+    continue;
+  }
   console.log(
     `${theme.padEnd(18)} drawer=${r.drawerWidth} inflow=${r.headerInFlow} card=${r.asideIsCard} seam=${r.seamWidth} stripΔ=${r.stripWidthDelta} pill=${r.pillOffsetFromHeader} span=${r.visitSpanRows}/${r.visitSpanContiguous} doors=${r.doorCount} inset=${r.passageInset} rail=${r.railPresent} mono=${r.monoInDrawer} resident=${r.resident.present ? `model:${r.resident.model}` : "MISSING"} errs=${r.consoleErrors.length}  →${path.relative(DESKTOP, r.out)}`,
   );

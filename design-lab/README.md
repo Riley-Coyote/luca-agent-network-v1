@@ -13,8 +13,14 @@ UI to another agent, and marketing screenshots.
    `/Volumes/LaCie/Luca-Development/worktrees/luca-design-lab/design-lab/shell-lab.html`)
    and screenshots what he wants to point at.
 2. The agent changes real components, rebuilds (`just shell-lab`), and
-   **verifies with `node desktop/scripts/lab-shots.mjs`** — all three themes,
-   DOM-measured geometry, captures inspected by eye before reporting.
+   **verifies with `node desktop/scripts/lab-shots.mjs`** — nine themes by
+   default (the five named + default + vitesse-dark, vesper,
+   catppuccin-latte), DOM-measured geometry PLUS the theme-system contract:
+   rail === floor continuity, owner-plate legibility (ΔRGB ≥ 4), huddle
+   surfaces in the shell's hue family, active-row contrast ≥ 4.5, and an
+   in-page switch torture (derived → graphite → paper → void → slate) that
+   fails if a departing palette leaves anything pinned on the root.
+   Captures inspected by eye before reporting.
 3. Riley looks again. Repeat until it is excellent.
 
 **Keep it in sync:** whenever the app shell changes (any commit touching
