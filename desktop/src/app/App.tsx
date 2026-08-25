@@ -315,6 +315,8 @@ function PersonalHomeProvisioningError({
   );
 }
 
+
+const IDENTITY_NOT_READY_MESSAGE = "Your Luca identity is not ready yet.";
 function PersonalHomeGate({
   activeCommunity,
   communities,
@@ -349,11 +351,17 @@ function PersonalHomeGate({
       setError(null);
       return;
     }
-    if (error) {
+    if (!ownerPubkey) {
+      setError(IDENTITY_NOT_READY_MESSAGE);
       return;
     }
-    if (!ownerPubkey) {
-      setError("Your Luca identity is not ready yet.");
+    if (error === IDENTITY_NOT_READY_MESSAGE) {
+      // The identity arrived after the first pass. This state must not
+      // latch: with the key in hand the tenancy can be created below, so
+      // clear the gate and fall through instead of stranding the app on
+      // a Retry screen it can recover from by itself.
+      setError(null);
+    } else if (error) {
       return;
     }
 

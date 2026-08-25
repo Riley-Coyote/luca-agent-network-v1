@@ -705,6 +705,14 @@ async function seedDefaultCommunity(
         JSON.stringify([community]),
       );
       window.localStorage.setItem("buzz-active-community-id", communityId);
+      // Mark the seeded community as the Luca personal home. Without the
+      // marker, PersonalHomeGate provisions a separate "luca-personal-home"
+      // tenancy on boot and switches to it — abandoning this community and
+      // every channel the spec seeded into it.
+      window.localStorage.setItem(
+        "luca-personal-home-tenancy.v1",
+        communityId,
+      );
     },
     {
       fallback: fallbackPubkey,

@@ -271,7 +271,7 @@ for (const theme of themes) {
         : null;
     r.monoInDrawer = monoInDrawer;
     r.sidebarBg = getComputedStyle(
-      q('[data-testid="app-sidebar"]'),
+      q('[data-sidebar="sidebar"]'),
     ).backgroundColor;
     r.contentBg = getComputedStyle(
       q("[data-buzz-content-surface]"),

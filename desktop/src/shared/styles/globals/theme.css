@@ -520,12 +520,12 @@
  * here.
  */
 
+/* The floor paints once here and once on the shell layer; every other rail
+   surface (app rail, settings rail, both insets, the community rail) carries
+   `bg-sidebar`, whose token resolves to the same floor role — one path, so
+   the rail and the ground behind the cards cannot drift apart again. */
 :root[data-luca-shell] .buzz-huddle-app-surface,
-:root[data-luca-shell] .group\/sidebar-wrapper,
-:root[data-luca-shell] [data-testid="app-sidebar"],
-:root[data-luca-shell] [data-buzz-glass-inset],
-:root[data-luca-shell] [data-buzz-glass-footer-wrap],
-:root[data-luca-shell] [data-testid="community-rail"].bg-sidebar {
+:root[data-luca-shell] [data-buzz-glass-footer-wrap] {
   background-color: hsl(var(--mn-floor));
   background-image: none;
 }
@@ -546,12 +546,6 @@
 :root[data-luca-shell] [data-testid="settings-sidebar"] [data-active="true"] {
   background-color: var(--buzz-active-surface);
   box-shadow: inset 0 0 0 1px hsl(var(--mn-ink) / 0.08);
-}
-
-:root[data-luca-shell].dark
-  [data-sidebar="sidebar"][data-mobile="true"].bg-sidebar {
-  background-color: hsl(var(--mn-floor));
-  background-image: none;
 }
 
 :root[data-luca-shell] :is(button, a, [role="button"], [role="tab"]) {
