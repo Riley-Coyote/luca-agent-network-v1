@@ -5,6 +5,7 @@ import * as timelinePlacement from "@/features/messages/lib/managedTimelineProje
 import {
   expireManagedPresentationActivity,
   getNearestManagedPresentationActivityExpiry,
+  MANAGED_TERMINAL_ACTIVITY_MS,
   managedTerminalActivityUntil,
   removeManagedPresentationActivity,
   resetManagedPresentationActivityStore,
