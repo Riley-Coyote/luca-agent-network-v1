@@ -745,6 +745,7 @@ export function NewMessageScreen() {
 
       <div
         className="min-h-0 flex-1 bg-background"
+        data-luca-floor
         data-testid="new-message-body"
       />
 
