@@ -113,8 +113,13 @@
 }
 
 /* The house focus law: the element's own edge brightens in place. Never a
-   second ring, never an offset one. */
-.luca-pane-lip:focus-visible {
+   second ring, never an offset one.
+
+   The `:root[data-luca-shell]` prefix is load-bearing, not decoration: the
+   shell's blanket `:root[data-luca-shell] :focus-visible` ring scores (0,3,0)
+   and would otherwise paint an offset outline straight over this. Same reason
+   `.luca-project-icon-button` carries the prefix in conversation-shell.css. */
+:root[data-luca-shell] .luca-pane-lip:focus-visible {
   box-shadow: inset 0 0 0 1px hsl(var(--mn-focus));
   outline: none;
 }
@@ -190,7 +195,8 @@
   color: hsl(var(--mn-ink-muted));
 }
 
-.luca-pane-float-action {
+.luca-pane-float-action,
+.luca-pane-widgets-toggle {
   align-items: center;
   border: 1px solid transparent;
   border-radius: calc(var(--radius) - 4px);
@@ -201,12 +207,14 @@
   width: 1.5rem;
 }
 
-.luca-pane-float-action:hover {
+.luca-pane-float-action:hover,
+.luca-pane-widgets-toggle:hover {
   border-color: hsl(var(--mn-border));
   color: hsl(var(--mn-ink));
 }
 
-.luca-pane-float-action:focus-visible {
+:root[data-luca-shell] .luca-pane-float-action:focus-visible,
+:root[data-luca-shell] .luca-pane-widgets-toggle:focus-visible {
   border-color: hsl(var(--mn-focus));
   outline: none;
 }
