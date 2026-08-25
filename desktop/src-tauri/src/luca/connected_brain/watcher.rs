@@ -78,7 +78,17 @@ pub(crate) fn start_connected_source_watcher(app: AppHandle) -> Result<(), Strin
         roots,
     });
     drop(runtime_guard);
-    reconcile_connected_sources(&app)
+    std::thread::Builder::new()
+        .name("luca-connected-brain-startup".to_owned())
+        .spawn(move || {
+            if let Err(error) = reconcile_connected_sources(&app) {
+                eprintln!(
+                    "buzz-desktop: connected Brain startup reconciliation unavailable: {error}"
+                );
+            }
+        })
+        .map_err(|_| "connected Brain startup reconciliation could not start".to_owned())?;
+    Ok(())
 }
 
 pub(crate) fn register_connected_source(
