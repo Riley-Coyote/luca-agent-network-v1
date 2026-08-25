@@ -4038,10 +4038,13 @@ fn normalized_agent_name(init_result: &serde_json::Value) -> String {
 }
 
 fn supports_additional_directories(init_result: &serde_json::Value) -> bool {
-    init_result
-        .pointer("/agentCapabilities/sessionCapabilities/additionalDirectories")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
+    match init_result.pointer("/agentCapabilities/sessionCapabilities/additionalDirectories") {
+        // ACP represents advertised session capabilities as objects. Keep accepting
+        // the earlier boolean form for adapters that have not moved yet.
+        Some(serde_json::Value::Object(_)) => true,
+        Some(serde_json::Value::Bool(supported)) => *supported,
+        _ => false,
+    }
 }
 
 // ── spawn_and_init ────────────────────────────────────────────────────────────
@@ -5385,12 +5388,22 @@ mod error_outcome_emission_tests {
     fn additional_directory_support_is_capability_negotiated() {
         assert!(supports_additional_directories(&serde_json::json!({
             "agentCapabilities": {
+                "sessionCapabilities": { "additionalDirectories": {} }
+            }
+        })));
+        assert!(supports_additional_directories(&serde_json::json!({
+            "agentCapabilities": {
                 "sessionCapabilities": { "additionalDirectories": true }
             }
         })));
         assert!(!supports_additional_directories(&serde_json::json!({
             "agentCapabilities": {
                 "sessionCapabilities": { "additionalDirectories": false }
+            }
+        })));
+        assert!(!supports_additional_directories(&serde_json::json!({
+            "agentCapabilities": {
+                "sessionCapabilities": { "additionalDirectories": null }
             }
         })));
         assert!(!supports_additional_directories(&serde_json::json!({})));
