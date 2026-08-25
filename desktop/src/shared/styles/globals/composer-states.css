@@ -62,7 +62,10 @@
  * `none` keeps the shadow list interpolable, so the change eases rather than
  * cutting. */
 :root[data-luca-shell] [data-testid="message-composer"]:not(:focus-within) {
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0);
+  /* The token, not a literal: Paper's lit edge is a non-inset under-shadow,
+     and an inset literal here cannot interpolate with it — the transition
+     snapped on exactly the palette it was written to ease. */
+  box-shadow: var(--mn-lit-edge-off);
 }
 
 /* At the tuck the card should read as sinking into the recess, and two light

@@ -206,6 +206,8 @@ function PairingDialog({
               </div>
             ) : step === "qr" && qrUri ? (
               <div className="space-y-4">
+                {/* bg-white is deliberate: a QR quiet zone must be true
+                    white for scanner contrast, in every theme. */}
                 <div className="flex justify-center rounded-lg border border-border/70 bg-white p-4">
                   <QRCodeSVG
                     data-testid="mobile-pairing-qr"

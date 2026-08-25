@@ -693,7 +693,7 @@ function PrototypeThresholdStage({
     >
       <motion.div
         animate={{ opacity: transitioning ? 0 : 1 }}
-        className="absolute inset-0 bg-[#0b0c0f]"
+        className="absolute inset-0 bg-background"
         initial={false}
         style={{
           backgroundImage:

@@ -1047,6 +1047,8 @@ export const MessageRow = React.memo(
               : "",
           )}
           data-message-anatomy={MESSAGE_ANATOMY}
+          data-message-highlighted={highlighted ? "" : undefined}
+          data-message-reminder={hasActiveReminder ? "" : undefined}
           data-message-side={isOwnMessage ? "own" : "other"}
           data-message-id={message.id}
           data-managed-response-phase={message.managedPresentation?.phase}

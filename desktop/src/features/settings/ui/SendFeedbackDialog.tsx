@@ -355,6 +355,8 @@ export function SendFeedbackDialog({
             <DialogTitle className="sr-only">Attached image</DialogTitle>
             <img
               alt="Attached"
+              // bg-black/40 is deliberate: a screenshot letterbox scrim,
+              // dark in every theme like a lightbox.
               className="max-h-[80vh] w-full rounded-lg bg-black/40 object-contain"
               src={resolvedAttachedImageUrl}
             />

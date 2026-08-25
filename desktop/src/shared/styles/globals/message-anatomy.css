@@ -187,7 +187,12 @@
   [data-message-anatomy="bubble"][data-message-side="own"]
   [data-message-column]
   > [data-message-plate] {
-  background: hsl(var(--mn-raised));
+  /* Plate-opaque, not a grey step: the raised step is 19 RGB in the default
+     ladder but 2 in Void, 5 in Graphite and ~6 in every derived syntax
+     theme — below perception, which read as "my messages look the same as
+     the agent's". Ink mixed into the surface holds a visible step in every
+     palette, light ones included, with no per-theme value. */
+  background: var(--mn-plate-strong);
   border-radius: 14px;
   box-shadow: var(--mn-lit-edge);
   flex: 0 1 auto;
@@ -224,7 +229,7 @@
   [data-message-anatomy="bubble"][data-message-side="own"]:focus-within
   [data-message-column]
   > [data-message-plate] {
-  background: hsl(var(--mn-hover));
+  background: var(--mn-plate-strong-hover);
 }
 
 /* THE HOVER ACTIONS, OVER A PLATE. Everywhere else this pill floats over the
@@ -255,9 +260,7 @@
     hsl(var(--mn-hover))
   );
   border-color: hsl(var(--mn-ink) / 0.08);
-  box-shadow:
-    var(--mn-lit-edge),
-    0 1px 3px rgb(0 0 0 / 0.28);
+  box-shadow: var(--mn-lit-edge), var(--mn-contact-shadow);
 }
 
 /* --- The surface school (?anatomy=surface) ----------------------- */
@@ -328,5 +331,51 @@
     [data-message-column]
     > [data-message-plate] {
     transition: none;
+  }
+}
+
+/* ROW BANDS ON AN ANCHORED PLATE. The reminder tint and the route-highlight
+   flash paint the full reading measure — correct for a full-measure message,
+   wrong behind a right-anchored plate, where a band twice the bubble's width
+   lights up around it. For own bubbles the row goes quiet and the plate
+   itself carries the state. */
+:root[data-luca-shell]
+  [data-message-anatomy="bubble"][data-message-side="own"][data-message-reminder] {
+  background: transparent;
+}
+:root[data-luca-shell]
+  [data-message-anatomy="bubble"][data-message-side="own"][data-message-reminder]
+  [data-message-column]
+  > [data-message-plate] {
+  background: var(--mn-plate-strong-hover);
+}
+:root[data-luca-shell]
+  [data-message-anatomy="bubble"][data-message-side="own"][data-message-highlighted]::before {
+  background: transparent;
+}
+:root[data-luca-shell]
+  [data-message-anatomy="bubble"][data-message-side="own"][data-message-highlighted]
+  [data-message-column]
+  > [data-message-plate] {
+  animation: luca-own-plate-highlight-fade 2s ease-out forwards;
+}
+@keyframes luca-own-plate-highlight-fade {
+  from {
+    background: color-mix(
+      in srgb,
+      hsl(var(--mn-ink)) 10%,
+      hsl(var(--mn-surface))
+    );
+  }
+  to {
+    background: var(--mn-plate-strong);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-luca-shell]
+    [data-message-anatomy="bubble"][data-message-side="own"][data-message-highlighted]
+    [data-message-column]
+    > [data-message-plate] {
+    animation: none;
   }
 }

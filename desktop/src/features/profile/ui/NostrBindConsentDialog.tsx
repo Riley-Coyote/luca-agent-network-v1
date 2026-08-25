@@ -775,9 +775,7 @@ export function NostrBindConsentDialog() {
                               }
                               className={cn(
                                 "absolute inset-0 h-full w-full rounded-xl border text-center text-transparent shadow-xs caret-transparent selection:bg-transparent selection:text-transparent transition-[border-color,box-shadow] focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50",
-                                systemColorScheme === "light"
-                                  ? "bg-[#fafafa]"
-                                  : "bg-muted",
+                                "bg-muted",
                                 hasCodeMismatch
                                   ? "border-destructive focus-visible:border-destructive focus-visible:ring-2 focus-visible:ring-destructive/25"
                                   : "border-input/60 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30",

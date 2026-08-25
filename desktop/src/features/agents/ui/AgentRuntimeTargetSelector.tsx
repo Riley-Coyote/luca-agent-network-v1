@@ -64,7 +64,7 @@ export function AgentRuntimeTargetSelector({
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="start"
-            className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-0 rounded-lg border-white/[0.11] bg-[#151516] p-1 text-white shadow-[0_14px_36px_rgba(0,0,0,0.46)]"
+            className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-0 rounded-lg border-border bg-popover p-1 text-popover-foreground shadow-[var(--mn-contact-shadow)]"
             sideOffset={5}
           >
             <DropdownMenuRadioGroup

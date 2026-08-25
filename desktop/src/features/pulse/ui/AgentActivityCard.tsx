@@ -35,7 +35,7 @@ function StatusDot({ status }: { status: "online" | "away" | "offline" }) {
       ? "bg-emerald-500"
       : status === "away"
         ? "bg-amber-500"
-        : "bg-zinc-400";
+        : "bg-ink-faint";
   return <span className={`inline-block h-2 w-2 rounded-full ${color}`} />;
 }
 

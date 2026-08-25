@@ -328,8 +328,8 @@ function fileIconVisual(entry: RepositoryFileEntry): FileIconVisual {
   ) {
     return {
       Icon: Settings,
-      className: "fill-zinc-500/20 text-zinc-500",
-      containerClassName: "bg-zinc-500/15",
+      className: "fill-ink-faint/25 text-ink-faint",
+      containerClassName: "bg-plate",
     };
   }
 
@@ -416,8 +416,8 @@ function fileIconVisual(entry: RepositoryFileEntry): FileIconVisual {
   if (TEXT_EXTENSIONS.has(extension)) {
     return {
       Icon: FileText,
-      className: "fill-slate-500/20 text-slate-500",
-      containerClassName: "bg-slate-500/15",
+      className: "fill-ink-faint/25 text-ink-faint",
+      containerClassName: "bg-plate",
     };
   }
 

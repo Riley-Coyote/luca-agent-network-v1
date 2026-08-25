@@ -137,6 +137,23 @@
     hsl(var(--mn-ink)) 6%,
     hsl(var(--mn-surface))
   );
+  /* The strong plate: the owner's message bubble — the one fill that must
+   * read at conversational glance, not only on inspection. 8.5% ink lands
+   * within a step of the approved Slate look (~18 RGB over the card) and
+   * holds that step in Void, Graphite and every derived ladder, where the
+   * raised grey step it replaced collapsed to 2–6 RGB. The light dose is
+   * smaller: dark ink saturates a light page far faster than light ink
+   * tints a dark one (~ChatGPT's light-mode bubble weight). */
+  --mn-plate-strong: color-mix(
+    in srgb,
+    hsl(var(--mn-ink)) 8.5%,
+    hsl(var(--mn-surface))
+  );
+  --mn-plate-strong-hover: color-mix(
+    in srgb,
+    hsl(var(--mn-ink)) 11%,
+    hsl(var(--mn-surface))
+  );
 
   /* Shell geometry, derived once so the pieces cannot drift apart.
    * The floating chrome must occupy exactly the card's header ROW — otherwise
@@ -227,6 +244,16 @@
   --mn-lit-edge: 0 1px 1.5px hsl(var(--mn-ink) / 0.045);
   --mn-lit-edge-off: 0 1px 1.5px hsl(var(--mn-ink) / 0);
   --mn-contact-shadow: 0 1px 2px rgb(0 0 0 / 0.1);
+  --mn-plate-strong: color-mix(
+    in srgb,
+    hsl(var(--mn-ink)) 5%,
+    hsl(var(--mn-surface))
+  );
+  --mn-plate-strong-hover: color-mix(
+    in srgb,
+    hsl(var(--mn-ink)) 7%,
+    hsl(var(--mn-surface))
+  );
 }
 
 /* ------------------------------------------------------------------

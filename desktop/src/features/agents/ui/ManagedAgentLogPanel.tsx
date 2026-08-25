@@ -72,7 +72,7 @@ export function ManagedAgentLogPanel({
           className={cn(
             isBare
               ? "overflow-hidden rounded-2xl bg-muted/20 text-xs text-foreground"
-              : "overflow-hidden rounded-xl border border-border/70 bg-[#17171d] text-xs text-zinc-100",
+              : "overflow-hidden rounded-xl border border-border/70 bg-[hsl(var(--mn-recess))] text-xs text-ink",
             isInline ? "flex min-h-0 flex-1 flex-col" : "mt-4",
           )}
         >
@@ -112,7 +112,7 @@ export function ManagedAgentLogPanel({
           className={cn(
             isBare
               ? "overflow-hidden rounded-2xl bg-muted/20 text-xs text-foreground"
-              : "overflow-hidden rounded-xl border border-border/70 bg-[#17171d] text-xs text-zinc-100",
+              : "overflow-hidden rounded-xl border border-border/70 bg-[hsl(var(--mn-recess))] text-xs text-ink",
             isInline && "flex min-h-0 flex-1 flex-col",
             !isInline && "mt-4",
           )}
@@ -161,18 +161,18 @@ function HarnessLogHeader({
   return (
     <div className="flex min-h-12 items-center justify-between gap-3 border-b border-white/10 px-3 py-2">
       <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="min-w-0 truncate text-2xs font-semibold uppercase tracking-wide text-zinc-300">
+        <span className="min-w-0 truncate text-2xs font-semibold uppercase tracking-wide text-ink-muted">
           Harness Log
         </span>
         <span
-          className="min-w-0 truncate font-mono text-2xs text-zinc-500"
+          className="min-w-0 truncate font-mono text-2xs text-ink-faint"
           title={fileTitle}
         >
           {selectedAgent.name} · {logFileLabel}
         </span>
       </div>
       <CopyButton
-        className="h-6 rounded-md bg-black/40 px-2 text-zinc-300 hover:bg-black/70 hover:text-white"
+        className="h-6 rounded-md bg-plate px-2 text-ink-muted hover:bg-plate-hover hover:text-ink"
         label="Copy log"
         size="xs"
         value={logContent}
