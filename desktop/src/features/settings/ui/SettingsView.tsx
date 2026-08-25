@@ -284,9 +284,15 @@ export function SettingsView({
             </button>
           </header>
         ) : null}
+        {/* The same card recipe as the conversation: the shell rule supplies
+            margins, radius, border and background in both modes. Local
+            margin/radius/shadow classes forked this surface from the card it
+            is supposed to match — and the old .dark-gated rule left it with
+            no border or background at all in light palettes. */}
         <div
-          className="relative z-10 mb-2 ml-px mr-2 mt-px flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-background shadow-content-edge"
+          className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
           data-buzz-content-surface
+          data-luca-conversation-surface
           data-testid="settings-content-surface"
         >
           <section

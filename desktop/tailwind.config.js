@@ -18,7 +18,6 @@ export default {
         "nsec-key": ["2.25rem", { lineHeight: "1.3" }],
       },
       boxShadow: {
-        "content-edge": "-1px -1px 0 0 hsl(var(--sidebar-border) / 0.45)",
         // Edge + elevation for a surface anchored to the right of the content
         // area, whose only exposed edge faces left. Tailwind's stock shadows are
         // all y-offset, so they cast almost nothing sideways — `shadow-xl` on a
