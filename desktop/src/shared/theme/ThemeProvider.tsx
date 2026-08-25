@@ -14,13 +14,18 @@ import { isMacPlatform } from "@/shared/lib/platform";
 import {
   createGraphiteThemeVars,
   createLucaThemeVars,
+  createOnyxThemeVars,
   createPaperThemeVars,
+  createSmokeThemeVars,
   createThemeVars,
   hexToHsl,
 } from "./adaptive-theme";
 import {
+  DRAGON_GLASS_THEME_NAME,
   GRAPHITE_THEME_NAME,
+  ONYX_THEME_NAME,
   PAPER_THEME_NAME,
+  SMOKE_THEME_NAME,
   SYNTAX_THEMES,
   type SyntaxThemeName,
   extractThemeInfo,
@@ -502,6 +507,10 @@ async function applyTheme(
     if (isBuzzTheme(name)) return createLucaThemeVars();
     if (name === GRAPHITE_THEME_NAME) return createGraphiteThemeVars();
     if (name === PAPER_THEME_NAME) return createPaperThemeVars();
+    if (name === SMOKE_THEME_NAME) return createSmokeThemeVars();
+    // Dragon Glass: Smoke's palette; the Dark material is its default weather
+    if (name === DRAGON_GLASS_THEME_NAME) return createSmokeThemeVars();
+    if (name === ONYX_THEME_NAME) return createOnyxThemeVars();
     return createThemeVars(info.bg, info.fg, info.comment, {
       added: info.added,
       deleted: info.deleted,

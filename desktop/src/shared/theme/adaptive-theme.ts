@@ -314,6 +314,51 @@ export const PAPER_THEME_COLORS = {
 } as const;
 
 /**
+ * Smoke — the palette built FOR dark glass (decided 2026-08-24, from the
+ * HIG protocol: glass has no inherent color; it dims and blurs the desktop
+ * into a legibility band). Light glowing rail over a near-black velvet
+ * reading plane. Cream ink per the house. `inkFaint` is solved against the
+ * vibrancy floor's worst measured drift: roles are contrast solutions.
+ */
+export const SMOKE_THEME_COLORS = {
+  floor: "#17181d",
+  navigator: "#17181d",
+  surface: "#0e0f13",
+  raised: "#1b1c21",
+  hover: "#25262b",
+  glass: "#08090c",
+  border: "#25262b",
+  borderStrong: "#31323a",
+  ink: "#f4f3f0",
+  inkMuted: "#c6c5c0",
+  inkFaint: "#a6a5a1",
+  inkGhost: "#747370",
+  focus: "#a6a5a1",
+} as const;
+
+/**
+ * Onyx — the dark-FLOOR dark mode, drawn Apple's way (HIG Dark Mode: base
+ * recedes dimmer, elevated advances brighter). Cards sit on Apple's own
+ * published dark ramp (#1C1C1E / #2C2C2E), whose grey chemistry (B=R+2)
+ * matches the house linear-dose lean. Floor stays a breath above #000.
+ */
+export const ONYX_THEME_COLORS = {
+  floor: "#0a0a0c",
+  navigator: "#0a0a0c",
+  surface: "#1c1c1e",
+  raised: "#2c2c2e",
+  hover: "#3a3a3c",
+  glass: "#050508",
+  border: "#303033",
+  borderStrong: "#3c3c3f",
+  ink: "#f5f4f0",
+  inkMuted: "#c6c5c0",
+  inkFaint: "#a6a5a1",
+  inkGhost: "#757470",
+  focus: "#a6a5a1",
+} as const;
+
+/**
  * The first-party Luca shell is intentionally not derived from a syntax
  * palette. It establishes a stable, dark working canvas while syntax themes
  * continue to govern code blocks and optional appearance choices.
@@ -370,6 +415,88 @@ export function createLucaThemeVars(): ThemeResult {
 export function createGraphiteThemeVars(): ThemeResult {
   const semanticVars = createLucaThemeVars().vars;
   const colors = GRAPHITE_THEME_COLORS;
+
+  return {
+    isDark: true,
+    vars: {
+      ...semanticVars,
+      "--mn-floor": hexToHsl(colors.floor),
+      "--mn-navigator": hexToHsl(colors.navigator),
+      "--mn-surface": hexToHsl(colors.surface),
+      "--mn-raised": hexToHsl(colors.raised),
+      "--mn-hover": hexToHsl(colors.hover),
+      "--mn-glass": hexToHsl(colors.glass),
+      "--mn-surface-raised": hexToHsl(colors.raised),
+      "--mn-surface-hover": hexToHsl(colors.hover),
+      "--mn-border": hexToHsl(colors.border),
+      "--mn-border-strong": hexToHsl(colors.borderStrong),
+      "--mn-ink": hexToHsl(colors.ink),
+      "--mn-ink-muted": hexToHsl(colors.inkMuted),
+      "--mn-ink-faint": hexToHsl(colors.inkFaint),
+      "--mn-focus": hexToHsl(colors.focus),
+      "--huddle-drawer-surface": hexToHsl(colors.raised),
+      "--huddle-control-surface": hexToHsl(colors.hover),
+      "--huddle-control-hover-surface": hexToHsl(colors.border),
+      "--huddle-control-chevron-surface": hexToHsl(colors.surface),
+      "--huddle-control-chevron-hover-surface": hexToHsl(colors.hover),
+      "--huddle-control-foreground": hexToHsl(colors.ink),
+      "--huddle-popover-surface": hexToHsl(colors.raised),
+      "--huddle-popover-border": hexToHsl(colors.borderStrong),
+      "--huddle-tooltip-surface": hexToHsl(colors.hover),
+      "--huddle-tooltip-foreground": hexToHsl(colors.ink),
+      "--mn-ink-ghost": hexToHsl(colors.inkGhost),
+    },
+  };
+}
+
+/**
+ * Build the Smoke palette — see {@link SMOKE_THEME_COLORS}. Same shape and
+ * same var list as Graphite; only the values differ.
+ */
+export function createSmokeThemeVars(): ThemeResult {
+  const semanticVars = createLucaThemeVars().vars;
+  const colors = SMOKE_THEME_COLORS;
+
+  return {
+    isDark: true,
+    vars: {
+      ...semanticVars,
+      "--mn-floor": hexToHsl(colors.floor),
+      "--mn-navigator": hexToHsl(colors.navigator),
+      "--mn-surface": hexToHsl(colors.surface),
+      "--mn-raised": hexToHsl(colors.raised),
+      "--mn-hover": hexToHsl(colors.hover),
+      "--mn-glass": hexToHsl(colors.glass),
+      "--mn-surface-raised": hexToHsl(colors.raised),
+      "--mn-surface-hover": hexToHsl(colors.hover),
+      "--mn-border": hexToHsl(colors.border),
+      "--mn-border-strong": hexToHsl(colors.borderStrong),
+      "--mn-ink": hexToHsl(colors.ink),
+      "--mn-ink-muted": hexToHsl(colors.inkMuted),
+      "--mn-ink-faint": hexToHsl(colors.inkFaint),
+      "--mn-focus": hexToHsl(colors.focus),
+      "--huddle-drawer-surface": hexToHsl(colors.raised),
+      "--huddle-control-surface": hexToHsl(colors.hover),
+      "--huddle-control-hover-surface": hexToHsl(colors.border),
+      "--huddle-control-chevron-surface": hexToHsl(colors.surface),
+      "--huddle-control-chevron-hover-surface": hexToHsl(colors.hover),
+      "--huddle-control-foreground": hexToHsl(colors.ink),
+      "--huddle-popover-surface": hexToHsl(colors.raised),
+      "--huddle-popover-border": hexToHsl(colors.borderStrong),
+      "--huddle-tooltip-surface": hexToHsl(colors.hover),
+      "--huddle-tooltip-foreground": hexToHsl(colors.ink),
+      "--mn-ink-ghost": hexToHsl(colors.inkGhost),
+    },
+  };
+}
+
+/**
+ * Build the Onyx palette — see {@link ONYX_THEME_COLORS}. Same shape and
+ * same var list as Graphite; only the values differ.
+ */
+export function createOnyxThemeVars(): ThemeResult {
+  const semanticVars = createLucaThemeVars().vars;
+  const colors = ONYX_THEME_COLORS;
 
   return {
     isDark: true,
