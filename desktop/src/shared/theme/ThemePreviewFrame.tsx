@@ -1,5 +1,6 @@
 import * as React from "react";
 import { cn } from "@/shared/lib/cn";
+import { hexToHsl, type ThemeColors } from "./adaptive-theme";
 
 export type ThemePreviewVars = Record<string, string>;
 
@@ -52,59 +53,27 @@ export const SLATE_PREVIEW_VARS: ThemePreviewVars = {
   "--sidebar-foreground": "45 15% 95%",
 };
 
-/** Appearance-tile snapshot of Inverse — light rail over a dark ground. */
-export const INVERSE_PREVIEW_VARS: ThemePreviewVars = {
-  "--background": "210 7.1% 5.5%",
-  "--border": "216 5.6% 17.5%",
-  "--foreground": "45 15% 95%",
-  "--muted": "210 3.3% 11.8%",
-  "--muted-foreground": "45 3% 76%",
-  "--primary": "45 8% 90%",
-  "--primary-foreground": "210 7.1% 5.5%",
-  "--sidebar-background": "210 3.6% 11%",
-  "--sidebar-foreground": "45 15% 95%",
-};
-
-export const ASH_PREVIEW_VARS: ThemePreviewVars = {
-  "--background": "0 0% 9%",
-  "--border": "0 0% 17%",
-  "--foreground": "45 15% 95%",
-  "--muted": "0 0% 12.5%",
-  "--muted-foreground": "45 4% 76%",
-  "--primary": "45 8% 90%",
-  "--primary-foreground": "0 0% 9%",
-  "--sidebar-background": "0 0% 5.5%",
-  "--sidebar-foreground": "45 15% 95%",
-};
-
 /**
- * Appearance-tile snapshot of Void, the preserved blackout palette — the
- * values the shell itself carried before the Composite scale landed.
+ * Derive an appearance tile's nine tokens from a palette's ladder — the same
+ * consts the theme builders project, so a tile can no longer drift from the
+ * shell it advertises. (Slate above stays a documented transcription: its
+ * ladder is CSS-owned and has no TS const to read.) The primary pair is the
+ * neutral accent's resolution — ink pill on the palette's own floor.
  */
-export const VOID_PREVIEW_VARS: ThemePreviewVars = {
-  "--background": "220 8% 2.1%",
-  "--border": "220 5% 10.5%",
-  "--foreground": "220 11.8% 93.1%",
-  "--muted": "220 6% 4.2%",
-  "--muted-foreground": "220 2.7% 71.5%",
-  "--primary": "220 6.6% 87.9%",
-  "--primary-foreground": "0 0% 0%",
-  "--sidebar-background": "0 0% 0%",
-  "--sidebar-foreground": "220 11.8% 93.1%",
-};
+export function previewVarsFromLadder(colors: ThemeColors): ThemePreviewVars {
+  return {
+    "--background": hexToHsl(colors.surface),
+    "--border": hexToHsl(colors.border),
+    "--foreground": hexToHsl(colors.ink),
+    "--muted": hexToHsl(colors.raised),
+    "--muted-foreground": hexToHsl(colors.inkMuted),
+    "--primary": hexToHsl(colors.ink),
+    "--primary-foreground": hexToHsl(colors.floor),
+    "--sidebar-background": hexToHsl(colors.floor),
+    "--sidebar-foreground": hexToHsl(colors.ink),
+  };
+}
 
-/** Appearance-tile snapshot of the conversation study's Graphite palette. */
-export const GRAPHITE_PREVIEW_VARS: ThemePreviewVars = {
-  "--background": "240 5.88% 6.7%",
-  "--border": "240 2.7% 14.5%",
-  "--foreground": "240 5% 92.2%",
-  "--muted": "240 5.88% 10%",
-  "--muted-foreground": "240 2.01% 51.2%",
-  "--primary": "240 5% 92.2%",
-  "--primary-foreground": "240 7.14% 5.5%",
-  "--sidebar-background": "240 7.14% 5.5%",
-  "--sidebar-foreground": "240 5% 92.2%",
-};
 
 function hsl(vars: ThemePreviewVars | null, key: string) {
   return `hsl(${vars?.[key] ?? LIGHT_PREVIEW_VARS[key]})`;

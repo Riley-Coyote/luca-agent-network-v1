@@ -9,20 +9,25 @@ import {
   GRAPHITE_THEME_NAME,
   ASH_THEME_NAME,
   INVERSE_THEME_NAME,
+  PAPER_THEME_NAME,
   VOID_THEME_NAME,
   isLightTheme,
   loadThemeData,
 } from "./theme-loader";
 import {
-  ASH_PREVIEW_VARS,
-  INVERSE_PREVIEW_VARS,
   SLATE_PREVIEW_VARS,
   DARK_PREVIEW_VARS,
-  GRAPHITE_PREVIEW_VARS,
   LIGHT_PREVIEW_VARS,
+  previewVarsFromLadder,
   type ThemePreviewVars,
-  VOID_PREVIEW_VARS,
 } from "./ThemePreviewFrame";
+import {
+  ASH_THEME_COLORS,
+  GRAPHITE_THEME_COLORS,
+  INVERSE_THEME_COLORS,
+  PAPER_THEME_COLORS,
+  VOID_THEME_COLORS,
+} from "./adaptive-theme";
 import { NEUTRAL_ACCENT } from "./ThemeProvider";
 import { hexToHsl } from "./adaptive-theme";
 
@@ -38,16 +43,22 @@ async function loadThemePreviewVars(name: SyntaxThemeName) {
     return [name, SLATE_PREVIEW_VARS] as const;
   }
   if (name === ASH_THEME_NAME) {
-    return [name, ASH_PREVIEW_VARS] as const;
+    return [name, previewVarsFromLadder(ASH_THEME_COLORS)] as const;
   }
   if (name === INVERSE_THEME_NAME) {
-    return [name, INVERSE_PREVIEW_VARS] as const;
+    return [name, previewVarsFromLadder(INVERSE_THEME_COLORS)] as const;
   }
   if (name === VOID_THEME_NAME) {
-    return [name, VOID_PREVIEW_VARS] as const;
+    return [name, previewVarsFromLadder(VOID_THEME_COLORS)] as const;
   }
   if (name === GRAPHITE_THEME_NAME) {
-    return [name, GRAPHITE_PREVIEW_VARS] as const;
+    return [name, previewVarsFromLadder(GRAPHITE_THEME_COLORS)] as const;
+  }
+  if (name === PAPER_THEME_NAME) {
+    // Paper previously had NO branch and fell through to the derived path,
+    // so its tile rendered a GitHub-Light approximation of a palette it
+    // does not use.
+    return [name, previewVarsFromLadder(PAPER_THEME_COLORS)] as const;
   }
   const themeData = await loadThemeData(name);
   const info = extractThemeInfo(name, themeData);

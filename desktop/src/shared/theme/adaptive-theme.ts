@@ -455,7 +455,7 @@ export function createLucaThemeVars(): ThemeResult {
 }
 
 /** The shape every named palette shares. */
-interface ThemeColors {
+export interface ThemeColors {
   floor: string;
   surface: string;
   raised: string;
