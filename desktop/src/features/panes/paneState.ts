@@ -61,6 +61,12 @@ type PaneState = {
   isDeckMounted: boolean;
   /** The intent — what the user asked for. Drives the open/closed geometry. */
   isDeckOpen: boolean;
+  /**
+   * Whether the widget is currently floating over the app instead of sitting
+   * in the deck. The deck stays open underneath while it is, so there is
+   * always a slot to dock back into.
+   */
+  isLifted: boolean;
   widgetHeightPx: number;
 };
 
@@ -68,6 +74,7 @@ const INITIAL_STATE: PaneState = {
   dockedSlot: null,
   isDeckMounted: false,
   isDeckOpen: false,
+  isLifted: false,
   widgetHeightPx: WIDGET_DEFAULT_HEIGHT_PX,
 };
 
@@ -84,6 +91,7 @@ function setState(next: Partial<PaneState>): void {
     merged.dockedSlot === state.dockedSlot &&
     merged.isDeckMounted === state.isDeckMounted &&
     merged.isDeckOpen === state.isDeckOpen &&
+    merged.isLifted === state.isLifted &&
     merged.widgetHeightPx === state.widgetHeightPx
   ) {
     return;
@@ -130,8 +138,17 @@ export function usePaneState(): PaneState {
 
 export function setDeckOpen(open: boolean): void {
   setState(
-    open ? { isDeckMounted: true, isDeckOpen: true } : { isDeckOpen: false },
+    open
+      ? { isDeckMounted: true, isDeckOpen: true }
+      : // Closing the deck brings a floating widget home first: the pane was
+        // lifted OUT of this deck, and leaving it hovering over a drawer that
+        // no longer has a slot for it would strand it.
+        { isDeckOpen: false, isLifted: false },
   );
+}
+
+export function setLifted(lifted: boolean): void {
+  setState({ isLifted: lifted });
 }
 
 export function toggleDeck(): void {

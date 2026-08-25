@@ -12,6 +12,7 @@ import {
   RightCardsSlotProvider,
 } from "@/shared/layout/RightCardsSlot";
 import { AppShellOverlays } from "@/app/AppShellOverlays";
+import { LiftedPane } from "@/features/panes/LiftedPane";
 import { AppTopChrome } from "@/app/AppTopChrome";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { preloadPrimaryNavigationSurfaces } from "@/app/navigation/preloadPrimarySurfaces";
@@ -1040,6 +1041,7 @@ export function AppShell() {
                       onOpenChange={setIsSendFeedbackOpen}
                       open={isSendFeedbackOpen}
                     />
+                    <LiftedPane />
                   </SidebarProvider>
                 </div>
 
