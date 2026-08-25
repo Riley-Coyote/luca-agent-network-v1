@@ -1,6 +1,8 @@
 import type * as React from "react";
 import { createPortal } from "react-dom";
 
+import { PaneDeck } from "@/features/panes/PaneDeck";
+import { useDeckActive } from "@/features/panes/paneState";
 import { AUXILIARY_PANEL_MIN_WIDTH_PX } from "@/shared/layout/AuxiliaryPanel";
 import { useRightCardsSlot } from "@/shared/layout/RightCardsSlot";
 import { cn } from "@/shared/lib/cn";
@@ -29,6 +31,9 @@ export function RightAuxiliaryPane({
   // that mount the pane alone — it renders inline with its old seam.
   const slot = useRightCardsSlot();
   const asCard = slot !== null;
+  // With the deck up, the pane is no longer one card: the two stacked regions
+  // inside it are the cards, and the aside is only the frame they sit in.
+  const isDeckActive = useDeckActive();
 
   const aside = (
     <aside
@@ -37,7 +42,7 @@ export function RightAuxiliaryPane({
         !asCard &&
           "bg-background before:pointer-events-none before:absolute before:bottom-0 before:left-0 before:top-0 before:z-50 before:w-px before:bg-border/80 before:content-['']",
       )}
-      data-luca-card={asCard ? "" : undefined}
+      data-luca-card={asCard && !isDeckActive ? "" : undefined}
       data-luca-inspector
       data-testid={testId}
       style={{
@@ -63,9 +68,7 @@ export function RightAuxiliaryPane({
       >
         <span className="absolute bottom-0 left-1/2 top-0 w-px -translate-x-1/2 bg-transparent group-hover/right-pane-resize:bg-border/80 group-focus-visible/right-pane-resize:bg-border/80" />
       </button>
-      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-        {children}
-      </div>
+      <PaneDeck>{children}</PaneDeck>
     </aside>
   );
 

@@ -20,6 +20,7 @@ import {
 import { resetAgentWorkingSignal } from "@/features/agents/agentWorkingSignal";
 import { resetAgentObserverStore } from "@/features/agents/observerRelayStore";
 import { resetExchangeStore } from "@/features/exchange/exchangeStore";
+import { resetPaneState } from "@/features/panes/paneState";
 import { resetSidebarRelayConnectionCardState } from "@/features/sidebar/ui/useSidebarRelayConnectionCard";
 import { clearMarkdownNodeCache } from "@/shared/ui/markdown/nodeCache";
 import { resetVideoPlayerState } from "@/shared/ui/videoPlayerState";
@@ -50,6 +51,7 @@ function resetCommunityState(): void {
   clearSearchHitEventCache();
   clearMarkdownNodeCache();
   resetExchangeStore();
+  resetPaneState();
 }
 
 type CommunityInitResult =
