@@ -1,8 +1,14 @@
 import type * as React from "react";
 import { createPortal } from "react-dom";
 
+import { LayoutGrid } from "lucide-react";
+
 import { PaneDeck } from "@/features/panes/PaneDeck";
-import { useDeckActive } from "@/features/panes/paneState";
+import {
+  toggleDeck,
+  useDeckActive,
+  useWidgetPaneEnabled,
+} from "@/features/panes/paneState";
 import { AUXILIARY_PANEL_MIN_WIDTH_PX } from "@/shared/layout/AuxiliaryPanel";
 import { useRightCardsSlot } from "@/shared/layout/RightCardsSlot";
 import { cn } from "@/shared/lib/cn";
@@ -34,6 +40,7 @@ export function RightAuxiliaryPane({
   // With the deck up, the pane is no longer one card: the two stacked regions
   // inside it are the cards, and the aside is only the frame they sit in.
   const isDeckActive = useDeckActive();
+  const isWidgetPaneEnabled = useWidgetPaneEnabled();
 
   const aside = (
     <aside
@@ -68,6 +75,23 @@ export function RightAuxiliaryPane({
       >
         <span className="absolute bottom-0 left-1/2 top-0 w-px -translate-x-1/2 bg-transparent group-hover/right-pane-resize:bg-border/80 group-focus-visible/right-pane-resize:bg-border/80" />
       </button>
+      {isWidgetPaneEnabled ? (
+        // The drawer's header band, clear of the panel's own close action.
+        // Preview-flag scaffolding: without the flag this never renders and
+        // the deck below it is unreachable.
+        <div className="pointer-events-none absolute right-12 top-0 z-50 flex h-(--mn-header-title-row,42px) items-center">
+          <button
+            className="luca-pane-widgets-toggle pointer-events-auto"
+            data-testid="toggle-widgets"
+            onClick={toggleDeck}
+            title="Widgets"
+            type="button"
+          >
+            <LayoutGrid aria-hidden="true" className="size-3.5" />
+            <span className="sr-only">Widgets</span>
+          </button>
+        </div>
+      ) : null}
       <PaneDeck>{children}</PaneDeck>
     </aside>
   );

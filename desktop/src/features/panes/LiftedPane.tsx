@@ -2,6 +2,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { PanelBottomOpen } from "lucide-react";
 
+import { SampleWidgetCard } from "./SampleWidgetCard";
 import { setLifted, usePaneState, useWidgetPaneEnabled } from "./paneState";
 
 /** How much of the floating pane's header must stay on screen, in CSS px. */
@@ -11,17 +12,6 @@ const DRAG_LERP = 0.22;
 
 function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
-/**
- * The widget's own content.
- *
- * Rendered through exactly one `createPortal` call whose target element never
- * changes, so lifting the pane cannot remount it — see `LiftedPane` below.
- */
-function WidgetPaneContent() {
-  // The sample card lands with the flag-gated widget commit.
-  return null;
 }
 
 /**
@@ -136,7 +126,14 @@ export function LiftedPane() {
     if (!element) return;
     element.style.width = `${sizeRef.current.width}px`;
     element.style.height = `${sizeRef.current.height}px`;
+    // The element's first computed transform is `none`, so the settle
+    // transition would otherwise animate the pane in from the layer's origin
+    // — a fly-in from the top-left corner instead of a lift in place.
+    // Suppress it for exactly one frame, flush, then hand the transition back.
+    element.style.transition = "none";
     paint();
+    void element.getBoundingClientRect();
+    element.style.transition = "";
   }, [isLifted, paint]);
 
   React.useEffect(() => {
@@ -195,7 +192,7 @@ export function LiftedPane() {
   return (
     <>
       {isDeckMounted || isLifted
-        ? createPortal(<WidgetPaneContent />, container)
+        ? createPortal(<SampleWidgetCard />, container)
         : null}
       {isLifted
         ? createPortal(
