@@ -13,11 +13,16 @@
 
 /* The plate scrims the DESKTOP, not a painted body: everything between the
    NSVisualEffectView and the plate must yield. Mirrors the legacy
-   data-buzz-translucent clearing (theme.css) as a parallel system. */
-:root[data-luca-shell][data-luca-glass][data-material],
-:root[data-luca-shell][data-luca-glass][data-material] body,
-:root[data-luca-shell][data-luca-glass][data-material] .buzz-huddle-shell,
-:root[data-luca-shell][data-luca-glass][data-material]
+   data-buzz-translucent clearing (theme.css) as a parallel system.
+   Gated on data-luca-native: only Tauri has a vibrancy view behind the
+   window — in a browser (dev preview, lab, e2e) clearing these layers
+   would bleed the browser's own backdrop through the floor, so there the
+   plate composites over the normal paint instead. */
+:root[data-luca-shell][data-luca-native][data-luca-glass][data-material],
+:root[data-luca-shell][data-luca-native][data-luca-glass][data-material] body,
+:root[data-luca-shell][data-luca-native][data-luca-glass][data-material]
+  .buzz-huddle-shell,
+:root[data-luca-shell][data-luca-native][data-luca-glass][data-material]
   .buzz-huddle-app-surface {
   background-color: transparent;
   background-image: none;
@@ -56,7 +61,6 @@
 /* everything that paints floor/sidebar color above the plate yields to it */
 :root[data-luca-shell][data-luca-glass] [data-app-top-chrome],
 :root[data-luca-shell][data-luca-glass] [data-sidebar="sidebar"],
-:root[data-luca-shell][data-luca-glass] .buzz-huddle-app-surface,
 :root[data-luca-shell][data-luca-glass] .group\/sidebar-wrapper,
 :root[data-luca-shell][data-luca-glass] [data-testid="app-sidebar"],
 :root[data-luca-shell][data-luca-glass] [data-buzz-glass-inset],
@@ -97,11 +101,14 @@
   }
 
   /* The cleared layers come back too, or the window collapses to a solid
-     plate floating over a transparent shell. */
-  :root[data-luca-shell][data-luca-glass][data-material],
-  :root[data-luca-shell][data-luca-glass][data-material] body,
-  :root[data-luca-shell][data-luca-glass][data-material] .buzz-huddle-shell,
-  :root[data-luca-shell][data-luca-glass][data-material]
+     plate floating over a transparent shell. Carries the native marker so
+     it outranks the (0,6,0) clearing rule; only native ever cleared. */
+  :root[data-luca-shell][data-luca-native][data-luca-glass][data-material],
+  :root[data-luca-shell][data-luca-native][data-luca-glass][data-material]
+    body,
+  :root[data-luca-shell][data-luca-native][data-luca-glass][data-material]
+    .buzz-huddle-shell,
+  :root[data-luca-shell][data-luca-native][data-luca-glass][data-material]
     .buzz-huddle-app-surface {
     background-color: hsl(var(--mn-floor));
   }

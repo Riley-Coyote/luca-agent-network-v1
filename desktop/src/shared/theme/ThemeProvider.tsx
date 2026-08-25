@@ -367,11 +367,18 @@ function applyGlassAttributes(
   }
   root.setAttribute("data-luca-glass", glass);
   root.setAttribute("data-material", material);
-  // The index.html boot guard paints <html> inline to prevent a cold-boot
-  // flash; after hydration it has served its purpose, and on a transparent
-  // window it is the one layer CSS cannot defeat. Retire it so the vibrancy
-  // view can reach the glass floor. Buzz's legacy path never needed it gone.
-  document.documentElement.style.removeProperty("background-color");
+  // Only a Tauri window has a vibrancy view behind it. The native marker
+  // gates the layer-clearing in glass-floor.css so browser contexts (dev
+  // preview, lab, e2e) keep a solid floor instead of bleeding the
+  // browser's backdrop through it.
+  if (isTauri()) {
+    root.setAttribute("data-luca-native", "");
+    // The index.html boot guard paints <html> inline to prevent a cold-boot
+    // flash; after hydration it has served its purpose, and on a transparent
+    // window it is the one layer CSS cannot defeat. Retire it so the
+    // vibrancy view can reach the glass floor. Buzz never needed it gone.
+    document.documentElement.style.removeProperty("background-color");
+  }
 }
 
 /** Resolve the stored glass preferences and stamp them in one step. */
