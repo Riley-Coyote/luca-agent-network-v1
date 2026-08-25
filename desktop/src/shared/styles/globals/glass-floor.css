@@ -1,0 +1,86 @@
+/* ── THE GLASS FLOOR ─────────────────────────────────────────────
+   The floor is a MATERIAL, not a theme feature (HIG: materials are
+   semantic; appearance adapts). Three weights — light (pearl), neutral
+   (smoke), dark (blackout) — chosen within ink polarity. The native
+   NSVisualEffectView supplies the blur; this layer is the scrim. When
+   glass is off the same construction runs at a whisper — macOS desktop
+   tinting (HIG Dark Mode: windows "pick up color from the current
+   desktop picture"). Reduced transparency collapses everything solid.
+   The legacy buzz translucency (theme.css data-buzz-translucent, incl.
+   its forced-opaque guard) is a separate, untouched system: these rules
+   apply only when data-luca-glass is present, which is never stamped for
+   buzz themes. */
+
+:root[data-luca-shell][data-luca-glass] .luca-theme-shell-layer {
+  background-image: none;
+}
+
+/* glass on: the plate is the material's scrim */
+:root[data-luca-shell][data-luca-glass="on"][data-material="light"]
+  .luca-theme-shell-layer {
+  background-color: rgb(250 249 247 / 0.56);
+}
+
+:root[data-luca-shell][data-luca-glass="on"][data-material="neutral"]
+  .luca-theme-shell-layer {
+  background-color: rgb(9 10 14 / 0.36);
+}
+
+:root[data-luca-shell][data-luca-glass="on"][data-material="dark"]
+  .luca-theme-shell-layer {
+  background-color: rgb(5 5 8 / 0.55);
+}
+
+/* glass off: desktop tinting — the solid token with a whisper of desktop */
+:root[data-luca-shell][data-luca-glass="off"] .luca-theme-shell-layer {
+  background-color: hsl(var(--mn-floor) / 0.85);
+}
+
+:root[data-luca-shell][data-luca-glass="off"][data-material="light"]
+  .luca-theme-shell-layer {
+  background-color: hsl(var(--mn-floor) / 0.88);
+}
+
+/* everything that paints floor/sidebar color above the plate yields to it */
+:root[data-luca-shell][data-luca-glass] [data-app-top-chrome],
+:root[data-luca-shell][data-luca-glass] [data-sidebar="sidebar"],
+:root[data-luca-shell][data-luca-glass] .buzz-huddle-app-surface,
+:root[data-luca-shell][data-luca-glass] .group\/sidebar-wrapper,
+:root[data-luca-shell][data-luca-glass] [data-testid="app-sidebar"],
+:root[data-luca-shell][data-luca-glass] [data-buzz-glass-inset],
+:root[data-luca-shell][data-luca-glass] [data-buzz-glass-footer-wrap],
+:root[data-luca-shell][data-luca-glass]
+  [data-testid="community-rail"].bg-sidebar {
+  background-color: transparent;
+}
+
+/*
+ * Native vibrancy failed to install, so nothing is painting behind the
+ * webview. Collapse the plate to the solid token rather than leave a scrim
+ * over emptiness. Carries `[data-material]` for the same cascade reason as
+ * the reduced-transparency block below.
+ */
+:root[data-luca-shell][data-luca-glass][data-luca-glass-fallback][data-material]
+  .luca-theme-shell-layer,
+:root[data-luca-shell][data-luca-glass][data-luca-glass-fallback]
+  .luca-theme-shell-layer {
+  background-color: hsl(var(--mn-floor));
+}
+
+/*
+ * The accessibility contract: reduced transparency = solid tokens.
+ *
+ * A media query contributes NO specificity, so this block must out-specify
+ * the material rules above (which are (0,5,0)) or it silently loses to them
+ * and the contract never fires. `[data-material]` — always stamped alongside
+ * `[data-luca-glass]` — raises this to (0,5,0), and source order settles the
+ * tie. The bare selector is kept as the belt-and-braces case for a root that
+ * somehow carries glass without a material.
+ */
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-luca-shell][data-luca-glass][data-material]
+    .luca-theme-shell-layer,
+  :root[data-luca-shell][data-luca-glass] .luca-theme-shell-layer {
+    background-color: hsl(var(--mn-floor));
+  }
+}

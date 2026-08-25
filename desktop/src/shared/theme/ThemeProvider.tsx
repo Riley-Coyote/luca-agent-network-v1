@@ -12,6 +12,16 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invokeTauri } from "@/shared/api/tauri";
 import { isMacPlatform } from "@/shared/lib/platform";
 import {
+  GLASS_MATERIAL_STORAGE_KEY,
+  GLASS_STORAGE_KEY,
+  getGlassFloor,
+  getGlassMaterial,
+  useGlassFloor,
+  useGlassMaterial,
+  type GlassFloor,
+  type GlassMaterial,
+} from "./glassPreference";
+import {
   createGraphiteThemeVars,
   createLucaThemeVars,
   createOnyxThemeVars,
@@ -37,6 +47,9 @@ import {
 export const THEME_STORAGE_KEY = "buzz-theme";
 const CACHE_KEY = "buzz-theme-cache";
 export const ACCENT_STORAGE_KEY = "buzz-accent-color";
+// Declared in ./glassPreference so that module has no import cycle with this
+// one; re-exported here so every storage key is discoverable in one place.
+export { GLASS_STORAGE_KEY, GLASS_MATERIAL_STORAGE_KEY };
 export const NEUTRAL_ACCENT = "neutral";
 const FOLLOW_SYSTEM_KEY = "buzz-follow-system";
 const VIDEO_REVIEW_NEUTRAL_ACCENT = "0 0% 98%";
@@ -44,6 +57,8 @@ const VIDEO_REVIEW_CHIP_SURFACE = "#161616";
 const VIDEO_REVIEW_TEXT_CONTRAST = 4.5;
 const VIDEO_REVIEW_CHIP_BACKGROUND_ALPHAS = [0.15, 0.3] as const;
 const BUZZ_VIBRANCY_MATERIAL = "sidebar";
+const GLASS_VIBRANCY_MATERIAL = "under-window-background";
+const REDUCED_TRANSPARENCY_QUERY = "(prefers-reduced-transparency: reduce)";
 
 export const ACCENT_COLORS = [
   { name: "Neutral", value: NEUTRAL_ACCENT },
@@ -330,6 +345,111 @@ function setBuzzTranslucent(enabled: boolean) {
 }
 
 /**
+ * Stamp the glass-floor markers the `glass-floor.css` scrim keys off.
+ *
+ * Non-Buzz themes carry `data-luca-glass` (the stored preference, or the
+ * palette's default) and `data-material` (the stored weight, clamped to the
+ * weights the current ink polarity admits). Buzz themes carry neither: the
+ * legacy `data-buzz-translucent` translucency owns that palette, and the two
+ * systems are deliberately parallel rather than layered, so the glass system
+ * goes inert instead of competing with it.
+ */
+function applyGlassAttributes(
+  themeName: string,
+  glass: GlassFloor,
+  material: GlassMaterial,
+) {
+  const root = document.documentElement;
+  if (isBuzzTheme(themeName)) {
+    root.removeAttribute("data-luca-glass");
+    root.removeAttribute("data-material");
+    return;
+  }
+  root.setAttribute("data-luca-glass", glass);
+  root.setAttribute("data-material", material);
+}
+
+/** Resolve the stored glass preferences and stamp them in one step. */
+function applyStoredGlassAttributes(themeName: string, isDark: boolean) {
+  applyGlassAttributes(
+    themeName,
+    getGlassFloor(themeName),
+    getGlassMaterial(themeName, isDark),
+  );
+}
+
+/**
+ * Mark that the native vibrancy layer could not be installed. `glass-floor.css`
+ * collapses the plate to the solid floor token under this attribute — the same
+ * end state as reduced transparency — so a failed IPC never leaves a scrim
+ * painted over nothing.
+ */
+function setGlassVibrancyFallback(enabled: boolean) {
+  const root = document.documentElement;
+  if (enabled) {
+    root.setAttribute("data-luca-glass-fallback", "");
+  } else {
+    root.removeAttribute("data-luca-glass-fallback");
+  }
+}
+
+/**
+ * Monotonic token for the glass vibrancy request, mirroring
+ * {@link buzzVibrancyRequest}: a rapid theme switch can leave two awaits
+ * resolving out of order, and only the newest may write the fallback marker.
+ */
+let glassVibrancyRequest = 0;
+
+/**
+ * Install the native `NSVisualEffectView` the glass floor scrims over.
+ *
+ * The webview cannot filter the real desktop, so the blur has to come from the
+ * native layer; the plate's alpha is the only thing that changes between
+ * materials and between on/off. That is why vibrancy stays enabled for ALL
+ * non-Buzz themes — the whisper (glass off) needs the layer just as much as
+ * the full material does.
+ *
+ * Buzz themes return immediately. {@link applyBuzzVibrancy} owns the native
+ * layer for that palette and its careful translucency handshake must not be
+ * raced. Under reduced transparency the layer is left alone as well: the CSS
+ * collapse paints the plate solid, so an installed layer is fully covered and
+ * clearing it would only add an IPC round trip.
+ *
+ * MUST be sequenced AFTER {@link applyBuzzVibrancy} resolves — that call issues
+ * `set_window_vibrancy(enabled: false)` for every non-Buzz theme, which would
+ * otherwise clear the layer this one just installed.
+ */
+async function applyGlassVibrancy(themeName: string) {
+  if (isBuzzTheme(themeName)) return;
+
+  const requestToken = ++glassVibrancyRequest;
+
+  if (!isTauri()) {
+    // Web/dev preview: no native layer exists and none can fail to install.
+    setGlassVibrancyFallback(false);
+    return;
+  }
+
+  if (window.matchMedia(REDUCED_TRANSPARENCY_QUERY).matches) {
+    setGlassVibrancyFallback(false);
+    return;
+  }
+
+  try {
+    await invokeTauri<void>("set_window_vibrancy", {
+      enabled: true,
+      material: GLASS_VIBRANCY_MATERIAL,
+    });
+    if (requestToken !== glassVibrancyRequest) return;
+    setGlassVibrancyFallback(false);
+  } catch (error) {
+    console.warn("glass vibrancy unavailable", error);
+    if (requestToken !== glassVibrancyRequest) return;
+    setGlassVibrancyFallback(true);
+  }
+}
+
+/**
  * Monotonic token identifying the most recent vibrancy request. Because
  * {@link applyBuzzVibrancy} awaits the native `set_window_vibrancy` IPC, a rapid
  * Buzz → non-Buzz toggle can fire two overlapping calls whose awaits resolve out
@@ -456,6 +576,7 @@ function applyCachedVars(): string | null {
     root.classList.remove("light", "dark");
     root.classList.add(isDark ? "dark" : "light");
     applyBuzzSidebar(themeName);
+    applyStoredGlassAttributes(themeName, isDark);
 
     const accent =
       window.localStorage.getItem(ACCENT_STORAGE_KEY) ?? DEFAULT_ACCENT;
@@ -534,6 +655,7 @@ async function applyTheme(
   root.classList.remove("light", "dark");
   root.classList.add(isDark ? "dark" : "light");
   applyBuzzSidebar(name);
+  applyStoredGlassAttributes(name, isDark);
   // The Buzz gradient vars are now installed. If the vibrancy layer already
   // resolved for the current request (the IPC won the race against this theme
   // load), enable translucency now — otherwise applyBuzzVibrancy does it. This
@@ -628,7 +750,36 @@ export function ThemeProvider({
 
   useEffect(() => {
     if (!isValidThemeName(effectiveTheme)) return;
-    void applyBuzzVibrancy(effectiveTheme);
+    // Strictly sequential, not parallel: applyBuzzVibrancy issues
+    // `set_window_vibrancy(enabled: false)` for every non-Buzz theme, so
+    // installing the glass layer before it resolves would have that clear
+    // land last and leave the window with nothing behind it.
+    void applyBuzzVibrancy(effectiveTheme).then(() => {
+      void applyGlassVibrancy(effectiveTheme);
+    });
+  }, [effectiveTheme]);
+
+  // Re-stamp when the setting changes, mirroring how an accent change
+  // propagates below. applyTheme/applyCachedVars stamp the same attributes
+  // from storage on their own paths, so this effect is idempotent on a theme
+  // change and simply covers preference-only changes.
+  const glassFloor = useGlassFloor(effectiveTheme);
+  const glassMaterial = useGlassMaterial(effectiveTheme, isDark);
+  useEffect(() => {
+    applyGlassAttributes(effectiveTheme, glassFloor, glassMaterial);
+  }, [effectiveTheme, glassFloor, glassMaterial]);
+
+  // The accessibility contract has a native half (no vibrancy layer) as well
+  // as the CSS half, and macOS can flip the setting while the app is running.
+  useEffect(() => {
+    const mq = window.matchMedia(REDUCED_TRANSPARENCY_QUERY);
+    const handleChange = () => {
+      void applyGlassVibrancy(effectiveTheme);
+    };
+    mq.addEventListener("change", handleChange);
+    return () => {
+      mq.removeEventListener("change", handleChange);
+    };
   }, [effectiveTheme]);
 
   // Listen for system color scheme changes when followSystem is enabled
