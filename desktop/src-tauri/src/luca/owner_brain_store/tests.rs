@@ -230,6 +230,132 @@ fn connected_repository_is_body_free_at_rest_and_hash_verified_on_retrieval() {
 }
 
 #[test]
+fn selected_connected_source_priority_keeps_relevant_global_fallback() {
+    let temp = tempfile::tempdir().unwrap();
+    let selected_repository = temp.path().join("selected-repository");
+    let background_repository = temp.path().join("background-repository");
+    for repository in [&selected_repository, &background_repository] {
+        fs::create_dir(repository).unwrap();
+        std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repository)
+            .status()
+            .unwrap();
+    }
+    for index in 0..MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS + 2 {
+        fs::write(
+            selected_repository.join(format!("selected-{index}.md")),
+            format!("shared selected context {index}"),
+        )
+        .unwrap();
+    }
+    let fallback_canary = "shared FALLBACK_ONLY BACKGROUND-OMEGA";
+    fs::write(background_repository.join("fallback.md"), fallback_canary).unwrap();
+
+    let root = ContinuityMasterKey::new_for_test([13_u8; 32]);
+    let mut runtime = runtime(&temp);
+    let authority = ConnectedBrainResidentAuthorityV1 {
+        resident_pubkey: resident('b'),
+        binding_ref: binding('1'),
+        provider_egress: ProviderEgressV1::Remote,
+    };
+    let selected_candidate = connected_candidate(&selected_repository);
+    let selected_source_id =
+        crate::luca::connected_brain::source_id_for_candidate(&selected_candidate).unwrap();
+    connect_source_with_runtime(
+        &root,
+        &mut runtime,
+        owner(),
+        selected_candidate.clone(),
+        crate::luca::connected_brain::build_index(&selected_source_id, &selected_candidate)
+            .unwrap(),
+        std::slice::from_ref(&authority),
+    )
+    .unwrap();
+    let background_candidate = connected_candidate(&background_repository);
+    let background_source_id =
+        crate::luca::connected_brain::source_id_for_candidate(&background_candidate).unwrap();
+    connect_source_with_runtime(
+        &root,
+        &mut runtime,
+        owner(),
+        background_candidate.clone(),
+        crate::luca::connected_brain::build_index(&background_source_id, &background_candidate)
+            .unwrap(),
+        std::slice::from_ref(&authority),
+    )
+    .unwrap();
+
+    let generation = runtime
+        .store
+        .load_revision_generation(&owner())
+        .unwrap()
+        .unwrap();
+    let key_version = runtime.store.active_owner_key_version(&owner()).unwrap();
+    let namespace = owner_brain_namespace(&owner(), key_version).unwrap();
+    let namespace_key = derive_namespace_key(&root, &namespace).unwrap();
+    let selected = retrieve_from_generation(
+        &generation,
+        &namespace,
+        namespace_key.as_bytes(),
+        OwnerBrainRetrievalRequestV1 {
+            request_id: OpaqueId::parse("request-selected-global-fallback").unwrap(),
+            owner_pubkey: owner(),
+            resident_pubkey: authority.resident_pubkey.clone(),
+            binding_ref: authority.binding_ref.clone(),
+            provider_egress: ProviderEgressV1::Remote,
+            cue: RetrievalText::from("shared FALLBACK_ONLY"),
+            selected_source_ids: std::collections::BTreeSet::from([selected_source_id.clone()]),
+            deadline: Instant::now() + std::time::Duration::from_secs(2),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(selected.status, ContinuityLayerStatusV1::Ready);
+    assert_eq!(selected.selected.len(), MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS);
+    assert_eq!(
+        selected
+            .selected
+            .iter()
+            .filter(|chunk| chunk.source_id == selected_source_id)
+            .count(),
+        MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS - 1
+    );
+    assert!(selected
+        .selected
+        .iter()
+        .take(MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS - 1)
+        .all(|chunk| chunk.source_id == selected_source_id));
+    assert!(selected.selected.iter().any(|chunk| {
+        chunk.source_id == background_source_id && chunk.body.as_str() == fallback_canary
+    }));
+    assert!(selected.receipts.iter().all(|receipt| {
+        receipt.selected_source_count.get() == 1 && receipt.background_source_count.get() == 1
+    }));
+
+    let global = retrieve_from_generation(
+        &generation,
+        &namespace,
+        namespace_key.as_bytes(),
+        OwnerBrainRetrievalRequestV1 {
+            request_id: OpaqueId::parse("request-global-fallback-no-context").unwrap(),
+            owner_pubkey: owner(),
+            resident_pubkey: authority.resident_pubkey,
+            binding_ref: authority.binding_ref,
+            provider_egress: ProviderEgressV1::Remote,
+            cue: RetrievalText::from("FALLBACK_ONLY"),
+            selected_source_ids: std::collections::BTreeSet::new(),
+            deadline: Instant::now() + std::time::Duration::from_secs(2),
+        },
+    )
+    .unwrap();
+    assert_eq!(global.status, ContinuityLayerStatusV1::Ready);
+    assert_eq!(global.selected.len(), 1);
+    assert_eq!(global.selected[0].source_id, background_source_id);
+    assert_eq!(global.selected[0].body.as_str(), fallback_canary);
+}
+
+#[test]
 fn connected_refresh_reconfirm_future_resident_and_disconnect_are_fail_closed() {
     let temp = tempfile::tempdir().unwrap();
     let repository = temp.path().join("repository-lifecycle");

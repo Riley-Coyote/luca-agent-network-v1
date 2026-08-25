@@ -661,6 +661,50 @@ export function ingestManagedPresentationFrame(frameValue: unknown): void {
   scheduleNearestDeadline();
 }
 
+/**
+ * Settle one exact presentation after desktop has durably cancelled and
+ * replaced the resident runtime.
+ *
+ * The native cancellation command is authoritative but does not guarantee a
+ * final observer `cancelled` frame: its five-second watchdog may have to kill
+ * the old process. Without this local terminal transition, already-buffered
+ * graphemes keep animating and late frames can make a successfully stopped
+ * resident look active again. Canonical signed-final reconciliation remains
+ * available for the explicitly reported `publication_ambiguous` case.
+ */
+export function cancelManagedPresentation(
+  residentPubkey: string,
+  dispatchReceiptId: string,
+  conversationId?: string | null,
+): ManagedPresentationTurn | null {
+  const frameLookupKey = lookupKey(residentPubkey, dispatchReceiptId);
+  const current = findTurnForFinal(
+    residentPubkey,
+    dispatchReceiptId,
+    conversationId,
+  );
+  if (!current) return null;
+
+  clearPending(current.uiKey);
+  const next = activateTerminalResponseSlot(
+    {
+      ...current,
+      bufferedText: "",
+      deadlineAt: null,
+      failure: null,
+      phase: "stopped",
+      receivedText: current.visibleText,
+    },
+    Date.now(),
+  );
+  const topologyChanged =
+    current.slotOrdinal === null && next.slotOrdinal !== null;
+  markTerminalFrame(frameLookupKey, next.uiKey);
+  publishTurn(next, topologyChanged, Date.now() + MANAGED_TERMINAL_ACTIVITY_MS);
+  scheduleNearestDeadline();
+  return next;
+}
+
 export async function ensureManagedPresentationListener(): Promise<void> {
   if (unlisten || listenerPromise) return listenerPromise ?? Promise.resolve();
   listenerPromise = listen<RawManagedPresentationFrame>(

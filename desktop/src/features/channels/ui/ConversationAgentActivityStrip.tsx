@@ -602,6 +602,7 @@ export function ConversationAgentActivityStrip({
           processActivity?.phase,
           pubkey,
           processActivity?.uiKey,
+          processActivity?.failure != null,
         ),
         state,
         canStop:

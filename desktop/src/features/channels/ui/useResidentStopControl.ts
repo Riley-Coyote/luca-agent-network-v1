@@ -1,7 +1,11 @@
 import * as React from "react";
 import { toast } from "sonner";
 
-import { getManagedPresentationTurn } from "@/features/messages/managedPresentationStore";
+import { cancelActiveAgentTurn } from "@/features/agents/activeAgentTurnsStore";
+import {
+  cancelManagedPresentation,
+  getManagedPresentationTurn,
+} from "@/features/messages/managedPresentationStore";
 import type { ManagedResidentActivity } from "@/features/messages/managedPresentationTypes";
 import {
   cancelManagedAgentTurn,
@@ -145,6 +149,7 @@ export function useResidentStopControl({
       const commands = exactTurns.map((turn) => ({
         key: normalizePubkey(turn.residentPubkey),
         promise: cancelManagedAgentTurn(turn.residentPubkey, channelId, turn),
+        turn,
       }));
       const results = await Promise.allSettled(
         commands.map((command) => command.promise),
@@ -159,6 +164,28 @@ export function useResidentStopControl({
           command.key === key ? [index] : [],
         );
         const residentResults = indices.map((index) => results[index]);
+        for (const index of indices) {
+          const result = results[index];
+          const command = commands[index];
+          if (
+            !result ||
+            !command ||
+            result.status === "rejected" ||
+            result.value.status === "already_terminal"
+          ) {
+            continue;
+          }
+          const presentation = cancelManagedPresentation(
+            command.turn.residentPubkey,
+            command.turn.dispatchReceiptId,
+            channelId,
+          );
+          cancelActiveAgentTurn(
+            command.turn.residentPubkey,
+            channelId,
+            presentation?.turnId,
+          );
+        }
         const outcome = activityStopOutcome(
           residentResults.map((result) => {
             if (!result || result.status === "rejected") return "failed";

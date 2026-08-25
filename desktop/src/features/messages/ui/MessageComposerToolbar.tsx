@@ -31,6 +31,7 @@ import { SelectionFormattingTray } from "./SelectionFormattingTray";
 
 export const MessageComposerToolbar = React.memo(
   function MessageComposerToolbar({
+    addButtonRef,
     children,
     isSending = false,
     sendDisabled,
@@ -55,6 +56,7 @@ export const MessageComposerToolbar = React.memo(
     onOpenMentionPicker,
     onPaperclip,
   }: {
+    addButtonRef?: React.Ref<HTMLButtonElement>;
     /**
      * Legacy slot: the forum composer still renders its input inside this
      * row. The message composer no longer does — its card holds the input
@@ -149,6 +151,7 @@ export const MessageComposerToolbar = React.memo(
                       data-testid="message-composer-add"
                       disabled={composerDisabled}
                       onMouseDown={onCaptureSelection}
+                      ref={addButtonRef}
                       size="icon"
                       type="button"
                       variant="ghost"

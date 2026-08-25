@@ -1,11 +1,13 @@
 import type { ManagedPresentationTurn } from "@/features/messages/managedPresentationTypes";
 import type { TimelineMessage } from "@/features/messages/types";
 
-const RETRYABLE_PHASES = new Set<ManagedPresentationTurn["phase"]>([
-  "stopped",
-  "needs_attention",
-  "failed",
-]);
+function hasRetryAuthority(turn: ManagedPresentationTurn): boolean {
+  return (
+    turn.phase === "stopped" ||
+    turn.phase === "failed" ||
+    (turn.phase === "needs_attention" && turn.failure !== null)
+  );
+}
 
 export type ManagedPresentationRetry = {
   content: string;
@@ -35,7 +37,7 @@ export function resolveManagedPresentationRetry({
     !normalizedOwner ||
     !turn ||
     turn.residentPubkey.toLowerCase() !== normalizedResident ||
-    !RETRYABLE_PHASES.has(turn.phase) ||
+    !hasRetryAuthority(turn) ||
     turn.finalMessageId !== null
   ) {
     return null;

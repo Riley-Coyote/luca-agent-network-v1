@@ -78,7 +78,8 @@ pub use teams::*;
 pub use types::*;
 
 /// Returns the Buzz nest directory (`~/.buzz`) if it exists as a real
-/// directory (not a symlink), falling back to the user's home directory.
+/// directory (not a symlink), falling back to the user's home directory only
+/// for ordinary, non-isolated launches.
 ///
 /// Used as the default working directory for spawned agent processes.
 /// `ensure_nest()` must be called during app setup before this is first
@@ -96,15 +97,71 @@ pub fn default_agent_workdir() -> Option<std::path::PathBuf> {
             // Prefer ~/.buzz if it exists (created by ensure_nest()).
             // Reject symlinks to prevent redirect attacks — is_dir()
             // follows symlinks, so check symlink_metadata() first.
-            // Fall back to $HOME for resilience.
-            nest_dir()
-                .filter(|p| is_real_dir(p))
-                .or_else(|| dirs::home_dir().filter(|p| p.is_dir()))
+            // Fall back to $HOME for resilience only when no isolation root
+            // was requested. An invalid isolated root must fail closed.
+            select_default_agent_workdir(
+                nest_dir(),
+                dirs::home_dir(),
+                native_state_isolation_requested(),
+            )
         })
         .clone()
+}
+
+fn select_default_agent_workdir(
+    nest: Option<std::path::PathBuf>,
+    home: Option<std::path::PathBuf>,
+    isolation_requested: bool,
+) -> Option<std::path::PathBuf> {
+    if let Some(nest) = nest.filter(|path| is_real_dir(path)) {
+        return Some(nest);
+    }
+    if isolation_requested {
+        return None;
+    }
+    home.filter(|path| path.is_dir())
+}
+
+/// Pure launch gate used after Nest and repository resolution.
+///
+/// Ordinary launches preserve the historical missing-Nest behavior. An
+/// explicitly isolated launch may restore residents only when its isolated
+/// Nest resolved successfully.
+pub(crate) fn managed_agent_restore_allowed(
+    nest_available: bool,
+    isolation_requested: bool,
+    repos_ready: bool,
+) -> bool {
+    repos_ready && (nest_available || !isolation_requested)
 }
 
 /// Returns `true` if `path` is a real directory (not a symlink).
 fn is_real_dir(path: &std::path::Path) -> bool {
     path.symlink_metadata().map(|m| m.is_dir()).unwrap_or(false)
+}
+
+#[cfg(test)]
+mod native_state_isolation_tests {
+    use super::*;
+
+    #[test]
+    fn isolated_workdir_never_falls_back_to_home() {
+        let home = tempfile::tempdir().expect("home fixture");
+        assert_eq!(
+            select_default_agent_workdir(None, Some(home.path().to_path_buf()), true),
+            None
+        );
+        assert_eq!(
+            select_default_agent_workdir(None, Some(home.path().to_path_buf()), false),
+            Some(home.path().to_path_buf())
+        );
+    }
+
+    #[test]
+    fn invalid_isolated_nest_blocks_restore_without_changing_ordinary_launches() {
+        assert!(!managed_agent_restore_allowed(false, true, true));
+        assert!(managed_agent_restore_allowed(false, false, true));
+        assert!(managed_agent_restore_allowed(true, true, true));
+        assert!(!managed_agent_restore_allowed(true, true, false));
+    }
 }

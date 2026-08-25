@@ -14,6 +14,7 @@ use crate::app_state::AppState;
 use crate::relay::relay_ws_url_with_override;
 use std::fs;
 use std::io;
+use std::path::Component;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
@@ -67,14 +68,31 @@ const NEST_DIR_PROD: &str = ".buzz";
 /// `.repos-dir` dotfile and `REPOS` symlink.
 const NEST_DIR_DEV: &str = ".buzz-dev";
 
+/// Optional process-local root for disposable desktop instances.
+///
+/// Signed acceptance bundles set this through `LSEnvironment`. The value is
+/// consumed only by the native desktop process and keeps their generated Nest
+/// below the disposable instance root instead of allowing a custom bundle id
+/// to fall through to the canonical `~/.buzz` path.
+const NATIVE_STATE_ISOLATION_ROOT_ENV: &str = "LUCA_NATIVE_STATE_ISOLATION_ROOT";
+
 /// Process-lifetime nest directory. Initialized once at startup via
 /// [`init_nest_dir`] before any call to [`nest_dir`].
 ///
-/// `None` inside the `OnceLock` means "home dir was unresolvable at init time".
+/// `None` inside the `OnceLock` means the home dir was unresolvable or an
+/// explicitly requested isolation root failed validation.
 /// The outer `None` from `OnceLock::get` means "not initialized yet" —
 /// [`nest_dir`] falls back to the prod path in that case, ensuring test code
 /// that never calls [`init_nest_dir`] still works.
 static NEST_DIR: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+
+/// Whether this process explicitly requested a disposable native-state root.
+///
+/// This is tracked separately from [`NEST_DIR`] so an invalid isolation root
+/// remains distinguishable from an ordinary machine where the home directory
+/// could not be resolved. That distinction is what prevents fail-open `$HOME`
+/// fallbacks during acceptance runs.
+static NATIVE_STATE_ISOLATION_REQUESTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
 /// Initialize the process-lifetime nest directory.
 ///
@@ -86,22 +104,115 @@ static NEST_DIR: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new
 /// when the Tauri app-data directory name starts with `"xyz.block.buzz.app.dev"`.
 /// Pass `false` for production (signed DMG) builds.
 pub fn init_nest_dir(is_dev: bool) {
-    let suffix = if is_dev { NEST_DIR_DEV } else { NEST_DIR_PROD };
-    let path = dirs::home_dir().map(|h| h.join(suffix));
+    let home = dirs::home_dir();
+    let isolation_root = std::env::var_os(NATIVE_STATE_ISOLATION_ROOT_ENV);
+    let isolation_requested = isolation_root.is_some();
+    let _ = NATIVE_STATE_ISOLATION_REQUESTED.set(isolation_requested);
+    let path = resolve_nest_dir(home.as_deref(), is_dev, isolation_root.as_deref());
+    if isolation_requested && path.is_none() {
+        eprintln!(
+            "buzz-desktop: refusing invalid native-state isolation root; Nest is unavailable"
+        );
+    }
     // set() is a no-op when already initialized, which is correct: only the
     // first call (at boot, before any filesystem work) should win.
     let _ = NEST_DIR.set(path);
+}
+
+/// Resolve the process Nest without creating or modifying filesystem state.
+///
+/// An explicit isolation root fails closed: malformed or canonical-Nest-
+/// overlapping values return `None` instead of silently falling back to
+/// `~/.buzz`. This is a trusted build/runtime hook, never renderer input.
+fn resolve_nest_dir(
+    home: Option<&Path>,
+    is_dev: bool,
+    isolation_root: Option<&std::ffi::OsStr>,
+) -> Option<PathBuf> {
+    let Some(isolation_root) = isolation_root else {
+        let suffix = if is_dev { NEST_DIR_DEV } else { NEST_DIR_PROD };
+        return home.map(|home| home.join(suffix));
+    };
+    if isolation_root.is_empty() {
+        return None;
+    }
+    let isolation_root = PathBuf::from(isolation_root);
+    if !isolation_root.is_absolute()
+        || isolation_root
+            .components()
+            .any(|component| matches!(component, Component::CurDir | Component::ParentDir))
+    {
+        return None;
+    }
+    let metadata = isolation_root.symlink_metadata().ok()?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return None;
+    }
+    let canonical_root = isolation_root.canonicalize().ok()?;
+    if canonical_root != isolation_root || broad_native_state_isolation_root(&canonical_root, home)
+    {
+        return None;
+    }
+    if let Some(home) = home {
+        let canonical_prod = home.join(NEST_DIR_PROD);
+        let canonical_dev = home.join(NEST_DIR_DEV);
+        if canonical_root.starts_with(&canonical_prod) || canonical_root.starts_with(&canonical_dev)
+        {
+            return None;
+        }
+    }
+    let isolated_nest = canonical_root.join("nest");
+    match isolated_nest.symlink_metadata() {
+        Ok(metadata)
+            if metadata.is_dir()
+                && !metadata.file_type().is_symlink()
+                && isolated_nest.canonicalize().ok().as_deref()
+                    == Some(isolated_nest.as_path()) =>
+        {
+            Some(isolated_nest)
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Some(isolated_nest),
+        _ => None,
+    }
+}
+
+fn broad_native_state_isolation_root(path: &Path, home: Option<&Path>) -> bool {
+    if path.parent().is_none() {
+        return true;
+    }
+    if home
+        .and_then(|home| home.canonicalize().ok())
+        .is_some_and(|home| home == path)
+    {
+        return true;
+    }
+    [std::env::temp_dir(), PathBuf::from("/tmp")]
+        .into_iter()
+        .filter_map(|candidate| candidate.canonicalize().ok())
+        .any(|candidate| candidate == path)
+}
+
+/// Returns whether this process explicitly requested isolated native state.
+///
+/// Before startup initialization, inspect the process environment so early
+/// callers still fail closed. Once initialized, the first observed value is
+/// frozen alongside the process-lifetime Nest path.
+pub(crate) fn native_state_isolation_requested() -> bool {
+    *NATIVE_STATE_ISOLATION_REQUESTED
+        .get_or_init(|| std::env::var_os(NATIVE_STATE_ISOLATION_ROOT_ENV).is_some())
 }
 
 /// Returns the nest root path (`~/.buzz` for prod, `~/.buzz-dev` for dev),
 /// or `None` if the home directory cannot be resolved.
 ///
 /// If [`init_nest_dir`] has not been called yet (e.g. in unit tests), falls
-/// back to the production path `~/.buzz`.
+/// back to the production path `~/.buzz` only when isolation was not requested.
 pub fn nest_dir() -> Option<PathBuf> {
     match NEST_DIR.get() {
         Some(path) => path.clone(),
-        // Not yet initialized — fall back to prod path. Covers test code.
+        // Not yet initialized — preserve the historical prod fallback for
+        // ordinary launches, but never escape an explicitly isolated process.
+        None if native_state_isolation_requested() => None,
         None => dirs::home_dir().map(|h| h.join(NEST_DIR_PROD)),
     }
 }

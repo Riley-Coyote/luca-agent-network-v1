@@ -157,10 +157,13 @@ for (const runtime of [
     });
     expect(directSend).toMatchObject({
       content: ownerMessage,
-      // The first send precedes the channel-scoped audience query remount. The
-      // native boundary therefore uses its registered-resident + p-tag
-      // compatibility path to derive this one-resident managed audience.
-      managedAudience: null,
+      // New-conversation sends carry the managed registry directly, so even a
+      // resident materialized during first use reaches the native boundary as
+      // an explicit one-resident conversation audience.
+      managedAudience: {
+        mode: "conversation",
+        resident_pubkeys: [residentPubkey],
+      },
       mentionPubkeys: [residentPubkey],
       responseSurface: "timeline",
     });

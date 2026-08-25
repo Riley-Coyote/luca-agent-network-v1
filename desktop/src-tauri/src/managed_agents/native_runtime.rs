@@ -387,21 +387,33 @@ fn read_capture(file: &mut File) -> std::io::Result<Vec<u8>> {
 /// Run a read-only native CLI probe with a hard process deadline and bounded
 /// output. Temporary files avoid pipe-buffer deadlocks from noisy children.
 fn run_bounded(binary: &Path, args: &[&str], timeout: Duration) -> Result<CapturedOutput, String> {
+    let login_shell_path = super::login_shell_path();
+    run_bounded_with_path(binary, args, timeout, login_shell_path.as_deref())
+}
+
+fn run_bounded_with_path(
+    binary: &Path,
+    args: &[&str],
+    timeout: Duration,
+    child_path: Option<&str>,
+) -> Result<CapturedOutput, String> {
     let mut stdout_file = tempfile::tempfile().map_err(|e| format!("capture stdout: {e}"))?;
     let mut stderr_file = tempfile::tempfile().map_err(|e| format!("capture stderr: {e}"))?;
-    let mut child = Command::new(binary)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(
-            stdout_file
-                .try_clone()
-                .map_err(|e| format!("clone stdout capture: {e}"))?,
-        ))
-        .stderr(Stdio::from(
-            stderr_file
-                .try_clone()
-                .map_err(|e| format!("clone stderr capture: {e}"))?,
-        ))
+    let mut command = Command::new(binary);
+    command.args(args).stdin(Stdio::null()).stdout(Stdio::from(
+        stdout_file
+            .try_clone()
+            .map_err(|e| format!("clone stdout capture: {e}"))?,
+    ));
+    command.stderr(Stdio::from(
+        stderr_file
+            .try_clone()
+            .map_err(|e| format!("clone stderr capture: {e}"))?,
+    ));
+    if let Some(path) = child_path.filter(|path| !path.trim().is_empty()) {
+        command.env("PATH", path);
+    }
+    let mut child = command
         .spawn()
         .map_err(|e| format!("start {}: {e}", binary.display()))?;
 
@@ -943,6 +955,32 @@ mod tests {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
             .expect("mark fixture executable");
         path.canonicalize().expect("canonical executable fixture")
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_native_probe_uses_the_resolved_login_shell_path_for_script_interpreters() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let fixture = tempfile::tempdir().expect("tempdir");
+        let interpreter = fixture.path().join("fixture-node");
+        std::fs::write(&interpreter, "#!/bin/sh\nprintf 'interpreter-ready'\n")
+            .expect("write interpreter fixture");
+        std::fs::set_permissions(&interpreter, std::fs::Permissions::from_mode(0o700))
+            .expect("mark interpreter executable");
+
+        let probe = fixture.path().join("openclaw");
+        std::fs::write(&probe, "#!/usr/bin/env fixture-node\n")
+            .expect("write script-backed probe fixture");
+        std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o700))
+            .expect("mark probe executable");
+
+        let child_path = format!("{}:/usr/bin:/bin", fixture.path().display());
+        let output = run_bounded_with_path(&probe, &[], Duration::from_secs(1), Some(&child_path))
+            .expect("probe runs");
+
+        assert!(output.status.success());
+        assert_eq!(output_text(&output), "interpreter-ready");
     }
 
     #[test]

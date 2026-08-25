@@ -45,6 +45,10 @@ describe("managed operational presentation", () => {
       managedOperationalCopy("finalizing", null).label,
       "Finalizing response",
     );
+    assert.equal(
+      managedOperationalCopy("needs_attention", null).label,
+      "No response arrived",
+    );
   });
 
   it("states the outcome and never names the control beside it", () => {

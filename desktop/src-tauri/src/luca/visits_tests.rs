@@ -132,6 +132,39 @@ fn correlation() -> Hex64 {
     Hex64::parse("b".repeat(64)).expect("correlation")
 }
 
+fn exchange(root: char, opened_at: u64) -> ExchangeRecordV1 {
+    ExchangeRecordV1::open(
+        Hex64::parse("e".repeat(64)).expect("owner"),
+        vec![
+            guest(),
+            Hex64::parse("d".repeat(64)).expect("host resident"),
+        ],
+        channel(),
+        Hex64::parse(root.to_string().repeat(64)).expect("root event"),
+        Hex64::parse("d".repeat(64)).expect("opened by"),
+        None,
+        opened_at,
+    )
+    .expect("exchange")
+}
+
+fn seed_head(
+    store: &Arc<Mutex<ExchangeStore>>,
+    record: ExchangeRecordV1,
+    created_at: u64,
+    event: char,
+) {
+    store
+        .lock()
+        .expect("store")
+        .upsert_head(ExchangeHead {
+            record,
+            created_at,
+            event_id: Hex64::parse(event.to_string().repeat(64)).expect("event id"),
+        })
+        .expect("head");
+}
+
 #[test]
 fn owner_mention_visits_once_and_emits_the_exact_arrival_payload() {
     let relay = FakeRelay::default();
@@ -245,7 +278,10 @@ fn stopping_the_exchange_removes_its_guest_and_emits_left() {
         &relay,
         &store,
         &channel(),
-        VisitFadeTrigger::ExchangeStopped(&correlation()),
+        VisitFadeTrigger::ExchangeStopped {
+            exchange_id: &correlation(),
+            now_unix_secs: 1_700_000_010,
+        },
     )
     .expect("fade");
 
@@ -293,4 +329,103 @@ fn a_visit_whose_exchange_head_is_missing_still_fades() {
         .expect("store")
         .visit(&channel(), &guest)
         .is_none());
+}
+
+#[test]
+fn an_unaddressed_owner_message_keeps_a_guest_while_any_exchange_is_open() {
+    let relay = FakeRelay::default();
+    let guest = guest();
+    relay.resident(&guest, "ziggy");
+    let store = Arc::new(Mutex::new(ExchangeStore::in_memory()));
+    let first = exchange('1', 1_700_000_000);
+    let second = exchange('2', 1_700_000_100);
+    let grant = VisitGrant {
+        conversation_id: channel(),
+        resident: guest.clone(),
+        arrived_at: 1_700_000_000,
+        exchange_id: Some(first.exchange_id.clone()),
+        correlation_id: first.exchange_id.clone(),
+    };
+    settle_visit_grants(&relay, &store, &[grant]).expect("visit");
+    seed_head(&store, first.clone(), 1_700_000_000, '3');
+    seed_head(&store, second.clone(), 1_700_000_100, '4');
+    let after_first_expired = first.deadline.get() + 1;
+    assert!(second.deadline.get() >= after_first_expired);
+
+    let faded = fade_visits(
+        &relay,
+        &store,
+        &channel(),
+        VisitFadeTrigger::OwnerMessage {
+            mentioned: &BTreeSet::new(),
+            now_unix_secs: after_first_expired,
+        },
+    )
+    .expect("keep visit");
+
+    assert!(faded.is_empty());
+    assert!(relay.removed.lock().expect("removed").is_empty());
+    assert!(store
+        .lock()
+        .expect("store")
+        .visit(&channel(), &guest)
+        .is_some());
+
+    let faded = fade_visits(
+        &relay,
+        &store,
+        &channel(),
+        VisitFadeTrigger::OwnerMessage {
+            mentioned: &BTreeSet::new(),
+            now_unix_secs: second.deadline.get() + 1,
+        },
+    )
+    .expect("fade after every exchange expires");
+    assert_eq!(faded, [guest]);
+}
+
+#[test]
+fn stopping_one_exchange_keeps_a_guest_until_their_last_exchange_stops() {
+    let relay = FakeRelay::default();
+    let guest = guest();
+    relay.resident(&guest, "ziggy");
+    let store = Arc::new(Mutex::new(ExchangeStore::in_memory()));
+    let first = exchange('1', 1_700_000_000);
+    let second = exchange('2', 1_700_000_100);
+    let grant = VisitGrant {
+        conversation_id: channel(),
+        resident: guest.clone(),
+        arrived_at: 1_700_000_000,
+        exchange_id: Some(first.exchange_id.clone()),
+        correlation_id: first.exchange_id.clone(),
+    };
+    settle_visit_grants(&relay, &store, &[grant]).expect("visit");
+    seed_head(&store, first.stopped(), 1_700_000_200, '3');
+    seed_head(&store, second.clone(), 1_700_000_100, '4');
+
+    let faded = fade_visits(
+        &relay,
+        &store,
+        &channel(),
+        VisitFadeTrigger::ExchangeStopped {
+            exchange_id: &first.exchange_id,
+            now_unix_secs: 1_700_000_200,
+        },
+    )
+    .expect("keep visit");
+    assert!(faded.is_empty());
+    assert!(relay.removed.lock().expect("removed").is_empty());
+
+    seed_head(&store, second.stopped(), 1_700_000_300, '5');
+    let faded = fade_visits(
+        &relay,
+        &store,
+        &channel(),
+        VisitFadeTrigger::ExchangeStopped {
+            exchange_id: &second.exchange_id,
+            now_unix_secs: 1_700_000_300,
+        },
+    )
+    .expect("fade after last stop");
+    assert_eq!(faded, [guest]);
 }

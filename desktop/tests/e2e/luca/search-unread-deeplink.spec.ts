@@ -18,7 +18,7 @@ test.beforeEach(async ({ page }) => {
 test("search opens exact owner and managed-resident messages", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?e2e=mock");
 
   await openSearch(page);
   await page.getByTestId("search-dialog-input").fill("Welcome to #general");
@@ -66,7 +66,7 @@ test("search opens exact owner and managed-resident messages", async ({
 test("manual unread state survives reload and clears through existing read authority", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?e2e=mock");
   await page.getByTestId("channel-general").click();
 
   await page.getByTestId("channel-random").click({ button: "right" });
@@ -84,7 +84,7 @@ test("manual unread state survives reload and clears through existing read autho
 test("canonical message links open the exact thread and survive reload", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?e2e=mock");
   await page.getByTestId("channel-general").click();
   await expect(page.getByTestId("message-timeline")).toContainText(
     "Welcome to #general",

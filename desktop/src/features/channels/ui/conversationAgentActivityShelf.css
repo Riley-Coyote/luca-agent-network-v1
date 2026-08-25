@@ -344,6 +344,10 @@
 @media (prefers-reduced-motion: reduce) {
   :root[data-luca-shell] .luca-activity-item,
   :root[data-luca-shell] .luca-activity-shelf,
+  :root[data-luca-shell]
+    .luca-activity-pulse:not([data-state="stopped"]):not(
+      [data-state="interrupted"]
+    ):not([data-state="needs-attention"]),
   :root[data-luca-shell] .luca-activity-pulse {
     animation: none;
     transform: none;

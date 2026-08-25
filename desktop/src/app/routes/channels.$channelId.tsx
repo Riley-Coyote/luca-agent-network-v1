@@ -26,7 +26,18 @@ type ChannelRouteSearch = {
 };
 
 function nonEmptyString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+  if (typeof value !== "string" || value.length === 0) return undefined;
+
+  // Hash history can append the document-level search string to the final
+  // hash search value after a hard reload (for example the E2E/dev bridge
+  // marker). Keep route-owned IDs independent from those outer parameters.
+  const documentSearch =
+    typeof window === "undefined" ? "" : window.location.search;
+  const normalized =
+    documentSearch && value.endsWith(documentSearch)
+      ? value.slice(0, -documentSearch.length)
+      : value;
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function validateChannelSearch(

@@ -84,9 +84,11 @@ function sourceStatus(source: ConnectedBrainSource) {
 }
 
 function ContextChip({
+  buttonRef,
   onClick,
   view,
 }: {
+  buttonRef: React.Ref<HTMLButtonElement>;
   onClick: () => void;
   view: ConversationContextView;
 }) {
@@ -107,6 +109,7 @@ function ContextChip({
         // outside-interaction guard from immediately dismissing the sheet.
         window.setTimeout(onClick, 0);
       }}
+      ref={buttonRef}
       type="button"
     >
       {view.status === "missing_primary" ? (
@@ -135,11 +138,13 @@ function SourceMeta({ source }: { source: ConversationContextSource }) {
 
 export function ConversationContextComposerSurface({
   config,
+  fallbackFocusRef,
   onOpenChange,
   onSendBlockedChange,
   open,
 }: {
   config: ConversationContextComposerConfig;
+  fallbackFocusRef?: React.RefObject<HTMLButtonElement | null>;
   onOpenChange: (open: boolean) => void;
   onSendBlockedChange?: (blocked: boolean) => void;
   open: boolean;
@@ -160,6 +165,7 @@ export function ConversationContextComposerSurface({
   const [error, setError] = React.useState<string | null>(null);
   const [marker, setMarker] = React.useState<string | null>(null);
   const [newProjectName, setNewProjectName] = React.useState("");
+  const contextChipRef = React.useRef<HTMLButtonElement>(null);
   const view = context.data ?? null;
   const hasProject = config.project !== null;
 
@@ -364,7 +370,11 @@ export function ConversationContextComposerSurface({
         </div>
       ) : null}
       {view ? (
-        <ContextChip onClick={() => onOpenChange(true)} view={view} />
+        <ContextChip
+          buttonRef={contextChipRef}
+          onClick={() => onOpenChange(true)}
+          view={view}
+        />
       ) : null}
       {view?.status === "missing_primary" ? (
         <div
@@ -406,6 +416,12 @@ export function ConversationContextComposerSurface({
       <SheetContent
         className="z-[51] flex w-full flex-col gap-0 overflow-y-auto border-border/70 bg-background p-0 sm:max-w-md"
         data-testid="conversation-context-drawer"
+        onCloseAutoFocus={(event) => {
+          const target = contextChipRef.current ?? fallbackFocusRef?.current;
+          if (!target?.isConnected) return;
+          event.preventDefault();
+          target.focus();
+        }}
         side="right"
       >
         <SheetHeader className="border-b border-border/60 px-5 pb-4 pt-5 text-left">

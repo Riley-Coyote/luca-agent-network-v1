@@ -300,6 +300,7 @@ export function BrainView() {
               inventory={inventory}
               isMutating={mutating}
               kind={detailCategory}
+              onConnect={() => requestConnection(detailCategory)}
               onDisconnect={(sourceId) =>
                 void run(() => actions.disconnect.mutateAsync({ sourceId }))
               }

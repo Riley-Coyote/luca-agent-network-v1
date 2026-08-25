@@ -3,12 +3,12 @@ use super::*;
 #[test]
 fn nest_dir_is_under_home() {
     if let Some(dir) = nest_dir() {
-        // Accepts both .buzz (prod) and .buzz-dev (dev) depending on
-        // whether init_nest_dir was called before this test ran.
+        // Accepts .buzz (prod), .buzz-dev (dev), or the instance-local `nest`
+        // directory when the process was launched with an isolation root.
         let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
         assert!(
-            name == NEST_DIR_PROD || name == NEST_DIR_DEV,
-            "nest_dir must end with .buzz or .buzz-dev, got {dir:?}"
+            name == NEST_DIR_PROD || name == NEST_DIR_DEV || name == "nest",
+            "nest_dir must end with .buzz, .buzz-dev, or nest, got {dir:?}"
         );
     }
 }
@@ -23,10 +23,91 @@ fn init_nest_dir_prod_sets_buzz() {
     if let Some(d) = dir {
         let name = d.file_name().and_then(|n| n.to_str()).unwrap_or("");
         assert!(
-            name == NEST_DIR_PROD || name == NEST_DIR_DEV,
-            "nest_dir suffix must be .buzz or .buzz-dev, got {d:?}"
+            name == NEST_DIR_PROD || name == NEST_DIR_DEV || name == "nest",
+            "nest_dir suffix must be .buzz, .buzz-dev, or nest, got {d:?}"
         );
     }
+}
+
+#[test]
+fn isolated_nest_resolves_below_the_explicit_instance_root() {
+    let fixture = tempfile::tempdir().expect("fixture");
+    let root = fixture.path().canonicalize().expect("canonical fixture");
+    let home = Path::new("/Users/fixture");
+    assert_eq!(
+        resolve_nest_dir(Some(home), false, Some(root.as_os_str())),
+        Some(root.join("nest"))
+    );
+}
+
+#[test]
+fn isolated_nest_rejects_relative_parent_and_canonical_nest_roots() {
+    let fixture = tempfile::tempdir().expect("fixture");
+    let home = fixture.path().canonicalize().expect("canonical fixture");
+    let prod = home.join(NEST_DIR_PROD);
+    let dev = home.join(NEST_DIR_DEV);
+    let missing = home.join("missing");
+    let broad_temp = std::env::temp_dir()
+        .canonicalize()
+        .expect("canonical temp root");
+    std::fs::create_dir(&prod).expect("prod nest fixture");
+    std::fs::create_dir(&dev).expect("dev nest fixture");
+    for invalid in [
+        Path::new(""),
+        Path::new("relative/native-state"),
+        Path::new("/private/tmp/../private/tmp/native-state"),
+        missing.as_path(),
+        prod.as_path(),
+        dev.as_path(),
+        home.as_path(),
+        Path::new("/"),
+        broad_temp.as_path(),
+    ] {
+        assert_eq!(
+            resolve_nest_dir(Some(&home), false, Some(invalid.as_os_str())),
+            None,
+            "accepted unsafe isolation root: {invalid:?}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn isolated_nest_rejects_a_symlink_root() {
+    let fixture = tempfile::tempdir().expect("fixture");
+    let real_root = fixture.path().join("real-root");
+    let symlink_root = fixture.path().join("linked-root");
+    std::fs::create_dir(&real_root).expect("real root fixture");
+    std::os::unix::fs::symlink(&real_root, &symlink_root).expect("symlink fixture");
+
+    assert_eq!(
+        resolve_nest_dir(None, false, Some(symlink_root.as_os_str())),
+        None
+    );
+
+    let nested_root = fixture.path().join("nested-root");
+    let outside_nest = fixture.path().join("outside-nest");
+    std::fs::create_dir(&nested_root).expect("nested root fixture");
+    std::fs::create_dir(&outside_nest).expect("outside nest fixture");
+    std::os::unix::fs::symlink(&outside_nest, nested_root.join("nest"))
+        .expect("nested symlink fixture");
+    assert_eq!(
+        resolve_nest_dir(None, false, Some(nested_root.as_os_str())),
+        None
+    );
+}
+
+#[test]
+fn absent_isolation_root_preserves_existing_prod_and_dev_paths() {
+    let home = Path::new("/Users/fixture");
+    assert_eq!(
+        resolve_nest_dir(Some(home), false, None),
+        Some(home.join(NEST_DIR_PROD))
+    );
+    assert_eq!(
+        resolve_nest_dir(Some(home), true, None),
+        Some(home.join(NEST_DIR_DEV))
+    );
 }
 
 #[test]

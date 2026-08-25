@@ -599,6 +599,131 @@ test("ordinary Reply is directed while Reply in thread remains explicit", async 
   await expect(page.getByText("A real thread response.")).toHaveCount(0);
 });
 
+test("a focused broadcast reply hydrates its canonical-root branch after reopen", async ({
+  page,
+}) => {
+  const selectedHeadId = "c".repeat(64);
+  const unrelatedHeadId = "d".repeat(64);
+  const ownerReplyId = "e".repeat(64);
+  const residentReplyId = "f".repeat(64);
+  const selectedHeadContent = "Coda opened this branch.";
+  const unrelatedHeadContent = "A separate root branch.";
+  const ownerReplyContent = "Owner reply under Coda.";
+  const residentReplyContent = "Coda reply under the same head.";
+
+  await page.evaluate(
+    ({
+      claude,
+      ownerReplyContent,
+      ownerReplyId,
+      residentReplyContent,
+      residentReplyId,
+      selectedHeadContent,
+      selectedHeadId,
+      unrelatedHeadContent,
+      unrelatedHeadId,
+    }) => {
+      const emit = window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__;
+      if (!emit) throw new Error("Mock message emitter is unavailable.");
+      emit({
+        channelName: "general",
+        content: selectedHeadContent,
+        extraTags: [["broadcast", "1"]],
+        id: selectedHeadId,
+        parentEventId: "mock-general-alice",
+        pubkey: claude,
+      });
+      emit({
+        channelName: "general",
+        content: unrelatedHeadContent,
+        extraTags: [["broadcast", "1"]],
+        id: unrelatedHeadId,
+        parentEventId: "mock-general-alice",
+        pubkey: claude,
+      });
+      emit({
+        channelName: "general",
+        content: ownerReplyContent,
+        id: ownerReplyId,
+        parentEventId: selectedHeadId,
+      });
+      emit({
+        channelName: "general",
+        content: residentReplyContent,
+        extraTags: [["luca-managed-dispatch", ownerReplyId]],
+        id: residentReplyId,
+        parentEventId: selectedHeadId,
+        pubkey: claude,
+      });
+    },
+    {
+      claude: CLAUDE,
+      ownerReplyContent,
+      ownerReplyId,
+      residentReplyContent,
+      residentReplyId,
+      selectedHeadContent,
+      selectedHeadId,
+      unrelatedHeadContent,
+      unrelatedHeadId,
+    },
+  );
+
+  const selectedHead = page.locator(`[data-message-id="${selectedHeadId}"]`);
+  await expect(selectedHead).toContainText(selectedHeadContent);
+  await expect(
+    page.getByText(unrelatedHeadContent, { exact: true }),
+  ).toBeVisible();
+  await selectedHead.hover();
+  await selectedHead.getByRole("button", { name: "More actions" }).click();
+  await page.getByRole("menuitem", { name: "Reply in thread…" }).click();
+
+  await expect(page.getByTestId("focused-thread-bar")).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const calls = (window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? []).filter(
+          (entry) => entry.command === "get_thread_replies",
+        );
+        return (calls.at(-1)?.payload as { rootEventId?: string } | undefined)
+          ?.rootEventId;
+      }),
+    )
+    .toBe("mock-general-alice");
+  await expect(
+    page.getByText(ownerReplyContent, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(residentReplyContent, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(unrelatedHeadContent, { exact: true }),
+  ).toHaveCount(0);
+
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("focused-thread-bar")).toHaveCount(0);
+  await expect(page.getByText(ownerReplyContent, { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(
+    page.getByText(residentReplyContent, { exact: true }),
+  ).toHaveCount(0);
+
+  const reopenedHead = page.locator(`[data-message-id="${selectedHeadId}"]`);
+  await reopenedHead.hover();
+  await reopenedHead.getByRole("button", { name: "More actions" }).click();
+  await page.getByRole("menuitem", { name: "Reply in thread…" }).click();
+  await expect(
+    page.getByText(ownerReplyContent, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(residentReplyContent, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(unrelatedHeadContent, { exact: true }),
+  ).toHaveCount(0);
+});
+
 test("agent mentions activate exactly the named resident subset", async ({
   page,
 }) => {

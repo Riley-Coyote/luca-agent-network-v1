@@ -23,8 +23,13 @@ pub(crate) enum VisitFadeTrigger<'a> {
         /// Owner-message timestamp used only to recognize expired exchanges.
         now_unix_secs: u64,
     },
-    /// The owner stopped the exchange that brought a guest.
-    ExchangeStopped(&'a Hex64),
+    /// The owner stopped an exchange involving a guest.
+    ExchangeStopped {
+        /// Exchange the owner stopped.
+        exchange_id: &'a Hex64,
+        /// Stop timestamp used only to recognize other expired exchanges.
+        now_unix_secs: u64,
+    },
 }
 
 #[derive(Serialize)]
@@ -205,27 +210,36 @@ pub(crate) fn fade_visits(
                 mentioned,
                 now_unix_secs,
             } => {
-                let has_open_exchange = if let Some(exchange_id) = &visit.grant.exchange_id {
-                    let store = store.lock().map_err(|_| {
+                let has_open_exchange = store
+                    .lock()
+                    .map_err(|_| {
                         ExchangeRelayError::Unavailable("visit store is locked".to_owned())
-                    })?;
-                    // A head we do not have is NOT evidence of an open exchange.
-                    // Reading it as open would strand the guest: this path would
-                    // never fade them, and `ExchangeStopped` cannot fire for an
-                    // exchange nobody holds. Fading is cheap and reversible — the
-                    // next mention starts a fresh visit — so an unknown head
-                    // fades rather than pins a membership row forever.
-                    store.head(exchange_id).is_some_and(|head| {
-                        head.record.state == luca_protocol::ExchangeStateV1::Open
-                            && head.record.deadline.get() >= *now_unix_secs
-                    })
-                } else {
-                    false
-                };
+                    })?
+                    .has_open_exchange_involving(
+                        conversation_id,
+                        &visit.grant.resident,
+                        *now_unix_secs,
+                    );
                 !has_open_exchange && !mentioned.contains(&visit.grant.resident)
             }
-            VisitFadeTrigger::ExchangeStopped(exchange_id) => {
-                visit.grant.exchange_id.as_ref() == Some(*exchange_id)
+            VisitFadeTrigger::ExchangeStopped {
+                exchange_id,
+                now_unix_secs,
+            } => {
+                let store = store.lock().map_err(|_| {
+                    ExchangeRelayError::Unavailable("visit store is locked".to_owned())
+                })?;
+                let stopped_involved_guest = visit.grant.exchange_id.as_ref() == Some(*exchange_id)
+                    || store.head(exchange_id).is_some_and(|head| {
+                        &head.record.conversation_id == conversation_id
+                            && head.record.members.contains(&visit.grant.resident)
+                    });
+                stopped_involved_guest
+                    && !store.has_open_exchange_involving(
+                        conversation_id,
+                        &visit.grant.resident,
+                        *now_unix_secs,
+                    )
             }
         };
         if !should_fade {

@@ -150,31 +150,16 @@ pub(super) fn retrieve_from_generation(
     candidates.extend(connected_candidates);
     decisions.extend(connected_decisions);
     require_before_deadline(request.deadline)?;
-    candidates.sort_by(compare_ranked_candidates);
-
-    let mut selected = Vec::new();
-    let mut selected_hashes = BTreeSet::new();
-    let mut selected_bytes = 0_usize;
-    for candidate in candidates {
-        if selected.len() >= MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS {
-            break;
-        }
-        let body_bytes = candidate.body.as_str().len();
-        if selected_hashes.contains(&candidate.content_hash)
-            || selected_bytes.saturating_add(body_bytes) > MAX_OWNER_BRAIN_RETRIEVAL_BYTES
-        {
-            continue;
-        }
-        selected_bytes += body_bytes;
-        selected_hashes.insert(candidate.content_hash.clone());
-        selected.push(OwnerBrainSelectedChunkV1 {
+    let selected = select_bounded_candidates(candidates)
+        .into_iter()
+        .map(|candidate| OwnerBrainSelectedChunkV1 {
             source_id: candidate.source_id,
             grant_id: candidate.grant_id,
             chunk_id: candidate.chunk_id,
             body: candidate.body,
             content_hash: candidate.content_hash,
-        });
-    }
+        })
+        .collect::<Vec<_>>();
 
     let elapsed_ms = u64::try_from(started.elapsed().as_millis())
         .ok()
@@ -280,6 +265,109 @@ fn compare_ranked_candidates(
         .then_with(|| left.source_id.cmp(&right.source_id))
 }
 
+fn select_bounded_candidates(
+    mut candidates: Vec<RankedOwnerBrainChunkV1>,
+) -> Vec<RankedOwnerBrainChunkV1> {
+    candidates.sort_by(compare_ranked_candidates);
+    let has_selected = candidates
+        .iter()
+        .any(|candidate| candidate.selected_context);
+    let has_background = candidates
+        .iter()
+        .any(|candidate| !candidate.selected_context);
+
+    let mut selected = Vec::new();
+    let mut selected_hashes = BTreeSet::new();
+    let mut selected_bytes = 0_usize;
+    if !has_selected || !has_background {
+        for candidate in candidates {
+            let _ = try_select_candidate(
+                &mut selected,
+                &mut selected_hashes,
+                &mut selected_bytes,
+                candidate,
+                MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS,
+                MAX_OWNER_BRAIN_RETRIEVAL_BYTES,
+            );
+        }
+        return selected;
+    }
+
+    let (selected_candidates, background_candidates): (Vec<_>, Vec<_>) = candidates
+        .into_iter()
+        .partition(|candidate| candidate.selected_context);
+    let mut deferred_selected = Vec::new();
+    for candidate in selected_candidates {
+        if let Some(candidate) = try_select_candidate(
+            &mut selected,
+            &mut selected_hashes,
+            &mut selected_bytes,
+            candidate,
+            MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS.saturating_sub(1),
+            MAX_OWNER_BRAIN_RETRIEVAL_BYTES.saturating_sub(MAX_OWNER_BRAIN_CHUNK_BYTES),
+        ) {
+            deferred_selected.push(candidate);
+        }
+    }
+
+    let mut background_selected = false;
+    let mut deferred_background = Vec::new();
+    for candidate in background_candidates {
+        if !background_selected {
+            match try_select_candidate(
+                &mut selected,
+                &mut selected_hashes,
+                &mut selected_bytes,
+                candidate,
+                MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS,
+                MAX_OWNER_BRAIN_RETRIEVAL_BYTES,
+            ) {
+                None => {
+                    background_selected = true;
+                    continue;
+                }
+                Some(candidate) => deferred_background.push(candidate),
+            }
+        } else {
+            deferred_background.push(candidate);
+        }
+    }
+
+    for candidate in deferred_selected.into_iter().chain(deferred_background) {
+        let _ = try_select_candidate(
+            &mut selected,
+            &mut selected_hashes,
+            &mut selected_bytes,
+            candidate,
+            MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS,
+            MAX_OWNER_BRAIN_RETRIEVAL_BYTES,
+        );
+    }
+    selected.sort_by(compare_ranked_candidates);
+    selected
+}
+
+fn try_select_candidate(
+    selected: &mut Vec<RankedOwnerBrainChunkV1>,
+    selected_hashes: &mut BTreeSet<Sha256Ref>,
+    selected_bytes: &mut usize,
+    candidate: RankedOwnerBrainChunkV1,
+    chunk_limit: usize,
+    byte_limit: usize,
+) -> Option<RankedOwnerBrainChunkV1> {
+    let body_bytes = candidate.body.as_str().len();
+    if selected.len() >= chunk_limit
+        || selected_hashes.contains(&candidate.content_hash)
+        || selected_bytes.saturating_add(body_bytes) > byte_limit
+    {
+        return Some(candidate);
+    }
+    *selected_bytes += body_bytes;
+    selected_hashes.insert(candidate.content_hash.clone());
+    selected.push(candidate);
+    None
+}
+
 fn active_source_ids(
     generation: &StoredRevisionGenerationV1,
     namespace: &NamespaceKey,
@@ -383,12 +471,22 @@ mod selected_context_tests {
     use super::*;
 
     fn candidate(source: &str, chunk: &str, score: i64, selected: bool) -> RankedOwnerBrainChunkV1 {
+        candidate_with_body(source, chunk, format!("context {chunk}"), score, selected)
+    }
+
+    fn candidate_with_body(
+        source: &str,
+        chunk: &str,
+        body: String,
+        score: i64,
+        selected: bool,
+    ) -> RankedOwnerBrainChunkV1 {
         RankedOwnerBrainChunkV1 {
             source_id: OpaqueId::parse(source.to_owned()).expect("source"),
             grant_id: OpaqueId::parse(format!("grant-{source}")).expect("grant"),
             chunk_id: OpaqueId::parse(chunk.to_owned()).expect("chunk"),
-            body: RetrievalText::from("context"),
-            content_hash: Sha256Ref::parse(format!("sha256:{}", "aa".repeat(32))).expect("hash"),
+            content_hash: sha256_ref(body.as_bytes()).expect("hash"),
+            body: RetrievalText::from(body),
             score,
             selected_context: selected,
         }
@@ -402,5 +500,117 @@ mod selected_context_tests {
         ];
         candidates.sort_by(compare_ranked_candidates);
         assert_eq!(candidates[0].source_id.as_str(), "selected");
+    }
+
+    #[test]
+    fn selected_context_reserves_one_bounded_background_fallback() {
+        let mut candidates = (0..MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS + 2)
+            .map(|index| candidate("selected", &format!("chunk-selected-{index}"), 10, true))
+            .collect::<Vec<_>>();
+        candidates.push(candidate("background", "chunk-background", 10_000, false));
+
+        let selected = select_bounded_candidates(candidates);
+
+        assert_eq!(selected.len(), MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS);
+        assert_eq!(
+            selected
+                .iter()
+                .filter(|candidate| candidate.selected_context)
+                .count(),
+            MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS - 1
+        );
+        assert_eq!(
+            selected
+                .iter()
+                .filter(|candidate| !candidate.selected_context)
+                .count(),
+            1
+        );
+        assert!(selected[..MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS - 1]
+            .iter()
+            .all(|candidate| candidate.selected_context));
+        assert_eq!(selected.last().unwrap().source_id.as_str(), "background");
+    }
+
+    #[test]
+    fn selected_only_retrieval_uses_the_full_chunk_bound() {
+        let candidates = (0..MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS + 2)
+            .map(|index| candidate("selected", &format!("chunk-selected-{index}"), 10, true))
+            .collect::<Vec<_>>();
+
+        let selected = select_bounded_candidates(candidates);
+
+        assert_eq!(selected.len(), MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS);
+        assert!(selected.iter().all(|candidate| candidate.selected_context));
+    }
+
+    #[test]
+    fn selected_context_reserves_background_bytes_at_the_global_bound() {
+        let mut candidates = (0..MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS)
+            .map(|index| {
+                let prefix = format!("selected-{index:02}");
+                let body = format!(
+                    "{prefix}{}",
+                    "s".repeat(MAX_OWNER_BRAIN_CHUNK_BYTES - prefix.len())
+                );
+                candidate_with_body(
+                    "selected",
+                    &format!("chunk-selected-{index}"),
+                    body,
+                    10,
+                    true,
+                )
+            })
+            .collect::<Vec<_>>();
+        let prefix = "background";
+        candidates.push(candidate_with_body(
+            "background",
+            "chunk-background",
+            format!(
+                "{prefix}{}",
+                "b".repeat(MAX_OWNER_BRAIN_CHUNK_BYTES - prefix.len())
+            ),
+            10_000,
+            false,
+        ));
+
+        let selected = select_bounded_candidates(candidates);
+
+        assert_eq!(
+            selected
+                .iter()
+                .map(|candidate| candidate.body.as_str().len())
+                .sum::<usize>(),
+            MAX_OWNER_BRAIN_RETRIEVAL_BYTES
+        );
+        assert_eq!(
+            selected
+                .iter()
+                .filter(|candidate| candidate.selected_context)
+                .count(),
+            (MAX_OWNER_BRAIN_RETRIEVAL_BYTES - MAX_OWNER_BRAIN_CHUNK_BYTES)
+                / MAX_OWNER_BRAIN_CHUNK_BYTES
+        );
+        assert!(selected.iter().any(|candidate| !candidate.selected_context));
+    }
+
+    #[test]
+    fn duplicate_background_content_backfills_selected_capacity() {
+        let mut candidates = (0..MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS + 1)
+            .map(|index| candidate("selected", &format!("chunk-selected-{index}"), 10, true))
+            .collect::<Vec<_>>();
+        let duplicate_body = candidates[0].body.as_str().to_owned();
+        candidates.push(candidate_with_body(
+            "background",
+            "chunk-background",
+            duplicate_body,
+            10_000,
+            false,
+        ));
+
+        let selected = select_bounded_candidates(candidates);
+
+        assert_eq!(selected.len(), MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS);
+        assert!(selected.iter().all(|candidate| candidate.selected_context));
     }
 }

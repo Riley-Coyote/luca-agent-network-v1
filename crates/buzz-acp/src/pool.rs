@@ -475,6 +475,28 @@ pub enum PromptOutcome {
     CancelDrainTimeout(Duration),
 }
 
+impl PromptOutcome {
+    /// Terminal status projected onto the managed presentation channel.
+    ///
+    /// Keep this classification shared with the queue supervisor: once a
+    /// managed channel turn exposes `failed`, that exact dispatch must not also
+    /// retain hidden automatic-retry authority.
+    pub(crate) fn presentation_terminal_status(&self) -> &'static str {
+        match self {
+            Self::Ok(_) => "finalizing",
+            // A drain timeout poisons the process, but it is still the terminal
+            // edge of an intentional cancel/merge. Presenting it as failed
+            // would transfer retry authority away from that continuation path.
+            Self::Cancelled | Self::CancelDrainTimeout(_) => "cancelled",
+            Self::Error(_) | Self::AgentExited | Self::Timeout(_) => "failed",
+        }
+    }
+
+    pub(crate) fn emits_failed_presentation(&self) -> bool {
+        self.presentation_terminal_status() == "failed"
+    }
+}
+
 /// Immutable config subset shared (via `Arc`) by all spawned prompt tasks.
 ///
 /// Built once from `Config` at startup. Avoids cloning the full config
@@ -1468,14 +1490,7 @@ fn send_prompt_result(
     outcome: PromptOutcome,
     batch: Option<FlushBatch>,
 ) {
-    let terminal_status = match &outcome {
-        PromptOutcome::Ok(_) => "finalizing",
-        PromptOutcome::Cancelled => "cancelled",
-        PromptOutcome::Error(_)
-        | PromptOutcome::AgentExited
-        | PromptOutcome::Timeout(_)
-        | PromptOutcome::CancelDrainTimeout(_) => "failed",
-    };
+    let terminal_status = outcome.presentation_terminal_status();
     agent.acp.observe(
         "turn_terminal",
         serde_json::json!({"status": terminal_status}),

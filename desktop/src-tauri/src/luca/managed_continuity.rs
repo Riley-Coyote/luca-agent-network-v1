@@ -53,7 +53,8 @@ enum AuthorizedPacketWrite {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+// This is only the protocol discriminator for a complete intent frame, so the
+// request-specific fields must remain available to the strict parser below.
 struct IntentEnvelopeV1 {
     protocol: String,
 }
@@ -833,6 +834,22 @@ mod tests {
             deadline_unix_ms: SafeU53::new(10_000).unwrap(),
             max_packet_bytes: SafeU53::new(MAX_CONTINUITY_PACKET_BYTES as u64).unwrap(),
         }
+    }
+
+    #[test]
+    fn intent_envelope_accepts_the_full_session_context_wire_shape() {
+        let wire = serde_json::json!({
+            "protocol": SESSION_CONTEXT_INTENT_PROTOCOL,
+            "request_id": "request-1",
+            "resident_pubkey": "22".repeat(32),
+            "session_epoch": 4,
+            "conversation_id": "conversation-1",
+            "trigger_event_id": "33".repeat(32),
+            "deadline_unix_ms": 10_000,
+        });
+
+        let envelope: IntentEnvelopeV1 = serde_json::from_value(wire).unwrap();
+        assert_eq!(envelope.protocol, SESSION_CONTEXT_INTENT_PROTOCOL);
     }
 
     #[test]

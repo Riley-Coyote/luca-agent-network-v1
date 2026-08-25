@@ -3,6 +3,7 @@ import { afterEach, describe, it } from "node:test";
 
 import {
   acknowledgeManagedPresentationReconciliation,
+  cancelManagedPresentation,
   completeManagedPresentation,
   completeManagedPresentationForConversation,
   dismissManagedPresentationActivity,
@@ -67,6 +68,46 @@ function flushAll() {
 afterEach(resetManagedPresentationStore);
 
 describe("managedPresentationStore", () => {
+  it("settles a watchdog cancellation and rejects buffered or late presentation frames", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 2, {
+        public_chunk: "This buffered response must stop revealing immediately.",
+      }),
+    );
+    flushManagedPresentationSchedulerForTests();
+    const visibleAtCancel = turn().visibleText;
+    assert.ok(visibleAtCancel.length > 0);
+    assert.ok(turn().bufferedText.length > 0);
+
+    const cancelled = cancelManagedPresentation(
+      residentPubkey,
+      receiptId,
+      conversationId,
+    );
+    assert.equal(cancelled.phase, "stopped");
+    assert.equal(cancelled.bufferedText, "");
+    assert.equal(cancelled.receivedText, visibleAtCancel);
+    flushAll();
+    assert.equal(turn().visibleText, visibleAtCancel);
+
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 3, { public_chunk: " late" }),
+    );
+    flushAll();
+    assert.equal(turn().visibleText, visibleAtCancel);
+
+    reconcileManagedPresentationFinal(
+      residentPubkey,
+      receiptId,
+      conversationId,
+      "ambiguous-final",
+      "Canonical final",
+    );
+    assert.equal(turn().signedText, "Canonical final");
+  });
+
   it("hydrates body-free restart outcomes once and preserves sibling partials", () => {
     const sibling = "33".repeat(32);
     seedManagedPresentations(conversationId, receiptId, [

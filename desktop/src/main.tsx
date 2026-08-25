@@ -52,8 +52,14 @@ function configureDevE2eBridgeFromUrl() {
   }
 
   const url = new URL(window.location.href);
+  const e2eWindow = window as E2eWindow;
+  const hasPreconfiguredBridge = e2eWindow.__BUZZ_E2E__ !== undefined;
   const isNativeTauriWebview = "__TAURI_INTERNALS__" in window;
-  if (!isNativeTauriWebview && !url.searchParams.has("e2e")) {
+  if (
+    !isNativeTauriWebview &&
+    !hasPreconfiguredBridge &&
+    !url.searchParams.has("e2e")
+  ) {
     // A bare Vite URL is a browser preview, not the native desktop runtime.
     // Give it a deterministic local bridge instead of letting Tauri invoke()
     // fail during bootstrap. Native `tauri dev` remains untouched because its
@@ -66,7 +72,13 @@ function configureDevE2eBridgeFromUrl() {
     return;
   }
 
-  const e2eWindow = window as E2eWindow;
+  // Playwright installs its exact fixture before this module runs. Preserve
+  // that fixture (including intentionally empty onboarding/community state)
+  // instead of layering browser-preview demo defaults over it.
+  if (hasPreconfiguredBridge) {
+    return;
+  }
+
   const notebookDemo = url.searchParams.get("notebookDemo") === "1";
   e2eWindow.__BUZZ_E2E__ ??= {
     mode: "mock",

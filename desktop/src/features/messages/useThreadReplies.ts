@@ -73,10 +73,10 @@ async function withThreadAux(
 /** Fetch a thread subtree into a cache independent from channel window pages. */
 export function useThreadReplies(
   activeChannel: Channel | null,
-  openThreadRootId: string | null,
+  threadQueryRootId: string | null,
 ) {
   const channelId = activeChannel?.id ?? "none";
-  const rootId = openThreadRootId ?? "none";
+  const rootId = threadQueryRootId ?? "none";
   const queryClient = useQueryClient();
   const queryKey = threadRepliesKey(channelId, rootId);
   return useQuery({
@@ -84,9 +84,9 @@ export function useThreadReplies(
     enabled:
       activeChannel !== null &&
       activeChannel.channelType !== "forum" &&
-      openThreadRootId !== null,
+      threadQueryRootId !== null,
     queryFn: async (): Promise<RelayEvent[]> => {
-      if (!activeChannel || !openThreadRootId) return [];
+      if (!activeChannel || !threadQueryRootId) return [];
       const cacheAtStart =
         queryClient.getQueryData<RelayEvent[]>(queryKey) ?? [];
       const idsAtStart = new Set(cacheAtStart.map((event) => event.id));
@@ -94,7 +94,7 @@ export function useThreadReplies(
       let cursor: ThreadCursor | null = null;
       for (let page = 0; page < MAX_THREAD_PAGES; page += 1) {
         const response = await getThreadReplies(
-          openThreadRootId,
+          threadQueryRootId,
           activeChannel.id,
           { limit: THREAD_PAGE_LIMIT, cursor },
         );
@@ -102,7 +102,7 @@ export function useThreadReplies(
         if (!response.nextCursor) {
           const fetched = await withThreadAux(
             activeChannel.id,
-            openThreadRootId,
+            threadQueryRootId,
             replies,
           );
           const current =
@@ -115,7 +115,7 @@ export function useThreadReplies(
         cursor = response.nextCursor;
       }
       throw new Error(
-        `Thread ${openThreadRootId} exceeded the page safety limit.`,
+        `Thread ${threadQueryRootId} exceeded the page safety limit.`,
       );
     },
     staleTime: 0,

@@ -26,6 +26,10 @@ test("a loose room stays visually unchanged until context is attached", async ({
   await openAddContext(page);
 
   const drawer = page.getByTestId("conversation-context-drawer");
+  await page.keyboard.press("Escape");
+  await expect(drawer).toBeHidden();
+  await expect(page.getByTestId("message-composer-add")).toBeFocused();
+  await openAddContext(page);
   await expect(
     drawer.getByText("Working folder", { exact: true }),
   ).toBeVisible();
@@ -59,6 +63,9 @@ test("a loose room stays visually unchanged until context is attached", async ({
   await expect(
     drawer.getByText(/Runtime managed · Uses the runtime's existing/),
   ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(drawer).toBeHidden();
+  await expect(chip).toBeFocused();
 });
 
 test("a project room inherits context without asking the user to set it up", async ({
@@ -139,4 +146,38 @@ test("a missing primary folder protects the draft and offers inline recovery", a
   await expect(editor).toContainText("keep this draft");
   await expect(recovery).toHaveCount(0);
   await expect(page.getByTestId("send-message")).toBeEnabled();
+});
+
+test("a folder that moves during send refreshes recovery while preserving the draft", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    conversationContextFixture: "ready",
+    sendChannelMessageErrors: ["conversation_context:missing_primary"],
+  });
+  await page.goto("/?e2e=mock");
+  await page.getByTestId("channel-alice-tyler").click();
+  await openAddContext(page);
+
+  const drawer = page.getByTestId("conversation-context-drawer");
+  await drawer.getByRole("radio", { name: /luca-agent-network/i }).check();
+  await drawer.getByRole("button", { name: "Save for this room" }).click();
+  await expect(drawer).toBeHidden();
+
+  const editor = page
+    .getByTestId("message-composer")
+    .locator("[contenteditable='true']");
+  await editor.fill("keep this moving-folder draft");
+  await page.evaluate(() => {
+    const config = window.__BUZZ_E2E__ as
+      | { mock?: { conversationContextFixture?: string } }
+      | undefined;
+    if (config?.mock) config.mock.conversationContextFixture = "missing";
+  });
+  await page.getByTestId("send-message").click();
+
+  const recovery = page.getByTestId("conversation-context-missing-primary");
+  await expect(recovery).toBeVisible();
+  await expect(editor).toContainText("keep this moving-folder draft");
+  await expect(page.getByTestId("send-message")).toBeDisabled();
 });

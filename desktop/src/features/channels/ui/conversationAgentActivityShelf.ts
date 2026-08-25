@@ -95,13 +95,18 @@ export function activityShelfRetryTarget(
   presentationPhase: ActivityShelfPresentationPhase | null | undefined,
   residentPubkey: string,
   uiKey: string | null | undefined,
+  hasTerminalFailure = false,
 ): ActivityShelfRetryTarget | null {
-  const terminal =
+  const wireTerminal =
     presentationPhase === "failed" ||
-    presentationPhase === "needs_attention" ||
-    (presentationPhase !== null &&
-      presentationPhase !== undefined &&
-      isTerminalConversationActivity(presentationPhase));
+    (presentationPhase === "needs_attention" && hasTerminalFailure);
+  const conversationTerminal =
+    presentationPhase !== "failed" &&
+    presentationPhase !== "needs_attention" &&
+    presentationPhase !== null &&
+    presentationPhase !== undefined &&
+    isTerminalConversationActivity(presentationPhase);
+  const terminal = wireTerminal || conversationTerminal;
   if (!terminal || !uiKey) return null;
   return { residentPubkey, uiKey };
 }

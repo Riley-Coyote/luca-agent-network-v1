@@ -2600,6 +2600,7 @@ async fn tokio_main() -> Result<()> {
                     &mut pool,
                     &mut queue,
                     &config,
+                    config.identity.is_managed(),
                     result,
                     &mut heartbeat_in_flight,
                     &removed_channels,
@@ -3200,11 +3201,27 @@ fn spawn_failure_notice(
     }
 }
 
+/// A managed presentation `failed` frame is a terminal owner-visible outcome.
+/// Replaying its original batch would create a fresh hidden turn ID for the
+/// same durable dispatch receipt, while the desktop presentation gate remains
+/// tombstoned on the first turn. The owner's next signed send is therefore the
+/// only retry authority for a failed managed channel turn.
+fn managed_terminal_failure_requires_explicit_retry(
+    managed_identity: bool,
+    source: &PromptSource,
+    outcome: &PromptOutcome,
+) -> bool {
+    managed_identity
+        && matches!(source, PromptSource::Channel(_))
+        && outcome.emits_failed_presentation()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn handle_prompt_result(
     pool: &mut AgentPool,
     queue: &mut EventQueue,
     config: &Config,
+    managed_identity: bool,
     mut result: PromptResult,
     heartbeat_in_flight: &mut bool,
     removed_channels: &HashSet<Uuid>,
@@ -3229,12 +3246,32 @@ fn handle_prompt_result(
     // match arm in the death_message construction reads it.
     let mut hard_timeout_fate_suffix: Option<&'static str> = None;
 
+    let explicit_retry_required = managed_terminal_failure_requires_explicit_retry(
+        managed_identity,
+        &result.source,
+        &result.outcome,
+    );
+
     // Requeue BEFORE mark_complete: requeue() sets retry_after with a future
     // deadline, and mark_complete() checks for it to decide whether to preserve
     // retry_counts. If mark_complete runs first, retry_counts is cleared and
     // every retry starts at attempt 1 — defeating exponential backoff and
     // dead-letter protection.
-    if let Some(batch) = result.batch.take() {
+    if explicit_retry_required {
+        if let Some(batch) = result.batch.take() {
+            tracing::warn!(
+                channel_id = %batch.channel_id,
+                events = batch.events.len(),
+                "dropping terminally failed managed batch; explicit owner retry required"
+            );
+            if matches!(
+                result.outcome,
+                PromptOutcome::Timeout(TimeoutKind::Hard { .. })
+            ) {
+                hard_timeout_fate_suffix = Some(" — not requeued; explicit owner retry required");
+            }
+        }
+    } else if let Some(batch) = result.batch.take() {
         // Don't requeue batches for channels the agent was removed from —
         // those events are stale and should be silently dropped.
         if !removed_channels.contains(&batch.channel_id) {
@@ -4001,10 +4038,13 @@ fn normalized_agent_name(init_result: &serde_json::Value) -> String {
 }
 
 fn supports_additional_directories(init_result: &serde_json::Value) -> bool {
-    init_result
-        .pointer("/agentCapabilities/sessionCapabilities/additionalDirectories")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
+    match init_result.pointer("/agentCapabilities/sessionCapabilities/additionalDirectories") {
+        // ACP represents advertised session capabilities as objects. Keep accepting
+        // the earlier boolean form for adapters that have not moved yet.
+        Some(serde_json::Value::Object(_)) => true,
+        Some(serde_json::Value::Bool(supported)) => *supported,
+        _ => false,
+    }
 }
 
 // ── spawn_and_init ────────────────────────────────────────────────────────────
@@ -5274,7 +5314,7 @@ mod error_outcome_emission_tests {
     use crate::pool::{
         AgentPool, OwnedAgent, PromptOutcome, PromptResult, PromptSource, TimeoutKind,
     };
-    use crate::queue::{BatchEvent, FlushBatch};
+    use crate::queue::{BatchEvent, EventQueue, FlushBatch, QueuedEvent};
     use nostr::{EventBuilder, Keys, Kind};
     use std::collections::HashSet;
 
@@ -5348,12 +5388,22 @@ mod error_outcome_emission_tests {
     fn additional_directory_support_is_capability_negotiated() {
         assert!(supports_additional_directories(&serde_json::json!({
             "agentCapabilities": {
+                "sessionCapabilities": { "additionalDirectories": {} }
+            }
+        })));
+        assert!(supports_additional_directories(&serde_json::json!({
+            "agentCapabilities": {
                 "sessionCapabilities": { "additionalDirectories": true }
             }
         })));
         assert!(!supports_additional_directories(&serde_json::json!({
             "agentCapabilities": {
                 "sessionCapabilities": { "additionalDirectories": false }
+            }
+        })));
+        assert!(!supports_additional_directories(&serde_json::json!({
+            "agentCapabilities": {
+                "sessionCapabilities": { "additionalDirectories": null }
             }
         })));
         assert!(!supports_additional_directories(&serde_json::json!({})));
@@ -5430,6 +5480,7 @@ mod error_outcome_emission_tests {
             &mut pool,
             &mut queue,
             &config,
+            config.identity.is_managed(),
             result,
             &mut heartbeat_in_flight,
             &removed_channels,
@@ -5452,6 +5503,65 @@ mod error_outcome_emission_tests {
             "turn_error must retain the completed turn id"
         );
         turn_errors.len()
+    }
+
+    async fn queue_after_application_error(
+        managed_identity: bool,
+        batch: FlushBatch,
+    ) -> EventQueue {
+        let channel_id = batch.channel_id;
+        let agent = dummy_agent(0).await;
+        let mut pool = AgentPool::from_slots(vec![None]);
+        let task_id = pool.join_set.spawn(async {}).id();
+        pool.task_map_mut().insert(
+            task_id,
+            crate::pool::TaskMeta {
+                agent_index: 0,
+                channel_id: Some(channel_id),
+                turn_id: "retry-authority-turn".to_string(),
+                recoverable_batch: None,
+                control_tx: None,
+                steer_tx: None,
+            },
+        );
+        let mut queue = EventQueue::new(config::DedupMode::Queue);
+        let config = test_config();
+        let mut heartbeat_in_flight = false;
+        let removed_channels = HashSet::new();
+        let mut crash_history = vec![SlotCircuit {
+            crash_times: Vec::new(),
+            open_until: None,
+            respawn_in_flight: false,
+        }];
+        let (respawn_tx, _respawn_rx) = mpsc::channel(8);
+        let mut respawn_tasks = tokio::task::JoinSet::new();
+        let result = PromptResult {
+            agent,
+            source: PromptSource::Channel(channel_id),
+            turn_id: "retry-authority-turn".to_string(),
+            outcome: PromptOutcome::Error(AcpError::AgentError {
+                code: -32603,
+                message: "provider overloaded".into(),
+            }),
+            private_output: None,
+            batch: Some(batch),
+        };
+
+        handle_prompt_result(
+            &mut pool,
+            &mut queue,
+            &config,
+            managed_identity,
+            result,
+            &mut heartbeat_in_flight,
+            &removed_channels,
+            &mut crash_history,
+            &respawn_tx,
+            &mut respawn_tasks,
+            None,
+            None,
+        );
+        queue
     }
 
     #[tokio::test]
@@ -5554,6 +5664,120 @@ mod error_outcome_emission_tests {
         );
     }
 
+    #[test]
+    fn only_failed_managed_channel_turns_require_explicit_owner_retry() {
+        let channel = PromptSource::Channel(Uuid::new_v4());
+        let failed_outcomes = [
+            PromptOutcome::Error(AcpError::AgentError {
+                code: -32603,
+                message: "provider overloaded".into(),
+            }),
+            PromptOutcome::Error(AcpError::Io(std::io::Error::other("pipe broke"))),
+            PromptOutcome::AgentExited,
+            PromptOutcome::Timeout(TimeoutKind::Idle),
+            PromptOutcome::Timeout(TimeoutKind::Hard {
+                recently_active: true,
+            }),
+        ];
+
+        for outcome in &failed_outcomes {
+            assert_eq!(outcome.presentation_terminal_status(), "failed");
+            assert!(managed_terminal_failure_requires_explicit_retry(
+                true, &channel, outcome,
+            ));
+        }
+
+        let cancelled = PromptOutcome::Cancelled;
+        assert_eq!(cancelled.presentation_terminal_status(), "cancelled");
+        assert!(
+            !managed_terminal_failure_requires_explicit_retry(true, &channel, &cancelled),
+            "intentional cancel/merge keeps its existing harness-owned continuation path"
+        );
+        let cancel_drain_timeout =
+            PromptOutcome::CancelDrainTimeout(std::time::Duration::from_secs(5));
+        assert_eq!(
+            cancel_drain_timeout.presentation_terminal_status(),
+            "cancelled"
+        );
+        assert!(
+            !managed_terminal_failure_requires_explicit_retry(
+                true,
+                &channel,
+                &cancel_drain_timeout,
+            ),
+            "cancel-drain recovery keeps the same intentional cancel/merge authority"
+        );
+
+        let legacy_error = PromptOutcome::Error(AcpError::AgentError {
+            code: -32603,
+            message: "provider overloaded".into(),
+        });
+        assert!(
+            !managed_terminal_failure_requires_explicit_retry(false, &channel, &legacy_error),
+            "legacy Queue mode keeps automatic retry authority"
+        );
+        assert!(
+            !managed_terminal_failure_requires_explicit_retry(
+                true,
+                &PromptSource::Heartbeat,
+                &legacy_error,
+            ),
+            "managed identity alone does not change non-channel work"
+        );
+    }
+
+    #[tokio::test]
+    async fn handle_prompt_result_gives_failed_managed_batch_only_owner_retry_authority() {
+        let channel_id = Uuid::new_v4();
+        let original_event = EventBuilder::new(Kind::Custom(9), "original request")
+            .sign_with_keys(&Keys::generate())
+            .unwrap();
+        let batch = FlushBatch {
+            channel_id,
+            events: vec![BatchEvent {
+                event: original_event.clone(),
+                prompt_tag: "test".into(),
+                exchange: None,
+                received_at: std::time::Instant::now(),
+            }],
+            cancelled_events: vec![],
+            cancel_reason: None,
+        };
+
+        let mut managed_queue = queue_after_application_error(true, batch.clone()).await;
+        assert_eq!(managed_queue.pending_channels(), 0);
+        assert_eq!(managed_queue.queued_event_count(&channel_id), 0);
+
+        let fresh_event = EventBuilder::new(Kind::Custom(9), "explicit retry")
+            .sign_with_keys(&Keys::generate())
+            .unwrap();
+        assert!(managed_queue.push(QueuedEvent {
+            channel_id,
+            event: fresh_event.clone(),
+            received_at: std::time::Instant::now(),
+            prompt_tag: "test".into(),
+            exchange: None,
+        }));
+        let fresh_batch = managed_queue
+            .flush_next()
+            .expect("managed failure must leave no retry throttle on fresh owner traffic");
+        assert_eq!(fresh_batch.events.len(), 1);
+        assert_eq!(fresh_batch.events[0].event.id, fresh_event.id);
+
+        let mut legacy_queue = queue_after_application_error(false, batch).await;
+        assert_eq!(legacy_queue.pending_channels(), 1);
+        assert_eq!(legacy_queue.queued_event_count(&channel_id), 1);
+        assert!(
+            legacy_queue.flush_next().is_none(),
+            "legacy automatic retry must retain its backoff throttle"
+        );
+        assert_eq!(
+            legacy_queue.drain_channel(channel_id),
+            vec![original_event.id.to_hex()],
+            "legacy Queue mode must preserve the exact original batch"
+        );
+    }
+
     /// idle_timeout outcome_label is "idle_timeout"; hard_timeout is "hard_timeout".
     #[tokio::test]
     async fn timeout_outcome_labels_differ() {
@@ -5596,6 +5820,7 @@ mod error_outcome_emission_tests {
                 &mut pool,
                 &mut queue,
                 &config,
+                config.identity.is_managed(),
                 result,
                 &mut heartbeat_in_flight,
                 &removed_channels,
@@ -5688,6 +5913,7 @@ mod error_outcome_emission_tests {
                 &mut pool,
                 &mut queue,
                 &config,
+                config.identity.is_managed(),
                 result,
                 &mut heartbeat_in_flight,
                 &removed_channels,
@@ -5795,6 +6021,7 @@ mod error_outcome_emission_tests {
                 &mut pool,
                 &mut queue,
                 &config,
+                config.identity.is_managed(),
                 result,
                 &mut heartbeat_in_flight,
                 &removed_channels,
@@ -5888,6 +6115,7 @@ mod error_outcome_emission_tests {
             &mut pool,
             &mut queue,
             &config,
+            config.identity.is_managed(),
             result,
             &mut heartbeat_in_flight,
             &removed_channels,
@@ -5983,6 +6211,7 @@ mod error_outcome_emission_tests {
             &mut pool,
             &mut queue,
             &config,
+            config.identity.is_managed(),
             result,
             &mut heartbeat_in_flight,
             &removed_channels,
@@ -6012,10 +6241,11 @@ mod error_outcome_emission_tests {
         );
     }
 
-    /// Cancel-drain-timeout batches are requeued as cancelled (merge into the
-    /// next flush, `CancelReason` preserved) — never dead-lettered like a real
-    /// hard-cap. The agent itself is NOT returned to the idle pool: it is
-    /// handed to `spawn_respawn_task` instead, mirroring a fatal `Timeout`.
+    /// Cancel-drain-timeout batches remain requeued as cancelled even for a
+    /// managed turn (merge into the next flush, `CancelReason` preserved) —
+    /// never dead-lettered like a real hard-cap. The agent itself is NOT
+    /// returned to the idle pool: it is handed to `spawn_respawn_task` instead,
+    /// mirroring a fatal `Timeout`.
     ///
     /// This reproduces the full steer-fallback incident, not just the
     /// original batch in isolation: the steer ack handler already released
@@ -6101,6 +6331,7 @@ mod error_outcome_emission_tests {
             &mut pool,
             &mut queue,
             &config,
+            true,
             result,
             &mut heartbeat_in_flight,
             &removed_channels,
@@ -6234,6 +6465,7 @@ mod error_outcome_emission_tests {
             &mut pool,
             &mut queue,
             &config,
+            config.identity.is_managed(),
             result,
             &mut heartbeat_in_flight,
             &removed_channels,
