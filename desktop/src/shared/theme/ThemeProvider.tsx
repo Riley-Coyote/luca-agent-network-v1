@@ -383,6 +383,11 @@ function applyGlassAttributes(
   }
   root.setAttribute("data-luca-glass", glass);
   root.setAttribute("data-material", material);
+  // The index.html boot guard paints <html> inline to prevent a cold-boot
+  // flash; after hydration it has served its purpose, and on a transparent
+  // window it is the one layer CSS cannot defeat. Retire it so the vibrancy
+  // view can reach the glass floor. Buzz's legacy path never needed it gone.
+  document.documentElement.style.removeProperty("background-color");
 }
 
 /** Resolve the stored glass preferences and stamp them in one step. */
