@@ -19,6 +19,12 @@
   /* Distances stay restrained so motion supports hierarchy without spectacle. */
   --motion-distance-arrival: 0.75rem;
   --motion-blur-arrival: 2px;
+
+  /* Additions for the pane system (glass-shell port). The spring is the one
+     overshoot curve in the system — spent rarely: toast entries and the
+     lift's pickup. The draw duration is a ring/dial coming to its reading. */
+  --motion-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --motion-duration-draw: 1.2s;
 }
 
 /* A newly-created conversational object settling into the timeline. */
