@@ -45,6 +45,14 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
 import {
+  allowedMaterials,
+  setGlassFloor,
+  setGlassMaterial,
+  useGlassFloor,
+  useGlassMaterial,
+  type GlassMaterial,
+} from "@/shared/theme/glassPreference";
+import {
   ACCENT_COLORS,
   isBuzzTheme,
   isFixedNeutralTheme,
@@ -639,8 +647,144 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
         </AnimatePresence>
       )}
 
+      <GlassFloorSettings isDark={isDark} themeName={themeName} />
+
       <ConversationAppearanceSettings currentPubkey={currentPubkey} />
     </section>
+  );
+}
+
+const GLASS_MATERIAL_OPTIONS: {
+  value: GlassMaterial;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "neutral",
+    label: "Neutral",
+    description: "Smoke — the desktop dimmed into a band.",
+  },
+  {
+    value: "dark",
+    label: "Dark",
+    description: "Blackout — embers under black glass.",
+  },
+];
+
+/**
+ * The glass floor controls. Hidden entirely for Buzz themes: that palette is
+ * owned by the legacy translucency path, and the glass system is inert there.
+ * The material picker only appears when the current ink polarity admits more
+ * than one weight — a light palette has exactly one, so there is nothing to
+ * choose.
+ */
+function GlassFloorSettings({
+  isDark,
+  themeName,
+}: {
+  isDark: boolean;
+  themeName: string;
+}) {
+  const glassFloor = useGlassFloor(themeName);
+  const materials = allowedMaterials(isDark);
+
+  if (isBuzzTheme(themeName)) return null;
+
+  return (
+    <div className="mt-8">
+      <h3 className="mb-2 px-1 text-sm font-medium">Glass</h3>
+      <SettingsOptionGroup>
+        <SettingsOptionRow>
+          <div className="min-w-0">
+            <label className="text-sm font-medium" htmlFor="glass-floor-switch">
+              Glass floor
+            </label>
+            <p className="text-sm font-normal text-muted-foreground">
+              The floor takes the desktop&apos;s colour. Off keeps a whisper of
+              it.
+            </p>
+          </div>
+          <Switch
+            checked={glassFloor === "on"}
+            data-testid="glass-floor-toggle"
+            id="glass-floor-switch"
+            onCheckedChange={(enabled) => setGlassFloor(enabled ? "on" : "off")}
+          />
+        </SettingsOptionRow>
+
+        {materials.length > 1 ? (
+          <SettingsOptionRow className="border-t border-border/45">
+            <GlassMaterialSetting isDark={isDark} themeName={themeName} />
+          </SettingsOptionRow>
+        ) : null}
+      </SettingsOptionGroup>
+    </div>
+  );
+}
+
+/**
+ * Material weight picker. Uses the same dropdown radio group vocabulary as the
+ * other enumerated Settings rows (see {@link ThreadLayoutSetting}) so each
+ * weight can carry its own description.
+ */
+function GlassMaterialSetting({
+  isDark,
+  themeName,
+}: {
+  isDark: boolean;
+  themeName: string;
+}) {
+  const glassMaterial = useGlassMaterial(themeName, isDark);
+  const options = GLASS_MATERIAL_OPTIONS.filter((option) =>
+    allowedMaterials(isDark).includes(option.value),
+  );
+  const activeOption =
+    options.find((option) => option.value === glassMaterial) ?? options[0];
+
+  return (
+    <div className="flex w-full items-center justify-between gap-4">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">Glass material</p>
+        <p className="text-sm font-normal text-muted-foreground">
+          {activeOption.description}
+        </p>
+      </div>
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            className="h-7 min-w-28 justify-between gap-1.5 rounded-full border border-border/50 bg-muted/45 px-2.5 text-xs font-medium text-foreground shadow-none hover:bg-muted/70"
+            data-testid="glass-material-select"
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            <span className="truncate">{activeOption.label}</span>
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-72">
+          <DropdownMenuRadioGroup
+            onValueChange={(next) => setGlassMaterial(next as GlassMaterial)}
+            value={glassMaterial}
+          >
+            {options.map((option) => (
+              <DropdownMenuRadioItem
+                data-testid={`glass-material-${option.value}`}
+                key={option.value}
+                value={option.value}
+              >
+                <span className="flex min-w-0 flex-col">
+                  <span className="font-medium">{option.label}</span>
+                  <span className="text-2xs text-muted-foreground">
+                    {option.description}
+                  </span>
+                </span>
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
 
