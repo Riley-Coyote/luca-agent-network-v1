@@ -58,6 +58,8 @@ import { WelcomeSetup } from "@/features/communities/ui/WelcomeSetup";
 import { CommunityApplyErrorScreen } from "@/features/communities/ui/CommunityApplyErrorScreen";
 import { CommunityChangeOverlay } from "@/features/communities/ui/CommunityChangeOverlay";
 import { createBuzzQueryClient } from "@/shared/api/queryClient";
+import { BusyMark } from "@/shared/ui/BusyMark";
+import { LOADING_REVEAL_DELAY_MS } from "@/shared/ui/ViewLoadingFallback";
 import {
   getDefaultRelayUrl,
   isSharedIdentity as isSharedIdentityCmd,
@@ -132,13 +134,13 @@ function LucaLoader({ className }: { className?: string }) {
   return (
     <div
       aria-label="Opening Luca"
-      className={cn(
-        "text-lg font-medium tracking-caps-wider text-foreground",
-        className,
-      )}
+      className={cn("flex flex-col items-center gap-3", className)}
       role="img"
     >
-      LUCA
+      <div className="text-lg font-medium tracking-caps-wider text-foreground">
+        LUCA
+      </div>
+      <BusyMark className="opacity-70" size={18} />
     </div>
   );
 }
@@ -179,7 +181,10 @@ function CommunitySwitchGate() {
   const [showSpinner, setShowSpinner] = useState(false);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setShowSpinner(true), 300);
+    const timer = window.setTimeout(
+      () => setShowSpinner(true),
+      LOADING_REVEAL_DELAY_MS,
+    );
     return () => window.clearTimeout(timer);
   }, []);
 

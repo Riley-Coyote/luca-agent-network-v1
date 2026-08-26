@@ -3,7 +3,6 @@ import {
   AlertCircle,
   Files,
   GitBranch,
-  LoaderCircle,
   LockKeyhole,
   MessageSquare,
   RefreshCw,
@@ -12,6 +11,7 @@ import {
 import * as React from "react";
 
 import { startBackgroundTask } from "@/shared/lib/backgroundTasks";
+import { BusyMark } from "@/shared/ui/BusyMark";
 import { readableConnectedBrainError } from "./brainErrors";
 import { BrainActivity } from "./BrainActivity";
 import {
@@ -480,8 +480,8 @@ function ViewTab({
 function BrainLoading() {
   return (
     <div className="flex h-full items-center justify-center" role="status">
-      <div className="text-center text-sm text-muted-foreground">
-        <LoaderCircle className="mx-auto mb-2 h-5 w-5 animate-spin" />
+      <div className="flex flex-col items-center text-sm text-muted-foreground">
+        <BusyMark className="mb-2.5 opacity-80" size={22} />
         Finding your work
       </div>
     </div>

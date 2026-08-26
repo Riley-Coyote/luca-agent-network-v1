@@ -8,6 +8,7 @@ import { TopChromeInsetHeader } from "@/shared/layout/TopChromeInsetHeader";
 
 type ViewLoadingFallbackKind =
   | "agents"
+  | "brain"
   | "channel"
   | "forum"
   | "projects"
@@ -20,7 +21,9 @@ type ViewLoadingFallbackProps = {
   kind: ViewLoadingFallbackKind;
 };
 
-const DEFAULT_LOADING_REVEAL_DELAY_MS = 250;
+/** The one don't-flash delay: skeletons and boot spinners appear only when a
+ *  wait outlives this, so fast loads never flicker a loader. */
+export const LOADING_REVEAL_DELAY_MS = 250;
 
 function LoadingHeaderSkeleton() {
   return (
@@ -395,8 +398,35 @@ function ForumLoadingBody({ hasHeader = false }: { hasHeader?: boolean }) {
   );
 }
 
+/** The Brain view's card grid, quietly. */
+function BrainLoadingBody() {
+  return (
+    <div className="min-h-0 flex-1 overflow-hidden">
+      <div className="mx-auto w-full max-w-5xl px-5 pb-12 pt-14 sm:px-7 sm:pt-7 lg:px-9">
+        <Skeleton className="h-8 w-28" />
+        <Skeleton className="mt-3 h-4 w-80 max-w-full" />
+        <div className="mt-8 grid gap-5 sm:grid-cols-2">
+          {["one", "two", "three", "four"].map((key) => (
+            <Card className="p-5" key={key}>
+              <div className="flex items-start justify-between">
+                <Skeleton className="h-10 w-10 rounded-xl" />
+                <Skeleton className="h-4 w-16 rounded-full" />
+              </div>
+              <Skeleton className="mt-5 h-5 w-32" />
+              <Skeleton className="mt-3 h-4 w-full" />
+              <Skeleton className="mt-1.5 h-4 w-4/5" />
+              <Skeleton className="mt-4 h-3 w-40" />
+              <Skeleton className="mt-4 h-9 w-32 rounded-full" />
+            </Card>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ViewLoadingFallback({
-  delayMs = DEFAULT_LOADING_REVEAL_DELAY_MS,
+  delayMs = LOADING_REVEAL_DELAY_MS,
   includeHeader = false,
   kind,
 }: ViewLoadingFallbackProps) {
@@ -427,6 +457,7 @@ export function ViewLoadingFallback({
     >
       {shouldShowChannelHeader ? <LoadingHeaderSkeleton /> : null}
       {kind === "agents" ? <AgentsLoadingBody /> : null}
+      {kind === "brain" ? <BrainLoadingBody /> : null}
       {kind === "workflows" ? <CardListLoadingBody /> : null}
       {kind === "projects" ? <CardListLoadingBody /> : null}
       {kind === "channel" ? (

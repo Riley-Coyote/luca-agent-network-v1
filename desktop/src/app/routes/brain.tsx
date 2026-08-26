@@ -14,7 +14,7 @@ export const Route = createFileRoute("/brain")({
 
 function BrainRouteComponent() {
   return (
-    <React.Suspense fallback={<ViewLoadingFallback kind="agents" />}>
+    <React.Suspense fallback={<ViewLoadingFallback kind="brain" />}>
       <BrainScreen />
     </React.Suspense>
   );

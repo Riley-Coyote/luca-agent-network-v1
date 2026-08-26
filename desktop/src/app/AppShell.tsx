@@ -103,6 +103,7 @@ import { SidebarInset, SidebarProvider } from "@/shared/ui/sidebar";
 import { RelayConnectionOverlay } from "@/app/RelayConnectionOverlay";
 import { useSidebarRelayConnectionCard } from "@/features/sidebar/ui/useSidebarRelayConnectionCard";
 import { NavigationTransition } from "@/shared/ui/NavigationTransition";
+import { SettingsLoadingFallback } from "@/features/settings/ui/SettingsLoadingFallback";
 
 const LazySettingsScreen = React.lazy(async () => {
   const module = await import("@/features/settings/ui/SettingsScreen");
@@ -813,7 +814,7 @@ export function AppShell() {
                     ) : null}
                     {settingsOpen ? (
                       <div className="flex min-h-0 flex-1 overflow-hidden">
-                        <React.Suspense fallback={null}>
+                        <React.Suspense fallback={<SettingsLoadingFallback />}>
                           <LazySettingsScreen
                             currentPubkey={identityQuery.data?.pubkey}
                             fallbackDisplayName={
