@@ -977,14 +977,24 @@ export function AppShell() {
                             <RightCardsSlotProvider>
                               <ArtifactCanvasProvider>
                                 <ResidentHarnessProvider>
-                                  <div className="relative flex min-h-0 min-w-0 flex-1 flex-row">
-                                    <BuzzTheme.ContentSurface
-                                      floorHost={
-                                        selectedView !== "artifacts" &&
-                                        selectedView !== "agents" &&
-                                        selectedView !== "pulse"
-                                      }
-                                    >
+                                  <div
+                                    className="relative flex min-h-0 min-w-0 flex-1 flex-row"
+                                    // The floor region AROUND the focal card:
+                                    // the card's margins expose this host, so
+                                    // floor and card are separate elements
+                                    // (one role each). Routes that bring their
+                                    // own canvas (artifacts/agents/pulse)
+                                    // stamp the host on their route root
+                                    // instead — exactly one host per route.
+                                    data-luca-floor-host={
+                                      selectedView !== "artifacts" &&
+                                      selectedView !== "agents" &&
+                                      selectedView !== "pulse"
+                                        ? true
+                                        : undefined
+                                    }
+                                  >
+                                    <BuzzTheme.ContentSurface>
                                       <NavigationTransition
                                         className="flex min-h-0 flex-1 flex-col"
                                         contentClassName="flex min-h-0 flex-1 flex-col"

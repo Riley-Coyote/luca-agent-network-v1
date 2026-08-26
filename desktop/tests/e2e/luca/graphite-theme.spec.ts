@@ -136,19 +136,22 @@ test("floor role stamps distinguish the routed host from opaque settings", async
     ).toBe(true);
   };
 
-  const routedFloorHost = page.locator(
-    "[data-buzz-content-surface][data-luca-floor-host]",
-  );
+  const routedFloorHost = page.locator("[data-luca-floor-host]");
   await expectOnlyFloorHost(routedFloorHost);
-  await expect(routedFloorHost).toHaveAttribute(
-    "data-buzz-content-surface",
-    "true",
-  );
-  await expect(routedFloorHost).toHaveAttribute(
-    "data-luca-conversation-surface",
-    "true",
-  );
+  // One role per element: the host is the floor REGION around the focal
+  // card, never the card itself — the card sits inside it, exposed by its
+  // own margins.
+  expect(
+    await routedFloorHost.getAttribute("data-luca-conversation-surface"),
+  ).toBeNull();
+  expect(
+    await routedFloorHost.getAttribute("data-buzz-content-surface"),
+  ).toBeNull();
   expect(await routedFloorHost.getAttribute("data-luca-floor")).toBeNull();
+  const routedCard = routedFloorHost.locator(
+    "[data-luca-conversation-surface]",
+  );
+  await expect(routedCard).toHaveCount(1);
 
   await page.getByTestId("open-settings").click();
   await page.getByTestId("profile-popover-settings").click();
@@ -174,9 +177,7 @@ test("floor role stamps distinguish the routed host from opaque settings", async
   await page.getByTestId("settings-back-to-app").click();
   await page.getByTestId("open-new-conversation").click();
   await expect(page.getByTestId("new-message-page")).toBeVisible();
-  await expectOnlyFloorHost(
-    page.locator("[data-buzz-content-surface][data-luca-floor-host]"),
-  );
+  await expectOnlyFloorHost(page.locator("[data-luca-floor-host]"));
 
   const emptyFloorRegions = page.locator("[data-luca-floor]");
   await expect(emptyFloorRegions).toHaveCount(1);
