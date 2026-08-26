@@ -78,12 +78,11 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
     kind === "custom" &&
     harness !== null &&
     (harnessHasLogo(harness) || harness === "hermes" || harness === "openclaw");
+  // The whole turn animates: thinking and writing both keep the current
+  // moving. (The old thinking=moving / writing=held split read as the mark
+  // dying mid-turn — Riley: the murmur plays "until they're done".)
   const filamentMode: FilamentMode | null =
-    kind === "custom" && live
-      ? live === "thinking"
-        ? "current"
-        : "lit"
-      : null;
+    kind === "custom" && live ? "current" : null;
   const path = React.useMemo(
     () =>
       kind === "custom" ? residentIdentityPath(publicKey, lucaPubkey) : null,
@@ -102,31 +101,30 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
         "inline-flex shrink-0 items-center justify-center text-foreground",
         className,
       )}
-      data-resident-mark-kind={showHarness ? "harness" : kind}
+      data-resident-mark-kind={
+        filamentMode ? kind : showHarness ? "harness" : kind
+      }
       data-resident-mark-live={live ?? undefined}
       data-testid={dataTestId}
       style={{ height: size, width: size }}
       {...accessibilityProps}
     >
-      {showHarness && harness ? (
-        // The harness face: live state reads as breath, not a filament.
-        <HarnessLogo
-          className={cn(live && "luca-identity-breath")}
-          decorative
-          harness={harness}
-          size={size}
-        />
-      ) : filamentMode ? (
-        // The live mark is the resting glyph — same box, same edge, same
-        // corners — with a light moving through it. No quiet zone, no bloom:
-        // nothing about the mark says "thinking" except the fill.
+      {filamentMode ? (
+        // The live state beats the harness face: while the resident works,
+        // their OWN glyph surfaces with the murmur — three faint currents
+        // passing through the stroke, the wire quietly alive — and the
+        // runtime logo returns when they're done. Same box, same edge, no
+        // bloom: nothing about the mark says "working" except the fill.
         <FilamentMark
           bloom={false}
           fit="box"
           mode={filamentMode}
+          motion="murmur"
           seed={residentGlyphSeed(publicKey, lucaPubkey)}
           size={size}
         />
+      ) : showHarness && harness ? (
+        <HarnessLogo decorative harness={harness} size={size} />
       ) : kind === "custom" && path ? (
         <svg
           aria-hidden="true"
