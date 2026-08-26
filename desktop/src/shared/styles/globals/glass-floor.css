@@ -63,7 +63,9 @@
 :root[data-luca-shell][data-luca-glass] [data-sidebar="sidebar"],
 :root[data-luca-shell][data-luca-glass] .group\/sidebar-wrapper,
 :root[data-luca-shell][data-luca-glass] [data-testid="app-sidebar"],
-:root[data-luca-shell][data-luca-glass] [data-buzz-content-surface],
+/* floor-plane host — its own background yields to the plate whenever the glass system owns the floor (either state); descendants paint their own surfaces; solid under reduced transparency. */
+  :root[data-luca-shell][data-luca-glass]
+  [data-luca-floor-host],
 /* data-luca-floor marks empty floor plane: it yields to the plate for glass-on and whisper/off, restores solid under reduced transparency, and carries no readable content. */
   :root[data-luca-shell][data-luca-glass]
   [data-luca-floor],
@@ -137,7 +139,7 @@
   :root[data-luca-shell][data-luca-native][data-luca-glass][data-material]
     .buzz-huddle-app-surface,
   :root[data-luca-shell][data-luca-native][data-luca-glass][data-material]
-    [data-buzz-content-surface],
+    [data-luca-floor-host],
   :root[data-luca-shell][data-luca-native][data-luca-glass][data-material]
     [data-luca-floor] {
     background-color: hsl(var(--mn-floor));

@@ -82,3 +82,73 @@ test("Graphite is selectable and paints the approved charcoal shell", async ({
     fullPage: true,
   });
 });
+
+test("floor role stamps distinguish the routed host from opaque settings", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("buzz-theme", "smoke");
+    window.localStorage.setItem("buzz-follow-system", "false");
+    window.localStorage.setItem("buzz-glass-floor", "on");
+  });
+  await installMockBridge(page);
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+
+  const root = page.locator("html");
+  await expect(root).toHaveAttribute("data-luca-theme", "smoke");
+  await expect(root).toHaveAttribute("data-luca-glass", "on");
+  expect(await root.getAttribute("data-luca-native")).toBeNull();
+  expect(
+    await page.evaluate(
+      () => getComputedStyle(document.documentElement).backgroundColor,
+    ),
+  ).not.toBe("rgba(0, 0, 0, 0)");
+
+  const routedFloorHost = page.locator("[data-luca-floor-host]");
+  await expect(routedFloorHost).toHaveCount(1);
+  await expect(routedFloorHost).toHaveAttribute(
+    "data-buzz-content-surface",
+    "true",
+  );
+  await expect(routedFloorHost).toHaveAttribute(
+    "data-luca-conversation-surface",
+    "true",
+  );
+  expect(await routedFloorHost.getAttribute("data-luca-floor")).toBeNull();
+
+  await page.getByTestId("open-settings").click();
+  await page.getByTestId("profile-popover-settings").click();
+
+  const settingsSurface = page.getByTestId("settings-content-surface");
+  await expect(settingsSurface).toBeVisible();
+  await expect(settingsSurface).toHaveAttribute(
+    "data-buzz-content-surface",
+    "true",
+  );
+  await expect(settingsSurface).toHaveAttribute(
+    "data-luca-conversation-surface",
+    "true",
+  );
+  expect(await settingsSurface.getAttribute("data-luca-floor-host")).toBeNull();
+  expect(
+    await settingsSurface.evaluate(
+      (el) => getComputedStyle(el).backgroundColor,
+    ),
+  ).not.toBe("rgba(0, 0, 0, 0)");
+  await expect(page.locator("[data-luca-floor-host]")).toHaveCount(0);
+
+  await page.getByTestId("settings-back-to-app").click();
+  await page.getByTestId("open-new-conversation").click();
+  await expect(page.getByTestId("new-message-page")).toBeVisible();
+
+  const emptyFloorRegions = page.locator("[data-luca-floor]");
+  await expect(emptyFloorRegions).toHaveCount(1);
+  expect(
+    await emptyFloorRegions.evaluateAll((regions) =>
+      regions.map((region) => ({
+        childElementCount: region.childElementCount,
+        readableText: region.textContent?.trim() ?? "",
+      })),
+    ),
+  ).toEqual([{ childElementCount: 0, readableText: "" }]);
+});
