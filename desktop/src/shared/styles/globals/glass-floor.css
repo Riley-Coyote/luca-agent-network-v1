@@ -58,8 +58,6 @@
 
 /* ── everything that paints floor/sidebar color above the plate yields ── */
 :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
-  [data-app-top-chrome],
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
   [data-sidebar="sidebar"],
 :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
   .group\/sidebar-wrapper,
@@ -78,8 +76,6 @@
   .bg-sidebar:not([data-buzz-flat]),
 :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
   [data-testid="community-rail"].bg-sidebar,
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
-  [data-app-top-chrome],
 :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
   [data-sidebar="sidebar"],
 :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
@@ -103,31 +99,31 @@
   background-image: none;
 }
 :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
-  [data-testid="app-sidebar"]
+  [data-sidebar="sidebar"]
   [data-testid="sidebar-pinned-header"],
 :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
-  [data-testid="app-sidebar"]
+  [data-sidebar="sidebar"]
   [data-sidebar="footer"],
 :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
-  [data-testid="app-sidebar"]
+  [data-sidebar="sidebar"]
   [data-testid="sidebar-pinned-header"],
 :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
-  [data-testid="app-sidebar"]
+  [data-sidebar="sidebar"]
   [data-sidebar="footer"] {
   background-color: transparent;
   background-image: none;
 }
 :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
-  [data-testid="app-sidebar"]
+  [data-sidebar="sidebar"]
   [data-testid="sidebar-pinned-header"]::before,
 :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
-  [data-testid="app-sidebar"]
+  [data-sidebar="sidebar"]
   [data-sidebar="footer"]::before,
 :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
-  [data-testid="app-sidebar"]
+  [data-sidebar="sidebar"]
   [data-testid="sidebar-pinned-header"]::before,
 :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
-  [data-testid="app-sidebar"]
+  [data-sidebar="sidebar"]
   [data-sidebar="footer"]::before {
   background: none;
 }
@@ -174,19 +170,11 @@
    typing and what you have sent — a recessed glass darkened by stacking
    on the card weather, never an opaque sticker. */
 :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
-  [data-message-anatomy="bubble"][data-message-side="own"]
-  [data-message-column]
-  > [data-message-plate],
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
   [data-testid="message-composer"] {
   background: rgb(0 0 0 / 0.3);
   border-color: transparent;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05);
 }
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
-  [data-message-anatomy="bubble"][data-message-side="own"]
-  [data-message-column]
-  > [data-message-plate],
 :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
   [data-testid="message-composer"] {
   background: rgb(255 255 255 / 0.55);
@@ -194,6 +182,21 @@
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.8),
     0 1px 2px rgb(0 0 0 / 0.05);
+}
+/* The sent bubble is painted everywhere via the plate TOKENS
+   (message-anatomy.css consumes raw var(--mn-plate-strong) for rest, hover,
+   reminder and the highlight fade) — so glass retunes the tokens instead of
+   overriding the element. The bubble turns to held glass AND keeps every
+   interaction state; an element-level override here would freeze them. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not([data-luca-glass-fallback]) {
+    --mn-plate-strong: rgb(0 0 0 / 0.3);
+    --mn-plate-strong-hover: rgb(0 0 0 / 0.38);
+  }
+  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not([data-luca-glass-fallback]) {
+    --mn-plate-strong: rgb(255 255 255 / 0.55);
+    --mn-plate-strong-hover: rgb(255 255 255 / 0.68);
+  }
 }
 /* the focus law survives strokelessness: the composer's border is
    transparent at rest and brightens in place on focus */
@@ -210,7 +213,23 @@
    In-app floating surfaces (search dialog, menus, the day pill, lifted
    panes) wear the app's own glass one weather deeper, with their own
    backdrop blur. The standalone pop-out recipe is reserved for windows
-   that LEAVE the app. */
+   that LEAVE the app.
+
+   The standard backdrop-filter is routed through a var on purpose: the
+   CSS minifier collapses a literal standard/-webkit- pair to a single
+   form (it collapsed to webkit-only first, which killed the blur in every
+   Chromium context — glass audit 2026-08-26, RC6). A var() cannot be
+   proven equal to a literal, so the standard-via-var declaration is
+   guaranteed to survive the build. The minifier still strips the -webkit-
+   literal from the emitted CSS; that is acceptable — every runtime this
+   app targets (WKWebView on macOS 15+, Chromium harnesses) honors the
+   unprefixed property. The literals stay in source as a dev-mode and
+   older-WebKit courtesy. */
+:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"],
+:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"] {
+  --glass-deep-blur: blur(40px) saturate(150%);
+  --glass-frost-blur: blur(20px) saturate(140%);
+}
 :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
   [role="dialog"],
 :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
@@ -222,8 +241,8 @@
   > p {
   background: rgb(4 4 7 / 0.74);
   border-color: transparent;
-  backdrop-filter: blur(40px) saturate(150%);
   -webkit-backdrop-filter: blur(40px) saturate(150%);
+  backdrop-filter: var(--glass-deep-blur);
 }
 :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
   [role="dialog"],
@@ -236,8 +255,108 @@
   > p {
   background: rgb(252 251 249 / 0.8);
   border-color: transparent;
-  backdrop-filter: blur(40px) saturate(150%);
   -webkit-backdrop-filter: blur(40px) saturate(150%);
+  backdrop-filter: var(--glass-deep-blur);
+}
+
+/* ── the chrome joins the weather ─────────────────────────────────
+   Components that paint their own opaque backgrounds inside the shell
+   would each read as a mismatched sticker over the glass. Two kinds of
+   treatment: chrome that should YIELD (the room navigator, the chat
+   header container), and small held/panel surfaces expressed as utility
+   classes — overriding the UTILITY covers every current and future user
+   of that class, instead of chasing components one by one.
+
+   The whole section is guarded twice instead of carrying restore blocks:
+   the media wrapper skips it under reduced transparency, and the
+   :not([data-luca-glass-fallback]) on every selector skips it when the
+   vibrancy IPC failed — in both cases each component simply keeps its own
+   solid paint, which IS the correct restored look. */
+@media not (prefers-reduced-transparency: reduce) {
+:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
+  [data-testid="project-room-navigator"],
+:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
+  [data-testid="chat-header"],
+:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not([data-luca-glass-fallback])
+  [data-testid="project-room-navigator"],
+:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not([data-luca-glass-fallback])
+  [data-testid="chat-header"] {
+  background-color: transparent;
+  background-image: none;
+}
+/* Sticky header occlusion moves to the shared backdrop element, frosted
+   like a native toolbar so scrolled content dims beneath it. */
+:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
+  [data-testid="channel-shared-header-backdrop"] {
+  background: rgb(4 4 7 / 0.6);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: var(--glass-frost-blur);
+}
+:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not([data-luca-glass-fallback])
+  [data-testid="channel-shared-header-backdrop"] {
+  background: rgb(252 251 249 / 0.72);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: var(--glass-frost-blur);
+}
+/* Held-thing and panel utilities. Values sit in the two-weather family:
+   bg-muted things are held (recessed) glass, background/NN things are
+   card-family scrims one step apart, card/NN things are faint washes. */
+:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
+  .bg-muted {
+  background-color: rgb(0 0 0 / 0.3);
+}
+:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
+  :is(.bg-muted\/15, .bg-muted\/20) {
+  background-color: rgb(0 0 0 / 0.14);
+}
+:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
+  .bg-muted\/50 {
+  background-color: rgb(0 0 0 / 0.22);
+}
+:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
+  :is(.bg-background\/20, .bg-card\/20, .bg-card\/30, .bg-card\/40) {
+  background-color: rgb(4 4 7 / 0.24);
+}
+:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
+  :is(.bg-background\/55, .bg-background\/65, .bg-background\/70) {
+  background-color: rgb(4 4 7 / 0.42);
+}
+:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
+  .bg-background\/80 {
+  background-color: rgb(4 4 7 / 0.5);
+}
+:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
+  .bg-background\/95 {
+  background-color: rgb(4 4 7 / 0.62);
+}
+:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not([data-luca-glass-fallback])
+  .bg-muted {
+  background-color: rgb(255 255 255 / 0.55);
+}
+:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not([data-luca-glass-fallback])
+  :is(.bg-muted\/15, .bg-muted\/20) {
+  background-color: rgb(255 255 255 / 0.3);
+}
+:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not([data-luca-glass-fallback])
+  .bg-muted\/50 {
+  background-color: rgb(255 255 255 / 0.42);
+}
+:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not([data-luca-glass-fallback])
+  :is(.bg-background\/20, .bg-card\/20, .bg-card\/30, .bg-card\/40) {
+  background-color: rgb(252 251 249 / 0.4);
+}
+:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not([data-luca-glass-fallback])
+  :is(.bg-background\/55, .bg-background\/65, .bg-background\/70) {
+  background-color: rgb(252 251 249 / 0.66);
+}
+:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not([data-luca-glass-fallback])
+  .bg-background\/80 {
+  background-color: rgb(252 251 249 / 0.72);
+}
+:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not([data-luca-glass-fallback])
+  .bg-background\/95 {
+  background-color: rgb(252 251 249 / 0.82);
+}
 }
 
 /* ── vibrancy fallback: the IPC failed, so the desktop never arrives.
@@ -267,6 +386,37 @@
 :root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="crystalline"]
   [data-luca-card] {
   background: hsl(var(--mn-surface));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+/* Held things and deep panels collapse too — parity with the
+   reduced-transparency block, so a failed IPC never leaves a translucent
+   surface floating over nothing. */
+:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="obsidian"]
+  [data-testid="message-composer"],
+:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="crystalline"]
+  [data-testid="message-composer"] {
+  background: hsl(var(--mn-raised));
+}
+:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="obsidian"]
+  [role="dialog"],
+:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="obsidian"]
+  [role="menu"],
+:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="obsidian"]
+  .luca-pane-float,
+:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="obsidian"]
+  [data-testid="message-timeline-day-divider"]
+  > p,
+:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="crystalline"]
+  [role="dialog"],
+:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="crystalline"]
+  [role="menu"],
+:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="crystalline"]
+  .luca-pane-float,
+:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="crystalline"]
+  [data-testid="message-timeline-day-divider"]
+  > p {
+  background: hsl(var(--mn-raised));
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
