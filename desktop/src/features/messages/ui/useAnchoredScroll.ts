@@ -59,6 +59,19 @@ export function settleProgrammaticBottomPin(
   return isAtTrueBottom(container);
 }
 
+/** The own-send glide's duration; short enough to finish inside the row's
+ * own land animation. */
+export const OWN_SEND_GLIDE_MS = 180;
+/** Beyond roughly half a viewport the glide would read as a slow crawl —
+ * jump instead. */
+export const OWN_SEND_GLIDE_MAX_PX = 480;
+
+/** Fast start, long soft settle — the same character as the house
+ * standard curve, expressed as a function for a JS-driven glide. */
+export function easeOutStandard(t: number): number {
+  return 1 - (1 - t) ** 3;
+}
+
 export function shouldSettleForSplitPanel({
   isAtBottom,
   splitPanelOpen,
@@ -252,6 +265,70 @@ export function useAnchoredScroll({
   const anchorRef = React.useRef<AnchorState>({ kind: "at-bottom" });
   const virtualizerAtBottomRef = React.useRef(true);
   const [isAtBottom, setIsAtBottom] = React.useState(true);
+  const ownSendGlideCancelRef = React.useRef<(() => void) | null>(null);
+
+  /**
+   * The own-send settle, replacing the old same-frame snap. Pinning in the
+   * same frame as the optimistic insert teleported the view on the
+   * virtualizer's ESTIMATED row height, then jerked back when the real
+   * measurement corrected — the "jumpy send". Waiting two frames lets the
+   * height settle (the new row sits below the fold, invisible), then one
+   * short eased glide carries the view down while the row plays its land
+   * animation. Any wheel or touch from the user aborts the glide — the
+   * reader owns the scroll.
+   */
+  const glideToBottomAfterOwnSend = React.useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) {
+      virtualScrollToBottom?.("auto");
+      return;
+    }
+    ownSendGlideCancelRef.current?.();
+    let cancelled = false;
+    let rafId: number | null = null;
+    const cancel = () => {
+      cancelled = true;
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      container.removeEventListener("wheel", cancel);
+      container.removeEventListener("touchstart", cancel);
+      if (ownSendGlideCancelRef.current === cancel) {
+        ownSendGlideCancelRef.current = null;
+      }
+    };
+    ownSendGlideCancelRef.current = cancel;
+    container.addEventListener("wheel", cancel, { passive: true });
+    container.addEventListener("touchstart", cancel, { passive: true });
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const target = () => container.scrollHeight - container.clientHeight;
+    rafId = requestAnimationFrame(() => {
+      rafId = requestAnimationFrame(() => {
+        if (cancelled) return;
+        const start = container.scrollTop;
+        if (reduceMotion || Math.abs(target() - start) > OWN_SEND_GLIDE_MAX_PX) {
+          container.scrollTo({ top: target(), behavior: "auto" });
+          cancel();
+          return;
+        }
+        const t0 = performance.now();
+        const step = (now: number) => {
+          if (cancelled) return;
+          const p = Math.min(1, (now - t0) / OWN_SEND_GLIDE_MS);
+          // Live target: content can still grow mid-glide; always end at
+          // the true bottom.
+          container.scrollTop =
+            target() - (target() - start) * (1 - easeOutStandard(p));
+          if (p < 1) {
+            rafId = requestAnimationFrame(step);
+          } else {
+            cancel();
+          }
+        };
+        rafId = requestAnimationFrame(step);
+      });
+    });
+  }, [scrollContainerRef, virtualScrollToBottom]);
   React.useLayoutEffect(() => {
     if (shouldSettleForSplitPanel({ isAtBottom, splitPanelOpen })) {
       virtualSettleAtBottom?.();
@@ -320,6 +397,7 @@ export function useAnchoredScroll({
       cancelAnimationFrame(mountPinRafIdRef.current);
       mountPinRafIdRef.current = null;
     }
+    ownSendGlideCancelRef.current?.();
   }, [channelId]);
 
   const noteProgrammaticScroll = React.useCallback(
@@ -701,8 +779,12 @@ export function useAnchoredScroll({
       forceBottomOnNextAppendRef.current = false;
       anchorRef.current = { kind: "at-bottom" };
       settlingRef.current = true;
-      if (virtualizerOwnsPrependAnchoring && virtualScrollToBottom) {
-        virtualScrollToBottom("auto");
+      if (virtualizerOwnsPrependAnchoring) {
+        // Virtua ignores container scroll in the anchor machinery, so the
+        // eased glide cannot fight it. The non-virtualized fallback keeps
+        // the immediate pin (its settle-chase in onScroll would fight a
+        // glide).
+        glideToBottomAfterOwnSend();
       } else {
         container.scrollTo({ top: container.scrollHeight, behavior: "auto" });
       }
