@@ -317,7 +317,9 @@ const Sidebar = React.forwardRef<
         {/* This is what handles the sidebar gap on desktop */}
         <div
           className={cn(
-            "relative w-(--sidebar-width) bg-transparent transition-[width] duration-200 ease-linear",
+            // Stock shadcn ships this linear — it stops dead. The rail settles
+            // on the house standard curve instead.
+            "relative w-(--sidebar-width) bg-transparent transition-[width] [transition-duration:var(--motion-duration-standard)] [transition-timing-function:var(--motion-ease-standard)]",
             "group-data-[resizing=true]:transition-none",
             "group-data-[collapsible=offcanvas]:w-0",
             "group-data-[side=right]:rotate-180",
@@ -328,7 +330,7 @@ const Sidebar = React.forwardRef<
         />
         <div
           className={cn(
-            "absolute inset-y-0 z-10 hidden h-full w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear md:flex",
+            "absolute inset-y-0 z-10 hidden h-full w-(--sidebar-width) transition-[left,right,width] [transition-duration:var(--motion-duration-standard)] [transition-timing-function:var(--motion-ease-standard)] md:flex",
             "group-data-[resizing=true]:transition-none",
             side === "left"
               ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] group-data-[peek=true]:left-0"
@@ -657,7 +659,7 @@ const SidebarGroupLabel = React.forwardRef<
       ref={ref}
       data-sidebar="group-label"
       className={cn(
-        "flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-ink-muted outline-hidden ring-sidebar-ring transition-[margin,opacity] duration-200 ease-linear focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
+        "flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-ink-muted outline-hidden ring-sidebar-ring transition-[margin,opacity] [transition-duration:var(--motion-duration-standard)] [transition-timing-function:var(--motion-ease-standard)] focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
         "group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0",
         className,
       )}
