@@ -364,11 +364,11 @@
 :root[data-luca-shell] [data-luca-card] {
   background: hsl(var(--mn-surface));
   /* No outline: on the composite ladder the card sits a full shade step
-   * above the floor, so the edge draws itself. Hairlines survive only on
-   * floating overlays, where content scrolls beneath. */
+   * above the floor, so the edge draws itself — now finished with the
+   * shared card edge (lit top + soft contact/ambient). */
   border: none;
   border-radius: var(--radius);
-  box-shadow: none;
+  box-shadow: var(--mn-card-edge);
   overflow: hidden;
 }
 
@@ -959,6 +959,16 @@
   :root[data-luca-shell] .luca-sheet-deck .luca-reply-sheet {
     animation: none;
   }
+}
+
+:root[data-luca-shell] [data-testid="message-composer"] {
+  /* strokeless at rest; the focus law brightens the same border in place */
+  border-color: transparent;
+}
+
+:root[data-luca-shell] [data-testid="message-timeline-day-divider"] > p {
+  border-color: transparent;
+  box-shadow: var(--mn-card-edge);
 }
 
 /* While a sheet is up, the card's drop shadows would fall ON the sheet and

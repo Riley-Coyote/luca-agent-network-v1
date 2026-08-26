@@ -31,7 +31,7 @@ import "./card-texture.css";
 const cardVariants = cva("text-card-foreground", {
   variants: {
     variant: {
-      default: "rounded-xl border border-border/70 bg-card/80 shadow-xs",
+      default: "rounded-xl border border-transparent bg-card/80 shadow-xs",
       textured:
         // flex + justify-center: the variant enforces a min size (see
         // card-texture.css); when that floor stretches the card beyond its
