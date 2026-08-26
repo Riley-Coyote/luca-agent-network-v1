@@ -87,16 +87,19 @@ test("floor role stamps distinguish the routed host from opaque settings", async
   page,
 }) => {
   await page.addInitScript(() => {
-    window.localStorage.setItem("buzz-theme", "smoke");
+    window.localStorage.setItem("buzz-theme", "obsidian");
     window.localStorage.setItem("buzz-follow-system", "false");
-    window.localStorage.setItem("buzz-glass-floor", "on");
   });
   await installMockBridge(page);
   await page.goto("/", { waitUntil: "domcontentloaded" });
 
   const root = page.locator("html");
-  await expect(root).toHaveAttribute("data-luca-theme", "smoke");
-  await expect(root).toHaveAttribute("data-luca-glass", "on");
+  await expect(root).toHaveAttribute("data-luca-theme", "obsidian");
+  // The two-glass system stamps no toggle attributes, and the legacy
+  // translucency marker belongs to Buzz alone.
+  expect(await root.getAttribute("data-luca-glass")).toBeNull();
+  expect(await root.getAttribute("data-material")).toBeNull();
+  expect(await root.getAttribute("data-buzz-translucent")).toBeNull();
   expect(await root.getAttribute("data-luca-native")).toBeNull();
   expect(
     await page.evaluate(
@@ -188,8 +191,11 @@ test("floor role stamps distinguish the routed host from opaque settings", async
   ).toEqual([{ childElementCount: 0, readableText: "" }]);
 
   // Enumerated floor-host contract, route canvases: Library, Agents and
-  // Activity each expose exactly their named root to the plate, and every
-  // readable descendant stays inside one Settings-identical opaque card.
+  // Activity each expose exactly their named root to the plate. Natively
+  // the roots yield; in this BROWSER context the two-glass system keeps
+  // every surface solid (all transparency is gated on data-luca-native),
+  // so the roots must NOT be transparent here — that is the browser-safety
+  // contract itself.
   const transparent = "rgba(0, 0, 0, 0)";
   const hostBg = (locator: ReturnType<typeof page.locator>) =>
     locator.evaluate((el) => getComputedStyle(el).backgroundColor);
@@ -198,18 +204,43 @@ test("floor role stamps distinguish the routed host from opaque settings", async
   const libraryRoot = page.getByTestId("artifact-library-screen");
   await expect(libraryRoot).toBeVisible();
   await expectOnlyFloorHost(libraryRoot);
-  expect(await hostBg(libraryRoot)).toBe(transparent);
+  expect(await hostBg(libraryRoot)).not.toBe(transparent);
   await expectOpaqueFocalCard(libraryRoot);
 
   await page.getByTestId("open-agents-view").click();
   const agentsRoot = page.getByTestId("agents-view");
   await expectOnlyFloorHost(agentsRoot);
-  expect(await hostBg(agentsRoot)).toBe(transparent);
+  expect(await hostBg(agentsRoot)).not.toBe(transparent);
   await expectOpaqueFocalCard(agentsRoot);
 
   await page.getByTestId("open-activity-view").click();
   const activityRoot = page.getByTestId("owner-activity-view");
   await expectOnlyFloorHost(activityRoot);
-  expect(await hostBg(activityRoot)).toBe(transparent);
+  expect(await hostBg(activityRoot)).not.toBe(transparent);
   await expectOpaqueFocalCard(activityRoot);
+});
+
+test("Crystalline stays solid in a browser context", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("buzz-theme", "crystalline");
+    window.localStorage.setItem("buzz-follow-system", "false");
+  });
+  await installMockBridge(page);
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+
+  const root = page.locator("html");
+  await expect(root).toHaveAttribute("data-luca-theme", "crystalline");
+  expect(await root.getAttribute("data-luca-native")).toBeNull();
+  // All glass transparency is native-gated; the browser renders the light
+  // glass fully opaque from its solid tokens.
+  expect(
+    await page.evaluate(
+      () => getComputedStyle(document.documentElement).backgroundColor,
+    ),
+  ).not.toBe("rgba(0, 0, 0, 0)");
+  const card = page.locator("[data-luca-conversation-surface]").first();
+  await expect(card).toBeVisible();
+  expect(
+    await card.evaluate((el) => getComputedStyle(el).backgroundColor),
+  ).not.toBe("rgba(0, 0, 0, 0)");
 });
