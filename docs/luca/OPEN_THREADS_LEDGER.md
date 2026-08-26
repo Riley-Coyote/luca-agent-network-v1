@@ -238,3 +238,10 @@ family), and the whole thread-panel family :979 :1044 :1091 :1141 :1172
 mention delivery asserts). Good unglamorous Codex material: likely a few
 shared root causes (a testid/label drift + a thread-panel harness break),
 not fifteen separate bugs.
+
+## Addendum 2026-08-26 (later): buzz-acp parallel-test flakiness, measured
+`cargo test -p buzz-acp` fails 2–6 tests under parallel execution with a
+CHANGING set per run (config env-ceiling tests, a script-spawn fd test,
+observer tests) and passes 769/0 with `--test-threads=1` — env-var races
+between tests, pre-existing. Add to the re-baseline debt (section D):
+either serialize the env-touching tests or scope their vars.
