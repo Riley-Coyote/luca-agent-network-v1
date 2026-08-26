@@ -120,6 +120,14 @@
   /* The one contact shadow floating overlays may wear (hover action bars,
    * menus that sit over scrolling content). Solved per mode below. */
   --mn-contact-shadow: 0 1px 3px rgb(0 0 0 / 0.28);
+  /* The card's finished edge — the strokeless replacement for the 1px
+   * border: lit top bevel plus a soft contact and ambient shadow. Every
+   * card-family surface (data-luca-card, the conversation surface, the day
+   * pill) wears this instead of a stroke. */
+  --mn-card-edge:
+    var(--mn-lit-edge),
+    0 1px 2px rgb(0 0 0 / 0.14),
+    0 8px 24px rgb(0 0 0 / 0.12);
 
   /* The plate: the one borderless group surface. Ink at a small alpha rather
    * than a grey step, so it reads the same in Void, Graphite and every light
@@ -244,6 +252,13 @@
   --mn-lit-edge: 0 1px 1.5px hsl(var(--mn-ink) / 0.045);
   --mn-lit-edge-off: 0 1px 1.5px hsl(var(--mn-ink) / 0);
   --mn-contact-shadow: 0 1px 2px rgb(0 0 0 / 0.1);
+  /* Light polarity's card edge: a bright inner bevel with ink-cast contact
+   * and ambient shadows (a white inset does the lifting here; the dark
+   * formula's black shadows would read as dirt on paper). */
+  --mn-card-edge:
+    inset 0 1px 0 rgb(255 255 255 / 0.7),
+    0 1px 2px hsl(var(--mn-ink) / 0.06),
+    0 8px 24px hsl(var(--mn-ink) / 0.05);
   --mn-plate-strong: color-mix(
     in srgb,
     hsl(var(--mn-ink)) 5%,
@@ -328,21 +343,17 @@
   background-image: none;
 }
 
-:root[data-luca-shell] [data-app-top-chrome] {
-  background: hsl(var(--mn-floor));
-  border-color: hsl(var(--mn-border));
-  min-height: 40px;
-}
-
 /* The conversation card. The lip is equal on top, right and bottom; the left
    edge keeps a 1px seam against the rail (paired with the sidebar's `pr-px`),
    so the card reads as a panel resting on the floor rather than a boxed-in
-   region. Radius comes from `--radius` — do not hardcode a second value. */
+   region. Radius comes from `--radius` — do not hardcode a second value.
+   Strokeless: the border keeps its 1px width for layout stability but goes
+   transparent; separation is the card edge (lit bevel + contact shadow). */
 :root[data-luca-shell] [data-luca-conversation-surface] {
   background: hsl(var(--mn-surface));
-  border: 1px solid hsl(var(--mn-border));
+  border: 1px solid transparent;
   border-radius: var(--radius);
-  box-shadow: none;
+  box-shadow: var(--mn-card-edge);
   margin: 8px 8px 8px 1px;
 }
 
