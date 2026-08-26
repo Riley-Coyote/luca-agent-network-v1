@@ -226,3 +226,15 @@ The parked glass arc's full diagnosis is preserved at
   turn-timeout env patch (uncommitted in Codex's tree).
 - **Visions** (`VISION_SOCIAL_INTELLIGENCE.md`, `VISION_DEMO_BLUEPRINT.md`):
   horizon documents, not todos.
+
+## Addendum 2026-08-26 (feel work): the pre-existing e2e red list, measured
+While gating the messaging-feel branch, the same 15 tests failed on BOTH
+the branch and its base (`b596a6e34`) — pre-existing, not regressions,
+and now enumerated for the re-baseline debt (section D):
+wake-on-send.spec :51 :94 (resident-activity-word never appears);
+messaging.spec :115 (npub owner label renders "You"), :143 (same-label
+family), and the whole thread-panel family :979 :1044 :1091 :1141 :1172
+:1229 :1258 :1367 :1408; send-channel-binding.spec :51 :143 (agent-
+mention delivery asserts). Good unglamorous Codex material: likely a few
+shared root causes (a testid/label drift + a thread-panel harness break),
+not fifteen separate bugs.
