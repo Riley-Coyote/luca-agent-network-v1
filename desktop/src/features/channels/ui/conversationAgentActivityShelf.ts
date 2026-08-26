@@ -225,8 +225,11 @@ export function activityShelfOverflow(state: ActivityShelfSlotState): string[] {
  * rather than keep presenting as ordinary.
  * ---------------------------------------------------------------------- */
 
-/** Normal latency goes unnarrated: the indicator is the whole message. */
-export const ACTIVITY_PHASE_WORD_AFTER_MS = 3_000;
+/** The first word arrives almost immediately — the seconds right after a
+ * send are when "did it hear me?" is loudest, so the phase word answers
+ * at once instead of narrating only abnormal latency. (Was 3s; the feel
+ * audit found that window near-silent.) */
+export const ACTIVITY_PHASE_WORD_AFTER_MS = 300;
 /** Silence starts to read as a hang, and a number is reassurance. */
 export const ACTIVITY_ELAPSED_AFTER_MS = 10_000;
 /** Long enough that saying "still" is honest rather than fussy. */

@@ -9,6 +9,7 @@ import type {
   ManagedTurnActivityStep,
 } from "@/features/messages/managedPresentationTypes";
 import { dismissManagedPresentationActivity } from "@/features/messages/managedPresentationActivityStore";
+import { getManagedPresentationTurn } from "@/features/messages/managedPresentationStore";
 import {
   managedActivityRunSummary,
   managedActivityStepDetail,
@@ -129,6 +130,20 @@ function isStoppableState(state: ConversationActivityState) {
     state === "working" ||
     state === "writing" ||
     state === "finalizing"
+  );
+}
+
+/** A seeded turn (sessionEpoch 0, no dispatch receipt) has nothing the
+ * runtime can cancel yet — offering Stop in that window always produced
+ * the false "could not be stopped" failure. Mirrors the stop control's
+ * own cancellability condition. */
+function hasCancellableManagedTurn(uiKey: string | undefined): boolean {
+  if (!uiKey) {
+    return false;
+  }
+  const turn = getManagedPresentationTurn(uiKey);
+  return Boolean(
+    turn && turn.sessionEpoch !== 0 && turn.dispatchReceiptId.length > 0,
   );
 }
 
@@ -608,7 +623,8 @@ export function ConversationAgentActivityStrip({
         canStop:
           Boolean(channelId) &&
           Boolean(processActivity?.uiKey) &&
-          isStoppableState(state),
+          isStoppableState(state) &&
+          hasCancellableManagedTurn(processActivity?.uiKey),
         detail:
           state === "interrupted"
             ? "The previous response ended when Luca restarted. Retry is an owner action."

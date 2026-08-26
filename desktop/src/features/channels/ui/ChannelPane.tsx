@@ -611,6 +611,17 @@ export const ChannelPane = React.memo(function ChannelPane({
               const key = normalizePubkey(pubkey);
               const activity = stoppablePresentationActivity.get(key);
               if (!activity?.uiKey) return false;
+              // A seeded turn (sessionEpoch 0, no receipt) has nothing the
+              // runtime can cancel — Stop in that window always failed
+              // falsely. Same condition the stop control applies.
+              const turn = getManagedPresentationTurn(activity.uiKey);
+              if (
+                !turn ||
+                turn.sessionEpoch === 0 ||
+                turn.dispatchReceiptId.length === 0
+              ) {
+                return false;
+              }
               const state =
                 residentStop.localStates.get(key) ??
                 presentationStateByPubkey?.get(key) ??
