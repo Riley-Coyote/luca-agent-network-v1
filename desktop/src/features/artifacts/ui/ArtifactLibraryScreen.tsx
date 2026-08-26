@@ -75,6 +75,7 @@ export function ArtifactLibraryScreen() {
   return (
     <main
       className="artifact-library-screen"
+      data-luca-floor-host
       data-testid="artifact-library-screen"
     >
       <header className="artifact-library-screen__header">

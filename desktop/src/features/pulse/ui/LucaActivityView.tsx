@@ -180,6 +180,7 @@ function ResidentActivityCard({ resident }: { resident: ActivityResident }) {
   return (
     <article
       className="rounded-xl border border-border/60 bg-background/45 p-4 transition-colors hover:border-border"
+      data-luca-activity-card
       data-activity-state={
         working.working ? "working" : (activity?.tone ?? "idle")
       }
@@ -308,6 +309,7 @@ export function LucaActivityView() {
   return (
     <main
       className="min-h-0 flex-1 overflow-y-auto bg-background"
+      data-luca-floor-host
       data-testid="owner-activity-view"
     >
       <div className="mx-auto w-full max-w-5xl px-5 py-6 sm:px-8 sm:py-8">

@@ -143,6 +143,7 @@ test("floor role stamps distinguish the routed host from opaque settings", async
 
   const emptyFloorRegions = page.locator("[data-luca-floor]");
   await expect(emptyFloorRegions).toHaveCount(1);
+
   expect(
     await emptyFloorRegions.evaluateAll((regions) =>
       regions.map((region) => ({
@@ -151,4 +152,31 @@ test("floor role stamps distinguish the routed host from opaque settings", async
       })),
     ),
   ).toEqual([{ childElementCount: 0, readableText: "" }]);
+
+  // Enumerated floor-host contract, route canvases: Library, Agents,
+  // Activity roots each carry the stamp and yield to the plate; their
+  // interior cards/controls stay opaque (wallpaper-invariant).
+  const transparent = "rgba(0, 0, 0, 0)";
+  const hostBg = (locator: ReturnType<typeof page.locator>) =>
+    locator.evaluate((el) => getComputedStyle(el).backgroundColor);
+
+  await page.getByTestId("open-artifacts-view").click();
+  const libraryRoot = page.getByTestId("artifact-library-screen");
+  await expect(libraryRoot).toBeVisible();
+  await expect(libraryRoot).toHaveAttribute("data-luca-floor-host", "true");
+  expect(await hostBg(libraryRoot)).toBe(transparent);
+
+  await page.getByTestId("open-agents-view").click();
+  const agentsRoot = page.locator("[data-luca-floor-host]");
+  await expect(agentsRoot).toHaveCount(1);
+  expect(await hostBg(agentsRoot)).toBe(transparent);
+
+  await page.getByTestId("open-activity-view").click();
+  const activityRoot = page.getByTestId("owner-activity-view");
+  await expect(activityRoot).toHaveAttribute("data-luca-floor-host", "true");
+  expect(await hostBg(activityRoot)).toBe(transparent);
+  const activityCards = page.locator("[data-luca-activity-card]");
+  if ((await activityCards.count()) > 0) {
+    expect(await hostBg(activityCards.first())).not.toBe(transparent);
+  }
 });
