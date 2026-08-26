@@ -600,7 +600,9 @@
 }
 
 :root[data-luca-shell] [data-testid="chat-header"] {
-  background: hsl(var(--mn-surface));
+  /* No painted band: the card is one continuous surface and the shared
+     header veil (ChannelPane) occludes what scrolls beneath. */
+  background: transparent;
   border-color: hsl(var(--mn-border));
   min-height: var(--mn-header-height);
   padding: 7px 22px;

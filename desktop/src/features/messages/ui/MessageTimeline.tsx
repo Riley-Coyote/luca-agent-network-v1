@@ -28,7 +28,6 @@ import { isAtBottomNow, useAnchoredScroll } from "./useAnchoredScroll";
 import { useLoadOlderOnScroll } from "./useLoadOlderOnScroll";
 import { useBufferedTimelineMessages } from "./useBufferedTimelineMessages";
 import type { DirectMessageIntro } from "@/features/channels/lib/dmParticipantDisplay";
-import { DirectMessageIntroBlock } from "./DirectMessageIntroBlock";
 import { useSettleGatedPrependMessages } from "./useSettleGatedPrependMessages";
 
 function newResponseLabel(count: number): string {
@@ -425,16 +424,15 @@ const MessageTimelineBase = React.forwardRef<
       (messages.length === 0 || (!hasOlderMessages && !isFetchingOlder)),
     isSkeletonVisible: showTimelineSkeleton,
   });
-  const showDirectMessageIntro =
-    timelineIntroSurface === "direct-message-intro";
+  // A fresh DM opens bare, straight at its first message — the glyph-and-name
+  // intro block is retired. The surface selector still classifies DM-intro
+  // eligibility so those conversations stay bare instead of getting the
+  // generic dashed placeholder.
   const showChannelIntro = timelineIntroSurface === "channel-intro";
-  const activeDirectMessageIntro = showDirectMessageIntro
-    ? directMessageIntro
-    : null;
   const activeChannelIntro = showChannelIntro ? channelIntro : null;
-  const showIntro =
-    activeDirectMessageIntro !== null || activeChannelIntro !== null;
-  const showGenericEmpty = timelineBodySurface === "empty" && !showIntro;
+  const showIntro = activeChannelIntro !== null;
+  const showGenericEmpty =
+    timelineBodySurface === "empty" && timelineIntroSurface === null;
   const showMessageList = timelineBodySurface === "list";
   const showChannelIntroOnly = activeChannelIntro !== null && !showMessageList;
 
@@ -650,13 +648,8 @@ const MessageTimelineBase = React.forwardRef<
     () =>
       activeChannelIntro ? (
         <ChannelIntroBlock className="pb-4 pt-2" intro={activeChannelIntro} />
-      ) : activeDirectMessageIntro ? (
-        <DirectMessageIntroBlock
-          className="mb-2"
-          intro={activeDirectMessageIntro}
-        />
       ) : null,
-    [activeChannelIntro, activeDirectMessageIntro],
+    [activeChannelIntro],
   );
 
   const handleVirtualizerRangeChanged = React.useCallback(() => {
@@ -820,12 +813,6 @@ const MessageTimelineBase = React.forwardRef<
                 {showTimelineSkeleton ? (
                   <TimelineSkeleton rows={timelineSkeletonRows} />
                 ) : null}
-                {activeDirectMessageIntro ? (
-                  /* Top-anchored like the channel intro, so the first
-                     message arrives below with zero layout shift. */
-                  <DirectMessageIntroBlock intro={activeDirectMessageIntro} />
-                ) : null}
-
                 {activeChannelIntro ? (
                   /* Top-anchored like the virtualized leading row, so the
                      first message arrives below with zero layout shift. */

@@ -128,7 +128,11 @@ export function ChatHeader({
   const header = (
     <header
       className={cn(
-        "luca-chat-header pointer-events-auto relative z-30 min-w-0 shrink-0 cursor-default select-none border-b border-border/70 bg-background px-5 py-2 transition-[margin,padding] duration-200 ease-linear",
+        // Timed to the rail's transition (sidebar.tsx) — these move together.
+        "luca-chat-header pointer-events-auto relative z-30 min-w-0 shrink-0 cursor-default select-none px-5 py-2 transition-[margin,padding] [transition-duration:var(--motion-duration-standard)] [transition-timing-function:var(--motion-ease-standard)]",
+        // Transparent chrome is one continuous surface: no line across the
+        // card, no painted band — the shared veil occludes scrolled content.
+        !transparentChrome && "border-b border-border/70 bg-background",
         overlaysContent && !belowSystemChrome && "-mb-14",
       )}
       data-testid="chat-header"

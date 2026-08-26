@@ -840,16 +840,21 @@ export const ChannelPane = React.memo(function ChannelPane({
     <LucaGreetingChoicesContext.Provider value={lucaChoicesContext}>
       <ResidentStopContext.Provider value={residentStopContext}>
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
-          {!isSinglePanelView ? (
-            <div
-              aria-hidden="true"
-              className={cn(
-                "pointer-events-none absolute inset-x-0 top-0 z-30 bg-background/80 backdrop-blur-md supports-backdrop-filter:bg-background/70 dark:bg-background/70 dark:backdrop-blur-xl dark:supports-backdrop-filter:bg-background/55",
-                channelChrome.headerHeight,
-              )}
-              data-testid="channel-shared-header-backdrop"
-            />
-          ) : null}
+          {/* The header veil: one frosted band with a fade tail instead of a
+              hard edge, so scrolled text dissolves under the header zone. The
+              mask fades the tint AND the blur together (it clips the
+              backdrop-filter region), and the same mask carries into the
+              glass themes' overrides untouched. Rendered in every layout —
+              the header itself paints no background any more. */}
+          <div
+            aria-hidden="true"
+            className={cn(
+              "pointer-events-none absolute inset-x-0 top-0 z-30 bg-background/80 backdrop-blur-md supports-backdrop-filter:bg-background/70 dark:bg-background/70 dark:backdrop-blur-xl dark:supports-backdrop-filter:bg-background/55",
+              "h-[calc(var(--buzz-channel-content-top-padding,5.75rem)+2.5rem)]",
+              "[mask-image:linear-gradient(to_bottom,black_calc(100%-2.5rem),transparent)]",
+            )}
+            data-testid="channel-shared-header-backdrop"
+          />
 
           {!isSinglePanelView ? (
             <section
@@ -1016,6 +1021,15 @@ export const ChannelPane = React.memo(function ChannelPane({
                   data-testid="channel-composer-overlay"
                   ref={composerWrapperRef}
                 >
+                  {/* The composer veil — the bottom twin of the header veil.
+                      Text scrolling out beneath the composer frosts and
+                      fades instead of staying fully legible under the
+                      toolbar. Sits behind every overlay child (banners,
+                      cards, the composer itself) inside this isolate. */}
+                  <div
+                    aria-hidden="true"
+                    className="absolute inset-x-0 bottom-0 -z-10 h-[calc(100%+2.5rem)] bg-background/80 backdrop-blur-md supports-backdrop-filter:bg-background/70 dark:bg-background/70 dark:backdrop-blur-xl dark:supports-backdrop-filter:bg-background/55 [mask-image:linear-gradient(to_top,black_calc(100%-2.5rem),transparent)]"
+                  />
                   <div className="pointer-events-none">
                     {exchangesNeedingDecision.length > 0 ? (
                       <div className="luca-measure pointer-events-auto mb-2 grid gap-1">

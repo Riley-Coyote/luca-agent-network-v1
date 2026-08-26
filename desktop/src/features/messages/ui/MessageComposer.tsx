@@ -1017,10 +1017,6 @@ function MessageComposerImpl({
         )}
         data-luca-reading-plane
       >
-        <div
-          aria-hidden="true"
-          className="absolute inset-x-0 bottom-0 h-5 bg-transparent"
-        />
         <div className="relative flex w-full flex-col gap-0">
           {conversationContext ? (
             <ConversationContextComposerSurface

@@ -1369,20 +1369,9 @@ test("shows capped participant stack in group direct message header", async ({
   expect((headerStackBox?.x ?? 0) + (headerStackBox?.width ?? 0)).toBeLessThan(
     headerTitleBox?.x ?? 0,
   );
-  await expect(page.getByTestId("message-dm-intro")).toContainText("alice");
-  await expect(page.getByTestId("message-dm-intro")).toContainText("bob");
-  await expect(page.getByTestId("message-dm-intro")).toContainText("charlie");
-  await expect(page.getByTestId("message-dm-intro")).toContainText("+1 more");
-  await expect(page.getByTestId("message-dm-intro")).not.toContainText(
-    "outsider",
-  );
-  await expect(page.getByTestId("message-dm-intro-avatar-stack")).toBeVisible();
-  await expect(
-    page.getByTestId("message-dm-intro-avatar-stack-participant"),
-  ).toHaveCount(3);
-  await expect(
-    page.getByTestId("message-dm-intro-avatar-stack-more"),
-  ).toHaveText("+1");
+  // The DM intro block is retired — a fresh DM opens bare at its first
+  // message. Participant display lives in the header stack asserted above.
+  await expect(page.getByTestId("message-dm-intro")).toHaveCount(0);
 });
 
 test("create stream with name and description", async ({ page }) => {
