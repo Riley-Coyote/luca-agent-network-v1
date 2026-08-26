@@ -56,7 +56,16 @@ const VIDEO_REVIEW_CHIP_SURFACE = "#161616";
 const VIDEO_REVIEW_TEXT_CONTRAST = 4.5;
 const VIDEO_REVIEW_CHIP_BACKGROUND_ALPHAS = [0.15, 0.3] as const;
 const BUZZ_VIBRANCY_MATERIAL = "sidebar";
-const GLASS_VIBRANCY_MATERIAL = "under-window-background";
+/**
+ * The glass themes wear the same material first-party macOS chrome wears
+ * (Finder/Notes/Mail sidebars). `under-window-background` was tried first and
+ * rejected by eye: it mixes in its own grey base and desaturates, rendering
+ * mush over any wallpaper. `sidebar` adapts to the window's effective
+ * appearance — which {@link applyWindowAppearance} pins to the glass theme's
+ * polarity — so Obsidian gets the dark smoky variant and Crystalline the
+ * milky light one, exactly as a native app would.
+ */
+const GLASS_VIBRANCY_MATERIAL = "sidebar";
 const REDUCED_TRANSPARENCY_QUERY = "(prefers-reduced-transparency: reduce)";
 
 export const ACCENT_COLORS = [
@@ -269,7 +278,9 @@ export function isFixedNeutralTheme(themeName: string): boolean {
     themeName === PAPER_THEME_NAME ||
     themeName === VOID_THEME_NAME ||
     themeName === ASH_THEME_NAME ||
-    themeName === INVERSE_THEME_NAME
+    themeName === INVERSE_THEME_NAME ||
+    themeName === OBSIDIAN_THEME_NAME ||
+    themeName === CRYSTALLINE_THEME_NAME
   );
 }
 
@@ -387,6 +398,37 @@ function setGlassVibrancyFallback(enabled: boolean) {
  * resolving out of order, and only the newest may write the fallback marker.
  */
 let glassVibrancyRequest = 0;
+
+/**
+ * Pin the window's effective appearance to the glass theme's polarity.
+ *
+ * `NSVisualEffectMaterial` renders per the WINDOW's appearance, not the app
+ * theme — without this, picking Crystalline on a dark-mode Mac composites
+ * light scrims over the material's dark variant (grey mud). Glass themes pin
+ * light/dark to match themselves; every other theme clears the override so
+ * the window follows macOS again.
+ *
+ * Interplay with follow-system: the override changes what the webview's
+ * `prefers-color-scheme` and `onThemeChanged` report. Under follow-system the
+ * override always AGREES with macOS (System resolves the glass pair by OS
+ * appearance), so the signal stays truthful; the follow-system effect also
+ * clears any stale override before seeding, covering the manual-pick → System
+ * transition.
+ */
+async function applyWindowAppearance(themeName: string) {
+  if (!isTauri()) return;
+  try {
+    if (isGlassTheme(themeName)) {
+      await getCurrentWindow().setTheme(
+        themeName === CRYSTALLINE_THEME_NAME ? "light" : "dark",
+      );
+    } else {
+      await getCurrentWindow().setTheme(null);
+    }
+  } catch (error) {
+    console.warn("window appearance override unavailable", error);
+  }
+}
 
 /**
  * Install the native `NSVisualEffectView` the glass floor scrims over.
@@ -742,10 +784,14 @@ export function ThemeProvider({
     // Strictly sequential, not parallel: applyBuzzVibrancy issues
     // `set_window_vibrancy(enabled: false)` for every non-Buzz theme, so
     // installing the glass layer before it resolves would have that clear
-    // land last and leave the window with nothing behind it.
-    void applyBuzzVibrancy(effectiveTheme).then(() => {
-      void applyGlassVibrancy(effectiveTheme);
-    });
+    // land last and leave the window with nothing behind it. Appearance is
+    // pinned BEFORE the glass layer installs so the material renders its
+    // correct light/dark variant from the first frame.
+    void applyBuzzVibrancy(effectiveTheme)
+      .then(() => applyWindowAppearance(effectiveTheme))
+      .then(() => {
+        void applyGlassVibrancy(effectiveTheme);
+      });
   }, [effectiveTheme]);
 
   // One-time hygiene: the retired per-theme glass toggle and material
@@ -787,6 +833,18 @@ export function ThemeProvider({
     // immediately when macOS appearance changes, so use it as the reliable app
     // signal while retaining matchMedia for the browser build.
     if (isTauri()) {
+      // A glass theme may have pinned the window appearance
+      // ({@link applyWindowAppearance}), and both matchMedia and the native
+      // theme report the OVERRIDE, not macOS. Clear it before seeding so
+      // enabling follow-system after a manual glass pick reads the real OS
+      // appearance; the vibrancy effect re-pins for the resolved theme.
+      void getCurrentWindow()
+        .setTheme(null)
+        .then(() => getCurrentWindow().theme())
+        .then((native) => {
+          if (!disposed && native) setSystemIsDark(native === "dark");
+        })
+        .catch(() => {});
       void getCurrentWindow()
         .onThemeChanged(({ payload }) => {
           if (!disposed) setSystemIsDark(payload === "dark");
