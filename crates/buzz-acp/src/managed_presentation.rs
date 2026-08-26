@@ -709,6 +709,10 @@ fn activity_detail(
     kind: ManagedPresentationActivityKindV1,
     update: &serde_json::Value,
 ) -> Option<String> {
+    // A sanitized frame (artifact guard) has already lost rawInput and
+    // locations, but carries the detail the guard pre-summarized with this
+    // module's own vocabulary — accept it before giving up.
+    let presummarized = first_string(update, &["/detail"]);
     let raw = match kind {
         ManagedPresentationActivityKindV1::Command => first_string(
             update,
@@ -731,6 +735,11 @@ fn activity_detail(
             return first_string(update, &["/rawInput/url", "/rawInput/uri"])
                 .as_deref()
                 .and_then(bare_domain)
+                .or(presummarized)
+                .as_deref()
+                .and_then(|value| {
+                    bounded_text(value, MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES)
+                })
         }
         ManagedPresentationActivityKindV1::Search => first_string(
             update,
@@ -745,8 +754,22 @@ fn activity_detail(
             None
         }
     };
-    raw.as_deref()
+    raw.or(presummarized)
+        .as_deref()
         .and_then(|value| bounded_text(value, MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES))
+}
+
+/// The guard's pre-scrub summary: the same privacy vocabulary this module
+/// uses to describe a step (a bare domain, a path, a command, a query),
+/// computed from the ORIGINAL update so the sanitizer can carry it after
+/// rawInput/locations are stripped. Returns (detail, count).
+pub(crate) fn public_activity_summary(
+    update: &serde_json::Value,
+) -> (Option<String>, Option<u64>) {
+    let kind = activity_kind(update);
+    let detail = activity_detail(kind, update);
+    let count = activity_count(update).map(|value| value.get());
+    (detail, count)
 }
 
 fn first_string(update: &serde_json::Value, pointers: &[&str]) -> Option<String> {
@@ -899,6 +922,10 @@ fn activity_count(update: &serde_json::Value) -> Option<SafeU53> {
             return SafeU53::new(values.len() as u64).ok();
         }
     }
+    // Sanitized frames carry the guard's pre-scrub count at the top level.
+    if let Some(count) = update.pointer("/count").and_then(serde_json::Value::as_u64) {
+        return SafeU53::new(count).ok();
+    }
     None
 }
 
@@ -933,6 +960,39 @@ fn bounded_text(value: &str, max_bytes: usize) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn activity_detail_accepts_the_guards_presummarized_detail() {
+        // A sanitized frame: rawInput is gone, the guard carried the summary.
+        let update = serde_json::json!({
+            "kind": "execute",
+            "detail": "cargo test -p buzz-acp",
+        });
+        let kind = activity_kind(&update);
+        assert_eq!(kind, ManagedPresentationActivityKindV1::Command);
+        assert_eq!(
+            activity_detail(kind, &update).as_deref(),
+            Some("cargo test -p buzz-acp"),
+        );
+    }
+
+    #[test]
+    fn activity_count_accepts_the_guards_presummarized_count() {
+        let update = serde_json::json!({ "count": 12 });
+        assert_eq!(activity_count(&update).map(SafeU53::get), Some(12));
+    }
+
+    #[test]
+    fn public_activity_summary_speaks_the_privacy_vocabulary() {
+        let update = serde_json::json!({
+            "kind": "fetch",
+            "rawInput": { "url": "https://user:secret@docs.example.com/deep/path?q=1" },
+            "rawOutput": { "results": [1, 2, 3] },
+        });
+        let (detail, count) = public_activity_summary(&update);
+        assert_eq!(detail.as_deref(), Some("docs.example.com"));
+        assert_eq!(count, Some(3));
+    }
     use super::*;
     use crate::luca_final_publisher::FinalChunkAccumulator;
 
