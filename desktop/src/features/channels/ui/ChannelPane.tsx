@@ -52,6 +52,8 @@ import {
   type ResidentStopContextValue,
 } from "@/features/messages/ui/residentStopContext";
 import { useResidentStopControl } from "@/features/channels/ui/useResidentStopControl";
+import { HeldDeliveryNotice } from "@/features/channels/ui/HeldDeliveryNotice";
+import { useHeldDeliveryNotice } from "@/features/channels/ui/useHeldDeliveryNotice";
 import { isTerminalConversationActivity } from "@/features/channels/ui/conversationAgentActivityShelf";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { useNativeAgentNotice } from "@/features/luca/useNativeAgentNotice";
@@ -385,6 +387,34 @@ export const ChannelPane = React.memo(function ChannelPane({
     clearWelcomeComposerDismissTimer,
     isActiveWelcomeChannel,
   ]);
+  const canDropInMainColumn =
+    hasMainComposerOverlay && !isComposerDisabled && !isSinglePanelView;
+  const hasTypingActivity = typingPubkeys.length > 0;
+  // Unified working set for the composer bar: observer-derived turns primary,
+  // bot typing fallback (both folded together by agentWorkingSignal). This is
+  // what makes the bar show for an agent whose observer stream is live but
+  // whose typing signal never arrives — and vice versa.
+  const {
+    agentActivityRows,
+    composerWorkingBotPubkeys,
+    managedActivity,
+    pendingActivityByPubkey,
+    presentationStateByPubkey,
+  } = useConversationPresentation(activeChannelId);
+  const stoppablePresentationActivity = React.useMemo(
+    () =>
+      new Map(
+        [...(managedActivity ?? [])].map(([pubkey, activity]) => [
+          normalizePubkey(pubkey),
+          activity,
+        ]),
+      ),
+    [managedActivity],
+  );
+  const heldDelivery = useHeldDeliveryNotice({
+    channelId: activeChannelId,
+    presentationActivity: stoppablePresentationActivity,
+  });
   const handleSendMessage = React.useCallback(
     async (
       content: string,
@@ -400,6 +430,12 @@ export const ChannelPane = React.memo(function ChannelPane({
           mentionsKnownAgent(mentionPubkeys, knownAgentPubkeys));
 
       messageTimelineRef.current?.scrollToBottomOnNextUpdate();
+      // Residents run in queue mode: if a turn is live, this send waits for
+      // it. Snapshot the live turns BEFORE dispatch (the send seeds its own
+      // presentation) so the held-delivery notice can narrate the hold.
+      if (!channelId || channelId === activeChannelId) {
+        heldDelivery.recordSend();
+      }
       await onSendMessage(
         content,
         mentionPubkeys,
@@ -426,25 +462,12 @@ export const ChannelPane = React.memo(function ChannelPane({
       activeChannelId,
       completeWelcomeComposerBanner,
       goChannel,
+      heldDelivery,
       isActiveWelcomeChannel,
       knownAgentPubkeys,
       onSendMessage,
     ],
   );
-  const canDropInMainColumn =
-    hasMainComposerOverlay && !isComposerDisabled && !isSinglePanelView;
-  const hasTypingActivity = typingPubkeys.length > 0;
-  // Unified working set for the composer bar: observer-derived turns primary,
-  // bot typing fallback (both folded together by agentWorkingSignal). This is
-  // what makes the bar show for an agent whose observer stream is live but
-  // whose typing signal never arrives — and vice versa.
-  const {
-    agentActivityRows,
-    composerWorkingBotPubkeys,
-    managedActivity,
-    pendingActivityByPubkey,
-    presentationStateByPubkey,
-  } = useConversationPresentation(activeChannelId);
   const contextChangesDisabled = React.useMemo(
     () =>
       [...presentationStateByPubkey.values()].some(
@@ -589,16 +612,6 @@ export const ChannelPane = React.memo(function ChannelPane({
     );
   }, [attentionResidentKeys, managedActivity]);
   // Stop for the reply row. Keyed by normalized pubkey, as the row will ask.
-  const stoppablePresentationActivity = React.useMemo(
-    () =>
-      new Map(
-        [...(managedActivity ?? [])].map(([pubkey, activity]) => [
-          normalizePubkey(pubkey),
-          activity,
-        ]),
-      ),
-    [managedActivity],
-  );
   const residentStop = useResidentStopControl({
     channelId: activeChannelId,
     presentationActivity: stoppablePresentationActivity,
@@ -1025,6 +1038,25 @@ export const ChannelPane = React.memo(function ChannelPane({
                           />
                         ))}
                       </div>
+                    ) : null}
+                    {heldDelivery.notice ? (
+                      <HeldDeliveryNotice
+                        notice={heldDelivery.notice}
+                        onInterrupt={() => {
+                          const keys = heldDelivery.notice?.residentPubkeys;
+                          if (keys && keys.length > 0) {
+                            void residentStop.stopResidents(keys);
+                          }
+                          heldDelivery.dismiss();
+                        }}
+                        residentName={
+                          agentSessionAgents.find((agent) =>
+                            heldDelivery.notice?.residentPubkeys.includes(
+                              normalizePubkey(agent.pubkey),
+                            ),
+                          )?.name ?? "Your resident"
+                        }
+                      />
                     ) : null}
                     {timeoutState.active ? (
                       <ComposerTimeoutBanner

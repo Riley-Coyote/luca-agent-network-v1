@@ -2651,7 +2651,14 @@ fn spawn_agent_child_unix(
         command.env("BUZZ_ACP_MAX_TURN_DURATION", max_dur.to_string());
     }
     command.env("BUZZ_ACP_AGENTS", record.parallelism.to_string());
-    command.env("BUZZ_ACP_MULTIPLE_EVENT_HANDLING", "steer");
+    // Queue, not steer: a message sent while the resident is mid-turn waits
+    // and is delivered when the turn finishes. Steer silently CANCELLED the
+    // in-flight turn on every mid-turn owner message — the partial reply was
+    // orphaned ("Stopped · Response may be incomplete") with no warning and
+    // no way to opt out. Interrupting is now an explicit owner action: the
+    // desktop's held-delivery notice offers Stop-and-deliver, which cancels
+    // the turn through the stop machinery and lets the queued batch dispatch.
+    command.env("BUZZ_ACP_MULTIPLE_EVENT_HANDLING", "queue");
     command.env("BUZZ_ACP_DEDUP", "queue");
     if let Some(meta) = runtime_meta {
         for (key, value) in meta.default_env {
