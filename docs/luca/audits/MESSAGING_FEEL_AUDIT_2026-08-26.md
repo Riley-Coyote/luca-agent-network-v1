@@ -18,6 +18,15 @@ themselves.** World-class chat apps win on exactly these moments.
 ## The punch list, ranked by feel impact
 
 ### P1 — Your own message takes ~1 second to appear after Enter (BLOCKING)
+> **CORRECTION (same day, during the fix):** the 1072ms was a measurement
+> artifact — the harness browser context carried leftover observers from
+> an earlier session. A clean-context re-measurement with pipeline probes
+> showed **~42ms cold / ~26ms warm** end-to-end. The structural finding
+> below still stands and was fixed: with a STOPPED resident, the code
+> awaited a full process start before the user's message appeared — the
+> real-app hang this item describes. The reorder ships regardless; the
+> number does not.
+
 Measured in-harness: Enter at t=2978ms → own row in the DOM at t=4050ms
 (**1072ms**). ChatGPT/Claude: <50ms.
 Cause: the composer is NOT cleared synchronously. `completeSend`
