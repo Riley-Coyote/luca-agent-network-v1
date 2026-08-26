@@ -788,7 +788,10 @@ export function NewMessageScreen() {
         onSend={sendFirstMessage}
         placeholder={composerPlaceholder}
       />
-      <div aria-hidden="true" className="min-h-8 bg-background px-5 pb-1.5" />
+      {/* Spacer only: it sits inside the conversation surface, which already
+          paints this exact tone in opaque themes — an own background here
+          was redundant there and read as an opaque slab under glass. */}
+      <div aria-hidden="true" className="min-h-8 px-5 pb-1.5" />
     </div>
   );
 }
