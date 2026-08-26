@@ -1032,6 +1032,22 @@ export const MessageRow = React.memo(
               !playEntrance &&
               !message.managedPresentation &&
               "motion-land-own",
+            // The arriving half of that grammar, finally wired: a complete
+            // incoming message ARRIVES with the blurred entrance. The age
+            // gate (rowIsFresh) is what keeps history, scroll-back remounts
+            // and channel switches still.
+            !isOwnMessage &&
+              rowIsFresh &&
+              !playEntrance &&
+              !message.managedPresentation &&
+              "motion-enter-conversation",
+            // A streaming reply mounts as a near-empty bubble that grows —
+            // a 500ms blur over reflowing text would smear. It (and the DM
+            // pending placeholder) rises gently instead.
+            !isOwnMessage &&
+              rowIsFresh &&
+              Boolean(message.managedPresentation) &&
+              "motion-enter-managed",
             "py-1.5",
             hoverBackground
               ? "mx-1 px-2 hover:bg-muted/45 focus-within:bg-muted/45"

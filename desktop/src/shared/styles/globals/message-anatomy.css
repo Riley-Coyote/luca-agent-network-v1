@@ -309,12 +309,46 @@
   }
 }
 
+/* A streaming reply's gentler entrance: the row mounts at the first
+   painted grapheme as a near-empty bubble that grows, so it cannot wear
+   the blurred 500ms arrival — it rises quickly and unblurred, and the
+   growing text does the rest. The DM pending placeholder wears the same
+   rise for the same reason. */
+.motion-enter-managed {
+  animation: motion-enter-managed var(--motion-duration-fast)
+    var(--motion-ease-standard) both;
+}
+
+@keyframes motion-enter-managed {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .motion-land-own {
     animation-duration: 1ms;
   }
 
   @keyframes motion-land-own {
+    from,
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .motion-enter-managed {
+    animation-duration: 1ms;
+  }
+
+  @keyframes motion-enter-managed {
     from,
     to {
       opacity: 1;
