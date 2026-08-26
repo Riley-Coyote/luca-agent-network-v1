@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "./globals/scrollbars.css";
 @import "./globals/motion.css";
+@import "./globals/navigation-transitions.css";
 @import "./globals/animations.css";
 @import "./globals/composer.css";
 @import "./globals/markdown.css";

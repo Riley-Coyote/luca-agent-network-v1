@@ -103,6 +103,9 @@ import { SidebarInset, SidebarProvider } from "@/shared/ui/sidebar";
 import { RelayConnectionOverlay } from "@/app/RelayConnectionOverlay";
 import { useSidebarRelayConnectionCard } from "@/features/sidebar/ui/useSidebarRelayConnectionCard";
 import { NavigationTransition } from "@/shared/ui/NavigationTransition";
+
+const SUPPORTS_VIEW_TRANSITIONS =
+  typeof document !== "undefined" && "startViewTransition" in document;
 import { SettingsLoadingFallback } from "@/features/settings/ui/SettingsLoadingFallback";
 
 const LazySettingsScreen = React.lazy(async () => {
@@ -996,18 +999,29 @@ export function AppShell() {
                                     }
                                   >
                                     <BuzzTheme.ContentSurface>
-                                      <NavigationTransition
-                                        className="flex min-h-0 flex-1 flex-col"
-                                        contentClassName="flex min-h-0 flex-1 flex-col"
-                                        transitionKey={location.pathname}
-                                        variant={
-                                          selectedChannelId
-                                            ? "conversation"
-                                            : "route"
-                                        }
-                                      >
-                                        <Outlet />
-                                      </NavigationTransition>
+                                      {SUPPORTS_VIEW_TRANSITIONS ? (
+                                        /* The content plane. Route changes
+                                           snapshot exactly this element —
+                                           navigation-transitions.css owns
+                                           its motion; the frame around it
+                                           cannot move. */
+                                        <div className="flex min-h-0 flex-1 flex-col [view-transition-name:luca-content]">
+                                          <Outlet />
+                                        </div>
+                                      ) : (
+                                        <NavigationTransition
+                                          className="flex min-h-0 flex-1 flex-col"
+                                          contentClassName="flex min-h-0 flex-1 flex-col"
+                                          transitionKey={location.pathname}
+                                          variant={
+                                            selectedChannelId
+                                              ? "conversation"
+                                              : "route"
+                                          }
+                                        >
+                                          <Outlet />
+                                        </NavigationTransition>
+                                      )}
                                     </BuzzTheme.ContentSurface>
                                     <RightCardsSlot />
                                   </div>

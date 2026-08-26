@@ -1,0 +1,138 @@
+/*
+ * Navigation choreography — how the content plane moves between routes.
+ *
+ * The laws, in order:
+ *   1. The frame never moves. Only the element named `luca-content` (the
+ *      route outlet) transitions; the root snapshot is pinned to an
+ *      instant swap, so the rail and chrome cannot drift.
+ *   2. Asymmetry. The old plane leaves fast; the new one arrives a touch
+ *      slower on the arrival curve. Equal-speed crossfades read mushy.
+ *   3. The motion encodes geography. `navigationChoreography.ts` stamps
+ *      data-nav-motion on <html>; the drift/scale here just obeys it.
+ *   4. The dissolve is rare. Entering Brain materializes through the dot
+ *      lattice — the same physics as the identity marks. Everyday
+ *      navigation stays nearly invisible.
+ */
+
+/* The dot-lattice reveal radius. Registered so it can be animated inside
+   the dissolve keyframes and drive the mask each frame. */
+@property --luca-dot-reveal {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Law 1: nothing outside the content plane animates. The root swap is
+     instant, so the rail's active highlight snaps — responsive, stable. */
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
+
+  /* Law 2: fast out… */
+  ::view-transition-old(luca-content) {
+    animation: luca-nav-out var(--motion-duration-instant)
+      var(--motion-ease-standard) both;
+  }
+
+  /* …slower in, with the drift resolved from the stamped direction. */
+  ::view-transition-new(luca-content) {
+    animation: luca-nav-in var(--motion-duration-standard)
+      var(--motion-ease-arrival) both;
+  }
+
+  /* Law 3: the rail is vertical, so the geography is vertical. Moving down
+     the rail, the new plane arrives from below; moving up, from above. */
+  :root[data-nav-motion="down"] {
+    --luca-nav-drift: 7px;
+  }
+
+  :root[data-nav-motion="up"] {
+    --luca-nav-drift: -7px;
+  }
+
+  :root[data-nav-motion="deeper"]::view-transition-new(luca-content) {
+    animation-name: luca-nav-in-deeper;
+  }
+
+  :root[data-nav-motion="shallower"]::view-transition-new(luca-content) {
+    animation-name: luca-nav-in-shallower;
+  }
+
+  /* A same-path navigation (search params, redirects) swaps silently —
+     it trails a real navigation and must not replay its motion. */
+  :root[data-nav-motion="same"]::view-transition-old(luca-content),
+  :root[data-nav-motion="same"]::view-transition-new(luca-content) {
+    animation: none;
+  }
+
+  /* Law 4: the phosphor dissolve. Dots grow from nothing until they merge
+     into the full surface — 9px lattice, radius past the half-diagonal so
+     coverage completes. Reserved for entering Brain. */
+  :root[data-nav-dissolve="1"]::view-transition-new(luca-content) {
+    animation: luca-nav-dissolve 420ms var(--motion-ease-arrival) both;
+    -webkit-mask-image: radial-gradient(
+      circle,
+      #000 var(--luca-dot-reveal),
+      transparent calc(var(--luca-dot-reveal) + 0.75px)
+    );
+    mask-image: radial-gradient(
+      circle,
+      #000 var(--luca-dot-reveal),
+      transparent calc(var(--luca-dot-reveal) + 0.75px)
+    );
+    -webkit-mask-size: 9px 9px;
+    mask-size: 9px 9px;
+    -webkit-mask-position: center;
+    mask-position: center;
+  }
+}
+
+@keyframes luca-nav-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes luca-nav-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--luca-nav-drift, 0px));
+  }
+}
+
+@keyframes luca-nav-in-deeper {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.988);
+  }
+}
+
+@keyframes luca-nav-in-shallower {
+  from {
+    opacity: 0;
+    transform: scale(1.012);
+  }
+}
+
+@keyframes luca-nav-dissolve {
+  from {
+    --luca-dot-reveal: 0.5px;
+    opacity: 0.55;
+  }
+
+  to {
+    --luca-dot-reveal: 7px;
+    opacity: 1;
+  }
+}
+
+/* Reduced motion: navigation swaps instantly, no snapshots animating. */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none;
+  }
+}
