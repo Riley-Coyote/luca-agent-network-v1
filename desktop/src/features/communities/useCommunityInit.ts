@@ -5,6 +5,7 @@ import { resetRateLimitGate } from "@/shared/api/relayRateLimitGate";
 import { applyCommunity, getDefaultRelayUrl } from "@/shared/api/tauri";
 import { getIdentity } from "@/shared/api/tauriIdentity";
 import { getOverrides } from "@/shared/features";
+import { resetBackgroundTasks } from "@/shared/lib/backgroundTasks";
 import { resetMediaCaches } from "@/shared/lib/mediaUrl";
 import { clearSearchHitEventCache } from "@/app/navigation/searchHitEventCache";
 import {
@@ -52,6 +53,7 @@ function resetCommunityState(): void {
   clearMarkdownNodeCache();
   resetExchangeStore();
   resetPaneState();
+  resetBackgroundTasks();
 }
 
 type CommunityInitResult =

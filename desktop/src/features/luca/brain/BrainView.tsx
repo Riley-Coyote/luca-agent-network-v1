@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import * as React from "react";
 
+import { startBackgroundTask } from "@/shared/lib/backgroundTasks";
 import { readableConnectedBrainError } from "./brainErrors";
 import { BrainActivity } from "./BrainActivity";
 import {
@@ -90,21 +91,28 @@ export function BrainView() {
   }, []);
 
   const connectCategory = React.useCallback(
-    async (kind: ConnectedBrainSourceKind) => {
+    (kind: ConnectedBrainSourceKind) => {
       if (!inventory) return;
       const discoveryIds = unconnectedDiscoveries(inventory, kind).map(
         (source) => source.discoveryId,
       );
       if (discoveryIds.length === 0) return;
       setConnectingCategory(kind);
-      await run(() =>
-        actions.connect.mutateAsync({
-          discoveryIds,
-          consentAccepted: true,
-        }),
+      // The connect runs in the background from the moment of consent: the
+      // dialog leaves immediately and the sidebar's task card narrates the
+      // wait. The store owns the promise, so completion lands even if this
+      // view unmounts mid-connect.
+      const promise = actions.connect.mutateAsync({
+        discoveryIds,
+        consentAccepted: true,
+      });
+      startBackgroundTask(
+        `Connecting ${categoryLabels[kind]}`,
+        promise,
+        readableConnectedBrainError,
       );
-      setConnectingCategory(null);
       setConsentCategory(null);
+      void run(() => promise).then(() => setConnectingCategory(null));
     },
     [actions.connect, inventory, run],
   );
@@ -268,7 +276,7 @@ export function BrainView() {
           if (consentCategory) void connectCategory(consentCategory);
         }}
         onOpenChange={(open) => {
-          if (!open && !actions.connect.isPending) setConsentCategory(null);
+          if (!open) setConsentCategory(null);
         }}
         open={consentCategory !== null}
         sourceLabel={

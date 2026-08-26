@@ -2,6 +2,12 @@
   animation: sprout-arc-spinner-spin 500ms linear infinite;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .sprout-arc-spinner {
+    animation: none;
+  }
+}
+
 @keyframes sprout-arc-spinner-spin {
   to {
     transform: rotate(360deg);

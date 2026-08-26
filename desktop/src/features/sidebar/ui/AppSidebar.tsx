@@ -68,6 +68,7 @@ import {
 } from "@/features/sidebar/ui/sidebarLoadingSkeleton";
 import { useDeferredModalOpen } from "@/shared/ui/deferredModalOpen";
 import { resolveSelfDisplayName } from "@/features/profile/lib/identity";
+import { SidebarBackgroundTaskCard } from "@/features/sidebar/ui/SidebarBackgroundTaskCard";
 import { SidebarUpdateCard } from "@/features/settings/SidebarUpdateCard";
 import { useUpdaterContext } from "@/features/settings/hooks/UpdaterProvider";
 import { shouldShowSidebarUpdateCard } from "@/features/settings/sidebarUpdateCardVisibility";
@@ -867,6 +868,9 @@ export function AppSidebar({
                 onDismiss={relayConnectionCard.onDismissRelayConnectionCard}
                 onReconnect={relayConnectionCard.onReconnectRelay}
               />
+            ) : null}
+            {(isMobile ? openMobile : sidebarOpen) ? (
+              <SidebarBackgroundTaskCard className="mb-2" />
             ) : null}
             {showSidebarUpdateCard ? (
               <div className="mb-2">
