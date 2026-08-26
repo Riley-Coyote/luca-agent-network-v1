@@ -239,119 +239,126 @@ export function AgentsView({
       <div
         className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-[inherit] bg-card/40"
         data-luca-floor-host
-        ref={libraryContentRef}
+        data-testid="agents-view"
       >
         <div
-          className={
-            isSinglePaneLibrary
-              ? showMobileRoster
-                ? "flex min-h-0 w-full"
-                : "hidden min-h-0"
-              : "flex min-h-0"
-          }
+          className="relative z-10 flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background"
+          data-luca-conversation-surface
+          ref={libraryContentRef}
         >
-          <AgentLibraryRoster
-            filter={filter}
-            onAdd={() => setIsAddOpen(true)}
-            onFilterChange={setFilter}
-            onGroups={() => setIsGroupsOpen(true)}
-            onOpenDefaults={() => setIsAiDefaultsOpen(true)}
-            onQueryChange={setQuery}
-            onSelect={(resident: ResidentSummaryViewModel) => {
-              setShowMobileRoster(false);
-              if (resident.pubkey) onSelectResident(resident.pubkey);
-              else if (resident.personaId) onSelectPersona(resident.personaId);
-            }}
-            query={query}
-            residents={library}
-            selectedId={selectedResident?.residentId ?? null}
-          />
-        </div>
-        {selectedResident ? (
           <div
             className={
-              isSinglePaneLibrary && showMobileRoster
-                ? "hidden min-h-0 min-w-0 flex-1"
-                : "flex min-h-0 min-w-0 flex-1"
+              isSinglePaneLibrary
+                ? showMobileRoster
+                  ? "flex min-h-0 w-full"
+                  : "hidden min-h-0"
+                : "flex min-h-0"
             }
           >
-            <AgentLibraryWorkspace
-              channels={
-                selectedResident.pubkey
-                  ? (agents.channelsByPubkey[
-                      normalizePubkey(selectedResident.pubkey)
-                    ] ?? [])
-                  : []
-              }
-              actionErrorMessage={agents.actionErrorMessage}
-              actionNoticeMessage={agents.actionNoticeMessage}
-              isActionPending={isActionPending}
-              managedAgent={selectedManagedAgent}
-              onBack={() => {
-                setShowMobileRoster(true);
-                onClearSelection();
+            <AgentLibraryRoster
+              filter={filter}
+              onAdd={() => setIsAddOpen(true)}
+              onFilterChange={setFilter}
+              onGroups={() => setIsGroupsOpen(true)}
+              onOpenDefaults={() => setIsAiDefaultsOpen(true)}
+              onQueryChange={setQuery}
+              onSelect={(resident: ResidentSummaryViewModel) => {
+                setShowMobileRoster(false);
+                if (resident.pubkey) onSelectResident(resident.pubkey);
+                else if (resident.personaId)
+                  onSelectPersona(resident.personaId);
               }}
-              onEdit={() => {
-                if (selectedManagedAgent) {
-                  setInstanceToEdit(selectedManagedAgent);
-                } else if (selectedPersona) {
-                  personas.openEdit(selectedPersona);
-                }
-              }}
-              onMessage={() => {
-                if (!selectedManagedAgent) return;
-                void openDmMutation
-                  .mutateAsync({ pubkeys: [selectedManagedAgent.pubkey] })
-                  .then((dm) => goChannel(dm.id));
-              }}
-              onOpenChannel={(channelId) => {
-                void goChannel(channelId);
-              }}
-              onSectionChange={onSectionChange}
-              onStart={() => {
-                if (selectedManagedAgent) {
-                  void agents.handleStart(selectedManagedAgent.pubkey);
-                } else if (selectedPersona) {
-                  void agents.handleStartPersona(selectedPersona);
-                }
-              }}
-              onStop={() => {
-                if (selectedManagedAgent) {
-                  void agents.handleStop(selectedManagedAgent.pubkey);
-                }
-              }}
-              onRestart={() => {
-                if (selectedManagedAgent) {
-                  void agents.handleRestart(selectedManagedAgent.pubkey);
-                }
-              }}
-              onToggleStartOnLaunch={(enabled) => {
-                if (selectedManagedAgent) {
-                  void agents.handleToggleStartOnAppLaunch(
-                    selectedManagedAgent.pubkey,
-                    enabled,
-                  );
-                }
-              }}
-              persona={selectedPersona}
-              resident={selectedResident}
-              section={section}
-              showBackButton={isSinglePaneLibrary}
+              query={query}
+              residents={library}
+              selectedId={selectedResident?.residentId ?? null}
             />
           </div>
-        ) : (
-          <div className="hidden min-h-0 min-w-0 flex-1 items-center justify-center px-8 text-center md:flex">
-            <div className="max-w-sm">
-              <h2 className="text-lg font-medium">No residents yet</h2>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Import an agent already on this Mac or create a new resident.
-              </p>
-              <Button className="mt-5" onClick={() => setIsAddOpen(true)}>
-                Add agent
-              </Button>
+          {selectedResident ? (
+            <div
+              className={
+                isSinglePaneLibrary && showMobileRoster
+                  ? "hidden min-h-0 min-w-0 flex-1"
+                  : "flex min-h-0 min-w-0 flex-1"
+              }
+            >
+              <AgentLibraryWorkspace
+                channels={
+                  selectedResident.pubkey
+                    ? (agents.channelsByPubkey[
+                        normalizePubkey(selectedResident.pubkey)
+                      ] ?? [])
+                    : []
+                }
+                actionErrorMessage={agents.actionErrorMessage}
+                actionNoticeMessage={agents.actionNoticeMessage}
+                isActionPending={isActionPending}
+                managedAgent={selectedManagedAgent}
+                onBack={() => {
+                  setShowMobileRoster(true);
+                  onClearSelection();
+                }}
+                onEdit={() => {
+                  if (selectedManagedAgent) {
+                    setInstanceToEdit(selectedManagedAgent);
+                  } else if (selectedPersona) {
+                    personas.openEdit(selectedPersona);
+                  }
+                }}
+                onMessage={() => {
+                  if (!selectedManagedAgent) return;
+                  void openDmMutation
+                    .mutateAsync({ pubkeys: [selectedManagedAgent.pubkey] })
+                    .then((dm) => goChannel(dm.id));
+                }}
+                onOpenChannel={(channelId) => {
+                  void goChannel(channelId);
+                }}
+                onSectionChange={onSectionChange}
+                onStart={() => {
+                  if (selectedManagedAgent) {
+                    void agents.handleStart(selectedManagedAgent.pubkey);
+                  } else if (selectedPersona) {
+                    void agents.handleStartPersona(selectedPersona);
+                  }
+                }}
+                onStop={() => {
+                  if (selectedManagedAgent) {
+                    void agents.handleStop(selectedManagedAgent.pubkey);
+                  }
+                }}
+                onRestart={() => {
+                  if (selectedManagedAgent) {
+                    void agents.handleRestart(selectedManagedAgent.pubkey);
+                  }
+                }}
+                onToggleStartOnLaunch={(enabled) => {
+                  if (selectedManagedAgent) {
+                    void agents.handleToggleStartOnAppLaunch(
+                      selectedManagedAgent.pubkey,
+                      enabled,
+                    );
+                  }
+                }}
+                persona={selectedPersona}
+                resident={selectedResident}
+                section={section}
+                showBackButton={isSinglePaneLibrary}
+              />
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="hidden min-h-0 min-w-0 flex-1 items-center justify-center px-8 text-center md:flex">
+              <div className="max-w-sm">
+                <h2 className="text-lg font-medium">No residents yet</h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Import an agent already on this Mac or create a new resident.
+                </p>
+                <Button className="mt-5" onClick={() => setIsAddOpen(true)}>
+                  Add agent
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <Dialog onOpenChange={setIsAddOpen} open={isAddOpen}>

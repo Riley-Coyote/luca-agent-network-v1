@@ -4,6 +4,15 @@
   --artifact-library-caption: 0.75rem;
   background: hsl(var(--mn-surface));
   color: hsl(var(--mn-ink));
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.artifact-library-screen__focal-card {
   display: grid;
   flex: 1;
   grid-template-rows: auto auto minmax(0, 1fr) auto;

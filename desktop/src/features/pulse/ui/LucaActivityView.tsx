@@ -180,7 +180,6 @@ function ResidentActivityCard({ resident }: { resident: ActivityResident }) {
   return (
     <article
       className="rounded-xl border border-border/60 bg-background/45 p-4 transition-colors hover:border-border"
-      data-luca-activity-card
       data-activity-state={
         working.working ? "working" : (activity?.tone ?? "idle")
       }
@@ -308,77 +307,84 @@ export function LucaActivityView() {
 
   return (
     <main
-      className="min-h-0 flex-1 overflow-y-auto bg-background"
+      className="flex min-h-0 flex-1 overflow-hidden bg-background"
       data-luca-floor-host
       data-testid="owner-activity-view"
     >
-      <div className="mx-auto w-full max-w-5xl px-5 py-6 sm:px-8 sm:py-8">
-        <header className="border-b border-border/60 pb-5">
-          <div className="flex items-center gap-2 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
-            <Bot aria-hidden className="h-3.5 w-3.5" />
-            Resident runtime publication
-          </div>
-          <h1 className="mt-2 text-2xl font-light tracking-tight text-foreground">
-            Activity
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-            Live and recent resident work from Luca's existing protected runtime
-            feeds. Open a resident to inspect its full activity in an accessible
-            conversation.
-          </p>
-        </header>
+      <div
+        className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
+        data-luca-conversation-surface
+      >
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-5xl px-5 py-6 sm:px-8 sm:py-8">
+            <header className="border-b border-border/60 pb-5">
+              <div className="flex items-center gap-2 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
+                <Bot aria-hidden className="h-3.5 w-3.5" />
+                Resident runtime publication
+              </div>
+              <h1 className="mt-2 text-2xl font-light tracking-tight text-foreground">
+                Activity
+              </h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+                Live and recent resident work from Luca's existing protected
+                runtime feeds. Open a resident to inspect its full activity in
+                an accessible conversation.
+              </p>
+            </header>
 
-        {loading ? (
-          <div
-            className="mt-6 grid gap-3 md:grid-cols-2"
-            data-testid="owner-activity-loading"
-          >
-            {[0, 1, 2, 3].map((key) => (
-              <Skeleton className="h-56 rounded-xl" key={key} />
-            ))}
+            {loading ? (
+              <div
+                className="mt-6 grid gap-3 md:grid-cols-2"
+                data-testid="owner-activity-loading"
+              >
+                {[0, 1, 2, 3].map((key) => (
+                  <Skeleton className="h-56 rounded-xl" key={key} />
+                ))}
+              </div>
+            ) : error ? (
+              <section className="mt-6 rounded-xl border border-destructive/30 bg-destructive/5 px-5 py-8 text-center">
+                <AlertTriangle
+                  aria-hidden
+                  className="mx-auto h-5 w-5 text-destructive"
+                />
+                <h2 className="mt-3 text-sm font-medium">
+                  Activity is unavailable
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Luca could not load the resident runtime projection. Try again
+                  after the connection recovers.
+                </p>
+              </section>
+            ) : residents.length === 0 ? (
+              <section
+                className="mt-6 rounded-xl border border-dashed border-border/70 px-5 py-12 text-center"
+                data-testid="owner-activity-empty"
+              >
+                <Bot
+                  aria-hidden
+                  className="mx-auto h-5 w-5 text-muted-foreground"
+                />
+                <h2 className="mt-3 text-sm font-medium">No residents yet</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Add or import a resident to see runtime activity here.
+                </p>
+              </section>
+            ) : (
+              <section
+                aria-label="Resident activity"
+                className="mt-6 grid gap-3 md:grid-cols-2"
+                data-testid="owner-activity-list"
+              >
+                {residents.map((resident) => (
+                  <ResidentActivityCard
+                    key={normalizePubkey(resident.pubkey)}
+                    resident={resident}
+                  />
+                ))}
+              </section>
+            )}
           </div>
-        ) : error ? (
-          <section className="mt-6 rounded-xl border border-destructive/30 bg-destructive/5 px-5 py-8 text-center">
-            <AlertTriangle
-              aria-hidden
-              className="mx-auto h-5 w-5 text-destructive"
-            />
-            <h2 className="mt-3 text-sm font-medium">
-              Activity is unavailable
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Luca could not load the resident runtime projection. Try again
-              after the connection recovers.
-            </p>
-          </section>
-        ) : residents.length === 0 ? (
-          <section
-            className="mt-6 rounded-xl border border-dashed border-border/70 px-5 py-12 text-center"
-            data-testid="owner-activity-empty"
-          >
-            <Bot
-              aria-hidden
-              className="mx-auto h-5 w-5 text-muted-foreground"
-            />
-            <h2 className="mt-3 text-sm font-medium">No residents yet</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Add or import a resident to see runtime activity here.
-            </p>
-          </section>
-        ) : (
-          <section
-            aria-label="Resident activity"
-            className="mt-6 grid gap-3 md:grid-cols-2"
-            data-testid="owner-activity-list"
-          >
-            {residents.map((resident) => (
-              <ResidentActivityCard
-                key={normalizePubkey(resident.pubkey)}
-                resident={resident}
-              />
-            ))}
-          </section>
-        )}
+        </div>
       </div>
     </main>
   );

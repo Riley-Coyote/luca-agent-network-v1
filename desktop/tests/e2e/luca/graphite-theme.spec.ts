@@ -104,8 +104,39 @@ test("floor role stamps distinguish the routed host from opaque settings", async
     ),
   ).not.toBe("rgba(0, 0, 0, 0)");
 
-  const routedFloorHost = page.locator("[data-luca-floor-host]");
-  await expect(routedFloorHost).toHaveCount(1);
+  const activeFloorHosts = page.locator("[data-luca-floor-host]");
+  const expectOnlyFloorHost = async (
+    expected: ReturnType<typeof page.locator>,
+  ) => {
+    await expect(activeFloorHosts).toHaveCount(1);
+    await expect(expected).toHaveAttribute("data-luca-floor-host", "true");
+    expect(
+      await expected.evaluate(
+        (element) =>
+          document.querySelectorAll("[data-luca-floor-host]").length === 1 &&
+          document.querySelector("[data-luca-floor-host]") === element,
+      ),
+    ).toBe(true);
+  };
+  const expectOpaqueFocalCard = async (
+    routeRoot: ReturnType<typeof page.locator>,
+  ) => {
+    const card = routeRoot.locator(":scope > [data-luca-conversation-surface]");
+    await expect(card).toHaveCount(1);
+    expect(
+      await card.evaluate((element) => {
+        const color = getComputedStyle(element).backgroundColor;
+        if (!color.startsWith("rgba(")) return color !== "transparent";
+        const alpha = Number.parseFloat(color.split(",").at(-1) ?? "0");
+        return alpha === 1;
+      }),
+    ).toBe(true);
+  };
+
+  const routedFloorHost = page.locator(
+    "[data-buzz-content-surface][data-luca-floor-host]",
+  );
+  await expectOnlyFloorHost(routedFloorHost);
   await expect(routedFloorHost).toHaveAttribute(
     "data-buzz-content-surface",
     "true",
@@ -135,11 +166,14 @@ test("floor role stamps distinguish the routed host from opaque settings", async
       (el) => getComputedStyle(el).backgroundColor,
     ),
   ).not.toBe("rgba(0, 0, 0, 0)");
-  await expect(page.locator("[data-luca-floor-host]")).toHaveCount(0);
+  await expect(activeFloorHosts).toHaveCount(0);
 
   await page.getByTestId("settings-back-to-app").click();
   await page.getByTestId("open-new-conversation").click();
   await expect(page.getByTestId("new-message-page")).toBeVisible();
+  await expectOnlyFloorHost(
+    page.locator("[data-buzz-content-surface][data-luca-floor-host]"),
+  );
 
   const emptyFloorRegions = page.locator("[data-luca-floor]");
   await expect(emptyFloorRegions).toHaveCount(1);
@@ -153,9 +187,9 @@ test("floor role stamps distinguish the routed host from opaque settings", async
     ),
   ).toEqual([{ childElementCount: 0, readableText: "" }]);
 
-  // Enumerated floor-host contract, route canvases: Library, Agents,
-  // Activity roots each carry the stamp and yield to the plate; their
-  // interior cards/controls stay opaque (wallpaper-invariant).
+  // Enumerated floor-host contract, route canvases: Library, Agents and
+  // Activity each expose exactly their named root to the plate, and every
+  // readable descendant stays inside one Settings-identical opaque card.
   const transparent = "rgba(0, 0, 0, 0)";
   const hostBg = (locator: ReturnType<typeof page.locator>) =>
     locator.evaluate((el) => getComputedStyle(el).backgroundColor);
@@ -163,20 +197,19 @@ test("floor role stamps distinguish the routed host from opaque settings", async
   await page.getByTestId("open-artifacts-view").click();
   const libraryRoot = page.getByTestId("artifact-library-screen");
   await expect(libraryRoot).toBeVisible();
-  await expect(libraryRoot).toHaveAttribute("data-luca-floor-host", "true");
+  await expectOnlyFloorHost(libraryRoot);
   expect(await hostBg(libraryRoot)).toBe(transparent);
+  await expectOpaqueFocalCard(libraryRoot);
 
   await page.getByTestId("open-agents-view").click();
-  const agentsRoot = page.locator("[data-luca-floor-host]");
-  await expect(agentsRoot).toHaveCount(1);
+  const agentsRoot = page.getByTestId("agents-view");
+  await expectOnlyFloorHost(agentsRoot);
   expect(await hostBg(agentsRoot)).toBe(transparent);
+  await expectOpaqueFocalCard(agentsRoot);
 
   await page.getByTestId("open-activity-view").click();
   const activityRoot = page.getByTestId("owner-activity-view");
-  await expect(activityRoot).toHaveAttribute("data-luca-floor-host", "true");
+  await expectOnlyFloorHost(activityRoot);
   expect(await hostBg(activityRoot)).toBe(transparent);
-  const activityCards = page.locator("[data-luca-activity-card]");
-  if ((await activityCards.count()) > 0) {
-    expect(await hostBg(activityCards.first())).not.toBe(transparent);
-  }
+  await expectOpaqueFocalCard(activityRoot);
 });

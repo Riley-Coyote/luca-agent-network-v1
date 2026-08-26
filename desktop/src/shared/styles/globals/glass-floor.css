@@ -58,24 +58,6 @@
   background-color: hsl(var(--mn-floor) / 0.88);
 }
 
-/* Route-canvas interiors: these translucent fills rode the old opaque route
-   slabs; once the route root yields to the plate they would composite the
-   wallpaper and lose card invariance. Under the glass system they solidify
-   to their token's opaque form. Buzz (glass-inert, no data-luca-glass) keeps
-   the original washes untouched. */
-:root[data-luca-shell][data-luca-glass] .artifact-library-screen__header button,
-:root[data-luca-shell][data-luca-glass] .artifact-library-state button,
-:root[data-luca-shell][data-luca-glass] .artifact-library-search {
-  background: hsl(var(--mn-raised));
-}
-:root[data-luca-shell][data-luca-glass]
-  .artifact-library-row[data-selected="true"] {
-  background: hsl(var(--mn-hover));
-}
-:root[data-luca-shell][data-luca-glass] [data-luca-activity-card] {
-  background-color: hsl(var(--mn-surface));
-}
-
 /* everything that paints floor/sidebar color above the plate yields to it */
 :root[data-luca-shell][data-luca-glass] [data-app-top-chrome],
 :root[data-luca-shell][data-luca-glass] [data-sidebar="sidebar"],
