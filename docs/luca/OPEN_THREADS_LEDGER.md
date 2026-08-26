@@ -73,10 +73,13 @@ never happened — re-raise with him before building. Highlights:
 
 ### A4. The messaging "quiet pass" (queued design, Riley 2026-08-26)
 Direction recorded in session memory (`luca-messaging-ui-quiet-pass`):
-remove sender titles/logos entirely; user = subtle right-anchored bubble;
-identity by position/anatomy, not repeated names+logos; visits get a subtle
-frame instead of the current chrome; runtime icon per sender is too noisy
-(the existing hide-marks toggle stays). Design work — Riley+Fable lane.
+user = subtle right-anchored bubble; identity by position/anatomy; visits
+get a subtle frame instead of the current chrome. (Riley 2026-08-26: the
+sender-icon removal item is DROPPED — the settings toggle covers it.)
+Design work — Riley+Fable lane. SUPERSEDED IN PRIORITY by the messaging
+feel work: Riley's ruling is that the messaging experience (send motion,
+thinking animations, activity transparency, transitions) is THE most
+important thing in the product.
 
 ### A5. Conversation-model holes (decided, unimplemented)
 - `docs/luca/REPLY_ADDRESSING.md` — the who-does-a-reply-wake rule. Decided
