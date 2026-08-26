@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
+import { Skeleton } from "@/shared/ui/skeleton";
 
 const IMAGE_CLASS =
   "absolute inset-0 block h-full w-full rounded-2xl object-contain";
@@ -52,10 +53,14 @@ export function ProgressiveImage({
     : thumbSrc;
   const [loadFullImage, setLoadFullImage] = React.useState(!thumbnailSrc);
   const [fullImageLoaded, setFullImageLoaded] = React.useState(!thumbnailSrc);
+  // True once ANY pixels are up (thumbnail or full) — until then the
+  // reserved frame shimmers instead of sitting as a blank hole.
+  const [hasPaintedPixels, setHasPaintedPixels] = React.useState(false);
 
   const handleFullLoad = React.useCallback(
     async (image: HTMLImageElement) => {
       onFullLoad(image);
+      setHasPaintedPixels(true);
       try {
         await image.decode();
       } catch {
@@ -78,6 +83,10 @@ export function ProgressiveImage({
     (image: HTMLImageElement | null) => {
       thumbnailRef.current = image;
       if (image && !fullImageRef.current) fullImageRef.current = image;
+      // A cached thumbnail can be complete before onLoad ever fires.
+      if (image?.complete && image.naturalWidth > 0) {
+        setHasPaintedPixels(true);
+      }
     },
     [fullImageRef, thumbnailRef],
   );
@@ -98,6 +107,9 @@ export function ProgressiveImage({
       data-progressive-image-frame=""
       style={frameStyle}
     >
+      {hasPaintedPixels ? null : (
+        <Skeleton className="absolute inset-0 h-full w-full rounded-2xl" />
+      )}
       {thumbnailSrc ? (
         <img
           alt=""
@@ -113,6 +125,7 @@ export function ProgressiveImage({
           onError={() => setLoadFullImage(true)}
           onLoad={(event) => {
             onThumbnailLoad(event.currentTarget);
+            setHasPaintedPixels(true);
             setLoadFullImage(true);
           }}
         />

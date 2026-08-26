@@ -1,10 +1,10 @@
 import { Check, CloudOff } from "lucide-react";
 
+import { BusyMark } from "@/shared/ui/BusyMark";
 import {
   SidebarCompactActionCard,
   type SidebarActionCardSurface,
 } from "@/shared/ui/sidebar-action-card";
-import { Spinner } from "@/shared/ui/spinner";
 
 type SidebarRelayConnectionCardProps = {
   isActionDisabled?: boolean;
@@ -85,7 +85,7 @@ export function SidebarRelayConnectionCompactCard({
         isConnected ? (
           <Check aria-hidden="true" className="h-5 w-5" />
         ) : isReconnectPending ? (
-          <Spinner aria-hidden="true" className="h-5 w-5 border-2" />
+          <BusyMark size={20} />
         ) : (
           <CloudOff aria-hidden="true" className="h-5 w-5" />
         )
