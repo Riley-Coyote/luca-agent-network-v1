@@ -20,15 +20,23 @@ use tauri::Manager;
 /// (`sidebar`, `hud-window`, `under-window-background`, `fullscreen-ui`,
 /// `header-view`, `popover`, `menu`, `titlebar`). Unknown values fall back to
 /// `sidebar`.
+///
+/// `state` controls `NSVisualEffectView.state`: `"active"` keeps the blur
+/// live even while the window is unfocused (the glass themes' contract —
+/// glass does not turn opaque when the user clicks elsewhere). Any other
+/// value, or omission, leaves AppKit's default follows-window behavior.
 #[tauri::command]
 pub fn set_window_vibrancy(
     #[allow(unused_variables)] enabled: bool,
     #[allow(unused_variables)] material: Option<String>,
+    #[allow(unused_variables)] state: Option<String>,
     #[allow(unused_variables)] app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        use window_vibrancy::{apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial};
+        use window_vibrancy::{
+            apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
+        };
 
         let window = app_handle
             .get_webview_window("main")
@@ -58,7 +66,11 @@ pub fn set_window_vibrancy(
         // clear is a no-op (returns `false`) when none is present.
         let _ = clear_vibrancy(&window);
 
-        apply_vibrancy(&window, material, None, None).map_err(|e| e.to_string())?;
+        let state = match state.as_deref() {
+            Some("active") => Some(NSVisualEffectState::Active),
+            _ => None,
+        };
+        apply_vibrancy(&window, material, state, None).map_err(|e| e.to_string())?;
         Ok(())
     }
 
