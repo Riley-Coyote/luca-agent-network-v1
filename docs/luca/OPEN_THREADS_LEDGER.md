@@ -168,7 +168,47 @@ built. Hard constraint: a local repo path must never go on the relay.
 
 ---
 
-## E. Separate tracks (live, but their own lanes)
+## E. Designed in the lab, NEVER ported to the app
+
+The two-glass port deliberately carried only the glass MATERIAL system
+(themes, two-weather CSS, held things, strokeless) into the app. These
+finished lab designs did not cross and exist only on branch `design/lab`
+in `design-lab/panes-and-widgets.html` (durable worktree:
+`/Volumes/LaCie/Luca-Development/worktrees/luca-design-lab`; the same file
+also sits in the parked e5f6 worktree). Lab commits named per item. Losing
+this file/branch loses the designs — treat it as source of record.
+
+1. **The ⌘K command palette redesign** (`96a7e73aa` "The palette learns the
+   industry idiom" + `1eb4a50f6`): Raycast/Linear anatomy — dim+blur veil,
+   620px / 16px type, grouped rows, keycap hints, footer hint bar. The app
+   still runs the plain `TopbarSearch.tsx` Radix dialog (its dead-end
+   results are a gap-inventory P1). Recorded implementation note: a
+   cmdk-style refactor was scoped out of the port; CSS-only glass went in.
+2. **The rail footer becomes real** (`db335068e`): profile footer CARD
+   anatomy + its popover (workspace/profile actions). App footer is still
+   the plain profile row.
+3. **The settings scene** (`1eb4a50f6`): the lab's settings anatomy
+   (nav/panel composition, option-group treatment). The app's settings only
+   received glass paint, not this anatomy.
+4. **Top-chrome cluster** (anatomy rounds): the header/top-chrome
+   composition designed in the lab.
+5. **"Today learns to scroll"** (`db335068e`): non-sticky day dividers that
+   scroll with their day (no background, no mask). The app deliberately
+   kept its sticky pill during the port (recorded divergence — the taste
+   call was never made).
+6. **The popover glass family** (`5253185b1`): popover/menu treatment as
+   designed in the lab (the app got the deep-panel CSS but not the lab's
+   popover anatomy).
+7. The older study scenes in the same file (agent's place, the
+   widget-as-instrument, drawer contents, tiling, lifted pane) are tracked
+   in section C.
+
+The parked glass arc's full diagnosis is preserved at
+`docs/luca/audits/GLASS_AUDIT_2026-08-26.md` (was session-scratchpad only).
+
+---
+
+## F. Separate tracks (live, but their own lanes)
 
 - **The Polyphonic landing thread**: `docs/luca/LANDING_BLUEPRINT.md` +
   `LANDING_BUILD_BRIEF.md`, the notch prototype (recent commits on this
