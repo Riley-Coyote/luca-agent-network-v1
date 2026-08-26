@@ -2476,16 +2476,12 @@ fn public_tool_lifecycle_frame(
             public_update.insert(key.to_owned(), serde_json::Value::String(candidate));
         }
     }
-    // The step summary, computed BEFORE the scrub with the presentation
-    // module's own privacy vocabulary (a bare domain, a path, a command, a
-    // query, a count — never raw bodies). Without this, the activity ledger
-    // reads a sanitized frame whose rawInput/locations are already gone and
-    // the step collapses to a bare phase word.
-    let (detail, count) = crate::managed_presentation::public_activity_summary(update);
-    if let Some(detail) = detail {
-        public_update.insert("detail".to_owned(), serde_json::Value::String(detail));
-    }
-    if let Some(count) = count {
+    // The step's COUNT, computed before the scrub. A number is the one
+    // piece of step texture that cannot smuggle content through the guard
+    // (the shell-spoof test is the contract: rawInput content never
+    // survives, title/kind/status do). Free-text details stay guarded out;
+    // unguarded turns keep full details via the raw passthrough.
+    if let Some(count) = crate::managed_presentation::public_activity_count(update) {
         public_update.insert("count".to_owned(), serde_json::Value::Number(count.into()));
     }
     serde_json::json!({
