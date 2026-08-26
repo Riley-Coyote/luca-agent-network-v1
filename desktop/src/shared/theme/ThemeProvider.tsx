@@ -24,6 +24,7 @@ import {
 import {
   createGraphiteThemeVars,
   createAshThemeVars,
+  createObsidianThemeVars,
   createInverseThemeVars,
   createVoidThemeVars,
   createLucaThemeVars,
@@ -35,8 +36,10 @@ import {
 } from "./adaptive-theme";
 import { THEME_CLEAR_VARS } from "./role-registry";
 import {
+  CRYSTALLINE_THEME_NAME,
   DRAGON_GLASS_THEME_NAME,
   GRAPHITE_THEME_NAME,
+  OBSIDIAN_THEME_NAME,
   ONYX_THEME_NAME,
   PAPER_THEME_NAME,
   ASH_THEME_NAME,
@@ -649,6 +652,9 @@ async function applyTheme(
     // Dragon Glass: Smoke's palette; the Dark material is its default weather
     if (name === DRAGON_GLASS_THEME_NAME) return createSmokeThemeVars();
     if (name === ONYX_THEME_NAME) return createOnyxThemeVars();
+    if (name === OBSIDIAN_THEME_NAME) return createObsidianThemeVars();
+    // Crystalline: Paper's palette under the light glass weathers.
+    if (name === CRYSTALLINE_THEME_NAME) return createPaperThemeVars();
     return createThemeVars(info.bg, info.fg, info.comment, {
       added: info.added,
       deleted: info.deleted,

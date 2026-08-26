@@ -11,6 +11,8 @@ import {
   INVERSE_THEME_NAME,
   PAPER_THEME_NAME,
   VOID_THEME_NAME,
+  OBSIDIAN_THEME_NAME,
+  CRYSTALLINE_THEME_NAME,
   isLightTheme,
   loadThemeData,
 } from "./theme-loader";
@@ -23,6 +25,7 @@ import {
 } from "./ThemePreviewFrame";
 import {
   ASH_THEME_COLORS,
+  OBSIDIAN_THEME_COLORS,
   GRAPHITE_THEME_COLORS,
   INVERSE_THEME_COLORS,
   PAPER_THEME_COLORS,
@@ -53,6 +56,13 @@ async function loadThemePreviewVars(name: SyntaxThemeName) {
   }
   if (name === GRAPHITE_THEME_NAME) {
     return [name, previewVarsFromLadder(GRAPHITE_THEME_COLORS)] as const;
+  }
+  if (name === OBSIDIAN_THEME_NAME) {
+    return [name, previewVarsFromLadder(OBSIDIAN_THEME_COLORS)] as const;
+  }
+  if (name === CRYSTALLINE_THEME_NAME) {
+    // Crystalline wears Paper's palette; its tile shows the same truth.
+    return [name, previewVarsFromLadder(PAPER_THEME_COLORS)] as const;
   }
   if (name === PAPER_THEME_NAME) {
     // Paper previously had NO branch and fell through to the derived path,

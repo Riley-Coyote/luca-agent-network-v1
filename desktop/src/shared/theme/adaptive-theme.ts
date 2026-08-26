@@ -406,6 +406,40 @@ export const PAPER_THEME_COLORS = {
 } as const;
 
 /**
+ * Obsidian — the dark glass appearance's solid tokens. The Void family
+ * (cool near-black, linear-dose lean) with richer altitude steps than Void
+ * itself, because glass anatomy is carried by weather deltas and these
+ * tokens must hold the same hierarchy when the theme goes opaque (browser
+ * contexts, reduced transparency, vibrancy fallback).
+ */
+export const OBSIDIAN_THEME_COLORS = {
+  floor: "#060608",
+  surface: "#0b0b0e",
+  raised: "#131318",
+  hover: "#18181d",
+  glass: "#030304",
+  recess: "#030304",
+  border: "#232329",
+  borderStrong: "#30303a",
+  ink: "#f4f3f0",
+  inkMuted: "#c6c5c0",
+  inkFaint: "#a6a5a1",
+  inkGhost: "#747370",
+  focus: "#a6a5a1",
+} as const;
+
+/** Build the Obsidian app palette — the dark glass appearance's solid base. */
+export function createObsidianThemeVars(): ThemeResult {
+  return {
+    isDark: true,
+    vars: {
+      ...createLucaThemeVars().vars,
+      ...projectLadder(OBSIDIAN_THEME_COLORS),
+    },
+  };
+}
+
+/**
  * Smoke — the palette built FOR dark glass (decided 2026-08-24, from the
  * HIG protocol: glass has no inherent color; it dims and blurs the desktop
  * into a legibility band). Light glowing rail over a near-black velvet

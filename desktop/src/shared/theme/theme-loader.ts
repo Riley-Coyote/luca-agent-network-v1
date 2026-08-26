@@ -83,6 +83,21 @@ export const DRAGON_GLASS_THEME_NAME = "dragon-glass";
  */
 export const ONYX_THEME_NAME = "onyx";
 
+/**
+ * Obsidian — the dark glass appearance. One of exactly two themes whose
+ * whole window is glass (the two-weather composition); every other theme
+ * is fully opaque. Its code highlighting resolves through
+ * {@link OBSIDIAN_BASE_THEME}.
+ */
+export const OBSIDIAN_THEME_NAME = "obsidian";
+
+/**
+ * Crystalline — the light glass appearance and Obsidian's System-mode
+ * partner. It wears Paper's palette under the light glass weathers. Its
+ * code highlighting resolves through {@link CRYSTALLINE_BASE_THEME}.
+ */
+export const CRYSTALLINE_THEME_NAME = "crystalline";
+
 /** The Luca shell uses GitHub Dark for its syntax-highlighting baseline. */
 export const BUZZ_BASE_THEME: SyntaxThemeName = "github-dark";
 
@@ -111,6 +126,12 @@ export const DRAGON_GLASS_BASE_THEME: SyntaxThemeName = "github-dark";
 /** Onyx is a dark shell, so it keeps the GitHub Dark syntax baseline. */
 export const ONYX_BASE_THEME: SyntaxThemeName = "github-dark";
 
+/** Obsidian is a dark shell, so it keeps the GitHub Dark syntax baseline. */
+export const OBSIDIAN_BASE_THEME: SyntaxThemeName = "github-dark";
+
+/** Crystalline is the light glass, so code blocks take the light baseline. */
+export const CRYSTALLINE_BASE_THEME: SyntaxThemeName = "github-light";
+
 /**
  * Resolve a theme name to the real Shiki bundled theme it maps to.
  *
@@ -133,6 +154,8 @@ export function resolveShikiThemeName(name: string): SyntaxThemeName {
   if (name === SMOKE_THEME_NAME) return SMOKE_BASE_THEME;
   if (name === DRAGON_GLASS_THEME_NAME) return DRAGON_GLASS_BASE_THEME;
   if (name === ONYX_THEME_NAME) return ONYX_BASE_THEME;
+  if (name === OBSIDIAN_THEME_NAME) return OBSIDIAN_BASE_THEME;
+  if (name === CRYSTALLINE_THEME_NAME) return CRYSTALLINE_BASE_THEME;
   return name as SyntaxThemeName;
 }
 
@@ -149,6 +172,8 @@ export const SYNTAX_THEMES = [
   "smoke",
   "dragon-glass",
   "onyx",
+  "obsidian",
+  "crystalline",
   "andromeeda",
   "aurora-x",
   "ayu-dark",
@@ -217,6 +242,7 @@ export type SyntaxThemeName = (typeof SYNTAX_THEMES)[number];
 // for themes that haven't been loaded yet.
 export const LIGHT_THEMES: ReadonlySet<SyntaxThemeName> = new Set([
   "paper",
+  "crystalline",
   "catppuccin-latte",
   "everforest-light",
   "github-light",
@@ -253,6 +279,8 @@ const themeImports: Record<
   smoke: () => import("shiki/themes/github-dark.mjs"),
   "dragon-glass": () => import("shiki/themes/github-dark.mjs"),
   onyx: () => import("shiki/themes/github-dark.mjs"),
+  obsidian: () => import("shiki/themes/github-dark.mjs"),
+  crystalline: () => import("shiki/themes/github-light.mjs"),
   andromeeda: () => import("shiki/themes/andromeeda.mjs"),
   "aurora-x": () => import("shiki/themes/aurora-x.mjs"),
   "ayu-dark": () => import("shiki/themes/ayu-dark.mjs"),
@@ -336,6 +364,8 @@ export const THEME_PAIRS: ReadonlyMap<SyntaxThemeName, SyntaxThemeName> =
     // "always Void" choice, and pairing it to a light palette would take the
     // stay-dark option away from System mode.
     ["paper", "buzz"],
+    // The glass pair: System mode breathes between the two glass weathers.
+    ["crystalline", "obsidian"],
     ["catppuccin-latte", "catppuccin-mocha"],
     ["everforest-light", "everforest-dark"],
     ["github-light", "github-dark"],
@@ -356,6 +386,7 @@ export const THEME_PAIRS: ReadonlyMap<SyntaxThemeName, SyntaxThemeName> =
     // Dark → Light (reverse mappings)
     ["buzz", "paper"],
     ["buzz-dark", "buzz"],
+    ["obsidian", "crystalline"],
     ["catppuccin-mocha", "catppuccin-latte"],
     ["everforest-dark", "everforest-light"],
     ["github-dark", "github-light"],

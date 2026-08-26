@@ -5,6 +5,7 @@ import {
   contrastRatio,
   createAshThemeVars,
   createGraphiteThemeVars,
+  createObsidianThemeVars,
   createInverseThemeVars,
   createLucaThemeVars,
   createPaperThemeVars,
@@ -12,6 +13,7 @@ import {
   createVoidThemeVars,
   ASH_THEME_COLORS,
   GRAPHITE_THEME_COLORS,
+  OBSIDIAN_THEME_COLORS,
   hexToHsl,
   INVERSE_THEME_COLORS,
   luminance,
@@ -227,6 +229,7 @@ test("every palette's focus is ink-derived, never an accent hue", () => {
     ["Ash", ASH_THEME_COLORS],
     ["Inverse", INVERSE_THEME_COLORS],
     ["Graphite", GRAPHITE_THEME_COLORS],
+    ["Obsidian", OBSIDIAN_THEME_COLORS],
     ["Paper", PAPER_THEME_COLORS],
   ]) {
     assert.equal(
@@ -275,6 +278,7 @@ const NAMED_BUILDERS = [
   ["Void", createVoidThemeVars()],
   ["Ash", createAshThemeVars()],
   ["Inverse", createInverseThemeVars()],
+  ["Obsidian", createObsidianThemeVars()],
   ["Paper", createPaperThemeVars()],
 ];
 const DERIVED_SAMPLES = [

@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   BUZZ_DARK_THEME_NAME,
   BUZZ_THEME_NAME,
+  CRYSTALLINE_THEME_NAME,
+  OBSIDIAN_THEME_NAME,
   GRAPHITE_BASE_THEME,
   GRAPHITE_THEME_NAME,
   LIGHT_THEMES,
@@ -50,6 +52,24 @@ test("Paper is registered as the first-party light app theme", () => {
 test("Paper and Void are each other's counterpart, so System mode switches", () => {
   assert.equal(getThemePair(PAPER_THEME_NAME), BUZZ_THEME_NAME);
   assert.equal(getThemePair(BUZZ_THEME_NAME), PAPER_THEME_NAME);
+});
+
+test("Crystalline is the light glass and Obsidian's System partner", () => {
+  assert.ok(SYNTAX_THEMES.includes(CRYSTALLINE_THEME_NAME));
+  assert.ok(SYNTAX_THEMES.includes(OBSIDIAN_THEME_NAME));
+  assert.ok(
+    LIGHT_THEMES.has(CRYSTALLINE_THEME_NAME),
+    "Crystalline must be in LIGHT_THEMES or the Light tab never lists it",
+  );
+  assert.ok(!LIGHT_THEMES.has(OBSIDIAN_THEME_NAME));
+  assert.equal(getThemePair(CRYSTALLINE_THEME_NAME), OBSIDIAN_THEME_NAME);
+  assert.equal(getThemePair(OBSIDIAN_THEME_NAME), CRYSTALLINE_THEME_NAME);
+});
+
+test("Crystalline resolves to a light syntax baseline for code blocks", () => {
+  const resolved = resolveShikiThemeName(CRYSTALLINE_THEME_NAME);
+  assert.notEqual(resolved, CRYSTALLINE_THEME_NAME);
+  assert.ok(LIGHT_THEMES.has(resolved), `${resolved} should be a light theme`);
 });
 
 test("buzz-dark stays the always-dark choice rather than flipping to Paper", () => {
