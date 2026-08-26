@@ -12,6 +12,10 @@ import {
 import { resolvePersonaRuntime } from "@/features/agents/lib/resolvePersonaRuntime";
 import { useAddChannelMembersMutation } from "@/features/channels/hooks";
 import { filterEffectiveExplicitAgentPubkeys } from "@/features/messages/lib/effectiveExplicitAgentPubkeys";
+import {
+  formatAgentReadinessError,
+  resolveCompleteSendPlan,
+} from "@/features/messages/ui/completeSendPlan";
 import type { UseChannelLinksResult } from "@/features/messages/lib/useChannelLinks";
 import type { UseEmojiAutocompleteResult } from "@/features/messages/lib/useEmojiAutocomplete";
 import {
@@ -416,6 +420,58 @@ export function useMentionSendFlow({
     setNonMemberPromptError(null);
   }, [channelId]);
 
+  /**
+   * Agent readiness, run BEHIND an ordinary send. Starting a stopped
+   * resident is a real process launch — seconds in the live app — and it
+   * used to stand between Enter and the user's own message appearing.
+   * The message no longer waits: the mutation's wake-on-send block seeds
+   * the honest "waking" row, and this pass covers what that block does
+   * not (provider-backed agents, mentions outside the derived audience).
+   * A failure here cannot abort a send that already happened; it surfaces
+   * as the same toast, and the presentation layer carries the durable
+   * failure state.
+   */
+  const runBackgroundAgentReadiness = React.useCallback(
+    async (
+      draft: PendingNonMemberMentionSend,
+      mentionPubkeys: string[],
+      sendChannelId: string | null,
+    ) => {
+      try {
+        const readyAgentPubkeys = new Set(
+          (draft.readyAgentPubkeys ?? []).map(normalizePubkey),
+        );
+        const managedAgentsByPubkey = await getManagedAgentsByPubkey();
+        for (const agent of draft.preparedManagedAgents ?? []) {
+          managedAgentsByPubkey.set(normalizePubkey(agent.pubkey), agent);
+        }
+        const managedMentionPubkeys = uniqueNormalizedPubkeys(
+          mentionPubkeys,
+        ).filter((pubkey) => managedAgentsByPubkey.has(pubkey));
+        const agentReadiness = await ensureManagedAgentMentionsReady(
+          managedMentionPubkeys.filter(
+            (pubkey) => !readyAgentPubkeys.has(normalizePubkey(pubkey)),
+          ),
+          sendChannelId ?? "",
+          [],
+          [...managedAgentsByPubkey.values()],
+        );
+        if (agentReadiness.errors.length > 0) {
+          const message = formatAgentReadinessError(agentReadiness.errors);
+          if (isMountedRef.current) {
+            setNonMemberPromptError(message);
+          }
+          toast.error(message);
+        }
+      } catch (error) {
+        // Never an unhandled rejection: the send this accompanies has
+        // already been dispatched.
+        console.warn("background agent readiness failed", error);
+      }
+    },
+    [ensureManagedAgentMentionsReady, getManagedAgentsByPubkey],
+  );
+
   const completeSend = React.useCallback(
     async (
       draft: PendingNonMemberMentionSend,
@@ -430,31 +486,46 @@ export function useMentionSendFlow({
       isCompleteSendPendingRef.current = true;
       setIsCompleteSendPending(true);
       try {
-        const readyAgentPubkeys = new Set(
-          (draft.readyAgentPubkeys ?? []).map(normalizePubkey),
-        );
-        const managedAgentsByPubkey = await getManagedAgentsByPubkey();
-        if (!isMountedRef.current) {
-          return;
-        }
-        for (const agent of draft.preparedManagedAgents ?? []) {
-          managedAgentsByPubkey.set(normalizePubkey(agent.pubkey), agent);
-        }
-        const normalizedMentionPubkeys =
-          uniqueNormalizedPubkeys(mentionPubkeys);
-        const managedMentionPubkeys = normalizedMentionPubkeys.filter(
-          (pubkey) => managedAgentsByPubkey.has(pubkey),
-        );
-        const agentMentionPubkeys = uniqueNormalizedPubkeys([
-          ...managedMentionPubkeys,
-          ...normalizedMentionPubkeys.filter(mentions.isAgentPubkey),
-        ]);
-        const preparedAgentPubkeys = uniqueNormalizedPubkeys([
-          ...readyAgentPubkeys,
-          ...agentMentionPubkeys,
-        ]);
-        let sendChannelId = draft.capturedChannelId;
-        if (dmParticipantPubkeys.length > 0 && onPrepareSendChannel) {
+        const plan = resolveCompleteSendPlan({
+          dmParticipantPubkeys,
+          hasPrepareSendChannel: Boolean(onPrepareSendChannel),
+          capturedChannelId: draft.capturedChannelId,
+        });
+        const effectiveExplicitAgentPubkeys =
+          filterEffectiveExplicitAgentPubkeys(
+            draft.explicitAgentPubkeys,
+            mentionPubkeys,
+          );
+
+        let sendChannelId = plan.sendChannelId;
+        if (plan.branch === "invite-dm" && onPrepareSendChannel) {
+          // Inviting non-members must prepare the expanded DM and confirm
+          // every mentioned agent can start BEFORE anything clears or
+          // sends: on failure the composer keeps the text (e2e contract:
+          // "drops an expanded DM after agent startup fails").
+          const readyAgentPubkeys = new Set(
+            (draft.readyAgentPubkeys ?? []).map(normalizePubkey),
+          );
+          const managedAgentsByPubkey = await getManagedAgentsByPubkey();
+          if (!isMountedRef.current) {
+            return;
+          }
+          for (const agent of draft.preparedManagedAgents ?? []) {
+            managedAgentsByPubkey.set(normalizePubkey(agent.pubkey), agent);
+          }
+          const normalizedMentionPubkeys =
+            uniqueNormalizedPubkeys(mentionPubkeys);
+          const managedMentionPubkeys = normalizedMentionPubkeys.filter(
+            (pubkey) => managedAgentsByPubkey.has(pubkey),
+          );
+          const agentMentionPubkeys = uniqueNormalizedPubkeys([
+            ...managedMentionPubkeys,
+            ...normalizedMentionPubkeys.filter(mentions.isAgentPubkey),
+          ]);
+          const preparedAgentPubkeys = uniqueNormalizedPubkeys([
+            ...readyAgentPubkeys,
+            ...agentMentionPubkeys,
+          ]);
           sendChannelId = await onPrepareSendChannel(dmParticipantPubkeys);
           if (!sendChannelId) {
             return;
@@ -462,45 +533,34 @@ export function useMentionSendFlow({
           if (!isMountedRef.current) {
             return;
           }
-        }
-
-        const agentReadiness = await ensureManagedAgentMentionsReady(
-          managedMentionPubkeys.filter(
-            (pubkey) => !readyAgentPubkeys.has(normalizePubkey(pubkey)),
-          ),
-          sendChannelId ?? "",
-          dmParticipantPubkeys.length > 0
-            ? uniqueNormalizedPubkeys([
-                ...preparedAgentPubkeys,
-                ...dmParticipantPubkeys,
-              ])
-            : [],
-          [...managedAgentsByPubkey.values()],
-        );
-        if (!isMountedRef.current) {
-          return;
-        }
-        if (agentReadiness.errors.length > 0) {
-          const message =
-            agentReadiness.errors.length === 1
-              ? `Could not start agent mention: ${agentReadiness.errors[0]}`
-              : `Could not start agent mentions: ${agentReadiness.errors.join(
-                  "; ",
-                )}`;
-          setNonMemberPromptError(message);
-          toast.error(message);
-          return;
-        }
-
-        const effectiveExplicitAgentPubkeys =
-          filterEffectiveExplicitAgentPubkeys(
-            draft.explicitAgentPubkeys,
-            mentionPubkeys,
+          const agentReadiness = await ensureManagedAgentMentionsReady(
+            managedMentionPubkeys.filter(
+              (pubkey) => !readyAgentPubkeys.has(normalizePubkey(pubkey)),
+            ),
+            sendChannelId ?? "",
+            uniqueNormalizedPubkeys([
+              ...preparedAgentPubkeys,
+              ...dmParticipantPubkeys,
+            ]),
+            [...managedAgentsByPubkey.values()],
           );
+          if (!isMountedRef.current) {
+            return;
+          }
+          if (agentReadiness.errors.length > 0) {
+            const message = formatAgentReadinessError(agentReadiness.errors);
+            setNonMemberPromptError(message);
+            toast.error(message);
+            return;
+          }
+        }
 
         // Replace the sent body directly with its final post-send state before
-        // the async network send starts. This avoids an intermediate blank frame
-        // for persistent audiences while preserving the ordinary empty state.
+        // the async network send starts. On the ordinary branch nothing runs
+        // before this point but pure computation — Enter clears the composer
+        // and the optimistic row lands in the same task, and agent readiness
+        // (a real process start for a stopped resident) runs BEHIND the send
+        // instead of in front of the user's own message.
         if (draft.capturedChannelId === channelIdRef.current) {
           clearComposer(
             resolvePostSendContent?.(effectiveExplicitAgentPubkeys),
@@ -508,7 +568,7 @@ export function useMentionSendFlow({
         }
 
         try {
-          await onSendRef.current(
+          const sendPromise = onSendRef.current(
             draft.finalContent,
             mentionPubkeys,
             outgoingTags,
@@ -516,6 +576,14 @@ export function useMentionSendFlow({
             draft.capturedThreadContext,
             effectiveExplicitAgentPubkeys,
           );
+          if (plan.branch === "ordinary") {
+            void runBackgroundAgentReadiness(
+              draft,
+              mentionPubkeys,
+              sendChannelId,
+            );
+          }
+          await sendPromise;
           if (effectiveExplicitAgentPubkeys.length > 0) {
             // Promote only explicitly authored agents that remained effective
             // for this successful send. "Send without inviting" removes its
@@ -568,6 +636,7 @@ export function useMentionSendFlow({
       onSuccessfulExplicitAgentAudience,
       resolvePostSendContent,
       richText.setContent,
+      runBackgroundAgentReadiness,
       setContent,
       setPendingImeta,
       setSpoileredAttachmentUrls,
