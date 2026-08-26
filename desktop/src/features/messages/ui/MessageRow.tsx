@@ -1049,11 +1049,7 @@ export const MessageRow = React.memo(
               Boolean(message.managedPresentation) &&
               "motion-enter-managed",
             "py-1.5",
-            hoverBackground
-              ? "mx-1 px-2 hover:bg-muted/45 focus-within:bg-muted/45"
-              : isThreadReplyLayout
-                ? "mx-1 px-2"
-                : "px-2",
+            hoverBackground || isThreadReplyLayout ? "mx-1 px-2" : "px-2",
             "flex",
             (isThreadReplyLayout || showResidentMarkGutter) && "gap-2.5",
             isContinuation ? "items-center" : "items-start",
