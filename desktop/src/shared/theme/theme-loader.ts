@@ -63,27 +63,6 @@ export const INVERSE_THEME_NAME = "inverse";
 export const PAPER_THEME_NAME = "paper";
 
 /**
- * Smoke — the first-party palette authored FOR dark glass. It is an app
- * palette like Void, Graphite and Paper, so its code highlighting resolves
- * through {@link SMOKE_BASE_THEME}.
- */
-export const SMOKE_THEME_NAME = "smoke";
-
-/**
- * Dragon Glass — its own theme id, but not its own palette: it takes Smoke's
- * tokens and differs in the material weather it defaults to. Its code
- * highlighting resolves through {@link DRAGON_GLASS_BASE_THEME}.
- */
-export const DRAGON_GLASS_THEME_NAME = "dragon-glass";
-
-/**
- * Onyx — the dark-FLOOR dark mode, with elevated surfaces advancing brighter
- * than the base. Its code highlighting resolves through
- * {@link ONYX_BASE_THEME}.
- */
-export const ONYX_THEME_NAME = "onyx";
-
-/**
  * Obsidian — the dark glass appearance. One of exactly two themes whose
  * whole window is glass (the two-weather composition); every other theme
  * is fully opaque. Its code highlighting resolves through
@@ -97,6 +76,20 @@ export const OBSIDIAN_THEME_NAME = "obsidian";
  * code highlighting resolves through {@link CRYSTALLINE_BASE_THEME}.
  */
 export const CRYSTALLINE_THEME_NAME = "crystalline";
+
+/**
+ * The only two glass themes. Every glass rule in the app keys on this set;
+ * no other theme may acquire glass behavior — there is no coupling backdoor.
+ */
+export const GLASS_THEMES: ReadonlySet<string> = new Set([
+  OBSIDIAN_THEME_NAME,
+  CRYSTALLINE_THEME_NAME,
+]);
+
+/** Whether a theme is one of the two glass appearances. */
+export function isGlassTheme(name: string): boolean {
+  return GLASS_THEMES.has(name);
+}
 
 /** The Luca shell uses GitHub Dark for its syntax-highlighting baseline. */
 export const BUZZ_BASE_THEME: SyntaxThemeName = "github-dark";
@@ -116,15 +109,6 @@ export const INVERSE_BASE_THEME: SyntaxThemeName = "github-dark";
 
 /** Paper is the light shell, so its code blocks take the light baseline. */
 export const PAPER_BASE_THEME: SyntaxThemeName = "github-light";
-
-/** Smoke is a dark shell, so it keeps the GitHub Dark syntax baseline. */
-export const SMOKE_BASE_THEME: SyntaxThemeName = "github-dark";
-
-/** Dragon Glass is a dark shell, so it keeps the GitHub Dark baseline too. */
-export const DRAGON_GLASS_BASE_THEME: SyntaxThemeName = "github-dark";
-
-/** Onyx is a dark shell, so it keeps the GitHub Dark syntax baseline. */
-export const ONYX_BASE_THEME: SyntaxThemeName = "github-dark";
 
 /** Obsidian is a dark shell, so it keeps the GitHub Dark syntax baseline. */
 export const OBSIDIAN_BASE_THEME: SyntaxThemeName = "github-dark";
@@ -151,9 +135,6 @@ export function resolveShikiThemeName(name: string): SyntaxThemeName {
   if (name === ASH_THEME_NAME) return ASH_BASE_THEME;
   if (name === INVERSE_THEME_NAME) return INVERSE_BASE_THEME;
   if (name === PAPER_THEME_NAME) return PAPER_BASE_THEME;
-  if (name === SMOKE_THEME_NAME) return SMOKE_BASE_THEME;
-  if (name === DRAGON_GLASS_THEME_NAME) return DRAGON_GLASS_BASE_THEME;
-  if (name === ONYX_THEME_NAME) return ONYX_BASE_THEME;
   if (name === OBSIDIAN_THEME_NAME) return OBSIDIAN_BASE_THEME;
   if (name === CRYSTALLINE_THEME_NAME) return CRYSTALLINE_BASE_THEME;
   return name as SyntaxThemeName;
@@ -169,9 +150,6 @@ export const SYNTAX_THEMES = [
   "void",
   "ash",
   "inverse",
-  "smoke",
-  "dragon-glass",
-  "onyx",
   "obsidian",
   "crystalline",
   "andromeeda",
@@ -276,9 +254,6 @@ const themeImports: Record<
   void: () => import("shiki/themes/github-dark.mjs"),
   ash: () => import("shiki/themes/github-dark.mjs"),
   inverse: () => import("shiki/themes/github-dark.mjs"),
-  smoke: () => import("shiki/themes/github-dark.mjs"),
-  "dragon-glass": () => import("shiki/themes/github-dark.mjs"),
-  onyx: () => import("shiki/themes/github-dark.mjs"),
   obsidian: () => import("shiki/themes/github-dark.mjs"),
   crystalline: () => import("shiki/themes/github-light.mjs"),
   andromeeda: () => import("shiki/themes/andromeeda.mjs"),
