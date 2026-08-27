@@ -7,7 +7,7 @@ import {
 } from "@/features/agents/hooks";
 import {
   startManagedAgent,
-  stopManagedAgent,
+  tryStopManagedAgentForAutoRestart,
 } from "@/shared/api/tauriManagedAgents";
 import { listManagedAgents } from "@/shared/api/tauri";
 import type { ManagedAgent } from "@/shared/api/types";
@@ -113,7 +113,14 @@ export function useAutoRestartPolicy() {
           ) {
             return;
           }
-          await stopManagedAgent(agent.pubkey);
+          const stopped = await tryStopManagedAgentForAutoRestart(agent.pubkey);
+          if (!stopped) {
+            // Native dispatch authority still has pending/active work. Re-arm
+            // from a fresh quiet window after that work reaches a terminal
+            // state; never consume the config-drift edge for a safe deferral.
+            edges.set(agent.pubkey, { consumed: false, armedAt: null });
+            return;
+          }
           await startManagedAgent(agent.pubkey);
         } catch {
           // Failed attempt: edge stays consumed — badge-only until the

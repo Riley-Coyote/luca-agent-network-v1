@@ -376,6 +376,21 @@ impl ManagedDispatchStore {
         true
     }
 
+    /// Whether this resident still owns work that a process restart could
+    /// interrupt. This deliberately includes epoch-less `Pending` rows: a
+    /// queued owner send may not have reached the replacement session yet,
+    /// but it is still live work and must inhibit an automatic restart.
+    pub(crate) fn has_unresolved_for_resident(&self, resident_pubkey: &str) -> bool {
+        let resident_pubkey = resident_pubkey.to_ascii_lowercase();
+        self.dispatches.values().any(|dispatch| {
+            dispatch.resident_pubkey == resident_pubkey
+                && matches!(
+                    dispatch.state,
+                    ManagedDispatchState::Pending | ManagedDispatchState::Active
+                )
+        })
+    }
+
     /// Resolve one immutable pre-turn authority and the complete resident set
     /// originally staged by its signed owner event. Terminal progress of a
     /// sibling never changes the canonical set digest.
@@ -2344,6 +2359,45 @@ mod tests {
         assert!(!wire.contains("primary_source_id"));
         assert!(!wire.contains("additional_source_ids"));
         assert!(!wire.contains("selected_source_ids"));
+    }
+
+    #[test]
+    fn auto_restart_quiescence_is_resident_scoped_and_fail_closed() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let owner = Keys::generate();
+        let resident = Keys::generate();
+        let sibling = Keys::generate();
+        let resident_trigger = event(&owner, &resident, CHANNEL_ONE, "queued work");
+        let sibling_trigger = event(&owner, &sibling, CHANNEL_ONE, "other work");
+        let mut store =
+            ManagedDispatchStore::load(dir.path().join("dispatches.json")).expect("load");
+
+        let resident_rows = store
+            .stage_owner_event(&resident_trigger, &[resident.public_key().to_hex()], 100)
+            .expect("stage resident");
+        store
+            .stage_owner_event(&sibling_trigger, &[sibling.public_key().to_hex()], 100)
+            .expect("stage sibling");
+
+        assert!(store.has_unresolved_for_resident(&resident.public_key().to_hex()));
+        assert!(store.has_unresolved_for_resident(&resident.public_key().to_hex().to_uppercase()));
+
+        let resident_key = (resident_trigger.id.to_hex(), resident.public_key().to_hex());
+        store
+            .dispatches
+            .get_mut(&resident_key)
+            .expect("resident row")
+            .state = ManagedDispatchState::Active;
+        assert!(store.has_unresolved_for_resident(&resident.public_key().to_hex()));
+
+        store
+            .mark_rejected(&resident_rows)
+            .expect("reject resident");
+        assert!(
+            !store.has_unresolved_for_resident(&resident.public_key().to_hex()),
+            "terminal resident work must not be confused with the sibling's live row"
+        );
+        assert!(store.has_unresolved_for_resident(&sibling.public_key().to_hex()));
     }
 
     #[test]

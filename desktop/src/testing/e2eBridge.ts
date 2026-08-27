@@ -13185,6 +13185,10 @@ export function maybeInstallE2eTauriMocks() {
         return handleStopManagedAgent(
           payload as Parameters<typeof handleStopManagedAgent>[0],
         );
+      case "try_stop_managed_agent_for_auto_restart":
+        return handleStopManagedAgent(
+          payload as Parameters<typeof handleStopManagedAgent>[0],
+        );
       case "cancel_managed_turn": {
         const input = payload as {
           conversationId: string;

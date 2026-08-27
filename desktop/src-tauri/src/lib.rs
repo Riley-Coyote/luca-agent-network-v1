@@ -955,6 +955,7 @@ pub fn run() {
             luca::native_provisioning::rollback_native_agent_provisioning,
             start_managed_agent,
             stop_managed_agent,
+            try_stop_managed_agent_for_auto_restart,
             set_agent_managed_profiles,
             set_managed_agent_start_on_app_launch,
             set_managed_agent_auto_restart,

@@ -1193,6 +1193,73 @@ pub async fn stop_managed_agent(
     .map_err(|e| format!("spawn_blocking failed: {e}"))?
 }
 
+/// Stop a local resident for the background auto-restart policy only when the
+/// native dispatch authority proves that resident has no pending or active
+/// work. `None` means the restart was safely deferred; it is not an error and
+/// the renderer may re-arm its quiet-period timer.
+#[tauri::command]
+pub async fn try_stop_managed_agent_for_auto_restart(
+    pubkey: String,
+    app: AppHandle,
+) -> Result<Option<ManagedAgentSummary>, String> {
+    use tauri::Manager;
+    tokio::task::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let _store_guard = state
+            .managed_agents_store_lock
+            .lock()
+            .map_err(|error| error.to_string())?;
+        let mut records = load_managed_agents(&app)?;
+        let mut runtimes = state
+            .managed_agent_processes
+            .lock()
+            .map_err(|error| error.to_string())?;
+
+        let (sync_changed, exited_pubkeys) =
+            sync_managed_agent_processes(&mut records, &mut runtimes, &current_instance_id(&app));
+        if sync_changed {
+            save_managed_agents(&app, &records)?;
+        }
+        for exited_pubkey in &exited_pubkeys {
+            state.clear_session_cache(exited_pubkey);
+        }
+
+        let record = records
+            .iter()
+            .find(|record| record.pubkey == pubkey)
+            .ok_or_else(|| format!("agent {pubkey} not found"))?;
+        if record.backend != BackendKind::Local {
+            return Err(
+                "remote agents are stopped via !shutdown message, not this command".to_string(),
+            );
+        }
+
+        let dispatch_store = crate::luca::managed_dispatch_store::global_dispatch_store(&app)?;
+        let has_unresolved = dispatch_store
+            .lock()
+            .map_err(|_| "managed dispatch store lock is unavailable".to_string())?
+            .has_unresolved_for_resident(&pubkey);
+        if has_unresolved {
+            return Ok(None);
+        }
+
+        {
+            let record = find_managed_agent_mut(&mut records, &pubkey)?;
+            stop_managed_agent_process(&app, record, &mut runtimes)?;
+        }
+        state.clear_session_cache(&pubkey);
+        save_managed_agents(&app, &records)?;
+        let record = records
+            .iter()
+            .find(|record| record.pubkey == pubkey)
+            .ok_or_else(|| format!("agent {pubkey} not found"))?;
+        let personas = load_personas(&app).unwrap_or_default();
+        build_managed_agent_summary(&app, record, &runtimes, &personas).map(Some)
+    })
+    .await
+    .map_err(|error| format!("spawn_blocking failed: {error}"))?
+}
+
 // Async so the blocking body (disk reads/writes, process termination, keyring
 // delete, nest regeneration) runs off the main UI thread via spawn_blocking.
 #[tauri::command]
