@@ -9,6 +9,7 @@ import {
 } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isPopoutWindow } from "@/app/popout/popoutMode";
 import { invokeTauri } from "@/shared/api/tauri";
 import { isMacPlatform } from "@/shared/lib/platform";
 import {
@@ -365,9 +366,14 @@ function setBuzzTranslucent(enabled: boolean) {
  * Only a Tauri window has a vibrancy view behind it. The marker gates every
  * transparency in glass-floor.css so browser contexts (dev preview, lab,
  * e2e) render the glass themes fully opaque from their solid tokens.
+ *
+ * A pop-out chat window is deliberately treated as one of those contexts: it
+ * ships an opaque surface on a transparent-capable window, so it must never
+ * claim a vibrancy layer it has not installed — the glass CSS would go
+ * see-through onto nothing.
  */
 function applyNativeMarker(themeName: string) {
-  if (!isTauri()) return;
+  if (!isTauri() || isPopoutWindow()) return;
   const root = document.documentElement;
   root.setAttribute("data-luca-native", "");
   if (isGlassTheme(themeName)) {
@@ -781,6 +787,12 @@ export function ThemeProvider({
 
   useEffect(() => {
     if (!isValidThemeName(effectiveTheme)) return;
+    // The native window material belongs to the window that owns its floor.
+    // A pop-out chat window ships opaque and installs nothing: without this
+    // it would apply the main window's material to ITSELF (the vibrancy
+    // command is caller-scoped) and then go translucent over a layer the M1
+    // design never asked for.
+    if (isPopoutWindow()) return;
     // Strictly sequential, not parallel: applyBuzzVibrancy issues
     // `set_window_vibrancy(enabled: false)` for every non-Buzz theme, so
     // installing the glass layer before it resolves would have that clear

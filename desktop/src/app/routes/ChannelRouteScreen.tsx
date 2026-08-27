@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { getCachedSearchHitEvent } from "@/app/navigation/searchHitEventCache";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { isPopoutWindow } from "@/app/popout/popoutMode";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import { useCommunities } from "@/features/communities/useCommunities";
 import {
@@ -268,7 +269,10 @@ export function ChannelRouteScreen({
     />
   );
 
-  if (!projectViewModel) return conversation;
+  // A pop-out is one conversation and nothing else. The project workspace is a
+  // navigator between the rooms of a project — a second place to go — and this
+  // window has no second place to go.
+  if (!projectViewModel || isPopoutWindow()) return conversation;
 
   return (
     <ProjectRoomWorkspace

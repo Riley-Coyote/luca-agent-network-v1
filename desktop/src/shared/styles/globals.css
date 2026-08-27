@@ -20,6 +20,7 @@
 @import "./globals/conversation-shell.css";
 @import "./globals/glass-floor.css";
 @import "./globals/panes.css";
+@import "./globals/popout.css";
 /* Domain layers that refine the shell: each owns one surface and wins over
    the shell's defaults by source order. */
 @import "./globals/composer-states.css";

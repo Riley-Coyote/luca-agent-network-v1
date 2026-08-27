@@ -1,0 +1,97 @@
+/* ── THE POP-OUT CHAT WINDOW ──────────────────────────────────────
+   One conversation in its own window. No rail, no sidebar, no second
+   place to go — so the only chrome it owns is the strip where a title bar
+   would be: a drag region, the window's name, and the two controls that
+   have no native equivalent.
+
+   The window is transparent-capable but paints an OPAQUE surface: the theme
+   layer withholds `data-luca-native` here, so the glass themes render from
+   their solid tokens exactly as they do in a browser. Nothing in this file
+   may introduce transparency at the window edge — there is no vibrancy view
+   behind it to show through to.
+   ───────────────────────────────────────────────────────────────── */
+
+:root[data-luca-popout] {
+  /* Tall enough to clear the traffic lights (12px tall, y=13) with a hair of
+     air, short enough that it reads as a title bar and not a toolbar. */
+  --luca-popout-strip-h: 40px;
+  /* The lights sit at x=12 and the cluster runs ~52px; the title starts clear
+     of them. Paired with `trafficLightPosition` in `open_channel_popout` — if
+     one moves, so does the other. */
+  --luca-popout-strip-inset: 72px;
+}
+
+:root[data-luca-popout],
+:root[data-luca-popout] body {
+  background: hsl(var(--background));
+}
+
+.luca-popout {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  isolation: isolate;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/* The strip carries no border and no painted band: the window is one
+   continuous surface, and the conversation's own top veil occludes whatever
+   scrolls beneath it. */
+.luca-popout__strip {
+  align-items: center;
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+  height: var(--luca-popout-strip-h);
+  padding-inline: var(--luca-popout-strip-inset) 8px;
+  user-select: none;
+}
+
+.luca-popout__title {
+  color: hsl(var(--mn-ink-muted));
+  flex: 1;
+  font-size: var(--type-micro-size);
+  letter-spacing: var(--type-micro-tracking);
+  line-height: var(--type-micro-leading);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.luca-popout__controls {
+  align-items: center;
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+}
+
+/* A row, not a column: the conversation and the right-cards slot are flex
+   siblings here exactly as they are in the main window, so a pane that portals
+   into the slot lands beside the conversation rather than inside it. The slot
+   is a zero-width element until something arrives in it. */
+.luca-popout__body {
+  display: flex;
+  flex: 1;
+  flex-direction: row;
+  min-height: 0;
+  min-width: 0;
+}
+
+.luca-popout__content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* At pop-out widths the conversation header's workspace-scale gutters eat the
+   title. Tighten them to the strip's own rhythm; nothing else about the header
+   changes. */
+:root[data-luca-shell][data-luca-popout] [data-testid="chat-header"] {
+  padding-inline: 14px;
+}

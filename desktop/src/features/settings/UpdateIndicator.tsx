@@ -6,7 +6,7 @@ import { Button } from "@/shared/ui/button";
 import { Spinner } from "@/shared/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
-import { useUpdaterContext } from "./hooks/UpdaterProvider";
+import { useOptionalUpdaterContext } from "./hooks/UpdaterProvider";
 import type { UpdateStatus } from "./hooks/use-updater";
 
 const indicatorButtonClass =
@@ -70,12 +70,17 @@ function getVariant(state: UpdateStatus["state"]) {
 }
 
 export function UpdateIndicator({ className }: { className?: string }) {
-  const { status, installAndRelaunch } = useUpdaterContext();
-  const variant = getVariant(status.state);
+  // The conversation header this sits in is also the header a pop-out chat
+  // window renders, and a pop-out deliberately owns no updater. No updater,
+  // nothing to indicate.
+  const updater = useOptionalUpdaterContext();
+  const variant = updater ? getVariant(updater.status.state) : null;
 
-  if (!variant) {
+  if (!updater || !variant) {
     return null;
   }
+
+  const { status, installAndRelaunch } = updater;
 
   const { Icon, iconClassName = "h-4 w-4", label, badgeColor } = variant;
   const isActionable =

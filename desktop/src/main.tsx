@@ -1,6 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "@/app/App";
+import { PopoutApp } from "@/app/popout/PopoutApp";
+import { isPopoutWindow } from "@/app/popout/popoutMode";
 import { NostrBindConsentDialog } from "@/features/profile/ui/NostrBindConsentDialog";
 import "@fontsource-variable/inter/wght.css";
 import "@fontsource-variable/instrument-sans";
@@ -166,6 +168,24 @@ function configureDevE2eBridgeFromUrl() {
   );
 }
 
+/**
+ * A pop-out chat window: the same bundle, a different root.
+ *
+ * `App.tsx` is skipped entirely, and so is every gate it owns — onboarding,
+ * community init, the updater, the desktop notifier. Those belong to the one
+ * main window; a second copy here would re-apply the workspace and double
+ * every notification.
+ */
+function renderPopoutApp() {
+  document.documentElement.setAttribute("data-luca-shell", "");
+  document.documentElement.setAttribute("data-luca-popout", "");
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode>
+      <PopoutApp />
+    </React.StrictMode>,
+  );
+}
+
 function renderApp() {
   // The conversation-first Luca shell is permanent product structure. Theme
   // selection changes its palette, never which application shell is mounted.
@@ -212,6 +232,10 @@ async function bootstrap() {
   configureDevE2eBridgeFromUrl();
   await installE2eBridgeIfConfigured();
   await migrateLegacyCommunityStorageBeforeRender();
+  if (isPopoutWindow()) {
+    renderPopoutApp();
+    return;
+  }
   renderApp();
 }
 
