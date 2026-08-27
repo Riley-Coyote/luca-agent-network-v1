@@ -64,6 +64,14 @@ struct ConnectedBrainWatcherRuntime {
 }
 
 pub(crate) fn start_connected_source_watcher(app: AppHandle) -> Result<(), String> {
+    // Escape hatch while a refresh is still a full re-index per trigger: with
+    // the watcher disabled the persisted index keeps serving (it is
+    // authoritative at startup) and nothing re-indexes until the next explicit
+    // connect/refresh. Remove once refresh is incremental.
+    if std::env::var_os("LUCA_DISABLE_BRAIN_WATCHER").is_some() {
+        eprintln!("buzz-desktop: connected Brain watcher disabled by LUCA_DISABLE_BRAIN_WATCHER");
+        return Ok(());
+    }
     let state = app.state::<AppState>();
     let mut runtime_guard = state
         .connected_brain_watcher
