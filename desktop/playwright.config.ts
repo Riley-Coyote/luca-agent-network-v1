@@ -24,6 +24,7 @@ export default defineConfig({
       testMatch: [
         "**/luca/*.spec.ts",
         "**/smoke.spec.ts",
+        "**/popout-shell.spec.ts",
         "**/onboarding-docked-cta-screenshots.spec.ts",
         "**/identity-key-help.spec.ts",
         "**/key-import-reveal.spec.ts",

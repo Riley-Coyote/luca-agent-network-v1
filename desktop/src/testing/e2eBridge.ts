@@ -3587,6 +3587,12 @@ let mockTeams: RawTeam[] = [];
 // Listeners registered via the mock __TAURI_INTERNALS__.listen — keyed by event name.
 const tauriEventListeners = new Map<string, Set<() => void>>();
 const openedExternalUrls: string[] = [];
+/**
+ * Every `open_channel_popout` the app asked for. Playwright cannot observe a
+ * real second native window, so the affordance is verified by what it
+ * requested — channel and title — rather than by a window appearing.
+ */
+const popoutWindowRequests: Array<{ channelId: string; title: string }> = [];
 const defaultMockRelayAgents: RawRelayAgent[] = [
   {
     pubkey: ALICE_PUBKEY,
@@ -10145,6 +10151,27 @@ function disconnectMockSocket(id: number) {
   sendWsClose(socket.handler);
 }
 
+/**
+ * The window label this document would carry natively.
+ *
+ * A page booted with `?window=popout&channel=<id>` IS the pop-out for that
+ * conversation, and Rust labels it `popout-<id>`. Mirroring that here keeps
+ * `getCurrentWindow().label` truthful in the harness, so anything scoped by
+ * label behaves the way it will in the app.
+ */
+function mockCurrentWindowLabel(): string {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const channelId = params.get("channel");
+    if (params.get("window") === "popout" && channelId) {
+      return `popout-${channelId}`;
+    }
+  } catch {
+    // An unparseable URL is the main window, same as production.
+  }
+  return "main";
+}
+
 export function maybeInstallE2eTauriMocks() {
   if (installed) {
     return;
@@ -10175,7 +10202,8 @@ export function maybeInstallE2eTauriMocks() {
   resetMockPendingCommunityDeepLinks(config);
   mockWebsocketSendMutexWedged = false;
   mockPreviewSessionStatus = "ready";
-  mockWindows("main");
+  popoutWindowRequests.length = 0;
+  mockWindows(mockCurrentWindowLabel());
   window.__BUZZ_E2E_COMMANDS__ = [];
   window.__BUZZ_E2E_COMMAND_PAYLOADS__ = [];
   window.__BUZZ_E2E_COMMAND_LOG__ = [];
@@ -13703,12 +13731,36 @@ export function maybeInstallE2eTauriMocks() {
       case "clear_e2e_opened_external_urls":
         openedExternalUrls.length = 0;
         return null;
+      case "open_channel_popout": {
+        // The real command builds a native window. Here it only records the
+        // request and answers with the label Rust would have minted, so the
+        // header affordance can be asserted end-to-end.
+        const args = payload as { channelId: string; title?: string };
+        popoutWindowRequests.push({
+          channelId: args.channelId,
+          title: args.title ?? "",
+        });
+        return `popout-${args.channelId}`;
+      }
+      case "get_e2e_popout_window_requests":
+        return popoutWindowRequests.map((request) => ({ ...request }));
+      case "clear_e2e_popout_window_requests":
+        popoutWindowRequests.length = 0;
+        return null;
       case "plugin:window|show":
       case "plugin:window|unminimize":
       case "plugin:window|set_focus":
       case "plugin:window|set_badge_count":
       case "plugin:window|set_badge_label":
+      case "plugin:window|set_always_on_top":
+      case "plugin:window|start_dragging":
+      case "plugin:window|minimize":
+      case "title_bar_double_click":
         return null;
+      case "plugin:window|title":
+        // No native window titles in the harness; the pop-out strip falls back
+        // to the channel's own name, which is the path a browser context takes.
+        return "";
       case "plugin:updater|check":
         return handleUpdaterCheck(activeConfig);
       case "plugin:updater|download":
