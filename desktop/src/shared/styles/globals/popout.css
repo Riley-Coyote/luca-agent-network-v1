@@ -103,3 +103,58 @@
 :root[data-luca-shell][data-luca-popout] [data-testid="chat-header"] {
   padding-inline: 14px;
 }
+
+/* ── THE HOVER ACTIONS, AT POP-OUT WIDTHS ────────────────────────
+   The reply/react pill reveals on hover — but only from `sm:` (640px) up.
+   `MessageActionBar` resting state is
+
+     opacity-100 sm:pointer-events-none sm:opacity-0
+
+   so BELOW 640px the reveal never engages and the pill is simply parked,
+   opaque, in the top-right of every message. In the main window that is a
+   touch-width concession: a viewport that narrow is a phone, there is no
+   pointer to hover with, and the pill has to be reachable. A pop-out opens at
+   380px on a desktop with a mouse, so the same rule inverts into a permanent
+   object sitting on top of the words.
+
+   Inside the pop-out the reveal runs at EVERY width. Keyed on the root's own
+   attribute, which no other document carries, so the main window is untouched
+   at every width — including below 640px, where its concession still stands.
+
+   Specificity is the whole mechanism here, so it is deliberate: `:root` +
+   attribute + attribute is three class-level steps and a media query adds
+   none, which clears both the base `.opacity-100` and the `sm:` utilities
+   without an `!important`.
+   ───────────────────────────────────────────────────────────── */
+
+/* The wrapper is a transparent hit area the size of the pill. Left live it
+   swallows clicks and text selection in the corner of a message it is not
+   even showing — which is exactly why the main window turns it off from `sm:`
+   up (`sm:pointer-events-none` on the anchor). Off here at every width. */
+:root[data-luca-popout] [data-message-action-bar] {
+  pointer-events: none;
+}
+
+:root[data-luca-popout] [data-testid^="message-action-bar-"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+:root[data-luca-popout]
+  .group\/message:hover
+  [data-testid^="message-action-bar-"],
+:root[data-luca-popout]
+  .group\/message:focus-within
+  [data-testid^="message-action-bar-"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Its own reaction picker or menu is open. Those portal out of the row, so
+   focus-within goes false while the thing the pill opened is still on screen;
+   without this the pill would vanish out from under an open popover. */
+:root[data-luca-popout]
+  [data-testid^="message-action-bar-"]:has([data-state="open"]) {
+  opacity: 1;
+  pointer-events: auto;
+}

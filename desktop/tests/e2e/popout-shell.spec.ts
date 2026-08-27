@@ -77,9 +77,38 @@ test.describe("the pop-out shell", () => {
     await page.keyboard.press("Enter");
 
     await expect(
-      page.getByTestId("message-row").filter({ hasText: "sent from the pop-out" }),
+      page
+        .getByTestId("message-row")
+        .filter({ hasText: "sent from the pop-out" }),
     ).toHaveCount(1);
     await expect(input).toHaveText("");
+  });
+
+  test("keeps the hover actions off the words until they are wanted", async ({
+    page,
+  }) => {
+    await installMockBridge(page);
+    await page.goto(POPOUT_URL);
+    await expect(page.getByTestId("popout-shell")).toBeVisible();
+
+    const row = page
+      .getByTestId("message-row")
+      .filter({ has: page.locator("[data-message-action-bar]") })
+      .last();
+    await expect(row).toBeVisible();
+    const pill = row.locator("[data-message-action-bar] > *");
+    await expect(pill).toHaveCount(1);
+
+    // The reveal is a `sm:` utility, so below 640px the main window simply
+    // parks this pill open — a concession to touch widths that have no
+    // pointer. A pop-out is 380px with a mouse, so `popout.css` runs the
+    // reveal at every width and the pill stays off the text at rest.
+    await expect(pill).toHaveCSS("opacity", "0");
+    await expect(pill).toHaveCSS("pointer-events", "none");
+
+    await row.hover();
+    await expect(pill).toHaveCSS("opacity", "1");
+    await expect(pill).toHaveCSS("pointer-events", "auto");
   });
 
   test("keeps the pin off until it is asked for", async ({ page }) => {
