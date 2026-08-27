@@ -13,6 +13,39 @@ use crate::{app_state::AppState, luca::owner_brain_store};
 
 const REFRESH_DEBOUNCE: Duration = Duration::from_millis(750);
 
+/// Directory names whose churn is tooling noise, never knowledge.
+///
+/// A connected source's roots are living working trees: version control,
+/// package managers, build systems and agent worktrees write into them
+/// constantly, and every such write used to enqueue a full re-index of the
+/// whole source. On a machine where builds run all day that meant the refresh
+/// worker never went quiet — one core pinned and the index rebuilt in a loop.
+/// Content under these components cannot change what the index has to say, so
+/// events under them are dropped before they reach the refresh queue.
+const NOISE_COMPONENTS: &[&str] = &[
+    ".git",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    ".claude-worktrees",
+    ".codex-workspaces",
+    "BuildCaches",
+    "test-results",
+    ".DS_Store",
+];
+
+/// True when every insight in this path is tooling churn (see
+/// [`NOISE_COMPONENTS`]).
+fn is_noise_path(path: &Path) -> bool {
+    path.components().any(|component| {
+        let name = component.as_os_str();
+        NOISE_COMPONENTS
+            .iter()
+            .any(|noise| name == std::ffi::OsStr::new(noise))
+    })
+}
+
 pub(crate) struct ConnectedBrainWatcherState {
     runtime: Mutex<Option<ConnectedBrainWatcherRuntime>>,
 }
@@ -55,6 +88,7 @@ pub(crate) fn start_connected_source_watcher(app: AppHandle) -> Result<(), Strin
             let source_ids = event
                 .paths
                 .iter()
+                .filter(|path| !is_noise_path(path))
                 .flat_map(|path| {
                     roots.iter().filter_map(move |(root, source_id)| {
                         path.starts_with(root).then_some(source_id.clone())
@@ -264,4 +298,32 @@ fn resident_authorities(
 fn active_owner(state: &AppState) -> Result<Hex64, String> {
     Hex64::parse(state.signing_keys()?.public_key().to_hex())
         .map_err(|_| "active owner identity is invalid".to_owned())
+}
+
+#[cfg(test)]
+mod noise_tests {
+    use super::*;
+
+    #[test]
+    fn tooling_churn_is_noise() {
+        assert!(is_noise_path(Path::new("/repos/luca/.git/objects/ab/cdef")));
+        assert!(is_noise_path(Path::new(
+            "/repos/luca/desktop/node_modules/react/index.js"
+        )));
+        assert!(is_noise_path(Path::new("/repos/luca/desktop/dist/app.js")));
+        assert!(is_noise_path(Path::new(
+            "/repos/.claude-worktrees/feel/src/a.ts"
+        )));
+    }
+
+    #[test]
+    fn real_work_is_not_noise() {
+        assert!(!is_noise_path(Path::new("/repos/luca/desktop/src/App.tsx")));
+        assert!(!is_noise_path(Path::new("/repos/luca/README.md")));
+        // A component must MATCH a noise name, not merely contain one.
+        assert!(!is_noise_path(Path::new(
+            "/repos/luca/distribution/notes.md"
+        )));
+        assert!(!is_noise_path(Path::new("/repos/luca/rebuild/plan.md")));
+    }
 }
