@@ -306,7 +306,10 @@ export function useAnchoredScroll({
       rafId = requestAnimationFrame(() => {
         if (cancelled) return;
         const start = container.scrollTop;
-        if (reduceMotion || Math.abs(target() - start) > OWN_SEND_GLIDE_MAX_PX) {
+        if (
+          reduceMotion ||
+          Math.abs(target() - start) > OWN_SEND_GLIDE_MAX_PX
+        ) {
           container.scrollTo({ top: target(), behavior: "auto" });
           cancel();
           return;
@@ -846,6 +849,7 @@ export function useAnchoredScroll({
     prevMessageCountRef.current = messages.length;
     prevMessagesRef.current = messages;
   }, [
+    glideToBottomAfterOwnSend,
     highlightTargetMessage,
     isLoading,
     messages,
@@ -855,7 +859,6 @@ export function useAnchoredScroll({
     scrollToMessageImperative,
     targetMessageId,
     repinPinnedCenter,
-    virtualScrollToBottom,
     virtualSettleAtBottom,
     virtualizerOwnsPrependAnchoring,
   ]);

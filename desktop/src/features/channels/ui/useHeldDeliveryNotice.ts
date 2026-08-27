@@ -66,7 +66,6 @@ export function useHeldDeliveryNotice({
     const live: Array<[string, string]> = [];
     for (const [pubkey, entry] of presentationActivity) {
       if (!entry?.uiKey) continue;
-      if (entry.settled) continue;
       if (TERMINAL_TURN_PHASES.has(entry.phase)) continue;
       if (!turnIsLive(entry.uiKey)) continue;
       live.push([normalizePubkey(pubkey), entry.uiKey]);
