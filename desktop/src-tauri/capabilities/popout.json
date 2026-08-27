@@ -1,0 +1,19 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "popout",
+  "description": "Capability for pop-out chat windows. Scoped to the popout-* labels minted by open_channel_popout; the main window's capability is untouched.",
+  "windows": ["popout-*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-show",
+    "core:window:allow-close",
+    "core:window:allow-minimize",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-title",
+    "core:webview:allow-set-webview-zoom",
+    "websocket:default",
+    "opener:default"
+  ]
+}
