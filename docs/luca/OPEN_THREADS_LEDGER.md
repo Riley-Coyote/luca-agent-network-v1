@@ -239,6 +239,17 @@ mention delivery asserts). Good unglamorous Codex material: likely a few
 shared root causes (a testid/label drift + a thread-panel harness break),
 not fifteen separate bugs.
 
+## Addendum 2026-08-26 (polish pass): smoke.spec joins the pre-existing reds
+`smoke.spec.ts` fails 13 of 20 on BOTH the polish branch and clean base
+`bafb3f556` — same stale-testid family as the documented
+`section-actions-dms` item (e.g. `stream-list` no longer exists in the
+modern sidebar). App-shell load, stream creation, agents, inbox feed,
+search, channel switching, multiline drafts all trip on it. Belongs to
+the section-D re-baseline debt, not to any feature branch. The
+"capped participant stack" channels test also fails in SETUP on that
+same obsolete `section-actions-dms` testid (its DM-intro assertions were
+updated for the intro removal, but the test cannot reach them).
+
 ## Addendum 2026-08-26 (later): buzz-acp parallel-test flakiness, measured
 `cargo test -p buzz-acp` fails 2–6 tests under parallel execution with a
 CHANGING set per run (config env-ceiling tests, a script-spawn fd test,
