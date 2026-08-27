@@ -40,6 +40,15 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "popout-chat-windows",
+      "name": "Pop-out chat windows",
+      "description": "Open any conversation as its own minimal window that floats over your screen",
+      "defaultEnabled": true,
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }

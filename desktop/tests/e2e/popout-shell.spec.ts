@@ -199,7 +199,16 @@ test("the conversation header asks the native side for a pop-out", async ({
 test("the affordance stays hidden while the preview feature is off", async ({
   page,
 }) => {
-  await installMockBridge(page);
+  // The feature now ships defaultEnabled in the manifest (and the bridge
+  // seeds every preview flag on) — the off-state is an explicit override,
+  // exactly what the Settings toggle writes.
+  await installMockBridge(page, { seedPreviewFeatures: false });
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      "buzz-feature-overrides-v1",
+      JSON.stringify({ "popout-chat-windows": false }),
+    );
+  });
   await page.goto("/?e2e=mock");
   await page.getByTestId("channel-general").click();
 

@@ -1,24 +1,19 @@
 import { invokeTauri } from "@/shared/api/tauri";
-import { resolveEnabled, useFeatureSnapshot } from "@/shared/features";
+import { useFeatureEnabled } from "@/shared/features";
 
 /**
  * The preview-feature id that gates the "Open as window" affordance.
  *
- * NOTE ON THE READ PATH: `useFeatureEnabled` fails OPEN for ids that are not in
- * `preview-features.json` — an unknown id resolves to `true` so a stale
- * `<FeatureGate>` can never hide shipped UI. That default is exactly wrong for
- * a surface that is still being proven, so this reads the same override store
- * directly and resolves it against an explicit `false`. Same store, same
- * single-name lookup, same cross-window reactivity — but absent an override the
- * answer is "off". (The pane deck reads its own flag the same way; see
- * `features/panes/paneState.ts`.)
+ * Registered in `preview-features.json` with `defaultEnabled: true`, which
+ * gives it a real Settings row (Experimental features) and makes the manifest
+ * the single authority — the fail-open hazard for unknown ids does not apply
+ * to a registered id, so no bypass is needed here.
  */
 export const POPOUT_WINDOWS_FEATURE_ID = "popout-chat-windows";
 
 /** Whether the owner can pop a conversation out into its own window. */
 export function usePopoutWindowsEnabled(): boolean {
-  const overrides = useFeatureSnapshot();
-  return resolveEnabled(POPOUT_WINDOWS_FEATURE_ID, overrides, false);
+  return useFeatureEnabled(POPOUT_WINDOWS_FEATURE_ID);
 }
 
 /**
