@@ -12,6 +12,7 @@ import {
   RightCardsSlotProvider,
 } from "@/shared/layout/RightCardsSlot";
 import { AppShellOverlays } from "@/app/AppShellOverlays";
+import { usePopoutRequests } from "@/app/popout/usePopoutRequests";
 import { LiftedPane } from "@/features/panes/LiftedPane";
 import { AppTopChrome } from "@/app/AppTopChrome";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
@@ -651,6 +652,14 @@ export function AppShell() {
     homeBadgeCountExcludingHighPriority: inboxAppBadgeCount,
     unreadChannelIds,
     unreadChannelNotificationCount,
+  });
+
+  // Pop-out chat windows delegate the two things a second window must not do
+  // for itself: publishing a NIP-RS read marker (one publisher, no slot
+  // races) and taking this window's focus.
+  usePopoutRequests({
+    goChannel: (channelId: string) => void goChannel(channelId),
+    markChannelRead,
   });
 
   // Dispatch `buzz://message` deep links into the router.

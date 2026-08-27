@@ -1,6 +1,10 @@
-import { LogIn, PanelRight } from "lucide-react";
+import { LogIn, PanelRight, PictureInPicture2 } from "lucide-react";
 import * as React from "react";
 
+import {
+  openChannelPopout,
+  usePopoutWindowsEnabled,
+} from "@/app/popout/popoutFeature";
 import { ChatHeader } from "@/features/chat/ui/ChatHeader";
 import type { EphemeralChannelDisplay } from "@/features/channels/lib/ephemeralChannel";
 import { getChannelDescription } from "@/features/channels/lib/channelDescription";
@@ -102,6 +106,7 @@ export function ChannelScreenHeader({
       conversationResidentPubkeys(activeChannel, currentPubkey, agentPubkeys),
     [activeChannel, agentPubkeys, currentPubkey],
   );
+  const popoutWindowsEnabled = usePopoutWindowsEnabled();
   const primaryDmParticipant = activeDmHeaderParticipants[0] ?? null;
   const primaryDmIsResident = Boolean(
     primaryDmParticipant &&
@@ -128,16 +133,38 @@ export function ChannelScreenHeader({
         {isJoining ? "Joining…" : "Join"}
       </Button>
     ) : (
-      <Button
-        aria-label="Open conversation details"
-        onClick={onToggleMembers}
-        size="icon"
-        title="Conversation details"
-        type="button"
-        variant="ghost"
-      >
-        <PanelRight />
-      </Button>
+      <>
+        {popoutWindowsEnabled ? (
+          <Button
+            aria-label="Open as window"
+            data-testid="open-channel-popout"
+            onClick={() => {
+              void openChannelPopout(
+                activeChannel.id,
+                activeChannelTitle,
+              ).catch((error) => {
+                console.warn("pop-out window unavailable", error);
+              });
+            }}
+            size="icon"
+            title="Open as window"
+            type="button"
+            variant="ghost"
+          >
+            <PictureInPicture2 />
+          </Button>
+        ) : null}
+        <Button
+          aria-label="Open conversation details"
+          onClick={onToggleMembers}
+          size="icon"
+          title="Conversation details"
+          type="button"
+          variant="ghost"
+        >
+          <PanelRight />
+        </Button>
+      </>
     )
   ) : null;
 
