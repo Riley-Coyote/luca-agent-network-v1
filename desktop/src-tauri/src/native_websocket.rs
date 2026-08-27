@@ -79,26 +79,34 @@ struct ConnectionHandle {
     sender: mpsc::Sender<SendRequest>,
     cancel: CancellationToken,
     task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    /// The window whose webview opened this socket. Every teardown is scoped
+    /// by it, so one window reloading or closing never severs another's relay
+    /// connection.
+    window_label: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct WebSocketManager {
     connections: Arc<Mutex<HashMap<Id, Arc<ConnectionHandle>>>>,
-    connect_cancel: Arc<Mutex<CancellationToken>>,
-}
-
-impl Default for WebSocketManager {
-    fn default() -> Self {
-        Self {
-            connections: Arc::default(),
-            connect_cancel: Arc::new(Mutex::new(CancellationToken::new())),
-        }
-    }
+    /// One connect gate per window label. A gate is cancelled while that
+    /// window's sockets are torn down so a handshake finishing mid-teardown
+    /// cannot register behind it.
+    connect_cancel: Arc<Mutex<HashMap<String, CancellationToken>>>,
 }
 
 impl WebSocketManager {
     async fn remove(&self, id: Id) -> Option<Arc<ConnectionHandle>> {
         self.connections.lock().await.remove(&id)
+    }
+
+    /// The connect gate for one window, created on first use.
+    async fn connect_gate(&self, window_label: &str) -> CancellationToken {
+        self.connect_cancel
+            .lock()
+            .await
+            .entry(window_label.to_string())
+            .or_insert_with(CancellationToken::new)
+            .clone()
     }
 
     async fn disconnect_handle(handle: Arc<ConnectionHandle>) {
@@ -119,14 +127,53 @@ impl WebSocketManager {
             Self::disconnect_handle(handle).await;
         }
     }
+
+    /// Tear down every socket one window owns, and re-arm its connect gate.
+    ///
+    /// The gate lock is held across the shutdown so a connection completing its
+    /// handshake concurrently cannot slip into the map behind the drain.
+    async fn disconnect_window(&self, window_label: &str) {
+        let mut gates = self.connect_cancel.lock().await;
+        if let Some(gate) = gates.get(window_label) {
+            gate.cancel();
+        }
+        gates.insert(window_label.to_string(), CancellationToken::new());
+
+        let handles = {
+            let mut connections = self.connections.lock().await;
+            let owned: Vec<Id> = connections
+                .iter()
+                .filter(|(_, handle)| handle.window_label == window_label)
+                .map(|(id, _)| *id)
+                .collect();
+            owned
+                .into_iter()
+                .filter_map(|id| connections.remove(&id))
+                .collect::<Vec<_>>()
+        };
+        futures_util::future::join_all(handles.into_iter().map(Self::disconnect_handle)).await;
+        drop(gates);
+    }
+
+    /// Reap what a destroyed window left behind.
+    ///
+    /// Same teardown as an explicit `disconnect_all`, then the gate goes too:
+    /// nothing will ever connect through that label again, and a webview that
+    /// vanishes without disconnecting would otherwise leak its sockets for the
+    /// life of the process.
+    async fn reap_window(&self, window_label: &str) {
+        self.disconnect_window(window_label).await;
+        self.connect_cancel.lock().await.remove(window_label);
+    }
 }
 
 async fn open_connection(
     manager: &WebSocketManager,
+    window_label: &str,
     url: &str,
     on_message: Channel<serde_json::Value>,
 ) -> Result<Id, String> {
-    let connect_cancel = manager.connect_cancel.lock().await.clone();
+    let connect_cancel = manager.connect_gate(window_label).await;
     let (socket, _) = tokio::select! {
         _ = connect_cancel.cancelled() => return Err("WebSocket connection cancelled".to_string()),
         result = tokio::time::timeout(CONNECT_TIMEOUT, connect_async(url)) => result
@@ -153,6 +200,7 @@ async fn open_connection(
         sender,
         cancel: cancel.clone(),
         task: Mutex::new(None),
+        window_label: window_label.to_string(),
     });
     let mut task_slot = handle.task.lock().await;
     manager.connections.lock().await.insert(id, handle.clone());
@@ -173,13 +221,14 @@ async fn open_connection(
 }
 
 #[tauri::command]
-async fn connect(
+async fn connect<R: Runtime>(
+    window: tauri::Window<R>,
     manager: tauri::State<'_, WebSocketManager>,
     url: String,
     on_message: Channel<serde_json::Value>,
     _config: Option<serde_json::Value>,
 ) -> Result<Id, String> {
-    open_connection(manager.inner(), &url, on_message).await
+    open_connection(manager.inner(), window.label(), &url, on_message).await
 }
 
 async fn send_message(
@@ -227,20 +276,17 @@ async fn disconnect(manager: tauri::State<'_, WebSocketManager>, id: Id) -> Resu
     Ok(())
 }
 
+/// Tear down the CALLING window's sockets.
+///
+/// Scoped by window label: the main window's reload shortcut used to sever
+/// every webview's relay connection process-wide, which would silently kill a
+/// pop-out chat the user never touched.
 #[tauri::command]
-async fn disconnect_all(manager: tauri::State<'_, WebSocketManager>) -> Result<(), String> {
-    let mut connect_cancel = manager.connect_cancel.lock().await;
-    connect_cancel.cancel();
-    *connect_cancel = CancellationToken::new();
-    let handles = {
-        let mut connections = manager.connections.lock().await;
-        connections
-            .drain()
-            .map(|(_, handle)| handle)
-            .collect::<Vec<_>>()
-    };
-    futures_util::future::join_all(handles.into_iter().map(WebSocketManager::disconnect_handle))
-        .await;
+async fn disconnect_all<R: Runtime>(
+    window: tauri::Window<R>,
+    manager: tauri::State<'_, WebSocketManager>,
+) -> Result<(), String> {
+    manager.disconnect_window(window.label()).await;
     Ok(())
 }
 
@@ -320,6 +366,23 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             app.manage(WebSocketManager::default());
             Ok(())
         })
+        .on_window_ready(|window| {
+            let label = window.label().to_string();
+            let app_handle = window.app_handle().clone();
+            window.on_window_event(move |event| {
+                if !matches!(event, tauri::WindowEvent::Destroyed) {
+                    return;
+                }
+                let Some(manager) = app_handle.try_state::<WebSocketManager>() else {
+                    return;
+                };
+                let manager = manager.inner().clone();
+                let label = label.clone();
+                tauri::async_runtime::spawn(async move {
+                    manager.reap_window(&label).await;
+                });
+            });
+        })
         .build()
 }
 
@@ -335,6 +398,22 @@ mod tests {
 
     fn silent_channel() -> Channel<serde_json::Value> {
         Channel::new(|_: InvokeResponseBody| Ok(()))
+    }
+
+    /// A registered connection with no live socket behind it. The receiver is
+    /// returned so the caller can keep the send queue open for the test's
+    /// lifetime.
+    fn idle_connection(window_label: &str) -> (Arc<ConnectionHandle>, mpsc::Receiver<SendRequest>) {
+        let (sender, receiver) = mpsc::channel(SEND_QUEUE_CAPACITY);
+        (
+            Arc::new(ConnectionHandle {
+                sender,
+                cancel: CancellationToken::new(),
+                task: Mutex::new(None),
+                window_label: window_label.to_string(),
+            }),
+            receiver,
+        )
     }
 
     #[tokio::test]
@@ -374,9 +453,14 @@ mod tests {
         });
 
         let manager = WebSocketManager::default();
-        let id = open_connection(&manager, &format!("ws://{address}"), silent_channel())
-            .await
-            .unwrap();
+        let id = open_connection(
+            &manager,
+            "main",
+            &format!("ws://{address}"),
+            silent_channel(),
+        )
+        .await
+        .unwrap();
         send_message(&manager, id, WebSocketMessage::Text("live-probe".into()))
             .await
             .unwrap();
@@ -409,6 +493,7 @@ mod tests {
             sender,
             cancel: CancellationToken::new(),
             task: Mutex::new(None),
+            window_label: "main".to_string(),
         });
         manager.connections.lock().await.insert(1, handle.clone());
         let task = tauri::async_runtime::spawn(run_connection(
@@ -453,6 +538,7 @@ mod tests {
                 ready_tx.send(()).unwrap();
                 std::future::pending::<()>().await;
             }))),
+            window_label: "main".to_string(),
         });
         manager.connections.lock().await.insert(7, handle);
         ready_rx.await.unwrap();
@@ -470,7 +556,7 @@ mod tests {
     #[tokio::test]
     async fn teardown_gate_stays_closed_until_tasks_stop() {
         let manager = WebSocketManager::default();
-        let gate = manager.connect_cancel.lock().await;
+        let gate = manager.connect_gate("main").await;
         let (sender, _receiver) = mpsc::channel(SEND_QUEUE_CAPACITY);
         let handle = Arc::new(ConnectionHandle {
             sender,
@@ -478,8 +564,11 @@ mod tests {
             task: Mutex::new(Some(tauri::async_runtime::spawn(async {
                 std::future::pending::<()>().await;
             }))),
+            window_label: "main".to_string(),
         });
         manager.connections.lock().await.insert(1, handle);
+
+        let gates = manager.connect_cancel.lock().await;
         gate.cancel();
         let handles = {
             let mut connections = manager.connections.lock().await;
@@ -494,8 +583,51 @@ mod tests {
         );
         assert!(manager.connect_cancel.try_lock().is_err());
         shutdown.await;
-        drop(gate);
+        drop(gates);
         assert!(manager.connect_cancel.try_lock().is_ok());
+    }
+
+    #[tokio::test]
+    async fn disconnect_all_leaves_every_other_window_connected() {
+        let manager = WebSocketManager::default();
+        let (main_handle, _main_rx) = idle_connection("main");
+        let (popout_handle, _popout_rx) = idle_connection("popout-abc");
+        {
+            let mut connections = manager.connections.lock().await;
+            connections.insert(1, main_handle);
+            connections.insert(2, popout_handle);
+        }
+
+        // The main window reloading (Cmd+R) must not sever the pop-out's relay.
+        manager.disconnect_window("main").await;
+
+        let connections = manager.connections.lock().await;
+        assert!(!connections.contains_key(&1));
+        assert!(connections.contains_key(&2));
+    }
+
+    #[tokio::test]
+    async fn a_destroyed_window_reaps_its_own_sockets_and_gate() {
+        let manager = WebSocketManager::default();
+        let (popout_handle, _popout_rx) = idle_connection("popout-abc");
+        let (main_handle, _main_rx) = idle_connection("main");
+        {
+            let mut connections = manager.connections.lock().await;
+            connections.insert(1, popout_handle);
+            connections.insert(2, main_handle);
+        }
+        let _ = manager.connect_gate("popout-abc").await;
+
+        manager.reap_window("popout-abc").await;
+
+        let connections = manager.connections.lock().await;
+        assert!(!connections.contains_key(&1));
+        assert!(connections.contains_key(&2));
+        assert!(!manager
+            .connect_cancel
+            .lock()
+            .await
+            .contains_key("popout-abc"));
     }
 
     #[tokio::test]
@@ -513,6 +645,7 @@ mod tests {
             sender: blocked_sender,
             cancel: CancellationToken::new(),
             task: Mutex::new(None),
+            window_label: "main".to_string(),
         });
         manager.connections.lock().await.insert(1, blocked);
 
@@ -521,6 +654,7 @@ mod tests {
             sender: healthy_sender.clone(),
             cancel: CancellationToken::new(),
             task: Mutex::new(None),
+            window_label: "main".to_string(),
         });
         manager.connections.lock().await.insert(2, healthy);
 

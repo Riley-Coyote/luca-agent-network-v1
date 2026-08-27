@@ -11,10 +11,11 @@
 //! disabling clears it. On non-macOS platforms the command is a no-op so the
 //! shared frontend can call it unconditionally.
 
-#[cfg(target_os = "macos")]
-use tauri::Manager;
-
-/// Apply or clear macOS window vibrancy for the main window.
+/// Apply or clear macOS window vibrancy for the window that called.
+///
+/// The window is the CALLER's, not a hardcoded `main`: every webview owns its
+/// own material, so a pop-out chat window can never reach across and repaint
+/// the main window's floor (or vice versa).
 ///
 /// `material` accepts the common `NSVisualEffectMaterial` names
 /// (`sidebar`, `hud-window`, `under-window-background`, `fullscreen-ui`,
@@ -30,17 +31,13 @@ pub fn set_window_vibrancy(
     #[allow(unused_variables)] enabled: bool,
     #[allow(unused_variables)] material: Option<String>,
     #[allow(unused_variables)] state: Option<String>,
-    #[allow(unused_variables)] app_handle: tauri::AppHandle,
+    #[allow(unused_variables)] window: tauri::WebviewWindow,
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         use window_vibrancy::{
             apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
         };
-
-        let window = app_handle
-            .get_webview_window("main")
-            .ok_or_else(|| "main window not found".to_string())?;
 
         if !enabled {
             clear_vibrancy(&window).map_err(|e| e.to_string())?;
