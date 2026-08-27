@@ -510,6 +510,14 @@ impl ConversationContextStore {
         if effective.revision != expected_revision {
             return Err("conversation context changed; refresh and try again".into());
         }
+        let primary_source_id = effective.primary_source_id;
+        let mut additional_source_ids = effective
+            .additional
+            .into_iter()
+            .map(|(source, _)| source)
+            .collect::<Vec<_>>();
+        additional_source_ids.sort();
+        additional_source_ids.dedup();
         let revision = self.next_revision()?;
         self.projects.insert(
             Self::project_key(scope, project_id),
@@ -517,12 +525,8 @@ impl ConversationContextStore {
                 owner_pubkey: scope.owner.to_owned(),
                 relay_scope: scope.relay.to_owned(),
                 project_id: project_id.to_owned(),
-                primary_source_id: effective.primary_source_id,
-                additional_source_ids: effective
-                    .additional
-                    .into_iter()
-                    .map(|(source, _)| source)
-                    .collect(),
+                primary_source_id,
+                additional_source_ids,
                 revision,
             },
         );
@@ -784,10 +788,8 @@ fn validate_persisted_sources(primary: Option<&str>, additional: &[String]) -> R
     {
         return Err("conversation context sources are invalid".into());
     }
-    let mut unique = additional.to_vec();
-    unique.sort();
-    unique.dedup();
-    if unique != additional
+    let unique = additional.iter().collect::<BTreeSet<_>>();
+    if unique.len() != additional.len()
         || primary.is_some_and(|source| additional.iter().any(|id| id == source))
     {
         return Err("conversation context sources are duplicated".into());
@@ -1608,6 +1610,39 @@ mod tests {
         assert!(!wire.contains("path"));
         assert!(!wire.contains("cwd"));
         assert!(!wire.contains("directory"));
+    }
+
+    #[test]
+    fn persisted_store_accepts_unsorted_unique_sources_and_rejects_duplicates() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let path = temp.path().join("context.json");
+        let mut persisted = PersistedConversationContextStoreV1 {
+            schema: STORE_SCHEMA.into(),
+            next_revision: 2,
+            projects: vec![ProjectContextV1 {
+                owner_pubkey: scope().owner.into(),
+                relay_scope: scope().relay.into(),
+                project_id: "project-1".into(),
+                primary_source_id: Some("source-a".into()),
+                additional_source_ids: vec!["source-c".into(), "source-b".into()],
+                revision: 1,
+            }],
+            rooms: Vec::new(),
+            snapshots: Vec::new(),
+        };
+        std::fs::write(&path, serde_json::to_vec(&persisted).unwrap()).unwrap();
+
+        ConversationContextStore::load(path.clone())
+            .expect("source order must not make an otherwise valid store unreadable");
+
+        persisted.projects[0]
+            .additional_source_ids
+            .push("source-b".into());
+        std::fs::write(&path, serde_json::to_vec(&persisted).unwrap()).unwrap();
+        let error = ConversationContextStore::load(path)
+            .err()
+            .expect("duplicate source must be rejected");
+        assert_eq!(error, "conversation context sources are duplicated");
     }
 
     #[test]
