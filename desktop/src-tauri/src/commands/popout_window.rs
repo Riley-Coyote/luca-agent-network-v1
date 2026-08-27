@@ -209,6 +209,15 @@ pub async fn open_channel_popout(
         }
     }
 
+    // Registered before the window exists: the webview cannot report a painted
+    // frame to a listener that is not there yet, and losing that race would
+    // hold the window hidden until the fallback timeout instead of showing it
+    // the moment it is ready.
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    app_handle.once(popout_render_ready_event(&plan.label), move |_| {
+        let _ = ready_tx.send(());
+    });
+
     let builder = WebviewWindowBuilder::new(
         &app_handle,
         plan.label.clone(),
@@ -254,11 +263,6 @@ pub async fn open_channel_popout(
             plan.label
         );
     }
-
-    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-    app_handle.once(popout_render_ready_event(&plan.label), move |_| {
-        let _ = ready_tx.send(());
-    });
 
     let reveal_label = plan.label.clone();
     tauri::async_runtime::spawn(async move {

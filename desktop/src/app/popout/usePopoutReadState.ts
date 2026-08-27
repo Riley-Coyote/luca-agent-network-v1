@@ -29,7 +29,7 @@ export type PopoutReadState = {
   setContextParentResolver: (resolver: ContextParentResolver | null) => void;
 };
 
-const NO_CONTEXTS: ReadonlyMap<string, number> = new Map();
+const NO_CONTEXTS: Map<string, number> = new Map();
 
 export function usePopoutReadState(
   pubkey: string | undefined,
@@ -38,7 +38,7 @@ export function usePopoutReadState(
     (version: number) => version + 1,
     0,
   );
-  const contextsRef = React.useRef<ReadonlyMap<string, number>>(NO_CONTEXTS);
+  const contextsRef = React.useRef<Map<string, number>>(NO_CONTEXTS);
   // The thread → channel relationship is derived from the event graph, not
   // stored, so the active conversation surface hands it down. Held in a ref:
   // it changes as the timeline loads and must not re-render the whole subtree.
@@ -72,7 +72,7 @@ export function usePopoutReadState(
   const getChannelReadAt = React.useCallback(
     (channelId: string) =>
       resolveEffectiveTimestamp({
-        effectiveState: contextsRef.current as Map<string, number>,
+        effectiveState: contextsRef.current,
         contextId: channelId,
         parentResolver: parentResolverRef.current,
       }),
@@ -107,11 +107,23 @@ export function usePopoutReadState(
     [],
   );
 
-  return {
-    getChannelReadAt,
-    getMessageReadAt,
-    getThreadReadAt,
-    readStateVersion,
-    setContextParentResolver,
-  };
+  // Memoised on purpose: this object becomes part of the AppShell context
+  // value, and a fresh identity every render would re-render the whole
+  // conversation. Only a real read-state change may move it.
+  return React.useMemo(
+    () => ({
+      getChannelReadAt,
+      getMessageReadAt,
+      getThreadReadAt,
+      readStateVersion,
+      setContextParentResolver,
+    }),
+    [
+      getChannelReadAt,
+      getMessageReadAt,
+      getThreadReadAt,
+      readStateVersion,
+      setContextParentResolver,
+    ],
+  );
 }

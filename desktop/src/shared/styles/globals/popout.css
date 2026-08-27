@@ -69,6 +69,14 @@
   gap: 2px;
 }
 
+/* Pinned is a held state, not an action: the control keeps its own glyph and
+   changes its ink and its seat, the way a pressed toggle should. */
+.luca-popout__pin[aria-pressed="true"] {
+  background: hsl(var(--mn-plate));
+  box-shadow: var(--mn-lit-edge);
+  color: hsl(var(--mn-ink));
+}
+
 /* A row, not a column: the conversation and the right-cards slot are flex
    siblings here exactly as they are in the main window, so a pane that portals
    into the slot lands beside the conversation rather than inside it. The slot

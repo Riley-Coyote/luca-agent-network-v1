@@ -1,7 +1,7 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { PanelsTopLeft, Pin, PinOff } from "lucide-react";
+import { PanelsTopLeft, Pin } from "lucide-react";
 import * as React from "react";
 
 import {
@@ -12,6 +12,7 @@ import { useWebviewZoomShortcuts } from "@/app/useWebviewZoomShortcuts";
 import { ResidentHarnessProvider } from "@/features/agents/ResidentHarnessContext";
 import { ArtifactCanvasProvider } from "@/features/artifacts/ArtifactCanvasProvider";
 import { useChannelNavigation } from "@/shared/context/ChannelNavigationContext";
+import { useWebviewScrollBoundaryLock } from "@/shared/hooks/useWebviewScrollBoundaryLock";
 import { chromeCssVarDefaults } from "@/shared/layout/chromeLayout";
 import { MainInsetProvider } from "@/shared/layout/MainInsetContext";
 import {
@@ -147,7 +148,11 @@ function useWindowDragStrip(stripRef: React.RefObject<HTMLElement | null>) {
  * and the way back into the full app.
  */
 export function PopoutShell({ children }: { children: React.ReactNode }) {
+  // The two webview manners the main window also keeps: ⌘+/− scales the text,
+  // and a wheel that reaches the end of the conversation stops there instead
+  // of rubber-banding the whole window.
   useWebviewZoomShortcuts();
+  useWebviewScrollBoundaryLock();
   const title = usePopoutWindowTitle();
   const { isPinned, togglePin } = usePopoutPin();
   const channelId = popoutChannelId();
@@ -188,9 +193,13 @@ export function PopoutShell({ children }: { children: React.ReactNode }) {
             {title}
           </span>
           <div className="luca-popout__controls">
+            {/* One glyph, two states. A slashed pin for "not pinned" would
+                read as "pinning unavailable"; the state lives in the
+                control's own ink, the way a pressed toggle should. */}
             <Button
               aria-label="Keep above other windows"
               aria-pressed={isPinned}
+              className="luca-popout__pin"
               data-testid="popout-pin"
               onClick={togglePin}
               size="icon-xs"
@@ -198,7 +207,7 @@ export function PopoutShell({ children }: { children: React.ReactNode }) {
               type="button"
               variant="ghost"
             >
-              {isPinned ? <Pin /> : <PinOff />}
+              <Pin />
             </Button>
             <Button
               aria-label="Open in Luca"
