@@ -8,9 +8,8 @@ use luca_protocol::{
 use super::connected::{
     catalog_from_generation, connected_generation, connected_source_by_id, ensure_connected_grants,
     find_connected_manifest, find_repository_grant, repository_grant_lineage_id,
-    restore_connected_grants,
-    ConnectedBrainResidentAuthorityV1, CONNECTED_INDEX_PAGE_RECORD, CONNECTED_SOURCE_RECORD,
-    REPOSITORY_WORK_GRANT_RECORD,
+    restore_connected_grants, ConnectedBrainResidentAuthorityV1, CONNECTED_INDEX_PAGE_RECORD,
+    CONNECTED_SOURCE_RECORD, REPOSITORY_WORK_GRANT_RECORD,
 };
 
 pub(crate) fn set_connected_source_status(

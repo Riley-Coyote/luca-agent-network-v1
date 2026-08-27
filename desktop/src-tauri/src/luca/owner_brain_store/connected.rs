@@ -763,14 +763,7 @@ fn ensure_connected_grants_with_reactivation(
     }
 
     if source.source_kind == ConnectedBrainSourceKindV1::Repository {
-        ensure_repository_grant(
-            root,
-            runtime,
-            source,
-            authority,
-            now,
-            reactivate_revoked,
-        )?;
+        ensure_repository_grant(root, runtime, source, authority, now, reactivate_revoked)?;
     }
     Ok(())
 }
