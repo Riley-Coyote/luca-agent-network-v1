@@ -127,6 +127,32 @@
   --pop-shadow:0 18px 40px rgb(0 0 0/.55);
   color-scheme:dark;
 }
+[data-theme="voidglass"]{
+  /* VOID GLASS — Riley's 2026-08-26 redirection: not a palette wearing
+     glass, but a TWO-WEIGHT GLASS COMPOSITION derived from Void. The rail
+     is the lighter weather (desktop clearly alive through a thin scrim);
+     every card is the darker weather (the same backdrop, dimmed to a
+     reading depth) — so the whole window is glass and the card anatomy is
+     carried by the DIFFERENCE in dimming plus hairlines, not by opacity.
+     Transparency runs far past the retired Smoke/Dragon: the desktop must
+     read on a NORMAL wallpaper, not only a searchlight. Tokens are the
+     Void family (cool near-black, linear-dose lean), used for opaque mode,
+     reduced transparency, and anything that must stay solid. */
+  --floor:#060608; --surface:#0b0b0e; --raised:#131318; --recess:#030304;
+  --border:#232329; --border-strong:#30303a;
+  --ink:#f4f3f0; --ink-muted:#c6c5c0; --ink-faint:#a6a5a1; --ink-ghost:#747370;
+  --wash:rgb(255 255 255/.06); --wash-2:rgb(255 255 255/.10);
+  --plate:rgb(244 243 240/.05); --plate-hover:rgb(244 243 240/.08);
+  --lit:inset 0 1px 0 rgb(255 255 255/.08);
+  --app-shadow:
+    0 0 0 1px rgb(0 0 0/.55),
+    0 2px 8px rgb(0 0 0/.42),
+    0 40px 120px rgb(0 0 0/.7);
+  --app-hairline:inset 0 0 0 1px rgb(255 255 255/.06);
+  --lift-shadow:0 34px 84px rgb(0 0 0/.62);
+  --pop-shadow:0 18px 40px rgb(0 0 0/.55);
+  color-scheme:dark;
+}
 [data-theme="paper"]{
   /* PAPER — the authored light palette, verbatim from adaptive-theme.ts.
      Warm ground (hue 38), cool ink (hue 222), contrast-matched to Void. */
@@ -305,6 +331,32 @@ html:not([data-theme="paper"]) .wp.dark{opacity:1}
     radial-gradient(110% 90% at 50% 110%, rgba(150,196,226,.72) 0 30%, transparent 74%),
     linear-gradient(160deg,#e6f4f1,#e3ecf5 52%,#d3e2ee);
 }
+[data-wallpaper="riley"] .wp.dark,
+[data-wallpaper="riley"] .wp.light{
+  background:url("riley-wall.jpeg") center/cover no-repeat;
+}
+[data-wallpaper="night"] .wp.dark{
+  background:
+    radial-gradient(55% 45% at 72% 18%, rgba(86,104,170,.22) 0 30%, transparent 70%),
+    radial-gradient(40% 36% at 18% 72%, rgba(58,74,128,.16) 0 28%, transparent 66%),
+    linear-gradient(168deg,#070810,#0a0d18 52%,#05060c);
+}
+[data-wallpaper="night"] .wp.light{
+  background:
+    radial-gradient(55% 45% at 72% 18%, rgba(120,138,196,.2) 0 30%, transparent 70%),
+    linear-gradient(168deg,#1a1e2e,#232a44 52%,#141828);
+}
+[data-wallpaper="mid"] .wp.dark{
+  background:
+    radial-gradient(70% 45% at 50% 0%, rgba(126,168,214,.55) 0 30%, transparent 72%),
+    radial-gradient(80% 50% at 46% 108%, rgba(32,96,148,.65) 0 36%, transparent 78%),
+    linear-gradient(176deg,#5a89b4,#31618c 46%,#1b3f61 78%,#123049);
+}
+[data-wallpaper="mid"] .wp.light{
+  background:
+    radial-gradient(70% 45% at 50% 0%, rgba(190,216,240,.7) 0 30%, transparent 72%),
+    linear-gradient(176deg,#a8c6e0,#7ba6c9 52%,#4f7fa3);
+}
 [data-wallpaper="quiet"] .wp.dark{
   background:
     radial-gradient(80% 64% at 82% -8%, rgba(160,168,182,.30) 0 26%, transparent 62%),
@@ -330,12 +382,79 @@ html.wp-switch .wp{opacity:0!important}
    light. A theme declares its default weight; the user may choose within
    polarity. */
 .vib .wps{position:absolute;inset:-90px;filter:blur(60px) saturate(230%)}
-html[data-material="light"]   .vib .wps{filter:blur(60px) saturate(210%) brightness(1.14)}
+html[data-material="light"]   .vib .wps{filter:blur(60px) saturate(165%) brightness(1.5)}
 html[data-material="neutral"] .vib .wps{filter:blur(60px) saturate(245%) brightness(.68)}
 html[data-material="dark"]    .vib .wps{filter:blur(60px) saturate(235%) brightness(.42)}
-html[data-material="light"]   .vib::after{background:rgb(250 249 247/.56);mix-blend-mode:normal}
+/* light glass never drops below a bright base — the desktop is a tint,
+   not the ground (Apple's light materials hold ~.7+ even over black) */
+html[data-material="light"]   .vib::after{background:rgb(250 249 247/.72);mix-blend-mode:normal}
 html[data-material="neutral"] .vib::after{background:rgb(9 10 14/.36);mix-blend-mode:normal}
 html[data-material="dark"]    .vib::after{background:rgb(5 5 8/.55);mix-blend-mode:normal}
+
+/* ── VOID GLASS: the two-weight composition ─────────────────────
+   One backdrop, two weathers. The floor/rail weather is thin — the desktop
+   survives it on a normal wallpaper. Cards do not go opaque; they are the
+   same backdrop under a deeper local scrim, so "material" here is the
+   DELTA between two dimmings. These rules follow the material block by
+   design: the theme owns its weathers regardless of the material toggle. */
+html[data-theme="voidglass"] .vib .wps{filter:blur(60px) saturate(148%) brightness(.64)}
+html[data-theme="voidglass"] .vib::after{background:rgb(5 5 8/.12);mix-blend-mode:normal}
+html[data-theme="voidglass"][data-glass="on"] .card{
+  background:rgb(4 4 7/.56);
+  border-color:transparent;
+  box-shadow:inset 0 1px 0 rgb(255 255 255/.09), 0 1px 2px rgb(0 0 0/.22), 0 10px 30px rgb(0 0 0/.2);
+}
+/* Apple's glass carries no strokes — edges are light and shadow. Strokes
+   die across the whole glass family; anything that melts gets lift, not line. */
+html[data-theme="voidglass"][data-glass="on"] .card .card,
+html[data-theme="voidglass"][data-glass="on"] .well,
+html[data-theme="voidglass"][data-glass="on"] .pop-status,
+html[data-theme="voidglass"][data-glass="on"] .rx,
+html[data-theme="paper"][data-glass="on"] .rx,
+html[data-theme="paper"][data-glass="on"] .card,
+html[data-theme="paper"][data-glass="on"] .card .card,
+html[data-theme="paper"][data-glass="on"] .well,
+html[data-theme="paper"][data-glass="on"] .pop-status{
+  border-color:transparent;
+}
+html[data-theme="paper"][data-glass="on"] .card{
+  box-shadow:inset 0 1px 0 rgb(255 255 255/.8), 0 1px 2px rgb(0 0 0/.08), 0 10px 30px rgb(0 0 0/.1);
+}
+html[data-theme="voidglass"][data-glass="on"] .card .card{
+  /* nested cards deepen one step so stacking still reads */
+  background:rgb(4 4 7/.42);
+}
+html[data-theme="voidglass"]{
+  /* the black definition ring reads as a painted border over a bright
+     desk — glass edges are hairlines, not frames */
+  --app-shadow:
+    0 2px 8px rgb(0 0 0/.3),
+    0 40px 120px rgb(0 0 0/.5);
+}
+html[data-theme="voidglass"][data-glass="on"] .mine div,
+html[data-theme="voidglass"][data-glass="on"] .mine-rx span{
+  /* sent bubbles share the well's material — "held things" are one role:
+     the same recessed glass, darkened by stacking on the card weather */
+  background:rgb(0 0 0/.30);
+  box-shadow:inset 0 1px 0 rgb(255 255 255/.05);
+}
+html[data-theme="paper"][data-glass="on"] .mine div,
+html[data-theme="paper"][data-glass="on"] .mine-rx span{
+  background:rgb(255 255 255/.55);
+  box-shadow:inset 0 1px 0 rgb(255 255 255/.8), 0 1px 2px rgb(0 0 0/.05);
+}
+html[data-theme="voidglass"][data-glass="on"] .well{
+  /* recess over glass reads as a black slot cut into the card; the well
+     keeps its depth as a deeper glass, not a hole */
+  background:rgb(0 0 0/.32);
+}
+html[data-theme="voidglass"][data-glass="on"] .lifted{
+  background:rgb(5 5 8/.7);
+  backdrop-filter:blur(44px) saturate(150%);-webkit-backdrop-filter:blur(44px) saturate(150%);
+}
+@media (prefers-reduced-transparency: reduce){
+  html[data-theme="voidglass"] .card{background:var(--surface);border-color:var(--border)}
+}
 
 /* ── lab bar ──────────────────────────────────────────────────── */
 .lab{
@@ -404,10 +523,155 @@ html[data-winfocus="false"] .tl svg{opacity:0!important}
   color:var(--ink-faint);padding:0 8px;margin:24px 0 8px;
 }
 .dot{width:5px;height:5px;border-radius:50%;background:var(--ink-faint);flex:none;margin-left:auto;opacity:.68}
-.railfoot{
-  margin-top:auto;display:flex;align-items:center;gap:8px;padding:12px 8px 0;
+.railfoot-slot{margin-top:auto;position:relative;padding:12px 0 0}
+.profile-card{
+  width:100%;display:flex;align-items:center;gap:8px;text-align:left;
+  padding:8px;border-radius:var(--radius-3);
   font-size:var(--type-label);color:var(--ink-faint);
+  transition:background var(--motion-duration-instant) var(--motion-ease-standard);
 }
+.profile-card:hover{background:var(--wash)}
+.profile-card:active{background:var(--wash-2)}
+.pwrap{position:relative;flex:none;display:grid;place-items:center}
+.pdot{width:7px;height:7px;border-radius:50%;background:#37c26e;flex:none}
+.pdot.on-card{position:absolute;right:-1px;bottom:-1px;box-shadow:0 0 0 2px var(--floor)}
+/* the popover debuts the pop-out glass recipe: sharp-sat + blur backdrop,
+   tint plate, lit top edge, hairline rim, two-stop shadow — the same stack
+   every floated window will wear, regardless of theme */
+.profile-pop{
+  /* an in-app panel wears the app's own glass, one weather deeper — the
+     standalone pop-out recipe is reserved for windows that LEAVE the app */
+  position:absolute;left:0;right:8px;bottom:calc(100% + 8px);z-index:60;
+  padding:10px;border-radius:14px;
+  background:var(--raised);
+  box-shadow:inset 0 1px 0 rgb(255 255 255/.09), 0 4px 14px rgb(0 0 0/.3), 0 24px 70px rgb(0 0 0/.45);
+  color:var(--ink);
+}
+html[data-theme="voidglass"][data-glass="on"] .profile-pop{
+  background:rgb(4 4 7/.72);
+  backdrop-filter:blur(40px) saturate(150%);
+  -webkit-backdrop-filter:blur(40px) saturate(150%);
+}
+html[data-theme="paper"][data-glass="on"] .profile-pop{
+  background:rgb(252 251 249/.78);
+  backdrop-filter:blur(40px) saturate(150%);
+  -webkit-backdrop-filter:blur(40px) saturate(150%);
+  box-shadow:inset 0 1px 0 rgb(255 255 255/.75), 0 4px 14px rgb(0 0 0/.12), 0 24px 70px rgb(0 0 0/.18);
+}
+.pop-id{display:flex;align-items:center;gap:10px;padding:4px 6px 10px}
+.pop-presence{display:flex;align-items:center;gap:6px;font-size:var(--type-micro);color:var(--ink-faint);margin-top:2px}
+.pop-status{
+  margin:0 2px 8px;padding:8px 12px;border-radius:999px;
+  font-size:var(--type-label);color:var(--ink-ghost);
+  background:rgb(0 0 0/.25);border:1px solid rgb(255 255 255/.08);
+}
+[data-theme="paper"] .pop-status{background:rgb(21 22 27/.05);border-color:rgb(21 22 27/.1)}
+.pop-item{
+  width:100%;display:flex;align-items:center;text-align:left;gap:8px;
+  padding:8px 8px;border-radius:var(--radius-2);
+  font-size:var(--type-ui);color:var(--ink-muted);
+  transition:background var(--motion-duration-instant) var(--motion-ease-standard),color var(--motion-duration-instant) var(--motion-ease-standard);
+}
+.pop-item:hover{background:var(--wash);color:var(--ink)}
+.pop-item .r-key{margin-left:auto;font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-ghost)}
+.chrome-cluster{display:flex;align-items:center;gap:2px;margin-left:6px}
+.chrome-btn{
+  width:24px;height:24px;display:grid;place-items:center;border-radius:var(--radius-2);
+  color:var(--ink-faint);
+  transition:background var(--motion-duration-instant) var(--motion-ease-standard),color var(--motion-duration-instant) var(--motion-ease-standard);
+}
+.chrome-btn:hover{background:var(--wash);color:var(--ink)}
+.chrome-btn.dim{color:var(--ink-ghost)}
+
+/* ── settings view: nav is floor, content is card ─────────────── */
+.settings-view{
+  position:absolute;inset:0;z-index:5;display:flex;gap:var(--mn-card-lip);
+  padding:var(--mn-card-lip);padding-left:0;
+}
+.lights-inline{margin-top:0;padding:0 8px;height:42px}
+.set-nav{
+  width:264px;flex:none;display:flex;flex-direction:column;gap:1px;
+  padding:8px 8px 10px calc(var(--mn-card-lip) + 8px);
+}
+.set-card{flex:1;min-width:0}
+.theme-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;max-width:560px}
+.theme-tile{
+  display:flex;flex-direction:column;gap:8px;align-items:flex-start;
+  font-size:var(--type-label);color:var(--ink-muted);
+  padding:0;border-radius:var(--radius-3);
+}
+.theme-tile .tt{
+  width:100%;aspect-ratio:16/10;border-radius:var(--radius-3);
+  box-shadow:inset 0 0 0 1px rgb(255 255 255/.08);
+}
+.theme-tile.on .tt{box-shadow:inset 0 0 0 1.5px var(--ink-faint)}
+.tt-voidglass{background:linear-gradient(135deg,#2a3550 0%,#101018 55%,#05050a)}
+.tt-paperglass{background:linear-gradient(135deg,#dfe7f2 0%,#f6f4f2 60%,#efeae2)}
+.tt-slate{background:#17181d}
+.tt-void{background:#060608}
+.tt-paper{background:#f6f4f2}
+.tt-buzz{background:#0a0a0c}
+.set-row{
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:14px 2px;max-width:560px;
+}
+.set-row+.set-row{border-top:1px solid var(--wash)}
+.switch{width:34px;height:20px;border-radius:999px;background:var(--wash-2);position:relative;flex:none;display:inline-block}
+.switch i{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--ink-muted);transition:left var(--motion-duration-instant) var(--motion-ease-standard)}
+.switch.on{background:var(--ink-faint)}
+.switch.on i{left:16px;background:var(--floor)}
+.select-chip{
+  font-size:var(--type-label);color:var(--ink-muted);
+  padding:5px 12px;border-radius:var(--radius-2);background:var(--wash);
+}
+
+/* ── the palette: summoned deep panel ─────────────────────────── */
+.palette-veil{
+  position:absolute;inset:0;z-index:65;display:flex;justify-content:center;
+  padding-top:14vh;
+  background:rgb(0 0 0/.32);
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+}
+[data-theme="paper"] .palette-veil{background:rgb(21 22 27/.18)}
+.palette{
+  width:min(620px,90%);height:fit-content;border-radius:16px;overflow:hidden;
+  background:var(--raised);
+  box-shadow:inset 0 1px 0 rgb(255 255 255/.09), 0 4px 14px rgb(0 0 0/.3), 0 34px 90px rgb(0 0 0/.5);
+  animation:pal-in var(--motion-duration-instant) var(--motion-ease-standard);
+}
+@keyframes pal-in{from{opacity:0;transform:scale(.985) translateY(-4px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion: reduce){.palette{animation:none}}
+.pal-list{padding:8px;max-height:46vh;overflow:auto}
+.pal-foot{
+  display:flex;align-items:center;gap:14px;padding:9px 16px;
+  border-top:1px solid var(--wash);
+  font-size:var(--type-micro);color:var(--ink-ghost);font-family:var(--font-mono);
+}
+.pal-foot b{font-weight:400;color:var(--ink-faint)}
+html[data-theme="voidglass"][data-glass="on"] .palette{
+  background:rgb(4 4 7/.74);
+  backdrop-filter:blur(40px) saturate(150%);-webkit-backdrop-filter:blur(40px) saturate(150%);
+}
+html[data-theme="paper"][data-glass="on"] .palette{
+  background:rgb(252 251 249/.8);
+  backdrop-filter:blur(40px) saturate(150%);-webkit-backdrop-filter:blur(40px) saturate(150%);
+  box-shadow:inset 0 1px 0 rgb(255 255 255/.75), 0 4px 14px rgb(0 0 0/.1), 0 34px 90px rgb(0 0 0/.16);
+}
+.pal-field{
+  display:flex;align-items:center;gap:12px;padding:16px 18px;
+  border-bottom:1px solid var(--wash);color:var(--ink-faint);
+}
+.pal-field input{flex:1;font-size:var(--type-body);color:var(--ink)}
+.pal-field input::placeholder{color:var(--ink-ghost)}
+.pal-row{
+  width:100%;display:flex;align-items:center;gap:12px;text-align:left;
+  padding:11px 12px;border-radius:var(--radius-3);
+  font-size:var(--type-ui);color:var(--ink-muted);
+  transition:background var(--motion-duration-instant) var(--motion-ease-standard);
+}
+.pal-row.sel{background:var(--wash-2);color:var(--ink)}
+.pal-row:hover{background:var(--wash);color:var(--ink)}
+.pal-row .r-status,.pal-row .r-key{margin-left:auto;font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-ghost)}
 
 /* ── the floor's working area: cards, separated by the lip ────── */
 .floor{
@@ -444,7 +708,13 @@ html[data-winfocus="false"] .tl svg{opacity:0!important}
   position:relative;
   display:flex;flex-direction:column;min-height:0;min-width:0;flex:1;
   background:var(--surface);
-  border:1px solid var(--border);border-radius:var(--radius-4);overflow:hidden;
+  /* STROKELESS EXPERIMENT (Riley's eye-check): borders die everywhere;
+     separation is tone + lit top edge + contact shadow, all polarities. */
+  border:1px solid transparent;border-radius:var(--radius-4);overflow:hidden;
+  box-shadow:var(--lit), 0 1px 2px rgb(0 0 0/.14), 0 8px 24px rgb(0 0 0/.12);
+}
+[data-theme="paper"] .card{
+  box-shadow:var(--lit), 0 1px 2px rgb(38 34 30/.08), 0 8px 24px rgb(38 34 30/.08);
 }
 .card.fixed{flex:none}
 .card-head{
@@ -509,7 +779,9 @@ button:focus-visible,[tabindex]:focus-visible{outline:none}
   display:flex;align-items:center;gap:12px;margin:0 0 20px;
   font-size:var(--type-micro);color:var(--ink-faint);
 }
-.rule.day{position:sticky;top:0;z-index:3;background:var(--surface);margin:0 0 16px;padding:8px 0}
+.rule.day{margin:0 0 16px;padding:8px 0}
+/* the day rule scrolls with its day — no sticky, no mask, nothing to
+   mismatch: it sits directly on whatever the card ground is */
 .rule::before,.rule::after{content:"";flex:1;height:1px;background:var(--border)}
 .turn{display:grid;grid-template-columns:22px 1fr;gap:12px;margin-bottom:24px}
 .turn>[data-mark]{color:var(--ink-faint);margin-top:2px}
@@ -544,7 +816,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:none}
 /* composer — the one surface allowed a soft shadow and a lit edge */
 .composer{flex:none;padding:8px var(--gutter-reading) 16px;max-width:var(--mn-reading-measure)}
 .well{
-  background:var(--recess);border:1px solid var(--border);
+  background:var(--recess);border:1px solid transparent;
   border-radius:var(--radius-4);padding:8px 12px;box-shadow:var(--lit);
   /* border-color is the only property licensed to move — a background shift
      would repaint under every keystroke, a height ease would make wrapping soggy */
@@ -768,14 +1040,14 @@ html.theme-xfade .app,html.theme-xfade .app *{
   <button id="t-slate">Slate</button>
   <button id="t-inverse">Inverse</button>
   <button id="t-smoke">Smoke</button>
-  <button id="t-dragon">Dragon</button>
+  <button id="t-dragon">Dragon</button><button id="t-voidglass">Void Glass</button>
   <button id="t-onyx">Onyx</button>
   <button id="t-paper">Paper</button>
   <button id="t-split" class="on">Split</button>
   <button id="t-tile">Tile</button>
   <button id="t-place">Place</button>
   <button id="t-lift">Lift</button>
-  <button id="t-laws">Layers</button>
+  <button id="t-settings">Settings</button><button id="t-palette">⌘K</button><button id="t-laws">Layers</button>
   <button id="t-wall">Wallpaper</button>
 </div>
 
@@ -783,12 +1055,76 @@ html.theme-xfade .app,html.theme-xfade .app *{
 <section class="app" id="app">
   <div class="vib" aria-hidden="true"><div class="wps"><div class="wp dark"></div><div class="wp light"></div></div></div>
 
+  <!-- ── settings view: nav on the floor, content as a card ── -->
+  <div class="settings-view" id="settings-view" hidden>
+    <nav class="set-nav">
+      <div class="lights lights-inline" aria-hidden="true"><span class="tl r"></span><span class="tl y"></span><span class="tl g"></span></div>
+      <button class="railrow" id="settings-back"><span class="g" data-icon="chev-l" data-isize="12"></span>Back to app</button>
+      <p class="eyebrow">Account</p>
+      <button class="railrow">Profile &amp; identity</button>
+      <button class="railrow">Security &amp; backup</button>
+      <p class="eyebrow">Experience</p>
+      <button class="railrow on">Appearance</button>
+      <button class="railrow">Notifications</button>
+      <button class="railrow">Shortcuts</button>
+      <p class="eyebrow">Agent system</p>
+      <button class="railrow">Agents</button>
+      <button class="railrow">Connections &amp; MCP</button>
+    </nav>
+    <div class="card set-card">
+      <div class="body" style="padding:28px 32px">
+        <h2 style="font-size:var(--type-heading);font-weight:500;letter-spacing:var(--track-title);margin:0">Appearance</h2>
+        <p style="margin:6px 0 22px;font-size:var(--type-ui);color:var(--ink-faint)">Choose a theme for Luca.</p>
+        <div class="theme-grid">
+          <button class="theme-tile on"><span class="tt tt-voidglass"></span>Void Glass</button>
+          <button class="theme-tile"><span class="tt tt-paperglass"></span>Paper Glass</button>
+          <button class="theme-tile"><span class="tt tt-slate"></span>Slate</button>
+          <button class="theme-tile"><span class="tt tt-void"></span>Void</button>
+          <button class="theme-tile"><span class="tt tt-paper"></span>Paper</button>
+          <button class="theme-tile"><span class="tt tt-buzz"></span>Buzz</button>
+        </div>
+        <p class="eyebrow" style="margin-top:26px">Conversation</p>
+        <div class="set-row">
+          <div><div style="font-size:var(--type-ui)">Resident marks in messages</div>
+          <div style="font-size:var(--type-micro);color:var(--ink-faint);margin-top:2px">Show each resident's identity beside their messages.</div></div>
+          <span class="switch on"><i></i></span>
+        </div>
+        <div class="set-row">
+          <div><div style="font-size:var(--type-ui)">Thread layout</div>
+          <div style="font-size:var(--type-micro);color:var(--ink-faint);margin-top:2px">Threads open in a side panel next to the channel.</div></div>
+          <span class="select-chip">Split</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── command palette: the deep panel, summoned ── -->
+  <div class="palette-veil" id="palette-veil" hidden>
+    <div class="palette" role="dialog" aria-label="Search everything">
+      <div class="pal-field"><span class="g" data-icon="search" data-isize="15"></span><input placeholder="Search everything…" id="pal-input"></div>
+      <div class="pal-list">
+        <p class="eyebrow" style="padding:8px 12px 6px">Conversations</p>
+        <button class="pal-row sel"><span data-mark="luca" data-size="16"></span>Luca — shaping the launch story<span class="r r-status">now</span></button>
+        <button class="pal-row"><span data-mark="vektor" data-size="16"></span>Vektor — the glass hierarchy<span class="r r-status">2h</span></button>
+        <p class="eyebrow" style="padding:12px 12px 6px">Commands</p>
+        <button class="pal-row"><span class="g" data-icon="plus" data-isize="15"></span>New conversation<span class="r r-key">⌘N</span></button>
+        <button class="pal-row"><span class="g" data-icon="grid" data-isize="15"></span>Open Library<span class="r r-key">⌘L</span></button>
+      </div>
+      <div class="pal-foot"><span><b>↑↓</b> navigate</span><span><b>↵</b> open</span><span style="margin-left:auto"><b>esc</b> close</span></div>
+    </div>
+  </div>
+
   <!-- ── the rail, directly on the floor ── -->
   <aside class="rail" data-law="floor">
     <div class="lights" aria-hidden="true">
       <span class="tl r"><svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="rgba(77,0,0,.65)" stroke-width="1.1" stroke-linecap="round"><path d="M2.8 2.8l4.4 4.4M7.2 2.8L2.8 7.2"/></svg></span>
       <span class="tl y"><svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="rgba(105,62,0,.7)" stroke-width="1.1" stroke-linecap="round"><path d="M2.4 5h5.2"/></svg></span>
       <span class="tl g"><svg width="8" height="8" viewBox="0 0 10 10" fill="rgba(0,63,0,.6)"><path d="M2.5 5.6V2.5h3.1z"/><path d="M7.5 4.4v3.1H4.4z"/></svg></span>
+      <span class="chrome-cluster">
+        <button class="chrome-btn" title="Toggle sidebar" data-icon="sidebar" data-isize="13"></button>
+        <button class="chrome-btn" title="Back" data-icon="chev-l" data-isize="12"></button>
+        <button class="chrome-btn dim" title="Forward" data-icon="chev-r" data-isize="12"></button>
+      </span>
     </div>
 
     <button class="railrow"><span class="g" data-icon="search" data-isize="14"></span>Search everything<span class="r r-key">⌘K</span></button>
@@ -807,10 +1143,21 @@ html.theme-xfade .app,html.theme-xfade .app *{
     <button class="railrow"><span class="g" data-icon="diamond" data-isize="12"></span>Polyphonic launch</button>
     <button class="railrow"><span class="g" data-icon="diamond" data-isize="12"></span>Living memory</button>
 
-    <div class="railfoot">
-      <span data-mark="riley" data-size="22"></span>
-      <div><div class="foot-name">Coyote</div>
-      <div class="foot-sub">Personal workspace</div></div>
+    <div class="railfoot-slot">
+      <div class="profile-pop" id="profile-pop" hidden>
+        <div class="pop-row pop-id">
+          <span data-mark="riley" data-size="26"></span>
+          <div><div class="foot-name">Coyote</div><div class="pop-presence"><i class="pdot"></i>Online</div></div>
+        </div>
+        <div class="pop-status">Update your status</div>
+        <button class="pop-item">Settings<span class="r r-key">⌘,</span></button>
+        <button class="pop-item">Send feedback</button>
+      </div>
+      <button class="profile-card" id="profile-card">
+        <span class="pwrap"><span data-mark="riley" data-size="22"></span><i class="pdot on-card"></i></span>
+        <div><div class="foot-name">Coyote</div>
+        <div class="foot-sub">Personal workspace</div></div>
+      </button>
     </div>
   </aside>
 
@@ -1079,6 +1426,9 @@ function markSVG(seed,size){
   return `<svg class="mark" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true"><g fill="currentColor">${d}</g></svg>`;
 }
 const ICONS={
+  sidebar:'<rect x="1.5" y="2.5" width="13" height="11" rx="2.5"/><path d="M6 2.5v11"/>',
+  "chev-l":'<path d="M9.5 3 5 8l4.5 5"/>',
+  "chev-r":'<path d="M6.5 3 11 8l-4.5 5"/>',
   plus:`<path d="M7 2.6v8.8M2.6 7h8.8"/>`,
   search:`<circle cx="6.3" cy="6.3" r="3.7"/><path d="M9.1 9.1L11.6 11.6"/>`,
   at:`<circle cx="7" cy="7" r="2.6"/><path d="M9.6 7v1.4a1.9 1.9 0 0 0 3.8 0V7A6.4 6.4 0 1 0 9.6 12.8"/>`,
@@ -1414,10 +1764,10 @@ glassBtn.onclick=()=>{
   glassBtn.classList.toggle("on",on);
   say(on?"Glass — the floor takes the desktop\u2019s colour, never its lightness":"Opaque — the floor as a solid");
 };
-const themes={slate:document.getElementById("t-slate"),inverse:document.getElementById("t-inverse"),smoke:document.getElementById("t-smoke"),dragon:document.getElementById("t-dragon"),onyx:document.getElementById("t-onyx"),paper:document.getElementById("t-paper")};
+const themes={slate:document.getElementById("t-slate"),inverse:document.getElementById("t-inverse"),smoke:document.getElementById("t-smoke"),dragon:document.getElementById("t-dragon"),voidglass:document.getElementById("t-voidglass"),onyx:document.getElementById("t-onyx"),paper:document.getElementById("t-paper")};
 /* materials are chosen within ink polarity: dark-ink themes read the light
    material's bright floor as a contrast failure, and vice versa */
-const THEME_MATERIAL={slate:"neutral",inverse:"neutral",smoke:"neutral",dragon:"dark",onyx:"dark",paper:"light"};
+const THEME_MATERIAL={slate:"neutral",inverse:"neutral",smoke:"neutral",dragon:"dark",voidglass:"dark",onyx:"dark",paper:"light"};
 const ALLOWED_MATERIALS=t=>t==="paper"?["light"]:["neutral","dark"];
 const matBtn=document.getElementById("t-material");
 function setMaterial(m){
@@ -1444,8 +1794,28 @@ function setTheme(name){
   for(const k in themes) themes[k].classList.toggle("on",k===name);
 }
 for(const k in themes) themes[k].onclick=()=>setTheme(k);
+const profileCard=document.getElementById("profile-card"),profilePop=document.getElementById("profile-pop");
+profileCard.onclick=e=>{e.stopPropagation();profilePop.hidden=!profilePop.hidden;};
+document.addEventListener("click",e=>{if(!profilePop.hidden&&!profilePop.contains(e.target))profilePop.hidden=true;});
+const settingsView=document.getElementById("settings-view"),settingsBtn=document.getElementById("t-settings");
+function toggleSettings(show){
+  settingsView.hidden=show===undefined?!settingsView.hidden:!show;
+  settingsBtn.classList.toggle("on",!settingsView.hidden);
+  document.querySelector(".rail").style.visibility=settingsView.hidden?"":"hidden";
+  document.getElementById("floor").style.visibility=settingsView.hidden?"":"hidden";
+}
+settingsBtn.onclick=()=>toggleSettings();
+document.getElementById("settings-back").onclick=()=>toggleSettings(false);
+const palVeil=document.getElementById("palette-veil"),palBtn=document.getElementById("t-palette"),palInput=document.getElementById("pal-input");
+function togglePalette(show){palVeil.hidden=show===undefined?!palVeil.hidden:!show;palBtn.classList.toggle("on",!palVeil.hidden);if(!palVeil.hidden)palInput.focus();}
+palBtn.onclick=()=>togglePalette();
+palVeil.addEventListener("click",e=>{if(e.target===palVeil)togglePalette(false);});
+document.addEventListener("keydown",e=>{
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){e.preventDefault();togglePalette();}
+  else if(e.key==="Escape"&&!palVeil.hidden)togglePalette(false);
+});
 
-const WALLS=["aurora","dusk","quiet"];
+const WALLS=["aurora","dusk","quiet","mid","night","riley"];
 document.getElementById("t-wall").onclick=()=>{
   const el=document.documentElement;
   const cur=el.dataset.wallpaper||"aurora";
@@ -1563,7 +1933,7 @@ setTheme("inverse");
 
 const q=new URLSearchParams(location.search);
 if(q.get("glass")==="off") glassBtn.click();
-if(["slate","inverse","smoke","dragon","onyx","paper"].includes(q.get("theme"))) setTheme(q.get("theme"));
+if(["slate","inverse","smoke","dragon","voidglass","onyx","paper"].includes(q.get("theme"))) setTheme(q.get("theme"));
 if(["light","neutral","dark"].includes(q.get("material"))) setMaterial(q.get("material"));
 if(q.get("tile")==="1") tileBtn.click();
 if(q.get("place")==="1") showPlace(true);
