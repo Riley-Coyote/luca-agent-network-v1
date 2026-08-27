@@ -346,6 +346,9 @@ pub(super) fn connect_source_with_runtime(
         })
         .transpose()?
         .flatten();
+    let restore_disconnected_grants = existing.as_ref().is_some_and(|(manifest, _)| {
+        manifest.source.status == ConnectedBrainSourceStatusV1::Disconnected
+    });
     let source_id = existing
         .as_ref()
         .map(|(manifest, _)| manifest.source.source_id.clone())
@@ -380,7 +383,11 @@ pub(super) fn connect_source_with_runtime(
         &source.index_page_lineage_ids,
     )?;
     for authority in authorities {
-        ensure_connected_grants(root, runtime, &source.source, authority)?;
+        if restore_disconnected_grants {
+            restore_connected_grants(root, runtime, &source.source, authority)?;
+        } else {
+            ensure_connected_grants(root, runtime, &source.source, authority)?;
+        }
     }
     Ok(ConnectedBrainConnectResultV1 {
         source: ConnectedBrainSourceSummaryV1 {
@@ -649,6 +656,25 @@ pub(super) fn ensure_connected_grants(
     source: &ConnectedBrainSourceV1,
     authority: &ConnectedBrainResidentAuthorityV1,
 ) -> Result<(), OwnerBrainStoreError> {
+    ensure_connected_grants_with_reactivation(root, runtime, source, authority, false)
+}
+
+pub(super) fn restore_connected_grants(
+    root: &ContinuityMasterKey,
+    runtime: &mut ContinuityRuntime,
+    source: &ConnectedBrainSourceV1,
+    authority: &ConnectedBrainResidentAuthorityV1,
+) -> Result<(), OwnerBrainStoreError> {
+    ensure_connected_grants_with_reactivation(root, runtime, source, authority, true)
+}
+
+fn ensure_connected_grants_with_reactivation(
+    root: &ContinuityMasterKey,
+    runtime: &mut ContinuityRuntime,
+    source: &ConnectedBrainSourceV1,
+    authority: &ConnectedBrainResidentAuthorityV1,
+    reactivate_revoked: bool,
+) -> Result<(), OwnerBrainStoreError> {
     if source.owner_pubkey == authority.resident_pubkey {
         return Err(OwnerBrainStoreError::Invalid);
     }
@@ -679,7 +705,11 @@ pub(super) fn ensure_connected_grants(
         effective_grant_state(grant, Some(&authority.binding_ref), Some(provider_egress))
             == BrainGrantStateV1::Active
     });
-    if !recall_is_current {
+    let preserve_revocation = !reactivate_revoked
+        && existing
+            .as_ref()
+            .is_some_and(|grant| grant.state == BrainGrantStateV1::Revoked);
+    if !recall_is_current && !preserve_revocation {
         let version = existing
             .as_ref()
             .map(|grant| grant.grant_version.get())
@@ -733,7 +763,14 @@ pub(super) fn ensure_connected_grants(
     }
 
     if source.source_kind == ConnectedBrainSourceKindV1::Repository {
-        ensure_repository_grant(root, runtime, source, authority, now)?;
+        ensure_repository_grant(
+            root,
+            runtime,
+            source,
+            authority,
+            now,
+            reactivate_revoked,
+        )?;
     }
     Ok(())
 }
@@ -744,6 +781,7 @@ fn ensure_repository_grant(
     source: &ConnectedBrainSourceV1,
     authority: &ConnectedBrainResidentAuthorityV1,
     now: CanonicalTimestamp,
+    reactivate_revoked: bool,
 ) -> Result<(), OwnerBrainStoreError> {
     let key_version = runtime
         .store
@@ -765,6 +803,13 @@ fn ensure_repository_grant(
         grant.state == RepositoryWorkGrantStateV1::Active
             && grant.binding_ref == authority.binding_ref
     }) {
+        return Ok(());
+    }
+    if !reactivate_revoked
+        && existing
+            .as_ref()
+            .is_some_and(|grant| grant.state == RepositoryWorkGrantStateV1::Revoked)
+    {
         return Ok(());
     }
     let grant = RepositoryWorkGrantV1 {

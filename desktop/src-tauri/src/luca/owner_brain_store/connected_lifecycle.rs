@@ -8,6 +8,7 @@ use luca_protocol::{
 use super::connected::{
     catalog_from_generation, connected_generation, connected_source_by_id, ensure_connected_grants,
     find_connected_manifest, find_repository_grant, repository_grant_lineage_id,
+    restore_connected_grants,
     ConnectedBrainResidentAuthorityV1, CONNECTED_INDEX_PAGE_RECORD, CONNECTED_SOURCE_RECORD,
     REPOSITORY_WORK_GRANT_RECORD,
 };
@@ -91,7 +92,7 @@ pub(crate) fn reconfirm_connected_source(
     if manifest.source.status == ConnectedBrainSourceStatusV1::Disconnected {
         return Err(OwnerBrainStoreError::Invalid);
     }
-    ensure_connected_grants(&root, runtime, &manifest.source, &authority)
+    restore_connected_grants(&root, runtime, &manifest.source, &authority)
 }
 
 pub(crate) fn revoke_connected_resident(
