@@ -73,6 +73,29 @@
     top: calc(var(--buzz-sidebar-edge-fade-size) * -1);
   }
 
+  /* Conversation edge veils: full occlusion through the band, dissolving
+     only at the edge. Solid gradients of the surface token (which matches
+     the conversation card in every theme) — deliberately no
+     backdrop-filter: a masked blur silently drops in some webviews
+     (WKWebView), leaving a see-through tint that reads as cloud instead
+     of cover. The glass themes override this element's background with
+     their own frost and are unaffected. */
+  .luca-conversation-veil-top {
+    background: linear-gradient(
+      to bottom,
+      hsl(var(--background)) calc(100% - 3rem),
+      hsl(var(--background) / 0)
+    );
+  }
+
+  .luca-conversation-veil-bottom {
+    background: linear-gradient(
+      to top,
+      hsl(var(--background)) calc(100% - 3rem),
+      hsl(var(--background) / 0)
+    );
+  }
+
   .buzz-side-panel-enter {
     animation: buzz-side-panel-enter var(--motion-duration-drawer)
       var(--motion-ease-drawer) both;
