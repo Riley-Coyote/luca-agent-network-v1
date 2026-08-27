@@ -111,6 +111,36 @@ test.describe("the pop-out shell", () => {
     await expect(pill).toHaveCSS("pointer-events", "auto");
   });
 
+  test("does not open the canvas on a resident's canvas-present", async ({
+    page,
+  }) => {
+    await installMockBridge(page);
+    await page.goto(POPOUT_URL);
+    await expect(page.getByTestId("popout-shell")).toBeVisible();
+    await expect(page.getByTestId("chat-title")).toHaveText("general");
+
+    // Sent on the conversation this window IS: in the main window this is the
+    // payload that auto-presents.
+    await page.evaluate((conversationId) => {
+      window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.("luca://canvas-present", {
+        artifactId: "threshold-study",
+        conversationId,
+        residentPubkey:
+          "953d3363262e86b770419834c53d2446409db6d918a57f8f339d495d54ab001f",
+        turnId: "popout-ignores-this-turn",
+      });
+    }, GENERAL_CHANNEL_ID);
+
+    await expect(page.getByTestId("artifact-canvas")).toHaveCount(0);
+    // And the window never asks to be resized for one. A pop-out that called
+    // `set_artifact_canvas_window_open` would shove itself across the desktop
+    // and restore to the main window's geometry.
+    const commands = await page.evaluate(
+      () => window.__BUZZ_E2E_COMMANDS__ ?? [],
+    );
+    expect(commands).not.toContain("set_artifact_canvas_window_open");
+  });
+
   test("keeps the pin off until it is asked for", async ({ page }) => {
     await installMockBridge(page);
     await page.goto(POPOUT_URL);

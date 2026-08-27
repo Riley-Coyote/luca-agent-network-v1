@@ -2,12 +2,14 @@ import { listen } from "@tauri-apps/api/event";
 import { useLocation } from "@tanstack/react-router";
 import * as React from "react";
 
+import { isPopoutWindow } from "@/app/popout/popoutMode";
 import type {
   ArtifactCanvasMode,
   ArtifactCanvasPhase,
   ArtifactCanvasPresentation,
 } from "@/features/artifacts/types";
 import { ArtifactCanvas } from "@/features/artifacts/ui/ArtifactCanvas";
+import type { ArtifactCanvasWindowResult } from "@/shared/api/tauriArtifacts";
 import { setArtifactCanvasWindowOpen } from "@/shared/api/tauriArtifacts";
 import { useRightCardsSlot } from "@/shared/layout/RightCardsSlot";
 import { createPortal } from "react-dom";
@@ -30,6 +32,33 @@ const TRANSITION_MS = 480;
 function browserMode(): ArtifactCanvasMode {
   if (window.innerWidth < 64 * 16) return "focus";
   return window.innerWidth >= 100 * 16 ? "expanded" : "contained";
+}
+
+/**
+ * Widen or narrow THIS window to seat the canvas — main window only.
+ *
+ * `set_artifact_canvas_window_open` resizes the window it is called from: it
+ * is how the main window grows by the canvas's width and shrinks back
+ * afterwards. A pop-out must never ask for it. It opens at 380px beside
+ * whatever the owner is actually working in, so the call would shove the
+ * pop-out across the desktop — and the geometry it restores to is the main
+ * window's, not this one's.
+ *
+ * One choke point rather than a guard at each call site, so a fourth caller
+ * cannot reintroduce the resize by forgetting.
+ *
+ * TODO(M2): what a pop-out does with an artifact AT ALL is still open. The
+ * question worth answering is the hand-off — a pop-out passing the artifact to
+ * the main window's canvas — not a second canvas inside a 380px window.
+ */
+async function seatCanvasWindow(
+  open: boolean,
+  preferredCanvasWidthPx?: number,
+): Promise<ArtifactCanvasWindowResult | null> {
+  if (isPopoutWindow()) {
+    return null;
+  }
+  return setArtifactCanvasWindowOpen(open, preferredCanvasWidthPx);
 }
 
 export function ArtifactCanvasProvider({
@@ -62,8 +91,8 @@ export function ArtifactCanvasProvider({
         : null;
     setPhase("opening");
     nativeWindowOpen.current = true;
-    void setArtifactCanvasWindowOpen(true, 704)
-      .then((result) => setMode(result.mode))
+    void seatCanvasWindow(true, 704)
+      .then((result) => setMode(result?.mode ?? browserMode()))
       .catch(() => setMode(browserMode()))
       .finally(() => {
         if (request !== openRequest.current) return;
@@ -85,7 +114,7 @@ export function ArtifactCanvasProvider({
         setPresentation(null);
         setPhase("closed");
         nativeWindowOpen.current = false;
-        void setArtifactCanvasWindowOpen(false).catch(() => undefined);
+        void seatCanvasWindow(false).catch(() => undefined);
         if (restoreFocus.current?.isConnected) restoreFocus.current.focus();
       },
       reduced ? 0 : TRANSITION_MS,
@@ -146,6 +175,13 @@ export function ArtifactCanvasProvider({
         turnId?: string | null;
       }>("luca://canvas-present", ({ payload }) => {
         void queryClient.invalidateQueries({ queryKey: artifactsQueryKey });
+        // A pop-out does not auto-present. Every window listening to this
+        // event would open its own canvas on the same turn, and the one that
+        // should is the window the owner is looking at — the main one. The
+        // receipt in the pop-out's own timeline still opens by hand.
+        // TODO(M2): the hand-off — a pop-out sending an artifact to the main
+        // window's canvas rather than swallowing or duplicating it.
+        if (isPopoutWindow()) return;
         const turnId = payload.turnId ?? null;
         if (payload.conversationId !== currentConversationId) return;
         if (turnId && dismissedTurns.current.has(turnId)) return;
@@ -182,7 +218,7 @@ export function ArtifactCanvasProvider({
       ++openRequest.current;
       if (nativeWindowOpen.current) {
         nativeWindowOpen.current = false;
-        void setArtifactCanvasWindowOpen(false).catch(() => undefined);
+        void seatCanvasWindow(false).catch(() => undefined);
       }
     },
     [],
