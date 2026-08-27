@@ -39,6 +39,7 @@ export type HeldDeliveryNotice = {
 function turnIsLive(uiKey: string): boolean {
   const turn = getManagedPresentationTurn(uiKey);
   if (!turn) return false;
+  if (turn.finalMessageId !== null) return false;
   if (TERMINAL_TURN_PHASES.has(turn.phase)) return false;
   return true;
 }

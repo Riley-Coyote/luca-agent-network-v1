@@ -14,6 +14,7 @@ import {
   getManagedPresentationSnapshot,
   getManagedPresentationTurn,
   getManagedPresentationTurnKeysSnapshot,
+  hasLiveManagedPresentationForResident,
   getManagedOperationalReceiptSnapshot,
   getManagedResponseSlotsSnapshot,
   hydrateManagedOperationalStatuses,
@@ -68,6 +69,23 @@ function flushAll() {
 afterEach(resetManagedPresentationStore);
 
 describe("managedPresentationStore", () => {
+  it("keeps auto-restart inhibited until a managed signed final settles", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    assert.equal(hasLiveManagedPresentationForResident(residentPubkey), true);
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(frame("completed", 2));
+    assert.equal(hasLiveManagedPresentationForResident(residentPubkey), true);
+
+    reconcileManagedPresentationFinal(
+      residentPubkey,
+      receiptId,
+      conversationId,
+      "settled-final",
+      "Done",
+    );
+    assert.equal(hasLiveManagedPresentationForResident(residentPubkey), false);
+  });
+
   it("settles a watchdog cancellation and rejects buffered or late presentation frames", () => {
     seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
     ingestManagedPresentationFrame(frame("turn_started", 1));

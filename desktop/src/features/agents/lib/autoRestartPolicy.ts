@@ -29,6 +29,9 @@ export type AutoRestartInputs = {
    * observer stream) and therefore never sufficient to fire on its own —
    * the connected gate plus the continuity window carry that risk. */
   workingSource: AgentWorkingSource;
+  /** Native managed-presentation work is authoritative even when an adapter
+   * emits neither observer nor typing activity. */
+  managedPresentationWorking: boolean;
   /** Observer relay connection state; anything but "connected" inhibits. */
   connected: boolean;
   /** Only local agents can be restarted by this loop. */
@@ -58,6 +61,7 @@ export function decideAutoRestart(
     needsRestart,
     working,
     workingSource,
+    managedPresentationWorking,
     connected,
     isLocalBackend,
     isRunning,
@@ -74,7 +78,8 @@ export function decideAutoRestart(
   // Any working signal — observer OR typing — defers. `working` and
   // `workingSource` travel together, but check both so a partial reader
   // can never slip through.
-  if (working || workingSource !== "none") return "hold";
+  if (working || workingSource !== "none" || managedPresentationWorking)
+    return "hold";
   // One attempt per rising edge: a consumed edge badges until it cycles.
   if (edgeConsumed) return "hold";
 

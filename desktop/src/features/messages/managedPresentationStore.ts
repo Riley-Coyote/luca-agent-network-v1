@@ -1133,6 +1133,23 @@ export function getManagedPresentationTurn(
   return turns.get(uiKey) ?? null;
 }
 
+/**
+ * True while this resident still has managed work that must not be killed by
+ * an automatic config restart. A completed observer frame remains live until
+ * its signed final is reconciled; retained signed finals are no longer work.
+ */
+export function hasLiveManagedPresentationForResident(
+  residentPubkey: string,
+): boolean {
+  const normalizedPubkey = residentPubkey.toLowerCase();
+  return [...turns.values()].some(
+    (turn) =>
+      turn.residentPubkey === normalizedPubkey &&
+      turn.finalMessageId === null &&
+      !["stopped", "failed", "needs_attention"].includes(turn.phase),
+  );
+}
+
 export function acknowledgeManagedPresentationReconciliation(
   uiKey: string,
   finalMessageId: string,

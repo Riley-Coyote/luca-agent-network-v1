@@ -21,6 +21,7 @@ function greenInputs(overrides = {}) {
     needsRestart: true,
     working: false,
     workingSource: "none",
+    managedPresentationWorking: false,
     connected: true,
     isLocalBackend: true,
     isRunning: true,
@@ -48,6 +49,10 @@ const NEVER_FIRE_ROWS = [
     { working: true, workingSource: "typing" },
   ],
   ["working flag alone defers (defensive)", { working: true }],
+  [
+    "managed presentation counts as working without observer or typing",
+    { managedPresentationWorking: true },
+  ],
   [
     "source alone defers even if working flag lies (defensive)",
     { workingSource: "observer" },

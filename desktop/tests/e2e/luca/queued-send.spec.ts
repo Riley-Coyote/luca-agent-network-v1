@@ -39,7 +39,7 @@ test.beforeEach(async ({ page }) => {
     .toBe(true);
 });
 
-test("a send during a live turn shows the held notice; turn end clears it", async ({
+test("a send during a live turn shows the held notice; signed final clears it", async ({
   page,
 }) => {
   // First send starts a turn (seeded presentation).
@@ -85,7 +85,8 @@ test("a send during a live turn shows the held notice; turn end clears it", asyn
   await expect(notice).toContainText("queued");
   await expect(page.getByTestId("held-delivery-interrupt")).toBeEnabled();
 
-  // The turn finishes (cancelled here — any terminal works) → notice clears.
+  // Observer completion alone can precede durable publication, so the hold
+  // remains until the signed final that actually releases the native queue.
   await page.evaluate(
     ({ eventName, payload }) => {
       window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.(eventName, payload);
@@ -99,10 +100,27 @@ test("a send during a live turn shows the held notice; turn end clears it", asyn
         turn_id: "queued-send-turn",
         dispatch_receipt_id: receiptId,
         session_epoch: 1,
-        kind: "cancelled",
+        kind: "completed",
         sequence: 2,
       },
     },
+  );
+  await expect(notice).toBeVisible();
+
+  await page.evaluate(
+    ({ dispatchReceiptId, pubkey }) => {
+      window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+        channelName: "general",
+        content: "first turn finished",
+        parentEventId: dispatchReceiptId,
+        pubkey,
+        extraTags: [
+          ["luca-managed-dispatch", dispatchReceiptId],
+          ["broadcast", "1"],
+        ],
+      });
+    },
+    { dispatchReceiptId: receiptId, pubkey: LUCA },
   );
   await expect(notice).toHaveCount(0);
 });

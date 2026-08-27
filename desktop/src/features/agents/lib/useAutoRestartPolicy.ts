@@ -11,6 +11,7 @@ import {
 } from "@/shared/api/tauriManagedAgents";
 import { listManagedAgents } from "@/shared/api/tauri";
 import type { ManagedAgent } from "@/shared/api/types";
+import { hasLiveManagedPresentationForResident } from "@/features/messages/managedPresentationStore";
 import { getAgentObserverSnapshot } from "../observerRelayStore";
 import { getAgentWorkingState } from "../agentWorkingSignal";
 import {
@@ -69,6 +70,9 @@ export function useAutoRestartPolicy() {
         needsRestart: agent.needsRestart,
         working: working.working,
         workingSource: working.source,
+        managedPresentationWorking: hasLiveManagedPresentationForResident(
+          agent.pubkey,
+        ),
         connected: observer.connectionState === "open",
         isLocalBackend: agent.backend.type === "local",
         isRunning,
@@ -104,7 +108,8 @@ export function useAutoRestartPolicy() {
             !current?.needsRestart ||
             !current.autoRestartOnConfigChange ||
             current.status !== "running" ||
-            getAgentWorkingState(agent.pubkey).source !== "none"
+            getAgentWorkingState(agent.pubkey).source !== "none" ||
+            hasLiveManagedPresentationForResident(agent.pubkey)
           ) {
             return;
           }
