@@ -13,7 +13,6 @@ use std::fmt::Write as _;
 use std::time::Duration;
 
 use tauri::{Listener, Manager, WebviewUrl, WebviewWindowBuilder};
-use tauri_plugin_window_state::{StateFlags, WindowExt};
 
 /// Prefix every pop-out window label carries.
 ///
@@ -48,12 +47,6 @@ const POPOUT_REVEAL_TIMEOUT: Duration = Duration::from_secs(4);
 /// `lib.rs`; the webview paints its own themed background moments later.
 #[cfg(target_os = "macos")]
 const POPOUT_BACKING_COLOR: tauri::window::Color = tauri::window::Color(17, 21, 24, 255);
-
-/// Geometry restore mirrors the main window's flags: everything except
-/// visibility, which the reveal below owns.
-fn popout_restore_flags() -> StateFlags {
-    StateFlags::all() & !StateFlags::VISIBLE
-}
 
 /// The event a pop-out emits once React has committed its first frame.
 fn popout_render_ready_event(label: &str) -> String {
@@ -109,7 +102,10 @@ fn sanitize_channel_label_segment(channel_id: &str) -> Option<String> {
         })
         .collect();
 
-    if sanitized.chars().any(|character| character.is_ascii_alphanumeric()) {
+    if sanitized
+        .chars()
+        .any(|character| character.is_ascii_alphanumeric())
+    {
         Some(sanitized)
     } else {
         None
@@ -144,8 +140,8 @@ pub(crate) struct PopoutPlan {
 /// Split out from the command so the label and de-duplication rules are
 /// testable without a window server.
 pub(crate) fn plan_popout(channel_id: &str, live_labels: &[String]) -> Result<PopoutPlan, String> {
-    let label = popout_label(channel_id)
-        .ok_or_else(|| "a pop-out needs a conversation id".to_string())?;
+    let label =
+        popout_label(channel_id).ok_or_else(|| "a pop-out needs a conversation id".to_string())?;
     let action = if live_labels.iter().any(|live| live == &label) {
         PopoutAction::Reveal
     } else {
@@ -253,16 +249,13 @@ pub async fn open_channel_popout(
     #[cfg(target_os = "macos")]
     set_popout_backing(&window);
 
-    // Window state is keyed by label, so each conversation's pop-out keeps its
-    // own geometry for free. The window-state plugin also restores on
-    // window-ready; this call is the ordering guarantee that geometry has
-    // landed before the reveal below, rather than a frame after it.
-    if let Err(error) = window.restore_state(popout_restore_flags()) {
-        eprintln!(
-            "luca-popout: failed to restore geometry for {}: {error}",
-            plan.label
-        );
-    }
+    // Window state is keyed by label, so each conversation's pop-out keeps
+    // its own geometry for free: the window-state plugin restores every
+    // non-denylisted label in its own window-created hook, on the main
+    // thread, before the reveal below can run. Do NOT also call
+    // `restore_state` here — the plugin's hook and a second caller take the
+    // state mutex and the main thread in opposite orders, and the first live
+    // pop-out deadlocked the entire app exactly that way (2026-08-27).
 
     let reveal_label = plan.label.clone();
     tauri::async_runtime::spawn(async move {
@@ -369,13 +362,5 @@ mod tests {
             popout_render_ready_event("popout-abc"),
             "popout-render-ready:popout-abc"
         );
-    }
-
-    #[test]
-    fn geometry_restores_without_revealing() {
-        let flags = popout_restore_flags();
-        assert!(flags.contains(StateFlags::SIZE));
-        assert!(flags.contains(StateFlags::POSITION));
-        assert!(!flags.contains(StateFlags::VISIBLE));
     }
 }
