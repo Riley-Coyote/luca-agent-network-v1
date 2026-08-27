@@ -11,7 +11,6 @@ import {
 import { useWebviewZoomShortcuts } from "@/app/useWebviewZoomShortcuts";
 import { ResidentHarnessProvider } from "@/features/agents/ResidentHarnessContext";
 import { ArtifactCanvasProvider } from "@/features/artifacts/ArtifactCanvasProvider";
-import { useChannelNavigation } from "@/shared/context/ChannelNavigationContext";
 import { useWebviewScrollBoundaryLock } from "@/shared/hooks/useWebviewScrollBoundaryLock";
 import { chromeCssVarDefaults } from "@/shared/layout/chromeLayout";
 import { MainInsetProvider } from "@/shared/layout/MainInsetContext";
@@ -30,49 +29,6 @@ function isStripDragEvent(event: MouseEvent | PointerEvent): boolean {
   return !(
     target instanceof Element && target.closest(INTERACTIVE_SELECTOR) !== null
   );
-}
-
-/**
- * What the strip calls this window.
- *
- * The native window title is authoritative: the affordance that opened the
- * pop-out passed the conversation's already-resolved title through to Rust, so
- * reading it back keeps one source of truth instead of re-deriving a DM's
- * display name here. The channel's own name stands in until that read lands —
- * and in a browser context, where there is no native window at all.
- */
-function usePopoutWindowTitle(): string {
-  const { channels } = useChannelNavigation();
-  const channelId = popoutChannelId();
-  const [nativeTitle, setNativeTitle] = React.useState("");
-
-  React.useEffect(() => {
-    if (!isTauri()) {
-      return;
-    }
-    let cancelled = false;
-    void getCurrentWindow()
-      .title()
-      .then((value) => {
-        if (!cancelled) {
-          setNativeTitle(value);
-        }
-      })
-      .catch(() => {
-        // A title we cannot read is not worth surfacing; the channel name
-        // below already names the window.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const channelName = React.useMemo(
-    () => channels.find((channel) => channel.id === channelId)?.name ?? "",
-    [channelId, channels],
-  );
-
-  return nativeTitle || channelName;
 }
 
 /**
@@ -146,6 +102,12 @@ function useWindowDragStrip(stripRef: React.RefObject<HTMLElement | null>) {
  * lights; what the web side owes the window is a drag region where the title
  * bar would be, and the two controls that have no native equivalent — the pin,
  * and the way back into the full app.
+ *
+ * The strip carries NO title. The conversation header sits directly beneath it
+ * and already names the conversation, in the app's own voice, with its icon and
+ * its presence line; a second copy 40px above it was the same word twice. The
+ * native window title is still set — that is what the Window menu, Mission
+ * Control and ⌘-tab read — it just is not repeated inside the glass.
  */
 export function PopoutShell({ children }: { children: React.ReactNode }) {
   // The two webview manners the main window also keeps: ⌘+/− scales the text,
@@ -153,7 +115,6 @@ export function PopoutShell({ children }: { children: React.ReactNode }) {
   // of rubber-banding the whole window.
   useWebviewZoomShortcuts();
   useWebviewScrollBoundaryLock();
-  const title = usePopoutWindowTitle();
   const { isPinned, togglePin } = usePopoutPin();
   const channelId = popoutChannelId();
   const stripRef = React.useRef<HTMLDivElement>(null);
@@ -183,15 +144,14 @@ export function PopoutShell({ children }: { children: React.ReactNode }) {
       >
         {/* The strip is a window drag region, not a control: the pointer gestures
           on it move the window itself. Every control it carries is a real
-          button, and those opt out of the drag. */}
+          button, and those opt out of the drag. The empty run between the
+          traffic lights and the controls is the drag surface — most of the
+          strip is meant to be nothing. */}
         <div
           className="luca-popout__strip"
           data-testid="popout-drag-strip"
           ref={stripRef}
         >
-          <span className="luca-popout__title" data-testid="popout-title">
-            {title}
-          </span>
           <div className="luca-popout__controls">
             {/* One glyph, two states. A slashed pin for "not pinned" would
                 read as "pinning unavailable"; the state lives in the

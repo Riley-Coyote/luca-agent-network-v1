@@ -35,7 +35,11 @@ test.describe("the pop-out shell", () => {
 
     const strip = page.getByTestId("popout-drag-strip");
     await expect(strip).toBeVisible();
-    await expect(page.getByTestId("popout-title")).toHaveText("general");
+
+    // ONE title. The conversation header names the window; the strip above it
+    // carries controls and drag surface only, or the same word reads twice.
+    await expect(page.getByTestId("chat-title")).toHaveText("general");
+    await expect(page.getByTestId("popout-title")).toHaveCount(0);
 
     // The strip stands where a title bar would, clear of the traffic lights.
     const stripBox = await strip.boundingBox();
