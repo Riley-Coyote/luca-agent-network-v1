@@ -102,6 +102,16 @@ fn claude_parser_excludes_thinking_tools_and_credentials() {
         "type": "user",
         "message": {"role": "assistant", "content": [{"type": "text", "text": "hidden"}]}
     });
+    let message_meta = json!({
+        "type": "user",
+        "isMeta": false,
+        "message": {"role": "user", "isMeta": true, "content": "hidden injected context"}
+    });
+    let compact_summary = json!({
+        "type": "user",
+        "isCompactSummary": true,
+        "message": {"role": "user", "content": "hidden compacted system summary"}
+    });
     assert_eq!(
         sessions::parse_claude_fixture(&visible).as_deref(),
         Some("Visible answer")
@@ -110,6 +120,8 @@ fn claude_parser_excludes_thinking_tools_and_credentials() {
     assert_eq!(sessions::parse_claude_fixture(&credential), None);
     assert_eq!(sessions::parse_claude_fixture(&internal_command), None);
     assert_eq!(sessions::parse_claude_fixture(&role_mismatch), None);
+    assert_eq!(sessions::parse_claude_fixture(&message_meta), None);
+    assert_eq!(sessions::parse_claude_fixture(&compact_summary), None);
 }
 
 #[test]

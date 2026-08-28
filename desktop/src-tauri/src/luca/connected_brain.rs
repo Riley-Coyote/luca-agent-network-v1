@@ -23,6 +23,7 @@ pub(crate) use session_context::{
     context_for_indexed_session, list_indexed_sessions, IndexedSessionContextV1,
     IndexedSessionListV1, IndexedSessionSummaryV1,
 };
+pub(crate) use sessions::SessionReadBudget;
 pub(crate) use watcher::{
     register_connected_source, start_connected_source_watcher, unregister_connected_source,
     ConnectedBrainWatcherState,

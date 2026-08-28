@@ -448,7 +448,7 @@ pub async fn list_connected_runtime_sessions(
         let catalog = state
             .read_connected_brain_catalog(&owner)
             .map_err(|error| error.code().to_owned())?;
-        let sources = catalog
+        let mut sources = catalog
             .sources
             .into_iter()
             .filter(|source| {
@@ -456,6 +456,7 @@ pub async fn list_connected_runtime_sessions(
                     && source.source.status != ConnectedBrainSourceStatusV1::Disconnected
             })
             .collect::<Vec<_>>();
+        sources.sort_by(|left, right| left.source.source_id.cmp(&right.source.source_id));
         if sources.is_empty() {
             return Ok(ConnectedRuntimeSessionListV1 {
                 runtime_id,
@@ -475,9 +476,13 @@ pub async fn list_connected_runtime_sessions(
         let mut total_session_count = 0_usize;
         let mut sessions = Vec::new();
         let mut had_source_failure = false;
+        let mut read_budget = connected_brain::SessionReadBudget::for_rail_list();
         for source in sources {
-            let listed = match state.read_connected_brain_sessions(&owner, &source.source.source_id)
-            {
+            let listed = match state.read_connected_brain_sessions(
+                &owner,
+                &source.source.source_id,
+                &mut read_budget,
+            ) {
                 Ok(listed) => listed,
                 Err(error) => {
                     match isolate_expected_session_source_failure(error, || {

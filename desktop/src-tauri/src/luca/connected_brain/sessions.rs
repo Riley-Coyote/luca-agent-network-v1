@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     fs,
-    io::{self, BufRead, BufReader},
+    io::{BufRead, BufReader},
     path::{Path, PathBuf},
     sync::LazyLock,
 };
@@ -16,37 +16,104 @@ const MAX_SESSION_FILES: usize = 20_000;
 const MAX_SESSION_DEPTH: usize = 8;
 const MAX_JSONL_LINE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_SESSION_SELECTIONS: usize = 8;
-const MAX_SESSION_SELECTION_BYTES: usize = 32 * 1024 * 1024;
-const MAX_SESSION_SELECTION_LINES: usize = 50_000;
+const MAX_RAIL_SESSION_FILES: usize = 64;
+const MAX_RAIL_SESSION_BYTES: usize = 24 * 1024 * 1024;
+const MAX_RAIL_SESSION_LINES: usize = 30_000;
+const MAX_CONTEXT_SESSION_BYTES: usize = 32 * 1024 * 1024;
+const MAX_CONTEXT_SESSION_LINES: usize = 50_000;
 const SESSION_STREAM_BUFFER_BYTES: usize = 64 * 1024;
 
-static LOCAL_PATH_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+static HTTP_URL_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)https?://[^\s<>\"'`]+"#).expect("HTTP URL preservation regex must compile")
+});
+
+static PROBABLE_LOCAL_PATH_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r#"(?ix)
-        (?:file://(?:localhost)?)?
+        (?P<prefix>^|[^a-z0-9/])
         (?:
-            /(?:users|home|volumes)/[^/\s<>\"'`]+(?:/[^\s<>\"'`]*)? |
-            /(?:private|tmp|var|opt|usr|etc|applications|library|system|dev|workspace|mnt|media|bin|sbin|run|proc|srv)(?:/[^\s<>\"'`]*)? |
+            (?:file://(?:localhost)?)?/{1,2}[a-z0-9._~-]+(?:/[^\s<>\"'`\])}]*)? |
             [a-z]:\\(?:users\\)?[^\\\s<>\"'`]+(?:\\[^\s<>\"'`]*)?
         )"#,
     )
     .expect("local path redaction regex must compile")
 });
 
-static ABSOLUTE_PATH_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?m)(?P<prefix>^|[\s(\[{\"'=])/[A-Za-z0-9._~-]+(?:/[^\s<>\"'`\])}]*)?"#)
-        .expect("absolute path redaction regex must compile")
-});
+#[derive(Debug)]
+pub(crate) struct SessionReadBudget {
+    remaining_files: usize,
+    remaining_bytes: usize,
+    remaining_lines: usize,
+    exhausted: bool,
+}
+
+impl SessionReadBudget {
+    pub(crate) fn for_rail_list() -> Self {
+        Self::new(
+            MAX_RAIL_SESSION_FILES,
+            MAX_RAIL_SESSION_BYTES,
+            MAX_RAIL_SESSION_LINES,
+        )
+    }
+
+    pub(super) fn for_context() -> Self {
+        Self::new(1, MAX_CONTEXT_SESSION_BYTES, MAX_CONTEXT_SESSION_LINES)
+    }
+
+    pub(super) fn new(max_files: usize, max_bytes: usize, max_lines: usize) -> Self {
+        Self {
+            remaining_files: max_files,
+            remaining_bytes: max_bytes,
+            remaining_lines: max_lines,
+            exhausted: max_files == 0 || max_bytes == 0 || max_lines == 0,
+        }
+    }
+
+    pub(super) fn candidate_limit(&self) -> usize {
+        if self.is_exhausted() {
+            0
+        } else {
+            self.remaining_files
+                .min(self.remaining_lines)
+                .min(self.remaining_bytes)
+        }
+    }
+
+    pub(super) fn is_exhausted(&self) -> bool {
+        self.exhausted
+            || self.remaining_files == 0
+            || self.remaining_bytes == 0
+            || self.remaining_lines == 0
+    }
+
+    fn begin_file(&mut self) -> Result<(), ()> {
+        if self.is_exhausted() {
+            self.exhausted = true;
+            return Err(());
+        }
+        self.remaining_files -= 1;
+        Ok(())
+    }
+
+    fn record_line(&mut self, bytes: usize) {
+        self.remaining_bytes = self.remaining_bytes.saturating_sub(bytes);
+        self.remaining_lines = self.remaining_lines.saturating_sub(1);
+    }
+
+    fn mark_exhausted(&mut self) {
+        self.exhausted = true;
+    }
+}
+
+enum BoundedLineReadError {
+    Io,
+    Budget,
+}
 
 pub(super) struct SessionMetadata {
     pub count: usize,
     pub earliest_at: Option<String>,
     pub latest_at: Option<String>,
-}
-
-pub(super) struct SessionDocument {
-    pub relative_path: String,
-    pub visible_messages: Vec<String>,
 }
 
 pub(super) fn session_metadata(
@@ -66,14 +133,18 @@ pub(super) fn session_metadata(
     })
 }
 
-pub(super) fn documents(
+/// Visit visible session records in deterministic file/ordinal order. The
+/// visitor can stop the source immediately, which lets index construction end
+/// at its existing entry cap without collecting transcripts or opening the
+/// remaining files.
+pub(super) fn visit_messages(
     root: &Path,
     kind: ConnectedBrainSourceKindV1,
-) -> Result<Vec<SessionDocument>, String> {
+    mut visitor: impl FnMut(&str, usize, String) -> Result<bool, String>,
+) -> Result<(), String> {
     let canonical_root = root
         .canonicalize()
         .map_err(|_| "session history is unavailable".to_owned())?;
-    let mut documents = Vec::new();
     for path in session_files(&canonical_root, kind)? {
         let Ok(relative) = path.strip_prefix(&canonical_root) else {
             continue;
@@ -81,15 +152,15 @@ pub(super) fn documents(
         let Some(relative_path) = relative.to_str().map(|value| value.replace('\\', "/")) else {
             continue;
         };
-        let visible_messages = parse_file(&path, kind)?;
-        if !visible_messages.is_empty() {
-            documents.push(SessionDocument {
-                relative_path,
-                visible_messages,
-            });
+        let file = fs::File::open(path).map_err(|_| "session history is unavailable".to_owned())?;
+        let mut reader = BufReader::with_capacity(SESSION_STREAM_BUFFER_BYTES, file);
+        if !visit_messages_from_reader(&mut reader, kind, |ordinal, message| {
+            visitor(&relative_path, ordinal, message)
+        })? {
+            return Ok(());
         }
     }
-    Ok(documents)
+    Ok(())
 }
 
 pub(super) fn read_messages(
@@ -109,15 +180,19 @@ pub(super) fn read_messages_at_ordinals(
     kind: ConnectedBrainSourceKindV1,
     relative_path: &str,
     ordinals: &BTreeSet<usize>,
+    budget: &mut SessionReadBudget,
 ) -> Result<BTreeMap<usize, String>, String> {
     if ordinals.is_empty() || ordinals.len() > MAX_SESSION_SELECTIONS {
         return Err("connected session selection is invalid".to_owned());
     }
+    budget
+        .begin_file()
+        .map_err(|_| "connected session read budget exhausted".to_owned())?;
     let canonical = resolved_session_path(root, kind, relative_path)?;
     let file = fs::File::open(canonical)
         .map_err(|_| "connected session selection is unavailable".to_owned())?;
     let mut reader = BufReader::with_capacity(SESSION_STREAM_BUFFER_BYTES, file);
-    select_messages_from_reader(&mut reader, kind, ordinals)
+    select_messages_from_reader(&mut reader, kind, ordinals, budget)
 }
 
 pub(super) fn session_updated_at(
@@ -177,6 +252,9 @@ fn session_files(root: &Path, kind: ConnectedBrainSourceKindV1) -> Result<Vec<Pa
             continue;
         };
         for entry in entries.flatten() {
+            if files.len() >= MAX_SESSION_FILES {
+                break;
+            }
             let Ok(file_type) = entry.file_type() else {
                 continue;
             };
@@ -210,47 +288,72 @@ fn session_files(root: &Path, kind: ConnectedBrainSourceKindV1) -> Result<Vec<Pa
 fn parse_file(path: &Path, kind: ConnectedBrainSourceKindV1) -> Result<Vec<String>, String> {
     let file = fs::File::open(path).map_err(|_| "session history is unavailable".to_owned())?;
     let mut messages = Vec::new();
-    for line in BufReader::new(file).lines() {
-        let Ok(line) = line else {
-            continue;
-        };
-        if line.len() > MAX_JSONL_LINE_BYTES {
-            continue;
-        }
-        let Ok(value) = serde_json::from_str::<Value>(&line) else {
-            continue;
-        };
-        if let Some(text) = visible_session_message(&value, kind) {
-            messages.push(text);
-        }
-    }
+    let mut reader = BufReader::with_capacity(SESSION_STREAM_BUFFER_BYTES, file);
+    visit_messages_from_reader(&mut reader, kind, |_ordinal, message| {
+        messages.push(message);
+        Ok(true)
+    })?;
     Ok(messages)
+}
+
+fn visit_messages_from_reader<R: BufRead>(
+    reader: &mut R,
+    kind: ConnectedBrainSourceKindV1,
+    mut visitor: impl FnMut(usize, String) -> Result<bool, String>,
+) -> Result<bool, String> {
+    let mut visible_ordinal = 0_usize;
+    let mut line = Vec::with_capacity(SESSION_STREAM_BUFFER_BYTES);
+    loop {
+        let Some((_line_bytes, oversized)) = read_bounded_line(reader, &mut line, usize::MAX)
+            .map_err(|_| "session history contains an unreadable JSONL record".to_owned())?
+        else {
+            return Ok(true);
+        };
+        if oversized {
+            continue;
+        }
+        let Ok(value) = serde_json::from_slice::<Value>(&line) else {
+            continue;
+        };
+        let Some(message) = visible_session_message(&value, kind) else {
+            continue;
+        };
+        if !visitor(visible_ordinal, message)? {
+            return Ok(false);
+        }
+        visible_ordinal = visible_ordinal.saturating_add(1);
+    }
 }
 
 fn select_messages_from_reader<R: BufRead>(
     reader: &mut R,
     kind: ConnectedBrainSourceKindV1,
     ordinals: &BTreeSet<usize>,
+    budget: &mut SessionReadBudget,
 ) -> Result<BTreeMap<usize, String>, String> {
     let mut selected = BTreeMap::new();
     let mut visible_ordinal = 0_usize;
-    let mut bytes_read = 0_usize;
-    let mut lines_read = 0_usize;
     let mut line = Vec::with_capacity(SESSION_STREAM_BUFFER_BYTES);
 
     loop {
-        if lines_read >= MAX_SESSION_SELECTION_LINES {
+        if budget.remaining_lines == 0 || budget.remaining_bytes == 0 {
+            budget.mark_exhausted();
             return Err("connected session selection exceeded its read limit".to_owned());
         }
-        let remaining_bytes = MAX_SESSION_SELECTION_BYTES.saturating_sub(bytes_read);
-        let Some((line_bytes, oversized)) =
-            read_bounded_line(reader, &mut line, remaining_bytes)
-                .map_err(|_| "connected session selection exceeded its read limit".to_owned())?
-        else {
-            break;
+        let line_result = read_bounded_line(reader, &mut line, budget.remaining_bytes);
+        let Some((line_bytes, oversized)) = (match line_result {
+            Ok(line) => line,
+            Err(BoundedLineReadError::Budget) => {
+                budget.mark_exhausted();
+                return Err("connected session selection exceeded its read limit".to_owned());
+            }
+            Err(BoundedLineReadError::Io) => {
+                return Err("connected session selection is unavailable".to_owned());
+            }
+        }) else {
+            return Ok(selected);
         };
-        bytes_read = bytes_read.saturating_add(line_bytes);
-        lines_read = lines_read.saturating_add(1);
+        budget.record_line(line_bytes);
         if oversized {
             continue;
         }
@@ -268,21 +371,20 @@ fn select_messages_from_reader<R: BufRead>(
         }
         visible_ordinal = visible_ordinal.saturating_add(1);
     }
-    Ok(selected)
 }
 
 fn read_bounded_line<R: BufRead>(
     reader: &mut R,
     line: &mut Vec<u8>,
     max_bytes: usize,
-) -> io::Result<Option<(usize, bool)>> {
+) -> Result<Option<(usize, bool)>, BoundedLineReadError> {
     line.clear();
     let mut bytes_read = 0_usize;
     let mut oversized = false;
     let mut saw_bytes = false;
 
     loop {
-        let available = reader.fill_buf()?;
+        let available = reader.fill_buf().map_err(|_| BoundedLineReadError::Io)?;
         if available.is_empty() {
             return if saw_bytes {
                 Ok(Some((bytes_read, oversized)))
@@ -297,10 +399,7 @@ fn read_bounded_line<R: BufRead>(
             .map_or(available.len(), |position| position + 1);
         let has_newline = available.get(chunk_len.saturating_sub(1)) == Some(&b'\n');
         if bytes_read.saturating_add(chunk_len) > max_bytes {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "session line exceeded the remaining read budget",
-            ));
+            return Err(BoundedLineReadError::Budget);
         }
         bytes_read = bytes_read.saturating_add(chunk_len);
         if !oversized {
@@ -355,12 +454,13 @@ fn codex_visible_message(value: &Value) -> Option<String> {
 
 fn claude_visible_message(value: &Value) -> Option<String> {
     let kind = value.get("type")?.as_str()?;
-    if !matches!(kind, "user" | "assistant")
-        || value.get("isMeta").and_then(Value::as_bool) == Some(true)
-    {
+    if !matches!(kind, "user" | "assistant") {
         return None;
     }
     let message = value.get("message")?;
+    if claude_record_is_hidden(value) || claude_record_is_hidden(message) {
+        return None;
+    }
     let role = message.get("role")?.as_str()?;
     if role != kind {
         return None;
@@ -370,6 +470,12 @@ fn claude_visible_message(value: &Value) -> Option<String> {
         "assistant" => visible_text_content(message.get("content")?),
         _ => None,
     }
+}
+
+fn claude_record_is_hidden(value: &Value) -> bool {
+    ["isMeta", "isCompactSummary", "isSummary", "isSidechain"]
+        .iter()
+        .any(|field| value.get(*field).and_then(Value::as_bool) == Some(true))
 }
 
 fn strict_visible_blocks(content: &Value, allowed_types: &[&str]) -> Option<String> {
@@ -444,10 +550,45 @@ fn sanitize_visible_text(text: String) -> Option<String> {
     {
         return None;
     }
-    let redacted = ABSOLUTE_PATH_PATTERN.replace_all(trimmed, "${prefix}[local path]");
-    let redacted = LOCAL_PATH_PATTERN.replace_all(&redacted, "[local path]");
+    let redacted = redact_probable_local_paths(trimmed);
     let redacted = redacted.trim();
-    (!redacted.is_empty()).then(|| redacted.to_owned())
+    if redacted.is_empty() || contains_probable_local_path(redacted) {
+        return None;
+    }
+    Some(redacted.to_owned())
+}
+
+fn redact_probable_local_paths(text: &str) -> String {
+    let mut redacted = String::with_capacity(text.len());
+    let mut cursor = 0_usize;
+    for url in HTTP_URL_PATTERN.find_iter(text) {
+        redact_non_http_segment(&mut redacted, &text[cursor..url.start()]);
+        redacted.push_str(url.as_str());
+        cursor = url.end();
+    }
+    redact_non_http_segment(&mut redacted, &text[cursor..]);
+    redacted
+}
+
+fn redact_non_http_segment(output: &mut String, segment: &str) {
+    let replaced = PROBABLE_LOCAL_PATH_PATTERN.replace_all(segment, "${prefix}[local path]");
+    output.push_str(&replaced);
+}
+
+fn contains_probable_local_path(text: &str) -> bool {
+    let mut cursor = 0_usize;
+    for url in HTTP_URL_PATTERN.find_iter(text) {
+        let segment = &text[cursor..url.start()];
+        if PROBABLE_LOCAL_PATH_PATTERN.is_match(segment)
+            || segment.to_ascii_lowercase().contains("file://")
+        {
+            return true;
+        }
+        cursor = url.end();
+    }
+    let segment = &text[cursor..];
+    PROBABLE_LOCAL_PATH_PATTERN.is_match(segment)
+        || segment.to_ascii_lowercase().contains("file://")
 }
 
 fn contains_internal_prompt_markup(text: &str) -> bool {
@@ -524,13 +665,11 @@ mod tests {
 
     use super::*;
 
-    struct FailIfRead;
+    struct FailIfReadTail;
 
-    impl Read for FailIfRead {
+    impl Read for FailIfReadTail {
         fn read(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
-            Err(io::Error::other(
-                "stream read continued past selected ordinal",
-            ))
+            Err(io::Error::other("stream read continued into the tail"))
         }
     }
 
@@ -605,16 +744,20 @@ mod tests {
                 "type": "message",
                 "role": "assistant",
                 "phase": "final_answer",
-                "content": [{"type": "output_text", "text": "Done in /Volumes/LaCie/Polyphonic, /workspace, /custom/private/file.txt, file:///Users/riley/MyProject, and C:\\Users\\riley\\Private\\file.txt."}]
+                "content": [{"type": "output_text", "text": "Keep https://example.com/docs/alpha/beta; redact workspace:/alpha/beta/secret.txt, label=/custom/private/file.txt, /Volumes/LaCie/Polyphonic, /workspace, file:///Users/riley/MyProject, and C:\\Users\\riley\\Private\\file.txt."}]
             }
         });
         let final_answer = parse_codex_fixture(&final_answer).unwrap();
         assert!(final_answer.contains("[local path]"));
+        assert!(final_answer.contains("https://example.com/docs/alpha/beta"));
+        assert!(!final_answer.contains("workspace:/alpha"));
+        assert!(!final_answer.contains("/alpha/beta/secret"));
         assert!(!final_answer.contains("/Volumes/"));
         assert!(!final_answer.contains("/workspace"));
         assert!(!final_answer.contains("/custom/"));
         assert!(!final_answer.contains("file:///"));
         assert!(!final_answer.contains("C:\\Users\\"));
+        assert!(!contains_probable_local_path(&final_answer));
     }
 
     #[test]
@@ -627,17 +770,72 @@ mod tests {
             }
         });
         let head = format!("{visible}\n").into_bytes();
-        let reader = Cursor::new(head).chain(FailIfRead);
+        let reader = Cursor::new(head).chain(FailIfReadTail);
         let mut reader = BufReader::new(reader);
+        let mut budget = SessionReadBudget::new(1, 1024 * 1024, 10);
         let selected = select_messages_from_reader(
             &mut reader,
             ConnectedBrainSourceKindV1::CodexHistory,
             &BTreeSet::from([0]),
+            &mut budget,
         )
         .unwrap();
         assert_eq!(
             selected.get(&0).map(String::as_str),
             Some("Only this visible message is needed.")
+        );
+    }
+
+    #[test]
+    fn streaming_visitor_stops_before_the_unneeded_source_tail() {
+        let visible = json!({
+            "type": "event_msg",
+            "payload": {"type": "user_message", "message": "Index only this record."}
+        });
+        let head = format!("{visible}\n").into_bytes();
+        let reader = Cursor::new(head).chain(FailIfReadTail);
+        let mut reader = BufReader::new(reader);
+        let mut visited = 0_usize;
+
+        let completed = visit_messages_from_reader(
+            &mut reader,
+            ConnectedBrainSourceKindV1::CodexHistory,
+            |_ordinal, _message| {
+                visited += 1;
+                Ok(false)
+            },
+        )
+        .unwrap();
+
+        assert!(!completed);
+        assert_eq!(visited, 1);
+    }
+
+    #[test]
+    fn oversized_jsonl_line_is_skipped_without_hiding_the_next_visible_record() {
+        let visible = json!({
+            "type": "event_msg",
+            "payload": {"type": "user_message", "message": "Visible after oversized input."}
+        });
+        let tail = format!("\n{visible}\n").into_bytes();
+        let oversized = io::repeat(b'x').take((MAX_JSONL_LINE_BYTES + 1024) as u64);
+        let mut reader = BufReader::with_capacity(
+            SESSION_STREAM_BUFFER_BYTES,
+            oversized.chain(Cursor::new(tail)),
+        );
+        let mut budget = SessionReadBudget::new(1, MAX_JSONL_LINE_BYTES + 128 * 1024, 2);
+
+        let selected = select_messages_from_reader(
+            &mut reader,
+            ConnectedBrainSourceKindV1::CodexHistory,
+            &BTreeSet::from([0]),
+            &mut budget,
+        )
+        .unwrap();
+
+        assert_eq!(
+            selected.get(&0).map(String::as_str),
+            Some("Visible after oversized input.")
         );
     }
 }

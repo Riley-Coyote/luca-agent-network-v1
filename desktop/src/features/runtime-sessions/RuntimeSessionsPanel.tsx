@@ -314,6 +314,11 @@ function RuntimeSessionsPanelContent({
             detail="One or more connected session indexes are stale or invalid. Refresh them in Brain before using their context."
             title="Session index needs attention"
           />
+        ) : list?.truncated && list.sessions.length === 0 ? (
+          <EmptyState
+            detail={`${list.totalSessionCount} indexed sessions exist, but none fit within this panel's bounded local read limit.`}
+            title="Sessions exceed the read limit"
+          />
         ) : (list?.sessions.length ?? 0) === 0 ? (
           <EmptyState
             detail="The connected source contains no indexed visible conversations yet."
@@ -342,8 +347,8 @@ function RuntimeSessionsPanelContent({
             ))}
             {list?.truncated ? (
               <p className="px-2 py-2 text-2xs leading-relaxed text-muted-foreground">
-                Showing the latest {list.sessions.length} of{" "}
-                {list.totalSessionCount} indexed sessions.
+                Showing {list.sessions.length} of {list.totalSessionCount}{" "}
+                indexed sessions within the bounded local read limit.
               </p>
             ) : null}
           </div>

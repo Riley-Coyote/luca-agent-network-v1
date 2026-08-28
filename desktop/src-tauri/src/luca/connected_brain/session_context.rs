@@ -38,10 +38,8 @@ pub(crate) struct IndexedSessionContextV1 {
 }
 
 struct IndexedSession<'a> {
-    session_id: OpaqueId,
     relative_locator: &'a str,
     entries: Vec<&'a ConnectedBrainIndexEntryV1>,
-    updated_at: Option<String>,
 }
 
 pub(crate) fn list_indexed_sessions(
@@ -49,52 +47,70 @@ pub(crate) fn list_indexed_sessions(
     kind: ConnectedBrainSourceKindV1,
     source_id: &OpaqueId,
     entries: &[ConnectedBrainIndexEntryV1],
+    budget: &mut sessions::SessionReadBudget,
 ) -> Result<IndexedSessionListV1, String> {
-    let mut sessions = grouped_sessions(root, kind, source_id, entries)?;
+    let mut sessions = grouped_sessions(kind, source_id, entries)?;
     let total_sessions = sessions.len();
-    sessions.sort_by(|left, right| {
-        right
-            .updated_at
-            .cmp(&left.updated_at)
-            .then_with(|| right.relative_locator.cmp(left.relative_locator))
-    });
-    sessions.truncate(MAX_LISTED_SESSIONS);
+    // Locators are already a deterministic, native-only index key. Bound the
+    // candidate set before any per-file canonicalize/stat/read work; Codex's
+    // date hierarchy also naturally puts recent locators first.
+    sessions.sort_by(|left, right| right.relative_locator.cmp(left.relative_locator));
+    sessions.truncate(MAX_LISTED_SESSIONS.min(budget.candidate_limit()));
 
-    let sessions = sessions
+    let mut sessions = sessions
         .into_iter()
         .map(|session| {
-            let selected_entries = list_entry_indices(session.entries.len())
-                .into_iter()
-                .filter_map(|index| session.entries.get(index).copied())
-                .collect::<Vec<_>>();
-            let verified = read_verified_session_excerpts(root, kind, &selected_entries).ok();
-            let first_excerpt = verified.as_ref().and_then(|values| values.first());
-            let preview_excerpt = verified.as_ref().and_then(|values| values.last());
-            let available = first_excerpt.is_some() && preview_excerpt.is_some();
-            IndexedSessionSummaryV1 {
-                session_id: session.session_id,
-                title: first_excerpt
-                    .map(String::as_str)
-                    .map(|text| bounded_single_line(text, MAX_TITLE_CHARS))
-                    .filter(|text| !text.is_empty())
-                    .unwrap_or_else(|| "Session needs refresh".to_owned()),
-                preview: preview_excerpt
-                    .map(String::as_str)
-                    .map(|text| bounded_single_line(text, MAX_PREVIEW_CHARS))
-                    .filter(|text| !text.is_empty())
-                    .unwrap_or_else(|| {
-                        "Its indexed visible excerpts changed on disk. Refresh Brain to use it."
-                            .to_owned()
-                    }),
-                visible_message_count: session.entries.len(),
-                updated_at: session.updated_at,
-                available,
-            }
+            let updated_at = sessions::session_updated_at(root, kind, session.relative_locator);
+            (session, updated_at)
         })
-        .collect();
+        .collect::<Vec<_>>();
+    sessions.sort_by(|left, right| {
+        right
+            .1
+            .cmp(&left.1)
+            .then_with(|| right.0.relative_locator.cmp(left.0.relative_locator))
+    });
+
+    let mut projected = Vec::with_capacity(sessions.len());
+    for (session, updated_at) in sessions {
+        if budget.is_exhausted() {
+            break;
+        }
+        let selected_entries = list_entry_indices(session.entries.len())
+            .into_iter()
+            .filter_map(|index| session.entries.get(index).copied())
+            .collect::<Vec<_>>();
+        let verified = match read_verified_session_excerpts(root, kind, &selected_entries, budget) {
+            Ok(verified) => Some(verified),
+            Err(_) if budget.is_exhausted() => break,
+            Err(_) => None,
+        };
+        let first_excerpt = verified.as_ref().and_then(|values| values.first());
+        let preview_excerpt = verified.as_ref().and_then(|values| values.last());
+        let available = first_excerpt.is_some() && preview_excerpt.is_some();
+        projected.push(IndexedSessionSummaryV1 {
+            session_id: session_id(source_id, session.relative_locator)?,
+            title: first_excerpt
+                .map(String::as_str)
+                .map(|text| bounded_single_line(text, MAX_TITLE_CHARS))
+                .filter(|text| !text.is_empty())
+                .unwrap_or_else(|| "Session needs refresh".to_owned()),
+            preview: preview_excerpt
+                .map(String::as_str)
+                .map(|text| bounded_single_line(text, MAX_PREVIEW_CHARS))
+                .filter(|text| !text.is_empty())
+                .unwrap_or_else(|| {
+                    "Its indexed visible excerpts changed on disk. Refresh Brain to use it."
+                        .to_owned()
+                }),
+            visible_message_count: session.entries.len(),
+            updated_at,
+            available,
+        });
+    }
 
     Ok(IndexedSessionListV1 {
-        sessions,
+        sessions: projected,
         total_sessions,
     })
 }
@@ -106,13 +122,19 @@ pub(crate) fn context_for_indexed_session(
     entries: &[ConnectedBrainIndexEntryV1],
     requested_session_id: &OpaqueId,
 ) -> Result<Option<IndexedSessionContextV1>, String> {
-    let sessions = grouped_sessions(root, kind, source_id, entries)?;
-    let Some(session) = sessions
-        .into_iter()
-        .find(|session| session.session_id == *requested_session_id)
-    else {
+    let sessions = grouped_sessions(kind, source_id, entries)?;
+    let mut selected = None;
+    for session in sessions {
+        let candidate_session_id = session_id(source_id, session.relative_locator)?;
+        if candidate_session_id == *requested_session_id {
+            selected = Some((session, candidate_session_id));
+            break;
+        }
+    }
+    let Some((session, selected_session_id)) = selected else {
         return Ok(None);
     };
+    let updated_at = sessions::session_updated_at(root, kind, session.relative_locator);
 
     let selected_entries = context_entry_indices(session.entries.len())
         .into_iter()
@@ -124,8 +146,10 @@ pub(crate) fn context_for_indexed_session(
                 .ok_or_else(|| "connected session index is invalid".to_owned())
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let selected_excerpts = read_verified_session_excerpts(root, kind, &selected_entries)
-        .map_err(|_| "connected session needs refresh".to_owned())?;
+    let mut budget = sessions::SessionReadBudget::for_context();
+    let selected_excerpts =
+        read_verified_session_excerpts(root, kind, &selected_entries, &mut budget)
+            .map_err(|_| "connected session needs refresh".to_owned())?;
     let mut excerpts = Vec::with_capacity(selected_excerpts.len());
     for excerpt in selected_excerpts {
         let excerpt = bounded_single_line(&excerpt, MAX_CONTEXT_EXCERPT_CHARS);
@@ -155,16 +179,15 @@ pub(crate) fn context_for_indexed_session(
     }
 
     Ok(Some(IndexedSessionContextV1 {
-        session_id: session.session_id,
+        session_id: selected_session_id,
         title,
         summary,
         visible_message_count: session.entries.len(),
-        updated_at: session.updated_at,
+        updated_at,
     }))
 }
 
 fn grouped_sessions<'a>(
-    root: &Path,
     kind: ConnectedBrainSourceKindV1,
     source_id: &OpaqueId,
     entries: &'a [ConnectedBrainIndexEntryV1],
@@ -197,9 +220,7 @@ fn grouped_sessions<'a>(
                 return Err("connected session index contains duplicate messages".to_owned());
             }
             Ok(IndexedSession {
-                session_id: session_id(source_id, relative_locator)?,
                 relative_locator,
-                updated_at: sessions::session_updated_at(root, kind, relative_locator),
                 entries,
             })
         })
@@ -282,11 +303,13 @@ mod tests {
         };
         let build = build_index(&source_id, &candidate).unwrap();
 
+        let mut list_budget = sessions::SessionReadBudget::for_rail_list();
         let list = list_indexed_sessions(
             &canonical_root,
             ConnectedBrainSourceKindV1::CodexHistory,
             &source_id,
             &build.entries,
+            &mut list_budget,
         )
         .unwrap();
         assert_eq!(list.total_sessions, 1);
@@ -315,5 +338,87 @@ mod tests {
         assert!(!context.summary.contains("private tool payload"));
         assert!(!context.summary.contains("session-native-id"));
         assert!(context.summary.chars().count() <= MAX_CONTEXT_SUMMARY_CHARS);
+    }
+
+    #[test]
+    fn rail_list_shares_file_byte_and_line_budgets_across_all_cards() {
+        let root = tempdir().unwrap();
+        let record = r#"{"type":"event_msg","payload":{"type":"user_message","message":"One bounded visible record."}}"#;
+        for index in 0..3 {
+            fs::write(root.path().join(format!("session-{index}.jsonl")), record).unwrap();
+        }
+        let canonical_root = root.path().canonicalize().unwrap();
+        let source_id = OpaqueId::parse("connected-session-budget-test").unwrap();
+        let candidate = ConnectedBrainDiscoveryCandidateV1 {
+            discovery_id: OpaqueId::parse("discovery-session-budget-test").unwrap(),
+            source_kind: ConnectedBrainSourceKindV1::CodexHistory,
+            display_name: "Codex".to_owned(),
+            canonical_root: canonical_root.clone(),
+            item_count: 3,
+            earliest_at: None,
+            latest_at: None,
+            discovered_at: Instant::now(),
+        };
+        let build = build_index(&source_id, &candidate).unwrap();
+        assert_eq!(build.entries.len(), 3);
+
+        let second_source_id = OpaqueId::parse("connected-session-budget-test-b").unwrap();
+        let second_build = build_index(&second_source_id, &candidate).unwrap();
+        let mut cross_source_budget = sessions::SessionReadBudget::new(1, 1024 * 1024, 100);
+        let first_source = list_indexed_sessions(
+            &canonical_root,
+            ConnectedBrainSourceKindV1::CodexHistory,
+            &source_id,
+            &build.entries,
+            &mut cross_source_budget,
+        )
+        .unwrap();
+        let second_source = list_indexed_sessions(
+            &canonical_root,
+            ConnectedBrainSourceKindV1::CodexHistory,
+            &second_source_id,
+            &second_build.entries,
+            &mut cross_source_budget,
+        )
+        .unwrap();
+        assert_eq!(first_source.sessions.len(), 1);
+        assert_eq!(second_source.sessions.len(), 0);
+        assert_eq!(second_source.total_sessions, 3);
+
+        let mut file_budget = sessions::SessionReadBudget::new(2, 1024 * 1024, 100);
+        let file_limited = list_indexed_sessions(
+            &canonical_root,
+            ConnectedBrainSourceKindV1::CodexHistory,
+            &source_id,
+            &build.entries,
+            &mut file_budget,
+        )
+        .unwrap();
+        assert_eq!(file_limited.total_sessions, 3);
+        assert_eq!(file_limited.sessions.len(), 2);
+
+        let mut byte_budget = sessions::SessionReadBudget::new(3, record.len(), 100);
+        let byte_limited = list_indexed_sessions(
+            &canonical_root,
+            ConnectedBrainSourceKindV1::CodexHistory,
+            &source_id,
+            &build.entries,
+            &mut byte_budget,
+        )
+        .unwrap();
+        assert_eq!(byte_limited.total_sessions, 3);
+        assert_eq!(byte_limited.sessions.len(), 1);
+
+        let mut line_budget = sessions::SessionReadBudget::new(3, 1024 * 1024, 1);
+        let line_limited = list_indexed_sessions(
+            &canonical_root,
+            ConnectedBrainSourceKindV1::CodexHistory,
+            &source_id,
+            &build.entries,
+            &mut line_budget,
+        )
+        .unwrap();
+        assert_eq!(line_limited.total_sessions, 3);
+        assert_eq!(line_limited.sessions.len(), 1);
     }
 }

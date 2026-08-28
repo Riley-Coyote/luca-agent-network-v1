@@ -566,12 +566,14 @@ impl AppState {
         &self,
         owner_pubkey: &luca_protocol::Hex64,
         source_id: &luca_protocol::OpaqueId,
+        budget: &mut crate::luca::connected_brain::SessionReadBudget,
     ) -> Result<crate::luca::connected_brain::IndexedSessionListV1, OwnerBrainStoreError> {
         crate::luca::owner_brain_store::read_connected_sessions(
             &self.continuity_lifecycle,
             &self.continuity_runtime,
             owner_pubkey,
             source_id,
+            budget,
         )
     }
 

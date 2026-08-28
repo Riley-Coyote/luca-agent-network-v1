@@ -2,7 +2,7 @@ use super::*;
 use crate::luca::connected_brain::{
     context_for_indexed_session, list_indexed_sessions, source_id_for_candidate,
     ConnectedBrainDiscoveryCandidateV1, ConnectedBrainIndexBuildV1, IndexedSessionContextV1,
-    IndexedSessionListV1,
+    IndexedSessionListV1, SessionReadBudget,
 };
 use luca_protocol::{
     ConnectedBrainBindingV1, ConnectedBrainCapabilityV1, ConnectedBrainIndexEntryV1,
@@ -325,6 +325,7 @@ pub(crate) fn read_connected_sessions(
     runtime_state: &Mutex<ContinuityRuntimeState>,
     owner_pubkey: &Hex64,
     source_id: &OpaqueId,
+    budget: &mut SessionReadBudget,
 ) -> Result<IndexedSessionListV1, OwnerBrainStoreError> {
     let (canonical_root, kind, entries) = {
         let _guard = lifecycle
@@ -337,7 +338,7 @@ pub(crate) fn read_connected_sessions(
         let runtime = ready_runtime(&state, owner_pubkey)?;
         connected_session_material(&root, runtime, source_id)?
     };
-    list_indexed_sessions(&canonical_root, kind, source_id, &entries)
+    list_indexed_sessions(&canonical_root, kind, source_id, &entries, budget)
         .map_err(|_| OwnerBrainStoreError::Invalid)
 }
 

@@ -47,26 +47,14 @@ pub(crate) fn build_index(
             count
         }
         ConnectedBrainSourceKindV1::CodexHistory | ConnectedBrainSourceKindV1::ClaudeHistory => {
-            let documents = sessions::documents(&candidate.canonical_root, candidate.source_kind)?;
-            let count = documents.len();
-            for document in documents {
-                for (ordinal, message) in document.visible_messages.iter().enumerate() {
-                    push_message_entry(
-                        source_id,
-                        &document.relative_path,
-                        ordinal,
-                        message,
-                        &mut entries,
-                    )?;
-                    if entries.len() >= MAX_CONNECTED_INDEX_ENTRIES {
-                        break;
-                    }
-                }
-                if entries.len() >= MAX_CONNECTED_INDEX_ENTRIES {
-                    break;
-                }
-            }
-            count
+            push_session_entries_until_limit(
+                source_id,
+                &candidate.canonical_root,
+                candidate.source_kind,
+                MAX_CONNECTED_INDEX_ENTRIES,
+                &mut entries,
+            )?;
+            candidate.item_count
         }
     };
     if entries.is_empty() {
@@ -132,6 +120,7 @@ pub(super) fn read_verified_session_excerpts(
     root: &Path,
     kind: ConnectedBrainSourceKindV1,
     entries: &[&ConnectedBrainIndexEntryV1],
+    budget: &mut sessions::SessionReadBudget,
 ) -> Result<Vec<String>, String> {
     if entries.is_empty() || kind == ConnectedBrainSourceKindV1::Repository || entries.len() > 8 {
         return Err("connected session selection is invalid".to_owned());
@@ -151,7 +140,8 @@ pub(super) fn read_verified_session_excerpts(
             return Err("connected session selection contains duplicates".to_owned());
         }
     }
-    let messages = sessions::read_messages_at_ordinals(root, kind, relative_locator, &ordinals)?;
+    let messages =
+        sessions::read_messages_at_ordinals(root, kind, relative_locator, &ordinals, budget)?;
     entries
         .iter()
         .map(|entry| {
@@ -170,6 +160,22 @@ pub(super) fn read_verified_session_excerpts(
             Ok(body)
         })
         .collect()
+}
+
+fn push_session_entries_until_limit(
+    source_id: &OpaqueId,
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+    entry_limit: usize,
+    entries: &mut Vec<ConnectedBrainIndexEntryV1>,
+) -> Result<(), String> {
+    if entry_limit == 0 || entries.len() >= entry_limit {
+        return Ok(());
+    }
+    sessions::visit_messages(root, kind, |relative_path, ordinal, message| {
+        push_message_entry(source_id, relative_path, ordinal, &message, entries)?;
+        Ok(entries.len() < entry_limit)
+    })
 }
 
 fn push_document_entries(
@@ -298,7 +304,10 @@ fn content_hash(text: &str) -> Result<Sha256Ref, String> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn generated_token_metadata_stays_compact() {
@@ -311,5 +320,33 @@ mod tests {
 
         assert_eq!(hashes.len(), MAX_INDEXED_TOKEN_HASHES_PER_ENTRY);
         assert!(hashes.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
+    #[test]
+    fn session_index_stops_at_the_requested_entry_limit() {
+        let root = tempdir().unwrap();
+        fs::write(
+            root.path().join("session.jsonl"),
+            [
+                r#"{"type":"event_msg","payload":{"type":"user_message","message":"First visible record."}}"#,
+                r#"{"type":"event_msg","payload":{"type":"user_message","message":"Second record must be beyond the index limit."}}"#,
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+        let source_id = OpaqueId::parse("source-stream-limit").unwrap();
+        let mut entries = Vec::new();
+
+        push_session_entries_until_limit(
+            &source_id,
+            root.path(),
+            ConnectedBrainSourceKindV1::CodexHistory,
+            1,
+            &mut entries,
+        )
+        .unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].ordinal.get(), 0);
     }
 }
