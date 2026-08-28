@@ -36,8 +36,8 @@ export function RemoveMembersConfirmDialog({
             Remove {count} member{plural ? "s" : ""}?
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {memberNames.join(", ")} will be removed from this team. Do you also
-            want to remove the {plural ? "agents" : "agent"} completely?
+            {memberNames.join(", ")} will be removed from this group. Do you
+            also want to remove the {plural ? "agents" : "agent"} completely?
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

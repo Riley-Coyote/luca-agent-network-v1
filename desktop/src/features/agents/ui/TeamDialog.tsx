@@ -211,7 +211,7 @@ export function TeamDialog({
                   disabled={isPending}
                   id="team-description"
                   onChange={(event) => setTeamDescription(event.target.value)}
-                  placeholder="Optional description for this team."
+                  placeholder="Optional description for this group."
                   value={teamDescription}
                 />
               </div>
@@ -221,14 +221,14 @@ export function TeamDialog({
                   className="text-sm font-medium"
                   htmlFor="team-instructions"
                 >
-                  Team Instructions
+                  Group instructions
                 </label>
                 <Textarea
                   className="min-h-24"
                   disabled={isPending}
                   id="team-instructions"
                   onChange={(event) => setInstructions(event.target.value)}
-                  placeholder="Optional instructions applied to every deployed team member."
+                  placeholder="Optional instructions applied to every agent added from this group."
                   value={instructions}
                 />
               </div>
@@ -236,15 +236,14 @@ export function TeamDialog({
               <div className="space-y-2">
                 <span className="text-sm font-medium">Agents</span>
                 <p className="text-xs text-muted-foreground">
-                  Select the agents to include in this team.
+                  Select the agents to include in this group.
                 </p>
                 {missingInitialPersonaCount > 0 ? (
                   <p className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                    This team references {missingInitialPersonaCount} agent
+                    This group references {missingInitialPersonaCount} agent
                     {missingInitialPersonaCount === 1 ? "" : "s"} that{" "}
                     {missingInitialPersonaCount === 1 ? "is" : "are"} no longer
-                    in My Agents. Save to remove them, or add them back to My
-                    Agents first.
+                    in your agents. Save to remove them, or add them back first.
                   </p>
                 ) : null}
                 {personas.length === 0 ? (

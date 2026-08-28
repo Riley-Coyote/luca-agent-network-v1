@@ -160,7 +160,7 @@ export const MentionAutocomplete = React.memo(function MentionAutocomplete({
                     {suggestion.kind === "team" ? (
                       <span className="inline-flex shrink-0 items-center gap-1">
                         <Users aria-hidden="true" className="h-3.5 w-3.5" />
-                        team · {suggestion.teamMembers?.length ?? 0} agents
+                        group · {suggestion.teamMembers?.length ?? 0} agents
                       </span>
                     ) : suggestion.isAgent ? (
                       <span className="inline-flex shrink-0 items-center gap-1">

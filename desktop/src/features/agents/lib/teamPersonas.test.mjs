@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   emptyResolvedTeamPersonas,
+  getTeamPickerUnavailableReason,
   getUsableTeams,
   resolveTeamPersonas,
 } from "./teamPersonas.ts";
@@ -90,5 +91,29 @@ test("getUsableTeams keeps only fully-resolved teams with at least one persona",
   assert.deepEqual(
     getUsableTeams(teams, personas).map((team) => team.id),
     ["team-ready"],
+  );
+});
+
+test("getTeamPickerUnavailableReason explains why a saved group cannot be selected", () => {
+  assert.equal(
+    getTeamPickerUnavailableReason({
+      missingPersonaCount: 2,
+      resolvedPersonaIds: ["persona-1"],
+    }),
+    "2 agents are no longer available. Edit this group to continue.",
+  );
+  assert.equal(
+    getTeamPickerUnavailableReason({
+      missingPersonaCount: 0,
+      resolvedPersonaIds: [],
+    }),
+    "This group has no agents. Edit it to continue.",
+  );
+  assert.equal(
+    getTeamPickerUnavailableReason({
+      missingPersonaCount: 0,
+      resolvedPersonaIds: ["persona-1"],
+    }),
+    null,
   );
 });

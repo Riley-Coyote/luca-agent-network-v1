@@ -295,8 +295,8 @@ export function SnapshotShareDialog({
         : [],
     [snapshotSendController.relaySelfPubkey],
   );
-  const itemLabel = snapshotKind === "team" ? "team" : "agent";
-  const itemLabelTitle = snapshotKind === "team" ? "Team" : "Agent";
+  const itemLabel = snapshotKind === "team" ? "group" : "agent";
+  const itemLabelTitle = snapshotKind === "team" ? "Group" : "Agent";
   const shareLevels = React.useMemo(
     () => [
       { value: "none" as const, label: `${itemLabelTitle} only` },

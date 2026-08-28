@@ -4,7 +4,10 @@ import type * as React from "react";
 import type { AgentPersona, AgentTeam } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
-import { resolveTeamPersonas } from "@/features/agents/lib/teamPersonas";
+import {
+  getTeamPickerUnavailableReason,
+  resolveTeamPersonas,
+} from "@/features/agents/lib/teamPersonas";
 import {
   Tooltip,
   TooltipContent,
@@ -22,13 +25,14 @@ type SelectionChipButtonProps = {
 
 function SelectionChipButton({
   disabled,
-  label: _label,
+  label,
   onClick,
   selected,
   children,
 }: SelectionChipButtonProps) {
   return (
     <button
+      aria-label={label}
       aria-pressed={selected}
       className={cn(
         "inline-flex min-h-9 items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
@@ -72,9 +76,9 @@ export function AddChannelBotTeamsSection({
   return (
     <div className="space-y-3">
       <div>
-        <div className="text-sm font-medium">Teams</div>
+        <div className="text-sm font-medium">Groups</div>
         <p className="text-xs text-muted-foreground">
-          Select a team to toggle all its agents at once.
+          Select a saved group to toggle all its agents at once.
         </p>
       </div>
 
@@ -83,6 +87,8 @@ export function AddChannelBotTeamsSection({
           {teams.map((team) => {
             const resolution = resolveTeamPersonas(team, personas);
             const validIds = resolution.resolvedPersonaIds;
+            const unavailableReason =
+              getTeamPickerUnavailableReason(resolution);
             const allSelected =
               validIds.length > 0 &&
               validIds.every((id) => selectedPersonaIds.includes(id));
@@ -102,7 +108,11 @@ export function AddChannelBotTeamsSection({
                         !resolution.isUsable ||
                         allInChannel
                       }
-                      label={team.name}
+                      label={
+                        unavailableReason
+                          ? `${team.name}. Unavailable: ${unavailableReason}`
+                          : `${team.name}, ${validIds.length} ${validIds.length === 1 ? "agent" : "agents"}`
+                      }
                       onClick={() => onToggleTeam(validIds)}
                       selected={allSelected}
                     >
@@ -121,6 +131,11 @@ export function AddChannelBotTeamsSection({
                       >
                         ({validIds.length})
                       </span>
+                      {unavailableReason ? (
+                        <span className="text-2xs font-normal text-warning">
+                          Needs attention
+                        </span>
+                      ) : null}
                       {inChannelCount > 0 ? (
                         <span
                           className={cn(
@@ -145,6 +160,11 @@ export function AddChannelBotTeamsSection({
                     {team.description ? (
                       <p className="text-2xs text-primary-foreground/80">
                         {team.description}
+                      </p>
+                    ) : null}
+                    {unavailableReason ? (
+                      <p className="text-2xs text-primary-foreground/80">
+                        {unavailableReason}
                       </p>
                     ) : null}
                     <div className="flex flex-wrap gap-1">

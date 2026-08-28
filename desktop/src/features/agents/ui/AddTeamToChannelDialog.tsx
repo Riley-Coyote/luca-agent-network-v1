@@ -167,11 +167,11 @@ export function AddTeamToChannelDialog({
       <DialogContent className="max-w-xl overflow-hidden p-0">
         <div className="flex max-h-[85vh] flex-col">
           <DialogHeader className="shrink-0 border-b border-border/60 px-6 py-5 pr-14">
-            <DialogTitle>Deploy team to channel</DialogTitle>
+            <DialogTitle>Add group to room</DialogTitle>
             <DialogDescription>
               Create and attach one agent per member of{" "}
-              <strong>{team?.name ?? "this team"}</strong> to the selected
-              channel.
+              <strong>{team?.name ?? "this group"}</strong> to the selected
+              room.
             </DialogDescription>
           </DialogHeader>
 
@@ -203,7 +203,7 @@ export function AddTeamToChannelDialog({
 
             <div className="space-y-1.5">
               <label className="text-sm font-medium" htmlFor="team-channel-id">
-                Channel
+                Room
               </label>
               <select
                 className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs"
@@ -213,7 +213,7 @@ export function AddTeamToChannelDialog({
                 value={channelId}
               >
                 {channels.length === 0 ? (
-                  <option value="">No channels available</option>
+                  <option value="">No rooms available</option>
                 ) : null}
                 {channels.map((channel) => (
                   <option key={channel.id} value={channel.id}>
@@ -248,10 +248,10 @@ export function AddTeamToChannelDialog({
 
             {missingPersonaCount > 0 ? (
               <p className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                This team references {missingPersonaCount} agent
+                This group references {missingPersonaCount} agent
                 {missingPersonaCount === 1 ? "" : "s"} that{" "}
                 {missingPersonaCount === 1 ? "is" : "are"} no longer in My
-                Agents. Add them back or edit the team before deploying.
+                Agents. Add them back or edit the group before continuing.
               </p>
             ) : null}
 
@@ -312,8 +312,8 @@ export function AddTeamToChannelDialog({
               type="button"
             >
               {deployMutation.isPending
-                ? "Deploying..."
-                : `Deploy ${resolved.length} ${resolved.length === 1 ? "agent" : "agents"}`}
+                ? "Adding..."
+                : `Add ${resolved.length} ${resolved.length === 1 ? "agent" : "agents"}`}
             </Button>
           </div>
         </div>

@@ -28,11 +28,11 @@ export function TeamDeleteDialog({
     <AlertDialog onOpenChange={onOpenChange} open={open}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete team?</AlertDialogTitle>
+          <AlertDialogTitle>Delete group?</AlertDialogTitle>
           <AlertDialogDescription>
             {team
-              ? `Delete "${team.name}". Already-deployed agents are not affected, but this team template will no longer be available.`
-              : "Delete this team."}
+              ? `Delete "${team.name}". Agents already added to rooms are not affected, but this saved group will no longer be available.`
+              : "Delete this group."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

@@ -16,6 +16,10 @@ import {
   useTeamsQuery,
 } from "@/features/agents/hooks";
 import {
+  getTeamPickerUnavailableReason,
+  resolveTeamPersonas,
+} from "@/features/agents/lib/teamPersonas";
+import {
   useChannelTemplatesQuery,
   useCreateChannelTemplateMutation,
   useDeleteChannelTemplateMutation,
@@ -540,6 +544,7 @@ function TemplateFormDialog({
           <TemplateTeamSelector
             isPending={isPending}
             onToggleTeam={handleToggleTeam}
+            personas={personasQuery.data ?? []}
             selectedTeamIds={selectedTeamIds}
             teams={teamsQuery.data ?? []}
             isLoading={teamsQuery.isLoading}
@@ -576,14 +581,16 @@ function TemplateTeamSelector({
   isPending,
   isLoading,
   onToggleTeam,
+  personas,
   selectedTeamIds,
   teams,
 }: {
   isPending: boolean;
   isLoading: boolean;
   onToggleTeam: (teamId: string) => void;
+  personas: readonly AgentPersona[];
   selectedTeamIds: readonly string[];
-  teams: readonly { id: string; name: string }[];
+  teams: readonly AgentTeam[];
 }) {
   if (isLoading || teams.length === 0) {
     return null;
@@ -592,16 +599,23 @@ function TemplateTeamSelector({
   return (
     <div className="space-y-3">
       <div>
-        <div className="text-sm font-medium">Teams</div>
+        <div className="text-sm font-medium">Groups</div>
         <p className="text-sm font-normal text-muted-foreground">
-          Select teams to include in this template.
+          Select saved groups to include in this template.
         </p>
       </div>
       <div className="flex flex-wrap gap-2">
         {teams.map((team) => {
           const isSelected = selectedTeamIds.includes(team.id);
+          const resolution = resolveTeamPersonas(team, personas);
+          const unavailableReason = getTeamPickerUnavailableReason(resolution);
           return (
             <button
+              aria-label={
+                unavailableReason
+                  ? `${team.name}. Unavailable: ${unavailableReason}`
+                  : team.name
+              }
               key={team.id}
               type="button"
               aria-pressed={isSelected}
@@ -610,10 +624,14 @@ function TemplateTeamSelector({
                 isSelected
                   ? "border-primary bg-primary/10 text-foreground"
                   : "border-border/80 bg-background/60 text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                isPending && "cursor-not-allowed opacity-50",
+                (isPending || (unavailableReason && !isSelected)) &&
+                  "cursor-not-allowed opacity-50",
               )}
-              disabled={isPending}
+              disabled={
+                isPending || (unavailableReason !== null && !isSelected)
+              }
               onClick={() => onToggleTeam(team.id)}
+              title={unavailableReason ?? undefined}
             >
               <Users
                 className={cn(
@@ -622,6 +640,9 @@ function TemplateTeamSelector({
                 )}
               />
               {team.name}
+              {unavailableReason ? (
+                <span className="text-2xs font-normal">Needs attention</span>
+              ) : null}
             </button>
           );
         })}

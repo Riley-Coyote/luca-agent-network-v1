@@ -9,7 +9,6 @@ import {
 } from "@/features/agents/hooks";
 import { getActivePersonas } from "@/features/agents/lib/catalog";
 import { resolvePersonaRuntime } from "@/features/agents/lib/resolvePersonaRuntime";
-import { getUsableTeams } from "@/features/agents/lib/teamPersonas";
 import { AddChannelBotPersonasSection } from "@/features/channels/ui/AddChannelBotPersonasSection";
 import { AddChannelBotTeamsSection } from "@/features/channels/ui/AddChannelBotTeamsSection";
 import type { ChannelVisibility } from "@/shared/api/types";
@@ -80,10 +79,7 @@ export function CreateChannelDialog({
     () => getActivePersonas(personasQuery.data ?? []),
     [personasQuery.data],
   );
-  const teams = React.useMemo(
-    () => getUsableTeams(teamsQuery.data ?? [], personas),
-    [personas, teamsQuery.data],
-  );
+  const teams = teamsQuery.data ?? [];
   const [selectedPersonaIds, setSelectedPersonaIds] = React.useState<string[]>(
     [],
   );

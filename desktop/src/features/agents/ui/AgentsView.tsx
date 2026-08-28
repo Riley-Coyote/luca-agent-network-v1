@@ -121,6 +121,12 @@ export function AgentsView({
   function openResidentCreate() {
     openUnifiedCreate();
   }
+
+  function openGroups() {
+    agents.setActionNoticeMessage(null);
+    agents.setActionErrorMessage(null);
+    setIsGroupsOpen(true);
+  }
   const teamActions = useTeamActions(
     {
       setActionNoticeMessage: agents.setActionNoticeMessage,
@@ -259,7 +265,7 @@ export function AgentsView({
               filter={filter}
               onAdd={() => setIsAddOpen(true)}
               onFilterChange={setFilter}
-              onGroups={() => setIsGroupsOpen(true)}
+              onGroups={openGroups}
               onOpenDefaults={() => setIsAiDefaultsOpen(true)}
               onQueryChange={setQuery}
               onSelect={(resident: ResidentSummaryViewModel) => {
@@ -431,6 +437,8 @@ export function AgentsView({
             <DialogTitle>Agent groups</DialogTitle>
           </DialogHeader>
           <TeamsSection
+            actionErrorMessage={agents.actionErrorMessage}
+            actionNoticeMessage={agents.actionNoticeMessage}
             error={
               teamActions.teamsQuery.error instanceof Error
                 ? teamActions.teamsQuery.error

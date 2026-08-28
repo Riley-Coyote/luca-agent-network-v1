@@ -67,7 +67,7 @@ export function TeamSnapshotImportDialog({
         <DialogHeader className="space-y-0">
           <div className="flex items-center justify-between gap-4">
             <DialogTitle>
-              {phase === "result" ? "Team imported" : "Import team snapshot"}
+              {phase === "result" ? "Group imported" : "Import group snapshot"}
             </DialogTitle>
             <div className="flex items-center gap-2">
               {phase === "preview" ? (
@@ -126,7 +126,7 @@ export function TeamSnapshotImportDialog({
           </div>
         ) : phase === "confirming" ? (
           <div className="py-4 text-center text-sm text-muted-foreground">
-            Creating team…
+            Creating group…
           </div>
         ) : result !== null ? (
           <ResultBody result={result} />
@@ -163,8 +163,8 @@ function PreviewBody({
       </div>
 
       <p className="text-sm text-muted-foreground">
-        A new team will be created with fresh keypairs for all members. The
-        imported team is independent of the source — identity never travels.
+        A new group will be created with fresh keypairs for all members. The
+        imported group is independent of the source — identity never travels.
       </p>
 
       {/* Member list */}

@@ -111,15 +111,15 @@ export function useTeamActions(
     try {
       if ("id" in input) {
         await updateTeamMutation.mutateAsync(input);
-        actions.setActionNoticeMessage(`Updated team "${input.name}".`);
+        actions.setActionNoticeMessage(`Updated group "${input.name}".`);
       } else {
         await createTeamMutation.mutateAsync(input);
-        actions.setActionNoticeMessage(`Created team "${input.name}".`);
+        actions.setActionNoticeMessage(`Created group "${input.name}".`);
       }
       setTeamDialogState(null);
     } catch (error) {
       actions.setActionErrorMessage(
-        error instanceof Error ? error.message : "Failed to save team.",
+        error instanceof Error ? error.message : "Failed to save group.",
       );
     }
   }
@@ -130,11 +130,11 @@ export function useTeamActions(
 
     try {
       await deleteTeamMutation.mutateAsync(team.id);
-      actions.setActionNoticeMessage(`Deleted team "${team.name}".`);
+      actions.setActionNoticeMessage(`Deleted group "${team.name}".`);
       setTeamToDelete(null);
     } catch (error) {
       actions.setActionErrorMessage(
-        error instanceof Error ? error.message : "Failed to delete team.",
+        error instanceof Error ? error.message : "Failed to delete group.",
       );
     }
   }
@@ -148,11 +148,11 @@ export function useTeamActions(
     const failCount = result.failures.length;
     if (failCount === 0) {
       actions.setActionNoticeMessage(
-        `Deployed ${successCount} ${successCount === 1 ? "agent" : "agents"} to ${channel.name}.`,
+        `Added ${successCount} ${successCount === 1 ? "agent" : "agents"} to ${channel.name}.`,
       );
     } else {
       actions.setActionNoticeMessage(
-        `Deployed ${successCount} ${successCount === 1 ? "agent" : "agents"} to ${channel.name}. ${failCount} failed.`,
+        `Added ${successCount} ${successCount === 1 ? "agent" : "agents"} to ${channel.name}. ${failCount} failed.`,
       );
     }
     setTeamToAddToChannel(null);
@@ -163,10 +163,11 @@ export function useTeamActions(
   function openCreateDialog() {
     actions.setActionNoticeMessage(null);
     actions.setActionErrorMessage(null);
-    setTeamDialogState({
-      title: "Create team",
-      description: "Group agents together for quick deployment to channels.",
-      submitLabel: "Create team",
+      setTeamDialogState({
+        title: "Create group",
+        description:
+          "Save a set of agents so you can add them to rooms together.",
+      submitLabel: "Create group",
       initialValues: {
         name: "",
         description: "",
@@ -180,11 +181,12 @@ export function useTeamActions(
     actions.setActionErrorMessage(null);
     setTeamDialogState({
       title: `Duplicate ${team.name}`,
-      description: "Create a new team by copying this one.",
-      submitLabel: "Create team",
+      description: "Create a new group by copying this one.",
+      submitLabel: "Create group",
       initialValues: {
         name: `${team.name} copy`,
         description: team.description ?? "",
+        instructions: team.instructions ?? "",
         personaIds: [...team.personaIds],
       },
     });
@@ -208,13 +210,14 @@ export function useTeamActions(
     actions.setActionNoticeMessage(null);
     actions.setActionErrorMessage(null);
     setTeamDialogState({
-      title: "Edit team",
+      title: "Edit group",
       description: "",
       submitLabel: "Save changes",
       initialValues: {
         id: team.id,
         name: team.name,
         description: team.description ?? "",
+        instructions: team.instructions ?? "",
         personaIds: [...team.personaIds],
       },
     });
@@ -250,7 +253,7 @@ export function useTeamActions(
           actions.setActionErrorMessage(
             error instanceof Error
               ? error.message
-              : "Failed to export team snapshot.",
+              : "Failed to export group snapshot.",
           );
         },
       },
@@ -275,7 +278,7 @@ export function useTeamActions(
       actions.setActionErrorMessage(
         err instanceof Error
           ? err.message
-          : "Failed to read team snapshot file.",
+          : "Failed to read group snapshot file.",
       );
     }
   }
@@ -302,7 +305,7 @@ export function useTeamActions(
       }
     } catch (err) {
       setTeamSnapshotImportConfirmError(
-        err instanceof Error ? err.message : "Failed to import team snapshot.",
+        err instanceof Error ? err.message : "Failed to import group snapshot.",
       );
     }
   }

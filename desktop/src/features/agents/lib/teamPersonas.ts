@@ -30,16 +30,34 @@ export function isResolvedTeamUsable(
 
 export function getUsableTeams(
   teams: readonly AgentTeam[],
-  personas: AgentPersona[],
+  personas: readonly AgentPersona[],
 ) {
   return teams.filter((team) =>
     isResolvedTeamUsable(resolveTeamPersonas(team, personas)),
   );
 }
 
+export function getTeamPickerUnavailableReason(
+  resolution: Pick<
+    ResolvedTeamPersonas,
+    "missingPersonaCount" | "resolvedPersonaIds"
+  >,
+): string | null {
+  if (resolution.missingPersonaCount > 0) {
+    const count = resolution.missingPersonaCount;
+    return `${count} ${count === 1 ? "agent is" : "agents are"} no longer available. Edit this group to continue.`;
+  }
+
+  if (resolution.resolvedPersonaIds.length === 0) {
+    return "This group has no agents. Edit it to continue.";
+  }
+
+  return null;
+}
+
 export function resolveTeamPersonas(
   team: Pick<AgentTeam, "personaIds">,
-  personas: AgentPersona[],
+  personas: readonly AgentPersona[],
 ): ResolvedTeamPersonas {
   const personasById = new Map(
     personas.map((persona) => [persona.id, persona]),
