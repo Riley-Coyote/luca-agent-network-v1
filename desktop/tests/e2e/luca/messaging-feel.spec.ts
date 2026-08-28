@@ -106,24 +106,25 @@ test("a rejected send stays in place and retries without duplicating", async ({
   const row = page
     .getByTestId("message-row")
     .filter({ hasText: "feel-gate-retry-in-place" });
+  const failedStatus = page.getByTestId("message-send-failed");
   await expect(row).toHaveCount(1);
-  await expect(row.getByTestId("message-send-failed")).toHaveText(
-    /Not sent.*Retry/,
-  );
+  await expect(failedStatus).toHaveText(/Not sent.*Retry/);
   await expect(input).toHaveText("");
   await row.evaluate((element) => {
     element.setAttribute("data-retry-instance", "stable");
   });
 
-  await row.getByRole("button", { name: "Retry sending message" }).click();
+  await failedStatus
+    .getByRole("button", { name: "Retry sending message" })
+    .click();
   await expect(page.getByRole("button", { name: "Sending" })).toBeDisabled();
-  await expect(row.getByTestId("message-send-failed")).toHaveCount(0);
+  await expect(failedStatus).toHaveCount(0);
   await expect(row).toHaveCount(1);
   await expect(row).toHaveAttribute("data-retry-instance", "stable");
   await expect(row).not.toHaveAttribute("data-message-id", /optimistic/);
   await expect(
     page.getByRole("button", { name: "Send message" }),
-  ).toBeEnabled();
+  ).toBeDisabled();
 
   await expect
     .poll(() =>

@@ -48,7 +48,7 @@ test("owned team mention unfurls into its agents", async ({ page }) => {
     "mention-suggestion-team-team-launch",
   );
   await expect(teamRow).toContainText("Launch Team");
-  await expect(teamRow).toContainText("team · 3 agents");
+  await expect(teamRow).toContainText("group · 3 agents");
 
   await waitForAnimations(page);
   await page.screenshot({

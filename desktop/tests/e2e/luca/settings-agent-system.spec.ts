@@ -160,7 +160,9 @@ test("one resident record agrees across settings, runtime, and MCP grants", asyn
   });
   await page.getByRole("button", { name: "Manage MCP access" }).click();
   await expect(page).toHaveURL(/section=connections/);
-  await expect(page.getByText("Hermes", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("runtime-owned-mcp-hermes")).toContainText(
+    "Hermes",
+  );
 
   await page
     .getByTestId("settings-connections-mcp")
