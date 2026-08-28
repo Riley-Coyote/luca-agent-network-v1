@@ -154,30 +154,42 @@ async function openMembersSidebar(
 ) {
   await page.getByTestId(`channel-${channelName}`).click();
   await expect(page.getByTestId("chat-title")).toHaveText(channelName);
-  await page.getByTestId("channel-members-trigger").click();
+  const conversationDetails = page.getByTestId("conversation-context-panel");
+  if (!(await conversationDetails.isVisible())) {
+    await page
+      .getByRole("button", { name: "Open conversation details" })
+      .click();
+  }
+  await expect(conversationDetails).toBeVisible();
+  await conversationDetails
+    .getByTestId("conversation-manage-participants")
+    .click();
   await expect(page.getByTestId("members-sidebar")).toBeVisible();
 }
 
-async function readMembersTriggerCount(page: import("@playwright/test").Page) {
+async function readVisibleMemberCount(page: import("@playwright/test").Page) {
   const label =
     (await page
-      .getByTestId("channel-members-trigger")
-      .getAttribute("aria-label")) ?? "";
-  const match = label.match(/\((\d+)\)$/);
+      .getByTestId("members-sidebar")
+      .getByText(/^Members · \d+$/)
+      .textContent()) ?? "";
+  const match = label.match(/Members · (\d+)$/);
   if (!match) {
     throw new Error(`Could not read member count from label: ${label}`);
   }
   return Number(match[1]);
 }
 
-async function expectMembersTriggerCount(
+async function expectVisibleMemberCount(
   page: import("@playwright/test").Page,
   count: number,
 ) {
-  await expect(page.getByTestId("channel-members-trigger")).toHaveAttribute(
-    "aria-label",
-    `View channel members (${count})`,
-  );
+  await page.getByTestId("channel-management-search-users").fill("");
+  await expect(
+    page
+      .getByTestId("members-sidebar")
+      .getByText(`Members · ${count}`, { exact: true }),
+  ).toBeVisible();
 }
 
 async function waitForMockLiveSubscription(
@@ -828,12 +840,12 @@ test("routes an agent mention from an existing DM to the expanded conversation",
 
   const messageTail = "in this DM";
   const input = page.getByTestId("message-input");
-  await input.fill("Ask @fi");
+  await input.fill("Ask @lu");
   await expect(
     page
       .getByTestId("message-composer")
       .getByTestId("mention-autocomplete")
-      .locator("button", { hasText: "Fizz" }),
+      .locator("button", { hasText: "Luca" }),
   ).toBeVisible();
   await input.press("Enter");
   await page.keyboard.type(" in this DM");
@@ -861,8 +873,8 @@ test("routes an agent mention from an existing DM to the expanded conversation",
     sentChannelId ?? "",
   );
   await expect(page.getByTestId("chat-title")).toContainText("alice");
-  await expect(page.getByTestId("chat-title")).toContainText("Fizz");
-  await expect(sourceDm).not.toContainText("Fizz");
+  await expect(page.getByTestId("chat-title")).toContainText("Luca");
+  await expect(sourceDm).not.toContainText("Luca");
   const sendCommands = (await readCommandPayloadLog(page)).slice(
     baselineCommands.length,
   );
@@ -2673,7 +2685,7 @@ test("members sidebar can invite and remove managed agents", async ({
   });
   await page.goto("/");
   await openMembersSidebar(page, "general");
-  const initialMemberCount = await readMembersTriggerCount(page);
+  const initialMemberCount = await readVisibleMemberCount(page);
   await expect(page.getByTestId("channel-management-add-pubkeys")).toHaveCount(
     0,
   );
@@ -2707,7 +2719,7 @@ test("members sidebar can invite and remove managed agents", async ({
   await expect(page.getByTestId("channel-management-search-users")).toHaveValue(
     "char",
   );
-  await expectMembersTriggerCount(page, initialMemberCount + 1);
+  await expectVisibleMemberCount(page, initialMemberCount + 1);
 
   await openMemberMenu(page, TEST_IDENTITIES.charlie.pubkey);
   await page
@@ -2717,7 +2729,7 @@ test("members sidebar can invite and remove managed agents", async ({
   await expect(
     page.getByTestId(`sidebar-member-${TEST_IDENTITIES.charlie.pubkey}`),
   ).toHaveCount(0);
-  await expectMembersTriggerCount(page, initialMemberCount);
+  await expectVisibleMemberCount(page, initialMemberCount);
 });
 
 test("members sidebar pages add-member search beyond the first 50 people", async ({
@@ -3022,7 +3034,9 @@ test("removing a channel-scoped agent preserves the managed agent record", async
   await expect(page.getByTestId("members-sidebar")).not.toBeVisible();
 
   await page.getByTestId("open-agents-view").click();
-  await expect(page.getByTestId(`managed-agent-${agentPubkey}`)).toHaveCount(1);
+  await expect(
+    page.getByTestId(`agent-library-row-${agentPubkey}`),
+  ).toHaveCount(1);
 });
 
 test("members sidebar can respawn a stopped managed bot", async ({ page }) => {
@@ -3106,10 +3120,10 @@ test("members sidebar omits bulk controls for managed bots", async ({
 
   await page.getByTestId("open-agents-view").click();
   await expect(
-    page.getByTestId(`managed-agent-${firstAgentPubkey}`),
+    page.getByTestId(`agent-library-row-${firstAgentPubkey}`),
   ).toHaveCount(1);
   await expect(
-    page.getByTestId(`managed-agent-${secondAgentPubkey}`),
+    page.getByTestId(`agent-library-row-${secondAgentPubkey}`),
   ).toHaveCount(1);
 
   const commands = await readCommandLog(page);
@@ -3164,7 +3178,9 @@ test("removing a multi-channel managed bot preserves its record after removal fr
   await expect(page.getByTestId("members-sidebar")).not.toBeVisible();
 
   await page.getByTestId("open-agents-view").click();
-  await expect(page.getByTestId(`managed-agent-${agentPubkey}`)).toHaveCount(1);
+  await expect(
+    page.getByTestId(`agent-library-row-${agentPubkey}`),
+  ).toHaveCount(1);
 
   let commands = await readCommandLog(page);
   // First removal: 1 remove_channel_member, agent record preserved.
@@ -3183,7 +3199,9 @@ test("removing a multi-channel managed bot preserves its record after removal fr
   await expect(page.getByTestId("members-sidebar")).not.toBeVisible();
 
   await page.getByTestId("open-agents-view").click();
-  await expect(page.getByTestId(`managed-agent-${agentPubkey}`)).toHaveCount(1);
+  await expect(
+    page.getByTestId(`agent-library-row-${agentPubkey}`),
+  ).toHaveCount(1);
 
   commands = await readCommandLog(page);
   // Second removal: agent is preserved even after removal from all channels.
