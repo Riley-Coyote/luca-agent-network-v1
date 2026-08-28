@@ -78,6 +78,65 @@ test("own message paints instantly and the composer clears", async ({
   await expect(input).toHaveText("");
 });
 
+test("a rejected send stays in place and retries without duplicating", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    sendChannelMessageErrors: ["relay rejected event: temporary failure"],
+    sendMessageDelayMs: 200,
+  });
+  await page.goto("/?e2e=mock");
+  await page.getByTestId("channel-alice-tyler").click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({
+            channelName: "alice-tyler",
+          }) ?? false,
+      ),
+    )
+    .toBe(true);
+
+  const input = page.getByTestId("message-input");
+  await input.fill("feel-gate-retry-in-place");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "Sending" })).toBeDisabled();
+
+  const row = page
+    .getByTestId("message-row")
+    .filter({ hasText: "feel-gate-retry-in-place" });
+  await expect(row).toHaveCount(1);
+  await expect(row.getByTestId("message-send-failed")).toHaveText(
+    /Not sent.*Retry/,
+  );
+  await expect(input).toHaveText("");
+  await row.evaluate((element) => {
+    element.setAttribute("data-retry-instance", "stable");
+  });
+
+  await row.getByRole("button", { name: "Retry sending message" }).click();
+  await expect(page.getByRole("button", { name: "Sending" })).toBeDisabled();
+  await expect(row.getByTestId("message-send-failed")).toHaveCount(0);
+  await expect(row).toHaveCount(1);
+  await expect(row).toHaveAttribute("data-retry-instance", "stable");
+  await expect(row).not.toHaveAttribute("data-message-id", /optimistic/);
+  await expect(
+    page.getByRole("button", { name: "Send message" }),
+  ).toBeEnabled();
+
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? []).filter(
+            (entry) => entry.command === "send_channel_message",
+          ).length,
+      ),
+    )
+    .toBe(2);
+});
+
 test("a fresh reply arrives animated; old history stays still", async ({
   page,
 }) => {
@@ -161,7 +220,9 @@ test("the shelf's first word arrives fast after a managed send", async ({
   // A plain send derives the conversation-wide audience and seeds the
   // presentation — no explicit mention required (wake-on-send.spec is the
   // precedent fixture).
-  await page.getByTestId("message-input").fill("the first word should not wait");
+  await page
+    .getByTestId("message-input")
+    .fill("the first word should not wait");
   const before = Date.now();
   await page.getByTestId("send-message").click();
 

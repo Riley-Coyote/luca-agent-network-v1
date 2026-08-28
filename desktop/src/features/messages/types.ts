@@ -46,6 +46,8 @@ export type TimelineMessage = {
   depth: number;
   accent?: boolean;
   pending?: boolean;
+  /** The optimistic owner message was rejected and can be retried in place. */
+  sendFailed?: boolean;
   edited?: boolean;
   highlighted?: boolean;
   kind?: number;

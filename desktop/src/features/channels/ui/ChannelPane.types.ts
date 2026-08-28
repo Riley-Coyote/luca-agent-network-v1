@@ -99,6 +99,7 @@ export type ChannelPaneProps = {
   ) => Promise<void>;
   onMarkUnread?: (message: TimelineMessage) => void;
   onMarkRead?: (message: TimelineMessage) => void;
+  onRetryFailedMessage?: (optimisticId: string) => Promise<void>;
   onExpandThreadReplies: (message: TimelineMessage) => void;
   onJoinChannel?: () => Promise<void>;
   onOpenDm?: (pubkeys: string[]) => Promise<void> | void;
@@ -140,11 +141,7 @@ export type ChannelPaneProps = {
     mentionPubkeys: string[],
     mediaTags?: string[][],
     channelId?: string | null,
-    threadContext?: {
-      parentEventId: string | null;
-      threadHeadId: string | null;
-      replyAuthorPubkey?: string | null;
-    } | null,
+    threadContext?: MessageComposerSendContext | null,
     explicitMentionPubkeys?: string[],
   ) => Promise<void>;
   onTargetReached?: (messageId: string) => void;

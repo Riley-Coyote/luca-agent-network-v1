@@ -208,6 +208,8 @@ export type RelayEvent = {
   id: string;
   /** Local-only render identity for optimistic events that are later acknowledged. */
   localKey?: string;
+  /** Local-only send failure state. Failed optimistic rows remain retryable. */
+  sendFailed?: boolean;
   pubkey: string;
   created_at: number;
   kind: number;

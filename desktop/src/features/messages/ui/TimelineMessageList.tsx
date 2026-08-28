@@ -927,11 +927,9 @@ function MessageRowItem({
   videoReviewContext,
 }: MessageRowItemProps) {
   const { message, quotedParent, summary } = entry;
-  const canManage = canManageMessageForCurrentUser(
-    message,
-    currentPubkey,
-    profiles,
-  );
+  const canManage =
+    !message.pending &&
+    canManageMessageForCurrentUser(message, currentPubkey, profiles);
   const canDelete = canManage && onDelete ? onDelete : undefined;
   const canEdit = canManage && onEdit ? onEdit : undefined;
   const TurnRow = message.managedPresentation ? ManagedResponseRow : MessageRow;

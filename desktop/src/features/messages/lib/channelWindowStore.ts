@@ -262,6 +262,27 @@ export function mapChannelWindowEvents(
   return changed ? { ...store, pages, liveOverlay, liveAux } : store;
 }
 
+/**
+ * Change one optimistic row's transport state without changing its identity,
+ * timestamp, or position in the canonical window store.
+ */
+export function setOptimisticSendState(
+  store: ChannelWindowStore,
+  eventId: string,
+  state: "sending" | "failed",
+): ChannelWindowStore {
+  return mapChannelWindowEvents(store, (event) => {
+    if (event.id !== eventId) return event;
+    return {
+      ...event,
+      // Both states are local-only and must stay outside durable snapshots.
+      // `sendFailed` distinguishes a settled rejection from an active send.
+      pending: true,
+      sendFailed: state === "failed" ? true : undefined,
+    };
+  });
+}
+
 /** Raw events in the chronological order expected by the existing renderer. */
 export function flattenChannelWindowEvents(store: ChannelWindowStore) {
   const byId = new Map<string, RelayEvent>();

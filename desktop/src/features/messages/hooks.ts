@@ -78,8 +78,10 @@ import {
   mergeLiveChannelWindowEvent,
   mergeLiveThreadSummary,
   replaceNewestChannelWindow,
+  setOptimisticSendState,
   type ChannelWindowStore,
 } from "@/features/messages/lib/channelWindowStore";
+import { retainOptimisticSendError } from "@/features/messages/lib/retainedOptimisticSendError";
 import {
   parseChannelWindowResponse,
   parseLiveThreadSummary,
@@ -94,13 +96,30 @@ import {
   KIND_SYSTEM_MESSAGE,
 } from "@/shared/constants/kinds";
 
+export type SendMessageVariables = {
+  channelId?: string;
+  targetChannel?: Channel;
+  content: string;
+  mentionPubkeys?: string[];
+  explicitMentionPubkeys?: string[];
+  parentEventId?: string | null;
+  replyAuthorPubkey?: string | null;
+  managedAudience?: ManagedAudienceIntentV1;
+  responseSurface?: ManagedResponseSurface;
+  mediaTags?: string[][];
+  /** Local-only completion owned by the composer (for example draft cleanup). */
+  onAccepted?: () => void;
+  /** Internal: retry the retained optimistic row instead of inserting another. */
+  retryOptimisticId?: string;
+};
+
 type MessageQueryContext = {
   optimisticId: string;
-  previousMessages: RelayEvent[];
-  previousWindow: ChannelWindowStore | undefined;
   channelId: string;
-  queryKey: ReturnType<typeof channelMessagesKey>;
 };
+
+/** In-memory only. Pending events are excluded from snapshots and persistence. */
+const failedSendRetryVariables = new Map<string, SendMessageVariables>();
 
 const CHANNEL_TIMELINE_KINDS = new Set<number>(CHANNEL_TIMELINE_CONTENT_KINDS);
 const CHANNEL_AUX_KINDS = new Set<number>(CHANNEL_AUX_EVENT_KINDS);
@@ -476,21 +495,10 @@ export function useSendMessageMutation(
 ) {
   const queryClient = useQueryClient();
 
-  return useMutation<
+  const mutation = useMutation<
     RelayEvent,
     Error,
-    {
-      channelId?: string;
-      targetChannel?: Channel;
-      content: string;
-      mentionPubkeys?: string[];
-      explicitMentionPubkeys?: string[];
-      parentEventId?: string | null;
-      replyAuthorPubkey?: string | null;
-      managedAudience?: ManagedAudienceIntentV1;
-      responseSurface?: ManagedResponseSurface;
-      mediaTags?: string[][];
-    },
+    SendMessageVariables,
     MessageQueryContext | undefined
   >({
     mutationFn: async ({
@@ -624,18 +632,20 @@ export function useSendMessageMutation(
         sig: "",
       };
     },
-    onMutate: async ({
-      channelId: capturedChannelId,
-      targetChannel,
-      content,
-      mentionPubkeys,
-      explicitMentionPubkeys,
-      parentEventId,
-      replyAuthorPubkey,
-      managedAudience,
-      responseSurface = "timeline",
-      mediaTags,
-    }) => {
+    onMutate: async (variables) => {
+      const {
+        channelId: capturedChannelId,
+        targetChannel,
+        content,
+        mentionPubkeys,
+        explicitMentionPubkeys,
+        parentEventId,
+        replyAuthorPubkey,
+        managedAudience,
+        responseSurface = "timeline",
+        mediaTags,
+        retryOptimisticId,
+      } = variables;
       // Mirror mutationFn's target resolution so the optimistic message lands
       // in the cache for the same channel as the real send. A caller-supplied
       // channel remains valid even when a stale channel-list read omitted it.
@@ -682,16 +692,21 @@ export function useSendMessageMutation(
           ...(audience ? managedAudiencePubkeys(audience) : []),
         ],
       );
-      const optimisticMessage = createOptimisticMessage(
-        effectiveChannel.id,
-        content.trim(),
-        identity,
-        previousMessages,
-        recipientPubkeys,
-        parentEventId ?? null,
-        mediaTags ?? [],
-        responseSurface,
-      );
+      const optimisticMessage = retryOptimisticId
+        ? previousMessages.find((event) => event.id === retryOptimisticId)
+        : createOptimisticMessage(
+            effectiveChannel.id,
+            content.trim(),
+            identity,
+            previousMessages,
+            recipientPubkeys,
+            parentEventId ?? null,
+            mediaTags ?? [],
+            responseSurface,
+          );
+      if (!optimisticMessage) {
+        throw new Error("The failed message is no longer available to retry.");
+      }
       if (audience) {
         // Wake-on-send. A resident whose process is not running cannot hear
         // this message, and until now the row said "thinking" for twelve
@@ -729,19 +744,20 @@ export function useSendMessageMutation(
         }
       }
 
-      const nextWindow = mergeLiveChannelWindowEvent(
-        previousWindow ?? emptyChannelWindowStore(),
-        optimisticMessage,
-      );
+      failedSendRetryVariables.set(optimisticMessage.id, {
+        ...variables,
+        retryOptimisticId: undefined,
+      });
+      const currentWindow = previousWindow ?? emptyChannelWindowStore();
+      const nextWindow = retryOptimisticId
+        ? setOptimisticSendState(currentWindow, optimisticMessage.id, "sending")
+        : mergeLiveChannelWindowEvent(currentWindow, optimisticMessage);
       queryClient.setQueryData(windowKey, nextWindow);
       projectChannelWindowMessages(queryClient, effectiveChannel.id);
 
       return {
         optimisticId: optimisticMessage.id,
-        previousMessages,
-        previousWindow,
         channelId: effectiveChannel.id,
-        queryKey,
       };
     },
     onError: (error, _variables, context) => {
@@ -761,20 +777,32 @@ export function useSendMessageMutation(
         });
       }
       removeManagedPresentationsByReceipt(context.optimisticId);
-
-      queryClient.setQueryData(context.queryKey, context.previousMessages);
-      queryClient.setQueryData(
-        channelWindowKey(context.channelId),
-        context.previousWindow,
+      retainOptimisticSendError(error, context.channelId);
+      const windowKey = channelWindowKey(context.channelId);
+      queryClient.setQueryData<ChannelWindowStore>(windowKey, (current) =>
+        setOptimisticSendState(
+          current ?? emptyChannelWindowStore(),
+          context.optimisticId,
+          "failed",
+        ),
       );
+      projectChannelWindowMessages(queryClient, context.channelId);
     },
-    onSuccess: (message, _variables, context) => {
+    onSuccess: (message, variables, context) => {
       // An accepted send proves the write-block is lifted; clear any recorded
       // timeout so the chip and disable state fall away immediately.
       clearTimeoutState();
+      try {
+        variables.onAccepted?.();
+      } catch (error) {
+        // Local draft bookkeeping must never turn a relay-accepted message
+        // back into a failed send and invite a duplicate retry.
+        console.warn("accepted message cleanup failed", error);
+      }
       if (!context) {
         return;
       }
+      failedSendRetryVariables.delete(context.optimisticId);
       replaceManagedPresentationReceipt(context.optimisticId, message.id);
 
       const windowKey = channelWindowKey(context.channelId);
@@ -795,6 +823,20 @@ export function useSendMessageMutation(
       projectChannelWindowMessages(queryClient, context.channelId);
     },
   });
+
+  return {
+    ...mutation,
+    retryFailedMessage: async (optimisticId: string) => {
+      const variables = failedSendRetryVariables.get(optimisticId);
+      if (!variables) {
+        throw new Error("The failed message is no longer available to retry.");
+      }
+      await mutation.mutateAsync({
+        ...variables,
+        retryOptimisticId: optimisticId,
+      });
+    },
+  };
 }
 
 export function useToggleReactionMutation() {

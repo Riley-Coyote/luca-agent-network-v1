@@ -467,6 +467,7 @@ export function formatTimelineMessages(
       depth: getDepth(event),
       accent: currentPubkey === authorPubkey,
       pending: event.pending,
+      sendFailed: event.sendFailed,
       edited: edit !== undefined,
       kind: event.kind,
       // When edited, swap the original event's imeta tags for the edit's

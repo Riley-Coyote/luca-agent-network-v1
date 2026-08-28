@@ -390,7 +390,7 @@ export function NewMessageScreen() {
       mentionPubkeys: string[],
       mediaTags?: string[][],
       targetChannelId?: string | null,
-      _threadContext?: MessageComposerSendContext | null,
+      threadContext?: MessageComposerSendContext | null,
       explicitMentionPubkeys?: string[],
     ) => {
       const preparedDirectMessage = preparedDirectMessageRef.current;
@@ -415,6 +415,7 @@ export function NewMessageScreen() {
           mentionPubkeys,
           explicitMentionPubkeys,
           mediaTags,
+          onAccepted: threadContext?.onAccepted,
         });
       } catch (error) {
         preparedDirectMessageRef.current = null;

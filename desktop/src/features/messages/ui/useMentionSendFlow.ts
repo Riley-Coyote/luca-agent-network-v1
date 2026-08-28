@@ -12,6 +12,7 @@ import {
 import { resolvePersonaRuntime } from "@/features/agents/lib/resolvePersonaRuntime";
 import { useAddChannelMembersMutation } from "@/features/channels/hooks";
 import { filterEffectiveExplicitAgentPubkeys } from "@/features/messages/lib/effectiveExplicitAgentPubkeys";
+import { retainedOptimisticSendChannel } from "@/features/messages/lib/retainedOptimisticSendError";
 import {
   formatAgentReadinessError,
   resolveCompleteSendPlan,
@@ -26,6 +27,7 @@ import {
 import type { UseMentionsResult } from "@/features/messages/lib/useMentions";
 import type { UseRichTextEditorResult } from "@/features/messages/lib/useRichTextEditor";
 import type { UseDraftsResult } from "@/features/messages/lib/useDrafts";
+import type { MessageComposerSendContext } from "@/features/messages/ui/messageComposerTypes";
 import { resolveIdentityDisplayName } from "@/features/profile/lib/identity";
 import type { CustomEmoji } from "@/shared/lib/remarkCustomEmoji";
 import type { AcpRuntime, ChannelType, ManagedAgent } from "@/shared/api/types";
@@ -59,10 +61,7 @@ type PendingNonMemberMentionSend = {
 type SendMessageWithMentionFlowInput = {
   capturedChannelId: string | null;
   /** Thread context captured at submit time — null for main-timeline sends. */
-  capturedThreadContext?: {
-    parentEventId: string | null;
-    threadHeadId: string | null;
-  } | null;
+  capturedThreadContext?: MessageComposerSendContext | null;
   pendingImeta: ImetaMedia[];
   sentDraftKey: string | null | undefined;
   spoileredAttachmentUrls?: ReadonlySet<string>;
@@ -89,10 +88,7 @@ type UseMentionSendFlowOptions = {
       mentionPubkeys: string[],
       mediaTags?: string[][],
       channelId?: string | null,
-      threadContext?: {
-        parentEventId: string | null;
-        threadHeadId: string | null;
-      } | null,
+      threadContext?: MessageComposerSendContext | null,
       explicitMentionPubkeys?: string[],
     ) => Promise<void>
   >;
@@ -568,12 +564,28 @@ export function useMentionSendFlow({
         }
 
         try {
+          const sendContext = draft.sentDraftKey
+            ? {
+                ...(draft.capturedThreadContext ?? {
+                  parentEventId: null,
+                  threadHeadId: null,
+                }),
+                onAccepted: () =>
+                  drafts.markDraftSent(
+                    draft.sentDraftKey as string,
+                    draft.savedContent,
+                    sendChannelId ?? (draft.sentDraftKey as string),
+                    draft.savedImeta,
+                    [...draft.savedSpoileredAttachmentUrls],
+                  ),
+              }
+            : draft.capturedThreadContext;
           const sendPromise = onSendRef.current(
             draft.finalContent,
             mentionPubkeys,
             outgoingTags,
             sendChannelId,
-            draft.capturedThreadContext,
+            sendContext,
             effectiveExplicitAgentPubkeys,
           );
           if (plan.branch === "ordinary") {
@@ -604,7 +616,16 @@ export function useMentionSendFlow({
               [...draft.savedSpoileredAttachmentUrls],
             );
           }
-        } catch {
+        } catch (error) {
+          // Once the timeline retains the failed optimistic row, that row owns
+          // retry. Restoring the same draft would create a second apparent
+          // copy and make the first one look as though it flashed away.
+          if (
+            retainedOptimisticSendChannel(error) === channelIdRef.current &&
+            channelIdRef.current !== null
+          ) {
+            return;
+          }
           // Only restore the composer content if the user is still on the
           // channel that originated the send.
           if (draft.capturedChannelId === channelIdRef.current) {

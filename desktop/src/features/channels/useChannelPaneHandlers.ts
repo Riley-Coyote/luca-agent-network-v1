@@ -298,7 +298,7 @@ export function useChannelPaneHandlers({
       mentionPubkeys: string[],
       mediaTags?: string[][],
       channelId?: string | null,
-      _threadContext?: MessageComposerSendContext | null,
+      threadContext?: MessageComposerSendContext | null,
       explicitMentionPubkeys?: string[],
     ) => {
       await sendMutateRef.current({
@@ -307,6 +307,7 @@ export function useChannelPaneHandlers({
         explicitMentionPubkeys,
         mediaTags,
         channelId: channelId ?? undefined,
+        onAccepted: threadContext?.onAccepted,
       });
     },
     [],
@@ -318,7 +319,7 @@ export function useChannelPaneHandlers({
       mentionPubkeys: string[],
       mediaTags?: string[][],
       channelId?: string | null,
-      _threadContext?: MessageComposerSendContext | null,
+      threadContext?: MessageComposerSendContext | null,
       explicitMentionPubkeys?: string[],
     ) => {
       const target = directedReplyTargetRef.current;
@@ -332,6 +333,7 @@ export function useChannelPaneHandlers({
         parentEventId: target.id,
         replyAuthorPubkey: target.pubkey ?? null,
         responseSurface: "timeline",
+        onAccepted: threadContext?.onAccepted,
       });
       if (directedReplyTargetRef.current?.id === target.id) {
         setDirectedReplyTargetId(null);
@@ -346,11 +348,7 @@ export function useChannelPaneHandlers({
       mentionPubkeys: string[],
       mediaTags?: string[][],
       channelId?: string | null,
-      threadContext?: {
-        parentEventId: string | null;
-        threadHeadId: string | null;
-        replyAuthorPubkey?: string | null;
-      } | null,
+      threadContext?: MessageComposerSendContext | null,
       explicitMentionPubkeys?: string[],
     ) => {
       // Resolve target using captured submit-time context (race-free) or live
@@ -387,6 +385,7 @@ export function useChannelPaneHandlers({
         responseSurface: "thread",
         mediaTags,
         channelId: channelId ?? undefined,
+        onAccepted: threadContext?.onAccepted,
       });
 
       // Only update thread UI state if the user is still viewing the same

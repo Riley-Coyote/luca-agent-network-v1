@@ -147,6 +147,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   onEditSave,
   onMarkUnread,
   onMarkRead,
+  onRetryFailedMessage,
   onExpandThreadReplies,
   onJoinChannel,
   onOpenDm,
@@ -427,7 +428,7 @@ export const ChannelPane = React.memo(function ChannelPane({
       mentionPubkeys: string[],
       mediaTags?: string[][],
       channelId?: string | null,
-      _threadContext?: MessageComposerSendContext | null,
+      threadContext?: MessageComposerSendContext | null,
       explicitMentionPubkeys?: string[],
     ) => {
       const shouldCompleteWelcomeBanner =
@@ -447,7 +448,7 @@ export const ChannelPane = React.memo(function ChannelPane({
         mentionPubkeys,
         mediaTags,
         channelId,
-        undefined,
+        threadContext,
         explicitMentionPubkeys,
       );
 
@@ -537,7 +538,7 @@ export const ChannelPane = React.memo(function ChannelPane({
       mentionPubkeys: string[],
       mediaTags?: string[][],
       channelId?: string | null,
-      _threadContext?: MessageComposerSendContext | null,
+      threadContext?: MessageComposerSendContext | null,
       explicitMentionPubkeys?: string[],
     ) => {
       messageTimelineRef.current?.scrollToBottomOnNextUpdate();
@@ -546,7 +547,7 @@ export const ChannelPane = React.memo(function ChannelPane({
         mentionPubkeys,
         mediaTags,
         channelId,
-        undefined,
+        threadContext,
         explicitMentionPubkeys,
       );
     },
@@ -721,7 +722,7 @@ export const ChannelPane = React.memo(function ChannelPane({
     ],
   );
   const artifactReceiptsQuery = useArtifactReceipts(activeChannelId);
-  const artifactMessageFooters = React.useMemo(() => {
+  const messageFooters = React.useMemo(() => {
     const footers: Record<string, React.ReactNode> = {};
     for (const receipt of artifactReceiptsQuery.data ?? []) {
       const key =
@@ -738,8 +739,45 @@ export const ChannelPane = React.memo(function ChannelPane({
         </div>
       );
     }
+    if (onRetryFailedMessage) {
+      for (const message of visibleMessages) {
+        if (!message.sendFailed) continue;
+        const current = footers[message.id];
+        footers[message.id] = (
+          <div className="flex flex-col gap-1.5">
+            {current}
+            <div
+              aria-live="polite"
+              className="flex items-center gap-1.5 pl-12 text-xs text-destructive/90 sm:pl-14"
+              data-testid="message-send-failed"
+              role="status"
+            >
+              <span>Not sent</span>
+              <span aria-hidden="true">·</span>
+              <button
+                aria-label="Retry sending message"
+                className="rounded-sm font-medium underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-default disabled:opacity-50"
+                data-testid="retry-failed-message"
+                disabled={isSending}
+                onClick={() => {
+                  void onRetryFailedMessage(message.id).catch(() => undefined);
+                }}
+                type="button"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        );
+      }
+    }
     return footers;
-  }, [artifactReceiptsQuery.data]);
+  }, [
+    artifactReceiptsQuery.data,
+    isSending,
+    onRetryFailedMessage,
+    visibleMessages,
+  ]);
   const projectedRoomMessages = React.useMemo(() => {
     const projected = projectManagedTimelineMessages(
       visibleMessages,
@@ -934,7 +972,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                 isFetchingOlder={isFetchingOlder}
                 isFollowingThreadById={isFollowingThreadById}
                 isMessageUnreadById={isMessageUnreadById}
-                messageFooters={artifactMessageFooters}
+                messageFooters={messageFooters}
                 personaLookup={personaLookup}
                 profiles={profiles}
                 ownerProfiles={ownerProfiles}
@@ -1137,7 +1175,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                       editTarget={mainEditTarget}
                       autoSubmitDraftKey={autoSendDraftKey}
                       onAutoSubmitComplete={handleAutoSubmitComplete}
-                      isSending={false}
+                      isSending={isSending}
                       mediaController={mainComposerMedia}
                       onCancelEdit={onCancelEdit}
                       onCancelReply={

@@ -990,6 +990,7 @@ export function ChannelScreen({
                 }
                 onMarkUnread={handleMessageMarkUnread}
                 onMarkRead={handleMessageMarkRead}
+                onRetryFailedMessage={sendMessageMutation.retryFailedMessage}
                 onExpandThreadReplies={handleExpandThreadReplies}
                 onOpenDm={handleOpenDm}
                 onOpenProfilePanel={handleOpenProfilePanel}

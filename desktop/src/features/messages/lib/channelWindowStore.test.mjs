@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   appendOlderChannelWindow,
   mapChannelWindowEvents,
+  setOptimisticSendState,
   channelWindowHasMore,
   channelWindowHistoryExhausted,
   channelWindowThreadSummaries,
@@ -12,6 +13,7 @@ import {
   mergeLiveThreadSummary,
   replaceNewestChannelWindow,
 } from "./channelWindowStore.ts";
+import { reconcileIncomingMessage } from "./messageMerge.ts";
 
 function event(id, createdAt, kind = 9) {
   return {
@@ -426,6 +428,53 @@ test("mapChannelWindowEvents rewrites live overlay events", () => {
     ).content,
     "edited-live",
   );
+});
+
+test("optimistic send failure and retry keep one stable window row", () => {
+  const pending = event("optimistic-one", 12);
+  pending.localKey = "optimistic-one";
+  pending.pending = true;
+  const store = {
+    ...emptyChannelWindowStore(),
+    liveOverlay: [pending],
+  };
+
+  const failed = setOptimisticSendState(store, pending.id, "failed");
+  assert.equal(failed.liveOverlay.length, 1);
+  assert.equal(failed.liveOverlay[0].id, pending.id);
+  assert.equal(failed.liveOverlay[0].localKey, pending.localKey);
+  assert.equal(failed.liveOverlay[0].pending, true);
+  assert.equal(failed.liveOverlay[0].sendFailed, true);
+
+  const retrying = setOptimisticSendState(failed, pending.id, "sending");
+  assert.equal(retrying.liveOverlay.length, 1);
+  assert.equal(retrying.liveOverlay[0].id, pending.id);
+  assert.equal(retrying.liveOverlay[0].localKey, pending.localKey);
+  assert.equal(retrying.liveOverlay[0].pending, true);
+  assert.equal(retrying.liveOverlay[0].sendFailed, undefined);
+});
+
+test("only an active retry can reconcile into its accepted relay event", () => {
+  const pending = event("optimistic-retry", 12);
+  pending.localKey = pending.id;
+  pending.pending = true;
+  pending.content = "same owner content";
+  const store = {
+    ...emptyChannelWindowStore(),
+    liveOverlay: [pending],
+  };
+  const accepted = event("accepted-retry", 13);
+  accepted.content = pending.content;
+
+  const failed = setOptimisticSendState(store, pending.id, "failed");
+  const whileFailed = reconcileIncomingMessage(failed.liveOverlay, accepted);
+  assert.equal(whileFailed.length, 2);
+
+  const retrying = setOptimisticSendState(failed, pending.id, "sending");
+  const afterRetry = reconcileIncomingMessage(retrying.liveOverlay, accepted);
+  assert.equal(afterRetry.length, 1);
+  assert.equal(afterRetry[0].id, accepted.id);
+  assert.equal(afterRetry[0].localKey, pending.localKey);
 });
 
 test("exhaustion is unresolved (false) on an empty store, unlike hasMore's default", () => {
