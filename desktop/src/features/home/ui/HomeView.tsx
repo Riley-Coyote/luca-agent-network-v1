@@ -68,9 +68,9 @@ import { KIND_REACTION } from "@/shared/constants/kinds";
 import { topChromeInset } from "@/shared/layout/chromeLayout";
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
-import { useElementWidth } from "@/shared/hooks/use-mobile";
 import { useThreadPanelWidth } from "@/shared/hooks/useThreadPanelWidth";
 import { AUXILIARY_PANEL_SINGLE_COLUMN_BREAKPOINT_PX } from "@/shared/layout/AuxiliaryPanel";
+import { useMainInsetWidth } from "@/shared/layout/MainInsetContext";
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
 import { ProfilePanelProvider } from "@/shared/context/ProfilePanelContext";
 import { Button } from "@/shared/ui/button";
@@ -127,7 +127,7 @@ export function HomeView({
   onRefresh,
 }: HomeViewProps) {
   const relaySelfPubkey = useRelaySelfQuery().data;
-  const [homeInboxRef, homeInboxWidthPx] = useElementWidth<HTMLDivElement>();
+  const homeInboxWidthPx = useMainInsetWidth();
   const isNarrowHomeViewport =
     homeInboxWidthPx > 0 &&
     homeInboxWidthPx < INBOX_SINGLE_COLUMN_BREAKPOINT_PX;
@@ -704,7 +704,6 @@ export function HomeView({
                     : "grid-cols-1",
           )}
           data-testid="home-inbox"
-          ref={homeInboxRef}
           style={
             {
               "--home-channel-management-width": `${auxiliaryPaneWidthPx}px`,

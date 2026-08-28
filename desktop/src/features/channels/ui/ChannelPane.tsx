@@ -209,6 +209,12 @@ export const ChannelPane = React.memo(function ChannelPane({
     !activeChannel.archivedAt;
   const hasMainComposerOverlay = !isNonMemberView;
   const activeChannelId = activeChannel?.id ?? null;
+  const dragChannelIdRef = React.useRef(activeChannelId);
+  React.useEffect(() => {
+    if (dragChannelIdRef.current === activeChannelId) return;
+    dragChannelIdRef.current = activeChannelId;
+    mainComposerMedia.resetDragState();
+  }, [activeChannelId, mainComposerMedia.resetDragState]);
   useNativeAgentNotice({ activeChannel, currentPubkey, messages });
   const lucaArrival = useLucaArrival({
     activeChannel,

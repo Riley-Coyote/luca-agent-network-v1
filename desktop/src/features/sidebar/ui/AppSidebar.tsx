@@ -185,8 +185,24 @@ export function AppSidebar({
     : null;
   const runtimeContextScopeRef = React.useRef(runtimeContextScope);
   const selectedRuntimeRef = React.useRef(selectedRuntime);
+  const pendingRuntimeSelectionRef =
+    React.useRef<RuntimeConnectionStatusV1 | null>(null);
   runtimeContextScopeRef.current = runtimeContextScope;
   selectedRuntimeRef.current = selectedRuntime;
+  React.useEffect(() => {
+    if (selectedView === "messages") {
+      const pendingRuntime = pendingRuntimeSelectionRef.current;
+      if (!pendingRuntime) return;
+      pendingRuntimeSelectionRef.current = null;
+      selectedRuntimeRef.current = pendingRuntime;
+      setSelectedRuntime(pendingRuntime);
+      return;
+    }
+
+    pendingRuntimeSelectionRef.current = null;
+    selectedRuntimeRef.current = null;
+    setSelectedRuntime(null);
+  }, [selectedView]);
   const [isSidebarUpdateCardDismissed, setIsSidebarUpdateCardDismissed] =
     React.useState(false);
   const showSidebarUpdateCard =
@@ -542,6 +558,34 @@ export function AppSidebar({
     });
   }, [isMobile, selectedRuntime, setOpenMobile]);
 
+  const handleNewMessageNavigation = React.useCallback(() => {
+    pendingRuntimeSelectionRef.current = null;
+    selectedRuntimeRef.current = null;
+    setSelectedRuntime(null);
+    onNewMessage();
+  }, [onNewMessage]);
+
+  const handleSelectRuntime = React.useCallback(
+    (runtime: RuntimeConnectionStatusV1) => {
+      if (selectedView !== "messages") {
+        pendingRuntimeSelectionRef.current = runtime;
+        selectedRuntimeRef.current = null;
+        setSelectedRuntime(null);
+        onNewMessage();
+      } else {
+        const key = runtimeConnectionKey(runtime);
+        setSelectedRuntime((current) => {
+          const next =
+            current && runtimeConnectionKey(current) === key ? null : runtime;
+          selectedRuntimeRef.current = next;
+          return next;
+        });
+      }
+      if (isMobile) setOpenMobile(false);
+    },
+    [isMobile, onNewMessage, selectedView, setOpenMobile],
+  );
+
   return React.createElement(
     React.Fragment,
     null,
@@ -589,7 +633,7 @@ export function AppSidebar({
         >
           <AppSidebarPrimaryMenu
             homeBadgeCount={homeBadgeCount}
-            onNewMessage={onNewMessage}
+            onNewMessage={handleNewMessageNavigation}
             onSelectAgents={onSelectAgents}
             onSelectBrain={onSelectBrain}
             onSelectArtifacts={onSelectArtifacts}
@@ -647,7 +691,7 @@ export function AppSidebar({
                           onSelectProject(projectId, preferredRoomId);
                         }}
                         onCreateProject={() => setIsCreateProjectOpen(true)}
-                        onCreateDm={onNewMessage}
+                        onCreateDm={handleNewMessageNavigation}
                         onMarkChannelRead={onMarkChannelRead}
                         onMarkChannelUnread={onMarkChannelUnread}
                         projectByChannelId={roomProjects}
@@ -658,18 +702,7 @@ export function AppSidebar({
                         workingByChannelId={activeWorkingByChannelId}
                       />
                       <RuntimeRailSection
-                        onSelect={(runtime) => {
-                          const key = runtimeConnectionKey(runtime);
-                          setSelectedRuntime((current) => {
-                            const next =
-                              current && runtimeConnectionKey(current) === key
-                                ? null
-                                : runtime;
-                            selectedRuntimeRef.current = next;
-                            return next;
-                          });
-                          if (isMobile) setOpenMobile(false);
-                        }}
+                        onSelect={handleSelectRuntime}
                         selectedRuntimeKey={
                           selectedRuntime
                             ? runtimeConnectionKey(selectedRuntime)
@@ -854,14 +887,14 @@ export function AppSidebar({
                           <div className="absolute right-1 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5">
                             <SectionQuickAction
                               label="New message"
-                              onClick={onNewMessage}
+                              onClick={handleNewMessageNavigation}
                               testId="section-actions-dms-quick-create"
                             />
                             <SectionActionsMenu
                               sectionLabel="direct messages"
                               testId="section-actions-dms"
                               onOpenChange={setDmActionsMenuOpen}
-                              onNewMessage={onNewMessage}
+                              onNewMessage={handleNewMessageNavigation}
                               sortMode={sortModeFor("dms")}
                               onSortModeChange={(mode) =>
                                 setSortModeFor("dms", mode)
@@ -1122,7 +1155,7 @@ export function AppSidebar({
         onNewMessage();
         return true;
       }}
-      runtime={selectedRuntime}
+      runtime={selectedView === "messages" ? selectedRuntime : null}
     />,
   );
 }

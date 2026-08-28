@@ -62,12 +62,14 @@ import type { RelayEvent } from "@/shared/api/types";
 import { useChannelFind } from "@/features/search/useChannelFind";
 import { AgentSessionProvider } from "@/shared/context/AgentSessionContext";
 import { ProfilePanelProvider } from "@/shared/context/ProfilePanelContext";
-import { useMainInsetRef } from "@/shared/layout/MainInsetContext";
+import {
+  useMainInsetRef,
+  useMainInsetWidth,
+} from "@/shared/layout/MainInsetContext";
 import { channelContentTopPaddingMeasurement } from "@/shared/layout/chromeLayout";
 import { useMeasuredCssVariable } from "@/shared/layout/useMeasuredCssVariable";
-import { useElementWidth } from "@/shared/hooks/use-mobile";
+import { useIsMobile, useMediaBreakpoint } from "@/shared/hooks/use-mobile";
 import { useThreadPanelWidth } from "@/shared/hooks/useThreadPanelWidth";
-import { AUXILIARY_PANEL_SINGLE_COLUMN_BREAKPOINT_PX } from "@/shared/layout/AuxiliaryPanel";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { useChannelActivityTyping } from "./useChannelActivityTyping";
 import { useChannelAgentSessions } from "./useChannelAgentSessions";
@@ -79,9 +81,12 @@ import { useChannelUnreadState } from "./useChannelUnreadState";
 import { useActiveChannelReadSync } from "./useActiveChannelReadSync";
 import { useResolvedChannelMessages } from "./useResolvedChannelMessages";
 import { useChannelPersonaLookups } from "./useChannelPersonaLookups";
+import {
+  PROJECT_NAVIGATOR_COMPACT_MAX_VIEWPORT_PX,
+  resolveChannelShellLayout,
+} from "./channelShellLayout";
 import type { ChannelScreenProps } from "./ChannelScreen.types";
-const HEADER_ACTIONS_COMPACT_BREAKPOINT_PX = 760,
-  EMPTY_RELAY_EVENTS: RelayEvent[] = [];
+const EMPTY_RELAY_EVENTS: RelayEvent[] = [];
 export function ChannelScreen({
   activeChannel,
   autoSendDraftKey,
@@ -144,8 +149,6 @@ export function ChannelScreen({
     string | null
   >(null);
   const [isAddBotOpen, setIsAddBotOpen] = React.useState(false);
-  const [channelContentRef, channelContentWidthPx] =
-    useElementWidth<HTMLDivElement>();
   const [expandedThreadReplyIds, setExpandedThreadReplyIds] = React.useState(
     () => new Set<string>(),
   );
@@ -166,6 +169,11 @@ export function ChannelScreen({
     setOptimisticOpenThreadHeadId(undefined);
   }, []);
   const mainInsetRef = useMainInsetRef();
+  const mainInsetWidthPx = useMainInsetWidth();
+  const isMobileViewport = useIsMobile();
+  const isCompactProjectNavigator = useMediaBreakpoint(
+    PROJECT_NAVIGATOR_COMPACT_MAX_VIEWPORT_PX + 1,
+  );
   const currentPubkey = currentIdentity?.pubkey;
   const activeChannelId = activeChannel?.id ?? null;
   const roomExchangeHistory = useRoomExchangeHistory(activeChannelId);
@@ -686,17 +694,15 @@ export function ChannelScreen({
   const shouldShowThreadSkeleton = Boolean(
     effectiveOpenThreadHeadId && activeChannel && !displayedThreadHeadMessage,
   );
-  const isNarrowPanelViewport =
-    channelContentWidthPx > 0 &&
-    channelContentWidthPx < AUXILIARY_PANEL_SINGLE_COLUMN_BREAKPOINT_PX;
-  const isSinglePanelView =
-    isNarrowPanelViewport &&
-    activeChannel?.channelType !== "forum" &&
-    hasAuxiliaryPanel;
-  const shouldCompactHeaderActions =
-    hasAuxiliaryPanel &&
-    channelContentWidthPx > 0 &&
-    channelContentWidthPx < HEADER_ACTIONS_COMPACT_BREAKPOINT_PX;
+  const { shouldCompactHeaderActions, useSinglePanel: isSinglePanelView } =
+    resolveChannelShellLayout({
+      hasAuxiliaryPanel,
+      hasProjectNavigator: projectContext != null,
+      isCompactProjectNavigator,
+      isForum: activeChannel?.channelType === "forum",
+      isMobileViewport,
+      mainInsetWidthPx,
+    });
   const channelHeaderChromeRef = useMeasuredCssVariable({
     targetRef: mainInsetRef,
     ...channelContentTopPaddingMeasurement,
@@ -880,10 +886,7 @@ export function ChannelScreen({
           open={welcomeAgentCreate.isOpen}
           sendError={welcomeAgentCreate.error}
         />
-        <div
-          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-          ref={channelContentRef}
-        >
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {activeChannel ? (
             activeChannel.channelType === "forum" ? (
               <ForumChannelContent

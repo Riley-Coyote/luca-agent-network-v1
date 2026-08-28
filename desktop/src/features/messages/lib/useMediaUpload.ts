@@ -464,22 +464,37 @@ export function useMediaUpload() {
     [],
   );
 
-  // Reset drag state when the drag operation ends outside the form (e.g. user
-  // drops on another part of the window, presses Escape, or drags out of the
-  // browser). Without this, `isDragOver` can stick if the browser doesn't fire
-  // a balanced set of dragenter/dragleave events.
+  const resetDragState = React.useCallback(() => {
+    dragDepthRef.current = 0;
+    setIsDragOver(false);
+  }, []);
+
+  // Reset drag state when the operation ends outside the form or the native
+  // webview loses the drag. WebKit does not guarantee a balanced dragleave
+  // when a file leaves the window, the route changes, or a native drag is
+  // cancelled, so each terminal boundary must independently retire the veil.
   React.useEffect(() => {
-    function resetDragState() {
-      dragDepthRef.current = 0;
-      setIsDragOver(false);
+    function handleWindowDragLeave(event: DragEvent) {
+      if (event.relatedTarget === null) resetDragState();
     }
+
+    function handleVisibilityChange() {
+      if (document.hidden) resetDragState();
+    }
+
     window.addEventListener("drop", resetDragState);
     window.addEventListener("dragend", resetDragState);
+    window.addEventListener("dragleave", handleWindowDragLeave);
+    window.addEventListener("blur", resetDragState);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       window.removeEventListener("drop", resetDragState);
       window.removeEventListener("dragend", resetDragState);
+      window.removeEventListener("dragleave", handleWindowDragLeave);
+      window.removeEventListener("blur", resetDragState);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [resetDragState]);
 
   const handlePaste = React.useCallback(
     async (event: {
@@ -658,6 +673,7 @@ export function useMediaUpload() {
       pendingImeta,
       pendingImetaRef,
       removeAttachment,
+      resetDragState,
       revertAttachment,
       setPendingImeta,
       setUploadState,
@@ -680,6 +696,7 @@ export function useMediaUpload() {
       originalUrlByUrl,
       pendingImeta,
       removeAttachment,
+      resetDragState,
       revertAttachment,
       setPendingImeta,
       uploadEditedAttachment,

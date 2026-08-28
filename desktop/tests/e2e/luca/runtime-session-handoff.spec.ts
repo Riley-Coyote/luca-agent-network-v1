@@ -37,6 +37,7 @@ test("switching runtimes cancels a stale context handoff", async ({ page }) => {
   await expect(page.getByTestId("new-message-page")).toHaveCount(0);
 
   await page.getByTestId("runtime-rail-codex").click();
+  await expect(page.getByTestId("new-message-page")).toBeVisible();
   const codexSession = page
     .getByTestId("runtime-sessions-panel")
     .getByTestId("runtime-session-session-codex-checkpoint");
@@ -51,8 +52,8 @@ test("switching runtimes cancels a stale context handoff", async ({ page }) => {
     panel.getByTestId("runtime-session-session-claude_code-checkpoint"),
   ).toBeVisible();
   await page.waitForTimeout(450);
-  await expect(page.getByTestId("new-message-page")).toHaveCount(0);
+  await expect(page.getByTestId("new-message-page")).toBeVisible();
   await expect(page.getByTestId("new-message-runtime-context")).toHaveCount(0);
   await expect(panel).toContainText("Claude Code sessions");
-  await expect(page.getByTestId("chat-title")).toHaveText("general");
+  await expect(page.getByTestId("chat-title")).toHaveCount(0);
 });
