@@ -30,8 +30,13 @@ static HTTP_URL_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
 static PROBABLE_LOCAL_PATH_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r#"(?ix)
-        (?P<prefix>^|[^a-z0-9/])
+        (?P<prefix>^|[^a-z0-9/\\])
         (?:
+            \\{2}\?\\(?:
+                [a-z]:\\[^\s<>\"'`\])}]* |
+                unc\\[^\\\s<>\"'`\])}]+\\[^\\\s<>\"'`\])}]+(?:\\[^\s<>\"'`\])}]*)?
+            ) |
+            \\{2}[^\\\s<>\"'`?\])}]+\\[^\\\s<>\"'`\])}]+(?:\\[^\s<>\"'`\])}]*)? |
             (?:file://(?:localhost)?)?/{1,2}[a-z0-9._~-]+(?:/[^\s<>\"'`\])}]*)? |
             [a-z]:\\(?:users\\)?[^\\\s<>\"'`]+(?:\\[^\s<>\"'`]*)?
         )"#,
@@ -458,7 +463,11 @@ fn claude_visible_message(value: &Value) -> Option<String> {
         return None;
     }
     let message = value.get("message")?;
-    if claude_record_is_hidden(value) || claude_record_is_hidden(message) {
+    if claude_record_is_hidden(value)
+        || claude_record_is_hidden(message)
+        || (kind == "user"
+            && (claude_record_is_sdk_prompt(value) || claude_record_is_sdk_prompt(message)))
+    {
         return None;
     }
     let role = message.get("role")?.as_str()?;
@@ -476,6 +485,22 @@ fn claude_record_is_hidden(value: &Value) -> bool {
     ["isMeta", "isCompactSummary", "isSummary", "isSidechain"]
         .iter()
         .any(|field| value.get(*field).and_then(Value::as_bool) == Some(true))
+}
+
+fn claude_record_is_sdk_prompt(value: &Value) -> bool {
+    ["promptSource", "prompt_source"]
+        .iter()
+        .filter_map(|field| value.get(*field).and_then(Value::as_str))
+        .any(is_sdk_label)
+        || value
+            .get("entrypoint")
+            .and_then(Value::as_str)
+            .is_some_and(is_sdk_label)
+}
+
+fn is_sdk_label(value: &str) -> bool {
+    let normalized = value.trim().to_ascii_lowercase();
+    normalized == "sdk" || normalized.starts_with("sdk-") || normalized.starts_with("sdk_")
 }
 
 fn strict_visible_blocks(content: &Value, allowed_types: &[&str]) -> Option<String> {
@@ -593,7 +618,7 @@ fn contains_probable_local_path(text: &str) -> bool {
 
 fn contains_internal_prompt_markup(text: &str) -> bool {
     let lower = text.to_ascii_lowercase();
-    [
+    let contains_tagged_markup = [
         "<environment_context",
         "</environment_context",
         "<permissions",
@@ -630,7 +655,25 @@ fn contains_internal_prompt_markup(text: &str) -> bool {
         "# agents.md instructions",
     ]
     .iter()
-    .any(|marker| lower.contains(marker))
+    .any(|marker| lower.contains(marker));
+    let contains_bracketed_envelope = lower.lines().any(|line| {
+        let line = line.trim_start();
+        [
+            "[workspace]",
+            "[base]",
+            "[system]",
+            "[context]",
+            "[conversation context]",
+            "[team instructions]",
+            "[agent memory",
+            "[channel canvas]",
+            "[buzz event:",
+            "[thread context]",
+        ]
+        .iter()
+        .any(|marker| line.starts_with(marker))
+    });
+    contains_tagged_markup || contains_bracketed_envelope
 }
 
 fn contains_credential(text: &str) -> bool {
@@ -744,7 +787,7 @@ mod tests {
                 "type": "message",
                 "role": "assistant",
                 "phase": "final_answer",
-                "content": [{"type": "output_text", "text": "Keep https://example.com/docs/alpha/beta; redact workspace:/alpha/beta/secret.txt, label=/custom/private/file.txt, /Volumes/LaCie/Polyphonic, /workspace, file:///Users/riley/MyProject, and C:\\Users\\riley\\Private\\file.txt."}]
+                "content": [{"type": "output_text", "text": "Keep https://example.com/docs/alpha/beta; redact workspace:/alpha/beta/secret.txt, label=/custom/private/file.txt, /Volumes/LaCie/Polyphonic, /workspace, file:///Users/riley/MyProject, C:\\Users\\riley\\Private\\file.txt, \\\\server\\share\\secret.txt, and \\\\?\\C:\\secret.txt."}]
             }
         });
         let final_answer = parse_codex_fixture(&final_answer).unwrap();
@@ -757,6 +800,8 @@ mod tests {
         assert!(!final_answer.contains("/custom/"));
         assert!(!final_answer.contains("file:///"));
         assert!(!final_answer.contains("C:\\Users\\"));
+        assert!(!final_answer.contains("\\\\server\\share"));
+        assert!(!final_answer.contains("\\\\?\\C:"));
         assert!(!contains_probable_local_path(&final_answer));
     }
 

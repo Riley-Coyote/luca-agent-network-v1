@@ -112,6 +112,41 @@ fn claude_parser_excludes_thinking_tools_and_credentials() {
         "isCompactSummary": true,
         "message": {"role": "user", "content": "hidden compacted system summary"}
     });
+    let native_user = json!({
+        "type": "user",
+        "isSidechain": false,
+        "message": {
+            "role": "user",
+            "content": "Keep this ordinary native Claude request visible."
+        }
+    });
+    let sdk_ts_prompt_envelope = json!({
+        "type": "user",
+        "isSidechain": false,
+        "promptSource": "sdk",
+        "entrypoint": "sdk-ts",
+        "message": {
+            "role": "user",
+            "content": "[Base]\ninternal base prompt\n\n[System]\ninternal instructions\n\n[Context]\ninternal context\n\n[Conversation Context]\ninternal conversation\n\n[Buzz event: @mention]\nEvent ID: fixture-event\nChannel: fixture-channel\npubkeys: fixture-pubkey"
+        }
+    });
+    let sdk_cli_plain_prompt = json!({
+        "type": "user",
+        "isSidechain": false,
+        "entrypoint": "sdk-cli",
+        "message": {
+            "role": "user",
+            "content": "A plain-looking SDK prompt must still remain hidden."
+        }
+    });
+    let unlabelled_prompt_envelope = json!({
+        "type": "user",
+        "isSidechain": false,
+        "message": {
+            "role": "user",
+            "content": "[Conversation Context]\ninternal conversation state"
+        }
+    });
     assert_eq!(
         sessions::parse_claude_fixture(&visible).as_deref(),
         Some("Visible answer")
@@ -122,6 +157,19 @@ fn claude_parser_excludes_thinking_tools_and_credentials() {
     assert_eq!(sessions::parse_claude_fixture(&role_mismatch), None);
     assert_eq!(sessions::parse_claude_fixture(&message_meta), None);
     assert_eq!(sessions::parse_claude_fixture(&compact_summary), None);
+    assert_eq!(
+        sessions::parse_claude_fixture(&native_user).as_deref(),
+        Some("Keep this ordinary native Claude request visible.")
+    );
+    assert_eq!(
+        sessions::parse_claude_fixture(&sdk_ts_prompt_envelope),
+        None
+    );
+    assert_eq!(sessions::parse_claude_fixture(&sdk_cli_plain_prompt), None);
+    assert_eq!(
+        sessions::parse_claude_fixture(&unlabelled_prompt_envelope),
+        None
+    );
 }
 
 #[test]
