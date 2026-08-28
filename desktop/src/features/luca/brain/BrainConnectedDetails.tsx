@@ -29,8 +29,8 @@ import {
 import { Button } from "@/shared/ui/button";
 
 export function BrainConnectedDetails({
+  busySourceIds,
   inventory,
-  isMutating,
   kind,
   onConnect,
   onDisconnect,
@@ -39,8 +39,8 @@ export function BrainConnectedDetails({
   onRevoke,
   residents,
 }: {
+  busySourceIds: ReadonlySet<string>;
   inventory: ConnectedBrainInventory;
-  isMutating: boolean;
   kind: ConnectedBrainSourceKind;
   onConnect: () => void;
   onDisconnect: (sourceId: string) => void;
@@ -54,8 +54,11 @@ export function BrainConnectedDetails({
   const sources = inventory.sources.filter(
     (source) => source.sourceKind === kind && source.status !== "disconnected",
   );
+  const connectedNames = new Set(sources.map((source) => source.displayName));
   const discoveries = inventory.discoveries.filter(
-    (discovery) => discovery.sourceKind === kind,
+    (discovery) =>
+      discovery.sourceKind === kind &&
+      !connectedNames.has(discovery.displayName),
   );
 
   return (
@@ -92,7 +95,7 @@ export function BrainConnectedDetails({
               </div>
               <div className="flex shrink-0 gap-1">
                 <Button
-                  disabled={isMutating}
+                  disabled={busySourceIds.has(source.sourceId)}
                   onClick={() => onRefresh(source.sourceId)}
                   size="xs"
                   type="button"
@@ -104,7 +107,7 @@ export function BrainConnectedDetails({
                     : "Refresh"}
                 </Button>
                 <Button
-                  disabled={isMutating}
+                  disabled={busySourceIds.has(source.sourceId)}
                   onClick={() => setDisconnectTarget(source)}
                   size="xs"
                   type="button"
@@ -127,7 +130,7 @@ export function BrainConnectedDetails({
               {residents.map((resident) => (
                 <ResidentAccessRow
                   inventory={inventory}
-                  isMutating={isMutating}
+                  isMutating={busySourceIds.has(source.sourceId)}
                   key={resident.residentPubkey}
                   onReconfirm={() =>
                     onReconfirm(source.sourceId, resident.residentPubkey)
@@ -159,7 +162,6 @@ export function BrainConnectedDetails({
           </div>
           <Button
             className="shrink-0"
-            disabled={isMutating}
             onClick={onConnect}
             size="xs"
             type="button"

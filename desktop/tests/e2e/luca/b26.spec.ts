@@ -25,9 +25,18 @@ const residents = [
   },
 ];
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   await seedActiveIdentity(page, TEST_IDENTITIES.tyler);
-  await installMockBridge(page, { managedAgents: residents });
+  await installMockBridge(page, {
+    managedAgents: residents,
+    connectedBrainConnectDelayMs:
+      testInfo.title.includes("queue") || testInfo.title.includes("stops")
+        ? 120
+        : undefined,
+    connectedBrainConnectErrors: testInfo.title.includes("partial failure")
+      ? ["fixture-source-failed", null]
+      : undefined,
+  });
 });
 
 test("an empty Brain opens as a usable clean-profile state", async ({
@@ -96,6 +105,11 @@ test("Brain connects work while keeping controls and provenance quiet", async ({
     .getByTestId("brain-card-codex_history")
     .getByRole("button", { name: "Connect sessions" })
     .click();
+  const codexConnect = page.getByTestId("brain-connection-dialog");
+  await codexConnect.getByRole("checkbox", { name: "Select Codex" }).click();
+  await codexConnect.getByRole("button", { name: "Connect 1 source" }).click();
+  await expect(codexConnect).toContainText("Current");
+  await codexConnect.getByRole("button", { name: "Close" }).click();
   await expect(page.getByTestId("brain-card-codex_history")).toContainText(
     "Current",
   );
@@ -217,7 +231,7 @@ test("Brain separates source recovery from resident access", async ({
   ).toHaveLength(0);
 });
 
-test("Brain first connection asks once and remains usable in compact layouts", async ({
+test("Brain confirms each source selection and remains usable in compact layouts", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -228,19 +242,27 @@ test("Brain first connection asks once and remains usable in compact layouts", a
   const codex = page.getByTestId("brain-card-codex_history");
   await expect(codex).toContainText("Found");
   await codex.getByRole("button", { name: "Connect sessions" }).click();
-  const consent = page.getByTestId("brain-consent-dialog");
+  const consent = page.getByTestId("brain-connection-dialog");
+  await expect(consent).toContainText("0 selected");
   await expect(consent).toContainText(
     "Luca keeps a private local index while your originals stay where they are.",
   );
-  await expect(consent).toContainText("every current resident");
-  await consent
-    .getByRole("button", { name: "Connect for all residents" })
-    .click();
+  await consent.getByRole("checkbox", { name: "Select Codex" }).click();
+  await consent.getByRole("button", { name: "Connect 1 source" }).click();
+  await expect(consent).toContainText("Current");
+  await consent.getByRole("button", { name: "Close" }).click();
   await expect(codex).toContainText("Current");
 
   const claude = page.getByTestId("brain-card-claude_history");
   await claude.getByRole("button", { name: "Connect sessions" }).click();
-  await expect(page.getByTestId("brain-consent-dialog")).toBeHidden();
+  const claudeConnect = page.getByTestId("brain-connection-dialog");
+  await expect(claudeConnect).toContainText("0 selected");
+  await claudeConnect
+    .getByRole("checkbox", { name: "Select Claude Code" })
+    .click();
+  await claudeConnect.getByRole("button", { name: "Connect 1 source" }).click();
+  await expect(claudeConnect).toContainText("Current");
+  await claudeConnect.getByRole("button", { name: "Close" }).click();
   await expect(claude).toContainText("Current");
 
   await page
@@ -268,6 +290,112 @@ test("Brain first connection asks once and remains usable in compact layouts", a
   await page.screenshot({
     path: "test-results/luca-brain/brain-connections-mobile.png",
   });
+});
+
+test("Brain queue continues after partial failure and retries only the failed source", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock#/brain");
+
+  await page
+    .getByTestId("brain-card-repository")
+    .getByRole("button", { name: "Details" })
+    .click();
+  await page.getByRole("button", { name: "Connect sources" }).click();
+
+  const dialog = page.getByTestId("brain-connection-dialog");
+  await expect(dialog).toContainText("0 selected");
+  await dialog.getByRole("button", { name: "Select all" }).click();
+  await expect(dialog).toContainText("2 selected");
+  await dialog.getByRole("button", { name: "Connect 2 sources" }).click();
+
+  await expect(
+    dialog.getByTestId("brain-connection-source-discovery-repository-atlas"),
+  ).toContainText("Failed");
+  await expect(
+    dialog.getByTestId(
+      "brain-connection-source-discovery-repository-field-kit",
+    ),
+  ).toContainText("Current");
+  await expect(
+    page.getByRole("button", { name: "Scan for Brain sources" }),
+  ).toBeEnabled();
+
+  await dialog.getByRole("button", { name: "Retry atlas-notes" }).click();
+  await expect(
+    dialog.getByTestId("brain-connection-source-discovery-repository-atlas"),
+  ).toContainText("Current");
+
+  const connectPayloads = await page.evaluate(() =>
+    (
+      (
+        window as typeof window & {
+          __BUZZ_E2E_COMMAND_PAYLOADS__?: Array<{
+            command?: string;
+            payload?: { input?: { discoveryIds?: string[] } };
+          }>;
+        }
+      ).__BUZZ_E2E_COMMAND_PAYLOADS__ ?? []
+    ).filter((entry) => entry.command === "connect_connected_brain_source"),
+  );
+  expect(connectPayloads).toHaveLength(3);
+  expect(
+    connectPayloads.every(
+      (entry) => entry.payload?.input?.discoveryIds?.length === 1,
+    ),
+  ).toBe(true);
+  expect(connectPayloads[2]?.payload?.input?.discoveryIds).toEqual([
+    "discovery-repository-atlas",
+  ]);
+});
+
+test("Brain stops a multi-source queue after the current source", async ({
+  page,
+}) => {
+  await page.goto(
+    "/?e2e=mock#/brain?brainFixture=empty&brainConnections=empty",
+  );
+
+  await page
+    .getByTestId("brain-card-repository")
+    .getByRole("button", { name: "Connect repositories" })
+    .click();
+  const dialog = page.getByTestId("brain-connection-dialog");
+  await dialog.getByRole("button", { name: "Select all" }).click();
+  await expect(dialog).toContainText("3 selected");
+  await dialog.getByRole("button", { name: "Connect 3 sources" }).click();
+  await expect(dialog).toContainText("Connecting");
+  await expect(
+    page.getByRole("button", { name: "Scan for Brain sources" }),
+  ).toBeEnabled();
+  await dialog.getByRole("button", { name: "Stop" }).click();
+  await expect(
+    dialog.getByRole("button", { name: "Stopping after current source" }),
+  ).toBeDisabled();
+
+  await expect(
+    dialog.getByTestId("brain-connection-source-discovery-repository-luca"),
+  ).toContainText("Current");
+  await expect(
+    dialog.getByTestId("brain-connection-source-discovery-repository-atlas"),
+  ).toContainText("Cancelled");
+  await expect(
+    dialog.getByTestId(
+      "brain-connection-source-discovery-repository-field-kit",
+    ),
+  ).toContainText("Cancelled");
+
+  const connectCalls = await page.evaluate(
+    () =>
+      (
+        window as typeof window & {
+          __BUZZ_E2E_COMMAND_PAYLOADS__?: Array<{ command?: string }>;
+        }
+      ).__BUZZ_E2E_COMMAND_PAYLOADS__?.filter(
+        (entry) => entry.command === "connect_connected_brain_source",
+      ).length ?? 0,
+  );
+  expect(connectCalls).toBe(1);
 });
 
 test("Brain connection failures remain fail-soft", async ({ page }) => {

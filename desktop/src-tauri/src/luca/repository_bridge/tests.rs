@@ -136,6 +136,22 @@ fn repository_reads_and_patches_stay_inside_the_root() {
         .expect("git available");
     assert!(init.success());
 
+    let tree = operations::execute(
+        root,
+        RepositoryToolOperationV1::Tree,
+        &json!({"source_id": "source-1", "depth": 4}),
+    )
+    .expect("bounded tree inventory");
+    assert_eq!(tree.content, "notes.txt");
+
+    let search = operations::execute(
+        root,
+        RepositoryToolOperationV1::Search,
+        &json!({"source_id": "source-1", "query": "second", "limit": 20}),
+    )
+    .expect("streaming repository search");
+    assert_eq!(search.content, "notes.txt:2:second");
+
     let read = operations::execute(
         root,
         RepositoryToolOperationV1::Read,

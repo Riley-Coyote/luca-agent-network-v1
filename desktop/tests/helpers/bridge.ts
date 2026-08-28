@@ -268,6 +268,7 @@ type MockBridgeOptions = {
   nativeResidentDiscoveryError?: string;
   createManagedAgentErrors?: (string | null)[];
   connectedBrainConnectErrors?: (string | null)[];
+  connectedBrainConnectDelayMs?: number;
   /** Conversation-context fixture layered onto the connected Brain mock. */
   conversationContextFixture?: "ready" | "multiple" | "missing";
   personas?: MockPersonaSeed[];

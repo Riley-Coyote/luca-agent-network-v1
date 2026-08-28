@@ -1,7 +1,8 @@
 use std::{
     fs,
+    io::{BufRead, BufReader},
     path::{Component, Path},
-    process::Command,
+    process::{Command, Stdio},
 };
 
 const MAX_INDEX_FILE_BYTES: u64 = 1024 * 1024;
@@ -31,44 +32,89 @@ const CREDENTIAL_NAMES: &[&str] = &[
     "id_ed25519",
 ];
 
-pub(crate) struct RepositoryDocument {
-    pub relative_path: String,
-    pub body: String,
-}
-
-pub(crate) fn documents(root: &Path) -> Result<Vec<RepositoryDocument>, String> {
+/// Visit indexable repository documents one at a time in git's deterministic
+/// path order. The visitor can stop as soon as the index entry budget is full,
+/// so neither the repository inventory nor all document bodies need to coexist
+/// in memory.
+pub(crate) fn visit_documents(
+    root: &Path,
+    mut visitor: impl FnMut(&str, String) -> Result<bool, String>,
+) -> Result<bool, String> {
     let canonical_root = root
         .canonicalize()
         .map_err(|_| "repository is unavailable".to_owned())?;
     if !canonical_root.join(".git").exists() {
         return Err("connected repository metadata is unavailable".to_owned());
     }
-    let output = Command::new("git")
+    let mut child = Command::new("git")
         .args(["-C"])
         .arg(&canonical_root)
-        .args(["ls-files", "-co", "--exclude-standard", "-z"])
-        .output()
+        .args([
+            "ls-files",
+            "-co",
+            "--exclude-standard",
+            "--deduplicate",
+            "-z",
+        ])
+        .stdout(Stdio::piped())
+        .spawn()
         .map_err(|_| "repository inventory is unavailable".to_owned())?;
-    if !output.status.success() {
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "repository inventory is unavailable".to_owned())?;
+    let completed = match visit_git_paths(BufReader::new(stdout), &canonical_root, &mut visitor) {
+        Ok(completed) => completed,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
+    };
+
+    if !completed {
+        let _ = child.kill();
+    }
+    let status = child
+        .wait()
+        .map_err(|_| "repository inventory is unavailable".to_owned())?;
+    if completed && !status.success() {
         return Err("repository inventory failed".to_owned());
     }
-    let mut paths = output
-        .stdout
-        .split(|byte| *byte == 0)
-        .filter(|path| !path.is_empty())
-        .filter_map(|path| std::str::from_utf8(path).ok())
-        .filter_map(valid_relative_path)
-        .collect::<Vec<_>>();
-    paths.sort();
-    paths.dedup();
+    Ok(completed)
+}
 
-    let mut documents = Vec::new();
-    for relative_path in paths {
+fn visit_git_paths(
+    mut reader: impl BufRead,
+    canonical_root: &Path,
+    visitor: &mut impl FnMut(&str, String) -> Result<bool, String>,
+) -> Result<bool, String> {
+    let mut raw_path = Vec::new();
+    loop {
+        raw_path.clear();
+        let read = reader
+            .read_until(0, &mut raw_path)
+            .map_err(|_| "repository inventory is unavailable".to_owned())?;
+        if read == 0 {
+            return Ok(true);
+        }
+        if raw_path.last() == Some(&0) {
+            raw_path.pop();
+        }
+        if raw_path.is_empty() {
+            continue;
+        }
+        let Ok(raw_path) = std::str::from_utf8(&raw_path) else {
+            continue;
+        };
+        let Some(relative_path) = valid_relative_path(raw_path) else {
+            continue;
+        };
         let joined = canonical_root.join(&relative_path);
         let Ok(canonical) = joined.canonicalize() else {
             continue;
         };
-        if !canonical.starts_with(&canonical_root) || !canonical.is_file() {
+        if !canonical.starts_with(canonical_root) || !canonical.is_file() {
             continue;
         }
         let Ok(metadata) = fs::metadata(&canonical) else {
@@ -86,12 +132,10 @@ pub(crate) fn documents(root: &Path) -> Result<Vec<RepositoryDocument>, String> 
         let Ok(body) = String::from_utf8(bytes) else {
             continue;
         };
-        documents.push(RepositoryDocument {
-            relative_path,
-            body,
-        });
+        if !visitor(&relative_path, body)? {
+            return Ok(false);
+        }
     }
-    Ok(documents)
 }
 
 pub(crate) fn read_document(root: &Path, relative_path: &str) -> Result<String, String> {

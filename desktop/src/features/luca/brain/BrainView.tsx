@@ -18,9 +18,16 @@ import {
   BrainConnectionCard,
   type BrainConnectionState,
 } from "./BrainConnectionCard";
+import { BrainConnectionDialog } from "./BrainConnectionDialog";
 import { BrainConnectedDetails } from "./BrainConnectedDetails";
-import { BrainConsentDialog } from "./BrainConsentDialog";
 import { BrainFilesDetails } from "./BrainFilesDetails";
+import {
+  cancelQueuedBrainConnections,
+  createBrainConnectionQueueItems,
+  queueSelectedBrainConnections,
+  type BrainConnectionQueueItem,
+  updateBrainConnectionQueueItem,
+} from "./brainConnectionQueue";
 import {
   useConnectedBrainActions,
   useConnectedBrainInventoryQuery,
@@ -63,24 +70,31 @@ export function BrainView() {
   const [mode, setMode] = React.useState<ViewMode>("connections");
   const [detailCategory, setDetailCategory] =
     React.useState<BrainCategory | null>(null);
-  const [consentCategory, setConsentCategory] =
+  const [connectionCategory, setConnectionCategory] =
     React.useState<ConnectedBrainSourceKind | null>(null);
-  const [connectingCategory, setConnectingCategory] =
-    React.useState<ConnectedBrainSourceKind | null>(null);
+  const [connectionItems, setConnectionItems] = React.useState<
+    BrainConnectionQueueItem[]
+  >([]);
+  const [selectedConnectionIds, setSelectedConnectionIds] = React.useState(
+    () => new Set<string>(),
+  );
+  const [connectionQueueRunning, setConnectionQueueRunning] =
+    React.useState(false);
+  const [connectionStopRequested, setConnectionStopRequested] =
+    React.useState(false);
+  const [busySourceIds, setBusySourceIds] = React.useState(
+    () => new Set<string>(),
+  );
   const [operationError, setOperationError] = React.useState<string | null>(
     null,
   );
+  const queueRunningRef = React.useRef(false);
+  const stopRequestedRef = React.useRef(false);
+  const activeDiscoveryIdsRef = React.useRef(new Set<string>());
+  const busySourceIdsRef = React.useRef(new Set<string>());
 
   const inventory = connectedQuery.data;
   const residents = residentsQuery.data?.residents ?? [];
-  const mutating =
-    actions.addRoot.isPending ||
-    actions.connect.isPending ||
-    actions.disconnect.isPending ||
-    actions.reconfirm.isPending ||
-    actions.refresh.isPending ||
-    actions.revoke.isPending;
-
   const run = React.useCallback(async (operation: () => Promise<unknown>) => {
     setOperationError(null);
     try {
@@ -90,46 +104,136 @@ export function BrainView() {
     }
   }, []);
 
-  const connectCategory = React.useCallback(
-    (kind: ConnectedBrainSourceKind) => {
-      if (!inventory) return;
-      const discoveryIds = unconnectedDiscoveries(inventory, kind).map(
-        (source) => source.discoveryId,
-      );
-      if (discoveryIds.length === 0) return;
-      setConnectingCategory(kind);
-      // The connect runs in the background from the moment of consent: the
-      // dialog leaves immediately and the sidebar's task card narrates the
-      // wait. The store owns the promise, so completion lands even if this
-      // view unmounts mid-connect.
-      const promise = actions.connect.mutateAsync({
-        discoveryIds,
-        consentAccepted: true,
-      });
-      startBackgroundTask(
-        `Connecting ${categoryLabels[kind]}`,
-        promise,
-        readableConnectedBrainError,
-      );
-      setConsentCategory(null);
-      void run(() => promise).then(() => setConnectingCategory(null));
-    },
-    [actions.connect, inventory, run],
-  );
-
   const requestConnection = React.useCallback(
     (kind: ConnectedBrainSourceKind) => {
       if (!inventory) return;
-      const hasConnection = inventory.sources.some(
-        (source) => source.status !== "disconnected",
+      const discoveries = unconnectedDiscoveries(inventory, kind);
+      if (discoveries.length === 0) return;
+      setDetailCategory(null);
+      setConnectionItems(createBrainConnectionQueueItems(discoveries));
+      setSelectedConnectionIds(new Set());
+      setConnectionStopRequested(false);
+      stopRequestedRef.current = false;
+      setConnectionCategory(kind);
+    },
+    [inventory],
+  );
+
+  const startConnectionQueue = React.useCallback(
+    (discoveryIds: readonly string[], retryFailed = false) => {
+      if (
+        !connectionCategory ||
+        queueRunningRef.current ||
+        discoveryIds.length === 0
+      ) {
+        return;
+      }
+      const uniqueIds = [...new Set(discoveryIds)].filter(
+        (discoveryId) => !activeDiscoveryIdsRef.current.has(discoveryId),
       );
-      if (hasConnection) {
-        void connectCategory(kind);
-      } else {
-        setConsentCategory(kind);
+      if (uniqueIds.length === 0) return;
+
+      queueRunningRef.current = true;
+      stopRequestedRef.current = false;
+      setConnectionQueueRunning(true);
+      setConnectionStopRequested(false);
+      const selected = new Set(uniqueIds);
+      setConnectionItems((current) =>
+        retryFailed
+          ? current.map((item) =>
+              selected.has(item.discovery.discoveryId) &&
+              item.status === "failed"
+                ? { ...item, status: "queued", error: null }
+                : item,
+            )
+          : queueSelectedBrainConnections(current, selected),
+      );
+
+      const queuePromise = (async () => {
+        let failureCount = 0;
+        for (const discoveryId of uniqueIds) {
+          if (stopRequestedRef.current) {
+            setConnectionItems(cancelQueuedBrainConnections);
+            break;
+          }
+          if (activeDiscoveryIdsRef.current.has(discoveryId)) continue;
+          activeDiscoveryIdsRef.current.add(discoveryId);
+          setConnectionItems((current) =>
+            updateBrainConnectionQueueItem(current, discoveryId, {
+              status: "connecting",
+              error: null,
+            }),
+          );
+          try {
+            const result = await actions.connect.mutateAsync({
+              discoveryIds: [discoveryId],
+              consentAccepted: true,
+            });
+            const source = result.sources[0];
+            if (!source) {
+              throw new Error("connected source returned no result");
+            }
+            setConnectionItems((current) =>
+              updateBrainConnectionQueueItem(current, discoveryId, {
+                status:
+                  source.status === "needs_attention" ||
+                  source.status === "unavailable"
+                    ? "needs_attention"
+                    : "current",
+                error: null,
+              }),
+            );
+          } catch (error) {
+            failureCount += 1;
+            setConnectionItems((current) =>
+              updateBrainConnectionQueueItem(current, discoveryId, {
+                status: "failed",
+                error: readableConnectedBrainError(error),
+              }),
+            );
+          } finally {
+            activeDiscoveryIdsRef.current.delete(discoveryId);
+          }
+        }
+        if (stopRequestedRef.current) {
+          setConnectionItems(cancelQueuedBrainConnections);
+        }
+        await connectedQuery.refetch();
+        return failureCount;
+      })().finally(() => {
+        queueRunningRef.current = false;
+        setConnectionQueueRunning(false);
+      });
+
+      startBackgroundTask(
+        `Connecting ${categoryLabels[connectionCategory]}`,
+        queuePromise.then((failureCount) => {
+          if (failureCount > 0) {
+            throw new Error(
+              `${failureCount} Brain source${failureCount === 1 ? "" : "s"} failed to connect`,
+            );
+          }
+        }),
+        readableConnectedBrainError,
+      );
+      void queuePromise;
+    },
+    [actions.connect, connectedQuery, connectionCategory],
+  );
+
+  const runForSource = React.useCallback(
+    async (sourceId: string, operation: () => Promise<unknown>) => {
+      if (busySourceIdsRef.current.has(sourceId)) return;
+      busySourceIdsRef.current.add(sourceId);
+      setBusySourceIds(new Set(busySourceIdsRef.current));
+      try {
+        await run(operation);
+      } finally {
+        busySourceIdsRef.current.delete(sourceId);
+        setBusySourceIds(new Set(busySourceIdsRef.current));
       }
     },
-    [connectCategory, inventory],
+    [run],
   );
 
   if (connectedQuery.isLoading || !inventory) {
@@ -142,7 +246,7 @@ export function BrainView() {
   const cards = cardModels(
     inventory,
     ownerQuery.data?.sources.length ?? 0,
-    connectingCategory,
+    connectionQueueRunning ? connectionCategory : null,
   );
 
   return (
@@ -176,7 +280,7 @@ export function BrainView() {
           </div>
           <Button
             aria-label="Scan for Brain sources"
-            disabled={connectedQuery.isFetching || mutating}
+            disabled={connectedQuery.isFetching}
             onClick={() => void connectedQuery.refetch()}
             size="xs"
             type="button"
@@ -236,7 +340,9 @@ export function BrainView() {
                     }
                     description={card.description}
                     detail={card.detail}
-                    disabled={mutating}
+                    disabled={
+                      card.kind === "repository" && actions.addRoot.isPending
+                    }
                     icon={card.icon}
                     key={card.kind}
                     onAction={onAction}
@@ -269,19 +375,50 @@ export function BrainView() {
         </NavigationTransition>
       </main>
 
-      <BrainConsentDialog
+      <BrainConnectionDialog
         consentCopy={inventory.consentCopy}
-        isConnecting={actions.connect.isPending}
+        items={connectionItems}
         onConfirm={() => {
-          if (consentCategory) void connectCategory(consentCategory);
+          startConnectionQueue([...selectedConnectionIds]);
         }}
         onOpenChange={(open) => {
-          if (!open) setConsentCategory(null);
+          if (!open) {
+            setConnectionCategory(null);
+            setConnectionItems([]);
+            setSelectedConnectionIds(new Set());
+          }
         }}
-        open={consentCategory !== null}
-        sourceLabel={
-          consentCategory ? categoryLabels[consentCategory] : "source"
+        onRetry={(discoveryId) => startConnectionQueue([discoveryId], true)}
+        onSelectAll={(selected) =>
+          setSelectedConnectionIds(
+            selected
+              ? new Set(
+                  connectionItems
+                    .filter((item) => item.status === "available")
+                    .map((item) => item.discovery.discoveryId),
+                )
+              : new Set(),
+          )
         }
+        onStop={() => {
+          stopRequestedRef.current = true;
+          setConnectionStopRequested(true);
+        }}
+        onToggle={(discoveryId, selected) =>
+          setSelectedConnectionIds((current) => {
+            const next = new Set(current);
+            if (selected) next.add(discoveryId);
+            else next.delete(discoveryId);
+            return next;
+          })
+        }
+        open={connectionCategory !== null}
+        running={connectionQueueRunning}
+        selectedIds={selectedConnectionIds}
+        sourceLabel={
+          connectionCategory ? categoryLabels[connectionCategory] : "sources"
+        }
+        stopRequested={connectionStopRequested}
       />
 
       <Dialog
@@ -305,23 +442,27 @@ export function BrainView() {
             <BrainFilesDetails />
           ) : detailCategory ? (
             <BrainConnectedDetails
+              busySourceIds={busySourceIds}
               inventory={inventory}
-              isMutating={mutating}
               kind={detailCategory}
               onConnect={() => requestConnection(detailCategory)}
               onDisconnect={(sourceId) =>
-                void run(() => actions.disconnect.mutateAsync({ sourceId }))
+                void runForSource(sourceId, () =>
+                  actions.disconnect.mutateAsync({ sourceId }),
+                )
               }
               onReconfirm={(sourceId, residentPubkey) =>
-                void run(() =>
+                void runForSource(sourceId, () =>
                   actions.reconfirm.mutateAsync({ sourceId, residentPubkey }),
                 )
               }
               onRefresh={(sourceId) =>
-                void run(() => actions.refresh.mutateAsync({ sourceId }))
+                void runForSource(sourceId, () =>
+                  actions.refresh.mutateAsync({ sourceId }),
+                )
               }
               onRevoke={(sourceId, residentPubkey) =>
-                void run(() =>
+                void runForSource(sourceId, () =>
                   actions.revoke.mutateAsync({ sourceId, residentPubkey }),
                 )
               }

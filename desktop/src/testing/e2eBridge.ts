@@ -266,6 +266,7 @@ type E2eConfig = {
     nativeResidentDiscoveryError?: string;
     createManagedAgentErrors?: (string | null)[];
     connectedBrainConnectErrors?: (string | null)[];
+    connectedBrainConnectDelayMs?: number;
     conversationContextFixture?: "ready" | "multiple" | "missing";
     personas?: MockPersonaSeed[];
     teams?: MockTeamSeed[];
@@ -10707,6 +10708,22 @@ export function maybeInstallE2eTauriMocks() {
       latestAt: "2026-08-09T03:12:00Z",
     },
     {
+      discoveryId: "discovery-repository-atlas",
+      sourceKind: "repository",
+      displayName: "atlas-notes",
+      itemCount: 34,
+      earliestAt: null,
+      latestAt: "2026-08-08T20:10:00Z",
+    },
+    {
+      discoveryId: "discovery-repository-field-kit",
+      sourceKind: "repository",
+      displayName: "field-kit",
+      itemCount: 57,
+      earliestAt: null,
+      latestAt: "2026-08-08T21:15:00Z",
+    },
+    {
       discoveryId: "discovery-codex",
       sourceKind: "codex_history",
       displayName: "Codex",
@@ -11458,6 +11475,14 @@ export function maybeInstallE2eTauriMocks() {
       case "add_connected_brain_root":
         return connectedBrainInventory();
       case "connect_connected_brain_source": {
+        if (activeConfig?.mock?.connectedBrainConnectDelayMs) {
+          await new Promise((resolve) =>
+            window.setTimeout(
+              resolve,
+              activeConfig.mock?.connectedBrainConnectDelayMs,
+            ),
+          );
+        }
         const injectedFailure =
           activeConfig?.mock?.connectedBrainConnectErrors?.shift();
         if (injectedFailure) throw new Error(injectedFailure);

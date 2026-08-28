@@ -16,8 +16,8 @@ const baseInventory = {
 function render(discoveries) {
   return renderToStaticMarkup(
     React.createElement(BrainConnectedDetails, {
+      busySourceIds: new Set(),
       inventory: { ...baseInventory, discoveries },
-      isMutating: false,
       kind: "repository",
       onConnect: () => {},
       onDisconnect: () => {},

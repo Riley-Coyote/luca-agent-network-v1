@@ -221,21 +221,22 @@ pub(super) fn execute(
 
 fn tree(root: &Path, args: TreeArgs) -> Result<RepositoryOperationResultV1, String> {
     let prefix = args.path.map(|path| safe_path(&path)).transpose()?;
-    let mut paths = repository::documents(root)?
-        .into_iter()
-        .map(|document| document.relative_path)
-        .filter(|path| {
-            prefix
-                .as_ref()
-                .is_none_or(|prefix| path.starts_with(prefix))
-        })
-        .filter(|path| {
-            let base_depth = prefix
-                .as_ref()
-                .map_or(0, |prefix| prefix.split('/').count());
-            path.split('/').count() <= base_depth.saturating_add(args.depth)
-        })
-        .collect::<Vec<_>>();
+    let base_depth = prefix
+        .as_ref()
+        .map_or(0, |prefix| prefix.split('/').count());
+    let mut paths = Vec::new();
+    let mut output_bytes = 0_usize;
+    repository::visit_documents(root, |relative_path, _body| {
+        if prefix
+            .as_ref()
+            .is_none_or(|prefix| relative_path.starts_with(prefix))
+            && relative_path.split('/').count() <= base_depth.saturating_add(args.depth)
+        {
+            output_bytes = output_bytes.saturating_add(relative_path.len() + 1);
+            paths.push(relative_path.to_owned());
+        }
+        Ok(output_bytes < MAX_TOOL_OUTPUT_BYTES)
+    })?;
     paths.sort();
     ok(truncate(paths.join("\n")), 0)
 }
@@ -244,27 +245,23 @@ fn search(root: &Path, args: SearchArgs) -> Result<RepositoryOperationResultV1, 
     let prefix = args.path.map(|path| safe_path(&path)).transpose()?;
     let query = args.query.to_lowercase();
     let mut results = Vec::new();
-    'documents: for document in repository::documents(root)? {
+    repository::visit_documents(root, |relative_path, body| {
         if prefix
             .as_ref()
-            .is_some_and(|prefix| !document.relative_path.starts_with(prefix))
+            .is_some_and(|prefix| !relative_path.starts_with(prefix))
         {
-            continue;
+            return Ok(true);
         }
-        for (index, line) in document.body.lines().enumerate() {
+        for (index, line) in body.lines().enumerate() {
             if line.to_lowercase().contains(&query) {
-                results.push(format!(
-                    "{}:{}:{}",
-                    document.relative_path,
-                    index + 1,
-                    line.trim()
-                ));
+                results.push(format!("{}:{}:{}", relative_path, index + 1, line.trim()));
                 if results.len() >= args.limit {
-                    break 'documents;
+                    return Ok(false);
                 }
             }
         }
-    }
+        Ok(true)
+    })?;
     ok(sanitize_output(root, &results.join("\n")), 0)
 }
 

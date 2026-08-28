@@ -30,20 +30,12 @@ pub(crate) fn build_index(
     let mut entries = Vec::new();
     let item_count = match candidate.source_kind {
         ConnectedBrainSourceKindV1::Repository => {
-            let documents = repository::documents(&candidate.canonical_root)?;
-            let count = documents.len();
-            for document in documents {
-                push_document_entries(
-                    source_id,
-                    &document.relative_path,
-                    &document.body,
-                    None,
-                    &mut entries,
-                )?;
-                if entries.len() >= MAX_CONNECTED_INDEX_ENTRIES {
-                    break;
-                }
-            }
+            let mut count = 0_usize;
+            repository::visit_documents(&candidate.canonical_root, |relative_path, body| {
+                count += 1;
+                push_document_entries(source_id, relative_path, &body, None, &mut entries)?;
+                Ok(entries.len() < MAX_CONNECTED_INDEX_ENTRIES)
+            })?;
             count
         }
         ConnectedBrainSourceKindV1::CodexHistory | ConnectedBrainSourceKindV1::ClaudeHistory => {

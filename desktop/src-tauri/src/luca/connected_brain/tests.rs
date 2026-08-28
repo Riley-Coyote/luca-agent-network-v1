@@ -37,18 +37,43 @@ fn repository_inventory_respects_ignore_binary_credentials_and_escape() {
         .status()
         .unwrap();
 
-    let documents = repository::documents(root.path()).unwrap();
-    let paths = documents
-        .iter()
-        .map(|document| document.relative_path.as_str())
-        .collect::<Vec<_>>();
-    assert!(paths.contains(&"tracked.txt"));
-    assert!(paths.contains(&"working.md"));
-    assert!(!paths.contains(&"ignored.txt"));
-    assert!(!paths.contains(&"secret-token.txt"));
-    assert!(!paths.contains(&"binary.dat"));
+    let mut paths = Vec::new();
+    assert!(
+        repository::visit_documents(root.path(), |relative_path, _body| {
+            paths.push(relative_path.to_owned());
+            Ok(true)
+        })
+        .unwrap()
+    );
+    assert!(paths.iter().any(|path| path == "tracked.txt"));
+    assert!(paths.iter().any(|path| path == "working.md"));
+    assert!(!paths.iter().any(|path| path == "ignored.txt"));
+    assert!(!paths.iter().any(|path| path == "secret-token.txt"));
+    assert!(!paths.iter().any(|path| path == "binary.dat"));
     assert!(!repository::path_is_indexable("../outside"));
     assert!(!repository::path_is_indexable(".git/config"));
+}
+
+#[test]
+fn repository_visitor_stops_before_reading_the_unneeded_tail() {
+    let root = tempfile::tempdir().unwrap();
+    Command::new("git")
+        .args(["init", "--quiet"])
+        .arg(root.path())
+        .status()
+        .unwrap();
+    fs::write(root.path().join("a-first.md"), "first visible fact").unwrap();
+    fs::write(root.path().join("z-tail.md"), "tail visible fact").unwrap();
+
+    let mut visited = Vec::new();
+    let completed = repository::visit_documents(root.path(), |relative_path, _body| {
+        visited.push(relative_path.to_owned());
+        Ok(false)
+    })
+    .unwrap();
+
+    assert!(!completed);
+    assert_eq!(visited, vec!["a-first.md"]);
 }
 
 #[test]
