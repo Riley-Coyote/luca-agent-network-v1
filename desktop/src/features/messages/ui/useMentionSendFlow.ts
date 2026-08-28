@@ -564,20 +564,28 @@ export function useMentionSendFlow({
         }
 
         try {
-          const sendContext = draft.sentDraftKey
+          const sentDraftKey = draft.sentDraftKey;
+          let draftMarkedSent = false;
+          const markDraftAccepted = sentDraftKey
+            ? () => {
+                if (draftMarkedSent) return;
+                draftMarkedSent = true;
+                drafts.markDraftSent(
+                  sentDraftKey,
+                  draft.savedContent,
+                  sendChannelId ?? sentDraftKey,
+                  draft.savedImeta,
+                  [...draft.savedSpoileredAttachmentUrls],
+                );
+              }
+            : undefined;
+          const sendContext = markDraftAccepted
             ? {
                 ...(draft.capturedThreadContext ?? {
                   parentEventId: null,
                   threadHeadId: null,
                 }),
-                onAccepted: () =>
-                  drafts.markDraftSent(
-                    draft.sentDraftKey as string,
-                    draft.savedContent,
-                    sendChannelId ?? (draft.sentDraftKey as string),
-                    draft.savedImeta,
-                    [...draft.savedSpoileredAttachmentUrls],
-                  ),
+                onAccepted: markDraftAccepted,
               }
             : draft.capturedThreadContext;
           const sendPromise = onSendRef.current(
@@ -607,15 +615,7 @@ export function useMentionSendFlow({
               explicitAgentPubkeys: effectiveExplicitAgentPubkeys,
             });
           }
-          if (draft.sentDraftKey) {
-            drafts.markDraftSent(
-              draft.sentDraftKey,
-              draft.savedContent,
-              sendChannelId ?? draft.sentDraftKey,
-              draft.savedImeta,
-              [...draft.savedSpoileredAttachmentUrls],
-            );
-          }
+          markDraftAccepted?.();
         } catch (error) {
           // Once the timeline retains the failed optimistic row, that row owns
           // retry. Restoring the same draft would create a second apparent

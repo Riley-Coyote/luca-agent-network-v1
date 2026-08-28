@@ -22,4 +22,14 @@ describe("failed send retry state", () => {
     assert.equal(failedSendRetry("optimistic-1"), undefined);
     assert.equal(retainedOptimisticSendChannel(error), null);
   });
+
+  it("bounds retained failed-message payloads", () => {
+    resetFailedSendRetryState();
+    for (let index = 0; index < 105; index += 1) {
+      retainFailedSendRetry(`optimistic-${index}`, { content: `${index}` });
+    }
+
+    assert.equal(failedSendRetry("optimistic-0"), undefined);
+    assert.deepEqual(failedSendRetry("optimistic-104"), { content: "104" });
+  });
 });
