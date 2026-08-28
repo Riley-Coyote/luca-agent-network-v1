@@ -352,7 +352,24 @@
 }
 
 .skill-library-row__sources {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  min-width: 0;
   text-align: right;
+}
+
+.skill-library-row__sources span,
+.skill-library-row__sources small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-library-row__sources small {
+  color: hsl(var(--mn-ink-faint));
+  font-size: var(--mn-text-micro);
+  font-weight: 400;
 }
 
 .skill-library-row__use {
@@ -362,6 +379,7 @@
   font-size: var(--artifact-library-caption);
   gap: 0.35rem;
   padding: 0 0.75rem;
+  white-space: nowrap;
 }
 
 .skill-library-row__use:hover {

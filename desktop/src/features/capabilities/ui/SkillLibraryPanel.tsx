@@ -2,6 +2,8 @@ import { ArrowUpRight, BookOpen, LoaderCircle, Search } from "lucide-react";
 import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { useAcpRuntimesQuery } from "@/features/agents/hooks";
+import { preferredReadySkillRuntime } from "@/features/capabilities/lib/skillHandoff";
 import {
   useCapabilitySkillDetail,
   useCapabilitySkills,
@@ -20,6 +22,7 @@ type RuntimeFilter = "all" | string;
 
 export function SkillLibraryPanel() {
   const skillsQuery = useCapabilitySkills();
+  const runtimesQuery = useAcpRuntimesQuery();
   const { goNewMessage } = useAppNavigation();
   const [query, setQuery] = React.useState("");
   const [runtimeFilter, setRuntimeFilter] =
@@ -62,14 +65,17 @@ export function SkillLibraryPanel() {
 
   const handleUseSkill = React.useCallback(
     (skill: CapabilitySkillSummary) => {
-      const runtime = preferredRuntime(skill.runtimeIds);
+      const runtime = preferredReadySkillRuntime(
+        skill.runtimeIds,
+        runtimesQuery.data ?? [],
+      );
       setSelectedSkill(null);
       void goNewMessage({
         skill: skill.name,
         runtime,
       });
     },
-    [goNewMessage],
+    [goNewMessage, runtimesQuery.data],
   );
 
   return (
@@ -141,6 +147,10 @@ export function SkillLibraryPanel() {
           <ul className="skill-library-list">
             {visibleSkills.map((skill) => (
               <SkillRow
+                handoffRuntime={preferredReadySkillRuntime(
+                  skill.runtimeIds,
+                  runtimesQuery.data ?? [],
+                )}
                 key={skill.skillId}
                 onOpen={() => setSelectedSkill(skill)}
                 onUse={() => handleUseSkill(skill)}
@@ -163,6 +173,14 @@ export function SkillLibraryPanel() {
         onUse={() => {
           if (selectedSkill) handleUseSkill(selectedSkill);
         }}
+        handoffRuntime={
+          selectedSkill
+            ? preferredReadySkillRuntime(
+                selectedSkill.runtimeIds,
+                runtimesQuery.data ?? [],
+              )
+            : undefined
+        }
         skill={selectedSkill}
       />
     </>
@@ -170,10 +188,12 @@ export function SkillLibraryPanel() {
 }
 
 function SkillRow({
+  handoffRuntime,
   onOpen,
   onUse,
   skill,
 }: {
+  handoffRuntime?: string;
   onOpen: () => void;
   onUse: () => void;
   skill: CapabilitySkillSummary;
@@ -193,26 +213,38 @@ function SkillRow({
           <span>{skill.description}</span>
         </span>
         <span className="skill-library-row__sources">
-          {skill.sourceLabels.join(" · ")}
+          <span>{skill.sourceLabels.join(" · ")}</span>
+          <small>
+            Available to {skill.runtimeIds.map(runtimeLabel).join(" · ")}
+          </small>
         </span>
       </button>
       <button
-        aria-label={`Use ${skill.name} in a conversation`}
+        aria-label={
+          handoffRuntime
+            ? `Use ${skill.name} with ${runtimeLabel(handoffRuntime)}`
+            : `Choose a recipient for ${skill.name}`
+        }
         className="skill-library-row__use"
         onClick={onUse}
         type="button"
       >
-        Use <ArrowUpRight aria-hidden />
+        {handoffRuntime
+          ? `Use with ${runtimeLabel(handoffRuntime)}`
+          : "Choose agent"}{" "}
+        <ArrowUpRight aria-hidden />
       </button>
     </li>
   );
 }
 
 function SkillDetailSheet({
+  handoffRuntime,
   onOpenChange,
   onUse,
   skill,
 }: {
+  handoffRuntime?: string;
   onOpenChange: (open: boolean) => void;
   onUse: () => void;
   skill: CapabilitySkillSummary | null;
@@ -234,6 +266,11 @@ function SkillDetailSheet({
           {(skill?.sourceLabels ?? []).map((label) => (
             <span key={label}>{label}</span>
           ))}
+          {skill?.runtimeIds.map((runtimeId) => (
+            <span key={`runtime:${runtimeId}`}>
+              Available to {runtimeLabel(runtimeId)}
+            </span>
+          ))}
         </div>
         <div className="skill-detail-sheet__body">
           {detailQuery.isLoading ? (
@@ -253,11 +290,15 @@ function SkillDetailSheet({
         </div>
         <div className="skill-detail-sheet__footer">
           <p>
-            Polyphonic opens a normal conversation. The runtime loads and
-            executes its own skill.
+            {handoffRuntime
+              ? `Polyphonic opens a normal ${runtimeLabel(handoffRuntime)} conversation. That runtime loads and executes its own skill.`
+              : `Choose a resident that uses ${runtimeList(skill?.runtimeIds ?? [])}. Polyphonic opens the normal composer and never executes the skill itself.`}
           </p>
           <button disabled={!skill} onClick={onUse} type="button">
-            Use in conversation <ArrowUpRight aria-hidden />
+            {handoffRuntime
+              ? `Use with ${runtimeLabel(handoffRuntime)}`
+              : "Choose a recipient"}{" "}
+            <ArrowUpRight aria-hidden />
           </button>
         </div>
       </SheetContent>
@@ -323,6 +364,10 @@ function runtimeLabel(runtimeId: string): string {
   }
 }
 
-function preferredRuntime(runtimeIds: readonly string[]): string | undefined {
-  return runtimeIds.find((runtimeId) => runtimeId !== "polyphonic");
+function runtimeList(runtimeIds: readonly string[]): string {
+  const labels = runtimeIds.map(runtimeLabel);
+  if (labels.length === 0) return "a compatible runtime";
+  if (labels.length === 1) return labels[0] ?? "a compatible runtime";
+  if (labels.length === 2) return `${labels[0]} or ${labels[1]}`;
+  return `${labels.slice(0, -1).join(", ")}, or ${labels.at(-1)}`;
 }

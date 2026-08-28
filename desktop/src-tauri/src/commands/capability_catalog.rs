@@ -8,6 +8,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet, VecDeque},
     fs,
+    io::Read as _,
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
 };
@@ -24,6 +25,10 @@ const MAX_DESCRIPTION_CHARS: usize = 280;
 #[derive(Debug, Clone)]
 struct SkillRoot {
     path: PathBuf,
+    /// Canonical directory that this dynamically enumerated root must remain
+    /// beneath. Exact top-level runtime roots intentionally leave this unset
+    /// so an owner can relocate the runtime's whole skill directory.
+    canonical_boundary: Option<PathBuf>,
     source_label: String,
     runtime_id: String,
     max_depth: usize,
@@ -73,6 +78,12 @@ struct CachedSkill {
     runtime_ids: BTreeSet<String>,
 }
 
+#[derive(Debug)]
+struct OpenedSkill {
+    canonical_path: PathBuf,
+    content: String,
+}
+
 static SKILL_CACHE: OnceLock<Mutex<BTreeMap<String, CachedSkill>>> = OnceLock::new();
 
 #[tauri::command]
@@ -94,36 +105,19 @@ pub async fn read_capability_skill(skill_id: String) -> Result<SkillCatalogDetai
     }
     tauri::async_runtime::spawn_blocking(move || {
         let skill = resolve_cached_skill(&skill_id)?;
-        let canonical_path = skill
-            .canonical_path
-            .canonicalize()
+        let opened = open_skill_bounded(&skill.canonical_path, &skill_roots())
             .map_err(|_| "skill is no longer available".to_owned())?;
-        if canonical_path != skill.canonical_path {
+        if opened.canonical_path != skill.canonical_path {
             return Err("skill is no longer available".to_owned());
         }
-        let remains_in_known_root = skill_roots().into_iter().any(|root| {
-            root.path
-                .canonicalize()
-                .is_ok_and(|root| canonical_path.starts_with(root))
-        });
-        if !remains_in_known_root {
-            return Err("skill is no longer available".to_owned());
-        }
-        let metadata =
-            fs::metadata(&canonical_path).map_err(|_| "skill is no longer available".to_owned())?;
-        if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_SKILL_BYTES {
-            return Err("skill is no longer available".to_owned());
-        }
-        let content = fs::read_to_string(&canonical_path)
-            .map_err(|_| "skill is no longer available".to_owned())?;
-        let (name, description) = skill_metadata(&canonical_path, &content);
+        let (name, description) = skill_metadata(&opened.canonical_path, &opened.content);
         Ok(SkillCatalogDetailV1 {
             skill_id,
             name,
             description,
             source_labels: skill.source_labels.into_iter().collect(),
             runtime_ids: skill.runtime_ids.into_iter().collect(),
-            content,
+            content: opened.content,
         })
     })
     .await
@@ -186,11 +180,35 @@ fn push_root(
     if path.is_dir() {
         roots.push(SkillRoot {
             path,
+            canonical_boundary: None,
             source_label: source_label.into(),
             runtime_id: runtime_id.into(),
             max_depth,
         });
     }
+}
+
+fn push_contained_root(
+    roots: &mut Vec<SkillRoot>,
+    path: PathBuf,
+    canonical_boundary: &Path,
+    source_label: impl Into<String>,
+    runtime_id: impl Into<String>,
+    max_depth: usize,
+) {
+    let Ok(canonical_path) = path.canonicalize() else {
+        return;
+    };
+    if !canonical_path.starts_with(canonical_boundary) || !canonical_path.is_dir() {
+        return;
+    }
+    roots.push(SkillRoot {
+        path,
+        canonical_boundary: Some(canonical_boundary.to_path_buf()),
+        source_label: source_label.into(),
+        runtime_id: runtime_id.into(),
+        max_depth,
+    });
 }
 
 fn skill_roots() -> Vec<SkillRoot> {
@@ -285,21 +303,34 @@ fn add_named_child_skill_roots<F>(
 ) where
     F: Fn(&Path) -> PathBuf,
 {
+    let Ok(canonical_parent) = parent.canonicalize() else {
+        return;
+    };
     let Ok(entries) = fs::read_dir(parent) else {
         return;
     };
     for entry in entries.flatten().take(256) {
         let child = entry.path();
-        if !child.is_dir() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_dir() {
+            continue;
+        }
+        let Ok(canonical_child) = child.canonicalize() else {
+            continue;
+        };
+        if !canonical_child.starts_with(&canonical_parent) {
             continue;
         }
         let name = entry.file_name().to_string_lossy().trim().to_owned();
         if name.is_empty() {
             continue;
         }
-        push_root(
+        push_contained_root(
             roots,
             resolve(&child),
+            &canonical_child,
             format!("{label_prefix} · {name}"),
             runtime_id,
             3,
@@ -308,25 +339,39 @@ fn add_named_child_skill_roots<F>(
 }
 
 fn add_prefixed_openclaw_roots(roots: &mut Vec<SkillRoot>, home: &Path) {
+    let Ok(canonical_home) = home.canonicalize() else {
+        return;
+    };
     let Ok(entries) = fs::read_dir(home) else {
         return;
     };
     for entry in entries.flatten().take(512) {
         let name = entry.file_name().to_string_lossy().to_string();
-        if !name.starts_with(".openclaw") || !entry.path().is_dir() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !name.starts_with(".openclaw") || !file_type.is_dir() {
             continue;
         }
         let state_root = entry.path();
-        push_root(
+        let Ok(canonical_state_root) = state_root.canonicalize() else {
+            continue;
+        };
+        if !canonical_state_root.starts_with(&canonical_home) {
+            continue;
+        }
+        push_contained_root(
             roots,
             state_root.join("skills"),
+            &canonical_state_root,
             format!("OpenClaw · {name}"),
             "openclaw",
             3,
         );
-        push_root(
+        push_contained_root(
             roots,
             state_root.join("workspace/skills"),
+            &canonical_state_root,
             format!("OpenClaw workspace · {name}"),
             "openclaw",
             3,
@@ -336,15 +381,26 @@ fn add_prefixed_openclaw_roots(roots: &mut Vec<SkillRoot>, home: &Path) {
         };
         for child in children.flatten().take(256) {
             let child_name = child.file_name().to_string_lossy().to_string();
-            if child_name.starts_with("workspace-") && child.path().is_dir() {
-                push_root(
-                    roots,
-                    child.path().join("skills"),
-                    format!("OpenClaw · {child_name}"),
-                    "openclaw",
-                    3,
-                );
+            let Ok(child_type) = child.file_type() else {
+                continue;
+            };
+            if !child_name.starts_with("workspace-") || !child_type.is_dir() {
+                continue;
             }
+            let Ok(canonical_child) = child.path().canonicalize() else {
+                continue;
+            };
+            if !canonical_child.starts_with(&canonical_state_root) {
+                continue;
+            }
+            push_contained_root(
+                roots,
+                child.path().join("skills"),
+                &canonical_child,
+                format!("OpenClaw · {child_name}"),
+                "openclaw",
+                3,
+            );
         }
     }
 }
@@ -356,39 +412,23 @@ fn catalog(roots: Vec<SkillRoot>) -> Result<Vec<DiscoveredSkill>, String> {
         if remaining_walk_entries == 0 {
             break;
         }
-        let Ok(canonical_root) = root.path.canonicalize() else {
-            continue;
-        };
         for skill_path in skill_files(&root, &mut remaining_walk_entries) {
             if by_path.len() >= MAX_SKILLS {
                 break;
             }
-            let Ok(canonical_path) = skill_path.canonicalize() else {
+            let Ok(opened) = open_skill_bounded(&skill_path, std::slice::from_ref(&root)) else {
                 continue;
             };
-            if !canonical_path.starts_with(&canonical_root) {
-                continue;
-            }
-            let metadata = match fs::metadata(&canonical_path) {
-                Ok(metadata) if metadata.is_file() && metadata.len() <= MAX_SKILL_BYTES => metadata,
-                _ => continue,
-            };
-            if metadata.len() == 0 {
-                continue;
-            }
-            if let Some(existing) = by_path.get_mut(&canonical_path) {
+            if let Some(existing) = by_path.get_mut(&opened.canonical_path) {
                 existing.source_labels.insert(root.source_label.clone());
                 existing.runtime_ids.insert(root.runtime_id.clone());
                 continue;
             }
-            let Ok(content) = fs::read_to_string(&canonical_path) else {
-                continue;
-            };
-            let (name, description) = skill_metadata(&canonical_path, &content);
+            let (name, description) = skill_metadata(&opened.canonical_path, &opened.content);
             by_path.insert(
-                canonical_path.clone(),
+                opened.canonical_path.clone(),
                 DiscoveredSkill {
-                    canonical_path,
+                    canonical_path: opened.canonical_path,
                     name,
                     description,
                     source_labels: BTreeSet::from([root.source_label.clone()]),
@@ -405,6 +445,78 @@ fn catalog(roots: Vec<SkillRoot>) -> Result<Vec<DiscoveredSkill>, String> {
             .then_with(|| left.canonical_path.cmp(&right.canonical_path))
     });
     Ok(skills)
+}
+
+/// Open a skill exactly once, then prove the opened file is the same file as a
+/// post-open canonical path inside a still-valid runtime root. Reading through
+/// the handle with `take` keeps the byte ceiling true even if the file grows.
+fn open_skill_bounded(path: &Path, roots: &[SkillRoot]) -> Result<OpenedSkill, ()> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut file = options.open(path).map_err(|_| ())?;
+    let opened_metadata = file.metadata().map_err(|_| ())?;
+    if !opened_metadata.is_file()
+        || opened_metadata.len() == 0
+        || opened_metadata.len() > MAX_SKILL_BYTES
+    {
+        return Err(());
+    }
+
+    let canonical_path = path.canonicalize().map_err(|_| ())?;
+    let in_known_root = roots.iter().any(|root| {
+        let Ok(canonical_root) = root.path.canonicalize() else {
+            return false;
+        };
+        if root
+            .canonical_boundary
+            .as_ref()
+            .is_some_and(|boundary| !canonical_root.starts_with(boundary))
+        {
+            return false;
+        }
+        canonical_path.starts_with(canonical_root)
+    });
+    if !in_known_root {
+        return Err(());
+    }
+
+    let path_metadata = fs::metadata(&canonical_path).map_err(|_| ())?;
+    if !same_file_identity(&opened_metadata, &path_metadata) {
+        return Err(());
+    }
+
+    let mut bytes = Vec::with_capacity(opened_metadata.len() as usize);
+    file.by_ref()
+        .take(MAX_SKILL_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| ())?;
+    if bytes.is_empty() || bytes.len() as u64 > MAX_SKILL_BYTES {
+        return Err(());
+    }
+    let content = String::from_utf8(bytes).map_err(|_| ())?;
+    Ok(OpenedSkill {
+        canonical_path,
+        content,
+    })
+}
+
+#[cfg(unix)]
+fn same_file_identity(left: &fs::Metadata, right: &fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt as _;
+    left.dev() == right.dev() && left.ino() == right.ino()
+}
+
+#[cfg(not(unix))]
+fn same_file_identity(left: &fs::Metadata, right: &fs::Metadata) -> bool {
+    left.is_file()
+        && right.is_file()
+        && left.len() == right.len()
+        && left.modified().ok() == right.modified().ok()
 }
 
 fn skill_files(root: &SkillRoot, remaining_entries: &mut usize) -> Vec<PathBuf> {
@@ -473,14 +585,12 @@ fn skill_metadata(path: &Path, content: &str) -> (String, String) {
         .map(|value| value.trim())
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
-        .or_else(|| first_heading(content))
         .unwrap_or(fallback_name);
     let name = truncate_chars(&collapse_whitespace(&name), MAX_NAME_CHARS);
     let description = frontmatter
         .and_then(|metadata| metadata.description)
         .map(|value| collapse_whitespace(&value))
         .filter(|value| !value.is_empty())
-        .or_else(|| first_paragraph(content))
         .unwrap_or_else(|| "Installed skill".to_owned());
     (name, truncate_chars(&description, MAX_DESCRIPTION_CHARS))
 }
@@ -490,46 +600,6 @@ fn parse_frontmatter(content: &str) -> Option<SkillFrontmatter> {
     let body = normalized.strip_prefix("---\n")?;
     let end = body.find("\n---")?;
     serde_yaml::from_str(&body[..end]).ok()
-}
-
-fn first_heading(content: &str) -> Option<String> {
-    content.lines().find_map(|line| {
-        let value = line
-            .trim()
-            .strip_prefix('#')?
-            .trim_start_matches('#')
-            .trim();
-        (!value.is_empty()).then(|| value.to_owned())
-    })
-}
-
-fn first_paragraph(content: &str) -> Option<String> {
-    let mut paragraph = Vec::new();
-    let mut in_frontmatter = content.trim_start().starts_with("---");
-    for line in content.lines() {
-        let line = line.trim();
-        if in_frontmatter {
-            if line == "---" && !paragraph.is_empty() {
-                in_frontmatter = false;
-                paragraph.clear();
-            } else if line == "---" {
-                paragraph.push(String::new());
-            }
-            continue;
-        }
-        if line.is_empty() {
-            if !paragraph.is_empty() {
-                break;
-            }
-            continue;
-        }
-        if line.starts_with('#') || line.starts_with('`') {
-            continue;
-        }
-        paragraph.push(line.to_owned());
-    }
-    let value = collapse_whitespace(&paragraph.join(" "));
-    (!value.is_empty()).then_some(value)
 }
 
 fn collapse_whitespace(value: &str) -> String {
@@ -573,12 +643,14 @@ mod tests {
         let skills = catalog(vec![
             SkillRoot {
                 path: temp.path().join("skills"),
+                canonical_boundary: None,
                 source_label: "Codex".into(),
                 runtime_id: "codex".into(),
                 max_depth: 3,
             },
             SkillRoot {
                 path: temp.path().join("skills"),
+                canonical_boundary: None,
                 source_label: "Shared".into(),
                 runtime_id: "claude".into(),
                 max_depth: 3,
@@ -596,6 +668,31 @@ mod tests {
     }
 
     #[test]
+    fn catalog_does_not_expose_body_copy_as_list_metadata() {
+        let temp = tempfile::tempdir().unwrap();
+        let skill_dir = temp.path().join("skills/private-notes");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "# Private project\n\nClient secret that must only appear in detail view.\n",
+        )
+        .unwrap();
+
+        let skills = catalog(vec![SkillRoot {
+            path: temp.path().join("skills"),
+            canonical_boundary: None,
+            source_label: "Codex".into(),
+            runtime_id: "codex".into(),
+            max_depth: 3,
+        }])
+        .unwrap();
+
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].name, "private-notes");
+        assert_eq!(skills[0].description, "Installed skill");
+    }
+
+    #[test]
     fn catalog_ignores_oversized_and_non_utf8_skills() {
         let temp = tempfile::tempdir().unwrap();
         let skills = temp.path().join("skills");
@@ -610,12 +707,38 @@ mod tests {
 
         let found = catalog(vec![SkillRoot {
             path: skills,
+            canonical_boundary: None,
             source_label: "Codex".into(),
             runtime_id: "codex".into(),
             max_depth: 3,
         }])
         .unwrap();
         assert!(found.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn named_profile_roots_reject_directory_symlink_escapes() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let profiles = temp.path().join("profiles");
+        let outside = temp.path().join("private-profile");
+        fs::create_dir_all(&profiles).unwrap();
+        fs::create_dir_all(outside.join("skills/private")).unwrap();
+        fs::write(
+            outside.join("skills/private/SKILL.md"),
+            "---\nname: Private\ndescription: Must stay private.\n---\n",
+        )
+        .unwrap();
+        symlink(&outside, profiles.join("escaped")).unwrap();
+
+        let mut roots = Vec::new();
+        add_named_child_skill_roots(&mut roots, &profiles, "Hermes", "hermes", |child| {
+            child.join("skills")
+        });
+
+        assert!(roots.is_empty());
     }
 
     #[cfg(unix)]
@@ -637,6 +760,7 @@ mod tests {
 
         let found = catalog(vec![SkillRoot {
             path: skills,
+            canonical_boundary: None,
             source_label: "Codex".into(),
             runtime_id: "codex".into(),
             max_depth: 3,
