@@ -33,6 +33,7 @@ import { Input } from "@/shared/ui/input";
 import { Switch } from "@/shared/ui/switch";
 import { Textarea } from "@/shared/ui/textarea";
 import {
+  loadMcpSettingsSections,
   runtimeMcpCatalogStatusLabel,
   runtimeMcpServerStatusLabel,
 } from "../lib/runtimeMcpPresentation";
@@ -134,6 +135,9 @@ export function ConnectionsMcpSettings() {
   const [runtimeMcps, setRuntimeMcps] = React.useState<
     RuntimeOwnedMcpCatalogV1[]
   >([]);
+  const [runtimesUnavailable, setRuntimesUnavailable] = React.useState(false);
+  const [runtimeMcpsUnavailable, setRuntimeMcpsUnavailable] =
+    React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState<ConnectionDraft>(EMPTY_DRAFT);
   const [showForm, setShowForm] = React.useState(false);
@@ -143,25 +147,21 @@ export function ConnectionsMcpSettings() {
   const refresh = React.useCallback(async (announce = false) => {
     setIsRefreshing(true);
     setError(null);
-    try {
-      const [nextRegistry, nextRuntimes, nextRuntimeMcps] = await Promise.all([
-        listLucaMcpRegistry(),
-        listRuntimeConnectionStatus(),
-        listRuntimeOwnedMcpCatalog(),
-      ]);
-      setRegistry(nextRegistry);
-      setRuntimes(nextRuntimes);
-      setRuntimeMcps(nextRuntimeMcps);
-      if (announce) toast.success("Runtime readiness rechecked");
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Connections could not be loaded.",
-      );
-    } finally {
-      setIsRefreshing(false);
+    const result = await loadMcpSettingsSections({
+      registry: listLucaMcpRegistry,
+      runtimes: listRuntimeConnectionStatus,
+      runtimeMcps: listRuntimeOwnedMcpCatalog,
+    });
+    if (result.registry !== null) setRegistry(result.registry);
+    if (result.runtimes !== null) setRuntimes(result.runtimes);
+    if (result.runtimeMcps !== null) setRuntimeMcps(result.runtimeMcps);
+    setRuntimesUnavailable(result.runtimes === null);
+    setRuntimeMcpsUnavailable(result.runtimeMcps === null);
+    setError(result.errors.length > 0 ? result.errors.join(" ") : null);
+    if (announce && result.errors.length === 0) {
+      toast.success("Runtime readiness rechecked");
     }
+    setIsRefreshing(false);
   }, []);
 
   React.useEffect(() => {
@@ -353,7 +353,9 @@ export function ConnectionsMcpSettings() {
             ) : (
               <SettingsOptionRow>
                 <p className="text-sm text-muted-foreground">
-                  Checking Claude Code, Codex, Hermes, and OpenClaw…
+                  {runtimesUnavailable
+                    ? "Runtime readiness is unavailable."
+                    : "Checking Claude Code, Codex, Hermes, and OpenClaw…"}
                 </p>
               </SettingsOptionRow>
             )}
@@ -377,7 +379,9 @@ export function ConnectionsMcpSettings() {
             ) : (
               <SettingsOptionRow>
                 <p className="text-sm text-muted-foreground">
-                  Checking runtime-owned MCP definitions…
+                  {runtimeMcpsUnavailable
+                    ? "Runtime-owned MCP definitions are unavailable."
+                    : "Checking runtime-owned MCP definitions…"}
                 </p>
               </SettingsOptionRow>
             )}

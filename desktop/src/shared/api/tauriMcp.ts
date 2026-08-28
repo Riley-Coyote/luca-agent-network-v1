@@ -20,7 +20,7 @@ export type RuntimeConnectionStatusV1 = {
 };
 
 export type RuntimeOwnedMcpCatalogV1 = {
-  runtimeId: "claude_code" | "codex" | "hermes" | "openclaw";
+  runtimeId: "claude_code" | "codex" | "goose" | "hermes" | "openclaw";
   label: string;
   source: string | null;
   status: "configured" | "none_configured" | "unavailable" | "unsupported";

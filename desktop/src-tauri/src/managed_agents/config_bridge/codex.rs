@@ -1,4 +1,7 @@
-use super::types::{ExtensionEntry, RuntimeFileConfig};
+use super::{
+    types::{ExtensionEntry, RuntimeFileConfig},
+    RuntimeOwnedMcpExtensionsRead,
+};
 
 /// Read Codex config from `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`).
 pub(super) fn read_config_file() -> Option<RuntimeFileConfig> {
@@ -10,14 +13,23 @@ pub(super) fn read_config_file() -> Option<RuntimeFileConfig> {
 /// Read only Codex MCP names/status from the existing TOML parser.
 /// A missing config means no definitions; malformed or unreadable data is
 /// unavailable and must not be presented as an empty catalog.
-pub(super) fn read_mcp_extensions() -> Option<Vec<ExtensionEntry>> {
-    let path = codex_config_path()?;
+pub(super) fn read_mcp_extensions() -> RuntimeOwnedMcpExtensionsRead {
+    let Some(path) = codex_config_path() else {
+        return RuntimeOwnedMcpExtensionsRead::Unavailable;
+    };
     if !path.exists() {
-        return Some(Vec::new());
+        return RuntimeOwnedMcpExtensionsRead::Available(Vec::new());
     }
-    let raw = std::fs::read_to_string(path).ok()?;
-    let table: toml::Table = raw.parse().ok()?;
-    Some(parse_mcp_servers(&table))
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return RuntimeOwnedMcpExtensionsRead::Unavailable;
+    };
+    let Ok(table) = raw.parse::<toml::Table>() else {
+        return RuntimeOwnedMcpExtensionsRead::Unavailable;
+    };
+    match parse_mcp_servers(&table) {
+        Ok(extensions) => RuntimeOwnedMcpExtensionsRead::Available(extensions),
+        Err(()) => RuntimeOwnedMcpExtensionsRead::Unavailable,
+    }
 }
 
 fn parse_codex_config(toml_str: &str) -> Option<RuntimeFileConfig> {
@@ -39,7 +51,7 @@ fn parse_codex_config(toml_str: &str) -> Option<RuntimeFileConfig> {
     };
 
     // MCP servers from [mcp_servers.<id>] tables
-    let extensions = parse_mcp_servers(&table);
+    let extensions = parse_mcp_servers(&table).unwrap_or_default();
 
     // Config-driven extra fields — skip normalized keys to avoid double-counting.
     // The skip list covers fields extracted into typed struct fields above.
@@ -80,18 +92,37 @@ fn parse_codex_config(toml_str: &str) -> Option<RuntimeFileConfig> {
     })
 }
 
-fn parse_mcp_servers(table: &toml::Table) -> Vec<ExtensionEntry> {
-    let servers = match table.get("mcp_servers").and_then(|v| v.as_table()) {
-        Some(s) => s,
-        None => return Vec::new(),
+fn parse_mcp_servers(table: &toml::Table) -> Result<Vec<ExtensionEntry>, ()> {
+    let Some(value) = table.get("mcp_servers") else {
+        return Ok(Vec::new());
     };
+    let servers = value.as_table().ok_or(())?;
 
     servers
         .iter()
-        .map(|(name, _config)| ExtensionEntry {
-            name: name.clone(),
-            kind: "mcp".to_string(),
-            enabled: true,
+        .map(|(name, value)| {
+            if name.trim().is_empty() {
+                return Err(());
+            }
+            let server = value.as_table().ok_or(())?;
+            let has_transport = ["command", "url"].into_iter().any(|key| {
+                server
+                    .get(key)
+                    .and_then(|entry| entry.as_str())
+                    .is_some_and(|entry| !entry.trim().is_empty())
+            });
+            if !has_transport {
+                return Err(());
+            }
+            let enabled = match server.get("enabled") {
+                Some(enabled) => enabled.as_bool().ok_or(())?,
+                None => true,
+            };
+            Ok(ExtensionEntry {
+                name: name.clone(),
+                kind: "mcp".to_string(),
+                enabled,
+            })
         })
         .collect()
 }
@@ -177,6 +208,34 @@ command = "gh"
 "#;
         let cfg = parse_codex_config(toml).unwrap();
         assert_eq!(cfg.extensions.len(), 2);
+    }
+
+    #[test]
+    fn malformed_mcp_schema_is_not_an_empty_catalog() {
+        let table: toml::Table = "mcp_servers = [\"filesystem\"]".parse().unwrap();
+        assert!(super::parse_mcp_servers(&table).is_err());
+    }
+
+    #[test]
+    fn disabled_mcp_entry_is_preserved_and_invalid_entry_is_rejected() {
+        let disabled: toml::Table = r#"
+[mcp_servers.filesystem]
+command = "npx"
+enabled = false
+"#
+        .parse()
+        .unwrap();
+        let extensions = super::parse_mcp_servers(&disabled).unwrap();
+        assert_eq!(extensions.len(), 1);
+        assert!(!extensions[0].enabled);
+
+        let invalid: toml::Table = r#"
+[mcp_servers.filesystem]
+enabled = true
+"#
+        .parse()
+        .unwrap();
+        assert!(super::parse_mcp_servers(&invalid).is_err());
     }
 
     #[test]

@@ -10,7 +10,9 @@ use crate::{
         SaveLucaMcpConnectionInputV1,
     },
     managed_agents::{
-        config_bridge::{read_runtime_owned_mcp_extensions, ExtensionEntry},
+        config_bridge::{
+            read_runtime_owned_mcp_extensions, ExtensionEntry, RuntimeOwnedMcpExtensionsRead,
+        },
         AcpAvailabilityStatus, AuthStatus, NativeDiscoveryStatus, NativeRuntimeKind,
         ResidentReadiness, RuntimeBinding,
     },
@@ -154,10 +156,11 @@ fn project_runtime_owned_mcp_catalog(
 }
 
 fn runtime_owned_mcp_catalogs() -> Vec<RuntimeOwnedMcpCatalogV1> {
-    let readable = |runtime_id: &str| {
-        read_runtime_owned_mcp_extensions(runtime_id)
-            .map(RuntimeOwnedMcpRead::Available)
-            .unwrap_or(RuntimeOwnedMcpRead::Unavailable)
+    let readable = |runtime_id: &str| match read_runtime_owned_mcp_extensions(runtime_id) {
+        RuntimeOwnedMcpExtensionsRead::Available(extensions) => {
+            RuntimeOwnedMcpRead::Available(extensions)
+        }
+        RuntimeOwnedMcpExtensionsRead::Unavailable => RuntimeOwnedMcpRead::Unavailable,
     };
     vec![
         project_runtime_owned_mcp_catalog(
@@ -171,6 +174,12 @@ fn runtime_owned_mcp_catalogs() -> Vec<RuntimeOwnedMcpCatalogV1> {
             "Codex",
             Some("Codex user configuration"),
             readable("codex"),
+        ),
+        project_runtime_owned_mcp_catalog(
+            "goose",
+            "Goose",
+            Some("Goose user configuration"),
+            readable("goose"),
         ),
         project_runtime_owned_mcp_catalog(
             "hermes",
@@ -556,6 +565,19 @@ mod tests {
         assert_eq!(catalog.status, RuntimeOwnedMcpCatalogStatusV1::Unsupported);
         assert!(catalog.servers.is_empty());
         assert!(catalog.source.is_none());
+    }
+
+    #[test]
+    fn goose_runtime_mcp_catalog_is_included_with_native_status() {
+        let catalogs = runtime_owned_mcp_catalogs();
+        let goose = catalogs
+            .iter()
+            .find(|catalog| catalog.runtime_id == "goose")
+            .expect("Goose catalog must be projected");
+
+        assert_eq!(goose.label, "Goose");
+        assert_eq!(goose.source.as_deref(), Some("Goose user configuration"));
+        assert_ne!(goose.status, RuntimeOwnedMcpCatalogStatusV1::Unsupported);
     }
 
     #[test]

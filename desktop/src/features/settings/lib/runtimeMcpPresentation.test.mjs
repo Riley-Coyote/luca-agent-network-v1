@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  loadMcpSettingsSections,
   runtimeMcpCatalogStatusLabel,
   runtimeMcpServerStatusLabel,
 } from "./runtimeMcpPresentation.ts";
@@ -44,6 +45,45 @@ describe("runtime MCP presentation", () => {
     assert.equal(
       runtimeMcpCatalogStatusLabel(catalog("unsupported")),
       "Unsupported",
+    );
+  });
+
+  it("preserves the managed registry when the native catalog fails", async () => {
+    const registry = { connections: [], grants: [], health: [] };
+    const result = await loadMcpSettingsSections({
+      registry: async () => registry,
+      runtimes: async () => [],
+      runtimeMcps: async () => {
+        throw new Error("native catalog failed");
+      },
+    });
+
+    assert.equal(result.registry, registry);
+    assert.deepEqual(result.runtimes, []);
+    assert.equal(result.runtimeMcps, null);
+    assert.deepEqual(result.errors, [
+      "Runtime-owned MCP definitions could not be loaded.",
+    ]);
+  });
+
+  it("keeps Goose catalogs in the same safe presentation model", () => {
+    const goose = {
+      ...catalog("configured", [
+        { name: "developer", status: "configured" },
+        { name: "local-tools", status: "disabled" },
+      ]),
+      runtimeId: "goose",
+      label: "Goose",
+      source: "Goose user configuration",
+    };
+
+    assert.equal(runtimeMcpCatalogStatusLabel(goose), "2 configured");
+    assert.deepEqual(
+      goose.servers.map(({ name, status }) => ({ name, status })),
+      [
+        { name: "developer", status: "configured" },
+        { name: "local-tools", status: "disabled" },
+      ],
     );
   });
 });

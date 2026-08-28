@@ -1,6 +1,9 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
-use super::types::{ExtensionEntry, RuntimeFileConfig};
+use super::{
+    types::{ExtensionEntry, RuntimeFileConfig},
+    RuntimeOwnedMcpExtensionsRead,
+};
 
 /// Read goose config from `~/.config/goose/config.yaml` (or `$GOOSE_PATH_ROOT`).
 pub(super) fn read_config_file() -> Option<RuntimeFileConfig> {
@@ -11,6 +14,29 @@ pub(super) fn read_config_file() -> Option<RuntimeFileConfig> {
 fn read_config_from_path(path: &std::path::Path) -> Option<RuntimeFileConfig> {
     let raw = std::fs::read_to_string(path).ok()?;
     parse_goose_config(&raw)
+}
+
+/// Read only Goose extension names/status. The raw config path and extension
+/// payload remain native-side and never cross the command boundary.
+pub(super) fn read_mcp_extensions() -> RuntimeOwnedMcpExtensionsRead {
+    let Some(path) = goose_config_path() else {
+        return RuntimeOwnedMcpExtensionsRead::Unavailable;
+    };
+    if !path.exists() {
+        return RuntimeOwnedMcpExtensionsRead::Available(Vec::new());
+    }
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return RuntimeOwnedMcpExtensionsRead::Unavailable;
+    };
+    let Ok(map) =
+        serde_yaml::from_str::<std::collections::HashMap<String, serde_yaml::Value>>(&raw)
+    else {
+        return RuntimeOwnedMcpExtensionsRead::Unavailable;
+    };
+    match parse_extensions(&map) {
+        Ok(extensions) => RuntimeOwnedMcpExtensionsRead::Available(extensions),
+        Err(()) => RuntimeOwnedMcpExtensionsRead::Unavailable,
+    }
 }
 
 fn parse_goose_config(yaml_str: &str) -> Option<RuntimeFileConfig> {
@@ -47,7 +73,7 @@ fn parse_goose_config(yaml_str: &str) -> Option<RuntimeFileConfig> {
     let model = goose_model.or_else(|| nested.as_ref().and_then(|n| n.model.clone()));
     let mode = goose_mode;
 
-    let extensions = parse_extensions(&map);
+    let extensions = parse_extensions(&map).unwrap_or_default();
 
     let mut extra = BTreeMap::new();
     if let Some(ref ap) = active_provider {
@@ -105,29 +131,28 @@ fn nested_provider_fields(
 
 fn parse_extensions(
     map: &std::collections::HashMap<String, serde_yaml::Value>,
-) -> Vec<ExtensionEntry> {
-    let extensions = match map.get("extensions").and_then(|v| v.as_mapping()) {
-        Some(m) => m,
-        None => return Vec::new(),
+) -> Result<Vec<ExtensionEntry>, ()> {
+    let Some(value) = map.get("extensions") else {
+        return Ok(Vec::new());
     };
+    let extensions = value.as_mapping().ok_or(())?;
 
     extensions
         .iter()
-        .filter_map(|(k, v)| {
-            let name = k.as_str()?.to_string();
-            let kind = v
-                .as_mapping()
-                .and_then(|m| mapping_string(m, "type"))
-                .unwrap_or_else(|| "unknown".to_string());
-            let enabled = v
-                .as_mapping()
-                .and_then(|m| {
-                    m.get(serde_yaml::Value::String("enabled".to_owned()))
-                        .and_then(|v| v.as_bool())
-                })
-                .unwrap_or(true);
-            Some(ExtensionEntry {
-                name,
+        .map(|(key, value)| {
+            let name = key
+                .as_str()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .ok_or(())?;
+            let extension = value.as_mapping().ok_or(())?;
+            let kind = mapping_string(extension, "type").ok_or(())?;
+            let enabled = match extension.get(serde_yaml::Value::String("enabled".to_owned())) {
+                Some(enabled) => enabled.as_bool().ok_or(())?,
+                None => true,
+            };
+            Ok(ExtensionEntry {
+                name: name.to_string(),
                 kind,
                 enabled,
             })
@@ -251,6 +276,20 @@ extensions:
             .extensions
             .iter()
             .any(|e| e.name == "my-mcp" && !e.enabled));
+    }
+
+    #[test]
+    fn malformed_extension_schema_is_not_an_empty_catalog() {
+        let map: std::collections::HashMap<String, serde_yaml::Value> =
+            serde_yaml::from_str("extensions:\n  - developer").unwrap();
+        assert!(super::parse_extensions(&map).is_err());
+    }
+
+    #[test]
+    fn invalid_extension_entry_is_rejected() {
+        let map: std::collections::HashMap<String, serde_yaml::Value> =
+            serde_yaml::from_str("extensions:\n  developer:\n    enabled: true").unwrap();
+        assert!(super::parse_extensions(&map).is_err());
     }
 
     #[test]

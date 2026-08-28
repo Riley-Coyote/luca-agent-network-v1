@@ -1,4 +1,7 @@
-use super::types::{ExtensionEntry, RuntimeFileConfig};
+use super::{
+    types::{ExtensionEntry, RuntimeFileConfig},
+    RuntimeOwnedMcpExtensionsRead,
+};
 
 /// Read Claude Code config from `~/.claude/settings.json` and `~/.claude.json`.
 pub(super) fn read_config_file() -> Option<RuntimeFileConfig> {
@@ -29,7 +32,7 @@ pub(super) fn read_config_file() -> Option<RuntimeFileConfig> {
     // MCP servers from ~/.claude.json
     cfg.extensions = mcp_config
         .as_ref()
-        .map(parse_mcp_servers)
+        .and_then(|config| parse_mcp_servers(config).ok())
         .unwrap_or_default();
 
     Some(cfg)
@@ -38,24 +41,65 @@ pub(super) fn read_config_file() -> Option<RuntimeFileConfig> {
 /// Read only Claude Code MCP names/status from the existing JSON parser.
 /// A missing config means no definitions; malformed or unreadable data is
 /// unavailable and must not be presented as an empty catalog.
-pub(super) fn read_mcp_extensions() -> Option<Vec<ExtensionEntry>> {
-    let path = dirs::home_dir()?.join(".claude.json");
+pub(super) fn read_mcp_extensions() -> RuntimeOwnedMcpExtensionsRead {
+    let Some(home) = dirs::home_dir() else {
+        return RuntimeOwnedMcpExtensionsRead::Unavailable;
+    };
+    let path = home.join(".claude.json");
     if !path.exists() {
-        return Some(Vec::new());
+        return RuntimeOwnedMcpExtensionsRead::Available(Vec::new());
     }
-    read_json_file(&path).map(|config| parse_mcp_servers(&config))
+    let Some(config) = read_json_file(&path) else {
+        return RuntimeOwnedMcpExtensionsRead::Unavailable;
+    };
+    match parse_mcp_servers(&config) {
+        Ok(extensions) => RuntimeOwnedMcpExtensionsRead::Available(extensions),
+        Err(()) => RuntimeOwnedMcpExtensionsRead::Unavailable,
+    }
 }
 
-fn parse_mcp_servers(config: &serde_json::Value) -> Vec<ExtensionEntry> {
-    config
-        .get("mcpServers")
-        .and_then(|value| value.as_object())
-        .into_iter()
-        .flat_map(|servers| servers.keys())
-        .map(|name| ExtensionEntry {
-            name: name.clone(),
-            kind: "mcp".to_string(),
-            enabled: true,
+fn parse_mcp_servers(config: &serde_json::Value) -> Result<Vec<ExtensionEntry>, ()> {
+    let Some(value) = config.get("mcpServers") else {
+        return Ok(Vec::new());
+    };
+    let servers = value.as_object().ok_or(())?;
+
+    servers
+        .iter()
+        .map(|(name, value)| {
+            if name.trim().is_empty() {
+                return Err(());
+            }
+            let server = value.as_object().ok_or(())?;
+            let has_transport = ["command", "url"].into_iter().any(|key| {
+                server
+                    .get(key)
+                    .and_then(|entry| entry.as_str())
+                    .is_some_and(|entry| !entry.trim().is_empty())
+            });
+            if !has_transport {
+                return Err(());
+            }
+
+            let enabled = match (server.get("enabled"), server.get("disabled")) {
+                (Some(enabled), Some(disabled)) => {
+                    let enabled = enabled.as_bool().ok_or(())?;
+                    let disabled = disabled.as_bool().ok_or(())?;
+                    if enabled == disabled {
+                        return Err(());
+                    }
+                    enabled
+                }
+                (Some(enabled), None) => enabled.as_bool().ok_or(())?,
+                (None, Some(disabled)) => !disabled.as_bool().ok_or(())?,
+                (None, None) => true,
+            };
+
+            Ok(ExtensionEntry {
+                name: name.clone(),
+                kind: "mcp".to_string(),
+                enabled,
+            })
         })
         .collect()
 }
@@ -178,8 +222,30 @@ mod tests {
         let json =
             r#"{"mcpServers": {"filesystem": {"command": "npx"}, "github": {"command": "gh"}}}"#;
         let val: serde_json::Value = serde_json::from_str(json).unwrap();
-        let extensions = super::parse_mcp_servers(&val);
+        let extensions = super::parse_mcp_servers(&val).unwrap();
         assert_eq!(extensions.len(), 2);
+    }
+
+    #[test]
+    fn malformed_mcp_schema_is_not_an_empty_catalog() {
+        let val: serde_json::Value =
+            serde_json::from_str(r#"{"mcpServers": ["filesystem"]}"#).unwrap();
+        assert!(super::parse_mcp_servers(&val).is_err());
+    }
+
+    #[test]
+    fn disabled_mcp_entry_is_preserved_and_invalid_entry_is_rejected() {
+        let disabled: serde_json::Value = serde_json::from_str(
+            r#"{"mcpServers":{"filesystem":{"command":"npx","enabled":false}}}"#,
+        )
+        .unwrap();
+        let extensions = super::parse_mcp_servers(&disabled).unwrap();
+        assert_eq!(extensions.len(), 1);
+        assert!(!extensions[0].enabled);
+
+        let invalid: serde_json::Value =
+            serde_json::from_str(r#"{"mcpServers":{"filesystem":{"enabled":true}}}"#).unwrap();
+        assert!(super::parse_mcp_servers(&invalid).is_err());
     }
 
     #[test]
