@@ -896,6 +896,8 @@ pub fn run() {
             discover_connected_brain_sources,
             add_connected_brain_root,
             list_connected_brain_sources,
+            list_connected_runtime_sessions,
+            get_connected_runtime_session_context,
             connect_connected_brain_source,
             refresh_connected_brain_source,
             disconnect_connected_brain_source,

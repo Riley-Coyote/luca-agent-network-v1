@@ -171,7 +171,7 @@ fn active_connected_source_ids(
     Ok(ids)
 }
 
-fn load_connected_entries(
+pub(super) fn load_connected_entries(
     generation: &StoredRevisionGenerationV1,
     address: &NamespaceScope,
     namespace_key: &[u8; 32],

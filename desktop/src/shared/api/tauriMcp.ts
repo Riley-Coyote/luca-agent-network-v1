@@ -9,6 +9,7 @@ export type ConfigAuthorityV1 =
   | "unsupported";
 
 export type RuntimeConnectionStatusV1 = {
+  statusId?: string;
   runtimeId: "claude_code" | "codex" | "hermes" | "openclaw";
   label: string;
   executable: string | null;
@@ -17,6 +18,13 @@ export type RuntimeConnectionStatusV1 = {
   authentication: "ready" | "required" | "unknown" | "not_applicable";
   lastVerifiedAt: string | null;
   reason: string | null;
+  nativeSemanticId?: string;
+  nativeDisplayName?: string;
+  readinessBasis?:
+    | "bounded_probe"
+    | "discovery_only"
+    | "native_reported"
+    | "binding_validation";
 };
 
 export type RuntimeOwnedMcpCatalogV1 = {

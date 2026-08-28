@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSearch } from "@tanstack/react-router";
+import { X } from "lucide-react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import {
@@ -29,6 +30,12 @@ import {
 } from "@/features/messages/lib/directRuntimeContacts";
 import { createLucaResident } from "@/features/luca/residents/api";
 import { lucaResidentsQueryKey } from "@/features/luca/residents/hooks";
+import { useCommunities } from "@/features/communities/useCommunities";
+import {
+  clearRuntimeSessionContext,
+  useRuntimeSessionContextHandoff,
+} from "@/features/runtime-sessions/runtimeSessionHandoff";
+import { buildRuntimeSessionContextEnvelope } from "@/features/runtime-sessions/runtimeSessionModel";
 import { setPersonaActive } from "@/shared/api/tauriPersonas";
 import type { Channel } from "@/shared/api/types";
 import { useSendMessageMutation } from "@/features/messages/hooks";
@@ -64,6 +71,24 @@ export function NewMessageScreen() {
   const queryClient = useQueryClient();
   const identityQuery = useIdentityQuery();
   const currentPubkey = identityQuery.data?.pubkey;
+  const communities = useCommunities();
+  const pendingRuntimeContext = useRuntimeSessionContextHandoff();
+  const runtimeContext =
+    pendingRuntimeContext &&
+    currentPubkey &&
+    normalizePubkey(pendingRuntimeContext.ownerPubkey) ===
+      normalizePubkey(currentPubkey) &&
+    pendingRuntimeContext.relayUrl.trim() ===
+      (communities.activeCommunity?.relayUrl.trim() ?? "")
+      ? pendingRuntimeContext.context
+      : null;
+  const runtimeContextEnvelope = React.useMemo(
+    () =>
+      runtimeContext
+        ? buildRuntimeSessionContextEnvelope(runtimeContext)
+        : null,
+    [runtimeContext],
+  );
   const runtimesQuery = useAcpRuntimesQuery();
   const managedAgentsQuery = useManagedAgentsQuery();
   const managedResidentPubkeys = React.useMemo(
@@ -203,6 +228,23 @@ export function NewMessageScreen() {
       isMountedRef.current = false;
     };
   }, []);
+
+  React.useEffect(() => {
+    if (!pendingRuntimeContext || !currentPubkey) return;
+    const ownerChanged =
+      normalizePubkey(pendingRuntimeContext.ownerPubkey) !==
+      normalizePubkey(currentPubkey);
+    const relayChanged =
+      pendingRuntimeContext.relayUrl.trim() !==
+      (communities.activeCommunity?.relayUrl.trim() ?? "");
+    if (ownerChanged || relayChanged) {
+      clearRuntimeSessionContext(pendingRuntimeContext.context.sessionId);
+    }
+  }, [
+    communities.activeCommunity?.relayUrl,
+    currentPubkey,
+    pendingRuntimeContext,
+  ]);
 
   const handleRemoveUser = React.useCallback(
     (pubkey: string) => {
@@ -424,9 +466,12 @@ export function NewMessageScreen() {
       }
 
       try {
+        const outboundContent = runtimeContextEnvelope
+          ? `${runtimeContextEnvelope}\n\n---\n\nYour message:\n${content}`
+          : content;
         await sendMessageMutation.mutateAsync({
           targetChannel: directMessage,
-          content,
+          content: outboundContent,
           mentionPubkeys,
           explicitMentionPubkeys,
           mediaTags,
@@ -440,10 +485,12 @@ export function NewMessageScreen() {
         throw error;
       }
 
+      if (runtimeContext) {
+        clearRuntimeSessionContext(runtimeContext.sessionId);
+      }
       if (!isMountedRef.current) {
         return;
       }
-
       await upsertCachedChannel(directMessage);
       if (!isMountedRef.current) {
         return;
@@ -453,6 +500,8 @@ export function NewMessageScreen() {
     [
       goChannel,
       openDirectMessage,
+      runtimeContext,
+      runtimeContextEnvelope,
       sendMessageMutation,
       submitErrorMessage,
       upsertCachedChannel,
@@ -764,6 +813,38 @@ export function NewMessageScreen() {
         data-luca-floor
         data-testid="new-message-body"
       />
+
+      {runtimeContext && runtimeContextEnvelope ? (
+        <section
+          aria-label={`${runtimeContext.runtimeLabel} session context`}
+          className="mx-5 mb-2 overflow-hidden rounded-xl border border-border/55 bg-card/25"
+          data-testid="new-message-runtime-context"
+        >
+          <div className="flex items-center justify-between gap-3 border-b border-border/45 px-3 py-2">
+            <div className="min-w-0">
+              <p className="truncate text-xs font-medium">
+                Starting with {runtimeContext.runtimeLabel} context
+              </p>
+              <p className="mt-0.5 text-2xs text-muted-foreground">
+                Included visibly with your first message
+              </p>
+            </div>
+            <button
+              aria-label="Remove session context"
+              className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/45 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() =>
+                clearRuntimeSessionContext(runtimeContext.sessionId)
+              }
+              type="button"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+          <pre className="buzz-sidebar-scrollbar max-h-44 overflow-y-auto whitespace-pre-wrap px-3 py-2.5 font-sans text-xs leading-relaxed text-muted-foreground">
+            {runtimeContextEnvelope}
+          </pre>
+        </section>
+      ) : null}
 
       {hasReachedRecipientLimit ? (
         <p

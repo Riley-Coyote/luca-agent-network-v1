@@ -13,11 +13,16 @@ use sha2::{Digest, Sha256};
 mod discovery;
 mod index;
 pub(crate) mod repository;
+mod session_context;
 mod sessions;
 mod watcher;
 
 pub(crate) use discovery::{discover, discover_in_added_root, ConnectedBrainDiscoveryViewV1};
 pub(crate) use index::{build_index, read_verified_excerpt, ConnectedBrainIndexBuildV1};
+pub(crate) use session_context::{
+    context_for_indexed_session, list_indexed_sessions, IndexedSessionContextV1,
+    IndexedSessionListV1, IndexedSessionSummaryV1,
+};
 pub(crate) use watcher::{
     register_connected_source, start_connected_source_watcher, unregister_connected_source,
     ConnectedBrainWatcherState,

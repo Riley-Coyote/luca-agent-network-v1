@@ -1,6 +1,8 @@
 use super::*;
 use crate::luca::connected_brain::{
-    source_id_for_candidate, ConnectedBrainDiscoveryCandidateV1, ConnectedBrainIndexBuildV1,
+    context_for_indexed_session, list_indexed_sessions, source_id_for_candidate,
+    ConnectedBrainDiscoveryCandidateV1, ConnectedBrainIndexBuildV1, IndexedSessionContextV1,
+    IndexedSessionListV1,
 };
 use luca_protocol::{
     ConnectedBrainBindingV1, ConnectedBrainCapabilityV1, ConnectedBrainIndexEntryV1,
@@ -313,6 +315,97 @@ pub(crate) fn read_connected_candidate(
             .map(|value| value.as_str().to_owned()),
         discovered_at: Instant::now(),
     })
+}
+
+/// Read the bounded, renderer-safe session projection for one already-connected
+/// Codex or Claude history source. The encrypted binding and relative locators
+/// remain native-only; visible excerpts are reverified against the stored index.
+pub(crate) fn read_connected_sessions(
+    lifecycle: &ContinuityLifecycleLock,
+    runtime_state: &Mutex<ContinuityRuntimeState>,
+    owner_pubkey: &Hex64,
+    source_id: &OpaqueId,
+) -> Result<IndexedSessionListV1, OwnerBrainStoreError> {
+    let (canonical_root, kind, entries) = {
+        let _guard = lifecycle
+            .lock()
+            .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+        let root = load_root_key()?;
+        let state = runtime_state
+            .lock()
+            .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+        let runtime = ready_runtime(&state, owner_pubkey)?;
+        connected_session_material(&root, runtime, source_id)?
+    };
+    list_indexed_sessions(&canonical_root, kind, source_id, &entries)
+        .map_err(|_| OwnerBrainStoreError::Invalid)
+}
+
+/// Resolve one opaque session selection into a bounded visible context
+/// summary. A missing opaque ID is not an integrity error so callers can scan
+/// multiple connected sources of the same runtime kind without exposing IDs.
+pub(crate) fn read_connected_session_context(
+    lifecycle: &ContinuityLifecycleLock,
+    runtime_state: &Mutex<ContinuityRuntimeState>,
+    owner_pubkey: &Hex64,
+    source_id: &OpaqueId,
+    session_id: &OpaqueId,
+) -> Result<Option<IndexedSessionContextV1>, OwnerBrainStoreError> {
+    let (canonical_root, kind, entries) = {
+        let _guard = lifecycle
+            .lock()
+            .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+        let root = load_root_key()?;
+        let state = runtime_state
+            .lock()
+            .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+        let runtime = ready_runtime(&state, owner_pubkey)?;
+        connected_session_material(&root, runtime, source_id)?
+    };
+    context_for_indexed_session(&canonical_root, kind, source_id, &entries, session_id)
+        .map_err(|_| OwnerBrainStoreError::Stale)
+}
+
+fn connected_session_material(
+    root: &ContinuityMasterKey,
+    runtime: &ContinuityRuntime,
+    source_id: &OpaqueId,
+) -> Result<
+    (
+        PathBuf,
+        ConnectedBrainSourceKindV1,
+        Vec<ConnectedBrainIndexEntryV1>,
+    ),
+    OwnerBrainStoreError,
+> {
+    let Some((generation, namespace, namespace_key)) = connected_generation(root, runtime)? else {
+        return Err(OwnerBrainStoreError::Invalid);
+    };
+    let manifest =
+        find_connected_manifest(&generation, &namespace, namespace_key.as_bytes(), source_id)?
+            .ok_or(OwnerBrainStoreError::Invalid)?;
+    if manifest.source.status == ConnectedBrainSourceStatusV1::Disconnected
+        || !matches!(
+            manifest.source.source_kind,
+            ConnectedBrainSourceKindV1::CodexHistory | ConnectedBrainSourceKindV1::ClaudeHistory
+        )
+    {
+        return Err(OwnerBrainStoreError::Invalid);
+    }
+    let binding =
+        find_connected_binding(&generation, &namespace, namespace_key.as_bytes(), source_id)?;
+    let canonical_root = PathBuf::from(binding.canonical_root)
+        .canonicalize()
+        .map_err(|_| OwnerBrainStoreError::Stale)?;
+    let address = owner_brain_source_address(namespace, source_id.clone())?;
+    let entries = super::connected_retrieval::load_connected_entries(
+        &generation,
+        &address,
+        namespace_key.as_bytes(),
+        &manifest,
+        Instant::now() + std::time::Duration::from_secs(5),
+    )?;
+    Ok((canonical_root, manifest.source.source_kind, entries))
 }
 
 pub(super) fn connect_source_with_runtime(

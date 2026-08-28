@@ -559,6 +559,40 @@ impl AppState {
         )
     }
 
+    /// Read bounded visible session metadata from one already-connected Brain
+    /// history source. Native paths and provider session identifiers remain
+    /// inside the trusted process.
+    pub(crate) fn read_connected_brain_sessions(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+        source_id: &luca_protocol::OpaqueId,
+    ) -> Result<crate::luca::connected_brain::IndexedSessionListV1, OwnerBrainStoreError> {
+        crate::luca::owner_brain_store::read_connected_sessions(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            source_id,
+        )
+    }
+
+    /// Resolve an opaque local-session selection into the same bounded visible
+    /// excerpts shown to the owner before a new Polyphonic conversation starts.
+    pub(crate) fn read_connected_brain_session_context(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+        source_id: &luca_protocol::OpaqueId,
+        session_id: &luca_protocol::OpaqueId,
+    ) -> Result<Option<crate::luca::connected_brain::IndexedSessionContextV1>, OwnerBrainStoreError>
+    {
+        crate::luca::owner_brain_store::read_connected_session_context(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            source_id,
+            session_id,
+        )
+    }
+
     /// Materialize default access for a newly created or imported resident.
     pub(crate) fn provision_connected_brain_resident(
         &self,

@@ -12376,6 +12376,7 @@ export function maybeInstallE2eTauriMocks() {
       case "list_runtime_connection_status":
         return [
           {
+            statusId: "claude-code",
             runtimeId: "claude_code",
             label: "Claude Code",
             executable: "/usr/local/bin/claude",
@@ -12386,6 +12387,7 @@ export function maybeInstallE2eTauriMocks() {
             reason: null,
           },
           {
+            statusId: "codex",
             runtimeId: "codex",
             label: "Codex",
             executable: "/usr/local/bin/codex",
@@ -12396,6 +12398,7 @@ export function maybeInstallE2eTauriMocks() {
             reason: null,
           },
           {
+            statusId: "hermes:default",
             runtimeId: "hermes",
             label: "Hermes",
             executable: "/Users/riley/.local/bin/hermes",
@@ -12406,6 +12409,7 @@ export function maybeInstallE2eTauriMocks() {
             reason: null,
           },
           {
+            statusId: "openclaw:main",
             runtimeId: "openclaw",
             label: "OpenClaw",
             executable: "/usr/local/bin/openclaw",
@@ -12453,6 +12457,70 @@ export function maybeInstallE2eTauriMocks() {
               "Polyphonic does not currently have a safe read-only MCP reader for this runtime.",
           },
         ];
+      case "list_connected_runtime_sessions": {
+        const { runtimeId } = payload as {
+          runtimeId: "claude_code" | "codex" | "hermes" | "openclaw";
+        };
+        if (runtimeId !== "claude_code" && runtimeId !== "codex") {
+          return {
+            runtimeId,
+            sourceStatus: "unsupported",
+            sessions: [],
+            totalSessionCount: 0,
+            truncated: false,
+          };
+        }
+        const runtimeLabel = runtimeId === "codex" ? "Codex" : "Claude Code";
+        return {
+          runtimeId,
+          sourceStatus: "current",
+          sessions: [
+            {
+              sessionId: `session-${runtimeId}-checkpoint`,
+              title: "Shape the runtime-session context checkpoint",
+              preview:
+                "Keep the handoff bounded, visible, and separate from provider session authority.",
+              visibleMessageCount: 14,
+              updatedAt: "2026-08-28T14:30:00Z",
+              available: true,
+            },
+            {
+              sessionId: `session-${runtimeId}-sidebar`,
+              title: "Refine the Polyphonic left rail",
+              preview:
+                "Installed runtimes should feel native to the existing conversation navigation.",
+              visibleMessageCount: 8,
+              updatedAt: "2026-08-27T19:10:00Z",
+              available: true,
+            },
+          ],
+          totalSessionCount: 2,
+          truncated: false,
+          runtimeLabel,
+        };
+      }
+      case "get_connected_runtime_session_context": {
+        const { input } = payload as {
+          input: {
+            runtimeId: "claude_code" | "codex";
+            sessionId: string;
+          };
+        };
+        const runtimeLabel =
+          input.runtimeId === "codex" ? "Codex" : "Claude Code";
+        return {
+          runtimeId: input.runtimeId,
+          runtimeLabel,
+          sessionId: input.sessionId,
+          title: input.sessionId.endsWith("sidebar")
+            ? "Refine the Polyphonic left rail"
+            : "Shape the runtime-session context checkpoint",
+          summary:
+            "14 visible messages were indexed. Selected visible excerpts:\n\n- Make installed runtimes visible in the left rail.\n\n- Start a new Polyphonic conversation with a bounded, visible summary.",
+          visibleMessageCount: 14,
+          updatedAt: "2026-08-28T14:30:00Z",
+        };
+      }
       case "list_luca_mcp_registry":
         return structuredClone(mockLucaMcpRegistry);
       case "save_luca_mcp_connection": {

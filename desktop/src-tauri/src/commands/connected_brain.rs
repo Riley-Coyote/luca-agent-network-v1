@@ -98,6 +98,46 @@ pub struct ConnectedBrainMutationResultV1 {
     replayed: bool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectedRuntimeSessionViewV1 {
+    session_id: String,
+    title: String,
+    preview: String,
+    visible_message_count: usize,
+    updated_at: Option<String>,
+    available: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectedRuntimeSessionListV1 {
+    runtime_id: String,
+    source_status: &'static str,
+    sessions: Vec<ConnectedRuntimeSessionViewV1>,
+    total_session_count: usize,
+    truncated: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ConnectedRuntimeSessionContextInputV1 {
+    runtime_id: String,
+    session_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectedRuntimeSessionContextViewV1 {
+    runtime_id: String,
+    runtime_label: String,
+    session_id: String,
+    title: String,
+    summary: String,
+    visible_message_count: usize,
+    updated_at: Option<String>,
+}
+
 fn owner_pubkey(state: &AppState) -> Result<Hex64, String> {
     Hex64::parse(state.signing_keys()?.public_key().to_hex())
         .map_err(|_| "active owner identity is invalid".to_owned())
@@ -118,6 +158,24 @@ fn status_value(status: ConnectedBrainSourceStatusV1) -> &'static str {
         ConnectedBrainSourceStatusV1::NeedsAttention => "needs_attention",
         ConnectedBrainSourceStatusV1::Unavailable => "unavailable",
         ConnectedBrainSourceStatusV1::Disconnected => "disconnected",
+    }
+}
+
+fn runtime_session_kind(runtime_id: &str) -> Option<ConnectedBrainSourceKindV1> {
+    match runtime_id {
+        "codex" => Some(ConnectedBrainSourceKindV1::CodexHistory),
+        "claude_code" => Some(ConnectedBrainSourceKindV1::ClaudeHistory),
+        _ => None,
+    }
+}
+
+fn source_status_rank(status: ConnectedBrainSourceStatusV1) -> u8 {
+    match status {
+        ConnectedBrainSourceStatusV1::Current => 0,
+        ConnectedBrainSourceStatusV1::Connecting => 1,
+        ConnectedBrainSourceStatusV1::NeedsAttention => 2,
+        ConnectedBrainSourceStatusV1::Unavailable => 3,
+        ConnectedBrainSourceStatusV1::Disconnected => 4,
     }
 }
 
@@ -347,6 +405,133 @@ pub async fn list_connected_brain_sources(
     })
     .await
     .map_err(|_| "connected Brain inventory worker failed".to_owned())?
+}
+
+/// List only sessions already represented by a connected Codex or Claude
+/// Brain index. Session locators and native provider IDs never cross IPC.
+#[tauri::command]
+pub async fn list_connected_runtime_sessions(
+    runtime_id: String,
+    app: AppHandle,
+) -> Result<ConnectedRuntimeSessionListV1, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(kind) = runtime_session_kind(&runtime_id) else {
+            return Ok(ConnectedRuntimeSessionListV1 {
+                runtime_id,
+                source_status: "unsupported",
+                sessions: Vec::new(),
+                total_session_count: 0,
+                truncated: false,
+            });
+        };
+        let state = app.state::<AppState>();
+        let owner = owner_pubkey(&state)?;
+        let catalog = state
+            .read_connected_brain_catalog(&owner)
+            .map_err(|error| error.code().to_owned())?;
+        let sources = catalog
+            .sources
+            .into_iter()
+            .filter(|source| {
+                source.source.source_kind == kind
+                    && source.source.status != ConnectedBrainSourceStatusV1::Disconnected
+            })
+            .collect::<Vec<_>>();
+        if sources.is_empty() {
+            return Ok(ConnectedRuntimeSessionListV1 {
+                runtime_id,
+                source_status: "not_connected",
+                sessions: Vec::new(),
+                total_session_count: 0,
+                truncated: false,
+            });
+        }
+
+        let source_status = sources
+            .iter()
+            .map(|source| source.source.status)
+            .max_by_key(|status| source_status_rank(*status))
+            .map(status_value)
+            .unwrap_or("not_connected");
+        let mut total_session_count = 0_usize;
+        let mut sessions = Vec::new();
+        for source in sources {
+            let listed = state
+                .read_connected_brain_sessions(&owner, &source.source.source_id)
+                .map_err(|error| error.code().to_owned())?;
+            total_session_count = total_session_count.saturating_add(listed.total_sessions);
+            sessions.extend(listed.sessions.into_iter().map(|session| {
+                ConnectedRuntimeSessionViewV1 {
+                    session_id: session.session_id.as_str().to_owned(),
+                    title: session.title,
+                    preview: session.preview,
+                    visible_message_count: session.visible_message_count,
+                    updated_at: session.updated_at,
+                    available: session.available,
+                }
+            }));
+        }
+        sessions.sort_by(|left, right| {
+            right
+                .updated_at
+                .cmp(&left.updated_at)
+                .then_with(|| left.session_id.cmp(&right.session_id))
+        });
+        sessions.dedup_by(|left, right| left.session_id == right.session_id);
+        sessions.truncate(200);
+        let truncated = total_session_count > sessions.len();
+        Ok(ConnectedRuntimeSessionListV1 {
+            runtime_id,
+            source_status,
+            sessions,
+            total_session_count,
+            truncated,
+        })
+    })
+    .await
+    .map_err(|_| "connected runtime session worker failed".to_owned())?
+}
+
+/// Resolve one opaque indexed session into bounded visible excerpts for a new
+/// Polyphonic composer. This does not resume or mutate the provider session.
+#[tauri::command]
+pub async fn get_connected_runtime_session_context(
+    input: ConnectedRuntimeSessionContextInputV1,
+    app: AppHandle,
+) -> Result<ConnectedRuntimeSessionContextViewV1, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let kind = runtime_session_kind(&input.runtime_id)
+            .ok_or_else(|| "connected-runtime-session-unsupported".to_owned())?;
+        let session_id = OpaqueId::parse(input.session_id)
+            .map_err(|_| "connected-runtime-session-invalid".to_owned())?;
+        let state = app.state::<AppState>();
+        let owner = owner_pubkey(&state)?;
+        let catalog = state
+            .read_connected_brain_catalog(&owner)
+            .map_err(|error| error.code().to_owned())?;
+        for source in catalog.sources.into_iter().filter(|source| {
+            source.source.source_kind == kind
+                && source.source.status != ConnectedBrainSourceStatusV1::Disconnected
+        }) {
+            let context = state
+                .read_connected_brain_session_context(&owner, &source.source.source_id, &session_id)
+                .map_err(|error| error.code().to_owned())?;
+            if let Some(context) = context {
+                return Ok(ConnectedRuntimeSessionContextViewV1 {
+                    runtime_id: input.runtime_id,
+                    runtime_label: source.source.display_name,
+                    session_id: context.session_id.as_str().to_owned(),
+                    title: context.title,
+                    summary: context.summary,
+                    visible_message_count: context.visible_message_count,
+                    updated_at: context.updated_at,
+                });
+            }
+        }
+        Err("connected-runtime-session-not-found".to_owned())
+    })
+    .await
+    .map_err(|_| "connected runtime context worker failed".to_owned())?
 }
 
 #[tauri::command]

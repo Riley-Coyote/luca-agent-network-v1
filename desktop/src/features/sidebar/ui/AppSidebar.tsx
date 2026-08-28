@@ -47,6 +47,11 @@ import { buildChatListItems, ChatList } from "@/features/sidebar/ui/ChatList";
 import { CreateRoomProjectDialog } from "@/features/projects/ui/CreateRoomProjectDialog";
 import { runProjectCreationTransaction } from "@/features/projects/lib/projectCreationTransaction";
 import { addChannelMembers } from "@/shared/api/tauri";
+import type { RuntimeConnectionStatusV1 } from "@/shared/api/tauriMcp";
+import { RuntimeRailSection } from "@/features/runtime-sessions/RuntimeRailSection";
+import { RuntimeSessionsPanel } from "@/features/runtime-sessions/RuntimeSessionsPanel";
+import { stageRuntimeSessionContext } from "@/features/runtime-sessions/runtimeSessionHandoff";
+import { runtimeConnectionKey } from "@/features/runtime-sessions/runtimeSessionModel";
 
 /** PROTOTYPE SWITCH. true = one recency-sorted chat list (the chat-app shape).
  *  false = the original CHANNELS / DIRECT MESSAGES sections. Kept so the two
@@ -162,6 +167,8 @@ export function AppSidebar({
   const canShowSidebarUpdateCard = shouldShowSidebarUpdateCard(updateStatus);
   const { open: sidebarOpen, openMobile, setOpenMobile } = useSidebar();
   const isMobile = useIsMobile();
+  const [selectedRuntime, setSelectedRuntime] =
+    React.useState<RuntimeConnectionStatusV1 | null>(null);
   const [isSidebarUpdateCardDismissed, setIsSidebarUpdateCardDismissed] =
     React.useState(false);
   const showSidebarUpdateCard =
@@ -497,7 +504,28 @@ export function AppSidebar({
     [assignChannel, onBrowseChannels],
   );
 
-  return (
+  const closeRuntimePanel = React.useCallback(() => {
+    const selectedKey = selectedRuntime
+      ? runtimeConnectionKey(selectedRuntime)
+      : null;
+    setSelectedRuntime(null);
+    if (isMobile) setOpenMobile(true);
+    if (!selectedKey) return;
+    window.requestAnimationFrame(() => {
+      const button = [
+        ...document.querySelectorAll<HTMLButtonElement>(
+          "[data-runtime-connection-key]",
+        ),
+      ].find(
+        (candidate) => candidate.dataset.runtimeConnectionKey === selectedKey,
+      );
+      button?.focus({ preventScroll: true });
+    });
+  }, [isMobile, selectedRuntime, setOpenMobile]);
+
+  return React.createElement(
+    React.Fragment,
+    null,
     <Sidebar
       className="!border-r-0"
       // Full rail or nothing — the industry standard, and what Claude, ChatGPT,
@@ -584,31 +612,49 @@ export function AppSidebar({
                       available under Rooms while projects open their contextual
                       room navigator in the main application card. */}
                   {USE_CHAT_LIST ? (
-                    <ChatList
-                      items={buildChatListItems({
-                        channels,
-                        labels: dmChannelLabels,
-                        currentPubkey,
-                      })}
-                      onSelectChannel={(channelId) => {
-                        if (isMobile) setOpenMobile(false);
-                        onSelectChannel(channelId);
-                      }}
-                      onSelectProject={(projectId, preferredRoomId) => {
-                        if (isMobile) setOpenMobile(false);
-                        onSelectProject(projectId, preferredRoomId);
-                      }}
-                      onCreateProject={() => setIsCreateProjectOpen(true)}
-                      onCreateDm={onNewMessage}
-                      onMarkChannelRead={onMarkChannelRead}
-                      onMarkChannelUnread={onMarkChannelUnread}
-                      projectByChannelId={roomProjects}
-                      projects={projectCatalog}
-                      selectedChannelId={selectedChannelId}
-                      selectedProjectId={selectedProjectId}
-                      unreadChannelIds={unreadChannelIds}
-                      workingByChannelId={activeWorkingByChannelId}
-                    />
+                    <>
+                      <ChatList
+                        items={buildChatListItems({
+                          channels,
+                          labels: dmChannelLabels,
+                          currentPubkey,
+                        })}
+                        onSelectChannel={(channelId) => {
+                          if (isMobile) setOpenMobile(false);
+                          onSelectChannel(channelId);
+                        }}
+                        onSelectProject={(projectId, preferredRoomId) => {
+                          if (isMobile) setOpenMobile(false);
+                          onSelectProject(projectId, preferredRoomId);
+                        }}
+                        onCreateProject={() => setIsCreateProjectOpen(true)}
+                        onCreateDm={onNewMessage}
+                        onMarkChannelRead={onMarkChannelRead}
+                        onMarkChannelUnread={onMarkChannelUnread}
+                        projectByChannelId={roomProjects}
+                        projects={projectCatalog}
+                        selectedChannelId={selectedChannelId}
+                        selectedProjectId={selectedProjectId}
+                        unreadChannelIds={unreadChannelIds}
+                        workingByChannelId={activeWorkingByChannelId}
+                      />
+                      <RuntimeRailSection
+                        onSelect={(runtime) => {
+                          const key = runtimeConnectionKey(runtime);
+                          setSelectedRuntime((current) =>
+                            current && runtimeConnectionKey(current) === key
+                              ? null
+                              : runtime,
+                          );
+                          if (isMobile) setOpenMobile(false);
+                        }}
+                        selectedRuntimeKey={
+                          selectedRuntime
+                            ? runtimeConnectionKey(selectedRuntime)
+                            : null
+                        }
+                      />
+                    </>
                   ) : (
                     <>
                       {starredChannels.length > 0 ? (
@@ -1020,6 +1066,25 @@ export function AppSidebar({
       {deleteChannelDialog}
       {leaveChannelDialog}
       <SidebarRail />
-    </Sidebar>
+    </Sidebar>,
+    <RuntimeSessionsPanel
+      isMobile={isMobile}
+      onClose={closeRuntimePanel}
+      onOpenBrain={() => {
+        setSelectedRuntime(null);
+        onSelectBrain();
+      }}
+      onStartContext={(context) => {
+        if (!currentPubkey || !activeCommunity?.relayUrl) return;
+        stageRuntimeSessionContext({
+          context,
+          ownerPubkey: currentPubkey,
+          relayUrl: activeCommunity.relayUrl,
+        });
+        setSelectedRuntime(null);
+        onNewMessage();
+      }}
+      runtime={selectedRuntime}
+    />,
   );
 }

@@ -73,6 +73,25 @@ pub(super) fn read_messages(
     kind: ConnectedBrainSourceKindV1,
     relative_path: &str,
 ) -> Result<Vec<String>, String> {
+    let canonical = resolved_session_path(root, kind, relative_path)?;
+    parse_file(&canonical, kind)
+}
+
+pub(super) fn session_updated_at(
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+    relative_path: &str,
+) -> Option<String> {
+    resolved_session_path(root, kind, relative_path)
+        .ok()
+        .and_then(|path| modified_timestamp(&path))
+}
+
+fn resolved_session_path(
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+    relative_path: &str,
+) -> Result<PathBuf, String> {
     if relative_path.is_empty()
         || Path::new(relative_path).is_absolute()
         || Path::new(relative_path)
@@ -98,7 +117,7 @@ pub(super) fn read_messages(
     {
         return Err("subagent histories are excluded".to_owned());
     }
-    parse_file(&canonical, kind)
+    Ok(canonical)
 }
 
 fn session_files(root: &Path, kind: ConnectedBrainSourceKindV1) -> Result<Vec<PathBuf>, String> {
