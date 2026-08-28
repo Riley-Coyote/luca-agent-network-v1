@@ -112,6 +112,13 @@ if [[ "$BUILT_ID" != "$APP_ID" ]]; then
 fi
 
 STAGE_DIR=$(mktemp -d /tmp/luca-dev-install.XXXXXX)
+case "$STAGE_DIR" in
+    /tmp/luca-dev-install.*) ;;
+    *)
+        echo "Refusing unexpected staging path: $STAGE_DIR" >&2
+        exit 2
+        ;;
+esac
 NEW_APP="$STAGE_DIR/$APP_NAME.app"
 OLD_APP="$STAGE_DIR/$APP_NAME.previous.app"
 /usr/bin/ditto "$BUILD_APP" "$NEW_APP"
@@ -182,7 +189,8 @@ if [[ -z "$(running_pids)" ]]; then
 fi
 
 trap - ERR
+/bin/rm -rf -- "$STAGE_DIR"
 echo "Installed and running: $INSTALL_APP"
 echo "Bundle ID: $APP_ID"
 echo "Signing identity: $CODESIGN_IDENTITY"
-echo "Previous bundle backup: $OLD_APP"
+echo "Temporary rollback bundle removed after successful launch."
