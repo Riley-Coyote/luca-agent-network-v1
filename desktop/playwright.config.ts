@@ -1,6 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const nativeArtifactApp = process.env.LUCA_ARTIFACT_NATIVE_APP?.trim();
+const testPort = process.env.LUCA_PLAYWRIGHT_PORT?.trim() || "4173";
+const testBaseUrl = `http://127.0.0.1:${testPort}`;
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -12,7 +14,7 @@ export default defineConfig({
     ["html", { open: "never", outputFolder: "playwright-report" }],
   ],
   use: {
-    baseURL: "http://127.0.0.1:4173",
+    baseURL: testBaseUrl,
     screenshot: "only-on-failure",
     trace: "on-first-retry",
     video: "retain-on-failure",
@@ -159,9 +161,9 @@ export default defineConfig({
       : []),
   ],
   webServer: {
-    command: "python3 -m http.server 4173 -d dist",
+    command: `python3 -m http.server ${testPort} -d dist`,
     cwd: ".",
     reuseExistingServer: !process.env.CI,
-    url: "http://127.0.0.1:4173",
+    url: testBaseUrl,
   },
 });

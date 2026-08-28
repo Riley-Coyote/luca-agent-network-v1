@@ -38,3 +38,23 @@ export function RightCardsSlot() {
 export function useRightCardsSlot(): HTMLElement | null {
   return React.useContext(RightCardsSlotContext);
 }
+
+/**
+ * Keep a nested conversation from borrowing the shell's global inspector.
+ * The provider is always present so changing pane focus does not remount the
+ * conversation tree; focus only changes which slot value it can see.
+ */
+export function RightCardsSlotBoundary({
+  children,
+  isolate,
+}: {
+  children: React.ReactNode;
+  isolate: boolean;
+}) {
+  const parentSlot = React.useContext(RightCardsSlotContext);
+  return (
+    <RightCardsSlotContext.Provider value={isolate ? null : parentSlot}>
+      {children}
+    </RightCardsSlotContext.Provider>
+  );
+}

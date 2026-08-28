@@ -18,6 +18,10 @@ export type ChannelScreenProps = {
   currentIdentity?: Identity;
   currentProfile?: Profile;
   projectContext?: ConversationProjectContext | null;
+  /** Stable width of this conversation's shell when it is rendered in a tile. */
+  shellWidthPx?: number;
+  /** Whether the full project room navigator is actually beside this screen. */
+  projectNavigatorVisible?: boolean;
   onCloseForumPost: () => void;
   onSelectForumPost: (postId: string) => void;
   selectedForumPostId: string | null;

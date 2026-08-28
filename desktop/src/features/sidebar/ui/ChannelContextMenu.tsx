@@ -8,6 +8,7 @@ import {
   Copy,
   LogOut,
   LoaderCircle,
+  PanelsTopLeft,
   Plus,
   Star,
   StarOff,
@@ -15,6 +16,10 @@ import {
   TriangleAlert,
 } from "lucide-react";
 
+import {
+  requestOpenConversationInNewPane,
+  useConversationWorkspace,
+} from "@/features/conversation-workspace";
 import {
   useArchiveChannelMutation,
   useChannelMembersQuery,
@@ -182,6 +187,18 @@ export function ChannelContextMenuItems({
     channel.channelType !== "dm" && Boolean(onDeleteChannel);
   const membersQuery = useChannelMembersQuery(channel.id, canLoadOwnerActions);
   const currentPubkey = useIdentityQuery().data?.pubkey;
+  const conversationWorkspace = useConversationWorkspace();
+  const conversationAlreadyOpen =
+    conversationWorkspace?.layout.slots.some((slot) =>
+      slot.conversations.some(
+        (conversation) => conversation.channelId === channel.id,
+      ),
+    ) ?? false;
+  const allPanesOccupied =
+    conversationWorkspace?.layout.slots.every(
+      (slot) => slot.conversations.length > 0,
+    ) ?? false;
+  const cannotOpenNewPane = allPanesOccupied && !conversationAlreadyOpen;
   const archiveChannel = useArchiveChannelMutation(channel.id);
   const {
     canDeleteChannel,
@@ -218,6 +235,22 @@ export function ChannelContextMenuItems({
 
   return (
     <>
+      <ContextMenuItem
+        disabled={cannotOpenNewPane}
+        onSelect={() =>
+          deferMenuAction(() =>
+            requestOpenConversationInNewPane({ channelId: channel.id }),
+          )
+        }
+      >
+        <ContextMenuIconSlot>
+          <PanelsTopLeft className="h-4 w-4" />
+        </ContextMenuIconSlot>
+        <span>
+          {cannotOpenNewPane ? "All four panes are in use" : "Open in new pane"}
+        </span>
+      </ContextMenuItem>
+      <ContextMenuSeparator />
       <CopyChannelSubmenu channel={channel} />
       {showMove ? (
         <MoveToSectionSubmenu

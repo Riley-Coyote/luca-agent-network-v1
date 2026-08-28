@@ -11,6 +11,15 @@ import {
   useRoomProjects,
 } from "@/features/channels/lib/roomProjects";
 import { ChannelScreen } from "@/features/channels/ui/ChannelScreen";
+import { LocalChannelPanelStateProvider } from "@/features/channels/ui/useChannelPanelHistoryState";
+import {
+  ConversationWorkspaceFrame,
+  useConversationWorkspace,
+  workspaceConversationKey,
+  workspaceSlot,
+  type WorkspaceConversationRef,
+  type WorkspaceSlotId,
+} from "@/features/conversation-workspace";
 import {
   getThreadReference,
   isBroadcastReply,
@@ -30,6 +39,12 @@ type ChannelRouteScreenProps = {
   targetMessageId: string | null;
   targetReplyId: string | null;
   targetThreadRootId: string | null;
+};
+
+type ChannelConversationSurfaceProps = ChannelRouteScreenProps & {
+  focused: boolean;
+  projectNavigatorVisible: boolean;
+  shellWidthPx?: number;
 };
 
 const MAX_ROUTE_ANCESTOR_HOPS = 50;
@@ -103,14 +118,17 @@ async function fetchRouteTargetEvents(
   return [...eventsById.values()];
 }
 
-export function ChannelRouteScreen({
+function ChannelConversationSurface({
   autoSendDraftKey,
   channelId,
+  focused,
+  projectNavigatorVisible,
   selectedPostId,
+  shellWidthPx,
   targetMessageId,
   targetReplyId,
   targetThreadRootId,
-}: ChannelRouteScreenProps) {
+}: ChannelConversationSurfaceProps) {
   const { closeForumPost, goChannel, goForumPost } = useAppNavigation();
   const channelsQuery = useChannelsQuery();
   const identityQuery = useIdentityQuery();
@@ -227,10 +245,10 @@ export function ChannelRouteScreen({
   }, [selectedPostId, targetMessageId, targetThreadRootId]);
 
   React.useEffect(() => {
-    if (activeProject && activeChannel) {
+    if (focused && activeProject && activeChannel) {
       rememberLastProjectRoom(activeProject.id, activeChannel.id);
     }
-  }, [activeChannel, activeProject]);
+  }, [activeChannel, activeProject, focused]);
 
   if (channelsQuery.isPending && !activeChannel) {
     return (
@@ -256,6 +274,8 @@ export function ChannelRouteScreen({
             }
           : null
       }
+      projectNavigatorVisible={projectNavigatorVisible}
+      shellWidthPx={shellWidthPx}
       onCloseForumPost={() => {
         void closeForumPost(channelId);
       }}
@@ -272,7 +292,9 @@ export function ChannelRouteScreen({
   // A pop-out is one conversation and nothing else. The project workspace is a
   // navigator between the rooms of a project — a second place to go — and this
   // window has no second place to go.
-  if (!projectViewModel || isPopoutWindow()) return conversation;
+  if (!projectViewModel || isPopoutWindow() || !projectNavigatorVisible) {
+    return conversation;
+  }
 
   return (
     <ProjectRoomWorkspace
@@ -281,5 +303,92 @@ export function ChannelRouteScreen({
     >
       {conversation}
     </ProjectRoomWorkspace>
+  );
+}
+
+export function ChannelRouteScreen(props: ChannelRouteScreenProps) {
+  const { goChannel } = useAppNavigation();
+  const workspace = useConversationWorkspace();
+  const channels = useChannelsQuery().data ?? [];
+
+  const channelLabels = React.useMemo(
+    () => new Map(channels.map((channel) => [channel.id, channel.name])),
+    [channels],
+  );
+
+  const focusedConversation = workspace
+    ? workspaceSlot(workspace.layout, workspace.layout.focusedSlotId).activeTab
+    : null;
+  const focusedConversationKey = focusedConversation
+    ? workspaceConversationKey(focusedConversation)
+    : null;
+  const previousFocusedConversationKeyRef = React.useRef(
+    focusedConversationKey,
+  );
+
+  React.useEffect(() => {
+    const didWorkspaceFocusChange =
+      previousFocusedConversationKeyRef.current !== focusedConversationKey;
+    previousFocusedConversationKeyRef.current = focusedConversationKey;
+    if (
+      didWorkspaceFocusChange &&
+      focusedConversation &&
+      focusedConversation.channelId !== props.channelId
+    ) {
+      void goChannel(focusedConversation.channelId);
+    }
+  }, [focusedConversation, focusedConversationKey, goChannel, props.channelId]);
+
+  if (!workspace || isPopoutWindow()) {
+    return (
+      <ChannelConversationSurface {...props} focused projectNavigatorVisible />
+    );
+  }
+
+  const activateConversation = (
+    slotId: WorkspaceSlotId,
+    conversation: WorkspaceConversationRef,
+  ) => {
+    workspace.dispatch({ type: "select-tab", conversation, slotId });
+    if (conversation.channelId !== props.channelId) {
+      void goChannel(conversation.channelId);
+    }
+  };
+
+  return (
+    <ConversationWorkspaceFrame
+      channelLabels={channelLabels}
+      onActivateConversation={activateConversation}
+      renderConversation={(conversation, focused, _slotId, shellWidthPx) => {
+        const usesRouteState =
+          focused && conversation.channelId === props.channelId;
+        const surface = (
+          <ChannelConversationSurface
+            autoSendDraftKey={usesRouteState ? props.autoSendDraftKey : null}
+            channelId={conversation.channelId}
+            focused={focused}
+            projectNavigatorVisible={
+              focused && workspace.layout.preset === "single"
+            }
+            selectedPostId={usesRouteState ? props.selectedPostId : null}
+            shellWidthPx={shellWidthPx}
+            targetMessageId={usesRouteState ? props.targetMessageId : null}
+            targetReplyId={usesRouteState ? props.targetReplyId : null}
+            targetThreadRootId={
+              usesRouteState ? props.targetThreadRootId : null
+            }
+          />
+        );
+
+        return (
+          <LocalChannelPanelStateProvider
+            focused={focused}
+            resetKey={conversation.channelId}
+          >
+            {surface}
+          </LocalChannelPanelStateProvider>
+        );
+      }}
+    />
   );
 }

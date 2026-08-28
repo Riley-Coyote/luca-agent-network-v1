@@ -93,6 +93,8 @@ export function ChannelScreen({
   currentIdentity,
   currentProfile,
   projectContext,
+  projectNavigatorVisible,
+  shellWidthPx,
   onCloseForumPost,
   onSelectForumPost,
   selectedForumPostId,
@@ -170,6 +172,7 @@ export function ChannelScreen({
   }, []);
   const mainInsetRef = useMainInsetRef();
   const mainInsetWidthPx = useMainInsetWidth();
+  const stableShellWidthPx = shellWidthPx ?? mainInsetWidthPx;
   const isMobileViewport = useIsMobile();
   const isCompactProjectNavigator = useMediaBreakpoint(
     PROJECT_NAVIGATOR_COMPACT_MAX_VIEWPORT_PX + 1,
@@ -697,11 +700,11 @@ export function ChannelScreen({
   const { shouldCompactHeaderActions, useSinglePanel: isSinglePanelView } =
     resolveChannelShellLayout({
       hasAuxiliaryPanel,
-      hasProjectNavigator: projectContext != null,
+      hasProjectNavigator: projectNavigatorVisible ?? projectContext != null,
       isCompactProjectNavigator,
       isForum: activeChannel?.channelType === "forum",
       isMobileViewport,
-      mainInsetWidthPx,
+      mainInsetWidthPx: stableShellWidthPx,
     });
   const channelHeaderChromeRef = useMeasuredCssVariable({
     targetRef: mainInsetRef,

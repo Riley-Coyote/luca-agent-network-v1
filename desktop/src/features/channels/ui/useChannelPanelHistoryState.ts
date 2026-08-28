@@ -40,7 +40,14 @@ export type PanelValueSetter = (
 
 const CHANNEL_MANAGEMENT_OPEN_VALUE = "1";
 
-export function useChannelPanelHistoryState() {
+export type ChannelPanelHistoryState = ReturnType<
+  typeof useUrlChannelPanelHistoryState
+>;
+
+const LocalChannelPanelStateContext =
+  React.createContext<ChannelPanelHistoryState | null>(null);
+
+function useUrlChannelPanelHistoryState() {
   const { applyPatch, values } = useHistorySearchState(CHANNEL_SEARCH_KEYS);
 
   const setOpenThreadHeadId = React.useCallback<PanelValueSetter>(
@@ -128,4 +135,168 @@ export function useChannelPanelHistoryState() {
     setProfilePanelPubkey,
     setProfilePanelView,
   };
+}
+
+/**
+ * Give a background conversation pane its own auxiliary-panel history.
+ *
+ * The focused pane remains URL-backed so browser history and deep links keep
+ * their existing semantics. A secondary pane must never write those search
+ * params, though, so it receives the same interface backed by local state.
+ */
+export function LocalChannelPanelStateProvider({
+  children,
+  focused,
+  resetKey,
+}: {
+  children: React.ReactNode;
+  focused: boolean;
+  resetKey: string;
+}) {
+  const urlState = useUrlChannelPanelHistoryState();
+  const [openThreadHeadId, setOpenThreadHeadIdState] = React.useState<
+    string | null
+  >(null);
+  const [profilePanelPubkey, setProfilePanelPubkeyState] = React.useState<
+    string | null
+  >(null);
+  const [profilePanelView, setProfilePanelViewState] =
+    React.useState<ProfilePanelView>("summary");
+  const [profilePanelTab, setProfilePanelTabState] =
+    React.useState<ProfilePanelTab>("info");
+  const [openAgentSessionPubkey, setOpenAgentSessionPubkeyState] =
+    React.useState<string | null>(null);
+  const [openAgentSessionChannelId, setOpenAgentSessionChannelIdState] =
+    React.useState<string | null>(null);
+  const [channelManagementOpen, setChannelManagementOpenState] =
+    React.useState(false);
+  const previousResetKeyRef = React.useRef(resetKey);
+
+  React.useEffect(() => {
+    if (previousResetKeyRef.current === resetKey) return;
+    previousResetKeyRef.current = resetKey;
+    setOpenThreadHeadIdState(null);
+    setProfilePanelPubkeyState(null);
+    setProfilePanelViewState("summary");
+    setProfilePanelTabState("info");
+    setOpenAgentSessionPubkeyState(null);
+    setOpenAgentSessionChannelIdState(null);
+    setChannelManagementOpenState(false);
+  }, [resetKey]);
+
+  const setOpenThreadHeadId = React.useCallback<PanelValueSetter>(
+    (value, options) => {
+      setOpenThreadHeadIdState(value);
+      if (focused) urlState.setOpenThreadHeadId(value, options);
+    },
+    [focused, urlState.setOpenThreadHeadId],
+  );
+  const setProfilePanelPubkey = React.useCallback<PanelValueSetter>(
+    (value, options) => {
+      setProfilePanelPubkeyState(value);
+      setProfilePanelViewState("summary");
+      setProfilePanelTabState("info");
+      if (focused) urlState.setProfilePanelPubkey(value, options);
+    },
+    [focused, urlState.setProfilePanelPubkey],
+  );
+  const setProfilePanelView = React.useCallback(
+    (value: ProfilePanelView, options?: PanelSetterOptions) => {
+      setProfilePanelViewState(value);
+      if (focused) urlState.setProfilePanelView(value, options);
+    },
+    [focused, urlState.setProfilePanelView],
+  );
+  const setProfilePanelTab = React.useCallback(
+    (value: ProfilePanelTab, options?: PanelSetterOptions) => {
+      setProfilePanelTabState(value);
+      if (focused) urlState.setProfilePanelTab(value, options);
+    },
+    [focused, urlState.setProfilePanelTab],
+  );
+  const setOpenAgentSessionPubkey = React.useCallback<PanelValueSetter>(
+    (value, options) => {
+      setOpenAgentSessionPubkeyState(value);
+      if (!value) setOpenAgentSessionChannelIdState(null);
+      if (focused) urlState.setOpenAgentSessionPubkey(value, options);
+    },
+    [focused, urlState.setOpenAgentSessionPubkey],
+  );
+  const setOpenAgentSessionChannelId = React.useCallback<PanelValueSetter>(
+    (value, options) => {
+      setOpenAgentSessionChannelIdState(value);
+      if (focused) urlState.setOpenAgentSessionChannelId(value, options);
+    },
+    [focused, urlState.setOpenAgentSessionChannelId],
+  );
+  const setChannelManagementOpen = React.useCallback(
+    (open: boolean, options?: PanelSetterOptions) => {
+      setChannelManagementOpenState(open);
+      if (focused) urlState.setChannelManagementOpen(open, options);
+    },
+    [focused, urlState.setChannelManagementOpen],
+  );
+  const clearMessageRouteTarget = React.useCallback(
+    (options?: PanelSetterOptions) => {
+      if (focused) urlState.clearMessageRouteTarget(options);
+    },
+    [focused, urlState.clearMessageRouteTarget],
+  );
+  const clearAutoSend = React.useCallback(
+    (options?: PanelSetterOptions) => {
+      if (focused) urlState.clearAutoSend(options);
+    },
+    [focused, urlState.clearAutoSend],
+  );
+
+  const value = React.useMemo<ChannelPanelHistoryState>(
+    () => ({
+      channelManagementOpen,
+      clearAutoSend,
+      clearMessageRouteTarget,
+      openAgentSessionChannelId,
+      openAgentSessionPubkey,
+      openThreadHeadId,
+      profilePanelPubkey,
+      profilePanelTab,
+      profilePanelView,
+      setChannelManagementOpen,
+      setOpenAgentSessionChannelId,
+      setOpenAgentSessionPubkey,
+      setOpenThreadHeadId,
+      setProfilePanelTab,
+      setProfilePanelPubkey,
+      setProfilePanelView,
+    }),
+    [
+      channelManagementOpen,
+      clearAutoSend,
+      clearMessageRouteTarget,
+      openAgentSessionChannelId,
+      openAgentSessionPubkey,
+      openThreadHeadId,
+      profilePanelPubkey,
+      profilePanelTab,
+      profilePanelView,
+      setChannelManagementOpen,
+      setOpenAgentSessionChannelId,
+      setOpenAgentSessionPubkey,
+      setOpenThreadHeadId,
+      setProfilePanelTab,
+      setProfilePanelPubkey,
+      setProfilePanelView,
+    ],
+  );
+
+  return React.createElement(
+    LocalChannelPanelStateContext.Provider,
+    { value },
+    children,
+  );
+}
+
+export function useChannelPanelHistoryState() {
+  const localState = React.useContext(LocalChannelPanelStateContext);
+  const urlState = useUrlChannelPanelHistoryState();
+  return localState ?? urlState;
 }
