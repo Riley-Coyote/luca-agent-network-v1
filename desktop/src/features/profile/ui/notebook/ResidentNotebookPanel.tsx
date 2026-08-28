@@ -58,34 +58,82 @@ export function ResidentNotebookPanel({
   const [loadingMore, setLoadingMore] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
+  const activeResidentRef = React.useRef(residentPubkey);
+  const mountedRef = React.useRef(false);
+  const refreshGenerationRef = React.useRef(0);
+  const refreshInFlightRef = React.useRef<Promise<void> | null>(null);
 
-  const refresh = React.useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [nextList, nextJob] = await Promise.all([
-        listResidentNotebookItems(residentPubkey, 0, 25),
-        getResidentJournalActivity(residentPubkey),
-      ]);
-      setList(nextList);
-      setJob(nextJob);
-    } catch (cause) {
-      setError(errorMessage(cause));
-    } finally {
-      setLoading(false);
-    }
+  const refresh = React.useCallback((): Promise<void> => {
+    const inFlight = refreshInFlightRef.current;
+    if (inFlight) return inFlight;
+
+    const requestedResident = residentPubkey;
+    const generation = refreshGenerationRef.current;
+    const isCurrent = () =>
+      mountedRef.current &&
+      activeResidentRef.current === requestedResident &&
+      refreshGenerationRef.current === generation;
+    const request = (async () => {
+      if (isCurrent()) {
+        setLoading(true);
+        setError(null);
+      }
+      try {
+        const [nextList, nextJob] = await Promise.all([
+          listResidentNotebookItems(requestedResident, 0, 25),
+          getResidentJournalActivity(requestedResident),
+        ]);
+        if (isCurrent()) {
+          setList(nextList);
+          setJob(nextJob);
+        }
+      } catch (cause) {
+        if (isCurrent()) setError(errorMessage(cause));
+      } finally {
+        if (isCurrent()) setLoading(false);
+      }
+    })();
+    refreshInFlightRef.current = request;
+    void request.finally(() => {
+      if (refreshInFlightRef.current === request) {
+        refreshInFlightRef.current = null;
+      }
+    });
+    return request;
   }, [residentPubkey]);
 
   React.useEffect(() => {
+    mountedRef.current = true;
+    activeResidentRef.current = residentPubkey;
+    const generation = refreshGenerationRef.current + 1;
+    refreshGenerationRef.current = generation;
+    refreshInFlightRef.current = null;
     setSelected(null);
     setCreating(false);
     void refresh();
-  }, [refresh]);
+    return () => {
+      if (refreshGenerationRef.current === generation) {
+        mountedRef.current = false;
+        refreshGenerationRef.current += 1;
+      }
+    };
+  }, [refresh, residentPubkey]);
 
   React.useEffect(() => {
     if (job?.state !== "pending" && job?.state !== "running") return;
-    const interval = window.setInterval(() => void refresh(), 2_500);
-    return () => window.clearInterval(interval);
+    let cancelled = false;
+    let timeout: number | undefined;
+    const pollAfterCompletion = async () => {
+      await refresh();
+      if (!cancelled) {
+        timeout = window.setTimeout(() => void pollAfterCompletion(), 2_500);
+      }
+    };
+    timeout = window.setTimeout(() => void pollAfterCompletion(), 2_500);
+    return () => {
+      cancelled = true;
+      if (timeout !== undefined) window.clearTimeout(timeout);
+    };
   }, [job?.state, refresh]);
 
   async function openItem(itemId: string) {

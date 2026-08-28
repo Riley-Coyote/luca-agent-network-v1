@@ -334,49 +334,48 @@ pub struct AnnotateResidentJournalPageInputV1 {
 
 #[tauri::command]
 /// Lists active notebook items without exposing annotation rows separately.
-pub fn list_resident_notebook_items(
+pub async fn list_resident_notebook_items(
     resident_pubkey: String,
     cursor: Option<usize>,
     page_size: Option<usize>,
     app: AppHandle,
-    state: State<'_, AppState>,
 ) -> Result<ResidentNotebookListV1, String> {
-    let (owner, resident) = resident_authority(&app, &state, &resident_pubkey)?;
-    let outcome = state.read_resident_notebook(&owner, &resident, false);
-    let (availability, mut items) = notebook_views(outcome)?;
-    items.retain(|item| item.kind != "journal_annotation");
-    items.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-    let start = cursor.unwrap_or(0).min(items.len());
-    let count = page_size.unwrap_or(25).clamp(1, 50);
-    let end = start.saturating_add(count).min(items.len());
-    let next_cursor = (end < items.len()).then_some(end);
-    Ok(ResidentNotebookListV1 {
-        availability,
-        items: items.drain(start..end).collect(),
-        next_cursor,
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        notebook_list(&app, &state, &resident_pubkey, cursor, page_size)
     })
+    .await
+    .map_err(|error| format!("resident notebook worker failed: {error}"))?
 }
 
 #[tauri::command]
 /// Reads one notebook item, its revisions, and owner annotations.
-pub fn get_resident_notebook_item(
+pub async fn get_resident_notebook_item(
     resident_pubkey: String,
     item_id: String,
     app: AppHandle,
-    state: State<'_, AppState>,
 ) -> Result<ResidentNotebookDetailV1, String> {
-    notebook_detail(&app, &state, &resident_pubkey, &item_id)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        notebook_detail(&app, &state, &resident_pubkey, &item_id)
+    })
+    .await
+    .map_err(|error| format!("resident notebook worker failed: {error}"))?
 }
 
 #[tauri::command]
 /// Reads the complete immutable revision history for one notebook lineage.
-pub fn get_resident_notebook_revision_history(
+pub async fn get_resident_notebook_revision_history(
     resident_pubkey: String,
     item_id: String,
     app: AppHandle,
-    state: State<'_, AppState>,
 ) -> Result<ResidentNotebookDetailV1, String> {
-    notebook_detail(&app, &state, &resident_pubkey, &item_id)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        notebook_detail(&app, &state, &resident_pubkey, &item_id)
+    })
+    .await
+    .map_err(|error| format!("resident notebook worker failed: {error}"))?
 }
 
 #[tauri::command]
@@ -426,13 +425,18 @@ pub fn retry_resident_journal_page(job_id: String, app: AppHandle) -> Result<boo
 
 #[tauri::command]
 /// Returns the resident's latest body-free journal job state.
-pub fn get_resident_journal_activity(
+pub async fn get_resident_journal_activity(
     resident_pubkey: String,
     app: AppHandle,
-    state: State<'_, AppState>,
 ) -> Result<Option<ResidentJournalJobViewV1>, String> {
-    let (owner, resident) = resident_authority(&app, &state, &resident_pubkey)?;
-    journal_jobs::latest_status(&app, &owner, &resident).map(|value| value.map(journal_job_view))
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let (owner, resident) = resident_authority(&app, &state, &resident_pubkey)?;
+        journal_jobs::latest_status(&app, &owner, &resident)
+            .map(|value| value.map(journal_job_view))
+    })
+    .await
+    .map_err(|error| format!("resident journal activity worker failed: {error}"))?
 }
 
 #[tauri::command]
@@ -543,26 +547,57 @@ pub fn annotate_resident_journal_page(
 
 #[tauri::command]
 /// Archives one effective notebook lineage while retaining its revisions.
-pub fn archive_resident_notebook_item(
+pub async fn archive_resident_notebook_item(
     resident_pubkey: String,
     item_id: String,
     app: AppHandle,
-    state: State<'_, AppState>,
 ) -> Result<ResidentNotebookListV1, String> {
-    change_notebook_lifecycle(&app, &state, &resident_pubkey, &item_id, false)?;
-    list_resident_notebook_items(resident_pubkey, None, None, app, state)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        change_notebook_lifecycle(&app, &state, &resident_pubkey, &item_id, false)?;
+        notebook_list(&app, &state, &resident_pubkey, None, None)
+    })
+    .await
+    .map_err(|error| format!("resident notebook worker failed: {error}"))?
 }
 
 #[tauri::command]
 /// Forgets one effective notebook lineage under the encrypted lifecycle rules.
-pub fn forget_resident_notebook_item(
+pub async fn forget_resident_notebook_item(
     resident_pubkey: String,
     item_id: String,
     app: AppHandle,
-    state: State<'_, AppState>,
 ) -> Result<ResidentNotebookListV1, String> {
-    change_notebook_lifecycle(&app, &state, &resident_pubkey, &item_id, true)?;
-    list_resident_notebook_items(resident_pubkey, None, None, app, state)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        change_notebook_lifecycle(&app, &state, &resident_pubkey, &item_id, true)?;
+        notebook_list(&app, &state, &resident_pubkey, None, None)
+    })
+    .await
+    .map_err(|error| format!("resident notebook worker failed: {error}"))?
+}
+
+fn notebook_list(
+    app: &AppHandle,
+    state: &AppState,
+    resident_pubkey: &str,
+    cursor: Option<usize>,
+    page_size: Option<usize>,
+) -> Result<ResidentNotebookListV1, String> {
+    let (owner, resident) = resident_authority(app, state, resident_pubkey)?;
+    let outcome = state.read_resident_notebook(&owner, &resident, false);
+    let (availability, mut items) = notebook_views(outcome)?;
+    items.retain(|item| item.kind != "journal_annotation");
+    items.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+    let start = cursor.unwrap_or(0).min(items.len());
+    let count = page_size.unwrap_or(25).clamp(1, 50);
+    let end = start.saturating_add(count).min(items.len());
+    let next_cursor = (end < items.len()).then_some(end);
+    Ok(ResidentNotebookListV1 {
+        availability,
+        items: items.drain(start..end).collect(),
+        next_cursor,
+    })
 }
 
 fn create_journal_job(
