@@ -1,7 +1,8 @@
 use super::{
-    built_in_persona_records, ensure_persona_ids_are_active, ensure_persona_is_active,
-    merge_personas, migrate_retired_personas, validate_persona_activation_change,
-    validate_persona_deletion, BUILT_IN_PERSONAS, RETIRED_PERSONAS,
+    built_in_persona_records, built_in_resident_self_model, ensure_persona_ids_are_active,
+    ensure_persona_is_active, merge_personas, migrate_retired_personas,
+    validate_persona_activation_change, validate_persona_deletion, ANIMA_SYSTEM_PROMPT,
+    BUILT_IN_PERSONAS, LUCA_SYSTEM_PROMPT, RETIRED_PERSONAS, VEKTOR_SYSTEM_PROMPT,
 };
 use crate::managed_agents::discovery::{default_agent_command, effective_agent_command};
 use crate::managed_agents::AgentDefinition;
@@ -65,6 +66,31 @@ fn merge_personas_adds_missing_built_ins() {
     assert_eq!(
         active_ids,
         vec!["builtin:fizz", "builtin:honey", "builtin:bumble"]
+    );
+}
+
+#[test]
+fn bundled_self_models_require_the_unedited_built_in_prompt() {
+    assert_eq!(
+        built_in_resident_self_model("builtin:fizz", Some(LUCA_SYSTEM_PROMPT)),
+        Some("I am Luca, Polyphonic's resident concierge and a clear, grounded generalist collaborator.")
+    );
+    assert_eq!(
+        built_in_resident_self_model("builtin:honey", Some(VEKTOR_SYSTEM_PROMPT)),
+        Some("I am Vektor, a rigorous systems and technical collaborator.")
+    );
+    assert_eq!(
+        built_in_resident_self_model("builtin:bumble", Some(ANIMA_SYSTEM_PROMPT)),
+        Some("I am Anima, a perceptive creative and reflective collaborator.")
+    );
+    assert_eq!(
+        built_in_resident_self_model("builtin:fizz", Some("Owner-authored Luca")),
+        None,
+        "an edited bundled definition must not receive the stock self-model"
+    );
+    assert_eq!(
+        built_in_resident_self_model("custom:resident", Some(LUCA_SYSTEM_PROMPT)),
+        None
     );
 }
 

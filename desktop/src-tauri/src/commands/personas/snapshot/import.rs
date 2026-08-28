@@ -489,10 +489,10 @@ pub async fn confirm_agent_snapshot_import(
             documents_hash: None,
         };
 
-        // Same seed as agent create: the imported definition's prompt becomes
-        // this resident's `soul.md` so the folder is populated on arrival.
+        // Same absence-only document seed as agent create. An import never
+        // replaces documents that already speak for this resident.
         let seed_prompt = record.system_prompt.clone();
-        if let Err(error) = crate::luca::resident_documents::seed_soul_if_absent(
+        if let Err(error) = crate::luca::resident_documents::seed_initial_documents_if_absent(
             &app,
             &mut record,
             seed_prompt.as_deref(),

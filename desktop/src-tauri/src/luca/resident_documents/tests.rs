@@ -272,6 +272,26 @@ fn write_creates_journals_and_round_trips() {
 }
 
 #[test]
+fn initial_document_seed_is_absence_only() {
+    let dir = folder();
+    assert!(seed_document_if_absent(dir.path(), DocumentKind::SelfModel, "initial").unwrap());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("self-model.md")).unwrap(),
+        "initial"
+    );
+
+    assert!(
+        !seed_document_if_absent(dir.path(), DocumentKind::SelfModel, "replacement").unwrap(),
+        "an existing document wins"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("self-model.md")).unwrap(),
+        "initial",
+        "provisioning must never overwrite a resident document"
+    );
+}
+
+#[test]
 fn write_journal_appends_one_line_per_write() {
     let dir = folder();
     let first = write(

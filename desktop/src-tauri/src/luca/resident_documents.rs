@@ -939,13 +939,15 @@ pub(crate) fn assemble_system_prompt(loaded: &LoadedDocuments) -> Option<String>
 
 // ── Record integration ──────────────────────────────────────────────────────
 
-/// Give `record` a folder, seeding `soul.md` from `prompt` when the folder has
-/// no soul yet, and stamp `documents_dir` / `documents_hash` onto the record.
+/// Give `record` a folder, seeding only documents that are still absent, and
+/// stamp `documents_dir` / `documents_hash` onto the record.
 ///
 /// Called from the two paths that mint a record with a prompt already decided
-/// — agent create and persona-snapshot import. Never overwrites an existing
-/// `soul.md`: a folder that already speaks for itself outranks a fresh pin.
-pub(crate) fn seed_soul_if_absent(
+/// — agent create and persona-snapshot import. The prompt becomes `soul.md`;
+/// an unedited Luca, Vektor, or Anima built-in also receives the concise
+/// product self-model derived from its approved built-in identity sentence.
+/// A folder that already speaks for itself always outranks these defaults.
+pub(crate) fn seed_initial_documents_if_absent(
     app: &AppHandle,
     record: &mut ManagedAgentRecord,
     prompt: Option<&str>,
@@ -955,23 +957,45 @@ pub(crate) fn seed_soul_if_absent(
         return Ok(());
     }
     let dir = ensure_resident_dir(app, &record.pubkey)?;
-    let soul = dir.join(DocumentKind::Soul.file_name());
-    if !soul.exists() {
-        if let Some(prompt) = prompt.filter(|value| !value.trim().is_empty()) {
-            write(
-                &dir,
-                DocumentTarget::Kind {
-                    kind: DocumentKind::Soul,
-                },
-                prompt,
-                None,
-                DocumentWriter::Owner,
-            )?;
-        }
+    if let Some(prompt) = prompt.filter(|value| !value.trim().is_empty()) {
+        seed_document_if_absent(&dir, DocumentKind::Soul, prompt)?;
+    }
+    if let Some(self_model) = record.persona_id.as_deref().and_then(|persona_id| {
+        crate::managed_agents::built_in_resident_self_model(persona_id, prompt)
+    }) {
+        seed_document_if_absent(&dir, DocumentKind::SelfModel, self_model)?;
     }
     record.documents_dir = Some(relative_dir(&record.pubkey));
     record.documents_hash = Some(documents_hash(&load(&dir)?));
     Ok(())
+}
+
+/// Seed one document during a resident folder's birth without replacing an
+/// existing file. `create_new` makes absence the filesystem-enforced rule,
+/// rather than a check followed by a potentially clobbering rename.
+fn seed_document_if_absent(dir: &Path, kind: DocumentKind, content: &str) -> Result<bool, String> {
+    let path = dir.join(kind.file_name());
+    reject_symlink(&path)?;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    let mut file = match options.open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            reject_symlink(&path)?;
+            return Ok(false);
+        }
+        Err(error) => return Err(format!("create {}: {error}", path.display())),
+    };
+    if let Err(error) = file.write_all(content.as_bytes()) {
+        let _ = std::fs::remove_file(&path);
+        return Err(format!("write {}: {error}", path.display()));
+    }
+    Ok(true)
 }
 
 /// Overwrite a slot document whatever is on disk, journalling the write.

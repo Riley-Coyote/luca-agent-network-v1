@@ -854,12 +854,12 @@ pub async fn create_managed_agent(
             documents_hash: None,
         };
 
-        // Give the new resident its agent folder and seed `soul.md` from the
-        // prompt we just pinned, so the two agree from the first launch. A
-        // folder that cannot be created is not fatal to agent creation — the
-        // boot migration converges on it next launch.
+        // Give the new resident its agent folder. The pinned prompt seeds
+        // `soul.md`; an unchanged bundled Luca/Vektor/Anima definition also
+        // receives its small approved self-model. Existing documents always
+        // win. A folder failure is not fatal — boot migration converges later.
         let seed_prompt = record.system_prompt.clone();
-        if let Err(error) = crate::luca::resident_documents::seed_soul_if_absent(
+        if let Err(error) = crate::luca::resident_documents::seed_initial_documents_if_absent(
             &app,
             &mut record,
             seed_prompt.as_deref(),
