@@ -663,7 +663,7 @@ fn contains_internal_prompt_markup(text: &str) -> bool {
             "[base]",
             "[system]",
             "[context]",
-            "[conversation context]",
+            "[conversation context",
             "[team instructions]",
             "[agent memory",
             "[channel canvas]",

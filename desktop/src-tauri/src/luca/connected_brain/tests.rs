@@ -144,7 +144,7 @@ fn claude_parser_excludes_thinking_tools_and_credentials() {
         "isSidechain": false,
         "message": {
             "role": "user",
-            "content": "[Conversation Context]\ninternal conversation state"
+            "content": "[Conversation Context (1 of 1 messages)]\ninternal conversation state"
         }
     });
     assert_eq!(
