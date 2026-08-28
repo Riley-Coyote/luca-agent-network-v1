@@ -444,6 +444,18 @@ impl ExchangeStore {
         Ok(removed)
     }
 
+    /// Retire temporary-visit bookkeeping after an explicit permanent member
+    /// add succeeds. This changes no room membership and emits no departure
+    /// threshold; it only prevents the old visit fade rule from later removing
+    /// the newly permanent member.
+    pub(crate) fn promote_visit_to_member(
+        &mut self,
+        conversation_id: &OpaqueId,
+        resident: &Hex64,
+    ) -> Result<Option<VisitRecord>, String> {
+        self.remove_visit(conversation_id, resident)
+    }
+
     /// Remember the irreversible membership half of fade before noting it.
     pub(crate) fn mark_visit_membership_removed(
         &mut self,

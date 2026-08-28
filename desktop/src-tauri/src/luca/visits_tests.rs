@@ -213,6 +213,140 @@ fn owner_mention_visits_once_and_emits_the_exact_arrival_payload() {
 }
 
 #[test]
+fn rejected_owner_send_rolls_back_only_attempt_membership_without_visit_notes() {
+    let relay = FakeRelay::default();
+    let guest = guest();
+    let permanent = Hex64::parse("f".repeat(64)).expect("permanent member");
+    relay.resident(&guest, "ziggy");
+    relay.resident(&permanent, "luca");
+    relay.room.lock().expect("room").insert(permanent.clone());
+    let store = Arc::new(Mutex::new(ExchangeStore::in_memory()));
+
+    let plan = plan_owner_message_visits(
+        &relay,
+        &store,
+        &channel(),
+        &[guest.as_str().to_owned(), permanent.as_str().to_owned()],
+        1_700_000_000,
+    )
+    .expect("plan");
+    assert!(relay.added.lock().expect("added").is_empty());
+    assert!(relay.notes.lock().expect("notes").is_empty());
+    assert!(store
+        .lock()
+        .expect("store")
+        .visits_in(&channel())
+        .is_empty());
+
+    let provisioned = provision_owner_message_visits(&relay, &plan).expect("provision");
+    assert_eq!(provisioned, [guest.clone()]);
+    rollback_owner_message_visit_memberships(&relay, &plan, &provisioned);
+
+    let room = relay.room.lock().expect("room");
+    assert!(!room.contains(&guest));
+    assert!(room.contains(&permanent));
+    drop(room);
+    assert!(store
+        .lock()
+        .expect("store")
+        .visits_in(&channel())
+        .is_empty());
+    assert!(relay.notes.lock().expect("notes").is_empty());
+    assert_eq!(
+        relay.removed.lock().expect("removed").as_slice(),
+        std::slice::from_ref(&guest)
+    );
+}
+
+#[test]
+fn accepted_owner_send_commits_one_visit_and_retry_is_idempotent() {
+    let relay = FakeRelay::default();
+    let guest = guest();
+    relay.resident(&guest, "ziggy");
+    let store = Arc::new(Mutex::new(ExchangeStore::in_memory()));
+
+    let first_plan = plan_owner_message_visits(
+        &relay,
+        &store,
+        &channel(),
+        &[guest.as_str().to_owned()],
+        1_700_000_000,
+    )
+    .expect("first plan");
+    let first_provision =
+        provision_owner_message_visits(&relay, &first_plan).expect("first provision");
+    rollback_owner_message_visit_memberships(&relay, &first_plan, &first_provision);
+
+    let retry_plan = plan_owner_message_visits(
+        &relay,
+        &store,
+        &channel(),
+        &[guest.as_str().to_owned()],
+        1_700_000_001,
+    )
+    .expect("retry plan");
+    provision_owner_message_visits(&relay, &retry_plan).expect("retry provision");
+    commit_owner_message_visits(&relay, &store, &retry_plan, &correlation(), 1_700_000_001)
+        .expect("commit");
+    commit_owner_message_visits(&relay, &store, &retry_plan, &correlation(), 1_700_000_001)
+        .expect("idempotent commit");
+
+    assert_eq!(relay.notes.lock().expect("notes").len(), 1);
+    assert!(store
+        .lock()
+        .expect("store")
+        .visit(&channel(), &guest)
+        .is_some());
+}
+
+#[test]
+fn an_unaccepted_owner_message_does_not_fade_an_existing_visit() {
+    let relay = FakeRelay::default();
+    let guest = guest();
+    relay.resident(&guest, "ziggy");
+    let store = Arc::new(Mutex::new(ExchangeStore::in_memory()));
+    settle_visit_grants(
+        &relay,
+        &store,
+        &[VisitGrant {
+            conversation_id: channel(),
+            resident: guest.clone(),
+            arrived_at: 1_700_000_000,
+            exchange_id: None,
+            correlation_id: correlation(),
+        }],
+    )
+    .expect("seed visit");
+    relay.removed.lock().expect("removed").clear();
+    relay.notes.lock().expect("notes").clear();
+
+    let plan = plan_owner_message_visits(&relay, &store, &channel(), &[], 1_700_000_010)
+        .expect("plan fade");
+    assert_eq!(plan.faded(), std::slice::from_ref(&guest));
+    assert!(relay.removed.lock().expect("removed").is_empty());
+    assert!(relay.notes.lock().expect("notes").is_empty());
+    assert!(store
+        .lock()
+        .expect("store")
+        .visit(&channel(), &guest)
+        .is_some());
+
+    commit_owner_message_visits(
+        &relay,
+        &store,
+        &plan,
+        &Hex64::parse("c".repeat(64)).expect("accepted message"),
+        1_700_000_010,
+    )
+    .expect("commit fade");
+    assert_eq!(
+        relay.removed.lock().expect("removed").as_slice(),
+        std::slice::from_ref(&guest)
+    );
+    assert_eq!(relay.notes.lock().expect("notes").len(), 1);
+}
+
+#[test]
 fn the_owners_next_unaddressed_message_fades_the_visit() {
     let relay = FakeRelay::default();
     let guest = guest();

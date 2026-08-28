@@ -32,6 +32,199 @@ pub(crate) enum VisitFadeTrigger<'a> {
     },
 }
 
+/// Frozen visit work for one owner-authored room message.
+///
+/// Planning is read-only. The command may provision the listed memberships so
+/// the public message can be validated and delivered, but no durable visit
+/// state or room note is committed until the relay accepts that message.
+#[derive(Clone)]
+pub(crate) struct OwnerMessageVisitPlan {
+    conversation_id: OpaqueId,
+    new_visitors: Vec<Hex64>,
+    memberships_to_provision: Vec<Hex64>,
+    faded: Vec<Hex64>,
+    active_visitors: Vec<Hex64>,
+}
+
+impl OwnerMessageVisitPlan {
+    /// Visitors whose old delivery tags must not be carried by this message.
+    pub(crate) fn faded(&self) -> &[Hex64] {
+        &self.faded
+    }
+
+    /// Guests that remain visitors for this message. Conversation-wide
+    /// activation excludes them; an explicit directed mention still wakes one.
+    pub(crate) fn active_visitors(&self) -> &[Hex64] {
+        &self.active_visitors
+    }
+}
+
+/// Read the complete visit consequence of one owner message without mutating
+/// membership, the visit store, or the room timeline.
+pub(crate) fn plan_owner_message_visits(
+    relay: &dyn ExchangeRelay,
+    store: &Arc<Mutex<ExchangeStore>>,
+    conversation_id: &OpaqueId,
+    mentioned_pubkeys: &[String],
+    now_unix_secs: u64,
+) -> Result<OwnerMessageVisitPlan, ExchangeRelayError> {
+    let mentioned = normalized_visit_mentions(mentioned_pubkeys);
+    let visits = store
+        .lock()
+        .map_err(|_| ExchangeRelayError::Unavailable("visit store is locked".to_owned()))?
+        .visits_in(conversation_id);
+
+    let faded: Vec<Hex64> = {
+        let store = store
+            .lock()
+            .map_err(|_| ExchangeRelayError::Unavailable("visit store is locked".to_owned()))?;
+        visits
+            .iter()
+            .filter(|visit| {
+                !mentioned.contains(&visit.grant.resident)
+                    && !store.has_open_exchange_involving(
+                        conversation_id,
+                        &visit.grant.resident,
+                        now_unix_secs,
+                    )
+            })
+            .map(|visit| visit.grant.resident.clone())
+            .collect()
+    };
+    let faded_set: BTreeSet<Hex64> = faded.iter().cloned().collect();
+    let active_visitors = visits
+        .iter()
+        .filter(|visit| !faded_set.contains(&visit.grant.resident))
+        .map(|visit| visit.grant.resident.clone())
+        .collect();
+
+    let mut new_visitors = Vec::new();
+    let mut memberships_to_provision = Vec::new();
+    if !mentioned.is_empty() {
+        let owned = relay.owned_residents()?;
+        let room = relay.conversation_members(conversation_id)?;
+        for resident in mentioned {
+            if !owned.contains(&resident) {
+                continue;
+            }
+            let existing_visit = visits.iter().find(|visit| visit.grant.resident == resident);
+            if room.contains(&resident) {
+                // A regular member is never silently converted into a visitor.
+                continue;
+            }
+            memberships_to_provision.push(resident.clone());
+            if existing_visit.is_none() {
+                new_visitors.push(resident);
+            }
+        }
+    }
+
+    Ok(OwnerMessageVisitPlan {
+        conversation_id: conversation_id.clone(),
+        new_visitors,
+        memberships_to_provision,
+        faded,
+        active_visitors,
+    })
+}
+
+/// Provision only the memberships required to deliver the planned message.
+/// If any add fails, prior adds from this same attempt are rolled back before
+/// the error is returned.
+pub(crate) fn provision_owner_message_visits(
+    relay: &dyn ExchangeRelay,
+    plan: &OwnerMessageVisitPlan,
+) -> Result<Vec<Hex64>, ExchangeRelayError> {
+    let mut provisioned = Vec::new();
+    for resident in &plan.memberships_to_provision {
+        if let Err(error) = relay.add_conversation_member(&plan.conversation_id, resident) {
+            rollback_owner_message_visit_memberships(relay, plan, &provisioned);
+            return Err(error);
+        }
+        provisioned.push(resident.clone());
+    }
+    Ok(provisioned)
+}
+
+/// Undo membership writes made by one unaccepted owner-send attempt. Existing
+/// members and durable visits are never part of `provisioned`, so this cannot
+/// remove authority that predates the failed send.
+pub(crate) fn rollback_owner_message_visit_memberships(
+    relay: &dyn ExchangeRelay,
+    plan: &OwnerMessageVisitPlan,
+    provisioned: &[Hex64],
+) {
+    for resident in provisioned.iter().rev() {
+        if let Err(error) = relay.remove_conversation_member(&plan.conversation_id, resident) {
+            eprintln!(
+                "luca-visit: failed owner-send membership rollback for {}: {error}",
+                resident.as_str()
+            );
+        }
+    }
+}
+
+/// Commit the visit state and visible thresholds after the owner message has
+/// been accepted. Re-running this after a partial failure is idempotent: the
+/// store keeps one visit per room/resident, and the relay deduplicates notes by
+/// their frozen visit correlation.
+pub(crate) fn commit_owner_message_visits(
+    relay: &dyn ExchangeRelay,
+    store: &Arc<Mutex<ExchangeStore>>,
+    plan: &OwnerMessageVisitPlan,
+    correlation_id: &Hex64,
+    arrived_at: u64,
+) -> Result<(), ExchangeRelayError> {
+    for resident in &plan.new_visitors {
+        let grant = VisitGrant {
+            conversation_id: plan.conversation_id.clone(),
+            resident: resident.clone(),
+            arrived_at,
+            exchange_id: None,
+            correlation_id: correlation_id.clone(),
+        };
+        let visit = store
+            .lock()
+            .map_err(|_| ExchangeRelayError::Unavailable("visit store is locked".to_owned()))?
+            .record_visit(grant.clone())
+            .map_err(ExchangeRelayError::Unavailable)?;
+        if !visit.arrival_noted {
+            relay.publish_note(&plan.conversation_id, &arrival_note(relay, &visit.grant))?;
+            store
+                .lock()
+                .map_err(|_| ExchangeRelayError::Unavailable("visit store is locked".to_owned()))?
+                .mark_visit_arrival_noted(&plan.conversation_id, resident)
+                .map_err(ExchangeRelayError::Unavailable)?;
+        }
+    }
+
+    for resident in &plan.faded {
+        let Some(visit) = store
+            .lock()
+            .map_err(|_| ExchangeRelayError::Unavailable("visit store is locked".to_owned()))?
+            .visit(&plan.conversation_id, resident)
+            .cloned()
+        else {
+            continue;
+        };
+        if !visit.membership_removed {
+            relay.remove_conversation_member(&plan.conversation_id, resident)?;
+            store
+                .lock()
+                .map_err(|_| ExchangeRelayError::Unavailable("visit store is locked".to_owned()))?
+                .mark_visit_membership_removed(&plan.conversation_id, resident)
+                .map_err(ExchangeRelayError::Unavailable)?;
+        }
+        relay.publish_note(&plan.conversation_id, &left_note(relay, &visit))?;
+        store
+            .lock()
+            .map_err(|_| ExchangeRelayError::Unavailable("visit store is locked".to_owned()))?
+            .remove_visit(&plan.conversation_id, resident)
+            .map_err(ExchangeRelayError::Unavailable)?;
+    }
+    Ok(())
+}
+
 #[derive(Serialize)]
 struct VisitNotePayload<'a> {
     r#type: &'static str,

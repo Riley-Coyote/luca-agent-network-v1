@@ -289,6 +289,32 @@ fn durable_state_round_trips_through_the_owner_only_file() {
 }
 
 #[test]
+fn permanent_member_promotion_forgets_only_the_visit_record() {
+    let mut store = ExchangeStore::in_memory();
+    let conversation = OpaqueId::parse(CHANNEL).expect("channel");
+    store
+        .record_visit(VisitGrant {
+            conversation_id: conversation.clone(),
+            resident: hex(KAI),
+            arrived_at: 9_001,
+            exchange_id: None,
+            correlation_id: hex(ROOT),
+        })
+        .expect("visit");
+
+    let promoted = store
+        .promote_visit_to_member(&conversation, &hex(KAI))
+        .expect("promote")
+        .expect("existing visit");
+    assert_eq!(promoted.grant.resident, hex(KAI));
+    assert!(store.visit(&conversation, &hex(KAI)).is_none());
+    assert!(store
+        .promote_visit_to_member(&conversation, &hex(KAI))
+        .expect("idempotent promotion")
+        .is_none());
+}
+
+#[test]
 fn a_head_whose_key_does_not_match_its_content_is_refused_on_load() {
     let temp = tempfile::tempdir().expect("temp");
     let path = temp.path().join("exchanges.json");

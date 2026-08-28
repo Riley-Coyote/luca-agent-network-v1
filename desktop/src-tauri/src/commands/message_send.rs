@@ -289,38 +289,37 @@ pub async fn send_channel_message(
         .clone()
         .ok_or_else(|| "application handle is unavailable".to_string())?;
 
-    if kind_num == buzz_core_pkg::kind::KIND_STREAM_MESSAGE {
-        let visit_store = crate::luca::exchange_store::global_exchange_store(&app)?;
-        let fade_store = std::sync::Arc::clone(&visit_store);
+    let visit_store = if kind_num == buzz_core_pkg::kind::KIND_STREAM_MESSAGE {
+        Some(crate::luca::exchange_store::global_exchange_store(&app)?)
+    } else {
+        None
+    };
+    let visit_plan = if let Some(visit_store) = &visit_store {
+        let plan_store = std::sync::Arc::clone(visit_store);
         let visit_app = app.clone();
         let visit_channel = OpaqueId::parse(channel_id.clone())
             .map_err(|error| format!("invalid visit conversation id: {error}"))?;
-        let fade_channel = visit_channel.clone();
-        let fade_mentions = visit_mentions.clone();
+        let plan_mentions = visit_mentions.clone();
         let visit_now = chrono::Utc::now().timestamp().max(0) as u64;
-        let faded = tauri::async_runtime::spawn_blocking(move || {
+        let plan = tauri::async_runtime::spawn_blocking(move || {
             let relay = crate::luca::exchange_relay::AppExchangeRelay::new(visit_app);
-            crate::luca::visits::fade_owner_message_visits(
+            crate::luca::visits::plan_owner_message_visits(
                 &relay,
-                &fade_store,
-                &fade_channel,
-                &fade_mentions,
+                &plan_store,
+                &visit_channel,
+                &plan_mentions,
                 visit_now,
             )
         })
         .await
-        .map_err(|error| format!("visit fade task failed: {error}"))?
+        .map_err(|error| format!("visit plan task failed: {error}"))?
         .map_err(|error| error.to_string())?;
-        remove_faded_residents_from_routing(&mut mentions, &mut managed_audience, &faded);
-        let active_visitors: Vec<Hex64> = visit_store
-            .lock()
-            .map_err(|_| "visit store is locked".to_owned())?
-            .visits_in(&visit_channel)
-            .into_iter()
-            .map(|visit| visit.grant.resident)
-            .collect();
-        remove_visitors_from_conversation_activation(&mut managed_audience, &active_visitors);
-    }
+        remove_faded_residents_from_routing(&mut mentions, &mut managed_audience, plan.faded());
+        remove_visitors_from_conversation_activation(&mut managed_audience, plan.active_visitors());
+        Some(plan)
+    } else {
+        None
+    };
 
     let registered: Vec<String> = load_managed_agents(&app)?
         .into_iter()
@@ -391,98 +390,149 @@ pub async fn send_channel_message(
             .sign_with_keys(&keys)
             .map_err(|error| format!("failed to sign event: {error}"))
     })?;
-    if kind_num == buzz_core_pkg::kind::KIND_STREAM_MESSAGE {
-        let visit_store = crate::luca::exchange_store::global_exchange_store(&app)?;
-        let visit_app = app.clone();
-        let visit_channel = OpaqueId::parse(channel_id.clone())
-            .map_err(|error| format!("invalid visit conversation id: {error}"))?;
-        let visit_event_id = Hex64::parse(event.id.to_hex())
-            .map_err(|error| format!("invalid owner message id: {error}"))?;
-        let visit_now = event.created_at.as_secs();
-        tauri::async_runtime::spawn_blocking(move || {
-            let relay = crate::luca::exchange_relay::AppExchangeRelay::new(visit_app);
-            crate::luca::visits::handle_owner_mentions(
+    let visit_commit_marker = if visit_plan.is_some() {
+        Some((
+            Hex64::parse(event.id.to_hex())
+                .map_err(|error| format!("invalid owner message id: {error}"))?,
+            event.created_at.as_secs(),
+        ))
+    } else {
+        None
+    };
+    let provisioned_visit_memberships = if let Some(plan) = &visit_plan {
+        let provision_app = app.clone();
+        let provision_plan = plan.clone();
+        Some(
+            tauri::async_runtime::spawn_blocking(move || {
+                let relay = crate::luca::exchange_relay::AppExchangeRelay::new(provision_app);
+                crate::luca::visits::provision_owner_message_visits(&relay, &provision_plan)
+            })
+            .await
+            .map_err(|error| format!("visit provision task failed: {error}"))?
+            .map_err(|error| error.to_string())?,
+        )
+    } else {
+        None
+    };
+
+    let send_result: Result<_, String> = async {
+        let requires_membership_check = managed_audience
+            .as_ref()
+            .is_some_and(|intent| !matches!(intent, ManagedAudienceIntentV1::None));
+        let conversation_members = if requires_membership_check {
+            Some(conversation_member_pubkeys(&channel_id, &state).await?)
+        } else {
+            None
+        };
+        let managed_residents = normalized_managed_audience(
+            managed_audience,
+            &mentions,
+            &registered,
+            conversation_members.as_ref(),
+        )?;
+        // Freeze only opaque source coordinates for this exact local dispatch.
+        // Canonical paths stay in the native connected-source store and are
+        // resolved by the inherited harness channel immediately before session/new.
+        let context_binding = if managed_residents.is_empty() || content.trim() == "!cancel" {
+            None
+        } else {
+            crate::luca::conversation_context::freeze_for_dispatch(&app, &channel_id)?
+        };
+
+        let dispatch_store = if managed_residents.is_empty() {
+            None
+        } else {
+            Some(crate::luca::managed_dispatch_store::global_dispatch_store(
+                &app,
+            )?)
+        };
+        let staged = if let Some(dispatch_store) = &dispatch_store {
+            let mut store = dispatch_store.lock().map_err(|error| error.to_string())?;
+            if content.trim() == "!cancel" {
+                store.cancel_matching(
+                    &event.pubkey.to_hex(),
+                    &channel_id,
+                    None,
+                    &managed_residents,
+                )?;
+                Vec::new()
+            } else {
+                let now = chrono::Utc::now().timestamp().max(0) as u64;
+                let artifact_bindings = resolve_managed_artifact_bindings(&media, now)?;
+                store.stage_owner_event_with_artifacts_and_context(
+                    &event,
+                    &managed_residents,
+                    &artifact_bindings,
+                    context_binding,
+                    now,
+                )?
+            }
+        } else {
+            Vec::new()
+        };
+
+        match submit_signed_event(&event, &state).await {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                if error.starts_with("relay rejected event:") && !staged.is_empty() {
+                    if let Some(dispatch_store) = &dispatch_store {
+                        dispatch_store
+                            .lock()
+                            .map_err(|lock| lock.to_string())?
+                            .mark_rejected(&staged)?;
+                    }
+                }
+                Err(error)
+            }
+        }
+    }
+    .await;
+
+    let result = match send_result {
+        Ok(result) => result,
+        Err(error) => {
+            if let (Some(plan), Some(provisioned)) = (&visit_plan, provisioned_visit_memberships) {
+                let rollback_app = app.clone();
+                let rollback_plan = plan.clone();
+                let _ = tauri::async_runtime::spawn_blocking(move || {
+                    let relay = crate::luca::exchange_relay::AppExchangeRelay::new(rollback_app);
+                    crate::luca::visits::rollback_owner_message_visit_memberships(
+                        &relay,
+                        &rollback_plan,
+                        &provisioned,
+                    );
+                })
+                .await;
+            }
+            return Err(error);
+        }
+    };
+
+    if let (Some(store), Some(plan), Some((visit_event_id, visit_now))) =
+        (visit_store, visit_plan, visit_commit_marker)
+    {
+        let commit_app = app.clone();
+        match tauri::async_runtime::spawn_blocking(move || {
+            let relay = crate::luca::exchange_relay::AppExchangeRelay::new(commit_app);
+            crate::luca::visits::commit_owner_message_visits(
                 &relay,
-                &visit_store,
-                &visit_channel,
-                &visit_mentions,
+                &store,
+                &plan,
                 &visit_event_id,
                 visit_now,
             )
         })
         .await
-        .map_err(|error| format!("visit task failed: {error}"))?
-        .map_err(|error| error.to_string())?;
-    }
-    let requires_membership_check = managed_audience
-        .as_ref()
-        .is_some_and(|intent| !matches!(intent, ManagedAudienceIntentV1::None));
-    let conversation_members = if requires_membership_check {
-        Some(conversation_member_pubkeys(&channel_id, &state).await?)
-    } else {
-        None
-    };
-    let managed_residents = normalized_managed_audience(
-        managed_audience,
-        &mentions,
-        &registered,
-        conversation_members.as_ref(),
-    )?;
-    // Freeze only opaque source coordinates for this exact local dispatch.
-    // Canonical paths stay in the native connected-source store and are
-    // resolved by the inherited harness channel immediately before session/new.
-    let context_binding = if managed_residents.is_empty() || content.trim() == "!cancel" {
-        None
-    } else {
-        crate::luca::conversation_context::freeze_for_dispatch(&app, &channel_id)?
-    };
-
-    let dispatch_store = if managed_residents.is_empty() {
-        None
-    } else {
-        Some(crate::luca::managed_dispatch_store::global_dispatch_store(
-            &app,
-        )?)
-    };
-    let staged = if let Some(dispatch_store) = &dispatch_store {
-        let mut store = dispatch_store.lock().map_err(|error| error.to_string())?;
-        if content.trim() == "!cancel" {
-            store.cancel_matching(
-                &event.pubkey.to_hex(),
-                &channel_id,
-                None,
-                &managed_residents,
-            )?;
-            Vec::new()
-        } else {
-            let now = chrono::Utc::now().timestamp().max(0) as u64;
-            let artifact_bindings = resolve_managed_artifact_bindings(&media, now)?;
-            store.stage_owner_event_with_artifacts_and_context(
-                &event,
-                &managed_residents,
-                &artifact_bindings,
-                context_binding,
-                now,
-            )?
-        }
-    } else {
-        Vec::new()
-    };
-
-    let result = match submit_signed_event(&event, &state).await {
-        Ok(result) => result,
-        Err(error) => {
-            if error.starts_with("relay rejected event:") && !staged.is_empty() {
-                if let Some(dispatch_store) = &dispatch_store {
-                    dispatch_store
-                        .lock()
-                        .map_err(|lock| lock.to_string())?
-                        .mark_rejected(&staged)?;
-                }
+        {
+            Err(error) => {
+                eprintln!("luca-visit: accepted owner message visit commit task failed: {error}")
             }
-            return Err(error);
+            Ok(Err(error)) => {
+                eprintln!("luca-visit: accepted owner message visit commit failed: {error}")
+            }
+            Ok(Ok(())) => {}
         }
-    };
+    }
     let depth = match (&parent_event_id, &resolved_root) {
         (None, _) => 0,
         (Some(parent), Some(root)) if parent == root => 1,

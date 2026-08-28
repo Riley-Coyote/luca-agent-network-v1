@@ -1,3 +1,4 @@
+use luca_protocol::{Hex64, OpaqueId};
 use tauri::State;
 
 use crate::{
@@ -842,6 +843,25 @@ pub async fn add_channel_members(
         Some(other) => return Err(format!("invalid role: {other}")),
     };
 
+    // A successful explicit non-guest add promotes an existing visitor in
+    // place. Resolve the store before publishing membership so a store failure
+    // cannot leave a newly permanent member carrying stale fade authority.
+    let visit_promotion = if role_str == Some("guest") {
+        None
+    } else {
+        let app = state
+            .app_handle
+            .lock()
+            .map_err(|error| error.to_string())?
+            .clone()
+            .ok_or_else(|| "application handle is unavailable".to_owned())?;
+        Some((
+            crate::luca::exchange_store::global_exchange_store(&app)?,
+            OpaqueId::parse(channel_id.clone())
+                .map_err(|error| format!("invalid visit conversation id: {error}"))?,
+        ))
+    };
+
     let mut added = Vec::new();
     let mut errors = Vec::<serde_json::Value>::new();
 
@@ -854,7 +874,26 @@ pub async fn add_channel_members(
             }
         };
         match submit_event(builder, &state).await {
-            Ok(_) => added.push(pubkey.clone()),
+            Ok(_) => {
+                let promotion_error = visit_promotion.as_ref().and_then(|(store, conversation)| {
+                    let resident = Hex64::parse(pubkey.trim().to_ascii_lowercase())
+                        .map_err(|error| format!("invalid member pubkey: {error}"));
+                    resident
+                        .and_then(|resident| {
+                            store
+                                .lock()
+                                .map_err(|_| "visit store is locked".to_owned())?
+                                .promote_visit_to_member(conversation, &resident)
+                                .map(|_| ())
+                        })
+                        .err()
+                });
+                if let Some(error) = promotion_error {
+                    errors.push(serde_json::json!({"pubkey": pubkey, "error": error}));
+                } else {
+                    added.push(pubkey.clone());
+                }
+            }
             Err(e) => errors.push(serde_json::json!({"pubkey": pubkey, "error": e})),
         }
     }
