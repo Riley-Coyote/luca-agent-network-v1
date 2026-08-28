@@ -7,6 +7,7 @@ import {
 
 const LUCA_PERSONA_ID = "persona-luca-room";
 const MARA_PERSONA_ID = "persona-mara-room";
+const CREATE_RESIDENT_COMMAND = "create_luca_resident";
 
 const PERSONAS = [
   {
@@ -94,10 +95,12 @@ test("a saved group creates permanent room members and retries only failures", a
     dialog.getByRole("button", { name: "Retry remaining agents" }),
   ).toBeVisible();
 
-  const creationsBeforeRetry = await page.evaluate(() =>
-    (window.__BUZZ_E2E_COMMAND_LOG__ ?? [])
-      .filter((entry) => entry.command === "create_managed_agent")
-      .map((entry) => entry.payload),
+  const creationsBeforeRetry = await page.evaluate(
+    (createResidentCommand) =>
+      (window.__BUZZ_E2E_COMMAND_LOG__ ?? [])
+        .filter((entry) => entry.command === createResidentCommand)
+        .map((entry) => entry.payload),
+    CREATE_RESIDENT_COMMAND,
   );
   expect(creationsBeforeRetry).toHaveLength(2);
   expect(creationsBeforeRetry).toEqual(
@@ -115,7 +118,7 @@ test("a saved group creates permanent room members and retries only failures", a
   await expect(dialog).toHaveCount(0);
   await expect(page.getByTestId("chat-title")).toHaveText("launch-room");
 
-  const result = await page.evaluate(async () => {
+  const result = await page.evaluate(async (createResidentCommand) => {
     const agents = (await window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.(
       "list_managed_agents",
     )) as Array<{ persona_id: string | null; pubkey: string }>;
@@ -130,10 +133,10 @@ test("a saved group creates permanent room members and retries only failures", a
       agents,
       members: response.members,
       creationPayloads: (window.__BUZZ_E2E_COMMAND_LOG__ ?? [])
-        .filter((entry) => entry.command === "create_managed_agent")
+        .filter((entry) => entry.command === createResidentCommand)
         .map((entry) => entry.payload),
     };
-  });
+  }, CREATE_RESIDENT_COMMAND);
 
   expect(result.creationPayloads).toHaveLength(3);
   expect(

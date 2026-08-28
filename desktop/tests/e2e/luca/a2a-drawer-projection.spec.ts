@@ -4,6 +4,7 @@ import { KIND_LUCA_EXCHANGE } from "../../../src/shared/constants/kinds";
 import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
 
 const OWNER_PUBKEY = "deadbeef".repeat(8);
+const EXCHANGE_CHANNEL_NAME = "general";
 const EXCHANGE_ID = "ae".repeat(32);
 const LUCA = { name: "Luca", pubkey: TEST_IDENTITIES.bob.pubkey };
 const VEKTOR = { name: "Vektor", pubkey: TEST_IDENTITIES.charlie.pubkey };
@@ -12,12 +13,18 @@ async function waitForExchangeSubscription(page: Page) {
   await expect
     .poll(() =>
       page.evaluate(
-        ({ kind, ownerPubkey }) =>
-          window.__BUZZ_E2E_HAS_MOCK_OWNER_KIND_SUBSCRIPTION__?.({
-            kind,
-            ownerPubkey,
-          }) ?? false,
-        { kind: KIND_LUCA_EXCHANGE, ownerPubkey: OWNER_PUBKEY },
+        ({ channelName, kind }) => {
+          return (
+            window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({
+              channelName,
+              kind,
+            }) ?? false
+          );
+        },
+        {
+          channelName: EXCHANGE_CHANNEL_NAME,
+          kind: KIND_LUCA_EXCHANGE,
+        },
       ),
     )
     .toBe(true);
@@ -60,6 +67,13 @@ test("a live A2A exchange opens once and stays drawer-only after manual close", 
   });
   await page.goto("/?e2e=mock");
   await page.getByTestId("channel-general").click();
+  await expect(page.getByTestId("message-timeline")).toBeVisible();
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
+  );
   await waitForExchangeSubscription(page);
 
   await page.evaluate(
