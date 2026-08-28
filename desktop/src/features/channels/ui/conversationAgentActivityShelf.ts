@@ -88,6 +88,17 @@ export function conversationActivityLabel(
 }
 
 /**
+ * The compatibility working signal says only that a resident is active. It
+ * cannot truthfully claim an internal thought phase. Exact presentation or
+ * observer frames replace this neutral fallback as soon as they arrive.
+ */
+export function fallbackConversationActivityState(
+  sessionReady: boolean,
+): ConversationActivityState {
+  return sessionReady ? "working" : "needs-attention";
+}
+
+/**
  * Resolve one resident's exact retry identity. Terminal state by itself is not
  * enough: observer and typing fallbacks have no process presentation to retry.
  */

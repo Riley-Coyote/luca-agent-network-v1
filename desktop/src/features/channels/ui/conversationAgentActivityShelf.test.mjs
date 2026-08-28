@@ -15,6 +15,7 @@ import {
   activityWaitTier,
   conversationActivityLabel,
   currentActivityStep,
+  fallbackConversationActivityState,
   isTerminalConversationActivity,
   nextActivityWaitChangeMs,
   reconcileActivityShelfSlots,
@@ -129,6 +130,11 @@ describe("conversationAgentActivityShelf", () => {
     assert.equal(isTerminalConversationActivity("interrupted"), true);
     assert.equal(isTerminalConversationActivity("needs-attention"), true);
     assert.equal(isTerminalConversationActivity("writing"), false);
+  });
+
+  it("does not invent a thinking phase from a generic working signal", () => {
+    assert.equal(fallbackConversationActivityState(true), "working");
+    assert.equal(fallbackConversationActivityState(false), "needs-attention");
   });
 
   it("never classifies a missing exact cancellation as stopped", () => {

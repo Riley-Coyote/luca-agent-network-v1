@@ -33,6 +33,7 @@ import {
   activityWaitTier,
   conversationActivityLabel,
   currentActivityStep,
+  fallbackConversationActivityState,
   isTerminalConversationActivity,
   nextActivityWaitChangeMs,
   reconcileActivityShelfSlots,
@@ -596,7 +597,7 @@ export function ConversationAgentActivityStrip({
         local ??
         presentation ??
         observed ??
-        (isSessionReady(sessions.get(key)) ? "thinking" : "needs-attention");
+        fallbackConversationActivityState(isSessionReady(sessions.get(key)));
       const pubkey = agent?.pubkey ?? key;
       const processActivity = presentationActivity.get(key);
       // A retained work summary reports its turn's phase as "finalizing", and
