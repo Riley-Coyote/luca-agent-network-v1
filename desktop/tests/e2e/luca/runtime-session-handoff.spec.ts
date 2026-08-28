@@ -32,6 +32,9 @@ test("an indexed runtime session becomes visible staged New Message context", as
 test("switching runtimes cancels a stale context handoff", async ({ page }) => {
   await installMockBridge(page, { runtimeSessionContextDelayMs: 350 });
   await page.goto("/?e2e=mock");
+  await page.getByTestId("channel-general").click();
+  await expect(page.getByTestId("chat-title")).toHaveText("general");
+  await expect(page.getByTestId("new-message-page")).toHaveCount(0);
 
   await page.getByTestId("runtime-rail-codex").click();
   const codexSession = page
@@ -51,4 +54,5 @@ test("switching runtimes cancels a stale context handoff", async ({ page }) => {
   await expect(page.getByTestId("new-message-page")).toHaveCount(0);
   await expect(page.getByTestId("new-message-runtime-context")).toHaveCount(0);
   await expect(panel).toContainText("Claude Code sessions");
+  await expect(page.getByTestId("chat-title")).toHaveText("general");
 });
