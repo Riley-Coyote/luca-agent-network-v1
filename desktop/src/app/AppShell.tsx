@@ -536,9 +536,12 @@ export function AppShell() {
         }
       }
       await goChannel(createdChannel.id);
-      await onCreated?.(createdChannel.id);
-      setCreateChannelProjectId(null);
-      void applyAgents(templateId, createdChannel.id);
+      try {
+        await onCreated?.(createdChannel.id);
+      } finally {
+        setCreateChannelProjectId(null);
+        void applyAgents(templateId, createdChannel.id);
+      }
     },
     [
       applyAgents,

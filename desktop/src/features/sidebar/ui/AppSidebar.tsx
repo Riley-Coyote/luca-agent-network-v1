@@ -462,15 +462,18 @@ export function AppSidebar({
         : false;
 
   const handleCreateFromDialog = React.useCallback(
-    async (input: {
-      name: string;
-      description?: string;
-      visibility: ChannelVisibility;
-      ttlSeconds?: number;
-      templateId?: string;
-    }) => {
+    async (
+      input: {
+        name: string;
+        description?: string;
+        visibility: ChannelVisibility;
+        ttlSeconds?: number;
+        templateId?: string;
+      },
+      onCreated?: (channelId: string) => void | Promise<void>,
+    ) => {
       if (createDialogKind === "stream") {
-        await onCreateChannel(input);
+        await onCreateChannel(input, onCreated);
       } else if (createDialogKind === "forum") {
         await onCreateForum(input);
       }
