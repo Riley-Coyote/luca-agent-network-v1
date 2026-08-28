@@ -12416,6 +12416,43 @@ export function maybeInstallE2eTauriMocks() {
             reason: "Gateway is currently offline.",
           },
         ];
+      case "list_runtime_owned_mcp_catalog":
+        return [
+          {
+            runtimeId: "claude_code",
+            label: "Claude Code",
+            source: "Claude Code user configuration",
+            status: "configured",
+            servers: [{ name: "memory", status: "configured" }],
+            reason: null,
+          },
+          {
+            runtimeId: "codex",
+            label: "Codex",
+            source: "Codex user configuration",
+            status: "configured",
+            servers: [{ name: "filesystem", status: "configured" }],
+            reason: null,
+          },
+          {
+            runtimeId: "hermes",
+            label: "Hermes",
+            source: null,
+            status: "unsupported",
+            servers: [],
+            reason:
+              "Polyphonic does not currently have a safe read-only MCP reader for this runtime.",
+          },
+          {
+            runtimeId: "openclaw",
+            label: "OpenClaw",
+            source: null,
+            status: "unsupported",
+            servers: [],
+            reason:
+              "Polyphonic does not currently have a safe read-only MCP reader for this runtime.",
+          },
+        ];
       case "list_luca_mcp_registry":
         return structuredClone(mockLucaMcpRegistry);
       case "save_luca_mcp_connection": {

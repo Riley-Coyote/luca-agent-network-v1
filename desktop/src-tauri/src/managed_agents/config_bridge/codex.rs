@@ -7,6 +7,19 @@ pub(super) fn read_config_file() -> Option<RuntimeFileConfig> {
     parse_codex_config(&raw)
 }
 
+/// Read only Codex MCP names/status from the existing TOML parser.
+/// A missing config means no definitions; malformed or unreadable data is
+/// unavailable and must not be presented as an empty catalog.
+pub(super) fn read_mcp_extensions() -> Option<Vec<ExtensionEntry>> {
+    let path = codex_config_path()?;
+    if !path.exists() {
+        return Some(Vec::new());
+    }
+    let raw = std::fs::read_to_string(path).ok()?;
+    let table: toml::Table = raw.parse().ok()?;
+    Some(parse_mcp_servers(&table))
+}
+
 fn parse_codex_config(toml_str: &str) -> Option<RuntimeFileConfig> {
     let table: toml::Table = toml_str.parse().ok()?;
 

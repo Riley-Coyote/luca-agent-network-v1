@@ -16,3 +16,16 @@ pub(crate) use types::*;
 pub(crate) fn read_goose_file_config() -> Option<RuntimeFileConfig> {
     goose::read_config_file()
 }
+
+/// Read only the already-sanitized MCP name/status projection for a runtime.
+///
+/// Runtime-owned commands, arguments, environment values, credentials, and
+/// config paths never cross this boundary. Callers must treat `None` as an
+/// unreadable/unavailable source rather than assuming there are no servers.
+pub(crate) fn read_runtime_owned_mcp_extensions(runtime_id: &str) -> Option<Vec<ExtensionEntry>> {
+    match runtime_id {
+        "claude" => claude::read_mcp_extensions(),
+        "codex" => codex::read_mcp_extensions(),
+        _ => None,
+    }
+}

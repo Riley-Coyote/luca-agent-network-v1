@@ -19,6 +19,18 @@ export type RuntimeConnectionStatusV1 = {
   reason: string | null;
 };
 
+export type RuntimeOwnedMcpCatalogV1 = {
+  runtimeId: "claude_code" | "codex" | "hermes" | "openclaw";
+  label: string;
+  source: string | null;
+  status: "configured" | "none_configured" | "unavailable" | "unsupported";
+  servers: Array<{
+    name: string;
+    status: "configured" | "disabled";
+  }>;
+  reason: string | null;
+};
+
 export type McpEnvironmentBindingV1 = {
   name: string;
   kind: "plain" | "secret";
@@ -112,4 +124,10 @@ export function listRuntimeConnectionStatus(): Promise<
   RuntimeConnectionStatusV1[]
 > {
   return invoke("list_runtime_connection_status");
+}
+
+export function listRuntimeOwnedMcpCatalog(): Promise<
+  RuntimeOwnedMcpCatalogV1[]
+> {
+  return invoke("list_runtime_owned_mcp_catalog");
 }

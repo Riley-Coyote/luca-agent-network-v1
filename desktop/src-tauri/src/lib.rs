@@ -889,6 +889,7 @@ pub fn run() {
             test_luca_mcp_connection,
             delete_luca_mcp_connection,
             set_agent_mcp_grant,
+            list_runtime_owned_mcp_catalog,
             list_runtime_connection_status,
             discover_connected_brain_sources,
             add_connected_brain_root,

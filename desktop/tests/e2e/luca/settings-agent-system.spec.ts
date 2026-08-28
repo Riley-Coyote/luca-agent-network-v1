@@ -192,6 +192,21 @@ test("MCP connections can be edited, disabled, tested, and granted", async ({
   await openSettingsSection(page, "connections");
 
   await expect(page.getByText("Runtime connections")).toBeVisible();
+  const runtimeOwned = page.getByTestId("runtime-owned-mcp-catalog");
+  await expect(
+    runtimeOwned.getByText("Claude Code user configuration"),
+  ).toBeVisible();
+  await expect(
+    runtimeOwned.getByText("Codex user configuration"),
+  ).toBeVisible();
+  await expect(runtimeOwned.getByText("memory", { exact: true })).toBeVisible();
+  await expect(
+    runtimeOwned.getByText("filesystem", { exact: true }),
+  ).toBeVisible();
+  await expect(runtimeOwned.getByRole("button")).toHaveCount(0);
+  await expect(runtimeOwned.getByRole("switch")).toHaveCount(0);
+  await expect(runtimeOwned).not.toContainText("/Users/");
+  await expect(runtimeOwned).not.toContainText("SERVICE_TOKEN");
   await expect(page.getByText("Local project tools")).toBeVisible();
 
   const enabled = page.getByRole("switch", {

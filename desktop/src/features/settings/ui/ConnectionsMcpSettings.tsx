@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   CircleDashed,
   CircleSlash,
+  LockKeyhole,
   Pencil,
   Plus,
   RefreshCw,
@@ -16,12 +17,14 @@ import { useManagedAgentsQuery } from "@/features/agents/hooks";
 import {
   deleteLucaMcpConnection,
   listLucaMcpRegistry,
+  listRuntimeOwnedMcpCatalog,
   listRuntimeConnectionStatus,
   saveLucaMcpConnection,
   setAgentMcpGrant,
   testLucaMcpConnection,
   type LucaMcpConnectionV1,
   type LucaMcpRegistryV1,
+  type RuntimeOwnedMcpCatalogV1,
   type RuntimeConnectionStatusV1,
 } from "@/shared/api/tauriMcp";
 import type { RuntimeBinding } from "@/shared/api/types";
@@ -29,6 +32,10 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Switch } from "@/shared/ui/switch";
 import { Textarea } from "@/shared/ui/textarea";
+import {
+  runtimeMcpCatalogStatusLabel,
+  runtimeMcpServerStatusLabel,
+} from "../lib/runtimeMcpPresentation";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
 
@@ -124,6 +131,9 @@ export function ConnectionsMcpSettings() {
   const [runtimes, setRuntimes] = React.useState<
     NativeRuntimeConnectionStatus[]
   >([]);
+  const [runtimeMcps, setRuntimeMcps] = React.useState<
+    RuntimeOwnedMcpCatalogV1[]
+  >([]);
   const [error, setError] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState<ConnectionDraft>(EMPTY_DRAFT);
   const [showForm, setShowForm] = React.useState(false);
@@ -134,12 +144,14 @@ export function ConnectionsMcpSettings() {
     setIsRefreshing(true);
     setError(null);
     try {
-      const [nextRegistry, nextRuntimes] = await Promise.all([
+      const [nextRegistry, nextRuntimes, nextRuntimeMcps] = await Promise.all([
         listLucaMcpRegistry(),
         listRuntimeConnectionStatus(),
+        listRuntimeOwnedMcpCatalog(),
       ]);
       setRegistry(nextRegistry);
       setRuntimes(nextRuntimes);
+      setRuntimeMcps(nextRuntimeMcps);
       if (announce) toast.success("Runtime readiness rechecked");
     } catch (cause) {
       setError(
@@ -266,7 +278,7 @@ export function ConnectionsMcpSettings() {
             <Plus className="mr-1.5 size-3.5" /> Add connection
           </Button>
         }
-        description="Inspect installed agent runtimes and grant Luca-owned stdio MCP connections to individual agents."
+        description="Review runtime-owned MCPs and manage Polyphonic-owned stdio connections for individual agents."
         title="Connections & MCP"
       />
 
@@ -350,8 +362,38 @@ export function ConnectionsMcpSettings() {
 
         <div>
           <SubsectionHeader
-            description="Definitions are local to Luca. Secret values are stored only in the OS keychain."
-            title="Luca MCP connections"
+            description="Definitions discovered from native runtime configuration are visible here but remain owned by that runtime."
+            title="Runtime-owned MCPs"
+          />
+          <SettingsOptionGroup data-testid="runtime-owned-mcp-catalog">
+            {runtimeMcps.length > 0 ? (
+              runtimeMcps.map((catalog, index) => (
+                <RuntimeOwnedMcpRows
+                  catalog={catalog}
+                  key={catalog.runtimeId}
+                  separated={index > 0}
+                />
+              ))
+            ) : (
+              <SettingsOptionRow>
+                <p className="text-sm text-muted-foreground">
+                  Checking runtime-owned MCP definitions…
+                </p>
+              </SettingsOptionRow>
+            )}
+          </SettingsOptionGroup>
+          <p className="mt-3 flex items-start gap-1.5 text-xs leading-5 text-muted-foreground">
+            <LockKeyhole className="mt-0.5 size-3.5 shrink-0" />
+            Polyphonic shows names and configuration status only. Commands,
+            arguments, environment values, credentials, and configuration paths
+            stay inside the owning runtime.
+          </p>
+        </div>
+
+        <div>
+          <SubsectionHeader
+            description="Definitions are local to Polyphonic. Secret values are stored only in the OS keychain."
+            title="Polyphonic MCP connections"
           />
 
           {showForm ? (
@@ -571,13 +613,76 @@ export function ConnectionsMcpSettings() {
               </SettingsOptionRow>
             )}
           </SettingsOptionGroup>
-          <p className="mt-3 text-xs leading-5 text-muted-foreground">
-            Detected native MCP definitions remain source-attributed and
-            read-only inside each agent’s Runtime configuration.
-          </p>
         </div>
       </div>
     </section>
+  );
+}
+
+function RuntimeOwnedMcpRows({
+  catalog,
+  separated,
+}: {
+  catalog: RuntimeOwnedMcpCatalogV1;
+  separated: boolean;
+}) {
+  return (
+    <div
+      className={separated ? "border-t border-border/50" : undefined}
+      data-testid={`runtime-owned-mcp-${catalog.runtimeId}`}
+    >
+      <SettingsOptionRow>
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-muted/50">
+            <ServerCog className="size-4 text-muted-foreground" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{catalog.label}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {catalog.source ? `Source · ${catalog.source}` : catalog.reason}
+            </p>
+            {catalog.source && catalog.reason ? (
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {catalog.reason}
+              </p>
+            ) : null}
+          </div>
+        </div>
+        <RuntimeMcpCatalogStatus catalog={catalog} />
+      </SettingsOptionRow>
+      {catalog.servers.map((server) => (
+        <SettingsOptionRow
+          className="min-h-12 border-t border-border/40 bg-background/15 pl-16"
+          key={server.name}
+        >
+          <span className="min-w-0 flex-1 truncate text-sm font-medium">
+            {server.name}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {runtimeMcpServerStatusLabel(server.status)}
+          </span>
+        </SettingsOptionRow>
+      ))}
+    </div>
+  );
+}
+
+function RuntimeMcpCatalogStatus({
+  catalog,
+}: {
+  catalog: RuntimeOwnedMcpCatalogV1;
+}) {
+  const Icon =
+    catalog.status === "configured"
+      ? CheckCircle2
+      : catalog.status === "none_configured"
+        ? CircleDashed
+        : CircleSlash;
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+      <Icon className="size-3.5" />
+      {runtimeMcpCatalogStatusLabel(catalog)}
+    </span>
   );
 }
 

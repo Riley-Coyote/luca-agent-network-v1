@@ -10,6 +10,7 @@ use crate::{
         SaveLucaMcpConnectionInputV1,
     },
     managed_agents::{
+        config_bridge::{read_runtime_owned_mcp_extensions, ExtensionEntry},
         AcpAvailabilityStatus, AuthStatus, NativeDiscoveryStatus, NativeRuntimeKind,
         ResidentReadiness, RuntimeBinding,
     },
@@ -61,11 +62,140 @@ pub struct RuntimeConnectionStatusV1 {
     readiness_basis: Option<RuntimeReadinessBasisV1>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum RuntimeOwnedMcpCatalogStatusV1 {
+    Configured,
+    NoneConfigured,
+    Unavailable,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum RuntimeOwnedMcpServerStatusV1 {
+    Configured,
+    Disabled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeOwnedMcpServerV1 {
+    name: String,
+    status: RuntimeOwnedMcpServerStatusV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeOwnedMcpCatalogV1 {
+    runtime_id: String,
+    label: String,
+    source: Option<String>,
+    status: RuntimeOwnedMcpCatalogStatusV1,
+    servers: Vec<RuntimeOwnedMcpServerV1>,
+    reason: Option<String>,
+}
+
+enum RuntimeOwnedMcpRead {
+    Available(Vec<ExtensionEntry>),
+    Unavailable,
+    Unsupported,
+}
+
+fn project_runtime_owned_mcp_catalog(
+    runtime_id: &str,
+    label: &str,
+    source: Option<&str>,
+    read: RuntimeOwnedMcpRead,
+) -> RuntimeOwnedMcpCatalogV1 {
+    let (status, mut servers, reason) = match read {
+        RuntimeOwnedMcpRead::Available(extensions) => {
+            let status = if extensions.is_empty() {
+                RuntimeOwnedMcpCatalogStatusV1::NoneConfigured
+            } else {
+                RuntimeOwnedMcpCatalogStatusV1::Configured
+            };
+            let servers = extensions
+                .into_iter()
+                .map(|extension| RuntimeOwnedMcpServerV1 {
+                    name: extension.name,
+                    status: if extension.enabled {
+                        RuntimeOwnedMcpServerStatusV1::Configured
+                    } else {
+                        RuntimeOwnedMcpServerStatusV1::Disabled
+                    },
+                })
+                .collect::<Vec<_>>();
+            (status, servers, None)
+        }
+        RuntimeOwnedMcpRead::Unavailable => (
+            RuntimeOwnedMcpCatalogStatusV1::Unavailable,
+            Vec::new(),
+            Some("Runtime MCP configuration could not be read safely.".into()),
+        ),
+        RuntimeOwnedMcpRead::Unsupported => (
+            RuntimeOwnedMcpCatalogStatusV1::Unsupported,
+            Vec::new(),
+            Some(
+                "Polyphonic does not currently have a safe read-only MCP reader for this runtime."
+                    .into(),
+            ),
+        ),
+    };
+    servers.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    RuntimeOwnedMcpCatalogV1 {
+        runtime_id: runtime_id.into(),
+        label: label.into(),
+        source: source.map(str::to_owned),
+        status,
+        servers,
+        reason,
+    }
+}
+
+fn runtime_owned_mcp_catalogs() -> Vec<RuntimeOwnedMcpCatalogV1> {
+    let readable = |runtime_id: &str| {
+        read_runtime_owned_mcp_extensions(runtime_id)
+            .map(RuntimeOwnedMcpRead::Available)
+            .unwrap_or(RuntimeOwnedMcpRead::Unavailable)
+    };
+    vec![
+        project_runtime_owned_mcp_catalog(
+            "claude_code",
+            "Claude Code",
+            Some("Claude Code user configuration"),
+            readable("claude"),
+        ),
+        project_runtime_owned_mcp_catalog(
+            "codex",
+            "Codex",
+            Some("Codex user configuration"),
+            readable("codex"),
+        ),
+        project_runtime_owned_mcp_catalog(
+            "hermes",
+            "Hermes",
+            None,
+            RuntimeOwnedMcpRead::Unsupported,
+        ),
+        project_runtime_owned_mcp_catalog(
+            "openclaw",
+            "OpenClaw",
+            None,
+            RuntimeOwnedMcpRead::Unsupported,
+        ),
+    ]
+}
+
 fn native_runtime_metadata(native_type: &NativeRuntimeKind) -> (&'static str, &'static str) {
     match native_type {
         NativeRuntimeKind::Hermes => ("hermes", "Hermes"),
         NativeRuntimeKind::Openclaw => ("openclaw", "OpenClaw"),
     }
+}
+
+fn include_primary_runtime_connection(runtime_id: &str) -> bool {
+    matches!(runtime_id, "claude" | "codex")
 }
 
 fn native_binding_executable(binding: &RuntimeBinding) -> String {
@@ -122,6 +252,13 @@ pub async fn list_luca_mcp_registry(app: AppHandle) -> Result<LucaMcpRegistryV1,
     tokio::task::spawn_blocking(move || mcp_registry::load_registry(&app))
         .await
         .map_err(|_| "MCP registry task failed".to_string())?
+}
+
+#[tauri::command]
+pub async fn list_runtime_owned_mcp_catalog() -> Result<Vec<RuntimeOwnedMcpCatalogV1>, String> {
+    tokio::task::spawn_blocking(runtime_owned_mcp_catalogs)
+        .await
+        .map_err(|_| "runtime MCP catalog task failed".to_string())
 }
 
 #[tauri::command]
@@ -239,7 +376,7 @@ pub async fn list_runtime_connection_status() -> Result<Vec<RuntimeConnectionSta
         let verified_at = Utc::now().to_rfc3339();
         let mut statuses = crate::managed_agents::discover_acp_runtimes()
             .into_iter()
-            .filter(|runtime| runtime.id == "claude-code" || runtime.id == "codex")
+            .filter(|runtime| include_primary_runtime_connection(&runtime.id))
             .map(|runtime| {
                 let readiness = match runtime.availability {
                     AcpAvailabilityStatus::Available => RuntimeReadinessV1::Ready,
@@ -257,7 +394,7 @@ pub async fn list_runtime_connection_status() -> Result<Vec<RuntimeConnectionSta
                 let ready = matches!(readiness, RuntimeReadinessV1::Ready);
                 RuntimeConnectionStatusV1 {
                     status_id: runtime.id.clone(),
-                    runtime_id: if runtime.id == "claude-code" {
+                    runtime_id: if runtime.id == "claude" {
                         "claude_code".into()
                     } else {
                         runtime.id.clone()
@@ -381,5 +518,50 @@ mod tests {
         assert!(reason
             .as_deref()
             .is_some_and(|message| message.contains("could not be resolved")));
+    }
+
+    #[test]
+    fn runtime_mcp_projection_contains_only_name_status_and_safe_source() {
+        let catalog = project_runtime_owned_mcp_catalog(
+            "codex",
+            "Codex",
+            Some("Codex user configuration"),
+            RuntimeOwnedMcpRead::Available(vec![ExtensionEntry {
+                name: "filesystem".into(),
+                kind: "mcp".into(),
+                enabled: true,
+            }]),
+        );
+        let value = serde_json::to_value(catalog).expect("serialize runtime MCP catalog");
+
+        assert_eq!(value["runtimeId"], "codex");
+        assert_eq!(value["source"], "Codex user configuration");
+        assert_eq!(value["servers"][0]["name"], "filesystem");
+        assert_eq!(value["servers"][0]["status"], "configured");
+        let serialized = value.to_string();
+        for forbidden in ["command", "args", "environment", "credential", "path"] {
+            assert!(!serialized.contains(forbidden));
+        }
+    }
+
+    #[test]
+    fn unsupported_runtime_mcp_reader_is_reported_honestly() {
+        let catalog = project_runtime_owned_mcp_catalog(
+            "hermes",
+            "Hermes",
+            None,
+            RuntimeOwnedMcpRead::Unsupported,
+        );
+
+        assert_eq!(catalog.status, RuntimeOwnedMcpCatalogStatusV1::Unsupported);
+        assert!(catalog.servers.is_empty());
+        assert!(catalog.source.is_none());
+    }
+
+    #[test]
+    fn primary_runtime_filter_uses_the_canonical_claude_id() {
+        assert!(include_primary_runtime_connection("claude"));
+        assert!(include_primary_runtime_connection("codex"));
+        assert!(!include_primary_runtime_connection("claude-code"));
     }
 }

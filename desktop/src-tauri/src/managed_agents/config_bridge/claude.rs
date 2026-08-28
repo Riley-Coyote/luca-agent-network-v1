@@ -27,21 +27,37 @@ pub(super) fn read_config_file() -> Option<RuntimeFileConfig> {
     }
 
     // MCP servers from ~/.claude.json
-    let mut extensions = Vec::new();
-    if let Some(ref mc) = mcp_config {
-        if let Some(servers) = mc.get("mcpServers").and_then(|v| v.as_object()) {
-            for (name, _config) in servers {
-                extensions.push(ExtensionEntry {
-                    name: name.clone(),
-                    kind: "mcp".to_string(),
-                    enabled: true,
-                });
-            }
-        }
-    }
-    cfg.extensions = extensions;
+    cfg.extensions = mcp_config
+        .as_ref()
+        .map(parse_mcp_servers)
+        .unwrap_or_default();
 
     Some(cfg)
+}
+
+/// Read only Claude Code MCP names/status from the existing JSON parser.
+/// A missing config means no definitions; malformed or unreadable data is
+/// unavailable and must not be presented as an empty catalog.
+pub(super) fn read_mcp_extensions() -> Option<Vec<ExtensionEntry>> {
+    let path = dirs::home_dir()?.join(".claude.json");
+    if !path.exists() {
+        return Some(Vec::new());
+    }
+    read_json_file(&path).map(|config| parse_mcp_servers(&config))
+}
+
+fn parse_mcp_servers(config: &serde_json::Value) -> Vec<ExtensionEntry> {
+    config
+        .get("mcpServers")
+        .and_then(|value| value.as_object())
+        .into_iter()
+        .flat_map(|servers| servers.keys())
+        .map(|name| ExtensionEntry {
+            name: name.clone(),
+            kind: "mcp".to_string(),
+            enabled: true,
+        })
+        .collect()
 }
 
 fn read_json_file(path: &std::path::Path) -> Option<serde_json::Value> {
@@ -162,16 +178,7 @@ mod tests {
         let json =
             r#"{"mcpServers": {"filesystem": {"command": "npx"}, "github": {"command": "gh"}}}"#;
         let val: serde_json::Value = serde_json::from_str(json).unwrap();
-        let mut extensions = Vec::new();
-        if let Some(servers) = val.get("mcpServers").and_then(|v| v.as_object()) {
-            for (name, _) in servers {
-                extensions.push(ExtensionEntry {
-                    name: name.clone(),
-                    kind: "mcp".to_string(),
-                    enabled: true,
-                });
-            }
-        }
+        let extensions = super::parse_mcp_servers(&val);
         assert_eq!(extensions.len(), 2);
     }
 
