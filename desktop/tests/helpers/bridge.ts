@@ -148,6 +148,15 @@ type MockTeamSeed = {
   personaIds: string[];
 };
 
+type MockCapabilitySkillSeed = {
+  skillId: string;
+  name: string;
+  description: string;
+  sourceLabels: string[];
+  runtimeIds: string[];
+  content: string;
+};
+
 export type MockEngramEntry = {
   slug: string;
   body: string;
@@ -263,6 +272,12 @@ type MockBridgeOptions = {
   conversationContextFixture?: "ready" | "multiple" | "missing";
   personas?: MockPersonaSeed[];
   teams?: MockTeamSeed[];
+  /** Runtime-owned skill catalog projected through the native capability API. */
+  capabilitySkills?: MockCapabilitySkillSeed[];
+  /** Fail skill catalog reads without affecting ordinary agent messaging. */
+  capabilitySkillsError?: string;
+  /** Hold context retrieval so a runtime/community switch can supersede it. */
+  runtimeSessionContextDelayMs?: number;
   relayAgents?: MockRelayAgentSeed[];
   agentListDelayMs?: number;
   createManagedAgentDelayMs?: number;

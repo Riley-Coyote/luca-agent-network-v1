@@ -140,6 +140,15 @@ type MockTeamSeed = {
   personaIds: string[];
 };
 
+type MockCapabilitySkillSeed = {
+  skillId: string;
+  name: string;
+  description: string;
+  sourceLabels: string[];
+  runtimeIds: string[];
+  content: string;
+};
+
 type MockSearchProfileSeed = {
   pubkey: string;
   displayName: string | null;
@@ -260,6 +269,9 @@ type E2eConfig = {
     conversationContextFixture?: "ready" | "multiple" | "missing";
     personas?: MockPersonaSeed[];
     teams?: MockTeamSeed[];
+    capabilitySkills?: MockCapabilitySkillSeed[];
+    capabilitySkillsError?: string;
+    runtimeSessionContextDelayMs?: number;
     relayAgents?: MockRelayAgentSeed[];
     agentListDelayMs?: number;
     agentMemory?: RawAgentMemoryListing | Record<string, RawAgentMemoryListing>;
@@ -1041,6 +1053,8 @@ declare global {
       /** 64-hex id required for the event to be a valid reaction target. */
       id?: string;
     }) => RelayEvent;
+    /** Add and publish one owner-authored exchange head after startup. */
+    __BUZZ_E2E_EMIT_MOCK_EXCHANGE__?: (input: MockExchangeSeed) => string;
     __BUZZ_E2E_EMIT_TAURI_EVENT__?: (event: string, payload: unknown) => void;
     __BUZZ_E2E_SET_ARTIFACT_PREVIEW_STATUS__?: (
       status: "starting" | "ready" | "unreachable" | "stopped",
@@ -3376,36 +3390,43 @@ const EXCHANGE_TTL_SECONDS = 30 * 60;
 
 let mockExchanges: MockExchange[] = [];
 
-function resetMockExchanges(config?: E2eConfig) {
+function mockExchangeFromSeed(
+  seed: MockExchangeSeed,
+  config?: E2eConfig,
+): MockExchange {
   const owner = getMockMemberPubkey(config);
   const nowSeconds = Math.floor(Date.now() / 1000);
-  mockExchanges = (config?.mock?.exchanges ?? []).map((seed) => {
-    const members = [...(seed.members ?? [])]
-      .map((member) => member.toLowerCase())
-      .sort();
-    const conversationId =
-      seed.conversationId ??
-      mockChannels.find((channel) => channel.name === seed.channelName)?.id ??
-      STARTER_GENERAL_CHANNEL_ID;
-    return {
-      record: {
-        protocol: "luca.exchange.v1",
-        exchange_id: (seed.exchangeId ?? mockEventId()).toLowerCase(),
-        owner: (seed.owner ?? owner).toLowerCase(),
-        members,
-        conversation_id: conversationId,
-        root_event_id: (seed.rootEventId ?? mockEventId()).toLowerCase(),
-        parent_exchange_id: seed.parentExchangeId ?? null,
-        depth: seed.depth ?? 1,
-        bucket: seed.bucket ?? 3,
-        state: seed.state ?? "open",
-        deadline: seed.deadline ?? nowSeconds + EXCHANGE_TTL_SECONDS,
-        opened_by: (seed.openedBy ?? members[0] ?? owner).toLowerCase(),
-      },
-      seededSpent: seed.spent ?? 0,
-      forcedPhase: seed.phase ?? null,
-    };
-  });
+  const members = [...(seed.members ?? [])]
+    .map((member) => member.toLowerCase())
+    .sort();
+  const conversationId =
+    seed.conversationId ??
+    mockChannels.find((channel) => channel.name === seed.channelName)?.id ??
+    STARTER_GENERAL_CHANNEL_ID;
+  return {
+    record: {
+      protocol: "luca.exchange.v1",
+      exchange_id: (seed.exchangeId ?? mockEventId()).toLowerCase(),
+      owner: (seed.owner ?? owner).toLowerCase(),
+      members,
+      conversation_id: conversationId,
+      root_event_id: (seed.rootEventId ?? mockEventId()).toLowerCase(),
+      parent_exchange_id: seed.parentExchangeId ?? null,
+      depth: seed.depth ?? 1,
+      bucket: seed.bucket ?? 3,
+      state: seed.state ?? "open",
+      deadline: seed.deadline ?? nowSeconds + EXCHANGE_TTL_SECONDS,
+      opened_by: (seed.openedBy ?? members[0] ?? owner).toLowerCase(),
+    },
+    seededSpent: seed.spent ?? 0,
+    forcedPhase: seed.phase ?? null,
+  };
+}
+
+function resetMockExchanges(config?: E2eConfig) {
+  mockExchanges = (config?.mock?.exchanges ?? []).map((seed) =>
+    mockExchangeFromSeed(seed, config),
+  );
 }
 
 function findMockExchange(exchangeId: unknown): MockExchange | undefined {
@@ -10245,6 +10266,12 @@ export function maybeInstallE2eTauriMocks() {
       id,
     );
   };
+  window.__BUZZ_E2E_EMIT_MOCK_EXCHANGE__ = (seed) => {
+    const exchange = mockExchangeFromSeed(seed, config);
+    mockExchanges.push(exchange);
+    emitMockGlobalEvent(mockExchangeHeadEvent(exchange));
+    return exchange.record.exchange_id;
+  };
   window.__BUZZ_E2E_PREPEND_MOCK_HISTORY__ = prependMockHistory;
   window.__BUZZ_E2E_EMIT_MOCK_TYPING__ = ({ channelName, pubkey }) => {
     const channel = mockChannels.find(
@@ -12457,6 +12484,23 @@ export function maybeInstallE2eTauriMocks() {
               "Polyphonic does not currently have a safe read-only MCP reader for this runtime.",
           },
         ];
+      case "list_capability_skills": {
+        const error = activeConfig?.mock?.capabilitySkillsError;
+        if (error) throw new Error(error);
+        return (activeConfig?.mock?.capabilitySkills ?? []).map(
+          ({ content: _content, ...skill }) => structuredClone(skill),
+        );
+      }
+      case "read_capability_skill": {
+        const error = activeConfig?.mock?.capabilitySkillsError;
+        if (error) throw new Error(error);
+        const { skillId } = payload as { skillId: string };
+        const skill = activeConfig?.mock?.capabilitySkills?.find(
+          (candidate) => candidate.skillId === skillId,
+        );
+        if (!skill) throw new Error("Skill is no longer available.");
+        return structuredClone(skill);
+      }
       case "list_connected_runtime_sessions": {
         const { runtimeId } = payload as {
           runtimeId: "claude_code" | "codex" | "hermes" | "openclaw";
@@ -12500,6 +12544,10 @@ export function maybeInstallE2eTauriMocks() {
         };
       }
       case "get_connected_runtime_session_context": {
+        const delayMs = activeConfig?.mock?.runtimeSessionContextDelayMs ?? 0;
+        if (delayMs > 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+        }
         const { input } = payload as {
           input: {
             runtimeId: "claude_code" | "codex";
