@@ -21,7 +21,7 @@ pub(crate) use discovery::{discover, discover_in_added_root, ConnectedBrainDisco
 pub(crate) use index::{build_index, read_verified_excerpt, ConnectedBrainIndexBuildV1};
 pub(crate) use session_context::{
     context_for_indexed_session, list_indexed_sessions, IndexedSessionContextV1,
-    IndexedSessionListV1, IndexedSessionSummaryV1,
+    IndexedSessionListV1,
 };
 pub(crate) use sessions::SessionReadBudget;
 pub(crate) use watcher::{
