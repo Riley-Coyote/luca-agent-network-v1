@@ -1,5 +1,6 @@
 import * as React from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useSearch } from "@tanstack/react-router";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import {
@@ -53,6 +54,13 @@ import {
  * lives in an attached popover instead of taking over the message area.
  */
 export function NewMessageScreen() {
+  const routeSearch = useSearch({ strict: false } as never) as {
+    runtime?: string;
+    skill?: string;
+  };
+  const skillPrompt = routeSearch.skill
+    ? `Use the “${routeSearch.skill}” skill for this request:\n\n`
+    : undefined;
   const queryClient = useQueryClient();
   const identityQuery = useIdentityQuery();
   const currentPubkey = identityQuery.data?.pubkey;
@@ -97,6 +105,7 @@ export function NewMessageScreen() {
   const toFieldRef = React.useRef<HTMLDivElement>(null);
   const preparedDirectMessageRef = React.useRef<Channel | null>(null);
   const startedForFirstUseRef = React.useRef(new Set<string>());
+  const appliedRuntimeFilterRef = React.useRef(false);
   const isMountedRef = React.useRef(false);
   const isPending =
     isPreparingMentionSend ||
@@ -155,6 +164,12 @@ export function NewMessageScreen() {
     highlightedRecipientIndex < 0
       ? null
       : (visibleSearchResults[highlightedRecipientIndex] ?? null);
+
+  React.useEffect(() => {
+    if (appliedRuntimeFilterRef.current || !routeSearch.runtime) return;
+    appliedRuntimeFilterRef.current = true;
+    setSearchQuery(runtimeSearchLabel(routeSearch.runtime));
+  }, [routeSearch.runtime, setSearchQuery]);
 
   React.useEffect(() => {
     if (
@@ -784,6 +799,7 @@ export function NewMessageScreen() {
         containerClassName="px-5"
         disabled={isPending || selectedUsers.length === 0}
         isSending={isPending}
+        initialContent={skillPrompt}
         onPrepareSendChannel={prepareSendChannel}
         onPreparingMentionSendChange={setIsPreparingMentionSend}
         onSend={sendFirstMessage}
@@ -795,4 +811,23 @@ export function NewMessageScreen() {
       <div aria-hidden="true" className="min-h-8 px-5 pb-1.5" />
     </div>
   );
+}
+
+function runtimeSearchLabel(runtimeId: string): string {
+  switch (runtimeId) {
+    case "claude":
+      return "Claude Code";
+    case "codex":
+      return "Codex";
+    case "kimi":
+      return "Kimi Code";
+    case "grok":
+      return "Grok";
+    case "hermes":
+      return "Hermes";
+    case "openclaw":
+      return "OpenClaw";
+    default:
+      return runtimeId;
+  }
 }

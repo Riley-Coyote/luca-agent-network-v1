@@ -824,6 +824,8 @@ pub fn run() {
             leave_channel,
             get_canvas,
             set_canvas,
+            list_capability_skills,
+            read_capability_skill,
             list_artifacts,
             get_artifact,
             list_artifact_versions,

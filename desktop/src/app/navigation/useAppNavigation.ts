@@ -257,10 +257,22 @@ export function useAppNavigation() {
   );
 
   const goNewMessage = React.useCallback(
-    (behavior?: NavigationBehavior) =>
+    (
+      behavior?: NavigationBehavior & {
+        runtime?: string;
+        skill?: string;
+      },
+    ) =>
       commitNavigation(
         {
           to: "/messages/new",
+          search:
+            behavior?.skill || behavior?.runtime
+              ? {
+                  runtime: behavior.runtime,
+                  skill: behavior.skill,
+                }
+              : undefined,
         },
         behavior,
       ),

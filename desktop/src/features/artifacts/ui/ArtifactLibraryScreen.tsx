@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import * as React from "react";
 
+import { SkillLibraryPanel } from "@/features/capabilities/ui/SkillLibraryPanel";
 import { useArtifactCanvas } from "@/features/artifacts/ArtifactCanvasProvider";
 import {
   useArtifactLibrary,
@@ -37,6 +38,9 @@ const FILTERS: readonly { label: string; value: "all" | ArtifactKind }[] = [
 ];
 
 export function ArtifactLibraryScreen() {
+  const [libraryView, setLibraryView] = React.useState<"artifacts" | "skills">(
+    "artifacts",
+  );
   const [query, setQuery] = React.useState("");
   const [filter, setFilter] = React.useState<"all" | ArtifactKind>("all");
   const [deletedState, setDeletedState] = React.useState<"active" | "deleted">(
@@ -85,169 +89,202 @@ export function ArtifactLibraryScreen() {
         <header className="artifact-library-screen__header">
           <div>
             <span className="artifact-library-screen__header-label">
-              Created work
+              On this Mac
             </span>
             <h1>Library</h1>
             <p>
-              Artifacts made with your residents, kept across conversations.
+              {libraryView === "artifacts"
+                ? "Artifacts made with your residents, kept across conversations."
+                : "Skills your runtimes already know how to use."}
             </p>
           </div>
-          <button
-            disabled={mutations.importArtifact.isPending}
-            onClick={() =>
-              mutations.importArtifact.mutate(undefined, {
-                onSuccess: (artifact) => {
-                  if (artifact) open(artifact);
-                  else setActionMessage("Import cancelled");
-                },
-                onError: () => setActionMessage("Could not import that file"),
-              })
-            }
-            type="button"
-          >
-            {mutations.importArtifact.isPending ? (
-              <LoaderCircle aria-hidden className="animate-spin" />
-            ) : (
-              <Plus aria-hidden />
-            )}
-            Import
-          </button>
-        </header>
-
-        <div className="artifact-library-screen__controls">
-          <label className="artifact-library-search">
-            <Search aria-hidden />
-            <span className="sr-only">Search Library</span>
-            <input
-              onChange={(event) => setQuery(event.currentTarget.value)}
-              placeholder="Search artifact titles"
-              value={query}
-            />
-          </label>
-          <fieldset className="artifact-library-filters">
-            <legend className="sr-only">Artifact kind</legend>
-            {FILTERS.map((item) => (
-              <button
-                aria-pressed={filter === item.value}
-                className={cn(filter === item.value && "is-active")}
-                key={item.value}
-                onClick={() => setFilter(item.value)}
-                type="button"
-              >
-                {item.label}
-              </button>
-            ))}
-          </fieldset>
-          <button
-            aria-pressed={deletedState === "deleted"}
-            className={cn(
-              "artifact-library-trash-toggle",
-              deletedState === "deleted" && "is-active",
-            )}
-            onClick={() =>
-              setDeletedState((value) =>
-                value === "active" ? "deleted" : "active",
-              )
-            }
-            type="button"
-          >
-            <Trash2 aria-hidden /> Recently deleted
-          </button>
-        </div>
-
-        <div className="artifact-library-screen__body">
-          {library.isLoading ? <LibraryLoading /> : null}
-          {library.isError ? (
-            <LibraryState
-              action="Try again"
-              icon={<FileCode2 aria-hidden />}
-              onAction={() => void library.refetch()}
-              text="Library is unavailable. Conversations and resident replies continue normally."
-              title="Couldn’t open Library"
-            />
-          ) : null}
-          {!library.isLoading && !library.isError && artifacts.length === 0 ? (
-            deferredQuery || filter !== "all" || deletedState === "deleted" ? (
-              <LibraryState
-                action="Clear filters"
-                icon={<Search aria-hidden />}
-                onAction={() => {
-                  setQuery("");
-                  setFilter("all");
-                  setDeletedState("active");
-                }}
-                text="No artifact metadata matches this view."
-                title="Nothing found"
-              />
-            ) : (
-              <LibraryState
-                action="Import a file"
-                icon={<FileCode2 aria-hidden />}
-                onAction={() => mutations.importArtifact.mutate()}
-                text="When a resident creates something durable, it will appear here."
-                title="Your created work lives here"
-              />
-            )
-          ) : null}
-          {artifacts.length > 0 ? (
-            <ul className="artifact-library-list">
-              {artifacts.map((artifact) => (
-                <ArtifactRow
-                  artifact={artifact}
-                  key={artifact.id}
-                  onOpen={() => open(artifact)}
-                  onPin={() =>
-                    mutations.pinArtifact.mutate(
-                      {
-                        artifactId: artifact.id,
-                        pinned: !artifact.pinned,
-                      },
-                      {
-                        onError: () => setActionMessage("Could not update pin"),
-                      },
-                    )
-                  }
-                  onDelete={() =>
-                    mutations.deleteArtifact.mutate(artifact.id, {
-                      onError: () =>
-                        setActionMessage(
-                          "Could not move artifact to Recently deleted",
-                        ),
-                    })
-                  }
-                  onRestore={() =>
-                    mutations.restoreArtifact.mutate(artifact.id, {
-                      onError: () =>
-                        setActionMessage("Could not restore artifact"),
-                    })
-                  }
-                  selected={presentation?.artifactId === artifact.id}
-                  sourceLabel={formatProvenanceLabel(
-                    provenanceLabels(artifact.provenance),
-                  )}
-                />
-              ))}
-            </ul>
-          ) : null}
-          {library.hasNextPage ? (
+          {libraryView === "artifacts" ? (
             <button
-              className="artifact-library-load-more"
-              disabled={library.isFetchingNextPage}
-              onClick={() => void library.fetchNextPage()}
+              disabled={mutations.importArtifact.isPending}
+              onClick={() =>
+                mutations.importArtifact.mutate(undefined, {
+                  onSuccess: (artifact) => {
+                    if (artifact) open(artifact);
+                    else setActionMessage("Import cancelled");
+                  },
+                  onError: () => setActionMessage("Could not import that file"),
+                })
+              }
               type="button"
             >
-              {library.isFetchingNextPage ? "Loading…" : "Load more"}
+              {mutations.importArtifact.isPending ? (
+                <LoaderCircle aria-hidden className="animate-spin" />
+              ) : (
+                <Plus aria-hidden />
+              )}
+              Import
             </button>
           ) : null}
-        </div>
+        </header>
 
-        <footer className="artifact-library-screen__footer">
-          <span>
-            {total} {deletedState === "deleted" ? "deleted " : ""}artifacts ·
-            stored on this Mac
-          </span>
-          <span>Bodies load only when Canvas opens</span>
-        </footer>
+        <fieldset className="artifact-library-mode-tabs">
+          <legend className="sr-only">Library view</legend>
+          <button
+            aria-pressed={libraryView === "artifacts"}
+            onClick={() => setLibraryView("artifacts")}
+            type="button"
+          >
+            Artifacts
+          </button>
+          <button
+            aria-pressed={libraryView === "skills"}
+            onClick={() => setLibraryView("skills")}
+            type="button"
+          >
+            Skills
+          </button>
+        </fieldset>
+
+        {libraryView === "skills" ? (
+          <SkillLibraryPanel />
+        ) : (
+          <>
+            <div className="artifact-library-screen__controls">
+              <label className="artifact-library-search">
+                <Search aria-hidden />
+                <span className="sr-only">Search Library</span>
+                <input
+                  onChange={(event) => setQuery(event.currentTarget.value)}
+                  placeholder="Search artifact titles"
+                  value={query}
+                />
+              </label>
+              <fieldset className="artifact-library-filters">
+                <legend className="sr-only">Artifact kind</legend>
+                {FILTERS.map((item) => (
+                  <button
+                    aria-pressed={filter === item.value}
+                    className={cn(filter === item.value && "is-active")}
+                    key={item.value}
+                    onClick={() => setFilter(item.value)}
+                    type="button"
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </fieldset>
+              <button
+                aria-pressed={deletedState === "deleted"}
+                className={cn(
+                  "artifact-library-trash-toggle",
+                  deletedState === "deleted" && "is-active",
+                )}
+                onClick={() =>
+                  setDeletedState((value) =>
+                    value === "active" ? "deleted" : "active",
+                  )
+                }
+                type="button"
+              >
+                <Trash2 aria-hidden /> Recently deleted
+              </button>
+            </div>
+
+            <div className="artifact-library-screen__body">
+              {library.isLoading ? <LibraryLoading /> : null}
+              {library.isError ? (
+                <LibraryState
+                  action="Try again"
+                  icon={<FileCode2 aria-hidden />}
+                  onAction={() => void library.refetch()}
+                  text="Library is unavailable. Conversations and resident replies continue normally."
+                  title="Couldn’t open Library"
+                />
+              ) : null}
+              {!library.isLoading &&
+              !library.isError &&
+              artifacts.length === 0 ? (
+                deferredQuery ||
+                filter !== "all" ||
+                deletedState === "deleted" ? (
+                  <LibraryState
+                    action="Clear filters"
+                    icon={<Search aria-hidden />}
+                    onAction={() => {
+                      setQuery("");
+                      setFilter("all");
+                      setDeletedState("active");
+                    }}
+                    text="No artifact metadata matches this view."
+                    title="Nothing found"
+                  />
+                ) : (
+                  <LibraryState
+                    action="Import a file"
+                    icon={<FileCode2 aria-hidden />}
+                    onAction={() => mutations.importArtifact.mutate()}
+                    text="When a resident creates something durable, it will appear here."
+                    title="Your created work lives here"
+                  />
+                )
+              ) : null}
+              {artifacts.length > 0 ? (
+                <ul className="artifact-library-list">
+                  {artifacts.map((artifact) => (
+                    <ArtifactRow
+                      artifact={artifact}
+                      key={artifact.id}
+                      onOpen={() => open(artifact)}
+                      onPin={() =>
+                        mutations.pinArtifact.mutate(
+                          {
+                            artifactId: artifact.id,
+                            pinned: !artifact.pinned,
+                          },
+                          {
+                            onError: () =>
+                              setActionMessage("Could not update pin"),
+                          },
+                        )
+                      }
+                      onDelete={() =>
+                        mutations.deleteArtifact.mutate(artifact.id, {
+                          onError: () =>
+                            setActionMessage(
+                              "Could not move artifact to Recently deleted",
+                            ),
+                        })
+                      }
+                      onRestore={() =>
+                        mutations.restoreArtifact.mutate(artifact.id, {
+                          onError: () =>
+                            setActionMessage("Could not restore artifact"),
+                        })
+                      }
+                      selected={presentation?.artifactId === artifact.id}
+                      sourceLabel={formatProvenanceLabel(
+                        provenanceLabels(artifact.provenance),
+                      )}
+                    />
+                  ))}
+                </ul>
+              ) : null}
+              {library.hasNextPage ? (
+                <button
+                  className="artifact-library-load-more"
+                  disabled={library.isFetchingNextPage}
+                  onClick={() => void library.fetchNextPage()}
+                  type="button"
+                >
+                  {library.isFetchingNextPage ? "Loading…" : "Load more"}
+                </button>
+              ) : null}
+            </div>
+
+            <footer className="artifact-library-screen__footer">
+              <span>
+                {total} {deletedState === "deleted" ? "deleted " : ""}
+                artifacts · stored on this Mac
+              </span>
+              <span>Bodies load only when Canvas opens</span>
+            </footer>
+          </>
+        )}
         {actionMessage ? (
           <div className="artifact-library-notice" role="status">
             {actionMessage}

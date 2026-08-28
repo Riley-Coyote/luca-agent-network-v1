@@ -116,6 +116,12 @@ type MessageComposerProps = {
      */
     imetaMedia?: ImetaMedia[];
   } | null;
+  /**
+   * Seeds an otherwise-empty composer once. Used by Library actions that hand
+   * a runtime-owned capability into a normal conversation. It never replaces
+   * a restored draft or text the owner has already entered.
+   */
+  initialContent?: string;
   isSending?: boolean;
   mediaController?: MediaUploadController;
   onCancelEdit?: () => void;
@@ -171,6 +177,7 @@ function MessageComposerImpl({
   autoSubmitDraftKey = null,
   onAutoSubmitComplete,
   editTarget = null,
+  initialContent,
   isSending = false,
   onCancelEdit,
   onCancelReply,
@@ -382,6 +389,24 @@ function MessageComposerImpl({
       }
     },
   });
+
+  const seededInitialContentRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const seed = initialContent?.trimEnd();
+    if (!seed || seededInitialContentRef.current === seed) return;
+    seededInitialContentRef.current = seed;
+    if (syncComposerContentFromEditor().trim().length > 0) return;
+    const nextContent = `${seed}\n\n`;
+    setComposerContent(nextContent);
+    richText.setContent(nextContent);
+    requestAnimationFrame(() => richText.focusEnd());
+  }, [
+    initialContent,
+    richText.focusEnd,
+    richText.setContent,
+    setComposerContent,
+    syncComposerContentFromEditor,
+  ]);
 
   const linkEditor = useLinkEditor(richText);
   syncContentRefFromEditorRef.current = () => {
