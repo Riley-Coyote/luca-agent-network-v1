@@ -6,6 +6,9 @@ import {
 } from "motion/react";
 import * as React from "react";
 
+import { useTheme } from "@/shared/theme/ThemeProvider";
+import { isLightTheme } from "@/shared/theme/theme-loader";
+import { useSystemColorScheme } from "@/shared/theme/useSystemColorScheme";
 import { DotSigil } from "@/shared/ui/dot-display/DotSigil";
 import {
   setPolyphonicScene,
@@ -15,6 +18,10 @@ import {
   LucaThresholdGlyph,
   POLYPHONIC_IDENTITY_SEED,
 } from "./PolyphonicThresholdField";
+import {
+  polyphonicDarkPalette,
+  polyphonicLightPalette,
+} from "./PolyphonicOnboardingPresentation";
 
 /** Canvas size of the field. Drawn once; only its placement changes. */
 export const POLYPHONIC_FIELD_SIZE = 576;
@@ -28,6 +35,8 @@ const EASE: [number, number, number, number] = [0.2, 0, 0, 1];
 export function PolyphonicOnboardingFieldLayer() {
   const scene = usePolyphonicScene();
   const reduceMotion = useReducedMotion();
+  const theme = useTheme();
+  const systemColorScheme = useSystemColorScheme();
   const [fieldScope, animateField] = useAnimate<HTMLDivElement>();
   const previousStage = React.useRef(scene.stage);
 
@@ -66,6 +75,16 @@ export function PolyphonicOnboardingFieldLayer() {
   const leaving = scene.stage === "leaving";
   const scale = anchor ? anchor.width / POLYPHONIC_FIELD_SIZE : 1;
   const atDoor = scene.stage === "door";
+  const chosenColorScheme = theme.followSystem
+    ? systemColorScheme
+    : isLightTheme(theme.selectedThemeName)
+      ? "light"
+      : "dark";
+  // The production threshold is intentionally dark. The same field in the
+  // card and handoff adopts the selected setup/app appearance.
+  const fieldIsLight =
+    !atDoor && scene.stage !== "opening" && chosenColorScheme === "light";
+  const palette = fieldIsLight ? polyphonicLightPalette : polyphonicDarkPalette;
 
   return (
     <AnimatePresence>
@@ -73,11 +92,12 @@ export function PolyphonicOnboardingFieldLayer() {
         <motion.div
           animate={{ opacity: 1 }}
           aria-hidden
-          className="pointer-events-none fixed inset-0 z-[59] bg-[#060608]"
+          className="pointer-events-none fixed inset-0 z-[59]"
           data-testid="polyphonic-onboarding-veil"
           exit={{ opacity: 0, transition: { duration: 0.7, ease: EASE } }}
           initial={{ opacity: 0 }}
           key="veil"
+          style={{ backgroundColor: palette["--prototype-canvas"] }}
           transition={{ duration: reduceMotion ? 0 : 0.28, ease: EASE }}
         />
       ) : null}
@@ -141,7 +161,7 @@ export function PolyphonicOnboardingFieldLayer() {
             <DotSigil
               bloom={0.02}
               cell={4}
-              dot="164,167,173"
+              dot={fieldIsLight ? "39,40,36" : "164,167,173"}
               scene="recall"
               seed={`${POLYPHONIC_IDENTITY_SEED}:threshold`}
               size={POLYPHONIC_FIELD_SIZE}
@@ -158,7 +178,9 @@ export function PolyphonicOnboardingFieldLayer() {
             className="relative flex h-20 w-20 items-center justify-center"
             transition={{ duration: reduceMotion ? 0 : 1.4, ease: EASE }}
           >
-            <LucaThresholdGlyph />
+            <LucaThresholdGlyph
+              ink={fieldIsLight ? "39,40,36" : "240,240,242"}
+            />
           </motion.div>
         </motion.div>
       ) : null}

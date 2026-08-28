@@ -44,7 +44,7 @@ async function begin(page: import("@playwright/test").Page) {
   ).toBeFocused();
 }
 
-test("the setup card stays dark whatever appearance is chosen for the app", async ({
+test("the setup card follows the chosen application appearance", async ({
   page,
 }) => {
   await page.emulateMedia({ colorScheme: "dark" });
@@ -63,11 +63,10 @@ test("the setup card stays dark whatever appearance is chosen for the app", asyn
   const surface = page.getByTestId("polyphonic-setup-assistant");
   await expect(onboarding).toHaveAttribute("data-system-color-scheme", "dark");
 
-  // The choice is recorded for the app; the doorway keeps one mood.
   await page.getByRole("button", { name: "Light" }).click();
   await expect(onboarding).toHaveAttribute("data-system-color-scheme", "light");
-  await expect(onboarding).toHaveCSS("background-color", "rgb(6, 6, 8)");
-  await expect(surface).toHaveCSS("background-color", "rgb(20, 20, 22)");
+  await expect(onboarding).toHaveCSS("background-color", "rgb(233, 232, 227)");
+  await expect(surface).toHaveCSS("background-color", "rgb(246, 245, 241)");
 
   await page.getByRole("button", { name: "Dark" }).click();
   await expect(onboarding).toHaveAttribute("data-system-color-scheme", "dark");
@@ -78,6 +77,8 @@ test("the setup card stays dark whatever appearance is chosen for the app", asyn
   await expect(onboarding).toHaveAttribute("data-system-color-scheme", "dark");
   await page.emulateMedia({ colorScheme: "light" });
   await expect(onboarding).toHaveAttribute("data-system-color-scheme", "light");
+  await expect(onboarding).toHaveCSS("background-color", "rgb(233, 232, 227)");
+  await expect(surface).toHaveCSS("background-color", "rgb(246, 245, 241)");
 });
 
 test("a ready runtime enters the real Luca DM with one inert canonical greeting", async ({
@@ -248,6 +249,7 @@ for (const runtime of ["Hermes", "OpenClaw"]) {
 test("large native inventories stay contained and imports do not start agents", async ({
   page,
 }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
   await installMockBridge(
     page,
     {

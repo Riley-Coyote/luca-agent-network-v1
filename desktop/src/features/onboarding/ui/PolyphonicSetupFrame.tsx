@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useRef } from "react";
 
 import { cn } from "@/shared/lib/cn";
 import { useTheme } from "@/shared/theme/ThemeProvider";
+import { isLightTheme } from "@/shared/theme/theme-loader";
 import { useSystemColorScheme } from "@/shared/theme/useSystemColorScheme";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 import { Button } from "@/shared/ui/button";
@@ -18,6 +19,7 @@ import { setPolyphonicScene } from "../polyphonicOnboardingScene";
 import type { PolyphonicOnboardingChapter } from "../polyphonicOnboardingState";
 import {
   polyphonicDarkPalette,
+  polyphonicLightPalette,
   PolyphonicPresentationHeading,
 } from "./PolyphonicOnboardingPresentation";
 
@@ -66,8 +68,9 @@ const chapterVariants = {
  * The visual is the same field that grew on the door — it is drawn by
  * PolyphonicOnboardingFieldLayer, not here; this frame only publishes where
  * its pane is. On mount the card materialises outward from the field. The
- * card is dark throughout and set in the application's own type: one mood for
- * the doorway, then the app opens in whatever appearance was chosen.
+ * The doorway remains dark. Once the card is present, it reflects the
+ * appearance the owner chooses so setup and the application open as one
+ * continuous surface.
  */
 export function PolyphonicSetupFrame({
   backDisabled = false,
@@ -99,13 +102,15 @@ export function PolyphonicSetupFrame({
   const reduceMotion = useReducedMotion();
   const theme = useTheme();
   const systemColorScheme = useSystemColorScheme();
-  // The choice is recorded and applied when the app opens; the card itself
-  // stays dark. The attribute is kept so the choice remains observable.
   const chosenColorScheme = theme.followSystem
     ? systemColorScheme
-    : theme.selectedThemeName === "buzz-dark"
-      ? "dark"
-      : "light";
+    : isLightTheme(theme.selectedThemeName)
+      ? "light"
+      : "dark";
+  const palette =
+    chosenColorScheme === "light"
+      ? polyphonicLightPalette
+      : polyphonicDarkPalette;
   const paneRef = useRef<HTMLDivElement>(null);
   usePublishFieldAnchor(paneRef, "card");
   useEffect(() => {
@@ -118,7 +123,7 @@ export function PolyphonicSetupFrame({
       data-system-color-scheme={chosenColorScheme}
       data-stage={stage}
       data-testid="polyphonic-onboarding"
-      style={{ ...polyphonicDarkPalette, fontFamily: "var(--font-ui)" }}
+      style={{ ...palette, fontFamily: "var(--font-ui)" }}
     >
       <StartupWindowDragRegion />
       <p aria-live="polite" className="sr-only" role="status">

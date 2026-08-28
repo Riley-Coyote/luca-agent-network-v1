@@ -50,11 +50,11 @@ export function PolyphonicThresholdDendrite({
 
 /** The mark at the heart of the field: the application's identity glyph,
  *  joined like every resident's, on the doorway's fixed dark surface. */
-export function LucaThresholdGlyph() {
+export function LucaThresholdGlyph({ ink = "240,240,242" }: { ink?: string }) {
   return (
     <IdentityMark
       accessibleName="Polyphonic mark"
-      ink="240,240,242"
+      ink={ink}
       seed={POLYPHONIC_IDENTITY_SEED}
       size={56}
     />
