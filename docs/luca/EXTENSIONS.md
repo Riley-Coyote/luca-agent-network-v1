@@ -54,13 +54,28 @@ enough buyers for one.
 | Kind | Carries | Format | State |
 |---|---|---|---|
 | **Capsule** | Knowledge | New; signed packet, ledger-native | Specified, unbuilt |
-| **Capability** | What an agent can do | **Reuse what exists** — skills, MCP servers | Exists in the world; Luca surfaces and installs |
+| **Capability** | What an agent can do | **Reuse what exists** — skills, MCP servers | Exists in the world; Luca makes it legible first, with installation deferred |
 | **Widget** | A piece of the app | **An artifact that stayed** | Defined here |
 
 **Do not invent a plugin API.** Agents already write code, and skills and MCP are
 already portable formats with ecosystems. Inventing a competing one buys nothing
-and costs adoption. Luca's job for capabilities is discovery, installation, and
-making them legible in one place.
+and costs adoption. Luca's job for capabilities starts with discovery and
+legibility; safe installation can follow without creating a competing format.
+
+The first legibility slice is now implemented in the unified development app:
+
+- **Skills** lists bounded, locally discovered runtime skills in Library. A user
+  can inspect the source `SKILL.md` and hand the selected skill to a compatible
+  new conversation. Polyphonic does not install, edit, or execute the skill
+  itself; the chosen runtime remains the executor.
+- **MCP** has one command center in Settings. Polyphonic-owned connections keep
+  their existing controls. Runtime-owned Codex, Claude Code, and Goose entries
+  are a sanitized, read-only projection of the runtime configuration; command
+  arguments, environment values, credentials, and local config paths never
+  enter the renderer.
+
+Hermes/OpenClaw runtime-owned MCP discovery, skill installation/editing, plugin
+management, and marketplace behavior remain deferred.
 
 ## Widgets
 
@@ -245,6 +260,9 @@ Still deferred. But nothing about it needs to be built twice.
 | Artifacts + agent-neutral tools | **Built** (`luca/v1.1`) |
 | `app` artifact + live preview | **Built**, session-scoped |
 | Native window vibrancy | **Built** (runtime toggle, unused by the UI) |
+| Installed skill browse/use | **Built**, read-only discovery and runtime handoff |
+| Runtime-owned MCP visibility | **Built** for Codex, Claude Code, and Goose; read-only |
+| Skill/MCP installation and editing | Deferred |
 | Glass shell | Prototype exists (Codex, standalone mock) |
 | Panes (split / resize / tear-off) | Not built — the foundation piece |
 | Widgets | Defined here; unbuilt |

@@ -9,8 +9,9 @@ Base: `8d8aa5bd424e6621edf918cbfdb3a9c26ebb1cb6`
 Polyphonic remains the visible and canonical conversation. A resident keeps
 the same public identity, resident-home documents, runtime, and resident-wide
 model while each conversation can carry its own device-local work context.
-Native provider session identifiers and external Codex or Claude conversations
-are not shown.
+Installed Codex and Claude Code sessions may now be browsed through a bounded,
+sanitized, read-only index. Native provider session identifiers and local paths
+are never shown.
 
 Existing conversations require no setup. Project rooms inherit their project's
 context. Loose rooms use **Add context** in the existing composer plus menu.
@@ -96,8 +97,22 @@ and references, never source bodies or paths.
 - MCPs/skills/plugins: collapsed, read-only observed status using **Available**,
   **Runtime managed**, and **Needs attention**.
 
+## Indexed native sessions
+
+An installed Codex or Claude Code runtime may contribute a read-only session
+rail. Polyphonic discovers only a bounded corpus and projects a sanitized title,
+timestamp, source runtime, and short visible excerpt. The renderer receives no
+native session ID, local path, hidden system prompt, SDK-managed context
+envelope, or raw runtime metadata.
+
+Choosing **Start with this context** stages that bounded excerpt for a new
+Polyphonic conversation. It does not reopen, resume, mutate, or synchronize the
+native session. A community or runtime change invalidates any in-flight or
+staged selection so context cannot cross owner or conversation boundaries.
+
 ## Deferred
 
-External native-session browsing/resume, terminal emulation, provider settings
-editing, MCP/skill/plugin installation or toggles, cross-device path relinking,
-and unverified third-party runtime multi-root support remain separate work.
+Native-session resume or bidirectional synchronization, terminal emulation,
+provider settings editing, MCP/skill/plugin installation or toggles,
+cross-device path relinking, and unverified third-party runtime multi-root
+support remain separate work.
