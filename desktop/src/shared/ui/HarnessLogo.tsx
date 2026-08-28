@@ -41,7 +41,7 @@ export const HARNESS_LABELS: Record<HarnessId, string> = {
   goose: "Goose",
   grok: "Grok",
   hermes: "Hermes",
-  kimi: "Kimi",
+  kimi: "Kimi Code",
   openclaw: "OpenClaw",
   other: "Runtime",
 };
@@ -79,24 +79,27 @@ export function harnessHasLogo(harness: HarnessId): boolean {
 
 type HarnessLogoProps = {
   accessibleName?: string;
+  appearance?: "monochrome" | "brand";
   className?: string;
   decorative?: boolean;
   harness: HarnessId;
   size?: number;
+  testId?: string;
 };
 
 /**
- * A harness logo drawn in the current ink. The asset is used as an alpha mask
- * filled with `currentColor`, so the same mark reads correctly on every theme
- * and sits beside identity glyphs without a second colour system. Harnesses
- * with no asset yet render a quiet monogram tile.
+ * A harness logo drawn either in the current ink or in its restrained brand
+ * treatment. Monochrome mode uses the asset as an alpha mask; brand mode keeps
+ * the source mark's colour. Harnesses without an asset render a quiet monogram.
  */
 export function HarnessLogo({
   accessibleName,
+  appearance = "monochrome",
   className,
   decorative = false,
   harness,
   size = 20,
+  testId,
 }: HarnessLogoProps) {
   const url = HARNESS_LOGOS[harness];
   const label = accessibleName ?? HARNESS_LABELS[harness];
@@ -114,6 +117,7 @@ export function HarnessLogo({
           className,
         )}
         data-harness={harness}
+        data-testid={testId}
         style={{ height: size, width: size }}
         {...accessibilityProps}
       >
@@ -134,11 +138,35 @@ export function HarnessLogo({
     );
   }
 
+  if (appearance === "brand") {
+    return (
+      <img
+        alt={decorative ? "" : label}
+        aria-hidden={decorative ? true : undefined}
+        className={cn(
+          "block shrink-0 object-contain",
+          harness === "codex" && "brightness-0 dark:invert",
+          harness === "grok" && "brightness-0 dark:brightness-100",
+          harness === "kimi" &&
+            "drop-shadow-[0_0_0.7px_rgba(0,0,0,0.9)] dark:drop-shadow-none",
+          className,
+        )}
+        data-harness={harness}
+        data-harness-appearance="brand"
+        data-testid={testId}
+        height={size}
+        src={url}
+        width={size}
+      />
+    );
+  }
+
   const mask = `url("${url}")`;
   return (
     <span
       className={cn("inline-block shrink-0 bg-current", className)}
       data-harness={harness}
+      data-testid={testId}
       style={{
         height: size,
         maskImage: mask,

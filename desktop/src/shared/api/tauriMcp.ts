@@ -10,7 +10,7 @@ export type ConfigAuthorityV1 =
 
 export type RuntimeConnectionStatusV1 = {
   statusId?: string;
-  runtimeId: "claude_code" | "codex" | "hermes" | "openclaw";
+  runtimeId: "claude_code" | "codex" | "kimi" | "grok" | "hermes" | "openclaw";
   label: string;
   executable: string | null;
   version: string | null;

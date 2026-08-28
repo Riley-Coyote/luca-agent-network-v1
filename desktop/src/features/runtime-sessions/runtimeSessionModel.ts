@@ -7,8 +7,10 @@ import type {
 const RUNTIME_ORDER: Record<RuntimeConnectionStatusV1["runtimeId"], number> = {
   codex: 0,
   claude_code: 1,
-  hermes: 2,
-  openclaw: 3,
+  kimi: 2,
+  grok: 3,
+  hermes: 4,
+  openclaw: 5,
 };
 
 export function runtimeConnectionKey(runtime: RuntimeConnectionStatusV1) {

@@ -1,18 +1,7 @@
 import { ArrowRight, LoaderCircle } from "lucide-react";
 
 import type { DirectRuntimeContactOption } from "@/features/messages/lib/directRuntimeContacts";
-import chatgptLogoUrl from "@/features/onboarding/assets/harness-logos/chatgpt.png?inline";
-import claudeLogoUrl from "@/features/onboarding/assets/harness-logos/claude.png?inline";
-import grokLogoUrl from "@/features/onboarding/assets/harness-logos/grok-mark.svg?inline";
-import kimiLogoUrl from "@/features/onboarding/assets/harness-logos/kimi-mark.svg?inline";
-import { cn } from "@/shared/lib/cn";
-
-const DIRECT_RUNTIME_MARKS = {
-  claude: claudeLogoUrl,
-  codex: chatgptLogoUrl,
-  grok: grokLogoUrl,
-  kimi: kimiLogoUrl,
-} as const;
+import { HarnessLogo } from "@/shared/ui/HarnessLogo";
 
 export function DirectRuntimeContactRow({
   contact,
@@ -44,16 +33,13 @@ export function DirectRuntimeContactRow({
       type="button"
     >
       <span className="flex size-8 shrink-0 items-center justify-center">
-        <img
-          alt=""
-          aria-hidden="true"
-          className={cn(
-            "size-6 object-contain",
-            contact.runtimeId === "codex" && "brightness-0 dark:invert",
-            contact.runtimeId === "grok" && "size-7",
-          )}
-          data-testid={`direct-runtime-contact-icon-${contact.runtimeId}`}
-          src={DIRECT_RUNTIME_MARKS[contact.runtimeId]}
+        <HarnessLogo
+          appearance="brand"
+          className={contact.runtimeId === "grok" ? "size-7" : "size-6"}
+          decorative
+          harness={contact.runtimeId}
+          size={contact.runtimeId === "grok" ? 28 : 24}
+          testId={`direct-runtime-contact-icon-${contact.runtimeId}`}
         />
       </span>
       <span className="min-w-0 flex-1">

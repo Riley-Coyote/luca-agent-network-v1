@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import { useAcpRuntimesQuery } from "@/features/agents/hooks";
 import { HarnessLogo, harnessIdFromRuntimeId } from "@/shared/ui/HarnessLogo";
 import {
   SidebarGroup,
@@ -14,10 +15,14 @@ import { cn } from "@/shared/lib/cn";
 
 import { useRuntimeConnectionsQuery } from "./hooks";
 import {
-  installedRuntimeConnections,
   runtimeConnectionKey,
   runtimeReadinessLabel,
 } from "./runtimeSessionModel";
+import {
+  buildRuntimeRailConnections,
+  filterPinnedRuntimeRailConnections,
+} from "./runtimeRailPreferences";
+import { useCurrentRuntimeRailPins } from "./useRuntimeRailPins";
 
 export function RuntimeRailSection({
   onSelect,
@@ -27,12 +32,19 @@ export function RuntimeRailSection({
   selectedRuntimeKey: string | null;
 }) {
   const query = useRuntimeConnectionsQuery();
+  const catalogQuery = useAcpRuntimesQuery();
+  const { pins } = useCurrentRuntimeRailPins();
   const runtimes = React.useMemo(
-    () => installedRuntimeConnections(query.data ?? []),
-    [query.data],
+    () =>
+      filterPinnedRuntimeRailConnections(
+        buildRuntimeRailConnections(query.data ?? [], catalogQuery.data ?? []),
+        pins,
+      ),
+    [catalogQuery.data, pins, query.data],
   );
 
-  if (!query.isLoading && runtimes.length === 0) return null;
+  const isLoading = query.isLoading || catalogQuery.isLoading;
+  if (!isLoading && runtimes.length === 0) return null;
 
   return (
     <SidebarGroup
@@ -44,7 +56,7 @@ export function RuntimeRailSection({
       </SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
-          {query.isLoading ? (
+          {isLoading ? (
             <li
               aria-live="polite"
               className="px-2 py-1.5 text-xs text-muted-foreground"
@@ -73,7 +85,7 @@ export function RuntimeRailSection({
                     type="button"
                   >
                     <HarnessLogo
-                      className="text-ink-faint"
+                      appearance="brand"
                       decorative
                       harness={harnessIdFromRuntimeId(runtime.runtimeId)}
                       size={16}

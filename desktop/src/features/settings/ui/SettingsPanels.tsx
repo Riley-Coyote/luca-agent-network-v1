@@ -34,6 +34,7 @@ import {
   setResidentMarksInMessages,
   useResidentMarksInMessages,
 } from "@/features/messages/lib/conversationAppearancePreference";
+import { RuntimeRailPinsSettings } from "@/features/runtime-sessions/RuntimeRailPinsSettings";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { Switch } from "@/shared/ui/switch";
@@ -643,6 +644,7 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
       )}
 
       <ConversationAppearanceSettings currentPubkey={currentPubkey} />
+      <RuntimeRailPinsSettings />
     </section>
   );
 }

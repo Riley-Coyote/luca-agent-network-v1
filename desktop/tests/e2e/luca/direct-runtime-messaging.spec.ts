@@ -292,3 +292,43 @@ test("routes an unavailable direct runtime to agent setup without creating it", 
     ),
   ).toHaveLength(0);
 });
+
+test("presents residents before runtimes and uses resident identity marks", async ({
+  page,
+}) => {
+  const residentPubkey = "9".repeat(64);
+  await installMockBridge(page, {
+    acpRuntimesCatalog: [readyRuntime("codex", "Codex")],
+    managedAgents: [
+      {
+        channelNames: ["general"],
+        name: "Researcher",
+        pubkey: residentPubkey,
+        status: "running",
+      },
+    ],
+    searchProfiles: [
+      {
+        displayName: "Researcher",
+        isAgent: true,
+        pubkey: residentPubkey,
+      },
+    ],
+  });
+  await page.goto("/");
+  await openNewMessage(page);
+
+  const resident = page
+    .getByTestId("new-dm-directory-results")
+    .getByRole("option", { name: /Researcher/ });
+  const runtime = page.getByTestId("direct-runtime-contact-codex");
+  await expect(resident).toBeVisible();
+  await expect(runtime).toBeVisible();
+  await expect(resident.locator(".agent-identity-specimen")).toHaveCount(1);
+
+  const [residentBox, runtimeBox] = await Promise.all([
+    resident.boundingBox(),
+    runtime.boundingBox(),
+  ]);
+  expect(residentBox?.y).toBeLessThan(runtimeBox?.y ?? 0);
+});

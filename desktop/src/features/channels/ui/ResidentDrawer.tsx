@@ -1,6 +1,7 @@
 import { ArrowUpRight } from "lucide-react";
 import * as React from "react";
 
+import { ResidentModelMenu } from "@/features/agents/ui/ResidentModelMenu";
 import { useResidentModelChoice } from "@/features/agents/ui/useResidentModelChoice";
 import {
   CANONICAL_LUCA_PERSONA_ID,
@@ -17,7 +18,7 @@ import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 /**
  * The right drawer of a direct conversation with a resident: the resident,
  * not the room. One screen, no scrolling to speak of — who they are, what
- * powers them (read-only here), the first lines of
+ * powers them, the first lines of
  * their instructions, and their last handoff. Everything deeper lives on the
  * agent's own page: Documents · Notebook · Settings.
  */
@@ -46,6 +47,7 @@ export function ResidentDrawer({
   agent,
   persona,
   onOpenAgent,
+  replying = false,
 }: {
   agent: ManagedAgent;
   persona: AgentPersona | null;
@@ -127,24 +129,16 @@ export function ResidentDrawer({
 
       <section aria-labelledby="resident-drawer-model">
         <div className="flex items-baseline justify-between gap-3">
-          <Eyebrow id="resident-drawer-model">Runtime</Eyebrow>
+          <Eyebrow id="resident-drawer-model">Model</Eyebrow>
           <OpenLink onClick={() => onOpenAgent("settings")}>Settings</OpenLink>
         </div>
-        <div
-          className="rounded-2xl bg-plate px-3 py-2.5"
-          data-testid="resident-drawer-runtime-metadata"
-        >
-          <p className="text-sm text-ink">
-            {model.runtimeLabel ?? "Runtime managed"}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {model.currentModel ?? "Default model"}
-          </p>
-          <p className="mt-2 text-2xs leading-4 text-muted-foreground">
-            Runtime and model belong to this resident across every room. Change
-            them in Settings; the resident restarts to apply the update.
-          </p>
-        </div>
+        {/* This drawer is only mounted for locally managed residents, so its
+            existing resident commands already carry management authority. */}
+        <ResidentModelMenu
+          agent={agent}
+          replying={replying}
+          testId="resident-drawer-model-trigger"
+        />
       </section>
 
       <section aria-labelledby="resident-drawer-instructions">

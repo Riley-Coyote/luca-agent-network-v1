@@ -6,6 +6,7 @@ import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import type { UserSearchResult } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { truncatePubkey } from "@/shared/lib/pubkey";
+import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 
 import { formatRecipientName } from "./useNewMessageRecipients";
 
@@ -108,12 +109,21 @@ export function NewMessageResultRow({
         tabIndex={-1}
         type="button"
       >
-        <ProfileAvatar
-          avatarUrl={user.avatarUrl}
-          className="h-8 w-8 text-xs shadow-none"
-          iconClassName="h-4 w-4"
-          label={name}
-        />
+        {user.isAgent ? (
+          <AgentIdentitySpecimen
+            accessibleName={name}
+            className="shrink-0"
+            publicKey={user.pubkey}
+            size={32}
+          />
+        ) : (
+          <ProfileAvatar
+            avatarUrl={user.avatarUrl}
+            className="h-8 w-8 text-xs shadow-none"
+            iconClassName="h-4 w-4"
+            label={name}
+          />
+        )}
         <div className="min-w-0 flex-1">
           {user.isAgent ? (
             <div className="min-w-0">

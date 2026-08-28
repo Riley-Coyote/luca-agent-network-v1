@@ -184,8 +184,23 @@ export function NewMessageScreen() {
     runtimesQuery.isFetched,
   ]);
   const showRecipientPicker = isRecipientPickerOpen && !isPending;
+  const orderedSearchResults = React.useMemo(
+    () => [
+      ...visibleSearchResults.filter((user) => user.isAgent),
+      ...visibleSearchResults.filter((user) => !user.isAgent),
+    ],
+    [visibleSearchResults],
+  );
+  const residentSearchResults = React.useMemo(
+    () => orderedSearchResults.filter((user) => user.isAgent),
+    [orderedSearchResults],
+  );
+  const peopleSearchResults = React.useMemo(
+    () => orderedSearchResults.filter((user) => !user.isAgent),
+    [orderedSearchResults],
+  );
   const highlightedRecipientIndex = React.useMemo(() => {
-    if (!showRecipientPicker || visibleSearchResults.length === 0) {
+    if (!showRecipientPicker || orderedSearchResults.length === 0) {
       return -1;
     }
 
@@ -193,14 +208,14 @@ export function NewMessageScreen() {
       return 0;
     }
 
-    return visibleSearchResults.findIndex(
+    return orderedSearchResults.findIndex(
       (user) => user.pubkey === highlightedRecipientPubkey,
     );
-  }, [highlightedRecipientPubkey, showRecipientPicker, visibleSearchResults]);
+  }, [highlightedRecipientPubkey, orderedSearchResults, showRecipientPicker]);
   const highlightedRecipient =
     highlightedRecipientIndex < 0
       ? null
-      : (visibleSearchResults[highlightedRecipientIndex] ?? null);
+      : (orderedSearchResults[highlightedRecipientIndex] ?? null);
 
   React.useEffect(() => {
     if (appliedRuntimeFilterRef.current || !routeSearch.runtime) return;
@@ -613,7 +628,7 @@ export function NewMessageScreen() {
 
                     if (
                       (event.key === "ArrowDown" || event.key === "ArrowUp") &&
-                      visibleSearchResults.length > 0
+                      orderedSearchResults.length > 0
                     ) {
                       event.preventDefault();
                       setIsRecipientPickerOpen(true);
@@ -623,17 +638,17 @@ export function NewMessageScreen() {
                           const initialIndex =
                             event.key === "ArrowDown"
                               ? 0
-                              : visibleSearchResults.length - 1;
+                              : orderedSearchResults.length - 1;
                           return (
-                            visibleSearchResults[initialIndex]?.pubkey ?? null
+                            orderedSearchResults[initialIndex]?.pubkey ?? null
                           );
                         }
 
                         const direction = event.key === "ArrowDown" ? 1 : -1;
                         const nextIndex =
-                          (current + direction + visibleSearchResults.length) %
-                          visibleSearchResults.length;
-                        return visibleSearchResults[nextIndex]?.pubkey ?? null;
+                          (current + direction + orderedSearchResults.length) %
+                          orderedSearchResults.length;
+                        return orderedSearchResults[nextIndex]?.pubkey ?? null;
                       });
                       return;
                     }
@@ -678,7 +693,7 @@ export function NewMessageScreen() {
                       getKeyboardSearchSelection({
                         currentQuery: searchQuery,
                         rankedQuery: deferredSearchQuery,
-                        results: visibleSearchResults,
+                        results: orderedSearchResults,
                       });
                     if (!keyboardSelection) {
                       return;
@@ -721,10 +736,49 @@ export function NewMessageScreen() {
                 onScroll={handleDirectoryScroll}
                 role="listbox"
               >
+                {residentSearchResults.length > 0 ? (
+                  <section
+                    aria-labelledby="new-dm-residents-label"
+                    data-testid="new-dm-directory-results"
+                  >
+                    <p
+                      className="px-4 pb-1 pt-3 font-mono text-2xs uppercase tracking-caps-wide text-muted-foreground"
+                      id="new-dm-residents-label"
+                    >
+                      Residents
+                    </p>
+                    {residentSearchResults.map((user) => {
+                      const isSelected = selectedUsers.some(
+                        (selectedUser) => selectedUser.pubkey === user.pubkey,
+                      );
+                      return (
+                        <NewMessageResultRow
+                          currentPubkey={currentPubkey}
+                          disabled={
+                            isPending ||
+                            (hasReachedRecipientLimit && !isSelected)
+                          }
+                          isAlreadySelected={isSelected}
+                          isKeyboardHighlighted={
+                            highlightedRecipient?.pubkey === user.pubkey
+                          }
+                          key={user.pubkey}
+                          onSelect={handleResultSelect}
+                          ownerProfiles={ownerProfiles}
+                          user={user}
+                        />
+                      );
+                    })}
+                  </section>
+                ) : null}
                 {directRuntimeContacts.length > 0 ? (
                   <section
                     aria-labelledby="direct-runtime-contacts-label"
-                    className="border-b border-border/60"
+                    className={
+                      residentSearchResults.length > 0
+                        ? "border-t border-border/60"
+                        : undefined
+                    }
                     data-testid="direct-runtime-contacts"
                   >
                     <p
@@ -747,9 +801,23 @@ export function NewMessageScreen() {
                     ))}
                   </section>
                 ) : null}
-                {visibleSearchResults.length > 0 ? (
-                  <div data-testid="new-dm-directory-results">
-                    {visibleSearchResults.map((user) => {
+                {peopleSearchResults.length > 0 ? (
+                  <section
+                    aria-labelledby="new-dm-people-label"
+                    className="border-t border-border/60"
+                    data-testid={
+                      residentSearchResults.length > 0
+                        ? "new-dm-people-results"
+                        : "new-dm-directory-results"
+                    }
+                  >
+                    <p
+                      className="px-4 pb-1 pt-3 font-mono text-2xs uppercase tracking-caps-wide text-muted-foreground"
+                      id="new-dm-people-label"
+                    >
+                      People
+                    </p>
+                    {peopleSearchResults.map((user) => {
                       const isSelected = selectedUsers.some(
                         (selectedUser) => selectedUser.pubkey === user.pubkey,
                       );
@@ -771,8 +839,9 @@ export function NewMessageScreen() {
                         />
                       );
                     })}
-                  </div>
-                ) : isDirectoryLoading || isSearchTransitionPending ? (
+                  </section>
+                ) : residentSearchResults.length === 0 &&
+                  (isDirectoryLoading || isSearchTransitionPending) ? (
                   <div
                     aria-busy="true"
                     aria-label="Loading people and agents"
@@ -790,7 +859,8 @@ export function NewMessageScreen() {
                       </div>
                     ))}
                   </div>
-                ) : directRuntimeContacts.length === 0 ? (
+                ) : residentSearchResults.length === 0 &&
+                  directRuntimeContacts.length === 0 ? (
                   <p
                     className="px-4 py-3 text-sm text-muted-foreground"
                     data-testid="new-dm-empty"
