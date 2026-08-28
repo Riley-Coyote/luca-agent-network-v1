@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { continuityActivityPresentation } from "./ResidentContinuityActivity.tsx";
+import {
+  continuityActivityPresentation,
+  shouldPollContinuityActivity,
+} from "./ResidentContinuityActivity.tsx";
 
 function activity(overrides = {}) {
   return {
     enabled: true,
-    availability: "ready",
     job: {
       jobId: "job-one",
       state: "completed",
@@ -45,4 +47,28 @@ test("disabled continuity produces no activity indicator", () => {
     continuityActivityPresentation(activity({ enabled: false })),
     null,
   );
+});
+
+test("continuity activity polls only while work is unresolved", () => {
+  assert.equal(
+    shouldPollContinuityActivity(
+      activity({ job: { ...activity().job, state: "pending" } }),
+    ),
+    true,
+  );
+  assert.equal(
+    shouldPollContinuityActivity(
+      activity({ job: { ...activity().job, state: "running" } }),
+    ),
+    true,
+  );
+  for (const state of ["completed", "cancelled", "failed"]) {
+    assert.equal(
+      shouldPollContinuityActivity(
+        activity({ job: { ...activity().job, state } }),
+      ),
+      false,
+    );
+  }
+  assert.equal(shouldPollContinuityActivity(activity({ job: null })), false);
 });

@@ -1059,35 +1059,49 @@ fn current_view(
 }
 
 #[tauri::command]
-pub(crate) fn sync_conversation_context(
+pub(crate) async fn sync_conversation_context(
     app: AppHandle,
     input: SyncConversationContextInputV1,
 ) -> Result<ConversationContextViewV1, String> {
-    let state = app.state::<AppState>();
-    let (owner, relay_scope) = active_scope(&state)?;
-    let catalog = catalog(&state, &owner)?;
-    let store = global_store(&app)?;
-    store
-        .lock()
-        .map_err(|_| "conversation context store is locked".to_owned())?
-        .sync(
-            Scope {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let (owner, relay_scope) = active_scope(&state)?;
+        let catalog = catalog(&state, &owner)?;
+        let store = global_store(&app)?;
+        let effective = {
+            let mut store = store
+                .lock()
+                .map_err(|_| "conversation context store is locked".to_owned())?;
+            let scope = Scope {
                 owner: owner.as_str(),
                 relay: &relay_scope,
-            },
-            &input,
+            };
+            store.sync(scope, &input, &catalog)?;
+            store.effective(scope, &input.conversation_id)?
+        };
+        Ok(build_view(
+            &state,
+            &owner,
             &catalog,
-        )?;
-    current_view(&app, &input.conversation_id)
+            &input.conversation_id,
+            effective,
+        ))
+    })
+    .await
+    .map_err(|_| "conversation context sync worker failed".to_owned())?
 }
 
 #[tauri::command]
-pub(crate) fn get_conversation_context(
+pub(crate) async fn get_conversation_context(
     app: AppHandle,
     input: ConversationContextInputV1,
 ) -> Result<ConversationContextViewV1, String> {
-    let _ = input.project_id;
-    current_view(&app, &input.conversation_id)
+    tauri::async_runtime::spawn_blocking(move || {
+        let _ = input.project_id;
+        current_view(&app, &input.conversation_id)
+    })
+    .await
+    .map_err(|_| "conversation context read worker failed".to_owned())?
 }
 
 #[tauri::command]

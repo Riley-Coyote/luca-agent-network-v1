@@ -30,12 +30,13 @@ export function ChatResidentPreview({
     React.useState<ResidentContinuityInspector | null>(null);
   const [continuityUnavailable, setContinuityUnavailable] =
     React.useState(false);
+  const managedResidentPubkey = managedAgent?.pubkey ?? null;
 
   React.useEffect(() => {
     let cancelled = false;
     setContinuity(null);
     setContinuityUnavailable(false);
-    if (!managedAgent) return;
+    if (!managedResidentPubkey) return;
     void getResidentContinuity(pubkey)
       .then((next) => {
         if (!cancelled) setContinuity(next);
@@ -46,7 +47,7 @@ export function ChatResidentPreview({
     return () => {
       cancelled = true;
     };
-  }, [managedAgent, pubkey]);
+  }, [managedResidentPubkey, pubkey]);
 
   const resident = managedAgent ? managedAgentSummary(managedAgent) : null;
   const workspace = managedAgent?.nativeRuntimeBinding?.defaultWorkspace;

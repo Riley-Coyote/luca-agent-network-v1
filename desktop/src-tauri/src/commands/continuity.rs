@@ -7,7 +7,7 @@ use luca_protocol::{
     MAX_CONTINUITY_PACKET_BYTES,
 };
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::{app_state::AppState, managed_agents::load_managed_agents};
 
@@ -41,7 +41,6 @@ pub struct ResidentHandoffInspectorV1 {
 #[serde(rename_all = "camelCase")]
 pub struct ResidentContinuityActivityV1 {
     enabled: bool,
-    availability: &'static str,
     job: Option<ResidentHandoffJobV1>,
 }
 
@@ -83,13 +82,17 @@ pub struct ResidentHandoffCorrectionInputV1 {
 
 #[tauri::command]
 /// Reads one resident's handoff only after explicit owner disclosure.
-pub fn get_resident_continuity(
+pub async fn get_resident_continuity(
     resident_pubkey: String,
     app: AppHandle,
-    state: State<'_, AppState>,
 ) -> Result<ResidentHandoffInspectorV1, String> {
-    let (owner, resident) = resident_authority(&app, &state, &resident_pubkey)?;
-    inspector_projection(&app, &state, &owner, &resident)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let (owner, resident) = resident_authority(&app, &state, &resident_pubkey)?;
+        inspector_projection(&app, &state, &owner, &resident)
+    })
+    .await
+    .map_err(|_| "resident continuity worker failed".to_owned())?
 }
 
 #[tauri::command]
@@ -100,11 +103,10 @@ pub fn get_resident_continuity_activity(
     state: State<'_, AppState>,
 ) -> Result<ResidentContinuityActivityV1, String> {
     let (owner, resident) = resident_authority(&app, &state, &resident_pubkey)?;
-    let inspector = inspector_projection(&app, &state, &owner, &resident)?;
+    let mode = continuity_jobs::continuity_mode(&app, &owner, &resident)?;
     Ok(ResidentContinuityActivityV1 {
-        enabled: inspector.enabled,
-        availability: inspector.availability,
-        job: inspector.job,
+        enabled: mode == ResidentContinuityModeV1::Enabled,
+        job: resident_handoff_job(&app, &owner, &resident)?,
     })
 }
 
@@ -931,19 +933,28 @@ fn inspector_projection(
         ResidentHandoffReadOutcomeV1::Unavailable => ("unavailable", None),
         ResidentHandoffReadOutcomeV1::Invalid => ("invalid", None),
     };
-    let job =
-        continuity_jobs::latest_job_status(app, owner, resident)?.map(|job| ResidentHandoffJobV1 {
-            job_id: job.job_id.as_str().to_owned(),
-            state: job.state,
-            last_error_code: job.last_error_code,
-            updated_at: job.updated_at,
-            can_retry: job.can_retry,
-        });
+    let job = resident_handoff_job(app, owner, resident)?;
     Ok(ResidentHandoffInspectorV1 {
         enabled: mode == ResidentContinuityModeV1::Enabled,
         availability,
         handoff,
         job,
+    })
+}
+
+fn resident_handoff_job(
+    app: &AppHandle,
+    owner: &Hex64,
+    resident: &Hex64,
+) -> Result<Option<ResidentHandoffJobV1>, String> {
+    continuity_jobs::latest_job_status(app, owner, resident).map(|job| {
+        job.map(|job| ResidentHandoffJobV1 {
+            job_id: job.job_id.as_str().to_owned(),
+            state: job.state,
+            last_error_code: job.last_error_code,
+            updated_at: job.updated_at,
+            can_retry: job.can_retry,
+        })
     })
 }
 

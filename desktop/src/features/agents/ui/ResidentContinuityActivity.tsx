@@ -34,6 +34,13 @@ export function continuityActivityPresentation(
   return { label: "Continuity ready", tone: "quiet" };
 }
 
+export function shouldPollContinuityActivity(
+  activity: ContinuityActivity | null,
+): boolean {
+  const state = activity?.job?.state;
+  return state === "pending" || state === "running";
+}
+
 function useResidentContinuityActivity(residentPubkey: string) {
   const [activity, setActivity] = React.useState<ContinuityActivity | null>(
     null,
@@ -41,19 +48,23 @@ function useResidentContinuityActivity(residentPubkey: string) {
 
   React.useEffect(() => {
     let active = true;
+    let timeout: number | undefined;
     const refresh = async () => {
       try {
         const next = await getResidentContinuityActivity(residentPubkey);
-        if (active) setActivity(next);
+        if (!active) return;
+        setActivity(next);
+        if (shouldPollContinuityActivity(next)) {
+          timeout = window.setTimeout(() => void refresh(), POLL_MS);
+        }
       } catch {
         if (active) setActivity(null);
       }
     };
     void refresh();
-    const interval = window.setInterval(() => void refresh(), POLL_MS);
     return () => {
       active = false;
-      window.clearInterval(interval);
+      if (timeout !== undefined) window.clearTimeout(timeout);
     };
   }, [residentPubkey]);
 

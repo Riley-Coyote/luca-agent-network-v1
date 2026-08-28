@@ -28,9 +28,9 @@ export type ResidentContinuityInspector = {
   job: ResidentHandoffJob | null;
 };
 
-export type ResidentContinuityActivity = Omit<
+export type ResidentContinuityActivity = Pick<
   ResidentContinuityInspector,
-  "handoff"
+  "enabled" | "job"
 >;
 
 export type ResidentHandoffCorrection = Pick<

@@ -171,8 +171,19 @@ export function ResidentHandoffPanel({
   React.useEffect(() => {
     const state = data?.job?.state;
     if (state !== "pending" && state !== "running") return;
-    const interval = window.setInterval(() => void refresh(), 2_500);
-    return () => window.clearInterval(interval);
+    let active = true;
+    let timeout: number;
+    const poll = async () => {
+      await refresh();
+      if (active) {
+        timeout = window.setTimeout(() => void poll(), 2_500);
+      }
+    };
+    timeout = window.setTimeout(() => void poll(), 2_500);
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
   }, [data?.job?.state, refresh]);
 
   React.useEffect(() => {
