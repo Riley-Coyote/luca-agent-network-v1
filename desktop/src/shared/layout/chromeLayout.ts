@@ -9,15 +9,18 @@
 // other makes the lights overflow the strip onto the content below.
 export const TOP_CHROME_HEIGHT_DEFAULT = "32px";
 export const CHANNEL_CONTENT_TOP_PADDING_DEFAULT = "5.75rem";
+export const NATIVE_TRAFFIC_LIGHT_INSET_DEFAULT = "80px";
 
 export const chromeCssVars = {
   topChromeHeight: "--buzz-top-chrome-height",
   channelContentTopPadding: "--buzz-channel-content-top-padding",
+  nativeTrafficLightInset: "--buzz-native-traffic-light-inset",
 } as const;
 
 export const chromeCssVarDefaults = {
   [chromeCssVars.topChromeHeight]: TOP_CHROME_HEIGHT_DEFAULT,
   [chromeCssVars.channelContentTopPadding]: CHANNEL_CONTENT_TOP_PADDING_DEFAULT,
+  [chromeCssVars.nativeTrafficLightInset]: NATIVE_TRAFFIC_LIGHT_INSET_DEFAULT,
 } as const;
 
 export const channelContentTopPaddingMeasurement = {

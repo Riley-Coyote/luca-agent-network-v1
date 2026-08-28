@@ -23,6 +23,20 @@ export const BLOCK_BUILD_HIDDEN_PROVIDER_IDS: ReadonlySet<string> = new Set([
   "databricks",
 ]);
 
+/**
+ * Providers retained for reading existing agent configuration, but no longer
+ * offered when a Polyphonic user makes a new provider selection.
+ *
+ * `getPersonaProviderOptions` appends a hidden saved value as `(current)`, so
+ * legacy Databricks agents remain legible and editable without advertising a
+ * provider Polyphonic no longer provisions.
+ */
+export const POLYPHONIC_HIDDEN_PROVIDER_IDS: ReadonlySet<string> = new Set([
+  "databricks",
+  "databricks_v2",
+  "databricks-v2",
+]);
+
 export const PERSONA_FIELD_SHELL_CLASS =
   "rounded-xl border border-input bg-muted/40 transition-colors duration-150 ease-out hover:border-muted-foreground/40 focus-within:border-muted-foreground/50";
 export const PERSONA_FIELD_CONTROL_CLASS =

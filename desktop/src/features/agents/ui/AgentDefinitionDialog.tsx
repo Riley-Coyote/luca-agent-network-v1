@@ -49,6 +49,7 @@ import {
   PERSONA_FIELD_CONTROL_CLASS,
   PERSONA_FIELD_SHELL_CLASS,
   PERSONA_LABEL_OPTIONAL_CLASS,
+  POLYPHONIC_HIDDEN_PROVIDER_IDS,
   shouldClearKnownModelForSelectionScope,
   sortPersonaRuntimes,
 } from "./agentConfigOptions";
@@ -527,17 +528,15 @@ export function AgentDefinitionDialog({
     modelFieldVisible,
     provider: effectiveProvider,
   });
-  // On internal Block builds, BUZZ_AGENT_PROVIDER is baked in and a boot
-  // migration rewrites any persisted Databricks v1 values → v2. Hide the v1
-  // option there so it is not offered for new selections. OSS builds have no
-  // baked provider, so v1 remains visible.
-  const hideProviderIds = React.useMemo(
-    () =>
-      (bakedEnvKeys ?? []).includes("BUZZ_AGENT_PROVIDER")
-        ? BLOCK_BUILD_HIDDEN_PROVIDER_IDS
-        : new Set<string>(),
-    [bakedEnvKeys],
-  );
+  const hideProviderIds = React.useMemo(() => {
+    const hidden = new Set(POLYPHONIC_HIDDEN_PROVIDER_IDS);
+    if ((bakedEnvKeys ?? []).includes("BUZZ_AGENT_PROVIDER")) {
+      for (const providerId of BLOCK_BUILD_HIDDEN_PROVIDER_IDS) {
+        hidden.add(providerId);
+      }
+    }
+    return hidden;
+  }, [bakedEnvKeys]);
   const providerOptions = getPersonaProviderOptions(
     trimmedProvider,
     runtime,

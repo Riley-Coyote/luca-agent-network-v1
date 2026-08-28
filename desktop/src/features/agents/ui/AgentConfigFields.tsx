@@ -31,6 +31,7 @@ import {
   CUSTOM_PROVIDER_DROPDOWN_VALUE,
   getPersonaProviderOptions,
   getProviderApiKeyEnvVar,
+  POLYPHONIC_HIDDEN_PROVIDER_IDS,
   requiredCredentialEnvKeys,
   runtimeSupportsLlmProviderSelection,
 } from "@/features/agents/ui/agentConfigOptions";
@@ -489,7 +490,7 @@ export function AgentConfigFields({
   // migration rewrites v1→v2. Hide the legacy v1 option so it is not offered
   // for new selections; OSS builds show it.
   const hideProviderIds = React.useMemo(() => {
-    const hidden = new Set<string>();
+    const hidden = new Set<string>(POLYPHONIC_HIDDEN_PROVIDER_IDS);
     // Luca does not offer the inherited relay-mesh compute product. Preserve a
     // saved value as a read-only `(current)` option, but never offer it for a
     // new or changed agent configuration.

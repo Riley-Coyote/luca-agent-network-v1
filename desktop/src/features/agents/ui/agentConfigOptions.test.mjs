@@ -5,6 +5,7 @@ import {
   getDefaultPersonaRuntime,
   getPersonaModelOptions,
   getPersonaProviderOptions,
+  POLYPHONIC_HIDDEN_PROVIDER_IDS,
   resetConfigForHarnessChange,
   runtimeSupportsLlmProviderSelection,
 } from "./agentConfigOptions.tsx";
@@ -55,6 +56,28 @@ test("getPersonaProviderOptions appends (current) tail for a saved databricks v1
   const tail = options.at(-1);
   assert.equal(tail?.id, "databricks");
   assert.equal(tail?.label, "databricks (current)");
+});
+
+test("Polyphonic hides Databricks choices while preserving a legacy saved value", () => {
+  const freshIds = getPersonaProviderOptions(
+    "",
+    "buzz-agent",
+    "",
+    POLYPHONIC_HIDDEN_PROVIDER_IDS,
+  ).map((option) => option.id);
+  assert.ok(!freshIds.includes("databricks"));
+  assert.ok(!freshIds.includes("databricks_v2"));
+
+  const legacyOptions = getPersonaProviderOptions(
+    "databricks_v2",
+    "buzz-agent",
+    "",
+    POLYPHONIC_HIDDEN_PROVIDER_IDS,
+  );
+  assert.deepEqual(legacyOptions.at(-1), {
+    id: "databricks_v2",
+    label: "databricks_v2 (current)",
+  });
 });
 
 test("getPersonaProviderOptions with no hideProviderIds omits the tail for a known provider", () => {

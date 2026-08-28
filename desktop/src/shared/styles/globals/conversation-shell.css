@@ -659,6 +659,15 @@
   padding: 20px 20px 18px;
 }
 
+/* With the global rail collapsed, the project navigator becomes the native
+   window's leading surface. Clear the same inset as AppTopChrome rather than
+   maintaining a second traffic-light measurement. */
+:root[data-luca-shell]
+  .luca-project-room-navigator[data-native-traffic-light-inset="true"]
+  .luca-project-room-navigator__header {
+  padding-left: var(--buzz-native-traffic-light-inset, 80px);
+}
+
 :root[data-luca-shell] .luca-project-icon-button {
   align-items: center;
   background: hsl(var(--mn-raised));

@@ -1,5 +1,4 @@
 import * as React from "react";
-import { isTauri } from "@tauri-apps/api/core";
 import {
   ChevronLeft,
   ChevronRight,
@@ -7,8 +6,7 @@ import {
   PanelLeftOpen,
 } from "lucide-react";
 
-import { isMacPlatform } from "@/shared/lib/platform";
-import { useIsFullscreen } from "@/shared/lib/useIsFullscreen";
+import { useNativeMacChrome } from "@/shared/lib/useNativeMacChrome";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/cn";
 import { topChromeBackdrop } from "@/shared/layout/chromeLayout";
@@ -65,7 +63,7 @@ export function AppTopChrome({
   hasCommunityRail = false,
 }: AppTopChromeProps) {
   const topChromeRef = React.useRef<HTMLDivElement>(null);
-  const isFullscreen = useIsFullscreen();
+  const macChrome = useNativeMacChrome();
   // On macOS the traffic-light buttons overlay the chrome (see
   // `trafficLightPosition` in `tauri.conf.json`), so the nav row clears their
   // x-position. When the community rail is present it already occupies the far
@@ -80,11 +78,10 @@ export function AppTopChrome({
   // native-window one: a browser on a Mac reserved 80px for lights that were
   // never drawn, leaving the controls stranded in the middle of the rail's top
   // area with an empty hole beside them. `isTauri()` is the real question.
-  const macChrome = isMacPlatform() && isTauri() && !isFullscreen;
   const navRowPaddingClass = macChrome
     ? hasCommunityRail
       ? "pl-[32px]"
-      : "pl-[80px]"
+      : "pl-(--buzz-native-traffic-light-inset,80px)"
     : "pl-3";
   // No vertical nudge: this strip is pinned to the card's header row and the
   // lights are centred on that same row (`trafficLightPosition.y` = 28 =

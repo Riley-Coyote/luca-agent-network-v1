@@ -25,6 +25,8 @@ import {
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { useIsMobile } from "@/shared/hooks/use-mobile";
 import { cn } from "@/shared/lib/cn";
+import { useNativeMacChrome } from "@/shared/lib/useNativeMacChrome";
+import { useOptionalSidebar } from "@/shared/ui/sidebar";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -311,6 +313,9 @@ export function ProjectRoomNavigator({
   const { getChannelReadAt, openCreateChannel, readStateVersion } =
     useAppShell();
   const { goBrain } = useAppNavigation();
+  const sidebar = useOptionalSidebar();
+  const isMobile = useIsMobile();
+  const nativeMacChrome = useNativeMacChrome();
   const workingByChannelId = useActiveWorkingChannelsById();
   const [query, setQuery] = React.useState("");
   const [detailsOpen, setDetailsOpen] = React.useState(false);
@@ -323,6 +328,11 @@ export function ProjectRoomNavigator({
     <aside
       aria-label={`${viewModel.label} rooms`}
       className="luca-project-room-navigator"
+      data-native-traffic-light-inset={
+        !isMobile && nativeMacChrome && sidebar?.open === false
+          ? "true"
+          : undefined
+      }
       data-testid="project-room-navigator"
     >
       <header className="luca-project-room-navigator__header">

@@ -20,6 +20,7 @@ import {
   getModelSelectValue,
   getPersonaProviderOptions,
   hasPersonaModelOption,
+  POLYPHONIC_HIDDEN_PROVIDER_IDS,
   providerDisplayLabel,
   type PersonaModelOption,
 } from "./agentConfigOptions";
@@ -572,6 +573,7 @@ export function AgentProviderField({
     trimmedProvider,
     selectedRuntime?.id ?? "",
     globalProvider,
+    POLYPHONIC_HIDDEN_PROVIDER_IDS,
   );
   const providerSelectValue = isCustomProviderEditing
     ? CUSTOM_PROVIDER_DROPDOWN_VALUE
