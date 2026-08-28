@@ -803,6 +803,9 @@ export function ChannelScreen({
     if (newlyLive) handleOpenExchange(newlyLive.record.exchangeId);
   }, [activeChannelId, handleOpenExchange, roomExchangeHistory]);
 
+  // Intentionally reset a transient drawer selection whenever the room key
+  // changes; the dependency is the trigger rather than an effect input.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on room change
   React.useEffect(() => {
     setRequestedExchangeId(null);
   }, [activeChannelId]);

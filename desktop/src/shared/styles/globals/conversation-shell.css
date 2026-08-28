@@ -125,8 +125,7 @@
    * card-family surface (data-luca-card, the conversation surface, the day
    * pill) wears this instead of a stroke. */
   --mn-card-edge:
-    var(--mn-lit-edge),
-    0 1px 2px rgb(0 0 0 / 0.14),
+    var(--mn-lit-edge), 0 1px 2px rgb(0 0 0 / 0.14),
     0 8px 24px rgb(0 0 0 / 0.12);
 
   /* The plate: the one borderless group surface. Ink at a small alpha rather
@@ -256,8 +255,7 @@
    * and ambient shadows (a white inset does the lifting here; the dark
    * formula's black shadows would read as dirt on paper). */
   --mn-card-edge:
-    inset 0 1px 0 rgb(255 255 255 / 0.7),
-    0 1px 2px hsl(var(--mn-ink) / 0.06),
+    inset 0 1px 0 rgb(255 255 255 / 0.7), 0 1px 2px hsl(var(--mn-ink) / 0.06),
     0 8px 24px hsl(var(--mn-ink) / 0.05);
   --mn-plate-strong: color-mix(
     in srgb,
@@ -939,6 +937,21 @@
   line-height: var(--type-micro-leading);
 }
 
+:root[data-luca-shell] * {
+  scrollbar-color: hsl(var(--mn-border-strong)) transparent;
+}
+
+:root[data-luca-shell] *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:root[data-luca-shell] *::-webkit-scrollbar-thumb {
+  background: hsl(var(--mn-border-strong));
+  background-clip: content-box;
+  border: 3px solid transparent;
+  border-radius: 999px;
+}
+
 /* The reply/edit recess: a well that opens BELOW the conversation surface —
  * the composer card floats above it, untouched. Depth by stepping away from
  * the crowded surface shades instead of squeezing between them (two shade
@@ -1032,21 +1045,6 @@
      instrument wells such as the Notebook Field. */
   background: hsl(var(--mn-surface));
   border-color: hsl(var(--mn-border));
-}
-
-:root[data-luca-shell] * {
-  scrollbar-color: hsl(var(--mn-border-strong)) transparent;
-}
-
-:root[data-luca-shell] *::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-:root[data-luca-shell] *::-webkit-scrollbar-thumb {
-  background: hsl(var(--mn-border-strong));
-  border: 3px solid transparent;
-  background-clip: content-box;
-  border-radius: 999px;
 }
 
 @media (max-width: 1024px) {
